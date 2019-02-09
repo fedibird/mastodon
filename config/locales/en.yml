@@ -1489,6 +1489,15 @@ en:
   themes:
     contrast: Mastodon (High contrast)
     default: Mastodon (Dark)
+    instance-ticker-type-0-contrast: Mastodon instance ticker Type-0 (High contrast)
+    instance-ticker-type-0-light: Mastodon instance ticker Type-0 (Light)
+    instance-ticker-type-0: Mastodon instance ticker Type-0 (Dark)
+    instance-ticker-type-1-contrast: Mastodon instance ticker Type-1 (High contrast / Favicon Images Style)
+    instance-ticker-type-1-light: Mastodon instance ticker Type-1 (Light / Favicon Images Style)
+    instance-ticker-type-1: Mastodon instance ticker Type-1 (Dark / Favicon Images Style)
+    instance-ticker-type-2-contrast: Mastodon instance ticker Type-2 (High contrast / Favicon Images(White Outline) Style)
+    instance-ticker-type-2-light: Mastodon instance ticker Type-2 (Light / Favicon Images(White Outline) Style)
+    instance-ticker-type-2: Mastodon instance ticker Type-2 (Dark / Favicon Images(White Outline) Style)
     mastodon-light: Mastodon (Light)
   time:
     formats:
