@@ -31,6 +31,7 @@ import {
 import Icon from 'mastodon/components/icon';
 import ComposePanel from './compose_panel';
 import NavigationPanel from './navigation_panel';
+import { show_navigation_panel } from 'mastodon/initial_state';
 
 import { supportsPassiveEvents } from 'detect-passive-events';
 import { scrollRight } from '../../../scroll';
@@ -266,6 +267,11 @@ class ColumnsArea extends ImmutablePureComponent {
         })}
 
         {React.Children.map(children, child => React.cloneElement(child, { multiColumn: true }))}
+        {show_navigation_panel && <div className='columns-area__panels__pane columns-area__panels__pane--start columns-area__panels__pane--navigational'>
+          <div className='columns-area__panels__pane__inner'>
+            <NavigationPanel />
+          </div>
+        </div>}
       </div>
     );
   }

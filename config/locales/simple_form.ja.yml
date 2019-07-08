@@ -56,6 +56,7 @@ ja:
         setting_noindex: 公開プロフィールおよび各投稿ページに影響します
         setting_show_application: 投稿するのに使用したアプリが投稿の詳細ビューに表示されるようになります
         setting_show_follow_button_on_timeline: フォロー状態を確認し易くなり、素早くフォローリストを構築できます
+        setting_show_navigation_panel: 上級者向け UI の右端にナビゲーションパネルを表示します
         setting_show_subscribe_button_on_timeline: 購読状態を確認し易くなり、素早く購読リストを構築できます
         setting_show_followed_by: フォロー状態に応じてフォローボタンの色が変わります（灰色：フォロー関係なし、黄色：フォローされている、青色：フォローしている、緑色：相互フォロー）
         setting_show_target: 投稿対象と、フォロー・購読の対象を切り替える機能を有効にします
@@ -184,6 +185,7 @@ ja:
         setting_reduce_motion: アニメーションの動きを減らす
         setting_show_application: 送信したアプリを開示する
         setting_show_follow_button_on_timeline: タイムライン上にフォローボタンを表示する
+        setting_show_navigation_panel: ナビゲーションパネルを表示する
         setting_show_subscribe_button_on_timeline: タイムライン上に購読ボタンを表示する
         setting_show_followed_by: 被フォロー状態をフォローボタンに反映する
         setting_show_target: ターゲット機能を有効にする

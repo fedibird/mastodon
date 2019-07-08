@@ -2061,6 +2061,14 @@ a.account__display-name {
   vertical-align: middle;
 }
 
+.layout-multiple-columns .columns-area__panels__pane {
+  height: auto;
+
+  &__inner {
+    position: static;
+  }
+}
+
 .columns-area {
   display: flex;
   flex: 1 1 auto;
@@ -2490,7 +2498,7 @@ a.account__display-name {
 }
 
 @media screen and (max-width: 600px + (285px * 2) + (10px * 2)) {
-  .columns-area__panels__pane--navigational {
+  .layout-single-column .columns-area__panels__pane--navigational {
     display: none;
   }
 }

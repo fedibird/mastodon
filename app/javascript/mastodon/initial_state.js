@@ -32,6 +32,7 @@ export const show_follow_button_on_timeline = getMeta('show_follow_button_on_tim
 export const show_subscribe_button_on_timeline = getMeta('show_subscribe_button_on_timeline');
 export const show_followed_by = getMeta('show_followed_by');
 export const follow_button_to_list_adder = getMeta('follow_button_to_list_adder');
+export const show_navigation_panel = getMeta('show_navigation_panel');
 export const show_target = getMeta('show_target');
 
 export default initialState;

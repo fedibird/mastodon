@@ -56,6 +56,7 @@ en:
         setting_noindex: Affects your public profile and post pages
         setting_show_application: The application you use to post will be displayed in the detailed view of your posts
         setting_show_follow_button_on_timeline: You can easily check the follow status and build a follow list quickly
+        setting_show_navigation_panel: Show the navigation panel at the right end of the advanced UI
         setting_show_subscribe_button_on_timeline: You can easily check the status of your subscriptions and quickly build a subscription list
         setting_show_followed_by: "The color of the follow button changes according to the follow status (gray: no follow relationship, yellow: followed, blue: following, green: mutual follow)"
         setting_show_target: Enable the function to switch between posting target and follow / subscribe target
@@ -184,6 +185,7 @@ en:
         setting_reduce_motion: Reduce motion in animations
         setting_show_application: Disclose application used to send posts
         setting_show_follow_button_on_timeline: Show follow button on timeline
+        setting_show_navigation_panel: Show the navigation panel
         setting_show_subscribe_button_on_timeline: Show subscribe button on timeline
         setting_show_followed_by: Reflect the following status on the follow button
         setting_show_target: Enable targeting features

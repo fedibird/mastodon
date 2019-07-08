@@ -44,6 +44,7 @@ class UserSettingsDecorator
     user.settings['show_subscribe_button_on_timeline'] = show_subscribe_button_on_timeline_preference if change?('setting_show_subscribe_button_on_timeline')
     user.settings['show_followed_by']                  = show_followed_by_preference if change?('setting_show_followed_by')
     user.settings['follow_button_to_list_adder']       = follow_button_to_list_adder_preference if change?('setting_follow_button_to_list_adder')
+    user.settings['show_navigation_panel']             = show_navigation_panel_preference if change?('setting_show_navigation_panel')
     user.settings['show_target']                       = show_target_preference if change?('setting_show_target')
   end
 
@@ -161,6 +162,10 @@ class UserSettingsDecorator
 
   def follow_button_to_list_adder_preference
     boolean_cast_setting 'setting_follow_button_to_list_adder'
+  end
+
+  def show_navigation_panel_preference
+    boolean_cast_setting 'setting_show_navigation_panel'
   end
 
   def show_target_preference

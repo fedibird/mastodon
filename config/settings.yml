@@ -43,6 +43,7 @@ defaults: &defaults
   show_subscribe_button_on_timeline: false
   show_followed_by: false
   follow_button_to_list_adder: false
+  show_navigation_panel: true
   show_target: false
   notification_emails:
     follow: false
