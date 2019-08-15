@@ -161,7 +161,6 @@ class FanOutOnWriteService < BaseService
 
     status.tags.pluck(:name).each do |hashtag|
       Redis.current.publish("timeline:hashtag:#{hashtag.mb_chars.downcase}", @payload)
-      Redis.current.publish("timeline:hashtag:#{hashtag.mb_chars.downcase}:local", @payload) if status.local?
     end
   end
 
@@ -189,7 +188,6 @@ class FanOutOnWriteService < BaseService
 
     Redis.current.publish('timeline:public', @payload)
     if status.local?
-      Redis.current.publish('timeline:public:local', @payload)
     else
       Redis.current.publish('timeline:public:remote', @payload)
       Redis.current.publish("timeline:public:domain:#{status.account.domain.mb_chars.downcase}", @payload)
@@ -201,7 +199,6 @@ class FanOutOnWriteService < BaseService
 
     Redis.current.publish('timeline:public:media', @payload)
     if status.local?
-      Redis.current.publish('timeline:public:local:media', @payload)
     else
       Redis.current.publish('timeline:public:remote:media', @payload)
       Redis.current.publish("timeline:public:domain:media:#{status.account.domain.mb_chars.downcase}", @payload)

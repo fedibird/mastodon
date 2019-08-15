@@ -5,7 +5,6 @@ import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import Toggle from 'react-toggle';
 import AsyncSelect from 'react-select/async';
 import { NonceProvider } from 'react-select';
-import SettingToggle from '../../notifications/components/setting_toggle';
 
 const messages = defineMessages({
   placeholder: { id: 'hashtag.column_settings.select.placeholder', defaultMessage: 'Enter hashtags…' },
@@ -112,10 +111,6 @@ class ColumnSettings extends React.PureComponent {
             {this.modeSelect('none')}
           </div>
         )}
-
-        <div className='column-settings__row'>
-          <SettingToggle settings={settings} settingPath={['local']} onChange={onChange} label={<FormattedMessage id='community.column_settings.local_only' defaultMessage='Local only' />} />
-        </div>
       </div>
     );
   }

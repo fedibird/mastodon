@@ -2,15 +2,15 @@ import React from 'react';
 import { connect } from 'react-redux';
 import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
-import { expandPublicTimeline, expandCommunityTimeline } from 'mastodon/actions/timelines';
+import { expandPublicTimeline } from 'mastodon/actions/timelines';
 import Masonry from 'react-masonry-infinite';
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 import DetailedStatusContainer from 'mastodon/features/status/containers/detailed_status_container';
 import { debounce } from 'lodash';
 import LoadingIndicator from 'mastodon/components/loading_indicator';
 
-const mapStateToProps = (state, { local }) => {
-  const timeline = state.getIn(['timelines', local ? 'community' : 'public'], ImmutableMap());
+const mapStateToProps = (state) => {
+  const timeline = state.getIn(['timelines', 'public'], ImmutableMap());
 
   return {
     statusIds: timeline.get('items', ImmutableList()),
@@ -27,7 +27,6 @@ class PublicTimeline extends React.PureComponent {
     statusIds: ImmutablePropTypes.list.isRequired,
     isLoading: PropTypes.bool.isRequired,
     hasMore: PropTypes.bool.isRequired,
-    local: PropTypes.bool,
   };
 
   componentDidMount () {
@@ -35,23 +34,20 @@ class PublicTimeline extends React.PureComponent {
   }
 
   componentDidUpdate (prevProps) {
-    if (prevProps.local !== this.props.local) {
-      this._connect();
-    }
   }
 
   _connect () {
-    const { dispatch, local } = this.props;
+    const { dispatch } = this.props;
 
-    dispatch(local ? expandCommunityTimeline() : expandPublicTimeline());
+    dispatch(expandPublicTimeline());
   }
 
   handleLoadMore = () => {
-    const { dispatch, statusIds, local } = this.props;
+    const { dispatch, statusIds } = this.props;
     const maxId = statusIds.last();
 
     if (maxId) {
-      dispatch(local ? expandCommunityTimeline({ maxId }) : expandPublicTimeline({ maxId }));
+      dispatch(expandPublicTimeline({ maxId }));
     }
   }
 

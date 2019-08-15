@@ -118,14 +118,6 @@ export const connectUserStream = () =>
   connectTimelineStream('home', 'user', {}, { fallback: refreshHomeTimelineAndNotification });
 
 /**
- * @param {Object} options
- * @param {boolean} [options.onlyMedia]
- * @return {function(): void}
- */
-export const connectCommunityStream = ({ onlyMedia } = {}) =>
-  connectTimelineStream(`community${onlyMedia ? ':media' : ''}`, `public:local${onlyMedia ? ':media' : ''}`);
-
-/**
  * @param {string} domain
  * @param {Object} options
  * @param {boolean} [options.onlyMedia]
@@ -146,12 +138,11 @@ export const connectPublicStream = ({ onlyMedia, onlyRemote } = {}) =>
 /**
  * @param {string} columnId
  * @param {string} tagName
- * @param {boolean} onlyLocal
  * @param {function(object): boolean} accept
  * @return {function(): void}
  */
-export const connectHashtagStream = (columnId, tagName, onlyLocal, accept) =>
-  connectTimelineStream(`hashtag:${columnId}${onlyLocal ? ':local' : ''}`, `hashtag${onlyLocal ? ':local' : ''}`, { tag: tagName }, { accept });
+export const connectHashtagStream = (columnId, tagName, accept) =>
+  connectTimelineStream(`hashtag:${columnId}`, `hashtag`, { tag: tagName }, { accept });
 
 /**
  * @return {function(): void}

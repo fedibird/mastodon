@@ -1537,8 +1537,8 @@ en:
       review_preferences_action: Change preferences
       review_preferences_step: Make sure to set your preferences, such as which emails you'd like to receive, or what privacy level you’d like your posts to default to. If you don’t have motion sickness, you could choose to enable GIF autoplay.
       subject: Welcome to Mastodon
-      tip_federated_timeline: The federated timeline is a firehose view of the Mastodon network. But it only includes people your neighbours are subscribed to, so it's not complete.
-      tip_following: You follow your server's admin(s) by default. To find more interesting people, check the local and federated timelines.
+      tip_federated_timeline: The federated timeline is a firehose view of the Mastodon network. But it only includes people your neighbors are subscribed to or posts sent via relay, so it's not complete.
+      tip_following: "Initially, the administrator of the server is following the specified account. To find more interesting people, check the #introductions tag and federated timelines."
       tip_local_timeline: The local timeline is a firehose view of people on %{instance}. These are your immediate neighbours!
       tip_mobile_webapp: If your mobile browser offers you to add Mastodon to your homescreen, you can receive push notifications. It acts like a native app in many ways!
       tips: Tips

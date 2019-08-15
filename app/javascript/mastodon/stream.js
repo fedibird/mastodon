@@ -99,7 +99,7 @@ const sharedCallbacks = {
 
       const streamIdentifier = stream[1];
 
-      if (['hashtag', 'hashtag:local'].includes(channelName)) {
+      if (channelName === 'hashtag') {
         return channelName === streamChannelName && params.tag === streamIdentifier;
       } else if (channelName === 'list') {
         return channelName === streamChannelName && params.list === streamIdentifier;

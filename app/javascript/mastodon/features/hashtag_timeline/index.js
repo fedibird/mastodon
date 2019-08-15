@@ -12,7 +12,7 @@ import { connectHashtagStream } from '../../actions/streaming';
 import { isEqual } from 'lodash';
 
 const mapStateToProps = (state, props) => ({
-  hasUnread: state.getIn(['timelines', `hashtag:${props.params.id}${props.params.local ? ':local' : ''}`, 'unread']) > 0,
+  hasUnread: state.getIn(['timelines', `hashtag:${props.params.id}`, 'unread']) > 0,
 });
 
 export default @connect(mapStateToProps)
@@ -75,13 +75,13 @@ class HashtagTimeline extends React.PureComponent {
     this.column.scrollTop();
   }
 
-  _subscribe (dispatch, id, tags = {}, local) {
+  _subscribe (dispatch, id, tags = {}) {
     let any  = (tags.any || []).map(tag => tag.value);
     let all  = (tags.all || []).map(tag => tag.value);
     let none = (tags.none || []).map(tag => tag.value);
 
     [id, ...any].map(tag => {
-      this.disconnects.push(dispatch(connectHashtagStream(id, tag, local, status => {
+      this.disconnects.push(dispatch(connectHashtagStream(id, tag, status => {
         let tags = status.tags.map(tag => tag.name);
 
         return all.filter(tag => tags.includes(tag)).length === all.length &&
@@ -97,21 +97,21 @@ class HashtagTimeline extends React.PureComponent {
 
   componentDidMount () {
     const { dispatch } = this.props;
-    const { id, tags, local } = this.props.params;
+    const { id, tags } = this.props.params;
 
-    this._subscribe(dispatch, id, tags, local);
-    dispatch(expandHashtagTimeline(id, { tags, local }));
+    this._subscribe(dispatch, id, tags);
+    dispatch(expandHashtagTimeline(id, { tags }));
   }
 
   componentWillReceiveProps (nextProps) {
     const { dispatch, params } = this.props;
-    const { id, tags, local } = nextProps.params;
+    const { id, tags } = nextProps.params;
 
-    if (id !== params.id || !isEqual(tags, params.tags) || !isEqual(local, params.local)) {
+    if (id !== params.id || !isEqual(tags, params.tags)) {
       this._unsubscribe();
-      this._subscribe(dispatch, id, tags, local);
-      dispatch(clearTimeline(`hashtag:${id}${local ? ':local' : ''}`));
-      dispatch(expandHashtagTimeline(id, { tags, local }));
+      this._subscribe(dispatch, id, tags);
+      dispatch(clearTimeline(`hashtag:${id}`));
+      dispatch(expandHashtagTimeline(id, { tags }));
     }
   }
 
@@ -124,13 +124,13 @@ class HashtagTimeline extends React.PureComponent {
   }
 
   handleLoadMore = maxId => {
-    const { id, tags, local } = this.props.params;
-    this.props.dispatch(expandHashtagTimeline(id, { maxId, tags, local }));
+    const { id, tags } = this.props.params;
+    this.props.dispatch(expandHashtagTimeline(id, { maxId, tags }));
   }
 
   render () {
     const { hasUnread, columnId, multiColumn } = this.props;
-    const { id, local } = this.props.params;
+    const { id } = this.props.params;
     const pinned = !!columnId;
 
     return (
@@ -152,7 +152,7 @@ class HashtagTimeline extends React.PureComponent {
         <StatusListContainer
           trackScroll={!pinned}
           scrollKey={`hashtag_timeline-${columnId}`}
-          timelineId={`hashtag:${id}${local ? ':local' : ''}`}
+          timelineId={`hashtag:${id}`}
           onLoadMore={this.handleLoadMore}
           emptyMessage={<FormattedMessage id='empty_column.hashtag' defaultMessage='There is nothing in this hashtag yet.' />}
           bindToDocument={!multiColumn}

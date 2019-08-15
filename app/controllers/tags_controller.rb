@@ -43,7 +43,7 @@ class TagsController < ApplicationController
   end
 
   def set_local
-    @local = truthy_param?(:local)
+    @local = false
   end
 
   def set_statuses

@@ -81,7 +81,6 @@ class BatchedRemoveStatusService < BaseService
     redis.pipelined do
       redis.publish('timeline:public', payload)
       if status.local?
-        redis.publish('timeline:public:local', payload)
       else
         redis.publish('timeline:public:remote', payload)
         redis.publish("timeline:public:domain:#{domain}", payload)
@@ -90,7 +89,6 @@ class BatchedRemoveStatusService < BaseService
       if status.media_attachments.any?
         redis.publish('timeline:public:media', payload)
         if status.local?
-          redis.publish('timeline:public:local:media', payload)
         else
           redis.publish('timeline:public:remote:media', payload)
           redis.publish("timeline:public:domain:media:#{domain}", payload)
@@ -99,7 +97,6 @@ class BatchedRemoveStatusService < BaseService
 
       status.tags.map { |tag| tag.name.mb_chars.downcase }.each do |hashtag|
         redis.publish("timeline:hashtag:#{hashtag}", payload)
-        redis.publish("timeline:hashtag:#{hashtag}:local", payload) if status.local?
       end
     end
   end

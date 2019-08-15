@@ -46,11 +46,6 @@ const FrameFederation = ({ onNext }) => (
       </div>
 
       <div>
-        <h3><FormattedMessage id='introduction.federation.local.headline' defaultMessage='Local' /></h3>
-        <p><FormattedMessage id='introduction.federation.local.text' defaultMessage='Public posts from people on the same server as you will appear in the local timeline.' /></p>
-      </div>
-
-      <div>
         <h3><FormattedMessage id='introduction.federation.federated.headline' defaultMessage='Federated' /></h3>
         <p><FormattedMessage id='introduction.federation.federated.text' defaultMessage='Public posts from other servers of the fediverse will appear in the federated timeline.' /></p>
       </div>
