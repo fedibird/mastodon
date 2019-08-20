@@ -37,6 +37,8 @@ const messages = defineMessages({
   menu: { id: 'getting_started.heading', defaultMessage: 'Getting started' },
   group_directory: { id: 'getting_started.group_directory', defaultMessage: 'Group directory' },
   profile_directory: { id: 'getting_started.directory', defaultMessage: 'Profile directory' },
+  information_acct: { id: 'navigation_bar.information_acct', defaultMessage: 'Fedibird info' },
+  hashtag_fedibird: { id: 'navigation_bar.hashtag_fedibird', defaultMessage: 'fedibird' },
 });
 
 const mapStateToProps = state => ({
@@ -119,7 +121,14 @@ class GettingStarted extends ImmutablePureComponent {
       }
 
       navItems.push(
-        <ColumnSubheading key='header-personal' text={intl.formatMessage(messages.personal)} />,
+        <ColumnLink key='information_acct' icon='info-circle' text={intl.formatMessage(messages.information_acct)} to='/accounts/2' />,
+        <ColumnLink key='hashtag_fedibird' icon='hashtag' text={intl.formatMessage(messages.hashtag_fedibird)} to='/timelines/tag/fedibird' />,
+      );
+
+      height += 34 + 48*2;
+
+      navItems.push(
+        <ColumnSubheading key='header-personal' text={intl.formatMessage(messages.personal)} />
       );
 
       height += 34;
@@ -137,6 +146,13 @@ class GettingStarted extends ImmutablePureComponent {
 
         height += 48;
       }
+
+      navItems.push(
+        <ColumnLink key='information_acct' icon='info-circle' text={intl.formatMessage(messages.information_acct)} to='/accounts/2' />,
+        <ColumnLink key='hashtag_fedibird' icon='hashtag' text={intl.formatMessage(messages.hashtag_fedibird)} to='/timelines/tag/fedibird' />,
+      );
+
+      height += 48*2;
     }
 
     if (multiColumn && !columns.find(item => item.get('id') === 'HOME')) {
