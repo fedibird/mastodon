@@ -21,6 +21,7 @@ class Tag < ApplicationRecord
   has_and_belongs_to_many :statuses
   has_and_belongs_to_many :accounts
 
+  has_many :favourite_tags, dependent: :destroy, inverse_of: :tag
   has_many :featured_tags, dependent: :destroy, inverse_of: :tag
 
   HASHTAG_SEPARATORS = "_\u00B7\u200c"

@@ -911,6 +911,11 @@ en:
     lists: Lists
     mutes: You mute
     storage: Media storage
+  favourite_tags:
+    add_new: Add new
+    errors:
+      limit: You have already favourite the maximum amount of hashtags
+    hint_html: "<strong>What are favourite hashtags?</strong> They are used only for you, and are tools to help you browse using hashtags. You can quickly switch between timelines."
   featured_tags:
     add_new: Add new
     errors:
@@ -1245,6 +1250,7 @@ en:
     development: Development
     edit_profile: Edit profile
     export: Data export
+    favourite_tags: Favourite hashtags
     featured_tags: Featured hashtags
     identity_proofs: Identity proofs
     import: Import

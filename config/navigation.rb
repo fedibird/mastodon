@@ -13,6 +13,7 @@ SimpleNavigation::Configuration.run do |navigation|
     n.item :preferences, safe_join([fa_icon('cog fw'), t('settings.preferences')]), settings_preferences_url, if: -> { current_user.functional? } do |s|
       s.item :appearance, safe_join([fa_icon('desktop fw'), t('settings.appearance')]), settings_preferences_appearance_url
       s.item :notifications, safe_join([fa_icon('bell fw'), t('settings.notifications')]), settings_preferences_notifications_url
+      s.item :favourite_tags, safe_join([fa_icon('hashtag fw'), t('settings.favourite_tags')]), settings_favourite_tags_url
       s.item :other, safe_join([fa_icon('cog fw'), t('preferences.other')]), settings_preferences_other_url
     end
 

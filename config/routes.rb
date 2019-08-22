@@ -164,6 +164,7 @@ Rails.application.routes.draw do
     resources :aliases, only: [:index, :create, :destroy]
     resources :sessions, only: [:destroy]
     resources :featured_tags, only: [:index, :create, :destroy]
+    resources :favourite_tags, only: [:index, :create, :destroy]
     resources :login_activities, only: [:index]
   end
 

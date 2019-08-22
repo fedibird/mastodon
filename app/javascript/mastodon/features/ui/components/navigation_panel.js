@@ -6,6 +6,7 @@ import { profile_directory, showTrends } from 'mastodon/initial_state';
 import NotificationsCounterIcon from './notifications_counter_icon';
 import FollowRequestsNavLink from './follow_requests_nav_link';
 import ListPanel from './list_panel';
+import FavouriteTagPanel from './favourite_tag_panel';
 import TrendsContainer from 'mastodon/features/getting_started/containers/trends_container';
 
 const NavigationPanel = () => (
@@ -22,6 +23,7 @@ const NavigationPanel = () => (
     {profile_directory && <NavLink className='column-link column-link--transparent' to='/directory'><Icon className='column-link__icon' id='address-book-o' fixedWidth /><FormattedMessage id='getting_started.directory' defaultMessage='Profile directory' /></NavLink>}
 
     <ListPanel />
+    <FavouriteTagPanel />
 
     <hr />
 

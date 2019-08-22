@@ -380,6 +380,15 @@ ActiveRecord::Schema.define(version: 2021_06_30_000137) do
     t.index ["from_account_id"], name: "index_encrypted_messages_on_from_account_id"
   end
 
+  create_table "favourite_tags", force: :cascade do |t|
+    t.bigint "account_id"
+    t.bigint "tag_id"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["account_id"], name: "index_favourite_tags_on_account_id"
+    t.index ["tag_id"], name: "index_favourite_tags_on_tag_id"
+  end
+
   create_table "favourites", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
@@ -1009,6 +1018,8 @@ ActiveRecord::Schema.define(version: 2021_06_30_000137) do
   add_foreign_key "email_domain_blocks", "email_domain_blocks", column: "parent_id", on_delete: :cascade
   add_foreign_key "encrypted_messages", "accounts", column: "from_account_id", on_delete: :cascade
   add_foreign_key "encrypted_messages", "devices", on_delete: :cascade
+  add_foreign_key "favourite_tags", "accounts", on_delete: :cascade
+  add_foreign_key "favourite_tags", "tags", on_delete: :cascade
   add_foreign_key "favourites", "accounts", name: "fk_5eb6c2b873", on_delete: :cascade
   add_foreign_key "favourites", "statuses", name: "fk_b0e856845e", on_delete: :cascade
   add_foreign_key "featured_tags", "accounts", on_delete: :cascade

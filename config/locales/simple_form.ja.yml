@@ -178,6 +178,8 @@ ja:
         whole_word: 単語全体にマッチ
       email_domain_block:
         with_dns_records: ドメインのMXレコードとIPアドレスを含む
+      favourite_tag:
+        name: ハッシュタグ
       featured_tag:
         name: ハッシュタグ
       interactions:
