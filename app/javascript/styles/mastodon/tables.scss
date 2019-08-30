@@ -49,6 +49,11 @@
     }
   }
 
+  th.nowrap,
+  td.nowrap {
+    white-space: nowrap;
+  }
+
   &.inline-table {
     & > tbody > tr:nth-child(odd) {
       & > td,

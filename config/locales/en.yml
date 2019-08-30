@@ -87,6 +87,9 @@ en:
       moderator: Mod
     unavailable: Profile unavailable
     unfollow: Unfollow
+  account_subscribes:
+    add_new: Add
+    hint_html: "<strong>What are account subscription?</strong> Insert public posts from the specified account into the home timeline. Posts received by the server (federated timeline) are targets. You cannot subscribe if you are following."
   admin:
     account_actions:
       action: Perform action
@@ -876,6 +879,33 @@ en:
     directory: Profile directory
     explanation: Discover users based on their interests
     explore_mastodon: Explore %{title}
+  domain_blocks:
+    blocked_domains: List of limited and blocked domains
+    description: This is the list of servers that %{instance} limits or reject federation with.
+    domain: Domain
+    media_block: Media block
+    no_domain_blocks: "(No domain blocks)"
+    severity: Severity
+    severity_legend:
+      media_block: Media files coming from the server are neither fetched, stored, or displayed to the user.
+      silence: Accounts from silenced servers can be found, followed and interacted with, but their toots will not appear in the public timelines, and notifications from them will not reach local users who are not following them.
+      suspension: No content from suspended servers is stored or displayed, nor is any content sent to them. Interactions from suspended servers are ignored.
+      suspension_disclaimer: Suspended servers may occasionally retrieve public content from this server.
+      title: Severities
+    show_rationale: Show rationale
+    silence: Silence
+    suspension: Suspension
+    title: "%{instance} List of blocked instances"
+  domain_subscribes:
+    add_new: Add
+    edit:
+      title: Edit
+    exclude_reblog: Exclude
+    hint_html: "<strong>What are domain subscription?</strong> Insert public posts from the specified domain into the home or list timeline. Posts received by the server (federated timeline) are targets."
+    home: Home
+    include_reblog: Include
+    new:
+      title: Add new domain subscription
   domain_validator:
     invalid_domain: is not a valid domain name
   errors:
@@ -939,6 +969,9 @@ en:
       title: Filters
     new:
       title: Add new filter
+  follow_tags:
+    add_new: Add new
+    hint_html: "<strong>What are follow hashtags?</strong> They are a collection of hashtags you follow. From the posts with hashtags received by the server, the one with the hashtag specified here is inserted into the home timeline."
   footer:
     developers: Developers
     more: More…
@@ -1017,7 +1050,32 @@ en:
       expires_at: Expires
       uses: Uses
     title: Invite people
+  keyword_subscribes:
+    add_new: Add
+    disabled: Disabled
+    edit:
+      title: Edit
+    enabled: Enabled
+    errors:
+      duplicate: The same content has already been registered
+      limit: You have reached the maximum number of "Keyword subscribes" that can be registered
+      regexp: "Regular expression error: %{message}"
+    hint_html: "<strong>What is a keyword subscribes?</strong> Inserts a public post that matches one of the specified words or a regular expression into the home timeline. Posts received by the server (federated timeline) are targets."
+    home: Home
+    ignorecase:
+      enabled: Ignore
+      disabled: Sensitive
+    ignore_block: Ignore
+    index:
+      delete: Delete
+      title: Keyword subscribe
+    new:
+      title: Add new keyword subscribe
+    regexp:
+      enabled: Regex
+      disabled: Keyword
   lists:
+    add_new: Add new list
     errors:
       limit: You have reached the maximum amount of lists
   login_activities:
@@ -1242,19 +1300,24 @@ en:
   settings:
     account: Account
     account_settings: Account settings
+    account_subscribes: Account subscribes
     aliases: Account aliases
     appearance: Appearance
     authorized_apps: Authorized apps
     back: Back to Mastodon
     delete: Account deletion
     development: Development
+    domain_subscribes: Domain subscribes
     edit_profile: Edit profile
     export: Data export
     favourite_tags: Favourite hashtags
     featured_tags: Featured hashtags
+    follow_and_subscriptions: Follows and subscriptions
+    follow_tags: Following hashtags
     identity_proofs: Identity proofs
     import: Import
     import_and_export: Import and export
+    keyword_subscribes: Keyword subscribes
     migrate: Account migration
     notifications: Notifications
     preferences: Preferences

@@ -1,0 +1,25 @@
+- content_for :page_title do
+  = t('settings.account_subscribes')
+
+%p= t('account_subscribes.hint_html')
+
+%hr.spacer/
+
+= simple_form_for :account_input, url: settings_account_subscribes_path do |f|
+
+  .fields-group
+    = f.input :acct, wrapper: :with_block_label, hint: false
+
+  .actions
+    = f.button :button, t('account_subscribes.add_new'), type: :submit
+
+%hr.spacer/
+
+- @account_subscribings.each do |account_subscribing|
+  .directory__tag
+    %div
+      %h4
+        = fa_icon 'user'
+        = account_subscribing[:acct]
+        %small
+          = table_link_to 'trash', t('filters.index.delete'), settings_account_subscribe_path(account_subscribing), method: :delete, data: { confirm: t('admin.accounts.are_you_sure') }

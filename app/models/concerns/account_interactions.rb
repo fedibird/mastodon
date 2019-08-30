@@ -95,6 +95,13 @@ module AccountInteractions
     has_many :conversation_mutes, dependent: :destroy
     has_many :domain_blocks, class_name: 'AccountDomainBlock', dependent: :destroy
     has_many :announcement_mutes, dependent: :destroy
+
+    # Subscribers
+    has_many :active_subscribes,  class_name: 'AccountSubscribe', foreign_key: 'account_id',        dependent: :destroy
+    has_many :passive_subscribes, class_name: 'AccountSubscribe', foreign_key: 'target_account_id', dependent: :destroy
+
+    has_many :subscribing, through: :active_subscribes,  source: :target_account
+    has_many :subscribers, through: :passive_subscribes, source: :account
   end
 
   def follow!(other_account, reblogs: nil, notify: nil, uri: nil, rate_limit: false, bypass_limit: false)
@@ -180,6 +187,10 @@ module AccountInteractions
     block&.destroy
   end
 
+  def subscribe!(other_account)
+    active_subscribes.find_or_create_by!(target_account: other_account)
+  end
+
   def following?(other_account)
     active_relationships.where(target_account: other_account).exists?
   end
@@ -240,8 +251,18 @@ module AccountInteractions
     account_pins.where(target_account: account).exists?
   end
 
+  def subscribing?(other_account)
+    active_subscribes.where(target_account: other_account).exists?
+  end
+
   def followers_for_local_distribution
     followers.local
+             .joins(:user)
+             .where('users.current_sign_in_at > ?', User::ACTIVE_DURATION.ago)
+  end
+
+  def subscribers_for_local_distribution
+    subscribers.local
              .joins(:user)
              .where('users.current_sign_in_at > ?', User::ACTIVE_DURATION.ago)
   end

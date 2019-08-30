@@ -81,6 +81,9 @@ ja:
       moderator: Mod
     unavailable: プロフィールは利用できません
     unfollow: フォロー解除
+  account_subscribes:
+    add_new: 追加
+    hint_html: "<strong>アカウントの購読とは何ですか？</strong> 指定したアカウントの公開投稿をホームタイムラインに挿入します。サーバが受け取っている投稿（連合タイムライン）が対象です。フォローしている場合は購読できません。"
   admin:
     account_actions:
       action: アクションを実行
@@ -854,6 +857,16 @@ ja:
     directory: ディレクトリ
     explanation: 関心を軸にユーザーを発見しよう
     explore_mastodon: "%{title}を探索"
+  domain_subscribes:
+    add_new: 追加
+    edit:
+      title: 編集
+    exclude_reblog: 含めない
+    hint_html: "<strong>ドメインの購読とは何ですか？</strong> 指定したドメインの公開投稿をホームタイムラインまたはリストに挿入します。サーバが受け取っている投稿（連合タイムライン）が対象です。"
+    home: ホーム
+    include_reblog: 含める
+    new:
+      title: 新規ドメイン購読を追加
   domain_validator:
     invalid_domain: は無効なドメイン名です
   errors:
@@ -899,6 +912,9 @@ ja:
     errors:
       limit: 注目のハッシュタグの上限に達しました
     hint_html: "<strong>注目のハッシュタグとは？</strong>プロフィールページに目立つ形で表示され、そのハッシュタグのついたあなたの公開投稿だけを抽出して閲覧できるようにします。クリエイティブな仕事や長期的なプロジェクトを追うのに優れた機能です。"
+  follow_tags:
+    add_new: 追加
+    hint_html: "<strong>ハッシュタグのフォローとは何ですか？</strong> それらはあなたがフォローするハッシュタグのコレクションです。サーバが受け取ったハッシュタグ付きの投稿の中から、ここで指定したハッシュタグのついた投稿をホームタイムラインに挿入します。"
   filters:
     contexts:
       account: プロフィール
@@ -993,7 +1009,32 @@ ja:
       expires_at: 有効期限
       uses: 使用
     title: 新規ユーザーの招待
+  keyword_subscribes:
+    add_new: 追加
+    disabled: 無効
+    edit:
+      title: 編集
+    enabled: 有効
+    errors:
+      duplicate: 既に同じ内容が登録されています
+      limit: キーワード購読の登録可能数の上限に達しました
+      regexp: "正規表現に誤りがあります: %{message}"
+    hint_html: "<strong>キーワードの購読とは何ですか？</strong> 指定した単語のいずれか、または正規表現に一致する公開投稿をホームタイムラインに挿入します。サーバが受け取っている投稿（連合タイムライン）が対象です。"
+    home: ホーム
+    ignorecase:
+      enabled: 無視
+      disabled: 区別
+    ignore_block: 無視
+    index:
+      delete: 削除
+      title: キーワードの購読
+    new:
+      title: 新規キーワード購読を追加
+    regexp:
+      enabled: 正規表現
+      disabled: キーワード
   lists:
+    add_new: 新しいリストを追加
     errors:
       limit: リストの上限に達しました
   media_attachments:
@@ -1203,19 +1244,24 @@ ja:
   settings:
     account: アカウント
     account_settings: アカウント設定
+    account_subscribes: アカウントの購読
     aliases: アカウントエイリアス
     appearance: 外観
     authorized_apps: 認証済みアプリ
     back: Mastodon に戻る
     delete: アカウントの削除
     development: 開発
+    domain_subscribes: ドメインの購読
     edit_profile: プロフィールを編集
     export: データのエクスポート
     favourite_tags: お気に入りハッシュタグ
     featured_tags: 注目のハッシュタグ
+    follow_and_subscriptions: フォロー・購読
+    follow_tags: ハッシュタグのフォロー
     identity_proofs: Identity proofs
     import: データのインポート
     import_and_export: インポート・エクスポート
+    keyword_subscribes: キーワードの購読
     migrate: アカウントの引っ越し
     notifications: 通知
     preferences: ユーザー設定

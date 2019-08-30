@@ -1,0 +1,66 @@
+- content_for :page_title do
+  = t('keyword_subscribes.index.title')
+
+%p= t('keyword_subscribes.hint_html')
+
+%hr.spacer/
+
+= render 'shared/error_messages', object: @keyword_subscribe
+
+.table-wrapper
+  %table.table
+    %thead
+      %tr
+        %th.nowrap= t('simple_form.labels.keyword_subscribes.name')
+        %th.nowrap= t('simple_form.labels.keyword_subscribes.regexp')
+        %th= t('simple_form.labels.keyword_subscribes.keyword')
+        %th.nowrap= t('simple_form.labels.keyword_subscribes.ignorecase')
+        %th.nowrap= t('simple_form.labels.keyword_subscribes.ignore_block')
+        %th.nowrap= t('simple_form.labels.keyword_subscribes.timeline')
+        %th.nowrap= t('simple_form.labels.keyword_subscribes.disabled')
+        %th.nowrap
+    %tbody
+      - @keyword_subscribes.each do |keyword_subscribe|
+        %tr
+          %td.nowrap= keyword_subscribe.name
+          %td.nowrap
+            - if keyword_subscribe.regexp
+              = t 'keyword_subscribes.regexp.enabled'
+            - else
+              = t 'keyword_subscribes.regexp.disabled'
+          %td
+            .include-keyword
+              = keyword_subscribe.keyword
+            .exclude-keyword
+              = keyword_subscribe.exclude_keyword
+          %td.nowrap
+            - if keyword_subscribe.ignorecase
+              = t 'keyword_subscribes.ignorecase.enabled'
+            - else
+              = t 'keyword_subscribes.ignorecase.disabled'
+          %td.nowrap
+            - if keyword_subscribe.ignore_block
+              = t 'keyword_subscribes.ignore_block'
+          %td.nowrap
+            - if keyword_subscribe.list_id
+              = fa_icon 'list-ul'
+              = keyword_subscribe.list&.title
+            - else
+              = fa_icon 'home'
+              = t 'keyword_subscribe.home'
+          %td.nowrap
+            - if !keyword_subscribe.disabled
+              %span.positive-hint
+                = fa_icon('check')
+                = ' '
+                = t 'keyword_subscribes.enabled'
+            - else
+              %span.negative-hint
+                = fa_icon('times')
+                = ' '
+                = t 'keyword_subscribes.disabled'
+          %td.nowrap
+            = table_link_to 'pencil', t('keyword_subscribes.edit.title'), edit_settings_keyword_subscribe_path(keyword_subscribe)
+            = table_link_to 'times', t('keyword_subscribes.index.delete'), settings_keyword_subscribe_path(keyword_subscribe), method: :delete
+
+= link_to t('keyword_subscribes.new.title'), new_settings_keyword_subscribe_path, class: 'button'

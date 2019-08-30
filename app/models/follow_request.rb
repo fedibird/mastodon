@@ -30,6 +30,7 @@ class FollowRequest < ApplicationRecord
 
   def authorize!
     account.follow!(target_account, reblogs: show_reblogs, notify: notify, uri: uri, bypass_limit: true)
+    UnsubscribeAccountService.new.call(account, target_account) if account.subscribing?(target_account)
     MergeWorker.perform_async(target_account.id, account.id) if account.local?
     destroy!
   end

@@ -60,6 +60,9 @@ en:
         whole_word: When the keyword or phrase is alphanumeric only, it will only be applied if it matches the whole word
       domain_allow:
         domain: This domain will be able to fetch data from this server and incoming data from it will be processed and stored
+      domain_subscribe:
+        domain: Specify the domain name of the server you want to subscribe to
+        exclude_reblog: Exclude boosted posts from subscription
       email_domain_block:
         domain: This can be the domain name that shows up in the e-mail address, the MX record that domain resolves to, or IP of the server that MX record resolves to. Those will be checked upon user sign-up and the sign-up will be rejected.
         with_dns_records: An attempt to resolve the given domain's DNS records will be made and the results will also be blocked
@@ -79,6 +82,11 @@ en:
           no_access: Block access to all resources
           sign_up_requires_approval: New sign-ups will require your approval
         severity: Choose what will happen with requests from this IP
+      keyword_subscribe:
+        exclude_keyword: List multiple excluded keywords separated by commas (or use regular expressions)
+        ignore_block: You can prioritize keyword subscriptions while keeping the entire domain block
+        keyword: List multiple keywords separated by commas (or use regular expressions)
+        name: Optional
       rule:
         text: Describe a rule or requirement for users on this server. Try to keep it short and simple
       sessions:
@@ -95,6 +103,8 @@ en:
           value: Content
       account_alias:
         acct: Handle of the old account
+      account_input:
+        acct: Account
       account_migration:
         acct: Handle of the new account
       account_warning_preset:
@@ -176,6 +186,12 @@ en:
         username: Username
         username_or_email: Username or Email
         whole_word: Whole word
+      domain_subscribe:
+        domain: Domain
+        exclude_reblog: Exclude boost
+        list_id: Target timeline
+        timeline: Timeline
+        reblog: Boost
       email_domain_block:
         with_dns_records: Include MX records and IPs of the domain
       featured_tag:
@@ -195,6 +211,23 @@ en:
           no_access: Block access
           sign_up_requires_approval: Limit sign-ups
         severity: Rule
+      keyword_subscribe:
+        disabled: Temporarily disable subscription
+        exclude_keyword: Excluded keyword list or regular expression
+        ignorecase: Ignore case
+        ignore_block: Ignore User's domain blocking
+        keyword: Keyword list or regular expression
+        list_id: Target timeline
+        name: Name
+        regexp: Use regular expressions for keywords
+      keyword_subscribes:
+        disabled: State
+        ignorecase: Case
+        ignore_block: Block
+        keyword: String
+        name: Name
+        regexp: Type
+        timeline: Timeline
       notification_emails:
         digest: Send digest e-mails
         favourite: Someone favourited your post

@@ -1,0 +1,35 @@
+- content_for :page_title do
+  = t('settings.domain_subscribes')
+
+%p= t('domain_subscribes.hint_html')
+
+%hr.spacer/
+
+.table-wrapper
+  %table.table
+    %thead
+      %tr
+        %th= t('simple_form.labels.domain_subscribe.domain')
+        %th.nowrap= t('simple_form.labels.domain_subscribe.reblog')
+        %th.nowrap= t('simple_form.labels.domain_subscribe.timeline')
+        %th.nowrap
+    %tbody
+      - @domain_subscribes.each do |domain_subscribe|
+        %tr
+          %td
+            = domain_subscribe.domain
+          %td.nowrap
+            - if domain_subscribe.exclude_reblog
+              = fa_icon('times')
+          %td.nowrap
+            - if domain_subscribe.list_id
+              = fa_icon 'list-ul'
+              = domain_subscribe.list&.title
+            - else
+              = fa_icon 'home'
+              = t 'domain_subscribes.home'
+          %td.nowrap
+            = table_link_to 'pencil', t('domain_subscribes.edit.title'), edit_settings_domain_subscribe_path(domain_subscribe)
+            = table_link_to 'trash', t('filters.index.delete'), settings_domain_subscribe_path(domain_subscribe), method: :delete, data: { confirm: t('admin.accounts.are_you_sure') }
+
+= link_to t('domain_subscribes.new.title'), new_settings_domain_subscribe_path, class: 'button'

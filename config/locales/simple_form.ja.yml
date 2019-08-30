@@ -60,6 +60,9 @@ ja:
         whole_word: キーワードまたはフレーズが英数字のみの場合、単語全体と一致する場合のみ適用されるようになります
       domain_allow:
         domain: 登録するとこのサーバーからデータを受信したり、このドメインから受信するデータを処理して保存できるようになります
+      domain_subscribe:
+        domain: 購読したいサーバのドメイン名を指定します
+        exclude_reblog: ブーストされた投稿を購読から除外します
       email_domain_block:
         domain: メールアドレスのドメイン名および、名前解決したMXレコード、IPアドレスを指定できます。ユーザー登録時にこれらをチェックし、該当する場合はユーザー登録を拒否します。
         with_dns_records: 指定したドメインのDNSレコードを取得し、その結果もメールドメインブロックに登録されます
@@ -79,6 +82,11 @@ ja:
           no_access: すべてのリソースへのアクセスをブロックします
           sign_up_requires_approval: 承認するまで新規登録が完了しなくなります
         severity: このIPに対する措置を選択してください
+      keyword_subscribe:
+        exclude_keyword: カンマで区切って複数の除外するキーワードを並べます（または正規表現で指定します）
+        ignore_block: ドメイン全体を非表示にしたまま、キーワードの購読を優先することができます
+        keyword: カンマで区切って複数のキーワードを並べます（または正規表現で指定します）
+        name: オプションです
       rule:
         text: ユーザーのためのルールや要件を記述してください。短くシンプルにしてください。
       sessions:
@@ -95,6 +103,8 @@ ja:
           value: 内容
       account_alias:
         acct: 引っ越し元のユーザー ID
+      account_input:
+        acct: アカウント (account@domain.tld)
       account_migration:
         acct: 引っ越し先のユーザー ID
       account_warning_preset:
@@ -176,11 +186,19 @@ ja:
         username: ユーザー名
         username_or_email: ユーザー名またはメールアドレス
         whole_word: 単語全体にマッチ
+      domain_subscribe:
+        domain: ドメイン
+        exclude_reblog: ブースト除外
+        list_id: 対象タイムライン
+        reblog: ブースト
+        timeline: タイムライン
       email_domain_block:
         with_dns_records: ドメインのMXレコードとIPアドレスを含む
       favourite_tag:
         name: ハッシュタグ
       featured_tag:
+        name: ハッシュタグ
+      follow_tag:
         name: ハッシュタグ
       interactions:
         must_be_follower: フォロワー以外からの通知をブロック
@@ -197,6 +215,23 @@ ja:
           no_access: ブロック
           sign_up_requires_approval: 登録を制限
         severity: ルール
+      keyword_subscribe:
+        disabled: 一時的に購読を無効にする
+        exclude_keyword: 除外するキーワードまたは正規表現
+        ignorecase: 大文字と小文字を区別しない
+        ignore_block: ユーザーによるドメインブロックを無視する
+        keyword: キーワードまたは正規表現
+        list_id: 対象タイムライン
+        name: 名称
+        regexp: キーワードに正規表現を使う
+      keyword_subscribes:
+        disabled: 状態
+        ignorecase: 大小
+        ignore_block: ブロック
+        keyword: 設定値
+        name: 名称
+        regexp: 種別
+        timeline: タイムライン
       notification_emails:
         digest: タイムラインからピックアップしてメールで通知する
         favourite: お気に入り登録された時

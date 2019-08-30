@@ -165,6 +165,10 @@ Rails.application.routes.draw do
     resources :sessions, only: [:destroy]
     resources :featured_tags, only: [:index, :create, :destroy]
     resources :favourite_tags, only: [:index, :create, :destroy]
+    resources :follow_tags, only: [:index, :create, :destroy]
+    resources :account_subscribes, only: [:index, :create, :destroy]
+    resources :domain_subscribes, except: [:show]
+    resources :keyword_subscribes, except: [:show]
     resources :login_activities, only: [:index]
   end
 
@@ -479,6 +483,11 @@ Rails.application.routes.draw do
       end
 
       resources :featured_tags, only: [:index, :create, :destroy]
+      resources :favourite_tags, only: [:index, :create, :show, :update, :destroy]
+      resources :follow_tags, only: [:index, :create, :show, :update, :destroy]
+      resources :account_subscribes, only: [:index, :create, :show, :update, :destroy]
+      resources :domain_subscribes, only: [:index, :create, :show, :update, :destroy]
+      resources :keyword_subscribes, only: [:index, :create, :show, :update, :destroy]
 
       resources :polls, only: [:create, :show] do
         resources :votes, only: :create, controller: 'polls/votes'

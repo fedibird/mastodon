@@ -1,0 +1,26 @@
+- content_for :page_title do
+  = t('settings.follow_tags')
+
+%p= t('follow_tags.hint_html')
+
+%hr.spacer/
+
+= simple_form_for @follow_tag, url: settings_follow_tags_path do |f|
+  = render 'shared/error_messages', object: @follow_tag
+
+  .fields-group
+    = f.input :name, wrapper: :with_block_label, hint: false
+
+  .actions
+    = f.button :button, t('follow_tags.add_new'), type: :submit
+
+%hr.spacer/
+
+- @follow_tags.each do |follow_tag|
+  .directory__tag{ class: params[:tag] == follow_tag.name ? 'active' : nil }
+    %div
+      %h4
+        = fa_icon 'hashtag'
+        = follow_tag.name
+        %small
+          = table_link_to 'trash', t('filters.index.delete'), settings_follow_tag_path(follow_tag), method: :delete, data: { confirm: t('admin.accounts.are_you_sure') }
