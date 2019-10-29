@@ -20,6 +20,11 @@ class FanOutOnWriteService < BaseService
 
     return if status.account.silenced? || !status.public_visibility?
 
+    if !status.reblog? && (!status.reply? || status.in_reply_to_account_id == status.account_id)
+      deliver_to_public(status)
+      deliver_to_media(status) if status.media_attachments.any?
+    end
+
     deliver_to_domain_subscribers(status)
     deliver_to_subscribers(status)
     deliver_to_subscribers_lists(status)
@@ -31,11 +36,6 @@ class FanOutOnWriteService < BaseService
     deliver_to_hashtags(status)
     deliver_to_hashtag_followers(status)
     deliver_to_keyword_subscribers(status)
-
-    return if status.reply? && status.in_reply_to_account_id != status.account_id
-
-    deliver_to_public(status)
-    deliver_to_media(status) if status.media_attachments.any?
   end
 
   private
