@@ -124,14 +124,24 @@ class RemoveStatusService < BaseService
     return unless @status.public_visibility?
 
     redis.publish('timeline:public', @payload)
-    redis.publish(@status.local? ? 'timeline:public:local' : 'timeline:public:remote', @payload)
+    if @status.local?
+      redis.publish('timeline:public:local', @payload)
+    else
+      redis.publish('timeline:public:remote', @payload)
+      redis.publish("timeline:public:domain:#{@account.domain.mb_chars.downcase}", @payload)
+    end
   end
 
   def remove_from_media
     return unless @status.public_visibility?
 
     redis.publish('timeline:public:media', @payload)
-    redis.publish(@status.local? ? 'timeline:public:local:media' : 'timeline:public:remote:media', @payload)
+    if @status.local?
+      redis.publish('timeline:public:local:media', @payload)
+    else
+      redis.publish('timeline:public:remote:media', @payload)
+      redis.publish("timeline:public:domain:media:#{@account.domain.mb_chars.downcase}", @payload)
+    end
   end
 
   def remove_media

@@ -76,18 +76,31 @@ class BatchedRemoveStatusService < BaseService
     return unless status.public_visibility? && status.id > @status_id_cutoff
 
     payload = Oj.dump(event: :delete, payload: status.id.to_s)
+    domain  = status.account.domain.mb_chars.downcase
 
-    redis.publish('timeline:public', payload)
-    redis.publish(status.local? ? 'timeline:public:local' : 'timeline:public:remote', payload)
+    redis.pipelined do
+      redis.publish('timeline:public', payload)
+      if status.local?
+        redis.publish('timeline:public:local', payload)
+      else
+        redis.publish('timeline:public:remote', payload)
+        redis.publish("timeline:public:domain:#{domain}", payload)
+      end
 
-    if status.media_attachments.any?
-      redis.publish('timeline:public:media', payload)
-      redis.publish(status.local? ? 'timeline:public:local:media' : 'timeline:public:remote:media', payload)
-    end
+      if status.media_attachments.any?
+        redis.publish('timeline:public:media', payload)
+        if status.local?
+          redis.publish('timeline:public:local:media', payload)
+        else
+          redis.publish('timeline:public:remote:media', payload)
+          redis.publish("timeline:public:domain:media:#{domain}", payload)
+        end
+      end
 
-    status.tags.map { |tag| tag.name.mb_chars.downcase }.each do |hashtag|
-      redis.publish("timeline:hashtag:#{hashtag}", payload)
-      redis.publish("timeline:hashtag:#{hashtag}:local", payload) if status.local?
+      status.tags.map { |tag| tag.name.mb_chars.downcase }.each do |hashtag|
+        redis.publish("timeline:hashtag:#{hashtag}", payload)
+        redis.publish("timeline:hashtag:#{hashtag}:local", payload) if status.local?
+      end
     end
   end
 end

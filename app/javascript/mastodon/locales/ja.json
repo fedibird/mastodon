@@ -33,6 +33,7 @@
   "account.mute_notifications": "@{name}さんからの通知を受け取らない",
   "account.muted": "ミュート済み",
   "account.never_active": "活動なし",
+  "account.open_domain_timeline": "{domain}タイムラインを表示",
   "account.posts": "投稿",
   "account.posts_with_replies": "投稿と返信",
   "account.report": "@{name}さんを通報",

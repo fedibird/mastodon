@@ -33,6 +33,7 @@
   "account.mute_notifications": "Mute notifications from @{name}",
   "account.muted": "Muted",
   "account.never_active": "Never",
+  "account.open_domain_timeline": "Open {domain} timeline",
   "account.posts": "Posts",
   "account.posts_with_replies": "Posts and replies",
   "account.report": "Report @{name}",
