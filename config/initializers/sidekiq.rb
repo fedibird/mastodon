@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'sidekiq/worker_killer'
+
 Sidekiq.configure_server do |config|
   config.redis = REDIS_SIDEKIQ_PARAMS
 
@@ -9,6 +11,7 @@ Sidekiq.configure_server do |config|
 
   config.server_middleware do |chain|
     chain.add SidekiqUniqueJobs::Middleware::Server
+    chain.add Sidekiq::WorkerKiller, max_rss: 750, grace_time: 60
   end
 
   config.client_middleware do |chain|
