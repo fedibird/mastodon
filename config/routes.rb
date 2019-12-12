@@ -450,6 +450,7 @@ Rails.application.routes.draw do
         resource :search, only: :show, controller: :search
         resource :lookup, only: :show, controller: :lookup
         resources :relationships, only: :index
+        resources :subscribing, only: :index, controller: 'subscribing_accounts'
       end
 
       resources :accounts, only: [:create, :show] do
@@ -463,6 +464,8 @@ Rails.application.routes.draw do
         member do
           post :follow
           post :unfollow
+          post :subscribe
+          post :unsubscribe
           post :block
           post :unblock
           post :mute
@@ -485,7 +488,6 @@ Rails.application.routes.draw do
       resources :featured_tags, only: [:index, :create, :destroy]
       resources :favourite_tags, only: [:index, :create, :show, :update, :destroy]
       resources :follow_tags, only: [:index, :create, :show, :update, :destroy]
-      resources :account_subscribes, only: [:index, :create, :show, :update, :destroy]
       resources :domain_subscribes, only: [:index, :create, :show, :update, :destroy]
       resources :keyword_subscribes, only: [:index, :create, :show, :update, :destroy]
 

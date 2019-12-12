@@ -79,7 +79,6 @@ class FollowService < BaseService
   def direct_follow!
     follow = @source_account.follow!(@target_account, reblogs: @options[:reblogs], notify: @options[:notify], rate_limit: @options[:with_rate_limit], bypass_limit: @options[:bypass_limit])
 
-    UnsubscribeAccountService.new.call(@source_account, @target_account) if @source_account.subscribing?(@target_account)
     LocalNotificationWorker.perform_async(@target_account.id, follow.id, follow.class.name, :follow)
     MergeWorker.perform_async(@target_account.id, @source_account.id)
 

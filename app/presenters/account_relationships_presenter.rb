@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class AccountRelationshipsPresenter
-  attr_reader :following, :followed_by, :blocking, :blocked_by,
+  attr_reader :following, :followed_by, :subscribing, :blocking, :blocked_by,
               :muting, :requested, :domain_blocking,
               :endorsed, :account_note
 
@@ -11,6 +11,7 @@ class AccountRelationshipsPresenter
 
     @following       = cached[:following].merge(Account.following_map(@uncached_account_ids, @current_account_id))
     @followed_by     = cached[:followed_by].merge(Account.followed_by_map(@uncached_account_ids, @current_account_id))
+    @subscribing     = cached[:subscribing].merge(Account.subscribing_map(@uncached_account_ids, @current_account_id))
     @blocking        = cached[:blocking].merge(Account.blocking_map(@uncached_account_ids, @current_account_id))
     @blocked_by      = cached[:blocked_by].merge(Account.blocked_by_map(@uncached_account_ids, @current_account_id))
     @muting          = cached[:muting].merge(Account.muting_map(@uncached_account_ids, @current_account_id))
@@ -23,6 +24,7 @@ class AccountRelationshipsPresenter
 
     @following.merge!(options[:following_map] || {})
     @followed_by.merge!(options[:followed_by_map] || {})
+    @subscribing.merge!(options[:subscribing_map] || {})
     @blocking.merge!(options[:blocking_map] || {})
     @blocked_by.merge!(options[:blocked_by_map] || {})
     @muting.merge!(options[:muting_map] || {})
@@ -40,6 +42,7 @@ class AccountRelationshipsPresenter
     @cached = {
       following: {},
       followed_by: {},
+      subscribing: {},
       blocking: {},
       blocked_by: {},
       muting: {},
@@ -69,6 +72,7 @@ class AccountRelationshipsPresenter
       maps_for_account = {
         following:       { account_id => following[account_id] },
         followed_by:     { account_id => followed_by[account_id] },
+        subscribing:     { account_id => subscribing[account_id] },
         blocking:        { account_id => blocking[account_id] },
         blocked_by:      { account_id => blocked_by[account_id] },
         muting:          { account_id => muting[account_id] },

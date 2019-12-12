@@ -232,6 +232,7 @@ class DeleteAccountService < BaseService
     @account.statuses_count    = 0
     @account.followers_count   = 0
     @account.following_count   = 0
+    @account.subscribing_count = 0
     @account.moved_to_account  = nil
     @account.also_known_as     = []
     @account.trust_level       = :untrusted

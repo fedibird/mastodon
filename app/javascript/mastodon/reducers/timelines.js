@@ -15,6 +15,7 @@ import {
   ACCOUNT_BLOCK_SUCCESS,
   ACCOUNT_MUTE_SUCCESS,
   ACCOUNT_UNFOLLOW_SUCCESS,
+  ACCOUNT_UNSUBSCRIBE_SUCCESS,
 } from '../actions/accounts';
 import { Map as ImmutableMap, List as ImmutableList, fromJS } from 'immutable';
 import compareId from '../compare_id';
@@ -158,6 +159,7 @@ export default function timelines(state = initialState, action) {
   case ACCOUNT_MUTE_SUCCESS:
     return filterTimelines(state, action.relationship, action.statuses);
   case ACCOUNT_UNFOLLOW_SUCCESS:
+  case ACCOUNT_UNSUBSCRIBE_SUCCESS:
     return filterTimeline('home', state, action.relationship, action.statuses);
   case TIMELINE_SCROLL_TOP:
     return updateTop(state, action.timeline, action.top);

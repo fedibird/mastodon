@@ -13,6 +13,14 @@ export const ACCOUNT_UNFOLLOW_REQUEST = 'ACCOUNT_UNFOLLOW_REQUEST';
 export const ACCOUNT_UNFOLLOW_SUCCESS = 'ACCOUNT_UNFOLLOW_SUCCESS';
 export const ACCOUNT_UNFOLLOW_FAIL    = 'ACCOUNT_UNFOLLOW_FAIL';
 
+export const ACCOUNT_SUBSCRIBE_REQUEST = 'ACCOUNT_SUBSCRIBE_REQUEST';
+export const ACCOUNT_SUBSCRIBE_SUCCESS = 'ACCOUNT_SUBSCRIBE_SUCCESS';
+export const ACCOUNT_SUBSCRIBE_FAIL    = 'ACCOUNT_SUBSCRIBE_FAIL';
+
+export const ACCOUNT_UNSUBSCRIBE_REQUEST = 'ACCOUNT_UNSUBSCRIBE_REQUEST';
+export const ACCOUNT_UNSUBSCRIBE_SUCCESS = 'ACCOUNT_UNSUBSCRIBE_SUCCESS';
+export const ACCOUNT_UNSUBSCRIBE_FAIL    = 'ACCOUNT_UNSUBSCRIBE_FAIL';
+
 export const ACCOUNT_BLOCK_REQUEST = 'ACCOUNT_BLOCK_REQUEST';
 export const ACCOUNT_BLOCK_SUCCESS = 'ACCOUNT_BLOCK_SUCCESS';
 export const ACCOUNT_BLOCK_FAIL    = 'ACCOUNT_BLOCK_FAIL';
@@ -52,6 +60,14 @@ export const FOLLOWING_FETCH_FAIL    = 'FOLLOWING_FETCH_FAIL';
 export const FOLLOWING_EXPAND_REQUEST = 'FOLLOWING_EXPAND_REQUEST';
 export const FOLLOWING_EXPAND_SUCCESS = 'FOLLOWING_EXPAND_SUCCESS';
 export const FOLLOWING_EXPAND_FAIL    = 'FOLLOWING_EXPAND_FAIL';
+
+export const SUBSCRIBING_FETCH_REQUEST = 'SUBSCRIBING_FETCH_REQUEST';
+export const SUBSCRIBING_FETCH_SUCCESS = 'SUBSCRIBING_FETCH_SUCCESS';
+export const SUBSCRIBING_FETCH_FAIL    = 'SUBSCRIBING_FETCH_FAIL';
+
+export const SUBSCRIBING_EXPAND_REQUEST = 'SUBSCRIBING_EXPAND_REQUEST';
+export const SUBSCRIBING_EXPAND_SUCCESS = 'SUBSCRIBING_EXPAND_SUCCESS';
+export const SUBSCRIBING_EXPAND_FAIL    = 'SUBSCRIBING_EXPAND_FAIL';
 
 export const RELATIONSHIPS_FETCH_REQUEST = 'RELATIONSHIPS_FETCH_REQUEST';
 export const RELATIONSHIPS_FETCH_SUCCESS = 'RELATIONSHIPS_FETCH_SUCCESS';
@@ -183,6 +199,85 @@ export function unfollowAccountSuccess(relationship, statuses) {
 export function unfollowAccountFail(error) {
   return {
     type: ACCOUNT_UNFOLLOW_FAIL,
+    error,
+    skipLoading: true,
+  };
+};
+
+export function subscribeAccount(id, reblogs = true) {
+  return (dispatch, getState) => {
+    const alreadySubscribe = getState().getIn(['relationships', id, 'subscribing']);
+    const locked = getState().getIn(['accounts', id, 'locked'], false);
+
+    dispatch(subscribeAccountRequest(id, locked));
+
+    api(getState).post(`/api/v1/accounts/${id}/subscribe`).then(response => {
+      dispatch(subscribeAccountSuccess(response.data, alreadySubscribe));
+    }).catch(error => {
+      dispatch(subscribeAccountFail(error, locked));
+    });
+  };
+};
+
+export function unsubscribeAccount(id) {
+  return (dispatch, getState) => {
+    dispatch(unsubscribeAccountRequest(id));
+
+    api(getState).post(`/api/v1/accounts/${id}/unsubscribe`).then(response => {
+      dispatch(unsubscribeAccountSuccess(response.data, getState().get('statuses')));
+    }).catch(error => {
+      dispatch(unsubscribeAccountFail(error));
+    });
+  };
+};
+
+export function subscribeAccountRequest(id, locked) {
+  return {
+    type: ACCOUNT_SUBSCRIBE_REQUEST,
+    id,
+    locked,
+    skipLoading: true,
+  };
+};
+
+export function subscribeAccountSuccess(relationship, alreadySubscribe) {
+  return {
+    type: ACCOUNT_SUBSCRIBE_SUCCESS,
+    relationship,
+    alreadySubscribe,
+    skipLoading: true,
+  };
+};
+
+export function subscribeAccountFail(error, locked) {
+  return {
+    type: ACCOUNT_SUBSCRIBE_FAIL,
+    error,
+    locked,
+    skipLoading: true,
+  };
+};
+
+export function unsubscribeAccountRequest(id) {
+  return {
+    type: ACCOUNT_UNSUBSCRIBE_REQUEST,
+    id,
+    skipLoading: true,
+  };
+};
+
+export function unsubscribeAccountSuccess(relationship, statuses) {
+  return {
+    type: ACCOUNT_UNSUBSCRIBE_SUCCESS,
+    relationship,
+    statuses,
+    skipLoading: true,
+  };
+};
+
+export function unsubscribeAccountFail(error) {
+  return {
+    type: ACCOUNT_UNSUBSCRIBE_FAIL,
     error,
     skipLoading: true,
   };
@@ -495,6 +590,92 @@ export function expandFollowingSuccess(id, accounts, next) {
 export function expandFollowingFail(id, error) {
   return {
     type: FOLLOWING_EXPAND_FAIL,
+    id,
+    error,
+  };
+};
+
+export function fetchSubscribing(id) {
+  return (dispatch, getState) => {
+    dispatch(fetchSubscribeRequest(id));
+
+    api(getState).get(`/api/v1/accounts/subscribing`).then(response => {
+      const next = getLinks(response).refs.find(link => link.rel === 'next');
+
+      dispatch(importFetchedAccounts(response.data));
+      dispatch(fetchSubscribeSuccess(id, response.data, next ? next.uri : null));
+      dispatch(fetchRelationships(response.data.map(item => item.id)));
+    }).catch(error => {
+      dispatch(fetchSubscribeFail(id, error));
+    });
+  };
+};
+
+export function fetchSubscribeRequest(id) {
+  return {
+    type: SUBSCRIBING_FETCH_REQUEST,
+    id,
+  };
+};
+
+export function fetchSubscribeSuccess(id, accounts, next) {
+  return {
+    type: SUBSCRIBING_FETCH_SUCCESS,
+    id,
+    accounts,
+    next,
+  };
+};
+
+export function fetchSubscribeFail(id, error) {
+  return {
+    type: SUBSCRIBING_FETCH_FAIL,
+    id,
+    error,
+  };
+};
+
+export function expandSubscribing(id) {
+  return (dispatch, getState) => {
+    const url = getState().getIn(['user_lists', 'subscribing', id, 'next']);
+
+    if (url === null) {
+      return;
+    }
+
+    dispatch(expandSubscribeRequest(id));
+
+    api(getState).get(url).then(response => {
+      const next = getLinks(response).refs.find(link => link.rel === 'next');
+
+      dispatch(importFetchedAccounts(response.data));
+      dispatch(expandSubscribeSuccess(id, response.data, next ? next.uri : null));
+      dispatch(fetchRelationships(response.data.map(item => item.id)));
+    }).catch(error => {
+      dispatch(expandSubscribeFail(id, error));
+    });
+  };
+};
+
+export function expandSubscribeRequest(id) {
+  return {
+    type: SUBSCRIBING_EXPAND_REQUEST,
+    id,
+  };
+};
+
+export function expandSubscribeSuccess(id, accounts, next) {
+  return {
+    type: SUBSCRIBING_EXPAND_SUCCESS,
+    id,
+    accounts,
+    next,
+  };
+};
+
+export function expandSubscribeFail(id, error) {
+  return {
+    type: SUBSCRIBING_EXPAND_FAIL,
     id,
     error,
   };

@@ -17,6 +17,10 @@ module AccountInteractions
       follow_mapping(Follow.where(account_id: target_account_ids, target_account_id: account_id), :account_id)
     end
 
+    def subscribing_map(target_account_ids, account_id)
+      follow_mapping(AccountSubscribe.where(target_account_id: target_account_ids, account_id: account_id), :target_account_id)
+    end
+
     def blocking_map(target_account_ids, account_id)
       follow_mapping(Block.where(target_account_id: target_account_ids, account_id: account_id), :target_account_id)
     end
@@ -188,7 +192,11 @@ module AccountInteractions
   end
 
   def subscribe!(other_account)
-    active_subscribes.find_or_create_by!(target_account: other_account)
+    rel = active_subscribes.find_or_create_by!(target_account: other_account)
+
+    remove_potential_friendship(other_account)
+
+    rel
   end
 
   def following?(other_account)

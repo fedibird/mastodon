@@ -15,6 +15,12 @@ import {
   FOLLOWING_EXPAND_SUCCESS,
   FOLLOWING_EXPAND_FAIL,
   FOLLOW_REQUESTS_FETCH_REQUEST,
+  SUBSCRIBING_FETCH_REQUEST,
+  SUBSCRIBING_FETCH_SUCCESS,
+  SUBSCRIBING_FETCH_FAIL,
+  SUBSCRIBING_EXPAND_REQUEST,
+  SUBSCRIBING_EXPAND_SUCCESS,
+  SUBSCRIBING_EXPAND_FAIL,
   FOLLOW_REQUESTS_FETCH_SUCCESS,
   FOLLOW_REQUESTS_FETCH_FAIL,
   FOLLOW_REQUESTS_EXPAND_REQUEST,
@@ -62,6 +68,7 @@ const initialListState = ImmutableMap({
 const initialState = ImmutableMap({
   followers: initialListState,
   following: initialListState,
+  subscribing: initialListState,
   reblogged_by: initialListState,
   favourited_by: initialListState,
   follow_requests: initialListState,
@@ -111,6 +118,16 @@ export default function userLists(state = initialState, action) {
   case FOLLOWING_FETCH_FAIL:
   case FOLLOWING_EXPAND_FAIL:
     return state.setIn(['following', action.id, 'isLoading'], false);
+  case SUBSCRIBING_FETCH_SUCCESS:
+    return normalizeList(state, 'subscribing', action.id, action.accounts, action.next);
+  case SUBSCRIBING_EXPAND_SUCCESS:
+    return appendToList(state, 'subscribing', action.id, action.accounts, action.next);
+  case SUBSCRIBING_FETCH_REQUEST:
+  case SUBSCRIBING_EXPAND_REQUEST:
+    return state.setIn(['subscribing', action.id, 'isLoading'], true);
+  case SUBSCRIBING_FETCH_FAIL:
+  case SUBSCRIBING_EXPAND_FAIL:
+    return state.setIn(['subscribing', action.id, 'isLoading'], false);
   case REBLOGS_FETCH_SUCCESS:
     return state.setIn(['reblogged_by', action.id], ImmutableList(action.accounts.map(item => item.id)));
   case FAVOURITES_FETCH_SUCCESS:

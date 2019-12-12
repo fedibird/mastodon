@@ -37,6 +37,7 @@ class AccountsIndex < Chewy::Index
 
       field :following_count, type: 'long', value: ->(account) { account.following.local.count }
       field :followers_count, type: 'long', value: ->(account) { account.followers.local.count }
+      field :subscribing_count, type: 'long', value: ->(account) { account.subscribing.local.count }
       field :last_status_at, type: 'date', value: ->(account) { account.last_status_at || account.created_at }
     end
   end

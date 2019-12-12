@@ -32,10 +32,11 @@ module Mastodon
       case type
       when 'accounts'
         processed, = parallelize_with_progress(Account.local.includes(:account_stat)) do |account|
-          account_stat                 = account.account_stat
-          account_stat.following_count = account.active_relationships.count
-          account_stat.followers_count = account.passive_relationships.count
-          account_stat.statuses_count  = account.statuses.where.not(visibility: :direct).count
+          account_stat                   = account.account_stat
+          account_stat.following_count   = account.active_relationships.count
+          account_stat.followers_count   = account.passive_relationships.count
+          account_stat.subscribing_count = account.active_subscribes.count
+          account_stat.statuses_count    = account.statuses.where.not(visibility: :direct).count
 
           account_stat.save if account_stat.changed?
         end

@@ -13,6 +13,8 @@ import RelativeTimestamp from './relative_timestamp';
 const messages = defineMessages({
   follow: { id: 'account.follow', defaultMessage: 'Follow' },
   unfollow: { id: 'account.unfollow', defaultMessage: 'Unfollow' },
+  unsubscribe: { id: 'account.unsubscribe', defaultMessage: 'Unsubscribe' },
+  subscribe: { id: 'account.subscribe', defaultMessage: 'Subscribe' },
   requested: { id: 'account.requested', defaultMessage: 'Awaiting approval' },
   unblock: { id: 'account.unblock', defaultMessage: 'Unblock @{name}' },
   unmute: { id: 'account.unmute', defaultMessage: 'Unmute @{name}' },
@@ -26,6 +28,7 @@ class Account extends ImmutablePureComponent {
   static propTypes = {
     account: ImmutablePropTypes.map.isRequired,
     onFollow: PropTypes.func.isRequired,
+    onSubscribe: PropTypes.func.isRequired,
     onBlock: PropTypes.func.isRequired,
     onMute: PropTypes.func.isRequired,
     onMuteNotifications: PropTypes.func.isRequired,
@@ -38,6 +41,10 @@ class Account extends ImmutablePureComponent {
 
   handleFollow = () => {
     this.props.onFollow(this.props.account);
+  }
+
+  handleSubscribe = () => {
+    this.props.onSubscribe(this.props.account);
   }
 
   handleBlock = () => {
@@ -83,10 +90,11 @@ class Account extends ImmutablePureComponent {
         buttons = <IconButton icon={actionIcon} title={actionTitle} onClick={this.handleAction} />;
       }
     } else if (account.get('id') !== me && account.get('relationship', null) !== null) {
-      const following = account.getIn(['relationship', 'following']);
-      const requested = account.getIn(['relationship', 'requested']);
-      const blocking  = account.getIn(['relationship', 'blocking']);
-      const muting  = account.getIn(['relationship', 'muting']);
+      const following   = account.getIn(['relationship', 'following']);
+      const subscribing = account.getIn(['relationship', 'subscribing']);
+      const requested   = account.getIn(['relationship', 'requested']);
+      const blocking    = account.getIn(['relationship', 'blocking']);
+      const muting      = account.getIn(['relationship', 'muting']);
 
       if (requested) {
         buttons = <IconButton disabled icon='hourglass' title={intl.formatMessage(messages.requested)} />;
@@ -105,8 +113,15 @@ class Account extends ImmutablePureComponent {
             {hidingNotificationsButton}
           </Fragment>
         );
-      } else if (!account.get('moved') || following) {
-        buttons = <IconButton icon={following ? 'user-times' : 'user-plus'} title={intl.formatMessage(following ? messages.unfollow : messages.follow)} onClick={this.handleFollow} active={following} />;
+      } else {
+        let following_buttons, subscribing_buttons;
+        if (!account.get('moved') || subscribing ) {
+          subscribing_buttons = <IconButton icon='rss-square' title={intl.formatMessage(subscribing ? messages.unsubscribe : messages.subscribe)} onClick={this.handleSubscribe} active={subscribing} />;
+        }
+        if (!account.get('moved') || following) {
+          following_buttons = <IconButton icon={following ? 'user-times' : 'user-plus'} title={intl.formatMessage(following ? messages.unfollow : messages.follow)} onClick={this.handleFollow} active={following} />;
+        }
+        buttons = <span>{subscribing_buttons}{following_buttons}</span>
       }
     }
 

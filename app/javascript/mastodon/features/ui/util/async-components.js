@@ -74,6 +74,10 @@ export function Following () {
   return import(/* webpackChunkName: "features/following" */'../../following');
 }
 
+export function Subscribing () {
+  return import(/* webpackChunkName: "features/subscribing" */'../../subscribing');
+}
+
 export function Reblogs () {
   return import(/* webpackChunkName: "features/reblogs" */'../../reblogs');
 }

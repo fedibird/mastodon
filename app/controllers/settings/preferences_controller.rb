@@ -37,6 +37,7 @@ class Settings::PreferencesController < Settings::BaseController
       :setting_default_sensitive,
       :setting_default_language,
       :setting_unfollow_modal,
+      :setting_unsubscribe_modal,
       :setting_boost_modal,
       :setting_delete_modal,
       :setting_auto_play_gif,
