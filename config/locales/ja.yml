@@ -1437,6 +1437,7 @@ ja:
     instance-ticker-type-2-light: Mastodon instance ticker Type-2 (ライト / Favicon Images(White Outline))
     instance-ticker-type-2: Mastodon instance ticker Type-2 (ダーク / Favicon Images(White Outline))
     mastodon-light: Mastodon (ライト)
+    mobile-small: Mobile 小 / Mastodon (ダーク)
   time:
     formats:
       default: "%Y年%m月%d日 %H:%M"

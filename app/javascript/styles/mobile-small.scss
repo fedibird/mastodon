@@ -1,0 +1,24 @@
+@import 'application';
+
+.columns-area--mobile {
+  .status {
+    &__content {
+      font-size: 13px;
+      line-height: 16px;
+    }
+    &__prepend {
+      font-size: 13px;
+    }
+  }
+  .display-name {
+    font-size: 13px;
+    &__account {
+      font-size: 13px;
+    }
+  }
+  .notification {
+    &__message {
+      font-size: 13px;
+    }
+  }
+}
