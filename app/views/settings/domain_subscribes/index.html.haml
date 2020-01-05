@@ -27,7 +27,7 @@
               = domain_subscribe.list&.title
             - else
               = fa_icon 'home'
-              = t 'domain_subscribes.home'
+              = t 'lists.home'
           %td.nowrap
             = table_link_to 'pencil', t('domain_subscribes.edit.title'), edit_settings_domain_subscribe_path(domain_subscribe)
             = table_link_to 'trash', t('filters.index.delete'), settings_domain_subscribe_path(domain_subscribe), method: :delete, data: { confirm: t('admin.accounts.are_you_sure') }

@@ -68,6 +68,11 @@ ja:
         with_dns_records: 指定したドメインのDNSレコードを取得し、その結果もメールドメインブロックに登録されます
       featured_tag:
         name: 'これらを使うといいかもしれません:'
+      follow_tag:
+        name: フォローしたいハッシュタグを '#' 抜きで指定します
+      form_account_subscribe:
+        acct: 購読したいアカウントを username@domain 形式で指定します
+        show_reblogs: ブーストされた投稿を購読に含めます
       form_challenge:
         current_password: セキュリティ上重要なエリアにアクセスしています
       imports:
@@ -103,8 +108,6 @@ ja:
           value: 内容
       account_alias:
         acct: 引っ越し元のユーザー ID
-      account_input:
-        acct: アカウント (account@domain.tld)
       account_migration:
         acct: 引っ越し先のユーザー ID
       account_warning_preset:
@@ -200,7 +203,15 @@ ja:
       featured_tag:
         name: ハッシュタグ
       follow_tag:
+        list_id: 対象タイムライン
         name: ハッシュタグ
+        timeline: タイムライン
+      form_account_subscribe:
+        acct: アカウント
+        list_id: 対象タイムライン
+        reblog: ブースト
+        show_reblogs: ブーストを表示
+        timeline: タイムライン
       interactions:
         must_be_follower: フォロワー以外からの通知をブロック
         must_be_following: フォローしていないユーザーからの通知をブロック

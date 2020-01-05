@@ -5,21 +5,32 @@
 
 %hr.spacer/
 
-= simple_form_for :account_input, url: settings_account_subscribes_path do |f|
+.table-wrapper
+  %table.table
+    %thead
+      %tr
+        %th= t('simple_form.labels.form_account_subscribe.acct')
+        %th.nowrap= t('simple_form.labels.form_account_subscribe.reblog')
+        %th.nowrap= t('simple_form.labels.form_account_subscribe.timeline')
+        %th.nowrap
+    %tbody
+      - @account_subscribings.each do |account_subscribe|
+        %tr
+          %td
+            = fa_icon 'user'
+            = account_subscribe.target_account.acct
+          %td.nowrap
+            - if account_subscribe.show_reblogs
+              = fa_icon('check')
+          %td.nowrap
+            - if account_subscribe.list_id
+              = fa_icon 'list-ul'
+              = account_subscribe.list&.title
+            - else
+              = fa_icon 'home'
+              = t 'lists.home'
+          %td.nowrap
+            = table_link_to 'pencil', t('account_subscribes.edit.title'), edit_settings_account_subscribe_path(account_subscribe)
+            = table_link_to 'trash', t('filters.index.delete'), settings_account_subscribe_path(account_subscribe), method: :delete, data: { confirm: t('admin.accounts.are_you_sure') }
 
-  .fields-group
-    = f.input :acct, wrapper: :with_block_label, hint: false
-
-  .actions
-    = f.button :button, t('account_subscribes.add_new'), type: :submit
-
-%hr.spacer/
-
-- @account_subscribings.each do |account_subscribing|
-  .directory__tag
-    %div
-      %h4
-        = fa_icon 'user'
-        = account_subscribing[:acct]
-        %small
-          = table_link_to 'trash', t('filters.index.delete'), settings_account_subscribe_path(account_subscribing), method: :delete, data: { confirm: t('admin.accounts.are_you_sure') }
+= link_to t('account_subscribes.new.title'), new_settings_account_subscribe_path, class: 'button'

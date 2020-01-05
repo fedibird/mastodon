@@ -4,11 +4,16 @@ class Settings::FollowTagsController < Settings::BaseController
   layout 'admin'
 
   before_action :authenticate_user!
+  before_action :set_lists, only: [:index, :new, :edit, :update]
   before_action :set_follow_tags, only: :index
-  before_action :set_follow_tag, except: [:index, :create]
+  before_action :set_follow_tag, only: [:edit, :update, :destroy]
 
   def index
     @follow_tag = FollowTag.new
+  end
+
+  def new
+    @follow_tag = current_account.follow_tags.build
   end
 
   def create
@@ -20,6 +25,16 @@ class Settings::FollowTagsController < Settings::BaseController
       set_follow_tags
 
       render :index
+    end
+  end
+
+  def edit; end
+
+  def update
+    if @follow_tag.update(follow_tag_params)
+      redirect_to settings_follow_tag_path
+    else
+      render action: :edit
     end
   end
 
@@ -35,10 +50,25 @@ class Settings::FollowTagsController < Settings::BaseController
   end
 
   def set_follow_tags
-    @follow_tags = current_account.follow_tags.order(:updated_at).reject(&:new_record?)
+    @follow_tags = current_account.follow_tags.order('list_id NULLS FIRST', :updated_at).reject(&:new_record?)
+  end
+
+  def set_lists
+    @lists = List.where(account: current_account).all
   end
 
   def follow_tag_params
-    params.require(:follow_tag).permit(:name)
+    new_params = resource_params.permit!.to_h
+
+    if resource_params[:list_id] == '-1'
+      list = List.find_or_create_by!({ account: current_account, title: new_params[:name] })
+      new_params.merge!({list_id: list.id})
+    end
+
+    new_params
+  end
+
+  def resource_params
+    params.require(:follow_tag).permit(:name, :list_id)
   end
 end

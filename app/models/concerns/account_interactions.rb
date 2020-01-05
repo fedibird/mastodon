@@ -191,8 +191,8 @@ module AccountInteractions
     block&.destroy
   end
 
-  def subscribe!(other_account)
-    rel = active_subscribes.find_or_create_by!(target_account: other_account)
+  def subscribe!(other_account, show_reblogs = true, list_id = nil)
+    rel = active_subscribes.find_or_create_by!(target_account: other_account, show_reblogs: show_reblogs, list_id: list_id)
 
     remove_potential_friendship(other_account)
 
@@ -259,8 +259,8 @@ module AccountInteractions
     account_pins.where(target_account: account).exists?
   end
 
-  def subscribing?(other_account)
-    active_subscribes.where(target_account: other_account).exists?
+  def subscribing?(other_account, list_id = nil)
+    active_subscribes.where(target_account: other_account, list_id:  list_id).exists?
   end
 
   def followers_for_local_distribution
@@ -270,14 +270,22 @@ module AccountInteractions
   end
 
   def subscribers_for_local_distribution
-    subscribers.local
-             .joins(:user)
-             .where('users.current_sign_in_at > ?', User::ACTIVE_DURATION.ago)
+    AccountSubscribe.home
+                    .joins(account: :user)
+                    .where(target_account_id: id)
+                    .where('users.current_sign_in_at > ?', User::ACTIVE_DURATION.ago)
   end
 
   def lists_for_local_distribution
     lists.joins(account: :user)
          .where('users.current_sign_in_at > ?', User::ACTIVE_DURATION.ago)
+  end
+
+  def list_subscribers_for_local_distribution
+    AccountSubscribe.list
+                    .joins(account: :user)
+                    .where(target_account_id: id)
+                    .where('users.current_sign_in_at > ?', User::ACTIVE_DURATION.ago)
   end
 
   def remote_followers_hash(url_prefix)

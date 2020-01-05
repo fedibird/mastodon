@@ -89,7 +89,11 @@ en:
     unfollow: Unfollow
   account_subscribes:
     add_new: Add
-    hint_html: "<strong>What are account subscription?</strong> Insert public posts from the specified account into the home timeline. Posts received by the server (federated timeline) are targets. You cannot subscribe if you are following."
+    edit:
+      title: Edit
+    hint_html: "<strong>What are account subscription?</strong> Insert public posts from the specified account into the home or list timeline. Posts received by the server (federated timeline) are targets."
+    new:
+      title: Add new account subscription
   admin:
     account_actions:
       action: Perform action
@@ -902,7 +906,6 @@ en:
       title: Edit
     exclude_reblog: Exclude
     hint_html: "<strong>What are domain subscription?</strong> Insert public posts from the specified domain into the home or list timeline. Posts received by the server (federated timeline) are targets."
-    home: Home
     include_reblog: Include
     new:
       title: Add new domain subscription
@@ -970,8 +973,12 @@ en:
     new:
       title: Add new filter
   follow_tags:
-    add_new: Add new
-    hint_html: "<strong>What are follow hashtags?</strong> They are a collection of hashtags you follow. From the posts with hashtags received by the server, the one with the hashtag specified here is inserted into the home timeline."
+    add_new: Add
+    edit:
+      title: Edit
+    hint_html: "<strong>What are follow hashtags?</strong> They are a collection of hashtags you follow. From the posts with hashtags received by the server, the one with the hashtag specified here is inserted into the home or list timeline."
+    new:
+      title: Add new hashtag follow
   footer:
     developers: Developers
     more: More…
@@ -1060,8 +1067,7 @@ en:
       duplicate: The same content has already been registered
       limit: You have reached the maximum number of "Keyword subscribes" that can be registered
       regexp: "Regular expression error: %{message}"
-    hint_html: "<strong>What is a keyword subscribes?</strong> Inserts a public post that matches one of the specified words or a regular expression into the home timeline. Posts received by the server (federated timeline) are targets."
-    home: Home
+    hint_html: "<strong>What is a keyword subscribes?</strong> Inserts a public post that matches one of the specified words or a regular expression into the home or list timeline. Posts received by the server (federated timeline) are targets."
     ignorecase:
       enabled: Ignore
       disabled: Sensitive
@@ -1078,6 +1084,7 @@ en:
     add_new: Add new list
     errors:
       limit: You have reached the maximum amount of lists
+    home: Home
   login_activities:
     authentication_methods:
       otp: two-factor authentication app

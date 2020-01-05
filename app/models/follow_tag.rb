@@ -21,6 +21,9 @@ class FollowTag < ApplicationRecord
   validates :name, presence: true, on: :create
   validates :account_id, uniqueness: { scope: [:tag_id, :list_id] }
 
+  scope :home, -> { where(list_id: nil) }
+  scope :list, -> { where.not(list_id: nil) }
+
   def name=(str)
     self.tag = Tag.find_or_create_by_names(str.strip)&.first
   end

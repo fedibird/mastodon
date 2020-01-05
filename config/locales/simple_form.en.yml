@@ -68,6 +68,11 @@ en:
         with_dns_records: An attempt to resolve the given domain's DNS records will be made and the results will also be blocked
       featured_tag:
         name: 'You might want to use one of these:'
+      follow_tag:
+        name: Specify the name of the hashtag without '#' you want to follow
+      form_account_subscribe:
+        acct: Specify the username@domain of the account you want to subscribe
+        show_reblogs: Show boosted posts from subscription
       form_challenge:
         current_password: You are entering a secure area
       imports:
@@ -103,8 +108,6 @@ en:
           value: Content
       account_alias:
         acct: Handle of the old account
-      account_input:
-        acct: Account
       account_migration:
         acct: Handle of the new account
       account_warning_preset:
@@ -197,6 +200,16 @@ en:
         with_dns_records: Include MX records and IPs of the domain
       featured_tag:
         name: Hashtag
+      follow_tag:
+        list_id: Target timeline
+        name: Tag name
+        timeline: Timeline
+      form_account_subscribe:
+        acct: Account
+        list_id: Target timeline
+        reblog: Boost
+        show_reblogs: Show boost
+        timeline: Timeline
       interactions:
         must_be_follower: Block notifications from non-followers
         must_be_following: Block notifications from people you don't follow

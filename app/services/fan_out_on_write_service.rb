@@ -21,6 +21,8 @@ class FanOutOnWriteService < BaseService
     return if status.account.silenced? || !status.public_visibility?
 
     deliver_to_domain_subscribers(status)
+    deliver_to_subscribers(status)
+    deliver_to_subscribers_lists(status)
 
     return if status.reblog?
 
@@ -28,7 +30,6 @@ class FanOutOnWriteService < BaseService
 
     deliver_to_hashtags(status)
     deliver_to_hashtag_followers(status)
-    deliver_to_subscribers(status)
     deliver_to_keyword_subscribers(status)
 
     return if status.reply? && status.in_reply_to_account_id != status.account_id
@@ -57,9 +58,19 @@ class FanOutOnWriteService < BaseService
   def deliver_to_subscribers(status)
     Rails.logger.debug "Delivering status #{status.id} to subscribers"
 
-    status.account.subscribers_for_local_distribution.select(:id).reorder(nil).find_in_batches do |subscribings|
+    status.account.subscribers_for_local_distribution.with_reblog(status.reblog?).select(:id, :account_id).reorder(nil).find_in_batches do |subscribings|
       FeedInsertWorker.push_bulk(subscribings) do |subscribing|
-        [status.id, subscribing.id, :home]
+        [status.id, subscribing.account_id, :home]
+      end
+    end
+  end
+
+  def deliver_to_subscribers_lists(status)
+    Rails.logger.debug "Delivering status #{status.id} to subscribers lists"
+
+    status.account.list_subscribers_for_local_distribution.with_reblog(status.reblog?).select(:id, :list_id).reorder(nil).find_in_batches do |subscribings|
+      FeedInsertWorker.push_bulk(subscribings) do |subscribing|
+        [status.id, subscribing.list_id, :list]
       end
     end
   end
@@ -157,8 +168,19 @@ class FanOutOnWriteService < BaseService
   def deliver_to_hashtag_followers(status)
     Rails.logger.debug "Delivering status #{status.id} to hashtag followers"
 
-    FeedInsertWorker.push_bulk(FollowTag.where(tag: status.tags).pluck(:account_id).uniq) do |follower|
+    deliver_to_hashtag_followers_home(status)
+    deliver_to_hashtag_followers_list(status)
+  end
+
+  def deliver_to_hashtag_followers_home(status)
+    FeedInsertWorker.push_bulk(FollowTag.home.where(tag: status.tags).pluck(:account_id).uniq) do |follower|
       [status.id, follower, :home]
+    end
+  end
+
+  def deliver_to_hashtag_followers_list(status)
+    FeedInsertWorker.push_bulk(FollowTag.list.where(tag: status.tags).pluck(:list_id).uniq) do |list_id|
+      [status.id, list_id, :list]
     end
   end
 
