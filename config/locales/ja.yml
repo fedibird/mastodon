@@ -1162,6 +1162,7 @@ ja:
       too_few_options: は複数必要です
       too_many_options: は%{max}個までです
   preferences:
+    fedibird_features: Fedibirdの機能
     other: その他
     posting_defaults: デフォルトの投稿設定
     public_timelines: 公開タイムライン

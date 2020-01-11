@@ -126,6 +126,7 @@ class User < ApplicationRecord
            :expand_spoilers, :default_language, :aggregate_reblogs, :show_application,
            :advanced_layout, :use_blurhash, :use_pending_items, :trends, :crop_images,
            :disable_swiping,
+           :show_follow_button_on_timeline, :show_subscribe_button_on_timeline, :show_target,
            to: :settings, prefix: :setting, allow_nil: false
 
   attr_reader :invite_code, :sign_in_token_attempt

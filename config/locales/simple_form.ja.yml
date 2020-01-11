@@ -54,6 +54,9 @@ ja:
         setting_hide_network: フォローとフォロワーの情報がプロフィールページで見られないようにします
         setting_noindex: 公開プロフィールおよび各投稿ページに影響します
         setting_show_application: 投稿するのに使用したアプリが投稿の詳細ビューに表示されるようになります
+        setting_show_follow_button_on_timeline: フォロー状態を確認し易くなり、素早くフォローリストを構築できます
+        setting_show_subscribe_button_on_timeline: 購読状態を確認し易くなり、素早く購読リストを構築できます
+        setting_show_target: 投稿対象と、フォロー・購読の対象を切り替える機能を有効にします
         setting_use_blurhash: ぼかしはメディアの色を元に生成されますが、細部は見えにくくなっています
         setting_use_pending_items: 新着があってもタイムラインを自動的にスクロールしないようにします
         username: あなたのユーザー名は %{domain} の中で重複していない必要があります
@@ -177,6 +180,9 @@ ja:
         setting_noindex: 検索エンジンによるインデックスを拒否する
         setting_reduce_motion: アニメーションの動きを減らす
         setting_show_application: 送信したアプリを開示する
+        setting_show_follow_button_on_timeline: タイムライン上にフォローボタンを表示する
+        setting_show_subscribe_button_on_timeline: タイムライン上に購読ボタンを表示する
+        setting_show_target: ターゲット機能を有効にする
         setting_system_font_ui: システムのデフォルトフォントを使う
         setting_theme: サイトテーマ
         setting_trends: 本日のトレンドタグを表示する
