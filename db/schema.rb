@@ -253,11 +253,11 @@ ActiveRecord::Schema.define(version: 2021_06_30_000137) do
     t.bigint "user_id"
     t.string "dump_file_name"
     t.string "dump_content_type"
+    t.bigint "dump_file_size"
     t.datetime "dump_updated_at"
     t.boolean "processed", default: false, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.bigint "dump_file_size"
   end
 
   create_table "blocks", force: :cascade do |t|
@@ -470,6 +470,7 @@ ActiveRecord::Schema.define(version: 2021_06_30_000137) do
     t.boolean "show_reblogs", default: true, null: false
     t.string "uri"
     t.boolean "notify", default: false, null: false
+    t.boolean "delivery", default: true, null: false
     t.index ["account_id", "target_account_id"], name: "index_follow_requests_on_account_id_and_target_account_id", unique: true
   end
 
@@ -493,6 +494,7 @@ ActiveRecord::Schema.define(version: 2021_06_30_000137) do
     t.string "uri"
     t.boolean "notify", default: false, null: false
     t.boolean "private", default: true, null: false
+    t.boolean "delivery", default: true, null: false
     t.index ["account_id", "target_account_id"], name: "index_follows_on_account_id_and_target_account_id", unique: true
     t.index ["target_account_id"], name: "index_follows_on_target_account_id"
   end
@@ -907,8 +909,8 @@ ActiveRecord::Schema.define(version: 2021_06_30_000137) do
     t.bigint "application_id"
     t.bigint "in_reply_to_account_id"
     t.bigint "poll_id"
-    t.datetime "deleted_at"
     t.bigint "quote_id"
+    t.datetime "deleted_at"
     t.index ["account_id", "id", "visibility", "updated_at"], name: "index_statuses_20190820", order: { id: :desc }, where: "(deleted_at IS NULL)"
     t.index ["id", "account_id"], name: "index_statuses_local_20190824", order: { id: :desc }, where: "((local OR (uri IS NULL)) AND (deleted_at IS NULL) AND (visibility = 0) AND (reblog_of_id IS NULL) AND ((NOT reply) OR (in_reply_to_account_id = account_id)))"
     t.index ["id", "account_id"], name: "index_statuses_public_20200119", order: { id: :desc }, where: "((deleted_at IS NULL) AND (visibility = 0) AND (reblog_of_id IS NULL) AND ((NOT reply) OR (in_reply_to_account_id = account_id)))"

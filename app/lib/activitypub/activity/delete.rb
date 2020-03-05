@@ -48,7 +48,7 @@ class ActivityPub::Activity::Delete < ActivityPub::Activity
   end
 
   def inboxes_for_reblogs
-    Account.where(id: ::Follow.where(target_account_id: rebloggers_ids).select(:account_id)).inboxes
+    Account.where(id: ::Follow.where(target_account_id: rebloggers_ids, delivery: true).select(:account_id)).inboxes
   end
 
   def replied_to_status
@@ -61,7 +61,7 @@ class ActivityPub::Activity::Delete < ActivityPub::Activity
   end
 
   def inboxes_for_reply
-    replied_to_status.account.followers.inboxes
+    replied_to_status.account.delivery_followers.inboxes
   end
 
   def forward!

@@ -30,7 +30,7 @@ class KeywordSubscribe < ApplicationRecord
   scope :ignore_block, -> { where(ignore_block: true) }
   scope :home, -> { where(list_id: nil) }
   scope :list, -> { where.not(list_id: nil) }
-  scope :without_local_followed_home, ->(account) { home.where.not(account: account.followers.local).where.not(account: account.subscribers.local) }
+  scope :without_local_followed_home, ->(account) { home.where.not(account: account.delivery_followers.local).where.not(account: account.subscribers.local) }
   scope :without_local_followed_list, ->(account) { list.where.not(list_id: ListAccount.followed_lists(account)).where.not(list_id: AccountSubscribe.subscribed_lists(account)) }
 
   def keyword=(val)

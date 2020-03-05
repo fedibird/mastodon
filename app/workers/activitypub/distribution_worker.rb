@@ -36,9 +36,9 @@ class ActivityPub::DistributionWorker
     # If the status is a reply to another local status, also forward it to that
     # status' authors' followers.
     @inboxes ||= if @status.in_reply_to_local_account? && @status.distributable?
-                   @account.followers.or(@status.thread.account.followers).inboxes
+                   @account.delivery_followers.or(@status.thread.account.delivery_followers).inboxes
                  else
-                   @account.followers.inboxes
+                   @account.delivery_followers.inboxes
                  end
   end
 

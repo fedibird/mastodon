@@ -9,11 +9,17 @@ module AccountInteractions
         mapping[follow.target_account_id] = {
           reblogs: follow.show_reblogs?,
           notify: follow.notify?,
+          delivery: follow.delivery?,
         }
       end
     end
 
     def followed_by_map(target_account_ids, account_id)
+      Follow.where(account_id: target_account_ids, target_account_id: account_id).each_with_object({}) do |follow, mapping|
+        mapping[follow.account_id] = {
+          delivery: follow.delivery?,
+        }
+      end
       follow_mapping(Follow.where(account_id: target_account_ids, target_account_id: account_id), :account_id)
     end
 
@@ -42,6 +48,7 @@ module AccountInteractions
         mapping[follow_request.target_account_id] = {
           reblogs: follow_request.show_reblogs?,
           notify: follow_request.notify?,
+          delivery: follow_request.delivery?,
         }
       end
     end
@@ -84,6 +91,8 @@ module AccountInteractions
 
     has_many :following, -> { order('follows.id desc') }, through: :active_relationships,  source: :target_account
     has_many :followers, -> { order('follows.id desc') }, through: :passive_relationships, source: :account
+    has_many :delivery_following, -> { where('follows.delivery').order('follows.id desc') }, through: :active_relationships,  source: :target_account
+    has_many :delivery_followers, -> { where('follows.delivery').order('follows.id desc') }, through: :passive_relationships, source: :account
 
     # Block relationships
     has_many :block_relationships, class_name: 'Block', foreign_key: 'account_id', dependent: :destroy
@@ -108,12 +117,13 @@ module AccountInteractions
     has_many :subscribers, through: :passive_subscribes, source: :account
   end
 
-  def follow!(other_account, reblogs: nil, notify: nil, uri: nil, rate_limit: false, bypass_limit: false)
-    rel = active_relationships.create_with(show_reblogs: reblogs.nil? ? true : reblogs, notify: notify.nil? ? false : notify, uri: uri, rate_limit: rate_limit, bypass_follow_limit: bypass_limit)
+  def follow!(other_account, reblogs: nil, notify: nil, delivery: true, uri: nil, rate_limit: false, bypass_limit: false)
+    rel = active_relationships.create_with(show_reblogs: reblogs.nil? ? true : reblogs, notify: notify.nil? ? false : notify, delivery: delivery.nil? ? true : delivery, uri: uri, rate_limit: rate_limit, bypass_follow_limit: bypass_limit)
                               .find_or_create_by!(target_account: other_account)
 
-    rel.show_reblogs = reblogs unless reblogs.nil?
-    rel.notify       = notify  unless notify.nil?
+    rel.show_reblogs = reblogs  unless reblogs.nil?
+    rel.notify       = notify   unless notify.nil?
+    rel.delivery     = delivery unless delivery.nil?
 
     rel.save! if rel.changed?
 
@@ -123,11 +133,12 @@ module AccountInteractions
   end
 
   def request_follow!(other_account, reblogs: nil, notify: nil, uri: nil, rate_limit: false, bypass_limit: false)
-    rel = follow_requests.create_with(show_reblogs: reblogs.nil? ? true : reblogs, notify: notify.nil? ? false : notify, uri: uri, rate_limit: rate_limit, bypass_follow_limit: bypass_limit)
+    rel = follow_requests.create_with(show_reblogs: reblogs.nil? ? true : reblogs, notify: notify.nil? ? false : notify, delivery: delivery.nil? ? true : delivery, uri: uri, rate_limit: rate_limit, bypass_follow_limit: bypass_limit)
                          .find_or_create_by!(target_account: other_account)
 
-    rel.show_reblogs = reblogs unless reblogs.nil?
-    rel.notify       = notify  unless notify.nil?
+    rel.show_reblogs = reblogs  unless reblogs.nil?
+    rel.notify       = notify   unless notify.nil?
+    rel.delivery     = delivery unless delivery.nil?
 
     rel.save! if rel.changed?
 
@@ -211,6 +222,10 @@ module AccountInteractions
     !following_anyone?
   end
 
+  def delivery_following?(other_account)
+    active_relationships.where(target_account: other_account, delivery: true).exists?
+  end
+
   def blocking?(other_account)
     block_relationships.where(target_account: other_account).exists?
   end
@@ -264,9 +279,9 @@ module AccountInteractions
   end
 
   def followers_for_local_distribution
-    followers.local
-             .joins(:user)
-             .where('users.current_sign_in_at > ?', User::ACTIVE_DURATION.ago)
+    delivery_followers.local
+                      .joins(:user)
+                      .where('users.current_sign_in_at > ?', User::ACTIVE_DURATION.ago)
   end
 
   def subscribers_for_local_distribution

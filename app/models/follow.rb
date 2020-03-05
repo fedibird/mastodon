@@ -12,6 +12,7 @@
 #  uri               :string
 #  notify            :boolean          default(FALSE), not null
 #  private           :boolean          default(TRUE), not null
+#  delivery          :boolean          default(TRUE), not null
 #
 
 class Follow < ApplicationRecord
