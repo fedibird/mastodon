@@ -34,7 +34,7 @@ const MODAL_COMPONENTS = {
   'EMBED': EmbedModal,
   'LIST_EDITOR': ListEditor,
   'FOCAL_POINT': () => Promise.resolve({ default: FocalPointModal }),
-  'LIST_ADDER':ListAdder,
+  'LIST_ADDER': ListAdder,
 };
 
 export default class ModalRoot extends React.PureComponent {

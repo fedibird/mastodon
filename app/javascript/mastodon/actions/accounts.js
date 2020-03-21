@@ -1,5 +1,6 @@
 import api, { getLinks } from '../api';
 import { importFetchedAccount, importFetchedAccounts } from './importer';
+import { Map as ImmutableMap } from 'immutable';
 
 export const ACCOUNT_FETCH_REQUEST = 'ACCOUNT_FETCH_REQUEST';
 export const ACCOUNT_FETCH_SUCCESS = 'ACCOUNT_FETCH_SUCCESS';
@@ -125,7 +126,7 @@ export function fetchAccountFail(id, error) {
   };
 };
 
-export function followAccount(id, options = { reblogs: true }) {
+export function followAccount(id, options = { reblogs: true, delivery: true }) {
   return (dispatch, getState) => {
     const alreadyFollowing = getState().getIn(['relationships', id, 'following']);
     const locked = getState().getIn(['accounts', id, 'locked'], false);
@@ -204,14 +205,14 @@ export function unfollowAccountFail(error) {
   };
 };
 
-export function subscribeAccount(id, reblogs = true) {
+export function subscribeAccount(id, reblogs = true, list_id = null) {
   return (dispatch, getState) => {
-    const alreadySubscribe = getState().getIn(['relationships', id, 'subscribing']);
+    const alreadySubscribe = (list_id ? getState().getIn(['relationships', id, 'subscribing', list_id], new Map) : getState().getIn(['relationships', id, 'subscribing'], new Map)).size > 0;
     const locked = getState().getIn(['accounts', id, 'locked'], false);
 
     dispatch(subscribeAccountRequest(id, locked));
 
-    api(getState).post(`/api/v1/accounts/${id}/subscribe`).then(response => {
+    api(getState).post(`/api/v1/accounts/${id}/subscribe`, { reblogs, list_id }).then(response => {
       dispatch(subscribeAccountSuccess(response.data, alreadySubscribe));
     }).catch(error => {
       dispatch(subscribeAccountFail(error, locked));
@@ -219,11 +220,11 @@ export function subscribeAccount(id, reblogs = true) {
   };
 };
 
-export function unsubscribeAccount(id) {
+export function unsubscribeAccount(id, list_id = null) {
   return (dispatch, getState) => {
     dispatch(unsubscribeAccountRequest(id));
 
-    api(getState).post(`/api/v1/accounts/${id}/unsubscribe`).then(response => {
+    api(getState).post(`/api/v1/accounts/${id}/unsubscribe`, { list_id }).then(response => {
       dispatch(unsubscribeAccountSuccess(response.data, getState().get('statuses')));
     }).catch(error => {
       dispatch(unsubscribeAccountFail(error));

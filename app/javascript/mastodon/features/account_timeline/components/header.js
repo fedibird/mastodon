@@ -3,6 +3,7 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import PropTypes from 'prop-types';
 import InnerHeader from '../../account/components/header';
 import ImmutablePureComponent from 'react-immutable-pure-component';
+import { follow_button_to_list_adder } from 'mastodon/initial_state';
 import MovedNote from './moved_note';
 import { FormattedMessage } from 'react-intl';
 import { NavLink } from 'react-router-dom';
@@ -14,6 +15,7 @@ export default class Header extends ImmutablePureComponent {
     identity_proofs: ImmutablePropTypes.list,
     onFollow: PropTypes.func.isRequired,
     onSubscribe: PropTypes.func.isRequired,
+    onAddToList: PropTypes.func.isRequired,
     onBlock: PropTypes.func.isRequired,
     onMention: PropTypes.func.isRequired,
     onDirect: PropTypes.func.isRequired,
@@ -32,12 +34,20 @@ export default class Header extends ImmutablePureComponent {
     router: PropTypes.object,
   };
 
-  handleFollow = () => {
-    this.props.onFollow(this.props.account);
+  handleFollow = (e) => {
+    if ((e && e.shiftKey) || !follow_button_to_list_adder) {
+      this.props.onFollow(this.props.account);
+    } else {
+      this.props.onAddToList(this.props.account);
+    }
   }
 
-  handleSubscribe = () => {
-    this.props.onSubscribe(this.props.account);
+  handleSubscribe = (e) => {
+    if ((e && e.shiftKey) || !follow_button_to_list_adder) {
+      this.props.onSubscribe(this.props.account);
+    } else {
+      this.props.onAddToList(this.props.account);
+    }
   }
 
   handleBlock = () => {

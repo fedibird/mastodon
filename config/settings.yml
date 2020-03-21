@@ -41,6 +41,8 @@ defaults: &defaults
   crop_images: true
   show_follow_button_on_timeline: false
   show_subscribe_button_on_timeline: false
+  show_followed_by: false
+  follow_button_to_list_adder: false
   show_target: false
   notification_emails:
     follow: false

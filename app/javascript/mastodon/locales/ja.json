@@ -209,6 +209,8 @@
   "hashtag.column_settings.tag_mode.any": "いずれかを含む",
   "hashtag.column_settings.tag_mode.none": "これらを除く",
   "hashtag.column_settings.tag_toggle": "このカラムに追加のタグを含める",
+  "home.account.add": "ホームに追加",
+  "home.account.remove": "ホームから外す",
   "home.column_settings.basic": "基本設定",
   "home.column_settings.show_reblogs": "ブースト表示",
   "home.column_settings.show_replies": "返信表示",

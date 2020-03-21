@@ -39,7 +39,7 @@ class Api::V1::AccountsController < Api::BaseController
   end
 
   def subscribe
-    AccountSubscribeService.new.call(current_user.account, @account)
+    AccountSubscribeService.new.call(current_user.account, @account, reblogs: truthy_param?(:reblogs), list_id: params[:list_id])
     render json: @account, serializer: REST::RelationshipSerializer, relationships: relationships
   end
 
@@ -59,7 +59,7 @@ class Api::V1::AccountsController < Api::BaseController
   end
 
   def unsubscribe
-    UnsubscribeAccountService.new.call(current_user.account, @account)
+    UnsubscribeAccountService.new.call(current_user.account, @account, params[:list_id])
     render json: @account, serializer: REST::RelationshipSerializer, relationships: relationships
   end
 

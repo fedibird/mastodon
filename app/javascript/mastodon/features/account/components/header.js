@@ -4,7 +4,7 @@ import PropTypes from 'prop-types';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import Button from 'mastodon/components/button';
 import ImmutablePureComponent from 'react-immutable-pure-component';
-import { autoPlayGif, me, isStaff } from 'mastodon/initial_state';
+import { autoPlayGif, me, isStaff, show_followed_by, follow_button_to_list_adder } from 'mastodon/initial_state';
 import classNames from 'classnames';
 import Icon from 'mastodon/components/icon';
 import IconButton from 'mastodon/components/icon_button';
@@ -14,6 +14,7 @@ import ShortNumber from 'mastodon/components/short_number';
 import { NavLink } from 'react-router-dom';
 import DropdownMenuContainer from 'mastodon/containers/dropdown_menu_container';
 import AccountNoteContainer from '../containers/account_note_container';
+import { Map as ImmutableMap } from 'immutable';
 
 const messages = defineMessages({
   unfollow: { id: 'account.unfollow', defaultMessage: 'Unfollow' },
@@ -71,6 +72,7 @@ class Header extends ImmutablePureComponent {
     identity_props: ImmutablePropTypes.list,
     onFollow: PropTypes.func.isRequired,
     onSubscribe: PropTypes.func.isRequired,
+    onAddToList: PropTypes.func.isRequired,
     onBlock: PropTypes.func.isRequired,
     onMention: PropTypes.func.isRequired,
     onDirect: PropTypes.func.isRequired,
@@ -123,6 +125,26 @@ class Header extends ImmutablePureComponent {
       let emoji = emojis[i];
       emoji.src = emoji.getAttribute('data-static');
     }
+  }
+
+  handleFollow = (e) => {
+    if ((e && e.shiftKey) || !follow_button_to_list_adder) {
+      this.props.onFollow(this.props.account);
+    } else {
+      this.props.onAddToList(this.props.account);
+    }
+  }
+
+  handleSubscribe = (e) => {
+    if ((e && e.shiftKey) || !follow_button_to_list_adder) {
+      this.props.onSubscribe(this.props.account);
+    } else {
+      this.props.onAddToList(this.props.account);
+    }
+  }
+
+  setRef = (c) => {
+    this.node = c;
   }
 
   render () {
@@ -212,9 +234,10 @@ class Header extends ImmutablePureComponent {
         }
 
         menu.push({ text: intl.formatMessage(account.getIn(['relationship', 'endorsed']) ? messages.unendorse : messages.endorse), action: this.props.onEndorseToggle });
-        menu.push({ text: intl.formatMessage(messages.add_or_remove_from_list), action: this.props.onAddToList });
         menu.push(null);
       }
+      menu.push({ text: intl.formatMessage(messages.add_or_remove_from_list), action: this.props.onAddToList });
+      menu.push(null);
 
       if (account.getIn(['relationship', 'muting'])) {
         menu.push({ text: intl.formatMessage(messages.unmute, { name: account.get('username') }), action: this.props.onMute });
@@ -263,18 +286,21 @@ class Header extends ImmutablePureComponent {
       badge = null;
     }
 
-    const following   = account.getIn(['relationship', 'following']);
-    const subscribing = account.getIn(['relationship', 'subscribing']);
-    const blockd_by   = account.getIn(['relationship', 'blocked_by']);
+    const following        = account.getIn(['relationship', 'following']);
+    const delivery         = account.getIn(['relationship', 'delivery_following']);
+    const followed_by      = account.getIn(['relationship', 'followed_by']) && show_followed_by;
+    const subscribing      = account.getIn(['relationship', 'subscribing'], new Map).size > 0;
+    const subscribing_home = account.getIn(['relationship', 'subscribing', '-1'], new Map).size > 0;
+    const blockd_by        = account.getIn(['relationship', 'blocked_by']);
     let buttons;
 
     if(me !== account.get('id') && !blockd_by) {
       let following_buttons, subscribing_buttons;
       if(!account.get('moved') || subscribing) {
-        subscribing_buttons = <IconButton icon='rss-square' title={intl.formatMessage(subscribing ? messages.unsubscribe : messages.subscribe)} onClick={this.props.onSubscribe} active={subscribing} />;
+        subscribing_buttons = <IconButton icon='rss-square' title={intl.formatMessage(subscribing ? messages.unsubscribe : messages.subscribe)} onClick={this.handleSubscribe} active={subscribing} no_delivery={subscribing && !subscribing_home} />;
       }
       if(!account.get('moved') || following) {
-        following_buttons = <IconButton icon={following ? 'user-times' : 'user-plus'} title={intl.formatMessage(following ? messages.unfollow : messages.follow)} onClick={this.props.onFollow} active={following} />;
+        following_buttons = <IconButton icon={following ? 'user-times' : 'user-plus'} title={intl.formatMessage(following ? messages.unfollow : messages.follow)} onClick={this.handleFollow} active={following} passive={followed_by} no_delivery={following && !delivery} />;
       }
       buttons = <span>{subscribing_buttons}{following_buttons}</span>
     }

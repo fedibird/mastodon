@@ -113,8 +113,7 @@ class Status extends ImmutablePureComponent {
     onToggleHidden: PropTypes.func,
     onToggleCollapsed: PropTypes.func,
     onQuoteToggleHidden: PropTypes.func,
-    onFollow: PropTypes.func.isRequired,
-    onSubscribe: PropTypes.func.isRequired,
+    onAddToList: PropTypes.func.isRequired,
     muted: PropTypes.bool,
     hidden: PropTypes.bool,
     unread: PropTypes.bool,
@@ -347,14 +346,6 @@ class Status extends ImmutablePureComponent {
 
   handleRef = c => {
     this.node = c;
-  }
-
-  handleFollow = () => {
-    this.props.onFollow(this._properStatus().get('account'));
-  }
-
-  handleSubscribe = () => {
-    this.props.onSubscribe(this._properStatus().get('account'));
   }
 
   render () {

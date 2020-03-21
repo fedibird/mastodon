@@ -51,11 +51,13 @@ ja:
         setting_display_media_default: 閲覧注意としてマークされたメディアは隠す
         setting_display_media_hide_all: メディアを常に隠す
         setting_display_media_show_all: メディアを常に表示する
+        setting_follow_button_to_list_adder: フォロー・購読ボタンの動作を変更し、フォロー・購読するリストを選択したり、ホームで受け取らないよう設定するダイアログを開きます
         setting_hide_network: フォローとフォロワーの情報がプロフィールページで見られないようにします
         setting_noindex: 公開プロフィールおよび各投稿ページに影響します
         setting_show_application: 投稿するのに使用したアプリが投稿の詳細ビューに表示されるようになります
         setting_show_follow_button_on_timeline: フォロー状態を確認し易くなり、素早くフォローリストを構築できます
         setting_show_subscribe_button_on_timeline: 購読状態を確認し易くなり、素早く購読リストを構築できます
+        setting_show_followed_by: フォロー状態に応じてフォローボタンの色が変わります（灰色：フォロー関係なし、黄色：フォローされている、青色：フォローしている、緑色：相互フォロー）
         setting_show_target: 投稿対象と、フォロー・購読の対象を切り替える機能を有効にします
         setting_use_blurhash: ぼかしはメディアの色を元に生成されますが、細部は見えにくくなっています
         setting_use_pending_items: 新着があってもタイムラインを自動的にスクロールしないようにします
@@ -176,12 +178,14 @@ ja:
         setting_display_media_hide_all: 非表示
         setting_display_media_show_all: 表示
         setting_expand_spoilers: 閲覧注意としてマークされた投稿を常に展開する
+        setting_follow_button_to_list_adder: フォローボタンでリスト追加ダイアログを開く
         setting_hide_network: 繋がりを隠す
         setting_noindex: 検索エンジンによるインデックスを拒否する
         setting_reduce_motion: アニメーションの動きを減らす
         setting_show_application: 送信したアプリを開示する
         setting_show_follow_button_on_timeline: タイムライン上にフォローボタンを表示する
         setting_show_subscribe_button_on_timeline: タイムライン上に購読ボタンを表示する
+        setting_show_followed_by: 被フォロー状態をフォローボタンに反映する
         setting_show_target: ターゲット機能を有効にする
         setting_system_font_ui: システムのデフォルトフォントを使う
         setting_theme: サイトテーマ

@@ -1,6 +1,8 @@
 import {
   ACCOUNT_FOLLOW_SUCCESS,
   ACCOUNT_UNFOLLOW_SUCCESS,
+  ACCOUNT_SUBSCRIBE_SUCCESS,
+  ACCOUNT_UNSUBSCRIBE_SUCCESS,
 } from '../actions/accounts';
 import { ACCOUNT_IMPORT, ACCOUNTS_IMPORT } from '../actions/importer';
 import { Map as ImmutableMap, fromJS } from 'immutable';
@@ -33,6 +35,11 @@ export default function accountsCounters(state = initialState, action) {
       state.updateIn([action.relationship.id, 'followers_count'], num => num + 1);
   case ACCOUNT_UNFOLLOW_SUCCESS:
     return state.updateIn([action.relationship.id, 'followers_count'], num => Math.max(0, num - 1));
+  case ACCOUNT_SUBSCRIBE_SUCCESS:
+    return action.alreadySubscribe ? state :
+      state.updateIn([action.relationship.id, 'subscribing_count'], num => num + 1);
+  case ACCOUNT_UNSUBSCRIBE_SUCCESS:
+    return state.updateIn([action.relationship.id, 'subscribing_count'], num => Math.max(0, num - 1));
   default:
     return state;
   }

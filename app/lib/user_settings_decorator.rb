@@ -42,6 +42,8 @@ class UserSettingsDecorator
     user.settings['crop_images']                       = crop_images_preference if change?('setting_crop_images')
     user.settings['show_follow_button_on_timeline']    = show_follow_button_on_timeline_preference if change?('setting_show_follow_button_on_timeline')
     user.settings['show_subscribe_button_on_timeline'] = show_subscribe_button_on_timeline_preference if change?('setting_show_subscribe_button_on_timeline')
+    user.settings['show_followed_by']                  = show_followed_by_preference if change?('setting_show_followed_by')
+    user.settings['follow_button_to_list_adder']       = follow_button_to_list_adder_preference if change?('setting_follow_button_to_list_adder')
     user.settings['show_target']                       = show_target_preference if change?('setting_show_target')
   end
 
@@ -151,6 +153,14 @@ class UserSettingsDecorator
 
   def show_subscribe_button_on_timeline_preference
     boolean_cast_setting 'setting_show_subscribe_button_on_timeline'
+  end
+
+  def show_followed_by_preference
+    boolean_cast_setting 'setting_show_followed_by'
+  end
+
+  def follow_button_to_list_adder_preference
+    boolean_cast_setting 'setting_follow_button_to_list_adder'
   end
 
   def show_target_preference

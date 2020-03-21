@@ -38,7 +38,7 @@ class Settings::AccountSubscribesController < Settings::BaseController
   end
 
   def destroy
-    UnsubscribeAccountService.new.call(current_account, @account_subscribing.target_account)
+    UnsubscribeAccountService.new.call(current_account, @account_subscribing.target_account, @account_subscribing.list_id)
     redirect_to settings_account_subscribes_path
   end
 

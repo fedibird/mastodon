@@ -14,10 +14,11 @@ class FollowService < BaseService
   # @option [Boolean] :bypass_locked
   # @option [Boolean] :bypass_limit Allow following past the total follow number
   # @option [Boolean] :with_rate_limit
+  # @option [Boolean] :delivery
   def call(source_account, target_account, options = {})
     @source_account = source_account
     @target_account = target_account
-    @options        = { bypass_locked: false, bypass_limit: false, with_rate_limit: false }.merge(options)
+    @options        = { bypass_locked: false, delivery: true, bypass_limit: false, with_rate_limit: false }.merge(options)
 
     raise ActiveRecord::RecordNotFound if following_not_possible?
     raise Mastodon::NotPermittedError  if following_not_allowed?

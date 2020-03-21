@@ -44,6 +44,8 @@ class InitialStateSerializer < ActiveModel::Serializer
       store[:crop_images]                       = object.current_account.user.setting_crop_images
       store[:show_follow_button_on_timeline]    = object.current_account.user.setting_show_follow_button_on_timeline
       store[:show_subscribe_button_on_timeline] = object.current_account.user.setting_show_subscribe_button_on_timeline
+      store[:show_followed_by]                  = object.current_account.user.setting_show_followed_by
+      store[:follow_button_to_list_adder]       = object.current_account.user.setting_follow_button_to_list_adder
       store[:show_target]                       = object.current_account.user.setting_show_target
       else
       store[:auto_play_gif] = Setting.auto_play_gif
