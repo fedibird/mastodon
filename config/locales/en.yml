@@ -1498,6 +1498,7 @@ en:
     instance-ticker-type-2-contrast: Mastodon instance ticker Type-2 (High contrast / Favicon Images(White Outline) Style)
     instance-ticker-type-2-light: Mastodon instance ticker Type-2 (Light / Favicon Images(White Outline) Style)
     instance-ticker-type-2: Mastodon instance ticker Type-2 (Dark / Favicon Images(White Outline) Style)
+    mastodon-mask: Mastodon (Mask)
     mastodon-light: Mastodon (Light)
     mobile-small: Mobile Small / Mastodon (Dark)
   time:

@@ -1,0 +1,44 @@
+.account__avatar::after {
+  content: '';
+  display: inline-block;
+  background-image: url(https://media.thedesk.top/media_attachments/files/000/273/649/original/1a30d21516ac8a47.png);
+  width: 48px;
+  height: 23px;
+  top: 23px;
+  position: absolute;
+  background-size: cover;
+}
+
+.account__avatar-overlay-base::after {
+  content: '';
+  display: inline-block;
+  background-image: url(https://media.thedesk.top/media_attachments/files/000/273/649/original/1a30d21516ac8a47.png);
+  width: 36px;
+  height: 15px;
+  top: 18px;
+  position: absolute;
+  background-size: cover;
+}
+
+.account__avatar-overlay-overlay::after {
+  content: '';
+  display: inline-block;
+  background-image: url(https://media.thedesk.top/media_attachments/files/000/273/649/original/1a30d21516ac8a47.png);
+  width: 24px;
+  height: 15px;
+  top: 10px;
+  position: absolute;
+  background-size: inherit;
+}
+
+.avatar .account__avatar::after {
+  content: '';
+  display: inline-block;
+  background-image: url(https://media.thedesk.top/media_attachments/files/000/273/649/original/1a30d21516ac8a47.png);
+  width: 94px;
+  height: 48px;
+  top: 48px;
+  position: absolute;
+  background-size: cover;
+  left: -3px;
+}

@@ -1436,6 +1436,7 @@ ja:
     instance-ticker-type-2-contrast: Mastodon instance ticker Type-2 (ハイコントラスト / Favicon Images(White Outline))
     instance-ticker-type-2-light: Mastodon instance ticker Type-2 (ライト / Favicon Images(White Outline))
     instance-ticker-type-2: Mastodon instance ticker Type-2 (ダーク / Favicon Images(White Outline))
+    mask: Mastodon (マスク)
     mastodon-light: Mastodon (ライト)
     mobile-small: Mobile 小 / Mastodon (ダーク)
   time:
