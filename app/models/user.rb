@@ -163,7 +163,7 @@ class User < ApplicationRecord
     if new_user && approved?
       prepare_new_user!
     elsif new_user
-      notify_staff_about_pending_account!
+      notify_staff_about_pending_account! if invite_request&.text.present?
     end
   end
 
