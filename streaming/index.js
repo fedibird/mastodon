@@ -294,7 +294,7 @@ const startWorker = (workerId) => {
         return;
       }
 
-      client.query('SELECT oauth_access_tokens.id, oauth_access_tokens.resource_owner_id, users.account_id, users.chosen_languages, oauth_access_tokens.scopes, devices.device_id FROM oauth_access_tokens INNER JOIN users ON oauth_access_tokens.resource_owner_id = users.id LEFT OUTER JOIN devices ON oauth_access_tokens.id = devices.access_token_id WHERE oauth_access_tokens.token = $1 AND oauth_access_tokens.revoked_at IS NULL LIMIT 1', [token], (err, result) => {
+      client.query('SELECT oauth_access_tokens.id, oauth_access_tokens.resource_owner_id, users.account_id, users.chosen_languages, oauth_access_tokens.scopes, devices.device_id, oauth_applications.name FROM oauth_access_tokens INNER JOIN oauth_applications ON oauth_access_tokens.application_id = oauth_applications.id INNER JOIN users ON oauth_access_tokens.resource_owner_id = users.id LEFT OUTER JOIN devices ON oauth_access_tokens.id = devices.access_token_id WHERE oauth_access_tokens.token = $1 AND oauth_access_tokens.revoked_at IS NULL LIMIT 1', [token], (err, result) => {
         done();
 
         if (err) {
@@ -316,6 +316,7 @@ const startWorker = (workerId) => {
         req.chosenLanguages = result.rows[0].chosen_languages;
         req.allowNotifications = req.scopes.some(scope => ['read', 'read:notifications'].includes(scope));
         req.deviceId = result.rows[0].device_id;
+        req.applicationName = result.rows[0].name;
 
         resolve();
       });
@@ -797,7 +798,7 @@ const startWorker = (workerId) => {
       break;
     case 'public':
       resolve({
-        channelIds: ['timeline:public'],
+        channelIds: req.applicationName === '◆ Tootdon ◆' ? ['timeline:public:remote'] : ['timeline:public'],
         options: { needsFiltering: true, notificationOnly: false },
       });
 
@@ -822,7 +823,7 @@ const startWorker = (workerId) => {
       break;
     case 'public:media':
       resolve({
-        channelIds: ['timeline:public:media'],
+        channelIds: req.applicationName === '◆ Tootdon ◆' ? ['timeline:public:remote:media'] : ['timeline:public:media'],
         options: { needsFiltering: true, notificationOnly: false },
       });
 
