@@ -245,7 +245,7 @@ class Status < ApplicationRecord
   end
 
   def index_text
-    @index_text ||= [spoiler_text, Formatter.instance.plaintext(self)].concat(media_attachments.map(&:description)).concat(preloadable_poll ? preloadable_poll.options : []).join("\n\n")
+    @index_text ||= [spoiler_text, Formatter.instance.plaintext(self)].concat(media_attachments.map(&:description)).concat(preloadable_poll ? preloadable_poll.options : []).concat(quote? ? ["QT: [#{quote.url || ActivityPub::TagManager.instance.url_for(quote)}]"] : []).filter(&:present?).join("\n\n")
   end
 
   def replies_count
