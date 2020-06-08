@@ -40,7 +40,8 @@ class Api::V1::Timelines::PublicController < Api::BaseController
       local: truthy_param?(:local),
       remote: truthy_param?(:remote),
       domain: params[:domain],
-      only_media: truthy_param?(:only_media)
+      only_media: truthy_param?(:only_media),
+      application: doorkeeper_token&.application
     )
   end
 

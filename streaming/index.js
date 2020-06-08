@@ -294,7 +294,7 @@ const startWorker = (workerId) => {
         return;
       }
 
-      client.query('SELECT oauth_access_tokens.id, oauth_access_tokens.resource_owner_id, users.account_id, users.chosen_languages, oauth_access_tokens.scopes, devices.device_id, oauth_applications.name FROM oauth_access_tokens INNER JOIN oauth_applications ON oauth_access_tokens.application_id = oauth_applications.id INNER JOIN users ON oauth_access_tokens.resource_owner_id = users.id LEFT OUTER JOIN devices ON oauth_access_tokens.id = devices.access_token_id WHERE oauth_access_tokens.token = $1 AND oauth_access_tokens.revoked_at IS NULL LIMIT 1', [token], (err, result) => {
+      client.query('SELECT oauth_access_tokens.id, oauth_access_tokens.resource_owner_id, users.account_id, users.chosen_languages, oauth_access_tokens.scopes, devices.device_id, oauth_applications.name, oauth_applications.website FROM oauth_access_tokens INNER JOIN oauth_applications ON oauth_access_tokens.application_id = oauth_applications.id INNER JOIN users ON oauth_access_tokens.resource_owner_id = users.id LEFT OUTER JOIN devices ON oauth_access_tokens.id = devices.access_token_id WHERE oauth_access_tokens.token = $1 AND oauth_access_tokens.revoked_at IS NULL LIMIT 1', [token], (err, result) => {
         done();
 
         if (err) {
@@ -317,6 +317,7 @@ const startWorker = (workerId) => {
         req.allowNotifications = req.scopes.some(scope => ['read', 'read:notifications'].includes(scope));
         req.deviceId = result.rows[0].device_id;
         req.applicationName = result.rows[0].name;
+        req.website = result.rows[0].website;
 
         resolve();
       });
@@ -366,6 +367,8 @@ const startWorker = (workerId) => {
       return 'user:notification';
     case '/api/v1/streaming/public':
       return onlyMedia ? 'public:media' : 'public';
+    case '/api/v1/streaming/public/local':
+      return onlyMedia ? 'public:local:media' : 'public:local';
     case '/api/v1/streaming/public/remote':
       return onlyMedia ? 'public:remote:media' : 'public:remote';
     case '/api/v1/streaming/public/domain':
@@ -384,6 +387,8 @@ const startWorker = (workerId) => {
   const PUBLIC_CHANNELS = [
     'public',
     'public:media',
+    'public:local',
+    'public:local:media',
     'public:remote',
     'public:remote:media',
     'public:domain',
@@ -803,6 +808,17 @@ const startWorker = (workerId) => {
       });
 
       break;
+    case 'public:local':
+      if (!isImast(req)) {
+        reject('No local stream provided');
+      }
+
+      resolve({
+        channelIds: ['timeline:public'],
+        options: { needsFiltering: true, notificationOnly: false },
+      });
+
+      break;
     case 'public:remote':
       resolve({
         channelIds: ['timeline:public:remote'],
@@ -824,6 +840,17 @@ const startWorker = (workerId) => {
     case 'public:media':
       resolve({
         channelIds: req.applicationName === '◆ Tootdon ◆' ? ['timeline:public:remote:media'] : ['timeline:public:media'],
+        options: { needsFiltering: true, notificationOnly: false },
+      });
+
+      break;
+    case 'public:local:media':
+      if (!isImast(req)) {
+        reject('No local media stream provided');
+      }
+
+      resolve({
+        channelIds: ['timeline:public:media'],
         options: { needsFiltering: true, notificationOnly: false },
       });
 
@@ -1084,6 +1111,14 @@ const startWorker = (workerId) => {
   process.on('SIGTERM', onExit);
   process.on('exit', onExit);
   process.on('uncaughtException', onError);
+};
+
+/**
+ * @param {any} req
+ * @return {boolean}
+ */
+const isImast = (req) => {
+  return req.website == 'https://cinderella-project.github.io/iMast/';
 };
 
 /**
