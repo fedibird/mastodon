@@ -39,11 +39,11 @@ class Api::V1::Accounts::StatusesController < Api::BaseController
   end
 
   def permitted_account_statuses
-    @account.statuses.permitted_for(@account, current_account)
+    @account.permitted_statuses(current_account)
   end
 
   def only_media_scope
-    Status.joins(:media_attachments).merge(@account.media_attachments.reorder(nil)).group(:id)
+    Status.include_expired.joins(:media_attachments).merge(@account.media_attachments.reorder(nil)).group(:id)
   end
 
   def pinned_scope
@@ -53,18 +53,18 @@ class Api::V1::Accounts::StatusesController < Api::BaseController
   end
 
   def no_replies_scope
-    Status.without_replies
+    Status.include_expired.without_replies
   end
 
   def no_reblogs_scope
-    Status.without_reblogs
+    Status.include_expired.without_reblogs
   end
 
   def hashtag_scope
     tag = Tag.find_normalized(params[:tagged])
 
     if tag
-      Status.tagged_with(tag.id)
+      Status.include_expired.tagged_with(tag.id)
     else
       Status.none
     end

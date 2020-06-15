@@ -22,8 +22,10 @@
 #  application_id         :bigint(8)
 #  in_reply_to_account_id :bigint(8)
 #  poll_id                :bigint(8)
-#  deleted_at             :datetime
 #  quote_id               :bigint(8)
+#  deleted_at             :datetime
+#  expires_at             :datetime
+#  expires_action         :integer          default("delete"), not null
 #
 
 class Status < ApplicationRecord
@@ -34,6 +36,7 @@ class Status < ApplicationRecord
   include Cacheable
   include StatusThreadingConcern
   include RateLimitable
+  include Expireable
 
   rate_limit by: :account, family: :statuses
 
@@ -46,6 +49,7 @@ class Status < ApplicationRecord
   update_index('statuses#status', :proper)
 
   enum visibility: [:public, :unlisted, :private, :direct, :limited], _suffix: :visibility
+  enum expires_action: [:delete, :hint], _prefix: :expires
 
   belongs_to :application, class_name: 'Doorkeeper::Application', optional: true
 
@@ -81,14 +85,46 @@ class Status < ApplicationRecord
   validates :reblog, uniqueness: { scope: :account }, if: :reblog?
   validates :visibility, exclusion: { in: %w(direct limited) }, if: :reblog?
   validates :quote_visibility, inclusion: { in: %w(public unlisted) }, if: :quote?
+  validates_with ExpiresValidator, on: :create, if: :local?
 
   accepts_nested_attributes_for :poll
 
-  default_scope { recent.kept }
+  default_scope { recent.kept.not_expired }
 
   scope :recent, -> { reorder(id: :desc) }
   scope :remote, -> { where(local: false).where.not(uri: nil) }
   scope :local,  -> { where(local: true).or(where(uri: nil)) }
+
+  scope :not_expired, -> { where(statuses: {expires_at: nil} ).or(where('statuses.expires_at >= ?', Time.now.utc)) }
+  scope :include_expired, ->(account = nil) {
+    if account.nil?
+      unscoped.recent.kept
+    else
+      unscoped.recent.kept.where(<<-SQL, account_id: account.id, current_utc: Time.now.utc)
+        (
+          statuses.expires_at IS NULL
+        ) OR
+        NOT (
+          statuses.account_id != :account_id
+          AND NOT EXISTS (
+            SELECT *
+            FROM bookmarks b
+            WHERE b.status_id = statuses.id
+            AND b.account_id = :account_id
+          )
+          AND NOT EXISTS (
+            SELECT *
+            FROM favourites f
+            WHERE f.status_id = statuses.id
+            AND f.account_id = :account_id
+          )
+          AND statuses.expires_at IS NOT NULL
+          AND statuses.expires_at < :current_utc
+        )
+        SQL
+    end
+  }
+
   scope :with_accounts, ->(ids) { where(id: ids).includes(:account) }
   scope :without_replies, -> { where('statuses.reply = FALSE OR statuses.in_reply_to_account_id = statuses.account_id') }
   scope :without_reblogs, -> { where('statuses.reblog_of_id IS NULL') }

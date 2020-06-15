@@ -17,6 +17,8 @@ class REST::StatusSerializer < ActiveModel::Serializer
 
   attribute :quote_id, if: -> { object.quote? }
 
+  attribute :expires_at, if: -> { object.expires? }
+
   belongs_to :reblog, serializer: REST::StatusSerializer
   belongs_to :application, if: :show_application?
   belongs_to :account, serializer: REST::AccountSerializer

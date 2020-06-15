@@ -378,6 +378,14 @@ class Account < ApplicationRecord
     @synchronization_uri_prefix ||= uri[/http(s?):\/\/[^\/]+\//]
   end
 
+  def permitted_statuses(account)
+    if account.class.name == 'Account' && account.id == id
+      Status.include_expired.where(account_id: id)
+    else
+      statuses
+    end.permitted_for(self, account)
+  end
+
   class Field < ActiveModelSerializers::Model
     attributes :name, :value, :verified_at, :account
 

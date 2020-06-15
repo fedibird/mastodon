@@ -15,6 +15,8 @@ class PostStatusService < BaseService
   # @option [String] :spoiler_text
   # @option [String] :language
   # @option [String] :scheduled_at
+  # @option [String] :expires_at
+  # @option [String] :expires_action
   # @option [Hash] :poll Optional poll to attach
   # @option [Enumerable] :media_ids Optional array of media IDs to attach
   # @option [Doorkeeper::Application] :application
@@ -63,12 +65,14 @@ class PostStatusService < BaseService
   end
 
   def preprocess_attributes!
-    @sensitive    = (@options[:sensitive].nil? ? @account.user&.setting_default_sensitive : @options[:sensitive]) || @options[:spoiler_text].present?
-    @text         = @options.delete(:spoiler_text) if @text.blank? && @options[:spoiler_text].present?
-    @visibility   = @options[:visibility] || @account.user&.setting_default_privacy
-    @visibility   = :unlisted if @visibility&.to_sym == :public && @account.silenced?
-    @scheduled_at = @options[:scheduled_at]&.to_datetime
-    @scheduled_at = nil if scheduled_in_the_past?
+    @sensitive      = (@options[:sensitive].nil? ? @account.user&.setting_default_sensitive : @options[:sensitive]) || @options[:spoiler_text].present?
+    @text           = @options.delete(:spoiler_text) if @text.blank? && @options[:spoiler_text].present?
+    @visibility     = @options[:visibility] || @account.user&.setting_default_privacy
+    @visibility     = :unlisted if @visibility&.to_sym == :public && @account.silenced?
+    @scheduled_at   = @options[:scheduled_at]&.to_datetime
+    @expires_at     = @options[:expires_at]&.to_datetime
+    @expires_action = @options[:expires_action]
+    @scheduled_at   = nil if scheduled_in_the_past?
     if @quote_id.nil? && md = @text.match(/QT:\s*\[\s*(https:\/\/.+?)\s*\]/)
       @quote_id = quote_from_url(md[1])&.id
       @text.sub!(/QT:\s*\[.*?\]/, '')
@@ -118,6 +122,7 @@ class PostStatusService < BaseService
     DistributionWorker.perform_async(@status.id)
     ActivityPub::DistributionWorker.perform_async(@status.id)
     PollExpirationNotifyWorker.perform_at(@status.poll.expires_at, @status.poll.id) if @status.poll
+    DeleteExpiredStatusWorker.perform_at(@status.expires_at, @status.id) if !@status.expires_at.nil? && @status.expires_delete?
   end
 
   def validate_media!
@@ -191,6 +196,8 @@ class PostStatusService < BaseService
       application: @options[:application],
       rate_limit: @options[:with_rate_limit],
       quote_id: @quote_id,
+      expires_at: @expires_at,
+      expires_action: @expires_action,
     }.compact
   end
 

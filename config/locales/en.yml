@@ -1351,6 +1351,8 @@ en:
       one: 'contained a disallowed hashtag: %{tags}'
       other: 'contained the disallowed hashtags: %{tags}'
     errors:
+      duration_too_long: is too far into the future
+      duration_too_short: is too soon
       in_reply_not_found: The post you are trying to reply to does not appear to exist.
     language_detection: Automatically detect language
     open_in_web: Open in web

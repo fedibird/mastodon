@@ -44,6 +44,8 @@ class Api::V1::StatusesController < Api::BaseController
                                          spoiler_text: status_params[:spoiler_text],
                                          visibility: status_params[:visibility],
                                          scheduled_at: status_params[:scheduled_at],
+                                         expires_at: status_params[:expires_at],
+                                         expires_action: status_params[:expires_action],
                                          application: doorkeeper_token.application,
                                          poll: status_params[:poll],
                                          idempotency: request.headers['Idempotency-Key'],
@@ -54,7 +56,7 @@ class Api::V1::StatusesController < Api::BaseController
   end
 
   def destroy
-    @status = Status.where(account_id: current_user.account).find(params[:id])
+    @status = Status.include_expired.where(account_id: current_account.id).find(params[:id])
     authorize @status, :destroy?
 
     @status.discard
@@ -67,7 +69,7 @@ class Api::V1::StatusesController < Api::BaseController
   private
 
   def set_status
-    @status = Status.find(params[:id])
+    @status = Status.include_expired(current_account).find(params[:id])
     authorize @status, :show?
   rescue Mastodon::NotPermittedError
     not_found
@@ -88,6 +90,8 @@ class Api::V1::StatusesController < Api::BaseController
       :visibility,
       :scheduled_at,
       :quote_id,
+      :expires_at,
+      :expires_action,
       media_ids: [],
       poll: [
         :multiple,

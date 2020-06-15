@@ -60,6 +60,7 @@ class StatusActionBar extends ImmutablePureComponent {
 
   static propTypes = {
     status: ImmutablePropTypes.map.isRequired,
+    expired: PropTypes.bool,
     relationship: ImmutablePropTypes.map,
     onReply: PropTypes.func,
     onFavourite: PropTypes.func,
@@ -82,6 +83,10 @@ class StatusActionBar extends ImmutablePureComponent {
     withDismiss: PropTypes.bool,
     scrollKey: PropTypes.string,
     intl: PropTypes.object.isRequired,
+  };
+
+  static defaultProps = {
+    expired: false,
   };
 
   // Avoid checking props that are functions (and whose equality will always
@@ -236,7 +241,7 @@ class StatusActionBar extends ImmutablePureComponent {
   }
 
   render () {
-    const { status, relationship, intl, withDismiss, scrollKey } = this.props;
+    const { status, relationship, intl, withDismiss, scrollKey, expired } = this.props;
 
     const anonymousAccess    = !me;
     const publicStatus       = ['public', 'unlisted'].includes(status.get('visibility'));
@@ -248,20 +253,20 @@ class StatusActionBar extends ImmutablePureComponent {
 
     menu.push({ text: intl.formatMessage(messages.open), action: this.handleOpen });
 
-    if (publicStatus) {
+    if (publicStatus && !expired) {
       menu.push({ text: intl.formatMessage(messages.copy), action: this.handleCopy });
       menu.push({ text: intl.formatMessage(messages.embed), action: this.handleEmbed });
     }
 
     menu.push(null);
 
-    if (writtenByMe && publicStatus) {
+    if (writtenByMe && publicStatus && !expired) {
       menu.push({ text: intl.formatMessage(status.get('pinned') ? messages.unpin : messages.pin), action: this.handlePinClick });
     }
 
     menu.push(null);
 
-    if (writtenByMe || withDismiss) {
+    if ((writtenByMe || withDismiss) && !expired) {
       menu.push({ text: intl.formatMessage(mutingConversation ? messages.unmuteConversation : messages.muteConversation), action: this.handleConversationMuteClick });
       menu.push(null);
     }
@@ -332,17 +337,17 @@ class StatusActionBar extends ImmutablePureComponent {
     }
 
     const shareButton = ('share' in navigator) && publicStatus && (
-      <IconButton className='status__action-bar-button' title={intl.formatMessage(messages.share)} icon='share-alt' onClick={this.handleShareClick} />
+      <IconButton className='status__action-bar-button' disabled={expired} title={intl.formatMessage(messages.share)} icon='share-alt' onClick={this.handleShareClick} />
     );
 
     return (
       <div className='status__action-bar'>
-        <IconButton className='status__action-bar-button' title={replyTitle} icon={status.get('in_reply_to_account_id') === status.getIn(['account', 'id']) ? 'reply' : replyIcon} onClick={this.handleReplyClick} counter={status.get('replies_count')} obfuscateCount />
-        <IconButton className={classNames('status__action-bar-button', { reblogPrivate })} disabled={!publicStatus && !reblogPrivate}  active={status.get('reblogged')} pressed={status.get('reblogged')} title={reblogTitle} icon='retweet' onClick={this.handleReblogClick} />
-        <IconButton className='status__action-bar-button star-icon' animate active={status.get('favourited')} pressed={status.get('favourited')} title={intl.formatMessage(messages.favourite)} icon='star' onClick={this.handleFavouriteClick} />
-        <IconButton className='status__action-bar-button' disabled={anonymousAccess || !publicStatus} title={!publicStatus ? intl.formatMessage(messages.cannot_quote) : intl.formatMessage(messages.quote)} icon='quote-right' onClick={this.handleQuoteClick} />
+        <IconButton className='status__action-bar-button' disabled={expired} title={replyTitle} icon={status.get('in_reply_to_account_id') === status.getIn(['account', 'id']) ? 'reply' : replyIcon} onClick={this.handleReplyClick} counter={status.get('replies_count')} obfuscateCount />
+        <IconButton className={classNames('status__action-bar-button', { reblogPrivate })} disabled={!publicStatus && !reblogPrivate || expired}  active={status.get('reblogged')} pressed={status.get('reblogged')} title={reblogTitle} icon='retweet' onClick={this.handleReblogClick} />
+        <IconButton className='status__action-bar-button star-icon' animate disabled={!me && expired} active={status.get('favourited')} pressed={status.get('favourited')} title={intl.formatMessage(messages.favourite)} icon='star' onClick={this.handleFavouriteClick} />
+        <IconButton className='status__action-bar-button' disabled={anonymousAccess || !publicStatus || expired} title={!publicStatus ? intl.formatMessage(messages.cannot_quote) : intl.formatMessage(messages.quote)} icon='quote-right' onClick={this.handleQuoteClick} />
         {shareButton}
-        <IconButton className='status__action-bar-button bookmark-icon' active={status.get('bookmarked')} pressed={status.get('bookmarked')} title={intl.formatMessage(status.get('bookmarked') ? messages.removeBookmark : messages.bookmark)} icon='bookmark' onClick={this.handleBookmarkClick} />
+        <IconButton className='status__action-bar-button bookmark-icon' disabled={!me && expired} active={status.get('bookmarked')} pressed={status.get('bookmarked')} title={intl.formatMessage(status.get('bookmarked') ? messages.removeBookmark : messages.bookmark)} icon='bookmark' onClick={this.handleBookmarkClick} />
 
         <div className='status__action-bar-dropdown'>
           <DropdownMenuContainer

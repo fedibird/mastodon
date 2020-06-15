@@ -18,11 +18,11 @@ class Api::V1::BookmarksController < Api::BaseController
   end
 
   def cached_bookmarks
-    cache_collection(results.map(&:status), Status)
+    cache_collection(Status.where(id: results.pluck(:status_id)), Status)
   end
 
   def results
-    @_results ||= account_bookmarks.eager_load(:status).to_a_paginated_by_id(
+    @_results ||= account_bookmarks.joins('INNER JOIN statuses ON statuses.deleted_at IS NULL AND statuses.id = bookmarks.status_id').to_a_paginated_by_id(
       limit_param(DEFAULT_STATUSES_LIMIT),
       params_slice(:max_id, :since_id, :min_id)
     )

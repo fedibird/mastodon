@@ -48,6 +48,15 @@ const mapStateToProps = (state, props) => {
   };
 };
 
+const dateFormatOptions = {
+  hour12: false,
+  year: 'numeric',
+  month: 'short',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+};
+
 export default @connect(mapStateToProps)
 @injectIntl
 class DetailedStatus extends ImmutablePureComponent {
@@ -376,9 +385,13 @@ class DetailedStatus extends ImmutablePureComponent {
       );
     }
 
+    const expires_at = status.get('expires_at');
+    const expires_date = expires_at && new Date(expires_at);
+    const expired = expires_date && expires_date.getTime() < intl.now();
+
     return (
       <div style={outerStyle}>
-        <div ref={this.setRef} className={classNames('detailed-status', `detailed-status-${status.get('visibility')}`, { compact })}>
+        <div ref={this.setRef} className={classNames('detailed-status', `detailed-status-${status.get('visibility')}`, { compact, 'detailed-status-with-expiration': expires_date, 'detailed-status-expired': expired })}>
           <a href={status.getIn(['account', 'url'])} onClick={this.handleAccountClick} className='detailed-status__display-name'>
             <div className='detailed-status__display-avatar'><Avatar account={status.get('account')} size={48} /></div>
             <DisplayName account={status.get('account')} localDomain={this.props.domain} />
@@ -392,7 +405,15 @@ class DetailedStatus extends ImmutablePureComponent {
           <div className='detailed-status__meta'>
             <a className='detailed-status__datetime' href={status.get('url')} target='_blank' rel='noopener noreferrer'>
               <FormattedDate value={new Date(status.get('created_at'))} hour12={false} year='numeric' month='short' day='2-digit' hour='2-digit' minute='2-digit' />
-            </a>{visibilityLink}{applicationLink}{reblogLink} · {favouriteLink}
+            </a>
+            {status.get('expires_at') &&
+              <span className='detailed-status__expiration-time'>
+                <time dateTime={expires_at} title={intl.formatDate(expires_date, dateFormatOptions)}>
+                  <i className='fa fa-clock-o' aria-hidden='true' />
+                </time>
+              </span>
+            }
+            {visibilityLink}{applicationLink}{reblogLink} · {favouriteLink}
           </div>
         </div>
       </div>
