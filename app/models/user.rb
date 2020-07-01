@@ -128,7 +128,7 @@ class User < ApplicationRecord
            :disable_swiping,
            :show_follow_button_on_timeline, :show_subscribe_button_on_timeline, :show_target,
            :show_follow_button_on_timeline, :show_subscribe_button_on_timeline, :show_followed_by, :show_target,
-           :follow_button_to_list_adder, :show_navigation_panel,
+           :follow_button_to_list_adder, :show_navigation_panel, :show_quote_button, :show_bookmark_button,
            to: :settings, prefix: :setting, allow_nil: false
 
   attr_reader :invite_code, :sign_in_token_attempt

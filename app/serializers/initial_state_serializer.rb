@@ -47,6 +47,8 @@ class InitialStateSerializer < ActiveModel::Serializer
       store[:show_followed_by]                  = object.current_account.user.setting_show_followed_by
       store[:follow_button_to_list_adder]       = object.current_account.user.setting_follow_button_to_list_adder
       store[:show_navigation_panel]             = object.current_account.user.setting_show_navigation_panel
+      store[:show_quote_button]                 = object.current_account.user.setting_show_quote_button
+      store[:show_bookmark_button]              = object.current_account.user.setting_show_bookmark_button
       store[:show_target]                       = object.current_account.user.setting_show_target
     else
       store[:auto_play_gif] = Setting.auto_play_gif

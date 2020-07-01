@@ -45,6 +45,8 @@ class UserSettingsDecorator
     user.settings['show_followed_by']                  = show_followed_by_preference if change?('setting_show_followed_by')
     user.settings['follow_button_to_list_adder']       = follow_button_to_list_adder_preference if change?('setting_follow_button_to_list_adder')
     user.settings['show_navigation_panel']             = show_navigation_panel_preference if change?('setting_show_navigation_panel')
+    user.settings['show_quote_button']                 = show_quote_button_preference if change?('setting_show_quote_button')
+    user.settings['show_bookmark_button']              = show_bookmark_button_preference if change?('setting_show_bookmark_button')
     user.settings['show_target']                       = show_target_preference if change?('setting_show_target')
   end
 
@@ -166,6 +168,14 @@ class UserSettingsDecorator
 
   def show_navigation_panel_preference
     boolean_cast_setting 'setting_show_navigation_panel'
+  end
+
+  def show_quote_button_preference
+    boolean_cast_setting 'setting_show_quote_button'
+  end
+
+  def show_bookmark_button_preference
+    boolean_cast_setting 'setting_show_bookmark_button'
   end
 
   def show_target_preference
