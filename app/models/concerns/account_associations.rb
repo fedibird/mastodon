@@ -57,6 +57,9 @@ module AccountAssociations
     has_many :migrations, class_name: 'AccountMigration', dependent: :destroy, inverse_of: :account
     has_many :aliases, class_name: 'AccountAlias', dependent: :destroy, inverse_of: :account
 
+    # Domains
+    has_many :favourite_domains, inverse_of: :account, dependent: :destroy
+
     # Hashtags
     has_and_belongs_to_many :tags
     has_many :favourite_tags, -> { includes(:tag) }, dependent: :destroy, inverse_of: :account

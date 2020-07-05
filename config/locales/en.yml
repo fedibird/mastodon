@@ -944,6 +944,11 @@ en:
     lists: Lists
     mutes: You mute
     storage: Media storage
+  favourite_domains:
+    add_new: Add new
+    errors:
+      limit: You have already favourite the maximum amount of domains
+    hint_html: "<strong>What are favourite domains?</strong> They are used only for you, and are tools to help you browse using domains. You can quickly switch between timelines."
   favourite_tags:
     add_new: Add new
     errors:
@@ -1318,6 +1323,7 @@ en:
     domain_subscribes: Domain subscribes
     edit_profile: Edit profile
     export: Data export
+    favourite_domains: Favourite domains
     favourite_tags: Favourite hashtags
     featured_tags: Featured hashtags
     follow_and_subscriptions: Follows and subscriptions

@@ -214,6 +214,8 @@ ja:
         timeline: タイムライン
       email_domain_block:
         with_dns_records: ドメインのMXレコードとIPアドレスを含む
+      favourite_domain:
+        name: ドメイン
       favourite_tag:
         name: ハッシュタグ
       featured_tag:
