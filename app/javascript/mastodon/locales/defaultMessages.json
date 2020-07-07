@@ -152,6 +152,10 @@
       {
         "defaultMessage": "{count, plural, one {{counter} Follower} other {{counter} Followers}}",
         "id": "account.followers_counter"
+      },
+      {
+        "defaultMessage": "{count, plural, one {{counter} Subscriber} other {{counter} Subscribers}}",
+        "id": "account.subscribers_counter"
       }
     ],
     "path": "app/javascript/mastodon/components/common_counter.json"
