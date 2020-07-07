@@ -403,7 +403,10 @@ class Header extends ImmutablePureComponent {
 
                 { (me === account.get('id')) && (
                   <NavLink exact activeClassName='active' to={`/accounts/${account.get('id')}/subscribing`} title={intl.formatNumber(account.get('subscribing_count'))}>
-                    <strong>{shortNumberFormat(account.get('subscribing_count'))}</strong> <FormattedMessage id='account.subscribes' defaultMessage='Subscribes' />
+                    <ShortNumber
+                      value={account.get('subscribing_count')}
+                      renderer={counterRenderer('subscribers')}
+                    />
                   </NavLink>
                 )}
               </div>

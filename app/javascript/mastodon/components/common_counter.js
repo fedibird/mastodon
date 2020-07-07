@@ -57,6 +57,18 @@ export function counterRenderer(counterType, isBold = true) {
       />
     );
   }
+  case 'subscribers': {
+    return (displayNumber, pluralReady) => (
+      <FormattedMessage
+        id='account.subscribers_counter'
+        defaultMessage='{count, plural, one {{counter} Subscriber} other {{counter} Subscribers}}'
+        values={{
+          count: pluralReady,
+          counter: renderCounter(displayNumber),
+        }}
+      />
+    );
+  }
   default: throw Error(`Incorrect counter name: ${counterType}. Ensure it accepted by commonCounter function`);
   }
 }
