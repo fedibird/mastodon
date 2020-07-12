@@ -234,6 +234,10 @@ module AccountInteractions
     active_relationships.where(target_account: other_account, delivery: true).exists?
   end
 
+  def mutual?(other_account)
+    following?(other_account) && other_account.following?(self)
+  end
+
   def blocking?(other_account)
     block_relationships.where(target_account: other_account).exists?
   end

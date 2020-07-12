@@ -357,6 +357,7 @@ Rails.application.routes.draw do
         resource :public, only: :show, controller: :public
         resources :tag, only: :show
         resources :list, only: :show
+        resources :group, only: :show
       end
 
       resources :streaming, only: [:index]

@@ -78,4 +78,19 @@ module AccountAssociations
     # Follow recommendations
     has_one :follow_recommendation_suppression, inverse_of: :account, dependent: :destroy
   end
+
+  def permitted_group_statuses(account)
+    return Status.none if !group? || !account.nil? && (blocking?(account) || (account.domain.present? && domain_blocking?(account.domain)))
+
+    visibility = [:public, :unlisted]
+    visibility.push(:private) if account&.following?(self)
+
+    scope = Status.where(id:
+                    Status.where(account_id: id)
+                          .where(visibility: visibility)
+                          .select(:reblog_of_id)
+                   )
+    scope = scope.where.not(account_id: account.excluded_from_timeline_account_ids) unless account.nil?
+    scope
+  end
 end

@@ -105,6 +105,8 @@ const sharedCallbacks = {
         return channelName === streamChannelName && params.list === streamIdentifier;
       } else if (['public:domain', 'public:domain:media'].includes(channelName)) {
         return channelName === streamChannelName && params.domain === streamIdentifier;
+      } else if (['group', 'group:media'].includes(channelName)) {
+        return channelName === streamChannelName && params.id === streamIdentifier;
       }
 
       return false;

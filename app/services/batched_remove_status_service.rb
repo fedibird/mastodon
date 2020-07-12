@@ -49,6 +49,7 @@ class BatchedRemoveStatusService < BaseService
     @status_id_cutoff = Mastodon::Snowflake.id_at(2.weeks.ago)
     redis.pipelined do
       statuses.each do |status|
+        unpush_from_group_timelines(status)
         unpush_from_public_timelines(status)
       end
     end
@@ -68,6 +69,26 @@ class BatchedRemoveStatusService < BaseService
     account.lists_for_local_distribution.select(:id, :account_id).includes(account: :user).reorder(nil).find_each do |list|
       statuses.each do |status|
         FeedManager.instance.unpush_from_list(list, status)
+      end
+    end
+  end
+
+  def unpush_from_group_timelines(status)
+    return unless status.account.group?
+
+    payload = Oj.dump(event: :delete, payload: status.reblog.id.to_s)
+
+    redis.publish("timeline:group:#{status.account.id}", payload)
+
+    @tags[status.id].each do |hashtag|
+      redis.publish("timeline:group:#{status.account.id}:#{hashtag.mb_chars.downcase}", payload)
+    end
+
+    if status.media_attachments.any?
+      redis.publish("timeline:group:media:#{status.account.id}", payload)
+
+      @tags[status.id].each do |hashtag|
+        redis.publish("timeline:group:media:#{status.account.id}:#{hashtag.mb_chars.downcase}", payload)
       end
     end
   end

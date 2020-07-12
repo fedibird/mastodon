@@ -127,6 +127,16 @@ export const connectDomainStream = (domain, { onlyMedia } = {}) =>
   connectTimelineStream(`domain${onlyMedia ? ':media' : ''}:${domain}`, `public:domain${onlyMedia ? ':media' : ''}`, { domain: domain });
 
 /**
+ * @param {string} id
+ * @param {Object} options
+ * @param {boolean} [options.onlyMedia]
+ * @param {string} [options.tagged]
+ * @return {function(): void}
+ */
+export const connectGroupStream = (id, { onlyMedia, tagged } = {}) =>
+  connectTimelineStream(`group:${id}${onlyMedia ? ':media' : ''}${tagged ? `:${tagged}` : ''}`, `group${onlyMedia ? ':media' : ''}`, { id: id, tagged: tagged });
+
+/**
  * @param {Object} options
  * @param {boolean} [options.onlyRemote]
  * @param {boolean} [options.onlyMedia]

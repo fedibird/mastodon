@@ -305,6 +305,6 @@ class Formatter
   end
 
   def mention_html(account, with_domain: false)
-    "<span class=\"h-card\"><a href=\"#{encode(ActivityPub::TagManager.instance.url_for(account))}\" class=\"u-url mention\">@<span>#{encode(with_domain ? account.pretty_acct : account.username)}</span></a></span>"
+    "<span class=\"h-card\"><a href=\"#{encode(ActivityPub::TagManager.instance.url_for(account))}\" class=\"u-url mention#{account.group? ? ' group' : ''}\">@<span>#{encode(with_domain ? account.pretty_acct : account.username)}</span></a></span>"
   end
 end

@@ -22,6 +22,10 @@ export function DomainTimeline () {
   return import(/* webpackChunkName: "features/domain_timeline" */'../../domain_timeline');
 }
 
+export function GroupTimeline () {
+  return import(/* webpackChunkName: "features/group_timeline" */'../../group_timeline');
+}
+
 export function HashtagTimeline () {
   return import(/* webpackChunkName: "features/hashtag_timeline" */'../../hashtag_timeline');
 }

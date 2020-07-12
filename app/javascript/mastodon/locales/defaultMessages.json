@@ -1869,6 +1869,69 @@
   {
     "descriptors": [
       {
+        "defaultMessage": "Follow",
+        "id": "account.follow"
+      },
+      {
+        "defaultMessage": "Unfollow",
+        "id": "account.unfollow"
+      },
+      {
+        "defaultMessage": "Awaiting approval",
+        "id": "account.requested"
+      },
+      {
+        "defaultMessage": "Unblock @{name}",
+        "id": "account.unblock"
+      },
+      {
+        "defaultMessage": "Unmute @{name}",
+        "id": "account.unmute"
+      },
+      {
+        "defaultMessage": "Unfollow",
+        "id": "confirmations.unfollow.confirm"
+      },
+      {
+        "defaultMessage": "Are you sure you want to unfollow {name}?",
+        "id": "confirmations.unfollow.message"
+      }
+    ],
+    "path": "app/javascript/mastodon/features/group_timeline/components/account_card.json"
+  },
+  {
+    "descriptors": [
+      {
+        "defaultMessage": "Media only",
+        "id": "group.column_settings.media_only"
+      }
+    ],
+    "path": "app/javascript/mastodon/features/group_timeline/components/column_settings.json"
+  },
+  {
+    "descriptors": [
+      {
+        "defaultMessage": "Group timeline",
+        "id": "column.group"
+      },
+      {
+        "defaultMessage": "Show group detail",
+        "id": "home.show_group_detail"
+      },
+      {
+        "defaultMessage": "Hide group detail",
+        "id": "home.hide_group_detail"
+      },
+      {
+        "defaultMessage": "The group timeline is empty. When members of this group post new toots, they will appear here.",
+        "id": "empty_column.group"
+      }
+    ],
+    "path": "app/javascript/mastodon/features/group_timeline/index.json"
+  },
+  {
+    "descriptors": [
+      {
         "defaultMessage": "Enter hashtags…",
         "id": "hashtag.column_settings.select.placeholder"
       },

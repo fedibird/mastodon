@@ -146,7 +146,7 @@ class REST::StatusSerializer < ActiveModel::Serializer
   end
 
   class MentionSerializer < ActiveModel::Serializer
-    attributes :id, :username, :url, :acct
+    attributes :id, :username, :url, :acct, :group
 
     def id
       object.account_id.to_s
@@ -162,6 +162,10 @@ class REST::StatusSerializer < ActiveModel::Serializer
 
     def acct
       object.account.pretty_acct
+    end
+
+    def group
+      object.account.group?
     end
   end
 

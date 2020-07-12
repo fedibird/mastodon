@@ -131,6 +131,7 @@ class Status < ApplicationRecord
   scope :with_public_visibility, -> { where(visibility: :public) }
   scope :tagged_with, ->(tag_ids) { joins(:statuses_tags).where(statuses_tags: { tag_id: tag_ids }) }
   scope :in_chosen_languages, ->(account) { where(language: nil).or where(language: account.chosen_languages) }
+  scope :mentioned_with, ->(account) { joins(:mentions).where(mentions: { account_id: account }) }
   scope :excluding_silenced_accounts, -> { left_outer_joins(:account).where(accounts: { silenced_at: nil }) }
   scope :including_silenced_accounts, -> { left_outer_joins(:account).where.not(accounts: { silenced_at: nil }) }
   scope :not_excluded_by_account, ->(account) { where.not(account_id: account.excluded_from_timeline_account_ids) }
@@ -215,6 +216,12 @@ class Status < ApplicationRecord
 
   def quote_visibility
     quote&.visibility
+  end
+
+  def mentioning?(source_account_id)
+    source_account_id = source_account_id.id if source_account_id.is_a?(Account)
+
+    mentioned_with(source_account_id).exists?
   end
 
   def within_realtime_window?

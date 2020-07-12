@@ -12,6 +12,7 @@ class RemoveStatusService < BaseService
   # @option  [Boolean] :original_removed
   def call(status, **options)
     @payload  = Oj.dump(event: :delete, payload: status.id.to_s)
+    @reblog_payload = Oj.dump(event: :delete, payload: status.reblog.id.to_s)
     @status   = status
     @account  = status.account
     @options  = options
@@ -38,6 +39,7 @@ class RemoveStatusService < BaseService
           remove_from_mentions
           remove_reblogs
           remove_from_hashtags
+          remove_from_group if status.account.group?
           remove_from_public
           remove_from_media if @status.media_attachments.any?
           remove_media
@@ -116,6 +118,22 @@ class RemoveStatusService < BaseService
 
     @status.tags.map(&:name).each do |hashtag|
       redis.publish("timeline:hashtag:#{hashtag.mb_chars.downcase}", @payload)
+    end
+  end
+
+  def remove_from_group
+    redis.publish("timeline:group:#{@status.account.id}", @reblog_payload)
+
+    @status.tags.map(&:name).each do |hashtag|
+      redis.publish("timeline:group:#{@status.account.id}:#{hashtag.mb_chars.downcase}", @reblog_payload)
+    end
+
+    if @status.media_attachments.any?
+      redis.publish("timeline:group:media:#{@status.account.id}", @reblog_payload)
+
+      @status.tags.map(&:name).each do |hashtag|
+        redis.publish("timeline:group:media:#{@status.account.id}:#{hashtag.mb_chars.downcase}", @reblog_payload)
+      end
     end
   end
 

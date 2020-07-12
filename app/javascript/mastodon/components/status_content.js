@@ -50,7 +50,11 @@ export default class StatusContent extends React.PureComponent {
       let mention = this.props.status.get('mentions').find(item => link.href === item.get('url'));
 
       if (mention) {
-        link.addEventListener('click', this.onMentionClick.bind(this, mention), false);
+        if (mention.get('group', false)) {
+          link.addEventListener('click', this.onGroupMentionClick.bind(this, mention), false);
+        } else {
+          link.addEventListener('click', this.onMentionClick.bind(this, mention), false);
+        }
         link.setAttribute('title', mention.get('acct'));
       } else if (link.textContent[0] === '#' || (link.previousSibling && link.previousSibling.textContent && link.previousSibling.textContent[link.previousSibling.textContent.length - 1] === '#')) {
         link.addEventListener('click', this.onHashtagClick.bind(this, link.text), false);
@@ -114,6 +118,13 @@ export default class StatusContent extends React.PureComponent {
     if (this.context.router && e.button === 0 && !(e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       this.context.router.history.push(`/accounts/${mention.get('id')}`);
+    }
+  }
+
+  onGroupMentionClick = (mention, e) => {
+    if (this.context.router && e.button === 0 && !(e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      this.context.router.history.push(`/timelines/groups/${mention.get('id')}`);
     }
   }
 
@@ -219,7 +230,7 @@ export default class StatusContent extends React.PureComponent {
       let mentionsPlaceholder = '';
 
       const mentionLinks = status.get('mentions').map(item => (
-        <Permalink to={`/accounts/${item.get('id')}`} href={item.get('url')} key={item.get('id')} className='mention'>
+        <Permalink to={`${(item.get('group', false)) ? '/timelines/groups/' : '/accounts/'}${item.get('id')}`} href={item.get('url')} key={item.get('id')} className='mention'>
           @<span>{item.get('username')}</span>
         </Permalink>
       )).reduce((aggregate, item) => [...aggregate, item, ' '], []);
