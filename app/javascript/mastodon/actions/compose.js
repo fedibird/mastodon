@@ -419,9 +419,11 @@ const fetchComposeSuggestionsAccounts = throttle((dispatch, getState, token) => 
     }),
 
     params: {
-      q: token.slice(1),
+      q: token.replace(/^@@?/, ''),
       resolve: false,
       limit: 4,
+      following: token.startsWith('@@'),
+      group_only: token.startsWith('@@'),
     },
   }).then(response => {
     dispatch(importFetchedAccounts(response.data));

@@ -61,11 +61,11 @@ class AccountSearchService < BaseService
   end
 
   def advanced_search_results
-    Account.advanced_search_for(terms_for_query, account, limit_for_non_exact_results, options[:following], offset)
+    Account.advanced_search_for(terms_for_query, account, limit_for_non_exact_results, options[:following], options[:group_only], offset)
   end
 
   def simple_search_results
-    Account.search_for(terms_for_query, limit_for_non_exact_results, offset)
+    Account.search_for(terms_for_query, limit_for_non_exact_results, options[:group_only], offset)
   end
 
   def from_elasticsearch
@@ -79,6 +79,9 @@ class AccountSearchService < BaseService
         must_clauses << { terms: { id: following_ids } }
       elsif following_ids.any?
         should_clauses << { terms: { id: following_ids, boost: 100 } }
+      end
+      if options[:group_only]
+        must_clauses << { term: { actor_type: 'group' } }
       end
     end
 

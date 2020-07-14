@@ -35,6 +35,8 @@ class AccountsIndex < Chewy::Index
         field :edge_ngram, type: 'text', analyzer: 'edge_ngram', search_analyzer: 'content'
       end
 
+      field :actor_type, type: 'keyword', analyzer: 'content'
+
       field :following_count, type: 'long', value: ->(account) { account.following.local.count }
       field :followers_count, type: 'long', value: ->(account) { account.followers.local.count }
       field :subscribing_count, type: 'long', value: ->(account) { account.subscribing.local.count }
