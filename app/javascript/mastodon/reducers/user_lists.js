@@ -119,9 +119,9 @@ export default function userLists(state = initialState, action) {
   case FOLLOWING_EXPAND_FAIL:
     return state.setIn(['following', action.id, 'isLoading'], false);
   case SUBSCRIBING_FETCH_SUCCESS:
-    return normalizeList(state, 'subscribing', action.id, action.accounts, action.next);
+    return normalizeList(state, ['subscribing', action.id], action.accounts, action.next);
   case SUBSCRIBING_EXPAND_SUCCESS:
-    return appendToList(state, 'subscribing', action.id, action.accounts, action.next);
+    return appendToList(state, ['subscribing', action.id], action.accounts, action.next);
   case SUBSCRIBING_FETCH_REQUEST:
   case SUBSCRIBING_EXPAND_REQUEST:
     return state.setIn(['subscribing', action.id, 'isLoading'], true);
