@@ -165,7 +165,8 @@ class GroupTimeline extends React.PureComponent {
       </button>
     );
 
-    const title = account.get('username', intl.formatMessage(messages.title))
+    const displayName = account.get('display_name')
+    const title = displayName.length === 0 ? account.get('acct').split('@')[0] : displayName
 
     const groupDetail = (
       <div className={collapsibleClassName} tabIndex={collapsed ? -1 : null} onTransitionEnd={this.handleTransitionEnd}>
