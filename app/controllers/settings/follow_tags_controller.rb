@@ -32,7 +32,7 @@ class Settings::FollowTagsController < Settings::BaseController
 
   def update
     if @follow_tag.update(follow_tag_params)
-      redirect_to settings_follow_tag_path
+      redirect_to settings_follow_tags_path
     else
       render action: :edit
     end

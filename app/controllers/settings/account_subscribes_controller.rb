@@ -16,7 +16,7 @@ class Settings::AccountSubscribesController < Settings::BaseController
 
   def create
     @form_account_subscribing = Form::AccountSubscribe.new(account_subscribe_params)
-    target_account = AccountSubscribeService.new.call(current_account, @form_account_subscribing.acct, @form_account_subscribing.show_reblogs, @form_account_subscribing.list_id)
+    target_account = AccountSubscribeService.new.call(current_account, @form_account_subscribing.acct, { show_reblogs: @form_account_subscribing.show_reblogs, list_id: @form_account_subscribing.list_id })
 
     if target_account
       redirect_to settings_account_subscribes_path
