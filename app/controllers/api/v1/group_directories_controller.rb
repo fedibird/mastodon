@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-class Api::V1::DirectoriesController < Api::BaseController
-  before_action :require_enabled!
+class Api::V1::GroupDirectoriesController < Api::BaseController
   before_action :set_accounts
 
   def show
@@ -10,21 +9,16 @@ class Api::V1::DirectoriesController < Api::BaseController
 
   private
 
-  def require_enabled!
-    return not_found unless Setting.profile_directory
-  end
-
   def set_accounts
     @accounts = accounts_scope.offset(params[:offset]).limit(limit_param(DEFAULT_ACCOUNTS_LIMIT))
   end
 
   def accounts_scope
-    Account.discoverable.without_groups.tap do |scope|
-      scope.merge!(Account.local)                                          if truthy_param?(:local)
+    Account.discoverable.groups.tap do |scope|
       scope.merge!(Account.by_recent_status)                               if params[:order].blank? || params[:order] == 'active'
       scope.merge!(Account.order(id: :desc))                               if params[:order] == 'new'
       scope.merge!(Account.not_excluded_by_account(current_account))       if current_account
-      scope.merge!(Account.not_domain_blocked_by_account(current_account)) if current_account && !truthy_param?(:local)
+      scope.merge!(Account.not_domain_blocked_by_account(current_account)) if current_account
     end
   end
 end

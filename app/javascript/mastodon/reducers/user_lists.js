@@ -50,6 +50,14 @@ import {
   MUTES_EXPAND_FAIL,
 } from '../actions/mutes';
 import {
+  GROUP_DIRECTORY_FETCH_REQUEST,
+  GROUP_DIRECTORY_FETCH_SUCCESS,
+  GROUP_DIRECTORY_FETCH_FAIL,
+  GROUP_DIRECTORY_EXPAND_REQUEST,
+  GROUP_DIRECTORY_EXPAND_SUCCESS,
+  GROUP_DIRECTORY_EXPAND_FAIL,
+} from 'mastodon/actions/group_directory';
+import {
   DIRECTORY_FETCH_REQUEST,
   DIRECTORY_FETCH_SUCCESS,
   DIRECTORY_FETCH_FAIL,
@@ -167,6 +175,16 @@ export default function userLists(state = initialState, action) {
   case MUTES_FETCH_FAIL:
   case MUTES_EXPAND_FAIL:
     return state.setIn(['mutes', 'isLoading'], false);
+  case GROUP_DIRECTORY_FETCH_SUCCESS:
+    return normalizeList(state, ['group_directory'], action.accounts, action.next);
+  case GROUP_DIRECTORY_EXPAND_SUCCESS:
+    return appendToList(state, ['group_directory'], action.accounts, action.next);
+  case GROUP_DIRECTORY_FETCH_REQUEST:
+  case GROUP_DIRECTORY_EXPAND_REQUEST:
+    return state.setIn(['group_directory', 'isLoading'], true);
+  case GROUP_DIRECTORY_FETCH_FAIL:
+  case GROUP_DIRECTORY_EXPAND_FAIL:
+    return state.setIn(['group_directory', 'isLoading'], false);
   case DIRECTORY_FETCH_SUCCESS:
     return normalizeList(state, ['directory'], action.accounts, action.next);
   case DIRECTORY_EXPAND_SUCCESS:

@@ -158,6 +158,10 @@ export function Audio () {
   return import(/* webpackChunkName: "features/audio" */'../../audio');
 }
 
+export function GroupDirectory () {
+  return import(/* webpackChunkName: "features/group_directory" */'../../group_directory');
+}
+
 export function Directory () {
   return import(/* webpackChunkName: "features/directory" */'../../directory');
 }

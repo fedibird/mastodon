@@ -427,7 +427,9 @@ Rails.application.routes.draw do
       end
 
       resource :domain_blocks, only: [:show, :create, :destroy]
-      resource :directory, only: [:show]
+
+      resource :directory,       only: [:show]
+      resource :group_directory, only: [:show]
 
       resources :follow_requests, only: [:index] do
         member do
