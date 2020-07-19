@@ -1,6 +1,5 @@
 import api, { getLinks } from '../api';
 import { importFetchedAccount, importFetchedAccounts } from './importer';
-import { Map as ImmutableMap } from 'immutable';
 
 export const ACCOUNT_FETCH_REQUEST = 'ACCOUNT_FETCH_REQUEST';
 export const ACCOUNT_FETCH_SUCCESS = 'ACCOUNT_FETCH_SUCCESS';

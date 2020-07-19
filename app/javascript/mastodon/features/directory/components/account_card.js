@@ -10,7 +10,14 @@ import Permalink from 'mastodon/components/permalink';
 import RelativeTimestamp from 'mastodon/components/relative_timestamp';
 import IconButton from 'mastodon/components/icon_button';
 import { FormattedMessage, injectIntl, defineMessages } from 'react-intl';
-import { autoPlayGif, me, unfollowModal, unsubscribeModal, show_followed_by } from 'mastodon/initial_state';
+import {
+  autoPlayGif,
+  me,
+  unfollowModal,
+  unsubscribeModal,
+  show_followed_by,
+  follow_button_to_list_adder,
+} from 'mastodon/initial_state';
 import ShortNumber from 'mastodon/components/short_number';
 import {
   followAccount,
@@ -19,11 +26,10 @@ import {
   unsubscribeAccount,
   blockAccount,
   unblockAccount,
-  unmuteAccount
+  unmuteAccount,
 } from 'mastodon/actions/accounts';
 import { openModal } from 'mastodon/actions/modal';
 import { initMuteModal } from 'mastodon/actions/mutes';
-import { Map as ImmutableMap } from 'immutable';
 
 const messages = defineMessages({
   follow: { id: 'account.follow', defaultMessage: 'Follow' },
@@ -262,7 +268,7 @@ class AccountCard extends ImmutablePureComponent {
             />
           );
         }
-        buttons = <Fragment>{subscribing_buttons}{following_buttons}</Fragment>
+        buttons = <Fragment>{subscribing_buttons}{following_buttons}</Fragment>;
       }
     }
 

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Fragment } from 'react';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import PropTypes from 'prop-types';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
@@ -14,7 +14,6 @@ import ShortNumber from 'mastodon/components/short_number';
 import { NavLink } from 'react-router-dom';
 import DropdownMenuContainer from 'mastodon/containers/dropdown_menu_container';
 import AccountNoteContainer from '../containers/account_note_container';
-import { Map as ImmutableMap } from 'immutable';
 
 const messages = defineMessages({
   unfollow: { id: 'account.unfollow', defaultMessage: 'Unfollow' },
@@ -297,12 +296,33 @@ class Header extends ImmutablePureComponent {
     if(me !== account.get('id') && !blockd_by) {
       let following_buttons, subscribing_buttons;
       if(!account.get('moved') || subscribing) {
-        subscribing_buttons = <IconButton icon='rss-square' title={intl.formatMessage(subscribing ? messages.unsubscribe : messages.subscribe)} onClick={this.handleSubscribe} active={subscribing} no_delivery={subscribing && !subscribing_home} />;
+        subscribing_buttons = (
+          <IconButton
+            icon='rss-square'
+            title={intl.formatMessage(
+              subscribing ? messages.unsubscribe : messages.subscribe
+            )}
+            onClick={this.handleSubscribe}
+            active={subscribing}
+            no_delivery={subscribing && !subscribing_home}
+          />
+        );
       }
       if(!account.get('moved') || following) {
-        following_buttons = <IconButton icon={following ? 'user-times' : 'user-plus'} title={intl.formatMessage(following ? messages.unfollow : messages.follow)} onClick={this.handleFollow} active={following} passive={followed_by} no_delivery={following && !delivery} />;
+        following_buttons = (
+          <IconButton
+            icon={following ? 'user-times' : 'user-plus'}
+            title={intl.formatMessage(
+              following ? messages.unfollow : messages.follow
+            )}
+            onClick={this.handleFollow}
+            active={following}
+            passive={followed_by}
+            no_delivery={following && !delivery}
+          />
+        );
       }
-      buttons = <span>{subscribing_buttons}{following_buttons}</span>
+      buttons = <Fragment>{subscribing_buttons}{following_buttons}</Fragment>;
     }
 
     return (

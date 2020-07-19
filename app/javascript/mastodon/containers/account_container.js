@@ -16,7 +16,6 @@ import {
 import { openModal } from '../actions/modal';
 import { initMuteModal } from '../actions/mutes';
 import { unfollowModal, unsubscribeModal } from '../initial_state';
-import { Map as ImmutableMap } from 'immutable';
 
 const messages = defineMessages({
   unfollowConfirm: { id: 'confirmations.unfollow.confirm', defaultMessage: 'Unfollow' },
