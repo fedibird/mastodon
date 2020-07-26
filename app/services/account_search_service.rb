@@ -38,6 +38,13 @@ class AccountSearchService < BaseService
     end
 
     match = nil if !match.nil? && !account.nil? && options[:following] && !account.following?(match)
+    @exact_match = nil
+
+    unless match.nil? || account.nil?
+      return if options[:following] && !account.following?(match)
+      return if options[:followers] && !match.following?(account)
+      return if options[:group_only] && !match.group?
+    end
 
     @exact_match = match
   end
