@@ -12,6 +12,19 @@ class AccountsIndex < Chewy::Index
         tokenizer: 'edge_ngram',
         filter: %w(lowercase asciifolding cjk_width),
       },
+
+      sudachi_content: {
+        filter: %w(
+          lowercase
+          cjk_width
+          sudachi_part_of_speech
+          sudachi_ja_stop
+          sudachi_baseform
+          search
+        ),
+        tokenizer: 'sudachi_tokenizer',
+        type: 'custom',
+      },
     },
 
     tokenizer: {
@@ -19,6 +32,19 @@ class AccountsIndex < Chewy::Index
         type: 'edge_ngram',
         min_gram: 1,
         max_gram: 15,
+      },
+      sudachi_tokenizer: {
+        type: 'sudachi_tokenizer',
+        discard_punctuation: true,
+        resources_path: '/etc/elasticsearch',
+        settings_path: '/etc/elasticsearch/sudachi.json',
+      },
+    },
+
+    filter: {
+      search: {
+        type: 'sudachi_split',
+        mode: 'search',
       },
     },
   }
@@ -36,6 +62,10 @@ class AccountsIndex < Chewy::Index
       end
 
       field :actor_type, type: 'keyword', analyzer: 'content'
+
+      field :text, type: 'text', value: ->(account) { account.index_text } do
+        field :stemmed, type: 'text', analyzer: 'sudachi_content'
+      end
 
       field :following_count, type: 'long', value: ->(account) { account.following.local.count }
       field :followers_count, type: 'long', value: ->(account) { account.followers.local.count }

@@ -22,9 +22,16 @@ class StatusesIndex < Chewy::Index
           sudachi_part_of_speech
           sudachi_ja_stop
           sudachi_baseform
+          search
         ),
         tokenizer: 'sudachi_tokenizer',
         type: 'custom',
+      },
+    },
+    filter: {
+      search: {
+        type: 'sudachi_split',
+        mode: 'search',
       },
     },
   }

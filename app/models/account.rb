@@ -387,6 +387,10 @@ class Account < ApplicationRecord
     end.permitted_for(self, account)
   end
 
+  def index_text
+    ActionController::Base.helpers.strip_tags(note)
+  end
+
   class Field < ActiveModelSerializers::Model
     attributes :name, :value, :verified_at, :account
 
