@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-class AccountFilter
+class AccountSearchFilter
   attr_reader :target_account, :account
 
   def initialize(target_account, account, preloaded_relations = {})

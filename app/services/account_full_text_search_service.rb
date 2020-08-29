@@ -23,7 +23,7 @@ class AccountFullTextSearchService < BaseService
     account_domains     = results.map(&:domain).uniq.compact
     preloaded_relations = relations_map_for_account(@account, account_ids, account_domains)
 
-    results.reject { |target_account| AccountFilter.new(target_account, @account, preloaded_relations).filtered? }
+    results.reject { |target_account| AccountSearchFilter.new(target_account, @account, preloaded_relations).filtered? }
   rescue Faraday::ConnectionFailed, Parslet::ParseFailed
     []
   end
