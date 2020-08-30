@@ -85,11 +85,13 @@ module AccountAssociations
     visibility = [:public, :unlisted]
     visibility.push(:private) if account&.following?(self)
 
-    scope = Status.where(id:
-                    Status.where(account_id: id)
+    scope = Status.unscoped
+                  .where(id:
+                    Status.reorder(nil)
+                          .where(account_id: id)
                           .where(visibility: visibility)
-                          .select(:reblog_of_id)
-                   )
+                          .select('CASE reblog_of_id WHEN NULL THEN id ELSE reblog_of_id END')
+                  )
     scope = scope.where.not(account_id: account.excluded_from_timeline_account_ids) unless account.nil?
     scope
   end
