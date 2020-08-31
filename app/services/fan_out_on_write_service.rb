@@ -18,13 +18,19 @@ class FanOutOnWriteService < BaseService
       deliver_to_lists(status)
     end
 
-    if status.account.group? && status.reblog?
-      render_anonymous_reblog_payload(status)
+    if status.account.group?
+      if status.reblog?
+        render_anonymous_reblog_payload(status)
+      else
+        render_anonymous_payload(status)
+      end
 
       deliver_to_group(status)
     end
 
     return if status.account.silenced? || !status.public_visibility?
+
+    render_anonymous_payload(status)
 
     if !status.reblog? && (!status.reply? || status.in_reply_to_account_id == status.account_id)
       deliver_to_public(status)
@@ -36,8 +42,6 @@ class FanOutOnWriteService < BaseService
     deliver_to_subscribers_lists(status)
 
     return if status.reblog?
-
-    render_anonymous_payload(status)
 
     deliver_to_hashtags(status)
     deliver_to_hashtag_followers(status)
@@ -158,11 +162,15 @@ class FanOutOnWriteService < BaseService
   end
 
   def render_anonymous_payload(status)
+    return @payload if defined?(@payload)
+
     @payload = InlineRenderer.render(status, nil, :status)
     @payload = Oj.dump(event: :update, payload: @payload)
   end
 
   def render_anonymous_reblog_payload(status)
+    return @reblog_payload if defined?(@reblog_payload)
+
     @reblog_payload = InlineRenderer.render(status.reblog, nil, :status)
     @reblog_payload = Oj.dump(event: :update, payload: @reblog_payload)
   end
@@ -195,19 +203,21 @@ class FanOutOnWriteService < BaseService
   end
 
   def deliver_to_group(status)
-    Rails.logger.debug "Delivering status #{status.reblog.id} to group timeline"
+    Rails.logger.debug "Delivering status #{status.id} to group timeline"
 
-    Redis.current.publish("timeline:group:#{status.account.id}", @reblog_payload)
+    payload = status.reblog? ? @reblog_payload : @payload
+
+    Redis.current.publish("timeline:group:#{status.account.id}", payload)
 
     status.tags.pluck(:name).each do |hashtag|
-      Redis.current.publish("timeline:group:#{status.account.id}:#{hashtag.mb_chars.downcase}", @reblog_payload)
+      Redis.current.publish("timeline:group:#{status.account.id}:#{hashtag.mb_chars.downcase}", payload)
     end
 
     if status.media_attachments.any?
-      Redis.current.publish("timeline:group:media:#{status.account.id}", @reblog_payload)
+      Redis.current.publish("timeline:group:media:#{status.account.id}", payload)
 
       status.tags.pluck(:name).each do |hashtag|
-        Redis.current.publish("timeline:group:media:#{status.account.id}:#{hashtag.mb_chars.downcase}", @reblog_payload)
+        Redis.current.publish("timeline:group:media:#{status.account.id}:#{hashtag.mb_chars.downcase}", payload)
       end
     end
   end
