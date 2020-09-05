@@ -12,6 +12,7 @@ const messages = defineMessages({
   delete: { id: 'status.delete', defaultMessage: 'Delete' },
   redraft: { id: 'status.redraft', defaultMessage: 'Delete & re-draft' },
   direct: { id: 'status.direct', defaultMessage: 'Direct message @{name}' },
+  showMemberList: { id: 'status.show_member_list', defaultMessage: 'Show member list' },
   mention: { id: 'status.mention', defaultMessage: 'Mention @{name}' },
   reply: { id: 'status.reply', defaultMessage: 'Reply' },
   reblog: { id: 'status.reblog', defaultMessage: 'Boost' },
@@ -64,6 +65,7 @@ class ActionBar extends React.PureComponent {
     onBookmark: PropTypes.func.isRequired,
     onDelete: PropTypes.func.isRequired,
     onDirect: PropTypes.func.isRequired,
+    onMemberList: PropTypes.func.isRequired,
     onMention: PropTypes.func.isRequired,
     onMute: PropTypes.func,
     onUnmute: PropTypes.func,
@@ -108,6 +110,10 @@ class ActionBar extends React.PureComponent {
 
   handleDirectClick = () => {
     this.props.onDirect(this.props.status.get('account'), this.context.router.history);
+  }
+
+  handleMemberListClick = () => {
+    this.props.onMemberList(this.props.status, this.context.router.history);
   }
 
   handleMentionClick = () => {
@@ -206,6 +212,7 @@ class ActionBar extends React.PureComponent {
     const mutingConversation = status.get('muted');
     const account            = status.get('account');
     const writtenByMe        = status.getIn(['account', 'id']) === me;
+    const limitedByMe        = status.get('visibility') === 'limited' && status.get('circle_id');
 
     const expires_at = status.get('expires_at')
     const expires_date = expires_at && new Date(expires_at)
@@ -225,6 +232,11 @@ class ActionBar extends React.PureComponent {
         menu.push(null);
       }
 
+      if (limitedByMe) {
+        menu.push({ text: intl.formatMessage(messages.showMemberList), action: this.handleMemberListClick });
+      }
+
+      menu.push(null);
       if (!expired) {
         menu.push({ text: intl.formatMessage(mutingConversation ? messages.unmuteConversation : messages.muteConversation), action: this.handleConversationMuteClick });
         menu.push(null);

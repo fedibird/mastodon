@@ -62,6 +62,7 @@ export function normalizeStatus(status, normalOldStatus) {
     normalStatus.spoilerHtml = normalOldStatus.get('spoilerHtml');
     normalStatus.spoiler_text = normalOldStatus.get('spoiler_text');
     normalStatus.hidden = normalOldStatus.get('hidden');
+    normalStatus.visibility = normalOldStatus.get('visibility');
     normalStatus.quote = normalOldStatus.get('quote');
     normalStatus.quote_hidden = normalOldStatus.get('quote_hidden');
   } else {
@@ -80,6 +81,7 @@ export function normalizeStatus(status, normalOldStatus) {
     normalStatus.contentHtml  = emojify(normalStatus.content, emojiMap);
     normalStatus.spoilerHtml  = emojify(escapeTextContentForBrowser(spoilerText), emojiMap);
     normalStatus.hidden       = expandSpoilers ? false : spoilerText.length > 0 || normalStatus.sensitive;
+    normalStatus.visibility   = normalStatus.limited ? 'limited' : normalStatus.visibility;
 
     if (status.quote && status.quote.id) {
       const quote_spoilerText = status.quote.spoiler_text || '';

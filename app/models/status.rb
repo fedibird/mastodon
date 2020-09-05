@@ -37,6 +37,7 @@ class Status < ApplicationRecord
   include StatusThreadingConcern
   include RateLimitable
   include Expireable
+  include Redisable
 
   rate_limit by: :account, family: :statuses
 
@@ -46,17 +47,21 @@ class Status < ApplicationRecord
   # will be based on current time instead of `created_at`
   attr_accessor :override_timestamps
 
+  attr_accessor :circle
+
   update_index('statuses#status', :proper)
 
-  enum visibility: [:public, :unlisted, :private, :direct, :limited], _suffix: :visibility
+  enum visibility: [:public, :unlisted, :private, :mutual, :direct, :limited], _suffix: :visibility
   enum expires_action: [:delete, :hint], _prefix: :expires
 
   belongs_to :application, class_name: 'Doorkeeper::Application', optional: true
 
   belongs_to :account, inverse_of: :statuses
   belongs_to :in_reply_to_account, foreign_key: 'in_reply_to_account_id', class_name: 'Account', optional: true
-  belongs_to :conversation, optional: true
+  belongs_to :conversation, optional: true, inverse_of: :statuses
   belongs_to :preloadable_poll, class_name: 'Poll', foreign_key: 'poll_id', optional: true
+
+  has_one :owned_conversation, class_name: 'Conversation', foreign_key: 'parent_status_id', inverse_of: :parent_status
 
   belongs_to :thread, foreign_key: 'in_reply_to_id', class_name: 'Status', inverse_of: :replies, optional: true
   belongs_to :reblog, foreign_key: 'reblog_of_id', class_name: 'Status', inverse_of: :reblogs, optional: true
@@ -70,6 +75,7 @@ class Status < ApplicationRecord
   has_many :active_mentions, -> { active }, class_name: 'Mention', inverse_of: :status
   has_many :media_attachments, dependent: :nullify
   has_many :quoted, foreign_key: 'quote_id', class_name: 'Status', inverse_of: :quote, dependent: :nullify
+  has_many :capability_tokens, class_name: 'StatusCapabilityToken', inverse_of: :status, dependent: :destroy
 
   has_and_belongs_to_many :tags
   has_and_belongs_to_many :preview_cards
@@ -264,7 +270,9 @@ class Status < ApplicationRecord
     public_visibility? || unlisted_visibility?
   end
 
-  alias sign? distributable?
+  def sign?
+    distributable? || limited_visibility?
+  end
 
   def with_media?
     media_attachments.any?
@@ -319,13 +327,14 @@ class Status < ApplicationRecord
 
   around_create Mastodon::Snowflake::Callbacks
 
-  before_validation :prepare_contents, if: :local?
-  before_validation :set_reblog
-  before_validation :set_visibility
-  before_validation :set_conversation
-  before_validation :set_local
+  before_validation :prepare_contents, on: :create, if: :local?
+  before_validation :set_reblog, on: :create
+  before_validation :set_visibility, on: :create
+  before_validation :set_conversation, on: :create
+  before_validation :set_local, on: :create
 
   after_create :set_poll_id
+  after_create :set_circle
 
   class << self
     def selectable_visibilities
@@ -452,10 +461,23 @@ class Status < ApplicationRecord
 
     if reply? && !thread.nil?
       self.in_reply_to_account_id = carried_over_reply_to_account_id
-      self.conversation_id        = thread.conversation_id if conversation_id.nil?
-    elsif conversation_id.nil?
-      self.conversation = Conversation.new
     end
+
+    if conversation_id.nil?
+      if reply? && !thread.nil? && circle.nil?
+        self.conversation_id = thread.conversation_id
+      else
+        build_owned_conversation
+      end
+    end
+  end
+
+  def set_circle
+    redis.setex(circle_id_key, 3.days.seconds, circle.id) if circle.present?
+  end
+
+  def circle_id_key
+    "statuses/#{id}/circle_id"
   end
 
   def carried_over_reply_to_account_id

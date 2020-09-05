@@ -7,7 +7,7 @@ class ActivityPub::NoteSerializer < ActivityPub::Serializer
              :in_reply_to, :published, :url,
              :attributed_to, :to, :cc, :sensitive,
              :atom_uri, :in_reply_to_atom_uri,
-             :conversation
+             :conversation, :context
 
   attribute :quote_url, if: -> { object.quote? }
   attribute :misskey_quote, key: :_misskey_quote, if: -> { object.quote? }
@@ -142,6 +142,12 @@ class ActivityPub::NoteSerializer < ActivityPub::Serializer
 
   def misskey_content
     object.text if object.quote?
+  end
+
+  def context
+    return if object.conversation.nil?
+
+    ActivityPub::TagManager.instance.uri_for(object.conversation)
   end
 
   def local?

@@ -26,6 +26,7 @@ export default class Header extends ImmutablePureComponent {
     onUnblockDomain: PropTypes.func.isRequired,
     onEndorseToggle: PropTypes.func.isRequired,
     onAddToList: PropTypes.func.isRequired,
+    onAddToCircle: PropTypes.func.isRequired,
     hideTabs: PropTypes.bool,
     domain: PropTypes.string.isRequired,
   };
@@ -102,6 +103,10 @@ export default class Header extends ImmutablePureComponent {
     this.props.onAddToList(this.props.account);
   }
 
+  handleAddToCircle = () => {
+    this.props.onAddToCircle(this.props.account);
+  }
+
   handleEditAccountNote = () => {
     this.props.onEditAccountNote(this.props.account);
   }
@@ -133,6 +138,7 @@ export default class Header extends ImmutablePureComponent {
           onUnblockDomain={this.handleUnblockDomain}
           onEndorseToggle={this.handleEndorseToggle}
           onAddToList={this.handleAddToList}
+          onAddToCircle={this.handleAddToCircle}
           onEditAccountNote={this.handleEditAccountNote}
           domain={this.props.domain}
         />

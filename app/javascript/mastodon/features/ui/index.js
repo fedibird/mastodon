@@ -38,6 +38,7 @@ import {
   Subscribing,
   Reblogs,
   Favourites,
+  Mentions,
   DirectTimeline,
   HashtagTimeline,
   Notifications,
@@ -51,6 +52,7 @@ import {
   Mutes,
   PinnedStatuses,
   Lists,
+  Circles,
   Search,
   GroupDirectory,
   Directory,
@@ -176,6 +178,7 @@ class SwitchingColumnsArea extends React.PureComponent {
           <WrappedRoute path='/statuses/:statusId' exact component={Status} content={children} />
           <WrappedRoute path='/statuses/:statusId/reblogs' component={Reblogs} content={children} />
           <WrappedRoute path='/statuses/:statusId/favourites' component={Favourites} content={children} />
+          <WrappedRoute path='/statuses/:statusId/mentions' component={Mentions} content={children} />
 
           <WrappedRoute path='/accounts/:accountId' exact component={AccountTimeline} content={children} />
           <WrappedRoute path='/accounts/:accountId/with_replies' component={AccountTimeline} content={children} componentParams={{ withReplies: true }} />
@@ -189,6 +192,7 @@ class SwitchingColumnsArea extends React.PureComponent {
           <WrappedRoute path='/domain_blocks' component={DomainBlocks} content={children} />
           <WrappedRoute path='/mutes' component={Mutes} content={children} />
           <WrappedRoute path='/lists' component={Lists} content={children} />
+          <WrappedRoute path='/circles' component={Circles} content={children} />
 
           <WrappedRoute component={GenericNotFound} content={children} />
         </WrappedSwitch>

@@ -301,6 +301,10 @@ class Status extends ImmutablePureComponent {
     this.props.dispatch(directCompose(account, router));
   }
 
+  handleMemberListClick = (status, history) => {
+    history.push(`/statuses/${status.get('id')}/mentions`);
+  }
+
   handleMentionClick = (account, router) => {
     this.props.dispatch(mentionCompose(account, router));
   }
@@ -614,6 +618,7 @@ class Status extends ImmutablePureComponent {
                   onQuote={this.handleQuoteClick}
                   onDelete={this.handleDeleteClick}
                   onDirect={this.handleDirectClick}
+                  onMemberList={this.handleMemberListClick}
                   onMention={this.handleMentionClick}
                   onMute={this.handleMuteClick}
                   onUnmute={this.handleUnmuteClick}

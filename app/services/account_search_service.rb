@@ -68,7 +68,7 @@ class AccountSearchService < BaseService
   end
 
   def advanced_search_results
-    Account.advanced_search_for(terms_for_query, account, limit_for_non_exact_results, options[:following], options[:group_only], offset)
+    Account.advanced_search_for(terms_for_query, account, limit_for_non_exact_results, offset, options)
   end
 
   def simple_search_results
@@ -81,12 +81,16 @@ class AccountSearchService < BaseService
 
     if account
       return [] if options[:following] && following_ids.empty?
+      return [] if options[:followers] && followers_ids.empty?
 
       if options[:following]
         must_clauses << { terms: { id: following_ids } }
       elsif following_ids.any?
         should_clauses << { terms: { id: following_ids, boost: 100 } }
       end
+
+      must_clauses << { terms: { id: followers_ids } } if options[:followers]
+
       if options[:group_only]
         must_clauses << { term: { actor_type: 'group' } }
       end
@@ -142,6 +146,10 @@ class AccountSearchService < BaseService
 
   def following_ids
     @following_ids ||= account.active_relationships.pluck(:target_account_id) + [account.id]
+  end
+
+  def followers_ids
+    @followers_ids ||= account.passive_relationships.pluck(:account_id) + [account.id]
   end
 
   def limit_for_non_exact_results
