@@ -41,6 +41,8 @@ class Tag < ApplicationRecord
   scope :recently_used, ->(account) { joins(:statuses).where(statuses: { id: account.statuses.select(:id).limit(1000) }).group(:id).order(Arel.sql('count(*) desc')) }
   scope :matches_name, ->(term) { where(arel_table[:name].lower.matches(arel_table.lower("#{sanitize_sql_like(Tag.normalize(term))}%"), nil, true)) } # Search with case-sensitive to use B-tree index
 
+  before_save :set_unlistable, if: :force_unlistable?
+
   update_index('tags#tag', :self)
 
   def to_param
@@ -64,6 +66,10 @@ class Tag < ApplicationRecord
   end
 
   alias trendable? trendable
+
+  def force_unlistable?
+    name.end_with?('_')
+  end
 
   def requires_review?
     reviewed_at.nil?
@@ -147,6 +153,10 @@ class Tag < ApplicationRecord
   end
 
   private
+
+  def set_unlistable
+    self.listable = false
+  end
 
   def validate_name_change
     errors.add(:name, I18n.t('tags.does_not_match_previous_name')) unless name_was.mb_chars.casecmp(name.mb_chars).zero?
