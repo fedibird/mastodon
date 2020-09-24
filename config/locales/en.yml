@@ -1500,6 +1500,9 @@ en:
     instance-ticker-type-2: Mastodon instance ticker Type-2 (Dark / Favicon Images(White Outline) Style)
     mastodon-mask: Mastodon (Mask)
     mastodon-light: Mastodon (Light)
+    missing: Mastodon-missing (Dark)
+    missing-contrast: Mastodon-missing (High contrast)
+    missing-light: Mastodon-missing (Light)
     mobile-small: Mobile Small / Mastodon (Dark)
   time:
     formats:

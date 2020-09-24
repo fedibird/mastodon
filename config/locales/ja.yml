@@ -1438,6 +1438,9 @@ ja:
     instance-ticker-type-2: Mastodon instance ticker Type-2 (ダーク / Favicon Images(White Outline))
     mask: Mastodon (マスク)
     mastodon-light: Mastodon (ライト)
+    missing: Mastodon-missing (ダーク)
+    missing-contrast: Mastodon-missing (ハイコントラスト)
+    missing-light: Mastodon-missing (ライト)
     mobile-small: Mobile 小 / Mastodon (ダーク)
   time:
     formats:

@@ -12,3 +12,6 @@ instance-ticker-type-2-contrast: styles/instance-ticker-type-2-contrast.scss
 instance-ticker-type-0-light: styles/instance-ticker-type-0-light.scss
 instance-ticker-type-1-light: styles/instance-ticker-type-1-light.scss
 instance-ticker-type-2-light: styles/instance-ticker-type-2-light.scss
+missing: styles/missing.scss
+missing-contrast: styles/missing-contrast.scss
+missing-light: styles/missing-light.scss
