@@ -84,7 +84,7 @@ class REST::StatusSerializer < ActiveModel::Serializer
   end
 
   def limited_owned_parent_status?
-    object.limited_visibility? && owned_status? && (!object.reply? || object.thread.conversation_id != object.conversation_id)
+    object.limited_visibility? && owned_status? && (!object.reply? || object.thread&.conversation_id != object.conversation_id)
   end
 
   def circle_id
