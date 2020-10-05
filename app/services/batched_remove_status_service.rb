@@ -76,7 +76,7 @@ class BatchedRemoveStatusService < BaseService
   def unpush_from_group_timelines(status)
     return unless status.account.group?
 
-    payload = Oj.dump(event: :delete, payload: status.reblog.id.to_s)
+    payload = Oj.dump(event: :delete, payload: status.reblog? ? status.reblog.id.to_s : status.id.to_s)
 
     redis.publish("timeline:group:#{status.account.id}", payload)
 
