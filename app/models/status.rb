@@ -221,7 +221,7 @@ class Status < ApplicationRecord
   def mentioning?(source_account_id)
     source_account_id = source_account_id.id if source_account_id.is_a?(Account)
 
-    mentioned_with(source_account_id).exists?
+    mentions.where(account_id: source_account_id).exists?
   end
 
   def within_realtime_window?
