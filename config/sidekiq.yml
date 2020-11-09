@@ -6,6 +6,7 @@
   - [mailers, 2]
   - [pull]
   - [scheduler]
+  - [backup]
 :scheduler:
   :listened_queues_only: true
 :schedule:
