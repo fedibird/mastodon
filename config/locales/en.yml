@@ -1236,11 +1236,13 @@ en:
     follow_selected_followers: Follow selected followers
     followers: Followers
     following: Following
+    interrelationship: Interrelationship
     invited: Invited
     last_active: Last active
     most_recent: Most recent
     moved: Moved
     mutual: Mutual
+    one_way: One-way
     primary: Primary
     relationship: Relationship
     remove_selected_domains: Remove all followers from the selected domains
