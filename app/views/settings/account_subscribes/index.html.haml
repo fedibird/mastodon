@@ -3,34 +3,22 @@
 
 %p= t('account_subscribes.hint_html')
 
+= link_to t('account_subscribes.new.title'), new_settings_account_subscribe_path, class: 'button'
+
 %hr.spacer/
 
-.table-wrapper
-  %table.table
-    %thead
-      %tr
-        %th= t('simple_form.labels.form_account_subscribe.acct')
-        %th.nowrap= t('simple_form.labels.form_account_subscribe.reblog')
-        %th.nowrap= t('simple_form.labels.form_account_subscribe.timeline')
-        %th.nowrap
-    %tbody
-      - @account_subscribings.each do |account_subscribe|
+- if @account_subscribings.empty?
+  = nothing_here 'nothing-here--under-tabs'
+- else
+  .table-wrapper
+    %table.table.accounts-table
+      %thead
         %tr
-          %td
-            = fa_icon 'user'
-            = account_subscribe.target_account.acct
-          %td.nowrap
-            - if account_subscribe.show_reblogs
-              = fa_icon('check')
-          %td.nowrap
-            - if account_subscribe.list_id
-              = fa_icon 'list-ul'
-              = account_subscribe.list&.title
-            - else
-              = fa_icon 'home'
-              = t 'lists.home'
-          %td.nowrap
-            = table_link_to 'pencil', t('account_subscribes.edit.title'), edit_settings_account_subscribe_path(account_subscribe)
-            = table_link_to 'trash', t('filters.index.delete'), settings_account_subscribe_path(account_subscribe), method: :delete, data: { confirm: t('admin.accounts.are_you_sure') }
+          %th= t('simple_form.labels.form_account_subscribe.acct')
+          %th.nowrap.symbol= t('simple_form.labels.form_account_subscribe.reblog')
+          %th.nowrap= t('simple_form.labels.form_account_subscribe.timeline')
+          %th.nowrap
+      %tbody
+        = render partial: 'account_subscribe', collection: @account_subscribings
 
-= link_to t('account_subscribes.new.title'), new_settings_account_subscribe_path, class: 'button'
+= paginate @account_subscribings

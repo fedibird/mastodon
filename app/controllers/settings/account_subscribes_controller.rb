@@ -50,7 +50,7 @@ class Settings::AccountSubscribesController < Settings::BaseController
   end
 
   def set_account_subscribings
-    @account_subscribings = current_account.active_subscribes.order('list_id NULLS FIRST', :updated_at).reject(&:new_record?)
+    @account_subscribings = current_account.active_subscribes.eager_load(:target_account).order('list_id NULLS FIRST', :updated_at).page(params[:page]).per(40)
   end
 
   def set_lists

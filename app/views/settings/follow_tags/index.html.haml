@@ -3,30 +3,19 @@
 
 %p= t('follow_tags.hint_html')
 
+= link_to t('follow_tags.new.title'), new_settings_follow_tag_path, class: 'button'
+
 %hr.spacer/
 
-.table-wrapper
-  %table.table
-    %thead
-      %tr
-        %th= t('simple_form.labels.follow_tag.name')
-        %th.nowrap= t('simple_form.labels.follow_tag.timeline')
-        %th.nowrap
-    %tbody
-      - @follow_tags.each do |follow_tag|
+- if @follow_tags.empty?
+  = nothing_here 'nothing-here--under-tabs'
+- else
+  .table-wrapper
+    %table.table
+      %thead
         %tr
-          %td
-            = fa_icon 'hashtag'
-            = follow_tag.name
-          %td.nowrap
-            - if follow_tag.list_id
-              = fa_icon 'list-ul'
-              = follow_tag.list&.title
-            - else
-              = fa_icon 'home'
-              = t 'lists.home'
-          %td.nowrap
-            = table_link_to 'pencil', t('follow_tags.edit.title'), edit_settings_follow_tag_path(follow_tag)
-            = table_link_to 'trash', t('filters.index.delete'), settings_follow_tag_path(follow_tag), method: :delete, data: { confirm: t('admin.accounts.are_you_sure') }
-
-= link_to t('follow_tags.new.title'), new_settings_follow_tag_path, class: 'button'
+          %th= t('simple_form.labels.follow_tag.name')
+          %th.nowrap= t('simple_form.labels.follow_tag.timeline')
+          %th.nowrap
+      %tbody
+        = render partial: 'follow_tag', collection: @follow_tags

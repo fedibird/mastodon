@@ -50,7 +50,7 @@ class Settings::FollowTagsController < Settings::BaseController
   end
 
   def set_follow_tags
-    @follow_tags = current_account.follow_tags.order('list_id NULLS FIRST', :updated_at).reject(&:new_record?)
+    @follow_tags = current_account.follow_tags.order('list_id NULLS FIRST', :updated_at).page(params[:page]).per(40)
   end
 
   def set_lists

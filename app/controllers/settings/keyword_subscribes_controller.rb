@@ -50,7 +50,7 @@ class Settings::KeywordSubscribesController < ApplicationController
   end
 
   def set_keyword_subscribes
-    @keyword_subscribes = current_account.keyword_subscribes.includes(:list).order('list_id NULLS FIRST', :name).reject(&:new_record?)
+    @keyword_subscribes = current_account.keyword_subscribes.includes(:list).order('list_id NULLS FIRST', :name).page(params[:page]).per(40)
   end
 
   def set_lists

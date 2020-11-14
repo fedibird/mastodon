@@ -49,7 +49,7 @@ class Settings::DomainSubscribesController < Settings::BaseController
   end
 
   def set_domain_subscribes
-    @domain_subscribes = current_account.domain_subscribes.includes(:list).order('list_id NULLS FIRST', :domain).reject(&:new_record?)
+    @domain_subscribes = current_account.domain_subscribes.includes(:list).order('list_id NULLS FIRST', :domain).page(params[:page]).per(40)
   end
 
   def set_lists
