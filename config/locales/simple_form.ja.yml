@@ -71,15 +71,18 @@ ja:
       domain_subscribe:
         domain: 購読したいサーバのドメイン名を指定します
         exclude_reblog: ブーストされた投稿を購読から除外します
+        media_only: メディアが添付された投稿だけを対象にします
       email_domain_block:
         domain: メールアドレスのドメイン名および、名前解決したMXレコード、IPアドレスを指定できます。ユーザー登録時にこれらをチェックし、該当する場合はユーザー登録を拒否します。
         with_dns_records: 指定したドメインのDNSレコードを取得し、その結果もメールドメインブロックに登録されます
       featured_tag:
         name: 'これらを使うといいかもしれません:'
       follow_tag:
+        media_only: メディアが添付された投稿だけを対象にします
         name: フォローしたいハッシュタグを '#' 抜きで指定します
       form_account_subscribe:
         acct: 購読したいアカウントを username@domain 形式で指定します
+        media_only: メディアが添付された投稿だけを対象にします
         show_reblogs: ブーストされた投稿を購読に含めます
       form_challenge:
         current_password: セキュリティ上重要なエリアにアクセスしています
@@ -99,6 +102,7 @@ ja:
         exclude_keyword: カンマで区切って複数の除外するキーワードを並べます（または正規表現で指定します）
         ignore_block: ドメイン全体を非表示にしたまま、キーワードの購読を優先することができます
         keyword: カンマで区切って複数のキーワードを並べます（または正規表現で指定します）
+        media_only: メディアが添付された投稿だけを対象にします
         name: オプションです
       rule:
         text: ユーザーのためのルールや要件を記述してください。短くシンプルにしてください。
@@ -210,6 +214,7 @@ ja:
         domain: ドメイン
         exclude_reblog: ブースト除外
         list_id: 対象タイムライン
+        media_only: メディアのみ
         reblog: ブースト
         timeline: タイムライン
       email_domain_block:
@@ -222,11 +227,13 @@ ja:
         name: ハッシュタグ
       follow_tag:
         list_id: 対象タイムライン
+        media_only: メディアのみ
         name: ハッシュタグ
         timeline: タイムライン
       form_account_subscribe:
         acct: アカウント
         list_id: 対象タイムライン
+        media_only: メディアのみ
         reblog: ブースト
         show_reblogs: ブーストを表示
         timeline: タイムライン
@@ -251,6 +258,7 @@ ja:
         ignorecase: 大文字と小文字を区別しない
         ignore_block: ユーザーによるドメインブロックを無視する
         keyword: キーワードまたは正規表現
+        media_only: メディアのみ
         list_id: 対象タイムライン
         name: 名称
         regexp: キーワードに正規表現を使う
@@ -259,6 +267,7 @@ ja:
         ignorecase: 大小
         ignore_block: ブロック
         keyword: 設定値
+        media_only: メディア
         name: 名称
         regexp: 種別
         timeline: タイムライン

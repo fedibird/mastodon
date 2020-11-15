@@ -16,7 +16,7 @@ class Settings::AccountSubscribesController < Settings::BaseController
 
   def create
     @form_account_subscribing = Form::AccountSubscribe.new(account_subscribe_params)
-    target_account = AccountSubscribeService.new.call(current_account, @form_account_subscribing.acct, { show_reblogs: @form_account_subscribing.show_reblogs, list_id: @form_account_subscribing.list_id })
+    target_account = AccountSubscribeService.new.call(current_account, @form_account_subscribing.acct, { show_reblogs: @form_account_subscribing.show_reblogs, list_id: @form_account_subscribing.list_id, media_only: @form_account_subscribing.media_only })
 
     if target_account
       redirect_to settings_account_subscribes_path
@@ -38,7 +38,7 @@ class Settings::AccountSubscribesController < Settings::BaseController
   end
 
   def destroy
-    UnsubscribeAccountService.new.call(current_account, @account_subscribing.target_account, @account_subscribing.list_id)
+    UnsubscribeAccountService.new.call(current_account, @account_subscribing.target_account, list_id: @account_subscribing.list_id)
     redirect_to settings_account_subscribes_path
   end
 
@@ -46,7 +46,7 @@ class Settings::AccountSubscribesController < Settings::BaseController
 
   def set_account_subscribing
     @account_subscribing = current_account.active_subscribes.find(params[:id])
-    @form_account_subscribing = Form::AccountSubscribe.new(id: @account_subscribing.id, acct: @account_subscribing.target_account.acct, show_reblogs: @account_subscribing.show_reblogs, list_id: @account_subscribing.list_id)
+    @form_account_subscribing = Form::AccountSubscribe.new(id: @account_subscribing.id, acct: @account_subscribing.target_account.acct, show_reblogs: @account_subscribing.show_reblogs, list_id: @account_subscribing.list_id, media_only: @account_subscribing.media_only)
   end
 
   def set_account_subscribings
@@ -69,6 +69,6 @@ class Settings::AccountSubscribesController < Settings::BaseController
   end
 
   def resource_params
-    params.require(:form_account_subscribe).permit(:acct, :show_reblogs, :list_id)
+    params.require(:form_account_subscribe).permit(:acct, :show_reblogs, :list_id, :media_only)
   end
 end

@@ -5,10 +5,11 @@
 #  id                :bigint(8)        not null, primary key
 #  account_id        :bigint(8)
 #  target_account_id :bigint(8)
-#  show_reblogs      :boolean          default(TRUE), not null
 #  created_at        :datetime         not null
 #  updated_at        :datetime         not null
 #  list_id           :bigint(8)
+#  show_reblogs      :boolean          default(TRUE), not null
+#  media_only        :boolean          default(FALSE), not null
 #
 
 class AccountSubscribe < ApplicationRecord
@@ -26,6 +27,7 @@ class AccountSubscribe < ApplicationRecord
   scope :home, -> { where(list_id: nil) }
   scope :list, -> { where.not(list_id: nil) }
   scope :with_reblog, ->(reblog) { where(show_reblogs: true) if reblog }
+  scope :with_media, ->(status) { where(media_only: false) unless status.with_media? }
 
   after_create :increment_cache_counters
   after_destroy :decrement_cache_counters

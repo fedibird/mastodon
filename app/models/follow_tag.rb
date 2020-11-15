@@ -8,6 +8,7 @@
 #  created_at :datetime         not null
 #  updated_at :datetime         not null
 #  list_id    :bigint(8)
+#  media_only :boolean          default(FALSE), not null
 #
 
 class FollowTag < ApplicationRecord
@@ -23,6 +24,7 @@ class FollowTag < ApplicationRecord
 
   scope :home, -> { where(list_id: nil) }
   scope :list, -> { where.not(list_id: nil) }
+  scope :with_media, ->(status) { where(media_only: false) unless status.with_media? }
 
   def name=(str)
     self.tag = Tag.find_or_create_by_names(str.strip)&.first

@@ -68,7 +68,7 @@ class FanOutOnWriteService < BaseService
   def deliver_to_subscribers(status)
     Rails.logger.debug "Delivering status #{status.id} to subscribers"
 
-    status.account.subscribers_for_local_distribution.with_reblog(status.reblog?).select(:id, :account_id).reorder(nil).find_in_batches do |subscribings|
+    status.account.subscribers_for_local_distribution.with_reblog(status.reblog?).with_media(status.proper).select(:id, :account_id).reorder(nil).find_in_batches do |subscribings|
       FeedInsertWorker.push_bulk(subscribings) do |subscribing|
         [status.id, subscribing.account_id, :home]
       end
@@ -78,7 +78,7 @@ class FanOutOnWriteService < BaseService
   def deliver_to_subscribers_lists(status)
     Rails.logger.debug "Delivering status #{status.id} to subscribers lists"
 
-    status.account.list_subscribers_for_local_distribution.with_reblog(status.reblog?).select(:id, :list_id).reorder(nil).find_in_batches do |subscribings|
+    status.account.list_subscribers_for_local_distribution.with_reblog(status.reblog?).with_media(status.proper).select(:id, :list_id).reorder(nil).find_in_batches do |subscribings|
       FeedInsertWorker.push_bulk(subscribings) do |subscribing|
         [status.id, subscribing.list_id, :list]
       end
@@ -93,7 +93,7 @@ class FanOutOnWriteService < BaseService
   end
 
   def deliver_to_domain_subscribers_home(status)
-    DomainSubscribe.domain_to_home(status.account.domain).with_reblog(status.reblog?).select(:id, :account_id).find_in_batches do |subscribes|
+    DomainSubscribe.domain_to_home(status.account.domain).with_reblog(status.reblog?).with_media(status.proper).select(:id, :account_id).find_in_batches do |subscribes|
       FeedInsertWorker.push_bulk(subscribes) do |subscribe|
         [status.id, subscribe.account_id, :home]
       end
@@ -101,7 +101,7 @@ class FanOutOnWriteService < BaseService
   end
 
   def deliver_to_domain_subscribers_list(status)
-    DomainSubscribe.domain_to_list(status.account.domain).with_reblog(status.reblog?).select(:id, :list_id).find_in_batches do |subscribes|
+    DomainSubscribe.domain_to_list(status.account.domain).with_reblog(status.reblog?).with_media(status.proper).select(:id, :list_id).find_in_batches do |subscribes|
       FeedInsertWorker.push_bulk(subscribes) do |subscribe|
         [status.id, subscribe.list_id, :list]
       end
@@ -118,7 +118,7 @@ class FanOutOnWriteService < BaseService
   def deliver_to_keyword_subscribers_home(status)
     match_accounts = []
 
-    KeywordSubscribe.active.without_local_followed_home(status.account).order(:account_id).each do |keyword_subscribe|
+    KeywordSubscribe.active.with_media(status.proper).without_local_followed_home(status.account).order(:account_id).each do |keyword_subscribe|
       next if match_accounts[-1] == keyword_subscribe.account_id
       match_accounts << keyword_subscribe.account_id if keyword_subscribe.match?(status.index_text)
     end
@@ -131,7 +131,7 @@ class FanOutOnWriteService < BaseService
   def deliver_to_keyword_subscribers_list(status)
     match_lists = []
 
-    KeywordSubscribe.active.without_local_followed_list(status.account).order(:list_id).each do |keyword_subscribe|
+    KeywordSubscribe.active.with_media(status.proper).without_local_followed_list(status.account).order(:list_id).each do |keyword_subscribe|
       next if match_lists[-1] == keyword_subscribe.list_id
       match_lists << keyword_subscribe.list_id if keyword_subscribe.match?(status.index_text)
     end
@@ -191,13 +191,13 @@ class FanOutOnWriteService < BaseService
   end
 
   def deliver_to_hashtag_followers_home(status)
-    FeedInsertWorker.push_bulk(FollowTag.home.where(tag: status.tags).pluck(:account_id).uniq) do |follower|
+    FeedInsertWorker.push_bulk(FollowTag.home.where(tag: status.tags).with_media(status.proper).pluck(:account_id).uniq) do |follower|
       [status.id, follower, :home]
     end
   end
 
   def deliver_to_hashtag_followers_list(status)
-    FeedInsertWorker.push_bulk(FollowTag.list.where(tag: status.tags).pluck(:list_id).uniq) do |list_id|
+    FeedInsertWorker.push_bulk(FollowTag.list.where(tag: status.tags).with_media(status.proper).pluck(:list_id).uniq) do |list_id|
       [status.id, list_id, :list]
     end
   end

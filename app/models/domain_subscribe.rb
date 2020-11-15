@@ -9,6 +9,7 @@
 #  created_at     :datetime         not null
 #  updated_at     :datetime         not null
 #  exclude_reblog :boolean          default(TRUE)
+#  media_only     :boolean          default(FALSE), not null
 #
 
 class DomainSubscribe < ApplicationRecord
@@ -21,4 +22,5 @@ class DomainSubscribe < ApplicationRecord
   scope :domain_to_home, ->(domain) { where(domain: domain).where(list_id: nil) }
   scope :domain_to_list, ->(domain) { where(domain: domain).where.not(list_id: nil) }
   scope :with_reblog, ->(reblog) { where(exclude_reblog: false) if reblog }
+  scope :with_media, ->(status) { where(media_only: false) unless status.with_media? }
 end

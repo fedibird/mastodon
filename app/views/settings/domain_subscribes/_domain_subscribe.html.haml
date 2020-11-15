@@ -4,6 +4,9 @@
   %td.nowrap.symbol
     - if domain_subscribe.exclude_reblog
       = fa_icon('times')
+  %td.nowrap.symbol
+    - if domain_subscribe.media_only
+      = fa_icon('check')
   %td.nowrap
     - if domain_subscribe.list_id
       = fa_icon 'list-ul'

@@ -2,6 +2,9 @@
   %td
     = fa_icon 'hashtag'
     = follow_tag.name
+  %td.nowrap.symbol
+    - if follow_tag.media_only
+      = fa_icon('check')
   %td.nowrap
     - if follow_tag.list_id
       = fa_icon 'list-ul'

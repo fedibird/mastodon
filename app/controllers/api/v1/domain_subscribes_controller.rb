@@ -29,6 +29,6 @@ class Api::V1::DomainSubscribesController < Api::BaseController
   end
 
   def domain_subscribe_params
-    params.permit(:domain, :list_id, :exclude_reblog)
+    params.permit(:domain, :list_id, :exclude_reblog, :media_only)
   end
 end

@@ -10,9 +10,8 @@
 #  target_account_id :bigint(8)        not null
 #  show_reblogs      :boolean          default(TRUE), not null
 #  uri               :string
-#  notify            :boolean          default(FALSE), not null
-#  private           :boolean          default(TRUE), not null
 #  delivery          :boolean          default(TRUE), not null
+#  notify            :boolean          default(FALSE), not null
 #
 
 class Follow < ApplicationRecord

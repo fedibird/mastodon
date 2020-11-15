@@ -38,6 +38,6 @@ class Api::V1::FollowTagsController < Api::BaseController
   end
 
   def follow_tag_params
-    params.permit(:name)
+    params.permit(:name, :media_only)
   end
 end

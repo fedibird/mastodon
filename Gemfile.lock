@@ -1,3 +1,13 @@
+GIT
+  remote: https://github.com/GeorgeKaraszi/ActiveRecordExtended.git
+  revision: 8c9d1a3e72aabf1a4f1fbeeb93a6e0f170fd0c3e
+  ref: 8c9d1a3e72aabf1a4f1fbeeb93a6e0f170fd0c3e
+  specs:
+    active_record_extended (2.0.0)
+      activerecord (>= 5.1, < 6.2)
+      ar_outer_joins (~> 0.2)
+      pg (< 3.0)
+
 GEM
   remote: https://rubygems.org/
   specs:
@@ -74,6 +84,8 @@ GEM
     annotate (3.1.1)
       activerecord (>= 3.2, < 7.0)
       rake (>= 10.4, < 14.0)
+    ar_outer_joins (0.2.0)
+      activerecord (>= 3.2)
     ast (2.4.2)
     attr_encrypted (3.1.0)
       encryptor (~> 3.0.0)
@@ -671,6 +683,7 @@ PLATFORMS
 
 DEPENDENCIES
   active_model_serializers (~> 0.10)
+  active_record_extended!
   active_record_query_trace (~> 1.8)
   addressable (~> 2.8)
   annotate (~> 3.1)

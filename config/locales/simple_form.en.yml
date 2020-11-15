@@ -71,15 +71,18 @@ en:
       domain_subscribe:
         domain: Specify the domain name of the server you want to subscribe to
         exclude_reblog: Exclude boosted posts from subscription
+        media_only: Target only statuses with media attached
       email_domain_block:
         domain: This can be the domain name that shows up in the e-mail address, the MX record that domain resolves to, or IP of the server that MX record resolves to. Those will be checked upon user sign-up and the sign-up will be rejected.
         with_dns_records: An attempt to resolve the given domain's DNS records will be made and the results will also be blocked
       featured_tag:
         name: 'You might want to use one of these:'
       follow_tag:
+        media_only: Target only statuses with media attached
         name: Specify the name of the hashtag without '#' you want to follow
       form_account_subscribe:
         acct: Specify the username@domain of the account you want to subscribe
+        media_only: Target only statuses with media attached
         show_reblogs: Show boosted posts from subscription
       form_challenge:
         current_password: You are entering a secure area
@@ -99,6 +102,7 @@ en:
         exclude_keyword: List multiple excluded keywords separated by commas (or use regular expressions)
         ignore_block: You can prioritize keyword subscriptions while keeping the entire domain block
         keyword: List multiple keywords separated by commas (or use regular expressions)
+        media_only: Target only statuses with media attached
         name: Optional
       rule:
         text: Describe a rule or requirement for users on this server. Try to keep it short and simple
@@ -210,6 +214,7 @@ en:
         domain: Domain
         exclude_reblog: Exclude boost
         list_id: Target timeline
+        media_only: Media only
         timeline: Timeline
         reblog: Boost
       email_domain_block:
@@ -218,11 +223,13 @@ en:
         name: Hashtag
       follow_tag:
         list_id: Target timeline
+        media_only: Media only
         name: Tag name
         timeline: Timeline
       form_account_subscribe:
         acct: Account
         list_id: Target timeline
+        media_only: Media only
         reblog: Boost
         show_reblogs: Show boost
         timeline: Timeline
@@ -248,6 +255,7 @@ en:
         ignore_block: Ignore User's domain blocking
         keyword: Keyword list or regular expression
         list_id: Target timeline
+        media_only: Media only
         name: Name
         regexp: Use regular expressions for keywords
       keyword_subscribes:
@@ -255,6 +263,7 @@ en:
         ignorecase: Case
         ignore_block: Block
         keyword: String
+        media_only: Media
         name: Name
         regexp: Type
         timeline: Timeline

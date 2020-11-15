@@ -68,6 +68,6 @@ class Settings::DomainSubscribesController < Settings::BaseController
   end
 
   def resource_params
-    params.require(:domain_subscribe).permit(:domain, :list_id, :exclude_reblog)
+    params.require(:domain_subscribe).permit(:domain, :list_id, :exclude_reblog, :media_only)
   end
 end

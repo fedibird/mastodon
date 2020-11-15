@@ -69,6 +69,6 @@ class Settings::FollowTagsController < Settings::BaseController
   end
 
   def resource_params
-    params.require(:follow_tag).permit(:name, :list_id)
+    params.require(:follow_tag).permit(:name, :list_id, :media_only)
   end
 end

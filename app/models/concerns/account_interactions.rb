@@ -208,11 +208,13 @@ module AccountInteractions
     block&.destroy
   end
 
-  def subscribe!(other_account, reblogs = true, list_id = nil)
-    rel = active_subscribes.create_with(show_reblogs: reblogs)
-                           .find_or_create_by!(target_account: other_account, list_id: list_id)
+  def subscribe!(other_account, options = {})
+    options = { show_reblogs: true, list_id: nil, media_only: false }.merge(options)
 
-    rel.update!(show_reblogs: reblogs)
+    rel = active_subscribes.create_with(show_reblogs: options[:show_reblogs], media_only: options[:media_only] || false)
+                           .find_or_create_by!(target_account: other_account, list_id: options[:list_id])
+
+    rel.update!(show_reblogs: options[:show_reblogs], media_only: options[:media_only] || false)
     remove_potential_friendship(other_account)
 
     rel
