@@ -258,7 +258,7 @@ class ActivityPub::ProcessAccountService < BaseService
   end
 
   def skip_download?
-    @account.suspended? || domain_block&.reject_media?
+    @account.suspended? || @account.sensitized? || domain_block&.reject_media?
   end
 
   def auto_suspend?
