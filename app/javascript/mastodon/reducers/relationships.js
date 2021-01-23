@@ -28,7 +28,10 @@ import {
 } from '../actions/account_notes';
 import { Map as ImmutableMap, fromJS } from 'immutable';
 
-const normalizeRelationship = (state, relationship) => state.set(relationship.id, fromJS(relationship));
+const normalizeRelationship = (state, relationship) => {
+  const { account_subscribing: subscribing, ...other_relationship } = relationship;
+  return state.set(relationship.id, fromJS({ subscribing, ...other_relationship }));
+};
 
 const normalizeRelationships = (state, relationships) => {
   relationships.forEach(relationship => {
