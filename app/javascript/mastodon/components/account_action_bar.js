@@ -68,10 +68,10 @@ class AccountActionBar extends ImmutablePureComponent {
       const subscribing_home = account.getIn(['relationship', 'subscribing', '-1'], new Map).size > 0;
       const requested        = account.getIn(['relationship', 'requested']);
 
-      if (!account.get('moved') || subscribing) {
+      if (show_subscribe_button_on_timeline && (!account.get('moved') || subscribing)) {
         subscribing_buttons = <IconButton icon='rss-square' title={intl.formatMessage(subscribing ? messages.unsubscribe : messages.subscribe)} onClick={this.handleSubscribe} active={subscribing} no_delivery={subscribing && !subscribing_home} />;
       }
-      if (!account.get('moved') || following) {
+      if (show_follow_button_on_timeline && (!account.get('moved') || following)) {
         if (requested) {
           following_buttons = <IconButton disabled icon='hourglass' title={intl.formatMessage(messages.requested)} active={followed_by} />;
         } else {
