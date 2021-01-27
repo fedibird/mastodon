@@ -8,7 +8,7 @@ import ReactSwipeableViews from 'react-swipeable-views';
 import TabsBar, { links, getIndex, getLink } from './tabs_bar';
 import { Link } from 'react-router-dom';
 
-import { disableSwiping } from 'mastodon/initial_state';
+import { disableSwiping, place_tab_bar_at_bottom } from 'mastodon/initial_state';
 
 import BundleContainer from '../containers/bundle_container';
 import ColumnLoading from './column_loading';
@@ -36,6 +36,8 @@ import { show_navigation_panel } from 'mastodon/initial_state';
 
 import { supportsPassiveEvents } from 'detect-passive-events';
 import { scrollRight } from '../../../scroll';
+
+import classNames from 'classnames';
 
 const componentMap = {
   'COMPOSE': Compose,
@@ -221,14 +223,14 @@ class ColumnsArea extends ImmutablePureComponent {
     const columnIndex = getIndex(this.context.router.history.location.pathname);
 
     if (singleColumn) {
-      const floatingActionButton = shouldHideFAB(this.context.router.history.location.pathname) ? null : <Link key='floating-action-button' to='/statuses/new' className='floating-action-button' aria-label={intl.formatMessage(messages.publish)}><Icon id='pencil' /></Link>;
+      const floatingActionButton = shouldHideFAB(this.context.router.history.location.pathname) ? null : <Link key='floating-action-button' to='/statuses/new' className={classNames('floating-action-button', { 'bottom-bar': place_tab_bar_at_bottom })} aria-label={intl.formatMessage(messages.publish)}><Icon id='pencil' /></Link>;
 
       const content = columnIndex !== -1 ? (
-        <ReactSwipeableViews key='content' hysteresis={0.2} threshold={15} index={columnIndex} onChangeIndex={this.handleSwipe} onTransitionEnd={this.handleAnimationEnd} animateTransitions={shouldAnimate} springConfig={{ duration: '400ms', delay: '0s', easeFunction: 'ease' }} style={{ height: '100%' }} disabled={disableSwiping}>
+        <ReactSwipeableViews key='content' className={classNames('swipeable-view__wrapper', { 'bottom-bar': place_tab_bar_at_bottom })} hysteresis={0.2} threshold={15} index={columnIndex} onChangeIndex={this.handleSwipe} onTransitionEnd={this.handleAnimationEnd} animateTransitions={shouldAnimate} springConfig={{ duration: '400ms', delay: '0s', easeFunction: 'ease' }} style={{ height: '100%' }} disabled={disableSwiping}>
           {links.map(this.renderView)}
         </ReactSwipeableViews>
       ) : (
-        <div key='content' className='columns-area columns-area--mobile'>{children}</div>
+        <div key='content' className={classNames('columns-area columns-area--mobile', { 'bottom-bar': place_tab_bar_at_bottom })}>{children}</div>
       );
 
       return (

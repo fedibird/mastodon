@@ -54,12 +54,14 @@ en:
         setting_follow_button_to_list_adder: Change the behavior of the Follow / Subscribe button, open a dialog where you can select a list to follow / subscribe, or opt out of receiving at home
         setting_hide_network: Who you follow and who follows you will be hidden on your profile
         setting_noindex: Affects your public profile and post pages
+        setting_place_tab_bar_at_bottom: When using a touch device, you can operate tabs within the reach of your fingers.
         setting_show_application: The application you use to post will be displayed in the detailed view of your posts
         setting_show_bookmark_button: When turned off, the bookmark call will be in Mastodon's standard position (in the menu on the action bar)
         setting_show_follow_button_on_timeline: You can easily check the follow status and build a follow list quickly
         setting_show_navigation_panel: Show the navigation panel at the right end of the advanced UI
         setting_show_quote_button: Selects whether to display the button on the action bar. It does not enable/disable the citation function.
         setting_show_subscribe_button_on_timeline: You can easily check the status of your subscriptions and quickly build a subscription list
+        setting_show_tab_bar_label: When adding a list etc. to the tab bar, it is recommended to display the label because it is not possible to distinguish by the icon alone
         setting_show_followed_by: "The color of the follow button changes according to the follow status (gray: no follow relationship, yellow: followed, blue: following, green: mutual follow)"
         setting_show_target: Enable the function to switch between posting target and follow / subscribe target
         setting_use_blurhash: Gradients are based on the colors of the hidden visuals but obfuscate any details
@@ -188,6 +190,7 @@ en:
         setting_follow_button_to_list_adder: Open list add dialog with follow button
         setting_hide_network: Hide your social graph
         setting_noindex: Opt-out of search engine indexing
+        setting_place_tab_bar_at_bottom: Place the tab bar at the bottom
         setting_reduce_motion: Reduce motion in animations
         setting_show_application: Disclose application used to send posts
         setting_show_bookmark_button: Show the bookmark button on the action bar
@@ -195,6 +198,7 @@ en:
         setting_show_navigation_panel: Show the navigation panel
         setting_show_quote_button: Show the quote button on the action bar
         setting_show_subscribe_button_on_timeline: Show subscribe button on timeline
+        setting_show_tab_bar_label: Show labels in the tab bar
         setting_show_followed_by: Reflect the following status on the follow button
         setting_show_target: Enable targeting features
         setting_system_font_ui: Use system's default font

@@ -47,6 +47,8 @@ defaults: &defaults
   show_bookmark_button: true
   show_quote_button: true
   show_target: false
+  place_tab_bar_at_bottom: false
+  show_tab_bar_label: false
   notification_emails:
     follow: false
     reblog: false

@@ -50,6 +50,8 @@ class InitialStateSerializer < ActiveModel::Serializer
       store[:show_quote_button]                 = object.current_account.user.setting_show_quote_button
       store[:show_bookmark_button]              = object.current_account.user.setting_show_bookmark_button
       store[:show_target]                       = object.current_account.user.setting_show_target
+      store[:place_tab_bar_at_bottom]           = object.current_account.user.setting_place_tab_bar_at_bottom
+      store[:show_tab_bar_label]                = object.current_account.user.setting_show_tab_bar_label
     else
       store[:auto_play_gif] = Setting.auto_play_gif
       store[:display_media] = Setting.display_media
