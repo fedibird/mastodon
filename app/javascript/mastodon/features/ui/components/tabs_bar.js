@@ -2,7 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { NavLink, withRouter } from 'react-router-dom';
 import { FormattedMessage, injectIntl } from 'react-intl';
-import { debounce } from 'lodash';
+import { debounce, memoize } from 'lodash';
 import { isUserTouching } from '../../../is_mobile';
 import Icon from 'mastodon/components/icon';
 import NotificationsCounterIcon from './notifications_counter_icon';
@@ -15,8 +15,22 @@ export const links = [
   <NavLink className='tabs-bar__link' exact to='/timelines/public' data-preview-title-id='column.public' data-preview-icon='globe' ><Icon id='globe' fixedWidth /><span className='tabs-bar__link__full-label'><FormattedMessage id='tabs_bar.federated_timeline' defaultMessage='Federated' /></span><span className='tabs-bar__link__short-label'><FormattedMessage id='navigation_bar.short.public_timeline' defaultMessage='FTL' /></span></NavLink>,
   <NavLink className='tabs-bar__link' exact to='/lists' data-preview-title-id='column.lists' data-preview-icon='list-ul' ><Icon id='list-ul' fixedWidth /><span className='tabs-bar__link__full-label'><FormattedMessage id='tabs_bar.lists' defaultMessage='Lists' /></span><span className='tabs-bar__link__short-label'><FormattedMessage id='navigation_bar.short.lists' defaultMessage='List' /></span></NavLink>,
   <NavLink className='tabs-bar__link optional' to='/search' data-preview-title-id='tabs_bar.search' data-preview-icon='bell' ><Icon id='search' fixedWidth /><span className='tabs-bar__link__full-label'><FormattedMessage id='tabs_bar.search' defaultMessage='Search' /></span><span className='tabs-bar__link__short-label'><FormattedMessage id='navigation_bar.short.search' defaultMessage='Search' /></span></NavLink>,
+  // <a className='tabs-bar__external-link' href='/settings/preferences' to='/settings/preferences' data-preview-title-id='navigation_bar.preferences' data-preview-icon='cog' ><Icon id='cog' fixedWidth /><span className='tabs-bar__link__full-label'><FormattedMessage id='navigation_bar.preferences' defaultMessage='Preferences' /></span><span className='tabs-bar__link__short-label'><FormattedMessage id='navigation_bar.short.preferences' defaultMessage='Pref.' /></span></a>,
+  // <a className='tabs-bar__external-link' href='/auth/sign_out' to='/auth/sign_out' data-method='delete' data-preview-title-id='navigation_bar.logout' data-preview-icon='sign-out' ><Icon id='sign-out' fixedWidth /><span className='tabs-bar__link__full-label'><FormattedMessage id='navigation_bar.logout' defaultMessage='Logout' /></span><span className='tabs-bar__link__short-label'><FormattedMessage id='navigation_bar.short.logout' defaultMessage='Logout' /></span></a>,
   <NavLink className='tabs-bar__link hamburger' to='/getting-started' data-preview-title-id='getting_started.heading' data-preview-icon='bars' ><Icon id='bars' fixedWidth /></NavLink>,
 ];
+
+export const getSwipeableLinks = memoize(() => {
+  return links.filter(link => link.props.className.split(/\s+/).includes('tabs-bar__link'));
+});
+
+export function getSwipeableIndex (path) {
+  return getSwipeableLinks().findIndex(link => link.props.to === path);
+}
+
+export function getSwipeableLink (index) {
+  return getSwipeableLinks()[index].props.to;
+}
 
 export function getIndex (path) {
   return links.findIndex(link => link.props.to === path);
@@ -77,7 +91,7 @@ class TabsBar extends React.PureComponent {
     return (
       <div className='tabs-bar__wrapper'>
         <nav className={classNames('tabs-bar', { 'bottom-bar': place_tab_bar_at_bottom })} ref={this.setRef}>
-          {links.map(link => React.cloneElement(link, { key: link.props.to, className: classNames(link.props.className, { 'short-label': show_tab_bar_label }), onClick: this.handleClick, 'aria-label': formatMessage({ id: link.props['data-preview-title-id'] }) }))}
+          {links.map(link => React.cloneElement(link, { key: link.props.to, className: classNames(link.props.className, { 'short-label': show_tab_bar_label }), onClick: link.props.href ? null : this.handleClick, 'aria-label': formatMessage({ id: link.props['data-preview-title-id'] }) }))}
         </nav>
 
         <div id='tabs-bar__portal' />

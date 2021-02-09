@@ -2165,6 +2165,10 @@ a.account__display-name {
   .tabs-bar {
     margin-bottom: 0;
 
+    &.bottom-bar {
+      border-top: 1px solid lighten($ui-base-color, 8%);
+    }
+
     @media screen and (max-width: 600px + (285px * 2) + (10px * 2)) {
       &.bottom-bar {
         position: fixed;
@@ -2312,12 +2316,19 @@ a.account__display-name {
   background: lighten($ui-base-color, 8%);
   flex: 0 0 auto;
   overflow-y: auto;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
-.tabs-bar__link {
+.tabs-bar__link,
+.tabs-bar__external-link {
   display: block;
-  flex: 1 1 auto;
-  min-width: 40px;
+  flex: 1 0 auto;
+  min-width: 50px;
   color: $primary-text-color;
   text-decoration: none;
   text-align: center;
@@ -2363,11 +2374,12 @@ a.account__display-name {
 
 @media screen and (max-width: 600px - 1px) {
   .tabs-bar {
-    .tabs-bar__link {
+    .tabs-bar__link,
+    .tabs-bar__external-link {
       &,
       &.hamburger,
       &.hamburger.short-label {
-        padding: 15px 10px 13px;
+        padding: 15px 0 13px;
       }
 
       &.hamburger.short-label {
@@ -2380,7 +2392,7 @@ a.account__display-name {
         padding: 0;
 
         i {
-          margin: 10px 5px 0;
+          margin: 10px 0 0;
         }
 
         .tabs-bar__link__short-label {
@@ -2410,7 +2422,10 @@ a.account__display-name {
 
 @media screen and (min-width: 600px) {
   .tabs-bar {
-    .tabs-bar__link {
+    white-space: nowrap;
+
+    .tabs-bar__link,
+    .tabs-bar__external-link {
       &,
       &.hamburger {
         padding: 15px 10px 13px;
@@ -2433,7 +2448,8 @@ a.account__display-name {
   }
 
   .tabs-bar.bottom-bar {
-    .tabs-bar__link {
+    .tabs-bar__link,
+    .tabs-bar__external-link {
       &,
       &.hamburger {
         padding-bottom: calc(env(safe-area-inset-bottom) + 13px);
@@ -2450,6 +2466,7 @@ a.account__display-name {
 
   &.bottom-bar {
     padding-bottom: 48px;
+    padding-bottom: calc(env(safe-area-inset-bottom) + 48px);
   }
 
   .column,
@@ -2649,7 +2666,8 @@ a.account__display-name {
 
 @media screen and (min-width: 600px + (285px * 1) + (10px * 1)) {
   .floating-action-button,
-  .tabs-bar__link.optional {
+  .tabs-bar__link.optional,
+  .tabs-bar__external-link.optional {
     display: none;
   }
 
