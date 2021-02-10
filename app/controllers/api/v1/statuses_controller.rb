@@ -84,7 +84,16 @@ class Api::V1::StatusesController < Api::BaseController
   end
 
   def set_circle
-    @circle = status_params[:circle_id].blank? ? nil : current_account.owned_circles.find(status_params[:circle_id])
+    @circle = begin
+      if status_params[:visibility] == 'mutual'
+        status_params[:visibility] = 'limited'
+        current_account
+      elsif status_params[:circle_id].blank?
+        nil
+      else
+        current_account.owned_circles.find(status_params[:circle_id])
+      end
+    end
   rescue ActiveRecord::RecordNotFound
     render json: { error: I18n.t('statuses.errors.circle_not_found') }, status: 404
   end

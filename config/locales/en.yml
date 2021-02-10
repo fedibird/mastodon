@@ -1387,6 +1387,8 @@ en:
       direct_long: Only show to mentioned users
       limited: Circle
       limited_long: Only show to circle users
+      mutual: Mutual
+      mutual_long: Only show to mutual followers
       private: Followers-only
       private_long: Only show to followers
       public: Public

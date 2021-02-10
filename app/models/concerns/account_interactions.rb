@@ -335,6 +335,10 @@ module AccountInteractions
     end
   end
 
+  def mutuals
+    followers.merge(Account.where(id: following))
+  end
+
   private
 
   def remove_potential_friendship(other_account, mutual = false)

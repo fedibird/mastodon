@@ -51,7 +51,7 @@ class Status < ApplicationRecord
 
   update_index('statuses#status', :proper)
 
-  enum visibility: [:public, :unlisted, :private, :mutual, :direct, :limited], _suffix: :visibility
+  enum visibility: [:public, :unlisted, :private, :direct, :limited, :mutual], _suffix: :visibility
   enum expires_action: [:delete, :hint], _prefix: :expires
 
   belongs_to :application, class_name: 'Doorkeeper::Application', optional: true

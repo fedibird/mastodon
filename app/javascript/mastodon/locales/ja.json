@@ -388,6 +388,8 @@
   "privacy.direct.short": "ダイレクト",
   "privacy.limited.long": "サークルで指定したユーザーのみ閲覧可",
   "privacy.limited.short": "サークル",
+  "privacy.mutual.long": "相互フォローのみ閲覧可（対応サーバのみ）",
+  "privacy.mutual.short": "相互フォロー限定",
   "privacy.private.long": "フォロワーのみ閲覧可",
   "privacy.private.short": "フォロワー限定",
   "privacy.public.long": "誰でも閲覧可、公開TLに表示",
