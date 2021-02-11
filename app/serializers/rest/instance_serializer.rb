@@ -7,7 +7,7 @@ class REST::InstanceSerializer < ActiveModel::Serializer
              :version, :urls, :stats, :thumbnail,
              :languages, :registrations, :approval_required, :invites_enabled,
              :configuration,
-             :feature_quote
+             :feature_quote, :fedibird_capabilities
 
   has_one :contact_account, serializer: REST::AccountSerializer
 
@@ -99,6 +99,25 @@ class REST::InstanceSerializer < ActiveModel::Serializer
 
   def feature_quote
     true
+  end
+
+  def fedibird_capabilities
+    [
+      :favourite_hashtag,
+      :favourite_domain,
+      :status_expire,
+      :follow_no_delivery,
+      :follow_hashtag,
+      :subscribe_account,
+      :subscribe_domain,
+      :subscribe_keyword,
+      :timeline_no_local,
+      :timeline_domain,
+      :timeline_group,
+      :timeline_group_directory,
+      :visibility_mutual,
+      :visibility_limited,
+    ]
   end
 
   private

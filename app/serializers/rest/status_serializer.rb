@@ -4,7 +4,7 @@ class REST::StatusSerializer < ActiveModel::Serializer
   attributes :id, :created_at, :in_reply_to_id, :in_reply_to_account_id,
              :sensitive, :spoiler_text, :visibility, :language,
              :uri, :url, :replies_count, :reblogs_count,
-             :favourites_count, :limited
+             :favourites_count
 
   attribute :favourited, if: :current_user?
   attribute :reblogged, if: :current_user?
@@ -16,9 +16,10 @@ class REST::StatusSerializer < ActiveModel::Serializer
   attribute :content, unless: :source_requested?
   attribute :text, if: :source_requested?
 
-  attribute :quote_id, if: -> { object.quote? }
+  attribute :quote_id, if: :quote?
 
-  attribute :expires_at, if: -> { object.expires? }
+  attribute :expires_at, if: :expires?
+  attribute :visibility_ex, if: :visibility_ex?
 
   belongs_to :reblog, serializer: REST::StatusSerializer
   belongs_to :application, if: :show_application?
@@ -60,6 +61,18 @@ class REST::StatusSerializer < ActiveModel::Serializer
     object.account.user_shows_application? || owned_status?
   end
 
+  def quote?
+    object.quote?
+  end
+
+  def expires?
+    object.expires?
+  end
+
+  def visibility_ex?
+    object.limited_visibility?
+  end
+
   def visibility
     # This visibility is masked behind "private"
     # to avoid API changes because there are no
@@ -71,16 +84,16 @@ class REST::StatusSerializer < ActiveModel::Serializer
     end
   end
 
+  def visibility_ex
+    object.visibility
+  end
+
   def sensitive
     if current_user? && current_user.account_id == object.account_id
       object.sensitive
     else
       object.account.sensitized? || object.sensitive
     end
-  end
-
-  def limited
-    object.limited_visibility?
   end
 
   def limited_owned_parent_status?

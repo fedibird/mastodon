@@ -81,7 +81,7 @@ export function normalizeStatus(status, normalOldStatus) {
     normalStatus.contentHtml  = emojify(normalStatus.content, emojiMap);
     normalStatus.spoilerHtml  = emojify(escapeTextContentForBrowser(spoilerText), emojiMap);
     normalStatus.hidden       = expandSpoilers ? false : spoilerText.length > 0 || normalStatus.sensitive;
-    normalStatus.visibility   = normalStatus.limited ? 'limited' : normalStatus.visibility;
+    normalStatus.visibility   = normalStatus.visibility_ex ? normalStatus.visibility_ex : normalStatus.visibility;
 
     if (status.quote && status.quote.id) {
       const quote_spoilerText = status.quote.spoiler_text || '';
