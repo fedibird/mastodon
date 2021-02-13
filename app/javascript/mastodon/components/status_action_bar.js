@@ -265,16 +265,19 @@ class StatusActionBar extends ImmutablePureComponent {
       menu.push({ text: intl.formatMessage(messages.embed), action: this.handleEmbed });
     }
 
-    if (!show_bookmark_button) {
-      menu.push({ text: intl.formatMessage(status.get('bookmarked') ? messages.removeBookmark : messages.bookmark), action: this.handleBookmarkClick });
-    }
     menu.push(null);
 
-    if (writtenByMe && publicStatus && !expired) {
-      menu.push({ text: intl.formatMessage(status.get('pinned') ? messages.unpin : messages.pin), action: this.handlePinClick });
-    }
+    if (!show_bookmark_button || writtenByMe && publicStatus && !expired) {
+      if (!show_bookmark_button) {
+        menu.push({ text: intl.formatMessage(status.get('bookmarked') ? messages.removeBookmark : messages.bookmark), action: this.handleBookmarkClick });
+      }
 
-    menu.push(null);
+      if (writtenByMe && publicStatus && !expired) {
+        menu.push({ text: intl.formatMessage(status.get('pinned') ? messages.unpin : messages.pin), action: this.handlePinClick });
+      }
+
+      menu.push(null);
+    }
 
     if (writtenByMe && limitedByMe) {
       menu.push({ text: intl.formatMessage(messages.showMemberList), action: this.handleMemberListClick });
