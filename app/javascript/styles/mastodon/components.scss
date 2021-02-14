@@ -1274,9 +1274,9 @@
   }
 
   > span {
-    display: block;
     overflow: hidden;
     text-overflow: ellipsis;
+    margin-right: 4px;
   }
 }
 
