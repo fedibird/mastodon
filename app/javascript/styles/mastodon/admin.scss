@@ -385,7 +385,10 @@ body,
 .filters {
   display: flex;
   flex-wrap: wrap;
-  margin-right: -40px;
+
+  &.wide {
+    margin-right: -40px;
+  }
 
   .filter-subset {
     flex: 0 0 auto;
