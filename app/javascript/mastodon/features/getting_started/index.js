@@ -37,6 +37,7 @@ const messages = defineMessages({
   menu: { id: 'getting_started.heading', defaultMessage: 'Getting started' },
   group_directory: { id: 'getting_started.group_directory', defaultMessage: 'Group directory' },
   profile_directory: { id: 'getting_started.directory', defaultMessage: 'Profile directory' },
+  trends: { id: 'navigation_bar.trends', defaultMessage: 'Trends' },
   information_acct: { id: 'navigation_bar.information_acct', defaultMessage: 'Fedibird info' },
   hashtag_fedibird: { id: 'navigation_bar.hashtag_fedibird', defaultMessage: 'fedibird' },
 });
@@ -121,6 +122,12 @@ class GettingStarted extends ImmutablePureComponent {
       }
 
       navItems.push(
+        <ColumnLink key='trends' icon='line-chart' text={intl.formatMessage(messages.trends)} to='/trends' />,
+      );
+
+      height += 48;
+
+      navItems.push(
         <ColumnLink key='information_acct' icon='info-circle' text={intl.formatMessage(messages.information_acct)} to='/accounts/2' />,
         <ColumnLink key='hashtag_fedibird' icon='hashtag' text={intl.formatMessage(messages.hashtag_fedibird)} to='/timelines/tag/fedibird' />,
       );
@@ -146,6 +153,12 @@ class GettingStarted extends ImmutablePureComponent {
 
         height += 48;
       }
+
+      navItems.push(
+        <ColumnLink key='trends' icon='line-chart' text={intl.formatMessage(messages.trends)} to='/trends' />,
+      );
+
+      height += 48;
 
       navItems.push(
         <ColumnLink key='information_acct' icon='info-circle' text={intl.formatMessage(messages.information_acct)} to='/accounts/2' />,

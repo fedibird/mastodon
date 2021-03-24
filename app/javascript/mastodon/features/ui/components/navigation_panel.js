@@ -25,6 +25,7 @@ const NavigationPanel = () => (
     <NavLink className='column-link column-link--transparent' to='/circles'><Icon className='column-link__icon' id='user-circle' fixedWidth /><FormattedMessage id='navigation_bar.circles' defaultMessage='Circles' /></NavLink>
     <NavLink className='column-link column-link--transparent' to='/group_directory'><Icon className='column-link__icon' id='address-book-o' fixedWidth /><FormattedMessage id='getting_started.group_directory' defaultMessage='Group directory' /></NavLink>
     {profile_directory && <NavLink className='column-link column-link--transparent' to='/directory'><Icon className='column-link__icon' id='address-book-o' fixedWidth /><FormattedMessage id='getting_started.directory' defaultMessage='Profile directory' /></NavLink>}
+    <NavLink className='column-link column-link--transparent' to='/trends'><Icon className='column-link__icon' id='line-chart' fixedWidth /><FormattedMessage id='navigation_bar.trends' defaultMessage='Trends' /></NavLink>
 
     <ListPanel />
     <FavouriteDomainPanel />

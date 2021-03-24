@@ -28,6 +28,7 @@ import {
   ListTimeline,
   GroupDirectory,
   Directory,
+  Trends,
 } from '../../ui/util/async-components';
 import Icon from 'mastodon/components/icon';
 import ComposePanel from './compose_panel';
@@ -54,6 +55,7 @@ const componentMap = {
   'LIST': ListTimeline,
   'GROUP_DIRECTORY': GroupDirectory,
   'DIRECTORY': Directory,
+  'TRENDS': Trends,
 };
 
 const messages = defineMessages({

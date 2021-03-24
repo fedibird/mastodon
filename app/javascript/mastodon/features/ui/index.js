@@ -57,6 +57,7 @@ import {
   GroupDirectory,
   Directory,
   FollowRecommendations,
+  Trends,
 } from './util/async-components';
 import { me } from '../../initial_state';
 import { closeOnboarding, INTRODUCTION_VERSION } from 'mastodon/actions/onboarding';
@@ -173,6 +174,7 @@ class SwitchingColumnsArea extends React.PureComponent {
           <WrappedRoute path='/search' component={Search} content={children} />
           <WrappedRoute path='/group_directory' component={GroupDirectory} content={children} />
           <WrappedRoute path='/directory' component={Directory} content={children} />
+          <WrappedRoute path='/trends' component={Trends} content={children} />
 
           <WrappedRoute path='/statuses/new' component={Compose} content={children} />
           <WrappedRoute path='/statuses/:statusId' exact component={Status} content={children} />
