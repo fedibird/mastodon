@@ -189,3 +189,7 @@ export function FollowRecommendations () {
 export function Trends () {
   return import(/* webpackChunkName: "features/trends" */'../../trends');
 }
+
+export function Suggestions () {
+  return import(/* webpackChunkName: "features/suggestions" */'../../suggestions');
+}
