@@ -1,6 +1,6 @@
 import { createSelector } from 'reselect';
 import { List as ImmutableList, Map as ImmutableMap, is } from 'immutable';
-import { me } from '../initial_state';
+import { me, enable_limited_timeline } from '../initial_state';
 
 const getAccountBase         = (state, id) => state.getIn(['accounts', id], null);
 const getAccountCounters     = (state, id) => state.getIn(['accounts_counters', id], null);
@@ -213,4 +213,26 @@ export const getAccountGallery = createSelector([
   });
 
   return medias;
+});
+
+export const getHomeVisibilities = createSelector(
+  state => state.getIn(['settings', 'home', 'shows']),
+  shows => {
+    return enable_limited_timeline ? (
+      ['public', 'unlisted']
+      .concat(shows.get('private') ? ['private'] : [])
+      .concat(shows.get('limited') ? ['limited'] : [])
+      .concat(shows.get('direct')  ? ['direct']  : [])
+    ) : [];
+});
+
+export const getLimitedVisibilities = createSelector(
+  state => state.getIn(['settings', 'limited', 'shows']),
+  shows => {
+    return enable_limited_timeline ? (
+      []
+      .concat(shows.get('private') ? ['private'] : [])
+      .concat(shows.get('limited') ? ['limited'] : [])
+      .concat(shows.get('direct')  ? ['direct']  : [])
+    ) : [];
 });

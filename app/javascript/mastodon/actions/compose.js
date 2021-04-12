@@ -7,6 +7,7 @@ import { useEmoji } from './emojis';
 import resizeImage from '../utils/resize_image';
 import { importFetchedAccounts } from './importer';
 import { updateTimeline } from './timelines';
+import { getHomeVisibilities, getLimitedVisibilities } from 'mastodon/selectors';
 import { showAlertForError } from './alerts';
 import { showAlert } from './alerts';
 import { defineMessages } from 'react-intl';
@@ -152,6 +153,8 @@ export function submitCompose(routerHistory) {
   return function (dispatch, getState) {
     const status = getState().getIn(['compose', 'text'], '');
     const media  = getState().getIn(['compose', 'media_attachments']);
+    const homeVisibilities = getHomeVisibilities(getState());
+    const limitedVisibilities = getLimitedVisibilities(getState());
 
     if ((!status || !status.length) && media.size === 0) {
       return;
@@ -191,8 +194,12 @@ export function submitCompose(routerHistory) {
         }
       };
 
-      if (response.data.visibility !== 'direct') {
+      if (homeVisibilities.length == 0 || homeVisibilities.includes(response.data.visibility)) {
         insertIfOnline('home');
+      }
+
+      if (limitedVisibilities.includes(response.data.visibility)) {
+        insertIfOnline('limited');
       }
 
       if (response.data.in_reply_to_id === null && response.data.visibility === 'public') {

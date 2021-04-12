@@ -51,6 +51,7 @@ en:
         setting_display_media_default: Hide media marked as sensitive
         setting_display_media_hide_all: Always hide media
         setting_display_media_show_all: Always show media
+        setting_enable_limited_timeline: Enable a limited home to display private and circle and direct message
         setting_follow_button_to_list_adder: Change the behavior of the Follow / Subscribe button, open a dialog where you can select a list to follow / subscribe, or opt out of receiving at home
         setting_hide_network: Who you follow and who follows you will be hidden on your profile
         setting_noindex: Affects your public profile and post pages
@@ -186,6 +187,7 @@ en:
         setting_display_media_default: Default
         setting_display_media_hide_all: Hide all
         setting_display_media_show_all: Show all
+        setting_enable_limited_timeline: Enable limited timeline
         setting_expand_spoilers: Always expand posts marked with content warnings
         setting_follow_button_to_list_adder: Open list add dialog with follow button
         setting_hide_network: Hide your social graph

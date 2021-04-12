@@ -7,7 +7,7 @@ import { connect } from 'react-redux';
 import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import ImmutablePureComponent from 'react-immutable-pure-component';
-import { me, profile_directory, showTrends } from '../../initial_state';
+import { me, profile_directory, showTrends, enable_limited_timeline } from '../../initial_state';
 import { fetchFollowRequests } from 'mastodon/actions/accounts';
 import { List as ImmutableList } from 'immutable';
 import NavigationContainer from '../compose/containers/navigation_container';
@@ -29,6 +29,7 @@ const messages = defineMessages({
   domain_blocks: { id: 'navigation_bar.domain_blocks', defaultMessage: 'Hidden domains' },
   mutes: { id: 'navigation_bar.mutes', defaultMessage: 'Muted users' },
   pins: { id: 'navigation_bar.pins', defaultMessage: 'Pinned toots' },
+  limited_timeline: { id: 'navigation_bar.limited_timeline', defaultMessage: 'Limited home' },
   lists: { id: 'navigation_bar.lists', defaultMessage: 'Lists' },
   circles: { id: 'navigation_bar.circles', defaultMessage: 'Circles' },
   discover: { id: 'navigation_bar.discover', defaultMessage: 'Discover' },
@@ -174,6 +175,13 @@ class GettingStarted extends ImmutablePureComponent {
     if (multiColumn && !columns.find(item => item.get('id') === 'HOME')) {
       navItems.push(
         <ColumnLink key='home' icon='home' text={intl.formatMessage(messages.home_timeline)} to='/timelines/home' />,
+      );
+      height += 48;
+    }
+
+    if (enable_limited_timeline && multiColumn && !columns.find(item => item.get('id') === 'LIMITED')) {
+      navItems.push(
+        <ColumnLink key='limited_timeline' icon='lock' text={intl.formatMessage(messages.limited_timeline)} to='/timelines/limited' />,
       );
       height += 48;
     }

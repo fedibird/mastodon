@@ -49,6 +49,7 @@ defaults: &defaults
   show_target: false
   place_tab_bar_at_bottom: false
   show_tab_bar_label: false
+  enable_limited_timeline: false
   notification_emails:
     follow: false
     reblog: false

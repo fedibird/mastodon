@@ -51,6 +51,7 @@ ja:
         setting_display_media_default: 閲覧注意としてマークされたメディアは隠す
         setting_display_media_hide_all: メディアを常に隠す
         setting_display_media_show_all: メディアを常に表示する
+        setting_enable_limited_timeline: フォロワー限定・サークル・ダイレクトメッセージを表示する限定ホームを有効にします
         setting_follow_button_to_list_adder: フォロー・購読ボタンの動作を変更し、フォロー・購読するリストを選択したり、ホームで受け取らないよう設定するダイアログを開きます
         setting_hide_network: フォローとフォロワーの情報がプロフィールページで見られないようにします
         setting_noindex: 公開プロフィールおよび各投稿ページに影響します
@@ -186,6 +187,7 @@ ja:
         setting_display_media_default: 標準
         setting_display_media_hide_all: 非表示
         setting_display_media_show_all: 表示
+        setting_enable_limited_timeline: 限定ホームを有効にする
         setting_expand_spoilers: 閲覧注意としてマークされた投稿を常に展開する
         setting_follow_button_to_list_adder: フォローボタンでリスト追加ダイアログを開く
         setting_hide_network: 繋がりを隠す

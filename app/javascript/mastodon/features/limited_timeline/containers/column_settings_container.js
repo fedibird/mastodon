@@ -4,18 +4,18 @@ import { changeSetting, saveSettings } from '../../../actions/settings';
 import { clearTimeline } from '../../../actions/timelines';
 
 const mapStateToProps = state => ({
-  settings: state.getIn(['settings', 'home']),
+  settings: state.getIn(['settings', 'limited']),
 });
 
 const mapDispatchToProps = dispatch => ({
 
   onChange (key, checked) {
-    dispatch(changeSetting(['home', ...key], checked));
+    dispatch(changeSetting(['limited', ...key], checked));
   },
 
   onChangeClear (key, checked) {
-    dispatch(changeSetting(['home', ...key], checked));
-    dispatch(clearTimeline('home'));
+    dispatch(changeSetting(['limited', ...key], checked));
+    dispatch(clearTimeline('limited'));
   },
 
   onSave () {

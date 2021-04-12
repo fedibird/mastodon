@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Fragment } from 'react';
 import PropTypes from 'prop-types';
 import { defineMessages, injectIntl } from 'react-intl';
 import ImmutablePropTypes from 'react-immutable-proptypes';
@@ -8,7 +8,7 @@ import ReactSwipeableViews from 'react-swipeable-views';
 import TabsBar, { getSwipeableIndex, getSwipeableLink } from './tabs_bar';
 import { Link } from 'react-router-dom';
 
-import { disableSwiping, place_tab_bar_at_bottom } from 'mastodon/initial_state';
+import { disableSwiping, place_tab_bar_at_bottom, enable_limited_timeline } from 'mastodon/initial_state';
 
 import BundleContainer from '../containers/bundle_container';
 import ColumnLoading from './column_loading';
@@ -23,6 +23,7 @@ import {
   DomainTimeline,
   HashtagTimeline,
   DirectTimeline,
+  LimitedTimeline,
   FavouritedStatuses,
   BookmarkedStatuses,
   ListTimeline,
@@ -35,6 +36,7 @@ import Icon from 'mastodon/components/icon';
 import ComposePanel from './compose_panel';
 import NavigationPanel from './navigation_panel';
 import { show_navigation_panel } from 'mastodon/initial_state';
+import { removeColumn } from 'mastodon/actions/columns';
 
 import { supportsPassiveEvents } from 'detect-passive-events';
 import { scrollRight } from '../../../scroll';
@@ -51,6 +53,7 @@ const componentMap = {
   'GROUP': GroupTimeline,
   'HASHTAG': HashtagTimeline,
   'DIRECT': DirectTimeline,
+  'LIMITED': LimitedTimeline,
   'FAVOURITES': FavouritedStatuses,
   'BOOKMARKS': BookmarkedStatuses,
   'LIST': ListTimeline,
@@ -74,6 +77,7 @@ class ColumnsArea extends ImmutablePureComponent {
   };
 
   static propTypes = {
+    dispatch: PropTypes.func.isRequired,
     intl: PropTypes.object.isRequired,
     columns: ImmutablePropTypes.list.isRequired,
     isModalOpen: PropTypes.bool.isRequired,
@@ -97,6 +101,8 @@ class ColumnsArea extends ImmutablePureComponent {
   }
 
   componentDidMount() {
+    const { dispatch, columns } = this.props;
+
     if (!this.props.singleColumn) {
       this.node.addEventListener('wheel', this.handleWheel, supportsPassiveEvents ? { passive: true } : false);
     }
@@ -114,6 +120,14 @@ class ColumnsArea extends ImmutablePureComponent {
     this.isRtlLayout = document.getElementsByTagName('body')[0].classList.contains('rtl');
 
     this.setState({ shouldAnimate: true });
+
+    if (!enable_limited_timeline) {
+      const limitedColumn = columns.find(item => item.get('id') === 'LIMITED')
+
+      if (limitedColumn) {
+        dispatch(removeColumn(limitedColumn.get('uuid')));
+      }
+    }
   }
 
   componentWillUpdate(nextProps) {

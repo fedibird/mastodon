@@ -50,6 +50,7 @@ class UserSettingsDecorator
     user.settings['show_target']                       = show_target_preference if change?('setting_show_target')
     user.settings['place_tab_bar_at_bottom']           = place_tab_bar_at_bottom_preference if change?('setting_place_tab_bar_at_bottom')
     user.settings['show_tab_bar_label']                = show_tab_bar_label_preference if change?('setting_show_tab_bar_label')
+    user.settings['enable_limited_timeline']           = enable_limited_timeline_preference if change?('setting_enable_limited_timeline')
   end
 
   def merged_notification_emails
@@ -190,6 +191,10 @@ class UserSettingsDecorator
 
   def show_tab_bar_label_preference
     boolean_cast_setting 'setting_show_tab_bar_label'
+  end
+
+  def enable_limited_timeline_preference
+    boolean_cast_setting 'setting_enable_limited_timeline'
   end
 
   def boolean_cast_setting(key)

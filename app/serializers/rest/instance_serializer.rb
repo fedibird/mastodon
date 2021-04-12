@@ -111,6 +111,7 @@ class REST::InstanceSerializer < ActiveModel::Serializer
       :subscribe_account,
       :subscribe_domain,
       :subscribe_keyword,
+      :timeline_home_visibility,
       :timeline_no_local,
       :timeline_domain,
       :timeline_group,

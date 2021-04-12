@@ -5,6 +5,7 @@ import api, { getLinks } from 'mastodon/api';
 import { Map as ImmutableMap, List as ImmutableList } from 'immutable';
 import compareId from 'mastodon/compare_id';
 import { usePendingItems as preferPendingItems } from 'mastodon/initial_state';
+import { getHomeVisibilities, getLimitedVisibilities } from 'mastodon/selectors';
 import { uniq } from '../utils/uniq';
 
 export const TIMELINE_UPDATE  = 'TIMELINE_UPDATE';
@@ -43,15 +44,30 @@ export function updateTimeline(timeline, status, accept) {
     dispatch(importFetchedStatus(status));
     dispatch(fetchRelationships([status.reblog ? status.reblog.account.id : status.account.id, status.quote ? status.quote.account.id : null].filter(function(e){return e})));
 
-    dispatch({
-      type: TIMELINE_UPDATE,
-      timeline,
-      status,
-      usePendingItems: preferPendingItems,
-    });
+    const insertTimeline = timeline => {
+      dispatch({
+        type: TIMELINE_UPDATE,
+        timeline,
+        status,
+        usePendingItems: preferPendingItems,
+      });
+    };
+
+    const visibility = status.visibility_ex || status.visibility
+    const homeVisibilities = getHomeVisibilities(getState());
+    const limitedVisibilities = getLimitedVisibilities(getState());
 
     if (timeline === 'home') {
-      dispatch(submitMarkers());
+      if (homeVisibilities.length == 0 || homeVisibilities.includes(visibility)) {
+        insertTimeline('home');
+        dispatch(submitMarkers());
+      }
+
+      if (limitedVisibilities.includes(visibility)) {
+        insertTimeline('limited');
+      }
+    } else {
+      insertTimeline(timeline);
     }
   };
 };
@@ -128,7 +144,8 @@ export function expandTimeline(timelineId, path, params = {}, done = noOp) {
   };
 };
 
-export const expandHomeTimeline            = ({ maxId } = {}, done = noOp) => expandTimeline('home', '/api/v1/timelines/home', { max_id: maxId }, done);
+export const expandHomeTimeline            = ({ maxId, visibilities } = {}, done = noOp) => expandTimeline('home', '/api/v1/timelines/home', { max_id: maxId, visibilities: visibilities}, done);
+export const expandLimitedTimeline         = ({ maxId, visibilities } = {}, done = noOp) => expandTimeline('limited', '/api/v1/timelines/home', { max_id: maxId, visibilities: visibilities}, done);
 export const expandPublicTimeline          = ({ maxId, onlyMedia, onlyRemote } = {}, done = noOp) => expandTimeline(`public${onlyRemote ? ':remote' : ''}${onlyMedia ? ':media' : ''}`, '/api/v1/timelines/public', { remote: !!onlyRemote, max_id: maxId, only_media: !!onlyMedia }, done);
 export const expandDomainTimeline          = (domain, { maxId, onlyMedia } = {}, done = noOp) => expandTimeline(`domain${onlyMedia ? ':media' : ''}:${domain}`, '/api/v1/timelines/public', { local: false, domain: domain, max_id: maxId, only_media: !!onlyMedia }, done);
 export const expandGroupTimeline           = (id, { maxId, onlyMedia, tagged } = {}, done = noOp) => expandTimeline(`group:${id}${onlyMedia ? ':media' : ''}${tagged ? `:${tagged}` : ''}`, `/api/v1/timelines/group/${id}`, { max_id: maxId, only_media: !!onlyMedia, tagged: tagged }, done);

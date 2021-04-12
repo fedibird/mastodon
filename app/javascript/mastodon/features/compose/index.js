@@ -14,7 +14,7 @@ import SearchResultsContainer from './containers/search_results_container';
 import { changeComposing } from '../../actions/compose';
 import { openModal } from 'mastodon/actions/modal';
 import elephantUIPlane from '../../../images/elephant_ui_plane.svg';
-import { mascot, show_tab_bar_label } from '../../initial_state';
+import { mascot, show_tab_bar_label, enable_limited_timeline } from '../../initial_state';
 import Icon from 'mastodon/components/icon';
 import { logOut } from 'mastodon/utils/log_out';
 import NotificationsCounterIcon from '../ui/components/notifications_counter_icon';
@@ -23,6 +23,7 @@ import classNames from 'classnames';
 const messages = defineMessages({
   short_start: { id: 'navigation_bar.short.getting_started', defaultMessage: 'Started' },
   short_home_timeline: { id: 'navigation_bar.short.home', defaultMessage: 'Home' },
+  short_limited_timeline: { id: 'navigation_bar.short.limited_timeline', defaultMessage: 'Ltd.' },
   short_notifications: { id: 'navigation_bar.short.notifications', defaultMessage: 'Notif.' },
   short_public: { id: 'navigation_bar.short.public_timeline', defaultMessage: 'FTL' },
   short_community: { id: 'navigation_bar.short.community_timeline', defaultMessage: 'LTL' },
@@ -31,6 +32,7 @@ const messages = defineMessages({
   short_logout: { id: 'navigation_bar.short.logout', defaultMessage: 'Logout' },
   start: { id: 'getting_started.heading', defaultMessage: 'Getting started' },
   home_timeline: { id: 'tabs_bar.home', defaultMessage: 'Home' },
+  limited_timeline: { id: 'tabs_bar.limited_timeline', defaultMessage: 'Limited home' },
   notifications: { id: 'tabs_bar.notifications', defaultMessage: 'Notifications' },
   public: { id: 'navigation_bar.public_timeline', defaultMessage: 'Federated timeline' },
   lists: { id: 'navigation_bar.lists', defaultMessage: 'Lists' },
@@ -103,14 +105,15 @@ class Compose extends React.PureComponent {
 
     if (!columns.some(column => column.get('id') === id)) {
       const tabParams = {
-        'START':         { to: '/getting-started',        title: formatMessage(messages.start),         label: formatMessage(messages.short_start),         icon_id: 'bars' },
-        'HOME':          { to: '/timelines/home',         title: formatMessage(messages.home_timeline), label: formatMessage(messages.short_home_timeline), icon_id: 'home' },
-        'NOTIFICATIONS': { to: '/notifications',          title: formatMessage(messages.notifications), label: formatMessage(messages.short_notifications), icon_id: 'bell' },
+        'START':         { to: '/getting-started',        title: formatMessage(messages.start),            label: formatMessage(messages.short_start),            icon_id: 'bars' },
+        'HOME':          { to: '/timelines/home',         title: formatMessage(messages.home_timeline),    label: formatMessage(messages.short_home_timeline),    icon_id: 'home' },
+        'LIMITED':       { to: '/timelines/limited',      title: formatMessage(messages.limited_timeline), label: formatMessage(messages.short_limited_timeline), icon_id: 'lock' },
+        'NOTIFICATIONS': { to: '/notifications',          title: formatMessage(messages.notifications),    label: formatMessage(messages.short_notifications),    icon_id: 'bell' },
         // 'COMMUNITY':     { to: '/timelines/public/local', title: formatMessage(messages.community),     label: formatMessage(messages.short_community),     icon_id: 'users' },
-        'PUBLIC':        { to: '/timelines/public',       title: formatMessage(messages.public),        label: formatMessage(messages.short_public),        icon_id: 'globe' },
-        'LIST':          { to: '/lists',                  title: formatMessage(messages.lists),         label: formatMessage(messages.short_lists),         icon_id: 'list-ul' },
-        'PREFERENCES':   { href: '/settings/preferences', title: formatMessage(messages.preferences),   label: formatMessage(messages.short_preferences),   icon_id: 'cog' },
-        'SIGN_OUT':      { href: '/auth/sign_out',        title: formatMessage(messages.logout),        label: formatMessage(messages.short_logout),        icon_id: 'sign-out', method: 'delete' },
+        'PUBLIC':        { to: '/timelines/public',       title: formatMessage(messages.public),           label: formatMessage(messages.short_public),           icon_id: 'globe' },
+        'LIST':          { to: '/lists',                  title: formatMessage(messages.lists),            label: formatMessage(messages.short_lists),            icon_id: 'list-ul' },
+        'PREFERENCES':   { href: '/settings/preferences', title: formatMessage(messages.preferences),      label: formatMessage(messages.short_preferences),      icon_id: 'cog' },
+        'SIGN_OUT':      { href: '/auth/sign_out',        title: formatMessage(messages.logout),           label: formatMessage(messages.short_logout),           icon_id: 'sign-out', method: 'delete' },
       };
 
       const { href, to, title, label, icon_id, method } = tabParams[id];
@@ -137,7 +140,7 @@ class Compose extends React.PureComponent {
 
     if (multiColumn) {
       // const defaultTabIds = ['START', 'HOME', 'NOTIFICATIONS', 'COMMUNITY', 'PUBLIC', 'LIST', 'PREFERENCES', 'SIGN_OUT'];
-      const defaultTabIds = ['START', 'HOME', 'NOTIFICATIONS', 'PUBLIC', 'LIST', 'PREFERENCES', 'SIGN_OUT'];
+      const defaultTabIds = enable_limited_timeline ? ['START', 'HOME', 'LIMITED', 'NOTIFICATIONS', 'PUBLIC', 'LIST', 'PREFERENCES', 'SIGN_OUT'] : ['START', 'HOME', 'NOTIFICATIONS', 'PUBLIC', 'LIST', 'PREFERENCES', 'SIGN_OUT'];
 
       let tabs = defaultTabIds;
 

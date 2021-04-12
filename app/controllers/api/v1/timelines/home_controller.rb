@@ -31,7 +31,8 @@ class Api::V1::Timelines::HomeController < Api::BaseController
       limit_param(DEFAULT_STATUSES_LIMIT),
       params[:max_id],
       params[:since_id],
-      params[:min_id]
+      params[:min_id],
+      visibilities
     )
   end
 
@@ -61,5 +62,11 @@ class Api::V1::Timelines::HomeController < Api::BaseController
 
   def pagination_since_id
     @statuses.first.id
+  end
+
+  def visibilities
+    val = params.permit(visibilities: [])[:visibilities] || []
+    val = [val] unless val.is_a?(Enumerable)
+    val
   end
 end

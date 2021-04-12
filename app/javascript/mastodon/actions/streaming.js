@@ -8,6 +8,7 @@ import {
   connectTimeline,
   disconnectTimeline,
 } from './timelines';
+import { getHomeVisibilities } from 'mastodon/selectors';
 import { updateNotifications, expandNotifications } from './notifications';
 import { updateConversations } from './conversations';
 import {
@@ -44,10 +45,10 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
     let pollingId;
 
     /**
-     * @param {function(Function, Function): void} fallback
+     * @param {function(Function, Function, Function): void} fallback
      */
     const useFallback = fallback => {
-      fallback(dispatch, () => {
+      fallback(dispatch, getState, () => {
         pollingId = setTimeout(() => useFallback(fallback), 20000 + randomUpTo(20000));
       });
     };
@@ -105,8 +106,10 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
  * @param {Function} dispatch
  * @param {function(): void} done
  */
-const refreshHomeTimelineAndNotification = (dispatch, done) => {
-  dispatch(expandHomeTimeline({}, () =>
+const refreshHomeTimelineAndNotification = (dispatch, getState, done) => {
+  const visibilities = getHomeVisibilities(getState());
+
+  dispatch(expandHomeTimeline({ visibilities }, () =>
     dispatch(expandNotifications({}, () =>
       dispatch(fetchAnnouncements(done))))));
 };
