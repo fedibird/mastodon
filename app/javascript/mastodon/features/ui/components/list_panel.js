@@ -8,12 +8,12 @@ import { createSelector } from 'reselect';
 import { NavLink, withRouter } from 'react-router-dom';
 import Icon from 'mastodon/components/icon';
 
-const getOrderedLists = createSelector([state => state.get('lists')], lists => {
+export const getOrderedLists = createSelector([state => state.get('lists')], lists => {
   if (!lists) {
     return lists;
   }
 
-  return lists.toList().filter(item => !!item).sort((a, b) => a.get('title').localeCompare(b.get('title'))).take(4);
+  return lists.toList().filter(item => !!item).sort((a, b) => a.get('title').localeCompare(b.get('title'))).take(10);
 });
 
 const mapStateToProps = state => ({

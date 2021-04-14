@@ -7,8 +7,8 @@ import { connect } from 'react-redux';
 import { createSelector } from 'reselect';
 import { NavLink, withRouter } from 'react-router-dom';
 import Icon from 'mastodon/components/icon';
-  
-const getOrderedTags = createSelector([state => state.get('favourite_tags')], favourite_tags => {
+
+export const getOrderedTags = createSelector([state => state.get('favourite_tags')], favourite_tags => {
   if (!favourite_tags) {
     return favourite_tags;
   }

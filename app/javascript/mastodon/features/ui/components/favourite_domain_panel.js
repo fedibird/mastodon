@@ -8,7 +8,7 @@ import { createSelector } from 'reselect';
 import { NavLink, withRouter } from 'react-router-dom';
 import Icon from 'mastodon/components/icon';
 
-const getOrderedDomains = createSelector([state => state.get('favourite_domains')], favourite_domains => {
+export const getOrderedDomains = createSelector([state => state.get('favourite_domains')], favourite_domains => {
   if (!favourite_domains) {
     return favourite_domains;
   }
