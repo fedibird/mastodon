@@ -160,7 +160,9 @@ export default function timelines(state = initialState, action) {
     return filterTimelines(state, action.relationship, action.statuses);
   case ACCOUNT_UNFOLLOW_SUCCESS:
   case ACCOUNT_UNSUBSCRIBE_SUCCESS:
-    return filterTimeline('home', state, action.relationship, action.statuses).filterTimeline('limited', state, action.relationship, action.statuses);
+    state = filterTimeline('home', state, action.relationship, action.statuses);
+    state = filterTimeline('limited', state, action.relationship, action.statuses);
+    return state;
   case TIMELINE_SCROLL_TOP:
     return updateTop(state, action.timeline, action.top);
   case TIMELINE_CONNECT:
