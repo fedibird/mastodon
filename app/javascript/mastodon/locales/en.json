@@ -198,7 +198,7 @@
   "empty_column.favourites": "No one has favourited this post yet. When someone does, they will show up here.",
   "empty_column.follow_recommendations": "Looks like no suggestions could be generated for you. You can try using search to look for people you might know or explore trending hashtags.",
   "empty_column.follow_requests": "You don't have any follow requests yet. When you receive one, it will show up here.",
-  "empty_column.group": "The group timeline is empty. When members of this group post new toots, they will appear here.",
+  "empty_column.group": "The group timeline is empty. When members of this group post new posts, they will appear here.",
   "empty_column.hashtag": "There is nothing in this hashtag yet.",
   "empty_column.home": "Your home timeline is empty! Follow more people to fill it up. {suggestions}",
   "empty_column.home.public_timeline": "the public timeline",

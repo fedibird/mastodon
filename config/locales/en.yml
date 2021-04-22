@@ -892,7 +892,7 @@ en:
     severity: Severity
     severity_legend:
       media_block: Media files coming from the server are neither fetched, stored, or displayed to the user.
-      silence: Accounts from silenced servers can be found, followed and interacted with, but their toots will not appear in the public timelines, and notifications from them will not reach local users who are not following them.
+      silence: Accounts from silenced servers can be found, followed and interacted with, but their posts will not appear in the public timelines, and notifications from them will not reach local users who are not following them.
       suspension: No content from suspended servers is stored or displayed, nor is any content sent to them. Interactions from suspended servers are ignored.
       suspension_disclaimer: Suspended servers may occasionally retrieve public content from this server.
       title: Severities
@@ -1016,7 +1016,7 @@ en:
     i_am_html: I am %{username} on %{service}.
     identity: Identity
     inactive: Inactive
-    publicize_checkbox: 'And toot this:'
+    publicize_checkbox: 'And post this:'
     publicize_toot: 'It is proven! I am %{username} on %{service}: %{url}'
     remove: Remove proof from account
     removed: Successfully removed proof from account

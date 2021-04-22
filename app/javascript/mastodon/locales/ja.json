@@ -198,7 +198,7 @@
   "empty_column.favourites": "まだ誰もお気に入り登録していません。お気に入り登録されるとここに表示されます。",
   "empty_column.follow_recommendations": "おすすめを生成できませんでした。検索を使って知り合いを探したり、トレンドハッシュタグを見てみましょう。",
   "empty_column.follow_requests": "まだフォローリクエストを受けていません。フォローリクエストを受けるとここに表示されます。",
-  "empty_column.group": "グループタイムラインはまだ使われていません。このグループのメンバーが新しいトゥートをするとここに表示されます。",
+  "empty_column.group": "グループタイムラインはまだ使われていません。このグループのメンバーが新しい投稿をするとここに表示されます。",
   "empty_column.hashtag": "このハッシュタグはまだ使われていません。",
   "empty_column.home": "ホームタイムラインはまだ空っぽです。誰かフォローして埋めてみましょう。 {suggestions}",
   "empty_column.home.suggestions": "おすすめを見る",
