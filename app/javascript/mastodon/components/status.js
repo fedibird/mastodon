@@ -17,10 +17,10 @@ import ImmutablePureComponent from 'react-immutable-pure-component';
 import { MediaGallery, Video, Audio } from '../features/ui/util/async-components';
 import { HotKeys } from 'react-hotkeys';
 import classNames from 'classnames';
-import { Link } from 'react-router-dom';
 import Icon from 'mastodon/components/icon';
-import { displayMedia, me } from '../initial_state';
+import EmojiReactionsBar from 'mastodon/components/emoji_reactions_bar';
 import PictureInPicturePlaceholder from 'mastodon/components/picture_in_picture_placeholder';
+import { displayMedia, enableReaction } from 'mastodon/initial_state';
 
 // We use the component (and not the container) since we do not want
 // to use the progress bar to show download progress
@@ -144,6 +144,9 @@ class Status extends ImmutablePureComponent {
       available: PropTypes.bool,
     }),
     contextType: PropTypes.string,
+    emojiMap: ImmutablePropTypes.map,
+    addEmojiReaction: PropTypes.func.isRequired,
+    removeEmojiReaction: PropTypes.func.isRequired,
   };
 
   // Avoid checking props that are functions (and whose equality will always
@@ -709,6 +712,12 @@ class Status extends ImmutablePureComponent {
             {quote}
             {media}
 
+            {enableReaction && <EmojiReactionsBar
+              status={status}
+              addEmojiReaction={this.props.addEmojiReaction}
+              removeEmojiReaction={this.props.removeEmojiReaction}
+              emojiMap={this.props.emojiMap}
+            />}
             <StatusActionBar scrollKey={scrollKey} status={status} account={account} expired={expired} {...other} />
           </div>
         </div>

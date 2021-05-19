@@ -1,3 +1,4 @@
+
 # frozen_string_literal: true
 
 class ActivityPub::Activity::Undo < ActivityPub::Activity
@@ -13,6 +14,8 @@ class ActivityPub::Activity::Undo < ActivityPub::Activity
       undo_like
     when 'Block'
       undo_block
+    when 'EmojiReact'
+      undo_react
     when nil
       handle_reference
     end
@@ -25,7 +28,7 @@ class ActivityPub::Activity::Undo < ActivityPub::Activity
     # global index, we have to guess what object it is.
     return if object_uri.nil?
 
-    try_undo_announce || try_undo_accept || try_undo_follow || try_undo_like || try_undo_block || delete_later!(object_uri)
+    try_undo_announce || try_undo_accept || try_undo_follow || try_undo_like || try_undo_react || try_undo_block || delete_later!(object_uri)
   end
 
   def try_undo_announce
@@ -57,6 +60,10 @@ class ActivityPub::Activity::Undo < ActivityPub::Activity
   def try_undo_like
     # There is an index on accounts, but an account may have *many* favs, so this may be too costly
     false
+  end
+
+  def try_undo_react
+    @account.emoji_reactions.find_by(uri: object_uri)&.destroy
   end
 
   def try_undo_block
@@ -105,12 +112,31 @@ class ActivityPub::Activity::Undo < ActivityPub::Activity
 
     return if status.nil? || !status.account.local?
 
-    if @account.favourited?(status)
-      favourite = status.favourites.where(account: @account).first
-      favourite&.destroy
+    shortcode = @object['_misskey_reaction']&.delete(':')
+
+    if shortcode.present?
+      emoji_tag = @object['tag'].is_a?(Array) ? @object['tag']&.first : @object['tag']
+
+      if emoji_tag.present? && emoji_tag['id'].present?
+        emoji = CustomEmoji.find_by(shortcode: shortcode, domain: @account.domain)
+      end
+
+      if @account.reacted?(status, shortcode, emoji)
+        status.emoji_reactions.where(account: @account, name: shortcode, custom_emoji: emoji).first&.destroy
+      else
+        delete_later!(object_uri)
+      end
     else
-      delete_later!(object_uri)
+      if @account.favourited?(status)
+        status.favourites.where(account: @account).first&.destroy
+      else
+        delete_later!(object_uri)
+      end
     end
+  end
+
+  def undo_react
+    @account.emoji_reactions.find_by(uri: object_uri)&.destroy
   end
 
   def undo_block

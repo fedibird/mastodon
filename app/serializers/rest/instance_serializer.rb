@@ -118,6 +118,7 @@ class REST::InstanceSerializer < ActiveModel::Serializer
       :timeline_group_directory,
       :visibility_mutual,
       :visibility_limited,
+      :emoji_reaction,
     ]
   end
 

@@ -69,6 +69,7 @@ class Status < ApplicationRecord
 
   has_many :favourites, inverse_of: :status, dependent: :destroy
   has_many :bookmarks, inverse_of: :status, dependent: :destroy
+  has_many :emoji_reactions, inverse_of: :status, dependent: :destroy
   has_many :reblogs, foreign_key: 'reblog_of_id', class_name: 'Status', inverse_of: :reblog, dependent: :destroy
   has_many :replies, foreign_key: 'in_reply_to_id', class_name: 'Status', inverse_of: :thread
   has_many :mentions, dependent: :destroy, inverse_of: :status
@@ -123,6 +124,12 @@ class Status < ApplicationRecord
             FROM favourites f
             WHERE f.status_id = statuses.id
             AND f.account_id = :account_id
+          )
+          AND NOT EXISTS (
+            SELECT *
+            FROM emoji_reactions r
+            WHERE r.status_id = statuses.id
+            AND r.account_id = :account_id
           )
           AND statuses.expires_at IS NOT NULL
           AND statuses.expires_at < :current_utc
@@ -190,11 +197,13 @@ class Status < ApplicationRecord
       ids += favourites.where(account: Account.local).pluck(:account_id)
       ids += reblogs.where(account: Account.local).pluck(:account_id)
       ids += bookmarks.where(account: Account.local).pluck(:account_id)
+      ids += emoji_reactions.where(account: Account.local).pluck(:account_id)
     else
       ids += preloaded.mentions[id] || []
       ids += preloaded.favourites[id] || []
       ids += preloaded.reblogs[id] || []
       ids += preloaded.bookmarks[id] || []
+      ids += preloaded.emoji_reactions[id] || []
     end
 
     ids.uniq
@@ -311,6 +320,19 @@ class Status < ApplicationRecord
     status_stat&.favourites_count || 0
   end
 
+  def grouped_reactions(account = nil)
+    records = begin
+      scope = emoji_reactions.group(:status_id, :name, :custom_emoji_id).order(Arel.sql('MIN(created_at) ASC'))
+      if account.nil?
+        scope.select('name, custom_emoji_id, count(*) as count, false as me')
+      else
+        scope.select("name, custom_emoji_id, count(*) as count, exists(select 1 from emoji_reactions r where r.account_id = #{account.id} and r.status_id = emoji_reactions.status_id and r.name = emoji_reactions.name) as me")
+      end
+    end
+    ActiveRecord::Associations::Preloader.new.preload(records, :custom_emoji)
+    records
+  end
+
   def increment_count!(key)
     update_status_stat!(key => public_send(key) + 1)
   end
@@ -347,6 +369,10 @@ class Status < ApplicationRecord
 
     def bookmarks_map(status_ids, account_id)
       Bookmark.select('status_id').where(status_id: status_ids).where(account_id: account_id).map { |f| [f.status_id, true] }.to_h
+    end
+
+    def emoji_reactions_map(status_ids, account_id)
+      EmojiReaction.select('status_id').where(status_id: status_ids).where(account_id: account_id).map { |f| [f.status_id, true] }.to_h
     end
 
     def reblogs_map(status_ids, account_id)

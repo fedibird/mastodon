@@ -52,6 +52,8 @@ const notificationToMap = notification => ImmutableMap({
   account: notification.account.id,
   created_at: notification.created_at,
   status: notification.status ? notification.status.id : null,
+  reaction: ImmutableMap(notification.reaction),
+  reblogVisibility: notification.reblog_visibility,
 });
 
 const normalizeNotification = (state, notification, usePendingItems) => {

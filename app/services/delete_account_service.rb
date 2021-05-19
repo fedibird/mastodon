@@ -148,6 +148,7 @@ class DeleteAccountService < BaseService
     purge_generated_notifications!
     purge_favourites!
     purge_bookmarks!
+    purge_reactions!
     purge_feeds!
     purge_other_associations!
 
@@ -197,6 +198,13 @@ class DeleteAccountService < BaseService
     @account.bookmarks.in_batches do |bookmarks|
       Chewy.strategy.current.update(StatusesIndex::Status, bookmarks.pluck(:status_id)) if Chewy.enabled?
       bookmarks.delete_all
+    end
+  end
+
+  def purge_reactions!
+    @account.emoji_reactions.in_batches do |reactions|
+      Chewy.strategy.current.update(StatusesIndex::Status, reactions.pluck(:status_id)) if Chewy.enabled?
+      reactions.delete_all
     end
   end
 

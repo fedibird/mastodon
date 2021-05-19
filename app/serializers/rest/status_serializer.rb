@@ -10,6 +10,7 @@ class REST::StatusSerializer < ActiveModel::Serializer
   attribute :reblogged, if: :current_user?
   attribute :muted, if: :current_user?
   attribute :bookmarked, if: :current_user?
+  attribute :emoji_reactioned, if: :current_user?
   attribute :pinned, if: :pinnable?
   attribute :circle_id, if: :limited_owned_parent_status?
 
@@ -29,6 +30,7 @@ class REST::StatusSerializer < ActiveModel::Serializer
   has_many :ordered_mentions, key: :mentions
   has_many :tags
   has_many :emojis, serializer: REST::CustomEmojiSerializer
+  has_many :emoji_reactions, serializer: REST::EmojiReactionSerializer
 
   has_one :preview_card, key: :card, serializer: REST::PreviewCardSerializer
   has_one :preloadable_poll, key: :poll, serializer: REST::PollSerializer
@@ -124,6 +126,10 @@ class REST::StatusSerializer < ActiveModel::Serializer
     end
   end
 
+  def emoji_reactions
+    object.grouped_reactions(current_user&.account)
+  end
+
   def reblogged
     if instance_options && instance_options[:relationships]
       instance_options[:relationships].reblogs_map[object.id] || false
@@ -145,6 +151,14 @@ class REST::StatusSerializer < ActiveModel::Serializer
       instance_options[:relationships].bookmarks_map[object.id] || false
     else
       current_user.account.bookmarked?(object)
+    end
+  end
+
+  def emoji_reactioned
+    if instance_options && instance_options[:relationships]
+      instance_options[:relationships].emoji_reactions_map[object.id] || false
+    else
+      current_user.account.emoji_reactioned?(object)
     end
   end
 

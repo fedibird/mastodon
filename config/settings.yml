@@ -50,10 +50,12 @@ defaults: &defaults
   place_tab_bar_at_bottom: false
   show_tab_bar_label: false
   enable_limited_timeline: false
+  enable_reaction: true
   notification_emails:
     follow: false
     reblog: false
     favourite: false
+    emoji_reaction: false
     mention: false
     follow_request: true
     digest: true

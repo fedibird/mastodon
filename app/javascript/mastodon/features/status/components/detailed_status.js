@@ -16,7 +16,9 @@ import scheduleIdleTask from '../../ui/util/schedule_idle_task';
 import classNames from 'classnames';
 import Icon from 'mastodon/components/icon';
 import AnimatedNumber from 'mastodon/components/animated_number';
+import EmojiReactionsBar from 'mastodon/components/emoji_reactions_bar';
 import PictureInPicturePlaceholder from 'mastodon/components/picture_in_picture_placeholder';
+import { enableReaction } from 'mastodon/initial_state';
 
 const messages = defineMessages({
   public_short: { id: 'privacy.public.short', defaultMessage: 'Public' },
@@ -88,6 +90,9 @@ class DetailedStatus extends ImmutablePureComponent {
     onQuoteToggleHidden: PropTypes.func.isRequired,
     showQuoteMedia: PropTypes.bool,
     onToggleQuoteMediaVisibility: PropTypes.func,
+    emojiMap: ImmutablePropTypes.map,
+    addEmojiReaction: PropTypes.func.isRequired,
+    removeEmojiReaction: PropTypes.func.isRequired,
   };
 
   state = {
@@ -183,6 +188,11 @@ class DetailedStatus extends ImmutablePureComponent {
     let reblogLink = '';
     let reblogIcon = 'retweet';
     let favouriteLink = '';
+    let emojiReactionLink = '';
+
+    const reblogsCount = status.get('reblogs_count');
+    const favouritesCount = status.get('favourites_count');
+    const emojiReactionsCount = status.get('emoji_reactions').reduce( (accumulator, reaction) => accumulator + reaction.get('count'), 0 );
 
     if (this.props.measureHeight) {
       outerStyle.height = `${this.state.height}px`;
@@ -356,7 +366,7 @@ class DetailedStatus extends ImmutablePureComponent {
           <Link to={`/statuses/${status.get('id')}/reblogs`} className='detailed-status__link'>
             <Icon id={reblogIcon} />
             <span className='detailed-status__reblogs'>
-              <AnimatedNumber value={status.get('reblogs_count')} />
+              <AnimatedNumber value={reblogsCount} />
             </span>
           </Link>
         </Fragment>
@@ -368,7 +378,7 @@ class DetailedStatus extends ImmutablePureComponent {
           <a href={`/interact/${status.get('id')}?type=reblog`} className='detailed-status__link' onClick={this.handleModalLink}>
             <Icon id={reblogIcon} />
             <span className='detailed-status__reblogs'>
-              <AnimatedNumber value={status.get('reblogs_count')} />
+              <AnimatedNumber value={reblogsCount} />
             </span>
           </a>
         </Fragment>
@@ -380,7 +390,7 @@ class DetailedStatus extends ImmutablePureComponent {
         <Link to={`/statuses/${status.get('id')}/favourites`} className='detailed-status__link'>
           <Icon id='star' />
           <span className='detailed-status__favorites'>
-            <AnimatedNumber value={status.get('favourites_count')} />
+            <AnimatedNumber value={favouritesCount} />
           </span>
         </Link>
       );
@@ -389,7 +399,27 @@ class DetailedStatus extends ImmutablePureComponent {
         <a href={`/interact/${status.get('id')}?type=favourite`} className='detailed-status__link' onClick={this.handleModalLink}>
           <Icon id='star' />
           <span className='detailed-status__favorites'>
-            <AnimatedNumber value={status.get('favourites_count')} />
+            <AnimatedNumber value={favouritesCount} />
+          </span>
+        </a>
+      );
+    }
+
+    if (this.context.router) {
+      emojiReactionLink = (
+        <Link to={`/statuses/${status.get('id')}/emoji_reactions`} className='detailed-status__link'>
+          <Icon id='smile-o' />
+          <span className='detailed-status__emoji_reactions'>
+            <AnimatedNumber value={emojiReactionsCount} />
+          </span>
+        </Link>
+      );
+    } else {
+      emojiReactionLink = (
+        <a href={`/interact/${status.get('id')}?type=emoji_reactions`} className='detailed-status__link' onClick={this.handleModalLink}>
+          <Icon id='smile-o' />
+          <span className='detailed-status__emoji_reactions'>
+            <AnimatedNumber value={emojiReactionsCount} />
           </span>
         </a>
       );
@@ -412,6 +442,13 @@ class DetailedStatus extends ImmutablePureComponent {
           {quote}
           {media}
 
+          {enableReaction && <EmojiReactionsBar
+            status={status}
+            addEmojiReaction={this.props.addEmojiReaction}
+            removeEmojiReaction={this.props.removeEmojiReaction}
+            emojiMap={this.props.emojiMap}
+          />}
+
           <div className='detailed-status__meta'>
             <a className='detailed-status__datetime' href={status.get('url')} target='_blank' rel='noopener noreferrer'>
               <FormattedDate value={new Date(status.get('created_at'))} hour12={false} year='numeric' month='short' day='2-digit' hour='2-digit' minute='2-digit' />
@@ -423,7 +460,7 @@ class DetailedStatus extends ImmutablePureComponent {
                 </time>
               </span>
             }
-            {visibilityLink}{applicationLink}{reblogLink} · {favouriteLink}
+            {visibilityLink}{applicationLink}{reblogLink} · {favouriteLink} · {emojiReactionLink}
           </div>
         </div>
       </div>

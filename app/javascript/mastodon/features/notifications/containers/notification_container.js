@@ -14,16 +14,20 @@ import {
   revealStatus,
 } from '../../../actions/statuses';
 import { boostModal } from '../../../initial_state';
+import { createSelector } from 'reselect';
+import { Map as ImmutableMap } from 'immutable';
 
 const makeMapStateToProps = () => {
   const getNotification = makeGetNotification();
   const getStatus = makeGetStatus();
+  const customEmojiMap = createSelector([state => state.get('custom_emojis')], items => items.reduce((map, emoji) => map.set(emoji.get('shortcode'), emoji), ImmutableMap()));
 
   const mapStateToProps = (state, props) => {
     const notification = getNotification(state, props.notification, props.accountId);
     return {
       notification: notification,
       status: notification.get('status') ? getStatus(state, { id: notification.get('status') }) : null,
+      emojiMap: customEmojiMap(state),
     };
   };
 

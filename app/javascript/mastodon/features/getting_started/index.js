@@ -31,6 +31,7 @@ const messages = defineMessages({
   preferences: { id: 'navigation_bar.preferences', defaultMessage: 'Preferences' },
   follow_requests: { id: 'navigation_bar.follow_requests', defaultMessage: 'Follow requests' },
   favourites: { id: 'navigation_bar.favourites', defaultMessage: 'Favourites' },
+  emoji_reactions: { id: 'navigation_bar.emoji_reactions', defaultMessage: 'Emoji reactions' },
   blocks: { id: 'navigation_bar.blocks', defaultMessage: 'Blocked users' },
   domain_blocks: { id: 'navigation_bar.domain_blocks', defaultMessage: 'Hidden domains' },
   mutes: { id: 'navigation_bar.mutes', defaultMessage: 'Muted users' },
@@ -214,6 +215,7 @@ class GettingStarted extends ImmutablePureComponent {
       <ColumnLink key='direct' icon='envelope' text={intl.formatMessage(messages.direct)} to='/timelines/direct' />,
       <ColumnLink key='bookmark' icon='bookmark' text={intl.formatMessage(messages.bookmarks)} to='/bookmarks' />,
       <ColumnLink key='favourites' icon='star' text={intl.formatMessage(messages.favourites)} to='/favourites' />,
+      <ColumnLink key='emoji_reactions' icon='smile-o' text={intl.formatMessage(messages.emoji_reactions)} to='/emoji_reactions' />,
       <ColumnLink key='lists' icon='list-ul' text={intl.formatMessage(messages.lists)} to='/lists' />,
       <ColumnLink key='circles' icon='user-circle' text={intl.formatMessage(messages.circles)} to='/circles' />,
     );

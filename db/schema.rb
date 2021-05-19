@@ -437,6 +437,20 @@ ActiveRecord::Schema.define(version: 2021_06_30_000137) do
     t.index ["domain"], name: "index_email_domain_blocks_on_domain", unique: true
   end
 
+  create_table "emoji_reactions", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.bigint "status_id", null: false
+    t.string "name", default: "", null: false
+    t.bigint "custom_emoji_id"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.string "uri"
+    t.index ["account_id", "status_id", "name"], name: "index_emoji_reactions_on_account_id_and_status_id", unique: true
+    t.index ["account_id"], name: "index_emoji_reactions_on_account_id"
+    t.index ["custom_emoji_id"], name: "index_emoji_reactions_on_custom_emoji_id"
+    t.index ["status_id"], name: "index_emoji_reactions_on_status_id"
+      end
+
   create_table "encrypted_messages", id: :bigint, default: -> { "timestamp_id('encrypted_messages'::text)" }, force: :cascade do |t|
     t.bigint "device_id"
     t.bigint "from_account_id"
@@ -1147,6 +1161,9 @@ ActiveRecord::Schema.define(version: 2021_06_30_000137) do
   add_foreign_key "domain_subscribes", "lists", on_delete: :cascade
   add_foreign_key "domains", "accounts", column: "contact_account_id"
   add_foreign_key "email_domain_blocks", "email_domain_blocks", column: "parent_id", on_delete: :cascade
+  add_foreign_key "emoji_reactions", "accounts", on_delete: :cascade
+  add_foreign_key "emoji_reactions", "custom_emojis", on_delete: :cascade
+  add_foreign_key "emoji_reactions", "statuses", on_delete: :cascade
   add_foreign_key "encrypted_messages", "accounts", column: "from_account_id", on_delete: :cascade
   add_foreign_key "encrypted_messages", "devices", on_delete: :cascade
   add_foreign_key "favourite_domains", "accounts", on_delete: :cascade

@@ -32,6 +32,7 @@ import {
 import {
   REBLOGS_FETCH_SUCCESS,
   FAVOURITES_FETCH_SUCCESS,
+  EMOJI_REACTIONS_FETCH_SUCCESS,
   MENTIONS_FETCH_SUCCESS,
 } from '../actions/interactions';
 import {
@@ -80,6 +81,7 @@ const initialState = ImmutableMap({
   subscribing: initialListState,
   reblogged_by: initialListState,
   favourited_by: initialListState,
+  emoji_reactioned_by: initialListState,
   mentioned_by: initialListState,
   follow_requests: initialListState,
   blocks: initialListState,
@@ -142,6 +144,8 @@ export default function userLists(state = initialState, action) {
     return state.setIn(['reblogged_by', action.id], ImmutableList(action.accounts.map(item => item.id)));
   case FAVOURITES_FETCH_SUCCESS:
     return state.setIn(['favourited_by', action.id], ImmutableList(action.accounts.map(item => item.id)));
+  case EMOJI_REACTIONS_FETCH_SUCCESS:
+    return state.setIn(['emoji_reactioned_by', action.id], ImmutableList(action.accounts.map(item => item.id)));
   case MENTIONS_FETCH_SUCCESS:
     return state.setIn(['mentioned_by', action.id], ImmutableList(action.accounts.map(item => item.id)));
   case NOTIFICATIONS_UPDATE:

@@ -1101,6 +1101,10 @@ ja:
       subject:
         other: "新しい%{count}件の通知 \U0001F418"
       title: 不在の間に…
+    emoji_reaction:
+      body: "%{name} さんに絵文字リアクションされた、あなたの投稿があります:"
+      subject: "%{name} さんに絵文字リアクションされました"
+      title: 新たな絵文字リアクション
     favourite:
       body: "%{name} さんにお気に入り登録された、あなたの投稿があります:"
       subject: "%{name} さんにお気に入りに登録されました"

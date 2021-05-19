@@ -1284,19 +1284,26 @@
   align-items: center;
   display: flex;
   margin-top: 8px;
+
+  .emoji-picker-dropdown {
+    flex: 1 0 auto;
+    display: flex;
+  }
 }
 
 .status__action-bar-button {
-  margin-right: 18px;
+  flex: 1 0 auto;
 
-  &.icon-button--with-counter {
-    margin-right: 14px;
+  .icon-button__counter {
+    width: auto;
   }
 }
 
 .status__action-bar-dropdown {
+  flex: 0 0 auto;
   height: 23.15px;
   width: 23.15px;
+  margin-left: 4px
 }
 
 .detailed-status__action-bar-dropdown {
@@ -1367,6 +1374,7 @@
 }
 
 .detailed-status__favorites,
+.detailed-status__emoji_reactions,
 .detailed-status__reblogs {
   display: inline-block;
   font-weight: 500;
@@ -2754,7 +2762,7 @@ a.account__display-name {
 
 .column-actions {
   display: flex;
-  align-items: start;
+  align-items: flex-start;
   justify-content: center;
   padding: 40px;
   padding-top: 40px;
@@ -7694,9 +7702,9 @@ noscript {
       color: $darker-text-color;
     }
 
-    &:hover,
-    &:focus,
-    &:active {
+    &:hover:enabled,
+    &:focus:enabled,
+    &:active:enabled {
       background: lighten($ui-base-color, 16%);
       transition: all 200ms ease-out;
       transition-property: background-color, color;
@@ -7706,8 +7714,9 @@ noscript {
       }
     }
 
-    &.active {
-      transition: all 100ms ease-in;
+    &:enabled.active,
+    &:disabled.active {
+        transition: all 100ms ease-in;
       transition-property: background-color, color;
       background-color: mix(lighten($ui-base-color, 12%), $ui-highlight-color, 80%);
 

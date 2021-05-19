@@ -90,6 +90,10 @@ export function Favourites () {
   return import(/* webpackChunkName: "features/favourites" */'../../favourites');
 }
 
+export function EmojiReactions () {
+  return import(/* webpackChunkName: "features/emoji_reactions" */'../../emoji_reactions');
+}
+
 export function Mentions () {
   return import(/* webpackChunkName: "features/mentions" */'../../mentions');
 }
@@ -108,6 +112,10 @@ export function FavouritedStatuses () {
 
 export function BookmarkedStatuses () {
   return import(/* webpackChunkName: "features/bookmarked_statuses" */'../../bookmarked_statuses');
+}
+
+export function EmojiReactionedStatuses () {
+  return import(/* webpackChunkName: "features/emoji_reactioned_statuses" */'../../emoji_reactioned_statuses');
 }
 
 export function Blocks () {

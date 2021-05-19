@@ -1155,6 +1155,10 @@ en:
         one: "1 new notification since your last visit \U0001F418"
         other: "%{count} new notifications since your last visit \U0001F418"
       title: In your absence...
+    emoji_reaction:
+      body: 'Your post was emoji reactioned by %{name}:'
+      subject: "%{name} emoji reactioned your post"
+      title: New emoji reaction
     favourite:
       body: 'Your post was favourited by %{name}:'
       subject: "%{name} favourited your post"

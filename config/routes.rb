@@ -332,6 +332,7 @@ Rails.application.routes.draw do
         scope module: :statuses do
           resources :reblogged_by, controller: :reblogged_by_accounts, only: :index
           resources :favourited_by, controller: :favourited_by_accounts, only: :index
+          resources :emoji_reactioned_by, controller: :emoji_reactioned_by_accounts, only: :index
           resources :mentioned_by, controller: :mentioned_by_accounts, only: :index
           resource :reblog, only: :create
           post :unreblog, to: 'reblogs#destroy'
@@ -347,6 +348,9 @@ Rails.application.routes.draw do
 
           resource :pin, only: :create
           post :unpin, to: 'pins#destroy'
+
+          resources :emoji_reactions, only: :update, constraints: { id: /[^\/]+/ }
+          post :emoji_unreaction, to: 'emoji_reactions#destroy'
         end
 
         member do
@@ -401,16 +405,17 @@ Rails.application.routes.draw do
         end
       end
 
-      resources :media,        only: [:create, :update, :show]
-      resources :blocks,       only: [:index]
-      resources :mutes,        only: [:index]
-      resources :favourites,   only: [:index]
-      resources :bookmarks,    only: [:index]
-      resources :reports,      only: [:create]
-      resources :trends,       only: [:index]
-      resources :filters,      only: [:index, :create, :show, :update, :destroy]
-      resources :endorsements, only: [:index]
-      resources :markers,      only: [:index, :create]
+      resources :media,           only: [:create, :update, :show]
+      resources :blocks,          only: [:index]
+      resources :mutes,           only: [:index]
+      resources :favourites,      only: [:index]
+      resources :bookmarks,       only: [:index]
+      resources :emoji_reactions, only: [:index]
+      resources :reports,         only: [:create]
+      resources :trends,          only: [:index]
+      resources :filters,         only: [:index, :create, :show, :update, :destroy]
+      resources :endorsements,    only: [:index]
+      resources :markers,         only: [:index, :create]
 
       namespace :apps do
         get :verify_credentials, to: 'credentials#show'

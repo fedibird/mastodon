@@ -52,6 +52,7 @@ en:
         setting_display_media_hide_all: Always hide media
         setting_display_media_show_all: Always show media
         setting_enable_limited_timeline: Enable a limited home to display private and circle and direct message
+        setting_enable_reaction: Enable the reaction display on the timeline and display the reaction button
         setting_follow_button_to_list_adder: Change the behavior of the Follow / Subscribe button, open a dialog where you can select a list to follow / subscribe, or opt out of receiving at home
         setting_hide_network: Who you follow and who follows you will be hidden on your profile
         setting_noindex: Affects your public profile and post pages
@@ -188,6 +189,7 @@ en:
         setting_display_media_hide_all: Hide all
         setting_display_media_show_all: Show all
         setting_enable_limited_timeline: Enable limited timeline
+        setting_enable_reaction: Enable reaction
         setting_expand_spoilers: Always expand posts marked with content warnings
         setting_follow_button_to_list_adder: Open list add dialog with follow button
         setting_hide_network: Hide your social graph
@@ -275,11 +277,13 @@ en:
         timeline: Timeline
       notification_emails:
         digest: Send digest e-mails
+        emoji_reaction: Someone emoji reactioned you
         favourite: Someone favourited your post
         follow: Someone followed you
         follow_request: Someone requested to follow you
         mention: Someone mentioned you
         pending_account: New account needs review
+        reaction: Someone reactioned your post
         reblog: Someone boosted your post
         report: New report is submitted
         trending_tag: An unreviewed hashtag is trending
