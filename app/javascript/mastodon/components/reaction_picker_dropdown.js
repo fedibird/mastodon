@@ -29,7 +29,7 @@ const messages = defineMessages({
 
 let EmojiPicker, Emoji; // load asynchronously
 
-const backgroundImageFn = () => `${assetHost}/emoji/sheet_10.png`;
+const backgroundImageFn = () => `${assetHost}/emoji/sheet_13.png`;
 const listenerOptions = supportsPassiveEvents ? { passive: true } : false;
 
 class ModifierPickerMenu extends React.PureComponent {
