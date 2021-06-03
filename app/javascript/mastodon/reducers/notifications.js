@@ -52,7 +52,7 @@ const notificationToMap = notification => ImmutableMap({
   account: notification.account.id,
   created_at: notification.created_at,
   status: notification.status ? notification.status.id : null,
-  reaction: ImmutableMap(notification.reaction),
+  emoji_reaction: ImmutableMap(notification.emoji_reaction),
   reblogVisibility: notification.reblog_visibility,
 });
 
