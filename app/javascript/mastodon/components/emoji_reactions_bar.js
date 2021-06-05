@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Fragment } from 'react';
 import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import ImmutablePureComponent from 'react-immutable-pure-component';
@@ -86,10 +86,14 @@ export default class EmojiReactionsBar extends ImmutablePureComponent {
       style: { scale: reduceMotion ? 1 : spring(1, { stiffness: 150, damping: 13 }) },
     })).toArray();
 
+    if (visibleReactions.isEmpty() ) {
+      return <Fragment></Fragment>;
+    }
+
     return (
       <TransitionMotion styles={styles} willEnter={this.willEnter} willLeave={this.willLeave}>
         {items => (
-          <div className={classNames('reactions-bar', { 'reactions-bar--empty': visibleReactions.isEmpty() })}>
+          <div className='reactions-bar'>
             {items.map(({ key, data, style }) => (
               <EmojiReaction
                 key={key}
