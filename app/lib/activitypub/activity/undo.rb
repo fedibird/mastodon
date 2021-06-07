@@ -112,8 +112,6 @@ class ActivityPub::Activity::Undo < ActivityPub::Activity
 
     return if status.nil? || !status.account.local?
 
-    shortcode = @object['_misskey_reaction']&.delete(':')
-
     if shortcode.present?
       emoji_tag = @object['tag'].is_a?(Array) ? @object['tag']&.first : @object['tag']
 
@@ -131,6 +129,18 @@ class ActivityPub::Activity::Undo < ActivityPub::Activity
         status.favourites.where(account: @account).first&.destroy
       else
         delete_later!(object_uri)
+      end
+    end
+  end
+
+  def shortcode
+    return @shortcode if defined?(@shortcode)
+
+    @shortcode = begin
+      if @object['_misskey_reaction'] == '⭐'
+        nil
+      else
+        @object['content']&.delete(':')
       end
     end
   end

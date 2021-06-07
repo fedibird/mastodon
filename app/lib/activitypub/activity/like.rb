@@ -52,7 +52,19 @@ class ActivityPub::Activity::Like < ActivityPub::Activity
   def shortcode
     return @shortcode if defined?(@shortcode)
 
-    @shortcode = @json['_misskey_reaction']&.delete(':')
+    @shortcode = begin
+      if @json['_misskey_reaction'] == '⭐'
+        nil
+      else
+        @json['content']&.delete(':')
+      end
+    end
+  end
+
+  def misskey_favourite?
+    misskey_shortcode = @json['_misskey_reaction']&.delete(':')
+
+    return misskey_shortcode == shortcode && misskey_shortcode == '⭐'
   end
 
   def emoji_tag
