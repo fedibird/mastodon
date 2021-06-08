@@ -326,7 +326,7 @@ class Status < ApplicationRecord
       if account.nil?
         scope.select('name, custom_emoji_id, count(*) as count, false as me')
       else
-        scope.select("name, custom_emoji_id, count(*) as count, exists(select 1 from emoji_reactions r where r.account_id = #{account.id} and r.status_id = emoji_reactions.status_id and r.name = emoji_reactions.name and r.custom_emoji_id = emoji_reactions.custom_emoji_id) as me")
+        scope.select(ActiveRecord::Base.sanitize_sql_array(["name, custom_emoji_id, count(*) as count, exists(select 1 from emoji_reactions r where r.account_id = :account_id and r.status_id = emoji_reactions.status_id and r.name = emoji_reactions.name and (r.custom_emoji_id IS NULL and emoji_reactions.custom_emoji_id IS NULL or r.custom_emoji_id = emoji_reactions.custom_emoji_id)) as me", account_id: account.id]))
       end
     end
     ActiveRecord::Associations::Preloader.new.preload(records, :custom_emoji)

@@ -552,14 +552,16 @@ export function emojiReactionFail(status, name, domain, url, static_url, error) 
 };
 
 const findMyEmojiReaction = (status) => {
-  return status.get('emoji_reactions').find(emoji_reaction => emoji_reaction.get('me') === true) ?? {};
+  return status.get('emoji_reactions').find(emoji_reaction => emoji_reaction.get('me') === true);
 };
 
 export function removeEmojiReaction(status) {
   return function (dispatch, getState) {
-    const {name, domain, url, static_url} = findMyEmojiReaction(status).toObject();
+    const emoji_reaction = findMyEmojiReaction(status);
 
-    if (name) {
+    if (emoji_reaction) {
+      const {name, domain, url, static_url} = emoji_reaction.toObject();
+
       dispatch(unEmojiReactionRequest(status, name, domain, url, static_url));
 
       api(getState).post(`/api/v1/statuses/${status.get('id')}/emoji_unreaction`).then(function (response) {
