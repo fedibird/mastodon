@@ -105,7 +105,7 @@ class Footer extends ImmutablePureComponent {
 
     if (status.get('reblogged')) {
       dispatch(unreblog(status));
-    } else if ((e && e.shiftKey) || !boostModal) {
+    } else if ((e && e.shiftKey) ^ !boostModal) {
       this._performReblog(status);
     } else {
       dispatch(initBoostModal({ status, onReblog: this._performReblog }));

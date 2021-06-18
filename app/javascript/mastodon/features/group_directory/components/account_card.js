@@ -179,7 +179,7 @@ class AccountCard extends ImmutablePureComponent {
   };
 
   handleFollow = (e) => {
-    if ((e && e.shiftKey) || !follow_button_to_list_adder) {
+    if ((e && e.shiftKey) ^ !follow_button_to_list_adder) {
       this.props.onFollow(this.props.account);
     } else {
       this.props.onAddToList(this.props.account);
@@ -187,7 +187,7 @@ class AccountCard extends ImmutablePureComponent {
   };
 
   handleSubscribe = (e) => {
-    if ((e && e.shiftKey) || !follow_button_to_list_adder) {
+    if ((e && e.shiftKey) ^ !follow_button_to_list_adder) {
       this.props.onSubscribe(this.props.account);
     } else {
       this.props.onAddToList(this.props.account);

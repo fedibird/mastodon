@@ -260,7 +260,7 @@ class Status extends ImmutablePureComponent {
     if (status.get('reblogged')) {
       this.props.dispatch(unreblog(status));
     } else {
-      if ((e && e.shiftKey) || !boostModal) {
+      if ((e && e.shiftKey) ^ !boostModal) {
         this.handleModalReblog(status);
       } else {
         this.props.dispatch(initBoostModal({ status, onReblog: this.handleModalReblog }));
