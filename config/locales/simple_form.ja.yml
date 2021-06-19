@@ -62,6 +62,7 @@ ja:
         setting_show_follow_button_on_timeline: フォロー状態を確認し易くなり、素早くフォローリストを構築できます
         setting_show_navigation_panel: 上級者向け UI の右端にナビゲーションパネルを表示します
         setting_show_quote_button: アクションバーへボタンを表示するかどうかの設定です。引用機能の有効・無効を切り替えるものではありません
+        setting_show_reply_tree_button: オフにした場合、投稿者本人が自分自身にリプライで投稿を連ねている場合にのみ『スレッドを表示』ボタンが表示されます
         setting_show_subscribe_button_on_timeline: 購読状態を確認し易くなり、素早く購読リストを構築できます
         setting_show_tab_bar_label: リスト等をタブバーに追加する場合、アイコンだけでは区別がつかないので、ラベルを表示することをおすすめします
         setting_show_followed_by: フォロー状態に応じてフォローボタンの色が変わります（灰色：フォロー関係なし、黄色：フォローされている、青色：フォローしている、緑色：相互フォロー）
@@ -201,6 +202,7 @@ ja:
         setting_show_follow_button_on_timeline: タイムライン上にフォローボタンを表示する
         setting_show_navigation_panel: ナビゲーションパネルを表示する
         setting_show_quote_button: 引用ボタンをアクションバーに表示する
+        setting_show_reply_tree_button: リプライツリーの存在する投稿に『スレッドを表示』ボタンを表示する
         setting_show_subscribe_button_on_timeline: タイムライン上に購読ボタンを表示する
         setting_show_tab_bar_label: タブバーにラベルを表示する
         setting_show_followed_by: 被フォロー状態をフォローボタンに反映する

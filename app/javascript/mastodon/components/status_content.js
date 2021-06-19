@@ -6,7 +6,7 @@ import Permalink from './permalink';
 import classnames from 'classnames';
 import PollContainer from 'mastodon/containers/poll_container';
 import Icon from 'mastodon/components/icon';
-import { autoPlayGif } from 'mastodon/initial_state';
+import { autoPlayGif, show_reply_tree_button } from 'mastodon/initial_state';
 
 const MAX_HEIGHT = 642; // 20px * 32 (+ 2px padding at the top)
 
@@ -193,7 +193,10 @@ export default class StatusContent extends React.PureComponent {
 
     const hidden = this.props.onExpandedToggle ? !this.props.expanded : this.state.hidden;
     const renderReadMore = this.props.onClick && status.get('collapsed');
-    const renderViewThread = this.props.showThread && status.get('in_reply_to_id') && status.get('in_reply_to_account_id') === status.getIn(['account', 'id']);
+    const renderViewThread = this.props.showThread && (
+      status.get('in_reply_to_id') && status.get('in_reply_to_account_id') === status.getIn(['account', 'id']) ||
+      show_reply_tree_button && (status.get('in_reply_to_id') || !!status.get('replies_count'))
+    );
     const renderShowPoll = !!status.get('poll');
 
     const content = { __html: status.get('contentHtml') };

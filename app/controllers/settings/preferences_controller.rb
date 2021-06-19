@@ -68,6 +68,7 @@ class Settings::PreferencesController < Settings::BaseController
       :setting_show_target,
       :setting_enable_limited_timeline,
       :setting_enable_reaction,
+      :setting_show_reply_tree_button,
       notification_emails: %i(follow follow_request reblog favourite emoji_reaction mention digest report pending_account trending_tag),
       interactions: %i(must_be_follower must_be_following must_be_following_dm)
     )

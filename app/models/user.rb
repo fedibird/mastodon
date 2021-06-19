@@ -130,6 +130,7 @@ class User < ApplicationRecord
            :show_follow_button_on_timeline, :show_subscribe_button_on_timeline, :show_followed_by, :show_target,
            :follow_button_to_list_adder, :show_navigation_panel, :show_quote_button, :show_bookmark_button,
            :place_tab_bar_at_bottom,:show_tab_bar_label, :enable_limited_timeline, :enable_reaction,
+           :show_reply_tree_button,
 
            to: :settings, prefix: :setting, allow_nil: false
 

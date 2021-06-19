@@ -51,6 +51,7 @@ defaults: &defaults
   show_tab_bar_label: false
   enable_limited_timeline: false
   enable_reaction: true
+  show_reply_tree_button: true
   notification_emails:
     follow: false
     reblog: false

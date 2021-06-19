@@ -62,6 +62,7 @@ en:
         setting_show_follow_button_on_timeline: You can easily check the follow status and build a follow list quickly
         setting_show_navigation_panel: Show the navigation panel at the right end of the advanced UI
         setting_show_quote_button: Selects whether to display the button on the action bar. It does not enable/disable the citation function.
+        setting_show_reply_tree_button: When turned off, the "Show thread" button will only appear if the poster is replying to themselves in a series of posts
         setting_show_subscribe_button_on_timeline: You can easily check the status of your subscriptions and quickly build a subscription list
         setting_show_tab_bar_label: When adding a list etc. to the tab bar, it is recommended to display the label because it is not possible to distinguish by the icon alone
         setting_show_followed_by: "The color of the follow button changes according to the follow status (gray: no follow relationship, yellow: followed, blue: following, green: mutual follow)"
@@ -201,6 +202,7 @@ en:
         setting_show_follow_button_on_timeline: Show follow button on timeline
         setting_show_navigation_panel: Show the navigation panel
         setting_show_quote_button: Show the quote button on the action bar
+        setting_show_reply_tree_button: Show "Show thread" button on posts that have reply tree
         setting_show_subscribe_button_on_timeline: Show subscribe button on timeline
         setting_show_tab_bar_label: Show labels in the tab bar
         setting_show_followed_by: Reflect the following status on the follow button

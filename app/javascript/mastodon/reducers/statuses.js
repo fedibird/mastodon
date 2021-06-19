@@ -25,7 +25,12 @@ import { TIMELINE_DELETE } from '../actions/timelines';
 import { STATUS_IMPORT, STATUSES_IMPORT } from '../actions/importer';
 import { Map as ImmutableMap, fromJS } from 'immutable';
 
-const importStatus = (state, status) => state.set(status.id, fromJS(status));
+const importStatus = (state, status) => {
+  if (state.getIn([status.in_reply_to_id, 'replies_count'], null) == 0) {
+    state = state.setIn([status.in_reply_to_id, 'replies_count'], 1);
+  }
+  return state.set(status.id, fromJS(status));
+};
 
 const importStatuses = (state, statuses) =>
   state.withMutations(mutable => statuses.forEach(status => importStatus(mutable, status)));
