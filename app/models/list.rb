@@ -9,6 +9,7 @@
 #  created_at     :datetime         not null
 #  updated_at     :datetime         not null
 #  replies_policy :integer          default("list"), not null
+#  favourite      :boolean          default(FALSE), not null
 #
 
 class List < ApplicationRecord
@@ -39,6 +40,20 @@ class List < ApplicationRecord
   end
 
   before_destroy :clean_feed_manager
+
+  scope :favourites,  -> { where(favourite: true) }
+
+  def favourite?
+    favourite
+  end
+
+  def favourite!
+    update!(favourite: true)
+  end
+
+  def unfavourite!
+    update!(favourite: false)
+  end
 
   private
 

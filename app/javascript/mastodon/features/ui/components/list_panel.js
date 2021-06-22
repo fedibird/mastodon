@@ -1,8 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
-import ImmutablePropTypes from 'react-immutable-proptypes';
+import ImmutablePropTypes, { list } from 'react-immutable-proptypes';
 import ImmutablePureComponent from 'react-immutable-pure-component';
-import { fetchLists } from 'mastodon/actions/lists';
 import { connect } from 'react-redux';
 import { createSelector } from 'reselect';
 import { NavLink, withRouter } from 'react-router-dom';
@@ -13,7 +12,7 @@ export const getOrderedLists = createSelector([state => state.get('lists')], lis
     return lists;
   }
 
-  return lists.toList().filter(item => !!item).sort((a, b) => a.get('title').localeCompare(b.get('title'))).take(10);
+  return lists.toList().filter(item => !!item && item.get('favourite')).sort((a, b) => a.get('title').localeCompare(b.get('title')));
 });
 
 const mapStateToProps = state => ({
@@ -28,11 +27,6 @@ class ListPanel extends ImmutablePureComponent {
     dispatch: PropTypes.func.isRequired,
     lists: ImmutablePropTypes.list,
   };
-
-  componentDidMount () {
-    const { dispatch } = this.props;
-    dispatch(fetchLists());
-  }
 
   render () {
     const { lists } = this.props;

@@ -83,6 +83,7 @@ class ColumnsArea extends ImmutablePureComponent {
     isModalOpen: PropTypes.bool.isRequired,
     singleColumn: PropTypes.bool,
     children: PropTypes.node,
+    favouriteLists: ImmutablePropTypes.list,
     links: PropTypes.node,
   };
 
@@ -95,7 +96,7 @@ class ColumnsArea extends ImmutablePureComponent {
   }
 
   componentWillReceiveProps() {
-    if (typeof this.pendingIndex !== 'number' && this.lastIndex !== getSwipeableIndex(this.context.router.history.location.pathname)) {
+    if (typeof this.pendingIndex !== 'number' && this.lastIndex !== getSwipeableIndex(this.props.favouriteLists, this.context.router.history.location.pathname)) {
       this.setState({ shouldAnimate: false });
     }
   }
@@ -116,7 +117,7 @@ class ColumnsArea extends ImmutablePureComponent {
       this.setState({ renderComposePanel: !this.mediaQuery.matches });
     }
 
-    this.lastIndex   = getSwipeableIndex(this.context.router.history.location.pathname);
+    this.lastIndex   = getSwipeableIndex(this.props.favouriteLists, this.context.router.history.location.pathname);
     this.isRtlLayout = document.getElementsByTagName('body')[0].classList.contains('rtl');
 
     this.setState({ shouldAnimate: true });
@@ -141,7 +142,7 @@ class ColumnsArea extends ImmutablePureComponent {
       this.node.addEventListener('wheel', this.handleWheel, supportsPassiveEvents ? { passive: true } : false);
     }
 
-    const newIndex = getSwipeableIndex(this.context.router.history.location.pathname);
+    const newIndex = getSwipeableIndex(this.props.favouriteLists, this.context.router.history.location.pathname);
 
     if (this.lastIndex !== newIndex) {
       this.lastIndex = newIndex;
@@ -187,14 +188,14 @@ class ColumnsArea extends ImmutablePureComponent {
     document.querySelector(nextLinkSelector).classList.add('active');
 
     if (!this.state.shouldAnimate && typeof this.pendingIndex === 'number') {
-      this.context.router.history.push(getSwipeableLink(this.pendingIndex));
+      this.context.router.history.push(getSwipeableLink(this.props.favouriteLists, this.pendingIndex));
       this.pendingIndex = null;
     }
   }
 
   handleAnimationEnd = () => {
     if (typeof this.pendingIndex === 'number') {
-      this.context.router.history.push(getSwipeableLink(this.pendingIndex));
+      this.context.router.history.push(getSwipeableLink(this.props.favouriteLists, this.pendingIndex));
       this.pendingIndex = null;
     }
   }
@@ -212,8 +213,8 @@ class ColumnsArea extends ImmutablePureComponent {
   }
 
   renderView = (link, index) => {
-    const columnIndex = getSwipeableIndex(this.context.router.history.location.pathname);
-    const title = this.props.intl.formatMessage({ id: link.props['data-preview-title-id'] });
+    const columnIndex = getSwipeableIndex(this.props.favouriteLists, this.context.router.history.location.pathname);
+    const title = link.props['data-preview-title'] ?? this.props.intl.formatMessage({ id: link.props['data-preview-title-id'] });
     const icon = link.props['data-preview-icon'];
 
     const view = (index === columnIndex) ?
@@ -239,7 +240,7 @@ class ColumnsArea extends ImmutablePureComponent {
     const { columns, children, singleColumn, isModalOpen, links, intl } = this.props;
     const { shouldAnimate, renderComposePanel } = this.state;
 
-    const columnIndex = getSwipeableIndex(this.context.router.history.location.pathname);
+    const columnIndex = getSwipeableIndex(this.props.favouriteLists, this.context.router.history.location.pathname);
 
     if (singleColumn) {
       const floatingActionButton = shouldHideFAB(this.context.router.history.location.pathname) ? null : <Link key='floating-action-button' to='/statuses/new' className={classNames('floating-action-button', { 'bottom-bar': place_tab_bar_at_bottom })} aria-label={intl.formatMessage(messages.publish)}><Icon id='pencil' /></Link>;

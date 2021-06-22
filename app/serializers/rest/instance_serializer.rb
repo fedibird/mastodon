@@ -105,6 +105,7 @@ class REST::InstanceSerializer < ActiveModel::Serializer
     [
       :favourite_hashtag,
       :favourite_domain,
+      :favourite_list,
       :status_expire,
       :follow_no_delivery,
       :follow_hashtag,

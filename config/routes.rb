@@ -492,7 +492,12 @@ Rails.application.routes.draw do
       resources :lists, only: [:index, :create, :show, :update, :destroy] do
         resource :accounts, only: [:show, :create, :destroy], controller: 'lists/accounts'
         resource :subscribes, only: [:show, :create, :destroy], controller: 'lists/subscribes'
-      end
+
+        member do
+          post :favourite
+          post :unfavourite
+        end
+    end
 
       resources :circles, only: [:index, :create, :show, :update, :destroy] do
         resource :accounts, only: [:show, :create, :destroy], controller: 'circles/accounts'

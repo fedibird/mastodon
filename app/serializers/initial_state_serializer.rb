@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class InitialStateSerializer < ActiveModel::Serializer
-  attributes :meta, :compose, :accounts,
+  attributes :meta, :compose, :accounts, :lists,
              :media_attachments, :settings
 
   has_one :push_subscription, serializer: REST::WebPushSubscriptionSerializer
@@ -84,6 +84,11 @@ class InitialStateSerializer < ActiveModel::Serializer
     store = {}
     store[object.current_account.id.to_s] = ActiveModelSerializers::SerializableResource.new(object.current_account, serializer: REST::AccountSerializer) if object.current_account
     store[object.admin.id.to_s]           = ActiveModelSerializers::SerializableResource.new(object.admin, serializer: REST::AccountSerializer) if object.admin
+    store
+  end
+
+  def lists
+    store = ActiveModelSerializers::SerializableResource.new(object.current_account.owned_lists, each_serializer: REST::ListSerializer) if object.current_account
     store
   end
 
