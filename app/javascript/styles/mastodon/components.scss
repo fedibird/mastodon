@@ -1293,6 +1293,7 @@
 
 .status__action-bar-button {
   flex: 1 0 auto;
+  max-width: 40px;
 
   .icon-button__counter {
     width: auto;
@@ -1303,7 +1304,6 @@
   flex: 0 0 auto;
   height: 23.15px;
   width: 23.15px;
-  margin-left: 4px
 }
 
 .detailed-status__action-bar-dropdown {
