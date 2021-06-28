@@ -4,7 +4,7 @@ class REST::StatusSerializer < ActiveModel::Serializer
   attributes :id, :created_at, :in_reply_to_id, :in_reply_to_account_id,
              :sensitive, :spoiler_text, :visibility, :language,
              :uri, :url, :replies_count, :reblogs_count,
-             :favourites_count
+             :favourites_count, :emoji_reactions
 
   attribute :favourited, if: :current_user?
   attribute :reblogged, if: :current_user?
@@ -30,7 +30,6 @@ class REST::StatusSerializer < ActiveModel::Serializer
   has_many :ordered_mentions, key: :mentions
   has_many :tags
   has_many :emojis, serializer: REST::CustomEmojiSerializer
-  has_many :emoji_reactions, serializer: REST::EmojiReactionSerializer
 
   has_one :preview_card, key: :card, serializer: REST::PreviewCardSerializer
   has_one :preloadable_poll, key: :poll, serializer: REST::PollSerializer
@@ -127,7 +126,7 @@ class REST::StatusSerializer < ActiveModel::Serializer
   end
 
   def emoji_reactions
-    object.grouped_reactions(current_user&.account)
+    object.grouped_emoji_reactions(current_user&.account)
   end
 
   def reblogged

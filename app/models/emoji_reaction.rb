@@ -18,6 +18,7 @@ class EmojiReaction < ApplicationRecord
   include Paginable
 
   after_commit :queue_publish
+  after_commit :refresh_status
 
   belongs_to :account
   belongs_to :status, inverse_of: :emoji_reactions 
@@ -36,5 +37,9 @@ class EmojiReaction < ApplicationRecord
 
   def queue_publish
     PublishEmojiReactionWorker.perform_async(status_id, name, custom_emoji_id) unless status.destroyed?
+  end
+
+  def refresh_status
+    status.refresh_grouped_emoji_reactions! unless status.destroyed?
   end
 end

@@ -129,6 +129,7 @@ class Status < ApplicationRecord
 
   cache_associated :application,
                    :media_attachments,
+                   :emoji_reactions,
                    :conversation,
                    :status_stat,
                    :tags,
@@ -141,6 +142,7 @@ class Status < ApplicationRecord
                      :tags,
                      :preview_cards,
                      :media_attachments,
+                     :emoji_reactions,
                      :conversation,
                      :status_stat,
                      :preloadable_poll,
@@ -290,17 +292,25 @@ class Status < ApplicationRecord
     status_stat&.favourites_count || 0
   end
 
-  def grouped_reactions(account = nil)
-    records = begin
-      scope = emoji_reactions.group(:status_id, :name, :custom_emoji_id).order(Arel.sql('MIN(created_at) ASC'))
-      if account.nil?
-        scope.select('name, custom_emoji_id, count(*) as count, false as me')
-      else
-        scope.select(ActiveRecord::Base.sanitize_sql_array(["name, custom_emoji_id, count(*) as count, exists(select 1 from emoji_reactions r where r.account_id = :account_id and r.status_id = emoji_reactions.status_id and r.name = emoji_reactions.name and (r.custom_emoji_id IS NULL and emoji_reactions.custom_emoji_id IS NULL or r.custom_emoji_id = emoji_reactions.custom_emoji_id)) as me", account_id: account.id]))
+  def grouped_emoji_reactions(account = nil)
+    (Oj.load(status_stat&.emoji_reactions_cache || '', mode: :strict) || []).tap do |emoji_reactions|
+      if account.present?
+        emoji_reactions.each do |emoji_reaction|
+          emoji_reaction['me'] = emoji_reaction['account_ids'].include?(account.id.to_s)
+        end
       end
     end
-    ActiveRecord::Associations::Preloader.new.preload(records, :custom_emoji)
-    records
+  end
+
+  def generate_grouped_emoji_reactions
+    records = emoji_reactions.group(:status_id, :name, :custom_emoji_id).order(Arel.sql('MIN(created_at) ASC')).select('name, custom_emoji_id, count(*) as count, array_agg(account_id::text order by created_at) as account_ids')
+    ActiveModelSerializers::SerializableResource.new(records, each_serializer: REST::EmojiReactionSerializer, scope: nil, scope_name: :current_user).to_json
+  end
+
+  def refresh_grouped_emoji_reactions!
+    generate_grouped_emoji_reactions.tap do |emoji_reactions_cache|
+      update_status_stat!(emoji_reactions_cache: emoji_reactions_cache)
+    end
   end
 
   def increment_count!(key)

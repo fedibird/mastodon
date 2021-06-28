@@ -464,7 +464,7 @@ Rails.application.routes.draw do
         resources :subscribing, only: :index, controller: 'subscribing_accounts'
       end
 
-      resources :accounts, only: [:create, :show] do
+      resources :accounts, only: [:index, :create, :show] do
         resources :statuses, only: :index, controller: 'accounts/statuses'
         resources :followers, only: :index, controller: 'accounts/follower_accounts'
         resources :following, only: :index, controller: 'accounts/following_accounts'

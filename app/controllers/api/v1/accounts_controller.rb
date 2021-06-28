@@ -8,12 +8,18 @@ class Api::V1::AccountsController < Api::BaseController
   before_action -> { doorkeeper_authorize! :write, :'write:accounts' }, only: [:create]
 
   before_action :require_user!, except: [:show, :create]
-  before_action :set_account, except: [:create]
+  before_action :set_account, except: [:index, :create]
   before_action :check_enabled_registrations, only: [:create]
 
   skip_before_action :require_authenticated_user!, only: :create
 
   override_rate_limit_headers :follow, family: :follows
+
+  def index
+    accounts = Account.where(id: account_ids)
+
+    render json: accounts, each_serializer: REST::AccountSerializer
+  end
 
   def show
     render json: @account, serializer: REST::AccountSerializer
@@ -81,6 +87,10 @@ class Api::V1::AccountsController < Api::BaseController
 
   def relationships(**options)
     AccountRelationshipsPresenter.new([@account.id], current_user.account_id, **options)
+  end
+
+  def account_ids
+    Array(params[:id]).map(&:to_i)
   end
 
   def account_params
