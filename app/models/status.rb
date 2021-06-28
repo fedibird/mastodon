@@ -24,7 +24,7 @@
 #  poll_id                :bigint(8)
 #  quote_id               :bigint(8)
 #  deleted_at             :datetime
-#  expires_at             :datetime
+#  expires_at             :datetime         default(Infinity), not null
 #  expires_action         :integer          default("delete"), not null
 #
 
@@ -102,42 +102,8 @@ class Status < ApplicationRecord
   scope :remote, -> { where(local: false).where.not(uri: nil) }
   scope :local,  -> { where(local: true).or(where(uri: nil)) }
 
-  scope :not_expired, -> { where(statuses: {expires_at: nil} ).or(where('statuses.expires_at >= ?', Time.now.utc)) }
-  scope :include_expired, ->(account = nil) {
-    if account.nil?
-      unscoped.recent.kept
-    else
-      unscoped.recent.kept.where(<<-SQL, account_id: account.id, current_utc: Time.now.utc)
-        (
-          statuses.expires_at IS NULL
-        ) OR
-        NOT (
-          statuses.account_id != :account_id
-          AND NOT EXISTS (
-            SELECT *
-            FROM bookmarks b
-            WHERE b.status_id = statuses.id
-            AND b.account_id = :account_id
-          )
-          AND NOT EXISTS (
-            SELECT *
-            FROM favourites f
-            WHERE f.status_id = statuses.id
-            AND f.account_id = :account_id
-          )
-          AND NOT EXISTS (
-            SELECT *
-            FROM emoji_reactions r
-            WHERE r.status_id = statuses.id
-            AND r.account_id = :account_id
-          )
-          AND statuses.expires_at IS NOT NULL
-          AND statuses.expires_at < :current_utc
-        )
-        SQL
-    end
-  }
-
+  scope :not_expired, -> { where("COALESCE(statuses.expires_at,'infinity') >= CURRENT_TIMESTAMP") }
+  scope :include_expired, -> { unscoped.recent.kept }
   scope :with_accounts, ->(ids) { where(id: ids).includes(:account) }
   scope :without_replies, -> { where('statuses.reply = FALSE OR statuses.in_reply_to_account_id = statuses.account_id') }
   scope :without_reblogs, -> { where('statuses.reblog_of_id IS NULL') }
@@ -186,6 +152,10 @@ class Status < ApplicationRecord
   delegate :domain, to: :account, prefix: true
 
   REAL_TIME_WINDOW = 6.hours
+
+  def expires_at=(val)
+    super(val.nil? ? 'infinity' : val)
+  end
 
   def searchable_by(preloaded = nil)
     ids = []

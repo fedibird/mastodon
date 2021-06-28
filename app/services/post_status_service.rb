@@ -127,7 +127,7 @@ class PostStatusService < BaseService
     DistributionWorker.perform_async(@status.id)
     ActivityPub::DistributionWorker.perform_async(@status.id)
     PollExpirationNotifyWorker.perform_at(@status.poll.expires_at, @status.poll.id) if @status.poll
-    DeleteExpiredStatusWorker.perform_at(@status.expires_at, @status.id) if !@status.expires_at.nil? && @status.expires_delete?
+    DeleteExpiredStatusWorker.perform_at(@status.expires_at, @status.id) if @status.expires? && @status.expires_delete?
   end
 
   def validate_media!

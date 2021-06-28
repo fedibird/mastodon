@@ -31,7 +31,7 @@ class Api::V1::Statuses::FavouritesController < Api::BaseController
   private
 
   def set_status
-    @status = Status.include_expired(current_account).find(params[:status_id])
+    @status = Status.include_expired.find(params[:status_id])
     authorize @status, :show?
   rescue Mastodon::NotPermittedError
     not_found

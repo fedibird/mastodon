@@ -408,27 +408,6 @@ ActiveRecord::Schema.define(version: 2021_06_30_000137) do
     t.index ["list_id"], name: "index_domain_subscribes_on_list_id"
   end
 
-  create_table "domains", force: :cascade do |t|
-    t.string "domain", default: "", null: false
-    t.string "title", default: "", null: false
-    t.string "short_description", default: "", null: false
-    t.string "email", default: "", null: false
-    t.string "version", default: "", null: false
-    t.string "thumbnail_remote_url", default: "", null: false
-    t.string "languages", array: true
-    t.boolean "registrations"
-    t.boolean "approval_required"
-    t.bigint "contact_account_id"
-    t.string "software", default: "", null: false
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
-    t.string "thumbnail_file_name"
-    t.string "thumbnail_content_type"
-    t.integer "thumbnail_file_size"
-    t.datetime "thumbnail_updated_at"
-    t.index ["contact_account_id"], name: "index_domains_on_contact_account_id"
-  end
-
   create_table "email_domain_blocks", force: :cascade do |t|
     t.string "domain", default: "", null: false
     t.datetime "created_at", null: false
@@ -449,7 +428,7 @@ ActiveRecord::Schema.define(version: 2021_06_30_000137) do
     t.index ["account_id"], name: "index_emoji_reactions_on_account_id"
     t.index ["custom_emoji_id"], name: "index_emoji_reactions_on_custom_emoji_id"
     t.index ["status_id"], name: "index_emoji_reactions_on_status_id"
-      end
+  end
 
   create_table "encrypted_messages", id: :bigint, default: -> { "timestamp_id('encrypted_messages'::text)" }, force: :cascade do |t|
     t.bigint "device_id"
@@ -969,9 +948,9 @@ ActiveRecord::Schema.define(version: 2021_06_30_000137) do
     t.bigint "poll_id"
     t.bigint "quote_id"
     t.datetime "deleted_at"
-    t.datetime "expires_at"
+    t.datetime "expires_at", default: ::Float::INFINITY, null: false
     t.integer "expires_action", default: 0, null: false
-    t.index ["account_id", "id", "visibility", "updated_at"], name: "index_statuses_20190820", order: { id: :desc }, where: "(deleted_at IS NULL)"
+    t.index ["account_id", "id", "visibility", "updated_at", "expires_at"], name: "index_statuses_20210627", order: { id: :desc }, where: "(deleted_at IS NULL)"
     t.index ["id", "account_id"], name: "index_statuses_local_20190824", order: { id: :desc }, where: "((local OR (uri IS NULL)) AND (deleted_at IS NULL) AND (visibility = 0) AND (reblog_of_id IS NULL) AND ((NOT reply) OR (in_reply_to_account_id = account_id)))"
     t.index ["id", "account_id"], name: "index_statuses_public_20200119", order: { id: :desc }, where: "((deleted_at IS NULL) AND (visibility = 0) AND (reblog_of_id IS NULL) AND ((NOT reply) OR (in_reply_to_account_id = account_id)))"
     t.index ["in_reply_to_account_id"], name: "index_statuses_on_in_reply_to_account_id"
@@ -1160,7 +1139,6 @@ ActiveRecord::Schema.define(version: 2021_06_30_000137) do
   add_foreign_key "devices", "oauth_access_tokens", column: "access_token_id", on_delete: :cascade
   add_foreign_key "domain_subscribes", "accounts", on_delete: :cascade
   add_foreign_key "domain_subscribes", "lists", on_delete: :cascade
-  add_foreign_key "domains", "accounts", column: "contact_account_id"
   add_foreign_key "email_domain_blocks", "email_domain_blocks", column: "parent_id", on_delete: :cascade
   add_foreign_key "emoji_reactions", "accounts", on_delete: :cascade
   add_foreign_key "emoji_reactions", "custom_emojis", on_delete: :cascade

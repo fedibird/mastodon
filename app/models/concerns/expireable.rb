@@ -30,7 +30,7 @@ module Expireable
     end
 
     def expires?
-      !expires_at.nil?
+      !expires_at.nil? && expires_at != ::Float::INFINITY
     end
   end
 end
