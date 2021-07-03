@@ -14,21 +14,15 @@ class REST::RelationshipSerializer < ActiveModel::Serializer
   end
 
   def delivery_following
-    (instance_options[:relationships].following[object.id] || {})[:delivery] ||
-      (instance_options[:relationships].requested[object.id] || {})[:delivery] ||
-      false
+    instance_options[:relationships].delivery_following[object.id] ? true : false
   end
 
   def showing_reblogs
-    (instance_options[:relationships].following[object.id] || {})[:reblogs] ||
-      (instance_options[:relationships].requested[object.id] || {})[:reblogs] ||
-      false
+    instance_options[:relationships].showing_reblogs[object.id] ? true : false
   end
 
   def notifying
-    (instance_options[:relationships].following[object.id] || {})[:notify] ||
-      (instance_options[:relationships].requested[object.id] || {})[:notify] ||
-      false
+    instance_options[:relationships].notifying[object.id] ? true : false
   end
 
   def followed_by
@@ -52,7 +46,7 @@ class REST::RelationshipSerializer < ActiveModel::Serializer
   end
 
   def muting_notifications
-    (instance_options[:relationships].muting[object.id] || {})[:notifications] || false
+    instance_options[:relationships].muting_notifications[object.id] ? true : false
   end
 
   def requested

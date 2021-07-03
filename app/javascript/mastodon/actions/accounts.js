@@ -684,7 +684,7 @@ export function expandSubscribeFail(id, error) {
 export function fetchRelationships(accountIds) {
   return (dispatch, getState) => {
     const loadedRelationships = getState().get('relationships');
-    const newAccountIds = accountIds.filter(id => loadedRelationships.get(id, null) === null);
+    const newAccountIds = Array.from(new Set(accountIds)).filter(id => loadedRelationships.get(id, null) === null);
 
     if (newAccountIds.length === 0) {
       return;

@@ -117,13 +117,14 @@ module StatusThreadingConcern
   def relations_map_for_account(account, account_ids, domains)
     return {} if account.nil?
 
+    presenter = AccountRelationshipsPresenter.new(account_ids, account)
     {
-      blocking: Account.blocking_map(account_ids, account.id),
-      blocked_by: Account.blocked_by_map(account_ids, account.id),
-      muting: Account.muting_map(account_ids, account.id),
-      following: Account.following_map(account_ids, account.id),
-      subscribing: Account.subscribing_map(account_ids, account.id),
-      domain_blocking_by_domain: Account.domain_blocking_map_by_domain(domains, account.id),
+      blocking: presenter.blocking,
+      blocked_by: presenter.blocked_by,
+      muting: presenter.muting,
+      following: presenter.following,
+      subscribing: presenter.subscribing,
+      domain_blocking_by_domain: presenter.domain_blocking,
     }
   end
 end

@@ -129,7 +129,6 @@ class Status < ApplicationRecord
 
   cache_associated :application,
                    :media_attachments,
-                   :emoji_reactions,
                    :conversation,
                    :status_stat,
                    :tags,
@@ -142,7 +141,6 @@ class Status < ApplicationRecord
                      :tags,
                      :preview_cards,
                      :media_attachments,
-                     :emoji_reactions,
                      :conversation,
                      :status_stat,
                      :preloadable_poll,
