@@ -36,7 +36,6 @@ class Status < ApplicationRecord
   include Cacheable
   include StatusThreadingConcern
   include RateLimitable
-  include Expireable
   include Redisable
 
   rate_limit by: :account, family: :statuses
@@ -102,7 +101,7 @@ class Status < ApplicationRecord
   scope :remote, -> { where(local: false).where.not(uri: nil) }
   scope :local,  -> { where(local: true).or(where(uri: nil)) }
 
-  scope :not_expired, -> { where("COALESCE(statuses.expires_at,'infinity') >= CURRENT_TIMESTAMP") }
+  scope :not_expired, -> { where("statuses.expires_at >= CURRENT_TIMESTAMP") }
   scope :include_expired, -> { unscoped.recent.kept }
   scope :with_accounts, ->(ids) { where(id: ids).includes(:account) }
   scope :without_replies, -> { where('statuses.reply = FALSE OR statuses.in_reply_to_account_id = statuses.account_id') }
@@ -255,6 +254,10 @@ class Status < ApplicationRecord
 
   def with_media?
     media_attachments.any?
+  end
+
+  def expires?
+    expires_at != ::Float::INFINITY
   end
 
   def non_sensitive_with_media?
