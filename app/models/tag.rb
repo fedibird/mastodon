@@ -43,7 +43,7 @@ class Tag < ApplicationRecord
 
   before_save :set_unlistable, if: :force_unlistable?
 
-  update_index('tags#tag', :self)
+  update_index('tags', :self)
 
   def to_param
     name

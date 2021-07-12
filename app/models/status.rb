@@ -22,10 +22,9 @@
 #  application_id         :bigint(8)
 #  in_reply_to_account_id :bigint(8)
 #  poll_id                :bigint(8)
-#  quote_id               :bigint(8)
 #  deleted_at             :datetime
-#  expires_at             :datetime         default(Infinity), not null
-#  expires_action         :integer          default("delete"), not null
+#  quote_id               :bigint(8)
+#  expired_at             :datetime
 #
 
 class Status < ApplicationRecord
@@ -48,7 +47,7 @@ class Status < ApplicationRecord
 
   attr_accessor :circle
 
-  update_index('statuses#status', :proper)
+  update_index('statuses', :proper)
 
   enum visibility: [:public, :unlisted, :private, :direct, :limited, :mutual], _suffix: :visibility
   enum expires_action: [:delete, :hint], _prefix: :expires
