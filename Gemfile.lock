@@ -763,6 +763,7 @@ DEPENDENCIES
   paperclip (~> 6.0)
   parallel (~> 1.20)
   parallel_tests (~> 3.7)
+  parser (~> 3.0.2.0)
   parslet
   pg (~> 1.2)
   pghero (~> 2.8)
