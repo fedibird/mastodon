@@ -48,11 +48,12 @@ class SearchService < BaseService
       definition = definition.filter(range: { id: range })
     end
 
-    results             = definition.limit(@limit).offset(@offset).objects.compact
-    account_ids         = results.map(&:account_id)
-    preloaded_relations = relations_map_for_account(@account, account_ids)
+    results           = definition.limit(@limit).offset(@offset).objects.compact
+    account_ids       = results.map(&:account_id)
+    account_relations = relations_map_for_account(@account, account_ids)
+    status_relations  = relations_map_for_status(@account, results)
 
-    results.reject { |status| StatusFilter.new(status, @account, preloaded_relations).filtered? }
+    results.reject { |status| StatusFilter.new(status, @account, account_relations, status_relations).filtered? }
   rescue Faraday::ConnectionFailed, Parslet::ParseFailed
     []
   end
@@ -120,6 +121,18 @@ class SearchService < BaseService
       muting: presenter.muting,
       following: presenter.following,
       domain_blocking_by_domain: presenter.domain_blocking,
+    }
+  end
+
+  def relations_map_for_status(account, statuses)
+    presenter = StatusRelationshipsPresenter.new(statuses, account)
+    {
+      reblogs_map: presenter.reblogs_map,
+      favourites_map: presenter.favourites_map,
+      bookmarks_map: presenter.bookmarks_map,
+      emoji_reactions_map: presenter.emoji_reactions_map,
+      mutes_map: presenter.mutes_map,
+      pins_map: presenter.pins_map,
     }
   end
 

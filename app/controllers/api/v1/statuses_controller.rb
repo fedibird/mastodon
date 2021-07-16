@@ -9,6 +9,7 @@ class Api::V1::StatusesController < Api::BaseController
   before_action :set_status, only:       [:show, :context]
   before_action :set_thread, only:       [:create]
   before_action :set_circle, only:       [:create]
+  before_action :set_expire, only:       [:create]
 
   override_rate_limit_headers :create, family: :statuses
 
@@ -46,7 +47,7 @@ class Api::V1::StatusesController < Api::BaseController
                                          spoiler_text: status_params[:spoiler_text],
                                          visibility: status_params[:visibility],
                                          scheduled_at: status_params[:scheduled_at],
-                                         expires_at: status_params[:expires_at],
+                                         expires_at: @expires_at,
                                          expires_action: status_params[:expires_action],
                                          application: doorkeeper_token.application,
                                          poll: status_params[:poll],
@@ -98,6 +99,10 @@ class Api::V1::StatusesController < Api::BaseController
     render json: { error: I18n.t('statuses.errors.circle_not_found') }, status: 404
   end
 
+  def set_expire
+    @expires_at = status_params[:expires_at] || status_params[:expires_in].blank? ? nil : status_params[:expires_in].to_i.seconds.from_now
+  end
+
   def status_params
     params.permit(
       :status,
@@ -108,6 +113,7 @@ class Api::V1::StatusesController < Api::BaseController
       :visibility,
       :scheduled_at,
       :quote_id,
+      :expires_in,
       :expires_at,
       :expires_action,
       media_ids: [],

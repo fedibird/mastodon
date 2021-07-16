@@ -6,7 +6,7 @@ class AccountRelationshipsPresenter
               :endorsed, :account_note
 
   def initialize(account_ids, current_account_id, **options)
-    @account_ids        = account_ids.map { |a| a.is_a?(Account) ? a.id : a.to_i }
+    @account_ids        = account_ids.map { |a| a.is_a?(Account) ? a.id : a.to_i }.uniq
     @current_account_id = current_account_id
 
     @following            = cached[:following]

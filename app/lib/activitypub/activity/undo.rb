@@ -32,7 +32,7 @@ class ActivityPub::Activity::Undo < ActivityPub::Activity
   end
 
   def try_undo_announce
-    status = Status.where.not(reblog_of_id: nil).find_by(uri: object_uri, account: @account)
+    status = Status.include_expired.where.not(reblog_of_id: nil).find_by(uri: object_uri, account: @account)
     if status.present?
       RemoveStatusService.new.call(status)
       true
@@ -79,8 +79,8 @@ class ActivityPub::Activity::Undo < ActivityPub::Activity
   def undo_announce
     return if object_uri.nil?
 
-    status   = Status.find_by(uri: object_uri, account: @account)
-    status ||= Status.find_by(uri: @object['atomUri'], account: @account) if @object.is_a?(Hash) && @object['atomUri'].present?
+    status   = Status.include_expired.find_by(uri: object_uri, account: @account)
+    status ||= Status.include_expired.find_by(uri: @object['atomUri'], account: @account) if @object.is_a?(Hash) && @object['atomUri'].present?
 
     if status.nil?
       delete_later!(object_uri)

@@ -376,11 +376,11 @@ class StatusActionBar extends ImmutablePureComponent {
       <div className='status__action-bar'>
         <IconButton className='status__action-bar-button' disabled={expired} title={replyTitle} icon={status.get('in_reply_to_account_id') === status.getIn(['account', 'id']) ? 'reply' : replyIcon} onClick={this.handleReplyClick} counter={status.get('replies_count')} obfuscateCount />
         <IconButton className={classNames('status__action-bar-button', { reblogPrivate })} disabled={!publicStatus && !reblogPrivate || expired}  active={status.get('reblogged')} pressed={status.get('reblogged')} title={reblogTitle} icon='retweet' onClick={this.handleReblogClick} />
-        <IconButton className='status__action-bar-button star-icon' animate disabled={!me && expired} active={status.get('favourited')} pressed={status.get('favourited')} title={intl.formatMessage(messages.favourite)} icon='star' onClick={this.handleFavouriteClick} />
+        <IconButton className='status__action-bar-button star-icon' animate disabled={!status.get('favourited') && expired} active={status.get('favourited')} pressed={status.get('favourited')} title={intl.formatMessage(messages.favourite)} icon='star' onClick={this.handleFavouriteClick} />
         {show_quote_button && <IconButton className='status__action-bar-button' disabled={anonymousAccess || !publicStatus || expired} title={!publicStatus ? intl.formatMessage(messages.cannot_quote) : intl.formatMessage(messages.quote)} icon='quote-right' onClick={this.handleQuoteClick} />}
         {enableReaction && <div className='status__action-bar-button'><ReactionPickerDropdown disabled={expired} active={status.get('emoji_reactioned')} pressed={status.get('emoji_reactioned')} className='status__action-bar-button' onPickEmoji={this.handleEmojiPick} onRemoveEmoji={this.handleEmojiRemove} /></div>}
         {shareButton}
-        {show_bookmark_button && <IconButton className='status__action-bar-button bookmark-icon' disabled={!me && expired} active={status.get('bookmarked')} pressed={status.get('bookmarked')} title={intl.formatMessage(status.get('bookmarked') ? messages.removeBookmark : messages.bookmark)} icon='bookmark' onClick={this.handleBookmarkClick} />}
+        {show_bookmark_button && <IconButton className='status__action-bar-button bookmark-icon' disabled={!status.get('bookmarked') && expired} active={status.get('bookmarked')} pressed={status.get('bookmarked')} title={intl.formatMessage(status.get('bookmarked') ? messages.removeBookmark : messages.bookmark)} icon='bookmark' onClick={this.handleBookmarkClick} />}
 
         <div className='status__action-bar-dropdown'>
           <DropdownMenuContainer

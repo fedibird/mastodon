@@ -16,7 +16,7 @@ class Bookmark < ApplicationRecord
   update_index('statuses', :status) if Chewy.enabled?
 
   belongs_to :account, inverse_of: :bookmarks
-  belongs_to :status,  inverse_of: :bookmarks
+  belongs_to :status, -> { unscope(where: :expired_at) }, inverse_of: :bookmarks
 
   validates :status_id, uniqueness: { scope: :account_id }
 

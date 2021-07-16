@@ -15,7 +15,7 @@ class ActivityPub::NoteSerializer < ActivityPub::Serializer
   attribute :content
   attribute :content_map, if: :language?
 
-  attribute :expiry, if: -> { object.expires? }
+  attribute :expiry, if: :has_expiry?
 
   has_many :media_attachments, key: :attachment
   has_many :virtual_tags, key: :tag
@@ -84,8 +84,12 @@ class ActivityPub::NoteSerializer < ActivityPub::Serializer
     object.created_at.iso8601
   end
 
+  def has_expiry?
+    object.expiry.present?
+  end
+
   def expiry
-    object.expires_at.iso8601
+    object.expiry.iso8601
   end
 
   def url

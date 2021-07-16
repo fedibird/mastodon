@@ -28,6 +28,7 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
     @params   = {}
 
     process_status_params
+    process_expiry_params
     process_audience
 
     ApplicationRecord.transaction do
@@ -40,6 +41,7 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
     end
 
     distribute(@status)
+    expire_queue_action
   end
 
   def process_status_params
@@ -50,8 +52,27 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
         uri: @json['id'],
         created_at: @json['published'],
         override_timestamps: @options[:override_timestamps],
-        visibility: visibility_from_audience
+        visibility: visibility_from_audience,
+        expires_at: @json['expiry'],
+        expires_action: :mark,
       }
+    end
+  end
+
+  def process_expiry_params
+    expiry = @object['expiry'].to_time rescue nil
+
+    if expiry.nil?
+      @params
+    elsif expiry <= Time.now.utc + PostStatusService::MIN_EXPIRE_OFFSET
+      @params.merge!({
+        expired_at: @object['expiry']
+      })
+    else
+      @params.merge!({
+        expires_at: @object['expiry'],
+        expires_action: :mark,
+      })
     end
   end
 
@@ -60,6 +81,15 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
       mention.status = status
       mention.save
     end
+  end
+
+  def expire_queue_action
+    @status.status_expire.queue_action if expires_soon?
+  end
+
+  def expires_soon?
+    expires_at = @status&.status_expire&.expires_at
+    expires_at.present? && expires_at <= Time.now.utc + PostStatusService::MIN_SCHEDULE_OFFSET
   end
 
   def announceable?(status)

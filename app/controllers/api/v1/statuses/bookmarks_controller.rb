@@ -18,7 +18,7 @@ class Api::V1::Statuses::BookmarksController < Api::BaseController
     if bookmark
       @status = bookmark.status
     else
-      @status = Status.find(params[:status_id])
+      @status = Status.include_expired.find(params[:status_id])
       authorize @status, :show?
     end
 

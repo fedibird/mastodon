@@ -46,11 +46,11 @@ class Status < ApplicationRecord
   attr_accessor :override_timestamps
 
   attr_accessor :circle
+  attr_accessor :expires_at, :expires_action
 
   update_index('statuses', :proper)
 
   enum visibility: [:public, :unlisted, :private, :direct, :limited, :mutual], _suffix: :visibility
-  enum expires_action: [:delete, :hint], _prefix: :expires
 
   belongs_to :application, class_name: 'Doorkeeper::Application', optional: true
 
@@ -82,6 +82,7 @@ class Status < ApplicationRecord
   has_one :notification, as: :activity, dependent: :destroy
   has_one :status_stat, inverse_of: :status
   has_one :poll, inverse_of: :status, dependent: :destroy
+  has_one :status_expire, inverse_of: :status
 
   validates :uri, uniqueness: true, presence: true, unless: :local?
   validates :text, presence: true, unless: -> { with_media? || reblog? }
@@ -100,7 +101,7 @@ class Status < ApplicationRecord
   scope :remote, -> { where(local: false).where.not(uri: nil) }
   scope :local,  -> { where(local: true).or(where(uri: nil)) }
 
-  scope :not_expired, -> { where("statuses.expires_at >= CURRENT_TIMESTAMP") }
+  scope :not_expired, -> { where(expired_at: nil) }
   scope :include_expired, -> { unscoped.recent.kept }
   scope :with_accounts, ->(ids) { where(id: ids).includes(:account) }
   scope :without_replies, -> { where('statuses.reply = FALSE OR statuses.in_reply_to_account_id = statuses.account_id') }
@@ -129,6 +130,7 @@ class Status < ApplicationRecord
                    :media_attachments,
                    :conversation,
                    :status_stat,
+                   :status_expire,
                    :tags,
                    :preview_cards,
                    :preloadable_poll,
@@ -141,6 +143,7 @@ class Status < ApplicationRecord
                      :media_attachments,
                      :conversation,
                      :status_stat,
+                     :status_expire,
                      :preloadable_poll,
                      account: [:account_stat, :user],
                      active_mentions: { account: :account_stat },
@@ -150,10 +153,6 @@ class Status < ApplicationRecord
   delegate :domain, to: :account, prefix: true
 
   REAL_TIME_WINDOW = 6.hours
-
-  def expires_at=(val)
-    super(val.nil? ? 'infinity' : val)
-  end
 
   def searchable_by(preloaded = nil)
     ids = []
@@ -255,8 +254,16 @@ class Status < ApplicationRecord
     media_attachments.any?
   end
 
+  def expired?
+    !expired_at.nil?
+  end
+
   def expires?
-    expires_at != ::Float::INFINITY
+    status_expire.present?
+  end
+
+  def expiry
+    expires? && status_expire&.expires_mark? && status_expire&.expires_at || expired_at
   end
 
   def non_sensitive_with_media?
@@ -326,6 +333,8 @@ class Status < ApplicationRecord
 
   after_create_commit :store_uri, if: :local?
   after_create_commit :update_statistics, if: :local?
+  after_create_commit :set_status_expire, if: -> { expires_at.present? }
+  after_update :update_status_expire, if: -> { expires_at.present? }
 
   around_create Mastodon::Snowflake::Callbacks
 
@@ -430,6 +439,14 @@ class Status < ApplicationRecord
   end
 
   private
+
+  def set_status_expire
+    create_status_expire(expires_at: expires_at, action: expires_action)
+  end
+
+  def update_status_expire
+    status_expire&.update(expires_at: expires_at, action: expires_action) || set_status_expire
+  end
 
   def update_status_stat!(attrs)
     return if marked_for_destruction? || destroyed?

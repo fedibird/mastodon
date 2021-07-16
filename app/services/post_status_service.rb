@@ -4,6 +4,7 @@ class PostStatusService < BaseService
   include Redisable
 
   MIN_SCHEDULE_OFFSET = 5.minutes.freeze
+  MIN_EXPIRE_OFFSET   = 40.seconds.freeze # The original intention is 60 seconds, but we have a margin of 20 seconds.
 
   # Post a text status update, fetch and notify remote users mentioned
   # @param [Account] account Account from which to post
@@ -35,6 +36,7 @@ class PostStatusService < BaseService
     return idempotency_duplicate if idempotency_given? && idempotency_duplicate?
 
     validate_media!
+    validate_expires!
     preprocess_attributes!
     preprocess_quote!
 
@@ -75,8 +77,6 @@ class PostStatusService < BaseService
     @visibility     = :limited if @visibility&.to_sym != :direct && @in_reply_to&.limited_visibility?
     @scheduled_at   = @options[:scheduled_at]&.to_datetime
     @scheduled_at   = nil if scheduled_in_the_past?
-    @expires_at     = @options[:expires_at]&.to_datetime
-    @expires_action = @options[:expires_action]
     if @quote_id.nil? && md = @text.match(/QT:\s*\[\s*(https:\/\/.+?)\s*\]/)
       @quote_id = quote_from_url(md[1])&.id
       @text.sub!(/QT:\s*\[.*?\]/, '')
@@ -127,7 +127,12 @@ class PostStatusService < BaseService
     DistributionWorker.perform_async(@status.id)
     ActivityPub::DistributionWorker.perform_async(@status.id)
     PollExpirationNotifyWorker.perform_at(@status.poll.expires_at, @status.poll.id) if @status.poll
-    DeleteExpiredStatusWorker.perform_at(@status.expires_at, @status.id) if @status.expires? && @status.expires_delete?
+    @status.status_expire.queue_action if expires_soon?
+  end
+
+  def expires_soon?
+    expires_at = @status&.status_expire&.expires_at
+    expires_at.present? && expires_at <= Time.now.utc + MIN_SCHEDULE_OFFSET
   end
 
   def validate_media!
@@ -139,6 +144,26 @@ class PostStatusService < BaseService
 
     raise Mastodon::ValidationError, I18n.t('media_attachments.validations.images_and_video') if @media.size > 1 && @media.find(&:audio_or_video?)
     raise Mastodon::ValidationError, I18n.t('media_attachments.validations.not_ready') if @media.any?(&:not_processed?)
+  end
+
+  def validate_expires!
+    return if @options[:expires_at].blank?
+
+    @expires_at = @options[:expires_at].is_a?(Time) ? @options[:expires_at] : @options[:expires_at].to_time rescue nil
+
+    raise Mastodon::ValidationError, I18n.t('status_expire.validations.invalid_expire_at') if @expires_at.nil?
+    raise Mastodon::ValidationError, I18n.t('status_expire.validations.expire_in_the_past') if @expires_at <= Time.now.utc + MIN_EXPIRE_OFFSET
+
+    @expires_action = begin
+      case @options[:expires_action]&.to_sym
+      when :hint, :mark, nil
+        :mark
+      when :delete
+        :delete
+      else
+        raise Mastodon::ValidationError, I18n.t('status_expire.validations.invalid_expire_action')
+      end
+    end
   end
 
   def language_from_option(str)

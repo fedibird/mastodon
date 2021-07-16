@@ -19,7 +19,7 @@ class Api::V1::Statuses::FavouritesController < Api::BaseController
       @status = fav.status
       UnfavouriteWorker.perform_async(current_account.id, @status.id)
     else
-      @status = Status.find(params[:status_id])
+      @status = Status.include_expired.find(params[:status_id])
       authorize @status, :show?
     end
 

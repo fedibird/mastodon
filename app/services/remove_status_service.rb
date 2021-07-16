@@ -10,11 +10,15 @@ class RemoveStatusService < BaseService
   # @option  [Boolean] :redraft
   # @option  [Boolean] :immediate
   # @option  [Boolean] :original_removed
+  # @option  [Boolean] :mark_expired
   def call(status, **options)
-    @payload = Oj.dump(event: :delete, payload: status.id.to_s)
-    @status  = status
-    @account = status.account
-    @options = options
+    @payload       = Oj.dump(event: :delete, payload: status.id.to_s)
+    @status        = status
+    @account       = status.account
+    @options       = options
+    @status_expire = status.status_expire
+
+    return if mark_expired? && @status_expire.nil?
 
     @status.discard
 
@@ -41,10 +45,17 @@ class RemoveStatusService < BaseService
           remove_from_group if status.account.group?
           remove_from_public
           remove_from_media if @status.media_attachments.any?
-          remove_media
+          remove_media unless mark_expired?
         end
 
-        @status.destroy! if @options[:immediate] || !@status.reported?
+        if mark_expired?
+          UnpinService.new.call(@account, @status)
+          @status.update!(expired_at: @status_expire.expires_at)
+          @status_expire.destroy
+        else
+          @status_expire&.destroy
+          @status.destroy! if @options[:immediate] || !@status.reported?
+        end
       else
         raise Mastodon::RaceConditionError
       end
@@ -52,6 +63,10 @@ class RemoveStatusService < BaseService
   end
 
   private
+
+  def mark_expired?
+    @options[:mark_expired]
+  end
 
   def remove_from_self
     FeedManager.instance.unpush_from_home(@account, @status)
@@ -95,7 +110,7 @@ class RemoveStatusService < BaseService
   end
 
   def signed_activity_json
-    @signed_activity_json ||= Oj.dump(serialize_payload(@status, @status.reblog? ? ActivityPub::UndoAnnounceSerializer : ActivityPub::DeleteSerializer, signer: @account))
+    @signed_activity_json ||= Oj.dump(serialize_payload(@status, @status.reblog? ? ActivityPub::UndoAnnounceSerializer : ActivityPub::DeleteSerializer, signer: @account, expiry: mark_expired? ? @status.expiry : nil))
   end
 
   def remove_reblogs

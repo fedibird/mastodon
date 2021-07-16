@@ -4,6 +4,8 @@ class ActivityPub::Activity::Delete < ActivityPub::Activity
   def perform
     if @account.uri == object_uri
       delete_person
+    elsif @json['expiry'].present?
+      expire_note
     else
       delete_note
     end
@@ -32,14 +34,25 @@ class ActivityPub::Activity::Delete < ActivityPub::Activity
         Tombstone.find_or_create_by(uri: object_uri, account: @account)
       end
 
-      @status   = Status.find_by(uri: object_uri, account: @account)
-      @status ||= Status.find_by(uri: @object['atomUri'], account: @account) if @object.is_a?(Hash) && @object['atomUri'].present?
+      @status   = Status.include_expired.find_by(uri: object_uri, account: @account)
+      @status ||= Status.include_expired.find_by(uri: @object['atomUri'], account: @account) if @object.is_a?(Hash) && @object['atomUri'].present?
 
       return if @status.nil?
 
       forward! if @json['signature'].present? && @status.distributable?
       delete_now!
     end
+  end
+
+  def expire_note
+    return if object_uri.nil?
+
+    @status   = Status.find_by(uri: object_uri, account: @account)
+    @status ||= Status.find_by(uri: @object['atomUri'], account: @account) if @object.is_a?(Hash) && @object['atomUri'].present?
+
+    return if @status.nil?
+
+    RemoveStatusService.new.call(@status, redraft: false, mark_expired: true)
   end
 
   def rebloggers_ids

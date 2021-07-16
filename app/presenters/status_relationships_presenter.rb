@@ -13,6 +13,7 @@ class StatusRelationshipsPresenter
       @mutes_map           = {}
       @pins_map            = {}
     else
+      statuses            = Status.where(id: statuses) if statuses.first.is_a?(Integer)
       statuses            = statuses.compact
       status_ids          = statuses.flat_map { |s| [s.id, s.reblog_of_id] }.uniq.compact
       conversation_ids    = statuses.filter_map(&:conversation_id).uniq

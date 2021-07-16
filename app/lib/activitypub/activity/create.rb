@@ -75,6 +75,7 @@ class ActivityPub::Activity::Create < ActivityPub::Activity
 
     process_quote
     process_status_params
+    process_expiry_params
     process_tags
     process_audience
 
@@ -88,6 +89,7 @@ class ActivityPub::Activity::Create < ActivityPub::Activity
     distribute(@status)
     forward_for_conversation
     forward_for_reply
+    expire_queue_action
   end
 
   def find_existing_status
@@ -115,8 +117,24 @@ class ActivityPub::Activity::Create < ActivityPub::Activity
         media_attachment_ids: process_attachments.take(4).map(&:id),
         poll: process_poll,
         quote: quote,
-        expires_at: @object['expiry'],
       }
+    end
+  end
+
+  def process_expiry_params
+    expiry = @object['expiry'].to_time rescue nil
+
+    if expiry.nil?
+      @params
+    elsif expiry <= Time.now.utc + PostStatusService::MIN_EXPIRE_OFFSET
+      @params.merge!({
+        expired_at: @object['expiry']
+      })
+    else
+      @params.merge!({
+        expires_at: @object['expiry'],
+        expires_action: :mark,
+      })
     end
   end
 
@@ -469,6 +487,15 @@ class ActivityPub::Activity::Create < ActivityPub::Activity
     return unless @status.distributable? && @json['signature'].present? && reply_to_local?
 
     ActivityPub::RawDistributionWorker.perform_async(Oj.dump(@json), replied_to_status.account_id, [@account.preferred_inbox_url])
+  end
+
+  def expire_queue_action
+    @status.status_expire.queue_action if expires_soon?
+  end
+
+  def expires_soon?
+    expires_at = @status&.status_expire&.expires_at
+    expires_at.present? && expires_at <= Time.now.utc + PostStatusService::MIN_SCHEDULE_OFFSET
   end
 
   def increment_voters_count!

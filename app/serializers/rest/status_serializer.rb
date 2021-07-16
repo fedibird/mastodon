@@ -19,7 +19,7 @@ class REST::StatusSerializer < ActiveModel::Serializer
 
   attribute :quote_id, if: :quote?
 
-  attribute :expires_at, if: :expires?
+  attribute :expires_at, if: :has_expires?
   attribute :visibility_ex, if: :visibility_ex?
 
   belongs_to :reblog, serializer: REST::StatusSerializer
@@ -66,8 +66,12 @@ class REST::StatusSerializer < ActiveModel::Serializer
     object.quote?
   end
 
-  def expires?
-    object.expires?
+  def has_expires?
+    object.expires? || object.expired?
+  end
+
+  def expires_at
+    object&.status_expire&.expires_at || object.expired_at
   end
 
   def visibility_ex?

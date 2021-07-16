@@ -1401,6 +1401,11 @@ en:
       public_long: Everyone can see
       unlisted: Unlisted
       unlisted_long: Everyone can see, but not listed on public timelines
+  status_expire:
+    validations:
+      expire_in_the_past: It is already past expires. You cannot specify expires before the posting time.
+      invalid_expire_at: Invalid expires are specified.
+      invalid_expire_action: Invalid expires_action are specified.
   stream_entries:
     pinned: Pinned post
     reblogged: boosted

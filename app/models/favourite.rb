@@ -16,7 +16,7 @@ class Favourite < ApplicationRecord
   update_index('statuses', :status)
 
   belongs_to :account, inverse_of: :favourites
-  belongs_to :status,  inverse_of: :favourites
+  belongs_to :status, -> { unscope(where: :expired_at) },  inverse_of: :favourites
 
   has_one :notification, as: :activity, dependent: :destroy
 

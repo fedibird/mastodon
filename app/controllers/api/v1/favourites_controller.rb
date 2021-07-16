@@ -18,7 +18,7 @@ class Api::V1::FavouritesController < Api::BaseController
   end
 
   def cached_favourites
-    cache_collection(Status.where(id: results.pluck(:status_id)), Status)
+    cache_collection(Status.include_expired.where(id: results.pluck(:status_id)), Status)
   end
 
   def results
