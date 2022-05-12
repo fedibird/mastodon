@@ -2,6 +2,7 @@
 
 class FetchLinkCardService < BaseService
   include Redisable
+  include Lockable
 
   URL_PATTERN = %r{
     (#{Twitter::TwitterText::Regex[:valid_url_preceding_chars]})                                                                #   $1 preceeding chars
@@ -34,7 +35,7 @@ class FetchLinkCardService < BaseService
 
   def call(status, **options)
     @status      = status
-    @parse_urls  = parse_urls
+    @parse_urls  = @original_url = parse_urls
     @url         = @parse_urls.shift
     @parse_urls -= RedirectLink.where(url: @parse_urls).pluck(:url)
 
@@ -46,13 +47,9 @@ class FetchLinkCardService < BaseService
 
     return if @url.nil? || @status.preview_cards.any?
 
-    RedisLock.acquire(lock_options.merge(options.slice(:retry))) do |lock|
-      if lock.acquired?
-        @card = PreviewCard.find_by(url: @url)
-        process_url if @card.nil? || @card.updated_at <= 2.weeks.ago || @card.missing_image?
-      else
-        raise Mastodon::RaceConditionError unless options[:retry] == false
-      end
+    with_lock("fetch:#{@original_url}") do
+      @card = PreviewCard.find_by(url: @url)
+      process_url if @card.nil? || @card.updated_at <= 2.weeks.ago || @card.missing_image?
     end
 
     attach_card if @card&.persisted?
@@ -212,9 +209,5 @@ class FetchLinkCardService < BaseService
 
   def meta_property(page, property)
     page.at_xpath("//meta[contains(concat(' ', normalize-space(@property), ' '), ' #{property} ')]")&.attribute('content')&.value || page.at_xpath("//meta[@name=\"#{property}\"]")&.attribute('content')&.value
-  end
-
-  def lock_options
-    { redis: redis, key: "fetch:#{@url}", autorelease: 15.minutes.seconds }
   end
 end

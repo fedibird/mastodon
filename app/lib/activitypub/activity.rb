@@ -3,6 +3,7 @@
 class ActivityPub::Activity
   include JsonLdHelper
   include Redisable
+  include Lockable
 
   SUPPORTED_TYPES = %w(Note Question).freeze
   CONVERTED_TYPES = %w(Image Audio Video Article Page Event).freeze
@@ -227,22 +228,6 @@ class ActivityPub::Activity
       end
     elsif @object['url'].present?
       ::FetchRemoteStatusService.new.call(@object['url'])
-    end
-  end
-
-  def lock_or_return(key, expire_after = 2.hours.seconds)
-    yield if redis.set(key, true, nx: true, ex: expire_after)
-  ensure
-    redis.del(key)
-  end
-
-  def lock_or_fail(key, expire_after = 15.minutes.seconds)
-    RedisLock.acquire({ redis: redis, key: key, autorelease: expire_after }) do |lock|
-      if lock.acquired?
-        yield
-      else
-        raise Mastodon::RaceConditionError
-      end
     end
   end
 

@@ -4,6 +4,7 @@ class ActivityPub::ProcessAccountService < BaseService
   include JsonLdHelper
   include DomainControlHelper
   include Redisable
+  include Lockable
 
   VALID_URI_SCHEMES = %w(http https).freeze
 
@@ -20,25 +21,21 @@ class ActivityPub::ProcessAccountService < BaseService
     @shortcodes  = []
     @collections = {}
 
-    RedisLock.acquire(lock_options) do |lock|
-      if lock.acquired?
-        @account            = Account.remote.find_by(uri: @uri) if @options[:only_key]
-        @account          ||= Account.find_remote(@username, @domain)
-        @old_public_key     = @account&.public_key
-        @old_protocol       = @account&.protocol
-        @old_searchability  = @account&.searchability
-        @suspension_changed = false
+    with_lock("process_account:#{@uri}") do
+      @account            = Account.remote.find_by(uri: @uri) if @options[:only_key]
+      @account          ||= Account.find_remote(@username, @domain)
+      @old_public_key     = @account&.public_key
+      @old_protocol       = @account&.protocol
+      @old_searchability  = @account&.searchability
+      @suspension_changed = false
 
-        update_node if @account.nil? && !Node.domain(domain).exists?
-        create_account if @account.nil?
-        process_tags
-        update_account
-        process_attachments
+      update_node if @account.nil? && !Node.domain(domain).exists?
+      create_account if @account.nil?
+      process_tags
+      update_account
+      process_attachments
 
-        process_duplicate_accounts! if @options[:verified_webfinger]
-      else
-        raise Mastodon::RaceConditionError
-      end
+      process_duplicate_accounts! if @options[:verified_webfinger]
     end
 
     return if @account.nil?
@@ -436,10 +433,6 @@ class ActivityPub::ProcessAccountService < BaseService
 
   def searchability_changed?
     !@old_searchability.nil? && @old_searchability != @account.searchability
-  end
-
-  def lock_options
-    { redis: redis, key: "process_account:#{@uri}", autorelease: 15.minutes.seconds }
   end
 
   def process_tags

@@ -3,6 +3,7 @@
 class RemoveStatusService < BaseService
   include Redisable
   include Payloadable
+  include Lockable
 
   # Delete a status
   # @param   [Status] status
@@ -22,44 +23,40 @@ class RemoveStatusService < BaseService
 
     @status.discard unless mark_expired?
 
-    RedisLock.acquire(lock_options) do |lock|
-      if lock.acquired?
-        remove_from_self if @account.local?
-        remove_from_followers
-        remove_from_lists
-        remove_from_subscribers
-        remove_from_subscribers_lists
+    with_lock("distribute:#{@status.id}") do
+      remove_from_self if @account.local?
+      remove_from_followers
+      remove_from_lists
+      remove_from_subscribers
+      remove_from_subscribers_lists
 
-        # There is no reason to send out Undo activities when the
-        # cause is that the original object has been removed, since
-        # original object being removed implicitly removes reblogs
-        # of it. The Delete activity of the original is forwarded
-        # separately.
-        remove_from_remote_reach if @account.local? && !@options[:original_removed]
+      # There is no reason to send out Undo activities when the
+      # cause is that the original object has been removed, since
+      # original object being removed implicitly removes reblogs
+      # of it. The Delete activity of the original is forwarded
+      # separately.
+      remove_from_remote_reach if @account.local? && !@options[:original_removed]
 
-        # Since reblogs don't mention anyone, don't get reblogged,
-        # favourited and don't contain their own media attachments
-        # or hashtags, this can be skipped
-        unless @status.reblog?
-          remove_from_mentions
-          remove_reblogs
-          remove_from_hashtags
-          remove_from_group if @status.account.group?
-          remove_from_public
-          remove_from_media if @status.with_media?
-          remove_media unless mark_expired?
-        end
+      # Since reblogs don't mention anyone, don't get reblogged,
+      # favourited and don't contain their own media attachments
+      # or hashtags, this can be skipped
+      unless @status.reblog?
+        remove_from_mentions
+        remove_reblogs
+        remove_from_hashtags
+        remove_from_group if @status.account.group?
+        remove_from_public
+        remove_from_media if @status.with_media?
+        remove_media unless mark_expired?
+      end
 
-        if mark_expired?
-          UnpinService.new.call(@account, @status)
-          @status.update!(expired_at: @status_expire.expires_at)
-          @status_expire.destroy
-        else
-          @status_expire&.destroy
-          @status.destroy! if @options[:immediate] || !@status.reported?
-        end
+      if mark_expired?
+        UnpinService.new.call(@account, @status)
+        @status.update!(expired_at: @status_expire.expires_at)
+        @status_expire.destroy
       else
-        raise Mastodon::RaceConditionError
+        @status_expire&.destroy
+        @status.destroy! if permanently?
       end
     end
   end
@@ -219,12 +216,12 @@ class RemoveStatusService < BaseService
   end
 
   def remove_media
-    return if @options[:redraft] || (!@options[:immediate] && @status.reported?)
+    return if @options[:redraft] || !permanently?
 
     @status.media_attachments.destroy_all
   end
 
-  def lock_options
-    { redis: redis, key: "distribute:#{@status.id}", autorelease: 5.minutes.seconds }
+  def permanently?
+    @options[:immediate] || !(@options[:preserve] || @status.reported?)
   end
 end
