@@ -30,7 +30,7 @@ class ActivityPub::FetchFeaturedCollectionService < BaseService
 
   def fetch_collection(collection_or_uri)
     return collection_or_uri if collection_or_uri.is_a?(Hash)
-    return if invalid_origin?(collection_or_uri)
+    return if non_matching_uri_hosts?(@account.uri, collection_or_uri)
 
     fetch_resource_without_id_validation(collection_or_uri, local_follower, true)
   end
@@ -47,7 +47,7 @@ class ActivityPub::FetchFeaturedCollectionService < BaseService
       next unless item.is_a?(String) || item['type'] == 'Note'
 
       uri = value_or_id(item)
-      next if ActivityPub::TagManager.instance.local_uri?(uri)
+      next if ActivityPub::TagManager.instance.local_uri?(uri) || non_matching_uri_hosts?(@account.uri, uri)
 
       status = ActivityPub::FetchRemoteStatusService.new.call(uri, on_behalf_of: local_follower)
       next unless status&.account_id == @account.id

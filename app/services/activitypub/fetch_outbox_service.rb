@@ -86,7 +86,7 @@ class ActivityPub::FetchOutboxService < BaseService
 
   def fetch_collection(collection_or_uri)
     return collection_or_uri if collection_or_uri.is_a?(Hash)
-    return if invalid_origin?(collection_or_uri)
+    return if non_matching_uri_hosts?(@account.uri, collection_or_uri)
 
     Rails.cache.fetch(to_key(collection_or_uri), expires_in: MAX_EXPIRATION) { fetch_resource_without_id_validation(collection_or_uri, local_follower, true) }
   end

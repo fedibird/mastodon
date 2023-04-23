@@ -24,7 +24,7 @@ class ActivityPub::Activity::Update < ActivityPub::Activity
   end
 
   def update_poll
-    return reject_payload! if invalid_origin?(@object['id'])
+    return reject_payload! if non_matching_uri_hosts?(@account.uri, @object['id'])
 
     status = Status.find_by(uri: object_uri, account_id: @account.id)
     return if status.nil? || status.preloadable_poll.nil?

@@ -17,6 +17,7 @@ class ApplicationController < ActionController::Base
   helper_method :single_user_mode?
   helper_method :use_seamless_external_login?
   helper_method :whitelist_mode?
+  helper_method :body_class_string
 
   rescue_from ActionController::ParameterMissing, Paperclip::AdapterRegistry::NoHandlerError, with: :bad_request
   rescue_from Mastodon::NotPermittedError, with: :forbidden
@@ -154,6 +155,10 @@ class ApplicationController < ActionController::Base
     return @account&.user&.setting_theme if @account&.local? && @account&.user&.setting_theme_public && Themes.instance.names.include?(@account&.user&.setting_theme)
     return Setting.theme unless Themes.instance.names.include? current_user&.setting_theme
     current_user.setting_theme
+  end
+
+  def body_class_string
+    @body_classes || ''
   end
 
   def respond_with_error(code)

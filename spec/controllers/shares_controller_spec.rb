@@ -6,7 +6,7 @@ describe SharesController do
   let(:user) { Fabricate(:user) }
   before { sign_in user }
 
-  describe 'GTE #show' do
+  describe 'GET #show' do
     subject(:body_classes) { assigns(:body_classes) }
 
     before { get :show, params: { title: 'test title', text: 'test text', url: 'url1 url2' } }
