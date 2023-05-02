@@ -109,8 +109,8 @@ class ResolveAccountService < BaseService
   def fetch_account!
     return unless activitypub_ready?
 
-    with_lock("resolve:#{@username}@#{@domain}") do
-      @account = ActivityPub::FetchRemoteAccountService.new.call(actor_url)
+    with_redis_lock("resolve:#{@username}@#{@domain}") do
+      @account = ActivityPub::FetchRemoteAccountService.new.call(actor_url, suppress_errors: @options[:suppress_errors])
     end
 
     @account

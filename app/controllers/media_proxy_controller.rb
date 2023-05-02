@@ -17,7 +17,7 @@ class MediaProxyController < ApplicationController
   rescue_from HTTP::TimeoutError, HTTP::ConnectionError, OpenSSL::SSL::SSLError, with: :internal_server_error
 
   def show
-    with_lock("media_download:#{params[:id]}") do
+    with_redis_lock("media_download:#{params[:id]}") do
       @media_attachment = MediaAttachment.remote.attached.find(params[:id])
       authorize @media_attachment.status, :show?
       if !reject_media?

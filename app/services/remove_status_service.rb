@@ -23,7 +23,9 @@ class RemoveStatusService < BaseService
 
     @status.discard unless mark_expired?
 
-    with_lock("distribute:#{@status.id}") do
+    with_redis_lock("distribute:#{@status.id}") do
+      StatusPin.find_by(status: @status)&.destroy
+
       remove_from_self if @account.local?
       remove_from_followers
       remove_from_lists

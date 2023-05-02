@@ -35,7 +35,7 @@ class FetchLinkCardService < BaseService
 
   def call(status, **options)
     @status      = status
-    @parse_urls  = @original_url = parse_urls
+    @parse_urls  = parse_urls
     @url         = @parse_urls.shift
     @parse_urls -= RedirectLink.where(url: @parse_urls).pluck(:url)
 
@@ -47,7 +47,7 @@ class FetchLinkCardService < BaseService
 
     return if @url.nil? || @status.preview_cards.any?
 
-    with_lock("fetch:#{@original_url}") do
+    with_redis_lock("fetch:#{@url}") do
       @card = PreviewCard.find_by(url: @url)
       process_url if @card.nil? || @card.updated_at <= 2.weeks.ago || @card.missing_image?
     end
