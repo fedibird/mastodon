@@ -4,6 +4,8 @@ class ActivityPub::Activity::Update < ActivityPub::Activity
   SUPPORTED_TYPES = %w(Application Group Organization Person Service).freeze
 
   def perform
+    @account.schedule_refresh_if_stale!
+
     dereference_object!
 
     if equals_or_includes_any?(@object['type'], SUPPORTED_TYPES)

@@ -2,6 +2,8 @@
 
 class ActivityPub::Activity::Create < ActivityPub::Activity
   def perform
+    @account.schedule_refresh_if_stale!
+
     dereference_object!
 
     case @object['type']

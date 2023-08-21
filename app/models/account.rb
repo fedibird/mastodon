@@ -66,8 +66,10 @@ class Account < ApplicationRecord
     hub_url
   )
 
-  USERNAME_RE   = /[a-z0-9_]+([.-]+[a-z0-9_]+)*/i
-  MENTION_RE    = %r{(?<![=/[:word:]])@((#{USERNAME_RE})(?:@[[:word:]]+([.-]+[[:word:]]+)*)?)}
+  BACKGROUND_REFRESH_INTERVAL = 1.week.freeze
+
+  USERNAME_RE   = /[a-z0-9_]+([a-z0-9_.-]+[a-z0-9_]+)?/i
+  MENTION_RE    = %r{(?<=^|[^/[:word:]])@((#{USERNAME_RE})(?:@[[:word:].-]+[[:word:]]+)?)}i
   URL_PREFIX_RE = %r{\Ahttp(s?)://[^/]+}
   USERNAME_ONLY_RE = /\A#{USERNAME_RE}\z/i
 
@@ -290,6 +292,12 @@ class Account < ApplicationRecord
 
   def trust_level
     self[:trust_level] || 0
+  end
+
+  def schedule_refresh_if_stale!
+    return unless last_webfingered_at.present? && last_webfingered_at <= BACKGROUND_REFRESH_INTERVAL.ago
+
+    AccountRefreshWorker.perform_in(rand(6.hours.to_i), id)
   end
 
   def refresh!
