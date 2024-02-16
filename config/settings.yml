@@ -34,6 +34,7 @@ defaults: &defaults
   allow_referrer_origin: false
   landing_page: 'trends'
   wrapstodon: true
+  reject_pattern: ''
 
 development:
   <<: *defaults
