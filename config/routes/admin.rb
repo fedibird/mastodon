@@ -90,6 +90,7 @@ namespace :admin do
     resource :discovery, only: [:show, :update], controller: 'discovery'
     resource :external, only: [:show, :update], controller: 'external'
     resource :crawlers, only: [:show, :update], controller: 'crawlers'
+    resource :others, only: [:show, :update], controller: 'others'
   end
 
   resources :site_uploads, only: [:destroy]

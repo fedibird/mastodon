@@ -39,6 +39,7 @@ defaults: &defaults
   opt_in_server_directory: false
   opt_in_server_recommendation: false
   wrapstodon: true
+  reject_pattern: ''
 
 development:
   <<: *defaults
