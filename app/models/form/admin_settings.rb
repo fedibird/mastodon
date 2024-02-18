@@ -54,6 +54,7 @@ class Form::AdminSettings
     custom_robots
     override_robots
     reject_pattern
+    reject_blurhash
   ).freeze
 
   INTEGER_KEYS = %i(

@@ -40,6 +40,7 @@ defaults: &defaults
   opt_in_server_recommendation: false
   wrapstodon: true
   reject_pattern: ''
+  reject_blurhash: ''
 
 development:
   <<: *defaults
