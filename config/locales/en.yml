@@ -795,6 +795,9 @@ en:
           none: Nobody can sign up
           open: Anyone can sign up
         warning_hint: We recommend using “Approval required for sign up” unless you are confident your moderation team can handle spam and malicious registrations in a timely fashion.
+      reject_blurhash:
+        desc_html: Set a blurhashes to inspect Create Activity media attachments, and refuse Activity if you match
+        title: Reject blurhash
       reject_pattern:
         desc_html: Set a regular expression pattern to inspect Create Activity content, and refuse Activity if you match
         title: Reject Pattern

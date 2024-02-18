@@ -51,6 +51,7 @@ class ActivityPub::Activity::Create < ActivityPub::Activity
     process_status_params
 
     raise Mastodon::RejectPayload if reject_pattern?(MediaAttachment.where(id: @params[:media_attachment_ids]).pluck(:description).join('\n'))
+    raise Mastodon::RejectPayload if MediaAttachment.where(id: @params[:media_attachment_ids]).where(blurhash: Setting.reject_blurhash.split(/\r\n/).filter(&:present?).uniq).present?
 
     process_tags
     process_audience
