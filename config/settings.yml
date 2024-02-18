@@ -34,6 +34,7 @@ defaults: &defaults
   allow_referrer_origin: false
   landing_page: 'trends'
   reject_pattern: ''
+  reject_blurhash: ''
 
 development:
   <<: *defaults

@@ -45,6 +45,7 @@ class Form::AdminSettings
     remote_topic_feed_access
     landing_page
     reject_pattern
+    reject_blurhash
   ).freeze
 
   INTEGER_KEYS = %i(
