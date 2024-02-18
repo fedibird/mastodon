@@ -46,6 +46,7 @@ class Form::AdminSettings
     landing_page
     wrapstodon
     reject_pattern
+    reject_blurhash
   ).freeze
 
   INTEGER_KEYS = %i(

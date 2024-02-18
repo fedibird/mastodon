@@ -35,6 +35,7 @@ defaults: &defaults
   landing_page: 'trends'
   wrapstodon: true
   reject_pattern: ''
+  reject_blurhash: ''
 
 development:
   <<: *defaults
