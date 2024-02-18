@@ -53,6 +53,7 @@ defaults: &defaults
   captcha_enabled: false
   allow_referer_origin: false
   reject_pattern: ''
+  reject_blurhash: ''
 
 development:
   <<: *defaults
