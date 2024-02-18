@@ -48,6 +48,7 @@ class Form::AdminSettings
     wrapstodon
     email_footer_text
     reject_pattern
+    reject_blurhash
   ).freeze
 
   INTEGER_KEYS = %i(
