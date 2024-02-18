@@ -42,6 +42,7 @@ class Form::AdminSettings
     favicon
     min_age
     reject_pattern
+    reject_blurhash
   ).freeze
 
   INTEGER_KEYS = %i(
