@@ -15,5 +15,8 @@
   .fields-group
     = f.input :reject_pattern, wrapper: :with_block_label, as: :text, label: t('admin.settings.reject_pattern.title'), hint: t('admin.settings.reject_pattern.desc_html'), input_html: { rows: 8 }
 
+  .fields-group
+    = f.input :reject_blurhash, wrapper: :with_block_label, as: :text, label: t('admin.settings.reject_blurhash.title'), hint: t('admin.settings.reject_blurhash.desc_html'), input_html: { rows: 8 }
+
   .actions
     = f.button :button, t('generic.save_changes'), type: :submit
