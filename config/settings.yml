@@ -39,6 +39,7 @@ defaults: &defaults
   backups_retention_period: 7
   captcha_enabled: false
   reject_pattern: ''
+  reject_blurhash: ''
 
 development:
   <<: *defaults
