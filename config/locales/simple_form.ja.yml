@@ -46,6 +46,7 @@ ja:
         discoverable: ディレクトリはあなたのアカウントをより多くの人に見つけてもらうためのひとつの手段です
         email: 確認のメールが送信されます
         fields: プロフィールに表として%{size}つまでの項目を表示することができます
+        followed_message: フォローされた時、フォロワーに通知されるメッセージを指定します。フォロワーから見たあなたのプロフィールにも表示されます（Misskey・Fedibirdのみ）
         header: "%{size}までのPNG、GIF、JPGが利用可能です。 %{dimensions}pxまで縮小されます"
         inbox_url: 使用したいリレーサーバーのトップページからURLをコピーします
         indexable: Fedibird以外のサーバーと互換性を持たせる設定です。Mastodon v4.2以降と互換性のあるサーバーで、あなたの公開投稿が誰にでも検索できるようになります。この設定を有効にする利点は大きいですが、個別の公開投稿に対する検索範囲の指定は無視されます。個別に検索範囲を限定したい投稿については公開範囲を未収載やフォロワー限定に指定してください。Fedibirdでの検索については、Fedibirdの検索範囲指定が優先され、こちらの設定は無視されます。
@@ -262,6 +263,7 @@ ja:
         email: メールアドレス
         expires_in: 有効期限
         fields: プロフィール補足情報
+        followed_message: フォロー承認メッセージ
         header: ヘッダー
         honeypot: "%{label} (入力しない)"
         inbox_url: リレーサーバーの inbox URL
@@ -479,6 +481,7 @@ ja:
         favourite: お気に入り登録された時
         follow: フォローされた時
         follow_request: フォローリクエストを受けた時
+        followed: フォローが承認された時
         mention: 返信が来た時
         pending_account: 新しいアカウントの承認が必要な時
         reaction: リアクションされた時

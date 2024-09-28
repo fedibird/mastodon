@@ -8,9 +8,11 @@ import { me } from 'mastodon/initial_state';
 import StatusContainer from 'mastodon/containers/status_container';
 import AccountContainer from 'mastodon/containers/account_container';
 import FollowRequestContainer from '../containers/follow_request_container';
+import Avatar from 'mastodon/components/avatar';
 import Emoji from 'mastodon/components/emoji';
 import Icon from 'mastodon/components/icon';
 import Permalink from 'mastodon/components/permalink';
+import Content from 'mastodon/components/content';
 import classNames from 'classnames';
 
 const messages = defineMessages({
@@ -23,6 +25,7 @@ const messages = defineMessages({
   emoji_reaction: { id: 'notification.emoji_reaction', defaultMessage: '{name} reactioned your post' },
   status_reference: { id: 'notification.status_reference', defaultMessage: '{name} referenced your post' },
   scheduled_status: { id: 'notification.scheduled_status', defaultMessage: 'Your scheduled post has been posted' },
+  followed: { id: 'notification.followed', defaultMessage: '{name} accept your follow request' },
 });
 
 const notificationForScreenReader = (intl, message, timestamp) => {
@@ -158,6 +161,39 @@ class Notification extends ImmutablePureComponent {
           </div>
 
           <FollowRequestContainer id={account.get('id')} withNote={false} hidden={this.props.hidden} />
+        </div>
+      </HotKeys>
+    );
+  }
+
+  renderFollowedMessage (notification, account, link) {
+    const { intl, unread } = this.props;
+    account = notification.get('target_account');
+
+    return (
+      <HotKeys handlers={this.getHandlers()}>
+        <div className={classNames('notification notification-followed-message focusable', { unread })} tabIndex='0' aria-label={notificationForScreenReader(intl, intl.formatMessage({ id: 'notification.followed-message', defaultMessage: '{name} accept your follow request' }, { name: account.get('acct') }), notification.get('created_at'))}>
+          <div className='notification__message'>
+            <div className='notification__favourite-icon-wrapper'>
+              <Icon id='check-circle-o' fixedWidth />
+            </div>
+
+            <span title={notification.get('created_at')}>
+              <FormattedMessage id='notification.followed-message' defaultMessage='{name} accept your follow request' values={{ name: link }} />
+            </span>
+          </div>
+
+          {account.get('followed_message') &&
+            <div className='notification__message'>
+              <div className='notification__avatar-wrapper'>
+                <Avatar account={account} size={48} />
+              </div>
+
+              <div className='notification__followed_message translate'>
+                <Content className='notification__followed_message' contentHtml={{ __html: account.get('followed_message_emojified') }} />
+              </div>
+            </div>
+          }
         </div>
       </HotKeys>
     );
@@ -428,6 +464,8 @@ class Notification extends ImmutablePureComponent {
       return this.renderFollow(notification, account, link);
     case 'follow_request':
       return this.renderFollowRequest(notification, account, link);
+    case 'followed':
+      return this.renderFollowedMessage(notification, account, link);
     case 'mention':
       return this.renderMention(notification);
     case 'favourite':

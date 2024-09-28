@@ -119,7 +119,7 @@ export function updateNotifications(notification, intlMessages, intlLocale) {
 
 const excludeTypesFromSettings = state => state.getIn(['settings', 'notifications', 'shows']).filter(enabled => !enabled).keySeq().toJS();
 
-const allTypes = ImmutableList(['follow', 'follow_request', 'favourite', 'reblog', 'mention', 'poll', enableReaction ? 'emoji_reaction' : null, enableStatusReference ? 'status_reference' : null].filter(x => !!x))
+const allTypes = ImmutableList(['follow', 'follow_request', 'favourite', 'reblog', 'mention', 'poll', enableReaction ? 'emoji_reaction' : null, enableStatusReference ? 'status_reference' : null, 'followed'].filter(x => !!x))
 
 const excludeTypesFromFilter = filter => {
   return allTypes.filterNot(item => item === filter).toJS();

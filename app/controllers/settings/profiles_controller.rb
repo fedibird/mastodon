@@ -20,7 +20,7 @@ class Settings::ProfilesController < Settings::BaseController
   private
 
   def account_params
-    params.require(:account).permit(:display_name, :note, :avatar, :header, :locked, :bot, :discoverable, :searchability, :indexable, :birthday, :birth_year, :birth_month, :birth_day, :location, fields_attributes: [:name, :value])
+    params.require(:account).permit(:display_name, :note, :avatar, :header, :locked, :bot, :discoverable, :searchability, :indexable, :birthday, :birth_year, :birth_month, :birth_day, :location, :followed_message, fields_attributes: [:name, :value])
   end
 
   def set_account

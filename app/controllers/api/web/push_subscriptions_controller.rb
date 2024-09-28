@@ -28,6 +28,7 @@ class Api::Web::PushSubscriptionsController < Api::Web::BaseController
         status: alerts_enabled,
         emoji_reaction: alerts_enabled,
         status_reference: alerts_enabled,
+        followed: alerts_enabled,
       },
     }
 
@@ -63,6 +64,6 @@ class Api::Web::PushSubscriptionsController < Api::Web::BaseController
   end
 
   def data_params
-    @data_params ||= params.require(:data).permit(:policy, alerts: [:follow, :follow_request, :favourite, :reblog, :mention, :poll, :status, :emoji_reaction, :status_reference])
+    @data_params ||= params.require(:data).permit(:policy, alerts: [:follow, :follow_request, :followed, :favourite, :reblog, :mention, :poll, :status, :emoji_reaction, :status_reference])
   end
 end

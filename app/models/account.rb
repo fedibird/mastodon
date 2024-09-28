@@ -72,6 +72,10 @@ class Account < ApplicationRecord
 
   DEFAULT_FIELDS_SIZE = 8
 
+  HIDDEN_OTHER_SETTING_KEYS = %w(
+    followed_message
+  )
+
   include Attachmentable
   include AccountAssociations
   include AccountAvatar
@@ -717,6 +721,7 @@ class Account < ApplicationRecord
   def prepare_contents
     display_name&.strip!
     note&.strip!
+    followed_message&.strip!
   end
 
   def prepare_username
@@ -738,7 +743,7 @@ class Account < ApplicationRecord
   end
 
   def emojifiable_text
-    [note, display_name, fields.map(&:name), fields.map(&:value)].join(' ')
+    [note, display_name, followed_message, fields.map(&:name), fields.map(&:value)].join(' ')
   end
 
   def clean_feed_manager

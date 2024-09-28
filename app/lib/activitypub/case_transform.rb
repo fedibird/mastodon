@@ -12,6 +12,8 @@ module ActivityPub::CaseTransform
       _misskey_reaction
       _misskey_votes
       _misskey_talk
+      _misskey_summary
+      _misskey_followedMessage
       vcard:Address
     ).freeze
 

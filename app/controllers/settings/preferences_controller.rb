@@ -154,7 +154,7 @@ class Settings::PreferencesController < Settings::BaseController
       :setting_disable_auto_focus_to_emoji_search,
       :setting_max_frequently_used_emojis,
       setting_prohibited_visibilities: [],
-      notification_emails: %i(follow follow_request reblog favourite emoji_reaction status_reference mention digest report pending_account trending_tag),
+      notification_emails: %i(follow follow_request followed_message reblog favourite emoji_reaction status_reference mention digest report pending_account trending_tag),
       interactions: %i(must_be_follower must_be_following must_be_following_dm must_be_following_newcommer must_be_following_newcommer_dm must_be_dm_to_send_email must_be_following_reference)
     )
   end

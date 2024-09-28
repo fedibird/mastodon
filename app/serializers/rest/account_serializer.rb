@@ -18,6 +18,7 @@ class REST::AccountSerializer < ActiveModel::Serializer
   attribute :header_full,        if: :with_fullsize_header?
   attribute :header_full_static, if: :with_fullsize_header?
   attribute :fetched,            if: :remote?
+  attribute :followed_message,   if: :following?
 
   class FieldSerializer < ActiveModel::Serializer
     attributes :name, :value, :verified_at
@@ -39,6 +40,10 @@ class REST::AccountSerializer < ActiveModel::Serializer
 
   def note
     object.suspended? ? '' : Formatter.instance.simplified_format(object)
+  end
+
+  def followed_message
+    object.suspended? ? '' : Formatter.instance.format_message(object, object.followed_message)
   end
 
   def url
@@ -150,7 +155,7 @@ class REST::AccountSerializer < ActiveModel::Serializer
   end
 
   def other_settings
-    object.suspended? ? {} : object.other_settings
+    object.suspended? ? {} : object.other_settings.reject {|keys, value| Account::HIDDEN_OTHER_SETTING_KEYS.include? keys}
   end
 
   def suspended
@@ -177,5 +182,9 @@ class REST::AccountSerializer < ActiveModel::Serializer
 
   def with_fullsize_header?
     respond_to?(:current_user) && current_user&.setting_use_low_resolution_thumbnails && current_user&.setting_use_fullsize_header_on_detail
+  end
+
+  def following?
+    respond_to?(:current_user) && (current_user&.account&.following?(object) || current_user&.account&.id == object.id) && object.followed_message.present?
   end
 end

@@ -53,6 +53,11 @@ body.rtl {
     transform: scaleX(-1);
   }
 
+  .notification__avatar-wrapper {
+    left: auto;
+    right: -58px;
+  }
+
   .notification__favourite-icon-wrapper {
     left: auto;
     right: -26px;

@@ -4,6 +4,7 @@ class REST::NotificationSerializer < ActiveModel::Serializer
   attributes :id, :type, :created_at
 
   belongs_to :from_account, key: :account, serializer: REST::AccountSerializer
+  belongs_to :target_account, if: :follow_type?, serializer: REST::AccountSerializer
   belongs_to :target_status, key: :status, if: :status_type?, serializer: REST::StatusSerializer
   belongs_to :emoji_reaction, if: :emoji_reaction?
   attribute :reblog_visibility, if: :reblog?
@@ -14,6 +15,10 @@ class REST::NotificationSerializer < ActiveModel::Serializer
 
   def status_type?
     [:favourite, :reblog, :status, :mention, :poll, :emoji_reaction, :status_reference, :scheduled_status].include?(object.type)
+  end
+
+  def follow_type?
+    [:follow, :follow_request, :followed].include?(object.type)
   end
 
   def reblog?

@@ -87,7 +87,13 @@ class Formatter
   end
 
   def simplified_format(account, **options)
-    html = account.local? ? linkify(account.note) : reformat(account.note)
+    html = account.local? ? linkify(account.note) : apply_inner_link(reformat(account.note))
+    html = encode_custom_emojis(html, account.emojis, options[:autoplay]) if options[:custom_emojify]
+    html.html_safe # rubocop:disable Rails/OutputSafety
+  end
+
+  def format_message(account, message, **options)
+    html = linkify(message)
     html = encode_custom_emojis(html, account.emojis, options[:autoplay]) if options[:custom_emojify]
     html.html_safe # rubocop:disable Rails/OutputSafety
   end
@@ -539,6 +545,6 @@ class Formatter
   end
 
   def mention_html(account, with_domain: false)
-    "<span class=\"h-card\"><a href=\"#{encode(ActivityPub::TagManager.instance.url_for(account))}\" class=\"u-url mention#{account.actor_type == 'Group' ? ' group' : ''}\">@<span>#{encode(with_domain ? account.pretty_acct : account.username)}</span></a></span>"
+    "<span class=\"h-card\"><a href=\"#{encode(ActivityPub::TagManager.instance.url_for(account))}\" class=\"u-url mention#{account.actor_type == 'Group' ? ' group' : ''}\" data-account-id=\"#{account.id}\" data-account-actor-type=\"#{account.actor_type}\" data-account-acct=\"#{account.acct}\" >@<span>#{encode(with_domain ? account.pretty_acct : account.username)}</span></a></span>"
   end
 end

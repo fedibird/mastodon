@@ -1,0 +1,5 @@
+<%= raw t('application_mailer.salutation', name: display_name(@me)) %>
+
+<%= raw t('notification_mailer.followed.body', name: @account.acct) %>
+
+<%= raw t('application_mailer.view')%> <%= web_url("followed") %>

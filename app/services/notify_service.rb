@@ -60,6 +60,10 @@ class NotifyService < BaseService
     false
   end
 
+  def blocked_followed?
+    false
+  end
+
   def following_sender?
     return @following_sender if defined?(@following_sender)
     @following_sender = @recipient.following?(@notification.from_account) || @recipient.requested?(@notification.from_account)
@@ -168,7 +172,7 @@ class NotifyService < BaseService
 
   def blocked?
     blocked   = @recipient.suspended?                            # Skip if the recipient account is suspended anyway
-    blocked ||= from_self? && !%i(poll scheduled_status).include?(@notification.type) # Skip for interactions with self
+    blocked ||= from_self? && !%i(poll scheduled_status followed).include?(@notification.type) # Skip for interactions with self
 
     return blocked if message? && from_staff?
 

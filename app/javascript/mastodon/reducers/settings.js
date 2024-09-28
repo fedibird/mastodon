@@ -74,6 +74,7 @@ const initialState = ImmutableMap({
     alerts: ImmutableMap({
       follow: false,
       follow_request: false,
+      followed: false,
       favourite: false,
       reblog: false,
       mention: false,
@@ -96,6 +97,7 @@ const initialState = ImmutableMap({
     shows: ImmutableMap({
       follow: true,
       follow_request: false,
+      followed: true,
       favourite: true,
       reblog: true,
       mention: true,
@@ -109,6 +111,7 @@ const initialState = ImmutableMap({
     sounds: ImmutableMap({
       follow: true,
       follow_request: false,
+      followed: true,
       favourite: true,
       reblog: true,
       mention: true,

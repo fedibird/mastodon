@@ -87,6 +87,14 @@ module AccountSettings
     settings['deny_subscribed'] = true & ActiveModel::Type::Boolean.new.cast(val)
   end
 
+  def followed_message
+    settings['followed_message']
+  end
+
+  def followed_message=(val)
+    settings['followed_message'] = val
+  end
+
   def noindex?
     true & (local? ? user&.noindex? : (settings['noindex'].nil? ? true : settings['noindex']))
   end

@@ -24,6 +24,9 @@
   %hr.spacer/
 
   .fields-group
+    = f.input :followed_message, wrapper: :with_label, :as => :text, input_html: { maxlength: 500 }, hint: t('simple_form.hints.defaults.followed_message'), fedibird_features: true
+
+  .fields-group
     = f.input :locked, as: :boolean, wrapper: :with_label, hint: t('simple_form.hints.defaults.locked')
 
   .fields-group

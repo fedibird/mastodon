@@ -108,7 +108,7 @@ class ActivityPub::ProcessAccountService < BaseService
     @account.note                         = @json['summary'] || ''
     @account.locked                       = @json['manuallyApprovesFollowers'] || false
     @account.fields                       = property_values || {}
-    @account.settings                     = defer_settings.merge(other_settings, birthday, address, is_cat, deny_subscribed)
+    @account.settings                     = defer_settings.merge(other_settings, birthday, address, is_cat, deny_subscribed, followed_message)
     @account.also_known_as                = as_array(@json['alsoKnownAs'] || []).map { |item| value_or_id(item) }
     @account.discoverable                 = @json['discoverable'] || false
     @account.indexable                    = @json['indexable'] || false
@@ -315,12 +315,18 @@ class ActivityPub::ProcessAccountService < BaseService
     { 'is_cat' => true }
   end
 
+  def followed_message
+    return {} if @json['_misskey_followedMessage'].blank?
+    { 'followed_message' => @json['_misskey_followedMessage'] }
+  end
+
   DEFER_SETTINGS_KEYS = %w(
     birthday
     birth_year
     birth_month
     birth_day
     location
+    followed_message
     cat_ears_color
     noindex
   ).freeze

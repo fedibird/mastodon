@@ -11,6 +11,7 @@ import IconButton from 'mastodon/components/icon_button';
 import Avatar from 'mastodon/components/avatar';
 import { counterRenderer } from 'mastodon/components/common_counter';
 import ShortNumber from 'mastodon/components/short_number';
+import Content from 'mastodon/components/content';
 import { NavLink } from 'react-router-dom';
 import DropdownMenuContainer from 'mastodon/containers/dropdown_menu_container';
 import AccountNoteContainer from '../containers/account_note_container';
@@ -70,8 +71,6 @@ const messages = defineMessages({
   birth_month_10: { id: 'account.birthday.month.10', defaultMessage: 'October' },
   birth_month_11: { id: 'account.birthday.month.11', defaultMessage: 'November' },
   birth_month_12: { id: 'account.birthday.month.12', defaultMessage: 'December' },
-  linkToAcct: { id: 'status.link_to_acct', defaultMessage: 'Link to @{acct}' },
-  postByAcct: { id: 'status.post_by_acct', defaultMessage: 'Post by @{acct}' },
 });
 
 const dateFormatOptions = {
@@ -166,76 +165,6 @@ class Header extends ImmutablePureComponent {
     } else {
       this.props.onAddToList(this.props.account);
     }
-  }
-
-  setRef = (c) => {
-    this.node = c;
-  }
-
-  _updateExtraLinks () {
-    const { intl } = this.props;
-    const node = this.node;
-
-    if (!node) {
-      return;
-    }
-
-    const links = node.querySelectorAll('a');
-
-    for (var i = 0; i < links.length; ++i) {
-      let link = links[i];
-      if (link.classList.contains('status-link')) {
-        continue;
-      }
-      link.classList.add('status-link');
-
-      if (link.textContent[0] === '#' || (link.previousSibling && link.previousSibling.textContent && link.previousSibling.textContent[link.previousSibling.textContent.length - 1] === '#')) {
-        link.addEventListener('click', this.onHashtagClick.bind(this, link.text), false);
-      } else if (link.classList.contains('account-url-link')) {
-        link.setAttribute('title', intl.formatMessage(messages.linkToAcct, { acct: link.dataset.accountAcct }));
-        link.addEventListener('click', this.onAccountUrlClick.bind(this, link.dataset.accountId, link.dataset.accountActorType), false);
-      } else if (link.classList.contains('status-url-link')) {
-        link.setAttribute('title', intl.formatMessage(messages.postByAcct, { acct: link.dataset.statusAccountAcct }));
-        link.addEventListener('click', this.onStatusUrlClick.bind(this, link.dataset.statusId), false);
-      } else {
-        link.setAttribute('title', link.href);
-        link.classList.add('unhandled-link');
-      }
-
-      link.setAttribute('target', '_blank');
-      link.setAttribute('rel', 'noopener noreferrer');
-    }
-  }
-
-  onHashtagClick = (hashtag, e) => {
-    hashtag = hashtag.replace(/^#/, '');
-
-    if (this.context.router && e.button === 0 && !(e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      this.context.router.history.push(`/timelines/tag/${hashtag}`);
-    }
-  }
-
-  onAccountUrlClick = (accountId, accountActorType, e) => {
-    if (this.context.router && e.button === 0 && !(e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      this.context.router.history.push(`${accountActorType == 'Group' ? '/timelines/groups/' : '/accounts/'}${accountId}`);
-    }
-  }
-
-  onStatusUrlClick = (statusId, e) => {
-    if (this.context.router && e.button === 0 && !(e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      this.context.router.history.push(`/statuses/${statusId}`);
-    }
-  }
-
-  componentDidMount () {
-    this._updateExtraLinks();
-  }
-
-  componentDidUpdate () {
-    this._updateExtraLinks();
   }
 
   render () {
@@ -392,10 +321,11 @@ class Header extends ImmutablePureComponent {
       menu.push({ text: intl.formatMessage(messages.admin_account, { name: account.get('username') }), href: `/admin/accounts/${account.get('id')}` });
     }
 
-    const content         = { __html: account.get('note_emojified') };
-    const displayNameHtml = { __html: account.get('display_name_html') };
-    const fields          = account.get('fields');
-    const acct            = account.get('acct').indexOf('@') === -1 && domain ? `${account.get('acct')}@${domain}` : account.get('acct');
+    const contentHtml      = { __html: account.get('note_emojified') };
+    const displayNameHtml  = { __html: account.get('display_name_html') };
+    const fields           = account.get('fields');
+    const acct             = account.get('acct').indexOf('@') === -1 && domain ? `${account.get('acct')}@${domain}` : account.get('acct');
+    const followed_message = account.get('followed_message_emojified');
 
     let badge;
 
@@ -497,7 +427,7 @@ class Header extends ImmutablePureComponent {
     }
 
     return (
-      <div className={classNames('account__header', { inactive: !!account.get('moved') })} ref={this.setRef} onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave}>
+      <div className={classNames('account__header', { inactive: !!account.get('moved') })} onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave}>
         <div className='account__header__image'>
           <div className='account__header__info'>
             {!suspended && info}
@@ -537,6 +467,11 @@ class Header extends ImmutablePureComponent {
           <div className='account__header__extra'>
             {!hideProfile && (
               <div className='account__header__bio'>
+                {(following || account.get('id') === me) && account.get('followed_message') && <div className='account__header__followed_message translate'>
+                  <label className='account__header__followed_message_header'><FormattedMessage id='account.followed_message_header' defaultMessage='Message to followers' /></label>
+                  <Content contentHtml={{ __html: followed_message }} />
+                </div>}
+
                 {(fields.size > 0 || identity_proofs.size > 0) && (
                   <div className='account__header__fields'>
                     {identity_proofs.map((proof, i) => (
@@ -556,7 +491,7 @@ class Header extends ImmutablePureComponent {
                         <dt dangerouslySetInnerHTML={{ __html: pair.get('name_emojified') }} title={pair.get('name')} className='translate' />
 
                         <dd className={`${pair.get('verified_at') ? 'verified' : ''} translate`} title={pair.get('value_plain')}>
-                          {pair.get('verified_at') && <span title={intl.formatMessage(messages.linkVerifiedOn, { date: intl.formatDate(pair.get('verified_at'), dateFormatOptions) })}><Icon id='check' className='verified__mark' /></span>} <span dangerouslySetInnerHTML={{ __html: pair.get('value_emojified') }} />
+                          {pair.get('verified_at') && <span title={intl.formatMessage(messages.linkVerifiedOn, { date: intl.formatDate(pair.get('verified_at'), dateFormatOptions) })}><Icon id='check' className='verified__mark' /></span>} <Content contentHtml={{ __html: pair.get('value_emojified')}} />
                         </dd>
                       </dl>
                     ))}
@@ -565,7 +500,7 @@ class Header extends ImmutablePureComponent {
 
                 {account.get('id') !== me && !suspended && <AccountNoteContainer account={account} />}
 
-                {account.get('note').length > 0 && account.get('note') !== '<p></p>' && <div className='account__header__content translate' dangerouslySetInnerHTML={content} />}
+                {account.get('note').length > 0 && account.get('note') !== '<p></p>' && <div className='account__header__content translate'><Content contentHtml={contentHtml} /></div>}
 
                 <div className='account__header__personal--wrapper'>
                   <table className='account__header__personal'>

@@ -5,6 +5,7 @@ import { defineMessages, injectIntl, FormattedMessage, FormattedDate } from 'rea
 import ImmutablePureComponent from 'react-immutable-pure-component';
 import { me, hideJoinedDateFromYourself } from 'mastodon/initial_state';
 import Icon from 'mastodon/components/icon';
+import Content from 'mastodon/components/content';
 import AccountNoteContainer from '../containers/account_note_container';
 import age from 's-age';
 import classNames from 'classnames';
@@ -23,8 +24,6 @@ const messages = defineMessages({
   birth_month_10: { id: 'account.birthday.month.10', defaultMessage: 'October' },
   birth_month_11: { id: 'account.birthday.month.11', defaultMessage: 'November' },
   birth_month_12: { id: 'account.birthday.month.12', defaultMessage: 'December' },
-  linkToAcct: { id: 'status.link_to_acct', defaultMessage: 'Link to @{acct}' },
-  postByAcct: { id: 'status.post_by_acct', defaultMessage: 'Post by @{acct}' },
 });
 
 const dateFormatOptions = {
@@ -57,76 +56,6 @@ class HeaderExtra extends ImmutablePureComponent {
     return !location.pathname.match(/\/(followers|following)\/?$/);
   }
 
-  _updateExtraLinks () {
-    const { intl } = this.props;
-    const node = this.node;
-
-    if (!node) {
-      return;
-    }
-
-    const links = node.querySelectorAll('a');
-
-    for (var i = 0; i < links.length; ++i) {
-      let link = links[i];
-      if (link.classList.contains('status-link')) {
-        continue;
-      }
-      link.classList.add('status-link');
-
-      if (link.textContent[0] === '#' || (link.previousSibling && link.previousSibling.textContent && link.previousSibling.textContent[link.previousSibling.textContent.length - 1] === '#')) {
-        link.addEventListener('click', this.onHashtagClick.bind(this, link.text), false);
-      } else if (link.classList.contains('account-url-link')) {
-        link.setAttribute('title', intl.formatMessage(messages.linkToAcct, { acct: link.dataset.accountAcct }));
-        link.addEventListener('click', this.onAccountUrlClick.bind(this, link.dataset.accountId, link.dataset.accountActorType), false);
-      } else if (link.classList.contains('status-url-link')) {
-        link.setAttribute('title', intl.formatMessage(messages.postByAcct, { acct: link.dataset.statusAccountAcct }));
-        link.addEventListener('click', this.onStatusUrlClick.bind(this, link.dataset.statusId), false);
-      } else {
-        link.setAttribute('title', link.href);
-        link.classList.add('unhandled-link');
-      }
-
-      link.setAttribute('target', '_blank');
-      link.setAttribute('rel', 'noopener noreferrer');
-    }
-  }
-
-  onHashtagClick = (hashtag, e) => {
-    hashtag = hashtag.replace(/^#/, '');
-
-    if (this.context.router && e.button === 0 && !(e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      this.context.router.history.push(`/timelines/tag/${hashtag}`);
-    }
-  }
-
-  onAccountUrlClick = (accountId, accountActorType, e) => {
-    if (this.context.router && e.button === 0 && !(e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      this.context.router.history.push(`${accountActorType == 'Group' ? '/timelines/groups/' : '/accounts/'}${accountId}`);
-    }
-  }
-
-  onStatusUrlClick = (statusId, e) => {
-    if (this.context.router && e.button === 0 && !(e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      this.context.router.history.push(`/statuses/${statusId}`);
-    }
-  }
-
-  componentDidMount () {
-    this._updateExtraLinks();
-  }
-
-  componentDidUpdate () {
-    this._updateExtraLinks();
-  }
-
-  setRef = (c) => {
-    this.node = c;
-  }
-
   render () {
     const { account, intl, identity_proofs } = this.props;
 
@@ -135,8 +64,11 @@ class HeaderExtra extends ImmutablePureComponent {
     }
 
     const suspended = account.get('suspended');
+    const following = account.getIn(['relationship', 'following']);
 
-    const content = { __html: account.get('note_emojified') };
+    const contentHtml = { __html: account.get('note_emojified') };
+    const followed_message = account.get('followed_message_emojified');
+
     const fields  = account.get('fields');
 
     const location = account.getIn(['other_settings', 'location']);
@@ -173,9 +105,14 @@ class HeaderExtra extends ImmutablePureComponent {
     })();
 
     return (
-      <div className={classNames('account__header', 'advanced', { inactive: !!account.get('moved') })} ref={this.setRef} >
+      <div className={classNames('account__header', 'advanced', { inactive: !!account.get('moved') })} >
         <div className='account__header__extra'>
           <div className='account__header__bio'>
+            {(following || account.get('id') === me) && account.get('followed_message') && <div className='account__header__followed_message translate'>
+              <label className='account__header__followed_message_header'><FormattedMessage id='account.followed_message_header' defaultMessage='Message to followers' /></label>
+              <Content contentHtml={{ __html: followed_message }} />
+            </div>}
+
             {(fields.size > 0 || identity_proofs.size > 0) && (
               <div className='account__header__fields'>
                 {identity_proofs.map((proof, i) => (
@@ -195,7 +132,7 @@ class HeaderExtra extends ImmutablePureComponent {
                     <dt dangerouslySetInnerHTML={{ __html: pair.get('name_emojified') }} title={pair.get('name')} className='translate' />
 
                     <dd className={`${pair.get('verified_at') ? 'verified' : ''} translate`} title={pair.get('value_plain')}>
-                      {pair.get('verified_at') && <span title={intl.formatMessage(messages.linkVerifiedOn, { date: intl.formatDate(pair.get('verified_at'), dateFormatOptions) })}><Icon id='check' className='verified__mark' /></span>} <span dangerouslySetInnerHTML={{ __html: pair.get('value_emojified') }} />
+                      {pair.get('verified_at') && <span title={intl.formatMessage(messages.linkVerifiedOn, { date: intl.formatDate(pair.get('verified_at'), dateFormatOptions) })}><Icon id='check' className='verified__mark' /></span>} <Content contentHtml={{ __html: pair.get('value_emojified') }} />
                     </dd>
                   </dl>
                 ))}
@@ -204,7 +141,7 @@ class HeaderExtra extends ImmutablePureComponent {
 
             {account.get('id') !== me && !suspended && <AccountNoteContainer account={account} />}
 
-            {account.get('note').length > 0 && account.get('note') !== '<p></p>' && <div className='account__header__content translate' dangerouslySetInnerHTML={content} />}
+            {account.get('note').length > 0 && account.get('note') !== '<p></p>' && <div className='account__header__content translate'><Content contentHtml={contentHtml} /></div>}
 
             <div className='account__header__personal--wrapper'>
               <table className='account__header__personal'>

@@ -66,6 +66,17 @@ class NotificationMailer < ApplicationMailer
     end
   end
 
+  def followed(recipient, notification)
+    @me      = recipient
+    @account = notification.from_account
+
+    return unless @me.user.functional?
+
+    locale_for_account(@me) do
+      mail to: @me.user.email, subject: I18n.t('notification_mailer.followed.subject', name: @account.acct)
+    end
+  end
+
   def emoji_reaction(recipient, notification)
     @me             = recipient
     @account        = notification.from_account

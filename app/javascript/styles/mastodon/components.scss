@@ -1960,6 +1960,30 @@ a.account__display-name {
   }
 }
 
+.notification__avatar-wrapper {
+  left: -58px;
+  position: absolute;
+}
+
+.notification-followed-message {
+  border-bottom: 1px solid lighten($ui-base-color, 8%);
+  padding-bottom: 6px;
+}
+
+.notification__followed_message {
+  color: $primary-text-color;
+
+  border: solid 1px $valid-value-color;
+  border-radius: 6px;
+  background: color-mix(in srgb, $valid-value-color, transparent 90%);
+  padding: 6px 8px;
+
+  a {
+    color: inherit;
+    text-decoration: underline;
+  }
+}
+
 .notification__favourite-icon-wrapper,
 .notification__reaction-icon-wrapper {
   left: -26px;
@@ -7575,6 +7599,7 @@ noscript {
 }
 
 .account__header__content,
+.account__header__followed_message,
 .server__header__content {
   color: $darker-text-color;
   font-size: 14px;
@@ -7734,6 +7759,24 @@ noscript {
       .columns-area--mobile & {
         padding-left: 20px;
         padding-right: 20px;
+      }
+    }
+
+    .account__header__followed_message {
+      margin: 10px;
+      color: $primary-text-color;
+
+      border: solid 1px $valid-value-color;
+      border-radius: 6px;
+      background: color-mix(in srgb, $valid-value-color, transparent 90%);
+      padding: 6px 8px;
+
+      &_header {
+        display: block;
+        font-size: 12px;
+        color: $darker-text-color;
+        font-weight: 500;
+        margin-bottom: 5px;
       }
     }
 

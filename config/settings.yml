@@ -96,6 +96,7 @@ defaults: &defaults
     report: true
     pending_account: true
     trending_tag: true
+    followed: false
   interactions:
     must_be_dm_to_send_email: false
     must_be_follower: false

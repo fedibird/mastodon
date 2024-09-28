@@ -228,6 +228,7 @@ class Notifications extends React.PureComponent {
           key={item.get('id')}
           notification={item}
           accountId={item.get('account')}
+          targetAccountId={item.get('target_account')}
           onMoveUp={this.handleMoveUp}
           onMoveDown={this.handleMoveDown}
           unread={lastReadId !== '0' && compareId(item.get('id'), lastReadId) > 0}

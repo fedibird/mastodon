@@ -1352,6 +1352,10 @@ en:
       body: "%{name} has requested to follow you"
       subject: 'Pending follower: %{name}'
       title: New follow request
+    followed:
+      body: "You have a follow confirmation message from %{name}:"
+      subject: "%{name} accepted your follow"
+      title: Follow confirmation message
     mention:
       action: Reply
       body: 'You were mentioned by %{name} in:'

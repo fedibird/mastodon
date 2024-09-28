@@ -46,6 +46,7 @@ en:
         discoverable: Allow your account to be discovered by strangers through recommendations and other features
         email: You will be sent a confirmation e-mail
         fields: You can have up to %{size} items displayed as a table on your profile
+        followed_message: Specify the message that will be notified to your followers when they follow you. It will also be displayed on your profile as seen by your followers (Misskey and Fedibird only)
         header: PNG, GIF or JPG. At most %{size}. Will be downscaled to %{dimensions}px
         inbox_url: Copy the URL from the frontpage of the relay you want to use
         indexable: This is a setting that is compatible with servers other than Fedibird. Servers that are compatible with Mastodon v4.2 or later can search for public posts. The advantage of enabling this setting is great, but the specifications of search possibilities for individual public posts are ignored. If you want to restrict the search possibilities individually, unlisted or followers only. When searching by Fedibird, FediBird search specifications are given priority and this setting is ignored.
@@ -266,6 +267,7 @@ en:
         email: E-mail address
         expires_in: Expire after
         fields: Profile metadata
+        followed_message: Notification message when following
         header: Header
         honeypot: "%{label} (do not fill in)"
         inbox_url: URL of the relay inbox
@@ -479,6 +481,7 @@ en:
         favourite: Someone favourited your post
         follow: Someone followed you
         follow_request: Someone requested to follow you
+        followed: Someone accepts your follow request
         mention: Someone mentioned you
         pending_account: New account needs review
         reaction: Someone reactioned your post

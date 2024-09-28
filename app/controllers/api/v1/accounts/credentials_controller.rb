@@ -39,6 +39,7 @@ class Api::V1::Accounts::CredentialsController < Api::BaseController
       :birth_day,
       :location,
       :indexable,
+      :followed_message,
       fields_attributes: [:name, :value]
     )
   end

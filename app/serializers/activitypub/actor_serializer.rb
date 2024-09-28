@@ -8,7 +8,7 @@ class ActivityPub::ActorSerializer < ActivityPub::Serializer
   context_extensions :manually_approves_followers, :featured, :also_known_as,
                      :moved_to, :property_value, :identity_proof,
                      :discoverable, :olm, :suspended, :other_setting,
-                     :vcard,
+                     :vcard, :'_misskey_followedMessage',
                      :indexable,
                      :searchable_by
 
@@ -30,6 +30,7 @@ class ActivityPub::ActorSerializer < ActivityPub::Serializer
   attribute :suspended, if: :suspended?
   attribute :bday, key: :'vcard:bday', if: :bday?
   attribute :address, key: :'vcard:Address'
+  attribute :followed_message, key: :_misskey_followedMessage, if: -> { object.followed_message.present? }
 
   has_many :virtual_other_settings, key: :other_setting
 
@@ -190,8 +191,12 @@ class ActivityPub::ActorSerializer < ActivityPub::Serializer
     object.location
   end
 
+  def followed_message
+    object.followed_message
+  end
+
   def virtual_other_settings
-    object.other_settings.map do |k, v|
+    object.other_settings.reject {|keys, value| Account::HIDDEN_OTHER_SETTING_KEYS.include? keys}.map do |k, v|
       {
         type: 'PropertyValue',
         name: k,

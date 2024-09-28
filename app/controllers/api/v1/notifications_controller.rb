@@ -74,21 +74,38 @@ class Api::V1::NotificationsController < Api::BaseController
     @notifications.first.id
   end
 
+  FEDIBIRD_NOTIFICATION_TYPES = %w(emoji_reaction status_reference scheduled_status followed)
+  MASTODON_4_0_0_TYPES_AND_LATER = %w(admin.report)
+  MASTODON_3_5_0_TYPES_AND_LATER = %w(update admin.sign_up).concat(MASTODON_4_0_0_TYPES_AND_LATER)
+  MASTODON_3_3_0_TYPES_AND_LATER = %w(status).concat(MASTODON_3_5_0_TYPES_AND_LATER)
+  MASTODON_3_1_0_TYPES_AND_LATER = %w(follow_request).concat(MASTODON_3_3_0_TYPES_AND_LATER)
+
+  EXCLUDE_TYPES_BY_CLIENT = {
+    'Mastodon for Android' => FEDIBIRD_NOTIFICATION_TYPES,
+    'Tootle for Mastodon'  => FEDIBIRD_NOTIFICATION_TYPES.concat(MASTODON_3_3_0_TYPES_AND_LATER),
+    'Tusker'               => FEDIBIRD_NOTIFICATION_TYPES,
+    'Mammoth'              => FEDIBIRD_NOTIFICATION_TYPES,
+    'Tusky'                => FEDIBIRD_NOTIFICATION_TYPES,
+    'Tusky Test'           => FEDIBIRD_NOTIFICATION_TYPES,
+    'Yuito'                => FEDIBIRD_NOTIFICATION_TYPES,
+    'Milktea'              => FEDIBIRD_NOTIFICATION_TYPES,
+    'Pinafore'             => FEDIBIRD_NOTIFICATION_TYPES,
+    'Elk'                  => FEDIBIRD_NOTIFICATION_TYPES,
+    'trunks.social'        => FEDIBIRD_NOTIFICATION_TYPES,
+    'Pachli'               => FEDIBIRD_NOTIFICATION_TYPES,
+    'Fedilab'              => FEDIBIRD_NOTIFICATION_TYPES,
+  }
+
   def exclude_types
     val = params.permit(exclude_types: [])[:exclude_types] || []
     val = [val] unless val.is_a?(Enumerable)
-    val = val << 'emoji_reaction' << 'status' << 'status_reference' << 'scheduled_status' unless new_notification_type_compatible?
+
+    application_name = doorkeeper_token&.application&.name
+    val.concat(EXCLUDE_TYPES_BY_CLIENT[application_name] || [])
+
     val = val << 'emoji_reaction' unless current_user&.setting_enable_reaction
     val = val << 'status_reference' unless current_user&.setting_enable_status_reference
     val.uniq
-  end
-
-  def new_notification_type_compatible?
-    application = doorkeeper_token&.application
-
-    return false if application&.name == 'Tootle for Mastodon'
-
-    true
   end
 
   def from_account
