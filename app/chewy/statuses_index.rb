@@ -130,7 +130,7 @@ class StatusesIndex < Chewy::Index
     },
   }
 
-  index_scope ::Status.include_expired.without_reblogs.with_includes
+  index_scope ::Status.include_expired.without_reblogs.reorder(nil).with_includes
 
   crutch :mentions do |collection|
     data = ::Mention.where(status_id: collection.map(&:id)).where(account: Account.local, silent: false).pluck(:status_id, :account_id)
