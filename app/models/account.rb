@@ -66,9 +66,10 @@ class Account < ApplicationRecord
     hub_url
   )
 
-  USERNAME_RE   = /[a-z0-9_]+([a-z0-9_\.-]+[a-z0-9_]+)?/i
-  MENTION_RE    = /(?<=^|[^\/[:word:]])@((#{USERNAME_RE})(?:@[[:word:]\.\-]+[a-z0-9]+)?)/i
-  URL_PREFIX_RE = /\Ahttp(s?):\/\/[^\/]+/
+  USERNAME_RE   = /[a-z0-9_]+([.-]+[a-z0-9_]+)*/i
+  MENTION_RE    = %r{(?<![=/[:word:]])@((#{USERNAME_RE})(?:@[[:word:]]+([.-]+[[:word:]]+)*)?)}
+  URL_PREFIX_RE = %r{\Ahttp(s?)://[^/]+}
+  USERNAME_ONLY_RE = /\A#{USERNAME_RE}\z/i
 
   DEFAULT_FIELDS_SIZE = 8
 
