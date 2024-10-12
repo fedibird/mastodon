@@ -47,13 +47,13 @@ class UpdateNodeService < BaseService
 
     @api_domain = Addressable::URI.parse(nodeinfo_url)&.normalize&.host
 
-    node.info ||= {}
-    node.info.merge!(process_software)
-    node.info.merge!(last_week_users_local)
-
     node.nodeinfo        = nodeinfo_url.present? ? json_fetch(nodeinfo_url, true) : Node::ERROR_MISSING
     node.status          = :up
     node.last_fetched_at = Time.now.utc
+
+    node.info ||= {}
+    node.info.merge!(process_software)
+    node.info.merge!(last_week_users_local)
 
     node.save!
   rescue Mastodon::UnexpectedResponseError => e
@@ -86,32 +86,21 @@ class UpdateNodeService < BaseService
   def process_software
     software    = nodeinfo('software', 'name')&.downcase || ''
     version     = nodeinfo('software', 'version') || ''
-    core, build = version.split('+')
+    core, build = version.split('+', 2)
     core        = core&.strip || ''
     build       = build&.strip || ''
+    upstream    = nodeinfo('metadata', 'upstream', 'name')&.downcase || last_upstream(software)
 
-    if build.blank?
-      {
-        'upstream_name'    => nodeinfo('metadata', 'upstream', 'name')&.downcase || Node.upstreams(software) || software,
-        'upstream_version' => nodeinfo('metadata', 'upstream', 'version') || core,
-        'software_name'    => software,
-        'software_version' => core,
-      }
-    elsif /^[\d\.]$/i.match?(build)
-      {
-        'upstream_name'    => Node.upstreams(software) || software,
-        'upstream_version' => build,
-        'software_name'    => software,
-        'software_version' => core,
-      }
-    else
-      {
-        'upstream_name'    => Node.upstreams(software) || software,
-        'upstream_version' => core,
-        'software_name'    => software,
-        'software_version' => version,
-      }
-    end
+    {
+      'upstream_name'    => upstream,
+      'upstream_version' => upstream == software ? version : nodeinfo('metadata', 'upstream', 'version') || core,
+      'software_name'    => software,
+      'software_version' => version,
+    }
+  end
+
+  def last_upstream(software)
+    Node.upstreams(software).then { |upstream| upstream.blank? || upstream == software ? software : last_upstream(upstream) }
   end
 
   def last_week_users_local
@@ -172,7 +161,10 @@ class UpdateNodeService < BaseService
   def process_features
     node.info.merge!({
       'emoji_reaction_type' => (
-        if nodeinfo('metadata', 'features')&.include?('custom_emoji_reactions') || instance('fedibird_capabilities')&.include?('emoji_reaction') || info('upstream_name') == 'misskey'
+        if %w(pleroma_custom_emoji_reactions custom_emoji_reactions emoji_reaction).any? {|key| nodeinfo('metadata', 'features')&.include?(key)} || # Pleroma family
+          instance('fedibird_capabilities')&.include?('emoji_reaction') || # Fedibird
+          instance('configuration', 'reactions', 'max_reactions').present? || # Glitch-soc
+          info('upstream_name') == 'misskey' # Misskey family
           'custom'
         elsif nodeinfo('metadata', 'features')&.include?('pleroma_emoji_reactions')
           'unicode'

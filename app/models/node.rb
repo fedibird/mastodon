@@ -95,6 +95,7 @@ class Node < ApplicationRecord
       goblin
       magnetar
       lycheebridge
+      fishkey
     ),
     'pleroma' => %w(
       akkoma
