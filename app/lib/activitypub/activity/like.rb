@@ -27,24 +27,24 @@ class ActivityPub::Activity::Like < ActivityPub::Activity
   end
 
   def process_reaction
-    if emoji_tag.present?
-      return if emoji_tag['id'].blank? || emoji_tag['name'].blank? || emoji_tag['icon'].blank? || emoji_tag['icon']['url'].blank?
+    uri = value_or_id(emoji_tag)
 
-      image_url = emoji_tag['icon']['url']
-      uri       = emoji_tag['id']
+    if uri.present?
+      image_url = emoji_tag.dig('icon', 'url')
+      name      = emoji_tag['name']
       domain    = Addressable::URI.parse(uri).normalized_host
       domain    = nil if domain == Rails.configuration.x.local_domain
 
-      if @account.domain == domain
+      if image_url.present? && name.present? && (domain.nil? || @account.domain == domain)
         emoji = CustomEmoji.find_or_create_by!(shortcode: shortcode, domain: domain) do |emoji|
           emoji.uri              = uri
           emoji.image_remote_url = image_url
         end
       else
-        emoji = ResolveURLService.new.call(emoji_tag['id'])
+        emoji = ResolveURLService.new.call(value_or_id(emoji_tag))
       end
 
-      return if emoji&.disabled?
+      return if emoji.disabled?
     end
 
     return if @account.reacted?(@original_status, shortcode, emoji)
@@ -95,6 +95,6 @@ class ActivityPub::Activity::Like < ActivityPub::Activity
   def emoji_tag
     return @emoji_tag if defined?(@emoji_tag)
 
-    @emoji_tag = @json['tag'].is_a?(Array) ? @json['tag']&.first : @json['tag']
+    @emoji_tag = Array(@json['tag']).find {|tag| tag.is_a?(String) || tag['type'] == 'Emoji' }
   end
 end
