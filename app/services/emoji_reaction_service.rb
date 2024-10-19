@@ -35,7 +35,8 @@ class EmojiReactionService < BaseService
     if status.account.local?
       ActivityPub::CustomEmojiDistributionWorker.perform_async(emoji_reaction.id, 'create')
     elsif status.account.activitypub?
-      type = emoji_reaction.unicode? && status.account.node.features(:emoji_reaction_type) == 'unicode' ? 'EmojiReact' : 'Like'
+      type = %w(unicode custom).include?(status.account.node&.features(:emoji_reaction_type)) ? 'EmojiReact' : 'Like'
+      type = 'Like' if %w(kmyblue).include?(status.account.node&.software)
       ActivityPub::DeliveryWorker.perform_async(build_json(emoji_reaction, type), emoji_reaction.account_id, status.account.inbox_url)
     end
   end

@@ -9,7 +9,7 @@ class ActivityPub::EmojiReactionSerializer < ActivityPub::Serializer
   has_many :virtual_tags, key: :tag, unless: -> { object.custom_emoji.nil? }
 
   def id
-    ActivityPub::TagManager.instance.uri_for(object)
+    [ActivityPub::TagManager.instance.uri_for(object.account), '#emoji_reactions/', object.id].join
   end
 
   def type
