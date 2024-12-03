@@ -9,6 +9,8 @@ class ActivityPub::Activity::Create < ActivityPub::Activity
     dereference_object!
 
     create_status
+  rescue Mastodon::RejectPayload
+    reject_payload!
   end
 
   private
@@ -49,6 +51,9 @@ class ActivityPub::Activity::Create < ActivityPub::Activity
     @quote_uri            = nil
 
     process_status_params
+
+    raise Mastodon::RejectPayload if reject_pattern?(MediaAttachment.where(id: @params[:media_attachment_ids]).pluck(:description).join('\n'))
+
     process_tags
     process_quote
     process_audience
