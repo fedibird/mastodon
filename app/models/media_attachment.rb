@@ -322,7 +322,7 @@ class MediaAttachment < ApplicationRecord
       elsif AUDIO_MIME_TYPES.include?(instance.file_content_type)
         [:image_extractor, :transcoder, :type_corrector]
       else
-        [:lazy_thumbnail, :blurhash_transcoder, :type_corrector]
+        [:lazy_thumbnail, :blurhash_transcoder, :qr_decoder, :type_corrector]
       end
     end
   end
