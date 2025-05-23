@@ -50,8 +50,8 @@ class ActivityPub::ProcessAccountService < BaseService
     # after_searchability_change! if searchability_changed?
 
     unless @options[:only_key] || @account.suspended?
-      check_featured_collection! if @account.featured_collection_url.present?
-      check_featured_tags_collection!
+      check_featured_collection! if @json['featured'].present?
+      check_featured_tags_collection! if @json['featuredTags'].present?
       check_links! unless @account.fields.empty?
     end
 
@@ -115,8 +115,8 @@ class ActivityPub::ProcessAccountService < BaseService
   end
 
   def set_immediate_attributes!
-    @account.featured_collection_url      = @json['featured'] || ''
-    @account.featured_tags_collection_url = @json['featuredTags'] || ''
+    @account.featured_collection_url      = valid_collection_uri(@json['featured'])
+    @account.featured_tags_collection_url = valid_collection_uri(@json['featuredTags'])
     @account.devices_url                  = @json['devices'] || ''
     @account.display_name                 = fix_emoji(@json['name']) || ''
     @account.note                         = @json['summary'] || ''
@@ -206,7 +206,7 @@ class ActivityPub::ProcessAccountService < BaseService
   end
 
   def check_featured_collection!
-    ActivityPub::SynchronizeFeaturedCollectionWorker.perform_async(@account.id, { 'hashtag' => @json['featuredTags'].blank? && !@account.featured_tags.exists? })
+    ActivityPub::SynchronizeFeaturedCollectionWorker.perform_async(@account.id, { 'hashtag' => @json['featuredTags'].blank? && !@account.featured_tags.exists?, 'collection' => @json['featured'], 'request_id' => @options[:request_id] })
   end
 
   def check_featured_tags_collection!

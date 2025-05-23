@@ -106,6 +106,27 @@ RSpec.describe ActivityPub::ProcessAccountService, type: :service do
     end
   end
 
+  context 'with inlined feature collection' do
+    let(:payload) do
+      {
+        id: 'https://foo.test',
+        type: 'Actor',
+        inbox: 'https://foo.test/inbox',
+        featured: {
+          type: 'OrderedCollection',
+          orderedItems: ['https://example.com/statuses/1'],
+        },
+      }.deep_stringify_keys
+    end
+
+    it 'queues featured collection synchronization', :aggregate_failures do
+      account = subject.call('alice', 'example.com', payload)
+
+      expect(account.featured_collection_url).to eq ''
+      expect(ActivityPub::SynchronizeFeaturedCollectionWorker).to have_enqueued_sidekiq_job(account.id, { 'hashtag' => true, 'request_id' => anything, 'collection' => payload['featured'] })
+    end
+  end
+
   context 'when account is not suspended' do
     let!(:account) { Fabricate(:account, username: 'alice', domain: 'example.com') }
 
