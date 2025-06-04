@@ -435,6 +435,10 @@ class Status < ApplicationRecord
     ].compact.join("\n\n")
   end
 
+  def searchable_text_without_urls
+    @searchable_text_without_urls ||= searchable_text.gsub(Regexp.union(urls), ' ')
+  end
+
   def ordered_media_attachments
     if ordered_media_attachment_ids.nil?
       media_attachments
