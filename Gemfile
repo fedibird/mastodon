@@ -82,6 +82,7 @@ gem 'rails-settings-cached', '~> 0.6', git: 'https://github.com/mastodon/rails-s
 gem 'redcarpet', '~> 3.6'
 gem 'redis', '~> 4.5', require: ['redis', 'redis/connection/hiredis']
 gem 'mario-redis-lock', '~> 1.2', require: 'redis_lock'
+gem 'mojinizer'
 gem 'rqrcode', '~> 2.0'
 gem 'ruby-progressbar', '~> 1.11'
 gem 'sanitize', '~> 6.0'

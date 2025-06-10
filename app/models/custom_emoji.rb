@@ -36,6 +36,7 @@
 #  sensitive                    :boolean          default(FALSE), not null
 #  related_links                :string           default([]), not null, is an Array
 #  last_fetched_at              :datetime
+#  reading                      :string           default(""), not null
 #
 
 class CustomEmoji < ApplicationRecord
@@ -120,12 +121,13 @@ class CustomEmoji < ApplicationRecord
   scope :local, -> { where(domain: nil) }
   scope :remote, -> { where.not(domain: nil) }
   scope :alphabetic, -> { order(domain: :asc, shortcode: :asc) }
-  scope :reading_order, -> { order(Arel.sql('coalesce(aliases[1], shortcode) COLLATE "ja-x-icu" asc')) }
+  scope :reading_order, -> { order(reading: :asc) }
   scope :by_domain_and_subdomains, ->(domain) { where(domain: domain).or(where(arel_table[:domain].matches('%.' + domain))) }
   scope :listed, -> { local.where(disabled: false).where(visible_in_picker: true) }
 
   remotable_attachment :image, LIMIT
 
+  before_save :set_reading
   before_save :extract_dimensions
   after_commit :remove_entity_cache
 
@@ -306,7 +308,7 @@ class CustomEmoji < ApplicationRecord
       prefix = %i(end_with include).include?(type) ? '%' : ''
       suffix = %i(start_with include).include?(type) ? '%' : ''
       searchtext = "#{prefix}#{CustomEmoji.sanitize_sql_like(searchtext.strip)}#{suffix}"
-      where("custom_emojis.id IN (select distinct id from (select id, unnest(shortcode || alternate_name || ruby || aliases) as val from custom_emojis) e where val ilike :searchtext)", { searchtext: searchtext })
+      where("custom_emojis.id IN (select distinct id from (select id, unnest(shortcode || alternate_name || ruby || aliases || reading) as val from custom_emojis) e where val ilike :searchtext)", { searchtext: searchtext })
     end
 
     private
@@ -340,6 +342,10 @@ class CustomEmoji < ApplicationRecord
   end
 
   private
+
+  def set_reading
+    self.reading = ruby.presence || aliases.find { |k| k&.kana? } || shortcode.hiragana
+  end
 
   def extract_dimensions
     file = image.queued_for_write[:original]

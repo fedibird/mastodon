@@ -426,6 +426,9 @@ GEM
     mime-types-data (3.2025.0603)
     mini_mime (1.1.5)
     minitest (5.25.5)
+    moji (1.6)
+    mojinizer (0.2.2)
+      moji (~> 1.6)
     msgpack (1.8.0)
     multi_json (1.15.0)
     mutex_m (0.3.0)
@@ -870,6 +873,7 @@ DEPENDENCIES
   memory_profiler
   microformats (~> 4.2)
   mime-types (~> 3.3.1)
+  mojinizer
   net-http (~> 0.4.1)
   net-imap
   net-ldap (~> 0.18)

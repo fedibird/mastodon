@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2025_03_17_173338) do
+ActiveRecord::Schema.define(version: 2025_06_09_183534) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -394,7 +394,9 @@ ActiveRecord::Schema.define(version: 2025_03_17_173338) do
     t.boolean "sensitive", default: false, null: false
     t.string "related_links", default: [], null: false, array: true
     t.datetime "last_fetched_at"
+    t.string "reading", default: "", null: false, collation: "ja-x-icu"
     t.index ["meta"], name: "index_custom_emoji_on_meta", using: :gin
+    t.index ["reading"], name: "index_custom_emoji_on_reading", where: "((domain IS NULL) AND (disabled = false) AND visible_in_picker)"
     t.index ["shortcode", "domain"], name: "index_custom_emojis_on_shortcode_and_domain", unique: true
   end
 
