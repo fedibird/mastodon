@@ -409,7 +409,7 @@ module Mastodon
     #
     # This method can also take a block which is passed directly to the
     # `update_column_in_batches` method.
-    def add_column_with_default(table, column, type, default:, limit: nil, allow_null: false, &block)
+    def add_column_with_default(table, column, type, default:, limit: nil, allow_null: false, collation: nil, &block)
       if transaction_open?
         raise 'add_column_with_default can not be run inside a transaction, ' \
           'you can disable transactions by calling disable_ddl_transaction! ' \
@@ -420,9 +420,9 @@ module Mastodon
 
       transaction do
         if limit
-          add_column(table, column, type, default: nil, limit: limit)
+          add_column(table, column, type, collation: collation, default: nil, limit: limit)
         else
-          add_column(table, column, type, default: nil)
+          add_column(table, column, type, collation: collation, default: nil)
         end
 
         # Changing the default before the update ensures any newly inserted
