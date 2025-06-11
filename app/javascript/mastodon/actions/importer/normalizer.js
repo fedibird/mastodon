@@ -87,7 +87,9 @@ export function normalizeStatus(status, normalOldStatus, domain) {
     const emojiMap       = makeEmojiMap(normalStatus);
 
     const docContentElem = domParser.parseFromString(searchContent, 'text/html').documentElement;
-    docContentElem.querySelector('.quote-inline')?.remove();
+    if (normalStatus.quote !== null) {
+      docContentElem.querySelector('.quote-inline')?.remove();
+    }
     docContentElem.querySelector('.reference-link-inline')?.remove();
     docContentElem.querySelector('.original-media-link')?.remove();
 
