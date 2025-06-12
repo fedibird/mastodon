@@ -81,11 +81,11 @@ Rails.application.routes.draw do
 
   get '/authorize_follow', to: redirect { |_, request| "/authorize_interaction?#{request.params.to_query}" }
 
-  resources :accounts, path: 'users', only: [:show], param: :username do
+  resources :accounts, path: 'users', controller: 'activitypub/accounts', only: [:show], param: :username do
     get :remote_follow,  to: 'remote_follow#new'
     post :remote_follow, to: 'remote_follow#create'
 
-    resources :statuses, only: [:show] do
+    resources :statuses, controller: 'activitypub/statuses', only: [:show] do
       member do
         get :activity
         get :embed
@@ -96,8 +96,8 @@ Rails.application.routes.draw do
       resources :emoji_reactions, only: [:index], module: :activitypub
     end
 
-    resources :followers, only: [:index], controller: :follower_accounts
-    resources :following, only: [:index], controller: :following_accounts
+    resources :followers, only: [:index], controller: 'activitypub/follower_accounts'
+    resources :following, only: [:index], controller: 'activitypub/following_accounts'
     resource :follow, only: [:create], controller: :account_follow
     resource :unfollow, only: [:create], controller: :account_unfollow
 

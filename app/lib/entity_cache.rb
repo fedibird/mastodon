@@ -44,7 +44,7 @@ class EntityCache
 
         return nil unless recognized_params[:action] == 'show'
 
-        if recognized_params[:controller] == 'accounts'
+        if %w(accounts activitypub/accounts).include?(recognized_params[:controller])
           Account.find_local(recognized_params[:username])
         end
       else

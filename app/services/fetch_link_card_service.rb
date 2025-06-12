@@ -116,7 +116,7 @@ class FetchLinkCardService < BaseService
 
   def status_reference_url?(uri)
     recognized_params = Rails.application.routes.recognize_path(uri) rescue {}
-    recognized_params && recognized_params[:controller] == 'statuses' && recognized_params[:action] == 'references'
+    recognized_params && %w(statuses activitypub/statuses).include?(recognized_params[:controller]) && recognized_params[:action] == 'references'
   end
 
   # rubocop:disable Naming/MethodParameterName

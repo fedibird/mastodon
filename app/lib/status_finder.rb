@@ -13,7 +13,7 @@ class StatusFinder
     raise ActiveRecord::RecordNotFound unless TagManager.instance.local_url?(url)
 
     case recognized_params[:controller]
-    when 'statuses'
+    when 'statuses', 'activitypub/statuses'
       Status.find(recognized_params[:id])
     else
       raise ActiveRecord::RecordNotFound

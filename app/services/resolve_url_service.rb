@@ -87,10 +87,10 @@ class ResolveURLService < BaseService
 
     return unless recognized_params[:action] == 'show'
 
-    if recognized_params[:controller] == 'statuses'
+    if %w(statuses activitypub/statuses).include?(recognized_params[:controller])
       status = Status.find_by(id: recognized_params[:id])
       check_local_status(status)
-    elsif recognized_params[:controller] == 'accounts'
+    elsif %w(accounts activitypub/accounts).include?(recognized_params[:controller])
       Account.find_local(recognized_params[:username])
     elsif recognized_params[:controller] == 'emojis'
       CustomEmoji.find_by(shortcode: recognized_params[:id], domain: nil)

@@ -23,7 +23,7 @@ describe WebfingerResource do
         resource = 'https://example.com/users/alice'
 
         recognized = Rails.application.routes.recognize_path(resource)
-        allow(recognized).to receive(:[]).with(:controller).and_return('accounts')
+        allow(recognized).to receive(:[]).with(:controller).and_return('activitypub/accounts')
         allow(recognized).to receive(:[]).with(:username).and_return('alice')
         expect(recognized).to receive(:[]).with(:action).and_return('create')
 
