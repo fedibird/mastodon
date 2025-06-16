@@ -36,8 +36,18 @@ class Form::StatusBatch
 
   def expire_statuses
     Status.where(id: status_ids).reorder(nil).find_each do |status|
-      RemoveStatusService.new.call(status, mark_expired: true)
-      log_action :expire, status
+      if status.reblog?
+        reblog = status.reblog
+        reblog.discard
+        RemoveStatusService.new.call(reblog, mark_expired: true)
+        log_action :expire, reblog
+        RemovalWorker.perform_async(status.id, { 'immediate' => true })
+        Tombstone.find_or_create_by(uri: status.uri, account: status.account, by_moderator: true)
+        log_action :destroy, status
+      else
+        RemoveStatusService.new.call(status, mark_expired: true)
+        log_action :expire, status
+      end
     end
 
     true
