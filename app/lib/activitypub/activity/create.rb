@@ -504,8 +504,14 @@ class ActivityPub::Activity::Create < ActivityPub::Activity
     @content =
       if @object['content'].present?
         @object['content']
-      elsif content_language_map?
+      elsif content_language_map? && @object['contentMap'].values.first.present?
         @object['contentMap'].values.first
+      elsif @object['source'].is_a?(Hash) && @object.dig('source', 'content').present?
+        if %w(text/markdown text/x.misskeymarkdown).include?(@object.dig('source', 'mediaType'))
+          markdown.render(@object.dig('source', 'content') % { domain: Rails.configuration.x.local_domain })
+        else
+          ''
+        end
       else
         ''
       end
@@ -696,5 +702,9 @@ class ActivityPub::Activity::Create < ActivityPub::Activity
     )
   rescue
     nil
+  end
+
+  def markdown
+    @markdown ||= Redcarpet::Markdown.new(Redcarpet::Render::HTML, escape_html: true, no_images: true)
   end
 end
