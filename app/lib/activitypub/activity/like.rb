@@ -95,6 +95,6 @@ class ActivityPub::Activity::Like < ActivityPub::Activity
   def emoji_tag
     return @emoji_tag if defined?(@emoji_tag)
 
-    @emoji_tag = Array(@json['tag']).find {|tag| tag.is_a?(String) || tag['type'] == 'Emoji' }
+    @emoji_tag = as_array(@json['tag']).find {|tag| tag.is_a?(String) || tag.is_a?(Hash) && tag['type'] == 'Emoji' }
   end
 end
