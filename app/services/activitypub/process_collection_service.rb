@@ -9,6 +9,8 @@ class ActivityPub::ProcessCollectionService < BaseService
     @json    = original_json = @json.first if @json.is_a?(Array)
     @options = options
 
+    return unless @json.is_a?(Hash)
+
     begin
       @json = compact(@json) if @json['signature'].is_a?(Hash)
     rescue JSON::LD::JsonLdError => e
