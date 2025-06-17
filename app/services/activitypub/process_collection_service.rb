@@ -6,6 +6,7 @@ class ActivityPub::ProcessCollectionService < BaseService
   def call(body, account, **options)
     @account = account
     @json    = original_json = Oj.load(body, mode: :strict)
+    @json    = original_json = @json.first if @json.is_a?(Array)
     @options = options
 
     begin
