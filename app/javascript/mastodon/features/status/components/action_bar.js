@@ -11,6 +11,7 @@ import ReactionPickerDropdownContainer from 'mastodon/containers/reaction_picker
 import { openModal } from '../../../actions/modal';
 
 const messages = defineMessages({
+  expire: { id: 'status.expire', defaultMessage: 'Expire' },
   delete: { id: 'status.delete', defaultMessage: 'Delete' },
   redraft: { id: 'status.redraft', defaultMessage: 'Delete & re-draft' },
   direct: { id: 'status.direct', defaultMessage: 'Direct message @{name}' },
@@ -90,6 +91,7 @@ class ActionBar extends React.PureComponent {
     onAddReference: PropTypes.func,
     onRemoveReference: PropTypes.func,
     onDelete: PropTypes.func.isRequired,
+    onExpire: PropTypes.func.isRequired,
     onDirect: PropTypes.func.isRequired,
     onMemberList: PropTypes.func.isRequired,
     onMention: PropTypes.func.isRequired,
@@ -161,6 +163,10 @@ class ActionBar extends React.PureComponent {
 
   handleRedraftClick = () => {
     this.props.onDelete(this.props.status, this.context.router.history, true);
+  }
+
+  handleExpireClick = () => {
+    this.props.onExpire(this.props.status);
   }
 
   handleDirectClick = () => {
@@ -365,6 +371,7 @@ class ActionBar extends React.PureComponent {
         menu.push(null);
       }
 
+      menu.push({ text: intl.formatMessage(messages.expire), action: this.handleExpireClick });
       menu.push({ text: intl.formatMessage(messages.delete), action: this.handleDeleteClick });
 
       if (!disablePost) {

@@ -444,6 +444,7 @@ Rails.application.routes.draw do
 
         member do
           get :context
+          post :expire
         end
       end
 

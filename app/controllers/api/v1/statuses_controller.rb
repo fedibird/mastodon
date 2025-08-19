@@ -3,8 +3,8 @@
 class Api::V1::StatusesController < Api::BaseController
   include Authorization
 
-  before_action -> { authorize_if_got_token! :read, :'read:statuses' }, except: [:create, :destroy]
-  before_action -> { doorkeeper_authorize! :write, :'write:statuses' }, only:   [:create, :destroy]
+  before_action -> { authorize_if_got_token! :read, :'read:statuses' }, except: [:create, :destroy, :expire]
+  before_action -> { doorkeeper_authorize! :write, :'write:statuses' }, only:   [:create, :destroy, :expire]
   before_action :require_user!, except:      [:index, :show, :context, :updated]
   before_action :set_statuses, only:         [:index]
   before_action :set_updated_statuses, only: [:updated]
@@ -97,6 +97,17 @@ class Api::V1::StatusesController < Api::BaseController
     @status.account.statuses_count = @status.account.statuses_count - 1
 
     render json: @status, serializer: REST::StatusSerializer, source_requested: true
+  end
+
+  def expire
+    @status = Status.include_expired.where(account_id: current_account.id).find(status_params[:id])
+    authorize @status, :destroy?
+
+    RemovalWorker.perform_async(@status.id, { 'mark_expired' => true })
+    @status.account.statuses_count = @status.account.statuses_count - 1
+
+    @status.expired_at = Time.now # Dummy for immediate reflection
+    render json: @status, serializer: REST::StatusSerializer
   end
 
   private

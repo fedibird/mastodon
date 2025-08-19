@@ -1,6 +1,6 @@
 import api from '../api';
 
-import { deleteFromTimelines } from './timelines';
+import { deleteFromTimelines, expireFromTimelines } from './timelines';
 import { fetchRelationshipsFromStatus, fetchRelationshipsFromStatuses } from './accounts';
 import { importFetchedStatus, importFetchedStatuses, importFetchedAccount } from './importer';
 import { ensureComposeIsVisible, getContextReference } from './compose';
@@ -24,6 +24,10 @@ export const INTERSECTION_STATUS_REFRESH = 'INTERSECTION_STATUS_REFRESH';
 export const STATUS_DELETE_REQUEST = 'STATUS_DELETE_REQUEST';
 export const STATUS_DELETE_SUCCESS = 'STATUS_DELETE_SUCCESS';
 export const STATUS_DELETE_FAIL    = 'STATUS_DELETE_FAIL';
+
+export const STATUS_EXPIRE_REQUEST = 'STATUS_EXPIRE_REQUEST';
+export const STATUS_EXPIRE_SUCCESS = 'STATUS_EXPIRE_SUCCESS';
+export const STATUS_EXPIRE_FAIL    = 'STATUS_EXPIRE_FAIL';
 
 export const CONTEXT_FETCH_REQUEST = 'CONTEXT_FETCH_REQUEST';
 export const CONTEXT_FETCH_SUCCESS = 'CONTEXT_FETCH_SUCCESS';
@@ -268,6 +272,47 @@ export function deleteStatusSuccess(id) {
 export function deleteStatusFail(id, error) {
   return {
     type: STATUS_DELETE_FAIL,
+    id: id,
+    error: error,
+  };
+};
+
+export function expireStatus(id) {
+  return (dispatch, getState) => {
+    const status = getState().getIn(['statuses', id]).update('poll', poll => poll ? getState().getIn(['polls', poll]) : null);
+
+    dispatch(expireStatusRequest(id));
+
+    api(getState).post(`/api/v1/statuses/${id}/expire`).then(response => {
+      const status = response.data;
+      dispatch(importFetchedStatus(status));
+      dispatch(fetchRelationshipsFromStatus(status));
+      dispatch(expireStatusSuccess(id));
+      dispatch(expireFromTimelines(id));
+      dispatch(importFetchedAccount(response.data.account));
+    }).catch(error => {
+      dispatch(expireStatusFail(id, error));
+    });
+  };
+};
+
+export function expireStatusRequest(id) {
+  return {
+    type: STATUS_EXPIRE_REQUEST,
+    id: id,
+  };
+};
+
+export function expireStatusSuccess(id) {
+  return {
+    type: STATUS_EXPIRE_SUCCESS,
+    id: id,
+  };
+};
+
+export function expireStatusFail(id, error) {
+  return {
+    type: STATUS_EXPIRE_FAIL,
     id: id,
     error: error,
   };

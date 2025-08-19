@@ -34,6 +34,7 @@ import {
   muteStatus,
   unmuteStatus,
   deleteStatus,
+  expireStatus,
   hideStatus,
   revealStatus,
 } from '../../actions/statuses';
@@ -72,6 +73,8 @@ const messages = defineMessages({
   deleteMessage: { id: 'confirmations.delete.message', defaultMessage: 'Are you sure you want to delete this status?' },
   redraftConfirm: { id: 'confirmations.redraft.confirm', defaultMessage: 'Delete & redraft' },
   redraftMessage: { id: 'confirmations.redraft.message', defaultMessage: 'Are you sure you want to delete this status and re-draft it? Favourites and boosts will be lost, and replies to the original post will be orphaned.' },
+  expireConfirm: { id: 'confirmations.expire.confirm', defaultMessage: 'Expire' },
+  expireMessage: { id: 'confirmations.expire.message', defaultMessage: 'Are you sure you want to expire this status?' },
   revealAll: { id: 'status.show_more_all', defaultMessage: 'Show more for all' },
   hideAll: { id: 'status.show_less_all', defaultMessage: 'Show less for all' },
   detailedStatus: { id: 'status.detailed_status', defaultMessage: 'Detailed conversation view' },
@@ -318,6 +321,20 @@ class Status extends ImmutablePureComponent {
         message: intl.formatMessage(withRedraft ? messages.redraftMessage : messages.deleteMessage),
         confirm: intl.formatMessage(withRedraft ? messages.redraftConfirm : messages.deleteConfirm),
         onConfirm: () => dispatch(deleteStatus(status.get('id'), history, withRedraft)),
+      }));
+    }
+  }
+
+  handleExpireClick = (status) => {
+    const { dispatch, intl } = this.props;
+
+    if (!deleteModal) {
+      dispatch(expireStatus(status.get('id')));
+    } else {
+      dispatch(openModal('CONFIRM', {
+        message: intl.formatMessage(messages.expireMessage),
+        confirm: intl.formatMessage(messages.expireConfirm),
+        onConfirm: () => dispatch(expireStatus(status.get('id'))),
       }));
     }
   }
@@ -670,6 +687,7 @@ class Status extends ImmutablePureComponent {
                   onBookmark={this.handleBookmarkClick}
                   onQuote={this.handleQuoteClick}
                   onDelete={this.handleDeleteClick}
+                  onExpire={this.handleExpireClick}
                   onDirect={this.handleDirectClick}
                   onMemberList={this.handleMemberListClick}
                   onMention={this.handleMentionClick}

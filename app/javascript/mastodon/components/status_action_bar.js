@@ -13,6 +13,7 @@ import { openModal } from '../actions/modal';
 import ReactionPickerDropdownContainer from '../containers/reaction_picker_dropdown_container';
 
 const messages = defineMessages({
+  expire: { id: 'status.expire', defaultMessage: 'Expire' },
   delete: { id: 'status.delete', defaultMessage: 'Delete' },
   redraft: { id: 'status.redraft', defaultMessage: 'Delete & re-draft' },
   direct: { id: 'status.direct', defaultMessage: 'Direct message @{name}' },
@@ -93,6 +94,7 @@ class StatusActionBar extends ImmutablePureComponent {
     onReblog: PropTypes.func,
     onQuote: PropTypes.func,
     onDelete: PropTypes.func,
+    onExpire: PropTypes.func,
     onDirect: PropTypes.func,
     onMemberList: PropTypes.func,
     onMention: PropTypes.func,
@@ -209,6 +211,10 @@ class StatusActionBar extends ImmutablePureComponent {
 
   handleRedraftClick = () => {
     this.props.onDelete(this.props.status, this.context.router.history, true);
+  }
+
+  handleExpireClick = () => {
+    this.props.onExpire(this.props.status);
   }
 
   handlePinClick = () => {
@@ -411,6 +417,7 @@ class StatusActionBar extends ImmutablePureComponent {
     }
 
     if (writtenByMe) {
+      menu.push({ text: intl.formatMessage(messages.expire), action: this.handleExpireClick });
       menu.push({ text: intl.formatMessage(messages.delete), action: this.handleDeleteClick });
       if (!disablePost) {
         menu.push({ text: intl.formatMessage(messages.redraft), action: this.handleRedraftClick });
