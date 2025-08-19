@@ -18,10 +18,12 @@ class FetchLinkCardService < BaseService
   # URL size limit to safely store in PosgreSQL's unique indexes
   BYTESIZE_LIMIT = 2692
 
-  IGNORE_REDIRECT_HOST = %w(
-    link.parallelgame.com
-    audon.space
-  )
+  REDIRECT_TARGET_HOST = %w(0.gp 000.fo 00m.in 069.biz 0e0.pw 0rz.tw 0x.co 1-0x.com 110.vg 125.back.jp 128.pl 1lil.li 1ly.red 1s.pt 2.gp 2.ly 2cm.es 2d.al 2h.ae 2m.is 2no.co 2rs.me 2s.gg 3.ly 3.sv 301.link 302.jp 302.to 33-4.me 34vv.net 3n.si 3u.gs 4.gp 4.ly 443.cyou 4e.fi 4z.no 5.gp 52.nu 5ne.co 6.gp 6.ly 7.ly 73.nu 7c.tel 7i.se 7x.qa 7z.si 8.ly 985.so 9lick.me 9m.no a.info a38.fr aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com aic.la alturl.com amz.run amzn.asia amzn.com amzn.to app.udcxx.me archive.today beautylinks.net bit.do bit.ly bitly.com bitly.cx bitly.lc bitly.pk biy.us bly.to bom.so c.je c.shogo82148.com cfg.me cia.sh cl.gy clickmoe.link clickurl.link cut.onl cut.tw cutt.ly cxy.jp d99.biz da.gd directmeto.site dlj.li doturl.link dub.sh dym.icu e.vg ee.sb etinyurl.com f.ht flu.yt ft.ax g.asia g.vu g5.vc g60.jp gg.gg ggle.in goo.cm goo.gl goo.su goo.vc grabify.link grabify.org gyo.tc h-ref.com hakanaurl.link heh.st hq.ax htn.to http://su.ima24.net/ i.gg i8.ae if.fm iii.im iil.la in.mt inx.lv iplog.co is.am is.gd iwe.re j.mp j2l.de jii.li jli.cl jumper.jp kawaii.st kik.to ko.fm koaku.ma kuku.lu kutt.uk lc.cx lel.st lhs.cx linkify.me links.tube llili.li ln.run lnk.farm ly.my mcaf.ee md.ly microurl.org mini-url.net miniurl.be miniurl.cl miniurl.com miniurl.pro miniurl.top minurls.com mixi.bz mq.gy myu.pw n9.cl nolog.link nullrefer.me num.to o0o.jp onl.bz onl.sc onlineminitools.com ooooooooooooooooooooooo.ooo ov.cm oyn.at p.asia p.tl plu.sh pnt.to pro-url.com prt.nu prt.red qqq.yt qr1.jp quick2.link r.sv r5f.jp rb.gy reallylong.link rebrand.ly rebrand.ly redir.lat redirect-project.glitch.me redirect.bio rid.ee rssfeed.news ryaku.jp s.id sdigo.app short-link.me short.af short.bg short.cm short.io short.pw shorten.ws shortenerlink.xyz shorter.me shortifyme.co shortpals.online shorturl.asia shorturl.at shorturl.click shorturl.gg shorturl.is shorturl.ma shorturl.me shorturl.re shorturl.sbs shorturl.tokyo sht.ac sht.moe smallurl.co sor.bz srt.rw ss.ly ssurl.at su2.me suo.yt surl.li surlz.com swit.as syu.to t-p.bz t.co t.ly tg.pe tgr.jp tin.al tinu.be tiny.cc tiny.cc tiny.cc tiny.ee tiny.pl tiny.re tinylink.at tinylink.cz tinylink.in tinylink.net tinylink.onl tinylinks.cc tinyurl.com tinyurl.mobi tinyurl.one tinyurl.ph tinyurl.se tinyurl.top tinyurl.ws tinyurls.tech to.lk to2.pw tobeto.be tools.emboma.jp tr.ee tri.im tt.vg ttlk.xyz tto.jp u.egg-p.net u.kawaii.su u.to u301.co u5a.cn u6e.cn upto.site ur0.cc ur0.jp ur3.us ur7.cc ure.my url-s.xyz url.ba url.beauty url.rw url.rw url.sa url.sa url2.fun urlc.net urls.cat urls.fr urls.my.id urls.wtf urlshortener.biz urlsmall.com urlsrt.io urlto.me urlty.co urly.it urlz.fr urx.nu urx2.nu use.my ux.nu v.af v.gd v.vin v0.nu vvd.bz w.wiki wal.ee we.pe webinfo.link ws.tc ww9.jp wz.my x-short.plus x.gd xn--s7y.xn--tckwe xx.nz xy2.eu ye.pe yoro.cc your.ls your.ls youtu.be ytub.ee z2.ink zhp.jp zip.lu zizi.ly zo.cm zws.im zz.sd zzb.bz 短.コム 跳.jp)
+  REDIRECT_TARGET_HOST_PATTERN = /(\.1sl\.pw|\.i188\.eu\.org|\.ip1\.cc|\.zhp\.jp)$/
+
+  def self.redirect_target_host?(host)
+    !REDIRECT_TARGET_HOST.bsearch_index { |v| host <=> v }.nil? || REDIRECT_TARGET_HOST_PATTERN.match?(host)
+  end
 
   PRESET_ENDPOINTS = {
     'www.youtube.com' => {:endpoint=>"https://www.youtube.com/oembed?format=json&url={url}", :format=>:json},
@@ -77,7 +79,7 @@ class FetchLinkCardService < BaseService
 
         parsed_url = Addressable::URI.parse(@url)
         res_uri = Addressable::URI.parse(res.uri.to_s)
-        if !IGNORE_REDIRECT_HOST.include?(parsed_url.host) && @url != res_uri.to_s && !(parsed_url.normalized_host.casecmp(res_uri.normalized_host)&.zero? && res_uri.path.match?(/^$|^\/[A-Za-z]{2,}([_\-][A-Za-z]{2,})?$/))
+        if FetchLinkCardService.redirect_target_host?(parsed_url.host) && @url != res_uri.to_s && !(parsed_url.normalized_host.casecmp(res_uri.normalized_host)&.zero? && res_uri.path.match?(/^$|^\/[A-Za-z]{2,}([_\-][A-Za-z]{2,})?$/))
           @redirected_url = res_uri.to_s
           RedirectLink.create(url: @url, redirected_url: res_uri.to_s)
         end

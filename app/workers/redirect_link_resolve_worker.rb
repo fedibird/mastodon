@@ -5,7 +5,7 @@ class RedirectLinkResolveWorker
   include ExponentialBackoff
   include Redisable
 
-  sidekiq_options queue: 'pull', retry: 3
+  sidekiq_options queue: 'pull', retry: 3, lock: :until_executed
 
   sidekiq_retries_exhausted do |msg|
     url, status_id = job['args']
@@ -17,7 +17,7 @@ class RedirectLinkResolveWorker
   def perform(url, status_id)
     parsed_url = Addressable::URI.parse(url)
     return if parsed_url.blank? || !%w(http https).include?(parsed_url.scheme) || parsed_url.host.blank? || RedirectLink.where(url: url).present?
-    return if !FetchLinkCardService::IGNORE_REDIRECT_HOST.include?(parsed_url.host)
+    return unless FetchLinkCardService.redirect_target_host?(parsed_url.host)
 
     Request.new(:get, url).add_headers('User-Agent' => Mastodon::Version.user_agent + ' Bot').perform do |res|
       res_uri = Addressable::URI.parse(res.uri.to_s)

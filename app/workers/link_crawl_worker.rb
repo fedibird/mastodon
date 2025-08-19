@@ -4,7 +4,7 @@ class LinkCrawlWorker
   include Sidekiq::Worker
   include Redisable
 
-  sidekiq_options queue: 'pull', retry: 0
+  sidekiq_options queue: 'pull', retry: 0, lock: :until_executed
 
   def perform(status_id)
     FetchLinkCardService.new.call(Status.find(status_id))
