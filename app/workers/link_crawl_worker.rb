@@ -8,7 +8,7 @@ class LinkCrawlWorker
 
   def perform(status_id)
     FetchLinkCardService.new.call(Status.find(status_id))
-  rescue ActiveRecord::RecordNotFound, ActiveRecord::RecordNotUnique
+  rescue ActiveRecord::RecordNotFound, ActiveRecord::RecordNotUnique, Mastodon::RaceConditionError
     true
   ensure
     done_process(status_id)
