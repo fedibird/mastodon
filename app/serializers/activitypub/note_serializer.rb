@@ -43,15 +43,19 @@ class ActivityPub::NoteSerializer < ActivityPub::Serializer
   end
 
   def summary
-    object.spoiler_text.presence
+    object.spoiler_text.presence unless unsupport_cw? && object.spoiler_text.present?
   end
 
   def content
-    Formatter.instance.format(object)
+    if unsupport_cw? && object.spoiler_text.present?
+      Formatter.instance.format_bridgy_fed(object.spoiler_text.presence, url)
+    else
+      Formatter.instance.format(object)
+    end
   end
 
   def content_map
-    { object.language => Formatter.instance.format(object) }
+    { object.language => content }
   end
 
   def replies
@@ -139,7 +143,7 @@ class ActivityPub::NoteSerializer < ActivityPub::Serializer
   end
 
   def sensitive
-    object.account.sensitized? || object.sensitive
+    object.account.sensitized? || object.sensitive && object.with_media?
   end
 
   def virtual_attachments
@@ -224,6 +228,10 @@ class ActivityPub::NoteSerializer < ActivityPub::Serializer
 
   def show_application?
     local? && object.account.user_shows_application?
+  end
+
+  def unsupport_cw?
+    instance_options[:software] == 'bridgy-fed'
   end
 
   class MediaAttachmentSerializer < ActivityPub::Serializer

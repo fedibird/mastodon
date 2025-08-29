@@ -37,15 +37,19 @@ class ActivityPub::DistributionWorker
     @status.public_visibility?
   end
 
+  def node_software_name(inbox_url)
+    Node.find_domain(Addressable::URI.parse(inbox_url).normalized_host.to_s.downcase)&.software_name
+  end
+
   def deliver_to_parent!
     return if @status.conversation.inbox_url.blank?
 
-    ActivityPub::DeliveryWorker.perform_async(payload, @account.id, @status.conversation.inbox_url)
+    ActivityPub::DeliveryWorker.perform_async(payload(node_software_name(@status.conversation.inbox_url)), @account.id, @status.conversation.inbox_url)
   end
 
   def deliver_to_inboxes!
     ActivityPub::DeliveryWorker.push_bulk(inboxes) do |inbox_url|
-      [payload, @account.id, inbox_url, { 'synchronize_followers' => !@status.distributable? }]
+      [payload(node_software_name(inbox_url)), @account.id, inbox_url, { 'synchronize_followers' => !@status.distributable?}]
     end
   end
 
@@ -66,13 +70,15 @@ class ActivityPub::DistributionWorker
     end
   end
 
-  def payload
-    @payload ||= Oj.dump(serialize_payload(ActivityPub::ActivityPresenter.from_status(@status), ActivityPub::ActivitySerializer, signer: @account))
+  def payload(software)
+    @payload ||= {}
+    software = '(general)' if software.blank?
+    @payload[software] ||= Oj.dump(serialize_payload(ActivityPub::ActivityPresenter.from_status(@status), ActivityPub::ActivitySerializer, signer: @account, software: software))
   end
 
   def relay!
     ActivityPub::DeliveryWorker.push_bulk(Relay.enabled.pluck(:inbox_url)) do |inbox_url|
-      [payload, @account.id, inbox_url]
+      [payload(node_software_name(inbox_url)), @account.id, inbox_url]
     end
   end
 end

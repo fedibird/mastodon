@@ -141,6 +141,19 @@ class Formatter
     val.compact.join(', ').gsub!(/\r\n|\r|\n/, ' ')
   end
 
+  def format_bridgy_fed(text, url)
+    text = text.chomp("")
+    return if text.blank?
+
+    text = "[CW] #{text}"
+    html = encode_and_link_urls(text)
+    html = simple_format(html, {}, sanitize: false)
+    link = "<a href=\"#{url}\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"unhandled-link\">[Read the full article]</a>"
+    html.sub!(/^<p>/, "<p><span class=\"original-post-link\">#{link}</span><br><br>")
+
+    html.html_safe # rubocop:disable Rails/OutputSafety
+  end
+
   def linkify(text)
     html = encode_and_link_urls(text)
     html = simple_format(html, {}, sanitize: false)
