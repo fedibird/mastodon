@@ -7,7 +7,7 @@ class REST::NotificationSerializer < ActiveModel::Serializer
 
   belongs_to :from_account, key: :account, serializer: REST::AccountSerializer
   belongs_to :target_account, if: :follow_type?, serializer: REST::AccountSerializer
-  belongs_to :target_status, key: :status, if: :status_type?, serializer: REST::StatusSerializer
+  attribute :target_status, key: :status, if: :status_type?
   belongs_to :emoji_reaction, if: :emoji_reaction?
   attribute :reblog_visibility, if: :reblog?
 
@@ -16,7 +16,7 @@ class REST::NotificationSerializer < ActiveModel::Serializer
   end
 
   def status_type?
-    [:favourite, :reblog, :status, :mention, :poll, :emoji_reaction, :status_reference, :scheduled_status].include?(object.type)
+    [:favourite, :reblog, :status, :mention, :poll, :emoji_reaction, :status_reference, :scheduled_status].include?(object.type) && object.target_status.present?
   end
 
   def follow_type?
@@ -35,6 +35,10 @@ class REST::NotificationSerializer < ActiveModel::Serializer
     false
   end
   # delegate :filtered?, to: :object
+
+  def target_status
+      REST::StatusSerializer.new(object.target_status, root: false, relationships: instance_options[:relationships], account_relationships: instance_options[:account_relationships], application_name: instance_options[:application_name], compact: false, scope: current_user, scope_name: :current_user)
+  end
 
   class EmojiReactionSerializer < REST::GroupedEmojiReactionSerializer
     attributes :me

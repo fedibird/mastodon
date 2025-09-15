@@ -10,12 +10,12 @@ class Api::V1::NotificationsController < Api::BaseController
 
   def index
     @notifications = load_notifications
-    render json: @notifications, each_serializer: REST::NotificationSerializer, relationships: StatusRelationshipsPresenter.new(target_statuses_from_notifications, current_user&.account_id)
+    render json: @notifications, each_serializer: REST::NotificationSerializer, relationships: StatusRelationshipsPresenter.new(target_statuses_from_notifications, current_user&.account_id), application_name: doorkeeper_token&.application&.name
   end
 
   def show
     @notification = current_account.notifications.without_suspended.find(params[:id])
-    render json: @notification, serializer: REST::NotificationSerializer
+    render json: @notification, serializer: REST::NotificationSerializer, application_name: doorkeeper_token&.application&.name
   end
 
   def clear

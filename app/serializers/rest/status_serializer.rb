@@ -107,7 +107,7 @@ class REST::StatusSerializer < ActiveModel::Serializer
     elsif instance_options[:compact]
       object.reblog.id.to_s
     else
-      REST::StatusSerializer.new(object.reblog, root: false, relationships: instance_options[:relationships], account_relationships: instance_options[:account_relationships], compact: false, scope: current_user, scope_name: :current_user)
+      REST::StatusSerializer.new(object.reblog, root: false, relationships: instance_options[:relationships], account_relationships: instance_options[:account_relationships], application_name: instance_options[:application_name], compact: false, scope: current_user, scope_name: :current_user)
     end
   end
 
@@ -345,7 +345,7 @@ class REST::NestedQuoteSerializer < REST::StatusSerializer
 end
 
 class REST::StatusSerializer < ActiveModel::Serializer
-  attribute :quote
+  attribute :quote, unless: :official_quote?
 
   def quote
     if object.quote.nil?
@@ -353,9 +353,16 @@ class REST::StatusSerializer < ActiveModel::Serializer
     elsif instance_options[:compact]
       object.quote.id.to_s
     else
-      REST::NestedQuoteSerializer.new(object.quote, root: false, relationships: instance_options[:relationships], account_relationships: instance_options[:account_relationships], compact: false, scope: current_user, scope_name: :current_user)
+      REST::NestedQuoteSerializer.new(object.quote, root: false, relationships: instance_options[:relationships], account_relationships: instance_options[:account_relationships], application_name: instance_options[:application_name], compact: false, scope: current_user, scope_name: :current_user)
     end
   end
 
+  def official_quote?
+    [
+      'Mastodon for iOS',
+      'Mastodon for Android',
+      'IceCubesApp',
+    ].include? instance_options[:application_name]
+  end
 
 end

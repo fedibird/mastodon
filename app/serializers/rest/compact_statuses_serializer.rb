@@ -12,13 +12,13 @@ class REST::CompactStatusesSerializer < ActiveModel::Serializer
 
   def statuses
     object.statuses.map do |status|
-      REST::StatusSerializer.new(status, root: false, relationships: status_relationships, account_relationships: account_relationships, compact: true, scope: current_user, scope_name: :current_user)
+      REST::StatusSerializer.new(status, root: false, relationships: status_relationships, account_relationships: account_relationships, application_name: instance_options[:application_name], compact: true, scope: current_user, scope_name: :current_user)
     end || []
   end
 
   def referenced_statuses
     Status.where(id: referenced_status_ids).map do |status|
-      REST::StatusSerializer.new(status, root: false, relationships: status_relationships, account_relationships: account_relationships, compact: true, scope: current_user, scope_name: :current_user)
+      REST::StatusSerializer.new(status, root: false, relationships: status_relationships, account_relationships: account_relationships, application_name: instance_options[:application_name], compact: true, scope: current_user, scope_name: :current_user)
     end || []
   end
 
