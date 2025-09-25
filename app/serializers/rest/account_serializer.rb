@@ -24,7 +24,7 @@ class REST::AccountSerializer < ActiveModel::Serializer
     attributes :name, :value, :verified_at
 
     def value
-      Formatter.instance.format_field(object.account, object.value)
+      Formatter.instance.format_field(object.account, object.value, rest: true)
     end
   end
 
@@ -43,11 +43,11 @@ class REST::AccountSerializer < ActiveModel::Serializer
   end
 
   def note
-    object.suspended? ? '' : Formatter.instance.simplified_format(object)
+    object.suspended? ? '' : Formatter.instance.simplified_format(object, rest: true)
   end
 
   def followed_message
-    object.suspended? ? '' : Formatter.instance.format_message(object, object.followed_message)
+    object.suspended? ? '' : Formatter.instance.format_message(object, object.followed_message, rest: true)
   end
 
   def url

@@ -35,7 +35,7 @@ class Formatter
 
     unless status.local?
       html = reformat(raw_content)
-      html = apply_inner_link(html, redirected_urls: redirected_urls(status))
+      html = apply_inner_link(html, **options.merge(redirected_urls: redirected_urls(status)))
       html = apply_reference_link(html, status)
       html = encode_custom_emojis(html, status.emojis, options[:autoplay]) if options[:custom_emojify]
       html = nyaize_html(html) if options[:nyaize]
@@ -47,10 +47,10 @@ class Formatter
 
     html = raw_content
     html = "RT @#{prepend_reblog} #{html}" if prepend_reblog
-    html = encode_and_link_urls(html, linkable_accounts, redirected_urls: redirected_urls(status))
+    html = encode_and_link_urls(html, **options.merge(accounts: linkable_accounts, redirected_urls: redirected_urls(status)))
     html = encode_custom_emojis(html, status.emojis, options[:autoplay]) if options[:custom_emojify]
     html = simple_format(html, {}, sanitize: false)
-    html = quotify(html, status) if status.quote? && !options[:escape_quotify]
+    html = quotify(html, status, **options) if status.quote? && !options[:escape_quotify]
     html = add_original_link_from_status(html, status) if status.media_attachments.count > 4
     html = add_compatible_reference_link(html, status) if status.references.exists?
     html = nyaize_html(html) if options[:nyaize]
@@ -87,13 +87,13 @@ class Formatter
   end
 
   def simplified_format(account, **options)
-    html = account.local? ? linkify(account.note) : apply_inner_link(reformat(account.note))
+    html = account.local? ? linkify(account.note, **options) : apply_inner_link(reformat(account.note), **options)
     html = encode_custom_emojis(html, account.emojis, options[:autoplay]) if options[:custom_emojify]
     html.html_safe # rubocop:disable Rails/OutputSafety
   end
 
   def format_message(account, message, **options)
-    html = linkify(message)
+    html = linkify(message, **options)
     html = encode_custom_emojis(html, account.emojis, options[:autoplay]) if options[:custom_emojify]
     html.html_safe # rubocop:disable Rails/OutputSafety
   end
@@ -121,7 +121,7 @@ class Formatter
   end
 
   def format_field(account, str, **options)
-    html = account.local? ? encode_and_link_urls(str, me: true, with_domain: true) : apply_inner_link(reformat(str))
+    html = account.local? ? encode_and_link_urls(str, **options.merge(me: true, with_domain: true)) : apply_inner_link(reformat(str), **options)
     html = encode_custom_emojis(html, account.emojis, options[:autoplay]) if options[:custom_emojify]
     html.html_safe # rubocop:disable Rails/OutputSafety
   end
@@ -141,12 +141,12 @@ class Formatter
     val.compact.join(', ').gsub!(/\r\n|\r|\n/, ' ')
   end
 
-  def format_bridgy_fed(text, url)
+  def format_bridgy_fed(text, url, **options)
     text = text.chomp("")
     return if text.blank?
 
     text = "[CW] #{text}"
-    html = encode_and_link_urls(text)
+    html = encode_and_link_urls(text, **options)
     html = simple_format(html, {}, sanitize: false)
     link = "<a href=\"#{url}\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"unhandled-link\">[Read the full article]</a>"
     html.sub!(/^<p>/, "<p><span class=\"original-post-link\">#{link}</span><br><br>")
@@ -154,8 +154,8 @@ class Formatter
     html.html_safe # rubocop:disable Rails/OutputSafety
   end
 
-  def linkify(text)
-    html = encode_and_link_urls(text)
+  def linkify(text, **options)
+    html = encode_and_link_urls(text, **options)
     html = simple_format(html, {}, sanitize: false)
     html = html.delete("\n")
 
@@ -231,21 +231,16 @@ class Formatter
     html_entities.encode(html)
   end
 
-  def encode_and_link_urls(html, accounts = nil, options = {})
+  def encode_and_link_urls(html, **options)
     entities = utf8_friendly_extractor(html, extract_url_without_protocol: false)
-
-    if accounts.is_a?(Hash)
-      options  = accounts
-      accounts = nil
-    end
 
     rewrite(html.dup, entities) do |entity|
       if entity[:url]
-        link_to_url(entity, options)
+        link_to_url(entity, **options)
       elsif entity[:hashtag]
         link_to_hashtag(entity)
       elsif entity[:screen_name]
-        link_to_mention(entity, accounts, options)
+        link_to_mention(entity, options[:accounts], **options)
       end
     end
   end
@@ -309,9 +304,9 @@ class Formatter
   end
   # rubocop:enable Metrics/BlockNesting
 
-  def quotify(html, status)
+  def quotify(html, status, **options)
     url = ActivityPub::TagManager.instance.url_for(status.quote)
-    link = encode_and_link_urls(url)
+    link = encode_and_link_urls(url, **options)
     html.sub(/(<[^>]+>)\z/, "<span class=\"quote-inline\"><br/>QT: #{link}</span>\\1")
   end
 
@@ -383,7 +378,7 @@ class Formatter
     result.flatten.join
   end
 
-  def utf8_friendly_extractor(text, options = {})
+  def utf8_friendly_extractor(text, **options)
     # Note: I couldn't obtain list_slug with @user/list-name format
     # for mention so this requires additional check
     special = Extractor.extract_urls_with_indices(text, options)
@@ -397,7 +392,7 @@ class Formatter
     (c || '').split.concat(items).uniq.join(' ')
   end
 
-  def link_to_url(entity, options = {})
+  def link_to_url(entity, **options)
     entity_url = entity[:url]
     url        = Addressable::URI.parse(entity_url).normalize.to_s
     html_attrs = { target: '_blank', rel: 'nofollow noopener noreferrer' }
@@ -439,6 +434,8 @@ class Formatter
       entity_url = url = options[:redirected_urls][url]
     elsif (redirect_link = RedirectLink.find_by(url: url))
       entity_url = url = redirect_link.redirected_url
+    elsif (options[:rest] && FetchLinkCardService.redirect_target_host?(Addressable::URI.parse(url).host))
+      return encode(entity[:url])
     end
 
     Twitter::TwitterText::Autolink.send(:link_to_text, entity, link_html(entity_url), url, html_attrs)
@@ -446,7 +443,7 @@ class Formatter
     encode(entity[:url])
   end
 
-  def apply_inner_link(html, options = {})
+  def apply_inner_link(html, **options)
     doc = Nokogiri::HTML.parse(html, nil, 'utf-8')
     doc.css('a').map do |x|
       status, path  = url_to_holding_status(x['href'])
@@ -486,6 +483,14 @@ class Formatter
       elsif (redirect_link = RedirectLink.find_by(url: x['href']))
         x['href']    = redirect_link.redirected_url
         x.inner_html = link_html(x['href']) if x.text.start_with?('https://')
+      elsif (
+        begin 
+          options[:rest] && FetchLinkCardService.redirect_target_host?(Addressable::URI.parse(x['href']).host)
+        rescue Addressable::URI::InvalidURIError
+          true
+        end
+      )
+        x.replace(x.children)
       end
     end
     html = doc.css('body')[0]&.inner_html || ''
@@ -566,10 +571,10 @@ class Formatter
     [EntityCache.instance.holding_status(url), path]
   end
 
-  def link_to_mention(entity, linkable_accounts, options = {})
+  def link_to_mention(entity, linkable_accounts, **options)
     acct = entity[:screen_name]
 
-    return link_to_account(acct, options) unless linkable_accounts
+    return link_to_account(acct, **options) unless linkable_accounts
 
     same_username_hits = 0
     account = nil
@@ -590,7 +595,7 @@ class Formatter
     account ? mention_html(account, with_domain: same_username_hits.positive? || options[:with_domain]) : "@#{encode(acct)}"
   end
 
-  def link_to_account(acct, options = {})
+  def link_to_account(acct, **options)
     username, domain = acct.split('@')
 
     domain  = nil if TagManager.instance.local_domain?(domain)
