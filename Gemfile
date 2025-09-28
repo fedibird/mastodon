@@ -20,7 +20,7 @@ gem 'dotenv-rails', '~> 2.8'
 gem 'aws-sdk-s3', '~> 1.98', require: false
 gem 'fog-core', '<= 2.1.0'
 gem 'fog-openstack', '~> 0.3', require: false
-gem 'kt-paperclip', '~> 7.1', github: 'fedibird/kt-paperclip', ref: '4278bb951fe534eda0a7ef87b8fe34da01612928'
+gem 'kt-paperclip', '~> 7.1', github: 'fedibird/kt-paperclip', ref: '0442dbfbd3877a581e17621537831d88433dfe27'
 gem 'blurhash', '~> 0.1'
 gem "thumbhash", "~> 0.0.1"
 
