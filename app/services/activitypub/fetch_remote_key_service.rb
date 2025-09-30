@@ -12,10 +12,12 @@ class ActivityPub::FetchRemoteKeyService < BaseService
     if prefetched_body.nil?
       if id
         @json = fetch_resource_without_id_validation(uri)
-        if person?
-          @json = fetch_resource(@json['id'], true)
-        elsif uri != @json['id']
-          raise Error, "Fetched URI #{uri} has wrong id #{@json['id']}"
+        unless @json.nil?
+          if person?
+            @json = fetch_resource(@json['id'], true)
+          elsif uri != @json['id']
+            raise Error, "Fetched URI #{uri} has wrong id #{@json['id']}"
+          end
         end
       else
         @json = fetch_resource(uri, id)
