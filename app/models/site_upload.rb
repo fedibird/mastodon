@@ -20,7 +20,7 @@ class SiteUpload < ApplicationRecord
 
   STYLES = {
     thumbnail: {
-      '@1x': {
+      '1x': {
         format: 'png',
         geometry: '1200x630#',
         file_geometry_parser: FastGeometryParser,
@@ -30,7 +30,7 @@ class SiteUpload < ApplicationRecord
         }.freeze,
       },
 
-      '@2x': {
+      '2x': {
         format: 'png',
         geometry: '2400x1260#',
         file_geometry_parser: FastGeometryParser,

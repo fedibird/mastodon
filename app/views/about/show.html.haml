@@ -58,7 +58,7 @@
 
       .hero-widget
         .hero-widget__img
-          = image_tag @instance_presenter.thumbnail&.file&.url(:'@1x') || asset_pack_path('media/images/preview.jpg'), alt: @instance_presenter.title
+          = image_tag @instance_presenter.thumbnail&.file&.url(:'1x') || asset_pack_path('media/images/preview.jpg'), alt: @instance_presenter.title
 
         .hero-widget__text
           %p

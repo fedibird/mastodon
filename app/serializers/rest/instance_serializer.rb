@@ -21,11 +21,11 @@ class REST::InstanceSerializer < ActiveModel::Serializer
   def thumbnail
     if object.thumbnail
       {
-        url: full_asset_url(object.thumbnail.file.url(:'@1x')),
+        url: full_asset_url(object.thumbnail.file.url(:'1x')),
         blurhash: object.thumbnail.blurhash,
         versions: {
-          '@1x': full_asset_url(object.thumbnail.file.url(:'@1x')),
-          '@2x': full_asset_url(object.thumbnail.file.url(:'@2x')),
+          '@1x': full_asset_url(object.thumbnail.file.url(:'1x')),
+          '@2x': full_asset_url(object.thumbnail.file.url(:'2x')),
         },
       }
     else
