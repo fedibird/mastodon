@@ -30,9 +30,17 @@ class FetchLinkCardService < BaseService
     'youtu.be'        => {:endpoint=>"https://www.youtube.com/oembed?format=json&url={url}", :format=>:json},
   }
 
-  def need_fetch?(status)
+  def link_type(status)
     @status = status
-    parse_urls.present?
+    urls = parse_urls
+
+    if urls.any? {|url| FetchLinkCardService.redirect_target_host?(Addressable::URI.parse(url).host)}
+      :include_redirect
+    elsif urls.present?
+      :include
+    else
+      :none
+    end
   end
 
   def call(status, **options)

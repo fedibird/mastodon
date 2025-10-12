@@ -152,17 +152,20 @@ class PostStatusService < BaseService
   end
 
   def postprocess_status!
+    begin
+      redis.sadd("statuses/#{@status.id}/processing", 'LinkCrawlWorker')
+      redis.expire("statuses/#{@status.id}/processing", 60.seconds)
+      LinkCrawlWorker.new.perform(@status.id)
+    rescue
+      # ignore
+    end
+
     @account.high_priority? ?
       PriorityDistributionWorker.perform_async(@status.id) :
       DistributionWorker.perform_async(@status.id)
     ActivityPub::DistributionWorker.perform_async(@status.id) unless @status.personal_visibility?
     PollExpirationNotifyWorker.perform_at(@status.poll.expires_at, @status.poll.id) if @status.poll
     @status.status_expire.queue_action if expires_soon?
-
-    random_seconds = rand(1..59).seconds
-    redis.sadd("statuses/#{@status.id}/processing", 'LinkCrawlWorker')
-    redis.expire("statuses/#{@status.id}/processing", random_seconds + 60.seconds)
-    LinkCrawlWorker.perform_in(random_seconds.seconds, @status.id)
   end
 
   def expires_soon?

@@ -132,13 +132,20 @@ class ActivityPub::Activity
   end
 
   def crawl_links(status)
-    return unless FetchLinkCardService.new.need_fetch?(status)
-
-    # Spread out crawling randomly to avoid DDoSing the link
-    random_seconds = rand(1..59).seconds
-    redis.sadd("statuses/#{status.id}/processing", 'LinkCrawlWorker')
-    redis.expire("statuses/#{status.id}/processing", random_seconds + 60.seconds)
-    LinkCrawlWorker.perform_in(random_seconds, status.id)
+    case FetchLinkCardService.new.link_type(status)
+    when :include_redirect
+      redis.sadd("statuses/#{status.id}/processing", 'LinkCrawlWorker')
+      redis.expire("statuses/#{status.id}/processing", 60.seconds)
+      LinkCrawlWorker.new.perform(status.id)
+    when :include
+      # Spread out crawling randomly to avoid DDoSing the link
+      random_seconds = rand(1..59).seconds
+      redis.sadd("statuses/#{status.id}/processing", 'LinkCrawlWorker')
+      redis.expire("statuses/#{status.id}/processing", random_seconds + 60.seconds)
+      LinkCrawlWorker.perform_in(random_seconds, status.id)
+    end
+  rescue Addressable::URI::InvalidURIError
+    true
   end
 
   def distribute_to_followers(status)
