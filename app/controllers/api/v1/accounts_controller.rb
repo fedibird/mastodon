@@ -82,6 +82,7 @@ class Api::V1::AccountsController < Api::BaseController
 
   def unsubscribe
     UnsubscribeAccountService.new.call(current_user.account, @account, list_id: params[:list_id])
+    render json: @account, serializer: REST::RelationshipSerializer, relationships: relationships
   end
 
   def unblock
