@@ -362,6 +362,9 @@ class REST::StatusSerializer < ActiveModel::Serializer
       'Mastodon for iOS',
       'Mastodon for Android',
       'IceCubesApp',
+      'Mona for Mac',
+      'Mona for iPad',
+      'Mona for iPhone',
     ].include? instance_options[:application_name]
   end
 
