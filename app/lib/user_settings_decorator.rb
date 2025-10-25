@@ -102,6 +102,7 @@ class UserSettingsDecorator
     disable_clear_all_notifications
     disable_account_delete
     disable_relative_time
+    disable_report
     hide_direct_from_timeline
     hide_personal_from_timeline
     hide_personal_from_account

@@ -153,6 +153,7 @@ defaults: &defaults
   disable_unfollow: false
   disable_block: false
   disable_domain_block: false
+  disable_report: false
   disable_clear_all_notifications: false
   disable_account_delete: false
   prohibited_visibilities: []

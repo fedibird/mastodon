@@ -130,6 +130,7 @@ class Settings::PreferencesController < Settings::BaseController
       :setting_disable_unfollow,
       :setting_disable_block,
       :setting_disable_domain_block,
+      :setting_disable_report,
       :setting_disable_clear_all_notifications,
       :setting_disable_account_delete,
       :setting_prohibited_words,

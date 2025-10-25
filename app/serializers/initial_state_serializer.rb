@@ -105,6 +105,7 @@ class InitialStateSerializer < ActiveModel::Serializer
       store[:disable_unfollow]                      = object.current_account.user.setting_disable_unfollow
       store[:disable_block]                         = object.current_account.user.setting_disable_block
       store[:disable_domain_block]                  = object.current_account.user.setting_disable_domain_block
+      store[:disable_report]                        = object.current_account.user.setting_disable_report
       store[:disable_clear_all_notifications]       = object.current_account.user.setting_disable_clear_all_notifications
       store[:disable_account_delete]                = object.current_account.user.setting_disable_account_delete
       store[:disable_relative_time]                 = object.current_account.user.setting_disable_relative_time

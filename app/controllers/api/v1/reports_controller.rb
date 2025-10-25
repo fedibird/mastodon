@@ -7,6 +7,8 @@ class Api::V1::ReportsController < Api::BaseController
   override_rate_limit_headers :create, family: :reports
 
   def create
+    raise Mastodon::NotPermittedError if current_user.setting_disable_report
+
     @report = ReportService.new.call(
       current_account,
       reported_account,

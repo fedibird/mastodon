@@ -81,6 +81,7 @@ export const disableDomainBlock = getMeta('disable_domain_block');
 export const disableClearAllNotifications = getMeta('disable_clear_all_notifications');
 export const disableAccountDelete = getMeta('disable_account_delete');
 export const disableRelativeTime = getMeta('disable_relative_time');
+export const disableReport = getMeta('disable_report');
 export const hideDirectFromTimeline = getMeta('hide_direct_from_timeline');
 export const hidePersonalFromTimeline = getMeta('hide_personal_from_timeline');
 export const hidePersonalFromAccount = getMeta('hide_personal_from_account');
