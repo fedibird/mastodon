@@ -5,20 +5,18 @@
         %input{ type: :text, maxlength: '999', spellcheck: 'false', readonly: 'true', value: public_invite_url(invite_code: invite.code) }
       %button{ type: :button }= t('generic.copy')
 
-  - if invite.valid_for_use?
-    %td
-      = fa_icon 'user fw'
-      = invite.uses
-      = " / #{invite.max_uses}" unless invite.max_uses.nil?
-    %td
-      - if invite.expires_at.nil?
-        ∞
-      - else
-        %time.formatted{ datetime: invite.expires_at.iso8601, title: l(invite.expires_at) }
-          = l invite.expires_at
-  - else
-    %td{ colspan: 2 }
+  %td{ class: invite.valid_for_use? ? nil : 'expired' }
+    = fa_icon 'user fw'
+    = invite.uses
+    = " / #{invite.max_uses}" unless invite.max_uses.nil?
+  %td
+    - if !invite.valid_for_use?
       = t('invites.expired')
+    - elsif invite.expires_at.nil?
+      ∞
+    - else
+      %time.formatted{ datetime: invite.expires_at.iso8601, title: l(invite.expires_at) }
+        = l invite.expires_at
 
   %td
     - if invite.valid_for_use? && policy(invite).destroy?

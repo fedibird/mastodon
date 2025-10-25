@@ -100,6 +100,12 @@
 
   &--invites tbody td {
     vertical-align: middle;
+    text-decoration: none;
+
+    &.expired {
+      text-decoration: line-through;
+      color: lighten($error-red, 12%);
+    }
   }
 }
 
