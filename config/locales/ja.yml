@@ -790,6 +790,9 @@ ja:
       peers_api_enabled:
         desc_html: 連合内でこのサーバーが遭遇したドメインの名前
         title: 接続しているサーバーのリストを公開する
+      pins_max:
+        desc_html: "固定投稿の最大数（%{count}以下）を指定します。"
+        title: 固定投稿の最大数
       poll_max_options:
         desc_html: "投票の選択肢の最大数（%{count}以下）を指定します。"
         title: 投票の選択肢の最大数

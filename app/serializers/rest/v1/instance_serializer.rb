@@ -67,7 +67,8 @@ class REST::V1::InstanceSerializer < ActiveModel::Serializer
         max_profile_fields: Account::DEFAULT_FIELDS_SIZE,
         max_display_name: LocalDisplayNameValidator::MAX_CHARS,
         characters_reserved_per_emoji: LocalDisplayNameValidator::CUSTOM_EMOJI_PLACEHOLDER_CHARS,
-        max_status_pins: StatusPinValidator::LIMIT,
+        max_status_pins: [StatusPinValidator::LIMIT, Setting.pins_max].min,
+        max_pinned_statuses: [StatusPinValidator::LIMIT, Setting.pins_max].min,
       },
 
       statuses: {

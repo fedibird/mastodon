@@ -803,6 +803,9 @@ en:
       peers_api_enabled:
         desc_html: Domain names this server has encountered in the fediverse
         title: Publish list of discovered servers in the API
+      pins_max:
+        desc_html: "Specifies the maximum number of pinned posts (<= %{count})"
+        title: Maximum number of pinned posts
       poll_max_options:
         desc_html: "Specifies the maximum number of polls (<= %{count})"
         title: Maximum number of Polls

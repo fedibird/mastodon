@@ -42,6 +42,7 @@ class Form::AdminSettings
     poll_max_options
     reaction_max_per_account
     attachments_max
+    pins_max
     reject_pattern
     reject_blurhash
   ).freeze
@@ -71,6 +72,7 @@ class Form::AdminSettings
     poll_max_options
     reaction_max_per_account
     attachments_max
+    pins_max
   ).freeze
 
   UPLOAD_KEYS = %i(
@@ -92,6 +94,7 @@ class Form::AdminSettings
   validates :poll_max_options, numericality: { greater_than: 2, less_than_or_equal_to: PollOptionsValidator::MAX_OPTIONS_LIMIT }
   validates :reaction_max_per_account, numericality: { greater_than_or_equal: 1, less_than_or_equal_to: EmojiReactionValidator::MAX_PER_ACCOUNT_LIMIT }
   validates :attachments_max, numericality: { greater_than_or_equal: 1, less_than_or_equal_to: MediaAttachment::ATTACHMENTS_LIMIT }
+  validates :pins_max, numericality: { greater_than_or_equal: 1, less_than_or_equal_to: StatusPinValidator::LIMIT }
   validates :reject_pattern, regexp_syntax: true
 
   def initialize(_attributes = {})

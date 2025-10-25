@@ -118,6 +118,9 @@
     .fields-group
       = f.input :attachments_max, wrapper: :with_label, label: t('admin.settings.attachments_max.title'), hint: t('admin.settings.attachments_max.desc_html', count: MediaAttachment::ATTACHMENTS_LIMIT), fedibird_features: true
 
+    .fields-group
+      = f.input :pins_max, wrapper: :with_label, label: t('admin.settings.pins_max.title'), hint: t('admin.settings.pins_max.desc_html', count: StatusPinValidator::LIMIT), fedibird_features: true
+
   %hr.spacer/
 
   .fields-group

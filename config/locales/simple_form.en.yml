@@ -86,6 +86,7 @@ en:
         setting_disable_reaction_streaming: Disable streaming events for real-time reflection of emoji reactions
         setting_disable_reactions: Restrict reactions for favorites, boosts ,emoji reactions and polls
         setting_disable_relative_time: 
+        setting_disable_report: Restricts you from accidentally reporting
         setting_disable_unfollow: Restricts you from accidentally unfollowing
         setting_display_media_default: Hide media marked as sensitive
         setting_display_media_hide_all: Always hide media
@@ -326,6 +327,7 @@ en:
         setting_disable_reaction_streaming: Disable reaction streaming
         setting_disable_reactions: Disable reactions
         setting_disable_relative_time: Disable relative time on posts
+        setting_disable_report: Disable report
         setting_disable_swiping: Disable swiping motions
         setting_disable_unfollow: Disable unfollow
         setting_display_media: Media display

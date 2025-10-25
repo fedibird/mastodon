@@ -169,6 +169,7 @@ defaults: &defaults
   poll_max_options: 4
   reaction_max_per_account: 1
   attachments_max: 4
+  pins_max: 5
   use_low_resolution_thumbnails: false
   use_fullsize_avatar_on_detail: false
   use_fullsize_header_on_detail: false

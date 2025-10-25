@@ -26,6 +26,7 @@ class InitialStateSerializer < ActiveModel::Serializer
       server_directory: Setting.server_directory,
       trends: Setting.trends,
       allow_poll_image: Setting.allow_poll_image,
+      pins_max: [StatusPinValidator::LIMIT, Setting.pins_max].min,
     }
 
     if object.current_account
