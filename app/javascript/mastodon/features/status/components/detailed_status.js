@@ -286,7 +286,9 @@ class DetailedStatus extends ImmutablePureComponent {
               </a>
             </div>
             <StatusContent status={quote_status} onClick={this.handleQuoteClick} expanded={!quote_status.get('hidden')} onExpandedToggle={this.handleExpandedQuoteToggle} quote />
-            {quote_media}
+            {!(quote_status.get('hidden') && quote_status.get('spoiler_text').length > 0) && <>
+              {quote_media}
+            </>}
           </div>
         );
       }
@@ -474,8 +476,11 @@ class DetailedStatus extends ImmutablePureComponent {
 
           <StatusContent status={status} expanded={!status.get('hidden')} onExpandedToggle={this.handleExpandedToggle} />
 
-          {quote}
-          {media}
+          {!(status.get('hidden') && status.get('spoiler_text').length > 0) && <>
+            {quote}
+            {media}
+          </>
+          }
 
           {enableReaction && <EmojiReactionsBar
             status={status}
