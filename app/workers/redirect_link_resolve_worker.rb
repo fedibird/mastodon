@@ -23,7 +23,7 @@ class RedirectLinkResolveWorker
       res_uri = Addressable::URI.parse(res.uri.to_s)
       if res.code == 200 && url != res_uri.to_s && !(parsed_url.normalized_host.casecmp(res_uri.normalized_host)&.zero? && res_uri.path.match?(/^$|^\/[A-Za-z]{2,}([_\-][A-Za-z]{2,})?$/))
         Request.new(:get, res_uri.to_s).add_headers('User-Agent' => Mastodon::Version.user_agent + ' Bot').perform do |res2|
-          if res2.code == 200 && res.body == res2.body
+          if res2.code == 200 # && res.body == res2.body
             RedirectLink.create(url: url, redirected_url: res_uri.to_s)
           end
         end
