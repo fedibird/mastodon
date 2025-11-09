@@ -20,7 +20,7 @@ media_host ||= host_to_url(ENV['S3_CLOUDFRONT_HOST'])
 media_host ||= host_to_url(ENV['S3_HOSTNAME']) if ENV['S3_ENABLED'] == 'true'
 media_host ||= assets_host
 
-instance_ticker_host = 'https://34.si'
+instance_ticker_host = 'https://cdn.jsdelivr.net'
 github_host          = "https://raw.githubusercontent.com" # GitHub
 google_fonts_host    = "https://fonts.gstatic.com" # Google Fonts
 

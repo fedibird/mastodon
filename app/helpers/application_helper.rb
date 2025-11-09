@@ -189,10 +189,10 @@ module ApplicationHelper
 
   INSTANCE_TICKER_URL = {
     'none' => '',
-    'type-0' => 'https://34.si/330/0.css',
-    'type-1' => 'https://34.si/330/1.css',
-    'type-2' => 'https://34.si/330/2.css',
-    'type-3' => 'https://34.si/330/3.css',
+    'type-0' => 'https://cdn.jsdelivr.net/gh/InstanceTicker/InstanceTicker@master/css/330/0.css',
+    'type-1' => 'https://cdn.jsdelivr.net/gh/InstanceTicker/InstanceTicker@master/css/330/1.css',
+    'type-2' => 'https://cdn.jsdelivr.net/gh/InstanceTicker/InstanceTicker@master/css/330/2.css',
+    'type-3' => 'https://cdn.jsdelivr.net/gh/InstanceTicker/InstanceTicker@master/css/330/3.css',
   }.freeze
 
   def instance_ticker_css
