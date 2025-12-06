@@ -162,7 +162,7 @@ group :production do
 end
 
 gem 'concurrent-ruby', '1.3.4', require: false
-gem 'connection_pool', require: false
+gem 'connection_pool', '~> 2.5', require: false
 
 gem 'xorcist', '~> 1.1'
 gem 'cocoon', '~> 1.2'
