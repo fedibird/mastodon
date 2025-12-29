@@ -63,11 +63,23 @@ class FollowService < BaseService
   end
 
   def following_not_allowed?
-    following_not_allowed_without_move? || @target_account.moved?
+    following_not_allowed_without_move? || @target_account.moved? || target_domain_following_not_allowed_from_new_account?
   end
 
   def following_not_allowed_without_move?
     domain_not_allowed?(@target_account.domain) || @target_account.blocking?(@source_account) || @source_account.blocking?(@target_account) || (!@target_account.local? && @target_account.ostatus?) || @source_account.domain_blocking?(@target_account.domain)
+  end
+
+  # Domains that new accounts (created within 2 weeks) are not allowed to follow.
+  # This value is configured in `config.x.not_allowed_from_new_accounts` via an
+  # initializer (populated from `ENV['NOT_ALLOWED_FROM_NEW_ACCOUNTS']`).
+  # Defaults to an empty array.
+  def not_allowed_from_new_accounts
+    Rails.application.config.x.not_allowed_from_new_accounts || []
+  end
+
+  def target_domain_following_not_allowed_from_new_account?
+    not_allowed_from_new_accounts.include?(@target_account.domain&.downcase) && @source_account.created_at > 2.weeks.ago
   end
 
   def change_follow_options!
