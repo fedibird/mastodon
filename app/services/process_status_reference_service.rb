@@ -70,7 +70,7 @@ class ProcessStatusReferenceService
 
     links.filter_map do |anchor|
       Addressable::URI.parse(anchor['href'])&.normalize&.to_s unless skip_link?(anchor, mentions)
-    rescue Addressable::URI::InvalidURIError, IDN::Idna::IdnaError
+    rescue ArgumentError, Addressable::URI::InvalidURIError, IDN::Idna::IdnaError
       nil
     end
   end

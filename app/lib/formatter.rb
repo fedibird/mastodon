@@ -445,21 +445,27 @@ class Formatter
 
   def apply_inner_link(html, **options)
     doc = Nokogiri::HTML.parse(html, nil, 'utf-8')
-    doc.css('a').map do |x|
-      status, path  = url_to_holding_status(x['href'])
+    doc.css('a').each do |x|
+      begin
+        href = Addressable::URI.parse(x['href']).normalize.to_s
+      rescue ArgumentError, Addressable::URI::InvalidURIError
+        next
+      end
+
+      status, path  = url_to_holding_status(href)
       account       = status&.account
-      account, path = url_to_holding_account(x['href']) if status.nil?
+      account, path = url_to_holding_account(href) if status.nil?
       account       = account.moved_to_account if account&.moved?
 
       emoji = nil
-      if TagManager.instance.local_url?(x['href'])
-        (Rails.application.routes.recognize_path(x['href']) rescue {}).tap do |recognized_params|
+      if TagManager.instance.local_url?(href)
+        (Rails.application.routes.recognize_path(href) rescue {}).tap do |recognized_params|
           if recognized_params[:action] == 'show' && recognized_params[:controller] == 'emojis'
             emoji = CustomEmoji.find_by(shortcode: recognized_params[:id], domain: nil)
           end
         end
       else
-        emoji = CustomEmoji.find_by(uri: x['href']) if status.nil? && account.nil?
+        emoji = CustomEmoji.find_by(uri: href) if status.nil? && account.nil?
       end
 
       if emoji.present?
@@ -477,19 +483,19 @@ class Formatter
         x['data-account-actor-type'] = account.actor_type
         x['data-account-acct']       = account.acct
         x['data-path']               = path
-      elsif options[:redirected_urls]&.key?(x['href'])
-        x['href']    = options[:redirected_urls][x['href']]
-        x.inner_html = link_html(x['href']) if x.text.start_with?('https://')
-      elsif (redirect_link = RedirectLink.find_by(url: x['href']))
+      elsif options[:redirected_urls]&.key?(href)
+        x['href']    = options[:redirected_urls][href]
+        x.inner_html = link_html(href) if x.text.start_with?('https://')
+      elsif (redirect_link = RedirectLink.find_by(url: href))
         x['href']    = redirect_link.redirected_url
-        x.inner_html = link_html(x['href']) if x.text.start_with?('https://')
+        x.inner_html = link_html(href) if x.text.start_with?('https://')
       elsif (
         begin 
-          options[:rest] && FetchLinkCardService.redirect_target_host?(Addressable::URI.parse(x['href']).host)
+          options[:rest] && FetchLinkCardService.redirect_target_host?(Addressable::URI.parse(href).host)
         rescue Addressable::URI::InvalidURIError
           true
         end
-      )
+        )
         x.replace(x.children)
       end
     end
@@ -511,7 +517,7 @@ class Formatter
 
     doc.at_css('span.reference-link-inline').tap do |x|
       if x.present?
-        reference_link_url = x.at_css('a')&.attr('href')
+        reference_link_url = x.at_css('a')&.attr('href').to_s.scrub
         x.unlink 
       end
     end
