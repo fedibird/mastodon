@@ -636,6 +636,8 @@ class Formatter
     link_text = with_domain ? account.pretty_acct : account.username
     account   = account.moved_to_account if account&.moved?
 
+    return if account.nil?
+    
     classes = "u-url mention account-url-link#{account.actor_type == 'Group' ? ' group' : ''}"
 
     <<~HTML.squish
