@@ -139,6 +139,8 @@ defaults: &defaults
   unselect_reference_modal: false
   delete_scheduled_status_modal: true
   hexagon_avatar: false
+  heart_avatar: false
+  burst_avatar: false
   enable_empty_column: false
   hide_bot_on_public_timeline: false
   confirm_follow_from_bot: true

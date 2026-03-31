@@ -94,6 +94,8 @@
   .fields-group
     = f.input :setting_disable_joke_appearance, as: :boolean, wrapper: :with_label, fedibird_features: true
     = f.input :setting_hexagon_avatar, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
+    = f.input :setting_heart_avatar, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
+    = f.input :setting_burst_avatar, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
 
   %h4= t 'appearance.toot_layout'
 

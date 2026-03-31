@@ -89,6 +89,8 @@ class UserSettingsDecorator
     enable_status_reference
     match_visibility_of_references
     hexagon_avatar
+    heart_avatar
+    burst_avatar
     enable_empty_column
     hide_bot_on_public_timeline
     confirm_follow_from_bot

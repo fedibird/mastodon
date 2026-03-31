@@ -106,7 +106,9 @@ ja:
         setting_enable_wide_emoji: Misskey由来の横幅の広い絵文字を元の比率で表示します（本文）
         setting_enable_wide_emoji_reaction: Misskey由来の横幅の広い絵文字を元の比率で表示します（リアクション）
         setting_follow_button_to_list_adder: フォロー・購読ボタンの動作を変更し、フォロー・購読するリストを選択したり、ホームで受け取らないよう設定するダイアログを開きます
-        setting_hexagon_avatar: 全員のアバターアイコンを6角形にくりぬいて表示します（ジョーク機能）
+        setting_hexagon_avatar: 全員のアバターアイコンを六角形にくりぬいて表示します（ジョーク機能）
+        setting_heart_avatar: 全員のアバターアイコンをハートにくりぬいて表示します（ジョーク機能）
+        setting_burst_avatar: 全員のアバターアイコンを爆弾にくりぬいて表示します（ジョーク機能）
         setting_hide_bot_on_public_timeline: 連合・ハッシュタグ・ドメイン・グループタイムライン上にBotアカウントが表示されないようにします（※カラム設定を優先）
         setting_hide_direct_from_timeline: ホームとリストタイムラインからダイレクトメッセージを隠します
         setting_hide_followers_count: フォロワー数をプロフィールページで見られないようにします
@@ -350,7 +352,9 @@ ja:
         setting_follow_button_to_list_adder: フォローボタンでリスト追加ダイアログを開く
         setting_follow_modal: フォローする前に確認ダイアログを表示する
         setting_follow_tag_modal: ハッシュタグをフォローする前に確認ダイアログを表示する
-        setting_hexagon_avatar: NFTアイコンを体験する
+        setting_hexagon_avatar: 六角形アイコンを体験する
+        setting_heart_avatar: ハートアイコンを体験する
+        setting_burst_avatar: 爆弾アイコンを体験する
         setting_hide_bot_on_public_timeline: 公開タイムラインのBotアカウントを非表示
         setting_hide_direct_from_timeline: ダイレクトメッセージをタイムラインから隠す
         setting_hide_followers_count: フォロワー数を隠す

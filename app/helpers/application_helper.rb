@@ -162,6 +162,8 @@ module ApplicationHelper
     output << (current_account&.user&.setting_reduce_motion ? 'reduce-motion' : 'no-reduce-motion')
     output << 'follow-button-on-timeline' if current_account&.user&.setting_show_follow_button_on_timeline || current_account&.user&.setting_show_subscribe_button_on_timeline
     output << 'hexagon-avatar' if current_account&.user&.setting_hexagon_avatar
+    output << 'heart-avatar' if current_account&.user&.setting_heart_avatar
+    output << 'burst-avatar' if current_account&.user&.setting_burst_avatar
     output << 'rtl' if locale_direction == 'rtl'
     output.reject(&:blank?).join(' ')
   end

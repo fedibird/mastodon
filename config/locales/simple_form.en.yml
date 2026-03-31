@@ -111,6 +111,8 @@ en:
         setting_enable_wide_emoji_reaction: Displays wide emoji derived from Misskey in their original proportions (for reaction)
         setting_follow_button_to_list_adder: Change the behavior of the Follow / Subscribe button, open a dialog where you can select a list to follow / subscribe, or opt out of receiving at home
         setting_hexagon_avatar: Display everyone's avatar icon as a hollowed out hexagon (joke feature)
+        setting_heart_avatar: Display everyone's avatar icon as a heart (joke feature)
+        setting_burst_avatar: Display everyone's avatar icon as a burst (joke feature)
         setting_hide_bot_on_public_timeline: Disable Bot accounts from appearing on federation & hashtag & domain & group timelines (overridden by column setting)
         setting_hide_direct_from_timeline: Hide direct messages from the home and list timelines
         setting_hide_followers_count: The number of followers will be hidden in your profile
@@ -354,7 +356,9 @@ en:
         setting_follow_button_to_list_adder: Open list add dialog with follow button
         setting_follow_modal: Show confirmation dialog before following someone
         setting_follow_tag_modal: Show confirmation dialog before following a tag
-        setting_hexagon_avatar: Experience NFT Avatar
+        setting_hexagon_avatar: Display everyone's avatar icon as a hexagon (joke feature)
+        setting_heart_avatar: Display everyone's avatar icon as a heart (joke feature)
+        setting_burst_avatar: Display everyone's avatar icon as a burst (joke feature)
         setting_hide_bot_on_public_timeline: Hide bot account on public timeline
         setting_hide_direct_from_timeline: Hide direct messages from the timeline
         setting_hide_followers_count: Hide your followers count
