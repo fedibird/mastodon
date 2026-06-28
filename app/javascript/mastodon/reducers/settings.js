@@ -172,7 +172,7 @@ const defaultColumns = fromJS([
   { id: 'NOTIFICATIONS', uuid: uuid(), params: {} },
 ]);
 
-const hydrate = (state, settings) => state.mergeDeep(settings).update('columns', (val = defaultColumns) => val);
+const hydrate = (state, settings) => state.mergeDeep(settings).set('saved', true).update('columns', (val = defaultColumns) => val);
 
 const moveColumn = (state, uuid, direction) => {
   const columns  = state.get('columns');
