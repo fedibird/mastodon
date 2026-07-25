@@ -25,7 +25,7 @@ class ActivityPub::Activity::Create < ActivityPub::Activity
       object: @object
     )
 
-    return reject_payload! unless related_to_local_activity?
+    return reject_payload! if !related_to_local_activity? || reject_pattern?
 
     with_redis_lock("create:#{object_uri}") do
       Status.uncached do
@@ -486,6 +486,10 @@ class ActivityPub::Activity::Create < ActivityPub::Activity
 
   def tombstone_exists?
     Tombstone.exists?(uri: object_uri)
+  end
+
+  def reject_pattern?
+    Setting.reject_pattern.present? && @object['content']&.match?(Setting.reject_pattern)
   end
 
   def forward_for_reply
