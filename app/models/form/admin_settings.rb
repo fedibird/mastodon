@@ -47,6 +47,7 @@ class Form::AdminSettings
     landing_page
     wrapstodon
     email_footer_text
+    reject_pattern
   ).freeze
 
   INTEGER_KEYS = %i(
@@ -112,6 +113,7 @@ class Form::AdminSettings
   validates :min_age, numericality: { only_integer: true }, allow_blank: true, if: -> { defined?(@min_age) }
   validates :site_short_description, length: { maximum: DESCRIPTION_LIMIT }, if: -> { defined?(@site_short_description) }
   validates :thumbnail_description, length: { maximum: DESCRIPTION_LIMIT }, if: -> { defined?(@thumbnail_description) }
+  validates :reject_pattern, regexp_syntax: true, if: -> { defined?(@reject_pattern) }
   validates :status_page_url, url: true, allow_blank: true
   validate :validate_site_uploads
   validates :landing_page, inclusion: { in: LANDING_PAGE }, if: -> { defined?(@landing_page) }
