@@ -202,7 +202,7 @@ class ActivityPub::Activity::Create < ActivityPub::Activity
   end
 
   def process_link(tag)
-    return if tag['mediaType'] != 'application/ld+json; profile="https://www.w3.org/ns/activitystreams"' || tag['rel'] != "https://misskey-hub.net/ns#_misskey_quote" || tag['href'].blank?
+    return unless tag['mediaType'] == 'application/ld+json; profile="https://www.w3.org/ns/activitystreams"' && as_array(tag['rel']).include?('https://misskey-hub.net/ns#_misskey_quote') && tag['href'].present?
     
     @object_links << tag['href']
   end
