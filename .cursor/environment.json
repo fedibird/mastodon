@@ -1,6 +1,7 @@
 {
   "name": "Fedibird / Mastodon",
   "user": "ubuntu",
+  "snapshot": "snapshot-20260908-1789de1b-e23e-4859-9641-63ee99b265d1",
   "install": "bash .cursor/install.sh",
   "start": "bash .cursor/start-services.sh",
   "terminals": [
