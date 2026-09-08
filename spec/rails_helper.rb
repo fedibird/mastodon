@@ -14,7 +14,16 @@ Dir[Rails.root.join('spec/support/**/*.rb')].each { |f| require f }
 ActiveRecord::Migration.maintain_test_schema!
 WebMock.disable_net_connect!(allow: Chewy.settings[:host])
 Sidekiq::Testing.inline!
-Sidekiq.logger = nil
+
+# Silence Sidekiq logging during the test run. Sidekiq 7 removed the
+# module-level `Sidekiq.logger=` setter in favour of the configuration blocks,
+# so guard for both to stay compatible across versions.
+if Sidekiq.respond_to?(:logger=)
+  Sidekiq.logger = nil
+else
+  Sidekiq.configure_client { |config| config.logger = nil }
+  Sidekiq.configure_server { |config| config.logger = nil }
+end
 
 Devise::Test::ControllerHelpers.module_eval do
   alias_method :original_sign_in, :sign_in
