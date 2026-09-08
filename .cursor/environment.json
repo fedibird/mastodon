@@ -1,0 +1,29 @@
+{
+  "name": "Fedibird / Mastodon",
+  "user": "ubuntu",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start-services.sh",
+  "terminals": [
+    {
+      "name": "web",
+      "command": "source .cursor/mastodon-env.sh && PORT=3000 bundle _2.4.22_ exec puma -C config/puma.rb"
+    },
+    {
+      "name": "sidekiq",
+      "command": "source .cursor/mastodon-env.sh && bundle _2.4.22_ exec sidekiq"
+    },
+    {
+      "name": "streaming",
+      "command": "source .cursor/mastodon-env.sh && PORT=4000 node ./streaming/index.js"
+    },
+    {
+      "name": "webpack",
+      "command": "source .cursor/mastodon-env.sh && NODE_ENV=development ./bin/webpack-dev-server --listen-host 0.0.0.0"
+    }
+  ],
+  "ports": [
+    { "name": "web", "port": 3000 },
+    { "name": "streaming", "port": 4000 },
+    { "name": "webpack", "port": 3035 }
+  ]
+}
