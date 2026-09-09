@@ -139,4 +139,46 @@ RSpec.describe 'Moderation interaction hooks', type: :service do
       expect(event.rejected_subject.account_id).to eq bob.id
     end
   end
+
+  describe EmojiReactionService do
+    it 'records a reaction interaction toward the status author' do
+      status = Fabricate(:status, account: bob)
+
+      expect { EmojiReactionService.new.call(alice, status, '👍') }.to change(ModerationInteractionEvent, :count).by(1)
+
+      event = last_interaction
+      expect(event.event_type).to eq 'reaction'
+      expect(event.actor_subject.account_id).to eq alice.id
+      expect(event.target_subject.account_id).to eq bob.id
+      expect(event.status_id).to eq status.id
+    end
+
+    it 'does not record a duplicate reaction when the same emoji already exists' do
+      status = Fabricate(:status, account: bob)
+      EmojiReactionService.new.call(alice, status, '👍')
+
+      expect { EmojiReactionService.new.call(alice, status, '👍') }.to_not change(ModerationInteractionEvent, :count)
+    end
+  end
+
+  describe ProcessStatusReferenceService do
+    it 'records a reference interaction toward the referenced author' do
+      referenced = Fabricate(:status, account: bob)
+      status = Fabricate(:status, account: alice)
+
+      expect { ProcessStatusReferenceService.new.call(status, status_reference_ids: [referenced.id]) }.to change(ModerationInteractionEvent, :count).by(1)
+
+      event = last_interaction
+      expect(event.event_type).to eq 'reference'
+      expect(event.actor_subject.account_id).to eq alice.id
+      expect(event.target_subject.account_id).to eq bob.id
+    end
+
+    it 'does not record a reference for the quoted status (recorded as a quote instead)' do
+      quoted = Fabricate(:status, account: bob)
+      status = Fabricate(:status, account: alice, quote_id: quoted.id)
+
+      expect { ProcessStatusReferenceService.new.call(status, status_reference_ids: [quoted.id]) }.to_not change(ModerationInteractionEvent, :count)
+    end
+  end
 end
