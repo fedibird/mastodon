@@ -40,6 +40,7 @@ class Admin::AccountAction
     process_email!
     process_reports!
     process_queue!
+    record_moderation_action!
   end
 
   def report
@@ -141,6 +142,27 @@ class Admin::AccountAction
 
   def text_for_warning
     [warning_preset&.text, text].compact.join("\n\n")
+  end
+
+  # Record the moderator action + an evidence snapshot into the moderation
+  # ledger. Failure-tolerant, so it never breaks the action itself.
+  def record_moderation_action!
+    Moderation::ActionRecorder.record(
+      account: target_account,
+      action_type: moderation_action_type,
+      moderator: current_account,
+      reason_code: type
+    )
+  end
+
+  def moderation_action_type
+    case type
+    when 'suspend'                 then :suspend
+    when 'silence', 'hard_silence' then :limit
+    when 'disable'                 then :freeze
+    when 'none'                    then :warn
+    else :other
+    end
   end
 
   def queue_suspension_worker!
