@@ -74,7 +74,7 @@ RSpec.describe Moderation::EventRecorder, type: :service do
       expect(event.preceding_interaction_event).to_not eq older
     end
 
-    it 'does not link a later contact as the cause of an earlier rejection' do
+    it 'does not treat a later contact as a preceding-contact link for an earlier rejection' do
       event = described_class.record_rejection(rejector: target, rejected: actor, event_type: :block, occurred_at: 2.hours.ago)
       described_class.record_interaction(actor: actor, target: target, event_type: :mention, occurred_at: 1.hour.ago)
 
