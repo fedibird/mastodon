@@ -154,7 +154,19 @@ class DeleteAccountService < BaseService
     purge_feeds!
     purge_other_associations!
 
-    @account.destroy unless keep_account_record?
+    unless keep_account_record?
+      tombstone_moderation_subject!
+      @account.destroy
+    end
+  end
+
+  # Mark the moderation subject as deleted (and set its retention window) before
+  # the account row is removed. Best-effort: never let this break account
+  # deletion. The database FK still nullifies account_id on destroy.
+  def tombstone_moderation_subject!
+    ModerationSubject.tombstone_for_account!(@account)
+  rescue StandardError => e
+    Rails.logger.warn("[Moderation] failed to tombstone subject for account #{@account.id}: #{e.class}: #{e.message}")
   end
 
   def purge_statuses!

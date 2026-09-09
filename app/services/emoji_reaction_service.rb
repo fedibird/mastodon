@@ -15,15 +15,42 @@ class EmojiReactionService < BaseService
 
     return if custom_emoji.present? && domain.present? && !EmojiReaction.where(status_id: status.id, custom_emoji_id: custom_emoji.id).present?
 
-    emoji_reaction = EmojiReaction.find_or_create_by!(account_id: account.id, status_id: status.id, name: shortcode, custom_emoji: custom_emoji)
+    # Look up first so a sequential retry does not re-run validations on
+    # create. Rescue RecordNotUnique for the concurrent create race — the
+    # losing racer must not be treated as a new reaction (the old
+    # find_or_create_by! block set newly_reacted=true before the insert lost).
+    attrs = { account_id: account.id, status_id: status.id, name: shortcode }
+    emoji_reaction = EmojiReaction.find_by(attrs)
+    newly_reacted = false
+
+    if emoji_reaction.nil?
+      begin
+        emoji_reaction = EmojiReaction.create!(attrs.merge(custom_emoji: custom_emoji))
+        newly_reacted = true
+      rescue ActiveRecord::RecordNotUnique
+        emoji_reaction = EmojiReaction.find_by!(attrs)
+        newly_reacted = false
+      end
+    end
 
     emoji_reaction.tap do |emoji_reaction|
       create_notification(emoji_reaction)
       bump_potential_friendship(account, status)
+      record_moderation_reaction!(status, emoji_reaction) if newly_reacted
     end
   end
 
-  private 
+  private
+
+  def record_moderation_reaction!(status, emoji_reaction)
+    Moderation::EventRecorder.record_interaction(
+      actor: @account,
+      target: status.account,
+      event_type: :reaction,
+      status: status,
+      source_record: emoji_reaction
+    )
+  end
 
   def create_notification(emoji_reaction)
     status = emoji_reaction.status

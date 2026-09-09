@@ -64,6 +64,23 @@ RSpec.describe Moderation::EventRecorder, type: :service do
       expect(event.preceding_interaction_event).to eq contact
     end
 
+    it 'auto-links the nearest earlier contact when no preceding interaction is given' do
+      older = described_class.record_interaction(actor: actor, target: target, event_type: :mention, occurred_at: 3.hours.ago)
+      newer = described_class.record_interaction(actor: actor, target: target, event_type: :follow, occurred_at: 1.hour.ago)
+
+      event = described_class.record_rejection(rejector: target, rejected: actor, event_type: :block)
+
+      expect(event.preceding_interaction_event).to eq newer
+      expect(event.preceding_interaction_event).to_not eq older
+    end
+
+    it 'does not link a later contact as the cause of an earlier rejection' do
+      event = described_class.record_rejection(rejector: target, rejected: actor, event_type: :block, occurred_at: 2.hours.ago)
+      described_class.record_interaction(actor: actor, target: target, event_type: :mention, occurred_at: 1.hour.ago)
+
+      expect(event.reload.preceding_interaction_event).to be_nil
+    end
+
     it 'does not raise and returns nil on failure' do
       allow(Rails.logger).to receive(:warn)
 
@@ -73,6 +90,68 @@ RSpec.describe Moderation::EventRecorder, type: :service do
       end.to_not change(ModerationRejectionEvent, :count)
 
       expect(result).to be_nil
+    end
+  end
+
+  describe 'source-event idempotency' do
+    it 'does not insert a second interaction for the same source record' do
+      status = Fabricate(:status, account: actor)
+      favourite = Fabricate(:favourite, account: actor, status: status)
+
+      first = described_class.record_interaction(
+        actor: actor,
+        target: target,
+        event_type: :favourite,
+        status: status,
+        source_record: favourite
+      )
+      second = described_class.record_interaction(
+        actor: actor,
+        target: target,
+        event_type: :favourite,
+        status: status,
+        source_record: favourite
+      )
+
+      expect(ModerationInteractionEvent.count).to eq 1
+      expect(second.id).to eq first.id
+      expect(first.source_event_key).to eq "Favourite:#{favourite.id}:favourite"
+    end
+
+    it 'returns the existing row when a uniqueness race loses the insert' do
+      status = Fabricate(:status, account: actor)
+      favourite = Fabricate(:favourite, account: actor, status: status)
+      first = described_class.record_interaction(
+        actor: actor,
+        target: target,
+        event_type: :favourite,
+        status: status,
+        source_record: favourite
+      )
+      key = first.source_event_key
+      lookups = 0
+
+      allow(ModerationInteractionEvent).to receive(:find_by).and_wrap_original do |method, *args|
+        attrs = args.first
+        if attrs.is_a?(Hash) && attrs[:source_event_key] == key
+          lookups += 1
+          lookups == 1 ? nil : method.call(*args)
+        else
+          method.call(*args)
+        end
+      end
+      allow(ModerationInteractionEvent).to receive(:create!).and_raise(ActiveRecord::RecordNotUnique, 'idx')
+
+      raced = described_class.new.record_interaction(
+        actor: actor,
+        target: target,
+        event_type: :favourite,
+        status: status,
+        source_record: favourite
+      )
+
+      expect(raced.id).to eq first.id
+      expect(lookups).to be >= 1
     end
   end
 end
