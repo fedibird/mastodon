@@ -33,4 +33,10 @@ class ModerationEvidenceSnapshot < ApplicationRecord
   def negative_target_subject_ids
     Array(fingerprint['negative_target_subject_ids'])
   end
+
+  # Same-window overlap without a proven contact→rejection order. Must not be
+  # treated as a causal negative-target set.
+  def correlated_negative_target_subject_ids
+    Array(fingerprint['correlated_negative_target_subject_ids'])
+  end
 end
