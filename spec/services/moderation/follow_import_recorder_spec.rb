@@ -60,11 +60,33 @@ RSpec.describe Moderation::FollowImportRecorder, type: :service do
       import = instance_double(Import, id: 880_001)
 
       first = described_class.record_batch(account: account, accts: ['bob', 'eve@example.com'], import: import, mode: :merge)
-      second = described_class.record_batch(account: account, accts: ['bob', 'eve@example.com'], import: import, mode: :merge)
+      second = described_class.record_batch(account: account, accts: ['ghost@unknown.example'], import: import, mode: :overwrite)
 
       expect(FollowImportBatch.where(import_id: import.id).count).to eq 1
       expect(second.id).to eq first.id
+      expect(second.mode).to eq 'merge'
       expect(FollowImportTarget.where(batch_id: first.id).count).to eq 2
+    end
+
+    it 'rejects a second row with the same import_id at the database' do
+      import = instance_double(Import, id: 880_003)
+      first = described_class.record_batch(account: account, accts: ['bob'], import: import)
+
+      expect {
+        FollowImportBatch.insert!({
+          subject_id: first.subject_id,
+          import_id: import.id,
+          imported_at: Time.now.utc,
+          mode: 0,
+          target_count: 0,
+          resolved_target_count: 0,
+          unresolved_target_count: 0,
+          migration_evidence: 0,
+          metadata: {},
+          created_at: Time.now.utc,
+          updated_at: Time.now.utc,
+        })
+      }.to raise_error(ActiveRecord::RecordNotUnique)
     end
 
     it 'returns the existing batch when a uniqueness race loses the insert' do
@@ -72,6 +94,7 @@ RSpec.describe Moderation::FollowImportRecorder, type: :service do
       first = described_class.record_batch(account: account, accts: ['bob'], import: import)
       lookups = 0
 
+      # Simulate the race window: the pre-insert lookup misses the committed row.
       allow(FollowImportBatch).to receive(:find_by).and_wrap_original do |method, *args|
         attrs = args.first
         if attrs.is_a?(Hash) && attrs[:import_id] == import.id
@@ -81,10 +104,18 @@ RSpec.describe Moderation::FollowImportRecorder, type: :service do
           method.call(*args)
         end
       end
-      allow(FollowImportBatch).to receive(:create!).and_raise(ActiveRecord::RecordNotUnique, 'index_follow_import_batches_on_import_id')
+
+      # Sequential specs see the committed row in the uniqueness validator; a
+      # real race under READ COMMITTED would not. Skip validations so the
+      # INSERT hits the unique index on import_id.
+      allow_any_instance_of(FollowImportBatch).to receive(:valid?).and_return(true)
+      expect(FollowImportBatch).to receive(:create!).and_call_original
 
       raced = described_class.new.record_batch(account: account, accts: ['bob'], import: import)
+
       expect(raced.id).to eq first.id
+      expect(FollowImportBatch.where(import_id: import.id).count).to eq 1
+      expect(lookups).to be >= 1
     end
   end
 end
