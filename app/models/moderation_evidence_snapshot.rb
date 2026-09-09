@@ -19,8 +19,10 @@
 # be reviewed later even after the underlying records are gone, and provides a
 # baseline for comparing behaviour after a suspension.
 #
-# +summary+ holds scalar counts; +fingerprint+ holds sets such as the negative
-# target set. +schema_version+ tracks the shape of those payloads.
+# +summary+ holds scalar counts; +fingerprint+ holds sets such as the linked
+# negative-target set (preceding-contact association) and the weaker
+# same-window correlation set. +schema_version+ tracks the shape of those
+# payloads.
 class ModerationEvidenceSnapshot < ApplicationRecord
   self.table_name = 'moderation_evidence_snapshots'
 
@@ -30,13 +32,16 @@ class ModerationEvidenceSnapshot < ApplicationRecord
 
   validates :schema_version, numericality: { only_integer: true, greater_than: 0 }
 
-  def negative_target_subject_ids
-    Array(fingerprint['negative_target_subject_ids'])
+  # Strong temporal/linked association via preceding_interaction_event_id.
+  # Not proof that the rejection was caused by that contact.
+  def linked_negative_target_subject_ids
+    Array(fingerprint['linked_negative_target_subject_ids'].presence || fingerprint['negative_target_subject_ids'])
   end
 
-  # Same-window overlap without a proven contact→rejection order. Must not be
-  # treated as a causal negative-target set.
+  # Same-window overlap without a preceding-contact link. Must not be treated
+  # as a linked negative-target set.
   def correlated_negative_target_subject_ids
     Array(fingerprint['correlated_negative_target_subject_ids'])
   end
 end
+

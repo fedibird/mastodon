@@ -1,6 +1,6 @@
 require 'rails_helper'
 
-RSpec.describe Moderation::Causality do
+RSpec.describe Moderation::PrecedingContactLink do
   let(:actor_subject)    { Fabricate(:moderation_subject) }
   let(:target_subject)   { Fabricate(:moderation_subject) }
   let(:contacted_at)     { Time.utc(2026, 1, 1, 10, 0, 0) }
@@ -23,17 +23,17 @@ RSpec.describe Moderation::Causality do
     )
   end
 
-  describe '.valid_link?' do
+  describe '.strong_association?' do
     it 'is true when the rejection follows the matching contact within the window' do
-      expect(described_class.valid_link?(interaction, rejection(occurred_at: contacted_at + 1.hour))).to be true
+      expect(described_class.strong_association?(interaction, rejection(occurred_at: contacted_at + 1.hour))).to be true
     end
 
     it 'is false when the rejection occurs before the contact' do
-      expect(described_class.valid_link?(interaction, rejection(occurred_at: contacted_at - 1.hour, preceding: nil))).to be false
+      expect(described_class.strong_association?(interaction, rejection(occurred_at: contacted_at - 1.hour, preceding: nil))).to be false
     end
 
     it 'is false when the elapsed time exceeds MAX_WINDOW' do
-      expect(described_class.valid_link?(interaction, rejection(occurred_at: contacted_at + described_class::MAX_WINDOW + 1.second))).to be false
+      expect(described_class.strong_association?(interaction, rejection(occurred_at: contacted_at + described_class::MAX_WINDOW + 1.second))).to be false
     end
 
     it 'is false when the interaction pair is reversed' do
@@ -43,11 +43,11 @@ RSpec.describe Moderation::Causality do
         target_subject: actor_subject,
         occurred_at: contacted_at
       )
-      expect(described_class.valid_link?(reversed, rejection(occurred_at: contacted_at + 1.minute, preceding: reversed))).to be false
+      expect(described_class.strong_association?(reversed, rejection(occurred_at: contacted_at + 1.minute, preceding: reversed))).to be false
     end
 
     it 'is false without a preceding interaction' do
-      expect(described_class.valid_link?(nil, rejection(occurred_at: contacted_at + 1.minute, preceding: nil))).to be false
+      expect(described_class.strong_association?(nil, rejection(occurred_at: contacted_at + 1.minute, preceding: nil))).to be false
     end
   end
 

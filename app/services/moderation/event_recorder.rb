@@ -72,7 +72,8 @@ module Moderation
 
     # Record a negative signal (rejector -> rejected). When the caller does
     # not supply a preceding interaction, the nearest earlier contact from
-    # rejected → rejector within the causal window is linked automatically.
+    # rejected → rejector within the association window is linked automatically.
+    # The link is a strong temporal association, not a causal proof.
     def record_rejection(rejector:, rejected:, event_type:, preceding_interaction: nil, occurred_at: nil, observed_at: nil, metadata: {}, source_record: nil, source_event_key: nil)
       observed_at ||= Time.now.utc
       occurred_at ||= observed_at
@@ -110,7 +111,7 @@ module Moderation
     private
 
     def resolve_preceding_interaction(explicit:, rejected_subject:, rejector_subject:, occurred_at:)
-      if Moderation::Causality.valid_pair?(
+      if Moderation::PrecedingContactLink.valid_pair?(
         explicit,
         rejected_subject_id: rejected_subject.id,
         rejector_subject_id: rejector_subject.id,
@@ -119,7 +120,7 @@ module Moderation
         return explicit
       end
 
-      Moderation::Causality.find_preceding_interaction(
+      Moderation::PrecedingContactLink.find_preceding_interaction(
         rejected_subject: rejected_subject,
         rejector_subject: rejector_subject,
         occurred_at: occurred_at

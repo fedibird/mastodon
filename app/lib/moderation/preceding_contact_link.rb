@@ -1,24 +1,27 @@
 # frozen_string_literal: true
 
-# Causality rules for linking a rejection to the contact it responded to.
+# Rules for a *preceding-contact link* between a rejection and an earlier
+# contact. This is a strong temporal/linked association, not proof that the
+# rejection was caused by that interaction.
 #
 # Same-window overlap of "A contacted B" and "B rejected A" is not enough to
-# treat B as a negative target. A rejection is causally linked only when:
+# treat B as a linked negative target. A preceding-contact link is recorded
+# only when:
 #
-#   * it occurred at or after the candidate interaction;
+#   * the rejection occurred at or after the candidate interaction;
 #   * the interaction is A → B and the rejection is B → A;
 #   * the elapsed time is within MAX_WINDOW.
 #
 # Preferred evidence is +preceding_interaction_event_id+ (populated by
 # Moderation::EventRecorder). Unlinked same-window overlap is retained as a
-# weaker correlation and must not be stored in +negative_target_subject_ids+.
+# weaker correlation and must not be stored in +linked_negative_target_subject_ids+.
 module Moderation
-  module Causality
+  module PrecedingContactLink
     MAX_WINDOW = 14.days
 
     module_function
 
-    def valid_link?(interaction, rejection)
+    def strong_association?(interaction, rejection)
       return false if rejection.nil?
 
       valid_pair?(

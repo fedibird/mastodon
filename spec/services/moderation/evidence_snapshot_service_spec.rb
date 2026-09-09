@@ -11,12 +11,12 @@ RSpec.describe Moderation::EvidenceSnapshotService, type: :service do
     ModerationSubject.find_by(account_id: account.id)
   end
 
-  it 'summarises interactions/rejections and captures the causal negative target set' do
+  it 'summarises interactions/rejections and captures the linked negative target set' do
     Moderation::EventRecorder.record_interaction(actor: actor, target: a, event_type: :mention)
     Moderation::EventRecorder.record_interaction(actor: actor, target: b, event_type: :follow)
     Moderation::EventRecorder.record_interaction(actor: actor, target: c, event_type: :mention)
 
-    # a and b were contacted and then rejected the actor -> strong negative targets.
+    # a and b were contacted and then rejected the actor -> linked negative targets.
     Moderation::EventRecorder.record_rejection(rejector: a, rejected: actor, event_type: :block)
     Moderation::EventRecorder.record_rejection(rejector: b, rejected: actor, event_type: :report)
     # d rejected the actor but was never contacted -> responder, not a target.
@@ -29,10 +29,10 @@ RSpec.describe Moderation::EvidenceSnapshotService, type: :service do
     expect(snapshot.summary['blocks_received']).to eq 2
     expect(snapshot.summary['reports_received']).to eq 1
     expect(snapshot.summary['negative_responders']).to eq 3
-    expect(snapshot.summary['negative_target_count']).to eq 2
+    expect(snapshot.summary['linked_negative_target_count']).to eq 2
     expect(snapshot.summary['correlated_negative_target_count']).to eq 0
 
-    expect(snapshot.negative_target_subject_ids).to match_array([subject_for(a).id, subject_for(b).id])
+    expect(snapshot.linked_negative_target_subject_ids).to match_array([subject_for(a).id, subject_for(b).id])
     expect(snapshot.correlated_negative_target_subject_ids).to be_empty
 
     expect(snapshot.schema_version).to eq described_class::SCHEMA_VERSION
@@ -40,10 +40,11 @@ RSpec.describe Moderation::EvidenceSnapshotService, type: :service do
     expect(snapshot.window_start).to be_present
     expect(snapshot.fingerprint['coverage']).to eq described_class::INBOUND_ACTIVITYPUB_COVERAGE
     expect(snapshot.fingerprint.dig('coverage', 'complete_for_remote_subjects')).to be false
+    expect(snapshot.fingerprint.dig('coverage', 'inbound_activitypub')).to eq 'deferred'
   end
 
-  it 'does not put unordered same-window overlap into negative_target_subject_ids' do
-    # B rejects A first, then A contacts B — same snapshot window, no causality.
+  it 'does not put unordered same-window overlap into linked_negative_target_subject_ids' do
+    # B rejects A first, then A contacts B — same snapshot window, no preceding-contact link.
     Moderation::EventRecorder.record_rejection(rejector: a, rejected: actor, event_type: :block, occurred_at: 2.hours.ago)
     Moderation::EventRecorder.record_interaction(actor: actor, target: a, event_type: :mention, occurred_at: 1.hour.ago)
 
@@ -51,13 +52,13 @@ RSpec.describe Moderation::EvidenceSnapshotService, type: :service do
 
     expect(snapshot.summary['interactions_count']).to eq 1
     expect(snapshot.summary['blocks_received']).to eq 1
-    expect(snapshot.summary['negative_target_count']).to eq 0
-    expect(snapshot.negative_target_subject_ids).to be_empty
+    expect(snapshot.summary['linked_negative_target_count']).to eq 0
+    expect(snapshot.linked_negative_target_subject_ids).to be_empty
     expect(snapshot.summary['correlated_negative_target_count']).to eq 1
     expect(snapshot.correlated_negative_target_subject_ids).to eq [subject_for(a).id]
   end
 
-  it 'treats an unlinked same-window pair as a weak correlation, not a causal target' do
+  it 'treats an unlinked same-window pair as a weak correlation, not a linked target' do
     actor_subject = ModerationSubject.for_account!(actor)
     a_subject     = ModerationSubject.for_account!(a)
 
@@ -79,7 +80,7 @@ RSpec.describe Moderation::EvidenceSnapshotService, type: :service do
 
     snapshot = described_class.new.call(actor)
 
-    expect(snapshot.negative_target_subject_ids).to be_empty
+    expect(snapshot.linked_negative_target_subject_ids).to be_empty
     expect(snapshot.correlated_negative_target_subject_ids).to eq [a_subject.id]
   end
 
