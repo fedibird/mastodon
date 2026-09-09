@@ -53,5 +53,14 @@ RSpec.describe 'ModerationSubject retention', type: :model do
       expect(ModerationSubject.expired).to include(expired)
       expect(ModerationSubject.expired).to_not include(future)
     end
+
+    it 'retained matches live subjects and tombstones that have not reached eligibility' do
+      live    = Fabricate(:moderation_subject)
+      future  = Fabricate(:moderation_subject, deleted_at: 2.days.ago, retention_until: 1.day.from_now)
+      expired = Fabricate(:moderation_subject, deleted_at: 2.days.ago, retention_until: 1.day.ago)
+
+      expect(ModerationSubject.retained).to include(live, future)
+      expect(ModerationSubject.retained).to_not include(expired)
+    end
   end
 end

@@ -63,5 +63,40 @@ RSpec.describe Scheduler::ModerationLedgerRetentionScheduler do
         expect(ModerationSubject.exists?(expired.id)).to be true
       end
     end
+
+    # Counterpart FKs are ON DELETE SET NULL. SQL `WHERE column NOT IN (...)`
+    # does not match NULL, so cleanup must treat a nullified side as "not
+    # retained" and delete the event once no retained participant remains.
+    it 'deletes an event after one participant is nullified once no retained participant remains' do
+      ClimateControl.modify MODERATION_LEDGER_RETENTION_DAYS: '30' do
+        retained = Fabricate(:moderation_subject)
+        expired  = Fabricate(:moderation_subject, deleted_at: 40.days.ago, retention_until: 10.days.ago)
+        event = Fabricate(:moderation_interaction_event, actor_subject: retained, target_subject: expired)
+        rejection = Fabricate(:moderation_rejection_event, rejector_subject: expired, rejected_subject: retained)
+
+        event.update_columns(target_subject_id: nil)
+        rejection.update_columns(rejector_subject_id: nil)
+
+        expect { subject.perform }.to_not change { ModerationInteractionEvent.exists?(event.id) }.from(true)
+        expect(ModerationRejectionEvent.exists?(rejection.id)).to be true
+        expect(ModerationSubject.exists?(retained.id)).to be true
+        expect(ModerationSubject.exists?(expired.id)).to be false
+
+        retained.update!(deleted_at: 40.days.ago, retention_until: 10.days.ago)
+
+        expect { subject.perform }.to change { ModerationInteractionEvent.exists?(event.id) }.from(true).to(false)
+        expect(ModerationRejectionEvent.exists?(rejection.id)).to be false
+        expect(ModerationSubject.exists?(retained.id)).to be false
+      end
+    end
+
+    it 'deletes events whose remaining participants are all NULL' do
+      ClimateControl.modify MODERATION_LEDGER_RETENTION_DAYS: '30' do
+        event = Fabricate(:moderation_interaction_event)
+        event.update_columns(actor_subject_id: nil, target_subject_id: nil)
+
+        expect { subject.perform }.to change { ModerationInteractionEvent.exists?(event.id) }.from(true).to(false)
+      end
+    end
   end
 end

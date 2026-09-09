@@ -2,6 +2,9 @@ require 'rails_helper'
 
 # Regression for the shared-evidence retention bug: expiring B must not erase
 # A→B contacts or B→A rejections while A is still retained.
+#
+# +retention_until+ is eligibility, not a hard deadline: B stays past that
+# timestamp while A's evidence still names B.
 RSpec.describe 'Moderation shared evidence retention', type: :model do
   it 'keeps A\'s contact and rejection evidence after B tombstones and expires' do
     ClimateControl.modify MODERATION_LEDGER_RETENTION_DAYS: '30' do

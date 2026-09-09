@@ -11,6 +11,16 @@
 #      deleted only when no remaining event references it (held otherwise so
 #      a retained counterpart's evidence stays internally consistent).
 #
+# +retention_until+ / MODERATION_LEDGER_RETENTION_DAYS is the earliest
+# eligibility time for a tombstoned subject — not a hard deletion deadline.
+# An expired subject (and the events it shares) may be held past that date
+# while a retained counterpart still needs the row.
+#
+# Evaluation stays in SQL (EXISTS / IN subqueries). Retained subject ids are
+# never loaded into Ruby. NULL participant FKs (ON DELETE SET NULL) are
+# treated as "not retained", so an event becomes deletable once every
+# remaining participant is expired or null.
+#
 # Counterpart subject FKs are ON DELETE SET NULL as a safety net; this
 # scheduler should not need that path when it holds referenced subjects.
 #
@@ -44,34 +54,25 @@ class Scheduler::ModerationLedgerRetentionScheduler
   def expire_tombstoned!(now)
     return 0 unless Moderation::RetentionPolicy.enabled?
 
-    expired_ids = ModerationSubject.expired(now).pluck(:id)
-    return 0 if expired_ids.empty?
-    return expired_ids.size if dry_run?
+    deletable_subjects = Moderation::RetentionCleanup.expired_subjects_without_retained_evidence(now)
+    return deletable_subjects.count if dry_run?
 
-    delete_events_without_retained_participant!(expired_ids)
-    deletable_ids = expired_ids - subject_ids_still_referenced(expired_ids)
-    return 0 if deletable_ids.empty?
+    delete_events_without_retained_participant!(now)
 
-    ModerationSubject.where(id: deletable_ids).in_batches.delete_all
-    deletable_ids.size
+    count = deletable_subjects.count
+    return 0 if count.zero?
+
+    deletable_subjects.in_batches.delete_all
+    count
   end
 
-  # Drop events whose every participant is expired (or already null). Events
-  # that still name a retained subject are left intact.
-  def delete_events_without_retained_participant!(expired_ids)
-    retained_ids = ModerationSubject.where.not(id: expired_ids).pluck(:id)
-
-    ModerationInteractionEvent.where.not(actor_subject_id: retained_ids).where.not(target_subject_id: retained_ids).in_batches.delete_all
-    ModerationRejectionEvent.where.not(rejector_subject_id: retained_ids).where.not(rejected_subject_id: retained_ids).in_batches.delete_all
-  end
-
-  def subject_ids_still_referenced(expired_ids)
-    (
-      ModerationInteractionEvent.where(actor_subject_id: expired_ids).distinct.pluck(:actor_subject_id) +
-      ModerationInteractionEvent.where(target_subject_id: expired_ids).distinct.pluck(:target_subject_id) +
-      ModerationRejectionEvent.where(rejector_subject_id: expired_ids).distinct.pluck(:rejector_subject_id) +
-      ModerationRejectionEvent.where(rejected_subject_id: expired_ids).distinct.pluck(:rejected_subject_id)
-    ).compact.uniq
+  def delete_events_without_retained_participant!(now)
+    Moderation::RetentionCleanup
+      .events_without_retained_participant(ModerationInteractionEvent, :actor_subject_id, :target_subject_id, now)
+      .in_batches.delete_all
+    Moderation::RetentionCleanup
+      .events_without_retained_participant(ModerationRejectionEvent, :rejector_subject_id, :rejected_subject_id, now)
+      .in_batches.delete_all
   end
 
   def dry_run?

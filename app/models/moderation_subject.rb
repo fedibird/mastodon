@@ -58,7 +58,13 @@ class ModerationSubject < ApplicationRecord
   # Detached from their account (FK nullified on account deletion) but not yet
   # tombstoned — e.g. deleted through a path that bypassed the service hook.
   scope :orphaned, -> { where(account_id: nil, deleted_at: nil) }
-  # Tombstoned subjects whose retention window has elapsed.
+  # Subjects that still justify keeping shared events: never-tombstoned rows
+  # and tombstones whose +retention_until+ has not elapsed (or is nil because
+  # expiry is disabled).
+  scope :retained, ->(now = Time.now.utc) { where('retention_until IS NULL OR retention_until > ?', now) }
+  # Tombstoned subjects past +retention_until+. This is eligibility only —
+  # the scheduler may still hold the row while a retained counterpart needs
+  # shared evidence. Do not treat this as "the subject has been deleted".
   scope :expired, ->(now = Time.now.utc) { where.not(retention_until: nil).where('retention_until <= ?', now) }
 
   # Resolve (or create) the subject that represents +account+, keeping the
