@@ -161,13 +161,25 @@ RSpec.describe 'Moderation interaction hooks', type: :service do
     end
 
     it 'does not record a duplicate event when create loses a uniqueness race' do
-      status = Fabricate(:status, account: bob)
+      status   = Fabricate(:status, account: bob)
       existing = EmojiReaction.create!(account: alice, status: status, name: '👍')
+      attrs    = { account_id: alice.id, status_id: status.id, name: '👍' }
 
-      allow(EmojiReaction).to receive(:create!).and_raise(ActiveRecord::RecordNotUnique, 'index_emoji_reactions_on_account_id_and_status_id')
+      # Genuinely drive the race-loser path: the initial lookup misses, the
+      # concurrent insert loses (RecordNotUnique), and the re-read returns the
+      # winner. The loser must not be counted as a new reaction.
+      allow(EmojiReaction).to receive(:find_by).and_call_original
+      allow(EmojiReaction).to receive(:find_by).with(attrs).and_return(nil)
+      allow(EmojiReaction).to receive(:find_by!).and_call_original
+      allow(EmojiReaction).to receive(:find_by!).with(attrs).and_return(existing)
+      allow(EmojiReaction).to receive(:create!).and_raise(ActiveRecord::RecordNotUnique, 'duplicate key value violates unique constraint "index_emoji_reactions_on_account_id_and_status_id"')
 
       expect { EmojiReactionService.new.call(alice, status, '👍') }.to_not change(ModerationInteractionEvent, :count)
-      expect(EmojiReaction.find_by(account: alice, status: status, name: '👍')).to eq existing
+
+      # Prove the rescue path actually executed (create! attempted, re-read used).
+      expect(EmojiReaction).to have_received(:create!)
+      expect(EmojiReaction).to have_received(:find_by!).with(attrs)
+      expect(EmojiReaction.where(attrs).count).to eq 1
     end
   end
 
