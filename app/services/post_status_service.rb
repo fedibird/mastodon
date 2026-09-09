@@ -51,6 +51,7 @@ class PostStatusService < BaseService
       process_status!
       postprocess_status!
       bump_potential_friendship!
+      record_moderation_quote!
     end
 
     redis.setex(idempotency_key, 3_600, @status.id) if idempotency_given?
@@ -64,6 +65,22 @@ class PostStatusService < BaseService
 
   def create_notification!
     NotifyService.new.call(@status.account, :scheduled_status, @status) if @options[:notify] && @status.account.local?
+  end
+
+  # Record a quote of another account's status as an interaction signal.
+  def record_moderation_quote!
+    return if @status.nil? || @status.quote_id.blank?
+
+    quoted = @status.quote
+    return if quoted.nil?
+
+    Moderation::EventRecorder.record_interaction(
+      actor: @account,
+      target: quoted.account,
+      event_type: :quote,
+      status: @status,
+      source_record: quoted
+    )
   end
 
   def status_from_uri(uri)
