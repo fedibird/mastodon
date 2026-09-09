@@ -6,6 +6,13 @@ class MuteService < BaseService
 
     mute = account.mute!(target_account, notifications: notifications, duration: duration)
 
+    Moderation::EventRecorder.record_rejection(
+      rejector: account,
+      rejected: target_account,
+      event_type: :mute,
+      metadata: { hide_notifications: mute.hide_notifications? }
+    )
+
     if mute.hide_notifications?
       BlockWorker.perform_async(account.id, target_account.id)
     else
