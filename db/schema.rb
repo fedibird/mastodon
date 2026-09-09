@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_08_230003) do
+ActiveRecord::Schema.define(version: 2026_09_09_070002) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -745,6 +745,34 @@ ActiveRecord::Schema.define(version: 2026_09_08_230003) do
     t.index ["status_id"], name: "index_mentions_on_status_id"
   end
 
+  create_table "moderation_actions", force: :cascade do |t|
+    t.bigint "subject_id", null: false
+    t.integer "action_type", null: false
+    t.datetime "performed_at", null: false
+    t.bigint "moderator_account_id"
+    t.string "reason_code"
+    t.bigint "evidence_snapshot_id"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["action_type", "performed_at"], name: "index_moderation_actions_on_type_and_performed"
+    t.index ["evidence_snapshot_id"], name: "index_moderation_actions_on_evidence_snapshot", where: "(evidence_snapshot_id IS NOT NULL)"
+    t.index ["moderator_account_id"], name: "index_moderation_actions_on_moderator", where: "(moderator_account_id IS NOT NULL)"
+    t.index ["subject_id", "performed_at"], name: "index_moderation_actions_on_subject_and_performed"
+  end
+
+  create_table "moderation_evidence_snapshots", force: :cascade do |t|
+    t.bigint "subject_id", null: false
+    t.datetime "window_start"
+    t.datetime "window_end"
+    t.jsonb "summary", default: {}, null: false
+    t.jsonb "fingerprint", default: {}, null: false
+    t.integer "schema_version", default: 1, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["subject_id", "created_at"], name: "index_mod_evidence_snapshots_on_subject_and_created"
+  end
+
   create_table "moderation_interaction_events", force: :cascade do |t|
     t.bigint "actor_subject_id", null: false
     t.bigint "target_subject_id", null: false
@@ -1401,6 +1429,10 @@ ActiveRecord::Schema.define(version: 2026_09_08_230003) do
   add_foreign_key "media_attachments", "statuses", on_delete: :nullify
   add_foreign_key "mentions", "accounts", name: "fk_970d43f9d1", on_delete: :cascade
   add_foreign_key "mentions", "statuses", on_delete: :cascade
+  add_foreign_key "moderation_actions", "accounts", column: "moderator_account_id", on_delete: :nullify
+  add_foreign_key "moderation_actions", "moderation_evidence_snapshots", column: "evidence_snapshot_id", on_delete: :nullify
+  add_foreign_key "moderation_actions", "moderation_subjects", column: "subject_id", on_delete: :cascade
+  add_foreign_key "moderation_evidence_snapshots", "moderation_subjects", column: "subject_id", on_delete: :cascade
   add_foreign_key "moderation_interaction_events", "moderation_subjects", column: "actor_subject_id", on_delete: :cascade
   add_foreign_key "moderation_interaction_events", "moderation_subjects", column: "target_subject_id", on_delete: :cascade
   add_foreign_key "moderation_rejection_events", "moderation_interaction_events", column: "preceding_interaction_event_id", on_delete: :nullify
