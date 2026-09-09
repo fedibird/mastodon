@@ -33,22 +33,22 @@ class ModerationSubject < ApplicationRecord
            class_name: 'ModerationInteractionEvent',
            foreign_key: :actor_subject_id,
            inverse_of: :actor_subject,
-           dependent: :destroy
+           dependent: :nullify
   has_many :target_interaction_events,
            class_name: 'ModerationInteractionEvent',
            foreign_key: :target_subject_id,
            inverse_of: :target_subject,
-           dependent: :destroy
+           dependent: :nullify
   has_many :rejections_made,
            class_name: 'ModerationRejectionEvent',
            foreign_key: :rejector_subject_id,
            inverse_of: :rejector_subject,
-           dependent: :destroy
+           dependent: :nullify
   has_many :rejections_received,
            class_name: 'ModerationRejectionEvent',
            foreign_key: :rejected_subject_id,
            inverse_of: :rejected_subject,
-           dependent: :destroy
+           dependent: :nullify
 
   validates :origin, presence: true
   validates :first_seen_at, :last_seen_at, presence: true

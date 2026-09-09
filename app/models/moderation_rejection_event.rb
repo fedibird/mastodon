@@ -5,8 +5,8 @@
 # Table name: moderation_rejection_events
 #
 #  id                             :bigint(8)        not null, primary key
-#  rejector_subject_id            :bigint(8)        not null
-#  rejected_subject_id            :bigint(8)        not null
+#  rejector_subject_id            :bigint(8)
+#  rejected_subject_id            :bigint(8)
 #  event_type                     :integer          not null
 #  preceding_interaction_event_id :bigint(8)
 #  occurred_at                    :datetime         not null
@@ -34,8 +34,8 @@ class ModerationRejectionEvent < ApplicationRecord
     report: 5,
   }, _suffix: :event
 
-  belongs_to :rejector_subject, class_name: 'ModerationSubject', inverse_of: :rejections_made
-  belongs_to :rejected_subject, class_name: 'ModerationSubject', inverse_of: :rejections_received
+  belongs_to :rejector_subject, class_name: 'ModerationSubject', inverse_of: :rejections_made, optional: true
+  belongs_to :rejected_subject, class_name: 'ModerationSubject', inverse_of: :rejections_received, optional: true
   belongs_to :preceding_interaction_event, class_name: 'ModerationInteractionEvent', optional: true, inverse_of: :caused_rejections
 
   validates :event_type, presence: true

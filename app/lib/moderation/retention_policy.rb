@@ -5,9 +5,10 @@
 # can tune it after privacy/legal review.
 #
 # A tombstoned subject (its account was deleted/purged) is kept until
-# +retention_until+, after which the retention cleanup scheduler removes it and,
-# via foreign keys, its recorded events. A non-positive value disables
-# expiry (records are kept indefinitely).
+# +retention_until+. The scheduler then expires it only when no shared
+# event still involves a retained counterpart — so one participant's
+# expiry cannot erase another subject's evidence. A non-positive value
+# disables expiry (records are kept indefinitely).
 module Moderation
   module RetentionPolicy
     DEFAULT_RETENTION_DAYS = 365
