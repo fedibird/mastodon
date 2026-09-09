@@ -55,5 +55,36 @@ RSpec.describe Moderation::FollowImportRecorder, type: :service do
       allow(Rails.logger).to receive(:warn)
       expect(described_class.record_batch(account: nil, accts: ['bob'])).to be_nil
     end
+
+    it 'does not create a second batch when the same import is retried' do
+      import = instance_double(Import, id: 880_001)
+
+      first = described_class.record_batch(account: account, accts: ['bob', 'eve@example.com'], import: import, mode: :merge)
+      second = described_class.record_batch(account: account, accts: ['bob', 'eve@example.com'], import: import, mode: :merge)
+
+      expect(FollowImportBatch.where(import_id: import.id).count).to eq 1
+      expect(second.id).to eq first.id
+      expect(FollowImportTarget.where(batch_id: first.id).count).to eq 2
+    end
+
+    it 'returns the existing batch when a uniqueness race loses the insert' do
+      import = instance_double(Import, id: 880_002)
+      first = described_class.record_batch(account: account, accts: ['bob'], import: import)
+      lookups = 0
+
+      allow(FollowImportBatch).to receive(:find_by).and_wrap_original do |method, *args|
+        attrs = args.first
+        if attrs.is_a?(Hash) && attrs[:import_id] == import.id
+          lookups += 1
+          lookups == 1 ? nil : method.call(*args)
+        else
+          method.call(*args)
+        end
+      end
+      allow(FollowImportBatch).to receive(:create!).and_raise(ActiveRecord::RecordNotUnique, 'index_follow_import_batches_on_import_id')
+
+      raced = described_class.new.record_batch(account: account, accts: ['bob'], import: import)
+      expect(raced.id).to eq first.id
+    end
   end
 end

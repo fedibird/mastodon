@@ -22,6 +22,13 @@ module Moderation
 
     def record_batch(account:, accts:, import: nil, mode: nil, imported_at: nil)
       imported_at ||= Time.now.utc
+
+      # Sidekiq retries the same Import row; import_id is the idempotency key.
+      if import&.id
+        existing = FollowImportBatch.find_by(import_id: import.id)
+        return existing if existing
+      end
+
       subject = ModerationSubject.for_account!(account, observed_at: imported_at)
 
       resolved_count   = 0
@@ -70,6 +77,10 @@ module Moderation
       end
 
       batch
+    rescue ActiveRecord::RecordNotUnique
+      raise if import&.id.blank?
+
+      FollowImportBatch.find_by!(import_id: import.id)
     end
 
     private

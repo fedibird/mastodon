@@ -23,4 +23,10 @@ RSpec.describe 'Follow import moderation hook', type: :service do
     expect(batch.targets.count).to eq 2
     expect(batch.targets.filter_map { |t| t.target_subject&.account_id }).to match_array([bob.id, eve.id])
   end
+
+  it 'does not create a second logical batch when the same import job is retried' do
+    expect { ImportService.new.call(import) }.to change(FollowImportBatch, :count).by(1)
+    expect { ImportService.new.call(import) }.to_not change(FollowImportBatch, :count)
+    expect(FollowImportBatch.where(import_id: import.id).count).to eq 1
+  end
 end
