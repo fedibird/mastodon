@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2025_06_09_183534) do
+ActiveRecord::Schema.define(version: 2026_09_08_230003) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -745,6 +745,59 @@ ActiveRecord::Schema.define(version: 2025_06_09_183534) do
     t.index ["status_id"], name: "index_mentions_on_status_id"
   end
 
+  create_table "moderation_interaction_events", force: :cascade do |t|
+    t.bigint "actor_subject_id", null: false
+    t.bigint "target_subject_id", null: false
+    t.integer "event_type", null: false
+    t.bigint "status_id"
+    t.string "source_record_type"
+    t.bigint "source_record_id"
+    t.bigint "import_batch_id"
+    t.datetime "occurred_at", null: false
+    t.datetime "observed_at", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["actor_subject_id", "occurred_at"], name: "index_mod_interaction_events_on_actor_and_occurred"
+    t.index ["actor_subject_id", "target_subject_id", "occurred_at"], name: "index_mod_interaction_events_on_actor_target_occurred"
+    t.index ["event_type", "occurred_at"], name: "index_mod_interaction_events_on_type_and_occurred"
+    t.index ["target_subject_id", "occurred_at"], name: "index_mod_interaction_events_on_target_and_occurred"
+  end
+
+  create_table "moderation_rejection_events", force: :cascade do |t|
+    t.bigint "rejector_subject_id", null: false
+    t.bigint "rejected_subject_id", null: false
+    t.integer "event_type", null: false
+    t.bigint "preceding_interaction_event_id"
+    t.datetime "occurred_at", null: false
+    t.datetime "observed_at", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["event_type", "occurred_at"], name: "index_mod_rejection_events_on_type_and_occurred"
+    t.index ["preceding_interaction_event_id"], name: "index_mod_rejection_events_on_preceding_event", where: "(preceding_interaction_event_id IS NOT NULL)"
+    t.index ["rejected_subject_id", "occurred_at"], name: "index_mod_rejection_events_on_rejected_and_occurred"
+    t.index ["rejected_subject_id", "rejector_subject_id", "occurred_at"], name: "index_mod_rejection_events_on_rejected_rejector_occurred"
+    t.index ["rejector_subject_id", "occurred_at"], name: "index_mod_rejection_events_on_rejector_and_occurred"
+  end
+
+  create_table "moderation_subjects", force: :cascade do |t|
+    t.bigint "account_id"
+    t.integer "origin", default: 0, null: false
+    t.string "domain"
+    t.string "actor_uri_hash"
+    t.datetime "first_seen_at", null: false
+    t.datetime "last_seen_at", null: false
+    t.datetime "deleted_at"
+    t.datetime "retention_until"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["account_id"], name: "index_moderation_subjects_on_account_id", unique: true, where: "(account_id IS NOT NULL)"
+    t.index ["actor_uri_hash"], name: "index_moderation_subjects_on_actor_uri_hash", where: "(actor_uri_hash IS NOT NULL)"
+    t.index ["deleted_at"], name: "index_moderation_subjects_on_deleted_at"
+    t.index ["retention_until"], name: "index_moderation_subjects_on_retention_until"
+  end
+
   create_table "mutes", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
@@ -1348,6 +1401,12 @@ ActiveRecord::Schema.define(version: 2025_06_09_183534) do
   add_foreign_key "media_attachments", "statuses", on_delete: :nullify
   add_foreign_key "mentions", "accounts", name: "fk_970d43f9d1", on_delete: :cascade
   add_foreign_key "mentions", "statuses", on_delete: :cascade
+  add_foreign_key "moderation_interaction_events", "moderation_subjects", column: "actor_subject_id", on_delete: :cascade
+  add_foreign_key "moderation_interaction_events", "moderation_subjects", column: "target_subject_id", on_delete: :cascade
+  add_foreign_key "moderation_rejection_events", "moderation_interaction_events", column: "preceding_interaction_event_id", on_delete: :nullify
+  add_foreign_key "moderation_rejection_events", "moderation_subjects", column: "rejected_subject_id", on_delete: :cascade
+  add_foreign_key "moderation_rejection_events", "moderation_subjects", column: "rejector_subject_id", on_delete: :cascade
+  add_foreign_key "moderation_subjects", "accounts", on_delete: :nullify
   add_foreign_key "mutes", "accounts", column: "target_account_id", name: "fk_eecff219ea", on_delete: :cascade
   add_foreign_key "mutes", "accounts", name: "fk_b8d8daf315", on_delete: :cascade
   add_foreign_key "notifications", "accounts", column: "from_account_id", name: "fk_fbd6b0bf9e", on_delete: :cascade
