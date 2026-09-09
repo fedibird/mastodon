@@ -49,6 +49,16 @@ class ModerationSubject < ApplicationRecord
            foreign_key: :rejected_subject_id,
            inverse_of: :rejected_subject,
            dependent: :destroy
+  has_many :evidence_snapshots,
+           class_name: 'ModerationEvidenceSnapshot',
+           foreign_key: :subject_id,
+           inverse_of: :subject,
+           dependent: :destroy
+  has_many :moderation_actions,
+           class_name: 'ModerationAction',
+           foreign_key: :subject_id,
+           inverse_of: :subject,
+           dependent: :destroy
 
   validates :origin, presence: true
   validates :first_seen_at, :last_seen_at, presence: true
