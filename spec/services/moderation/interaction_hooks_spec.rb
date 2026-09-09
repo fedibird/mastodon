@@ -159,6 +159,16 @@ RSpec.describe 'Moderation interaction hooks', type: :service do
 
       expect { EmojiReactionService.new.call(alice, status, '👍') }.to_not change(ModerationInteractionEvent, :count)
     end
+
+    it 'does not record a duplicate event when create loses a uniqueness race' do
+      status = Fabricate(:status, account: bob)
+      existing = EmojiReaction.create!(account: alice, status: status, name: '👍')
+
+      allow(EmojiReaction).to receive(:create!).and_raise(ActiveRecord::RecordNotUnique, 'index_emoji_reactions_on_account_id_and_status_id')
+
+      expect { EmojiReactionService.new.call(alice, status, '👍') }.to_not change(ModerationInteractionEvent, :count)
+      expect(EmojiReaction.find_by(account: alice, status: status, name: '👍')).to eq existing
+    end
   end
 
   describe ProcessStatusReferenceService do
