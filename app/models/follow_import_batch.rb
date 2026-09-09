@@ -36,4 +36,5 @@ class FollowImportBatch < ApplicationRecord
 
   validates :imported_at, presence: true
   validates :target_count, :resolved_target_count, :unresolved_target_count, numericality: { greater_than_or_equal_to: 0 }
+  validates :import_id, uniqueness: { allow_nil: true }
 end
