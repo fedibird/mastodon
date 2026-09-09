@@ -88,6 +88,17 @@ RSpec.describe 'Moderation interaction hooks', type: :service do
       expect(event.event_type).to eq 'block'
       expect(event.rejector_subject.account_id).to eq alice.id
       expect(event.rejected_subject.account_id).to eq bob.id
+      expect(event.source_event_key).to start_with('Block:')
+    end
+
+    it 'links the preceding follow when the blocked account had contacted the blocker' do
+      FollowService.new.call(bob, alice)
+      BlockService.new.call(alice, bob)
+
+      event = last_rejection
+      expect(event.preceding_interaction_event).to be_present
+      expect(event.preceding_interaction_event.event_type).to eq 'follow'
+      expect(event.preceding_interaction_event.actor_subject.account_id).to eq bob.id
     end
   end
 

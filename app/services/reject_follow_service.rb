@@ -9,7 +9,7 @@ class RejectFollowService < BaseService
     create_notification(follow_request) if !source_account.local? && source_account.activitypub?
 
     # source_account is the requester; target_account is the account rejecting.
-    Moderation::EventRecorder.record_rejection(rejector: target_account, rejected: source_account, event_type: :follow_reject)
+    Moderation::EventRecorder.record_rejection(rejector: target_account, rejected: source_account, event_type: :follow_reject, source_record: follow_request)
 
     follow_request
   end

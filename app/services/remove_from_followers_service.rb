@@ -8,7 +8,7 @@ class RemoveFromFollowersService < BaseService
       follower = follow.account
       follow.destroy
 
-      Moderation::EventRecorder.record_rejection(rejector: source_account, rejected: follower, event_type: :remove_follower)
+      Moderation::EventRecorder.record_rejection(rejector: source_account, rejected: follower, event_type: :remove_follower, source_record: follow)
 
       if source_account.local? && !follower.local? && follower.activitypub?
         create_notification(follow)

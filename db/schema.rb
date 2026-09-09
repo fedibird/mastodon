@@ -811,6 +811,7 @@ ActiveRecord::Schema.define(version: 2026_09_09_120001) do
     t.string "source_record_type"
     t.bigint "source_record_id"
     t.bigint "import_batch_id"
+    t.string "source_event_key"
     t.datetime "occurred_at", null: false
     t.datetime "observed_at", null: false
     t.jsonb "metadata", default: {}, null: false
@@ -819,6 +820,7 @@ ActiveRecord::Schema.define(version: 2026_09_09_120001) do
     t.index ["actor_subject_id", "occurred_at"], name: "index_mod_interaction_events_on_actor_and_occurred"
     t.index ["actor_subject_id", "target_subject_id", "occurred_at"], name: "index_mod_interaction_events_on_actor_target_occurred"
     t.index ["event_type", "occurred_at"], name: "index_mod_interaction_events_on_type_and_occurred"
+    t.index ["source_event_key"], name: "index_mod_interaction_events_on_source_event_key", unique: true, where: "(source_event_key IS NOT NULL)"
     t.index ["target_subject_id", "occurred_at"], name: "index_mod_interaction_events_on_target_and_occurred"
   end
 
@@ -827,6 +829,7 @@ ActiveRecord::Schema.define(version: 2026_09_09_120001) do
     t.bigint "rejected_subject_id"
     t.integer "event_type", null: false
     t.bigint "preceding_interaction_event_id"
+    t.string "source_event_key"
     t.datetime "occurred_at", null: false
     t.datetime "observed_at", null: false
     t.jsonb "metadata", default: {}, null: false
@@ -834,6 +837,7 @@ ActiveRecord::Schema.define(version: 2026_09_09_120001) do
     t.datetime "updated_at", precision: 6, null: false
     t.index ["event_type", "occurred_at"], name: "index_mod_rejection_events_on_type_and_occurred"
     t.index ["preceding_interaction_event_id"], name: "index_mod_rejection_events_on_preceding_event", where: "(preceding_interaction_event_id IS NOT NULL)"
+    t.index ["source_event_key"], name: "index_mod_rejection_events_on_source_event_key", unique: true, where: "(source_event_key IS NOT NULL)"
     t.index ["rejected_subject_id", "occurred_at"], name: "index_mod_rejection_events_on_rejected_and_occurred"
     t.index ["rejected_subject_id", "rejector_subject_id", "occurred_at"], name: "index_mod_rejection_events_on_rejected_rejector_occurred"
     t.index ["rejector_subject_id", "occurred_at"], name: "index_mod_rejection_events_on_rejector_and_occurred"

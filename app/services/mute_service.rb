@@ -10,6 +10,7 @@ class MuteService < BaseService
       rejector: account,
       rejected: target_account,
       event_type: :mute,
+      source_record: mute,
       metadata: { hide_notifications: mute.hide_notifications? }
     )
 

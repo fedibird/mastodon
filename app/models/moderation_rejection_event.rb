@@ -9,6 +9,7 @@
 #  rejected_subject_id            :bigint(8)
 #  event_type                     :integer          not null
 #  preceding_interaction_event_id :bigint(8)
+#  source_event_key               :string
 #  occurred_at                    :datetime         not null
 #  observed_at                    :datetime         not null
 #  metadata                       :jsonb            not null

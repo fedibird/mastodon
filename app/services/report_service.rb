@@ -27,6 +27,7 @@ class ReportService < BaseService
       rejector: @source_account,
       rejected: @target_account,
       event_type: :report,
+      source_record: @report,
       metadata: { status_count: @status_ids.size }
     )
   end
