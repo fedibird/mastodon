@@ -13,8 +13,8 @@ RSpec.describe Moderation::RetentionCleanup do
       expect(sql).to include('NOT EXISTS')
       expect(sql).to include('moderation_subjects')
       expect(sql).to include('retention_until')
-      expect(sql).to include('moderation_interaction_events.actor_subject_id')
-      expect(sql).to include('moderation_interaction_events.target_subject_id')
+      expect(sql).to match(/moderation_interaction_events"?\."?actor_subject_id/)
+      expect(sql).to match(/moderation_interaction_events"?\."?target_subject_id/)
       expect(sql).to_not match(/NOT IN \s*\(/i)
     end
 
