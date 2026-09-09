@@ -33,22 +33,22 @@ class ModerationSubject < ApplicationRecord
            class_name: 'ModerationInteractionEvent',
            foreign_key: :actor_subject_id,
            inverse_of: :actor_subject,
-           dependent: :destroy
+           dependent: :nullify
   has_many :target_interaction_events,
            class_name: 'ModerationInteractionEvent',
            foreign_key: :target_subject_id,
            inverse_of: :target_subject,
-           dependent: :destroy
+           dependent: :nullify
   has_many :rejections_made,
            class_name: 'ModerationRejectionEvent',
            foreign_key: :rejector_subject_id,
            inverse_of: :rejector_subject,
-           dependent: :destroy
+           dependent: :nullify
   has_many :rejections_received,
            class_name: 'ModerationRejectionEvent',
            foreign_key: :rejected_subject_id,
            inverse_of: :rejected_subject,
-           dependent: :destroy
+           dependent: :nullify
   has_many :evidence_snapshots,
            class_name: 'ModerationEvidenceSnapshot',
            foreign_key: :subject_id,
@@ -65,6 +65,11 @@ class ModerationSubject < ApplicationRecord
 
   scope :active, -> { where(deleted_at: nil) }
   scope :tombstoned, -> { where.not(deleted_at: nil) }
+  # Detached from their account (FK nullified on account deletion) but not yet
+  # tombstoned — e.g. deleted through a path that bypassed the service hook.
+  scope :orphaned, -> { where(account_id: nil, deleted_at: nil) }
+  # Tombstoned subjects whose retention window has elapsed.
+  scope :expired, ->(now = Time.now.utc) { where.not(retention_until: nil).where('retention_until <= ?', now) }
 
   # Resolve (or create) the subject that represents +account+, keeping the
   # denormalized origin/domain and +last_seen_at+ fresh. Accepts either an
@@ -94,8 +99,16 @@ class ModerationSubject < ApplicationRecord
     save! if changed?
   end
 
+  # Tombstone every live subject bound to +account+ before the account row is
+  # deleted (afterwards the FK nullifies account_id and it can't be found by id).
+  def self.tombstone_for_account!(account, now: Time.now.utc)
+    return if account.nil?
+
+    where(account_id: account.id, deleted_at: nil).find_each { |subject| subject.tombstone!(now: now) }
+  end
+
   def tombstone!(now: Time.now.utc)
-    update!(deleted_at: now)
+    update!(deleted_at: now, retention_until: Moderation::RetentionPolicy.expire_at(now))
   end
 
   def tombstoned?
