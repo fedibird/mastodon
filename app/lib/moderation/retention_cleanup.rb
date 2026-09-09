@@ -16,13 +16,17 @@ module Moderation
     module_function
 
     def events_without_retained_participant(klass, left_column, right_column, now)
-      table = klass.arel_table
+      conn = klass.connection
+      # Rails 6.1 Arel attributes do not implement +to_sql+; quote the
+      # identifier pair explicitly so the predicate stays SQL-only.
+      left = "#{conn.quote_table_name(klass.table_name)}.#{conn.quote_column_name(left_column)}"
+      right = "#{conn.quote_table_name(klass.table_name)}.#{conn.quote_column_name(right_column)}"
       klass.where(
         <<~SQL.squish,
           NOT EXISTS (
             SELECT 1
               FROM moderation_subjects
-             WHERE moderation_subjects.id IN (#{table[left_column].to_sql}, #{table[right_column].to_sql})
+             WHERE moderation_subjects.id IN (#{left}, #{right})
                AND (moderation_subjects.retention_until IS NULL OR moderation_subjects.retention_until > ?)
           )
         SQL
