@@ -20,6 +20,14 @@ class FavouriteService < BaseService
     create_notification(favourite)
     bump_potential_friendship(account, status)
 
+    Moderation::EventRecorder.record_interaction(
+      actor: account,
+      target: status.account,
+      event_type: :favourite,
+      status: status,
+      source_record: favourite
+    )
+
     favourite
   end
 

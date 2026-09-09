@@ -5,9 +5,12 @@ class RemoveFromFollowersService < BaseService
 
   def call(source_account, target_accounts)
     source_account.passive_relationships.where(account_id: target_accounts).find_each do |follow|
+      follower = follow.account
       follow.destroy
 
-      if source_account.local? && !follow.account.local? && follow.account.activitypub?
+      Moderation::EventRecorder.record_rejection(rejector: source_account, rejected: follower, event_type: :remove_follower)
+
+      if source_account.local? && !follower.local? && follower.activitypub?
         create_notification(follow)
       end
     end

@@ -64,11 +64,29 @@ class ProcessMentionsService < BaseService
 
     status.save!
 
+    record_moderation_mentions!(mentions)
+
     # Silent mentions need to be delivered separately
     mentions.each { |mention| create_notification(mention) }
   end
 
   private
+
+  # Record explicit (non-silent) mentions as interaction signals. A mention
+  # aimed at the account being replied to is recorded as a reply.
+  def record_moderation_mentions!(mentions)
+    mentions.each do |mention|
+      event_type = @status.in_reply_to_account_id.present? && @status.in_reply_to_account_id == mention.account_id ? :reply : :mention
+
+      Moderation::EventRecorder.record_interaction(
+        actor: @status.account,
+        target: mention.account,
+        event_type: event_type,
+        status: @status,
+        source_record: mention
+      )
+    end
+  end
 
   def mention_undeliverable?(mentioned_account)
     mentioned_account.nil? || (!mentioned_account.local? && mentioned_account.ostatus?)

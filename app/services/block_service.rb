@@ -16,6 +16,9 @@ class BlockService < BaseService
 
     BlockWorker.perform_async(account.id, target_account.id)
     create_notification(block) if !target_account.local? && target_account.activitypub?
+
+    Moderation::EventRecorder.record_rejection(rejector: account, rejected: target_account, event_type: :block)
+
     block
   end
 

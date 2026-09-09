@@ -13,6 +13,7 @@ class ReportService < BaseService
     raise ActiveRecord::RecordNotFound if @target_account.suspended?
 
     create_report!
+    record_moderation_rejection!
     notify_staff!
     forward_to_origin! if !@target_account.local? && ActiveModel::Type::Boolean.new.cast(@options[:forward])
 
@@ -20,6 +21,15 @@ class ReportService < BaseService
   end
 
   private
+
+  def record_moderation_rejection!
+    Moderation::EventRecorder.record_rejection(
+      rejector: @source_account,
+      rejected: @target_account,
+      event_type: :report,
+      metadata: { status_count: @status_ids.size }
+    )
+  end
 
   def create_report!
     @report = @source_account.reports.create!(
