@@ -15,14 +15,14 @@
 #
 # Recording/summarising only — no scoring or thresholds.
 #
-# Coverage limitation: inbound ActivityPub-only mentions, replies, follows,
-# favourites, reactions, and blocks are not yet observed. A remote subject can
-# therefore accumulate local blocks/reports while the triggering remote
-# contacts are missing. Snapshots (and future scores) for remote actors are
-# incomplete until those paths are covered. See +fingerprint['coverage']+.
+# Inbound ActivityPub coverage: mentions, replies, follows, follow rejects,
+# favourites, reactions, blocks, reports, references, and quotes arriving over
+# federation are now observed at their record-creation sites. See
+# +fingerprint['coverage']+ for the per-event-type coverage map and its residual
+# recording limitations.
 module Moderation
   class EvidenceSnapshotService
-    SCHEMA_VERSION = 5
+    SCHEMA_VERSION = 6
     DEFAULT_WINDOW = 30.days
 
     # Cap the persisted id sets so a pathological subject can't create an
@@ -31,17 +31,24 @@ module Moderation
 
     REJECTION_TYPES = %w(block follow_reject remove_follower report mute mute_notifications).freeze
 
-    # Inbound ActivityPub coverage is partial: the inbound event types below are
-    # now observed, but inbound follow-request rejections (Reject that bypasses
-    # RejectFollowService, destroying the FollowRequest) are not yet hooked. Do
-    # not treat snapshot counts or future scores as complete for remote actors.
-    # Coverage is reported per event type so callers can reason about exactly
-    # what is missing.
+    # Inbound ActivityPub coverage is complete for the modeled event types: every
+    # inbound event type below is now observed at its record-creation site,
+    # including inbound follow-request rejections (Reject of a local account's
+    # follow request). Coverage is reported per event type so callers can reason
+    # about exactly what is observed.
+    #
+    # Residual limitations (recording gaps, not new event types):
+    #   * An inbound Reject that carries only the bare follow-request URI is
+    #     recorded on first delivery but cannot self-repair on re-delivery,
+    #     because reject! destroys the FollowRequest the requester is read from.
+    #     The embedded-Follow shape repairs normally.
+    #   * A Reject of an already-established follow is modeled as an unfollow, not
+    #     as a follow_reject, so it is intentionally not recorded as a rejection.
     INBOUND_ACTIVITYPUB_COVERAGE = {
-      'inbound_activitypub' => 'partial',
-      'complete_for_remote_subjects' => false,
-      'observed_inbound_event_types' => %w(follow favourite reaction block report reference mention reply quote).freeze,
-      'deferred_inbound_event_types' => %w(follow_reject).freeze,
+      'inbound_activitypub' => 'complete',
+      'complete_for_remote_subjects' => true,
+      'observed_inbound_event_types' => %w(follow follow_reject favourite reaction block report reference mention reply quote).freeze,
+      'deferred_inbound_event_types' => [].freeze,
     }.freeze
 
     def call(subject_or_account, window: DEFAULT_WINDOW, now: Time.now.utc)

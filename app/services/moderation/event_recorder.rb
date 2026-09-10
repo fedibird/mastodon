@@ -17,9 +17,9 @@
 #
 # This phase performs recording only: no scoring, throttling, or enforcement.
 #
-# Known coverage limitation: inbound ActivityPub-only paths (remote
-# mention/reply/follow/favourite/reaction/block) are not yet hooked. Snapshots
-# and future scores for remote actors are therefore incomplete.
+# Inbound ActivityPub-only paths (remote mention/reply/follow/follow_reject/
+# favourite/reaction/block) are hooked at their record-creation sites. See
+# Moderation::EvidenceSnapshotService's coverage map for residual limitations.
 module Moderation
   class EventRecorder
     class << self
