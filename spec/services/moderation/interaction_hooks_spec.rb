@@ -139,4 +139,68 @@ RSpec.describe 'Moderation interaction hooks', type: :service do
       expect(event.rejected_subject.account_id).to eq bob.id
     end
   end
+
+  describe EmojiReactionService do
+    it 'records a reaction interaction toward the status author' do
+      status = Fabricate(:status, account: bob)
+
+      expect { EmojiReactionService.new.call(alice, status, '👍') }.to change(ModerationInteractionEvent, :count).by(1)
+
+      event = last_interaction
+      expect(event.event_type).to eq 'reaction'
+      expect(event.actor_subject.account_id).to eq alice.id
+      expect(event.target_subject.account_id).to eq bob.id
+      expect(event.status_id).to eq status.id
+    end
+
+    it 'does not record a duplicate reaction when the same emoji already exists' do
+      status = Fabricate(:status, account: bob)
+      EmojiReactionService.new.call(alice, status, '👍')
+
+      expect { EmojiReactionService.new.call(alice, status, '👍') }.to_not change(ModerationInteractionEvent, :count)
+    end
+
+    it 'does not record a duplicate event when create loses a uniqueness race' do
+      status   = Fabricate(:status, account: bob)
+      existing = EmojiReaction.create!(account: alice, status: status, name: '👍')
+      attrs    = { account_id: alice.id, status_id: status.id, name: '👍' }
+
+      # Genuinely drive the race-loser path: the initial lookup misses, the
+      # concurrent insert loses (RecordNotUnique), and the re-read returns the
+      # winner. The loser must not be counted as a new reaction.
+      allow(EmojiReaction).to receive(:find_by).and_call_original
+      allow(EmojiReaction).to receive(:find_by).with(attrs).and_return(nil)
+      allow(EmojiReaction).to receive(:find_by!).and_call_original
+      allow(EmojiReaction).to receive(:find_by!).with(attrs).and_return(existing)
+      allow(EmojiReaction).to receive(:create!).and_raise(ActiveRecord::RecordNotUnique, 'duplicate key value violates unique constraint "index_emoji_reactions_on_account_id_and_status_id"')
+
+      expect { EmojiReactionService.new.call(alice, status, '👍') }.to_not change(ModerationInteractionEvent, :count)
+
+      # Prove the rescue path actually executed (create! attempted, re-read used).
+      expect(EmojiReaction).to have_received(:create!)
+      expect(EmojiReaction).to have_received(:find_by!).with(attrs)
+      expect(EmojiReaction.where(attrs).count).to eq 1
+    end
+  end
+
+  describe ProcessStatusReferenceService do
+    it 'records a reference interaction toward the referenced author' do
+      referenced = Fabricate(:status, account: bob)
+      status = Fabricate(:status, account: alice)
+
+      expect { ProcessStatusReferenceService.new.call(status, status_reference_ids: [referenced.id]) }.to change(ModerationInteractionEvent, :count).by(1)
+
+      event = last_interaction
+      expect(event.event_type).to eq 'reference'
+      expect(event.actor_subject.account_id).to eq alice.id
+      expect(event.target_subject.account_id).to eq bob.id
+    end
+
+    it 'does not record a reference for the quoted status (recorded as a quote instead)' do
+      quoted = Fabricate(:status, account: bob)
+      status = Fabricate(:status, account: alice, quote_id: quoted.id)
+
+      expect { ProcessStatusReferenceService.new.call(status, status_reference_ids: [quoted.id]) }.to_not change(ModerationInteractionEvent, :count)
+    end
+  end
 end

@@ -47,6 +47,8 @@ class ProcessStatusReferenceService
       StatusReference.create(status_id: status_id, target_status_id: target_status.id)
     end
 
+    record_moderation_references!(references)
+
     references.group_by{|reference| reference.target_status.account}.each do |account, grouped_references|
       create_notification(grouped_references.sort_by(&:id).first) if account.local?
     end
@@ -54,6 +56,29 @@ class ProcessStatusReferenceService
 
   def create_notification(reference)
     NotifyService.new.call(reference.target_status.account, :status_reference, reference)
+  end
+
+  # Record references as interaction signals. The quoted status is skipped here
+  # because it is recorded as a `quote` interaction by PostStatusService, so it
+  # would otherwise be double-counted.
+  def record_moderation_references!(references)
+    quote_target_id = @status.quote_id
+
+    references.each do |reference|
+      next unless reference.persisted?
+      next if quote_target_id.present? && reference.target_status_id == quote_target_id
+
+      target_status = reference.target_status
+      next if target_status.nil?
+
+      Moderation::EventRecorder.record_interaction(
+        actor: @status.account,
+        target: target_status.account,
+        event_type: :reference,
+        status: @status,
+        source_record: reference
+      )
+    end
   end
 
   def parse_local_urls(text)
