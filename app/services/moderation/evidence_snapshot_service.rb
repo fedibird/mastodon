@@ -22,7 +22,7 @@
 # incomplete until those paths are covered. See +fingerprint['coverage']+.
 module Moderation
   class EvidenceSnapshotService
-    SCHEMA_VERSION = 4
+    SCHEMA_VERSION = 5
     DEFAULT_WINDOW = 30.days
 
     # Cap the persisted id sets so a pathological subject can't create an
@@ -31,17 +31,17 @@ module Moderation
 
     REJECTION_TYPES = %w(block follow_reject remove_follower report mute mute_notifications).freeze
 
-    # Inbound ActivityPub coverage is partial: the relationship-style inbound
-    # activities below are now observed, but inbound remote mention/reply/quote
-    # (and follow-request rejections that bypass RejectFollowService) are not
-    # yet hooked. Do not treat snapshot counts or future scores as complete for
-    # remote actors. Coverage is reported per event type so callers can reason
-    # about exactly what is missing.
+    # Inbound ActivityPub coverage is partial: the inbound event types below are
+    # now observed, but inbound follow-request rejections (Reject that bypasses
+    # RejectFollowService, destroying the FollowRequest) are not yet hooked. Do
+    # not treat snapshot counts or future scores as complete for remote actors.
+    # Coverage is reported per event type so callers can reason about exactly
+    # what is missing.
     INBOUND_ACTIVITYPUB_COVERAGE = {
       'inbound_activitypub' => 'partial',
       'complete_for_remote_subjects' => false,
-      'observed_inbound_event_types' => %w(follow favourite reaction block report reference).freeze,
-      'deferred_inbound_event_types' => %w(mention reply quote follow_reject).freeze,
+      'observed_inbound_event_types' => %w(follow favourite reaction block report reference mention reply quote).freeze,
+      'deferred_inbound_event_types' => %w(follow_reject).freeze,
     }.freeze
 
     def call(subject_or_account, window: DEFAULT_WINDOW, now: Time.now.utc)

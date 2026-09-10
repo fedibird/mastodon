@@ -37,8 +37,9 @@ different records).
 | Block (remote → local) | `Block` | `activity/block.rb` `@account.block!` | none (not `BlockService`) | **hooked** → `block` (rejection) |
 | Flag (remote → local) | `Report` | `activity/flag.rb` → `ReportService` | covered | — |
 | Create → reference (remote → local status) | `StatusReference` | `activity/create.rb` → `ProcessStatusReferenceService` | covered (non-quote) | — |
-| Create → mention / reply (remote → local) | `Mention` / thread | `activity/create.rb`, `activity.rb#attach_mentions` (`ProcessMentionsService` is local-only) | none | **deferred** |
-| Create → quote (remote → local) | `Status#quote_id` | `activity/create.rb` (PSR skips quote) | none | **deferred** |
+| Create → mention (remote → local) | `Mention` | `activity/create.rb` `attach_mentions` (`ProcessMentionsService` is local-only) | none | **hooked (PR 6b)** → `mention` |
+| Create → reply (remote → local) | `Status#in_reply_to_account_id` | `activity/create.rb` thread resolution | none | **hooked (PR 6b)** → `reply` |
+| Create → quote (remote → local) | `Status#quote_id` | `activity/create.rb` (PSR skips quote) | none | **hooked (PR 6b)** → `quote` |
 | Accept (remote accepts local follow request) | `Follow` | `activity/accept.rb` → `follow!` | intentionally skipped | — (already recorded at local request time; recording here would double-count the same logical follow) |
 | Reject (remote rejects local follow request) | destroys `FollowRequest` | `activity/reject.rb` `reject!` (not `RejectFollowService`) | none | **deferred** (`follow_reject`) |
 | Announce (remote boost of local status) | reblog `Status` | `activity/announce.rb` | n/a | out of ledger's event set |
@@ -60,18 +61,34 @@ per event type (schema_version bumped 3 → 4):
 {
   "inbound_activitypub": "partial",
   "complete_for_remote_subjects": false,
-  "observed_inbound_event_types": ["follow", "favourite", "reaction", "block", "report", "reference"],
-  "deferred_inbound_event_types": ["mention", "reply", "quote", "follow_reject"]
+  "observed_inbound_event_types": ["follow", "favourite", "reaction", "block", "report", "reference", "mention", "reply", "quote"],
+  "deferred_inbound_event_types": ["follow_reject"]
 }
 ```
 
-`complete_for_remote_subjects` stays `false` until the deferred inbound
-mention/reply/quote/follow_reject paths are hooked. Do not read a low remote
-count as "no behaviour" while coverage is partial.
+`complete_for_remote_subjects` stays `false` until the last deferred inbound
+path (follow-request reject) is hooked. Do not read a low remote count as "no
+behaviour" while coverage is partial.
 
-## Deferred to a follow-up (PR 6b)
+## PR 6b — inbound mention / reply / quote
 
-- Inbound remote **mention/reply** (multiple creation sites in `create.rb` /
-  `activity.rb`, silent vs non-silent, async thread resolution).
-- Inbound remote **quote**.
-- Inbound follow-request **reject** (`activity/reject.rb`).
+`activity/create.rb#create_status` runs a single chokepoint,
+`record_inbound_status_signals`, for both a freshly processed status and a
+re-delivery of an existing one (so a re-delivery repairs a ledger event a
+transient recorder failure missed):
+
+- **reply** — when the inbound status replies to a local account
+  (`in_reply_to_account_id` is local); keyed on `activitypub_reply:<status.uri>`.
+- **mention** — for each non-silent mention of a local account, excluding the
+  replied-to account (recorded as a reply); keyed on the `Mention` record.
+- **quote** — when the inbound status quotes a local account's status; keyed on
+  `activitypub_quote:<status.uri>`.
+
+Reply/quote use activity-identity keys (the status URI) so they stay stable and
+deduped across re-delivery. Silent (audience) mentions are not recorded.
+
+## Deferred to a follow-up
+
+- Inbound follow-request **reject** (`activity/reject.rb`): the `Reject` bypasses
+  `RejectFollowService` and destroys the `FollowRequest`, so a stable key would
+  need to derive from the Reject activity id rather than the destroyed record.
