@@ -17,9 +17,11 @@
 #
 # Inbound ActivityPub coverage: mentions, replies, follows, follow rejects,
 # favourites, reactions, blocks, reports, references, and quotes arriving over
-# federation are now observed at their record-creation sites. See
-# +fingerprint['coverage']+ for the per-event-type coverage map and its residual
-# recording limitations.
+# federation are now observed at their record-creation sites. Every modeled
+# inbound type is hooked, but coverage is reported as 'partial' because one
+# hooked shape (bare-follow-request-URI Reject) can still lose an event after a
+# recorder-only failure. See +fingerprint['coverage']+ for the per-event-type
+# map and +known_inbound_recording_gaps+.
 module Moderation
   class EvidenceSnapshotService
     SCHEMA_VERSION = 6
@@ -31,24 +33,38 @@ module Moderation
 
     REJECTION_TYPES = %w(block follow_reject remove_follower report mute mute_notifications).freeze
 
-    # Inbound ActivityPub coverage is complete for the modeled event types: every
-    # inbound event type below is now observed at its record-creation site,
-    # including inbound follow-request rejections (Reject of a local account's
-    # follow request). Coverage is reported per event type so callers can reason
-    # about exactly what is observed.
+    # Every modeled inbound event type now has a record-creation-site hook
+    # (deferred_inbound_event_types is empty), but "all types hooked" is NOT the
+    # same as "coverage is complete/reliable". A recorder-only failure can still
+    # cause a *permanent* ledger miss for one shape (see known_inbound_recording_gaps),
+    # so inbound_activitypub stays 'partial' and complete_for_remote_subjects
+    # stays false: downstream analysis must not read low/zero counts as absence
+    # of behaviour while any known gap remains.
     #
-    # Residual limitations (recording gaps, not new event types):
-    #   * An inbound Reject that carries only the bare follow-request URI is
-    #     recorded on first delivery but cannot self-repair on re-delivery,
-    #     because reject! destroys the FollowRequest the requester is read from.
-    #     The embedded-Follow shape repairs normally.
-    #   * A Reject of an already-established follow is modeled as an unfollow, not
-    #     as a follow_reject, so it is intentionally not recorded as a rejection.
+    #   * observed_inbound_event_types    — every modeled type has a hook.
+    #   * deferred_inbound_event_types    — types with no hook at all (none left).
+    #   * known_inbound_recording_gaps    — hooked types that can still lose an
+    #                                       event after a recorder-only failure.
+    #
+    # The one remaining gap is the bare-follow-request-URI Reject shape: reject!
+    # destroys the FollowRequest before the rejected local requester can be
+    # re-derived, so a recorder-only failure on first delivery is not repaired by
+    # re-delivery. The embedded-Follow Reject shape repairs normally (its rejected
+    # account is derived from @object['actor']). A Reject of an already-established
+    # follow is intentionally modeled as an unfollow, not a follow_reject.
     INBOUND_ACTIVITYPUB_COVERAGE = {
-      'inbound_activitypub' => 'complete',
-      'complete_for_remote_subjects' => true,
+      'inbound_activitypub' => 'partial',
+      'complete_for_remote_subjects' => false,
       'observed_inbound_event_types' => %w(follow follow_reject favourite reaction block report reference mention reply quote).freeze,
       'deferred_inbound_event_types' => [].freeze,
+      'known_inbound_recording_gaps' => [
+        {
+          'event_type' => 'follow_reject',
+          'shape' => 'bare_follow_request_uri',
+          'repairable' => false,
+          'reason' => 'reject! destroys the FollowRequest before the rejected local requester can be re-derived, so a recorder-only failure on first delivery is not repaired by re-delivery.',
+        }.freeze,
+      ].freeze,
     }.freeze
 
     def call(subject_or_account, window: DEFAULT_WINDOW, now: Time.now.utc)

@@ -59,21 +59,38 @@ event type (schema_version is now `6`):
 
 ```json
 {
-  "inbound_activitypub": "complete",
-  "complete_for_remote_subjects": true,
+  "inbound_activitypub": "partial",
+  "complete_for_remote_subjects": false,
   "observed_inbound_event_types": ["follow", "follow_reject", "favourite", "reaction", "block", "report", "reference", "mention", "reply", "quote"],
-  "deferred_inbound_event_types": []
+  "deferred_inbound_event_types": [],
+  "known_inbound_recording_gaps": [
+    {
+      "event_type": "follow_reject",
+      "shape": "bare_follow_request_uri",
+      "repairable": false,
+      "reason": "reject! destroys the FollowRequest before the rejected local requester can be re-derived, so a recorder-only failure on first delivery is not repaired by re-delivery."
+    }
+  ]
 }
 ```
 
-`complete_for_remote_subjects` is now `true`: every modeled inbound event type
-is observed at its record-creation site. The two residual limitations are
-recording gaps, not new event types:
+**"All modeled types hooked" is not "coverage complete/reliable".** Every modeled
+inbound event type now has a record-creation-site hook, so
+`deferred_inbound_event_types` is empty. But `inbound_activitypub` stays
+`partial` and `complete_for_remote_subjects` stays `false` because one hooked
+shape can still lose an event after a recorder-only failure, tracked explicitly
+in `known_inbound_recording_gaps`. Downstream analysis/scoring must keep using
+these flags as a guard: while any gap remains, low/zero counts must not be read
+as absence of behaviour.
+
+The residual issues are recording-reliability gaps, not missing event types:
 
 - A `Reject` carrying only the bare follow-request URI is recorded on first
   delivery but cannot self-repair on re-delivery, because `reject!` destroys the
-  `FollowRequest` the requester is read from. The embedded-`Follow` shape
-  repairs normally (its rejected account is derived from `@object['actor']`).
+  `FollowRequest` the requester is read from — a permanent miss after a
+  recorder-only failure (`repairable: false`). The embedded-`Follow` shape
+  repairs normally (its rejected account is derived from `@object['actor']`), so
+  it is not listed as a gap.
 - A `Reject` of an already-established follow is modeled as an unfollow, not as a
   follow_reject, so it is intentionally not recorded as a rejection.
 
@@ -106,8 +123,9 @@ actor, rejected = the local requester) at every `Reject`-of-follow-request site:
 - **bare follow-request-URI shape** (`follow_request_from_object`): the local
   requester is captured **before** `reject!` destroys the `FollowRequest`, so it
   is recorded on first delivery. This shape cannot self-repair on re-delivery
-  (the record it reads from is gone), which is the first residual limitation
-  above.
+  (the record it reads from is gone); it is reported in the coverage metadata's
+  `known_inbound_recording_gaps` and is why `inbound_activitypub` stays
+  `partial` / `complete_for_remote_subjects` stays `false`.
 
 Both keep one stable, activity-identity key
 `activitypub_follow_reject:<Reject id>` so retries never double-record. A
