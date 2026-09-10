@@ -12,6 +12,7 @@ class ActivityPub::Activity::Follow < ActivityPub::Activity
     existing_follow_request = ::FollowRequest.find_by(account: @account, target_account: target_account)
     unless existing_follow_request.nil?
       existing_follow_request.update!(uri: @json['id'])
+      record_inbound_follow(target_account)
       return
     end
 
@@ -25,15 +26,11 @@ class ActivityPub::Activity::Follow < ActivityPub::Activity
     unless existing_follow.nil?
       existing_follow.update!(uri: @json['id'])
       AuthorizeFollowService.new.call(@account, target_account, skip_follow_request: true, follow_request_uri: @json['id'])
+      record_inbound_follow(target_account)
       return
     end
 
     follow_request = FollowRequest.create!(account: @account, target_account: target_account, uri: @json['id'])
-
-    # Inbound follow of a local account: record the remote actor's contact.
-    # Idempotent via source_event_key (the FollowRequest), so re-delivery does
-    # not double-record.
-    Moderation::EventRecorder.record_interaction(actor: @account, target: target_account, event_type: :follow, source_record: follow_request)
 
     if target_account.locked? || @account.silenced? || @account.bot? && target_account.user.setting_confirm_follow_from_bot
       NotifyService.new.call(target_account, :follow_request, follow_request)
@@ -41,10 +38,27 @@ class ActivityPub::Activity::Follow < ActivityPub::Activity
       AuthorizeFollowService.new.call(@account, target_account)
       NotifyService.new.call(target_account, :follow, ::Follow.find_by(account: @account, target_account: target_account))
     end
+
+    # Record the inbound follow contact against the surviving durable record
+    # (the Follow if it was auto-accepted, else the FollowRequest) so first
+    # delivery and any re-delivery share a stable source_event_key. This dedupes
+    # ordinary re-delivery and lets re-delivery repair a ledger event that a
+    # transient recorder failure missed on an earlier delivery.
+    record_inbound_follow(target_account)
   end
 
   def reject_follow_request!(target_account)
     json = Oj.dump(serialize_payload(FollowRequest.new(account: @account, target_account: target_account, uri: @json['id']), ActivityPub::RejectFollowSerializer))
     ActivityPub::DeliveryWorker.perform_async(json, target_account.id, @account.inbox_url)
+  end
+
+  private
+
+  def record_inbound_follow(target_account)
+    source_record = ::Follow.find_by(account: @account, target_account: target_account) ||
+                    ::FollowRequest.find_by(account: @account, target_account: target_account)
+    return if source_record.nil?
+
+    Moderation::EventRecorder.record_interaction(actor: @account, target: target_account, event_type: :follow, source_record: source_record)
   end
 end
