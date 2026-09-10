@@ -91,8 +91,8 @@ RSpec.describe 'Inbound ActivityPub follow-reject moderation coverage', type: :m
       }.with_indifferent_access
     end
 
-    it 'records the outbound follow interaction under the AP activity-identity key' do
-      interaction = ModerationInteractionEvent.find_by(source_event_key: "activitypub_follow:#{follow_request.uri}")
+    it 'records the outbound follow interaction under the direction-specific AP activity-identity key' do
+      interaction = ModerationInteractionEvent.find_by(source_event_key: "activitypub_outbound_follow:#{follow_request.uri}")
 
       expect(interaction).to be_present
       expect(interaction.event_type).to eq 'follow'
@@ -137,6 +137,46 @@ RSpec.describe 'Inbound ActivityPub follow-reject moderation coverage', type: :m
       expect(ModerationRejectionEvent.count).to eq 1
       expect { deliver(json) }.to_not change(ModerationRejectionEvent, :count)
       expect(ModerationRejectionEvent.count).to eq 1
+    end
+  end
+
+  # Adversarial: URI equality alone must not bind identities. An outbound follow
+  # local -> remote_other creates the anchor; a *different* remote then sends a
+  # bare-URI Reject echoing that other follow's URI (as if leaked/reused). The
+  # target-identity invariant must reject the correlation, so no follow_reject is
+  # synthesized for the wrong remote.
+  context 'bare follow-request-URI shape, cross-account anchor (must not repair)' do
+    before { allow(ActivityPub::DeliveryWorker).to receive(:perform_async) }
+
+    let(:remote_other) do
+      Fabricate(:account, domain: 'other.example', uri: 'https://other.example/users/carol', inbox_url: 'https://other.example/inbox', protocol: :activitypub)
+    end
+    let!(:other_follow_request) { FollowService.new.call(local, remote_other) }
+
+    let(:json) do
+      {
+        '@context': 'https://www.w3.org/ns/activitystreams',
+        id: 'https://remote.example/activities/reject-evil',
+        type: 'Reject',
+        actor: ActivityPub::TagManager.instance.uri_for(remote),
+        object: other_follow_request.uri,
+      }.with_indifferent_access
+    end
+
+    it 'has an anchor whose target is the other remote, not the Reject actor' do
+      interaction = ModerationInteractionEvent.find_by(source_event_key: "activitypub_outbound_follow:#{other_follow_request.uri}")
+
+      expect(interaction).to be_present
+      expect(interaction.actor_subject.account_id).to eq local.id
+      expect(interaction.target_subject.account_id).to eq remote_other.id
+    end
+
+    it 'does not synthesize a follow_reject when the anchor targets a different remote' do
+      # No FollowRequest exists for (local -> remote), so the repair path runs and
+      # the target-identity invariant must reject the mismatched anchor.
+      expect { deliver(json) }.to_not change(ModerationRejectionEvent, :count)
+      expect { deliver(json) }.to_not change(ModerationRejectionEvent, :count)
+      expect(ModerationRejectionEvent.count).to eq 0
     end
   end
 
