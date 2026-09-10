@@ -47,16 +47,31 @@ class ActivityPub::Activity::Reject < ActivityPub::Activity
   # destroyed the FollowRequest, so the rejected local requester cannot be read
   # from it (its URI is an opaque payload id that does not encode the account).
   # Instead correlate the follow-request URI to the outbound follow interaction
-  # recorded at request time under the same activity identity
-  # (activitypub_follow:<uri>) and recover the requester from its actor. Nothing
-  # is repaired only when that anchor is also missing (a double recorder failure).
+  # recorded at request time under the direction-specific activity identity
+  # (activitypub_outbound_follow:<uri>) and recover the requester from its actor.
+  #
+  # URI equality alone must NOT bind identities: a leaked/reused/malicious object
+  # URI must not let remote actor B cause us to record "B rejected local A" from
+  # an anchor that was actually "A -> remote C". So the anchor must satisfy every
+  # invariant of the follow this Reject claims to reject, and we fail closed
+  # otherwise. Nothing is repaired only when the anchor is missing (which,
+  # combined with the reject recorder failure, is the known double-failure gap).
   def repair_inbound_follow_reject_from_uri
     return if object_uri.blank?
 
-    interaction = ModerationInteractionEvent.find_by(source_event_key: "activitypub_follow:#{object_uri}")
+    interaction = ModerationInteractionEvent.find_by(
+      source_event_key: "activitypub_outbound_follow:#{object_uri}",
+      event_type: :follow
+    )
     return if interaction.nil?
 
+    # The anchor's actor must be the local requester...
     rejected_account = interaction.actor_subject&.account
+    return if rejected_account.nil? || !rejected_account.local?
+
+    # ...and its target must be the very remote actor now sending this Reject.
+    return unless interaction.target_subject&.account_id == @account.id
+
     record_inbound_follow_reject(rejected_account)
   end
 

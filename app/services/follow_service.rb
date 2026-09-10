@@ -66,14 +66,16 @@ class FollowService < BaseService
 
   private
 
-  # Prefer the ActivityPub Follow activity identity (the follow record's uri) as
-  # the stable source_event_key, matching inbound follows (activity/follow.rb).
-  # This also lets an inbound follow-request Reject correlate back to this
-  # interaction by the same uri after the FollowRequest has been destroyed by
-  # reject!. Falls back to the record-derived key when no uri is present.
+  # Key the outbound follow interaction on the ActivityPub Follow activity
+  # identity (the follow record's uri) in a *direction-specific* namespace, so an
+  # inbound follow-request Reject can correlate back to it after reject! has
+  # destroyed the FollowRequest. A dedicated outbound namespace keeps these local
+  # anchors from ever colliding with inbound follow ids (which are supplied by
+  # remote actors and keyed activitypub_follow:<id> in activity/follow.rb). Falls
+  # back to the record-derived key when no uri is present.
   def follow_source_event_key(follow)
     uri = follow.try(:uri)
-    "activitypub_follow:#{uri}" if uri.present?
+    "activitypub_outbound_follow:#{uri}" if uri.present?
   end
 
   def mark_home_feed_as_partial!
