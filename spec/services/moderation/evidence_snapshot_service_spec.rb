@@ -84,6 +84,54 @@ RSpec.describe Moderation::EvidenceSnapshotService, type: :service do
     expect(snapshot.correlated_negative_target_subject_ids).to eq [a_subject.id]
   end
 
+  it 'omits nullified counterpart ids from fingerprints and contact counts' do
+    actor_subject = ModerationSubject.for_account!(actor)
+    a_subject     = ModerationSubject.for_account!(a)
+    b_subject     = ModerationSubject.for_account!(b)
+
+    kept = Fabricate(
+      :moderation_interaction_event,
+      actor_subject: actor_subject,
+      target_subject: a_subject,
+      event_type: :mention,
+      occurred_at: 2.hours.ago
+    )
+    orphan_contact = Fabricate(
+      :moderation_interaction_event,
+      actor_subject: actor_subject,
+      target_subject: b_subject,
+      event_type: :follow,
+      occurred_at: 2.hours.ago
+    )
+    orphan_contact.update_columns(target_subject_id: nil)
+
+    Fabricate(
+      :moderation_rejection_event,
+      rejector_subject: a_subject,
+      rejected_subject: actor_subject,
+      preceding_interaction_event: kept,
+      event_type: :block,
+      occurred_at: 1.hour.ago
+    )
+    orphan_rejection = Fabricate(
+      :moderation_rejection_event,
+      rejector_subject: b_subject,
+      rejected_subject: actor_subject,
+      event_type: :block,
+      occurred_at: 1.hour.ago
+    )
+    orphan_rejection.update_columns(rejector_subject_id: nil)
+
+    snapshot = described_class.new.call(actor)
+
+    expect(snapshot.summary['interactions_count']).to eq 2
+    expect(snapshot.summary['unique_contacts']).to eq 1
+    expect(snapshot.linked_negative_target_subject_ids).to eq [a_subject.id]
+    expect(snapshot.linked_negative_target_subject_ids).to_not include(nil)
+    expect(snapshot.correlated_negative_target_subject_ids).to be_empty
+    expect(snapshot.fingerprint['linked_negative_target_subject_ids']).to_not include(nil)
+  end
+
   it 'respects the window boundary' do
     Moderation::EventRecorder.record_interaction(actor: actor, target: a, event_type: :mention, occurred_at: 100.days.ago)
 

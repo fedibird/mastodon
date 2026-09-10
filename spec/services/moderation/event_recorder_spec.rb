@@ -118,6 +118,31 @@ RSpec.describe Moderation::EventRecorder, type: :service do
       expect(first.source_event_key).to eq "Favourite:#{favourite.id}:favourite"
     end
 
+    it 'rejects a second insert with the same source_event_key at the database' do
+      status = Fabricate(:status, account: actor)
+      favourite = Fabricate(:favourite, account: actor, status: status)
+      first = described_class.record_interaction(
+        actor: actor,
+        target: target,
+        event_type: :favourite,
+        status: status,
+        source_record: favourite
+      )
+
+      expect do
+        ModerationInteractionEvent.create!(
+          actor_subject: first.actor_subject,
+          target_subject: first.target_subject,
+          event_type: :favourite,
+          source_event_key: first.source_event_key,
+          occurred_at: Time.now.utc,
+          observed_at: Time.now.utc
+        )
+      end.to raise_error(ActiveRecord::RecordNotUnique)
+
+      expect(ModerationInteractionEvent.where(source_event_key: first.source_event_key).count).to eq 1
+    end
+
     it 'returns the existing row when a uniqueness race loses the insert' do
       status = Fabricate(:status, account: actor)
       favourite = Fabricate(:favourite, account: actor, status: status)

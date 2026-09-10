@@ -47,7 +47,9 @@ module Moderation
       interactions = interactions_scope(subject, window_start, window_end)
       rejections   = rejections_scope(subject, window_start, window_end)
 
-      contacted_ids      = interactions.distinct.pluck(:target_subject_id)
+      # Counterpart FKs may be NULL after #31 SET NULL expiry. Never treat a
+      # missing id as a contact/target, and never persist nil into fingerprints.
+      contacted_ids      = interactions.distinct.pluck(:target_subject_id).compact
       rejections_by_type = rejections.group(:event_type).count
       linked_ids, correlated_ids = classify_negative_targets(rejections, contacted_ids)
 
@@ -104,6 +106,7 @@ module Moderation
 
       rejections.includes(:preceding_interaction_event).find_each do |rejection|
         rejector_id = rejection.rejector_subject_id
+        next if rejector_id.nil?
         next unless contacted.include?(rejector_id)
 
         if Moderation::PrecedingContactLink.strong_association?(rejection.preceding_interaction_event, rejection)

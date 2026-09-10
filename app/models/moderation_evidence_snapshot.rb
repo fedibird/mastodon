@@ -35,13 +35,13 @@ class ModerationEvidenceSnapshot < ApplicationRecord
   # Strong temporal/linked association via preceding_interaction_event_id.
   # Not proof that the rejection was caused by that contact.
   def linked_negative_target_subject_ids
-    Array(fingerprint['linked_negative_target_subject_ids'].presence || fingerprint['negative_target_subject_ids'])
+    Array(fingerprint['linked_negative_target_subject_ids'].presence || fingerprint['negative_target_subject_ids']).compact
   end
 
   # Same-window overlap without a preceding-contact link. Must not be treated
   # as a linked negative-target set.
   def correlated_negative_target_subject_ids
-    Array(fingerprint['correlated_negative_target_subject_ids'])
+    Array(fingerprint['correlated_negative_target_subject_ids']).compact
   end
 end
 

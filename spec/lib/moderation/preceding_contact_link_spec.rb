@@ -49,6 +49,34 @@ RSpec.describe Moderation::PrecedingContactLink do
     it 'is false without a preceding interaction' do
       expect(described_class.strong_association?(nil, rejection(occurred_at: contacted_at + 1.minute, preceding: nil))).to be false
     end
+
+    it 'is false when any participant id is nil' do
+      nullified = Fabricate(
+        :moderation_interaction_event,
+        actor_subject: actor_subject,
+        target_subject: target_subject,
+        occurred_at: contacted_at
+      )
+      nullified.update_columns(actor_subject_id: nil, target_subject_id: nil)
+      orphan_rejection = Fabricate(
+        :moderation_rejection_event,
+        rejector_subject: target_subject,
+        rejected_subject: actor_subject,
+        preceding_interaction_event: nullified,
+        occurred_at: contacted_at + 1.minute
+      )
+      orphan_rejection.update_columns(rejector_subject_id: nil, rejected_subject_id: nil)
+
+      expect(described_class.strong_association?(nullified, orphan_rejection)).to be false
+      expect(
+        described_class.valid_pair?(
+          nullified,
+          rejected_subject_id: nil,
+          rejector_subject_id: nil,
+          occurred_at: contacted_at + 1.minute
+        )
+      ).to be false
+    end
   end
 
   describe '.find_preceding_interaction' do

@@ -25,4 +25,16 @@ RSpec.describe ModerationEvidenceSnapshot, type: :model do
     expect(snapshot.linked_negative_target_subject_ids).to eq [1]
     expect(snapshot.correlated_negative_target_subject_ids).to eq [2, 3]
   end
+
+  it 'omits nil ids from fingerprint readers' do
+    snapshot = Fabricate(
+      :moderation_evidence_snapshot,
+      fingerprint: {
+        'linked_negative_target_subject_ids' => [1, nil],
+        'correlated_negative_target_subject_ids' => [nil, 2],
+      }
+    )
+    expect(snapshot.linked_negative_target_subject_ids).to eq [1]
+    expect(snapshot.correlated_negative_target_subject_ids).to eq [2]
+  end
 end

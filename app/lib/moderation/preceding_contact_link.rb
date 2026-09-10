@@ -34,6 +34,10 @@ module Moderation
 
     def valid_pair?(interaction, rejected_subject_id:, rejector_subject_id:, occurred_at:)
       return false if interaction.nil? || occurred_at.nil?
+      # NULL participant ids (ON DELETE SET NULL after counterpart expiry)
+      # must not match each other: nil == nil is not a preceding-contact link.
+      return false if rejected_subject_id.nil? || rejector_subject_id.nil?
+      return false if interaction.actor_subject_id.nil? || interaction.target_subject_id.nil?
       return false unless interaction.actor_subject_id == rejected_subject_id
       return false unless interaction.target_subject_id == rejector_subject_id
       return false if interaction.occurred_at.nil?
