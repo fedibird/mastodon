@@ -68,7 +68,7 @@ RSpec.describe 'Moderation ledger composed lifecycle', type: :service do
       expect(snapshot.fingerprint.dig('coverage', 'complete_for_remote_subjects')).to be false
       expect(snapshot.fingerprint.dig('coverage', 'observed_inbound_event_types')).to include('follow_reject')
       expect(snapshot.fingerprint.dig('coverage', 'known_inbound_recording_gaps'))
-        .to include(a_hash_including('event_type' => 'follow_reject', 'repairable' => false))
+        .to include(a_hash_including('event_type' => 'follow_reject', 'condition' => 'double_recorder_failure', 'repairable' => false))
 
       expect { status.destroy! }.to_not change(ModerationInteractionEvent, :count)
       expect(ModerationInteractionEvent.exists?(contact.id)).to be true

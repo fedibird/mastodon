@@ -67,8 +67,9 @@ event type (schema_version is now `6`):
     {
       "event_type": "follow_reject",
       "shape": "bare_follow_request_uri",
+      "condition": "double_recorder_failure",
       "repairable": false,
-      "reason": "reject! destroys the FollowRequest before the rejected local requester can be re-derived, so a recorder-only failure on first delivery is not repaired by re-delivery."
+      "reason": "An ordinary recorder-only failure is repaired on re-delivery by correlating the follow-request URI to the outbound follow interaction (activitypub_follow:<uri>). The event is lost only when both the outbound follow interaction and the inbound reject failed to record, leaving no correlation anchor."
     }
   ]
 }
@@ -78,19 +79,21 @@ event type (schema_version is now `6`):
 inbound event type now has a record-creation-site hook, so
 `deferred_inbound_event_types` is empty. But `inbound_activitypub` stays
 `partial` and `complete_for_remote_subjects` stays `false` because one hooked
-shape can still lose an event after a recorder-only failure, tracked explicitly
-in `known_inbound_recording_gaps`. Downstream analysis/scoring must keep using
-these flags as a guard: while any gap remains, low/zero counts must not be read
-as absence of behaviour.
+shape can still lose an event under a rare double recorder failure, tracked
+explicitly in `known_inbound_recording_gaps`. Downstream analysis/scoring must
+keep using these flags as a guard: while any gap remains, low/zero counts must
+not be read as absence of behaviour.
 
-The residual issues are recording-reliability gaps, not missing event types:
+The residual issue is a recording-reliability gap, not a missing event type:
 
-- A `Reject` carrying only the bare follow-request URI is recorded on first
-  delivery but cannot self-repair on re-delivery, because `reject!` destroys the
-  `FollowRequest` the requester is read from — a permanent miss after a
-  recorder-only failure (`repairable: false`). The embedded-`Follow` shape
-  repairs normally (its rejected account is derived from `@object['actor']`), so
-  it is not listed as a gap.
+- A `Reject` carrying only the bare follow-request URI is repaired on
+  re-delivery after an ordinary recorder-only failure by correlating the
+  follow-request URI to the outbound follow interaction (see PR 6d below). It is
+  lost only under a *double* recorder failure — when both the outbound follow
+  interaction and the inbound reject failed to record — because then no
+  correlation anchor persists (`condition: double_recorder_failure`). The
+  embedded-`Follow` shape repairs directly from `@object['actor']`, so it is not
+  listed as a gap.
 - A `Reject` of an already-established follow is modeled as an unfollow, not as a
   follow_reject, so it is intentionally not recorded as a rejection.
 
@@ -122,12 +125,54 @@ actor, rejected = the local requester) at every `Reject`-of-follow-request site:
   destroyed the `FollowRequest`.
 - **bare follow-request-URI shape** (`follow_request_from_object`): the local
   requester is captured **before** `reject!` destroys the `FollowRequest`, so it
-  is recorded on first delivery. This shape cannot self-repair on re-delivery
-  (the record it reads from is gone); it is reported in the coverage metadata's
-  `known_inbound_recording_gaps` and is why `inbound_activitypub` stays
-  `partial` / `complete_for_remote_subjects` stays `false`.
+  is recorded on first delivery. Re-delivery repair for this shape is handled in
+  PR 6d below.
 
 Both keep one stable, activity-identity key
 `activitypub_follow_reject:<Reject id>` so retries never double-record. A
 `Reject` of an already-established follow is intentionally treated as an unfollow
 (not a `follow_reject`).
+
+## PR 6d — repairing the bare-URI reject via outbound follow correlation
+
+The bare-URI Reject shape used to be non-repairable: `reject!` destroys the
+`FollowRequest`, and its URI is an opaque payload id (`…/<uuid>`,
+`FollowRequest#set_uri` → `generate_uri_for`) that does **not** encode the
+requester, so a recorder-only failure on first delivery was permanent.
+
+To close the ordinary case, the outbound follow interaction is keyed on the
+ActivityPub Follow activity identity in a **direction-specific** namespace:
+
+- `FollowService` records the `follow` interaction with
+  `source_event_key = activitypub_outbound_follow:<follow record uri>` (falling
+  back to the record-derived key only when no uri is present). The dedicated
+  outbound namespace keeps these locally generated anchors from ever colliding
+  with inbound follow ids, which are supplied by remote actors and keyed
+  `activitypub_follow:<@json['id']>` in `activity/follow.rb`.
+
+On a bare-URI Reject re-delivery, `activity/reject.rb#repair_inbound_follow_reject_from_uri`
+looks up `ModerationInteractionEvent` by
+`activitypub_outbound_follow:<object_uri>` (the Reject echoes back the
+follow-request URI) and recovers the local requester from its `actor_subject`,
+then records the `follow_reject` under the stable
+`activitypub_follow_reject:<Reject id>` key.
+
+**URI equality alone does not bind identities.** For a moderation evidence
+ledger, a leaked/reused/malicious object URI must not let remote actor B cause us
+to record "B rejected local A" from an anchor that was actually "A → remote C".
+The repair therefore fails closed unless the anchor satisfies every invariant of
+the follow this Reject claims to reject:
+
+- `event_type == follow` (enforced in the query);
+- the anchor's `actor_subject` resolves to a **local** requester;
+- the anchor's `target_subject` is the very remote actor now sending the Reject
+  (`target_subject.account_id == @account.id`);
+- the source key / URI matches the rejected Follow activity identity.
+
+This is durable correlation, not identity invention: the requester is re-read
+from a ledger row tied to the exact same activity URI *and* the same
+actor/target identities. The only remaining loss is the **double** recorder
+failure (both the outbound follow interaction and the inbound reject failed to
+record), so `known_inbound_recording_gaps` narrows to
+`condition: double_recorder_failure` and coverage stays `partial` /
+`complete_for_remote_subjects: false`.

@@ -19,9 +19,9 @@
 # favourites, reactions, blocks, reports, references, and quotes arriving over
 # federation are now observed at their record-creation sites. Every modeled
 # inbound type is hooked, but coverage is reported as 'partial' because one
-# hooked shape (bare-follow-request-URI Reject) can still lose an event after a
-# recorder-only failure. See +fingerprint['coverage']+ for the per-event-type
-# map and +known_inbound_recording_gaps+.
+# hooked shape (bare-follow-request-URI Reject) can still lose an event under a
+# rare double recorder failure. See +fingerprint['coverage']+ for the
+# per-event-type map and +known_inbound_recording_gaps+.
 module Moderation
   class EvidenceSnapshotService
     SCHEMA_VERSION = 6
@@ -35,23 +35,27 @@ module Moderation
 
     # Every modeled inbound event type now has a record-creation-site hook
     # (deferred_inbound_event_types is empty), but "all types hooked" is NOT the
-    # same as "coverage is complete/reliable". A recorder-only failure can still
-    # cause a *permanent* ledger miss for one shape (see known_inbound_recording_gaps),
-    # so inbound_activitypub stays 'partial' and complete_for_remote_subjects
-    # stays false: downstream analysis must not read low/zero counts as absence
-    # of behaviour while any known gap remains.
+    # same as "coverage is complete/reliable". A rare double recorder failure can
+    # still cause a *permanent* ledger miss for one shape (see
+    # known_inbound_recording_gaps), so inbound_activitypub stays 'partial' and
+    # complete_for_remote_subjects stays false: downstream analysis must not read
+    # low/zero counts as absence of behaviour while any known gap remains.
     #
     #   * observed_inbound_event_types    — every modeled type has a hook.
     #   * deferred_inbound_event_types    — types with no hook at all (none left).
     #   * known_inbound_recording_gaps    — hooked types that can still lose an
-    #                                       event after a recorder-only failure.
+    #                                       event under the stated failure condition.
     #
-    # The one remaining gap is the bare-follow-request-URI Reject shape: reject!
-    # destroys the FollowRequest before the rejected local requester can be
-    # re-derived, so a recorder-only failure on first delivery is not repaired by
-    # re-delivery. The embedded-Follow Reject shape repairs normally (its rejected
-    # account is derived from @object['actor']). A Reject of an already-established
-    # follow is intentionally modeled as an unfollow, not a follow_reject.
+    # The remaining gap is the bare-follow-request-URI Reject shape. reject!
+    # destroys the FollowRequest (whose URI is an opaque payload id that does not
+    # encode the requester), so an ordinary recorder-only failure is now repaired
+    # on re-delivery by correlating the follow-request URI to the outbound follow
+    # interaction recorded at request time (source_event_key activitypub_follow:<uri>).
+    # The event is lost only when BOTH that outbound follow interaction and the
+    # inbound reject failed to record, because then no correlation anchor persists.
+    # The embedded-Follow Reject shape repairs directly from @object['actor']. A
+    # Reject of an already-established follow is intentionally modeled as an
+    # unfollow, not a follow_reject.
     INBOUND_ACTIVITYPUB_COVERAGE = {
       'inbound_activitypub' => 'partial',
       'complete_for_remote_subjects' => false,
@@ -61,8 +65,9 @@ module Moderation
         {
           'event_type' => 'follow_reject',
           'shape' => 'bare_follow_request_uri',
+          'condition' => 'double_recorder_failure',
           'repairable' => false,
-          'reason' => 'reject! destroys the FollowRequest before the rejected local requester can be re-derived, so a recorder-only failure on first delivery is not repaired by re-delivery.',
+          'reason' => 'An ordinary recorder-only failure is repaired on re-delivery by correlating the follow-request URI to the outbound follow interaction (activitypub_follow:<uri>). The event is lost only when both the outbound follow interaction and the inbound reject failed to record, leaving no correlation anchor.',
         }.freeze,
       ].freeze,
     }.freeze

@@ -19,7 +19,7 @@
 #
 # Inbound ActivityPub-only paths (remote mention/reply/follow/follow_reject/
 # favourite/reaction/block) are hooked at their record-creation sites, but one
-# hooked shape can still lose an event after a recorder-only failure. See
+# hooked shape can still lose an event under a rare double recorder failure. See
 # Moderation::EvidenceSnapshotService's coverage map (known_inbound_recording_gaps)
 # for the residual reliability limitation.
 module Moderation
