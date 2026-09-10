@@ -5,8 +5,8 @@
 # Table name: moderation_interaction_events
 #
 #  id                 :bigint(8)        not null, primary key
-#  actor_subject_id   :bigint(8)        not null
-#  target_subject_id  :bigint(8)        not null
+#  actor_subject_id   :bigint(8)
+#  target_subject_id  :bigint(8)
 #  event_type         :integer          not null
 #  status_id          :bigint(8)
 #  source_record_type :string
@@ -39,8 +39,8 @@ class ModerationInteractionEvent < ApplicationRecord
     follow_import: 7,
   }, _suffix: :event
 
-  belongs_to :actor_subject, class_name: 'ModerationSubject', inverse_of: :actor_interaction_events
-  belongs_to :target_subject, class_name: 'ModerationSubject', inverse_of: :target_interaction_events
+  belongs_to :actor_subject, class_name: 'ModerationSubject', inverse_of: :actor_interaction_events, optional: true
+  belongs_to :target_subject, class_name: 'ModerationSubject', inverse_of: :target_interaction_events, optional: true
 
   has_many :caused_rejections,
            class_name: 'ModerationRejectionEvent',

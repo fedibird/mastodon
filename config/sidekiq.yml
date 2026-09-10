@@ -67,3 +67,7 @@
       interval: 1 minute
       class: Scheduler::AccountsStatusesCleanupScheduler
       queue: scheduler
+    moderation_ledger_retention_scheduler:
+      cron: '<%= Random.rand(0..59) %> <%= Random.rand(3..5) %> * * *'
+      class: Scheduler::ModerationLedgerRetentionScheduler
+      queue: scheduler

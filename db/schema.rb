@@ -776,8 +776,8 @@ ActiveRecord::Schema.define(version: 2026_09_09_120001) do
   end
 
   create_table "moderation_interaction_events", force: :cascade do |t|
-    t.bigint "actor_subject_id", null: false
-    t.bigint "target_subject_id", null: false
+    t.bigint "actor_subject_id"
+    t.bigint "target_subject_id"
     t.integer "event_type", null: false
     t.bigint "status_id"
     t.string "source_record_type"
@@ -795,8 +795,8 @@ ActiveRecord::Schema.define(version: 2026_09_09_120001) do
   end
 
   create_table "moderation_rejection_events", force: :cascade do |t|
-    t.bigint "rejector_subject_id", null: false
-    t.bigint "rejected_subject_id", null: false
+    t.bigint "rejector_subject_id"
+    t.bigint "rejected_subject_id"
     t.integer "event_type", null: false
     t.bigint "preceding_interaction_event_id"
     t.datetime "occurred_at", null: false
@@ -1434,11 +1434,11 @@ ActiveRecord::Schema.define(version: 2026_09_09_120001) do
   add_foreign_key "media_attachments", "statuses", on_delete: :nullify
   add_foreign_key "mentions", "accounts", name: "fk_970d43f9d1", on_delete: :cascade
   add_foreign_key "mentions", "statuses", on_delete: :cascade
-  add_foreign_key "moderation_interaction_events", "moderation_subjects", column: "actor_subject_id", on_delete: :cascade
-  add_foreign_key "moderation_interaction_events", "moderation_subjects", column: "target_subject_id", on_delete: :cascade
+  add_foreign_key "moderation_interaction_events", "moderation_subjects", column: "actor_subject_id", on_delete: :nullify
+  add_foreign_key "moderation_interaction_events", "moderation_subjects", column: "target_subject_id", on_delete: :nullify
   add_foreign_key "moderation_rejection_events", "moderation_interaction_events", column: "preceding_interaction_event_id", on_delete: :nullify
-  add_foreign_key "moderation_rejection_events", "moderation_subjects", column: "rejected_subject_id", on_delete: :cascade
-  add_foreign_key "moderation_rejection_events", "moderation_subjects", column: "rejector_subject_id", on_delete: :cascade
+  add_foreign_key "moderation_rejection_events", "moderation_subjects", column: "rejected_subject_id", on_delete: :nullify
+  add_foreign_key "moderation_rejection_events", "moderation_subjects", column: "rejector_subject_id", on_delete: :nullify
   add_foreign_key "moderation_subjects", "accounts", on_delete: :nullify
   add_foreign_key "mutes", "accounts", column: "target_account_id", name: "fk_eecff219ea", on_delete: :cascade
   add_foreign_key "mutes", "accounts", name: "fk_b8d8daf315", on_delete: :cascade
