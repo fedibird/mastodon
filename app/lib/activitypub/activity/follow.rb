@@ -59,6 +59,24 @@ class ActivityPub::Activity::Follow < ActivityPub::Activity
                     ::FollowRequest.find_by(account: @account, target_account: target_account)
     return if source_record.nil?
 
-    Moderation::EventRecorder.record_interaction(actor: @account, target: target_account, event_type: :follow, source_record: source_record)
+    # Key on the ActivityPub Follow activity identity rather than the relationship
+    # record, so the event stays deduped across the FollowRequest -> Follow
+    # conversion: a locked target's pending request may be accepted (request
+    # destroyed, Follow created) and the same activity later re-delivered. Both a
+    # FollowRequest-backed and a Follow-backed recording then share one key.
+    # Falls back to the record-derived key only when the activity has no id.
+    Moderation::EventRecorder.record_interaction(
+      actor: @account,
+      target: target_account,
+      event_type: :follow,
+      source_record: source_record,
+      source_event_key: inbound_follow_source_event_key
+    )
+  end
+
+  def inbound_follow_source_event_key
+    return if @json['id'].blank?
+
+    "activitypub_follow:#{@json['id']}"
   end
 end

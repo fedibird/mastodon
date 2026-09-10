@@ -56,6 +56,41 @@ RSpec.describe 'Inbound ActivityPub moderation coverage', type: :model do
       expect { deliver(described_class, json) }.to change(ModerationInteractionEvent, :count).by(1)
       expect(ModerationInteractionEvent.count).to eq 1
     end
+
+    context 'with a locked target (pending -> accepted lifecycle)' do
+      let(:locked) { Fabricate(:account, locked: true) }
+      let(:locked_json) do
+        json.merge(object: ActivityPub::TagManager.instance.uri_for(locked)).with_indifferent_access
+      end
+
+      it 'keeps exactly one follow event across the FollowRequest -> Follow conversion on re-delivery' do
+        # 1. Inbound follow to a locked account -> pending request -> one event.
+        expect { deliver(described_class, locked_json) }.to change(ModerationInteractionEvent, :count).by(1)
+        request = FollowRequest.find_by(account: remote, target_account: locked)
+        expect(request).to be_present
+
+        # 2. Local user accepts: the surviving relationship is now a Follow.
+        request.authorize!
+        expect(remote.following?(locked)).to be true
+        expect(FollowRequest.find_by(account: remote, target_account: locked)).to be_nil
+
+        # 3. Same ActivityPub Follow re-delivered -> existing-Follow branch.
+        expect { deliver(described_class, locked_json) }.to_not change(ModerationInteractionEvent, :count)
+        expect(ModerationInteractionEvent.where(actor_subject: ModerationSubject.find_by(account_id: remote.id)).count).to eq 1
+      end
+
+      it 'repairs a missed ledger event while the request is still pending' do
+        allow(Moderation::EventRecorder).to receive(:record_interaction).and_return(nil)
+        deliver(described_class, locked_json)
+
+        expect(remote.requested?(locked)).to be true
+        expect(ModerationInteractionEvent.count).to eq 0
+
+        allow(Moderation::EventRecorder).to receive(:record_interaction).and_call_original
+        expect { deliver(described_class, locked_json) }.to change(ModerationInteractionEvent, :count).by(1)
+        expect(ModerationInteractionEvent.count).to eq 1
+      end
+    end
   end
 
   describe ActivityPub::Activity::Like do
