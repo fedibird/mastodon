@@ -775,6 +775,34 @@ ActiveRecord::Schema.define(version: 2026_09_09_120001) do
     t.index ["status_id"], name: "index_mentions_on_status_id"
   end
 
+  create_table "moderation_actions", force: :cascade do |t|
+    t.bigint "subject_id", null: false
+    t.integer "action_type", null: false
+    t.datetime "performed_at", null: false
+    t.bigint "moderator_account_id"
+    t.string "reason_code"
+    t.bigint "evidence_snapshot_id"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["action_type", "performed_at"], name: "index_moderation_actions_on_type_and_performed"
+    t.index ["evidence_snapshot_id"], name: "index_moderation_actions_on_evidence_snapshot", where: "(evidence_snapshot_id IS NOT NULL)"
+    t.index ["moderator_account_id"], name: "index_moderation_actions_on_moderator", where: "(moderator_account_id IS NOT NULL)"
+    t.index ["subject_id", "performed_at"], name: "index_moderation_actions_on_subject_and_performed"
+  end
+
+  create_table "moderation_evidence_snapshots", force: :cascade do |t|
+    t.bigint "subject_id", null: false
+    t.datetime "window_start"
+    t.datetime "window_end"
+    t.jsonb "summary", default: {}, null: false
+    t.jsonb "fingerprint", default: {}, null: false
+    t.integer "schema_version", default: 1, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["subject_id", "created_at"], name: "index_mod_evidence_snapshots_on_subject_and_created"
+  end
+
   create_table "moderation_interaction_events", force: :cascade do |t|
     t.bigint "actor_subject_id"
     t.bigint "target_subject_id"
@@ -783,6 +811,7 @@ ActiveRecord::Schema.define(version: 2026_09_09_120001) do
     t.string "source_record_type"
     t.bigint "source_record_id"
     t.bigint "import_batch_id"
+    t.string "source_event_key"
     t.datetime "occurred_at", null: false
     t.datetime "observed_at", null: false
     t.jsonb "metadata", default: {}, null: false
@@ -791,6 +820,7 @@ ActiveRecord::Schema.define(version: 2026_09_09_120001) do
     t.index ["actor_subject_id", "occurred_at"], name: "index_mod_interaction_events_on_actor_and_occurred"
     t.index ["actor_subject_id", "target_subject_id", "occurred_at"], name: "index_mod_interaction_events_on_actor_target_occurred"
     t.index ["event_type", "occurred_at"], name: "index_mod_interaction_events_on_type_and_occurred"
+    t.index ["source_event_key"], name: "index_mod_interaction_events_on_source_event_key", unique: true, where: "(source_event_key IS NOT NULL)"
     t.index ["target_subject_id", "occurred_at"], name: "index_mod_interaction_events_on_target_and_occurred"
   end
 
@@ -799,6 +829,7 @@ ActiveRecord::Schema.define(version: 2026_09_09_120001) do
     t.bigint "rejected_subject_id"
     t.integer "event_type", null: false
     t.bigint "preceding_interaction_event_id"
+    t.string "source_event_key"
     t.datetime "occurred_at", null: false
     t.datetime "observed_at", null: false
     t.jsonb "metadata", default: {}, null: false
@@ -806,6 +837,7 @@ ActiveRecord::Schema.define(version: 2026_09_09_120001) do
     t.datetime "updated_at", precision: 6, null: false
     t.index ["event_type", "occurred_at"], name: "index_mod_rejection_events_on_type_and_occurred"
     t.index ["preceding_interaction_event_id"], name: "index_mod_rejection_events_on_preceding_event", where: "(preceding_interaction_event_id IS NOT NULL)"
+    t.index ["source_event_key"], name: "index_mod_rejection_events_on_source_event_key", unique: true, where: "(source_event_key IS NOT NULL)"
     t.index ["rejected_subject_id", "occurred_at"], name: "index_mod_rejection_events_on_rejected_and_occurred"
     t.index ["rejected_subject_id", "rejector_subject_id", "occurred_at"], name: "index_mod_rejection_events_on_rejected_rejector_occurred"
     t.index ["rejector_subject_id", "occurred_at"], name: "index_mod_rejection_events_on_rejector_and_occurred"
@@ -1434,6 +1466,10 @@ ActiveRecord::Schema.define(version: 2026_09_09_120001) do
   add_foreign_key "media_attachments", "statuses", on_delete: :nullify
   add_foreign_key "mentions", "accounts", name: "fk_970d43f9d1", on_delete: :cascade
   add_foreign_key "mentions", "statuses", on_delete: :cascade
+  add_foreign_key "moderation_actions", "accounts", column: "moderator_account_id", on_delete: :nullify
+  add_foreign_key "moderation_actions", "moderation_evidence_snapshots", column: "evidence_snapshot_id", on_delete: :nullify
+  add_foreign_key "moderation_actions", "moderation_subjects", column: "subject_id", on_delete: :cascade
+  add_foreign_key "moderation_evidence_snapshots", "moderation_subjects", column: "subject_id", on_delete: :cascade
   add_foreign_key "moderation_interaction_events", "moderation_subjects", column: "actor_subject_id", on_delete: :nullify
   add_foreign_key "moderation_interaction_events", "moderation_subjects", column: "target_subject_id", on_delete: :nullify
   add_foreign_key "moderation_rejection_events", "moderation_interaction_events", column: "preceding_interaction_event_id", on_delete: :nullify

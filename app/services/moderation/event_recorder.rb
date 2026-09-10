@@ -11,8 +11,15 @@
 #     are observable.
 #   * Record only behavioural metadata (who / whom / what / when), never raw
 #     post/DM/profile content.
+#   * Source-backed observations are idempotent: a stable +source_event_key+
+#     plus a unique index prevent duplicate rows when a caller retries or
+#     loses a uniqueness race.
 #
 # This phase performs recording only: no scoring, throttling, or enforcement.
+#
+# Known coverage limitation: inbound ActivityPub-only paths (remote
+# mention/reply/follow/favourite/reaction/block) are not yet hooked. Snapshots
+# and future scores for remote actors are therefore incomplete.
 module Moderation
   class EventRecorder
     class << self
@@ -40,41 +47,97 @@ module Moderation
     # Record a contact (actor -> target). +actor+/+target+ may be an Account or
     # an already-resolved ModerationSubject. Raises on failure; prefer the
     # class-level Moderation::EventRecorder.record_interaction at call sites.
-    def record_interaction(actor:, target:, event_type:, status: nil, source_record: nil, import_batch_id: nil, occurred_at: nil, observed_at: nil, metadata: {})
+    def record_interaction(actor:, target:, event_type:, status: nil, source_record: nil, import_batch_id: nil, occurred_at: nil, observed_at: nil, metadata: {}, source_event_key: nil)
       observed_at ||= Time.now.utc
       actor_subject  = ModerationSubject.for_account!(actor, observed_at: observed_at)
       target_subject = ModerationSubject.for_account!(target, observed_at: observed_at)
+      key = source_event_key.presence || self.class.source_event_key_for(source_record, event_type)
 
-      ModerationInteractionEvent.create!(
-        actor_subject: actor_subject,
-        target_subject: target_subject,
-        event_type: event_type,
-        status_id: status&.id,
-        source_record_type: source_record&.class&.base_class&.name,
-        source_record_id: source_record&.id,
-        import_batch_id: import_batch_id,
-        occurred_at: occurred_at || observed_at,
-        observed_at: observed_at,
-        metadata: metadata || {}
+      upsert_by_source_key(ModerationInteractionEvent, key) do
+        ModerationInteractionEvent.create!(
+          actor_subject: actor_subject,
+          target_subject: target_subject,
+          event_type: event_type,
+          status_id: status&.id,
+          source_record_type: source_record&.class&.base_class&.name,
+          source_record_id: source_record&.id,
+          import_batch_id: import_batch_id,
+          source_event_key: key,
+          occurred_at: occurred_at || observed_at,
+          observed_at: observed_at,
+          metadata: metadata || {}
+        )
+      end
+    end
+
+    # Record a negative signal (rejector -> rejected). When the caller does
+    # not supply a preceding interaction, the nearest earlier contact from
+    # rejected → rejector within the association window is linked automatically.
+    # The link is a strong temporal association, not a causal proof.
+    def record_rejection(rejector:, rejected:, event_type:, preceding_interaction: nil, occurred_at: nil, observed_at: nil, metadata: {}, source_record: nil, source_event_key: nil)
+      observed_at ||= Time.now.utc
+      occurred_at ||= observed_at
+      rejector_subject = ModerationSubject.for_account!(rejector, observed_at: observed_at)
+      rejected_subject = ModerationSubject.for_account!(rejected, observed_at: observed_at)
+      key = source_event_key.presence || self.class.source_event_key_for(source_record, event_type)
+
+      preceding = resolve_preceding_interaction(
+        explicit: preceding_interaction,
+        rejected_subject: rejected_subject,
+        rejector_subject: rejector_subject,
+        occurred_at: occurred_at
+      )
+
+      upsert_by_source_key(ModerationRejectionEvent, key) do
+        ModerationRejectionEvent.create!(
+          rejector_subject: rejector_subject,
+          rejected_subject: rejected_subject,
+          event_type: event_type,
+          preceding_interaction_event: preceding,
+          source_event_key: key,
+          occurred_at: occurred_at,
+          observed_at: observed_at,
+          metadata: metadata || {}
+        )
+      end
+    end
+
+    def self.source_event_key_for(source_record, event_type)
+      return if source_record.nil? || source_record.id.nil?
+
+      "#{source_record.class.base_class.name}:#{source_record.id}:#{event_type}"
+    end
+
+    private
+
+    def resolve_preceding_interaction(explicit:, rejected_subject:, rejector_subject:, occurred_at:)
+      if Moderation::PrecedingContactLink.valid_pair?(
+        explicit,
+        rejected_subject_id: rejected_subject.id,
+        rejector_subject_id: rejector_subject.id,
+        occurred_at: occurred_at
+      )
+        return explicit
+      end
+
+      Moderation::PrecedingContactLink.find_preceding_interaction(
+        rejected_subject: rejected_subject,
+        rejector_subject: rejector_subject,
+        occurred_at: occurred_at
       )
     end
 
-    # Record a negative signal (rejector -> rejected). +preceding_interaction+
-    # optionally links the contact this rejection responded to.
-    def record_rejection(rejector:, rejected:, event_type:, preceding_interaction: nil, occurred_at: nil, observed_at: nil, metadata: {})
-      observed_at ||= Time.now.utc
-      rejector_subject = ModerationSubject.for_account!(rejector, observed_at: observed_at)
-      rejected_subject = ModerationSubject.for_account!(rejected, observed_at: observed_at)
+    def upsert_by_source_key(model, key)
+      if key.present?
+        existing = model.find_by(source_event_key: key)
+        return existing if existing
+      end
 
-      ModerationRejectionEvent.create!(
-        rejector_subject: rejector_subject,
-        rejected_subject: rejected_subject,
-        event_type: event_type,
-        preceding_interaction_event: preceding_interaction,
-        occurred_at: occurred_at || observed_at,
-        observed_at: observed_at,
-        metadata: metadata || {}
-      )
+      yield
+    rescue ActiveRecord::RecordNotUnique
+      raise if key.blank?
+
+      model.find_by!(source_event_key: key)
     end
   end
 end

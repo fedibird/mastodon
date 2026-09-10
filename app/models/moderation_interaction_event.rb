@@ -12,6 +12,7 @@
 #  source_record_type :string
 #  source_record_id   :bigint(8)
 #  import_batch_id    :bigint(8)
+#  source_event_key   :string
 #  occurred_at        :datetime         not null
 #  observed_at        :datetime         not null
 #  metadata           :jsonb            not null
