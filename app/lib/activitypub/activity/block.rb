@@ -18,7 +18,11 @@ class ActivityPub::Activity::Block < ActivityPub::Activity
 
     unless delete_arrived_first?(@json['id'])
       BlockWorker.perform_async(@account.id, target_account.id)
-      @account.block!(target_account, uri: @json['id'])
+      block = @account.block!(target_account, uri: @json['id'])
+
+      # Inbound block of a local account: the remote actor rejected the local
+      # account. Idempotent via source_event_key (the Block record).
+      Moderation::EventRecorder.record_rejection(rejector: @account, rejected: target_account, event_type: :block, source_record: block)
     end
   end
 end

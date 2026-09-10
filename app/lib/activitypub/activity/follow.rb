@@ -30,6 +30,11 @@ class ActivityPub::Activity::Follow < ActivityPub::Activity
 
     follow_request = FollowRequest.create!(account: @account, target_account: target_account, uri: @json['id'])
 
+    # Inbound follow of a local account: record the remote actor's contact.
+    # Idempotent via source_event_key (the FollowRequest), so re-delivery does
+    # not double-record.
+    Moderation::EventRecorder.record_interaction(actor: @account, target: target_account, event_type: :follow, source_record: follow_request)
+
     if target_account.locked? || @account.silenced? || @account.bot? && target_account.user.setting_confirm_follow_from_bot
       NotifyService.new.call(target_account, :follow_request, follow_request)
     else

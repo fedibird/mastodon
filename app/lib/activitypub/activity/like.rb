@@ -23,7 +23,10 @@ class ActivityPub::Activity::Like < ActivityPub::Activity
 
     favourite = @original_status.favourites.create!(account: @account)
 
-    NotifyService.new.call(@original_status.account, :favourite, favourite) if @original_status.account.local?
+    if @original_status.account.local?
+      Moderation::EventRecorder.record_interaction(actor: @account, target: @original_status.account, event_type: :favourite, status: @original_status, source_record: favourite)
+      NotifyService.new.call(@original_status.account, :favourite, favourite)
+    end
   end
 
   def process_reaction
@@ -49,7 +52,13 @@ class ActivityPub::Activity::Like < ActivityPub::Activity
 
     return if @account.reacted?(@original_status, shortcode, emoji)
 
-    @original_status.emoji_reactions.create!(account: @account, name: shortcode, custom_emoji: emoji, uri: @json['id']).tap do |reaction|
+    reaction = @original_status.emoji_reactions.create!(account: @account, name: shortcode, custom_emoji: emoji, uri: @json['id'])
+
+    if @original_status.account.local?
+      Moderation::EventRecorder.record_interaction(actor: @account, target: @original_status.account, event_type: :reaction, status: @original_status, source_record: reaction)
+    end
+
+    reaction.tap do |reaction|
       if @original_status.account.local? && !@account.silenced? && !@original_status.account.excluded_from_timeline_account_ids.include?(@account.id) && !@original_status.account.excluded_from_timeline_domains.include?(@account.domain)
         NotifyService.new.call(@original_status.account, :emoji_reaction, reaction)
         forward_for_emoji_reaction
