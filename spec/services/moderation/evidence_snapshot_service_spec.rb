@@ -47,7 +47,7 @@ RSpec.describe Moderation::EvidenceSnapshotService, type: :service do
     expect(snapshot.fingerprint.dig('coverage', 'complete_for_remote_subjects')).to be false
     expect(snapshot.fingerprint.dig('coverage', 'inbound_activitypub')).to eq 'partial'
     gaps = snapshot.fingerprint.dig('coverage', 'known_inbound_recording_gaps')
-    expect(gaps).to include(a_hash_including('event_type' => 'follow_reject', 'shape' => 'bare_follow_request_uri', 'repairable' => false))
+    expect(gaps).to include(a_hash_including('event_type' => 'follow_reject', 'shape' => 'bare_follow_request_uri', 'condition' => 'double_recorder_failure', 'repairable' => false))
   end
 
   it 'does not put unordered same-window overlap into linked_negative_target_subject_ids' do
