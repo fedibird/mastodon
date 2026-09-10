@@ -40,7 +40,7 @@ RSpec.describe Moderation::EvidenceSnapshotService, type: :service do
     expect(snapshot.window_start).to be_present
     expect(snapshot.fingerprint['coverage']).to eq described_class::INBOUND_ACTIVITYPUB_COVERAGE
     expect(snapshot.fingerprint.dig('coverage', 'complete_for_remote_subjects')).to be false
-    expect(snapshot.fingerprint.dig('coverage', 'inbound_activitypub')).to eq 'deferred'
+    expect(snapshot.fingerprint.dig('coverage', 'inbound_activitypub')).to eq 'partial'
   end
 
   it 'does not put unordered same-window overlap into linked_negative_target_subject_ids' do
