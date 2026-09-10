@@ -7,7 +7,9 @@ class ActivityPub::Activity::Block < ActivityPub::Activity
     return if target_account.nil? || !target_account.local?
 
     if @account.blocking?(target_account)
-      @account.block_relationships.find_by(target_account: target_account).update(uri: @json['id']) if @json['id'].present?
+      existing_block = @account.block_relationships.find_by(target_account: target_account)
+      existing_block.update(uri: @json['id']) if existing_block && @json['id'].present?
+      record_inbound_block(target_account, existing_block)
       return
     end
 
@@ -18,7 +20,20 @@ class ActivityPub::Activity::Block < ActivityPub::Activity
 
     unless delete_arrived_first?(@json['id'])
       BlockWorker.perform_async(@account.id, target_account.id)
-      @account.block!(target_account, uri: @json['id'])
+      block = @account.block!(target_account, uri: @json['id'])
+
+      record_inbound_block(target_account, block)
     end
+  end
+
+  private
+
+  # Inbound block of a local account: the remote actor rejected the local
+  # account. Idempotent via source_event_key (the Block record), so re-delivery
+  # both dedupes and repairs a ledger event a transient recorder failure missed.
+  def record_inbound_block(target_account, block)
+    return if block.nil?
+
+    Moderation::EventRecorder.record_rejection(rejector: @account, rejected: target_account, event_type: :block, source_record: block)
   end
 end

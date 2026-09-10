@@ -64,7 +64,7 @@ RSpec.describe 'Moderation ledger composed lifecycle', type: :service do
       expect(snapshot.linked_negative_target_subject_ids).to include(bob_subject.id)
       expect(snapshot.linked_negative_target_subject_ids).to_not include(carol_subject.id)
       expect(snapshot.correlated_negative_target_subject_ids).to include(carol_subject.id)
-      expect(snapshot.fingerprint.dig('coverage', 'inbound_activitypub')).to eq 'deferred'
+      expect(snapshot.fingerprint.dig('coverage', 'inbound_activitypub')).to eq 'partial'
       expect(snapshot.fingerprint.dig('coverage', 'complete_for_remote_subjects')).to be false
 
       expect { status.destroy! }.to_not change(ModerationInteractionEvent, :count)

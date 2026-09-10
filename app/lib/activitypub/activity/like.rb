@@ -19,11 +19,20 @@ class ActivityPub::Activity::Like < ActivityPub::Activity
   private
 
   def process_favourite
-    return if @account.favourited?(@original_status)
+    favourite = @original_status.favourites.find_by(account: @account)
 
-    favourite = @original_status.favourites.create!(account: @account)
+    if favourite.nil?
+      favourite = @original_status.favourites.create!(account: @account)
+      NotifyService.new.call(@original_status.account, :favourite, favourite) if @original_status.account.local?
+    end
 
-    NotifyService.new.call(@original_status.account, :favourite, favourite) if @original_status.account.local?
+    # Record (idempotently) even when the favourite already exists, so that a
+    # re-delivery repairs a ledger event a transient recorder failure missed.
+    record_inbound_favourite(favourite) if @original_status.account.local?
+  end
+
+  def record_inbound_favourite(favourite)
+    Moderation::EventRecorder.record_interaction(actor: @account, target: @original_status.account, event_type: :favourite, status: @original_status, source_record: favourite)
   end
 
   def process_reaction
@@ -47,14 +56,22 @@ class ActivityPub::Activity::Like < ActivityPub::Activity
       return if emoji&.disabled?
     end
 
-    return if @account.reacted?(@original_status, shortcode, emoji)
+    reaction = @original_status.emoji_reactions.find_by(account: @account, name: shortcode)
 
-    @original_status.emoji_reactions.create!(account: @account, name: shortcode, custom_emoji: emoji, uri: @json['id']).tap do |reaction|
+    if reaction.nil?
+      reaction = @original_status.emoji_reactions.create!(account: @account, name: shortcode, custom_emoji: emoji, uri: @json['id'])
+
       if @original_status.account.local? && !@account.silenced? && !@original_status.account.excluded_from_timeline_account_ids.include?(@account.id) && !@original_status.account.excluded_from_timeline_domains.include?(@account.domain)
         NotifyService.new.call(@original_status.account, :emoji_reaction, reaction)
         forward_for_emoji_reaction
         relay_for_emoji_reaction
       end
+    end
+
+    # Record (idempotently) even when the reaction already exists, so that a
+    # re-delivery repairs a ledger event a transient recorder failure missed.
+    if @original_status.account.local?
+      Moderation::EventRecorder.record_interaction(actor: @account, target: @original_status.account, event_type: :reaction, status: @original_status, source_record: reaction)
     end
   rescue Seahorse::Client::NetworkingError
     nil
