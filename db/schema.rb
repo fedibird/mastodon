@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_08_230003) do
+ActiveRecord::Schema.define(version: 2026_09_09_120001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -547,6 +547,36 @@ ActiveRecord::Schema.define(version: 2026_09_08_230003) do
     t.string "url"
     t.index ["account_id"], name: "index_featured_tags_on_account_id"
     t.index ["tag_id"], name: "index_featured_tags_on_tag_id"
+  end
+
+  create_table "follow_import_batches", force: :cascade do |t|
+    t.bigint "subject_id", null: false
+    t.bigint "import_id"
+    t.datetime "imported_at", null: false
+    t.integer "mode", default: 0, null: false
+    t.integer "target_count", default: 0, null: false
+    t.integer "resolved_target_count", default: 0, null: false
+    t.integer "unresolved_target_count", default: 0, null: false
+    t.bigint "account_age_seconds"
+    t.integer "migration_evidence", default: 0, null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["import_id"], name: "index_follow_import_batches_on_import_id", unique: true, where: "(import_id IS NOT NULL)"
+    t.index ["subject_id", "imported_at"], name: "index_follow_import_batches_on_subject_and_imported_at"
+  end
+
+  create_table "follow_import_targets", force: :cascade do |t|
+    t.bigint "batch_id", null: false
+    t.bigint "target_subject_id"
+    t.string "target_key_hash"
+    t.integer "position"
+    t.jsonb "prior_relationship_state"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["batch_id", "target_subject_id"], name: "index_follow_import_targets_on_batch_and_target"
+    t.index ["target_key_hash"], name: "index_follow_import_targets_on_target_key_hash", where: "(target_key_hash IS NOT NULL)"
+    t.index ["target_subject_id"], name: "index_follow_import_targets_on_target_subject", where: "(target_subject_id IS NOT NULL)"
   end
 
   create_table "follow_recommendation_suppressions", force: :cascade do |t|
@@ -1377,6 +1407,9 @@ ActiveRecord::Schema.define(version: 2026_09_08_230003) do
   add_foreign_key "favourites", "statuses", name: "fk_b0e856845e", on_delete: :cascade
   add_foreign_key "featured_tags", "accounts", on_delete: :cascade
   add_foreign_key "featured_tags", "tags", on_delete: :cascade
+  add_foreign_key "follow_import_batches", "moderation_subjects", column: "subject_id", on_delete: :cascade
+  add_foreign_key "follow_import_targets", "follow_import_batches", column: "batch_id", on_delete: :cascade
+  add_foreign_key "follow_import_targets", "moderation_subjects", column: "target_subject_id", on_delete: :nullify
   add_foreign_key "follow_recommendation_suppressions", "accounts", on_delete: :cascade
   add_foreign_key "follow_requests", "accounts", column: "target_account_id", name: "fk_9291ec025d", on_delete: :cascade
   add_foreign_key "follow_requests", "accounts", name: "fk_76d644b0e7", on_delete: :cascade

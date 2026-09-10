@@ -29,7 +29,16 @@ class ImportService < BaseService
 
   def import_follows!
     parse_import_data!(['Account address'])
+    record_follow_import_batch!
     import_relationships!('follow', 'unfollow', @account.following.map { |account| { acct: account.acct }}, ROWS_PROCESSING_LIMIT, show_reblogs: { header: 'Show boosts', default: true }, notify: { header: 'Notify on new posts', default: false }, languages: { header: 'Languages', default: nil }, delivery: { header: 'Delivery to home', default: true })
+  end
+
+  # Record the follow-import target set into the moderation ledger before the
+  # follows are executed (the whole set is known here after CSV parsing).
+  def record_follow_import_batch!
+    accts = @data.take(ROWS_PROCESSING_LIMIT).filter_map { |row| row['Account address']&.strip.presence }
+
+    Moderation::FollowImportRecorder.record_batch(account: @account, accts: accts, import: @import, mode: @import.mode)
   end
 
   def import_account_subscribings!
