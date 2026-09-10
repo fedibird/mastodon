@@ -14,9 +14,14 @@ class ActivityPub::Activity::Reject < ActivityPub::Activity
 
     return UnfollowService.new.call(follow_from_object.account, @account) unless follow_from_object.nil?
 
-    case @object['type']
-    when 'Follow'
-      reject_embedded_follow
+    if @object.is_a?(Hash)
+      reject_embedded_follow if @object['type'] == 'Follow'
+    else
+      # Bare follow-request URI with no surviving FollowRequest/Follow: on a
+      # re-delivery, the first Reject already destroyed the FollowRequest, so
+      # repair the missed ledger event by correlating the follow-request URI to
+      # the outbound follow interaction that was recorded when we sent it.
+      repair_inbound_follow_reject_from_uri
     end
   end
 
@@ -36,6 +41,23 @@ class ActivityPub::Activity::Reject < ActivityPub::Activity
     record_inbound_follow_reject(target_account)
 
     UnfollowService.new.call(target_account, @account) if target_account.following?(@account)
+  end
+
+  # Re-delivery repair for the bare-follow-request-URI shape. reject! has already
+  # destroyed the FollowRequest, so the rejected local requester cannot be read
+  # from it (its URI is an opaque payload id that does not encode the account).
+  # Instead correlate the follow-request URI to the outbound follow interaction
+  # recorded at request time under the same activity identity
+  # (activitypub_follow:<uri>) and recover the requester from its actor. Nothing
+  # is repaired only when that anchor is also missing (a double recorder failure).
+  def repair_inbound_follow_reject_from_uri
+    return if object_uri.blank?
+
+    interaction = ModerationInteractionEvent.find_by(source_event_key: "activitypub_follow:#{object_uri}")
+    return if interaction.nil?
+
+    rejected_account = interaction.actor_subject&.account
+    record_inbound_follow_reject(rejected_account)
   end
 
   # Inbound Reject of a local account's follow request: the remote actor rejected
