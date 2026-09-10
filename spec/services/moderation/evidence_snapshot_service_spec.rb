@@ -39,8 +39,15 @@ RSpec.describe Moderation::EvidenceSnapshotService, type: :service do
     expect(snapshot.window_end).to be_present
     expect(snapshot.window_start).to be_present
     expect(snapshot.fingerprint['coverage']).to eq described_class::INBOUND_ACTIVITYPUB_COVERAGE
+    # Every modeled inbound type is hooked (deferred is empty)...
+    expect(snapshot.fingerprint.dig('coverage', 'observed_inbound_event_types')).to include('follow_reject')
+    expect(snapshot.fingerprint.dig('coverage', 'deferred_inbound_event_types')).to eq []
+    # ...but a known recorder-only-failure gap keeps coverage honestly partial,
+    # so downstream analysis does not read missing evidence as absence of behaviour.
     expect(snapshot.fingerprint.dig('coverage', 'complete_for_remote_subjects')).to be false
     expect(snapshot.fingerprint.dig('coverage', 'inbound_activitypub')).to eq 'partial'
+    gaps = snapshot.fingerprint.dig('coverage', 'known_inbound_recording_gaps')
+    expect(gaps).to include(a_hash_including('event_type' => 'follow_reject', 'shape' => 'bare_follow_request_uri', 'repairable' => false))
   end
 
   it 'does not put unordered same-window overlap into linked_negative_target_subject_ids' do

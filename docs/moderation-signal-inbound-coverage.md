@@ -41,7 +41,7 @@ different records).
 | Create → reply (remote → local) | `Status#in_reply_to_account_id` | `activity/create.rb` thread resolution | none | **hooked (PR 6b)** → `reply` |
 | Create → quote (remote → local) | `Status#quote_id` | `activity/create.rb` (PSR skips quote) | none | **hooked (PR 6b)** → `quote` |
 | Accept (remote accepts local follow request) | `Follow` | `activity/accept.rb` → `follow!` | intentionally skipped | — (already recorded at local request time; recording here would double-count the same logical follow) |
-| Reject (remote rejects local follow request) | destroys `FollowRequest` | `activity/reject.rb` `reject!` (not `RejectFollowService`) | none | **deferred** (`follow_reject`) |
+| Reject (remote rejects local follow request) | destroys `FollowRequest` | `activity/reject.rb` `reject!` (not `RejectFollowService`) | none | **hooked (PR 6c)** → `follow_reject` (rejection) |
 | Announce (remote boost of local status) | reblog `Status` | `activity/announce.rb` | n/a | out of ledger's event set |
 
 Notes:
@@ -54,21 +54,45 @@ Notes:
 
 ## Coverage metadata
 
-`ModerationEvidenceSnapshot` fingerprints carry `coverage`. It is now reported
-per event type (schema_version bumped 3 → 4):
+`ModerationEvidenceSnapshot` fingerprints carry `coverage`. It is reported per
+event type (schema_version is now `6`):
 
 ```json
 {
   "inbound_activitypub": "partial",
   "complete_for_remote_subjects": false,
-  "observed_inbound_event_types": ["follow", "favourite", "reaction", "block", "report", "reference", "mention", "reply", "quote"],
-  "deferred_inbound_event_types": ["follow_reject"]
+  "observed_inbound_event_types": ["follow", "follow_reject", "favourite", "reaction", "block", "report", "reference", "mention", "reply", "quote"],
+  "deferred_inbound_event_types": [],
+  "known_inbound_recording_gaps": [
+    {
+      "event_type": "follow_reject",
+      "shape": "bare_follow_request_uri",
+      "repairable": false,
+      "reason": "reject! destroys the FollowRequest before the rejected local requester can be re-derived, so a recorder-only failure on first delivery is not repaired by re-delivery."
+    }
+  ]
 }
 ```
 
-`complete_for_remote_subjects` stays `false` until the last deferred inbound
-path (follow-request reject) is hooked. Do not read a low remote count as "no
-behaviour" while coverage is partial.
+**"All modeled types hooked" is not "coverage complete/reliable".** Every modeled
+inbound event type now has a record-creation-site hook, so
+`deferred_inbound_event_types` is empty. But `inbound_activitypub` stays
+`partial` and `complete_for_remote_subjects` stays `false` because one hooked
+shape can still lose an event after a recorder-only failure, tracked explicitly
+in `known_inbound_recording_gaps`. Downstream analysis/scoring must keep using
+these flags as a guard: while any gap remains, low/zero counts must not be read
+as absence of behaviour.
+
+The residual issues are recording-reliability gaps, not missing event types:
+
+- A `Reject` carrying only the bare follow-request URI is recorded on first
+  delivery but cannot self-repair on re-delivery, because `reject!` destroys the
+  `FollowRequest` the requester is read from — a permanent miss after a
+  recorder-only failure (`repairable: false`). The embedded-`Follow` shape
+  repairs normally (its rejected account is derived from `@object['actor']`), so
+  it is not listed as a gap.
+- A `Reject` of an already-established follow is modeled as an unfollow, not as a
+  follow_reject, so it is intentionally not recorded as a rejection.
 
 ## PR 6b — inbound mention / reply / quote
 
@@ -87,8 +111,23 @@ transient recorder failure missed):
 Reply/quote use activity-identity keys (the status URI) so they stay stable and
 deduped across re-delivery. Silent (audience) mentions are not recorded.
 
-## Deferred to a follow-up
+## PR 6c — inbound follow-request reject
 
-- Inbound follow-request **reject** (`activity/reject.rb`): the `Reject` bypasses
-  `RejectFollowService` and destroys the `FollowRequest`, so a stable key would
-  need to derive from the Reject activity id rather than the destroyed record.
+`activity/reject.rb` records a `follow_reject` rejection (rejector = the remote
+actor, rejected = the local requester) at every `Reject`-of-follow-request site:
+
+- **embedded-`Follow` shape** (`reject_embedded_follow`): the rejected local
+  account is derived from `@object['actor']`, so the hook still records — and
+  **repairs a missed ledger event on re-delivery** — after `reject!` has
+  destroyed the `FollowRequest`.
+- **bare follow-request-URI shape** (`follow_request_from_object`): the local
+  requester is captured **before** `reject!` destroys the `FollowRequest`, so it
+  is recorded on first delivery. This shape cannot self-repair on re-delivery
+  (the record it reads from is gone); it is reported in the coverage metadata's
+  `known_inbound_recording_gaps` and is why `inbound_activitypub` stays
+  `partial` / `complete_for_remote_subjects` stays `false`.
+
+Both keep one stable, activity-identity key
+`activitypub_follow_reject:<Reject id>` so retries never double-record. A
+`Reject` of an already-established follow is intentionally treated as an unfollow
+(not a `follow_reject`).

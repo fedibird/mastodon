@@ -3,7 +3,15 @@
 class ActivityPub::Activity::Reject < ActivityPub::Activity
   def perform
     return reject_follow_for_relay if relay_follow?
-    return follow_request_from_object.reject! unless follow_request_from_object.nil?
+
+    unless follow_request_from_object.nil?
+      # Capture the local requester before reject! destroys the FollowRequest.
+      rejected_account = follow_request_from_object.account
+      follow_request_from_object.reject!
+      record_inbound_follow_reject(rejected_account)
+      return
+    end
+
     return UnfollowService.new.call(follow_from_object.account, @account) unless follow_from_object.nil?
 
     case @object['type']
@@ -22,7 +30,26 @@ class ActivityPub::Activity::Reject < ActivityPub::Activity
     follow_request = FollowRequest.find_by(account: target_account, target_account: @account)
     follow_request&.reject!
 
+    # Record the inbound follow-request rejection. The rejected account is taken
+    # from the embedded Follow's actor, so this still works (and repairs a missed
+    # ledger event on re-delivery) after reject! has destroyed the FollowRequest.
+    record_inbound_follow_reject(target_account)
+
     UnfollowService.new.call(target_account, @account) if target_account.following?(@account)
+  end
+
+  # Inbound Reject of a local account's follow request: the remote actor rejected
+  # the local requester. Keyed on the Reject activity identity (not the
+  # destroyed FollowRequest) so it is stable across re-delivery. Failure-tolerant.
+  def record_inbound_follow_reject(rejected_account)
+    return if rejected_account.nil? || !rejected_account.local? || @json['id'].blank?
+
+    Moderation::EventRecorder.record_rejection(
+      rejector: @account,
+      rejected: rejected_account,
+      event_type: :follow_reject,
+      source_event_key: "activitypub_follow_reject:#{@json['id']}"
+    )
   end
 
   def reject_follow_for_relay

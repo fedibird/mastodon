@@ -15,14 +15,16 @@
 #
 # Recording/summarising only — no scoring or thresholds.
 #
-# Coverage limitation: inbound ActivityPub-only mentions, replies, follows,
-# favourites, reactions, and blocks are not yet observed. A remote subject can
-# therefore accumulate local blocks/reports while the triggering remote
-# contacts are missing. Snapshots (and future scores) for remote actors are
-# incomplete until those paths are covered. See +fingerprint['coverage']+.
+# Inbound ActivityPub coverage: mentions, replies, follows, follow rejects,
+# favourites, reactions, blocks, reports, references, and quotes arriving over
+# federation are now observed at their record-creation sites. Every modeled
+# inbound type is hooked, but coverage is reported as 'partial' because one
+# hooked shape (bare-follow-request-URI Reject) can still lose an event after a
+# recorder-only failure. See +fingerprint['coverage']+ for the per-event-type
+# map and +known_inbound_recording_gaps+.
 module Moderation
   class EvidenceSnapshotService
-    SCHEMA_VERSION = 5
+    SCHEMA_VERSION = 6
     DEFAULT_WINDOW = 30.days
 
     # Cap the persisted id sets so a pathological subject can't create an
@@ -31,17 +33,38 @@ module Moderation
 
     REJECTION_TYPES = %w(block follow_reject remove_follower report mute mute_notifications).freeze
 
-    # Inbound ActivityPub coverage is partial: the inbound event types below are
-    # now observed, but inbound follow-request rejections (Reject that bypasses
-    # RejectFollowService, destroying the FollowRequest) are not yet hooked. Do
-    # not treat snapshot counts or future scores as complete for remote actors.
-    # Coverage is reported per event type so callers can reason about exactly
-    # what is missing.
+    # Every modeled inbound event type now has a record-creation-site hook
+    # (deferred_inbound_event_types is empty), but "all types hooked" is NOT the
+    # same as "coverage is complete/reliable". A recorder-only failure can still
+    # cause a *permanent* ledger miss for one shape (see known_inbound_recording_gaps),
+    # so inbound_activitypub stays 'partial' and complete_for_remote_subjects
+    # stays false: downstream analysis must not read low/zero counts as absence
+    # of behaviour while any known gap remains.
+    #
+    #   * observed_inbound_event_types    — every modeled type has a hook.
+    #   * deferred_inbound_event_types    — types with no hook at all (none left).
+    #   * known_inbound_recording_gaps    — hooked types that can still lose an
+    #                                       event after a recorder-only failure.
+    #
+    # The one remaining gap is the bare-follow-request-URI Reject shape: reject!
+    # destroys the FollowRequest before the rejected local requester can be
+    # re-derived, so a recorder-only failure on first delivery is not repaired by
+    # re-delivery. The embedded-Follow Reject shape repairs normally (its rejected
+    # account is derived from @object['actor']). A Reject of an already-established
+    # follow is intentionally modeled as an unfollow, not a follow_reject.
     INBOUND_ACTIVITYPUB_COVERAGE = {
       'inbound_activitypub' => 'partial',
       'complete_for_remote_subjects' => false,
-      'observed_inbound_event_types' => %w(follow favourite reaction block report reference mention reply quote).freeze,
-      'deferred_inbound_event_types' => %w(follow_reject).freeze,
+      'observed_inbound_event_types' => %w(follow follow_reject favourite reaction block report reference mention reply quote).freeze,
+      'deferred_inbound_event_types' => [].freeze,
+      'known_inbound_recording_gaps' => [
+        {
+          'event_type' => 'follow_reject',
+          'shape' => 'bare_follow_request_uri',
+          'repairable' => false,
+          'reason' => 'reject! destroys the FollowRequest before the rejected local requester can be re-derived, so a recorder-only failure on first delivery is not repaired by re-delivery.',
+        }.freeze,
+      ].freeze,
     }.freeze
 
     def call(subject_or_account, window: DEFAULT_WINDOW, now: Time.now.utc)
