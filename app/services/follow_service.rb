@@ -51,12 +51,30 @@ class FollowService < BaseService
                direct_follow!
              end
 
-    Moderation::EventRecorder.record_interaction(actor: @source_account, target: @target_account, event_type: :follow, source_record: follow) if follow
+    if follow
+      Moderation::EventRecorder.record_interaction(
+        actor: @source_account,
+        target: @target_account,
+        event_type: :follow,
+        source_record: follow,
+        source_event_key: follow_source_event_key(follow)
+      )
+    end
 
     follow
   end
 
   private
+
+  # Prefer the ActivityPub Follow activity identity (the follow record's uri) as
+  # the stable source_event_key, matching inbound follows (activity/follow.rb).
+  # This also lets an inbound follow-request Reject correlate back to this
+  # interaction by the same uri after the FollowRequest has been destroyed by
+  # reject!. Falls back to the record-derived key when no uri is present.
+  def follow_source_event_key(follow)
+    uri = follow.try(:uri)
+    "activitypub_follow:#{uri}" if uri.present?
+  end
 
   def mark_home_feed_as_partial!
     redis.set("account:#{@source_account.id}:regeneration", true, nx: true, ex: 1.day.seconds)
