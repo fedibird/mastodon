@@ -69,9 +69,75 @@ class ActivityPub::Activity::Create < ActivityPub::Activity
       elsif @options[:delivered_to_account_id].present?
         postprocess_audience_and_deliver
       end
+
+      # Record inbound mention/reply/quote contacts toward local accounts. Runs
+      # for both a freshly processed status and a re-delivery of an existing one,
+      # so a re-delivery repairs a ledger event a transient recorder failure
+      # missed. Idempotent via stable source_event_keys.
+      record_inbound_status_signals(@status)
     end
 
     @status
+  end
+
+  # Record the remote author's inbound contacts toward local accounts carried by
+  # this status: a reply to a local account, mentions of local accounts, and a
+  # quote of a local account's status. Recording is failure-tolerant.
+  def record_inbound_status_signals(status)
+    return if status.nil? || status.account_id != @account.id
+
+    record_inbound_reply(status)
+    record_inbound_mentions(status)
+    record_inbound_quote(status)
+  end
+
+  def record_inbound_reply(status)
+    return unless status.reply? && status.in_reply_to_account_id.present?
+
+    target = Account.find_by(id: status.in_reply_to_account_id)
+    return if target.nil? || !target.local?
+
+    Moderation::EventRecorder.record_interaction(
+      actor: @account,
+      target: target,
+      event_type: :reply,
+      status: status,
+      source_record: status,
+      source_event_key: "activitypub_reply:#{status.uri}"
+    )
+  end
+
+  def record_inbound_mentions(status)
+    status.mentions.where(silent: false).includes(:account).find_each do |mention|
+      account = mention.account
+      next if account.nil? || !account.local?
+      # The replied-to account is recorded as a reply, not a mention.
+      next if account.id == status.in_reply_to_account_id
+
+      Moderation::EventRecorder.record_interaction(
+        actor: @account,
+        target: account,
+        event_type: :mention,
+        status: status,
+        source_record: mention
+      )
+    end
+  end
+
+  def record_inbound_quote(status)
+    return if status.quote_id.blank?
+
+    quoted = status.quote
+    return if quoted&.account.nil? || !quoted.account.local?
+
+    Moderation::EventRecorder.record_interaction(
+      actor: @account,
+      target: quoted.account,
+      event_type: :quote,
+      status: status,
+      source_record: status,
+      source_event_key: "activitypub_quote:#{status.uri}"
+    )
   end
 
   def audience_to
