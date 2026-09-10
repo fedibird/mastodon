@@ -92,6 +92,28 @@ RSpec.describe ActivityPub::Activity::Create, 'moderation inbound coverage' do
       described_class.new(json_for(object_json), sender).perform
       expect { described_class.new(json_for(object_json), sender).perform }.to_not change(ModerationInteractionEvent, :count)
     end
+
+    it 're-delivery repairs a missed reply event with a stable activity-identity key' do
+      allow(Moderation::EventRecorder).to receive(:record_interaction).and_return(nil)
+      described_class.new(json_for(object_json), sender).perform
+
+      status = sender.statuses.find_by(uri: object_json[:id])
+      expect(status).to be_present
+      expect(status.in_reply_to_account_id).to eq parent_author.id
+      expect(ModerationInteractionEvent.count).to eq 0
+
+      allow(Moderation::EventRecorder).to receive(:record_interaction).and_call_original
+      expect { described_class.new(json_for(object_json), sender).perform }.to change(ModerationInteractionEvent, :count).by(1)
+
+      event = last_interaction
+      expect(event.event_type).to eq 'reply'
+      expect(event.actor_subject.account_id).to eq sender.id
+      expect(event.target_subject.account_id).to eq parent_author.id
+      expect(event.source_event_key).to eq "activitypub_reply:#{status.uri}"
+
+      # Ordinary further re-delivery stays at exactly one event.
+      expect { described_class.new(json_for(object_json), sender).perform }.to_not change(ModerationInteractionEvent, :count)
+    end
   end
 
   describe 'inbound quote of a local status' do
@@ -124,6 +146,28 @@ RSpec.describe ActivityPub::Activity::Create, 'moderation inbound coverage' do
 
     it 'does not double-record on re-delivery' do
       described_class.new(json_for(object_json), sender).perform
+      expect { described_class.new(json_for(object_json), sender).perform }.to_not change(ModerationInteractionEvent, :count)
+    end
+
+    it 're-delivery repairs a missed quote event with a stable activity-identity key' do
+      allow(Moderation::EventRecorder).to receive(:record_interaction).and_return(nil)
+      described_class.new(json_for(object_json), sender).perform
+
+      status = sender.statuses.find_by(uri: object_json[:id])
+      expect(status).to be_present
+      expect(status.quote_id).to eq quoted.id
+      expect(ModerationInteractionEvent.count).to eq 0
+
+      allow(Moderation::EventRecorder).to receive(:record_interaction).and_call_original
+      expect { described_class.new(json_for(object_json), sender).perform }.to change(ModerationInteractionEvent, :count).by(1)
+
+      event = last_interaction
+      expect(event.event_type).to eq 'quote'
+      expect(event.actor_subject.account_id).to eq sender.id
+      expect(event.target_subject.account_id).to eq quoted_author.id
+      expect(event.source_event_key).to eq "activitypub_quote:#{status.uri}"
+
+      # Ordinary further re-delivery stays at exactly one event.
       expect { described_class.new(json_for(object_json), sender).perform }.to_not change(ModerationInteractionEvent, :count)
     end
   end
