@@ -251,6 +251,80 @@ ja:
       warn: 警告
       web: Web
       whitelisted: 連合許可済み
+    moderation_evidence_snapshots:
+      title: モデレーション証跡
+      show_title: "証跡スナップショット #%{id}"
+      hint: モデレーターがアクションを行った時点で取得される証跡スナップショットです。閲覧専用で、ここでスコア付けや判断は行いません。
+      empty: まだ証跡スナップショットは記録されていません。
+      view: 表示
+      none: なし
+      unknown: 不明
+      unknown_subject: 不明な対象
+      detached_remote_subject: "削除済みのリモートアカウント (%{domain})"
+      detached_local_subject: 削除済みのローカルアカウント
+      all_time: 全期間
+      filtered_by_subject: "対象で絞り込み中:"
+      clear_filter: (解除)
+      system: システム
+      association_disclaimer: リンクされた否定的対象は、期間内の先行接触による強い時間的関連であり、その接触が拒否の原因であることの証明ではありません。
+      linked_hint: この対象が接触し、その後に否定的シグナルを返したアカウントのうち、関連期間内に先行接触リンクを持つもの。
+      correlated_hint: 先行接触リンクを持たない同一期間内の重なり。より弱い相関にすぎません。
+      columns:
+        subject: 対象
+        origin: 由来
+        actions: アクション
+        interactions: インタラクション
+        negative_responders: 否定的反応者
+        linked: リンク
+        created_at: 取得日時
+        action: アクション
+        moderator: モデレーター
+        reason_code: 理由コード
+        performed_at: 実行日時
+      action_types:
+        warn: 警告
+        limit: 制限
+        freeze: 凍結
+        suspend: 停止
+        delete: 削除
+        other: その他
+      sections:
+        metadata: メタデータ
+        actions: 関連するモデレーションアクション
+        summary: サマリー
+        coverage: 観測カバレッジ
+        linked_negative_targets: リンクされた否定的対象
+        correlated_negative_targets: 相関する否定的対象
+      fields:
+        subject: 対象
+        window: 期間
+        schema_version: スキーマバージョン
+      summary_keys:
+        interactions_count: インタラクション数
+        unique_contacts: ユニーク接触数
+        negative_responders: 否定的反応者数
+        linked_negative_target_count: リンクされた否定的対象数
+        correlated_negative_target_count: 相関する否定的対象数
+        blocks_received: 受けたブロック数
+        follow_rejects_received: 受けたフォロー拒否数
+        removed_as_follower: フォロワー解除数
+        reports_received: 受けた通報数
+        mutes_received: 受けたミュート数
+      coverage:
+        inbound_activitypub: 受信 ActivityPub
+        complete_for_remote_subjects: リモート対象で完全
+        observed_inbound_event_types: 観測済みの受信イベント種別
+        deferred_inbound_event_types: 保留中の受信イベント種別
+        known_inbound_recording_gaps: 既知の受信記録ギャップ
+      gap_keys:
+        event_type: イベント種別
+        shape: 形状
+        condition: 条件
+        repairable: 修復可能
+        reason: 理由
+      boolean:
+        affirmative: はい
+        negative: いいえ
     action_logs:
       action_types:
         assigned_to_self_report: 通報の担当者に設定

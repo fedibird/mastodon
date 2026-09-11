@@ -262,6 +262,80 @@ en:
       warn: Warn
       web: Web
       whitelisted: Allowed for federation
+    moderation_evidence_snapshots:
+      title: Moderation evidence
+      show_title: "Evidence snapshot #%{id}"
+      hint: Point-in-time evidence snapshots captured when a moderator action is taken. Read-only; no scoring or judgement is applied here.
+      empty: No evidence snapshots have been recorded yet.
+      view: View
+      none: None
+      unknown: Unknown
+      unknown_subject: Unknown subject
+      detached_remote_subject: "Deleted remote account (%{domain})"
+      detached_local_subject: Deleted local account
+      all_time: All time
+      filtered_by_subject: "Filtered by subject:"
+      clear_filter: (clear)
+      system: System
+      association_disclaimer: A linked negative target is a strong temporal association (a preceding contact within the window), not proof that the contact caused the rejection.
+      linked_hint: Accounts this subject contacted that later returned a negative signal, with a preceding-contact link inside the association window.
+      correlated_hint: Same-window overlap without a preceding-contact link. A weaker correlation only.
+      columns:
+        subject: Subject
+        origin: Origin
+        actions: Actions
+        interactions: Interactions
+        negative_responders: Negative responders
+        linked: Linked
+        created_at: Captured at
+        action: Action
+        moderator: Moderator
+        reason_code: Reason code
+        performed_at: Performed at
+      action_types:
+        warn: Warn
+        limit: Limit
+        freeze: Freeze
+        suspend: Suspend
+        delete: Delete
+        other: Other
+      sections:
+        metadata: Metadata
+        actions: Related moderation actions
+        summary: Summary
+        coverage: Observation coverage
+        linked_negative_targets: Linked negative targets
+        correlated_negative_targets: Correlated negative targets
+      fields:
+        subject: Subject
+        window: Window
+        schema_version: Schema version
+      summary_keys:
+        interactions_count: Interactions
+        unique_contacts: Unique contacts
+        negative_responders: Negative responders
+        linked_negative_target_count: Linked negative targets
+        correlated_negative_target_count: Correlated negative targets
+        blocks_received: Blocks received
+        follow_rejects_received: Follow rejects received
+        removed_as_follower: Removed as follower
+        reports_received: Reports received
+        mutes_received: Mutes received
+      coverage:
+        inbound_activitypub: Inbound ActivityPub
+        complete_for_remote_subjects: Complete for remote subjects
+        observed_inbound_event_types: Observed inbound event types
+        deferred_inbound_event_types: Deferred inbound event types
+        known_inbound_recording_gaps: Known inbound recording gaps
+      gap_keys:
+        event_type: Event type
+        shape: Shape
+        condition: Condition
+        repairable: Repairable
+        reason: Reason
+      boolean:
+        affirmative: 'Yes'
+        negative: 'No'
     action_logs:
       action_types:
         assigned_to_self_report: Assign Report

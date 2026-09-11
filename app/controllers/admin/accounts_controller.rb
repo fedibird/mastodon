@@ -34,6 +34,7 @@ module Admin
       @moderation_notes        = @account.targeted_moderation_notes.latest
       @warnings                = @account.targeted_account_warnings.latest.custom
       @domain_block            = DomainBlock.rule_for(@account.domain)
+      @moderation_subject      = ModerationSubject.find_by(account_id: @account.id)
     end
 
     def memorialize

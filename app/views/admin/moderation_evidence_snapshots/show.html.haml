@@ -1,0 +1,116 @@
+- content_for :page_title do
+  = t('admin.moderation_evidence_snapshots.show_title', id: @snapshot.id)
+
+- coverage = @snapshot.fingerprint['coverage'] || {}
+- summary  = @snapshot.summary || {}
+
+.dashboard__counters
+  %div
+    = link_to admin_moderation_evidence_snapshots_path(subject_id: @snapshot.subject_id) do
+      %div
+        %span.dashboard__counters__num= moderation_subject_label(@snapshot.subject)
+        %span.dashboard__counters__label= t('admin.moderation_evidence_snapshots.columns.subject')
+  %div
+    %div
+      %span.dashboard__counters__num= moderation_subject_origin_badge(@snapshot.subject)
+      %span.dashboard__counters__label= t('admin.moderation_evidence_snapshots.columns.origin')
+  %div
+    %div
+      %span.dashboard__counters__num= l(@snapshot.created_at)
+      %span.dashboard__counters__label= t('admin.moderation_evidence_snapshots.columns.created_at')
+
+%hr.spacer/
+
+%p.muted-hint= t('admin.moderation_evidence_snapshots.association_disclaimer')
+
+%h3= t('admin.moderation_evidence_snapshots.sections.metadata')
+.table-wrapper
+  %table.table
+    %tbody
+      %tr
+        %th= t('admin.moderation_evidence_snapshots.fields.subject')
+        %td= moderation_subject_link(@snapshot.subject)
+      %tr
+        %th= t('admin.moderation_evidence_snapshots.fields.window')
+        %td= moderation_snapshot_window(@snapshot)
+      %tr
+        %th= t('admin.moderation_evidence_snapshots.fields.schema_version')
+        %td= @snapshot.schema_version
+
+%h3= t('admin.moderation_evidence_snapshots.sections.actions')
+- if @moderation_actions.empty?
+  %p.muted-hint= t('admin.moderation_evidence_snapshots.none')
+- else
+  .table-wrapper
+    %table.table
+      %thead
+        %tr
+          %th= t('admin.moderation_evidence_snapshots.columns.action')
+          %th= t('admin.moderation_evidence_snapshots.columns.moderator')
+          %th= t('admin.moderation_evidence_snapshots.columns.reason_code')
+          %th= t('admin.moderation_evidence_snapshots.columns.performed_at')
+      %tbody
+        - @moderation_actions.each do |action|
+          %tr
+            %td= t("admin.moderation_evidence_snapshots.action_types.#{action.action_type}")
+            %td
+              - if action.moderator_account
+                = link_to "@#{action.moderator_account.username}", admin_account_path(action.moderator_account.id)
+              - else
+                = t('admin.moderation_evidence_snapshots.system')
+            %td= action.reason_code.presence || '—'
+            %td= l(action.performed_at)
+
+%h3= t('admin.moderation_evidence_snapshots.sections.summary')
+.table-wrapper
+  %table.table
+    %tbody
+      - %w(interactions_count unique_contacts negative_responders linked_negative_target_count correlated_negative_target_count blocks_received follow_rejects_received removed_as_follower reports_received mutes_received).each do |key|
+        %tr
+          %th= t("admin.moderation_evidence_snapshots.summary_keys.#{key}")
+          %td= summary[key].to_i
+
+%h3= t('admin.moderation_evidence_snapshots.sections.coverage')
+.table-wrapper
+  %table.table
+    %tbody
+      %tr
+        %th= t('admin.moderation_evidence_snapshots.coverage.inbound_activitypub')
+        %td= coverage['inbound_activitypub'] || '—'
+      %tr
+        %th= t('admin.moderation_evidence_snapshots.coverage.complete_for_remote_subjects')
+        %td= coverage.key?('complete_for_remote_subjects') ? moderation_boolean(coverage['complete_for_remote_subjects']) : '—'
+      %tr
+        %th= t('admin.moderation_evidence_snapshots.coverage.observed_inbound_event_types')
+        %td= Array(coverage['observed_inbound_event_types']).presence&.join(', ') || t('admin.moderation_evidence_snapshots.none')
+      %tr
+        %th= t('admin.moderation_evidence_snapshots.coverage.deferred_inbound_event_types')
+        %td= Array(coverage['deferred_inbound_event_types']).presence&.join(', ') || t('admin.moderation_evidence_snapshots.none')
+- gaps = Array(coverage['known_inbound_recording_gaps'])
+- if gaps.present?
+  %h4= t('admin.moderation_evidence_snapshots.coverage.known_inbound_recording_gaps')
+  .table-wrapper
+    %table.table
+      %thead
+        %tr
+          %th= t('admin.moderation_evidence_snapshots.gap_keys.event_type')
+          %th= t('admin.moderation_evidence_snapshots.gap_keys.shape')
+          %th= t('admin.moderation_evidence_snapshots.gap_keys.condition')
+          %th= t('admin.moderation_evidence_snapshots.gap_keys.repairable')
+          %th= t('admin.moderation_evidence_snapshots.gap_keys.reason')
+      %tbody
+        - gaps.each do |gap|
+          %tr
+            %td= gap['event_type']
+            %td= gap['shape']
+            %td= gap['condition'] || '—'
+            %td= gap.key?('repairable') ? moderation_boolean(gap['repairable']) : '—'
+            %td= gap['reason']
+
+%h3= t('admin.moderation_evidence_snapshots.sections.linked_negative_targets')
+%p.muted-hint= t('admin.moderation_evidence_snapshots.linked_hint')
+%p= moderation_negative_targets(@snapshot.linked_negative_target_subject_ids, @linked_subjects)
+
+%h3= t('admin.moderation_evidence_snapshots.sections.correlated_negative_targets')
+%p.muted-hint= t('admin.moderation_evidence_snapshots.correlated_hint')
+%p= moderation_negative_targets(@snapshot.correlated_negative_target_subject_ids, @correlated_subjects)

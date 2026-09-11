@@ -56,6 +56,11 @@
     = link_to admin_reports_path(target_account_id: @account.id) do
       .dashboard__counters__num= number_with_delimiter @account.targeted_reports.count
       .dashboard__counters__label= t '.targeted_reports'
+  - if @moderation_subject.present?
+    %div
+      = link_to admin_moderation_evidence_snapshots_path(subject_id: @moderation_subject.id) do
+        .dashboard__counters__num= number_with_delimiter @moderation_subject.evidence_snapshots.count
+        .dashboard__counters__label= t 'admin.moderation_evidence_snapshots.title'
   %div
     = link_to admin_action_logs_path(target_account_id: @account.id) do
       .dashboard__counters__text
