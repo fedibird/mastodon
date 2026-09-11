@@ -50,7 +50,7 @@ module Moderation
     # destroys the FollowRequest (whose URI is an opaque payload id that does not
     # encode the requester), so an ordinary recorder-only failure is now repaired
     # on re-delivery by correlating the follow-request URI to the outbound follow
-    # interaction recorded at request time (source_event_key activitypub_follow:<uri>).
+    # interaction recorded at request time (source_event_key activitypub_outbound_follow:<uri>).
     # The event is lost only when BOTH that outbound follow interaction and the
     # inbound reject failed to record, because then no correlation anchor persists.
     # The embedded-Follow Reject shape repairs directly from @object['actor']. A
@@ -67,7 +67,7 @@ module Moderation
           'shape' => 'bare_follow_request_uri',
           'condition' => 'double_recorder_failure',
           'repairable' => false,
-          'reason' => 'An ordinary recorder-only failure is repaired on re-delivery by correlating the follow-request URI to the outbound follow interaction (activitypub_follow:<uri>). The event is lost only when both the outbound follow interaction and the inbound reject failed to record, leaving no correlation anchor.',
+          'reason' => 'An ordinary recorder-only failure is repaired on re-delivery by correlating the follow-request URI to the outbound follow interaction (activitypub_outbound_follow:<uri>). The event is lost only when both the outbound follow interaction and the inbound reject failed to record, leaving no correlation anchor.',
         }.freeze,
       ].freeze,
     }.freeze
