@@ -29,6 +29,17 @@ describe Admin::ModerationEvidenceSnapshotsController, type: :controller do
         expect(assigns(:snapshots)).to include(snapshot_a)
         expect(assigns(:snapshots)).to_not include(snapshot_b)
       end
+
+      it 'fails closed with 404 for a stale subject_id instead of widening to the global list' do
+        stale_id = ModerationSubject.maximum(:id).to_i + 1
+
+        get :index, params: { subject_id: stale_id }
+
+        expect(response).to have_http_status(404)
+        # The action aborted before building a scope, so it never fell back to
+        # the unfiltered global snapshot list.
+        expect(assigns(:snapshots)).to be_nil
+      end
     end
 
     describe 'GET #show' do

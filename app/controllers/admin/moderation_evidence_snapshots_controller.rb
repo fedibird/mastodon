@@ -14,7 +14,10 @@ module Admin
     def index
       authorize :moderation_evidence_snapshot, :index?
 
-      @subject   = ModerationSubject.find_by(id: params[:subject_id]) if params[:subject_id].present?
+      # A narrowing parameter must fail closed: a stale/invalid subject_id 404s
+      # (via rescue_from RecordNotFound) rather than silently widening to the
+      # global snapshot list.
+      @subject   = ModerationSubject.find(params[:subject_id]) if params[:subject_id].present?
       @snapshots = filtered_snapshots
                    .includes(subject: :account, moderation_actions: :moderator_account)
                    .order(created_at: :desc)
