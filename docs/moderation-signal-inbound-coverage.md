@@ -69,7 +69,7 @@ event type (schema_version is now `6`):
       "shape": "bare_follow_request_uri",
       "condition": "double_recorder_failure",
       "repairable": false,
-      "reason": "An ordinary recorder-only failure is repaired on re-delivery by correlating the follow-request URI to the outbound follow interaction (activitypub_follow:<uri>). The event is lost only when both the outbound follow interaction and the inbound reject failed to record, leaving no correlation anchor."
+      "reason": "An ordinary recorder-only failure is repaired on re-delivery by correlating the follow-request URI to the outbound follow interaction (activitypub_outbound_follow:<uri>). The event is lost only when both the outbound follow interaction and the inbound reject failed to record, leaving no correlation anchor."
     }
   ]
 }
