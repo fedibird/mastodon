@@ -17,14 +17,22 @@
 #
 # The thresholds/weights in DEFAULT_PARAMS are INITIAL and UNCALIBRATED. They are
 # explicit and injectable so they can be tuned from Moderation::MetricsDistributionService
-# cohort data before any of this is ever wired to a decision.
+# cohort data before any of this is ever wired to a decision. Because a caller can
+# inject different params, the output carries both +policy_version+ (which becomes
+# "custom" for non-default params unless an explicit version is supplied) and a
+# +params_digest+ (a canonical hash of the effective params), so any evaluation is
+# reproducible/auditable. Reason codes carry value + threshold + weight + window so
+# a sub-score's contributions can be fully reconstructed from the output.
 #
 # Guardrails encoded here (see the design memo):
 #   * A single block/mute never contributes — the rejection sub-score requires
 #     multiple INDEPENDENT responders.
-#   * Follow-import volume/count is never itself a risk signal — the
-#     follow-import sub-score only reacts to the external-list shape (large size
-#     with a high unresolved ratio and no known relationships).
+#   * Follow-import risk is DEFERRED (always scores 0): the only import signal we
+#     have, unresolved_target_ratio, means "did not resolve to a known Account at
+#     import time" — NOT "no known relationship with the actor". Using it as an
+#     unknown/external-list proxy conflates those, so follow-import scoring waits
+#     for relationship-aware features (true unknown_target_ratio, migration_known_follow,
+#     existing_relationship).
 #   * A "linked" responder is a strong temporal association, not causal proof.
 #   * Unobserved remote signals are never scored as absence of behaviour.
 module Moderation
@@ -51,28 +59,28 @@ module Moderation
         'reports_received_24h' => { 'threshold' => 1, 'weight' => 0.4 },
         'reports_received_7d'  => { 'threshold' => 3, 'weight' => 0.4 },
       },
-      'follow_import' => {
-        # Composite external-list shape; import count/size alone contributes nothing.
-        'large_unknown_import'   => { 'target_total' => 500, 'unresolved_ratio' => 0.7, 'weight' => 0.5 },
-        'high_unresolved_ratio'  => { 'threshold' => 0.9, 'weight' => 0.3 },
-        'no_known_relationships' => { 'target_total' => 200, 'weight' => 0.2 },
-      },
+      # NOTE: no 'follow_import' params — that sub-score is intentionally deferred
+      # (see follow_import below and the class comment).
       'repeat_behavior' => {
         'new_targets_after_first_negative_signal_24h' => { 'threshold' => 50, 'weight' => 0.6 },
         'follows_after_first_negative_signal_24h'     => { 'threshold' => 50, 'weight' => 0.4 },
       },
     }.freeze
 
-    def initialize(metrics_service: Moderation::BehavioralMetricsService.new, params: DEFAULT_PARAMS)
+    def initialize(metrics_service: Moderation::BehavioralMetricsService.new, params: DEFAULT_PARAMS, policy_version: nil)
       @metrics_service = metrics_service
-      @params = params
+      @params          = params
+      # Custom params must not masquerade as the default policy version.
+      @policy_version  = policy_version || (params == DEFAULT_PARAMS ? POLICY_VERSION : 'custom')
+      @params_digest   = digest(@params)
     end
 
     def call(subject_or_account, now: Time.now.utc)
       metrics = @metrics_service.call(subject_or_account, now: now)
 
       {
-        'policy_version' => POLICY_VERSION,
+        'policy_version' => @policy_version,
+        'params_digest'  => @params_digest,
         'subject_id'     => metrics['subject_id'],
         'generated_at'   => now.iso8601,
         'subscores'      => {
@@ -120,7 +128,7 @@ module Moderation
 
       rate_cfg = params['negative_response_rate_24h']
       if data['unique_targets'].to_i >= rate_cfg['min_unique_targets'].to_i && data['negative_response_rate'].to_f >= rate_cfg['threshold']
-        signals << reason('elevated_negative_response_rate', data['negative_response_rate'], rate_cfg['weight'], '24h')
+        signals << reason('elevated_negative_response_rate', data['negative_response_rate'], rate_cfg['weight'], '24h', threshold: rate_cfg['threshold'])
       end
 
       build(signals)
@@ -134,31 +142,18 @@ module Moderation
       ])
     end
 
-    # Follow-import volume/count is never itself a signal — only the external-list
-    # shape (large + high unresolved ratio, and no known relationships) is.
-    def follow_import(metrics)
-      params  = @params['follow_import']
-      context = metrics['follow_import_context'] || {}
-      return build([]) if context['batch_count'].to_i.zero?
-
-      target_total     = context['target_total'].to_i
-      unresolved_ratio = context['unresolved_target_ratio'].to_f
-      prior_known      = context['prior_relationship_known_targets'].to_i
-
-      signals = []
-
-      large = params['large_unknown_import']
-      if target_total >= large['target_total'].to_i && unresolved_ratio >= large['unresolved_ratio'].to_f
-        signals << reason('large_unknown_follow_import', { 'target_total' => target_total, 'unresolved_target_ratio' => unresolved_ratio }, large['weight'])
-      end
-
-      high = params['high_unresolved_ratio']
-      signals << reason('high_unresolved_target_ratio', unresolved_ratio, high['weight']) if unresolved_ratio >= high['threshold'].to_f
-
-      none = params['no_known_relationships']
-      signals << reason('no_known_relationships_in_large_import', target_total, none['weight']) if prior_known.zero? && target_total >= none['target_total'].to_i
-
-      build(signals)
+    # Deferred: the only available import signal (unresolved_target_ratio) means
+    # "did not resolve to a known Account at import time", not "no known
+    # relationship with the actor", so it must not be used as an unknown /
+    # external-list risk proxy. This sub-score stays 0 until relationship-aware
+    # features exist. The dimension is kept in the output for shape stability.
+    def follow_import(_metrics)
+      {
+        'score'          => 0.0,
+        'reason_codes'   => [],
+        'deferred'       => true,
+        'deferred_reason' => 'relationship_aware_features_not_yet_available',
+      }
     end
 
     def repeat_behavior(metrics)
@@ -175,23 +170,46 @@ module Moderation
     def graded(code, value, config, window_name)
       return nil if value.nil? || config.nil? || value < config['threshold']
 
-      reason(code, value, config['weight'], window_name)
+      reason(code, value, config['weight'], window_name, threshold: config['threshold'])
     end
 
-    def reason(code, value, weight, window_name = nil)
-      { code: code, value: value, weight: weight, window: window_name }
+    def reason(code, value, weight, window_name = nil, threshold: nil)
+      { code: code, value: value, weight: weight, window: window_name, threshold: threshold }
     end
 
     # Sub-score = sum of fired weights, capped at 1.0. Every fired signal is
-    # surfaced as a reason code so the sub-score is always explainable.
+    # surfaced as a reason code carrying value + threshold + weight + window, so
+    # the sub-score's contributions can be fully reconstructed from the output.
     def build(signals)
       fired = signals.compact
       score = [fired.sum { |signal| signal[:weight] }, 1.0].min
 
       {
         'score'        => score,
-        'reason_codes' => fired.map { |signal| { 'code' => signal[:code], 'value' => signal[:value], 'window' => signal[:window] }.compact },
+        'reason_codes' => fired.map do |signal|
+          {
+            'code'      => signal[:code],
+            'value'     => signal[:value],
+            'threshold' => signal[:threshold],
+            'weight'    => signal[:weight],
+            'window'    => signal[:window],
+          }.compact
+        end,
       }
+    end
+
+    # Canonical (recursively key-sorted) SHA256 of the effective params, so a
+    # given threshold/weight set is identifiable regardless of key order.
+    def digest(params)
+      "sha256:#{Digest::SHA256.hexdigest(canonicalize(params).to_json)}"
+    end
+
+    def canonicalize(object)
+      case object
+      when Hash then object.keys.sort_by(&:to_s).to_h { |key| [key.to_s, canonicalize(object[key])] }
+      when Array then object.map { |element| canonicalize(element) }
+      else object
+      end
     end
   end
 end

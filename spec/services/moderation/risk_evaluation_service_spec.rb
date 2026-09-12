@@ -34,15 +34,16 @@ RSpec.describe Moderation::RiskEvaluationService do
   end
 
   describe 'output shape' do
-    it 'is versioned, keyed by subject, and carries only sub-scores (no action/decision)' do
+    it 'is versioned/auditable, keyed by subject, and carries only sub-scores (no action/decision)' do
       result = evaluate(metrics)
 
       expect(result['policy_version']).to eq described_class::POLICY_VERSION
+      expect(result['params_digest']).to start_with('sha256:')
       expect(result['subject_id']).to eq 1
       expect(result['subscores'].keys).to contain_exactly(
         'contact_volume', 'velocity', 'rejection', 'report', 'follow_import', 'repeat_behavior'
       )
-      # Evaluation must not decide or recommend anything.
+      # Evaluation must not decide or recommend anything, and must not emit a single score.
       expect(result).to_not have_key('action')
       expect(result).to_not have_key('recommendation')
       expect(result).to_not have_key('decision')
@@ -59,12 +60,21 @@ RSpec.describe Moderation::RiskEvaluationService do
   end
 
   describe 'contact_volume' do
-    it 'fires with an explaining reason code carrying the value and window' do
+    it 'fires with an explaining reason code carrying value + threshold + weight + window' do
       result = evaluate(metrics(windows: { '24h' => { 'unique_targets' => 250 } }))
       sub = result['subscores']['contact_volume']
 
       expect(sub['score']).to eq 0.5
-      expect(sub['reason_codes']).to include('code' => 'high_unique_targets_24h', 'value' => 250, 'window' => '24h')
+      expect(sub['reason_codes']).to include(
+        a_hash_including('code' => 'high_unique_targets_24h', 'value' => 250, 'threshold' => 200, 'weight' => 0.5, 'window' => '24h')
+      )
+    end
+
+    it 'lets a sub-score be reconstructed from its reason codes' do
+      sub = evaluate(metrics(windows: { '24h' => { 'unique_targets' => 250, 'contacts_total' => 600 } }))['subscores']['contact_volume']
+
+      reconstructed = [sub['reason_codes'].sum { |r| r['weight'] }, 1.0].min
+      expect(sub['score']).to eq reconstructed
     end
   end
 
@@ -102,7 +112,9 @@ RSpec.describe Moderation::RiskEvaluationService do
     it 'counts an elevated rate once the sample is large enough' do
       sub = evaluate(metrics(windows: { '24h' => { 'unique_targets' => 50, 'negative_response_rate' => 0.3 } }))['subscores']['rejection']
 
-      expect(sub['reason_codes']).to include('code' => 'elevated_negative_response_rate', 'value' => 0.3, 'window' => '24h')
+      expect(sub['reason_codes']).to include(
+        a_hash_including('code' => 'elevated_negative_response_rate', 'value' => 0.3, 'threshold' => 0.2, 'window' => '24h')
+      )
     end
   end
 
@@ -113,20 +125,16 @@ RSpec.describe Moderation::RiskEvaluationService do
     end
   end
 
-  describe 'follow_import guardrails' do
-    it 'does NOT fire on import count/size alone (known relationships, low unresolved)' do
-      sub = evaluate(metrics(follow_import: { 'batch_count' => 5, 'target_total' => 3000, 'unresolved_target_ratio' => 0.05, 'prior_relationship_known_targets' => 2500 }))['subscores']['follow_import']
+  describe 'follow_import is deferred' do
+    it 'always scores 0 and adds no reason codes, regardless of import shape' do
+      # Even the "external-list-looking" shape must not score, because unresolved
+      # != unknown-relationship. Deferred until relationship-aware features exist.
+      sub = evaluate(metrics(follow_import: { 'batch_count' => 4, 'target_total' => 3000, 'unresolved_target_ratio' => 0.95, 'prior_relationship_known_targets' => 0 }))['subscores']['follow_import']
 
       expect(sub['score']).to eq 0.0
       expect(sub['reason_codes']).to be_empty
-    end
-
-    it 'fires on the external-list shape (large + high unresolved + no known relationships)' do
-      sub = evaluate(metrics(follow_import: { 'batch_count' => 4, 'target_total' => 3000, 'unresolved_target_ratio' => 0.95, 'prior_relationship_known_targets' => 0 }))['subscores']['follow_import']
-
-      codes = sub['reason_codes'].map { |r| r['code'] }
-      expect(codes).to include('large_unknown_follow_import', 'high_unresolved_target_ratio', 'no_known_relationships_in_large_import')
-      expect(sub['score']).to eq 1.0 # 0.5 + 0.3 + 0.2, capped
+      expect(sub['deferred']).to be true
+      expect(sub['deferred_reason']).to eq 'relationship_aware_features_not_yet_available'
     end
   end
 
@@ -145,6 +153,39 @@ RSpec.describe Moderation::RiskEvaluationService do
 
       expect(sub['score']).to eq 1.0
       expect(sub['reason_codes'].size).to eq 3
+    end
+  end
+
+  describe 'policy versioning and params auditability' do
+    let(:custom_params) do
+      params = Marshal.load(Marshal.dump(described_class::DEFAULT_PARAMS))
+      params['contact_volume']['unique_targets_24h']['threshold'] = 10
+      params
+    end
+
+    def evaluate_with(params:, policy_version: nil)
+      fake = instance_double(Moderation::BehavioralMetricsService, call: metrics)
+      described_class.new(metrics_service: fake, params: params, policy_version: policy_version).call(ModerationSubject.new.tap { |s| s.id = 1 }, now: now)
+    end
+
+    it 'reports the default policy version and a stable digest for default params' do
+      a = evaluate_with(params: described_class::DEFAULT_PARAMS)
+      b = evaluate_with(params: described_class::DEFAULT_PARAMS)
+
+      expect(a['policy_version']).to eq described_class::POLICY_VERSION
+      expect(a['params_digest']).to eq b['params_digest']
+    end
+
+    it 'does not let custom params masquerade as the default policy version' do
+      result = evaluate_with(params: custom_params)
+
+      expect(result['policy_version']).to eq 'custom'
+      expect(result['params_digest']).to_not eq evaluate_with(params: described_class::DEFAULT_PARAMS)['params_digest']
+    end
+
+    it 'honors an explicit policy_version for custom params' do
+      result = evaluate_with(params: custom_params, policy_version: 'risk-eval-experiment-A')
+      expect(result['policy_version']).to eq 'risk-eval-experiment-A'
     end
   end
 
