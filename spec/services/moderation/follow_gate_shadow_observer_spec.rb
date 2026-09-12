@@ -19,10 +19,11 @@ RSpec.describe Moderation::FollowGateShadowObserver do
     context 'when the shadow flag is on' do
       before { allow(described_class).to receive(:enabled?).and_return(true) }
 
-      it 'enqueues the shadow worker with a behaviour-neutral context' do
+      it 'enqueues the shadow worker with a behaviour-neutral context and the attempt time' do
         expect(Moderation::FollowGateShadowWorker).to receive(:perform_async).with(
           source.id,
-          { 'mechanism' => 'follow_import', 'target_locality' => 'local', 'target_locked' => true }
+          { 'mechanism' => 'follow_import', 'target_locality' => 'local', 'target_locked' => true },
+          a_string_matching(/\A\d{4}-\d{2}-\d{2}T/)
         )
 
         described_class.observe(source_account: source, target_account: target, mechanism: 'follow_import')
@@ -31,7 +32,7 @@ RSpec.describe Moderation::FollowGateShadowObserver do
       it 'marks a remote unlocked target correctly' do
         remote = Fabricate(:account, username: 'shadow_remote', domain: 'remote.example', locked: false, protocol: :activitypub)
         expect(Moderation::FollowGateShadowWorker).to receive(:perform_async).with(
-          source.id, a_hash_including('target_locality' => 'remote', 'target_locked' => false)
+          source.id, a_hash_including('target_locality' => 'remote', 'target_locked' => false), a_kind_of(String)
         )
 
         described_class.observe(source_account: source, target_account: remote)

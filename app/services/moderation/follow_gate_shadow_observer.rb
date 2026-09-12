@@ -21,7 +21,11 @@ module Moderation
         return unless enabled?
         return if source_account.nil? || target_account.nil?
 
-        Moderation::FollowGateShadowWorker.perform_async(source_account.id, shadow_context(target_account, mechanism))
+        # Capture the attempt time now and pass it through, so the (async) shadow
+        # decision is evaluated as of the follow attempt — not as of worker
+        # execution. This prevents later follows/rejections/blocks from leaking
+        # future events into a past attempt's decision during calibration.
+        Moderation::FollowGateShadowWorker.perform_async(source_account.id, shadow_context(target_account, mechanism), Time.now.utc.iso8601)
       rescue StandardError => e
         Rails.logger.warn("[Moderation::FollowGateShadowObserver] failed to enqueue shadow observation: #{e.class}: #{e.message}")
         nil
