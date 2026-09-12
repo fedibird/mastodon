@@ -1,0 +1,143 @@
+# frozen_string_literal: true
+
+# Replays a subject's recorded follow attempts in chronological order and, for
+# each one, asks the adaptive follow gate what it WOULD have proposed as of that
+# attempt's time. It answers the calibration question "at what Nth follow / how
+# many minutes in would the gate first have proposed friction?" from real ledger
+# history.
+#
+# Strictly analysis-only:
+#
+#   * Read-only — reads the ledger via the gate/evaluation services (all
+#     read-only) and writes nothing.
+#   * No enforcement, no friction applied — it only reports what the shadow gate
+#     would have proposed, historically.
+#   * No future leakage — each follow is evaluated with now = that follow's
+#     occurred_at, so later follows/rejections do not influence earlier attempts.
+#   * Offline tool — each replayed attempt runs a full metrics evaluation, so the
+#     replay is capped (max_events) and is meant to be run on a chosen
+#     subject/cohort, not the whole population inline.
+#
+# Note: per-target routing (confirm_target, which needs the specific target's
+# local/unlocked state) is not modeled here; the backtest measures the
+# subject-level, behaviour-driven frictions (rate_limit / delay / moderator_review),
+# which is the calibration question of interest.
+module Moderation
+  class FollowGateBacktestService
+    DEFAULT_MAX_EVENTS = 2_000
+
+    def initialize(gate_service: Moderation::AdaptiveFollowGateDecisionService.new)
+      @gate_service = gate_service
+    end
+
+    def call(subject_or_account, max_events: DEFAULT_MAX_EVENTS)
+      subject = resolve_subject(subject_or_account)
+      return empty_result(subject, max_events) if subject.nil?
+
+      total_follows = follow_events_count(subject)
+      follows       = follow_events(subject, max_events)
+      return empty_result(subject, max_events) if follows.empty?
+
+      locality_by_subject_id = target_locality_map(follows)
+
+      first_follow_at = follows.first.occurred_at
+      friction_counts = Hash.new(0)
+      first_friction  = {}
+      policy_version  = nil
+      params_digest   = nil
+
+      follows.each_with_index do |event, offset|
+        # Reconstruct the target's locality so the gate's locality-based routing
+        # (local vs remote/unknown) matches what it would have done at attempt
+        # time. target_locked is not historically recoverable, so confirm_target
+        # remains out of scope.
+        context  = { 'target_locality' => locality_by_subject_id[event.target_subject_id] }
+        decision = @gate_service.call(subject, context: context, now: event.occurred_at)
+        policy_version ||= decision['policy_version']
+        params_digest  ||= decision['params_digest']
+
+        friction = decision['proposed_friction']
+        friction_counts[friction] += 1
+
+        next if friction == 'allow' || first_friction.key?(friction)
+
+        first_friction[friction] = {
+          'attempt_index'            => offset + 1,
+          'occurred_at'              => event.occurred_at.utc.iso8601,
+          'minutes_from_first_follow' => ((event.occurred_at - first_follow_at) / 60.0).round(2),
+        }
+      end
+
+      {
+        'subject_id'             => subject.id,
+        'generated_at'           => Time.now.utc.iso8601,
+        'gate_policy_version'    => policy_version,
+        'gate_params_digest'     => params_digest,
+        # Only the analyzed (possibly truncated) window is summarized below; do not
+        # read these as the whole campaign when truncated is true.
+        'total_follow_events'    => total_follows,
+        'analyzed_follow_events' => follows.size,
+        'max_events'             => max_events,
+        'truncated'              => total_follows > follows.size,
+        'follow_attempts'        => follows.size,
+        'first_follow_at'        => first_follow_at.utc.iso8601,
+        'last_follow_at'         => follows.last.occurred_at.utc.iso8601,
+        'friction_counts'        => friction_counts,
+        'first_friction'         => first_friction,
+      }
+    end
+
+    private
+
+    def resolve_subject(subject_or_account)
+      return subject_or_account if subject_or_account.is_a?(ModerationSubject)
+      return if subject_or_account.nil?
+
+      ModerationSubject.find_by(account_id: subject_or_account.id)
+    end
+
+    def follow_events_scope(subject)
+      ModerationInteractionEvent
+        .where(actor_subject_id: subject.id, event_type: :follow)
+        .where.not(occurred_at: nil)
+    end
+
+    def follow_events_count(subject)
+      follow_events_scope(subject).count
+    end
+
+    def follow_events(subject, max_events)
+      follow_events_scope(subject).order(:occurred_at, :id).limit(max_events).to_a
+    end
+
+    # Reconstruct target locality from each target's ModerationSubject origin.
+    # A missing target subject (nullified after deletion) yields nil, which the
+    # gate treats as non-local/unknown.
+    def target_locality_map(follows)
+      ids = follows.map(&:target_subject_id).compact.uniq
+      return {} if ids.empty?
+
+      ModerationSubject.where(id: ids).each_with_object({}) do |subject, map|
+        map[subject.id] = subject.origin
+      end
+    end
+
+    def empty_result(subject, max_events)
+      {
+        'subject_id'             => subject&.id,
+        'generated_at'           => Time.now.utc.iso8601,
+        'gate_policy_version'    => nil,
+        'gate_params_digest'     => nil,
+        'total_follow_events'    => 0,
+        'analyzed_follow_events' => 0,
+        'max_events'             => max_events,
+        'truncated'              => false,
+        'follow_attempts'        => 0,
+        'first_follow_at'        => nil,
+        'last_follow_at'         => nil,
+        'friction_counts'        => {},
+        'first_friction'         => {},
+      }
+    end
+  end
+end
