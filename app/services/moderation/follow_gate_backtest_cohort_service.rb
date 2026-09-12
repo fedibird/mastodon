@@ -14,9 +14,11 @@
 #   * No population scan — the caller passes the subject set (a sample or a
 #     hand-labelled cohort); subjects repeated in the input are de-duplicated by id.
 #
-# Reach rate denominator is subjects_with_follows (only subjects that made follow
-# attempts can reach a friction); subjects with no follows are excluded from the
-# denominator but counted in subject_count.
+# Reach-rate denominator is friction-specific subjects_eligible.
+# Complete non-reachers and reached subjects are eligible; truncated non-reachers
+# are right-censored and excluded (they might have reached the friction past the
+# max_events cap). Subjects with no follow attempts are excluded from every
+# friction's counts but still counted in subject_count.
 module Moderation
   class FollowGateBacktestCohortService
     # Non-allow friction tiers the backtest can measure, in ladder order.
