@@ -1,0 +1,197 @@
+# frozen_string_literal: true
+
+# Explainable risk *evaluation* over a subject's behavioural metrics.
+#
+# This is deliberately NOT a single risk score and NOT a decision. Per the
+# design memo it produces a set of independent, bounded sub-scores, each with the
+# reason codes that explain it, and stops there:
+#
+#   * Evaluation only — it emits sub-scores + reason codes. It does NOT decide,
+#     recommend, or enforce anything (no action/recommendation/decision output).
+#     Mapping evaluation to a decision is a separate, later layer.
+#   * Read-only — it computes from Moderation::BehavioralMetricsService (itself
+#     read-only) and writes nothing.
+#   * Versioned & auditable — POLICY_VERSION identifies the parameter set, and
+#     every non-zero contribution carries a reason code with the observed value
+#     and window, so a sub-score can always be explained.
+#
+# The thresholds/weights in DEFAULT_PARAMS are INITIAL and UNCALIBRATED. They are
+# explicit and injectable so they can be tuned from Moderation::MetricsDistributionService
+# cohort data before any of this is ever wired to a decision.
+#
+# Guardrails encoded here (see the design memo):
+#   * A single block/mute never contributes — the rejection sub-score requires
+#     multiple INDEPENDENT responders.
+#   * Follow-import volume/count is never itself a risk signal — the
+#     follow-import sub-score only reacts to the external-list shape (large size
+#     with a high unresolved ratio and no known relationships).
+#   * A "linked" responder is a strong temporal association, not causal proof.
+#   * Unobserved remote signals are never scored as absence of behaviour.
+module Moderation
+  class RiskEvaluationService
+    POLICY_VERSION = 'risk-eval-v0-2026-09-12'
+
+    DEFAULT_PARAMS = {
+      'contact_volume' => {
+        'unique_targets_24h' => { 'threshold' => 200, 'weight' => 0.5 },
+        'unique_targets_7d'  => { 'threshold' => 500, 'weight' => 0.3 },
+        'contacts_total_24h' => { 'threshold' => 500, 'weight' => 0.3 },
+      },
+      'velocity' => {
+        'unique_targets_1h' => { 'threshold' => 30,  'weight' => 0.6 },
+        'unique_targets_6h' => { 'threshold' => 100, 'weight' => 0.4 },
+      },
+      'rejection' => {
+        # Requires MULTIPLE independent responders — never fires on a single one.
+        'unique_negative_responders_24h' => { 'threshold' => 5, 'weight' => 0.5 },
+        'linked_negative_responders_24h' => { 'threshold' => 5, 'weight' => 0.3 },
+        'negative_response_rate_24h'     => { 'threshold' => 0.2, 'weight' => 0.3, 'min_unique_targets' => 10 },
+      },
+      'report' => {
+        'reports_received_24h' => { 'threshold' => 1, 'weight' => 0.4 },
+        'reports_received_7d'  => { 'threshold' => 3, 'weight' => 0.4 },
+      },
+      'follow_import' => {
+        # Composite external-list shape; import count/size alone contributes nothing.
+        'large_unknown_import'   => { 'target_total' => 500, 'unresolved_ratio' => 0.7, 'weight' => 0.5 },
+        'high_unresolved_ratio'  => { 'threshold' => 0.9, 'weight' => 0.3 },
+        'no_known_relationships' => { 'target_total' => 200, 'weight' => 0.2 },
+      },
+      'repeat_behavior' => {
+        'new_targets_after_first_negative_signal_24h' => { 'threshold' => 50, 'weight' => 0.6 },
+        'follows_after_first_negative_signal_24h'     => { 'threshold' => 50, 'weight' => 0.4 },
+      },
+    }.freeze
+
+    def initialize(metrics_service: Moderation::BehavioralMetricsService.new, params: DEFAULT_PARAMS)
+      @metrics_service = metrics_service
+      @params = params
+    end
+
+    def call(subject_or_account, now: Time.now.utc)
+      metrics = @metrics_service.call(subject_or_account, now: now)
+
+      {
+        'policy_version' => POLICY_VERSION,
+        'subject_id'     => metrics['subject_id'],
+        'generated_at'   => now.iso8601,
+        'subscores'      => {
+          'contact_volume'  => contact_volume(metrics),
+          'velocity'        => velocity(metrics),
+          'rejection'       => rejection(metrics),
+          'report'          => report(metrics),
+          'follow_import'   => follow_import(metrics),
+          'repeat_behavior' => repeat_behavior(metrics),
+        },
+      }
+    end
+
+    private
+
+    def window(metrics, name)
+      metrics.dig('windows', name) || {}
+    end
+
+    def contact_volume(metrics)
+      params = @params['contact_volume']
+      build([
+        graded('high_unique_targets_24h', window(metrics, '24h')['unique_targets'], params['unique_targets_24h'], '24h'),
+        graded('high_unique_targets_7d', window(metrics, '7d')['unique_targets'], params['unique_targets_7d'], '7d'),
+        graded('high_contacts_24h', window(metrics, '24h')['contacts_total'], params['contacts_total_24h'], '24h'),
+      ])
+    end
+
+    def velocity(metrics)
+      params = @params['velocity']
+      build([
+        graded('high_unique_targets_1h', window(metrics, '1h')['unique_targets'], params['unique_targets_1h'], '1h'),
+        graded('high_unique_targets_6h', window(metrics, '6h')['unique_targets'], params['unique_targets_6h'], '6h'),
+      ])
+    end
+
+    def rejection(metrics)
+      params = @params['rejection']
+      data   = window(metrics, '24h')
+
+      signals = [
+        graded('multiple_independent_rejectors', data['unique_negative_responders'], params['unique_negative_responders_24h'], '24h'),
+        graded('linked_independent_rejectors', data['linked_negative_responders'], params['linked_negative_responders_24h'], '24h'),
+      ]
+
+      rate_cfg = params['negative_response_rate_24h']
+      if data['unique_targets'].to_i >= rate_cfg['min_unique_targets'].to_i && data['negative_response_rate'].to_f >= rate_cfg['threshold']
+        signals << reason('elevated_negative_response_rate', data['negative_response_rate'], rate_cfg['weight'], '24h')
+      end
+
+      build(signals)
+    end
+
+    def report(metrics)
+      params = @params['report']
+      build([
+        graded('reports_received_24h', window(metrics, '24h')['reports_received'], params['reports_received_24h'], '24h'),
+        graded('multiple_reports_7d', window(metrics, '7d')['reports_received'], params['reports_received_7d'], '7d'),
+      ])
+    end
+
+    # Follow-import volume/count is never itself a signal — only the external-list
+    # shape (large + high unresolved ratio, and no known relationships) is.
+    def follow_import(metrics)
+      params  = @params['follow_import']
+      context = metrics['follow_import_context'] || {}
+      return build([]) if context['batch_count'].to_i.zero?
+
+      target_total     = context['target_total'].to_i
+      unresolved_ratio = context['unresolved_target_ratio'].to_f
+      prior_known      = context['prior_relationship_known_targets'].to_i
+
+      signals = []
+
+      large = params['large_unknown_import']
+      if target_total >= large['target_total'].to_i && unresolved_ratio >= large['unresolved_ratio'].to_f
+        signals << reason('large_unknown_follow_import', { 'target_total' => target_total, 'unresolved_target_ratio' => unresolved_ratio }, large['weight'])
+      end
+
+      high = params['high_unresolved_ratio']
+      signals << reason('high_unresolved_target_ratio', unresolved_ratio, high['weight']) if unresolved_ratio >= high['threshold'].to_f
+
+      none = params['no_known_relationships']
+      signals << reason('no_known_relationships_in_large_import', target_total, none['weight']) if prior_known.zero? && target_total >= none['target_total'].to_i
+
+      build(signals)
+    end
+
+    def repeat_behavior(metrics)
+      params = @params['repeat_behavior']
+      data   = window(metrics, '24h')
+      build([
+        graded('continuation_after_rejection', data['new_targets_after_first_negative_signal'], params['new_targets_after_first_negative_signal_24h'], '24h'),
+        graded('follows_after_rejection', data['follows_after_first_negative_signal'], params['follows_after_first_negative_signal_24h'], '24h'),
+      ])
+    end
+
+    # A graded threshold signal: fires (contributes weight) only when value meets
+    # the configured threshold.
+    def graded(code, value, config, window_name)
+      return nil if value.nil? || config.nil? || value < config['threshold']
+
+      reason(code, value, config['weight'], window_name)
+    end
+
+    def reason(code, value, weight, window_name = nil)
+      { code: code, value: value, weight: weight, window: window_name }
+    end
+
+    # Sub-score = sum of fired weights, capped at 1.0. Every fired signal is
+    # surfaced as a reason code so the sub-score is always explainable.
+    def build(signals)
+      fired = signals.compact
+      score = [fired.sum { |signal| signal[:weight] }, 1.0].min
+
+      {
+        'score'        => score,
+        'reason_codes' => fired.map { |signal| { 'code' => signal[:code], 'value' => signal[:value], 'window' => signal[:window] }.compact },
+      }
+    end
+  end
+end
