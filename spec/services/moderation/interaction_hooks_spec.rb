@@ -16,13 +16,22 @@ RSpec.describe 'Moderation interaction hooks', type: :service do
   end
 
   describe FollowService do
-    it 'records a follow interaction' do
+    it 'records a follow interaction with no import_batch_id for a normal follow' do
       expect { FollowService.new.call(alice, bob) }.to change(ModerationInteractionEvent, :count).by(1)
 
       event = last_interaction
       expect(event.event_type).to eq 'follow'
       expect(event.actor_subject.account_id).to eq alice.id
       expect(event.target_subject.account_id).to eq bob.id
+      expect(event.import_batch_id).to be_nil
+    end
+
+    it 'records the import_batch_id when a follow import passes one through' do
+      expect { FollowService.new.call(alice, bob, import_batch_id: 4242) }.to change(ModerationInteractionEvent, :count).by(1)
+
+      event = last_interaction
+      expect(event.event_type).to eq 'follow'
+      expect(event.import_batch_id).to eq 4242
     end
   end
 

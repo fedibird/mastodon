@@ -211,4 +211,60 @@ RSpec.describe ImportService, type: :service do
       end
     end
   end
+
+  # Assert the follow-import -> batch-id propagation at ImportService's enqueue
+  # boundary, capturing the worker args it produces. This avoids executing the
+  # follows inline (that path renders a notification mailer needing a webpack
+  # manifest not built in the test env) and does not depend on Sidekiq's queue
+  # internals. The worker -> FollowService -> ledger legs are covered in
+  # relationship_worker_spec and interaction_hooks_spec.
+  context 'follow-import moderation ledger linkage' do
+    subject { ImportService.new }
+
+    # Inline CSV (no trailing blank row) so the generic import_relationships!
+    # loop enqueues both targets; a trailing blank row trips its existing
+    # `return if key.blank?` guard, which is unrelated to this change.
+    let(:csv_text) { "Account address,Show boosts\nbob,true\neve@example.com,false" }
+    let(:import)   { Import.create(account: account, type: 'following', data: attachment_fixture('new-following-imports.txt')) }
+
+    # Capture every relationship-worker enqueue (both perform_async and the
+    # push_bulk block form) as plain args arrays.
+    def capture_enqueues!
+      captured = []
+      allow(Import::RelationshipWorker).to receive(:perform_async) { |*args| captured << args }
+      allow(Import::RelationshipWorker).to receive(:push_bulk) do |items, &block|
+        items.each { |item| captured << block.call(item) }
+      end
+      captured
+    end
+
+    before do
+      allow_any_instance_of(described_class).to receive(:import_data).and_return(csv_text)
+    end
+
+    it 'stamps the FollowImportBatch id onto every follow it enqueues' do
+      captured = capture_enqueues!
+
+      subject.call(import)
+
+      batch = FollowImportBatch.find_by(import_id: import.id)
+      expect(batch).to be_present
+
+      follow_args = captured.select { |args| args[2] == 'follow' }
+      # bob (local) and eve (remote) are both followed by this import.
+      expect(follow_args.size).to eq 2
+      expect(follow_args.map { |args| args[3]['import_batch_id'] }.uniq).to eq [batch.id]
+    end
+
+    it 'omits import_batch_id from the enqueued follows when batch recording failed, without raising' do
+      allow(Moderation::FollowImportRecorder).to receive(:record_batch).and_return(nil)
+      captured = capture_enqueues!
+
+      expect { subject.call(import) }.to_not raise_error
+
+      follow_args = captured.select { |args| args[2] == 'follow' }
+      expect(follow_args).to be_present
+      follow_args.each { |args| expect(args[3]).to_not have_key('import_batch_id') }
+    end
+  end
 end
