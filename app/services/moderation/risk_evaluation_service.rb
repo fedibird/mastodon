@@ -39,6 +39,14 @@ module Moderation
   class RiskEvaluationService
     POLICY_VERSION = 'risk-eval-v0-2026-09-12'
 
+    # CALIBRATION TODO: the windows overlap (e.g. 24h ⊂ 7d), so the same
+    # underlying event can contribute to more than one reason code within a
+    # sub-score (e.g. reports_received_24h and reports_received_7d), and signals
+    # across dimensions can be correlated. This double/overlapping contribution is
+    # accepted for now because the evaluation is UNCALIBRATED and not wired to any
+    # decision. When calibrating against real cohorts, review correlated signals,
+    # overlapping windows, and duplicate contribution before assigning meaning to
+    # the absolute sub-score magnitudes.
     DEFAULT_PARAMS = {
       'contact_volume' => {
         'unique_targets_24h' => { 'threshold' => 200, 'weight' => 0.5 },
@@ -103,17 +111,17 @@ module Moderation
     def contact_volume(metrics)
       params = @params['contact_volume']
       build([
-        graded('high_unique_targets_24h', window(metrics, '24h')['unique_targets'], params['unique_targets_24h'], '24h'),
-        graded('high_unique_targets_7d', window(metrics, '7d')['unique_targets'], params['unique_targets_7d'], '7d'),
-        graded('high_contacts_24h', window(metrics, '24h')['contacts_total'], params['contacts_total_24h'], '24h'),
+        threshold_signal('high_unique_targets_24h', window(metrics, '24h')['unique_targets'], params['unique_targets_24h'], '24h'),
+        threshold_signal('high_unique_targets_7d', window(metrics, '7d')['unique_targets'], params['unique_targets_7d'], '7d'),
+        threshold_signal('high_contacts_24h', window(metrics, '24h')['contacts_total'], params['contacts_total_24h'], '24h'),
       ])
     end
 
     def velocity(metrics)
       params = @params['velocity']
       build([
-        graded('high_unique_targets_1h', window(metrics, '1h')['unique_targets'], params['unique_targets_1h'], '1h'),
-        graded('high_unique_targets_6h', window(metrics, '6h')['unique_targets'], params['unique_targets_6h'], '6h'),
+        threshold_signal('high_unique_targets_1h', window(metrics, '1h')['unique_targets'], params['unique_targets_1h'], '1h'),
+        threshold_signal('high_unique_targets_6h', window(metrics, '6h')['unique_targets'], params['unique_targets_6h'], '6h'),
       ])
     end
 
@@ -122,13 +130,18 @@ module Moderation
       data   = window(metrics, '24h')
 
       signals = [
-        graded('multiple_independent_rejectors', data['unique_negative_responders'], params['unique_negative_responders_24h'], '24h'),
-        graded('linked_independent_rejectors', data['linked_negative_responders'], params['linked_negative_responders_24h'], '24h'),
+        threshold_signal('multiple_independent_rejectors', data['unique_negative_responders'], params['unique_negative_responders_24h'], '24h'),
+        threshold_signal('linked_independent_rejectors', data['linked_negative_responders'], params['linked_negative_responders_24h'], '24h'),
       ]
 
       rate_cfg = params['negative_response_rate_24h']
       if data['unique_targets'].to_i >= rate_cfg['min_unique_targets'].to_i && data['negative_response_rate'].to_f >= rate_cfg['threshold']
-        signals << reason('elevated_negative_response_rate', data['negative_response_rate'], rate_cfg['weight'], '24h', threshold: rate_cfg['threshold'])
+        # This signal has an extra firing condition beyond the threshold (a
+        # minimum contact sample), so record the sample-size condition as reason
+        # metadata for auditability/reproducibility.
+        signals << reason('elevated_negative_response_rate', data['negative_response_rate'], rate_cfg['weight'], '24h',
+                          threshold: rate_cfg['threshold'],
+                          metadata: { 'observed_unique_targets' => data['unique_targets'].to_i, 'min_unique_targets' => rate_cfg['min_unique_targets'].to_i })
       end
 
       build(signals)
@@ -137,8 +150,8 @@ module Moderation
     def report(metrics)
       params = @params['report']
       build([
-        graded('reports_received_24h', window(metrics, '24h')['reports_received'], params['reports_received_24h'], '24h'),
-        graded('multiple_reports_7d', window(metrics, '7d')['reports_received'], params['reports_received_7d'], '7d'),
+        threshold_signal('reports_received_24h', window(metrics, '24h')['reports_received'], params['reports_received_24h'], '24h'),
+        threshold_signal('multiple_reports_7d', window(metrics, '7d')['reports_received'], params['reports_received_7d'], '7d'),
       ])
     end
 
@@ -160,21 +173,26 @@ module Moderation
       params = @params['repeat_behavior']
       data   = window(metrics, '24h')
       build([
-        graded('continuation_after_rejection', data['new_targets_after_first_negative_signal'], params['new_targets_after_first_negative_signal_24h'], '24h'),
-        graded('follows_after_rejection', data['follows_after_first_negative_signal'], params['follows_after_first_negative_signal_24h'], '24h'),
+        threshold_signal('continuation_after_rejection', data['new_targets_after_first_negative_signal'], params['new_targets_after_first_negative_signal_24h'], '24h'),
+        threshold_signal('follows_after_rejection', data['follows_after_first_negative_signal'], params['follows_after_first_negative_signal_24h'], '24h'),
       ])
     end
 
-    # A graded threshold signal: fires (contributes weight) only when value meets
-    # the configured threshold.
-    def graded(code, value, config, window_name)
+    # A BINARY threshold signal: it either fires (contributing its fixed weight)
+    # or not, based on `value >= threshold`. It is NOT continuous graded scoring —
+    # the contribution does not scale with how far the value exceeds the
+    # threshold. (If calibration later warrants continuous scoring, revisit this.)
+    def threshold_signal(code, value, config, window_name)
       return nil if value.nil? || config.nil? || value < config['threshold']
 
       reason(code, value, config['weight'], window_name, threshold: config['threshold'])
     end
 
-    def reason(code, value, weight, window_name = nil, threshold: nil)
-      { code: code, value: value, weight: weight, window: window_name, threshold: threshold }
+    # +metadata+ records any additional firing conditions (beyond the primary
+    # threshold) so a reason code alone explains why the signal fired. Any future
+    # signal with extra firing conditions should record them here too.
+    def reason(code, value, weight, window_name = nil, threshold: nil, metadata: {})
+      { code: code, value: value, weight: weight, window: window_name, threshold: threshold, metadata: metadata }
     end
 
     # Sub-score = sum of fired weights, capped at 1.0. Every fired signal is
@@ -193,7 +211,7 @@ module Moderation
             'threshold' => signal[:threshold],
             'weight'    => signal[:weight],
             'window'    => signal[:window],
-          }.compact
+          }.compact.merge(signal[:metadata] || {})
         end,
       }
     end

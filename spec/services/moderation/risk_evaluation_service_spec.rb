@@ -109,11 +109,14 @@ RSpec.describe Moderation::RiskEvaluationService do
       expect(sub['reason_codes']).to be_empty
     end
 
-    it 'counts an elevated rate once the sample is large enough' do
+    it 'counts an elevated rate once the sample is large enough and records the sample condition' do
       sub = evaluate(metrics(windows: { '24h' => { 'unique_targets' => 50, 'negative_response_rate' => 0.3 } }))['subscores']['rejection']
 
       expect(sub['reason_codes']).to include(
-        a_hash_including('code' => 'elevated_negative_response_rate', 'value' => 0.3, 'threshold' => 0.2, 'window' => '24h')
+        a_hash_including(
+          'code' => 'elevated_negative_response_rate', 'value' => 0.3, 'threshold' => 0.2, 'weight' => 0.3, 'window' => '24h',
+          'observed_unique_targets' => 50, 'min_unique_targets' => 10
+        )
       )
     end
   end
