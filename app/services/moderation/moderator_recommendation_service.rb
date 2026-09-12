@@ -40,7 +40,13 @@ module Moderation
         'contact_and_velocity' => { 'contact_volume_min' => 0.5, 'velocity_min' => 0.6 },
       },
       'watch' => {
-        'any_subscore_min' => 0.5, # any single elevated dimension
+        'any_subscore_min' => 0.5,
+        # Explicit allowlist: only these dimensions can raise a watch. A new
+        # sub-score added upstream (e.g. follow_import once relationship-aware
+        # scoring lands) must be added here — with a policy_version bump — before
+        # it can affect a recommendation. This keeps evaluation and decision
+        # policy decoupled. follow_import is intentionally excluded for now.
+        'dimensions' => %w(contact_volume velocity rejection report repeat_behavior),
       },
     }.freeze
 
@@ -80,28 +86,44 @@ module Moderation
 
       urgent = @params['urgent_review']
       if scores['rejection'].to_f >= urgent['rejection_min'] && scores['repeat_behavior'].to_f >= urgent['repeat_behavior_min']
-        rules << rule('urgent_review', 'sustained_rejection_with_continuation', 'rejection' => scores['rejection'], 'repeat_behavior' => scores['repeat_behavior'])
+        rules << rule('urgent_review', 'sustained_rejection_with_continuation',
+                      'rejection' => condition(scores['rejection'], urgent['rejection_min']),
+                      'repeat_behavior' => condition(scores['repeat_behavior'], urgent['repeat_behavior_min']))
       end
 
       review = @params['review_recommended']
-      rules << rule('review_recommended', 'multiple_independent_rejectors', 'rejection' => scores['rejection']) if scores['rejection'].to_f >= review['rejection_min']
-      rules << rule('review_recommended', 'reports_present', 'report' => scores['report']) if scores['report'].to_f >= review['report_min']
+      rules << rule('review_recommended', 'multiple_independent_rejectors', 'rejection' => condition(scores['rejection'], review['rejection_min'])) if scores['rejection'].to_f >= review['rejection_min']
+      rules << rule('review_recommended', 'reports_present', 'report' => condition(scores['report'], review['report_min'])) if scores['report'].to_f >= review['report_min']
 
       cv = review['contact_and_velocity']
       if scores['contact_volume'].to_f >= cv['contact_volume_min'] && scores['velocity'].to_f >= cv['velocity_min']
-        rules << rule('review_recommended', 'high_volume_and_velocity', 'contact_volume' => scores['contact_volume'], 'velocity' => scores['velocity'])
+        rules << rule('review_recommended', 'high_volume_and_velocity',
+                      'contact_volume' => condition(scores['contact_volume'], cv['contact_volume_min']),
+                      'velocity' => condition(scores['velocity'], cv['velocity_min']))
       end
 
-      watch_min = @params['watch']['any_subscore_min']
-      scores.each do |dimension, score|
-        rules << rule('watch', "elevated_#{dimension}", dimension => score) if score >= watch_min
+      watch     = @params['watch']
+      watch_min = watch['any_subscore_min']
+      # Only allowlisted dimensions can raise a watch; unknown/new dimensions are
+      # ignored until the policy explicitly adds them (with a version bump).
+      Array(watch['dimensions']).each do |dimension|
+        next unless scores.key?(dimension)
+
+        score = scores[dimension].to_f
+        rules << rule('watch', "elevated_#{dimension}", dimension => condition(score, watch_min)) if score >= watch_min
       end
 
       rules
     end
 
-    def rule(tier, name, subscores)
-      { 'tier' => tier, 'rule' => name, 'subscores' => subscores }
+    def rule(tier, name, conditions)
+      { 'tier' => tier, 'rule' => name, 'conditions' => conditions }
+    end
+
+    # A firing condition surfaced for audit/UI: the observed value and the
+    # minimum it had to meet.
+    def condition(value, minimum)
+      { 'value' => value.to_f, 'minimum' => minimum }
     end
 
     def highest_tier(matched)

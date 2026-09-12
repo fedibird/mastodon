@@ -8,10 +8,12 @@ RSpec.describe Moderation::ModeratorRecommendationService do
   DIMENSIONS = %w(contact_volume velocity rejection report follow_import repeat_behavior).freeze
 
   # Build a canned RiskEvaluationService output with the given sub-score values.
-  def evaluation(**scores)
+  # +extra+ injects additional (possibly unknown) dimensions.
+  def evaluation(extra: {}, **scores)
     subscores = DIMENSIONS.index_with do |dimension|
       { 'score' => scores.fetch(dimension.to_sym, 0.0), 'reason_codes' => [] }
     end
+    extra.each { |dimension, score| subscores[dimension.to_s] = { 'score' => score, 'reason_codes' => [] } }
 
     {
       'policy_version' => 'risk-eval-v0-test',
@@ -58,7 +60,9 @@ RSpec.describe Moderation::ModeratorRecommendationService do
     it 'recommends review_recommended when multiple independent rejectors are present' do
       result = recommend(evaluation(rejection: 0.5))
       expect(result['recommendation']).to eq 'review_recommended'
-      expect(result['matched_rules']).to include(a_hash_including('rule' => 'multiple_independent_rejectors', 'subscores' => { 'rejection' => 0.5 }))
+      expect(result['matched_rules']).to include(
+        a_hash_including('rule' => 'multiple_independent_rejectors', 'conditions' => { 'rejection' => { 'value' => 0.5, 'minimum' => 0.5 } })
+      )
     end
 
     it 'recommends review_recommended when a report is present' do
@@ -93,10 +97,20 @@ RSpec.describe Moderation::ModeratorRecommendationService do
       expect(recommend(evaluation(rejection: 0.0))['recommendation']).to eq 'normal'
     end
 
-    it 'never recommends off the deferred follow_import dimension alone' do
-      # follow_import is deferred upstream (always 0); even if some value leaked in
-      # it would only reach watch, never review/urgent, and here it is 0 -> normal.
-      expect(recommend(evaluation(follow_import: 0.0))['recommendation']).to eq 'normal'
+    it 'never recommends off the deferred follow_import dimension, even if it scored high' do
+      # follow_import is not in the watch allowlist and is used by no rule, so even
+      # a leaked high score must not affect the recommendation.
+      result = recommend(evaluation(follow_import: 1.0))
+      expect(result['recommendation']).to eq 'normal'
+      expect(result['matched_rules']).to be_empty
+    end
+
+    it 'ignores an unknown/new sub-score dimension until the policy allowlists it' do
+      # A brand-new dimension added upstream must not auto-fire watch without a
+      # policy change/version bump.
+      result = recommend(evaluation(extra: { 'brand_new_signal' => 1.0 }))
+      expect(result['recommendation']).to eq 'normal'
+      expect(result['matched_rules']).to be_empty
     end
   end
 
