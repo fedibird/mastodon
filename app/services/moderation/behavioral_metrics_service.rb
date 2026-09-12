@@ -100,6 +100,9 @@ module Moderation
         'contacts_total'                          => contacts_total,
         'unique_targets'                          => unique_targets,
         'follows'                                 => follows,
+        # Distinct targets actually followed in-window — the true denominator for
+        # follow_reject_rate and its eligibility (not the follows event count).
+        'unique_follow_targets'                   => followed_ids.size,
         'interactions_by_type'                    => interactions_by_type,
         'rejections_received_total'               => rejections_total,
         'rejections_by_type'                      => rejections_by_type,
@@ -129,6 +132,7 @@ module Moderation
         'contacts_total'                          => 0,
         'unique_targets'                          => 0,
         'follows'                                 => 0,
+        'unique_follow_targets'                   => 0,
         'interactions_by_type'                    => INTERACTION_TYPES.index_with { 0 },
         'rejections_received_total'               => 0,
         'rejections_by_type'                      => REJECTION_TYPES.index_with { 0 },
