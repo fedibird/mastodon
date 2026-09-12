@@ -32,10 +32,13 @@ module Moderation
 
     def call(subject_or_account, max_events: DEFAULT_MAX_EVENTS)
       subject = resolve_subject(subject_or_account)
-      return empty_result(subject) if subject.nil?
+      return empty_result(subject, max_events) if subject.nil?
 
-      follows = follow_events(subject, max_events)
-      return empty_result(subject) if follows.empty?
+      total_follows = follow_events_count(subject)
+      follows       = follow_events(subject, max_events)
+      return empty_result(subject, max_events) if follows.empty?
+
+      locality_by_subject_id = target_locality_map(follows)
 
       first_follow_at = follows.first.occurred_at
       friction_counts = Hash.new(0)
@@ -44,7 +47,12 @@ module Moderation
       params_digest   = nil
 
       follows.each_with_index do |event, offset|
-        decision = @gate_service.call(subject, now: event.occurred_at)
+        # Reconstruct the target's locality so the gate's locality-based routing
+        # (local vs remote/unknown) matches what it would have done at attempt
+        # time. target_locked is not historically recoverable, so confirm_target
+        # remains out of scope.
+        context  = { 'target_locality' => locality_by_subject_id[event.target_subject_id] }
+        decision = @gate_service.call(subject, context: context, now: event.occurred_at)
         policy_version ||= decision['policy_version']
         params_digest  ||= decision['params_digest']
 
@@ -61,15 +69,21 @@ module Moderation
       end
 
       {
-        'subject_id'          => subject.id,
-        'generated_at'        => Time.now.utc.iso8601,
-        'gate_policy_version' => policy_version,
-        'gate_params_digest'  => params_digest,
-        'follow_attempts'     => follows.size,
-        'first_follow_at'     => first_follow_at.utc.iso8601,
-        'last_follow_at'      => follows.last.occurred_at.utc.iso8601,
-        'friction_counts'     => friction_counts,
-        'first_friction'      => first_friction,
+        'subject_id'             => subject.id,
+        'generated_at'           => Time.now.utc.iso8601,
+        'gate_policy_version'    => policy_version,
+        'gate_params_digest'     => params_digest,
+        # Only the analyzed (possibly truncated) window is summarized below; do not
+        # read these as the whole campaign when truncated is true.
+        'total_follow_events'    => total_follows,
+        'analyzed_follow_events' => follows.size,
+        'max_events'             => max_events,
+        'truncated'              => total_follows > follows.size,
+        'follow_attempts'        => follows.size,
+        'first_follow_at'        => first_follow_at.utc.iso8601,
+        'last_follow_at'         => follows.last.occurred_at.utc.iso8601,
+        'friction_counts'        => friction_counts,
+        'first_friction'         => first_friction,
       }
     end
 
@@ -82,26 +96,47 @@ module Moderation
       ModerationSubject.find_by(account_id: subject_or_account.id)
     end
 
-    def follow_events(subject, max_events)
+    def follow_events_scope(subject)
       ModerationInteractionEvent
         .where(actor_subject_id: subject.id, event_type: :follow)
         .where.not(occurred_at: nil)
-        .order(:occurred_at, :id)
-        .limit(max_events)
-        .to_a
     end
 
-    def empty_result(subject)
+    def follow_events_count(subject)
+      follow_events_scope(subject).count
+    end
+
+    def follow_events(subject, max_events)
+      follow_events_scope(subject).order(:occurred_at, :id).limit(max_events).to_a
+    end
+
+    # Reconstruct target locality from each target's ModerationSubject origin.
+    # A missing target subject (nullified after deletion) yields nil, which the
+    # gate treats as non-local/unknown.
+    def target_locality_map(follows)
+      ids = follows.map(&:target_subject_id).compact.uniq
+      return {} if ids.empty?
+
+      ModerationSubject.where(id: ids).each_with_object({}) do |subject, map|
+        map[subject.id] = subject.origin
+      end
+    end
+
+    def empty_result(subject, max_events)
       {
-        'subject_id'          => subject&.id,
-        'generated_at'        => Time.now.utc.iso8601,
-        'gate_policy_version' => nil,
-        'gate_params_digest'  => nil,
-        'follow_attempts'     => 0,
-        'first_follow_at'     => nil,
-        'last_follow_at'      => nil,
-        'friction_counts'     => {},
-        'first_friction'      => {},
+        'subject_id'             => subject&.id,
+        'generated_at'           => Time.now.utc.iso8601,
+        'gate_policy_version'    => nil,
+        'gate_params_digest'     => nil,
+        'total_follow_events'    => 0,
+        'analyzed_follow_events' => 0,
+        'max_events'             => max_events,
+        'truncated'              => false,
+        'follow_attempts'        => 0,
+        'first_follow_at'        => nil,
+        'last_follow_at'         => nil,
+        'friction_counts'        => {},
+        'first_friction'         => {},
       }
     end
   end

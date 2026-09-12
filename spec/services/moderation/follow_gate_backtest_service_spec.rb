@@ -19,7 +19,7 @@ RSpec.describe Moderation::FollowGateBacktestService do
 
     let(:gate_service) do
       fake = instance_double(Moderation::AdaptiveFollowGateDecisionService)
-      allow(fake).to receive(:call) do |_subject, now:|
+      allow(fake).to receive(:call) do |_subject, now:, **|
         friction =
           if now >= t0 + 90.minutes then 'delay'
           elsif now >= t0 + 30.minutes then 'rate_limit'
@@ -47,7 +47,7 @@ RSpec.describe Moderation::FollowGateBacktestService do
 
     it 'evaluates each attempt as of its own occurred_at (no future leakage)' do
       seen_nows = []
-      allow(gate_service).to receive(:call) do |_subject, now:|
+      allow(gate_service).to receive(:call) do |_subject, now:, **|
         seen_nows << now
         { 'proposed_friction' => 'allow', 'policy_version' => 'gate-test', 'params_digest' => 'sha256:test' }
       end
@@ -55,6 +55,59 @@ RSpec.describe Moderation::FollowGateBacktestService do
       described_class.new(gate_service: gate_service).call(actor)
 
       expect(seen_nows.map(&:to_i)).to eq [t0, t0 + 30.minutes, t0 + 90.minutes].map(&:to_i)
+    end
+  end
+
+  describe 'target locality reconstruction' do
+    let(:local_target)  { Fabricate(:account, username: 'bt_local') }
+    let(:remote_target) { Fabricate(:account, username: 'bt_remote', domain: 'remote.example', protocol: :activitypub) }
+
+    let!(:local_follow)  { record_follow(local_target, t0, 'loc-1') }
+    let!(:remote_follow) { record_follow(remote_target, t0 + 10.minutes, 'loc-2') }
+
+    it 'passes each attempt the target locality restored from the target subject origin' do
+      seen = []
+      gate = instance_double(Moderation::AdaptiveFollowGateDecisionService)
+      allow(gate).to receive(:call) do |_subject, context:, now:|
+        seen << [now.to_i, context['target_locality']]
+        { 'proposed_friction' => 'allow', 'policy_version' => 'g', 'params_digest' => 's' }
+      end
+
+      described_class.new(gate_service: gate).call(actor)
+
+      expect(seen).to eq [[t0.to_i, 'local'], [(t0 + 10.minutes).to_i, 'remote']]
+    end
+
+    context 'with the real gate under elevated rejection' do
+      # Inject an evaluator into the real gate so rejection is elevated; then the
+      # locality-based delay rule must fire for the remote target but NOT the local.
+      let(:evaluator) do
+        subscores = %w(contact_volume velocity rejection report follow_import repeat_behavior).index_with { |d| { 'score' => d == 'rejection' ? 0.6 : 0.0, 'reason_codes' => [] } }
+        instance_double(Moderation::RiskEvaluationService, call: { 'subject_id' => 1, 'subscores' => subscores, 'policy_version' => 'risk-test', 'params_digest' => 'sha256:t' })
+      end
+
+      it 'does not fire locality-based delay for a local target, but does for a remote target' do
+        gate   = Moderation::AdaptiveFollowGateDecisionService.new(evaluator: evaluator)
+        result = described_class.new(gate_service: gate).call(actor)
+
+        # local follow at t0 -> allow (no locality delay); remote follow -> delay.
+        expect(result['friction_counts']).to eq('allow' => 1, 'delay' => 1)
+        expect(result['first_friction']['delay']).to include('attempt_index' => 2)
+      end
+    end
+  end
+
+  describe 'truncation reporting' do
+    it 'reports total vs analyzed and the truncated flag when capped' do
+      3.times { |i| record_follow(Fabricate(:account, username: "bt_trunc_#{i}"), t0 + i.minutes, "trunc-#{i}") }
+
+      result = described_class.new.call(actor, max_events: 2)
+
+      expect(result['total_follow_events']).to eq 3
+      expect(result['analyzed_follow_events']).to eq 2
+      expect(result['follow_attempts']).to eq 2
+      expect(result['max_events']).to eq 2
+      expect(result['truncated']).to be true
     end
   end
 
