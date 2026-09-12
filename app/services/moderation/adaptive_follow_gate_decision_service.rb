@@ -55,8 +55,11 @@ module Moderation
 
     # +context+ describes the follow attempt. Recognised keys: mechanism,
     # target_locality ('local'/'remote'), target_locked, relationship_context.
-    # Only target_locality influences the proposal (locality routes confirm vs
-    # delay); the rest are echoed for observability but never raise risk.
+    # target_locality and target_locked affect applicability/routing only
+    # (locality routes confirm_target vs delay; target_locked gates confirm_target
+    # to local UNLOCKED targets). mechanism and relationship_context are echoed for
+    # observability but never raise risk. None of these introduce new risk; they
+    # only route/limit which reversible friction applies.
     def call(subject_or_account, context: {}, now: Time.now.utc)
       evaluation = @evaluator.call(subject_or_account, now: now)
       scores     = subscore_map(evaluation)
