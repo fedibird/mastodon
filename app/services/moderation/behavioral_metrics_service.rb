@@ -81,12 +81,17 @@ module Moderation
       unique_responders  = distinct_ids(rejections, :rejector_subject_id).size
       mutes_received     = rejections_by_type['mute'] + rejections_by_type['mute_notifications']
 
-      # Cohort-aligned: rejectors that were also contacted in this window.
+      # Raw analysis counts: rejectors that were also contacted in this window
+      # (any order). Kept as-is for analysis; NOT used for the rates below.
       linked_set, correlated_set = classify_negative_responders(rejections, contacted_ids)
-      responder_cohort           = linked_set | correlated_set
 
-      # Cohort-aligned: follow-rejects only from targets this window actually followed.
-      follow_reject_cohort = distinct_ids(rejections.where(event_type: :follow_reject), :rejector_subject_id) & followed_ids
+      # Rate cohorts add a temporal requirement: an in-window contact strictly at
+      # or before an in-window rejection from the same responder. This makes a
+      # rate mean "response to a preceding in-window contact", so an out-of-window
+      # contact or a rejection that predates the in-window contact cannot count.
+      responded_rate_cohort = temporal_response_cohort(interactions, rejections)
+      linked_rate_cohort    = temporal_linked_cohort(rejections, window_start, window_end)
+      follow_reject_cohort  = temporal_follow_reject_cohort(interactions, rejections)
 
       first_negative_at = rejections.minimum(:occurred_at)
       continuation      = continuation_after(subject, interactions, first_negative_at)
@@ -106,9 +111,10 @@ module Moderation
         'unique_negative_responders'              => unique_responders,
         'linked_negative_responders'              => linked_set.size,
         'correlated_negative_responders'          => correlated_set.size,
-        # Rates: numerator and denominator share the in-window contact cohort.
-        'negative_response_rate'                  => ratio(responder_cohort.size, unique_targets),
-        'linked_negative_rate'                    => ratio(linked_set.size, unique_targets),
+        # Rates: numerator and denominator share the in-window contact cohort, and
+        # the numerator requires an in-window contact at/before an in-window rejection.
+        'negative_response_rate'                  => ratio(responded_rate_cohort.size, unique_targets),
+        'linked_negative_rate'                    => ratio(linked_rate_cohort.size, unique_targets),
         'follow_reject_rate'                      => ratio(follow_reject_cohort.size, followed_ids.size),
         'first_negative_signal_at'                => first_negative_at&.iso8601,
         'new_targets_after_first_negative_signal' => continuation[:new_targets],
@@ -184,6 +190,51 @@ module Moderation
 
       correlated.subtract(linked)
       [linked, correlated]
+    end
+
+    # Responders with an in-window contact (any type) at or before an in-window
+    # rejection: earliest in-window contact time <= latest in-window rejection
+    # time proves such an ordered pair exists (both restricted to the window).
+    def temporal_response_cohort(interactions, rejections)
+      earliest_contact  = interactions.where.not(target_subject_id: nil).group(:target_subject_id).minimum(:occurred_at)
+      latest_rejection  = rejections.where.not(rejector_subject_id: nil).group(:rejector_subject_id).maximum(:occurred_at)
+      ordered_pair_cohort(earliest_contact, latest_rejection)
+    end
+
+    # Same, restricted to in-window follows -> in-window follow_rejects.
+    def temporal_follow_reject_cohort(interactions, rejections)
+      earliest_follow        = interactions.where(event_type: :follow).where.not(target_subject_id: nil).group(:target_subject_id).minimum(:occurred_at)
+      latest_follow_reject   = rejections.where(event_type: :follow_reject).where.not(rejector_subject_id: nil).group(:rejector_subject_id).maximum(:occurred_at)
+      ordered_pair_cohort(earliest_follow, latest_follow_reject)
+    end
+
+    def ordered_pair_cohort(earliest_contact_by_id, latest_rejection_by_id)
+      cohort = Set.new
+      latest_rejection_by_id.each do |id, rejected_at|
+        contacted_at = earliest_contact_by_id[id]
+        cohort << id if contacted_at && rejected_at && contacted_at <= rejected_at
+      end
+      cohort
+    end
+
+    # Linked rate cohort: the rejection's preceding_interaction_event is itself
+    # in-window, at/before the rejection, and a strong association. (The raw
+    # linked count above may link to a preceding contact from outside the window;
+    # the rate must not.)
+    def temporal_linked_cohort(rejections, window_start, window_end)
+      cohort = Set.new
+
+      rejections.includes(:preceding_interaction_event).find_each do |rejection|
+        interaction = rejection.preceding_interaction_event
+        next if interaction.nil? || interaction.occurred_at.nil? || rejection.rejector_subject_id.nil?
+        next if window_start && interaction.occurred_at < window_start
+        next if window_end && interaction.occurred_at > window_end
+        next unless Moderation::PrecedingContactLink.strong_association?(interaction, rejection)
+
+        cohort << rejection.rejector_subject_id
+      end
+
+      cohort
     end
 
     # Genuinely new targets contacted after the first negative signal in scope: a

@@ -57,9 +57,12 @@ RSpec.describe Moderation::BehavioralMetricsService do
         expect(metrics['correlated_negative_responders']).to eq 1
       end
 
-      it 'computes cohort-aligned rates as raw floats' do
-        # (linked + correlated) / unique in-window targets = 3/4
-        expect(metrics['negative_response_rate']).to eq 0.75
+      it 'computes cohort-aligned rates as raw floats, requiring contact-before-rejection' do
+        # Responders with an in-window contact at/before an in-window rejection:
+        # b (-120 follow <= -118 block) and c (-50 follow <= -48 reject). g is
+        # excluded: its -20m follow is AFTER its -25m block. So 2/4.
+        expect(metrics['negative_response_rate']).to eq 0.5
+        # linked rate cohort (b, c) / unique targets (4) = 2/4
         expect(metrics['linked_negative_rate']).to eq 0.5
         # follow_rejects from followed targets (c) / followed targets (b,c,g) = 1/3
         expect(metrics['follow_reject_rate']).to be_within(1e-9).of(1.0 / 3)
@@ -86,11 +89,12 @@ RSpec.describe Moderation::BehavioralMetricsService do
         expect(metrics['correlated_negative_responders']).to eq 1
       end
 
-      it 'keeps rates cohort-aligned within the window' do
-        # (c linked + g correlated) / {c,d,g} = 2/3
-        expect(metrics['negative_response_rate']).to be_within(1e-9).of(2.0 / 3)
+      it 'keeps rates cohort-aligned and contact-before-rejection within the window' do
+        # Only c has an in-window contact (-50 follow) at/before its in-window
+        # rejection (-48). g's -20 follow is after its -25 block, so excluded. 1/3.
+        expect(metrics['negative_response_rate']).to be_within(1e-9).of(1.0 / 3)
         expect(metrics['linked_negative_rate']).to be_within(1e-9).of(1.0 / 3)
-        # c follow_reject / followed {c,g} = 1/2
+        # c follow_reject (followed at -50, rejected at -48) / followed {c,g} = 1/2
         expect(metrics['follow_reject_rate']).to eq 0.5
       end
 
@@ -161,6 +165,55 @@ RSpec.describe Moderation::BehavioralMetricsService do
       expect(metrics['linked_negative_responders']).to eq 1
       expect(metrics['negative_response_rate']).to eq 1.0
       expect(metrics['negative_response_rate']).to be <= 1.0
+    end
+  end
+
+  describe 'rate temporal ordering' do
+    # A rate must count only a rejection that responds to a preceding in-window
+    # contact. An out-of-window contact, or an in-window contact that lands after
+    # the rejection, must not enter any *_rate numerator.
+    let(:p) { Fabricate(:account, username: 'ordering_p') }
+    let(:q) { Fabricate(:account, username: 'ordering_q') }
+    let(:r) { Fabricate(:account, username: 'ordering_r') }
+
+    it 'excludes a rejection whose only in-window contact comes after it (negative/linked rate)' do
+      # follow OUTSIDE window -> reject inside -> mention inside (after the reject)
+      record_interaction(p, :follow, now - 70.minutes, 'o1-i')
+      record_rejection(p, :follow_reject, now - 30.minutes, 'o1-r')
+      record_interaction(p, :mention, now - 20.minutes, 'o1-i2')
+
+      metrics = service.call(actor, now: now).dig('windows', '1h')
+
+      # p is contacted in-window (mention) and, for analysis, still links to the
+      # out-of-window follow — but neither rate counts it.
+      expect(metrics['unique_targets']).to eq 1
+      expect(metrics['linked_negative_responders']).to eq 1
+      expect(metrics['negative_response_rate']).to eq 0.0
+      expect(metrics['linked_negative_rate']).to eq 0.0
+    end
+
+    it 'excludes a follow_reject whose only in-window follow comes after it (follow_reject rate)' do
+      # follow OUTSIDE window -> follow_reject inside -> re-follow inside (after)
+      record_interaction(q, :follow, now - 70.minutes, 'o2-i')
+      record_rejection(q, :follow_reject, now - 30.minutes, 'o2-r')
+      record_interaction(q, :follow, now - 20.minutes, 'o2-i2')
+
+      metrics = service.call(actor, now: now).dig('windows', '1h')
+
+      expect(metrics['follow_rejects_received']).to eq 1
+      expect(metrics['follow_reject_rate']).to eq 0.0
+    end
+
+    it 'includes a rejection that responds to a preceding in-window contact' do
+      # follow inside -> follow_reject inside (after the follow)
+      record_interaction(r, :follow, now - 40.minutes, 'o3-i')
+      record_rejection(r, :follow_reject, now - 20.minutes, 'o3-r')
+
+      metrics = service.call(actor, now: now).dig('windows', '1h')
+
+      expect(metrics['negative_response_rate']).to eq 1.0
+      expect(metrics['linked_negative_rate']).to eq 1.0
+      expect(metrics['follow_reject_rate']).to eq 1.0
     end
   end
 
