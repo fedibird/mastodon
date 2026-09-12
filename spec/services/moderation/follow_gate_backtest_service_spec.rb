@@ -147,4 +147,125 @@ RSpec.describe Moderation::FollowGateBacktestService do
       expect(result['follow_attempts']).to eq 0
     end
   end
+
+  describe 'early stop (stop_after_first)' do
+    # A gate that returns a fixed friction per follow time (keyed by epoch), so
+    # early-stop behaviour is deterministic and call counts are assertable.
+    def gate_by_time(friction_by_epoch)
+      fake = instance_double(Moderation::AdaptiveFollowGateDecisionService)
+      allow(fake).to receive(:call) do |_subject, now:, **|
+        { 'proposed_friction' => friction_by_epoch.fetch(now.to_i, 'allow'), 'policy_version' => 'g', 'params_digest' => 's' }
+      end
+      fake
+    end
+
+    def make_follows(frictions)
+      frictions.each_with_index.each_with_object({}) do |(friction, i), map|
+        at = t0 + i.minutes
+        record_follow(Fabricate(:account, username: "es_#{friction}_#{i}"), at, "es-#{i}")
+        map[at.to_i] = friction
+      end
+    end
+
+    # A: default (nil) is a full replay, backwards-compatible.
+    it 'A: stop_after_first nil evaluates every follow (early_stopped false)' do
+      record_follow(Fabricate(:account, username: 'es_a1'), t0, 'esa-1')
+      record_follow(Fabricate(:account, username: 'es_a2'), t0 + 1.minute, 'esa-2')
+
+      result = described_class.new.call(actor)
+
+      expect(result['evaluations_performed']).to eq 2
+      expect(result['analyzed_follow_events']).to eq 2
+      expect(result['early_stopped']).to be false
+      expect(result['stop_reason']).to be_nil
+    end
+
+    # B: stop at the first delay, after passing allow/rate_limit, without evaluating later attempts.
+    it 'B: stops right after delay is first observed' do
+      friction_by_epoch = make_follows(%w(allow rate_limit rate_limit delay moderator_review))
+      gate = gate_by_time(friction_by_epoch)
+
+      result = described_class.new(gate_service: gate).call(actor, stop_after_first: 'delay')
+
+      expect(result['evaluations_performed']).to eq 4
+      expect(result['analyzed_follow_events']).to eq 4
+      expect(result['first_friction']['delay']['attempt_index']).to eq 4
+      expect(result['friction_counts']).to eq('allow' => 1, 'rate_limit' => 2, 'delay' => 1)
+      expect(result['early_stopped']).to be true
+      expect(result['stop_reason']).to eq 'requested_first_friction_reached'
+      expect(gate).to have_received(:call).exactly(4).times # the 5th attempt is never evaluated
+    end
+
+    # C: stop at the first rate_limit.
+    it 'C: stops at the first rate_limit' do
+      friction_by_epoch = make_follows(%w(allow rate_limit))
+      gate = gate_by_time(friction_by_epoch)
+
+      result = described_class.new(gate_service: gate).call(actor, stop_after_first: 'rate_limit')
+
+      expect(result['evaluations_performed']).to eq 2
+      expect(result['early_stopped']).to be true
+      expect(gate).to have_received(:call).exactly(2).times
+    end
+
+    # D: requested friction never reached, complete history (no truncation).
+    it 'D: never reached with a complete history stays full and untruncated' do
+      6.times { |i| record_follow(Fabricate(:account, username: "es_d#{i}"), t0 + i.minutes, "esd-#{i}") }
+      gate = gate_by_time({}) # always allow
+
+      result = described_class.new(gate_service: gate).call(actor, stop_after_first: 'delay', max_events: 100)
+
+      expect(result['evaluations_performed']).to eq 6
+      expect(result['early_stopped']).to be false
+      expect(result['truncated']).to be false
+    end
+
+    # E: requested friction never reached, cut by max_events -> truncated.
+    it 'E: never reached and capped by max_events is truncated' do
+      5.times { |i| record_follow(Fabricate(:account, username: "es_e#{i}"), t0 + i.minutes, "ese-#{i}") }
+      gate = gate_by_time({}) # always allow
+
+      result = described_class.new(gate_service: gate).call(actor, stop_after_first: 'delay', max_events: 3)
+
+      expect(result['total_follow_events']).to eq 5
+      expect(result['analyzed_follow_events']).to eq 3
+      expect(result['evaluations_performed']).to eq 3
+      expect(result['early_stopped']).to be false
+      expect(result['truncated']).to be true
+    end
+
+    # F: CRITICAL — early stop before the cap on a large subject is NOT truncation.
+    it 'F: early stop before the cap does not mark truncated (right-censoring preserved)' do
+      frictions = %w(allow allow delay allow allow allow allow allow) # delay at attempt 3
+      friction_by_epoch = make_follows(frictions)
+      gate = gate_by_time(friction_by_epoch)
+
+      result = described_class.new(gate_service: gate).call(actor, stop_after_first: 'delay', max_events: 5)
+
+      expect(result['total_follow_events']).to eq 8
+      expect(result['evaluations_performed']).to eq 3
+      expect(result['first_friction']['delay']['attempt_index']).to eq 3
+      expect(result['early_stopped']).to be true
+      expect(result['truncated']).to be false
+    end
+
+    # G: invalid stop_after_first values.
+    it 'G: rejects allow / confirm_target / unknown with ArgumentError' do
+      %w(allow confirm_target bogus).each do |value|
+        expect { described_class.new.call(actor, stop_after_first: value) }.to raise_error(ArgumentError)
+      end
+    end
+
+    # H: no-history subject stays read-only even with a stop requested.
+    it 'H: no-history subject is read-only and returns a zeroed early-stop result' do
+      fresh = Fabricate(:account, username: 'es_fresh')
+
+      result = nil
+      expect { result = described_class.new.call(fresh, stop_after_first: 'delay') }.to_not change(ModerationSubject, :count)
+
+      expect(result['subject_id']).to be_nil
+      expect(result['evaluations_performed']).to eq 0
+      expect(result['early_stopped']).to be false
+    end
+  end
 end
