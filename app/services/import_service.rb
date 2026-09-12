@@ -29,12 +29,16 @@ class ImportService < BaseService
 
   def import_follows!
     parse_import_data!(['Account address'])
-    record_follow_import_batch!
-    import_relationships!('follow', 'unfollow', @account.following.map { |account| { acct: account.acct }}, ROWS_PROCESSING_LIMIT, show_reblogs: { header: 'Show boosts', default: true }, notify: { header: 'Notify on new posts', default: false }, languages: { header: 'Languages', default: nil }, delivery: { header: 'Delivery to home', default: true })
+    batch = record_follow_import_batch!
+    # Propagate the batch id to every follow this import executes so the ledger
+    # can link batch -> actual follow. Recording is failure-tolerant, so batch
+    # may be nil (import still proceeds; import_batch_id just stays NULL).
+    import_relationships!('follow', 'unfollow', @account.following.map { |account| { acct: account.acct }}, ROWS_PROCESSING_LIMIT, import_batch_id: batch&.id, show_reblogs: { header: 'Show boosts', default: true }, notify: { header: 'Notify on new posts', default: false }, languages: { header: 'Languages', default: nil }, delivery: { header: 'Delivery to home', default: true })
   end
 
   # Record the follow-import target set into the moderation ledger before the
   # follows are executed (the whole set is known here after CSV parsing).
+  # Returns the FollowImportBatch (or nil when recording failed).
   def record_follow_import_batch!
     accts = @data.take(ROWS_PROCESSING_LIMIT).filter_map { |row| row['Account address']&.strip.presence }
 
@@ -81,13 +85,18 @@ class ImportService < BaseService
     end
   end
 
-  def import_relationships!(action, undo_action, overwrite_scope, limit, extra_fields = {})
+  # +import_batch_id+ is set only for follow imports (see #import_follows!). When
+  # present it is attached to each executed relationship's worker options so the
+  # downstream service can record it into the moderation ledger. All other
+  # imports pass nil and it never appears in the options.
+  def import_relationships!(action, undo_action, overwrite_scope, limit, import_batch_id: nil, **extra_fields)
     local_domain_suffix = "@#{Rails.configuration.x.local_domain}"
     items = @data.take(limit).each_with_object({}) do |row, mapping|
       key = row['Account address']&.strip&.delete_suffix(local_domain_suffix)
       return if key.blank?
 
       extra = extra_fields.each_with_object({}) {|(key, field_settings), extra| extra[key] = row[field_settings[:header]]&.strip || field_settings[:default] }
+      extra[:import_batch_id] = import_batch_id if import_batch_id
 
       if extra[:lists].nil?
         extra.delete(:lists)

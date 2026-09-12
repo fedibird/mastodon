@@ -57,7 +57,11 @@ class FollowService < BaseService
         target: @target_account,
         event_type: :follow,
         source_record: follow,
-        source_event_key: follow_source_event_key(follow)
+        source_event_key: follow_source_event_key(follow),
+        # Only set for follows executed by a follow import; the import passes the
+        # FollowImportBatch id explicitly through :import_batch_id. Normal UI /
+        # API / ActivityPub follows leave it nil, so the ledger column stays NULL.
+        import_batch_id: @options[:import_batch_id]
       )
     end
 
