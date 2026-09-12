@@ -45,6 +45,7 @@ RSpec.describe Moderation::BehavioralMetricsService do
         expect(metrics['contacts_total']).to eq 4
         expect(metrics['unique_targets']).to eq 4
         expect(metrics['follows']).to eq 3
+        expect(metrics['unique_follow_targets']).to eq 3
         expect(metrics['interactions_by_type']).to include('follow' => 3, 'mention' => 1)
       end
 
