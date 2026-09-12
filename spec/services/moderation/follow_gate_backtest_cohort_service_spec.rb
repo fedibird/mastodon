@@ -4,12 +4,13 @@ require 'rails_helper'
 
 RSpec.describe Moderation::FollowGateBacktestCohortService do
   # A per-subject backtest result, keyed by subject id via an injected backtest.
-  def backtest_result(follow_attempts:, first_friction: {})
+  def backtest_result(follow_attempts:, first_friction: {}, truncated: false, gate_policy_version: 'gate-test', gate_params_digest: 'sha256:test')
     {
       'follow_attempts'     => follow_attempts,
       'first_friction'      => first_friction,
-      'gate_policy_version' => 'gate-test',
-      'gate_params_digest'  => 'sha256:test',
+      'truncated'           => truncated,
+      'gate_policy_version' => gate_policy_version,
+      'gate_params_digest'  => gate_params_digest,
     }
   end
 
@@ -39,9 +40,11 @@ RSpec.describe Moderation::FollowGateBacktestCohortService do
       expect(result['gate_policy_version']).to eq 'gate-test'
     end
 
-    it 'reports reach counts and rates per friction (denominator = subjects with follows)' do
+    it 'reports reach counts and rates per friction (denominator = eligible subjects)' do
       delay = result['frictions']['delay']
       expect(delay['subjects_reached']).to eq 2
+      expect(delay['subjects_eligible']).to eq 3
+      expect(delay['subjects_censored']).to eq 0
       expect(delay['reach_rate']).to be_within(1e-9).of(2.0 / 3)
 
       review = result['frictions']['moderator_review']
@@ -50,6 +53,11 @@ RSpec.describe Moderation::FollowGateBacktestCohortService do
 
       expect(result['frictions']['rate_limit']['subjects_reached']).to eq 0
       expect(result['frictions']['rate_limit']['reach_rate']).to eq 0.0
+    end
+
+    it 'does not report the unsupported confirm_target as a friction tier' do
+      expect(result['frictions']).to_not have_key('confirm_target')
+      expect(result['unsupported_frictions']).to have_key('confirm_target')
     end
 
     it 'summarizes first-friction attempt index and timing distributions' do
@@ -69,6 +77,48 @@ RSpec.describe Moderation::FollowGateBacktestCohortService do
       expect(result['subject_count']).to eq 2
       expect(result['subjects_with_follows']).to eq 1
       expect(result['frictions']['rate_limit']['reach_rate']).to eq 1.0
+    end
+  end
+
+  describe 'right-censoring of truncated backtests' do
+    # A: complete run, delay not reached  -> eligible, definitive non-reach
+    # B: truncated run, delay not reached  -> censored, excluded from denominator
+    # C: truncated run, delay reached       -> reached + eligible
+    subject(:delay) do
+      cohort(
+        1 => backtest_result(follow_attempts: 50, truncated: false, first_friction: {}),
+        2 => backtest_result(follow_attempts: 2000, truncated: true, first_friction: {}),
+        3 => backtest_result(follow_attempts: 2000, truncated: true, first_friction: { 'delay' => friction_at(120, 40.0) })
+      )['frictions']['delay']
+    end
+
+    it 'excludes the truncated non-reacher and keeps reached/complete as eligible' do
+      expect(delay['subjects_reached']).to eq 1   # C
+      expect(delay['subjects_eligible']).to eq 2  # A + C
+      expect(delay['subjects_censored']).to eq 1  # B
+      expect(delay['reach_rate']).to be_within(1e-9).of(1.0 / 2)
+    end
+  end
+
+  describe 'policy consistency' do
+    it 'flags a mixed policy across the cohort' do
+      result = cohort(
+        1 => backtest_result(follow_attempts: 10, gate_policy_version: 'gate-A', gate_params_digest: 'sha256:a'),
+        2 => backtest_result(follow_attempts: 10, gate_policy_version: 'gate-B', gate_params_digest: 'sha256:b')
+      )
+
+      expect(result['mixed_policy']).to be true
+      expect(result['gate_policy_version']).to eq 'mixed'
+    end
+
+    it 'reports the single policy when consistent' do
+      result = cohort(
+        1 => backtest_result(follow_attempts: 10),
+        2 => backtest_result(follow_attempts: 10)
+      )
+
+      expect(result['mixed_policy']).to be false
+      expect(result['gate_policy_version']).to eq 'gate-test'
     end
   end
 
