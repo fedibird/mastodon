@@ -258,15 +258,25 @@ ja:
       lifetime: 全期間
       metric: メトリクス
       hint: 観測された行動を時間ウィンドウごとに集計した閲覧専用の分析です。ここでスコア付け・しきい値・エンフォースメントは行いません。
-      association_disclaimer: リンクされた反応は、期間内の先行接触による強い時間的関連であり、その接触が拒否の原因であることの証明ではありません。
+      association_disclaimer: リンクされた否定的反応者は、記録された先行接触との強い時間的関連を表します（先行接触は表示ウィンドウの外にある場合があります）。リンク否定率は、先行接触が表示ウィンドウ内にある反応者のみを数えます。いずれも、その接触が拒否の原因であることの証明ではありません。
       no_follow_import: この対象の Follow Import バッチは記録されていません。
       sections:
         contact: 接触量と広がり
+        interaction_types: 種別ごとのインタラクション内訳
         rejections: 受けた拒否
         responders: 否定的反応者
         rates: 反応率
         continuation: 最初の否定シグナル以降の継続
         follow_import: Follow Import コンテキスト
+      interaction_types:
+        follow: フォロー
+        mention: メンション
+        reply: リプライ
+        quote: 引用
+        reference: 参照
+        reaction: リアクション
+        favourite: お気に入り
+        follow_import: Follow Import 接触
       metrics:
         contacts_total: 接触数
         unique_targets: ユニーク対象数
@@ -295,6 +305,11 @@ ja:
         prior_relationship_known_targets: 既知関係の対象数
         latest_import_at: 最新インポート日時
         min_account_age_seconds_at_import: インポート時の最小アカウント年齢（秒）
+        migration_evidence: 移行の根拠
+        migration_evidence_values:
+          none: なし
+          weak: 弱
+          strong: 強
     moderation_evidence_snapshots:
       title: モデレーション証跡
       show_title: "証跡スナップショット #%{id}"

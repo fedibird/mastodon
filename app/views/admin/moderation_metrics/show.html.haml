@@ -40,6 +40,14 @@
             %td= t("admin.moderation_metrics.metrics.#{label_key}")
             - columns.each do |_label, data|
               %td= format_moderation_metric(data[metric_key], kind)
+        - if section == 'contact'
+          %tr
+            %th{ colspan: columns.size + 1 }= t('admin.moderation_metrics.sections.interaction_types')
+          - Moderation::BehavioralMetricsService::INTERACTION_TYPES.each do |type|
+            %tr
+              %td= t("admin.moderation_metrics.interaction_types.#{type}")
+              - columns.each do |_label, data|
+                %td= number_with_delimiter((data['interactions_by_type'] || {})[type].to_i)
 
 %h3= t('admin.moderation_metrics.sections.follow_import')
 - if import_context['batch_count'].to_i.zero?
@@ -72,3 +80,8 @@
         %tr
           %th= t('admin.moderation_metrics.import.min_account_age_seconds_at_import')
           %td= import_context['min_account_age_seconds_at_import'].present? ? number_with_delimiter(import_context['min_account_age_seconds_at_import']) : '—'
+        %tr
+          %th= t('admin.moderation_metrics.import.migration_evidence')
+          %td
+            - evidence = import_context['migration_evidence'] || {}
+            = safe_join(%w(none weak strong).map { |key| "#{t("admin.moderation_metrics.import.migration_evidence_values.#{key}")}: #{number_with_delimiter(evidence[key].to_i)}" }, ', ')

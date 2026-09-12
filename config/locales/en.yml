@@ -269,15 +269,25 @@ en:
       lifetime: Lifetime
       metric: Metric
       hint: Read-only analysis of observed behaviour over time windows. No scoring, thresholds, or enforcement is applied here.
-      association_disclaimer: A linked response is a strong temporal association (a preceding contact within the window), not proof that the contact caused the rejection.
+      association_disclaimer: A linked negative responder reflects a strong temporal association with the recorded preceding contact (which may fall outside the displayed window). The linked negative rate counts only responders whose preceding contact is within the displayed window. Neither is proof that the contact caused the rejection.
       no_follow_import: No follow-import batches recorded for this subject.
       sections:
         contact: Contact volume and spread
+        interaction_types: Interaction breakdown by type
         rejections: Rejections received
         responders: Negative responders
         rates: Response rates
         continuation: Continuation after first negative signal
         follow_import: Follow-import context
+      interaction_types:
+        follow: Follows
+        mention: Mentions
+        reply: Replies
+        quote: Quotes
+        reference: References
+        reaction: Reactions
+        favourite: Favourites
+        follow_import: Follow-import contacts
       metrics:
         contacts_total: Contacts
         unique_targets: Unique targets
@@ -306,6 +316,11 @@ en:
         prior_relationship_known_targets: Prior-known relationship targets
         latest_import_at: Latest import at
         min_account_age_seconds_at_import: Min account age at import (seconds)
+        migration_evidence: Migration evidence
+        migration_evidence_values:
+          none: none
+          weak: weak
+          strong: strong
     moderation_evidence_snapshots:
       title: Moderation evidence
       show_title: "Evidence snapshot #%{id}"
