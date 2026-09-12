@@ -63,6 +63,15 @@ class FollowService < BaseService
         # API / ActivityPub follows leave it nil, so the ledger column stays NULL.
         import_batch_id: @options[:import_batch_id]
       )
+
+      # Shadow observation only (off by default, failure-tolerant, async): records
+      # what friction the adaptive follow gate WOULD propose. It never alters this
+      # follow.
+      Moderation::FollowGateShadowObserver.observe(
+        source_account: @source_account,
+        target_account: @target_account,
+        mechanism: shadow_follow_mechanism
+      )
     end
 
     follow
@@ -80,6 +89,15 @@ class FollowService < BaseService
   def follow_source_event_key(follow)
     uri = follow.try(:uri)
     "activitypub_outbound_follow:#{uri}" if uri.present?
+  end
+
+  # Behaviour-neutral attempt mechanism for the shadow follow-gate observation
+  # (echoed, never used to raise risk). Derived from existing options.
+  def shadow_follow_mechanism
+    return 'follow_import' if @options[:import_batch_id].present?
+    return 'migration' if @options[:tracking_moved_account]
+
+    nil
   end
 
   def mark_home_feed_as_partial!
