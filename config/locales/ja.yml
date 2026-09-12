@@ -251,6 +251,65 @@ ja:
       warn: 警告
       web: Web
       whitelisted: 連合許可済み
+    moderation_metrics:
+      title: 行動メトリクス
+      subject: 対象
+      generated_at: 生成日時
+      lifetime: 全期間
+      metric: メトリクス
+      hint: 観測された行動を時間ウィンドウごとに集計した閲覧専用の分析です。ここでスコア付け・しきい値・エンフォースメントは行いません。
+      association_disclaimer: リンクされた否定的反応者は、記録された先行接触との強い時間的関連を表します（先行接触は表示ウィンドウの外にある場合があります）。リンク否定率は、先行接触が表示ウィンドウ内にある反応者のみを数えます。いずれも、その接触が拒否の原因であることの証明ではありません。
+      no_follow_import: この対象の Follow Import バッチは記録されていません。
+      sections:
+        contact: 接触量と広がり
+        interaction_types: 種別ごとのインタラクション内訳
+        rejections: 受けた拒否
+        responders: 否定的反応者
+        rates: 反応率
+        continuation: 最初の否定シグナル以降の継続
+        follow_import: Follow Import コンテキスト
+      interaction_types:
+        follow: フォロー
+        mention: メンション
+        reply: リプライ
+        quote: 引用
+        reference: 参照
+        reaction: リアクション
+        favourite: お気に入り
+        follow_import: Follow Import 接触
+      metrics:
+        contacts_total: 接触数
+        unique_targets: ユニーク対象数
+        follows: フォロー数
+        rejections_received_total: 受けた拒否数
+        blocks_received: 受けたブロック数
+        follow_rejects_received: 受けたフォロー拒否数
+        remove_follower_received: フォロワー解除数
+        reports_received: 受けた通報数
+        mutes_received: 受けたミュート数
+        unique_negative_responders: ユニーク否定的反応者数
+        linked_negative_responders: リンクされた否定的反応者数
+        correlated_negative_responders: 相関する否定的反応者数
+        negative_response_rate: 否定的反応率
+        linked_negative_rate: リンク否定率
+        follow_reject_rate: フォロー拒否率
+        first_negative_signal_at: 最初の否定シグナル日時
+        new_targets_after_first_negative_signal: 否定シグナル後の新規対象数
+        follows_after_first_negative_signal: 否定シグナル後のフォロー数
+      import:
+        batch_count: バッチ数
+        target_total: 対象総数
+        resolved_target_total: 解決済み対象数
+        unresolved_target_total: 未解決対象数
+        unresolved_target_ratio: 未解決対象比率
+        prior_relationship_known_targets: 既知関係の対象数
+        latest_import_at: 最新インポート日時
+        min_account_age_seconds_at_import: インポート時の最小アカウント年齢（秒）
+        migration_evidence: 移行の根拠
+        migration_evidence_values:
+          none: なし
+          weak: 弱
+          strong: 強
     moderation_evidence_snapshots:
       title: モデレーション証跡
       show_title: "証跡スナップショット #%{id}"

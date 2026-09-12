@@ -1,0 +1,87 @@
+- content_for :page_title do
+  = t('admin.moderation_metrics.title')
+
+- columns = moderation_metric_columns(@metrics)
+- import_context = @metrics['follow_import_context'] || {}
+
+.dashboard__counters
+  %div
+    = link_to admin_moderation_evidence_snapshots_path(subject_id: @subject.id) do
+      %div
+        %span.dashboard__counters__num= moderation_subject_label(@subject)
+        %span.dashboard__counters__label= t('admin.moderation_metrics.subject')
+  %div
+    %div
+      %span.dashboard__counters__num= moderation_subject_origin_badge(@subject)
+      %span.dashboard__counters__label= t('admin.moderation_evidence_snapshots.columns.origin')
+  %div
+    %div
+      %span.dashboard__counters__num= l(Time.iso8601(@metrics['generated_at']))
+      %span.dashboard__counters__label= t('admin.moderation_metrics.generated_at')
+
+%hr.spacer/
+
+%p.muted-hint= t('admin.moderation_metrics.hint')
+%p.muted-hint= t('admin.moderation_metrics.association_disclaimer')
+
+.table-wrapper
+  %table.table
+    %thead
+      %tr
+        %th= t('admin.moderation_metrics.metric')
+        - columns.each do |label, _data|
+          %th= label
+    %tbody
+      - Admin::ModerationMetricsHelper::METRIC_ROWS.each do |section, rows|
+        %tr
+          %th{ colspan: columns.size + 1 }= t("admin.moderation_metrics.sections.#{section}")
+        - rows.each do |label_key, metric_key, kind|
+          %tr
+            %td= t("admin.moderation_metrics.metrics.#{label_key}")
+            - columns.each do |_label, data|
+              %td= format_moderation_metric(data[metric_key], kind)
+        - if section == 'contact'
+          %tr
+            %th{ colspan: columns.size + 1 }= t('admin.moderation_metrics.sections.interaction_types')
+          - Moderation::BehavioralMetricsService::INTERACTION_TYPES.each do |type|
+            %tr
+              %td= t("admin.moderation_metrics.interaction_types.#{type}")
+              - columns.each do |_label, data|
+                %td= number_with_delimiter((data['interactions_by_type'] || {})[type].to_i)
+
+%h3= t('admin.moderation_metrics.sections.follow_import')
+- if import_context['batch_count'].to_i.zero?
+  %p.muted-hint= t('admin.moderation_metrics.no_follow_import')
+- else
+  .table-wrapper
+    %table.table
+      %tbody
+        %tr
+          %th= t('admin.moderation_metrics.import.batch_count')
+          %td= number_with_delimiter(import_context['batch_count'].to_i)
+        %tr
+          %th= t('admin.moderation_metrics.import.target_total')
+          %td= number_with_delimiter(import_context['target_total'].to_i)
+        %tr
+          %th= t('admin.moderation_metrics.import.resolved_target_total')
+          %td= number_with_delimiter(import_context['resolved_target_total'].to_i)
+        %tr
+          %th= t('admin.moderation_metrics.import.unresolved_target_total')
+          %td= number_with_delimiter(import_context['unresolved_target_total'].to_i)
+        %tr
+          %th= t('admin.moderation_metrics.import.unresolved_target_ratio')
+          %td= number_to_percentage(import_context['unresolved_target_ratio'].to_f * 100, precision: 1)
+        %tr
+          %th= t('admin.moderation_metrics.import.prior_relationship_known_targets')
+          %td= number_with_delimiter(import_context['prior_relationship_known_targets'].to_i)
+        %tr
+          %th= t('admin.moderation_metrics.import.latest_import_at')
+          %td= import_context['latest_import_at'].present? ? l(Time.iso8601(import_context['latest_import_at'])) : '—'
+        %tr
+          %th= t('admin.moderation_metrics.import.min_account_age_seconds_at_import')
+          %td= import_context['min_account_age_seconds_at_import'].present? ? number_with_delimiter(import_context['min_account_age_seconds_at_import']) : '—'
+        %tr
+          %th= t('admin.moderation_metrics.import.migration_evidence')
+          %td
+            - evidence = import_context['migration_evidence'] || {}
+            = safe_join(%w(none weak strong).map { |key| "#{t("admin.moderation_metrics.import.migration_evidence_values.#{key}")}: #{number_with_delimiter(evidence[key].to_i)}" }, ', ')

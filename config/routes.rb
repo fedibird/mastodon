@@ -254,6 +254,7 @@ Rails.application.routes.draw do
     resources :email_domain_blocks, only: [:index, :new, :create, :destroy]
     resources :action_logs, only: [:index]
     resources :moderation_evidence_snapshots, only: [:index, :show], path: 'moderation_evidence'
+    resources :moderation_metrics, only: [:show], path: 'moderation_metrics'
     resources :warning_presets, except: [:new]
 
     resources :announcements, except: [:show] do
