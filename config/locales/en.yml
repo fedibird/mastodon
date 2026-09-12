@@ -262,6 +262,50 @@ en:
       warn: Warn
       web: Web
       whitelisted: Allowed for federation
+    moderation_metrics:
+      title: Behavioral metrics
+      subject: Subject
+      generated_at: Generated at
+      lifetime: Lifetime
+      metric: Metric
+      hint: Read-only analysis of observed behaviour over time windows. No scoring, thresholds, or enforcement is applied here.
+      association_disclaimer: A linked response is a strong temporal association (a preceding contact within the window), not proof that the contact caused the rejection.
+      no_follow_import: No follow-import batches recorded for this subject.
+      sections:
+        contact: Contact volume and spread
+        rejections: Rejections received
+        responders: Negative responders
+        rates: Response rates
+        continuation: Continuation after first negative signal
+        follow_import: Follow-import context
+      metrics:
+        contacts_total: Contacts
+        unique_targets: Unique targets
+        follows: Follows
+        rejections_received_total: Rejections received
+        blocks_received: Blocks received
+        follow_rejects_received: Follow rejects received
+        remove_follower_received: Removed as follower
+        reports_received: Reports received
+        mutes_received: Mutes received
+        unique_negative_responders: Unique negative responders
+        linked_negative_responders: Linked negative responders
+        correlated_negative_responders: Correlated negative responders
+        negative_response_rate: Negative response rate
+        linked_negative_rate: Linked negative rate
+        follow_reject_rate: Follow reject rate
+        first_negative_signal_at: First negative signal at
+        new_targets_after_first_negative_signal: New targets after first negative signal
+        follows_after_first_negative_signal: Follows after first negative signal
+      import:
+        batch_count: Batches
+        target_total: Total targets
+        resolved_target_total: Resolved targets
+        unresolved_target_total: Unresolved targets
+        unresolved_target_ratio: Unresolved target ratio
+        prior_relationship_known_targets: Prior-known relationship targets
+        latest_import_at: Latest import at
+        min_account_age_seconds_at_import: Min account age at import (seconds)
     moderation_evidence_snapshots:
       title: Moderation evidence
       show_title: "Evidence snapshot #%{id}"
