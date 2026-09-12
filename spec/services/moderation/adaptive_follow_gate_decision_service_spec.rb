@@ -47,12 +47,28 @@ RSpec.describe Moderation::AdaptiveFollowGateDecisionService do
       expect(result['matched_rules']).to include(a_hash_including('friction' => 'rate_limit', 'rule' => 'elevated_contact_volume'))
     end
 
-    it 'proposes confirm_target for a local target with multiple independent rejectors' do
-      result = decide(evaluation(rejection: 0.5), context: { 'target_locality' => 'local' })
+    it 'proposes confirm_target for a local UNLOCKED target with multiple independent rejectors' do
+      result = decide(evaluation(rejection: 0.5), context: { 'target_locality' => 'local', 'target_locked' => false })
       expect(result['proposed_friction']).to eq 'confirm_target'
       expect(result['matched_rules']).to include(
-        a_hash_including('rule' => 'elevated_rejection_local_target', 'conditions' => a_hash_including('rejection' => { 'value' => 0.5, 'minimum' => 0.5 }))
+        a_hash_including('rule' => 'elevated_rejection_local_unlocked_target', 'conditions' => a_hash_including('rejection' => { 'value' => 0.5, 'minimum' => 0.5 }))
       )
+    end
+
+    it 'does NOT propose confirm_target for a locked local target (already approval-gated)' do
+      result = decide(evaluation(rejection: 0.5), context: { 'target_locality' => 'local', 'target_locked' => true })
+      expect(result['proposed_friction']).to eq 'allow'
+      expect(result['matched_rules'].map { |r| r['rule'] }).to_not include('elevated_rejection_local_unlocked_target')
+    end
+
+    it 'does NOT propose confirm_target when locked state is unknown (nil)' do
+      result = decide(evaluation(rejection: 0.5), context: { 'target_locality' => 'local' })
+      expect(result['matched_rules'].map { |r| r['rule'] }).to_not include('elevated_rejection_local_unlocked_target')
+    end
+
+    it 'still applies other frictions to a locked local target (e.g. delay on high velocity)' do
+      result = decide(evaluation(velocity: 0.6), context: { 'target_locality' => 'local', 'target_locked' => true })
+      expect(result['proposed_friction']).to eq 'delay'
     end
 
     it 'proposes delay for a remote target with elevated rejection' do

@@ -39,7 +39,8 @@ module Moderation
       'moderator_review' => { 'rejection_min' => 0.8, 'repeat_behavior_min' => 0.6 },
       # Slow the attempt down so rejection feedback can arrive before more follows.
       'delay' => { 'velocity_min' => 0.6, 'remote_or_unknown_rejection_min' => 0.5 },
-      # Local recipient can confirm; only meaningful for a local target.
+      # Local UNLOCKED recipient can confirm; only meaningful for a target that
+      # would otherwise be followed immediately (locked targets already confirm).
       'confirm_target' => { 'local_rejection_min' => 0.5 },
       # Lightest friction for elevated volume/velocity.
       'rate_limit' => { 'contact_volume_min' => 0.5, 'velocity_min' => 0.5 },
@@ -116,11 +117,17 @@ module Moderation
                       'target_locality' => locality)
       end
 
+      # confirm_target only adds friction to a follow that would otherwise be
+      # immediate: a LOCAL, UNLOCKED target. A locked local target already goes
+      # through follow-request approval, so proposing confirmation there is
+      # redundant (and would inflate shadow counts). Unknown locked state (nil)
+      # is treated as not-applicable, so it does not fire either.
       confirm = @params['confirm_target']
-      if locality == 'local' && scores['rejection'].to_f >= confirm['local_rejection_min']
-        rules << rule('confirm_target', 'elevated_rejection_local_target',
+      if locality == 'local' && context['target_locked'] == false && scores['rejection'].to_f >= confirm['local_rejection_min']
+        rules << rule('confirm_target', 'elevated_rejection_local_unlocked_target',
                       'rejection' => condition(scores['rejection'], confirm['local_rejection_min']),
-                      'target_locality' => 'local')
+                      'target_locality' => 'local',
+                      'target_locked' => false)
       end
 
       rate = @params['rate_limit']
