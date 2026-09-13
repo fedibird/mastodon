@@ -1,0 +1,81 @@
+# frozen_string_literal: true
+
+require 'rails_helper'
+
+RSpec.describe FollowImport::ProgressService do
+  subject(:service) { described_class.new }
+
+  let(:batch) do
+    FollowImportBatch.create!(subject: Fabricate(:moderation_subject), imported_at: Time.now.utc, mode: :merge,
+                              target_count: 0, resolved_target_count: 0, unresolved_target_count: 0)
+  end
+
+  def target_in(state, position)
+    batch.targets.create!(target_subject: Fabricate(:moderation_subject), position: position, state: state)
+  end
+
+  describe 'aggregating states' do
+    before do
+      target_in(:pending, 0)
+      target_in(:awaiting_response, 1)
+      target_in(:accepted, 2)
+      target_in(:rejected, 3)
+      target_in(:completed_no_response, 4)
+      target_in(:delivery_failed, 5)
+    end
+
+    it 'counts each state and derives processed / remaining' do
+      result = service.call(batch)
+
+      expect(result['batch_id']).to eq batch.id
+      expect(result['total']).to eq 6
+      expect(result['pending']).to eq 1
+      expect(result['awaiting_response']).to eq 1
+      expect(result['accepted']).to eq 1
+      expect(result['rejected']).to eq 1
+      expect(result['completed_no_response']).to eq 1
+      expect(result['delivery_failed']).to eq 1
+      # terminal = accepted + rejected + completed_no_response + delivery_failed
+      expect(result['processed']).to eq 4
+      expect(result['remaining']).to eq 2
+      expect(result['completed']).to be false
+    end
+  end
+
+  describe 'completion' do
+    it 'is completed only when every target is terminal' do
+      target_in(:accepted, 0)
+      target_in(:rejected, 1)
+      target_in(:delivery_failed, 2)
+
+      result = service.call(batch)
+      expect(result['total']).to eq 3
+      expect(result['processed']).to eq 3
+      expect(result['remaining']).to eq 0
+      expect(result['completed']).to be true
+    end
+
+    it 'is not completed while a non-terminal target remains' do
+      target_in(:accepted, 0)
+      target_in(:awaiting_response, 1)
+
+      expect(service.call(batch)['completed']).to be false
+    end
+  end
+
+  describe 'empty batch' do
+    it 'reports zeros and completed false (nothing to complete)' do
+      result = service.call(batch)
+
+      expect(result['total']).to eq 0
+      expect(result['processed']).to eq 0
+      expect(result['remaining']).to eq 0
+      expect(result['completed']).to be false
+    end
+  end
+
+  it 'accepts a batch id as well as a batch record' do
+    target_in(:accepted, 0)
+    expect(service.call(batch.id)['accepted']).to eq 1
+  end
+end
