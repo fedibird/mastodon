@@ -22,29 +22,49 @@
 # local/unlocked state) is not modeled here; the backtest measures the
 # subject-level, behaviour-driven frictions (rate_limit / delay / moderator_review),
 # which is the calibration question of interest.
+#
+# Calibration early-stop (+stop_after_first+): when you only need the first
+# firing point of a specific friction, the replay can stop right after that
+# friction is first observed, skipping the remaining full evaluations. This does
+# NOT change the evaluation semantics — attempts are still evaluated strictly in
+# occurred_at order, one at a time, with now = each attempt's occurred_at (no
+# sampling, no binary search, no future leakage). It only avoids unnecessary work
+# after the requested answer is found; worst case (friction never reached) costs
+# the same as a full replay. Every field up to the stopping attempt is identical
+# to a full replay's.
 module Moderation
   class FollowGateBacktestService
     DEFAULT_MAX_EVENTS = 2_000
+
+    # Frictions whose first firing point can be requested for early stop. Matches
+    # the backtest-measurable tiers (confirm_target is not modeled here).
+    STOPPABLE_FRICTIONS = %w(rate_limit delay moderator_review).freeze
 
     def initialize(gate_service: Moderation::AdaptiveFollowGateDecisionService.new)
       @gate_service = gate_service
     end
 
-    def call(subject_or_account, max_events: DEFAULT_MAX_EVENTS)
+    def call(subject_or_account, max_events: DEFAULT_MAX_EVENTS, stop_after_first: nil)
+      validate_stop_after_first!(stop_after_first)
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
       subject = resolve_subject(subject_or_account)
-      return empty_result(subject, max_events) if subject.nil?
+      return empty_result(subject, max_events, stop_after_first, started) if subject.nil?
 
       total_follows = follow_events_count(subject)
       follows       = follow_events(subject, max_events)
-      return empty_result(subject, max_events) if follows.empty?
+      return empty_result(subject, max_events, stop_after_first, started) if follows.empty?
 
       locality_by_subject_id = target_locality_map(follows)
 
-      first_follow_at = follows.first.occurred_at
-      friction_counts = Hash.new(0)
-      first_friction  = {}
-      policy_version  = nil
-      params_digest   = nil
+      first_follow_at       = follows.first.occurred_at
+      friction_counts       = Hash.new(0)
+      first_friction        = {}
+      policy_version        = nil
+      params_digest         = nil
+      evaluations_performed = 0
+      last_evaluated_at     = nil
+      early_stopped         = false
 
       follows.each_with_index do |event, offset|
         # Reconstruct the target's locality so the gate's locality-based routing
@@ -53,41 +73,72 @@ module Moderation
         # remains out of scope.
         context  = { 'target_locality' => locality_by_subject_id[event.target_subject_id] }
         decision = @gate_service.call(subject, context: context, now: event.occurred_at)
+        evaluations_performed += 1
+        last_evaluated_at      = event.occurred_at
         policy_version ||= decision['policy_version']
         params_digest  ||= decision['params_digest']
 
         friction = decision['proposed_friction']
         friction_counts[friction] += 1
 
-        next if friction == 'allow' || first_friction.key?(friction)
+        unless friction == 'allow' || first_friction.key?(friction)
+          first_friction[friction] = {
+            'attempt_index'            => offset + 1,
+            'occurred_at'              => event.occurred_at.utc.iso8601,
+            'minutes_from_first_follow' => ((event.occurred_at - first_follow_at) / 60.0).round(2),
+          }
+        end
 
-        first_friction[friction] = {
-          'attempt_index'            => offset + 1,
-          'occurred_at'              => event.occurred_at.utc.iso8601,
-          'minutes_from_first_follow' => ((event.occurred_at - first_follow_at) / 60.0).round(2),
-        }
+        # Early stop only once the REQUESTED friction is first observed at this
+        # attempt (this attempt is already fully counted above). We never infer
+        # an unobserved friction from a stronger one that fired.
+        if stop_after_first && friction == stop_after_first
+          early_stopped = true
+          break
+        end
       end
+
+      # truncated means the max_events cap cut the observation short. An early stop
+      # is NOT truncation: the requested friction was found, so the answer is
+      # definitive (do not right-censor it) even if the full history exceeds the cap.
+      truncated = !early_stopped && (total_follows > evaluations_performed)
 
       {
         'subject_id'             => subject.id,
         'generated_at'           => Time.now.utc.iso8601,
         'gate_policy_version'    => policy_version,
         'gate_params_digest'     => params_digest,
-        # Only the analyzed (possibly truncated) window is summarized below; do not
-        # read these as the whole campaign when truncated is true.
+        # Only the analyzed window is summarized below (up to the early-stop
+        # attempt when early_stopped, otherwise the fetched/possibly-truncated
+        # window); friction_counts count only that evaluated range.
         'total_follow_events'    => total_follows,
-        'analyzed_follow_events' => follows.size,
+        'analyzed_follow_events' => evaluations_performed,
         'max_events'             => max_events,
-        'truncated'              => total_follows > follows.size,
-        'follow_attempts'        => follows.size,
+        'truncated'              => truncated,
+        'follow_attempts'        => evaluations_performed,
         'first_follow_at'        => first_follow_at.utc.iso8601,
-        'last_follow_at'         => follows.last.occurred_at.utc.iso8601,
+        'last_follow_at'         => last_evaluated_at.utc.iso8601,
         'friction_counts'        => friction_counts,
         'first_friction'         => first_friction,
+        'stop_after_first'       => stop_after_first,
+        'early_stopped'          => early_stopped,
+        'stop_reason'            => early_stopped ? 'requested_first_friction_reached' : nil,
+        'evaluations_performed'  => evaluations_performed,
+        'elapsed_seconds'        => elapsed_since(started),
       }
     end
 
     private
+
+    def validate_stop_after_first!(value)
+      return if value.nil? || STOPPABLE_FRICTIONS.include?(value)
+
+      raise ArgumentError, "stop_after_first must be nil or one of #{STOPPABLE_FRICTIONS.join(', ')} (got #{value.inspect})"
+    end
+
+    def elapsed_since(started)
+      (Process.clock_gettime(Process::CLOCK_MONOTONIC) - started).round(6)
+    end
 
     def resolve_subject(subject_or_account)
       return subject_or_account if subject_or_account.is_a?(ModerationSubject)
@@ -122,7 +173,7 @@ module Moderation
       end
     end
 
-    def empty_result(subject, max_events)
+    def empty_result(subject, max_events, stop_after_first, started)
       {
         'subject_id'             => subject&.id,
         'generated_at'           => Time.now.utc.iso8601,
@@ -137,6 +188,11 @@ module Moderation
         'last_follow_at'         => nil,
         'friction_counts'        => {},
         'first_friction'         => {},
+        'stop_after_first'       => stop_after_first,
+        'early_stopped'          => false,
+        'stop_reason'            => nil,
+        'evaluations_performed'  => 0,
+        'elapsed_seconds'        => elapsed_since(started),
       }
     end
   end
