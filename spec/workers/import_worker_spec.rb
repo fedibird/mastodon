@@ -25,12 +25,15 @@ describe ImportWorker do
       expect(Import.exists?(import.id)).to be true
     end
 
-    it 'drops the import when the processor could not even be enqueued' do
+    it 'retains the import on an ambiguous processor-enqueue failure (never destroys it)' do
+      # The enqueue is ambiguous — Redis may have accepted the job before the client
+      # saw the error — so the import must NOT be destroyed; a genuine orphan is
+      # reclaimed by the bounded CSV watchdog instead.
       allow(FollowImport::ProcessImportWorker).to receive(:perform_async).and_raise(StandardError, 'enqueue unavailable')
 
-      expect { worker.perform(import.id) }.not_to raise_error
+      expect { worker.perform(import.id) }.to raise_error(StandardError)
 
-      expect(Import.exists?(import.id)).to be false
+      expect(Import.exists?(import.id)).to be true
     end
   end
 

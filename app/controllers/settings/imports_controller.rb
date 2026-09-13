@@ -12,7 +12,7 @@ class Settings::ImportsController < Settings::BaseController
     @import.account = @account
 
     if @import.save
-      ImportWorker.perform_async(@import.id)
+      enqueue_import!(@import)
       redirect_to settings_import_path, notice: I18n.t('imports.success')
     else
       render :show
@@ -20,6 +20,17 @@ class Settings::ImportsController < Settings::BaseController
   end
 
   private
+
+  # Route follow imports straight to their retryable processor (no extra async
+  # handoff hop, and nothing destroys the import on an ambiguous enqueue failure);
+  # every other import type keeps the plain, retry: false ImportWorker path.
+  def enqueue_import!(import)
+    if import.following?
+      FollowImport::ProcessImportWorker.perform_async(import.id)
+    else
+      ImportWorker.perform_async(import.id)
+    end
+  end
 
   def set_account
     @account = current_user.account

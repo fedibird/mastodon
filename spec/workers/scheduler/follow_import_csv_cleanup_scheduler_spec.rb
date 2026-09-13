@@ -64,4 +64,47 @@ RSpec.describe Scheduler::FollowImportCsvCleanupScheduler do
 
     expect { worker.perform }.not_to raise_error
   end
+
+  describe 'orphaned follow imports (handoff enqueue lost)' do
+    def orphan_import(created_at:)
+      import = import_for(account)
+      import.update_column(:created_at, created_at)
+      import
+    end
+
+    it 'drops a follow import that still has no batch after the grace window' do
+      import = orphan_import(created_at: 7.hours.ago)
+
+      worker.perform
+
+      expect(Import.exists?(import.id)).to be false
+    end
+
+    it 'leaves a recent follow import with no batch alone (its processor may still run)' do
+      import = orphan_import(created_at: 10.minutes.ago)
+
+      worker.perform
+
+      expect(Import.exists?(import.id)).to be true
+    end
+
+    it 'does not touch old non-follow imports (only follow imports are reclaimed here)' do
+      blocking = Import.create!(account: account, type: 'blocking', data: attachment_fixture('imports.txt'))
+      blocking.update_column(:created_at, 7.hours.ago)
+
+      worker.perform
+
+      expect(Import.exists?(blocking.id)).to be true
+    end
+
+    it 'leaves an old follow import that DID get a batch to the dispatch-completion rule' do
+      import = orphan_import(created_at: 7.hours.ago)
+      batch  = batch_with_import(import)
+      add_target(batch, :pending, 0) # still dispatching -> retained
+
+      worker.perform
+
+      expect(Import.exists?(import.id)).to be true
+    end
+  end
 end
