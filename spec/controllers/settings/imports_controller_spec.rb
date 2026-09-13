@@ -8,11 +8,6 @@ RSpec.describe Settings::ImportsController, type: :controller do
   end
 
   describe "GET #show" do
-    it "returns http success" do
-      get :show
-      expect(response).to have_http_status(200)
-    end
-
     def stub_webpack_manifest
       # Render the settings/admin layout without the compiled webpack manifest
       # (not built in this test env; CI precompiles packs). Stub the manifest
@@ -23,8 +18,14 @@ RSpec.describe Settings::ImportsController, type: :controller do
       allow(manifest).to receive(:lookup, &resolver)
     end
 
+    before { stub_webpack_manifest }
+
+    it "returns http success" do
+      get :show
+      expect(response).to have_http_status(200)
+    end
+
     it 'renders recent follow-import progress for the current account' do
-      stub_webpack_manifest
 
       user = Fabricate(:user)
       sign_in user, scope: :user
@@ -39,8 +40,6 @@ RSpec.describe Settings::ImportsController, type: :controller do
     end
 
     it 'shows a follow import with no batch as preparing (CSV retained until a batch is recorded)' do
-      stub_webpack_manifest
-
       user = Fabricate(:user)
       sign_in user, scope: :user
       Import.create!(account: user.account, type: 'following', data: attachment_fixture('new-following-imports.txt'))
@@ -54,8 +53,6 @@ RSpec.describe Settings::ImportsController, type: :controller do
     end
 
     it 'does not list a leftover follow import as preparing once its batch exists' do
-      stub_webpack_manifest
-
       user = Fabricate(:user)
       sign_in user, scope: :user
       import = Import.create!(account: user.account, type: 'following', data: attachment_fixture('new-following-imports.txt'))
