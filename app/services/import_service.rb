@@ -32,19 +32,17 @@ class ImportService < BaseService
     batch = record_follow_import_batch!
 
     if batch
-      # Hand the follow set to the executor FIRST, then record that it now owns the
-      # import lifecycle. If the enqueue fails (e.g. Sidekiq/Redis unavailable), let
-      # it BUBBLE before ownership is recorded: ImportWorker is retryable and will
-      # retry the handoff with the same import_id-idempotent batch, and a duplicate
+      # Hand the follow set to the executor. If the enqueue fails (e.g. Sidekiq/
+      # Redis unavailable), let it BUBBLE: ImportWorker is retryable and will retry
+      # the handoff with the same import_id-idempotent batch, and a duplicate
       # executor job is safe because execution is DB-claim based. A second Sidekiq
       # enqueue here (a direct fallback) would share the same failure dependency.
       FollowImport::BatchExecutionWorker.perform_async(batch.id)
-      batch.mark_executor_enqueued!
 
-      # Overwrite removals are independent of the follow set. They run only after
-      # the executor already owns the import, so if this enqueue fails and retries
-      # exhaust, the retries-exhausted cleanup must NOT delete the CSV the executor
-      # still needs (it is guarded by executor_enqueued?).
+      # Overwrite removals are independent of the follow set and are enqueued after
+      # the handoff. A failure here still bubbles to a retry, and if retries are
+      # exhausted the import is retained (a batch exists), because an executor job
+      # may already be queued — see ImportWorker.
       enqueue_follow_overwrite_unfollows! if @import.overwrite?
     else
       # Batch recording failed: there is no target set to drive execution from, so
