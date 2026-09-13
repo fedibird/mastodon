@@ -126,7 +126,7 @@ RSpec.describe Moderation::BehavioralMetricsService do
 
     before do
       record_interaction(x, :follow, now - 40.minutes, 'nx-1')       # prior contact
-      record_rejection(b, :block, now - 30.minutes, 'nx-r')          # first negative signal
+      record_rejection(x, :block, now - 30.minutes, 'nx-r')          # first qualified (linked) negative signal
       record_interaction(x, :mention, now - 20.minutes, 'nx-2')      # re-contact (not new)
       record_interaction(y, :follow, now - 10.minutes, 'nx-3')       # genuinely new
     end
@@ -215,6 +215,33 @@ RSpec.describe Moderation::BehavioralMetricsService do
       expect(metrics['negative_response_rate']).to eq 1.0
       expect(metrics['linked_negative_rate']).to eq 1.0
       expect(metrics['follow_reject_rate']).to eq 1.0
+    end
+  end
+
+  describe 'unlinked raw rejection does not start continuation' do
+    let(:stranger) { Fabricate(:account, username: 'unlinked_stranger') }
+
+    before do
+      # A raw follow_reject with no preceding actor → stranger contact. EventRecorder
+      # leaves preceding_interaction_event nil, so this is not a qualified signal.
+      record_rejection(stranger, :follow_reject, now - 50.minutes, 'unlinked-r')
+      record_interaction(b, :follow, now - 30.minutes, 'unlinked-i-b')
+      record_interaction(c, :follow, now - 10.minutes, 'unlinked-i-c')
+    end
+
+    it 'does not treat an uncorrelated rejection as the origin of continuation or repeat_behavior' do
+      metrics = service.call(actor, now: now).dig('windows', '24h')
+
+      expect(metrics['rejections_received_total']).to eq 1
+      expect(metrics['follow_rejects_received']).to eq 1
+      expect(metrics['linked_negative_responders']).to eq 0
+      expect(metrics['first_negative_signal_at']).to be_nil
+      expect(metrics['new_targets_after_first_negative_signal']).to eq 0
+      expect(metrics['follows_after_first_negative_signal']).to eq 0
+
+      evaluation = Moderation::RiskEvaluationService.new.call(actor, now: now)
+      expect(evaluation.dig('subscores', 'repeat_behavior', 'score')).to eq 0.0
+      expect(evaluation.dig('subscores', 'repeat_behavior', 'reason_codes')).to be_empty
     end
   end
 

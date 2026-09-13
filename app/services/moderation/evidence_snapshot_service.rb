@@ -53,9 +53,12 @@ module Moderation
     # interaction recorded at request time (source_event_key activitypub_outbound_follow:<uri>).
     # The event is lost only when BOTH that outbound follow interaction and the
     # inbound reject failed to record, because then no correlation anchor persists.
-    # The embedded-Follow Reject shape repairs directly from @object['actor']. A
-    # Reject of an already-established follow is intentionally modeled as an
-    # unfollow, not a follow_reject.
+    # An embedded-Follow Reject records when a live matching FollowRequest exists,
+    # or when the embedded Follow id correlates to that same outbound-follow
+    # anchor (local actor = claimed requester, target = Reject sender). A
+    # protocol-level Reject that does not correlate to an outbound Follow from
+    # this server is intentionally not recorded as follow_reject. A Reject of an
+    # already-established follow is modeled as an unfollow, not a follow_reject.
     INBOUND_ACTIVITYPUB_COVERAGE = {
       'inbound_activitypub' => 'partial',
       'complete_for_remote_subjects' => false,

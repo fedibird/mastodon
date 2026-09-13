@@ -37,10 +37,14 @@ class ActivityPub::Activity::Reject < ActivityPub::Activity
     FollowImport::TargetResponseCorrelator.rejected(follow_request) if follow_request
     follow_request&.reject!
 
-    # Record the inbound follow-request rejection. The rejected account is taken
-    # from the embedded Follow's actor, so this still works (and repairs a missed
-    # ledger event on re-delivery) after reject! has destroyed the FollowRequest.
-    record_inbound_follow_reject(target_account)
+    # A live matching FollowRequest is itself proof we sent a Follow this remote
+    # is now rejecting. After that row is gone, record only when the embedded
+    # Follow id correlates to a real outbound Follow from this server — a
+    # protocol-level Reject that merely acknowledges our own Undo(Follow) does
+    # not carry a matching outbound-follow id and must not become follow_reject.
+    if follow_request || outbound_follow_anchor_for?(object_uri, claimed_requester: target_account)
+      record_inbound_follow_reject(target_account)
+    end
 
     UnfollowService.new.call(target_account, @account) if target_account.following?(@account)
   end
@@ -51,18 +55,23 @@ class ActivityPub::Activity::Reject < ActivityPub::Activity
   # Instead correlate the follow-request URI to the outbound follow interaction
   # recorded at request time under the direction-specific activity identity
   # (activitypub_outbound_follow:<uri>) and recover the requester from its actor.
-  #
+  def repair_inbound_follow_reject_from_uri
+    rejected_account = local_requester_from_outbound_follow_anchor(object_uri)
+    return if rejected_account.nil?
+
+    record_inbound_follow_reject(rejected_account)
+  end
+
   # URI equality alone must NOT bind identities: a leaked/reused/malicious object
   # URI must not let remote actor B cause us to record "B rejected local A" from
-  # an anchor that was actually "A -> remote C". So the anchor must satisfy every
-  # invariant of the follow this Reject claims to reject, and we fail closed
-  # otherwise. Nothing is repaired only when the anchor is missing (which,
-  # combined with the reject recorder failure, is the known double-failure gap).
-  def repair_inbound_follow_reject_from_uri
-    return if object_uri.blank?
+  # an anchor that was actually "A -> remote C". The outbound-follow anchor must
+  # satisfy every invariant of the follow this Reject claims to reject, and we
+  # fail closed otherwise.
+  def local_requester_from_outbound_follow_anchor(follow_id)
+    return if follow_id.blank?
 
     interaction = ModerationInteractionEvent.find_by(
-      source_event_key: "activitypub_outbound_follow:#{object_uri}",
+      source_event_key: "activitypub_outbound_follow:#{follow_id}",
       event_type: :follow
     )
     return if interaction.nil?
@@ -74,7 +83,13 @@ class ActivityPub::Activity::Reject < ActivityPub::Activity
     # ...and its target must be the very remote actor now sending this Reject.
     return unless interaction.target_subject&.account_id == @account.id
 
-    record_inbound_follow_reject(rejected_account)
+    rejected_account
+  end
+
+  def outbound_follow_anchor_for?(follow_id, claimed_requester:)
+    return false if claimed_requester.nil?
+
+    local_requester_from_outbound_follow_anchor(follow_id) == claimed_requester
   end
 
   # Inbound Reject of a local account's follow request: the remote actor rejected
