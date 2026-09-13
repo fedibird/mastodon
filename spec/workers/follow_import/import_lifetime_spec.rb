@@ -115,11 +115,21 @@ RSpec.describe 'Follow import CSV lifetime', type: :service do
     expect(Import.exists?(import.id)).to be true
   end
 
-  it 'drops the import on retries-exhausted when no batch exists (nothing owns it)' do
+  it 'retains the import on retries-exhausted even with no batch while another processor is still pending' do
+    # Watchdog recovery (and ambiguous enqueues) can leave multiple
+    # ProcessImportWorker retry chains for the same import before a batch is
+    # recorded. One chain exhausting must not delete the CSV the sibling needs.
     expect(FollowImportBatch.where(import_id: import.id)).to be_none
 
     FollowImport::ProcessImportWorker.sidekiq_retries_exhausted_block.call('args' => [import.id])
 
-    expect(Import.exists?(import.id)).to be false
+    expect(Import.exists?(import.id)).to be true
+    expect(FollowImportBatch.where(import_id: import.id)).to be_none
+
+    # The still-pending processor can still read the CSV and record the batch.
+    FollowImport::ProcessImportWorker.new.perform(import.id)
+
+    expect(FollowImportBatch.exists?(import_id: import.id)).to be true
+    expect(Import.exists?(import.id)).to be true
   end
 end
