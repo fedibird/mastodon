@@ -96,8 +96,22 @@ RSpec.describe FollowImport::ProgressService do
       expect(summary['total']).to eq 5
       expect(summary['processed']).to eq 3
       expect(summary['waiting']).to eq 2
-      expect(summary['failed']).to eq 1
+      expect(summary['failed']).to eq 2 # rejected + delivery_failed; completed_no_response is not a failure
       expect(summary['completed']).to be false
+    end
+
+    it 'counts rejected as failed (could not be followed) and leaves completed_no_response neutral' do
+      batch.targets.delete_all
+      target_in(:accepted, 0)
+      target_in(:rejected, 1)
+      target_in(:completed_no_response, 2)
+
+      summary = service.user_summary(batch)
+
+      expect(summary['total']).to eq 3
+      expect(summary['processed']).to eq 3
+      expect(summary['failed']).to eq 1
+      expect(summary['completed']).to be true
     end
 
     it 'reports completed when every target is terminal' do
