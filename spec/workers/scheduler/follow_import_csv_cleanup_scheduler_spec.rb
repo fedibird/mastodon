@@ -65,46 +65,53 @@ RSpec.describe Scheduler::FollowImportCsvCleanupScheduler do
     expect { worker.perform }.not_to raise_error
   end
 
-  describe 'orphaned follow imports (handoff enqueue lost)' do
-    def orphan_import(created_at:)
+  describe 'stalled follow imports (no batch recorded yet)' do
+    def stalled_import(created_at:)
       import = import_for(account)
       import.update_column(:created_at, created_at)
       import
     end
 
-    it 'drops a follow import that still has no batch after the grace window' do
-      import = orphan_import(created_at: 7.hours.ago)
+    before { allow(FollowImport::ProcessImportWorker).to receive(:perform_async) }
+
+    it 'RE-ENQUEUES the processor for a follow import with no batch after the grace window (never deletes it)' do
+      import = stalled_import(created_at: 7.hours.ago)
 
       worker.perform
 
-      expect(Import.exists?(import.id)).to be false
+      # Recovery, not deletion: a queued-but-unprocessed job cannot be ruled out.
+      expect(Import.exists?(import.id)).to be true
+      expect(FollowImport::ProcessImportWorker).to have_received(:perform_async).with(import.id)
     end
 
     it 'leaves a recent follow import with no batch alone (its processor may still run)' do
-      import = orphan_import(created_at: 10.minutes.ago)
+      import = stalled_import(created_at: 10.minutes.ago)
 
       worker.perform
 
       expect(Import.exists?(import.id)).to be true
+      expect(FollowImport::ProcessImportWorker).not_to have_received(:perform_async)
     end
 
-    it 'does not touch old non-follow imports (only follow imports are reclaimed here)' do
+    it 'does not touch old non-follow imports' do
       blocking = Import.create!(account: account, type: 'blocking', data: attachment_fixture('imports.txt'))
       blocking.update_column(:created_at, 7.hours.ago)
 
       worker.perform
 
       expect(Import.exists?(blocking.id)).to be true
+      expect(FollowImport::ProcessImportWorker).not_to have_received(:perform_async)
     end
 
-    it 'leaves an old follow import that DID get a batch to the dispatch-completion rule' do
-      import = orphan_import(created_at: 7.hours.ago)
+    it 'does not re-enqueue an old follow import that already has a batch' do
+      import = stalled_import(created_at: 7.hours.ago)
       batch  = batch_with_import(import)
-      add_target(batch, :pending, 0) # still dispatching -> retained
+      add_target(batch, :pending, 0) # still dispatching -> retained by pass 1
 
       worker.perform
 
       expect(Import.exists?(import.id)).to be true
+      expect(FollowImport::ProcessImportWorker).not_to have_received(:perform_async)
     end
   end
 end
