@@ -1,45 +1,40 @@
 # frozen_string_literal: true
 
-# Bounded watchdog that drops the raw uploaded Import (its CSV) for follow-import
-# batches once it is no longer needed — a safety net for imports the executor did
-# not finalize itself.
+# Maintains the raw uploaded Import (CSV) for follow imports in two bounded,
+# non-destructive-by-inference passes:
 #
-# Normally FollowImport::BatchExecutionWorker destroys the import the moment it
-# finishes dispatch. But the import can survive when the executor crashed after
-# dispatch but before finalizing, or when the executor handoff ultimately failed
-# so no executor job will ever run (ImportWorker's retries-exhausted path
-# conservatively RETAINS any import that has a batch, because it cannot prove no
-# executor job is queued). This reclaims those.
+#   1. Cleanup (dispatch complete) — a batch whose targets have NO pending entries:
+#      every follow has been enqueued with its address, so no executor will re-read
+#      the CSV. The import is dropped. Age alone does NOT prove abandonment:
+#      gate-enforced delay/moderator_review targets are left pending on purpose
+#      (PR C) and still need the CSV for a future recheck, so a batch with pending
+#      targets is never cleaned here regardless of age. (A durable defer/
+#      abandonment lifecycle for those is deferred to a later PR.)
 #
-# Reclaims the raw uploaded Import (CSV) for follow imports once it is safe, in
-# two bounded, non-destructive-by-age passes:
+#   2. Recovery (stalled handoff) — a follow Import that, after RECOVERY_GRACE,
+#      still has NO FollowImportBatch. Its FollowImport::ProcessImportWorker may
+#      have been lost, OR the enqueue may have reached Redis and be sitting
+#      unprocessed (outage/backlog) — absence of a batch cannot distinguish these,
+#      so this pass NEVER deletes the import. It simply RE-ENQUEUES the processor,
+#      which is idempotent by import_id (recording returns the existing batch and
+#      duplicate executor jobs are DB-claim safe). A genuinely un-runnable import
+#      is dropped by the processor's own retries-exhausted hook, not here. True
+#      orphan deletion is deferred until a durable abandoned/completed state makes
+#      it provably safe.
 #
-#   1. Dispatch complete — a batch whose targets have NO pending entries: every
-#      follow has been enqueued with its address, so no executor will re-read the
-#      CSV. Age alone does NOT prove abandonment: gate-enforced delay/
-#      moderator_review targets are left pending on purpose (PR C) and still need
-#      the CSV for a future recheck, so a batch with pending targets is never
-#      cleaned here regardless of age. (A durable defer/abandonment lifecycle for
-#      those is deferred to a later PR.)
-#
-#   2. Orphaned handoff — a follow Import that, after ORPHAN_GRACE, still has NO
-#      FollowImportBatch. Its ProcessImportWorker enqueue was genuinely lost: an
-#      ambiguous enqueue that actually reached Redis would, by now, have recorded
-#      a batch (moving it to pass 1) or been dropped by the processor's
-#      retries-exhausted hook. The grace resolves that ambiguity by waiting.
-#
-# Bookkeeping only — batches and target rows persist.
+# Bookkeeping/recovery only — batches and target rows persist.
 class Scheduler::FollowImportCsvCleanupScheduler
   include Sidekiq::Worker
 
   sidekiq_options retry: 0
 
-  BATCH_LIMIT   = 500
-  ORPHAN_GRACE  = 6.hours
+  BATCH_LIMIT    = 500
+  RECOVERY_GRACE = 6.hours
 
   def perform
-    now     = Time.now.utc
-    dropped = 0
+    now       = Time.now.utc
+    dropped   = 0
+    recovered = 0
 
     batches_with_surviving_import.order(:imported_at).limit(BATCH_LIMIT).each do |batch|
       import = Import.find_by(id: batch.import_id)
@@ -50,12 +45,13 @@ class Scheduler::FollowImportCsvCleanupScheduler
       dropped += 1
     end
 
-    orphaned_follow_imports(now).order(:created_at).limit(BATCH_LIMIT).each do |import|
-      import.destroy
-      dropped += 1
+    stalled_follow_imports(now).order(:created_at).limit(BATCH_LIMIT).each do |import|
+      # Recovery, NOT deletion: re-enqueue the idempotent processor.
+      FollowImport::ProcessImportWorker.perform_async(import.id)
+      recovered += 1
     end
 
-    Rails.logger.info("[Scheduler::FollowImportCsvCleanupScheduler] dropped=#{dropped}")
+    Rails.logger.info("[Scheduler::FollowImportCsvCleanupScheduler] dropped=#{dropped} recovered=#{recovered}")
   end
 
   private
@@ -67,9 +63,9 @@ class Scheduler::FollowImportCsvCleanupScheduler
   end
 
   # Follow imports older than the grace window that never got a batch recorded.
-  def orphaned_follow_imports(now)
+  def stalled_follow_imports(now)
     Import.where(type: :following)
-          .where('imports.created_at < ?', now - ORPHAN_GRACE)
+          .where('imports.created_at < ?', now - RECOVERY_GRACE)
           .where.not(id: FollowImportBatch.where.not(import_id: nil).select(:import_id))
   end
 end
