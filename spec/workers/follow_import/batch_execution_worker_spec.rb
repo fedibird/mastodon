@@ -131,6 +131,36 @@ RSpec.describe FollowImport::BatchExecutionWorker do
     end
   end
 
+  describe 'enqueue-failure recovery' do
+    it 'releases the claim back to pending and re-raises when the enqueue fails' do
+      target = add_target(0)
+      allow(Import::RelationshipWorker).to receive(:perform_async).and_raise(StandardError, 'redis down')
+
+      expect { worker.perform(batch.id) }.to raise_error(StandardError)
+
+      target.reload
+      expect(target.state).to eq 'pending'
+      expect(target.queued_at).to be_nil
+    end
+
+    it 'lets a retry reclaim and enqueue a target whose earlier enqueue failed' do
+      target = add_target(0)
+      calls = 0
+      allow(Import::RelationshipWorker).to receive(:perform_async) do
+        calls += 1
+        raise StandardError, 'redis down' if calls == 1
+      end
+
+      expect { worker.perform(batch.id) }.to raise_error(StandardError)
+      expect(target.reload.state).to eq 'pending'
+
+      described_class.new.perform(batch.id)
+
+      expect(target.reload.state).to eq 'queued'
+      expect(Import::RelationshipWorker).to have_received(:perform_async).twice
+    end
+  end
+
   it 'is a no-op for an unknown batch' do
     expect { worker.perform(-1) }.not_to raise_error
   end

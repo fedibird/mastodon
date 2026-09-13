@@ -65,7 +65,17 @@ module FollowImport
         # enqueues; a concurrent pass that already claimed it is a no-op here.
         next unless target.saved_change_to_state? && target.state_queued?
 
-        enqueue_follow(account, target, work, batch)
+        begin
+          enqueue_follow(account, target, work, batch)
+        rescue StandardError
+          # The claim (queued) is persisted but its work was NOT enqueued. Release
+          # the claim (queued -> pending) so a retry can reselect it — otherwise it
+          # would be stranded (only pending targets are claimable) — and re-raise
+          # so Sidekiq retries this pass.
+          transitions.release_queued_claim(target)
+          raise
+        end
+
         progress += 1
       end
 
