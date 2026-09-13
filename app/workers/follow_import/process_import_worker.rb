@@ -13,18 +13,13 @@ module FollowImport
     sidekiq_options queue: 'pull', retry: 5, dead: false
 
     sidekiq_retries_exhausted do |msg|
-      import_id = msg['args'].first
-
-      # Conservatively RETAIN the import whenever a batch exists: a
-      # BatchExecutionWorker job may already be queued (the handoff can succeed
-      # before a later step fails) and the absence of any in-memory marker cannot
-      # prove no such job exists — deleting the CSV could leave that executor
-      # running without it. A genuinely abandoned import is reclaimed later by the
-      # bounded Scheduler::FollowImportCsvCleanupScheduler once dispatch is known
-      # complete. Drop the CSV only when no batch owns it.
-      Import.find_by(id: import_id)&.destroy unless FollowImportBatch.exists?(import_id: import_id)
-    rescue StandardError => e
-      Rails.logger.warn("[FollowImport::ProcessImportWorker] retries-exhausted cleanup failed: #{e.class}: #{e.message}")
+      # Intentionally non-destructive. Absence of a FollowImportBatch cannot
+      # prove absence of another queued/retrying ProcessImportWorker: the
+      # watchdog recovery path (and ambiguous enqueues) can leave multiple
+      # retry chains for the same import_id before a batch is recorded. One
+      # chain exhausting must not delete the CSV a sibling still needs.
+      # True deletion waits for an explicit durable abandoned/failed state.
+      Rails.logger.info("[FollowImport::ProcessImportWorker] retries exhausted for import #{msg['args'].first}; retaining CSV")
     end
 
     def perform(import_id)

@@ -17,10 +17,10 @@
 #      unprocessed (outage/backlog) — absence of a batch cannot distinguish these,
 #      so this pass NEVER deletes the import. It simply RE-ENQUEUES the processor,
 #      which is idempotent by import_id (recording returns the existing batch and
-#      duplicate executor jobs are DB-claim safe). A genuinely un-runnable import
-#      is dropped by the processor's own retries-exhausted hook, not here. True
-#      orphan deletion is deferred until a durable abandoned/completed state makes
-#      it provably safe.
+#      duplicate executor jobs are DB-claim safe). The processor's retries-exhausted
+#      hook is also non-destructive, so a sibling queued/retrying chain keeps the
+#      CSV. True orphan deletion is deferred until a durable abandoned/failed
+#      state makes it provably safe.
 #
 # Bookkeeping/recovery only — batches and target rows persist.
 class Scheduler::FollowImportCsvCleanupScheduler
