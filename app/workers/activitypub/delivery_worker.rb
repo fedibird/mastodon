@@ -10,6 +10,24 @@ class ActivityPub::DeliveryWorker
 
   sidekiq_options queue: 'push', retry: 16, dead: false
 
+  # Terminal delivery failure: only once all retries are exhausted (never on an
+  # intermediate retry). Routes optional opaque delivery_tracking metadata to its
+  # generic handler. Failure-tolerant.
+  sidekiq_retries_exhausted do |msg|
+    options  = msg['args'][3] || {}
+    tracking = options['delivery_tracking']
+
+    if tracking.present?
+      begin
+        ActiveRecord::Base.connection_pool.with_connection do
+          ActivityPub::DeliveryTracking.failed(tracking)
+        end
+      rescue StandardError => e
+        Rails.logger.warn("[ActivityPub::DeliveryWorker] retries-exhausted tracking failed: #{e.class}: #{e.message}")
+      end
+    end
+  end
+
   HEADERS = { 'Content-Type' => 'application/activity+json' }.freeze
 
   def perform(json, source_account_id, inbox_url, options = {})
@@ -24,6 +42,10 @@ class ActivityPub::DeliveryWorker
     @performed      = false
 
     perform_request
+
+    # HTTP delivery succeeded; route optional tracking metadata to its generic
+    # handler. Delivery success is only that — not follow acceptance.
+    track_delivery_success! if @performed
   ensure
     if @inbox_url.present?
       if @performed
@@ -35,6 +57,15 @@ class ActivityPub::DeliveryWorker
   end
 
   private
+
+  def track_delivery_success!
+    tracking = @options[:delivery_tracking]
+    return if tracking.blank?
+
+    # DeliveryTracking swallows its own errors, so this never breaks/retries a
+    # successful delivery.
+    ActivityPub::DeliveryTracking.delivered(tracking.to_h)
+  end
 
   def build_request(http_client)
     Request.new(:post, @inbox_url, body: @json, http_client: http_client).tap do |request|
