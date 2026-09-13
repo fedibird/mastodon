@@ -81,4 +81,41 @@ RSpec.describe 'Follow import CSV lifetime', type: :service do
     expect(FollowImportBatch.where(import_id: import.id).count).to eq 1
     expect(Import.exists?(import.id)).to be true
   end
+
+  it 'keeps the import for the executor when a later overwrite-removal enqueue fails and retries exhaust' do
+    carol = Fabricate(:account, username: 'carol')
+    account.follow!(carol) # carol is not in the import CSV, so overwrite tries to unfollow her
+    import.update!(overwrite: true)
+
+    # The executor handoff succeeds and takes ownership...
+    allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+    # ...but the overwrite-removal enqueue (a different worker) keeps failing.
+    allow(Import::RelationshipWorker).to receive(:perform_async).and_raise(StandardError, 'unfollow enqueue unavailable')
+
+    # Each attempt bubbles (overwrite fails after the executor is already enqueued).
+    expect { ImportWorker.new.perform(import.id) }.to raise_error(StandardError)
+
+    batch = FollowImportBatch.find_by(import_id: import.id)
+    expect(batch.executor_enqueued?).to be true
+
+    # Simulate Sidekiq exhausting all retries.
+    ImportWorker.sidekiq_retries_exhausted_block.call('args' => [import.id])
+
+    # The executor already owns the import, so its CSV must remain for it to run.
+    expect(Import.exists?(import.id)).to be true
+  end
+
+  it 'drops the import on retries-exhausted when the executor never took ownership' do
+    # Executor handoff never succeeds, so no executor job needs the CSV.
+    allow(FollowImport::BatchExecutionWorker).to receive(:perform_async).and_raise(StandardError, 'enqueue unavailable')
+
+    expect { ImportWorker.new.perform(import.id) }.to raise_error(StandardError)
+
+    batch = FollowImportBatch.find_by(import_id: import.id)
+    expect(batch.executor_enqueued?).to be false
+
+    ImportWorker.sidekiq_retries_exhausted_block.call('args' => [import.id])
+
+    expect(Import.exists?(import.id)).to be false
+  end
 end

@@ -39,6 +39,7 @@ class FollowImportBatch < ApplicationRecord
   validates :import_id, uniqueness: { allow_nil: true }
 
   COMPLETION_NOTIFIED_KEY = 'completion_notified_at'
+  EXECUTOR_ENQUEUED_KEY   = 'executor_enqueued_at'
 
   # Recent batches whose completion has not yet been notified. Bounded by an
   # imported_at window so the completion sweeper never rescans abandoned/never-
@@ -58,5 +59,18 @@ class FollowImportBatch < ApplicationRecord
 
   def mark_completion_notified!(at = Time.now.utc)
     update!(metadata: metadata.merge(COMPLETION_NOTIFIED_KEY => at.utc.iso8601))
+  end
+
+  # True once the batch executor (FollowImport::BatchExecutionWorker) has been
+  # successfully enqueued. From that point the executor owns the import's
+  # lifecycle — it re-reads the CSV to resolve target addresses/options and
+  # destroys the import when dispatch completes — so any other import cleanup
+  # (e.g. ImportWorker's retries-exhausted path) must NOT delete the CSV.
+  def executor_enqueued?
+    metadata[EXECUTOR_ENQUEUED_KEY].present?
+  end
+
+  def mark_executor_enqueued!(at = Time.now.utc)
+    update!(metadata: metadata.merge(EXECUTOR_ENQUEUED_KEY => at.utc.iso8601))
   end
 end

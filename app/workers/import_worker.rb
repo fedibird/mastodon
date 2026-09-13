@@ -11,9 +11,16 @@ class ImportWorker
   sidekiq_options queue: 'pull', retry: 5, dead: false
 
   sidekiq_retries_exhausted do |msg|
+    import_id = msg['args'].first
+
     # Terminal failure after all retries — drop the uploaded import so its raw CSV
-    # does not leak. Any FollowImportBatch/target rows persist as the record.
-    Import.find_by(id: msg['args'].first)&.destroy
+    # does not leak. But if a follow-import batch's executor already owns this
+    # import (its handoff succeeded before a later step failed), leave the CSV:
+    # the already-enqueued executor still needs it and will destroy the import when
+    # dispatch completes. Any FollowImportBatch/target rows persist as the record.
+    unless FollowImportBatch.find_by(import_id: import_id)&.executor_enqueued?
+      Import.find_by(id: import_id)&.destroy
+    end
   rescue StandardError => e
     Rails.logger.warn("[ImportWorker] retries-exhausted cleanup failed: #{e.class}: #{e.message}")
   end
