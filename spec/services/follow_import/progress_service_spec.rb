@@ -78,4 +78,31 @@ RSpec.describe FollowImport::ProgressService do
     target_in(:accepted, 0)
     expect(service.call(batch.id)['accepted']).to eq 1
   end
+
+  describe '#user_summary' do
+    before do
+      target_in(:pending, 0)           # waiting
+      target_in(:awaiting_response, 1) # waiting
+      target_in(:accepted, 2)          # processed
+      target_in(:rejected, 3)          # processed
+      target_in(:delivery_failed, 4)   # processed + failed
+    end
+
+    it 'exposes only coarse buckets (no internal state / gate / risk detail)' do
+      summary = service.user_summary(batch)
+
+      expect(summary.keys).to match_array(%w(total processed waiting failed completed))
+      expect(summary['total']).to eq 5
+      expect(summary['processed']).to eq 3
+      expect(summary['waiting']).to eq 2
+      expect(summary['failed']).to eq 1
+      expect(summary['completed']).to be false
+    end
+
+    it 'reports completed when every target is terminal' do
+      batch.targets.where(state: %i(pending awaiting_response)).update_all(state: FollowImportTarget.states[:accepted])
+
+      expect(service.user_summary(batch)['completed']).to be true
+    end
+  end
 end

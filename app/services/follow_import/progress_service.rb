@@ -36,6 +36,22 @@ module FollowImport
       }
     end
 
+    # Coarse, user-facing progress for display. Deliberately omits internal state
+    # names, gate/risk, and accept/reject detail — only how far along the import
+    # is. `processed` counts every settled target (including failures);`failed` is
+    # surfaced separately as the count that could not be followed.
+    def user_summary(batch_or_id)
+      progress = call(batch_or_id)
+
+      {
+        'total'     => progress['total'],
+        'processed' => progress['processed'],
+        'waiting'   => progress['remaining'],
+        'failed'    => progress['delivery_failed'],
+        'completed' => progress['completed'],
+      }
+    end
+
     private
 
     def counts_by_state(batch_id)
