@@ -33,9 +33,16 @@ class FollowService < BaseService
     raise Mastodon::NotPermittedError  if following_not_allowed?
 
     if @source_account.following?(@target_account)
-      return change_follow_options!
+      follow = change_follow_options!
+      # The batch executor already claimed this follow-import target to queued,
+      # but this early return runs neither the local NEW-follow settlement nor
+      # remote delivery tracking. Settle it here so it does not sit queued forever.
+      settle_follow_import_target(follow)
+      return follow
     elsif @source_account.requested?(@target_account)
-      return change_follow_request_options!
+      request = change_follow_request_options!
+      settle_follow_import_target(request)
+      return request
     end
 
     ActivityTracker.increment('activity:interactions')
@@ -234,20 +241,27 @@ class FollowService < BaseService
     target.update!(follow_request_uri: uri)
   end
 
-  # Local follow-import targets have no remote delivery round-trip, so their
-  # execution state is settled here rather than by delivery tracking:
-  #
-  #   * direct_follow! (unlocked) established the follow immediately -> accepted.
-  #   * a local FollowRequest (locked/silenced) awaits the recipient's decision
-  #     -> awaiting_response, correlated by follow_request_uri so a local approval
-  #     (AuthorizeFollowService) becomes accepted and a rejection
-  #     (RejectFollowService) becomes rejected, exactly like the remote path. The
-  #     periodic sweeper completes it if no decision ever arrives.
-  #
-  # Failure-tolerant: never breaks the follow.
+  # Settle a NEW local follow-import target. Remote NEW follows are settled by
+  # delivery tracking inside request_follow!, so this is local-only here.
   def track_local_follow_import_target(follow)
     return unless @target_account.local?
 
+    settle_follow_import_target(follow)
+  end
+
+  # Bring a follow-import target to a reachable execution state when there is no
+  # remote delivery round-trip to track it — i.e. a local follow, or an
+  # already-existing relationship discovered on the early-return paths. Applies to
+  # both local and remote targets:
+  #
+  #   * an established Follow            -> accepted (terminal).
+  #   * a pending FollowRequest          -> awaiting_response, persisting the
+  #     request's uri so a later approve/reject (local via AuthorizeFollowService/
+  #     RejectFollowService, remote via inbound Accept/Reject) correlates. The
+  #     periodic sweeper completes it if no decision ever arrives.
+  #
+  # Failure-tolerant: never breaks the follow.
+  def settle_follow_import_target(record)
     target = resolve_follow_import_target
     return if target.nil?
 
@@ -255,17 +269,17 @@ class FollowService < BaseService
     transitions = FollowImport::TargetTransitionService.new
     transitions.mark_queued(target)
 
-    if follow.is_a?(FollowRequest)
+    if record.is_a?(FollowRequest)
       transitions.mark_awaiting_response(
         target,
-        follow_request_uri: follow.uri,
+        follow_request_uri: record.uri,
         response_deadline_at: FollowImport::ExecutionPolicy.response_deadline_at
       )
     else
       transitions.mark_accepted(target)
     end
   rescue StandardError => e
-    Rails.logger.warn("[FollowService] local follow-import target tracking failed: #{e.class}: #{e.message}")
+    Rails.logger.warn("[FollowService] follow-import target settlement failed: #{e.class}: #{e.message}")
   end
 
   def direct_follow!
