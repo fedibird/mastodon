@@ -13,14 +13,15 @@ class ImportWorker
   sidekiq_retries_exhausted do |msg|
     import_id = msg['args'].first
 
-    # Terminal failure after all retries — drop the uploaded import so its raw CSV
-    # does not leak. But if a follow-import batch's executor already owns this
-    # import (its handoff succeeded before a later step failed), leave the CSV:
-    # the already-enqueued executor still needs it and will destroy the import when
-    # dispatch completes. Any FollowImportBatch/target rows persist as the record.
-    unless FollowImportBatch.find_by(import_id: import_id)&.executor_enqueued?
-      Import.find_by(id: import_id)&.destroy
-    end
+    # Terminal failure after all retries. Conservatively RETAIN the import whenever
+    # a follow-import batch exists: a BatchExecutionWorker job may already have been
+    # enqueued (the handoff can succeed before a later step fails), and the absence
+    # of any in-memory marker cannot prove no such job is queued — deleting the CSV
+    # here could leave that executor running without it. A genuinely abandoned
+    # import (executor never ran) is reclaimed later by the bounded, state/age-based
+    # Scheduler::FollowImportCsvCleanupScheduler. Non-follow imports (no batch) are
+    # dropped here so their raw CSV does not leak.
+    Import.find_by(id: import_id)&.destroy unless FollowImportBatch.exists?(import_id: import_id)
   rescue StandardError => e
     Rails.logger.warn("[ImportWorker] retries-exhausted cleanup failed: #{e.class}: #{e.message}")
   end

@@ -75,3 +75,7 @@
       every: '5m'
       class: Scheduler::FollowImportResponseTimeoutScheduler
       queue: scheduler
+    follow_import_csv_cleanup_scheduler:
+      every: '1h'
+      class: Scheduler::FollowImportCsvCleanupScheduler
+      queue: scheduler
