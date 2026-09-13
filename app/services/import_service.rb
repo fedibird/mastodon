@@ -30,10 +30,35 @@ class ImportService < BaseService
   def import_follows!
     parse_import_data!(['Account address'])
     batch = record_follow_import_batch!
-    # Propagate the batch id to every follow this import executes so the ledger
-    # can link batch -> actual follow. Recording is failure-tolerant, so batch
-    # may be nil (import still proceeds; import_batch_id just stays NULL).
-    import_relationships!('follow', 'unfollow', @account.following.map { |account| { acct: account.acct }}, ROWS_PROCESSING_LIMIT, import_batch_id: batch&.id, show_reblogs: { header: 'Show boosts', default: true }, notify: { header: 'Notify on new posts', default: false }, languages: { header: 'Languages', default: nil }, delivery: { header: 'Delivery to home', default: true })
+
+    if batch
+      # Controlled, DB-backed execution. Overwrite removals (unfollows) run
+      # immediately; the follow set is executed in bounded, gate-observed passes
+      # driven from the recorded target rows (FollowImport::BatchExecutionWorker),
+      # not from one big bulk enqueue.
+      enqueue_follow_overwrite_unfollows! if @import.overwrite?
+      FollowImport::BatchExecutionWorker.perform_async(batch.id)
+    else
+      # Failure-tolerant fallback: recording failed, so there is no target set to
+      # drive execution from — fall back to the original direct bulk enqueue so
+      # the import still runs (ledger linkage is simply absent, as before).
+      import_relationships!('follow', 'unfollow', @account.following.map { |account| { acct: account.acct }}, ROWS_PROCESSING_LIMIT, show_reblogs: { header: 'Show boosts', default: true }, notify: { header: 'Notify on new posts', default: false }, languages: { header: 'Languages', default: nil }, delivery: { header: 'Delivery to home', default: true })
+    end
+  end
+
+  # Overwrite mode for follow imports: unfollow every account the importer
+  # currently follows that is not present in the import CSV. The follow additions
+  # (including re-follows that only update options) are handled by the batch
+  # executor, so only removals are enqueued here.
+  def enqueue_follow_overwrite_unfollows!
+    local_suffix = "@#{Rails.configuration.x.local_domain}"
+    import_accts = @data.take(ROWS_PROCESSING_LIMIT).filter_map { |row| row['Account address']&.strip&.delete_suffix(local_suffix).presence }.to_set
+
+    @account.following.find_each do |followee|
+      next if import_accts.include?(followee.acct)
+
+      Import::RelationshipWorker.perform_async(@account.id, followee.acct, 'unfollow', {})
+    end
   end
 
   # Record the follow-import target set into the moderation ledger before the

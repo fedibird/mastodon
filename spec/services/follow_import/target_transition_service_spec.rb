@@ -170,4 +170,36 @@ RSpec.describe FollowImport::TargetTransitionService do
       expect(target.state).to eq 'delivery_failed'
     end
   end
+
+  describe '#release_queued_claim' do
+    it 'rolls a claimed (queued) target back to pending and clears queued_at' do
+      target = new_target
+      service.mark_queued(target)
+      expect(target.reload.state).to eq 'queued'
+
+      service.release_queued_claim(target)
+
+      target.reload
+      expect(target.state).to eq 'pending'
+      expect(target.queued_at).to be_nil
+    end
+
+    it 'refuses to release a target that has advanced past queued' do
+      target = new_target
+      service.mark_queued(target)
+      service.mark_awaiting_response(target, follow_request_uri: 'https://local.test/x', response_deadline_at: 1.day.from_now)
+
+      service.release_queued_claim(target)
+
+      expect(target.reload.state).to eq 'awaiting_response'
+    end
+
+    it 'is a no-op for a still-pending target' do
+      target = new_target
+
+      service.release_queued_claim(target)
+
+      expect(target.reload.state).to eq 'pending'
+    end
+  end
 end

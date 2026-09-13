@@ -12,4 +12,48 @@ RSpec.describe FollowImport::ExecutionPolicy do
     from = Time.utc(2026, 1, 1, 0, 0, 0)
     expect(described_class.response_deadline_at(from)).to eq(from + described_class.response_wait)
   end
+
+  describe 'execution pacing knobs' do
+    it 'defaults the batch size and reschedule interval to positive values' do
+      expect(described_class.execution_batch_size).to be > 0
+      expect(described_class.execution_reschedule_in).to be_a(ActiveSupport::Duration)
+      expect(described_class.execution_reschedule_in).to be > 0
+    end
+
+    it 'reads a positive batch size override from the environment' do
+      ClimateControl.modify FOLLOW_IMPORT_EXECUTION_BATCH_SIZE: '7' do
+        expect(described_class.execution_batch_size).to eq 7
+      end
+    end
+
+    it 'ignores a non-positive batch size override' do
+      ClimateControl.modify FOLLOW_IMPORT_EXECUTION_BATCH_SIZE: '0' do
+        expect(described_class.execution_batch_size).to eq described_class::DEFAULT_BATCH_SIZE
+      end
+    end
+
+    it 'reads a positive reschedule interval override from the environment' do
+      ClimateControl.modify FOLLOW_IMPORT_EXECUTION_INTERVAL: '120' do
+        expect(described_class.execution_reschedule_in).to eq 120.seconds
+      end
+    end
+  end
+
+  describe '.gate_enforcement_enabled?' do
+    it 'is disabled by default' do
+      expect(described_class.gate_enforcement_enabled?).to be false
+    end
+
+    it 'is enabled only when the explicit flag is set to true' do
+      ClimateControl.modify FOLLOW_IMPORT_GATE_ENFORCEMENT: 'true' do
+        expect(described_class.gate_enforcement_enabled?).to be true
+      end
+    end
+
+    it 'stays disabled for any other flag value' do
+      ClimateControl.modify FOLLOW_IMPORT_GATE_ENFORCEMENT: '1' do
+        expect(described_class.gate_enforcement_enabled?).to be false
+      end
+    end
+  end
 end

@@ -212,75 +212,63 @@ RSpec.describe ImportService, type: :service do
     end
   end
 
-  # Assert the follow-import -> batch-id propagation at ImportService's enqueue
-  # boundary, capturing the worker args it produces. This avoids executing the
-  # follows inline (that path renders a notification mailer needing a webpack
-  # manifest not built in the test env) and does not depend on Sidekiq's queue
-  # internals. The worker -> FollowService -> ledger legs are covered in
-  # relationship_worker_spec and interaction_hooks_spec.
-  context 'follow-import moderation ledger linkage' do
+  # Follow imports no longer bulk-enqueue every follow at ImportService time.
+  # They record the batch and hand execution to the DB-backed batch executor,
+  # which claims/paces the targets. These specs assert that handoff at the
+  # ImportService boundary; the executor -> RelationshipWorker -> FollowService
+  # -> ledger legs are covered in batch_execution_worker_spec,
+  # relationship_worker_spec, and interaction_hooks_spec.
+  context 'follow-import controlled execution' do
     subject { ImportService.new }
 
-    # Inline CSV (no trailing blank row) so the generic import_relationships!
-    # loop enqueues both targets; a trailing blank row trips its existing
-    # `return if key.blank?` guard, which is unrelated to this change.
     let(:csv_text) { "Account address,Show boosts\nbob,true\neve@example.com,false" }
     let(:import)   { Import.create(account: account, type: 'following', data: attachment_fixture('new-following-imports.txt')) }
-
-    # Capture every relationship-worker enqueue (both perform_async and the
-    # push_bulk block form) as plain args arrays.
-    def capture_enqueues!
-      captured = []
-      allow(Import::RelationshipWorker).to receive(:perform_async) { |*args| captured << args }
-      allow(Import::RelationshipWorker).to receive(:push_bulk) do |items, &block|
-        items.each { |item| captured << block.call(item) }
-      end
-      captured
-    end
 
     before do
       allow_any_instance_of(described_class).to receive(:import_data).and_return(csv_text)
     end
 
-    it 'stamps the FollowImportBatch id onto every follow it enqueues' do
-      captured = capture_enqueues!
+    it 'records the batch and hands the follow set to the batch executor instead of a bulk enqueue' do
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      expect(Import::RelationshipWorker).not_to receive(:push_bulk)
 
       subject.call(import)
 
       batch = FollowImportBatch.find_by(import_id: import.id)
       expect(batch).to be_present
-
-      follow_args = captured.select { |args| args[2] == 'follow' }
-      # bob (local) and eve (remote) are both followed by this import.
-      expect(follow_args.size).to eq 2
-      expect(follow_args.map { |args| args[3]['import_batch_id'] }.uniq).to eq [batch.id]
+      # One target per execution unit (bob local + eve remote).
+      expect(batch.targets.count).to eq 2
+      expect(FollowImport::BatchExecutionWorker).to have_received(:perform_async).with(batch.id)
     end
 
-    it 'stamps each follow with its exact FollowImportTarget id' do
-      captured = capture_enqueues!
+    it 'unfollows current follows absent from the import when overwriting' do
+      other = Fabricate(:account, username: 'carol')
+      account.follow!(other)
 
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      captured = []
+      allow(Import::RelationshipWorker).to receive(:perform_async) { |*args| captured << args }
+
+      import.update!(overwrite: true)
       subject.call(import)
 
-      batch  = FollowImportBatch.find_by(import_id: import.id)
-      bob_id = batch.targets.find { |t| t.target_subject.account_id == bob.id }.id
-      eve_id = batch.targets.find { |t| t.target_subject.account_id == eve.id }.id
-
-      follow_args = captured.select { |args| args[2] == 'follow' }
-      by_acct = follow_args.index_by { |args| args[1] }
-
-      expect(by_acct['bob'][3]['follow_import_target_id']).to eq bob_id
-      expect(by_acct['eve@example.com'][3]['follow_import_target_id']).to eq eve_id
-      # Every target row corresponds to exactly one enqueued execution unit.
-      expect(follow_args.map { |args| args[3]['follow_import_target_id'] }).to match_array(batch.targets.map(&:id))
+      unfollows = captured.select { |args| args[2] == 'unfollow' }
+      expect(unfollows.map { |args| args[1] }).to include('carol')
     end
 
-    it 'omits import_batch_id from the enqueued follows when batch recording failed, without raising' do
+    it 'falls back to a direct bulk enqueue when batch recording failed, without ledger linkage' do
       allow(Moderation::FollowImportRecorder).to receive(:record_batch).and_return(nil)
-      captured = capture_enqueues!
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+
+      pushed = []
+      allow(Import::RelationshipWorker).to receive(:push_bulk) do |items, &block|
+        items.each { |item| pushed << block.call(item) }
+      end
 
       expect { subject.call(import) }.to_not raise_error
 
-      follow_args = captured.select { |args| args[2] == 'follow' }
+      expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+      follow_args = pushed.select { |args| args[2] == 'follow' }
       expect(follow_args).to be_present
       follow_args.each { |args| expect(args[3]).to_not have_key('import_batch_id') }
     end

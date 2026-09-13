@@ -5,6 +5,9 @@ class RejectFollowService < BaseService
 
   def call(source_account, target_account)
     follow_request = FollowRequest.find_by!(account: source_account, target_account: target_account)
+    # Correlate a follow-import target (if any) before reject! destroys the
+    # request. Covers the local-rejection path; failure-tolerant.
+    FollowImport::TargetResponseCorrelator.rejected(follow_request)
     follow_request.reject!
     create_notification(follow_request) if !source_account.local? && source_account.activitypub?
 

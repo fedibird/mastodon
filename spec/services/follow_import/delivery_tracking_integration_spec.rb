@@ -66,6 +66,21 @@ RSpec.describe 'FollowService follow-import delivery tracking' do
     expect(args.last['delivery_tracking']).to eq({ 'type' => 'follow_import_target', 'id' => import_target.id })
   end
 
+  it 'still persists the correlation URI when the target was already claimed (queued) by the executor' do
+    # The controlled executor claims (pending -> queued) before enqueuing the
+    # follow, so mark_queued here is a no-op; the URI must still be persisted.
+    FollowImport::TargetTransitionService.new.mark_queued(import_target)
+
+    args = capture_delivery do
+      FollowService.new.call(source, target, import_batch_id: batch.id, follow_import_target_id: import_target.id)
+    end
+
+    import_target.reload
+    expect(import_target.state).to eq 'queued'
+    expect(import_target.follow_request_uri).to be_present
+    expect(args.last['delivery_tracking']).to eq({ 'type' => 'follow_import_target', 'id' => import_target.id })
+  end
+
   it 'ignores a target id that belongs to a different batch (fails closed)' do
     other_batch = FollowImportBatch.create!(subject: Fabricate(:moderation_subject), imported_at: Time.now.utc, mode: :merge,
                                             target_count: 0, resolved_target_count: 0, unresolved_target_count: 0)

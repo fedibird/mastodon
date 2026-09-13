@@ -8,6 +8,9 @@ class AuthorizeFollowService < BaseService
       follow_request = FollowRequest.new(account: source_account, target_account: target_account, uri: options[:follow_request_uri])
     else
       follow_request = FollowRequest.find_by!(account: source_account, target_account: target_account)
+      # Correlate a follow-import target (if any) before authorize! destroys the
+      # request. Covers the local-approval path; failure-tolerant.
+      FollowImport::TargetResponseCorrelator.accepted(follow_request)
       follow_request.authorize!
     end
 

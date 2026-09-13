@@ -74,6 +74,23 @@ module FollowImport
                  timestamps: { 'completed_at' => at })
     end
 
+    # Narrowly-scoped recovery for the claim/enqueue window ONLY. The batch
+    # executor persists pending -> queued to claim a target BEFORE enqueuing its
+    # work; if that enqueue then fails, the claim must be released so a retry can
+    # reselect (only `pending` targets are claimable). This is the sole backwards
+    # transition and is deliberately not part of ALLOWED_TRANSITIONS: it rolls
+    # queued -> pending and refuses if the target has already advanced past queued
+    # (someone is handling it) or is not queued.
+    def release_queued_claim(target)
+      target.with_lock do
+        return target unless target.state == 'queued'
+
+        target.update!(state: 'pending', queued_at: nil)
+      end
+
+      target
+    end
+
     # Delivery-attempt bookkeeping is not a state transition; each (re)attempt
     # bumps the counter under a row lock.
     def record_delivery_attempt(target)
