@@ -1,0 +1,12 @@
+<%= t 'user_mailer.follow_import_finished.title' %>
+
+===
+
+<%= t 'user_mailer.follow_import_finished.explanation' %>
+
+<%= t('user_mailer.follow_import_finished.summary.processed', count: @summary['processed'], total: @summary['total']) %>
+<% if @summary['failed'].to_i.positive? %>
+<%= t('user_mailer.follow_import_finished.summary.failed', count: @summary['failed']) %>
+<% end %>
+
+=> <%= settings_import_url %>

@@ -13,3 +13,28 @@
 
   .actions
     = f.button :button, t('imports.upload'), type: :submit
+
+- if @follow_import_progress_rows.present?
+  %hr.spacer/
+
+  %h4= t('imports.follow_progress.title')
+  %p.hint= t('imports.follow_progress.hint')
+
+  .table-wrapper
+    %table.table
+      %thead
+        %tr
+          %th= t('imports.follow_progress.imported_at')
+          %th= t('imports.follow_progress.status_column')
+          %th= t('imports.follow_progress.processed')
+          %th= t('imports.follow_progress.waiting')
+          %th= t('imports.follow_progress.failed')
+      %tbody
+        - @follow_import_progress_rows.each do |row|
+          - summary = row[:summary]
+          %tr
+            %td= l(row[:occurred_at])
+            %td= follow_import_status_label(summary)
+            %td= follow_import_processed_label(summary)
+            %td= follow_import_count_label(summary, 'waiting')
+            %td= follow_import_count_label(summary, 'failed')
