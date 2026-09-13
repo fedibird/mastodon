@@ -72,6 +72,11 @@ class FollowService < BaseService
         target_account: @target_account,
         mechanism: shadow_follow_mechanism
       )
+
+      # Drive the execution state of a LOCAL follow-import target to a reachable
+      # terminal (remote targets are tracked inside request_follow! via delivery
+      # tracking + inbound Accept/Reject).
+      track_local_follow_import_target(follow)
     end
 
     follow
@@ -227,6 +232,40 @@ class FollowService < BaseService
     return if uri.blank? || target.follow_request_uri.present?
 
     target.update!(follow_request_uri: uri)
+  end
+
+  # Local follow-import targets have no remote delivery round-trip, so their
+  # execution state is settled here rather than by delivery tracking:
+  #
+  #   * direct_follow! (unlocked) established the follow immediately -> accepted.
+  #   * a local FollowRequest (locked/silenced) awaits the recipient's decision
+  #     -> awaiting_response, correlated by follow_request_uri so a local approval
+  #     (AuthorizeFollowService) becomes accepted and a rejection
+  #     (RejectFollowService) becomes rejected, exactly like the remote path. The
+  #     periodic sweeper completes it if no decision ever arrives.
+  #
+  # Failure-tolerant: never breaks the follow.
+  def track_local_follow_import_target(follow)
+    return unless @target_account.local?
+
+    target = resolve_follow_import_target
+    return if target.nil?
+
+    backfill_follow_import_target_subject(target)
+    transitions = FollowImport::TargetTransitionService.new
+    transitions.mark_queued(target)
+
+    if follow.is_a?(FollowRequest)
+      transitions.mark_awaiting_response(
+        target,
+        follow_request_uri: follow.uri,
+        response_deadline_at: FollowImport::ExecutionPolicy.response_deadline_at
+      )
+    else
+      transitions.mark_accepted(target)
+    end
+  rescue StandardError => e
+    Rails.logger.warn("[FollowService] local follow-import target tracking failed: #{e.class}: #{e.message}")
   end
 
   def direct_follow!
