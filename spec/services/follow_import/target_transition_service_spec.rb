@@ -152,6 +152,31 @@ RSpec.describe FollowImport::TargetTransitionService do
     end
   end
 
+  describe 'batch completion persistence' do
+    it 'records batch completion when the last target becomes terminal' do
+      first  = batch.targets.create!(target_subject: Fabricate(:moderation_subject), position: 0)
+      second = batch.targets.create!(target_subject: Fabricate(:moderation_subject), position: 1)
+
+      service.transition(first, 'awaiting_response')
+      service.mark_accepted(first)
+      expect(batch.reload.completion_recorded?).to be false
+
+      service.transition(second, 'awaiting_response')
+      service.mark_rejected(second)
+      expect(batch.reload.completion_recorded?).to be true
+    end
+
+    it 'does not record completion while a non-terminal target remains' do
+      target   = new_target
+      leftover = batch.targets.create!(target_subject: Fabricate(:moderation_subject), position: 1)
+
+      service.mark_delivery_failed(target)
+
+      expect(leftover.reload.terminal?).to be false
+      expect(batch.reload.completion_recorded?).to be false
+    end
+  end
+
   describe 'delivery bookkeeping' do
     it 'records delivery attempts without changing state' do
       target = new_target

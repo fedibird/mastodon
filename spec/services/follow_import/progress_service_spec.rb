@@ -78,4 +78,57 @@ RSpec.describe FollowImport::ProgressService do
     target_in(:accepted, 0)
     expect(service.call(batch.id)['accepted']).to eq 1
   end
+
+  describe '#user_summary' do
+    before do
+      target_in(:pending, 0)           # waiting
+      target_in(:awaiting_response, 1) # waiting
+      target_in(:accepted, 2)          # processed
+      target_in(:rejected, 3)          # processed
+      target_in(:delivery_failed, 4)   # processed + failed
+    end
+
+    it 'exposes only coarse buckets (no internal state / gate / risk detail)' do
+      summary = service.user_summary(batch)
+
+      expect(summary.keys).to match_array(%w(total processed waiting failed completed preparing))
+      expect(summary['preparing']).to be false
+      expect(summary['total']).to eq 5
+      expect(summary['processed']).to eq 3
+      expect(summary['waiting']).to eq 2
+      expect(summary['failed']).to eq 2 # rejected + delivery_failed; completed_no_response is not a failure
+      expect(summary['completed']).to be false
+    end
+
+    it 'counts rejected as failed (could not be followed) and leaves completed_no_response neutral' do
+      batch.targets.delete_all
+      target_in(:accepted, 0)
+      target_in(:rejected, 1)
+      target_in(:completed_no_response, 2)
+
+      summary = service.user_summary(batch)
+
+      expect(summary['total']).to eq 3
+      expect(summary['processed']).to eq 3
+      expect(summary['failed']).to eq 1
+      expect(summary['completed']).to be true
+    end
+
+    it 'reports completed when every target is terminal' do
+      batch.targets.where(state: %i(pending awaiting_response)).update_all(state: FollowImportTarget.states[:accepted])
+
+      expect(service.user_summary(batch)['completed']).to be true
+    end
+  end
+
+  describe '#preparing_summary' do
+    it 'never treats a pre-batch import as completed and leaves counts unknown' do
+      summary = service.preparing_summary
+
+      expect(summary['preparing']).to be true
+      expect(summary['completed']).to be false
+      expect(summary['total']).to be_nil
+      expect(summary['waiting']).to be_nil
+    end
+  end
 end

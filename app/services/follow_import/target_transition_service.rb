@@ -104,6 +104,7 @@ module FollowImport
     # callbacks cannot corrupt the source-of-truth state.
     def transition(target, to, attributes: {}, timestamps: {})
       to = to.to_s
+      applied = false
 
       target.with_lock do
         from = target.state
@@ -111,9 +112,23 @@ module FollowImport
         return target unless Array(ALLOWED_TRANSITIONS[from]).include?(to)
 
         target.update!({ 'state' => to }.merge(attributes).merge(timestamps))
+        applied = true
       end
 
+      persist_batch_completion(target, timestamps['completed_at'] || Time.now.utc) if applied && FollowImportTarget::TERMINAL_STATES.include?(to)
+
       target
+    end
+
+    private
+
+    # When the last target settles, persist batch completion so the notification
+    # sweeper can find it without an imported_at window. Failure-tolerant: the
+    # target row is already the source of truth; the sweeper can backfill.
+    def persist_batch_completion(target, at)
+      target.batch.record_completion_if_settled!(at)
+    rescue StandardError => e
+      Rails.logger.warn("[FollowImport::TargetTransitionService] failed to record batch completion for target #{target.id}: #{e.class}: #{e.message}")
     end
   end
 end
