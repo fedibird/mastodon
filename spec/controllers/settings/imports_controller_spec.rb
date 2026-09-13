@@ -12,6 +12,27 @@ RSpec.describe Settings::ImportsController, type: :controller do
       get :show
       expect(response).to have_http_status(200)
     end
+
+    it 'renders recent follow-import progress for the current account' do
+      # Render the settings/admin layout without the compiled webpack manifest
+      # (not built in this test env; CI precompiles packs). Stub the manifest
+      # lookup at its single root so every pack helper resolves to a dummy path.
+      manifest = Webpacker.instance.manifest
+      resolver = ->(name, **opts) { opts[:with_integrity] ? ["/packs-test/#{name}", nil] : "/packs-test/#{name}" }
+      allow(manifest).to receive(:lookup!, &resolver)
+      allow(manifest).to receive(:lookup, &resolver)
+
+      user = Fabricate(:user)
+      sign_in user, scope: :user
+      batch = FollowImportBatch.create!(subject: ModerationSubject.for_account!(user.account), imported_at: Time.now.utc,
+                                        mode: :merge, target_count: 0, resolved_target_count: 0, unresolved_target_count: 0)
+      batch.targets.create!(target_subject: Fabricate(:moderation_subject), position: 0, state: :accepted)
+
+      get :show
+
+      expect(response).to have_http_status(200)
+      expect(response.body).to include(I18n.t('imports.follow_progress.title'))
+    end
   end
 
   describe 'POST #create' do

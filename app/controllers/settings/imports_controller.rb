@@ -1,10 +1,13 @@
 # frozen_string_literal: true
 
 class Settings::ImportsController < Settings::BaseController
+  RECENT_FOLLOW_IMPORTS = 10
+
   before_action :set_account
 
   def show
     @import = Import.new
+    @follow_import_batches = recent_follow_import_batches
   end
 
   def create
@@ -23,6 +26,14 @@ class Settings::ImportsController < Settings::BaseController
 
   def set_account
     @account = current_user.account
+  end
+
+  def recent_follow_import_batches
+    FollowImportBatch
+      .joins(:subject)
+      .where(moderation_subjects: { account_id: @account.id })
+      .order(imported_at: :desc)
+      .limit(RECENT_FOLLOW_IMPORTS)
   end
 
   def import_params

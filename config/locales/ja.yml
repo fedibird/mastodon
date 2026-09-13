@@ -1349,6 +1349,18 @@ ja:
   imports:
     errors:
       over_rows_processing_limit: "%{count} 行以上"
+    follow_progress:
+      failed: 失敗
+      hint: フォローのインポートはバックグラウンドで順次処理されます。最近のフォローインポートの進捗状況を表示します。
+      imported_at: インポート日時
+      processed: 処理済み
+      processed_of: "%{total}件中%{count}件"
+      status:
+        completed: 完了
+        in_progress: 処理中
+      status_column: 状態
+      title: 最近のフォローインポート
+      waiting: 待機中
     modes:
       merge: 統合
       merge_long: 現在のレコードを保持したまま新しいものを追加します
