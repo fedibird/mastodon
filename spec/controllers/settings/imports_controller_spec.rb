@@ -61,5 +61,25 @@ RSpec.describe Settings::ImportsController, type: :controller do
 
       expect(response).to redirect_to(settings_import_path)
     end
+
+    it 'routes a follow import to the retryable follow-import processor' do
+      allow(FollowImport::ProcessImportWorker).to receive(:perform_async)
+      allow(ImportWorker).to receive(:perform_async)
+
+      post :create, params: { import: { type: 'following', data: fixture_file_upload('imports.txt') } }
+
+      expect(FollowImport::ProcessImportWorker).to have_received(:perform_async)
+      expect(ImportWorker).not_to have_received(:perform_async)
+    end
+
+    it 'routes a non-follow import to ImportWorker' do
+      allow(FollowImport::ProcessImportWorker).to receive(:perform_async)
+      allow(ImportWorker).to receive(:perform_async)
+
+      post :create, params: { import: { type: 'blocking', data: fixture_file_upload('imports.txt') } }
+
+      expect(ImportWorker).to have_received(:perform_async)
+      expect(FollowImport::ProcessImportWorker).not_to have_received(:perform_async)
+    end
   end
 end
