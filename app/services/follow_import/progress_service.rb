@@ -44,11 +44,26 @@ module FollowImport
       progress = call(batch_or_id)
 
       {
-        'total'     => progress['total'],
-        'processed' => progress['processed'],
-        'waiting'   => progress['remaining'],
-        'failed'    => progress['delivery_failed'],
-        'completed' => progress['completed'],
+        'total'      => progress['total'],
+        'processed'  => progress['processed'],
+        'waiting'    => progress['remaining'],
+        'failed'     => progress['delivery_failed'],
+        'completed'  => progress['completed'],
+        'preparing'  => false,
+      }
+    end
+
+    # Pre-batch phase: a follow Import exists (CSV retained through processor
+    # retries and watchdog recovery) but no FollowImportBatch has been recorded.
+    # Counts are unknown. Never treat absence of a batch as completed.
+    def preparing_summary
+      {
+        'total'     => nil,
+        'processed' => 0,
+        'waiting'   => nil,
+        'failed'    => 0,
+        'completed' => false,
+        'preparing' => true,
       }
     end
 

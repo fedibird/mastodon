@@ -1411,6 +1411,8 @@ en:
       status:
         completed: Completed
         in_progress: In progress
+        preparing: Preparing
+      unknown: "—"
       status_column: Status
       title: Recent follow imports
       waiting: Waiting

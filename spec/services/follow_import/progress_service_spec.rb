@@ -91,7 +91,8 @@ RSpec.describe FollowImport::ProgressService do
     it 'exposes only coarse buckets (no internal state / gate / risk detail)' do
       summary = service.user_summary(batch)
 
-      expect(summary.keys).to match_array(%w(total processed waiting failed completed))
+      expect(summary.keys).to match_array(%w(total processed waiting failed completed preparing))
+      expect(summary['preparing']).to be false
       expect(summary['total']).to eq 5
       expect(summary['processed']).to eq 3
       expect(summary['waiting']).to eq 2
@@ -103,6 +104,17 @@ RSpec.describe FollowImport::ProgressService do
       batch.targets.where(state: %i(pending awaiting_response)).update_all(state: FollowImportTarget.states[:accepted])
 
       expect(service.user_summary(batch)['completed']).to be true
+    end
+  end
+
+  describe '#preparing_summary' do
+    it 'never treats a pre-batch import as completed and leaves counts unknown' do
+      summary = service.preparing_summary
+
+      expect(summary['preparing']).to be true
+      expect(summary['completed']).to be false
+      expect(summary['total']).to be_nil
+      expect(summary['waiting']).to be_nil
     end
   end
 end

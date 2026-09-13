@@ -3,7 +3,9 @@
 # Notifies importers when their follow-import batch has finished processing.
 #
 # Completion is detected from the target rows (the source of truth), not from the
-# Sidekiq queue: a batch is done when every target has reached a terminal state.
+# Sidekiq queue or Import lifetime: a batch is done when every target has reached
+# a terminal state. A follow Import with no FollowImportBatch is still preparing
+# (processor retries / watchdog recovery) and is never treated as complete.
 # Because completion can arrive via delivery tracking, inbound Accept/Reject, or
 # the response-timeout sweep — none of which is a single choke point — this runs
 # periodically, finds recently-imported, not-yet-notified batches that are now

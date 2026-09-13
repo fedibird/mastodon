@@ -1358,6 +1358,8 @@ ja:
       status:
         completed: 完了
         in_progress: 処理中
+        preparing: 準備中
+      unknown: "—"
       status_column: 状態
       title: 最近のフォローインポート
       waiting: 待機中

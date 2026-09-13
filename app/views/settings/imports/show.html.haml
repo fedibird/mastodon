@@ -14,7 +14,7 @@
   .actions
     = f.button :button, t('imports.upload'), type: :submit
 
-- if @follow_import_batches.present?
+- if @follow_import_progress_rows.present?
   %hr.spacer/
 
   %h4= t('imports.follow_progress.title')
@@ -30,11 +30,11 @@
           %th= t('imports.follow_progress.waiting')
           %th= t('imports.follow_progress.failed')
       %tbody
-        - @follow_import_batches.each do |batch|
-          - summary = follow_import_progress(batch)
+        - @follow_import_progress_rows.each do |row|
+          - summary = row[:summary]
           %tr
-            %td= l(batch.imported_at)
+            %td= l(row[:occurred_at])
             %td= follow_import_status_label(summary)
-            %td= t('imports.follow_progress.processed_of', count: summary['processed'], total: summary['total'])
-            %td= number_with_delimiter(summary['waiting'])
-            %td= number_with_delimiter(summary['failed'])
+            %td= follow_import_processed_label(summary)
+            %td= follow_import_count_label(summary, 'waiting')
+            %td= follow_import_count_label(summary, 'failed')

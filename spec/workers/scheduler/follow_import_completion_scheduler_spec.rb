@@ -34,6 +34,14 @@ RSpec.describe Scheduler::FollowImportCompletionScheduler do
     expect(batch.reload.completion_notified?).to be true
   end
 
+  it 'does not treat a follow import with no batch as completed' do
+    Import.create!(account: account, type: 'following', data: attachment_fixture('new-following-imports.txt'))
+
+    worker.perform
+
+    expect(UserMailer).not_to have_received(:follow_import_finished)
+  end
+
   it 'does not notify a batch that is still in progress' do
     batch = batch_for(account)
     add_target(batch, :accepted, 0)
