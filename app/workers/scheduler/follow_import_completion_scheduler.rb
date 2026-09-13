@@ -8,9 +8,10 @@
 # (processor retries / watchdog recovery) and is never treated as complete.
 # Because completion can arrive via delivery tracking, inbound Accept/Reject, or
 # the response-timeout sweep — none of which is a single choke point — this runs
-# periodically, finds recently-imported, not-yet-notified batches that are now
-# complete, emails the importer a summary, and records that it notified so the
-# batch is not considered again.
+# periodically, finds not-yet-notified batches that have a durable/recent
+# completion signal (persisted completed_at, or all targets terminal with a
+# recent last-target completion — never imported_at), emails the importer a
+# summary, and records that it notified so the batch is not considered again.
 #
 # Bookkeeping/notification only: it never changes execution or the ledger.
 class Scheduler::FollowImportCompletionScheduler
@@ -19,6 +20,8 @@ class Scheduler::FollowImportCompletionScheduler
   sidekiq_options retry: 0
 
   BATCH_LIMIT = 500
+  # Discovery window for not-yet-persisted settlement (MAX target completed_at),
+  # not import age. Persisted completed_at stays eligible with no time bound.
   LOOKBACK    = 30.days
 
   def perform
@@ -29,6 +32,7 @@ class Scheduler::FollowImportCompletionScheduler
     FollowImportBatch.awaiting_completion_notification(now - LOOKBACK).order(:imported_at).limit(BATCH_LIMIT).each do |batch|
       next unless progress.call(batch)['completed']
 
+      batch.record_completion!(now) unless batch.completion_recorded?
       notify_completion(batch, progress)
       notified += 1
     end

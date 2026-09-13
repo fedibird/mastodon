@@ -30,8 +30,9 @@ RSpec.describe Scheduler::FollowImportCompletionScheduler do
 
     worker.perform
 
-    expect(UserMailer).to have_received(:follow_import_finished).with(user, batch, hash_including('total' => 2, 'processed' => 2))
+    expect(UserMailer).to have_received(:follow_import_finished).with(user, batch, hash_including('total' => 2, 'processed' => 2, 'failed' => 1))
     expect(batch.reload.completion_notified?).to be true
+    expect(batch.completion_recorded?).to be true
   end
 
   it 'does not treat a follow import with no batch as completed' do
@@ -63,14 +64,37 @@ RSpec.describe Scheduler::FollowImportCompletionScheduler do
     expect(UserMailer).not_to have_received(:follow_import_finished)
   end
 
-  it 'ignores batches imported before the lookback window' do
+  it 'notifies a batch that finishes more than 30 days after imported_at' do
     batch = batch_for(account, imported_at: 45.days.ago)
     add_target(batch, :accepted, 0)
 
     worker.perform
 
+    expect(UserMailer).to have_received(:follow_import_finished)
+    expect(batch.reload.completion_notified?).to be true
+  end
+
+  it 'does not notify an old import that is still waiting on a deferred target' do
+    batch = batch_for(account, imported_at: 45.days.ago)
+    add_target(batch, :accepted, 0)
+    add_target(batch, :pending, 1)
+
+    worker.perform
+
     expect(UserMailer).not_to have_received(:follow_import_finished)
     expect(batch.reload.completion_notified?).to be false
+  end
+
+  it 'notifies a late-finishing batch whose completion was persisted after the lookback' do
+    batch = batch_for(account, imported_at: 90.days.ago)
+    target = add_target(batch, :accepted, 0)
+    target.update_columns(completed_at: 45.days.ago, updated_at: 45.days.ago)
+    batch.record_completion!(45.days.ago)
+
+    worker.perform
+
+    expect(UserMailer).to have_received(:follow_import_finished)
+    expect(batch.reload.completion_notified?).to be true
   end
 
   it 'marks a completed batch notified even when the importer account is gone (no email)' do

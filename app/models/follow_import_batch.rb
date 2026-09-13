@@ -38,22 +38,62 @@ class FollowImportBatch < ApplicationRecord
   validates :target_count, :resolved_target_count, :unresolved_target_count, numericality: { greater_than_or_equal_to: 0 }
   validates :import_id, uniqueness: { allow_nil: true }
 
+  COMPLETED_AT_KEY        = 'completed_at'
   COMPLETION_NOTIFIED_KEY = 'completion_notified_at'
 
-  # Recent batches whose completion has not yet been notified. Bounded by an
-  # imported_at window so the completion sweeper never rescans abandoned/never-
-  # completing batches forever. `metadata` is not indexed for this predicate, but
-  # the imported_at window keeps the candidate set small.
+  # Un-notified batches that are eligible for a completion email. Bounded by a
+  # completion signal, never by imported_at: PR C can leave targets pending for
+  # a later recheck, so a batch may validly finish long after import. Candidates
+  # are either already persisted as complete, or recently settled (every target
+  # terminal and the latest target completion is inside +since+). Never-finishing
+  # batches stay out of both sets.
   scope :awaiting_completion_notification, ->(since) {
-    where('(metadata ->> :key) IS NULL', key: COMPLETION_NOTIFIED_KEY).where('imported_at >= ?', since)
+    where('(metadata ->> :notified) IS NULL', notified: COMPLETION_NOTIFIED_KEY)
+      .merge(
+        where('(metadata ->> :completed) IS NOT NULL', completed: COMPLETED_AT_KEY)
+          .or(where(id: recently_settled_batch_ids(since)))
+      )
   }
+
+  def self.recently_settled_batch_ids(since)
+    terminal = FollowImportTarget.states.values_at(*FollowImportTarget::TERMINAL_STATES)
+    FollowImportTarget
+      .group(:batch_id)
+      .having('COUNT(*) > 0')
+      .having('SUM(CASE WHEN state NOT IN (?) THEN 1 ELSE 0 END) = 0', terminal)
+      .having('MAX(COALESCE(completed_at, updated_at)) >= ?', since)
+      .select(:batch_id)
+  end
 
   def for_account
     subject&.account
   end
 
+  def completion_recorded?
+    metadata[COMPLETED_AT_KEY].present?
+  end
+
   def completion_notified?
     metadata[COMPLETION_NOTIFIED_KEY].present?
+  end
+
+  # Durable "this batch has finished" mark. Written when the last target becomes
+  # terminal (and as a sweeper backfill) so a late finish stays email-eligible
+  # even after the recent-settlement lookback. Does not overwrite a first time.
+  def record_completion!(at = Time.now.utc)
+    return if completion_recorded?
+
+    update!(metadata: metadata.merge(COMPLETED_AT_KEY => at.utc.iso8601))
+  end
+
+  def record_completion_if_settled!(at = Time.now.utc)
+    with_lock do
+      return if completion_recorded?
+      return unless targets.exists?
+      return if targets.non_terminal.exists?
+
+      record_completion!(at)
+    end
   end
 
   def mark_completion_notified!(at = Time.now.utc)
