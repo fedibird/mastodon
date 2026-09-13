@@ -22,7 +22,8 @@
 #   * Read-only, versioned & auditable — policy_version + params_digest identify
 #     the policy; matched_rules carry each firing condition's value + minimum.
 #
-# Thresholds in DEFAULT_PARAMS are INITIAL and UNCALIBRATED (and injectable).
+# Thresholds in DEFAULT_PARAMS are injectable. v1 calibrated delay routing
+# (velocity alone stays at rate_limit); other numbers remain initial.
 module Moderation
   class AdaptiveFollowGateDecisionService
     POLICY_VERSION = 'follow-gate-decision-v1-2026-09-13'
