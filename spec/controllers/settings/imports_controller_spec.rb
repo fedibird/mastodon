@@ -26,7 +26,6 @@ RSpec.describe Settings::ImportsController, type: :controller do
     end
 
     it 'renders recent follow-import progress for the current account' do
-
       user = Fabricate(:user)
       sign_in user, scope: :user
       batch = FollowImportBatch.create!(subject: ModerationSubject.for_account!(user.account), imported_at: Time.now.utc,
