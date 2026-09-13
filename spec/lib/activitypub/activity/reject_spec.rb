@@ -26,17 +26,18 @@ RSpec.describe ActivityPub::Activity::Reject do
     subject { described_class.new(json, sender) }
 
     context 'rejecting a pending follow request by target' do
-      before do
-        Fabricate(:follow_request, account: recipient, target_account: sender)
-        subject.perform
-      end
+      let!(:follow_request) { Fabricate(:follow_request, account: recipient, target_account: sender) }
+
+      before { subject.perform }
 
       it 'does not create a follow relationship' do
         expect(recipient.following?(sender)).to be false
       end
 
-      it 'removes the follow request' do
-        expect(recipient.requested?(sender)).to be false
+      it 'does not destroy a FollowRequest whose URI does not match the embedded Follow id' do
+        expect(follow_request.uri).to_not eq 'bar'
+        expect(recipient.requested?(sender)).to be true
+        expect(FollowRequest.exists?(id: follow_request.id)).to be true
       end
     end
 

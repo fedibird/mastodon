@@ -7,13 +7,15 @@ require 'rails_helper'
 # (activitypub_follow_reject:<Reject id>) rather than the destroyed record.
 #
 # Recording requires the Reject to correlate to a real outbound Follow from this
-# server. A live matching FollowRequest is sufficient. After that row is gone,
-# the embedded Follow id / bare URI must match a ModerationInteractionEvent
-# keyed activitypub_outbound_follow:<follow-id> whose local actor is the claimed
+# server. A live FollowRequest is sufficient only when follow_request_from_object
+# matches target_account + Follow URI. After that row is gone, the embedded
+# Follow id / bare URI must match a ModerationInteractionEvent keyed
+# activitypub_outbound_follow:<follow-id> whose local actor is the claimed
 # requester and whose target is the Reject sender. URI equality alone is not
-# enough. A protocol-level Reject that only acknowledges our own Undo(Follow)
-# (synthesized Follow id, no live request, no matching outbound-follow anchor)
-# must not be recorded as follow_reject.
+# enough, and a pair-only FollowRequest must not be treated as correlation. A
+# protocol-level Reject that only acknowledges our own Undo(Follow) (synthesized
+# Follow id, no matching outbound-follow anchor) must not be recorded as
+# follow_reject and must not destroy a newer FollowRequest for the same pair.
 RSpec.describe 'Inbound ActivityPub follow-reject moderation coverage', type: :model do
   let(:remote) { Fabricate(:account, domain: 'remote.example', uri: 'https://remote.example/users/bob', inbox_url: 'https://remote.example/inbox', protocol: :activitypub) }
   let(:local)  { Fabricate(:account) }
@@ -38,34 +40,21 @@ RSpec.describe 'Inbound ActivityPub follow-reject moderation coverage', type: :m
       }.with_indifferent_access
     end
 
-    before { Fabricate(:follow_request, account: local, target_account: remote) }
+    let!(:follow_request) { Fabricate(:follow_request, account: local, target_account: remote) }
 
-    it 'records a follow_reject rejection from the remote actor with a stable activity-identity key' do
-      expect { deliver(json) }.to change(ModerationRejectionEvent, :count).by(1)
+    it 'does not treat a pair-only FollowRequest as a genuine rejection when its URI does not match the embedded Follow id' do
+      expect(follow_request.uri).to_not eq 'https://remote.example/activities/follow-1'
 
-      event = ModerationRejectionEvent.order(:id).last
-      expect(event.event_type).to eq 'follow_reject'
-      expect(event.rejector_subject.account_id).to eq remote.id
-      expect(event.rejected_subject.account_id).to eq local.id
-      expect(event.source_event_key).to eq 'activitypub_follow_reject:https://remote.example/activities/reject-1'
-      expect(local.requested?(remote)).to be false
+      expect { deliver(json) }.to_not change(ModerationRejectionEvent, :count)
+      expect(FollowRequest.exists?(id: follow_request.id)).to be true
+      expect(local.requested?(remote)).to be true
+      expect(ModerationRejectionEvent.count).to eq 0
     end
 
-    it 'does not double-record on ordinary re-delivery' do
+    it 'does not record on re-delivery of a mismatched embedded Follow id' do
       deliver(json)
       expect { deliver(json) }.to_not change(ModerationRejectionEvent, :count)
-    end
-
-    it 'does not repair a missed ledger event when the embedded Follow id was never sent by us' do
-      allow(Moderation::EventRecorder).to receive(:record_rejection).and_return(nil)
-      deliver(json)
-
-      expect(local.requested?(remote)).to be false
-      expect(ModerationRejectionEvent.count).to eq 0
-
-      allow(Moderation::EventRecorder).to receive(:record_rejection).and_call_original
-      expect { deliver(json) }.to_not change(ModerationRejectionEvent, :count)
-      expect(ModerationRejectionEvent.count).to eq 0
+      expect(FollowRequest.exists?(id: follow_request.id)).to be true
     end
   end
 
@@ -224,6 +213,62 @@ RSpec.describe 'Inbound ActivityPub follow-reject moderation coverage', type: :m
       expect(metrics.dig('lifetime', 'follow_rejects_received')).to eq 0
       expect(metrics.dig('lifetime', 'first_negative_signal_at')).to be_nil
       expect(metrics.dig('lifetime', 'new_targets_after_first_negative_signal')).to eq 0
+    end
+  end
+
+  # Stale-ack race: A previously followed B, unfollowed, Misskey queued a
+  # synthetic Reject(Follow-old), then A followed B again. The old Reject must
+  # not destroy the new FollowRequest, mark its FollowImport target rejected, or
+  # write follow_reject.
+  context 'stale Misskey-style Reject after a newer FollowRequest for the same pair' do
+    before { allow(ActivityPub::DeliveryWorker).to receive(:perform_async) }
+
+    let(:json) do
+      {
+        '@context': 'https://www.w3.org/ns/activitystreams',
+        id: 'https://remote.example/activities/reject-stale-ack',
+        type: 'Reject',
+        actor: ActivityPub::TagManager.instance.uri_for(remote),
+        object: {
+          id: 'https://remote.example/follows/synthesized-without-request-id',
+          type: 'Follow',
+          actor: ActivityPub::TagManager.instance.uri_for(local),
+          object: ActivityPub::TagManager.instance.uri_for(remote),
+        },
+      }.with_indifferent_access
+    end
+
+    let!(:new_follow_request) do
+      FollowService.new.call(local, remote)
+      UnfollowService.new.call(local, remote)
+      FollowService.new.call(local, remote)
+    end
+    let!(:import_target) do
+      batch = FollowImportBatch.create!(
+        subject: ModerationSubject.for_account!(local),
+        imported_at: Time.now.utc,
+        mode: :merge,
+        target_count: 1,
+        resolved_target_count: 1,
+        unresolved_target_count: 0
+      )
+      target = batch.targets.create!(target_subject: ModerationSubject.for_account!(remote), position: 0)
+      transitions = FollowImport::TargetTransitionService.new
+      transitions.mark_queued(target, follow_request_uri: new_follow_request.uri)
+      transitions.mark_awaiting_response(target, follow_request_uri: new_follow_request.uri, response_deadline_at: 1.day.from_now)
+      target
+    end
+
+    it 'leaves the newer FollowRequest and its FollowImport target intact and records no follow_reject' do
+      expect(new_follow_request.uri).to_not eq 'https://remote.example/follows/synthesized-without-request-id'
+      expect(import_target.reload.state).to eq 'awaiting_response'
+
+      expect { deliver(json) }.to_not change(ModerationRejectionEvent, :count)
+
+      expect(FollowRequest.exists?(id: new_follow_request.id)).to be true
+      expect(local.requested?(remote)).to be true
+      expect(import_target.reload.state).to eq 'awaiting_response'
+      expect(ModerationRejectionEvent.where(event_type: :follow_reject).count).to eq 0
     end
   end
 

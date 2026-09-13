@@ -33,16 +33,13 @@ class ActivityPub::Activity::Reject < ActivityPub::Activity
 
     return if target_account.nil? || !target_account.local?
 
-    follow_request = FollowRequest.find_by(account: target_account, target_account: @account)
-    FollowImport::TargetResponseCorrelator.rejected(follow_request) if follow_request
-    follow_request&.reject!
-
-    # A live matching FollowRequest is itself proof we sent a Follow this remote
-    # is now rejecting. After that row is gone, record only when the embedded
-    # Follow id correlates to a real outbound Follow from this server — a
-    # protocol-level Reject that merely acknowledges our own Undo(Follow) does
-    # not carry a matching outbound-follow id and must not become follow_reject.
-    if follow_request || outbound_follow_anchor_for?(object_uri, claimed_requester: target_account)
+    # Do not look up or destroy a FollowRequest by account pair. perform already
+    # handled the exact URI match via follow_request_from_object, so a pair-only
+    # hit here is necessarily a URI mismatch — typically a stale protocol ack
+    # for an older Follow arriving after a newer request for the same pair.
+    # Record only when the embedded Follow id correlates to a real outbound
+    # Follow from this server (actor/target identity checks included).
+    if outbound_follow_anchor_for?(object_uri, claimed_requester: target_account)
       record_inbound_follow_reject(target_account)
     end
 
