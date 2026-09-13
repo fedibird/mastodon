@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_09_120001) do
+ActiveRecord::Schema.define(version: 2026_09_13_010002) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -574,7 +574,17 @@ ActiveRecord::Schema.define(version: 2026_09_09_120001) do
     t.jsonb "prior_relationship_state"
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
+    t.integer "state", default: 0, null: false
+    t.string "follow_request_uri"
+    t.datetime "queued_at"
+    t.datetime "delivered_at"
+    t.datetime "response_deadline_at"
+    t.datetime "completed_at"
+    t.integer "delivery_attempts", default: 0, null: false
+    t.string "failure_code"
+    t.index ["batch_id", "state"], name: "index_follow_import_targets_on_batch_and_state"
     t.index ["batch_id", "target_subject_id"], name: "index_follow_import_targets_on_batch_and_target"
+    t.index ["follow_request_uri"], name: "index_follow_import_targets_on_follow_request_uri", unique: true, where: "(follow_request_uri IS NOT NULL)"
     t.index ["target_key_hash"], name: "index_follow_import_targets_on_target_key_hash", where: "(target_key_hash IS NOT NULL)"
     t.index ["target_subject_id"], name: "index_follow_import_targets_on_target_subject", where: "(target_subject_id IS NOT NULL)"
   end
