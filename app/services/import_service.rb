@@ -32,16 +32,23 @@ class ImportService < BaseService
     batch = record_follow_import_batch!
 
     if batch
-      # Controlled, DB-backed execution. Overwrite removals (unfollows) run
-      # immediately; the follow set is executed in bounded, gate-observed passes
-      # driven from the recorded target rows (FollowImport::BatchExecutionWorker),
-      # not from one big bulk enqueue.
-      enqueue_follow_overwrite_unfollows! if @import.overwrite?
+      # Hand the follow set to the executor. If the enqueue fails (e.g. Sidekiq/
+      # Redis unavailable), let it BUBBLE: ImportWorker is retryable and will retry
+      # the handoff with the same import_id-idempotent batch, and a duplicate
+      # executor job is safe because execution is DB-claim based. A second Sidekiq
+      # enqueue here (a direct fallback) would share the same failure dependency.
       FollowImport::BatchExecutionWorker.perform_async(batch.id)
+
+      # Overwrite removals are independent of the follow set and are enqueued after
+      # the handoff. A failure here still bubbles to a retry, and if retries are
+      # exhausted the import is retained (a batch exists), because an executor job
+      # may already be queued — see ImportWorker.
+      enqueue_follow_overwrite_unfollows! if @import.overwrite?
     else
-      # Failure-tolerant fallback: recording failed, so there is no target set to
-      # drive execution from — fall back to the original direct bulk enqueue so
-      # the import still runs (ledger linkage is simply absent, as before).
+      # Batch recording failed: there is no target set to drive execution from, so
+      # fall back to the original direct enqueue (ledger linkage simply absent, as
+      # before). This path does not depend on a recorded batch, so a retry would
+      # re-attempt recording anyway.
       import_relationships!('follow', 'unfollow', @account.following.map { |account| { acct: account.acct }}, ROWS_PROCESSING_LIMIT, show_reblogs: { header: 'Show boosts', default: true }, notify: { header: 'Notify on new posts', default: false }, languages: { header: 'Languages', default: nil }, delivery: { header: 'Delivery to home', default: true })
     end
   end

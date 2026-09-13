@@ -30,18 +30,26 @@ module FollowImport
       return if batch.nil?
 
       account = batch.subject&.account
-      return if account.nil?
+      now     = Time.now.utc
 
-      now        = Time.now.utc
-      candidates = batch.targets.where(state: :pending).order(:position).limit(FollowImport::ExecutionPolicy.execution_batch_size).to_a
-      return if candidates.empty?
+      progress = 0
+      if account
+        candidates = batch.targets.where(state: :pending).order(:position).limit(FollowImport::ExecutionPolicy.execution_batch_size).to_a
+        progress   = execute_pass(batch, account, candidates, now) unless candidates.empty?
+      end
 
-      progress = execute_pass(batch, account, candidates, now)
-
-      # Only continue while making forward progress. Zero progress means the
-      # remaining pending targets are all gate-deferred (or unrecoverable); stop
-      # the automatic chain rather than re-evaluate them in a loop.
-      reschedule(batch) if progress.positive? && batch.targets.where(state: :pending).exists?
+      if account && batch.targets.where(state: :pending).exists?
+        # Only continue while making forward progress. Zero progress means the
+        # remaining pending targets are all gate-deferred (or unrecoverable); stop
+        # the automatic chain rather than re-evaluate them in a loop (the import is
+        # kept so a future explicit/policy recheck can still recover their CSV).
+        reschedule(batch) if progress.positive?
+      else
+        # No pending targets remain (dispatch complete, or nothing to do, or the
+        # importer is gone). Every follow has been enqueued with its address in the
+        # job args, so the uploaded CSV is no longer needed — destroy the import.
+        finalize_import!(batch)
+      end
     end
 
     private
@@ -89,6 +97,15 @@ module FollowImport
 
     def reschedule(batch)
       self.class.perform_in(FollowImport::ExecutionPolicy.execution_reschedule_in, batch.id)
+    end
+
+    # Destroy the uploaded import once its follows are dispatched. The batch (and
+    # its target rows) persist as the execution/ledger record; only the raw CSV is
+    # removed. Failure-tolerant.
+    def finalize_import!(batch)
+      Import.find_by(id: batch.import_id)&.destroy
+    rescue StandardError => e
+      Rails.logger.warn("[FollowImport::BatchExecutionWorker] failed to finalize import for batch #{batch.id}: #{e.class}: #{e.message}")
     end
 
     def import_for(batch)
