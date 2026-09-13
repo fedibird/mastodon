@@ -34,6 +34,9 @@ class FollowImportTarget < ApplicationRecord
   # +pending+. delivery succeeded != follow accepted; no response != rejected;
   # completed_no_response only means "our import processing wait is finished".
   # Transitions must go through Moderation-free FollowImport::TargetTransitionService.
+  # INVARIANT: follow_request_uri and state (>= queued) must be persisted BEFORE
+  # the ActivityPub Follow is enqueued for delivery, so an inbound Accept/Reject
+  # always has a target to correlate to (it may race ahead of delivery bookkeeping).
   enum state: {
     pending: 0,
     queued: 1,

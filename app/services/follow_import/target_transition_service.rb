@@ -10,15 +10,27 @@
 # applies an allowed forward move (setting its timestamps/attributes) or is a
 # silent no-op (idempotent self-transition, or a refused rollback/terminal
 # overwrite). Nothing here performs enforcement or touches the moderation ledger.
+#
+# INVARIANT (enforced by callers, relied on here): a target's follow_request_uri
+# and its state (>= queued) MUST be persisted BEFORE the ActivityPub Follow is
+# enqueued for delivery. Otherwise an inbound Accept/Reject could arrive with no
+# target to correlate to. Because of this, an Accept/Reject can legitimately race
+# ahead of the delivery-success bookkeeping (mark_awaiting_response): it may be
+# observed while the target is still queued or awaiting_delivery. accepted/rejected
+# are therefore reachable from those states too, and — being terminal — a later
+# delivery callback (mark_awaiting_response) or sweep (mark_completed_no_response)
+# is refused, so it can never be wrongly downgraded to completed_no_response.
 module FollowImport
   class TargetTransitionService
     # Allowed forward transitions. Terminal states are intentionally absent as
     # keys, so any move out of a terminal state is refused. Same-state moves are
-    # treated as idempotent no-ops before this table is consulted.
+    # treated as idempotent no-ops before this table is consulted. accepted/rejected
+    # are permitted from queued/awaiting_delivery as well as awaiting_response so an
+    # Accept/Reject that races ahead of delivery bookkeeping is not lost.
     ALLOWED_TRANSITIONS = {
       'pending'           => %w(queued awaiting_delivery awaiting_response delivery_failed).freeze,
-      'queued'            => %w(awaiting_delivery awaiting_response delivery_failed).freeze,
-      'awaiting_delivery' => %w(awaiting_response delivery_failed).freeze,
+      'queued'            => %w(awaiting_delivery awaiting_response accepted rejected delivery_failed).freeze,
+      'awaiting_delivery' => %w(awaiting_response accepted rejected delivery_failed).freeze,
       'awaiting_response' => %w(accepted rejected completed_no_response delivery_failed).freeze,
     }.freeze
 

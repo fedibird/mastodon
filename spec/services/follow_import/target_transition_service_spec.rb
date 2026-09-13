@@ -93,6 +93,51 @@ RSpec.describe FollowImport::TargetTransitionService do
       expect(target.reload.state).to eq 'accepted'
     end
 
+    context 'when an Accept/Reject races ahead of delivery bookkeeping' do
+      it 'accepts from awaiting_delivery and stays accepted after a late delivery callback' do
+        target = new_target
+        service.mark_queued(target)
+        service.mark_awaiting_delivery(target)
+
+        # Accept observed before the delivery-success callback runs.
+        service.mark_accepted(target)
+        expect(target.reload.state).to eq 'accepted'
+
+        # Late delivery bookkeeping must not roll it back, nor a later sweep.
+        service.mark_awaiting_response(target, follow_request_uri: 'https://local.test/late', response_deadline_at: 1.day.from_now)
+        service.mark_completed_no_response(target)
+
+        target.reload
+        expect(target.state).to eq 'accepted'
+        expect(target.follow_request_uri).to be_nil
+      end
+
+      it 'rejects from awaiting_delivery and stays rejected after a late delivery callback' do
+        target = new_target
+        service.mark_queued(target)
+        service.mark_awaiting_delivery(target)
+
+        service.mark_rejected(target)
+        expect(target.reload.state).to eq 'rejected'
+
+        service.mark_awaiting_response(target, follow_request_uri: 'https://local.test/late', response_deadline_at: 1.day.from_now)
+        service.mark_completed_no_response(target)
+
+        expect(target.reload.state).to eq 'rejected'
+      end
+
+      it 'accepts even directly from queued (earliest correlatable state)' do
+        target = new_target
+        service.mark_queued(target)
+
+        service.mark_accepted(target)
+        expect(target.reload.state).to eq 'accepted'
+
+        service.mark_awaiting_response(target, follow_request_uri: 'https://local.test/late', response_deadline_at: 1.day.from_now)
+        expect(target.reload.state).to eq 'accepted'
+      end
+    end
+
     %i[accepted rejected completed_no_response delivery_failed].each do |terminal|
       it "reaches the terminal state #{terminal}" do
         target = new_target
