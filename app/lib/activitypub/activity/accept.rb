@@ -25,6 +25,10 @@ class ActivityPub::Activity::Accept < ActivityPub::Activity
   def accept_follow!(request)
     return if request.nil?
 
+    # Correlate a follow-import target (if any) before authorize! destroys the
+    # FollowRequest. Execution-state bookkeeping only; failure-tolerant.
+    FollowImport::TargetResponseCorrelator.accepted(request)
+
     is_first_follow = !request.target_account.followers.local.exists?
     request.authorize!
 

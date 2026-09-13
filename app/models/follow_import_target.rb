@@ -69,4 +69,18 @@ class FollowImportTarget < ApplicationRecord
   def terminal?
     TERMINAL_STATES.include?(state)
   end
+
+  # Canonical, deterministic key for an imported account address, used both to
+  # deduplicate the target set at record time and to correlate an execution unit
+  # (Import::RelationshipWorker follow) back to its exact target row. Normalizes
+  # username/domain case and defaults a bare (local) address to the local domain,
+  # so "alice", "Alice", and "alice@<local_domain>" all map to the same key.
+  # Returns nil for a blank/invalid address.
+  def self.key_hash(acct)
+    username, domain = acct.to_s.strip.split('@', 2)
+    return if username.blank?
+
+    domain = Rails.configuration.x.local_domain if domain.blank?
+    Digest::SHA256.hexdigest("#{username.downcase}@#{domain.to_s.downcase}")
+  end
 end

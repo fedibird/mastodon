@@ -34,8 +34,12 @@ module FollowImport
       'awaiting_response' => %w(accepted rejected completed_no_response delivery_failed).freeze,
     }.freeze
 
-    def mark_queued(target, at: Time.now.utc)
-      transition(target, 'queued', timestamps: { 'queued_at' => at })
+    def mark_queued(target, follow_request_uri: nil, at: Time.now.utc)
+      # Persisting the correlation URI together with the queued state satisfies
+      # the invariant that it exists before the Follow is enqueued for delivery.
+      transition(target, 'queued',
+                 attributes: { 'follow_request_uri' => follow_request_uri }.compact,
+                 timestamps: { 'queued_at' => at })
     end
 
     def mark_awaiting_delivery(target)

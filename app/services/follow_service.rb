@@ -147,10 +147,74 @@ class FollowService < BaseService
     if @target_account.local?
       LocalNotificationWorker.perform_async(@target_account.id, follow_request.id, follow_request.class.name, 'follow_request')
     elsif @target_account.activitypub?
-      ActivityPub::DeliveryWorker.perform_async(build_json(follow_request), @source_account.id, @target_account.inbox_url, { 'bypass_availability' => true })
+      delivery_options = { 'bypass_availability' => true }
+      # Persist the target's correlation URI + queued state BEFORE enqueuing the
+      # Follow for delivery, and attach opaque tracking metadata so delivery
+      # success/failure updates the target. Only set for follow-import follows;
+      # normal follows leave delivery_options untouched.
+      tracking = prepare_follow_import_tracking(follow_request)
+      delivery_options['delivery_tracking'] = tracking if tracking
+
+      ActivityPub::DeliveryWorker.perform_async(build_json(follow_request), @source_account.id, @target_account.inbox_url, delivery_options)
     end
 
     follow_request
+  end
+
+  # Locate the follow-import target this follow executes (when the import passes
+  # its batch id), persist follow_request_uri + queued on it, and return the
+  # opaque delivery-tracking metadata. Failure-tolerant: tracking setup must
+  # never break the follow itself.
+  def prepare_follow_import_tracking(follow_request)
+    target = resolve_follow_import_target
+    return nil if target.nil?
+
+    # A target that was unresolved at record time (no subject yet) is backfilled
+    # now that this execution resolved the account, so its ledger link is exact.
+    backfill_follow_import_target_subject(target)
+
+    FollowImport::TargetTransitionService.new.mark_queued(target, follow_request_uri: follow_request.uri)
+
+    { 'type' => 'follow_import_target', 'id' => target.id }
+  rescue StandardError => e
+    Rails.logger.warn("[FollowService] follow-import delivery tracking setup failed: #{e.class}: #{e.message}")
+    nil
+  end
+
+  # Prefer the exact target id propagated from the import (robust for targets
+  # that were unresolved at record time). Fall back to batch + resolved subject
+  # for callers that only pass a batch id.
+  def resolve_follow_import_target
+    target_id = @options[:follow_import_target_id]
+
+    if target_id.present?
+      target = FollowImportTarget.find_by(id: target_id)
+      batch_id = @options[:import_batch_id]
+      # Fail closed on an inconsistent (id, batch) pair rather than tracking the
+      # wrong batch's target.
+      return nil if target && batch_id.present? && target.batch_id != batch_id.to_i
+
+      return target
+    end
+
+    batch_id = @options[:import_batch_id]
+    return nil if batch_id.blank?
+
+    subject = ModerationSubject.find_by(account_id: @target_account.id)
+    return nil if subject.nil?
+
+    FollowImportTarget.find_by(batch_id: batch_id, target_subject_id: subject.id)
+  end
+
+  def backfill_follow_import_target_subject(target)
+    return if target.target_subject_id.present?
+
+    subject = ModerationSubject.for_account!(@target_account)
+    target.update!(target_subject_id: subject.id)
+  rescue StandardError => e
+    # Best-effort: correlation still works via the target id, so a backfill
+    # failure must not abort tracking of this follow.
+    Rails.logger.warn("[FollowService] follow-import target subject backfill failed: #{e.class}: #{e.message}")
   end
 
   def direct_follow!

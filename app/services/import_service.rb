@@ -91,12 +91,23 @@ class ImportService < BaseService
   # imports pass nil and it never appears in the options.
   def import_relationships!(action, undo_action, overwrite_scope, limit, import_batch_id: nil, **extra_fields)
     local_domain_suffix = "@#{Rails.configuration.x.local_domain}"
+    # For follow imports, map each execution unit to its exact FollowImportTarget
+    # row (keyed on the canonical address hash) so delivery/Accept/Reject tracking
+    # correlates directly — including addresses that were unresolved at record
+    # time and only resolve once Import::RelationshipWorker runs.
+    target_id_by_key = follow_import_target_ids_by_key(import_batch_id)
+
     items = @data.take(limit).each_with_object({}) do |row, mapping|
       key = row['Account address']&.strip&.delete_suffix(local_domain_suffix)
       return if key.blank?
 
       extra = extra_fields.each_with_object({}) {|(key, field_settings), extra| extra[key] = row[field_settings[:header]]&.strip || field_settings[:default] }
       extra[:import_batch_id] = import_batch_id if import_batch_id
+
+      if import_batch_id
+        target_id = target_id_by_key[FollowImportTarget.key_hash(key)]
+        extra[:follow_import_target_id] = target_id if target_id
+      end
 
       if extra[:lists].nil?
         extra.delete(:lists)
@@ -131,6 +142,15 @@ class ImportService < BaseService
     Import::RelationshipWorker.push_bulk(sorted_items) do |acct, extra|
       [@account.id, acct, action, extra.stringify_keys]
     end
+  end
+
+  # hash(target_key_hash) => follow_import_target_id for a follow-import batch.
+  # Empty for non-follow imports (import_batch_id nil) and legacy rows without a
+  # stored hash, in which case correlation falls back to subject lookup.
+  def follow_import_target_ids_by_key(batch_id)
+    return {} if batch_id.blank?
+
+    FollowImportTarget.where(batch_id: batch_id).where.not(target_key_hash: nil).pluck(:target_key_hash, :id).to_h
   end
 
   def import_bookmarks!
