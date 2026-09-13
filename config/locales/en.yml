@@ -1402,6 +1402,20 @@ en:
   imports:
     errors:
       over_rows_processing_limit: contains more than %{count} rows
+    follow_progress:
+      failed: Failed
+      hint: Follow imports are processed gradually in the background. This shows how far along your recent follow imports are.
+      imported_at: Imported
+      processed: Processed
+      processed_of: "%{count} of %{total}"
+      status:
+        completed: Completed
+        in_progress: In progress
+        preparing: Preparing
+      unknown: "—"
+      status_column: Status
+      title: Recent follow imports
+      waiting: Waiting
     modes:
       merge: Merge
       merge_long: Keep existing records and add new ones
@@ -2031,6 +2045,18 @@ en:
       explanation: You requested a full backup of your Mastodon account. It's now ready for download!
       subject: Your archive is ready for download
       title: Archive takeout
+    follow_import_finished:
+      explanation: Your follow import has finished processing.
+      subject: Your follow import has finished
+      summary:
+        failed:
+          one: "%{count} account could not be followed."
+          other: "%{count} accounts could not be followed."
+        processed:
+          one: Processed %{count} of %{total} account.
+          other: Processed %{count} of %{total} accounts.
+      title: Follow import finished
+      view: View imports
     sign_in_token:
       details: 'Here are details of the attempt:'
       explanation: 'We detected an attempt to sign in to your account from an unrecognized IP address. If this is you, please enter the security code below on the sign in challenge page:'

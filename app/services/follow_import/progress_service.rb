@@ -36,6 +36,43 @@ module FollowImport
       }
     end
 
+    # Coarse failure: could not be followed. Rejected is an explicit no;
+    # delivery_failed never reached the recipient. completed_no_response is
+    # neither — the wait ended without an accept or reject — so it stays
+    # inside processed/waiting totals only.
+    COARSE_FAILURE_STATES = %w(rejected delivery_failed).freeze
+
+    # Coarse, user-facing progress for display. Deliberately omits internal state
+    # names, gate/risk, and accept/reject detail — only how far along the import
+    # is. `processed` counts every settled target (including failures); `failed`
+    # is surfaced separately as the count that could not be followed.
+    def user_summary(batch_or_id)
+      progress = call(batch_or_id)
+
+      {
+        'total'      => progress['total'],
+        'processed'  => progress['processed'],
+        'waiting'    => progress['remaining'],
+        'failed'     => COARSE_FAILURE_STATES.sum { |state| progress[state] },
+        'completed'  => progress['completed'],
+        'preparing'  => false,
+      }
+    end
+
+    # Pre-batch phase: a follow Import exists (CSV retained through processor
+    # retries and watchdog recovery) but no FollowImportBatch has been recorded.
+    # Counts are unknown. Never treat absence of a batch as completed.
+    def preparing_summary
+      {
+        'total'     => nil,
+        'processed' => 0,
+        'waiting'   => nil,
+        'failed'    => 0,
+        'completed' => false,
+        'preparing' => true,
+      }
+    end
+
     private
 
     def counts_by_state(batch_id)

@@ -5,6 +5,13 @@ require 'rails_helper'
 describe UserMailer, type: :mailer do
   let(:receiver) { Fabricate(:user) }
 
+  def stub_webpacker_manifest
+    manifest = Webpacker.instance.manifest
+    resolver = ->(name, **opts) { opts[:with_integrity] ? ["/packs-test/#{name}", nil] : "/packs-test/#{name}" }
+    allow(manifest).to receive(:lookup!, &resolver)
+    allow(manifest).to receive(:lookup, &resolver)
+  end
+
   shared_examples 'localized subject' do |*args, **kwrest|
     it 'renders subject localized for the locale of the receiver' do
       locale = I18n.available_locales.sample
@@ -16,6 +23,25 @@ describe UserMailer, type: :mailer do
       receiver.update!(locale: nil)
       expect(mail.subject).to eq I18n.t(*args, **kwrest.merge(locale: I18n.default_locale))
     end
+  end
+
+  describe 'follow_import_finished' do
+    let(:batch)   { instance_double(FollowImportBatch) }
+    let(:summary) { { 'total' => 5, 'processed' => 4, 'waiting' => 1, 'failed' => 2, 'completed' => false } }
+    let(:mail)    { UserMailer.follow_import_finished(receiver, batch, summary) }
+
+    # Render the mailer layout without the compiled webpack manifest (not built
+    # in this test env; CI precompiles packs). Stub the manifest lookup at its
+    # single root so every pack helper resolves to a dummy path.
+    before { stub_webpacker_manifest }
+
+    it 'renders the follow-import completion email' do
+      receiver.update!(locale: nil)
+      expect(mail.body.encoded).to include I18n.t('user_mailer.follow_import_finished.title')
+      expect(mail.body.encoded).to include I18n.t('user_mailer.follow_import_finished.summary.processed', count: 4, total: 5)
+    end
+
+    include_examples 'localized subject', 'user_mailer.follow_import_finished.subject'
   end
 
   describe 'confirmation_instructions' do
