@@ -7,6 +7,7 @@ class ActivityPub::Activity::Reject < ActivityPub::Activity
     unless follow_request_from_object.nil?
       # Capture the local requester before reject! destroys the FollowRequest.
       rejected_account = follow_request_from_object.account
+      FollowImport::TargetResponseCorrelator.rejected(follow_request_from_object)
       follow_request_from_object.reject!
       record_inbound_follow_reject(rejected_account)
       return
@@ -33,6 +34,7 @@ class ActivityPub::Activity::Reject < ActivityPub::Activity
     return if target_account.nil? || !target_account.local?
 
     follow_request = FollowRequest.find_by(account: target_account, target_account: @account)
+    FollowImport::TargetResponseCorrelator.rejected(follow_request) if follow_request
     follow_request&.reject!
 
     # Record the inbound follow-request rejection. The rejected account is taken
