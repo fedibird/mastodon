@@ -75,3 +75,7 @@
       every: '5m'
       class: Scheduler::FollowImportResponseTimeoutScheduler
       queue: scheduler
+    follow_import_completion_scheduler:
+      every: '5m'
+      class: Scheduler::FollowImportCompletionScheduler
+      queue: scheduler

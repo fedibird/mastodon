@@ -2031,6 +2031,18 @@ en:
       explanation: You requested a full backup of your Mastodon account. It's now ready for download!
       subject: Your archive is ready for download
       title: Archive takeout
+    follow_import_finished:
+      explanation: Your follow import has finished processing.
+      subject: Your follow import has finished
+      summary:
+        failed:
+          one: "%{count} account could not be followed."
+          other: "%{count} accounts could not be followed."
+        processed:
+          one: Processed %{count} of %{total} account.
+          other: Processed %{count} of %{total} accounts.
+      title: Follow import finished
+      view: View imports
     sign_in_token:
       details: 'Here are details of the attempt:'
       explanation: 'We detected an attempt to sign in to your account from an unrecognized IP address. If this is you, please enter the security code below on the sign in challenge page:'

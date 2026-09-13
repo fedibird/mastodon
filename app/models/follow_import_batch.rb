@@ -37,4 +37,26 @@ class FollowImportBatch < ApplicationRecord
   validates :imported_at, presence: true
   validates :target_count, :resolved_target_count, :unresolved_target_count, numericality: { greater_than_or_equal_to: 0 }
   validates :import_id, uniqueness: { allow_nil: true }
+
+  COMPLETION_NOTIFIED_KEY = 'completion_notified_at'
+
+  # Recent batches whose completion has not yet been notified. Bounded by an
+  # imported_at window so the completion sweeper never rescans abandoned/never-
+  # completing batches forever. `metadata` is not indexed for this predicate, but
+  # the imported_at window keeps the candidate set small.
+  scope :awaiting_completion_notification, ->(since) {
+    where('(metadata ->> :key) IS NULL', key: COMPLETION_NOTIFIED_KEY).where('imported_at >= ?', since)
+  }
+
+  def for_account
+    subject&.account
+  end
+
+  def completion_notified?
+    metadata[COMPLETION_NOTIFIED_KEY].present?
+  end
+
+  def mark_completion_notified!(at = Time.now.utc)
+    update!(metadata: metadata.merge(COMPLETION_NOTIFIED_KEY => at.utc.iso8601))
+  end
 end

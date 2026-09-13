@@ -1954,6 +1954,16 @@ ja:
       explanation: Mastodonアカウントのアーカイブを受け付けました。今すぐダウンロードできます！
       subject: アーカイブの準備ができました
       title: アーカイブの取り出し
+    follow_import_finished:
+      explanation: フォローのインポート処理が完了しました。
+      subject: フォローのインポートが完了しました
+      summary:
+        failed:
+          other: "%{count}件のアカウントをフォローできませんでした。"
+        processed:
+          other: "%{total}件中%{count}件を処理しました。"
+      title: フォローのインポートが完了しました
+      view: インポート画面を開く
     sign_in_token:
       details: '検出したログインの詳細は以下のとおりです:'
       explanation: '認識できないIPアドレスから、あなたのアカウントへのログインを検出しました。あなたがログインしようとしている場合は、ログインページに以下のセキュリティコードを入力してください:'

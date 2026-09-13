@@ -160,6 +160,18 @@ class UserMailer < Devise::Mailer
     end
   end
 
+  def follow_import_finished(user, _batch, summary)
+    @resource = user
+    @instance = Rails.configuration.x.local_domain
+    @summary  = summary
+
+    return unless @resource.active_for_authentication?
+
+    I18n.with_locale(@resource.locale || I18n.default_locale) do
+      mail to: @resource.email, subject: I18n.t('user_mailer.follow_import_finished.subject')
+    end
+  end
+
   def warning(user, warning, status_ids = nil)
     @resource = user
     @warning  = warning
