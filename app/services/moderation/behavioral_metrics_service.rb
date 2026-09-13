@@ -93,7 +93,11 @@ module Moderation
       linked_rate_cohort    = temporal_linked_cohort(rejections, window_start, window_end)
       follow_reject_cohort  = temporal_follow_reject_cohort(interactions, rejections)
 
-      first_negative_at = rejections.minimum(:occurred_at)
+      # Continuation / repeat_behavior must originate from a qualified negative
+      # signal (a rejection with a strong preceding-contact link), not any raw
+      # ledger row. An uncorrelated protocol-level or legacy Reject therefore
+      # cannot become first_negative_signal_at.
+      first_negative_at = first_qualified_negative_at(rejections)
       continuation      = continuation_after(subject, interactions, first_negative_at)
 
       base.merge(
@@ -241,11 +245,30 @@ module Moderation
       cohort
     end
 
+    # Earliest in-scope rejection that is a qualified negative signal: it has a
+    # strong preceding-contact link (actor → rejector before the rejection,
+    # inside the association window). Raw/unlinked rejection rows are ignored
+    # so they cannot start continuation-after-rejection / repeat_behavior.
+    def first_qualified_negative_at(rejections)
+      earliest = nil
+
+      rejections.includes(:preceding_interaction_event).find_each do |rejection|
+        next unless Moderation::PrecedingContactLink.strong_association?(rejection.preceding_interaction_event, rejection)
+
+        at = rejection.occurred_at
+        next if at.nil?
+
+        earliest = at if earliest.nil? || at < earliest
+      end
+
+      earliest
+    end
+
     # Genuinely new targets contacted after the first negative signal in scope: a
     # target contacted after the signal AND with no actor->target contact at or
     # before that signal in the subject's whole history (re-contacting a target
     # already contacted before the signal does not count). Plus follows sent
-    # after the signal. Zero when no negative signal was observed in scope.
+    # after the signal. Zero when no qualified negative signal was observed.
     def continuation_after(subject, interactions, first_negative_at)
       return { new_targets: 0, follows: 0 } if first_negative_at.nil?
 
