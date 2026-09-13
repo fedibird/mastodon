@@ -256,6 +256,24 @@ RSpec.describe ImportService, type: :service do
       expect(follow_args.map { |args| args[3]['import_batch_id'] }.uniq).to eq [batch.id]
     end
 
+    it 'stamps each follow with its exact FollowImportTarget id' do
+      captured = capture_enqueues!
+
+      subject.call(import)
+
+      batch  = FollowImportBatch.find_by(import_id: import.id)
+      bob_id = batch.targets.find { |t| t.target_subject.account_id == bob.id }.id
+      eve_id = batch.targets.find { |t| t.target_subject.account_id == eve.id }.id
+
+      follow_args = captured.select { |args| args[2] == 'follow' }
+      by_acct = follow_args.index_by { |args| args[1] }
+
+      expect(by_acct['bob'][3]['follow_import_target_id']).to eq bob_id
+      expect(by_acct['eve@example.com'][3]['follow_import_target_id']).to eq eve_id
+      # Every target row corresponds to exactly one enqueued execution unit.
+      expect(follow_args.map { |args| args[3]['follow_import_target_id'] }).to match_array(batch.targets.map(&:id))
+    end
+
     it 'omits import_batch_id from the enqueued follows when batch recording failed, without raising' do
       allow(Moderation::FollowImportRecorder).to receive(:record_batch).and_return(nil)
       captured = capture_enqueues!

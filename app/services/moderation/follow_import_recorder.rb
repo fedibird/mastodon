@@ -34,10 +34,21 @@ module Moderation
       resolved_count   = 0
       unresolved_count = 0
       target_rows      = []
+      seen_keys        = {}
 
+      # One target row per unique execution unit. The import mapping deduplicates
+      # identical account addresses before enqueuing follows, so the recorder
+      # dedupes on the same canonical key to keep the target count aligned with
+      # the number of follows actually executed. target_key_hash is stored on
+      # every target (resolved and unresolved) as the correlation key.
       accts.each_with_index do |raw_acct, index|
         acct = raw_acct.to_s.strip
         next if acct.blank?
+
+        key = FollowImportTarget.key_hash(acct)
+        next if key.nil? || seen_keys.key?(key)
+
+        seen_keys[key] = true
 
         target_account = resolve_account(acct)
 
@@ -46,13 +57,14 @@ module Moderation
           target_subject = ModerationSubject.for_account!(target_account, observed_at: imported_at)
           target_rows << {
             target_subject_id: target_subject.id,
+            target_key_hash: key,
             position: index,
             prior_relationship_state: { following: account.following?(target_account) },
           }
         else
           unresolved_count += 1
           target_rows << {
-            target_key_hash: hash_acct(acct),
+            target_key_hash: key,
             position: index,
           }
         end
@@ -99,12 +111,6 @@ module Moderation
       end
     rescue StandardError
       nil
-    end
-
-    def hash_acct(acct)
-      username, domain = acct.split('@', 2)
-      domain = Rails.configuration.x.local_domain if domain.blank?
-      Digest::SHA256.hexdigest("#{username.to_s.downcase}@#{domain.to_s.downcase}")
     end
 
     def normalize_mode(mode)

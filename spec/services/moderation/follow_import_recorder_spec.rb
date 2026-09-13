@@ -29,6 +29,30 @@ RSpec.describe Moderation::FollowImportRecorder, type: :service do
       expect(unresolved.position).to eq 2
     end
 
+    it 'stores the canonical key hash on resolved targets as the correlation key' do
+      batch  = described_class.record_batch(account: account, accts: ['bob'], mode: :merge)
+      target = batch.targets.first
+
+      expect(target.target_subject.account_id).to eq bob.id
+      expect(target.target_key_hash).to eq FollowImportTarget.key_hash('bob')
+    end
+
+    it 'deduplicates repeated addresses into one target per execution unit' do
+      local_bob = "bob@#{Rails.configuration.x.local_domain}"
+      accts     = ['bob', 'bob', local_bob, 'eve@example.com', 'eve@example.com', 'ghost@unknown.example']
+
+      batch = nil
+      expect { batch = described_class.record_batch(account: account, accts: accts, mode: :merge) }
+        .to change(FollowImportTarget, :count).by(3)
+
+      expect(batch.target_count).to eq 3
+      expect(batch.resolved_target_count).to eq 2
+      expect(batch.unresolved_target_count).to eq 1
+      expect(batch.targets.map(&:target_key_hash)).to match_array(
+        [FollowImportTarget.key_hash('bob'), FollowImportTarget.key_hash('eve@example.com'), FollowImportTarget.key_hash('ghost@unknown.example')]
+      )
+    end
+
     it 'records prior following relationship state for resolved targets' do
       account.follow!(bob)
 

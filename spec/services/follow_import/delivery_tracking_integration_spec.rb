@@ -55,4 +55,46 @@ RSpec.describe 'FollowService follow-import delivery tracking' do
     expect(source.requested?(target)).to be true
     expect(args.last).not_to have_key('delivery_tracking')
   end
+
+  it 'correlates directly by the propagated follow_import_target_id' do
+    args = capture_delivery do
+      FollowService.new.call(source, target, import_batch_id: batch.id, follow_import_target_id: import_target.id)
+    end
+
+    import_target.reload
+    expect(import_target.state).to eq 'queued'
+    expect(args.last['delivery_tracking']).to eq({ 'type' => 'follow_import_target', 'id' => import_target.id })
+  end
+
+  it 'ignores a target id that belongs to a different batch (fails closed)' do
+    other_batch = FollowImportBatch.create!(subject: Fabricate(:moderation_subject), imported_at: Time.now.utc, mode: :merge,
+                                            target_count: 0, resolved_target_count: 0, unresolved_target_count: 0)
+
+    args = capture_delivery do
+      FollowService.new.call(source, target, import_batch_id: other_batch.id, follow_import_target_id: import_target.id)
+    end
+
+    expect(import_target.reload.state).to eq 'pending'
+    expect(args.last).not_to have_key('delivery_tracking')
+  end
+
+  context 'when the target was unresolved at record time' do
+    # No target_subject_id yet: only the pseudonymous key hash was stored, because
+    # the remote account was unknown until Import::RelationshipWorker resolved it.
+    let!(:unresolved_target) do
+      batch.targets.create!(target_key_hash: FollowImportTarget.key_hash(target.acct), position: 0)
+    end
+
+    it 'backfills the subject and tracks delivery via the propagated id' do
+      args = capture_delivery do
+        FollowService.new.call(source, target, import_batch_id: batch.id, follow_import_target_id: unresolved_target.id)
+      end
+
+      unresolved_target.reload
+      expect(unresolved_target.state).to eq 'queued'
+      expect(unresolved_target.follow_request_uri).to be_present
+      expect(unresolved_target.target_subject).to eq ModerationSubject.find_by(account_id: target.id)
+      expect(args.last['delivery_tracking']).to eq({ 'type' => 'follow_import_target', 'id' => unresolved_target.id })
+    end
+  end
 end
