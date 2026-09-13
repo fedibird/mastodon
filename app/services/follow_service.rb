@@ -173,7 +173,13 @@ class FollowService < BaseService
     # now that this execution resolved the account, so its ledger link is exact.
     backfill_follow_import_target_subject(target)
 
-    FollowImport::TargetTransitionService.new.mark_queued(target, follow_request_uri: follow_request.uri)
+    # Persist the durable correlation URI independently of the state transition:
+    # the controlled executor may have ALREADY claimed this target (pending ->
+    # queued) before enqueuing us, in which case a queued -> queued transition is
+    # a no-op and could not carry the uri. The uri must still be persisted before
+    # delivery is enqueued so an inbound Accept/Reject can correlate.
+    persist_follow_request_uri(target, follow_request.uri)
+    FollowImport::TargetTransitionService.new.mark_queued(target)
 
     { 'type' => 'follow_import_target', 'id' => target.id }
   rescue StandardError => e
@@ -215,6 +221,12 @@ class FollowService < BaseService
     # Best-effort: correlation still works via the target id, so a backfill
     # failure must not abort tracking of this follow.
     Rails.logger.warn("[FollowService] follow-import target subject backfill failed: #{e.class}: #{e.message}")
+  end
+
+  def persist_follow_request_uri(target, uri)
+    return if uri.blank? || target.follow_request_uri.present?
+
+    target.update!(follow_request_uri: uri)
   end
 
   def direct_follow!

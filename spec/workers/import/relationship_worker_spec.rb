@@ -34,4 +34,33 @@ describe Import::RelationshipWorker do
         .with(account, target, hash_excluding(:import_batch_id))
     end
   end
+
+  describe 'when a follow-import target cannot be resolved' do
+    let(:batch) do
+      FollowImportBatch.create!(subject: Fabricate(:moderation_subject), imported_at: Time.now.utc, mode: :merge,
+                                target_count: 0, resolved_target_count: 0, unresolved_target_count: 0)
+    end
+    let(:import_target) do
+      t = batch.targets.create!(target_key_hash: 'unresolvable-key', position: 0)
+      FollowImport::TargetTransitionService.new.mark_queued(t)
+      t
+    end
+
+    before do
+      resolver = instance_double(ResolveAccountService, call: nil)
+      allow(ResolveAccountService).to receive(:new).and_return(resolver)
+    end
+
+    it 'marks the claimed target delivery_failed so it does not sit stuck at queued' do
+      described_class.new.perform(account.id, 'ghost@unknown.example', 'follow', { 'follow_import_target_id' => import_target.id })
+
+      import_target.reload
+      expect(import_target.state).to eq 'delivery_failed'
+      expect(import_target.failure_code).to eq 'account_unresolved'
+    end
+
+    it 'does nothing for a non-follow relationship with no follow-import target' do
+      expect { described_class.new.perform(account.id, 'ghost@unknown.example', 'block', {}) }.not_to raise_error
+    end
+  end
 end

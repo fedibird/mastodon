@@ -11,7 +11,13 @@ class Import::RelationshipWorker
     target_account = stoplight_wrap_request(target_domain) { ResolveAccountService.new.call(target_account_uri, { check_delivery_availability: true }) }
     options.symbolize_keys!
 
-    return if target_account.nil?
+    if target_account.nil?
+      # The controlled executor already claimed this target (queued). Since the
+      # remote account could not be resolved, record a terminal delivery failure
+      # so it does not sit stuck at queued. Failure-tolerant.
+      mark_follow_import_target_unresolved(relationship, options)
+      return
+    end
 
     case relationship
     when 'follow'
@@ -37,6 +43,20 @@ class Import::RelationshipWorker
     end
   rescue ActiveRecord::RecordNotFound
     true
+  end
+
+  def mark_follow_import_target_unresolved(relationship, options)
+    return unless relationship == 'follow'
+
+    target_id = options[:follow_import_target_id]
+    return if target_id.blank?
+
+    target = FollowImportTarget.find_by(id: target_id)
+    return if target.nil?
+
+    FollowImport::TargetTransitionService.new.mark_delivery_failed(target, failure_code: 'account_unresolved')
+  rescue StandardError => e
+    Rails.logger.warn("[Import::RelationshipWorker] failed to mark unresolved follow-import target: #{e.class}: #{e.message}")
   end
 
   def domain(uri)
