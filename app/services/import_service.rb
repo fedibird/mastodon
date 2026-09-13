@@ -31,19 +31,39 @@ class ImportService < BaseService
     parse_import_data!(['Account address'])
     batch = record_follow_import_batch!
 
-    if batch
-      # Controlled, DB-backed execution. Overwrite removals (unfollows) run
-      # immediately; the follow set is executed in bounded, gate-observed passes
-      # driven from the recorded target rows (FollowImport::BatchExecutionWorker),
-      # not from one big bulk enqueue.
+    if batch && hand_off_follow_import_to_executor(batch)
+      # Handoff succeeded: the executor owns the follow set (and the import's
+      # lifecycle). Overwrite removals are independent of the follow set and are
+      # enqueued directly here.
       enqueue_follow_overwrite_unfollows! if @import.overwrite?
-      FollowImport::BatchExecutionWorker.perform_async(batch.id)
     else
-      # Failure-tolerant fallback: recording failed, so there is no target set to
-      # drive execution from — fall back to the original direct bulk enqueue so
-      # the import still runs (ledger linkage is simply absent, as before).
-      import_relationships!('follow', 'unfollow', @account.following.map { |account| { acct: account.acct }}, ROWS_PROCESSING_LIMIT, show_reblogs: { header: 'Show boosts', default: true }, notify: { header: 'Notify on new posts', default: false }, languages: { header: 'Languages', default: nil }, delivery: { header: 'Delivery to home', default: true })
+      # No batch to drive from, OR the executor enqueue failed. Since ImportWorker
+      # does not retry and its ensure retains a follow import that has a batch,
+      # a lost executor job would strand the import + CSV + all pending targets
+      # forever. Fall back to the original direct enqueue so nothing is lost.
+      fallback_follow_import_enqueue!(batch)
     end
+  end
+
+  # Enqueue the batch executor, reporting whether the handoff actually succeeded.
+  # A Sidekiq/Redis enqueue failure must not silently strand the import.
+  def hand_off_follow_import_to_executor(batch)
+    FollowImport::BatchExecutionWorker.perform_async(batch.id)
+    true
+  rescue StandardError => e
+    Rails.logger.warn("[ImportService] follow-import executor handoff failed; falling back to a direct enqueue: #{e.class}: #{e.message}")
+    false
+  end
+
+  # Original direct enqueue path (overwrite removals + bulk follows), used when
+  # there is no batch or the executor handoff failed. When a batch exists the
+  # follows carry its id so the recorded target rows still settle (via
+  # FollowService), and the raw uploaded CSV is dropped here because the executor
+  # will not run to do so (ImportWorker would otherwise retain it).
+  def fallback_follow_import_enqueue!(batch)
+    import_relationships!('follow', 'unfollow', @account.following.map { |account| { acct: account.acct }}, ROWS_PROCESSING_LIMIT, import_batch_id: batch&.id, show_reblogs: { header: 'Show boosts', default: true }, notify: { header: 'Notify on new posts', default: false }, languages: { header: 'Languages', default: nil }, delivery: { header: 'Delivery to home', default: true })
+
+    @import.destroy if batch
   end
 
   # Overwrite mode for follow imports: unfollow every account the importer
