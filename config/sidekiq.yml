@@ -71,3 +71,7 @@
       cron: '<%= Random.rand(0..59) %> <%= Random.rand(3..5) %> * * *'
       class: Scheduler::ModerationLedgerRetentionScheduler
       queue: scheduler
+    follow_import_response_timeout_scheduler:
+      every: '5m'
+      class: Scheduler::FollowImportResponseTimeoutScheduler
+      queue: scheduler
