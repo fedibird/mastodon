@@ -66,18 +66,14 @@ RSpec.describe Moderation::AdaptiveFollowGateDecisionService do
       expect(result['matched_rules'].map { |r| r['rule'] }).to_not include('elevated_rejection_local_unlocked_target')
     end
 
-    it 'still applies other frictions to a locked local target (e.g. delay on high velocity)' do
+    it 'still applies other frictions to a locked local target (rate_limit on elevated velocity)' do
       result = decide(evaluation(velocity: 0.6), context: { 'target_locality' => 'local', 'target_locked' => true })
-      expect(result['proposed_friction']).to eq 'delay'
+      expect(result['proposed_friction']).to eq 'rate_limit'
     end
 
-    it 'proposes delay for a remote target with elevated rejection' do
+    it 'proposes delay for a remote target with elevated rejection (feedback-aware)' do
       result = decide(evaluation(rejection: 0.5), context: { 'target_locality' => 'remote' })
       expect(result['proposed_friction']).to eq 'delay'
-    end
-
-    it 'proposes delay on high velocity regardless of locality' do
-      expect(decide(evaluation(velocity: 0.6), context: { 'target_locality' => 'local' })['proposed_friction']).to eq 'delay'
     end
 
     it 'proposes moderator_review for sustained rejection with continuation' do
@@ -87,8 +83,100 @@ RSpec.describe Moderation::AdaptiveFollowGateDecisionService do
     end
 
     it 'picks the strongest matched friction when several apply' do
-      # elevated volume (rate_limit) + high velocity (delay) + sustained rejection (moderator_review)
+      # elevated volume/velocity (rate_limit) + sustained rejection (moderator_review)
       result = decide(evaluation(contact_volume: 0.6, velocity: 0.7, rejection: 0.9, repeat_behavior: 0.7))
+      expect(result['proposed_friction']).to eq 'moderator_review'
+    end
+  end
+
+  # v1 calibration: velocity alone must not escalate to delay (it caught
+  # legitimate high-volume bursts in backtests); delay is feedback-aware only.
+  describe 'v1 calibration boundaries' do
+    it 'does not keep a velocity-only delay threshold' do
+      expect(described_class::DEFAULT_PARAMS['delay']).to eq('remote_or_unknown_rejection_min' => 0.5)
+      expect(described_class::DEFAULT_PARAMS['delay']).to_not have_key('velocity_min')
+    end
+
+    it 'changes params_digest from the pre-v1 default that had delay.velocity_min' do
+      v0_params = Marshal.load(Marshal.dump(described_class::DEFAULT_PARAMS))
+      v0_params['delay'] = { 'velocity_min' => 0.6, 'remote_or_unknown_rejection_min' => 0.5 }
+
+      v0 = decide(evaluation, params: v0_params)
+      v1 = decide(evaluation)
+
+      expect(v1['policy_version']).to eq 'follow-gate-decision-v1-2026-09-13'
+      expect(v1['params_digest']).to_not eq v0['params_digest']
+    end
+
+    {
+      0.49 => 'allow',
+      0.50 => 'rate_limit',
+      0.59 => 'rate_limit',
+      0.60 => 'rate_limit',
+      1.00 => 'rate_limit',
+    }.each do |velocity, friction|
+      it "proposes #{friction} (never delay) at velocity #{velocity}" do
+        result = decide(evaluation(velocity: velocity), context: { 'target_locality' => 'remote' })
+
+        expect(result['proposed_friction']).to eq friction
+        expect(result['matched_rules'].map { |r| r['rule'] }).to_not include('high_velocity')
+        expect(result['matched_rules'].map { |r| r['friction'] }).to_not include('delay')
+      end
+    end
+
+    it 'does not delay a remote target just below the rejection threshold' do
+      result = decide(evaluation(rejection: 0.49), context: { 'target_locality' => 'remote' })
+      expect(result['proposed_friction']).to eq 'allow'
+      expect(result['matched_rules'].map { |r| r['friction'] }).to_not include('delay')
+    end
+
+    it 'delays a remote target at rejection 0.50' do
+      expect(decide(evaluation(rejection: 0.50), context: { 'target_locality' => 'remote' })['proposed_friction']).to eq 'delay'
+    end
+
+    it 'delays an unknown-locality target at rejection 0.50' do
+      result = decide(evaluation(rejection: 0.50), context: {})
+      expect(result['context']['target_locality']).to be_nil
+      expect(result['proposed_friction']).to eq 'delay'
+    end
+
+    it 'routes local unlocked + rejection 0.50 to confirm_target, not delay' do
+      result = decide(evaluation(rejection: 0.50), context: { 'target_locality' => 'local', 'target_locked' => false })
+      expect(result['proposed_friction']).to eq 'confirm_target'
+      expect(result['matched_rules'].map { |r| r['friction'] }).to_not include('delay')
+    end
+
+    it 'does not confirm or delay a local locked target at rejection 0.50' do
+      result = decide(evaluation(rejection: 0.50), context: { 'target_locality' => 'local', 'target_locked' => true })
+      expect(result['proposed_friction']).to eq 'allow'
+      expect(result['matched_rules'].map { |r| r['rule'] }).to_not include('elevated_rejection_local_unlocked_target')
+      expect(result['matched_rules'].map { |r| r['friction'] }).to_not include('delay')
+    end
+
+    it 'does not fire moderator_review at rejection 0.79 + repeat 0.60' do
+      result = decide(evaluation(rejection: 0.79, repeat_behavior: 0.60), context: { 'target_locality' => 'local', 'target_locked' => true })
+      expect(result['proposed_friction']).to_not eq 'moderator_review'
+      expect(result['matched_rules'].map { |r| r['friction'] }).to_not include('moderator_review')
+    end
+
+    it 'does not fire moderator_review at rejection 0.80 + repeat 0.59' do
+      result = decide(evaluation(rejection: 0.80, repeat_behavior: 0.59), context: { 'target_locality' => 'local', 'target_locked' => true })
+      expect(result['proposed_friction']).to_not eq 'moderator_review'
+      expect(result['matched_rules'].map { |r| r['friction'] }).to_not include('moderator_review')
+    end
+
+    it 'fires moderator_review at rejection 0.80 + repeat 0.60' do
+      expect(decide(evaluation(rejection: 0.80, repeat_behavior: 0.60))['proposed_friction']).to eq 'moderator_review'
+    end
+
+    it 'lets delay win over velocity-only rate_limit on remote rejection 0.50' do
+      result = decide(evaluation(velocity: 1.0, rejection: 0.50), context: { 'target_locality' => 'remote' })
+      expect(result['proposed_friction']).to eq 'delay'
+      expect(result['matched_rules'].map { |r| r['rule'] }).to_not include('high_velocity')
+    end
+
+    it 'lets moderator_review win over velocity 1.0 + remote rejection' do
+      result = decide(evaluation(velocity: 1.0, rejection: 0.80, repeat_behavior: 0.60), context: { 'target_locality' => 'remote' })
       expect(result['proposed_friction']).to eq 'moderator_review'
     end
   end
@@ -138,6 +226,14 @@ RSpec.describe Moderation::AdaptiveFollowGateDecisionService do
       custom  = decide(evaluation, params: custom_params)
       expect(custom['policy_version']).to eq 'custom'
       expect(custom['params_digest']).to_not eq default['params_digest']
+    end
+
+    it 'honors an overridden rate_limit velocity threshold' do
+      params = Marshal.load(Marshal.dump(described_class::DEFAULT_PARAMS))
+      params['rate_limit']['velocity_min'] = 0.8
+
+      expect(decide(evaluation(velocity: 0.7), params: params)['proposed_friction']).to eq 'allow'
+      expect(decide(evaluation(velocity: 0.8), params: params)['proposed_friction']).to eq 'rate_limit'
     end
 
     it 'honors an explicit policy_version' do

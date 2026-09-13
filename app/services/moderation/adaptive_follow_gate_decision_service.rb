@@ -22,10 +22,11 @@
 #   * Read-only, versioned & auditable — policy_version + params_digest identify
 #     the policy; matched_rules carry each firing condition's value + minimum.
 #
-# Thresholds in DEFAULT_PARAMS are INITIAL and UNCALIBRATED (and injectable).
+# Thresholds in DEFAULT_PARAMS are injectable. v1 calibrated delay routing
+# (velocity alone stays at rate_limit); other numbers remain initial.
 module Moderation
   class AdaptiveFollowGateDecisionService
-    POLICY_VERSION = 'follow-gate-decision-v0-2026-09-12'
+    POLICY_VERSION = 'follow-gate-decision-v1-2026-09-13'
 
     # Reversible frictions, ordered least -> most (used to pick the strongest
     # matched proposal). There is deliberately no "deny".
@@ -37,8 +38,11 @@ module Moderation
       # Strongest reversible friction: sustained rejection by multiple independent
       # responders AND continued contact after the first negative signal.
       'moderator_review' => { 'rejection_min' => 0.8, 'repeat_behavior_min' => 0.6 },
-      # Slow the attempt down so rejection feedback can arrive before more follows.
-      'delay' => { 'velocity_min' => 0.6, 'remote_or_unknown_rejection_min' => 0.5 },
+      # Delay is FEEDBACK-AWARE, not volume-driven: it slows an attempt down so
+      # rejection feedback can arrive before more follows. v1 calibration removed
+      # the velocity-alone -> delay rule (backtests showed it caught legitimate
+      # high-volume bursts); high velocity alone now only reaches rate_limit.
+      'delay' => { 'remote_or_unknown_rejection_min' => 0.5 },
       # Local UNLOCKED recipient can confirm; only meaningful for a target that
       # would otherwise be followed immediately (locked targets already confirm).
       'confirm_target' => { 'local_rejection_min' => 0.5 },
@@ -112,8 +116,9 @@ module Moderation
                       'repeat_behavior' => condition(scores['repeat_behavior'], review['repeat_behavior_min']))
       end
 
+      # Delay only on a feedback signal (elevated rejection to a remote/unknown
+      # target), never on velocity alone — velocity alone stays at rate_limit.
       delay = @params['delay']
-      rules << rule('delay', 'high_velocity', 'velocity' => condition(scores['velocity'], delay['velocity_min'])) if scores['velocity'].to_f >= delay['velocity_min']
       if locality != 'local' && scores['rejection'].to_f >= delay['remote_or_unknown_rejection_min']
         rules << rule('delay', 'elevated_rejection_non_local_target',
                       'rejection' => condition(scores['rejection'], delay['remote_or_unknown_rejection_min']),
