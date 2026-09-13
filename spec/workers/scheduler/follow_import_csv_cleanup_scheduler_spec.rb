@@ -32,14 +32,17 @@ RSpec.describe Scheduler::FollowImportCsvCleanupScheduler do
     expect(Import.exists?(import.id)).to be false
   end
 
-  it 'drops the import for a batch older than the abandon window even with pending targets' do
+  it 'leaves an import with pending targets alone regardless of age (age is not abandonment)' do
+    # PR C leaves gate-deferred (delay / moderator_review) targets pending on
+    # purpose; the CSV is still needed to recover their acct/options on a future
+    # recheck, so an old batch with pending targets must NOT be cleaned.
     import = import_for(account)
-    batch  = batch_with_import(import, imported_at: 8.days.ago)
+    batch  = batch_with_import(import, imported_at: 30.days.ago)
     add_target(batch, :pending, 0)
 
     worker.perform
 
-    expect(Import.exists?(import.id)).to be false
+    expect(Import.exists?(import.id)).to be true
   end
 
   it 'leaves a recent, still-dispatching import alone (pending targets remain)' do

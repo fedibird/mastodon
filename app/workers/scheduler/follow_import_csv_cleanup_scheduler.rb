@@ -11,27 +11,29 @@
 # conservatively RETAINS any import that has a batch, because it cannot prove no
 # executor job is queued). This reclaims those.
 #
-# Both cleanup conditions are safe: drop the CSV when the batch has no pending
-# targets (dispatch is complete, so no executor needs it), or when the batch is
-# older than ABANDON_AFTER (the executor is definitively not coming). A batch
-# that is still mid-dispatch (recent and with pending targets) is left alone.
-# Notification/bookkeeping only — the batch and its target rows persist.
+# The only safe cleanup condition is dispatch completion: drop the CSV once the
+# batch has NO pending targets, because at that point every follow has been
+# enqueued with its address and no executor will re-read the CSV. Age alone does
+# NOT prove abandonment — gate-enforced delay/moderator_review targets are left
+# pending on purpose (PR C) and still need the CSV for a future recheck — so a
+# batch with pending targets is never cleaned here regardless of age. (Reclaiming
+# genuinely abandoned pending targets needs an explicit durable defer/abandonment
+# lifecycle, deferred to a later PR.) Bookkeeping only — the batch and its target
+# rows persist.
 class Scheduler::FollowImportCsvCleanupScheduler
   include Sidekiq::Worker
 
   sidekiq_options retry: 0
 
-  BATCH_LIMIT   = 500
-  ABANDON_AFTER = 7.days
+  BATCH_LIMIT = 500
 
   def perform
-    now     = Time.now.utc
     dropped = 0
 
     batches_with_surviving_import.order(:imported_at).limit(BATCH_LIMIT).each do |batch|
       import = Import.find_by(id: batch.import_id)
       next if import.nil?
-      next unless batch.targets.where(state: :pending).none? || batch.imported_at < now - ABANDON_AFTER
+      next if batch.targets.where(state: :pending).exists? # dispatch not complete; CSV still needed
 
       import.destroy
       dropped += 1
