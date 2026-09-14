@@ -72,7 +72,7 @@ gem 'oj', '~> 3.12'
 gem 'ox', '~> 2.14'
 gem 'parslet'
 gem 'parallel', '~> 1.20'
-gem 'posix-spawn'
+gem "posix-spawn", github: "https://github.com/rtomayko/posix-spawn/pull/93"
 gem 'pundit', '~> 2.1'
 gem 'premailer-rails'
 gem 'rack-attack', '~> 6.5'

@@ -37,6 +37,13 @@ GIT
     rails-settings-cached (0.6.6)
       rails (>= 4.2.0)
 
+GIT
+  remote: https://github.com/rtomayko/posix-spawn.git
+  revision: 0fce38ed5458b638eda5f3bb711903424a4366db
+  ref: refs/pull/93/head
+  specs:
+    posix-spawn (0.3.15)
+
 GEM
   remote: https://rubygems.org/
   specs:
@@ -516,7 +523,6 @@ GEM
     pghero (3.6.2)
       activerecord (>= 6.1)
     pkg-config (1.6.5)
-    posix-spawn (0.3.15)
     premailer (1.27.0)
       addressable
       css_parser (>= 1.19.0)
@@ -906,7 +912,7 @@ DEPENDENCIES
   pg (~> 1.2)
   pghero
   pkg-config (~> 1.4)
-  posix-spawn
+  posix-spawn!
   premailer-rails
   pry-byebug (~> 3.9)
   pry-rails (~> 0.3)
