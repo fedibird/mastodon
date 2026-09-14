@@ -12,7 +12,10 @@ describe ImportWorker do
   end
 
   describe 'a follow import' do
-    let(:import) { Import.create!(account: account, type: 'following', data: attachment_fixture('new-following-imports.txt')) }
+    let(:import) do
+      Import.create!(account: account, type: 'following', data: attachment_fixture('new-following-imports.txt'),
+                     follow_import_pipeline_version: Import::CURRENT_FOLLOW_IMPORT_PIPELINE_VERSION)
+    end
 
     it 'delegates to the retryable follow-import processor and does not touch the import itself' do
       allow(FollowImport::ProcessImportWorker).to receive(:perform_async)
@@ -22,6 +25,18 @@ describe ImportWorker do
       expect(FollowImport::ProcessImportWorker).to have_received(:perform_async).with(import.id)
       # Ownership handed off — ImportWorker neither runs the import nor destroys it.
       expect(FollowImportBatch.where(import_id: import.id)).to be_none
+      expect(Import.exists?(import.id)).to be true
+    end
+
+    it 'does not hand off an unmarked leftover follow import' do
+      import.update_column(:follow_import_pipeline_version, nil)
+      allow(FollowImport::ProcessImportWorker).to receive(:perform_async)
+      allow(ImportService).to receive(:new)
+
+      worker.perform(import.id)
+
+      expect(FollowImport::ProcessImportWorker).not_to have_received(:perform_async)
+      expect(ImportService).not_to have_received(:new)
       expect(Import.exists?(import.id)).to be true
     end
 

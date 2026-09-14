@@ -24,6 +24,15 @@ module FollowImport
 
     def perform(import_id)
       import = Import.find(import_id)
+
+      # Defense in depth: unmarked follow Imports must never reach ImportService,
+      # even if a leftover Sidekiq job still names their id. Do not delete them
+      # here — leftover cleanup is an operator maintenance task only.
+      if import.following? && !import.follow_import_recovery_aware?
+        Rails.logger.warn("[FollowImport::ProcessImportWorker] refusing unmarked legacy follow import #{import.id}; skipping ImportService")
+        return
+      end
+
       ImportService.new.call(import)
 
       # Success: when a batch was recorded the executor owns the import (it destroys

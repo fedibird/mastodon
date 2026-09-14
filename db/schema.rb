@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_13_010002) do
+ActiveRecord::Schema.define(version: 2026_09_14_010001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -662,6 +662,7 @@ ActiveRecord::Schema.define(version: 2026_09_13_010002) do
     t.datetime "data_updated_at"
     t.bigint "account_id", null: false
     t.boolean "overwrite", default: false, null: false
+    t.integer "follow_import_pipeline_version"
   end
 
   create_table "invites", force: :cascade do |t|

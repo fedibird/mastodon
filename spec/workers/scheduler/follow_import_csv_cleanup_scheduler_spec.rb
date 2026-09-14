@@ -7,8 +7,9 @@ RSpec.describe Scheduler::FollowImportCsvCleanupScheduler do
 
   let(:account) { Fabricate(:account) }
 
-  def import_for(account)
-    Import.create!(account: account, type: 'following', data: attachment_fixture('new-following-imports.txt'))
+  def import_for(account, pipeline_version: Import::CURRENT_FOLLOW_IMPORT_PIPELINE_VERSION)
+    Import.create!(account: account, type: 'following', data: attachment_fixture('new-following-imports.txt'),
+                   follow_import_pipeline_version: pipeline_version)
   end
 
   def batch_with_import(import, imported_at: Time.now.utc)
@@ -66,15 +67,15 @@ RSpec.describe Scheduler::FollowImportCsvCleanupScheduler do
   end
 
   describe 'stalled follow imports (no batch recorded yet)' do
-    def stalled_import(created_at:)
-      import = import_for(account)
+    def stalled_import(created_at:, pipeline_version: Import::CURRENT_FOLLOW_IMPORT_PIPELINE_VERSION)
+      import = import_for(account, pipeline_version: pipeline_version)
       import.update_column(:created_at, created_at)
       import
     end
 
     before { allow(FollowImport::ProcessImportWorker).to receive(:perform_async) }
 
-    it 'RE-ENQUEUES the processor for a follow import with no batch after the grace window (never deletes it)' do
+    it 'RE-ENQUEUES the processor for a marked follow import with no batch after the grace window (never deletes it)' do
       import = stalled_import(created_at: 7.hours.ago)
 
       worker.perform
@@ -82,6 +83,15 @@ RSpec.describe Scheduler::FollowImportCsvCleanupScheduler do
       # Recovery, not deletion: a queued-but-unprocessed job cannot be ruled out.
       expect(Import.exists?(import.id)).to be true
       expect(FollowImport::ProcessImportWorker).to have_received(:perform_async).with(import.id)
+    end
+
+    it 'does not enqueue an unmarked leftover follow import no matter how old it is' do
+      import = stalled_import(created_at: 3.years.ago, pipeline_version: nil)
+
+      worker.perform
+
+      expect(Import.exists?(import.id)).to be true
+      expect(FollowImport::ProcessImportWorker).not_to have_received(:perform_async)
     end
 
     it 'leaves a recent follow import with no batch alone (its processor may still run)' do

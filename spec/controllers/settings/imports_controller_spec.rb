@@ -38,10 +38,11 @@ RSpec.describe Settings::ImportsController, type: :controller do
       expect(response.body).to include(I18n.t('imports.follow_progress.title'))
     end
 
-    it 'shows a follow import with no batch as preparing (CSV retained until a batch is recorded)' do
+    it 'shows a marked follow import with no batch as preparing (CSV retained until a batch is recorded)' do
       user = Fabricate(:user)
       sign_in user, scope: :user
-      Import.create!(account: user.account, type: 'following', data: attachment_fixture('new-following-imports.txt'))
+      Import.create!(account: user.account, type: 'following', data: attachment_fixture('new-following-imports.txt'),
+                     follow_import_pipeline_version: Import::CURRENT_FOLLOW_IMPORT_PIPELINE_VERSION)
 
       get :show
 
@@ -49,6 +50,17 @@ RSpec.describe Settings::ImportsController, type: :controller do
       expect(response.body).to include(I18n.t('imports.follow_progress.title'))
       expect(response.body).to include(I18n.t('imports.follow_progress.status.preparing'))
       expect(response.body).not_to include(I18n.t('imports.follow_progress.status.completed'))
+    end
+
+    it 'does not list an unmarked leftover follow import as preparing' do
+      user = Fabricate(:user)
+      sign_in user, scope: :user
+      Import.create!(account: user.account, type: 'following', data: attachment_fixture('new-following-imports.txt'))
+
+      get :show
+
+      expect(response).to have_http_status(200)
+      expect(response.body).not_to include(I18n.t('imports.follow_progress.status.preparing'))
     end
 
     it 'does not list a leftover follow import as preparing once its batch exists' do
@@ -94,17 +106,21 @@ RSpec.describe Settings::ImportsController, type: :controller do
       expect(response).to redirect_to(settings_import_path)
     end
 
-    it 'routes a follow import to the retryable follow-import processor' do
-      allow(FollowImport::ProcessImportWorker).to receive(:perform_async)
+    it 'persists the follow-import pipeline marker before enqueueing the processor' do
+      allow(FollowImport::ProcessImportWorker).to receive(:perform_async) do |import_id|
+        expect(Import.find(import_id).follow_import_pipeline_version).to eq Import::CURRENT_FOLLOW_IMPORT_PIPELINE_VERSION
+      end
       allow(ImportWorker).to receive(:perform_async)
 
-      post :create, params: { import: { type: 'following', data: fixture_file_upload('imports.txt') } }
+      expect { post :create, params: { import: { type: 'following', data: fixture_file_upload('imports.txt') } } }
+        .to change(Import, :count).by(1)
 
       expect(FollowImport::ProcessImportWorker).to have_received(:perform_async)
       expect(ImportWorker).not_to have_received(:perform_async)
+      expect(Import.order(:id).last.follow_import_pipeline_version).to eq Import::CURRENT_FOLLOW_IMPORT_PIPELINE_VERSION
     end
 
-    it 'routes a non-follow import to ImportWorker' do
+    it 'does not stamp a pipeline marker on a non-follow import' do
       allow(FollowImport::ProcessImportWorker).to receive(:perform_async)
       allow(ImportWorker).to receive(:perform_async)
 
@@ -112,6 +128,7 @@ RSpec.describe Settings::ImportsController, type: :controller do
 
       expect(ImportWorker).to have_received(:perform_async)
       expect(FollowImport::ProcessImportWorker).not_to have_received(:perform_async)
+      expect(Import.order(:id).last.follow_import_pipeline_version).to be_nil
     end
   end
 end

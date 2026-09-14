@@ -18,7 +18,14 @@ class ImportWorker
     # an enqueue exception: an external queue write is ambiguous (Redis may have
     # accepted the job before the client saw the error), so a genuine orphan is
     # reclaimed by the bounded CSV watchdog instead.
-    return FollowImport::ProcessImportWorker.perform_async(import.id) if import.following?
+    if import.following?
+      unless import.follow_import_recovery_aware?
+        Rails.logger.warn("[ImportWorker] refusing unmarked legacy follow import #{import.id}; not handing off to ProcessImportWorker")
+        return
+      end
+
+      return FollowImport::ProcessImportWorker.perform_async(import.id)
+    end
 
     begin
       ImportService.new.call(import)
