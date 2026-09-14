@@ -73,9 +73,9 @@ class Settings::ImportsController < Settings::BaseController
       .limit(RECENT_FOLLOW_IMPORTS)
   end
 
-  # Recovery-aware follow Imports whose processor has not recorded a batch
-  # yet (retries, exhaustion, or watchdog re-enqueue). Unmarked leftover
-  # rows are not "preparing" — they are not part of this pipeline.
+  # Current-version follow Imports whose processor has not recorded a batch
+  # yet (retries, exhaustion, or watchdog re-enqueue). NULL leftover rows
+  # and unknown pipeline versions are not "preparing".
   # Once import_id is on a batch the CSV may still exist until dispatch
   # completes — show the batch, not a second "preparing" row.
   def pending_follow_imports

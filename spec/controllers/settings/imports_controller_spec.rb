@@ -63,6 +63,18 @@ RSpec.describe Settings::ImportsController, type: :controller do
       expect(response.body).not_to include(I18n.t('imports.follow_progress.status.preparing'))
     end
 
+    it 'does not list an unknown pipeline version as preparing' do
+      user = Fabricate(:user)
+      sign_in user, scope: :user
+      Import.create!(account: user.account, type: 'following', data: attachment_fixture('new-following-imports.txt'),
+                     follow_import_pipeline_version: 2)
+
+      get :show
+
+      expect(response).to have_http_status(200)
+      expect(response.body).not_to include(I18n.t('imports.follow_progress.status.preparing'))
+    end
+
     it 'does not list a leftover follow import as preparing once its batch exists' do
       user = Fabricate(:user)
       sign_in user, scope: :user

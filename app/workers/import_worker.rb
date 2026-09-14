@@ -20,7 +20,7 @@ class ImportWorker
     # reclaimed by the bounded CSV watchdog instead.
     if import.following?
       unless import.follow_import_recovery_aware?
-        Rails.logger.warn("[ImportWorker] refusing unmarked legacy follow import #{import.id}; not handing off to ProcessImportWorker")
+        Rails.logger.warn("[ImportWorker] refusing follow import #{import.id} (pipeline_version=#{import.follow_import_pipeline_version.inspect}); not handing off to ProcessImportWorker")
         return
       end
 

@@ -45,6 +45,20 @@ RSpec.describe FollowImport::ProcessImportWorker do
     expect(Import.exists?(import.id)).to be true
   end
 
+  it 'does not call ImportService for an unknown pipeline version' do
+    [2, 999].each do |version|
+      import = create_follow_import(pipeline_version: version)
+      allow(ImportService).to receive(:new)
+
+      worker.perform(import.id)
+
+      expect(ImportService).not_to have_received(:new)
+      expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+      expect(FollowImportBatch.where(import_id: import.id)).to be_none
+      expect(Import.exists?(import.id)).to be true
+    end
+  end
+
   it 'does not start follow or unfollow work when an unmarked overwrite import reaches the worker' do
     extra = Fabricate(:account, username: 'already_followed')
     account.follow!(extra)

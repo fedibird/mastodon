@@ -21,8 +21,11 @@ class Import < ApplicationRecord
   FILE_TYPES = %w(text/plain text/csv application/csv).freeze
   MODES = %i(merge overwrite).freeze
 
-  # Integer so future Follow Import pipelines can bump the version.
-  # NULL is legacy / provenance-unknown and must never be auto-recovered.
+  # Integer pipeline version. Recovery and worker execution are version-strict:
+  # only CURRENT_FOLLOW_IMPORT_PIPELINE_VERSION is supported by this revision.
+  # NULL is leftover / provenance-unknown and must never be auto-recovered.
+  # An unknown non-NULL version (e.g. a future 2) is also not executed here;
+  # leftover cleanup still deletes NULL only and must not touch unknown versions.
   CURRENT_FOLLOW_IMPORT_PIPELINE_VERSION = 1
 
   self.inheritance_column = false
@@ -31,11 +34,13 @@ class Import < ApplicationRecord
 
   enum type: [:following, :account_subscribings, :blocking, :muting, :domain_blocking, :bookmarks]
 
-  # Recovery-aware: created by the current DB-backed Follow Import pipeline.
+  # Recovery-aware: this revision's supported Follow Import pipeline version.
   # The marker is execution intent, not "executor ownership" — it is persisted
   # before ProcessImportWorker is enqueued, and is never stamped onto an
   # existing unmarked row by the watchdog or worker.
-  scope :follow_import_recovery_aware, -> { following.where.not(follow_import_pipeline_version: nil) }
+  scope :follow_import_recovery_aware, lambda {
+    following.where(follow_import_pipeline_version: CURRENT_FOLLOW_IMPORT_PIPELINE_VERSION)
+  }
   scope :without_follow_import_batch, lambda {
     where.not(id: FollowImportBatch.where.not(import_id: nil).select(:import_id))
   }
@@ -62,7 +67,7 @@ class Import < ApplicationRecord
   end
 
   def follow_import_recovery_aware?
-    following? && follow_import_pipeline_version.present?
+    following? && follow_import_pipeline_version == CURRENT_FOLLOW_IMPORT_PIPELINE_VERSION
   end
 
   # Assigns the current pipeline version on a new follow Import. Call this

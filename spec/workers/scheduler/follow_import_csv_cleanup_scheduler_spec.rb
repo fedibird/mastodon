@@ -94,6 +94,17 @@ RSpec.describe Scheduler::FollowImportCsvCleanupScheduler do
       expect(FollowImport::ProcessImportWorker).not_to have_received(:perform_async)
     end
 
+    it 'does not enqueue an unknown pipeline version even after the grace window' do
+      v2  = stalled_import(created_at: 7.hours.ago, pipeline_version: 2)
+      v999 = stalled_import(created_at: 3.years.ago, pipeline_version: 999)
+
+      worker.perform
+
+      expect(Import.exists?(v2.id)).to be true
+      expect(Import.exists?(v999.id)).to be true
+      expect(FollowImport::ProcessImportWorker).not_to have_received(:perform_async)
+    end
+
     it 'leaves a recent follow import with no batch alone (its processor may still run)' do
       import = stalled_import(created_at: 10.minutes.ago)
 

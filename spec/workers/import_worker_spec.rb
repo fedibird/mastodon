@@ -28,6 +28,18 @@ describe ImportWorker do
       expect(Import.exists?(import.id)).to be true
     end
 
+    it 'does not hand off an unknown pipeline version' do
+      import.update_column(:follow_import_pipeline_version, 999)
+      allow(FollowImport::ProcessImportWorker).to receive(:perform_async)
+      allow(ImportService).to receive(:new)
+
+      worker.perform(import.id)
+
+      expect(FollowImport::ProcessImportWorker).not_to have_received(:perform_async)
+      expect(ImportService).not_to have_received(:new)
+      expect(Import.exists?(import.id)).to be true
+    end
+
     it 'does not hand off an unmarked leftover follow import' do
       import.update_column(:follow_import_pipeline_version, nil)
       allow(FollowImport::ProcessImportWorker).to receive(:perform_async)

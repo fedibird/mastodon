@@ -25,11 +25,12 @@ module FollowImport
     def perform(import_id)
       import = Import.find(import_id)
 
-      # Defense in depth: unmarked follow Imports must never reach ImportService,
-      # even if a leftover Sidekiq job still names their id. Do not delete them
-      # here — leftover cleanup is an operator maintenance task only.
+      # Defense in depth: only the current supported pipeline version may reach
+      # ImportService. NULL leftover rows and unknown versions fail closed even
+      # if a leftover Sidekiq job still names their id. Do not delete them here
+      # — leftover cleanup is an operator maintenance task only.
       if import.following? && !import.follow_import_recovery_aware?
-        Rails.logger.warn("[FollowImport::ProcessImportWorker] refusing unmarked legacy follow import #{import.id}; skipping ImportService")
+        Rails.logger.warn("[FollowImport::ProcessImportWorker] refusing follow import #{import.id} (pipeline_version=#{import.follow_import_pipeline_version.inspect}); skipping ImportService")
         return
       end
 

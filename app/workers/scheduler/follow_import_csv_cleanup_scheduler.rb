@@ -11,7 +11,7 @@
 #      targets is never cleaned here regardless of age. (A durable defer/
 #      abandonment lifecycle for those is deferred to a later PR.)
 #
-#   2. Recovery (stalled handoff) — a *recovery-aware* follow Import that, after
+#   2. Recovery (stalled handoff) — a current-version follow Import that, after
 #      RECOVERY_GRACE, still has NO FollowImportBatch. Its FollowImport::ProcessImportWorker
 #      may have been lost, OR the enqueue may have reached Redis and be sitting
 #      unprocessed (outage/backlog) — absence of a batch cannot distinguish these,
@@ -22,13 +22,23 @@
 #      CSV. True orphan deletion is deferred until a durable abandoned/failed
 #      state makes it provably safe.
 #
-#      Unmarked (legacy / provenance-unknown) follow Imports are NEVER recovered
-#      here. The pre-pipeline leftover rows look identical to a lost handoff
-#      (no FollowImportBatch), and re-running them — especially overwrite — is
-#      destructive. Only Imports with follow_import_pipeline_version set are
-#      eligible. During a rolling deploy, do not run the operator legacy-cleanup
-#      task until every web/Sidekiq/scheduler process is on a revision that
-#      persists that marker before enqueue.
+#      Recovery is version-strict: only follow_import_pipeline_version ==
+#      Import::CURRENT_FOLLOW_IMPORT_PIPELINE_VERSION is eligible. NULL leftover
+#      rows and unknown non-NULL versions are never recovered. Re-running a
+#      leftover overwrite Import is destructive.
+#
+# INCIDENT-SAFE ROLLOUT
+#   1. Before deploying this migration/code, stop the old scheduler's recovery
+#      pass so leftover Imports cannot be re-enqueued (disable
+#      FollowImportCsvCleanupScheduler, or take that Sidekiq/scheduler job
+#      offline). The old recovery query has no version guard.
+#   2. During a rolling deploy the safest option is to pause Follow Import
+#      acceptance. Otherwise: wait until every web process writes the current
+#      marker before enqueue, and confirm no unmarked jobs from old web
+#      processes remain in Sidekiq (queue / retry / scheduled), then switch
+#      Sidekiq/scheduler to this revision.
+#   3. Do not run leftover cleanup APPLY until every web / Sidekiq / scheduler
+#      process is on this revision. Always dry-run first.
 #
 # Bookkeeping/recovery only — batches and target rows persist.
 class Scheduler::FollowImportCsvCleanupScheduler
@@ -70,8 +80,8 @@ class Scheduler::FollowImportCsvCleanupScheduler
     FollowImportBatch.joins('INNER JOIN imports ON imports.id = follow_import_batches.import_id')
   end
 
-  # Recovery-aware follow imports older than the grace window that never got a
-  # batch recorded. Unmarked legacy rows are excluded even if they are years old.
+  # Current-version follow imports older than the grace window that never got a
+  # batch recorded. NULL leftover rows and unknown versions are excluded.
   def stalled_follow_imports(now)
     Import.follow_import_recovery_aware
           .without_follow_import_batch

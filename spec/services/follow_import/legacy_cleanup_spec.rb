@@ -53,6 +53,18 @@ RSpec.describe FollowImport::LegacyCleanup do
     expect(Import.exists?(import.id)).to be true
   end
 
+  it 'excludes an unknown non-NULL pipeline version' do
+    v2   = create_follow_import(created_at: before - 1.day, pipeline_version: 2)
+    v999 = create_follow_import(created_at: before - 1.week, pipeline_version: 999)
+
+    result = described_class.new(before: before, apply: true).call
+
+    expect(result.candidates).to be_empty
+    expect(result.destroyed_ids).to be_empty
+    expect(Import.exists?(v2.id)).to be true
+    expect(Import.exists?(v999.id)).to be true
+  end
+
   it 'excludes a non-follow import' do
     blocking = Import.create!(account: account, type: 'blocking', data: attachment_fixture('imports.txt'))
     blocking.update_column(:created_at, before - 1.day)
@@ -105,5 +117,27 @@ RSpec.describe FollowImport::LegacyCleanup do
     expect(Import.exists?(too_new.id)).to be true
     expect(Import.exists?(marked.id)).to be true
     expect(Import.exists?(blocking.id)).to be true
+  end
+
+  it 're-checks NULL marker and missing batch immediately before destroy' do
+    doomed  = create_follow_import(created_at: before - 1.week)
+    raced   = create_follow_import(created_at: before - 1.week)
+    batched = create_follow_import(created_at: before - 1.week)
+
+    cleanup = described_class.new(before: before, apply: true)
+    expect(cleanup.candidates.map(&:id)).to contain_exactly(doomed.id, raced.id, batched.id)
+
+    raced.update_column(:follow_import_pipeline_version, Import::CURRENT_FOLLOW_IMPORT_PIPELINE_VERSION)
+    FollowImportBatch.create!(subject: ModerationSubject.for_account!(account), import_id: batched.id,
+                              imported_at: Time.now.utc, mode: :merge, target_count: 0,
+                              resolved_target_count: 0, unresolved_target_count: 0)
+
+    result = cleanup.call
+
+    expect(result.destroyed_ids).to eq [doomed.id]
+    expect(result.skipped_ids).to contain_exactly(raced.id, batched.id)
+    expect(Import.exists?(doomed.id)).to be false
+    expect(Import.exists?(raced.id)).to be true
+    expect(Import.exists?(batched.id)).to be true
   end
 end

@@ -5,14 +5,20 @@ namespace :follow_import do
   #
   # These rows predate the recovery-aware pipeline (follow_import_pipeline_version
   # IS NULL) and have no FollowImportBatch. The watchdog must never re-enqueue
-  # them. This task is the only supported way to delete them.
+  # them. Unknown non-NULL versions are not leftover and are never deleted.
+  # This task is the only supported way to delete leftover rows.
   #
-  # ROLLING DEPLOY: do not run APPLY=1 until every web / Sidekiq / scheduler
-  # process is on a revision that persists follow_import_pipeline_version before
-  # ProcessImportWorker.perform_async. Old web processes still create unmarked
-  # Imports. Always dry-run first.
+  # INCIDENT-SAFE ROLLOUT
+  #   1. Stop the old FollowImportCsvCleanupScheduler recovery pass before the
+  #      migration/code switch (that query has no version guard).
+  #   2. During a rolling deploy, pause Follow Import acceptance, or wait until
+  #      every web process writes the current marker and no unmarked jobs from
+  #      old web processes remain in Sidekiq (queue / retry / scheduled), then
+  #      switch Sidekiq/scheduler to this revision.
+  #   3. Do not run APPLY=1 until every web / Sidekiq / scheduler process is on
+  #      this revision. Always dry-run first.
   #
-  # BEFORE is required (ISO8601 or any Time.parse-able string). There is no
+  # BEFORE is required (ISO8601 or any Time.zone.parse-able string). There is no
   # default cutoff; omitting it refuses to run.
   #
   # Examples:
@@ -37,7 +43,7 @@ namespace :follow_import do
       row = cleanup.row_for(import)
       puts FollowImport::LegacyCleanup::REPORT_HEADERS.map { |key| row[key] }.join("\t")
     end
-    puts "destroyed=#{result.destroyed_ids.size}" if apply
+    puts "destroyed=#{result.destroyed_ids.size} skipped=#{result.skipped_ids.size}" if apply
     puts "manifest=#{result.manifest_path}" if result.manifest_path
   end
 end
