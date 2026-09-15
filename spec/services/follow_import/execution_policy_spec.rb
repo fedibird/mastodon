@@ -111,6 +111,23 @@ RSpec.describe FollowImport::ExecutionPolicy do
       end
     end
   end
-end
 
+  describe '.shadow_plan_budget' do
+    it 'defaults to the legacy execution batch size' do
+      expect(described_class.shadow_plan_budget).to eq described_class.execution_batch_size
+    end
+
+    it 'reads a positive diagnostic override' do
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_SHADOW_PLAN_BUDGET: '12' do
+        expect(described_class.shadow_plan_budget).to eq 12
+      end
+    end
+
+    it 'falls back when the override is not a positive integer' do
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_SHADOW_PLAN_BUDGET: '0' do
+        expect(described_class.shadow_plan_budget).to eq described_class.execution_batch_size
+      end
+    end
+    end
+  end
 

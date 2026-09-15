@@ -1,21 +1,17 @@
 # frozen_string_literal: true
 
-# Global Follow Import dispatcher tick. PR A is SHADOW ONLY.
+# Global Follow Import dispatcher tick. PR A+B is SHADOW ONLY.
 #
 # Flow:
-#   shadow enabled? → acquire session advisory lease → read-only snapshot
-#   → build a summary DispatchPlan → record tick telemetry → release lease
+#   shadow enabled? → acquire session advisory lease → load snapshot
+#   → account-first shadow plan → record tick telemetry → release lease
 #
-# This class must not transition FollowImportTarget rows, call
-# TargetTransitionService#mark_queued, enqueue RelationshipWorker /
-# DeliveryWorker, finalize/delete an Import, or change BatchExecutionWorker
-# scheduling. BatchExecutionWorker remains the only real claimer.
+# The plan is a point-in-time simulation, not a reservation. It must not
+# transition FollowImportTarget rows, call TargetTransitionService#mark_queued,
+# enqueue RelationshipWorker / DeliveryWorker, finalize/delete an Import,
+# or change BatchExecutionWorker scheduling.
 #
-# Sidekiq unique lock (on the Scheduler::* wrapper) is job dedup only.
-# FollowImport::DispatchLease is the correctness boundary.
-#
-# retry: 0 on the Sidekiq wrapper: a raised tick must not replay work.
-# There is no stored budget in PR A; the contract stays for later PRs.
+# claimed_count stays 0. planned_count is the shadow allocator result.
 module FollowImport
   class DispatchScheduler
     OUTCOME_SHADOW_DISABLED = 'shadow_disabled'
@@ -69,6 +65,7 @@ module FollowImport
       plan = build_shadow_plan(observed_at)
       metadata = {}
       metadata['load_snapshot_error_class'] = load_error if load_error
+      metadata['fairness_persist_failed'] = true if plan.fairness_state_source == FollowImport::FairnessCursor::SOURCE_PERSIST_FAILED
 
       record_tick(
         tick_id: tick_id,
@@ -94,16 +91,35 @@ module FollowImport
     end
 
     def build_shadow_plan(observed_at)
+      cursor = FollowImport::FairnessCursor.new.read
+      owners, skipped = FollowImport::PendingBatchSource.new.owner_work(cursor: cursor)
+      budget = FollowImport::ExecutionPolicy.shadow_plan_budget
+      scheduled = FollowImport::FairScheduler.new(budget: budget, owners: owners, cursor: cursor).plan
+      source = cursor.source
+      persisted = FollowImport::FairnessCursor.new.write(
+        scheduled.next_cursor,
+        active_owner_keys: owners.map { |owner| owner[:key] },
+        active_batch_ids: owners.flat_map { |owner| owner[:batches].map { |batch| batch[:id] } }
+      )
+      source = FollowImport::FairnessCursor::SOURCE_PERSIST_FAILED unless persisted
+
       FollowImport::DispatchPlan.observe(
         observed_at: observed_at,
         global_pending_count: FollowImport::DispatchCounts.global_pending,
         active_batch_count: FollowImport::DispatchCounts.active_batches,
-        execution_config: execution_config
+        execution_config: execution_config,
+        planning: {
+          planned: true,
+          entries: scheduled.planned,
+          skipped_missing_owner_count: skipped,
+          fairness_state_source: source,
+          shadow_plan_budget: budget,
+          executable_owner_count: owners.size,
+          executable_batch_count: owners.sum { |owner| owner[:batches].size },
+        }
       )
     end
 
-    # Load is telemetry only. Do not classify NORMAL/BUSY/HEAVY/OVERLOADED
-    # and do not stop legacy Follow Import workers. Capture failure → NULL.
     def capture_load_snapshot
       [FollowImport::LoadSnapshot.capture, nil]
     rescue StandardError => e
@@ -112,7 +128,7 @@ module FollowImport
     end
 
     def record_tick(**attrs)
-      FollowImport::DispatchTickObserver.record(**attrs)
+      FollowImport::DispatchTickObserver.record(attrs)
     end
 
     def execution_config
@@ -124,6 +140,9 @@ module FollowImport
         'gate_enforcement_enabled' => FollowImport::ExecutionPolicy.gate_enforcement_enabled?,
         'dispatch_shadow_enabled' => FollowImport::ExecutionPolicy.dispatch_shadow_enabled?,
         'dispatch_shadow_interval' => FollowImport::ExecutionPolicy.dispatch_shadow_interval.to_i,
+        'shadow_plan_budget' => FollowImport::ExecutionPolicy.shadow_plan_budget,
+        'plan_algorithm' => FollowImport::FairScheduler::ALGORITHM,
+        'plan_schema_version' => FollowImport::FairScheduler::SCHEMA_VERSION,
       }
     end
   end

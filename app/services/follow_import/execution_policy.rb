@@ -19,10 +19,11 @@
 # with the experimental flag. No real Follow Import friction ships enabled.
 #
 # dispatch_shadow_enabled? is OFF by default. When true, Scheduler::FollowImportDispatchScheduler
-# may acquire the global advisory lease and write tick telemetry. It still
-# claims nothing. This flag is independent of FOLLOW_IMPORT_EXECUTION_BATCH_SIZE
-# and FOLLOW_IMPORT_EXECUTION_INTERVAL, which continue to pace the legacy
-# BatchExecutionWorker only.
+# may acquire the global advisory lease, build an account-first shadow plan,
+# and write tick telemetry. It still claims nothing. shadow_plan_budget is a
+# diagnostic planning size only. These flags are independent of
+# FOLLOW_IMPORT_EXECUTION_BATCH_SIZE and FOLLOW_IMPORT_EXECUTION_INTERVAL,
+# which continue to pace the legacy BatchExecutionWorker only.
 module FollowImport
   module ExecutionPolicy
     module_function
@@ -86,6 +87,15 @@ module FollowImport
     # config/sidekiq.yml, which reads the same ENV and default.
     def dispatch_shadow_every
       "#{dispatch_shadow_interval_seconds}s"
+    end
+
+    # Diagnostic / UNCALIBRATED shadow planning budget. Does not control
+    # real Follow Import execution. Defaults to the current legacy
+    # execution_batch_size so shadow plans are easy to compare with
+    # BatchExecutionWorker. This is not the future global dispatch budget.
+    def shadow_plan_budget
+      size = ENV['FOLLOW_IMPORT_DISPATCH_SHADOW_PLAN_BUDGET'].to_i
+      size.positive? ? size : execution_batch_size
     end
   end
 end

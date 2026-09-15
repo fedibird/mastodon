@@ -68,6 +68,9 @@ RSpec.describe FollowImport::DispatchScheduler do
       allow(FollowImport::DispatchPlan).to receive(:observe)
       allow(FollowImport::DispatchCounts).to receive(:global_pending)
       allow(FollowImport::DispatchTickObserver).to receive(:record)
+      allow(FollowImport::FairScheduler).to receive(:new)
+      allow(FollowImport::FairnessCursor).to receive(:new)
+      allow(FollowImport::PendingBatchSource).to receive(:new)
 
       result = scheduler.call
 
@@ -76,6 +79,9 @@ RSpec.describe FollowImport::DispatchScheduler do
       expect(FollowImport::DispatchLease).not_to have_received(:with_lease)
       expect(FollowImport::DispatchPlan).not_to have_received(:observe)
       expect(FollowImport::DispatchCounts).not_to have_received(:global_pending)
+      expect(FollowImport::FairScheduler).not_to have_received(:new)
+      expect(FollowImport::FairnessCursor).not_to have_received(:new)
+      expect(FollowImport::PendingBatchSource).not_to have_received(:new)
       expect(FollowImport::DispatchTickObserver).not_to have_received(:record)
       expect(FollowImportDispatchTickObservation.count).to eq 0
     end
@@ -115,12 +121,21 @@ RSpec.describe FollowImport::DispatchScheduler do
       expect(observation.scheduler_mode).to eq 'shadow'
       expect(observation.lease_acquired).to be true
       expect(observation.claimed_count).to eq 0
+      expect(observation.planned_count).to eq 1
+      expect(observation.planned_owner_count).to eq 1
+      expect(observation.planned_batch_count).to eq 1
+      expect(observation.executable_owner_count).to eq 1
+      expect(observation.executable_batch_count).to eq 1
       expect(observation.global_pending_count).to eq 1
       expect(observation.active_batch_count).to eq 1
       expect(observation.load_snapshot.dig('queues', 'push', 'size')).to eq 1
       expect(observation.execution_config['dispatch_shadow_enabled']).to eq true
+      expect(observation.execution_config['shadow_plan_budget']).to eq FollowImport::ExecutionPolicy.shadow_plan_budget
+      expect(observation.execution_config['plan_algorithm']).to eq 'account_first_rr'
       expect(observation.execution_config['dispatch_shadow_interval']).to eq FollowImport::ExecutionPolicy.dispatch_shadow_interval.to_i
       expect(observation.execution_config['execution_batch_size']).to eq FollowImport::ExecutionPolicy.execution_batch_size
+      expect(result.plan.planned_count).to eq 1
+      expect(result.plan.entries.first.target_id).to eq pending_target.id
       expect(observation.tick_id).to be_present
 
       expect(pending_target.reload.state).to eq 'pending'
@@ -173,6 +188,7 @@ RSpec.describe FollowImport::DispatchScheduler do
       expect(observation.outcome).to eq 'lease_busy'
       expect(observation.lease_acquired).to be false
       expect(observation.claimed_count).to eq 0
+      expect(observation.planned_count).to be_nil
       expect(observation.global_pending_count).to be_nil
     end
   end
@@ -257,10 +273,155 @@ RSpec.describe FollowImport::DispatchScheduler do
       expect(observation.lease_acquired).to be true
       expect(observation.claimed_count).to eq 0
       expect(observation.error_class).to eq 'StandardError'
+      expect(observation.planned_count).to be_nil
 
       reacquired = false
       expect(FollowImport::DispatchLease.with_lease { reacquired = true }).to be true
       expect(reacquired).to be true
     end
   end
+
+  describe 'when Redis cursor persistence fails' do
+    def perform
+      scheduler.call
+    end
+
+    before do
+      allow(FollowImport::ExecutionPolicy).to receive(:dispatch_shadow_enabled?).and_return(true)
+      allow_any_instance_of(FollowImport::FairnessCursor).to receive(:write).and_return(false)
+      add_target(0)
+    end
+
+    include_examples 'a shadow-only tick'
+
+    it 'still records a shadow observation from a conservative cursor' do
+      result = scheduler.call
+
+      expect(result.outcome).to eq 'shadow_observed'
+      expect(result.plan.planned_count).to eq 1
+      expect(result.plan.claimed_count).to eq 0
+      expect(FollowImportDispatchTickObservation.last.fairness_state_source).to eq 'persist_failed'
+    end
+  end
+
+  describe 'account-first integration' do
+    before do
+      allow(FollowImport::ExecutionPolicy).to receive(:dispatch_shadow_enabled?).and_return(true)
+      allow(FollowImport::ExecutionPolicy).to receive(:shadow_plan_budget).and_return(3)
+    end
+
+    def import_for(account)
+      FollowImportBatch.create!(
+        subject: ModerationSubject.for_account!(account),
+        imported_at: Time.now.utc,
+        mode: :merge,
+        target_count: 0,
+        resolved_target_count: 0,
+        unresolved_target_count: 0
+      )
+    end
+
+    it 'records planned_count 0 when the lease is acquired and nothing is pending' do
+      result = scheduler.call
+      observation = FollowImportDispatchTickObservation.last
+
+      expect(result.outcome).to eq 'shadow_observed'
+      expect(result.plan.planned_count).to eq 0
+      expect(result.plan.planned_owner_count).to eq 0
+      expect(result.plan.executable_owner_count).to eq 0
+      expect(result.plan.claimed_count).to eq 0
+      expect(observation.planned_count).to eq 0
+      expect(observation.planned_owner_count).to eq 0
+      expect(observation.executable_owner_count).to eq 0
+      expect(observation.claimed_count).to eq 0
+    end
+
+    it 'plans pending work, records aggregates, and leaves legacy claiming intact' do
+      other_account = Fabricate(:account)
+      other_batch = import_for(other_account)
+      other_batch.targets.create!(target_key_hash: 'other-0', position: 0, destination_domain: 'b.test')
+      add_target(0, destination_domain: 'a.test')
+
+      result = scheduler.call
+      observation = FollowImportDispatchTickObservation.last
+
+      expect(result.plan.planned_count).to eq 2
+      expect(result.plan.claimed_count).to eq 0
+      expect(observation.planned_count).to eq 2
+      expect(observation.claimed_count).to eq 0
+      expect(observation.planned_owner_count).to eq 2
+      expect(observation.executable_owner_count).to eq 2
+      expect(observation.unique_destination_count).to eq 2
+      expect(batch.targets.reload.map(&:state)).to eq %w(pending)
+      expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+    end
+
+    it 'does not load every pending target to fill a small plan budget' do
+      3.times do
+        extra = import_for(Fabricate(:account))
+        20.times { |position| extra.targets.create!(target_key_hash: "t-#{extra.id}-#{position}", position: position) }
+      end
+
+      sql = []
+      callback = lambda do |*_args, payload|
+        query = payload[:sql]
+        sql << query if query.include?('follow_import_targets') && query.include?('SELECT') && !query.include?('COUNT')
+      end
+
+      ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
+        scheduler.call
+      end
+
+      target_row_selects = sql.reject { |query| query.include?('DISTINCT') }
+      expect(target_row_selects).not_to be_empty
+      expect(target_row_selects).to all(match(/LIMIT/i))
+    end
+
+    it 'does not issue one target-window query per active owner before planning' do
+      owner_count = 100
+      budget = 3
+      owner_count.times do |index|
+        extra = import_for(Fabricate(:account))
+        extra.targets.create!(target_key_hash: "many-#{index}", position: 0, destination_domain: 'many.test')
+      end
+
+      window_selects = []
+      callback = lambda do |*_args, payload|
+        query = payload[:sql]
+        next unless query.include?('follow_import_targets')
+        next unless query.include?('SELECT')
+        next if query.include?('COUNT') || query.include?('DISTINCT')
+        next unless query.match?(/LIMIT/i)
+
+        window_selects << query
+      end
+
+      result = nil
+      ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
+        result = scheduler.call
+      end
+
+      expect(result.plan.planned_count).to eq budget
+      expect(result.plan.planned_owner_count).to eq budget
+      expect(result.plan.executable_owner_count).to eq owner_count
+      expect(result.plan.executable_batch_count).to eq owner_count
+      expect(FollowImportDispatchTickObservation.last.executable_owner_count).to eq owner_count
+      expect(FollowImportDispatchTickObservation.last.planned_owner_count).to eq budget
+      expect(window_selects.size).to be <= (budget * 2)
+      expect(window_selects.size).to be < (owner_count / 4)
+    end
+
+    it 'skips a batch with no owner without crashing' do
+      orphan = import_for(Fabricate(:account))
+      orphan.targets.create!(target_key_hash: 'orphan', position: 0)
+      allow_any_instance_of(FollowImportBatch).to receive(:for_account).and_return(nil)
+
+      result = scheduler.call
+
+      expect(result.outcome).to eq 'shadow_observed'
+      expect(result.plan.skipped_missing_owner_count).to be >= 1
+      expect(result.plan.claimed_count).to eq 0
+    end
+  end
 end
+

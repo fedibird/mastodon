@@ -3,31 +3,39 @@
 # Records one global Follow Import dispatch-scheduler tick.
 # Observation only — never consulted to claim, pause, or slow execution.
 #
-# Per-batch FollowImportDispatchObservation rows stay tied to
-# BatchExecutionWorker. Overloading them would make "this pass claimed N"
-# vs "the global tick claimed 0" ambiguous, so ticks use a dedicated table.
-#
-# claimed_count is always 0 in PR A shadow mode. Insert failures are
-# swallowed (rate-limited warning) and must not break the scheduler.
+# claimed_count is always 0 in shadow mode. planned_count is the
+# account-first simulation size when a plan was built; NULL when planning
+# was not attempted (shadow_disabled / lease_busy / shadow_error).
+# Insert failures are swallowed and must not break the scheduler.
 module FollowImport
   class DispatchTickObserver
     SCHEMA_NAME    = 'follow_import_dispatch_tick'
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 3
 
-    def self.record(tick_id:, observed_at:, outcome:, lease_acquired:, plan: nil, load_snapshot: nil, error_class: nil, metadata: {})
+    def self.record(attrs)
+      attrs = attrs.to_h.symbolize_keys
+      plan = attrs[:plan]
       FollowImport::Telemetry.record_dispatch_tick(
-        observed_at: observed_at,
-        tick_id: tick_id,
+        observed_at: attrs[:observed_at],
+        tick_id: attrs[:tick_id],
         scheduler_mode: 'shadow',
-        lease_acquired: lease_acquired,
-        outcome: outcome,
+        lease_acquired: attrs[:lease_acquired],
+        outcome: attrs[:outcome],
         global_pending_count: plan&.global_pending_count,
         active_batch_count: plan&.active_batch_count,
         claimed_count: 0,
-        load_snapshot: load_snapshot,
+        planned_count: plan&.planned_count,
+        planned_owner_count: plan&.planned_owner_count,
+        planned_batch_count: plan&.planned_batch_count,
+        executable_owner_count: plan&.executable_owner_count,
+        executable_batch_count: plan&.executable_batch_count,
+        unique_destination_count: plan&.unique_destination_count,
+        skipped_missing_owner_count: plan&.skipped_missing_owner_count,
+        fairness_state_source: plan&.fairness_state_source,
+        load_snapshot: attrs[:load_snapshot],
         execution_config: plan&.execution_config || execution_config,
-        error_class: error_class,
-        metadata: tick_metadata(metadata)
+        error_class: attrs[:error_class],
+        metadata: tick_metadata(attrs[:metadata])
       )
     rescue StandardError => e
       FollowImport::Telemetry.warn_failure('dispatch_tick', e)
@@ -43,6 +51,9 @@ module FollowImport
         'gate_enforcement_enabled' => FollowImport::ExecutionPolicy.gate_enforcement_enabled?,
         'dispatch_shadow_enabled' => FollowImport::ExecutionPolicy.dispatch_shadow_enabled?,
         'dispatch_shadow_interval' => FollowImport::ExecutionPolicy.dispatch_shadow_interval.to_i,
+        'shadow_plan_budget' => FollowImport::ExecutionPolicy.shadow_plan_budget,
+        'plan_algorithm' => FollowImport::FairScheduler::ALGORITHM,
+        'plan_schema_version' => FollowImport::FairScheduler::SCHEMA_VERSION,
       }
     end
     private_class_method :execution_config

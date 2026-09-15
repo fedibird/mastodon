@@ -91,5 +91,23 @@ RSpec.describe FollowImport::Telemetry do
     expect(row.load_snapshot).to be_nil
     expect(row.claimed_count).to eq 0
   end
+
+  it 'persists nil plan aggregates instead of coercing them to zero' do
+    row = described_class.record_dispatch_tick(
+      tick_id: 'tick-plan-nil',
+      outcome: 'lease_busy',
+      lease_acquired: false,
+      planned_count: nil,
+      planned_owner_count: nil,
+      executable_owner_count: nil,
+      skipped_missing_owner_count: nil
+    )
+
+    expect(row.planned_count).to be_nil
+    expect(row.planned_owner_count).to be_nil
+    expect(row.executable_owner_count).to be_nil
+    expect(row.skipped_missing_owner_count).to be_nil
+    expect(row.claimed_count).to eq 0
+  end
 end
 

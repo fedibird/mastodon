@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_15_020001) do
+ActiveRecord::Schema.define(version: 2026_09_15_040002) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -585,6 +585,7 @@ ActiveRecord::Schema.define(version: 2026_09_15_020001) do
     t.string "destination_domain"
     t.index ["batch_id", "state"], name: "index_follow_import_targets_on_batch_and_state"
     t.index ["batch_id"], name: "index_follow_import_targets_on_pending_batch_id", where: "(state = 0)"
+    t.index ["batch_id", "position", "id"], name: "index_follow_import_targets_on_pending_batch_position", where: "(state = 0)"
     t.index ["destination_domain"], name: "index_follow_import_targets_on_destination_domain", where: "(destination_domain IS NOT NULL)"
     t.index ["batch_id", "target_subject_id"], name: "index_follow_import_targets_on_batch_and_target"
     t.index ["follow_request_uri"], name: "index_follow_import_targets_on_follow_request_uri", unique: true, where: "(follow_request_uri IS NOT NULL)"
@@ -619,6 +620,14 @@ ActiveRecord::Schema.define(version: 2026_09_15_020001) do
     t.integer "global_pending_count"
     t.integer "active_batch_count"
     t.integer "claimed_count", default: 0, null: false
+    t.integer "planned_count"
+    t.integer "executable_owner_count"
+    t.integer "executable_batch_count"
+    t.integer "unique_destination_count"
+    t.integer "skipped_missing_owner_count"
+    t.integer "planned_owner_count"
+    t.integer "planned_batch_count"
+    t.string "fairness_state_source"
     t.jsonb "load_snapshot"
     t.jsonb "execution_config"
     t.string "error_class"

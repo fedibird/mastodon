@@ -13,6 +13,14 @@
 #  global_pending_count  :integer
 #  active_batch_count    :integer
 #  claimed_count         :integer          default(0), not null
+#  planned_count         :integer
+#  planned_owner_count   :integer
+#  planned_batch_count   :integer
+#  executable_owner_count :integer
+#  executable_batch_count :integer
+#  unique_destination_count :integer
+#  skipped_missing_owner_count :integer
+#  fairness_state_source :string
 #  load_snapshot         :jsonb
 #  execution_config      :jsonb
 #  error_class           :string
@@ -24,11 +32,14 @@
 # passes) so "this BatchExecutionWorker pass claimed N" is not confused
 # with "the global shadow tick claimed 0".
 #
-# claimed_count is always 0 while the scheduler is shadow-only (PR A).
-# Count columns are nullable: 0 means an observed empty set, NULL means
-# the measurement was unavailable. Observation only — never consulted to
+# claimed_count is always 0 while the scheduler is shadow-only.
+# planned_count is the account-first simulation size when a plan was
+# built; NULL when planning was not attempted. executable_* is the
+# eligible candidate population; planned_owner/batch_count is who
+# received a slot. Other new aggregates follow the same 0-vs-NULL
+# rule. Observation only — never consulted to
 # pause, slow, or skip dispatch. Does not store handles, payloads, inbox
-# paths, target accts, or moderation scores.
+# paths, target accts, owner keys, or moderation scores.
 class FollowImportDispatchTickObservation < ApplicationRecord
   self.table_name = 'follow_import_dispatch_tick_observations'
   self.record_timestamps = false
