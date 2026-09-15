@@ -28,7 +28,7 @@ RSpec.describe FollowImport::LocalLoadProfile do
   end
 
   it 'classifies JSON scalars and arrays as invalid without raising' do
-    %w("hello" 123 [] null).each do |raw|
+    ['"hello"', '123', '[]', 'null'].each do |raw|
       profile = parse(raw)
 
       expect(profile.invalid?).to be(true), "expected #{raw.inspect} to be invalid"

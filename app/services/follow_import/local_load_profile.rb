@@ -68,7 +68,7 @@ module FollowImport
     end
 
     def self.parse(raw, source: SOURCE_INJECTED)
-      return unconfigured if raw.blank?
+      return unconfigured if raw.nil? || (raw.is_a?(String) && raw.blank?)
       return parse(raw.to_json, source: source) if raw.is_a?(Hash)
       return invalid('profile must be a JSON object') unless raw.is_a?(String)
 

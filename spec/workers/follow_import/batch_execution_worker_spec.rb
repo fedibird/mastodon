@@ -682,17 +682,20 @@ RSpec.describe FollowImport::BatchExecutionWorker do
       import = attach_import
       enable_enforcement(FollowImport::LocalLoadProfile.parse(v2_profile))
       allow(FollowImport::ExecutionPolicy).to receive(:execution_batch_size).and_return(10)
-      snapshots = [
+      allow(described_class).to receive(:perform_in)
+      allow(FollowImport::LoadSnapshot).to receive(:capture).and_return(
         { 'queues' => { 'push' => { 'size' => 0, 'latency' => 25.0 } }, 'retry_size' => 0 },
-        { 'queues' => { 'push' => { 'size' => 0, 'latency' => 0.1 } }, 'retry_size' => 0 },
-      ]
-      allow(FollowImport::LoadSnapshot).to receive(:capture) { snapshots.shift }
+        { 'queues' => { 'push' => { 'size' => 0, 'latency' => 0.1 } }, 'retry_size' => 0 }
+      )
       add_target(0)
 
       worker.perform(batch.id)
       expect(Import.exists?(import.id)).to be true
+      expect(described_class).to have_received(:perform_in).once
+      expect(batch.targets.reload.map(&:state)).to eq %w(pending)
 
       described_class.new.perform(batch.id)
+      expect(batch.targets.reload.map(&:state)).to eq %w(queued)
       expect(Import.exists?(import.id)).to be false
     end
   end
