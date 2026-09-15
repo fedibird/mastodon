@@ -35,8 +35,10 @@ measured p95.
   CSV into many batches must not multiply throughput.
 - The portable core depends on a neutral **owner / fairness key**, not on
   `ModerationSubject`.
-- Concurrent scheduler ticks are **single-flight**. Target row locks are
-  necessary but not sufficient for a global budget.
+- Concurrent scheduler ticks are **single-flight**. The DB **session**
+  advisory lease is the correctness boundary (checked-out connection,
+  explicit unlock). Target row locks are necessary but not sufficient
+  for a global budget. Claim budget is not a strict HTTP-attempt cap.
 - The **database target set** remains the source of truth. Sidekiq is a
   transport, not business state. Redis is not a second budget ledger.
 - Claim-then-enqueue stays **idempotent and row-locked**.
@@ -72,6 +74,8 @@ Treat every figure below as a placeholder label, not a ship default.
 - Per-destination and per-endpoint claim caps (per tick and per sliding
   window)
 - Conservative unknown-destination cap (used when remote state is missing)
+- Candidate-window size and `MAX_SCAN_TARGETS` / `MAX_SCAN_WINDOWS`
+- Adaptive AIMD coefficients, windows, minima/maxima (PR G/H only)
 - Local-load skip / shrink envelopes (queue size, latency, retry set)
 - How long to honour `Retry-After` in the dispatcher
 - Mapping-cache TTL / staleness for `destination_domain → endpoint_origin`
@@ -331,6 +335,8 @@ be retired once the dispatcher + admission control are proven (PR I).
     from the DB. Redis is not the budget ledger.
 11. **One owner per batch.** A batch is claimed either by the legacy
     chain or by the global scheduler, never both.
+12. **New claims ≠ all HTTP attempts.** v1 paces admission of new
+    Follow Import work. Retries do not re-enter the dispatcher.
 
 ---
 
@@ -371,14 +377,47 @@ DB lock):**
    `sidekiq_options retry: 0, lock: :until_executed`
    (same pattern as `Scheduler::AccountsStatusesCleanupScheduler`).
    This prevents a pile-up of overlapping *jobs* while one tick runs.
-2. **PostgreSQL advisory lock** around plan+claim
+2. **PostgreSQL session advisory lock** around plan+claim+enqueue
    (`pg_try_advisory_lock` / `pg_advisory_lock` with a dedicated
-   Follow Import dispatch key). This is the actual budget lock. It
-   survives a Redis unique-lock loss. It is released when the
-   connection ends (commit/rollback/disconnect/crash).
+   Follow Import dispatch key). This is the **correctness boundary**
+   for the global budget. Sidekiq `lock: :until_executed` only
+   deduplicates jobs; it is not enough if Redis loses the unique lock.
 3. **No Redis remaining-budget counter.** There is no "owed" work
    accumulated across ticks. A tick either holds the lease and admits
    up to *this* tick's budget, or it does nothing.
+
+**Session-lock semantics (implementation requirement):**
+
+`pg_advisory_lock` / `pg_try_advisory_lock` are **session-level**. They
+survive `COMMIT` and `ROLLBACK`. They are released only by:
+
+- explicit `pg_advisory_unlock` on the **same PostgreSQL session**, or
+- session disconnect / crash.
+
+They are **not** released on commit/rollback. Therefore the
+implementation must:
+
+- check out **one** ActiveRecord connection for the lease lifetime
+- acquire the advisory lock on **that exact connection**
+- keep that connection checked out through plan / claim / enqueue
+- explicitly `pg_advisory_unlock` on that same connection in `ensure`
+- **not** return a still-locked connection to the pool
+- **not** wrap the whole dispatch/enqueue tick in a long DB transaction
+  that uses `pg_try_advisory_xact_lock` (enqueue and Sidekiq must not
+  sit inside an open transaction spanning the tick)
+
+Per-target claim transactions may still `COMMIT` independently on that
+same checked-out connection (or on short-lived others for row work,
+provided the lease connection stays checked out and locked). The lease
+connection is held for serialization, not to make the tick one ACID
+unit.
+
+#### Process crash while holding the lease
+
+The Sidekiq unique lock expires with `until_executed` (process gone).
+The session advisory lock is released only because the **backend
+disconnects**. The next tick starts clean: new load snapshot, new
+budget. No catch-up.
 
 Target `SELECT … FOR UPDATE` (or the existing row-locked transition)
 remains **necessary** so a legacy worker and a scheduler, or a lock
@@ -391,12 +430,6 @@ If UniqueJobs / Redis is healthy, the second enqueue is deduplicated or
 waits until `until_executed` releases. If a second process nevertheless
 starts, `pg_try_advisory_lock` fails → that process records a skipped
 tick (`lease_busy`) and exits without claiming. Budget is not added.
-
-#### Process crash while holding the lease
-
-The Sidekiq lock expires with `until_executed` (process gone). The
-advisory lock is released with the dead connection. The next tick starts
-clean: new load snapshot, new budget. No catch-up.
 
 #### Scheduler retry
 
@@ -452,7 +485,9 @@ Each scheduler tick, in order:
    deficits). Reconstructable from DB if missing.
 10. Write one **tick-level** dispatch observation. Do not skip telemetry
     because the tick claimed nothing.
-11. Release the advisory lease (ensure).
+11. In `ensure`, `pg_advisory_unlock` on the **same checked-out
+    connection**, then return that connection to the pool only after
+    unlock. A raised tick must still unlock.
 
 Do not enqueue `BatchExecutionWorker` from this path.
 
@@ -466,20 +501,38 @@ one worker, one budget, many work items, skip-when-loaded.
 Sidekiq remains the executor of resolve/delivery. The scheduler only
 **admits** claims.
 
-### 5.5 Selection inside a batch
+### 5.5 Selection inside a batch (no head-of-line window stall)
 
 Today: `ORDER BY position LIMIT batch_size`.
 
-Proposed: build a bounded candidate window larger than the batch's share
-(window size is a numeric parameter), then pick a **diverse** subset:
+A **bounded candidate window** is required so a 20k batch is never
+fully scanned in one tick. That window must not head-of-line block:
+if the first window is entirely a destination in backoff, healthy
+targets later in the same batch must still be discoverable.
 
-- skip rows `RemoteAdmission` rejects this tick
-- prefer destinations that have received fewer claims in this tick
-  (after account-level destination sharing, §8.3)
-- use `position` only as a tie-break
+Bounded paging / scan budget (numbers **uncalibrated**):
+
+1. Inspect one bounded window (`ORDER BY position` after a cursor,
+   `LIMIT WINDOW_SIZE`).
+2. Skip admission-blocked targets; pick a diverse eligible subset
+   (prefer destinations with fewer claims this tick after
+   account-level destination sharing, §8.3). `position` is a
+   tie-break only.
+3. If the **account** still has unused share and this window yielded
+   nothing or too little, seek to the next window (advance the
+   position cursor past the inspected rows).
+4. Stop after `MAX_SCAN_TARGETS` rows inspected **or**
+   `MAX_SCAN_WINDOWS` windows for this account/batch in this tick,
+   whichever binds first.
+
+Do **not** unbounded-scan a 20k import. Unused share after the scan
+budget is exhausted returns to the parent allocator (other batches of
+the same account, then other accounts). Record `windows_scanned` /
+`scan_budget_exhausted` on the tick observation.
 
 This replaces the historical domain-clustering workaround (§3.1) for
-dead hosts (admission skip) and avoids blasting a healthy popular host.
+dead hosts (admission skip + paging) and avoids blasting a healthy
+popular host.
 
 Unresolved rows still have `destination_domain` (PR #59). They
 participate in destination caps. They do not yet have `endpoint_origin`.
@@ -516,8 +569,29 @@ Reuse the *shape* of `AccountsStatusesCleanupScheduler#under_load?`.
 
 `LocalLoadGuard` is a **shared** object. After it is enforced (PR E),
 both the global scheduler and any remaining legacy `BatchExecutionWorker`
-must call it before claiming or rescheduling. A guard that only the
-shadow scheduler evaluates does **not** protect the instance.
+must call it **before claiming**. A guard that only the shadow scheduler
+evaluates does **not** protect the instance.
+
+### 6.2.1 Legacy worker: load-deferred recheck vs true stop
+
+`BatchExecutionWorker` today reschedules only after **positive forward
+progress** (`claimed_count > 0`). If Stage-3 enforcement simply yields
+zero claims, the legacy chain can **stop forever** while pending rows
+remain.
+
+Distinguish zero-claim reasons:
+
+| Why this pass claimed nothing | Legacy chain must |
+|---|---|
+| No pending targets, or remaining pending rows are not executable / not recoverable (policy, missing CSV address, `executable? = false`) | **Stop** the automatic chain (today's behaviour). Recheck is explicit/manual/policy. |
+| `LocalLoadGuard` refused admission (`under_load?` or budget 0) **and** executable pending targets remain | **Enqueue a deferred load recheck** (`perform_in` the usual uncalibrated interval, or a dedicated load-recheck interval). Claim **zero** targets. Do **not** finalize/destroy the Import. |
+
+This recheck is **temporary compatibility** until `dispatch_owner =
+scheduler`. It must not be a tight retry loop. The interval stays
+uncalibrated (same class of knob as `FOLLOW_IMPORT_EXECUTION_INTERVAL`).
+
+The global scheduler does not have this problem: the next cron tick is
+an independent recheck.
 
 ### 6.3 Provisional load envelope (uncalibrated)
 
@@ -623,22 +697,73 @@ Skipped rows stay `pending`.
 
 ### 7.4 Filling the tick
 
-If account A's current batch next window is all `bad.example` in
+If account A's current batch **first** window is all `bad.example` in
 cooldown:
 
-- do not claim them
-- spend the rest of **account A's** share on other domains in that
-  batch, then other batches of A
-- leftover share returns to the **global account allocator**
+- do not claim those rows
+- **page** to later windows in the same batch (§5.5) before giving up
+  on A
+- then other batches of A, then leftover share back to the global
+  account allocator
 
-An account whose entire remainder is one cooling-down domain gets zero
-this tick. Not terminal. Record `skipped_for_backoff` counts.
+An account whose entire remainder (after the scan budget) is
+cooling-down destinations gets zero this tick. Not terminal. Record
+`skipped_for_backoff` and `scan_budget_exhausted` counts.
 
-### 7.5 Already-enqueued work
+### 7.5 Claim budget is not a strict HTTP-attempt limiter
 
-Jobs claimed before backoff was noticed keep Sidekiq / Stoplight / DFT
-behaviour. The dispatcher does not yank them. `queue_wait_ms` on retries
-includes retry delay (PR #59); it is not remote RTT.
+Admission limits **new** Follow Import claims. Existing Sidekiq retries
+run **after** admission and do **not** re-enter the dispatcher.
+
+```
+destination claim budget  ≠  total HTTP attempt budget
+```
+
+v1 semantics:
+
+- the dispatcher limits **new** Follow Import work
+- already-enqueued `RelationshipWorker` / `DeliveryWorker` retries keep
+  existing Sidekiq / Stoplight / DFT behaviour
+- retry and error pressure should **suppress new admission** via
+  Retry-After / error cache state and local queue pressure
+  (`LocalLoadGuard` on `push`/`pull`/retry-set)
+- a future **transport-level** limiter would be required if Mastodon
+  ever wants a strict shared cap over new attempts **plus** retries
+
+This design does **not** add a generic `DeliveryWorker` limiter or
+change ordinary (non-import) delivery.
+
+`queue_wait_ms` on retries includes retry delay (PR #59); it is not
+remote RTT. Jobs claimed before backoff was noticed are not yanked.
+
+### 7.6 Adaptive remote pacing (conceptual; PR G/H)
+
+PR F ships **fixed** destination/domain budgets plus DFT /
+UnavailableDomain / Retry-After cache. PR G shadows, then PR H
+enforces, an adaptive controller on top of those observations. The
+control law is architectural and **non-numeric**. Coefficients,
+windows, minima/maxima, and latency thresholds stay **uncalibrated**
+until PR #59 production telemetry is analyzed.
+
+AIMD / slow-start is the conceptual model. **No active probing or load
+testing of remote servers.**
+
+| Observed condition | Controller action |
+|---|---|
+| Unknown destination / origin (no usable runtime state) | Conservative **initial** budget (same class as the fixed first-contact cap) |
+| Stable successful observations | Increase **gradually** |
+| 429 / `Retry-After` | Pause or strongly reduce; honour `Retry-After` (honour window still capped, uncalibrated) |
+| 5xx / timeout / connection degradation | **Multiplicative decrease** |
+| Recovery after decrease | Gradual increase (slow-start / additive), not an instant jump to the last high rate |
+| Stale or lost runtime state | Return to the **conservative initial** state, never a learned-high state |
+
+Reject / Accept remain follow **results**, not controller inputs.
+Request-duration percentiles may later inform calibration; they are
+not a v1 probe signal.
+
+Do not implement a Node capacity score. Do not scan raw telemetry
+tables on each tick; the controller reads the same runtime
+cache/aggregates as §7.1–7.2.
 
 ---
 
@@ -759,8 +884,14 @@ exists to prevent.
 `ProcessImportWorker` already retries (5) and retains the CSV on
 exhaustion. Global mode uses that path instead of the unpaced fallback.
 
-Overwrite-mode **unfollows** stay out of v1 follow-dispatch pacing
-(they can still spike `pull`; see open questions).
+Overwrite-mode **unfollows** stay out of v1 follow-dispatch pacing.
+They are **not** permanently irrelevant: they still enqueue
+`Import::RelationshipWorker` and, for remotes, `ActivityPub::DeliveryWorker`,
+so they are a **known remaining burst path**. Bringing
+import-generated unfollows under the same flow control is a **future
+completion requirement**, not an open product maybe. v1 must document
+the gap; a later PR (after I, or parallel once GLOBAL is stable) should
+admit unfollows through the same scheduler or an equivalent budget.
 
 ---
 
@@ -837,7 +968,9 @@ Architectural behaviour only. No numeric thresholds.
 | **Many large imports (many accounts)** | Global budget binds. Each account is capped. Instance load guard can zero the tick. |
 | **One account splitting many batches** | Still **one** account share. Batch DRR only splits that share. Destination caps also split at account granularity first. |
 | **Thousands of destination domains** | First-contact caps by `destination_domain`. Admission state is caches/aggregates + DFT host checks, not per-row telemetry scans. Candidate windows stay bounded. |
-| **One destination, many targets** | Global destination cap; remaining rows stay pending. Other destinations (same or other accounts) fill the tick. |
+| **One destination, many targets** | Global destination cap; remaining rows stay pending. Other destinations (same or other accounts) fill the tick. Bounded paging skips a backoff-only prefix to reach later healthy destinations (§5.5). |
+| **Legacy pass, load high, pending remain** | Guard claims 0; worker enqueues a deferred load recheck. Does not finalize. Not a tight loop. |
+| **Legacy pass, not executable / unrecoverable** | Claim 0; **stop** the chain (no load recheck). |
 | **Dead destination** | DFT / UnavailableDomain when host mapping is known; resolve Stoplight only if safely queryable; otherwise transport fails and the runtime cache learns. Dispatcher skips further claims for that destination. Other work continues. Historical domain-clustering is not required. |
 | **Slow but healthy destination** | No Reject-based slowdown. Request-duration is **not** a v1 admission input (calibration later). First-contact cap still limits burst. Do not treat slowness as death. |
 | **429 + Retry-After** | Transport records it. Runtime cache/aggregate sets `retry_after_until` on `endpoint_origin` (and mapped domain if the map is fresh). Dispatcher skips that origin until then (honour capped). DeliveryWorker retries remain. |
@@ -862,7 +995,7 @@ That cannot protect the instance. Local-load work is a **shared guard**
 | **0 — observe** | PR #59 (done) | None. Legacy 50/30s chains. Unpaced recording fallback still exists. |
 | **1 — shadow scheduler** | PR A (+ PR B plan math) | Scheduler runs single-flight, builds an account-first plan, **does not claim**. Legacy worker is the only claimer. |
 | **2 — shared load guard, shadow** | PR D | Scheduler **and** legacy worker *compute and log* `LocalLoadGuard`. They still claim as today. **No protection yet.** |
-| **3 — shared load guard, enforce** | PR E | Both claimers consult the guard before claim/reschedule. Temporary compatibility; **not** global fairness. |
+| **3 — shared load guard, enforce** | PR E | Both claimers consult the guard before claim. Legacy **load-deferred recheck** if zero claims were load-only (§6.2.1). Temporary compatibility; **not** global fairness. |
 | **4 — global claiming for new imports** | PR C | New batches are `dispatch_owner = scheduler`. Recording failure must not bulk-enqueue. In-flight `legacy` batches keep their chains. |
 | **5 — fixed destination admission** | PR F | Domain caps + DFT/UnavailableDomain + Retry-After cache. |
 | **6 — adaptive destination, shadow then enforce** | PR G / H | After telemetry calibration. Still no Node score. |
@@ -913,15 +1046,15 @@ is this documentation PR. Numeric calibration is last, not first.
 
 | PR | Scope | Must not |
 |---|---|---|
-| **A** | Global scheduler skeleton; single-flight (unique job + advisory lock); shadow planning only; tick observations | Claim; change `ImportService` fallback |
+| **A** | Global scheduler skeleton; single-flight (unique job + **session** advisory lock on a checked-out connection, unlock in `ensure`); shadow planning only; tick observations | Claim; change `ImportService` fallback; `xact` lock around the whole tick |
 | **B** | Account-first DRR + batch sub-scheduling in the **plan**; `owner_key` adapter; destination-share math in the plan | Claim; remote adaptive logic |
 | **C** | Authoritative global claiming for **new** imports; `dispatch_owner`; legacy/global ownership + drain; **remove unpaced recording fallback** when GLOBAL is on | Flip in-flight legacy owners implicitly; enable Follow Gate |
 | **D** | `LocalLoadGuard` integration: compute + log in scheduler **and** legacy worker (shadow) | Enforce skip |
-| **E** | Enforce `LocalLoadGuard` in both claimers | Tune production envelopes as if calibrated |
-| **F** | Fixed destination/domain budgets; DFT / UnavailableDomain where host mapping is known; Retry-After **runtime cache** (no raw scans) | Adaptive rates; Node scores; inbox Stoplight-as-if-known |
-| **G** | Shadow adaptive destination pacing from aggregates | Enforce |
+| **E** | Enforce `LocalLoadGuard` in both claimers; legacy **load-deferred reschedule** when the guard (not policy) yields zero claims | Tune production envelopes as if calibrated; tight retry loops |
+| **F** | Fixed destination/domain budgets; DFT / UnavailableDomain where host mapping is known; Retry-After **runtime cache** (no raw scans); bounded candidate paging (§5.5) | Adaptive rates; Node scores; inbox Stoplight-as-if-known; unbounded 20k scans |
+| **G** | Shadow adaptive destination pacing (§7.6 AIMD) from aggregates | Enforce; active probing |
 | **H** | Enforce adaptive destination pacing **after** PR #59 (+ tick) calibration | Invent thresholds without data |
-| **I** | Retire `BatchExecutionWorker` path; retire historical domain-ordering workaround when proven safe | Leave an unpaced `import_relationships!` follow fallback |
+| **I** | Retire `BatchExecutionWorker` path; retire historical domain-ordering workaround when proven safe | Leave an unpaced `import_relationships!` follow fallback; forget import-generated unfollows as a future completion item |
 
 Suggested flag mapping: A+B → `DISPATCH_SHADOW`; C → `DISPATCH_GLOBAL`;
 D/E → `DISPATCH_LOAD_GUARD`; F–H → `DISPATCH_REMOTE_ADMISSION`.
@@ -963,9 +1096,13 @@ change the architecture above.
 - `ACCOUNT_FLOOR` / `ACCOUNT_CAP` / `BATCH_*` / destination caps.
 - Whether local-only follows may use a higher cap (no remote HTTP) or
   must share the global budget.
-- Whether overwrite-mode unfollows join the budget or stay
-  fire-and-forget (v1 recommendation: stay out, but document `pull`
-  spikes).
+- AIMD coefficients / windows once PR #59 has enough per-origin
+  success vs 429/5xx/timeout samples (architecture in §7.6 is fixed).
+- `WINDOW_SIZE` / `MAX_SCAN_TARGETS` / `MAX_SCAN_WINDOWS`.
+- Legacy load-recheck interval vs `FOLLOW_IMPORT_EXECUTION_INTERVAL`.
+- Import-generated unfollow flow-control shape (same scheduler vs a
+  sibling budget) — **required later**, not optional; v1 only leaves
+  them unpaced.
 - Dispatcher `Retry-After` honour cap vs DeliveryWorker-only honour.
 - Mapping-cache TTL for `destination_domain → endpoint_origin`.
 - Whether Stoplight exposes a safe `source:#{domain}` colour lookup
@@ -988,5 +1125,7 @@ The first implementation of this design will not:
 - perform content analysis or ML classification
 - rewrite historical EvidenceSnapshots or other moderation artifacts
 - keep an unpaced follow bulk-enqueue once GLOBAL is authoritative
+- add a generic `DeliveryWorker` limiter or treat claim budget as an
+  HTTP-attempt cap (retries stay outside the dispatcher in v1)
 
 Policy may pause an import. Pacing will only see `executable? = false`.
