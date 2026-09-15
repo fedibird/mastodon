@@ -59,5 +59,10 @@ RSpec.describe FollowImportTarget do
       forbidden = FollowImportTarget.column_names.grep(/acct|address|username|handle/i)
       expect(forbidden).to be_empty
     end
+
+    it 'may store a destination_domain without a username or acct' do
+      expect(FollowImportTarget.column_names).to include('destination_domain')
+      expect(FollowImportTarget.column_names).not_to include('acct')
+    end
   end
 end
