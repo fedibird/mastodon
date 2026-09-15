@@ -16,7 +16,6 @@ RSpec.describe FollowImport::DispatchLease do
         WHERE locktype = 'advisory'
           AND classid = #{described_class::LOCK_NAMESPACE}
           AND objid = #{described_class::LOCK_KEY}
-          AND objsubid = 1
           AND granted
           AND pid = pg_backend_pid()
       )
@@ -177,6 +176,14 @@ RSpec.describe FollowImport::DispatchLease do
 
   describe 'PostgreSQL session exclusion' do
     it 'does not allow two checked-out connections to both enter the critical section' do
+      # Rails transactional tests set pool.lock_thread so every Thread shares
+      # one cached session. Session advisory locks are reentrant on that
+      # session, which would make this example pass both bodies. Production
+      # Sidekiq does not lock_thread; disable it here so each thread gets
+      # its own with_connection session.
+      pool = ActiveRecord::Base.connection_pool
+      pool.lock_thread = false
+
       ready = Queue.new
       release = Queue.new
       second_status = Queue.new
@@ -207,6 +214,7 @@ RSpec.describe FollowImport::DispatchLease do
       release << true
       holder&.join(2)
       waiter&.join(2)
+      ActiveRecord::Base.connection_pool.lock_thread = true
     end
 
     it 'does not mutate Follow Import rows when the lease is lost or held' do
