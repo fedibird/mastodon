@@ -35,8 +35,11 @@ module Moderation
       unique_negative_responders
       linked_negative_responders
       correlated_negative_responders
+      qualified_negative_events
+      qualified_unique_negative_responders
       negative_response_rate
       linked_negative_rate
+      qualified_negative_response_rate
       follow_reject_rate
       new_targets_after_first_negative_signal
       follows_after_first_negative_signal
@@ -52,6 +55,7 @@ module Moderation
     ELIGIBILITY = {
       'negative_response_rate'                  => ->(data) { data['unique_targets'].to_i.positive? },
       'linked_negative_rate'                    => ->(data) { data['unique_targets'].to_i.positive? },
+      'qualified_negative_response_rate'        => ->(data) { data['unique_targets'].to_i.positive? },
       'follow_reject_rate'                      => ->(data) { data['unique_follow_targets'].to_i.positive? },
       'new_targets_after_first_negative_signal' => ->(data) { data['first_negative_signal_at'].present? },
       'follows_after_first_negative_signal'     => ->(data) { data['first_negative_signal_at'].present? },

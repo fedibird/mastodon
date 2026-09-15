@@ -290,8 +290,11 @@ ja:
         unique_negative_responders: ユニーク否定的反応者数
         linked_negative_responders: リンクされた否定的反応者数
         correlated_negative_responders: 相関する否定的反応者数
+        qualified_negative_events: 適格な否定イベント数
+        qualified_unique_negative_responders: 適格なユニーク否定的反応者数
         negative_response_rate: 否定的反応率
         linked_negative_rate: リンク否定率
+        qualified_negative_response_rate: 適格な否定的反応率
         follow_reject_rate: フォロー拒否率
         first_negative_signal_at: 最初の否定シグナル日時
         new_targets_after_first_negative_signal: 否定シグナル後の新規対象数

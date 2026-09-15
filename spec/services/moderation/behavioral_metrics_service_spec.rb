@@ -56,6 +56,8 @@ RSpec.describe Moderation::BehavioralMetricsService do
         expect(metrics['unique_negative_responders']).to eq 3
         expect(metrics['linked_negative_responders']).to eq 2
         expect(metrics['correlated_negative_responders']).to eq 1
+        expect(metrics['qualified_negative_events']).to eq 2
+        expect(metrics['qualified_unique_negative_responders']).to eq 2
       end
 
       it 'computes cohort-aligned rates as raw floats, requiring contact-before-rejection' do
@@ -65,6 +67,8 @@ RSpec.describe Moderation::BehavioralMetricsService do
         expect(metrics['negative_response_rate']).to eq 0.5
         # linked rate cohort (b, c) / unique targets (4) = 2/4
         expect(metrics['linked_negative_rate']).to eq 0.5
+        expect(metrics['qualified_negative_response_rate']).to eq 0.5
+        expect(metrics['qualified_negative_response_rate']).to be <= 1.0
         # follow_rejects from followed targets (c) / followed targets (b,c,g) = 1/3
         expect(metrics['follow_reject_rate']).to be_within(1e-9).of(1.0 / 3)
       end
@@ -166,6 +170,11 @@ RSpec.describe Moderation::BehavioralMetricsService do
       expect(metrics['linked_negative_responders']).to eq 1
       expect(metrics['negative_response_rate']).to eq 1.0
       expect(metrics['negative_response_rate']).to be <= 1.0
+      expect(metrics['qualified_negative_response_rate']).to eq 1.0
+      expect(metrics['qualified_negative_response_rate']).to be <= 1.0
+      # h is still a qualified responder (out-of-window contact + strong link)
+      # but must not enter the in-window qualified rate numerator.
+      expect(metrics['qualified_unique_negative_responders']).to eq 2
     end
   end
 
@@ -191,6 +200,7 @@ RSpec.describe Moderation::BehavioralMetricsService do
       expect(metrics['linked_negative_responders']).to eq 1
       expect(metrics['negative_response_rate']).to eq 0.0
       expect(metrics['linked_negative_rate']).to eq 0.0
+      expect(metrics['qualified_negative_response_rate']).to eq 0.0
     end
 
     it 'excludes a follow_reject whose only in-window follow comes after it (follow_reject rate)' do
@@ -235,6 +245,8 @@ RSpec.describe Moderation::BehavioralMetricsService do
       expect(metrics['rejections_received_total']).to eq 1
       expect(metrics['follow_rejects_received']).to eq 1
       expect(metrics['linked_negative_responders']).to eq 0
+      expect(metrics['qualified_negative_events']).to eq 0
+      expect(metrics['qualified_unique_negative_responders']).to eq 0
       expect(metrics['first_negative_signal_at']).to be_nil
       expect(metrics['new_targets_after_first_negative_signal']).to eq 0
       expect(metrics['follows_after_first_negative_signal']).to eq 0
