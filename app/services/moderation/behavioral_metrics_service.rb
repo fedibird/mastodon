@@ -189,7 +189,7 @@ module Moderation
         next if rejector_id.nil?
         next unless contacted_ids.include?(rejector_id)
 
-        if Moderation::PrecedingContactLink.strong_association?(rejection.preceding_interaction_event, rejection)
+        if Moderation::NegativeSignalQualification.qualified?(rejection)
           linked << rejector_id
         else
           correlated << rejector_id
@@ -237,7 +237,7 @@ module Moderation
         next if interaction.nil? || interaction.occurred_at.nil? || rejection.rejector_subject_id.nil?
         next if window_start && interaction.occurred_at < window_start
         next if window_end && interaction.occurred_at > window_end
-        next unless Moderation::PrecedingContactLink.strong_association?(interaction, rejection)
+        next unless Moderation::NegativeSignalQualification.qualified?(rejection)
 
         cohort << rejection.rejector_subject_id
       end
@@ -250,18 +250,9 @@ module Moderation
     # inside the association window). Raw/unlinked rejection rows are ignored
     # so they cannot start continuation-after-rejection / repeat_behavior.
     def first_qualified_negative_at(rejections)
-      earliest = nil
-
-      rejections.includes(:preceding_interaction_event).find_each do |rejection|
-        next unless Moderation::PrecedingContactLink.strong_association?(rejection.preceding_interaction_event, rejection)
-
-        at = rejection.occurred_at
-        next if at.nil?
-
-        earliest = at if earliest.nil? || at < earliest
-      end
-
-      earliest
+      Moderation::NegativeSignalQualification.first_qualified_at(
+        rejections.includes(:preceding_interaction_event).find_each
+      )
     end
 
     # Genuinely new targets contacted after the first negative signal in scope: a
