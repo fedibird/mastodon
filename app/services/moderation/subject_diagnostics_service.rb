@@ -43,6 +43,8 @@ module Moderation
 
       unique_responders = window_24h['unique_negative_responders'].to_i
       linked_responders = window_24h['linked_negative_responders'].to_i
+      qualified_unique_responders = window_24h['qualified_unique_negative_responders'].to_i
+      qualified_response_rate = window_24h['qualified_negative_response_rate'].to_f
       raw_events        = negatives['raw_events']
       qualified_events  = negatives['qualified_events']
       qualification_rate = ratio(qualified_events, raw_events)
@@ -57,6 +59,8 @@ module Moderation
           '24h' => negatives.merge(
             'unique_responders' => unique_responders,
             'linked_responders' => linked_responders,
+            'qualified_unique_responders' => qualified_unique_responders,
+            'qualified_response_rate' => qualified_response_rate,
             'qualification_rate' => qualification_rate,
             'link_rate' => link_rate
           ),

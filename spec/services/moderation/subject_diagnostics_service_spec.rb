@@ -66,6 +66,8 @@ RSpec.describe Moderation::SubjectDiagnosticsService do
         'unqualified_events' => 0,
         'unique_responders' => 0,
         'linked_responders' => 0,
+        'qualified_unique_responders' => 0,
+        'qualified_response_rate' => 0.0,
         'qualification_rate' => 0.0,
         'link_rate' => 0.0
       )
@@ -149,6 +151,8 @@ RSpec.describe Moderation::SubjectDiagnosticsService do
       expect(result.dig('continuation', 'new_targets_after_first_negative_signal_24h')).to eq 0
       expect(result.dig('continuation', 'follows_after_first_negative_signal_24h')).to eq 0
       expect(result.dig('evaluation', 'subscores', 'repeat_behavior', 'score')).to eq 0.0
+      expect(result.dig('evaluation', 'subscores', 'rejection', 'score')).to eq 0.0
+      expect(result.dig('negative_signals', '24h', 'qualified_unique_responders')).to eq 0
     end
   end
 
@@ -191,6 +195,9 @@ RSpec.describe Moderation::SubjectDiagnosticsService do
 
       expect(signals['unique_responders']).to eq metrics['unique_negative_responders']
       expect(signals['linked_responders']).to eq metrics['linked_negative_responders']
+      expect(signals['qualified_unique_responders']).to eq metrics['qualified_unique_negative_responders']
+      expect(signals['qualified_response_rate']).to eq metrics['qualified_negative_response_rate']
+      expect(signals['qualified_events']).to eq metrics['qualified_negative_events']
       expect(result.dig('contacts', '24h', 'total')).to eq metrics['contacts_total']
       expect(result.dig('contacts', '24h', 'unique_targets')).to eq metrics['unique_targets']
     end

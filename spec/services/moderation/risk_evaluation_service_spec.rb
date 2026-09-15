@@ -8,7 +8,8 @@ RSpec.describe Moderation::RiskEvaluationService do
   WINDOW_DEFAULTS = {
     'contacts_total' => 0, 'unique_targets' => 0, 'follows' => 0, 'unique_follow_targets' => 0,
     'reports_received' => 0, 'unique_negative_responders' => 0, 'linked_negative_responders' => 0,
-    'negative_response_rate' => 0.0,
+    'qualified_negative_events' => 0, 'qualified_unique_negative_responders' => 0,
+    'negative_response_rate' => 0.0, 'qualified_negative_response_rate' => 0.0,
     'first_negative_signal_at' => nil,
     'new_targets_after_first_negative_signal' => 0, 'follows_after_first_negative_signal' => 0,
   }.freeze
@@ -88,33 +89,48 @@ RSpec.describe Moderation::RiskEvaluationService do
   end
 
   describe 'rejection guardrails' do
-    it 'does NOT fire for a single independent rejector' do
-      sub = evaluate(metrics(windows: { '24h' => { 'unique_negative_responders' => 1, 'linked_negative_responders' => 1 } }))['subscores']['rejection']
+    it 'does NOT fire for a single qualified independent rejector' do
+      sub = evaluate(metrics(windows: { '24h' => { 'qualified_unique_negative_responders' => 1, 'linked_negative_responders' => 1 } }))['subscores']['rejection']
 
       expect(sub['score']).to eq 0.0
       expect(sub['reason_codes']).to be_empty
     end
 
-    it 'fires only once multiple independent responders are present' do
-      sub = evaluate(metrics(windows: { '24h' => { 'unique_negative_responders' => 6, 'linked_negative_responders' => 6 } }))['subscores']['rejection']
+    it 'does NOT fire on raw unique responders when the qualified cohort is empty' do
+      sub = evaluate(metrics(windows: { '24h' => { 'unique_negative_responders' => 8, 'linked_negative_responders' => 0, 'qualified_unique_negative_responders' => 0 } }))['subscores']['rejection']
 
-      expect(sub['reason_codes'].map { |r| r['code'] }).to include('multiple_independent_rejectors', 'linked_independent_rejectors')
+      expect(sub['score']).to eq 0.0
+      expect(sub['reason_codes']).to be_empty
+    end
+
+    it 'does not double-count linked responders as a second rejection signal' do
+      sub = evaluate(metrics(windows: { '24h' => { 'qualified_unique_negative_responders' => 6, 'linked_negative_responders' => 6 } }))['subscores']['rejection']
+
+      expect(sub['reason_codes'].map { |r| r['code'] }).to eq %w(multiple_qualified_independent_rejectors)
+      expect(sub['score']).to eq 0.5
+    end
+
+    it 'fires only once multiple qualified independent responders are present' do
+      sub = evaluate(metrics(windows: { '24h' => { 'qualified_unique_negative_responders' => 6 } }))['subscores']['rejection']
+
+      expect(sub['reason_codes'].map { |r| r['code'] }).to include('multiple_qualified_independent_rejectors')
+      expect(sub['reason_codes'].map { |r| r['code'] }).to_not include('multiple_independent_rejectors', 'linked_independent_rejectors')
       expect(sub['score']).to be > 0.0
     end
 
-    it 'ignores negative_response_rate on a tiny contact sample' do
+    it 'ignores qualified_negative_response_rate on a tiny contact sample' do
       # rate is high but only 3 unique targets -> below min_unique_targets guard.
-      sub = evaluate(metrics(windows: { '24h' => { 'unique_targets' => 3, 'negative_response_rate' => 0.9 } }))['subscores']['rejection']
+      sub = evaluate(metrics(windows: { '24h' => { 'unique_targets' => 3, 'qualified_negative_response_rate' => 0.9 } }))['subscores']['rejection']
 
       expect(sub['reason_codes']).to be_empty
     end
 
-    it 'counts an elevated rate once the sample is large enough and records the sample condition' do
-      sub = evaluate(metrics(windows: { '24h' => { 'unique_targets' => 50, 'negative_response_rate' => 0.3 } }))['subscores']['rejection']
+    it 'counts an elevated qualified rate once the sample is large enough and records the sample condition' do
+      sub = evaluate(metrics(windows: { '24h' => { 'unique_targets' => 50, 'qualified_negative_response_rate' => 0.3 } }))['subscores']['rejection']
 
       expect(sub['reason_codes']).to include(
         a_hash_including(
-          'code' => 'elevated_negative_response_rate', 'value' => 0.3, 'threshold' => 0.2, 'weight' => 0.3, 'window' => '24h',
+          'code' => 'elevated_qualified_negative_response_rate', 'value' => 0.3, 'threshold' => 0.2, 'weight' => 0.3, 'window' => '24h',
           'observed_unique_targets' => 50, 'min_unique_targets' => 10
         )
       )
@@ -201,6 +217,137 @@ RSpec.describe Moderation::RiskEvaluationService do
 
       expect(result['subject_id']).to be_nil
       result['subscores'].each_value { |sub| expect(sub['score']).to eq 0.0 }
+    end
+  end
+
+  describe 'qualified rejection cohort on the ledger' do
+    let(:actor) { Fabricate(:account, username: 'risk_qual_actor') }
+
+    def record_interaction(target, type, at, key)
+      Moderation::EventRecorder.record_interaction(actor: actor, target: target, event_type: type, occurred_at: at, source_event_key: key)
+    end
+
+    def record_rejection(rejector, type, at, key)
+      Moderation::EventRecorder.record_rejection(rejector: rejector, rejected: actor, event_type: type, occurred_at: at, source_event_key: key)
+    end
+
+    def rejection_sub
+      described_class.new.call(actor, now: now).dig('subscores', 'rejection')
+    end
+
+    it 'does not raise the rejection subscore for five or more raw unqualified Follow Rejects' do
+      5.times do |i|
+        stranger = Fabricate(:account, username: "risk_raw_#{i}")
+        record_rejection(stranger, :follow_reject, now - (10 + i).minutes, "risk-raw-#{i}")
+      end
+
+      metrics = Moderation::BehavioralMetricsService.new.call(actor, now: now).dig('windows', '24h')
+      sub = rejection_sub
+
+      expect(metrics['rejections_received_total']).to eq 5
+      expect(metrics['unique_negative_responders']).to eq 5
+      expect(metrics['qualified_unique_negative_responders']).to eq 0
+      expect(sub['score']).to eq 0.0
+      expect(sub['reason_codes']).to be_empty
+    end
+
+    it 'does not fire multiple_*rejectors for synthetic/unlinked Rejects from several servers' do
+      6.times do |i|
+        remote = Fabricate(:account, username: "risk_syn_#{i}", domain: "misskey-#{i}.example")
+        record_rejection(remote, :follow_reject, now - (5 + i).minutes, "risk-syn-#{i}")
+      end
+
+      sub = rejection_sub
+      codes = sub['reason_codes'].map { |r| r['code'] }
+
+      expect(sub['score']).to eq 0.0
+      expect(codes.grep(/rejectors/)).to be_empty
+      expect(codes).to_not include('multiple_independent_rejectors', 'multiple_qualified_independent_rejectors')
+    end
+
+    it 'fires multiple_qualified_independent_rejectors once the qualified cohort reaches the threshold' do
+      5.times do |i|
+        peer = Fabricate(:account, username: "risk_qual_#{i}")
+        record_interaction(peer, :follow, now - (60 - i).minutes, "risk-qi-#{i}")
+        record_rejection(peer, :follow_reject, now - (50 - i).minutes, "risk-qr-#{i}")
+      end
+
+      metrics = Moderation::BehavioralMetricsService.new.call(actor, now: now).dig('windows', '24h')
+      sub = rejection_sub
+
+      expect(metrics['qualified_unique_negative_responders']).to eq 5
+      expect(sub['reason_codes'].map { |r| r['code'] }).to include('multiple_qualified_independent_rejectors')
+      expect(sub['reason_codes']).to include(a_hash_including('code' => 'multiple_qualified_independent_rejectors', 'value' => 5, 'threshold' => 5))
+    end
+
+    it 'counts one unique qualified responder when the same account returns several qualified negatives' do
+      peer = Fabricate(:account, username: 'risk_repeat_peer')
+      record_interaction(peer, :follow, now - 50.minutes, 'risk-rep-i1')
+      record_rejection(peer, :block, now - 40.minutes, 'risk-rep-r1')
+      record_interaction(peer, :mention, now - 30.minutes, 'risk-rep-i2')
+      record_rejection(peer, :mute, now - 20.minutes, 'risk-rep-r2')
+
+      metrics = Moderation::BehavioralMetricsService.new.call(actor, now: now).dig('windows', '24h')
+
+      expect(metrics['qualified_negative_events']).to eq 2
+      expect(metrics['qualified_unique_negative_responders']).to eq 1
+      expect(metrics['unique_negative_responders']).to eq 1
+      expect(rejection_sub['reason_codes']).to be_empty
+    end
+
+    it 'keeps raw metrics and first-qualified / repeat_behavior semantics from diagnostics' do
+      stranger = Fabricate(:account, username: 'risk_early_raw')
+      later = Fabricate(:account, username: 'risk_later_qual')
+      fresh = Fabricate(:account, username: 'risk_after_qual')
+
+      record_rejection(stranger, :follow_reject, now - 90.minutes, 'risk-early-raw')
+      record_interaction(later, :follow, now - 40.minutes, 'risk-later-i')
+      record_rejection(later, :block, now - 30.minutes, 'risk-later-r')
+      record_interaction(fresh, :follow, now - 10.minutes, 'risk-after')
+
+      metrics = Moderation::BehavioralMetricsService.new.call(actor, now: now).dig('windows', '24h')
+      evaluation = described_class.new.call(actor, now: now)
+      diagnostics = Moderation::SubjectDiagnosticsService.new.call(actor, now: now)
+
+      expect(metrics['rejections_received_total']).to eq 2
+      expect(metrics['unique_negative_responders']).to eq 2
+      expect(metrics['rejections_by_type']['follow_reject']).to eq 1
+      expect(metrics['first_negative_signal_at']).to eq((now - 30.minutes).iso8601)
+      expect(metrics['new_targets_after_first_negative_signal']).to eq 1
+      expect(diagnostics.dig('continuation', 'first_qualified_negative_at')).to eq metrics['first_negative_signal_at']
+      expect(evaluation.dig('subscores', 'repeat_behavior', 'score')).to eq 0.0
+    end
+
+    it 'aligns diagnostics qualified counts with the values risk evaluation reads' do
+      5.times do |i|
+        peer = Fabricate(:account, username: "risk_align_#{i}")
+        record_interaction(peer, :follow, now - (60 - i).minutes, "risk-ai-#{i}")
+        record_rejection(peer, :follow_reject, now - (50 - i).minutes, "risk-ar-#{i}")
+      end
+
+      metrics = Moderation::BehavioralMetricsService.new.call(actor, now: now).dig('windows', '24h')
+      diagnostics = Moderation::SubjectDiagnosticsService.new.call(actor, now: now)
+      evaluation = diagnostics['evaluation']
+      reason = evaluation.dig('subscores', 'rejection', 'reason_codes').find { |r| r['code'] == 'multiple_qualified_independent_rejectors' }
+
+      expect(diagnostics.dig('negative_signals', '24h', 'qualified_events')).to eq metrics['qualified_negative_events']
+      expect(diagnostics.dig('negative_signals', '24h', 'qualified_unique_responders')).to eq metrics['qualified_unique_negative_responders']
+      expect(diagnostics.dig('negative_signals', '24h', 'qualified_response_rate')).to eq metrics['qualified_negative_response_rate']
+      expect(reason['value']).to eq metrics['qualified_unique_negative_responders']
+      expect(reason['value']).to eq diagnostics.dig('negative_signals', '24h', 'qualified_unique_responders')
+    end
+
+    it 'lets a Misskey-style synthetic Follow Reject stay visible as raw without raising rejection risk' do
+      remote = Fabricate(:account, username: 'risk_misskey', domain: 'misskey.example')
+      record_rejection(remote, :follow_reject, now - 15.minutes, 'risk-misskey-raw')
+
+      diagnostics = Moderation::SubjectDiagnosticsService.new.call(actor, now: now)
+      evaluation = described_class.new.call(actor, now: now)
+
+      expect(diagnostics.dig('negative_signals', '24h', 'raw_events')).to eq 1
+      expect(diagnostics.dig('negative_signals', '24h', 'qualified_events')).to eq 0
+      expect(evaluation.dig('subscores', 'rejection', 'score')).to eq 0.0
+      expect(evaluation.dig('subscores', 'rejection', 'reason_codes')).to be_empty
     end
   end
 end
