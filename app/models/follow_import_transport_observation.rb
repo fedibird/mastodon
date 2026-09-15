@@ -14,7 +14,7 @@
 #  sidekiq_job_id      :string
 #  started_at           :datetime         not null
 #  finished_at          :datetime         not null
-#  duration_ms          :integer          not null
+#  duration_ms          :integer
 #  outcome              :string           not null
 #  http_status          :integer
 #  retry_after_seconds  :integer

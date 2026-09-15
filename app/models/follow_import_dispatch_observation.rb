@@ -7,8 +7,8 @@
 #  id               :bigint(8)        not null, primary key
 #  batch_id         :bigint(8)
 #  observed_at      :datetime         not null
-#  candidate_count       :integer          default(0), not null
-#  claimed_count         :integer          default(0), not null
+#  candidate_count       :integer
+#  claimed_count         :integer
 #  pending_count         :integer
 #  load_snapshot         :jsonb
 #  execution_policy      :jsonb            not null
@@ -17,10 +17,14 @@
 #  batch_pending_after   :integer
 #  global_pending_count  :integer
 #  active_batch_count    :integer
+#  pass_error_class      :string
 #
 # One observation per FollowImport::BatchExecutionWorker pass. load_snapshot is
 # captured BEFORE any claim/enqueue. Count columns are nullable: 0 means an
-# observed empty set, NULL means the measurement was unavailable. Observation
+# observed empty set, NULL means the measurement was unavailable.
+# claimed_count is incremented after each successful enqueue so a later raise
+# still reports partial progress. pass_error_class is set when the pass
+# raised (telemetry only — the error is still re-raised). Observation
 # only — never consulted to pause, slow, or skip dispatch.
 class FollowImportDispatchObservation < ApplicationRecord
   self.table_name = 'follow_import_dispatch_observations'

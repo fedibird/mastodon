@@ -21,7 +21,8 @@ module FollowImport
       return if started_at.blank? || finished_at.blank?
 
       ms = ((finished_at - started_at) * 1000).round
-      ms.negative? ? 0 : ms
+      # A backwards interval is unusable, not an observed zero.
+      ms.negative? ? nil : ms
     end
   end
 end

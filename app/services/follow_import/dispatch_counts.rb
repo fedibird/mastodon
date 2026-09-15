@@ -2,6 +2,10 @@
 
 # Read-only Follow Import backlog counts. Measurement failures return nil
 # (unavailable), never 0. 0 is reserved for an observed empty set.
+#
+# Global queries filter only `state = pending`. They use the partial index
+# `index_follow_import_targets_on_pending_batch_id` so historical terminal
+# rows do not have to be scanned as the target table grows.
 module FollowImport
   class DispatchCounts
     class << self

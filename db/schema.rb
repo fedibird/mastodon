@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_15_010004) do
+ActiveRecord::Schema.define(version: 2026_09_15_010005) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -584,6 +584,7 @@ ActiveRecord::Schema.define(version: 2026_09_15_010004) do
     t.string "failure_code"
     t.string "destination_domain"
     t.index ["batch_id", "state"], name: "index_follow_import_targets_on_batch_and_state"
+    t.index ["batch_id"], name: "index_follow_import_targets_on_pending_batch_id", where: "(state = 0)"
     t.index ["destination_domain"], name: "index_follow_import_targets_on_destination_domain", where: "(destination_domain IS NOT NULL)"
     t.index ["batch_id", "target_subject_id"], name: "index_follow_import_targets_on_batch_and_target"
     t.index ["follow_request_uri"], name: "index_follow_import_targets_on_follow_request_uri", unique: true, where: "(follow_request_uri IS NOT NULL)"
@@ -594,8 +595,8 @@ ActiveRecord::Schema.define(version: 2026_09_15_010004) do
   create_table "follow_import_dispatch_observations", force: :cascade do |t|
     t.bigint "batch_id"
     t.datetime "observed_at", null: false
-    t.integer "candidate_count", default: 0, null: false
-    t.integer "claimed_count", default: 0, null: false
+    t.integer "candidate_count"
+    t.integer "claimed_count"
     t.integer "pending_count"
     t.jsonb "load_snapshot"
     t.jsonb "execution_policy", default: {}, null: false
@@ -604,6 +605,7 @@ ActiveRecord::Schema.define(version: 2026_09_15_010004) do
     t.integer "batch_pending_after"
     t.integer "global_pending_count"
     t.integer "active_batch_count"
+    t.string "pass_error_class"
     t.index ["batch_id", "observed_at"], name: "index_fi_dispatch_observations_on_batch_and_observed_at"
     t.index ["observed_at"], name: "index_fi_dispatch_observations_on_observed_at"
   end
@@ -618,7 +620,7 @@ ActiveRecord::Schema.define(version: 2026_09_15_010004) do
     t.string "sidekiq_job_id"
     t.datetime "started_at", null: false
     t.datetime "finished_at", null: false
-    t.integer "duration_ms", null: false
+    t.integer "duration_ms"
     t.string "outcome", null: false
     t.integer "http_status"
     t.integer "retry_after_seconds"

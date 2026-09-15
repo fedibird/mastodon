@@ -6,7 +6,7 @@
 # are not coerced to 0.
 module FollowImport
   class Telemetry
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 3
     SCHEMA_NAME    = 'follow_import_pacing_telemetry'
     WARN_TTL       = 60
 
@@ -50,7 +50,7 @@ module FollowImport
           sidekiq_job_id: attrs[:sidekiq_job_id],
           started_at: started_at,
           finished_at: finished_at,
-          duration_ms: FollowImport::ObservationTime.duration_ms(started_at, finished_at) || 0,
+          duration_ms: FollowImport::ObservationTime.duration_ms(started_at, finished_at),
           enqueued_at: attrs[:enqueued_at],
           request_started_at: attrs[:request_started_at],
           request_finished_at: attrs[:request_finished_at],
@@ -78,6 +78,7 @@ module FollowImport
           active_batch_count: attrs[:active_batch_count],
           load_snapshot: attrs[:load_snapshot],
           execution_policy: attrs[:execution_policy].presence || {},
+          pass_error_class: attrs[:pass_error_class],
           created_at: Time.now.utc,
         }
       end

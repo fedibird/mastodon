@@ -191,7 +191,7 @@ RSpec.describe FollowImport::BatchExecutionWorker do
       expect(observation.execution_policy['execution_batch_size']).to eq FollowImport::ExecutionPolicy.execution_batch_size
       expect(observation.execution_policy['execution_reschedule_in']).to eq FollowImport::ExecutionPolicy.execution_reschedule_in.to_i
       expect(observation.execution_policy['gate_enforcement_enabled']).to eq false
-      expect(observation.execution_policy['schema_version']).to eq 2
+      expect(observation.execution_policy['schema_version']).to eq 3
       expect(observation.execution_policy['load_snapshot_timing']).to eq 'pre_dispatch'
     end
 
@@ -250,6 +250,36 @@ RSpec.describe FollowImport::BatchExecutionWorker do
       observation = FollowImportDispatchObservation.last
       expect(observation.candidate_count).to eq 0
       expect(observation.claimed_count).to eq 0
+    end
+
+    it 'records the successful enqueues when a later enqueue raises' do
+      first = add_target(0)
+      second = add_target(1)
+      calls = 0
+      allow(Import::RelationshipWorker).to receive(:perform_async) do
+        calls += 1
+        raise StandardError, 'redis down' if calls == 2
+      end
+
+      expect { worker.perform(batch.id) }.to raise_error(StandardError)
+
+      observation = FollowImportDispatchObservation.last
+      expect(observation.candidate_count).to eq 2
+      expect(observation.claimed_count).to eq 1
+      expect(observation.pass_error_class).to eq 'StandardError'
+      expect(first.reload.state).to eq 'queued'
+      expect(second.reload.state).to eq 'pending'
+    end
+
+    it 'does not record an observed zero candidate count when selection fails' do
+      add_target(0)
+      allow(worker).to receive(:select_pending_candidates).and_raise(ActiveRecord::StatementInvalid, 'boom')
+
+      expect { worker.perform(batch.id) }.to raise_error(ActiveRecord::StatementInvalid)
+
+      observation = FollowImportDispatchObservation.last
+      expect(observation.candidate_count).to be_nil
+      expect(observation.pass_error_class).to eq 'ActiveRecord::StatementInvalid'
     end
 
     it 'does not change claim count or reschedule timing when telemetry insert fails' do

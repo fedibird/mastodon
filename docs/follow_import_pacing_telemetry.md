@@ -87,9 +87,9 @@ One row per observed attempt.
 | `error_class` | exception class name when one escaped to the worker |
 | `metadata` | schema version plus non-identifying facts |
 
-`0` on a duration/count means an observed zero (or a clamped negative clock
-skew between two present timestamps). **NULL means the measurement was
-unavailable.** Telemetry code must not encode a failed count as `0`.
+`0` on a duration/count means an observed zero. **NULL means the measurement
+was unavailable or invalid** (including a backwards clock interval). Telemetry
+code must not encode a failed or interrupted count as `0`.
 
 `destination_domain` and `endpoint_origin` are different ideas. A shared inbox,
 a CDN, or an alternate host can make them diverge (`alice@example.social` vs
@@ -134,10 +134,22 @@ snapshot would contaminate the baseline with work this pass just created.
 | `pending_count` | same as `batch_pending_after` (legacy alias) |
 | `global_pending_count` | pending targets across all batches (pre-dispatch) |
 | `active_batch_count` | distinct batches with at least one pending target (pre-dispatch) |
+| `candidate_count` | pending rows selected for this pass; NULL if selection failed |
+| `claimed_count` | successful claim+enqueue count so far; incremented after each enqueue |
+| `pass_error_class` | exception class if the pass raised (the error is still re-raised) |
 
 These are scheduling/load facts. They do not store account or subject ids.
 `claimed_count` plus `observed_at` is enough to derive a global dispatch rate
-later.
+later. A raise after some successful enqueues still records the partial
+`claimed_count`; it does not write `0`.
+
+Global pending / active-batch counts use
+`index_follow_import_targets_on_pending_batch_id` — a **partial** index on
+`batch_id` for `state = pending` only. The older `(batch_id, state)` index is
+prefix-batch and cannot cheaply answer "all pending rows" once historical
+terminal targets dominate the table. The partial index stays compact (only
+the live dispatchable set) and supports both `COUNT(*)` and
+`COUNT(DISTINCT batch_id)` filtered to pending.
 
 `execution_policy` snapshots the knobs in force at that moment:
 
@@ -255,7 +267,9 @@ rows. A high-retry domain multiplies delivery rows up to ~17× that target.
 
 Time-oriented indexes (`started_at`, `observed_at`, and
 `phase + domain/origin + started_at`) exist so later cleanup/aggregation can
-delete or roll up raw rows by window without a sequential scan.
+delete or roll up raw rows by window without a sequential scan. The pending
+`batch_id` partial index exists so dispatch telemetry itself does not become
+a sequential-scan load on `follow_import_targets`.
 
 ### Future cleanup / aggregation (not implemented)
 

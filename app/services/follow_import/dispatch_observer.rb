@@ -7,7 +7,7 @@
 # measured are left nil; 0 means an observed empty set.
 module FollowImport
   class DispatchObserver
-    def self.record(batch:, observed_at:, candidate_count:, claimed_count:, load_snapshot:, batch_pending_before:, global_pending_count:, active_batch_count:)
+    def self.record(batch:, observed_at:, candidate_count:, claimed_count:, load_snapshot:, batch_pending_before:, global_pending_count:, active_batch_count:, pass_error_class: nil)
       batch_pending_after = FollowImport::DispatchCounts.pending_for(batch)
 
       FollowImport::Telemetry.record_dispatch(
@@ -21,7 +21,8 @@ module FollowImport
         global_pending_count: global_pending_count,
         active_batch_count: active_batch_count,
         load_snapshot: load_snapshot,
-        execution_policy: execution_policy
+        execution_policy: execution_policy,
+        pass_error_class: pass_error_class
       )
     rescue StandardError => e
       FollowImport::Telemetry.warn_failure('dispatch', e)
