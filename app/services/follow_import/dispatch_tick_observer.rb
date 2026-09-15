@@ -3,27 +3,31 @@
 # Records one global Follow Import dispatch-scheduler tick.
 # Observation only — never consulted to claim, pause, or slow execution.
 #
-# claimed_count is always 0 in shadow mode. planned_count is the
-# account-first simulation size when a plan was built; NULL when planning
-# was not attempted (shadow_disabled / lease_busy / shadow_error).
+# scheduler_mode=shadow: claimed_count is always forced to 0.
+# scheduler_mode=global: claimed_count is the actual successful enqueue
+# count, including 0 and including partial progress after an enqueue
+# error. planned_count stays the plan size; do not collapse a partial
+# failure into a nil-count error row when a plan exists.
+#
 # Insert failures are swallowed and must not break the scheduler.
 module FollowImport
   class DispatchTickObserver
     SCHEMA_NAME    = 'follow_import_dispatch_tick'
-    SCHEMA_VERSION = 6
+    SCHEMA_VERSION = 7
 
     def self.record(attrs)
       attrs = attrs.to_h.symbolize_keys
       plan = attrs[:plan]
+      mode = (attrs[:scheduler_mode] || plan&.scheduler_mode || 'shadow').to_s
       FollowImport::Telemetry.record_dispatch_tick(
         observed_at: attrs[:observed_at],
         tick_id: attrs[:tick_id],
-        scheduler_mode: 'shadow',
+        scheduler_mode: mode,
         lease_acquired: attrs[:lease_acquired],
         outcome: attrs[:outcome],
         global_pending_count: plan&.global_pending_count,
         active_batch_count: plan&.active_batch_count,
-        claimed_count: 0,
+        claimed_count: plan&.claimed_count,
         planned_count: plan&.planned_count,
         planned_owner_count: plan&.planned_owner_count,
         planned_batch_count: plan&.planned_batch_count,
@@ -41,6 +45,11 @@ module FollowImport
         local_load_profile_version: plan&.local_load_profile_version,
         local_load_profile_source: plan&.local_load_profile_source,
         local_load_fallback_used: plan&.local_load_fallback_used,
+        global_base_budget: plan&.global_base_budget,
+        effective_global_budget: plan&.effective_global_budget,
+        skipped_stale_count: plan&.skipped_stale_count,
+        skipped_unrecoverable_count: plan&.skipped_unrecoverable_count,
+        skipped_wrong_owner_count: plan&.skipped_wrong_owner_count,
         load_snapshot: attrs[:load_snapshot],
         execution_config: plan&.execution_config || execution_config,
         error_class: attrs[:error_class],
@@ -58,9 +67,12 @@ module FollowImport
         'execution_batch_size' => FollowImport::ExecutionPolicy.execution_batch_size,
         'execution_reschedule_in' => FollowImport::ExecutionPolicy.execution_reschedule_in.to_i,
         'gate_enforcement_enabled' => FollowImport::ExecutionPolicy.gate_enforcement_enabled?,
+        'dispatch_global_enabled' => FollowImport::ExecutionPolicy.dispatch_global_enabled?,
         'dispatch_shadow_enabled' => FollowImport::ExecutionPolicy.dispatch_shadow_enabled?,
-        'dispatch_shadow_interval' => FollowImport::ExecutionPolicy.dispatch_shadow_interval.to_i,
+        'dispatch_interval' => FollowImport::ExecutionPolicy.dispatch_interval.to_i,
+        'dispatch_shadow_interval' => FollowImport::ExecutionPolicy.dispatch_interval.to_i,
         'shadow_plan_budget' => FollowImport::ExecutionPolicy.shadow_plan_budget,
+        'global_dispatch_budget' => FollowImport::ExecutionPolicy.global_dispatch_budget,
         'plan_algorithm' => FollowImport::FairScheduler::ALGORITHM,
         'plan_schema_version' => FollowImport::FairScheduler::SCHEMA_VERSION,
         'local_load_shadow_enabled' => FollowImport::ExecutionPolicy.local_load_shadow_enabled?,

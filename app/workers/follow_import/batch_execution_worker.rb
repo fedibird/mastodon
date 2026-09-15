@@ -14,6 +14,11 @@
 # but is SHADOW BY DEFAULT: it only changes execution when the experimental
 # FollowImport::ExecutionPolicy.gate_enforcement_enabled? flag is on.
 #
+# This worker owns ONLY legacy-dispatch batches. A scheduler-owned batch
+# is refused immediately after find — before LoadSnapshot, load
+# enforcement, candidate selection, the gate, resolver, claims, enqueue,
+# reschedule, or Import cleanup.
+#
 # When FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT is on and an enforcement-capable
 # local-load profile is configured, LocalLoadGuard may shrink this pass's
 # candidate LIMIT from the pre-dispatch LoadSnapshot, or defer the entire
@@ -34,6 +39,10 @@ module FollowImport
     def perform(batch_id)
       batch = FollowImportBatch.find_by(id: batch_id)
       return if batch.nil?
+      # Defense in depth: a scheduler-owned batch has exactly one owner.
+      # A stale/duplicate BatchExecutionWorker must not snapshot, claim,
+      # enqueue, reschedule, or finalize.
+      return if batch.scheduler_dispatch_owner?
 
       account    = batch.subject&.account
       now        = Time.now.utc

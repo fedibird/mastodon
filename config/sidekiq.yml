@@ -83,13 +83,14 @@
       every: '1h'
       class: Scheduler::FollowImportCsvCleanupScheduler
       queue: scheduler
-    # Provisional / UNCALIBRATED shadow observation cadence.
-    # Same ENV + default as FollowImport::ExecutionPolicy
-    # (FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL, default 60 seconds).
-    # This is NOT real dispatch pacing and must not be confused with
+    # Provisional / UNCALIBRATED dispatcher cadence (shadow or GLOBAL).
+    # Same ENV + default as FollowImport::ExecutionPolicy:
+    # FOLLOW_IMPORT_DISPATCH_INTERVAL, with deprecated alias
+    # FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL when the canonical value
+    # is absent. Default 60 seconds. This is NOT
     # FOLLOW_IMPORT_EXECUTION_INTERVAL. Cheap no-op unless
-    # FOLLOW_IMPORT_DISPATCH_SHADOW=true.
+    # FOLLOW_IMPORT_DISPATCH_GLOBAL or FOLLOW_IMPORT_DISPATCH_SHADOW.
     follow_import_dispatch_scheduler:
-      every: '<%= (n = ENV["FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL"].to_i; n.positive? ? n : 60) %>s'
+      every: '<%= (canonical = ENV["FOLLOW_IMPORT_DISPATCH_INTERVAL"].to_i; alias_n = ENV["FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL"].to_i; n = canonical.positive? ? canonical : alias_n; n.positive? ? n : 60) %>s'
       class: Scheduler::FollowImportDispatchScheduler
       queue: scheduler

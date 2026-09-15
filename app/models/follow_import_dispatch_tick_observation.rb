@@ -30,6 +30,11 @@
 #  local_load_profile_version :integer
 #  local_load_profile_source :string
 #  local_load_fallback_used :boolean
+#  global_base_budget    :integer
+#  effective_global_budget :integer
+#  skipped_stale_count   :integer
+#  skipped_unrecoverable_count :integer
+#  skipped_wrong_owner_count :integer
 #  load_snapshot         :jsonb
 #  execution_config      :jsonb
 #  error_class           :string
@@ -41,14 +46,15 @@
 # passes) so "this BatchExecutionWorker pass claimed N" is not confused
 # with "the global shadow tick claimed 0".
 #
-# claimed_count is always 0 while the scheduler is shadow-only.
-# planned_count is the account-first simulation size when a plan was
-# built; NULL when planning was not attempted. executable_* is the
-# eligible candidate population; planned_owner/batch_count is who
-# received a slot. Other new aggregates follow the same 0-vs-NULL
-# rule. Observation only — never consulted to
-# pause, slow, or skip dispatch. Does not store handles, payloads, inbox
-# paths, target accts, owner keys, or moderation scores.
+# claimed_count is always 0 while scheduler_mode=shadow. In
+# scheduler_mode=global it is the number of RelationshipWorker jobs
+# this tick successfully enqueued. planned_count is the account-first
+# plan size when a plan was built; NULL when planning was not
+# attempted. executable_* is the eligible candidate population;
+# planned_owner/batch_count is who received a slot. Other new
+# aggregates follow the same 0-vs-NULL rule. Observation only — never
+# consulted to pause, slow, or skip dispatch. Does not store handles,
+# payloads, inbox paths, target accts, owner keys, or moderation scores.
 class FollowImportDispatchTickObservation < ApplicationRecord
   self.table_name = 'follow_import_dispatch_tick_observations'
   self.record_timestamps = false

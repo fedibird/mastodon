@@ -236,9 +236,74 @@ RSpec.describe ImportService, type: :service do
 
       batch = FollowImportBatch.find_by(import_id: import.id)
       expect(batch).to be_present
+      expect(batch.legacy_dispatch_owner?).to be true
       # One target per execution unit (bob local + eve remote).
       expect(batch.targets.count).to eq 2
       expect(FollowImport::BatchExecutionWorker).to have_received(:perform_async).with(batch.id)
+    end
+
+    it 'creates a scheduler-owned batch and does not enqueue BatchExecutionWorker when GLOBAL is on' do
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:push_bulk)
+      allow(Import::RelationshipWorker).to receive(:perform_async)
+
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_GLOBAL: 'true' do
+        subject.call(import)
+      end
+
+      batch = FollowImportBatch.find_by(import_id: import.id)
+      expect(batch).to be_present
+      expect(batch.scheduler_dispatch_owner?).to be true
+      expect(batch.targets.where(state: :pending).count).to eq 2
+      expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+      expect(Import::RelationshipWorker).not_to have_received(:push_bulk)
+    end
+
+    it 'follows stored ownership on retry after GLOBAL flips on' do
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      subject.call(import)
+      batch = FollowImportBatch.find_by(import_id: import.id)
+      expect(batch.legacy_dispatch_owner?).to be true
+      expect(FollowImport::BatchExecutionWorker).to have_received(:perform_async).with(batch.id)
+
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_GLOBAL: 'true' do
+        subject.call(import)
+      end
+
+      expect(batch.reload.legacy_dispatch_owner?).to be true
+      expect(FollowImport::BatchExecutionWorker).to have_received(:perform_async).with(batch.id).twice
+    end
+
+    it 'keeps a scheduler-owned batch on the scheduler after GLOBAL flips off' do
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:push_bulk)
+
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_GLOBAL: 'true' do
+        subject.call(import)
+      end
+      batch = FollowImportBatch.find_by(import_id: import.id)
+      expect(batch.scheduler_dispatch_owner?).to be true
+
+      subject.call(import)
+
+      expect(batch.reload.scheduler_dispatch_owner?).to be true
+      expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+    end
+
+    it 'raises and does not bulk-enqueue follows when GLOBAL recording fails' do
+      allow(Moderation::FollowImportRecorder).to receive(:record_batch!).and_raise(ActiveRecord::StatementInvalid, 'boom')
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:push_bulk)
+      allow(Import::RelationshipWorker).to receive(:perform_async)
+
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_GLOBAL: 'true' do
+        expect { subject.call(import) }.to raise_error(ActiveRecord::StatementInvalid, 'boom')
+      end
+
+      expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+      expect(Import::RelationshipWorker).not_to have_received(:push_bulk)
+      expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+      expect(Import.exists?(import.id)).to be true
     end
 
     it 'unfollows current follows absent from the import when overwriting' do

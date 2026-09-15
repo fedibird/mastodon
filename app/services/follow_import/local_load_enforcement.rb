@@ -1,8 +1,15 @@
 # frozen_string_literal: true
 
-# Resolves the *legacy per-pass* execution budget from LocalLoadGuard.
-# This is not a global claim budget. Many BatchExecutionWorker passes
-# may still run concurrently; PR C is the global fairness cutover.
+# Resolves an enforced local-load budget from LocalLoadGuard for a
+# caller-supplied +base_budget+.
+#
+# BatchExecutionWorker passes base=execution_batch_size (per-pass, not
+# a global fairness ceiling). The authoritative DispatchScheduler
+# passes base=global_dispatch_budget. Same v2/fallback control law;
+# the effective budget never exceeds that caller base.
+#
+# Real GLOBAL claims must use this class (FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT),
+# never FOLLOW_IMPORT_LOCAL_LOAD_SHADOW.
 #
 # This class is a failure boundary: evaluate never raises into the
 # worker. Flag off → effective = execution_batch_size, no guard

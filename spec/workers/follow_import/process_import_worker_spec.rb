@@ -29,7 +29,37 @@ RSpec.describe FollowImport::ProcessImportWorker do
 
     batch = FollowImportBatch.find_by(import_id: import.id)
     expect(batch).to be_present
+    expect(batch.legacy_dispatch_owner?).to be true
     expect(FollowImport::BatchExecutionWorker).to have_received(:perform_async).with(batch.id)
+    expect(Import.exists?(import.id)).to be true
+  end
+
+  it 'retains the Import when GLOBAL recording fails so the worker can retry' do
+    import = create_follow_import
+    allow(Moderation::FollowImportRecorder).to receive(:record_batch!).and_raise(ActiveRecord::StatementInvalid, 'boom')
+    allow(Import::RelationshipWorker).to receive(:push_bulk)
+
+    ClimateControl.modify FOLLOW_IMPORT_DISPATCH_GLOBAL: 'true' do
+      expect { worker.perform(import.id) }.to raise_error(ActiveRecord::StatementInvalid, 'boom')
+    end
+
+    expect(Import.exists?(import.id)).to be true
+    expect(FollowImportBatch.where(import_id: import.id)).to be_none
+    expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+    expect(Import::RelationshipWorker).not_to have_received(:push_bulk)
+    expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+  end
+
+  it 'does not enqueue BatchExecutionWorker for a new GLOBAL-owned batch' do
+    import = create_follow_import
+
+    ClimateControl.modify FOLLOW_IMPORT_DISPATCH_GLOBAL: 'true' do
+      worker.perform(import.id)
+    end
+
+    batch = FollowImportBatch.find_by(import_id: import.id)
+    expect(batch.scheduler_dispatch_owner?).to be true
+    expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
     expect(Import.exists?(import.id)).to be true
   end
 

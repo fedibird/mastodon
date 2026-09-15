@@ -1,23 +1,40 @@
-# Follow Import dispatch shadow scheduler
+# Follow Import dispatch scheduler (shadow + GLOBAL)
 
-Status: infrastructure (PR A + PR B + PR D + optional PR E enforcement).
+Status: infrastructure (PR A + PR B + PR D + optional PR E enforcement +
+PR C authoritative GLOBAL for **new** imports).
 Default: **off**.
 
-This is Stage 1–3 from `docs/follow_import_dispatch_pacing_design.md`.
-A global scheduler tick can take a PostgreSQL session advisory lease,
-build an **account-first shadow plan**, and write tick telemetry. It
-does **not** dispatch, claim, enqueue, pause, or slow Follow Import
-execution.
+This is Stage 1–4 from `docs/follow_import_dispatch_pacing_design.md`.
 
-`FollowImport::BatchExecutionWorker` remains the only real claimer.
-PR D is historical **shadow observation**. PR E optionally applies the
-same `LocalLoadGuard` to the legacy executor; that path is also
-**default off** and has no bundled production thresholds.
+One periodic tick, one PostgreSQL session advisory lease, one budget,
+one plan:
+
+| GLOBAL | SHADOW | Mode |
+|---|---|---|
+| false | false | cheap no-op |
+| false | true | existing shadow planner; `claimed_count` forced 0 |
+| true | * | authoritative scheduler; may claim/enqueue **scheduler-owned** targets |
+
+GLOBAL takes precedence when both flags are true. Do not run a second
+shadow allocation in the same tick.
+
+`FollowImport::BatchExecutionWorker` remains the only claimer for
+**legacy-owned** batches. New batches created while
+`FOLLOW_IMPORT_DISPATCH_GLOBAL=true` are scheduler-owned and must not
+enter that worker. PR D is historical shadow observation. PR E
+optionally applies `LocalLoadGuard` to the legacy executor (default
+off; no bundled production thresholds).
+
+**PR C does not claim production thresholds are calibrated.**
 
 ## Activation
 
 ```bash
+# Diagnostic planner only (no claims)
 FOLLOW_IMPORT_DISPATCH_SHADOW=true
+
+# Authoritative claiming for NEW imports (stored dispatch_owner=scheduler)
+FOLLOW_IMPORT_DISPATCH_GLOBAL=true
 ```
 
 Optional diagnostic budget (positive integer; default = current
@@ -31,11 +48,14 @@ Exposed as `FollowImport::ExecutionPolicy.dispatch_shadow_enabled?` and
 `.shadow_plan_budget`. Do not treat `shadow_plan_budget` as a production
 dispatch rate or as the future global budget.
 
-- `false` (default): cheap no-op. No lease, no planning, no cursor, no
+- both false (default): cheap no-op. No lease, no planning, no cursor, no
   tick row, no Follow Import behavior change.
-- `true`: one process may acquire the global lease, inspect work/load,
-  build a shadow plan, write `follow_import_dispatch_tick_observations`,
-  and **claim nothing**.
+- SHADOW true, GLOBAL false: one process may acquire the global lease,
+  inspect work/load, build a shadow plan, write
+  `follow_import_dispatch_tick_observations`, and **claim nothing**.
+- GLOBAL true: the same tick may claim/enqueue scheduler-owned pending
+  targets through `FollowImport::DispatchExecutor`. Legacy-owned
+  batches are excluded from the plan.
 
 Legacy execution is still paced only by:
 
@@ -72,12 +92,21 @@ runtime destination cap and does not call DFT / Stoplight.
 
 ## `planned_count` vs `claimed_count`
 
-| field | meaning in shadow mode |
-|---|---|
-| `planned_count` | how many pending targets the allocator selected in this simulation |
-| `planned_owner_count` / `planned_batch_count` | distinct owners/batches that received a plan slot |
-| `executable_owner_count` / `executable_batch_count` | eligible candidate population after Eligibility / missing-owner filtering — **not** who received a slot |
-| `claimed_count` | always **0** — nothing was admitted |
+Tick schema version **7**. Do not rewrite old rows.
+
+| field | shadow | global |
+|---|---|---|
+| `scheduler_mode` | `shadow` | `global` |
+| `planned_count` | allocator simulation size | same plan size |
+| `claimed_count` | always **0** (writer-enforced) | actual successful `RelationshipWorker` enqueues |
+| `global_base_budget` / `effective_global_budget` | NULL | provisional per-tick ceiling and post-load budget |
+
+`NULL` means planning/measurement was not attempted or failed.
+`0` means planning ran and selected/claimed nothing.
+
+A partial enqueue failure must keep plan/claim detail
+(`planned_count=10`, `claimed_count=3`, `error_class=...`) rather than
+collapsing into a nil-count error row.
 
 `NULL` means planning/measurement was not attempted or failed.
 `0` means planning ran and selected nothing (empty pending set).
@@ -215,10 +244,12 @@ base diagnostic budget.
 ### Shadow skip is not a real skip
 
 `planned_count=0` with `local_load_would_skip=true` does **not** stop
-`BatchExecutionWorker` by itself. The global tick is never
-authoritative. Compare tick `effective_shadow_plan_budget` with the
-legacy pass `effective_execution_budget` / `claimed_count` — they may
-differ because their base budgets differ.
+`BatchExecutionWorker` by itself while GLOBAL is off. Compare tick
+`effective_shadow_plan_budget` with the legacy pass
+`effective_execution_budget` / `claimed_count` — they may differ
+because their base budgets differ. When GLOBAL is on, a zero
+`effective_global_budget` claims nothing and does not enqueue deferred
+legacy workers; the next periodic tick is the recheck.
 
 Fairness cursor advancement follows the **effective** shadow plan. A
 0-budget tick does not pretend anyone was served.
@@ -294,7 +325,8 @@ effective_execution_budget = min(base, usable recommendation/fallback)
 
 `effective_execution_budget` is always `<= execution_batch_size`.
 This is **per-pass** protection. Concurrent legacy batches may still
-run. Global fairness is PR C.
+run. Global fairness for **new** imports is PR C
+(`FOLLOW_IMPORT_DISPATCH_GLOBAL`).
 
 | Decision | Worker |
 |---|---|
@@ -321,16 +353,24 @@ Compare global hypothetical `effective_shadow_plan_budget` against
 per-batch `effective_execution_budget`. Do not assume they are
 numerically identical.
 
-## No remote admission / no global claiming
+## No remote admission
 
-PR D/E evaluate local load only. No destination cooldown, DFT,
-Stoplight, AIMD, `dispatch_owner`, or scheduler claiming.
+PR C does not add destination cooldown, DFT, Stoplight, AIMD, Node
+capacity, or a destination cap. Those remain PR F/G/H.
+
+Overwrite-generated UNFOLLOW operations remain an unpaced burst.
+Retries of `Import::RelationshipWorker` / `ActivityPub::DeliveryWorker`
+do not re-enter this scheduler.
 
 ## Scheduler registration / cadence
 
 `Scheduler::FollowImportDispatchScheduler` on the `scheduler` queue.
-Cadence: `FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL` (default 60s), shared
-with `ExecutionPolicy`. Provisional / UNCALIBRATED observation only.
+Canonical cadence: `FOLLOW_IMPORT_DISPATCH_INTERVAL` (default 60s),
+shared with `ExecutionPolicy`. Deprecated alias:
+`FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL` when the canonical variable
+is absent. Provisional / UNCALIBRATED. Once GLOBAL is on this interval
+is real admission pacing, not "shadow observation cadence". No
+catch-up budget.
 
 ## Why Sidekiq unique lock is not sufficient
 

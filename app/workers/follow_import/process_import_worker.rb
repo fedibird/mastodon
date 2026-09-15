@@ -1,11 +1,17 @@
 # frozen_string_literal: true
 
-# Retryable processor for a follow import: records the batch and hands the follow
-# set to the executor. Isolated from ImportWorker (retry: false) so retry
-# semantics change ONLY for follow imports — a transient Sidekiq/Redis failure
+# Retryable processor for a follow import: records the batch and hands the
+# follow set to its stored dispatch owner (legacy BatchExecutionWorker or
+# the periodic global scheduler). Isolated from ImportWorker (retry: false)
+# so retry semantics change ONLY for follow imports — a transient failure
 # while recording or handing off is retried, and reprocessing is idempotent
-# (batch recording is keyed on import_id, and duplicate executor jobs are safe
-# because execution is DB-claim based). Other import types keep retry: false.
+# (batch recording is keyed on import_id; stored dispatch_owner is not
+# rewritten). Other import types keep retry: false.
+#
+# When FOLLOW_IMPORT_DISPATCH_GLOBAL is on, a recording failure raises
+# instead of falling back to a direct RelationshipWorker bulk enqueue.
+# This worker retries; the Import/CSV is retained. The direct follow
+# fallback remains only for legacy-mode recording failure.
 module FollowImport
   class ProcessImportWorker
     include Sidekiq::Worker
@@ -36,10 +42,12 @@ module FollowImport
 
       ImportService.new.call(import)
 
-      # Success: when a batch was recorded the executor owns the import (it destroys
-      # it once dispatch completes), so leave it. If recording failed, the direct
-      # fallback already enqueued the follows with their addresses, so drop the CSV.
-      # On FAILURE the import is deliberately NOT destroyed, so a retry can reprocess.
+      # Success: when a batch was recorded the stored owner still needs the
+      # CSV while pending targets remain, so leave it. If legacy recording
+      # failed, the direct fallback already enqueued the follows, so drop
+      # the CSV. GLOBAL recording failure raises before this line, so the
+      # Import is retained for retry. On FAILURE the import is deliberately
+      # NOT destroyed.
       import.destroy unless FollowImportBatch.exists?(import_id: import.id)
     rescue ActiveRecord::RecordNotFound
       true

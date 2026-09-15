@@ -7,6 +7,9 @@
 module FollowImport
   class Telemetry
     SCHEMA_VERSION = 4
+    # Tick observation contract is versioned separately
+    # (DispatchTickObserver::SCHEMA_VERSION). Transport/dispatch-pass
+    # rows keep this schema.
     SCHEMA_NAME    = 'follow_import_pacing_telemetry'
     WARN_TTL       = 60
 
@@ -73,18 +76,21 @@ module FollowImport
       end
 
       def dispatch_tick_attributes(attrs)
+        mode = attrs[:scheduler_mode].to_s
+        mode = 'shadow' if mode.blank?
+
         {
           observed_at: attrs[:observed_at] || Time.now.utc,
           tick_id: attrs[:tick_id],
-          scheduler_mode: attrs[:scheduler_mode] || 'shadow',
+          scheduler_mode: mode,
           lease_acquired: attrs[:lease_acquired],
           outcome: attrs[:outcome],
           global_pending_count: attrs[:global_pending_count],
           active_batch_count: attrs[:active_batch_count],
-          # PR A shadow mode never claims. Ignore any caller value so a later
-          # planning PR cannot accidentally persist a non-zero claim through
-          # this writer without an explicit schema change.
-          claimed_count: 0,
+          # Shadow mode never claims. Force 0 even if a buggy caller
+          # supplies another value. Global mode persists the actual
+          # successfully-enqueued count (0 is a real observation).
+          claimed_count: tick_claimed_count(mode, attrs[:claimed_count]),
           planned_count: attrs[:planned_count],
           planned_owner_count: attrs[:planned_owner_count],
           planned_batch_count: attrs[:planned_batch_count],
@@ -102,12 +108,23 @@ module FollowImport
           local_load_profile_version: attrs[:local_load_profile_version],
           local_load_profile_source: attrs[:local_load_profile_source],
           local_load_fallback_used: attrs[:local_load_fallback_used],
+          global_base_budget: attrs[:global_base_budget],
+          effective_global_budget: attrs[:effective_global_budget],
+          skipped_stale_count: attrs[:skipped_stale_count],
+          skipped_unrecoverable_count: attrs[:skipped_unrecoverable_count],
+          skipped_wrong_owner_count: attrs[:skipped_wrong_owner_count],
           load_snapshot: attrs[:load_snapshot],
           execution_config: attrs[:execution_config],
           error_class: attrs[:error_class],
           metadata: attrs[:metadata].presence || {},
           created_at: Time.now.utc,
         }
+      end
+
+      def tick_claimed_count(mode, value)
+        return 0 if mode == 'shadow'
+
+        value.nil? ? 0 : value.to_i
       end
 
       def dispatch_attributes(attrs)

@@ -1,20 +1,25 @@
 # frozen_string_literal: true
 
-# Shadow dispatch plan. Entries are a point-in-time simulation of which
-# currently-pending targets the account-first allocator would select.
-# They are not reservations and do not mutate rows.
+# Dispatch plan for one global scheduler tick.
+#
+# Entries are a point-in-time selection of currently-pending targets.
+# They are not reservations and do not mutate rows by themselves.
+#
+# Shadow mode (GLOBAL=false, SHADOW=true): claimed_count is always 0.
+# Global mode: claimed_count is the number of successful enqueues
+# attached via +execution+ after the plan was built.
 #
 # planned_count / planned_owner_count / planned_batch_count describe
-# the selected simulation. executable_owner_count / executable_batch_count
+# the selected plan. executable_owner_count / executable_batch_count
 # describe the eligible candidate population after Eligibility and
-# missing-owner filtering — not the number of owners/batches that
-# received a plan slot. claimed_count stays 0 while shadow-only.
-# When planning was not attempted, these counts are nil, not 0.
+# missing-owner filtering. When planning was not attempted, these
+# counts are nil, not 0.
 module FollowImport
   class DispatchPlan
     attr_reader :observed_at, :global_pending_count, :active_batch_count, :execution_config,
                 :entries, :skipped_missing_owner_count, :fairness_state_source, :shadow_plan_budget,
-                :effective_shadow_plan_budget, :local_load
+                :effective_shadow_plan_budget, :local_load, :scheduler_mode, :global_base_budget,
+                :effective_global_budget
 
     def self.observe(observed_at:, global_pending_count:, active_batch_count:, execution_config:, planning: {})
       new(
@@ -42,10 +47,21 @@ module FollowImport
       @effective_shadow_plan_budget = planning[:effective_shadow_plan_budget]
       @local_load = planning[:local_load]
       @local_load_fallback_used = planning[:local_load_fallback_used]
+      @scheduler_mode = (planning[:scheduler_mode] || 'shadow').to_s
+      @global_base_budget = planning[:global_base_budget]
+      @effective_global_budget = planning[:effective_global_budget]
+      @claimed_count = planning[:claimed_count]
+      @skipped_stale_count = planning[:skipped_stale_count]
+      @skipped_unrecoverable_count = planning[:skipped_unrecoverable_count]
+      @skipped_wrong_owner_count = planning[:skipped_wrong_owner_count]
     end
 
     def planned?
       @planned
+    end
+
+    def shadow?
+      @scheduler_mode != 'global'
     end
 
     def planned_count
@@ -55,7 +71,38 @@ module FollowImport
     end
 
     def claimed_count
-      0
+      return 0 if shadow?
+      return unless @planned
+
+      @claimed_count
+    end
+
+    def with_execution(execution)
+      return self if execution.nil?
+
+      @claimed_count = execution.claimed_count
+      @skipped_stale_count = execution.skipped_stale_count
+      @skipped_unrecoverable_count = execution.skipped_unrecoverable_count
+      @skipped_wrong_owner_count = execution.skipped_wrong_owner_count
+      self
+    end
+
+    def skipped_stale_count
+      return unless @planned
+
+      @skipped_stale_count
+    end
+
+    def skipped_unrecoverable_count
+      return unless @planned
+
+      @skipped_unrecoverable_count
+    end
+
+    def skipped_wrong_owner_count
+      return unless @planned
+
+      @skipped_wrong_owner_count
     end
 
     def executable_owner_count
