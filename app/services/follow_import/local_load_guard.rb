@@ -2,15 +2,18 @@
 
 # Pure local-load policy. Consumes a pre-dispatch LoadSnapshot hash; it
 # does not query Sidekiq, telemetry tables, accounts, or moderation.
-# PR D applies the result only to the hypothetical shadow plan.
 #
 # Integer recommended_budget is floor((capacity_budget * percent) / 100).
-# There is no secret minimum of 1: a computed 0 means the shadow plan
-# would skip. Missing required measurements yield unknown + NULL, not 0.
-# PR E must not enforce unknown until a calibrated fallback exists.
+# There is no secret minimum of 1: a computed 0 means skip/defer.
+# Missing required measurements yield unknown + NULL, not 0.
+# Unexpected evaluation failures yield evaluation_error + NULL, not invalid.
+#
+# Shadow mode (PR D) leaves the plan at the base budget when the
+# recommendation is unusable. Enforcement (PR E) applies an explicit
+# profile fallback outside this class — the guard never invents one.
 module FollowImport
   class LocalLoadGuard
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
     LEVEL_ORDER = %w(busy heavy overloaded).freeze
 
     REASON_BY_SIGNAL = {
@@ -70,8 +73,9 @@ module FollowImport
         profile_source: @profile.source,
         profile_digest: @profile.digest
       )
-    rescue StandardError
-      FollowImport::LocalLoadDecision.invalid(@base_budget, @profile)
+    rescue StandardError => e
+      FollowImport::Telemetry.warn_failure('local_load_guard', e)
+      FollowImport::LocalLoadDecision.evaluation_error(@base_budget, @profile)
     end
 
     private
@@ -96,7 +100,10 @@ module FollowImport
       reasons = []
       capacity = @profile.capacity
 
-      candidates << capacity.max_tick_claims if capacity.max_tick_claims
+      if capacity.max_tick_claims
+        candidates << capacity.max_tick_claims
+        reasons << 'max_tick_capacity' if capacity.max_tick_claims < @base_budget
+      end
       if capacity.per_push_thread
         push_cap = capacity.per_push_thread * integer_metric('push_concurrency')
         candidates << push_cap

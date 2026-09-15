@@ -1,15 +1,18 @@
 # Follow Import dispatch shadow scheduler
 
-Status: infrastructure / observation only (PR A + PR B + PR D).
+Status: infrastructure (PR A + PR B + PR D + optional PR E enforcement).
 Default: **off**.
 
-This is Stage 1 from `docs/follow_import_dispatch_pacing_design.md`.
+This is Stage 1–3 from `docs/follow_import_dispatch_pacing_design.md`.
 A global scheduler tick can take a PostgreSQL session advisory lease,
 build an **account-first shadow plan**, and write tick telemetry. It
 does **not** dispatch, claim, enqueue, pause, or slow Follow Import
 execution.
 
 `FollowImport::BatchExecutionWorker` remains the only real claimer.
+PR D is historical **shadow observation**. PR E optionally applies the
+same `LocalLoadGuard` to the legacy executor; that path is also
+**default off** and has no bundled production thresholds.
 
 ## Activation
 
@@ -115,28 +118,36 @@ days): last owner, per-owner last batch, per-batch last position.
 
 `fairness_state_source`: `redis` / `default` / `reset` / `persist_failed`.
 
-## Shadow LocalLoadGuard (PR D)
+## Shadow LocalLoadGuard (PR D, historical)
 
-`FollowImport::LocalLoadGuard` is **shadow only**. It consumes the
-pre-dispatch `LoadSnapshot` already captured for the tick. It does
-**not** query Sidekiq again, read telemetry tables, or look at who is
-importing.
+PR D added `FollowImport::LocalLoadGuard` as **shadow observation
+only**. It consumes the pre-dispatch `LoadSnapshot` already captured
+for the tick. It does **not** query Sidekiq again, read telemetry
+tables, or look at who is importing.
 
 ```bash
 FOLLOW_IMPORT_DISPATCH_SHADOW=true
 FOLLOW_IMPORT_LOCAL_LOAD_SHADOW=true
-FOLLOW_IMPORT_LOCAL_LOAD_SHADOW_PROFILE='{"version":1,...}'
+FOLLOW_IMPORT_LOCAL_LOAD_PROFILE='{"version":1,...}'
 ```
 
 `FOLLOW_IMPORT_LOCAL_LOAD_SHADOW` defaults to **false**. When false,
 PR B planning is unchanged and the tick records
 `local_load_state=disabled`.
 
-There are **no bundled production thresholds**. A blank profile is
-`unconfigured`. Malformed JSON or illegal values are `invalid`. Both
-leave the shadow plan at the diagnostic `shadow_plan_budget`.
+The canonical profile variable is `FOLLOW_IMPORT_LOCAL_LOAD_PROFILE`.
+`FOLLOW_IMPORT_LOCAL_LOAD_SHADOW_PROFILE` is a **deprecated** alias
+used only when the canonical variable is absent. Do not configure two
+independent controller profiles.
 
-### Profile schema (version 1)
+There are **no bundled production thresholds**. A blank profile is
+`unconfigured`. Malformed JSON or illegal values are `invalid`.
+Unexpected controller exceptions are `evaluation_error` (not
+`invalid`). Shadow mode leaves the plan at the diagnostic
+`shadow_plan_budget` for unconfigured / invalid / unknown /
+evaluation_error.
+
+### Profile schema (version 1 — shadow observation)
 
 ```json
 {
@@ -192,23 +203,122 @@ recommended (including 0).
 
 If the profile requires a signal the snapshot cannot supply, the
 decision is `unknown`, `measurement_complete=false`, and
-`recommended_budget` is **NULL** (not 0). Planning falls back to the
-base diagnostic budget. PR E must **not** enforce `unknown` until a
-calibrated conservative / last-good fallback is defined.
+`recommended_budget` is **NULL** (not 0). Shadow planning falls back
+to the base diagnostic budget.
 
 ### Shadow skip is not a real skip
 
 `planned_count=0` with `local_load_would_skip=true` does **not** stop
-`BatchExecutionWorker`. The legacy worker does not consult
-`LocalLoadGuard` in PR D. Enforcement is PR E.
+`BatchExecutionWorker` by itself. The global tick is never
+authoritative. Compare tick `effective_shadow_plan_budget` with the
+legacy pass `effective_execution_budget` / `claimed_count` — they may
+differ because their base budgets differ.
 
 Fairness cursor advancement follows the **effective** shadow plan. A
 0-budget tick does not pretend anyone was served.
 
-## No remote admission / no load enforcement
+## Optional legacy enforcement (PR E)
 
-PR D evaluates local load for the shadow plan only. No destination
-cooldown, DFT, Stoplight, AIMD, or legacy-worker skip.
+PR E is the first stage allowed to change the **real** Follow Import
+execution rate. It remains legacy per-batch execution. It does **not**
+implement global authoritative dispatch, destination pacing, or
+moderation coupling.
+
+**No thresholds in the repository are calibrated production
+recommendations.**
+
+```bash
+# 1. deploy with enforcement OFF (default)
+# 2. enable dispatch + local-load shadow and inspect tick telemetry
+# 3. configure an explicit enforcement-capable profile including fallback
+# 4. only then:
+FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT=true
+```
+
+`FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT` defaults to **false** and is
+**independent** of `FOLLOW_IMPORT_DISPATCH_SHADOW`. Shadow may stay
+off while legacy load enforcement is on.
+
+When the flag is false, `BatchExecutionWorker` is unchanged: candidate
+limit is `execution_batch_size`, existing gate/reschedule/finalize
+behavior is unchanged, and no load-deferred jobs are created.
+
+When the flag is true, enforcement still does **not** silently
+activate without a valid **version 2** profile that includes an
+explicit fallback. A missing, invalid, v1-only, or otherwise
+non-enforcement-capable profile keeps the legacy budget and emits a
+rate-limited operational warning. Do not freeze every Follow Import
+because the flag was flipped without a profile.
+
+### Profile schema (version 2 — enforcement-capable)
+
+```json
+{
+  "version": 2,
+  "levels": {
+    "busy": { "budget_percent": 0, "push": { "latency": 0 } },
+    "heavy": { "budget_percent": 0 },
+    "overloaded": { "budget_percent": 0 }
+  },
+  "capacity": {
+    "max_tick_claims": 0,
+    "per_push_thread": 0,
+    "per_pull_thread": 0
+  },
+  "fallback": { "budget_percent": 0 }
+}
+```
+
+The zeros above are schema placeholders, **not** calibrated defaults.
+`fallback.budget_percent` is required (0..100). There is no bundled
+fallback percentage. Live enforcement is not fully configured without
+it. v1 remains valid for shadow observation only.
+
+### Worker flow
+
+The worker evaluates its **own** pre-dispatch `LoadSnapshot`. It does
+not reuse the latest shadow tick (that decision may already be stale).
+`LocalLoadGuard` does not query Sidekiq again.
+
+```
+base_execution_budget = ExecutionPolicy.execution_batch_size
+recommended_budget    = LocalLoadGuard result (or configured fallback)
+effective_execution_budget = min(base, usable recommendation/fallback)
+```
+
+`effective_execution_budget` is always `<= execution_batch_size`.
+This is **per-pass** protection. Concurrent legacy batches may still
+run. Global fairness is PR C.
+
+| Decision | Worker |
+|---|---|
+| Flag off, or profile not enforcement-capable | Legacy `execution_batch_size`. No load recheck. |
+| Positive recommendation | `SELECT ... LIMIT effective_execution_budget`, then existing gate/claim. |
+| Budget 0 **because local load** and pending work remains | Claim 0, retain Import, schedule **exactly one** deferred `BatchExecutionWorker` via `execution_reschedule_in`. |
+| Gate / unrecoverable zero progress | Preserve current stop-the-chain semantics. **No** load recheck. |
+| No pending targets | Finalize Import as today. No load recheck. |
+| Snapshot incomplete / controller error | Apply the explicit fallback (may be 0). Never become unlimited. |
+
+Turning `FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT=false` restores legacy
+execution on the **next** worker pass. No DB cleanup. Already-scheduled
+deferred jobs may still run; with the flag off they use normal
+legacy behavior.
+
+### After enabling enforcement, observe
+
+- `load_deferred` frequency
+- actual `claimed_count`
+- queue latency / retry pressure
+- Import completion delay
+
+Compare global hypothetical `effective_shadow_plan_budget` against
+per-batch `effective_execution_budget`. Do not assume they are
+numerically identical.
+
+## No remote admission / no global claiming
+
+PR D/E evaluate local load only. No destination cooldown, DFT,
+Stoplight, AIMD, `dispatch_owner`, or scheduler claiming.
 
 ## Scheduler registration / cadence
 

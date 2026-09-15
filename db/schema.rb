@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_15_050001) do
+ActiveRecord::Schema.define(version: 2026_09_15_120001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -607,6 +607,18 @@ ActiveRecord::Schema.define(version: 2026_09_15_050001) do
     t.integer "global_pending_count"
     t.integer "active_batch_count"
     t.string "pass_error_class"
+    t.boolean "local_load_enforcement_enabled"
+    t.string "local_load_state"
+    t.integer "local_load_budget_percent"
+    t.integer "local_load_recommended_budget"
+    t.integer "effective_execution_budget"
+    t.boolean "local_load_would_skip"
+    t.boolean "local_load_measurement_complete"
+    t.integer "local_load_profile_version"
+    t.string "local_load_profile_source"
+    t.boolean "local_load_fallback_used"
+    t.boolean "load_deferred"
+    t.jsonb "local_load_decision"
     t.index ["batch_id", "observed_at"], name: "index_fi_dispatch_observations_on_batch_and_observed_at"
     t.index ["observed_at"], name: "index_fi_dispatch_observations_on_observed_at"
   end

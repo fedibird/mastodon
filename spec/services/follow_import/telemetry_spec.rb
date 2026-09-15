@@ -44,6 +44,10 @@ RSpec.describe FollowImport::Telemetry do
     expect(row.global_pending_count).to be_nil
     expect(row.active_batch_count).to be_nil
     expect(row.load_snapshot).to be_nil
+    expect(row.local_load_state).to be_nil
+    expect(row.effective_execution_budget).to be_nil
+    expect(row.load_deferred).to be_nil
+    expect(row.local_load_decision).to be_nil
   end
 
   it 'swallows dispatch-tick insert failures and logs a warning' do

@@ -593,6 +593,15 @@ uncalibrated (same class of knob as `FOLLOW_IMPORT_EXECUTION_INTERVAL`).
 The global scheduler does not have this problem: the next cron tick is
 an independent recheck.
 
+Implementation (PR E): enforcement is a separate default-off flag
+`FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT`, not coupled to
+`FOLLOW_IMPORT_DISPATCH_SHADOW`. Live enforcement requires an
+operator-supplied profile schema v2 with an explicit
+`fallback.budget_percent`. The worker evaluates its own pre-dispatch
+`LoadSnapshot`; it does not reuse the latest shadow tick. Load
+deferral is tracked explicitly (`load_deferred`) and must not be
+inferred from `claimed_count == 0`.
+
 ### 6.3 Provisional load envelope (uncalibrated)
 
 Labels only — replace from telemetry. Cleanup numbers are shown only as
@@ -997,7 +1006,7 @@ That cannot protect the instance. Local-load work is a **shared guard**
 | **0 — observe** | PR #59 (done) | None. Legacy 50/30s chains. Unpaced recording fallback still exists. |
 | **1 — shadow scheduler** | PR A (+ PR B plan math) | Scheduler runs single-flight, builds an account-first plan, **does not claim**. Legacy worker is the only claimer. |
 | **2 — shared load guard, shadow** | PR D | Global scheduler *computes and logs* `LocalLoadGuard` and may shrink only the shadow plan. Legacy `BatchExecutionWorker` is unchanged so a shadow skip cannot stop a live chain. **No protection yet.** |
-| **3 — shared load guard, enforce** | PR E | Both claimers consult the guard before claim. Legacy **load-deferred recheck** if zero claims were load-only (§6.2.1). Temporary compatibility; **not** global fairness. |
+| **3 — shared load guard, enforce** | PR E | Legacy `BatchExecutionWorker` consults the shared guard **before** `select_pending_candidates` when `FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT` is on and a v2+fallback profile is configured. Positive recommendation shrinks the per-pass LIMIT. Zero due load schedules one deferred recheck (§6.2.1). The global scheduler remains shadow-only. Temporary compatibility; **not** global fairness. |
 | **4 — global claiming for new imports** | PR C | New batches are `dispatch_owner = scheduler`. Recording failure must not bulk-enqueue. In-flight `legacy` batches keep their chains. |
 | **5 — fixed destination admission** | PR F | Domain caps + DFT/UnavailableDomain + Retry-After cache. |
 | **6 — adaptive destination, shadow then enforce** | PR G / H | After telemetry calibration. Still no Node score. |
@@ -1052,7 +1061,7 @@ is this documentation PR. Numeric calibration is last, not first.
 | **B** | Account-first rotating RR (unit-cost DRR) + batch sub-scheduling in the **plan**; `owner_key` adapter; destination-share structure (optional cap in specs only). Shadow cursor in Redis (TTL; reconstructable; prune inactive, keep all currently-active owner/batch pointers). Lazy target feeds; pending `(batch_id, position, id)` index. Implementation: `docs/follow_import_dispatch_shadow.md`. | Claim; remote adaptive logic; ACCOUNT_FLOOR/CAP numbers |
 | **C** | Authoritative global claiming for **new** imports; `dispatch_owner`; legacy/global ownership + drain; **remove unpaced recording fallback** when GLOBAL is on | Flip in-flight legacy owners implicitly; enable Follow Gate |
 | **D** | `LocalLoadGuard` in the **global shadow scheduler** only: consume the pre-dispatch `LoadSnapshot`, evaluate a configured uncalibrated profile, shrink the hypothetical shadow plan, record state/percent/recommended budget. `BatchExecutionWorker` is unchanged (a shadow skip must not stop the legacy chain). Implementation: `docs/follow_import_dispatch_shadow.md`. | Enforce skip; invent production thresholds; change legacy claim rate |
-| **E** | Enforce `LocalLoadGuard` in both claimers; legacy **load-deferred reschedule** when the guard (not policy) yields zero claims | Tune production envelopes as if calibrated; tight retry loops |
+| **E** | Enforce `LocalLoadGuard` on the legacy executor (default-off); shrink per-pass LIMIT or schedule one load-deferred recheck when the guard (not policy) yields zero claims. No bundled production thresholds. | Tune production envelopes as if calibrated; tight retry loops; global claiming |
 | **F** | Fixed destination/domain budgets; DFT / UnavailableDomain where host mapping is known; Retry-After **runtime cache** (no raw scans); bounded candidate paging (§5.5) | Adaptive rates; Node scores; inbox Stoplight-as-if-known; unbounded 20k scans |
 | **G** | Shadow adaptive destination pacing (§7.6 AIMD) from aggregates | Enforce; active probing |
 | **H** | Enforce adaptive destination pacing **after** PR #59 (+ tick) calibration | Invent thresholds without data |

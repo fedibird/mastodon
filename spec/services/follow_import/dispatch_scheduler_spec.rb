@@ -579,6 +579,29 @@ RSpec.describe FollowImport::DispatchScheduler do
       expect(observation.effective_shadow_plan_budget).to eq 10
       expect(result.plan.claimed_count).to eq 0
     end
+
+    it 'does not reduce the shadow plan or claim work when the controller raises' do
+      enable_local_load(profile(
+                          'version' => 2,
+                          'levels' => { 'busy' => { 'budget_percent' => 50, 'push' => { 'latency' => 1 } } },
+                          'fallback' => { 'budget_percent' => 0 }
+                        ))
+      allow(FollowImport::Telemetry).to receive(:warn_failure)
+      allow_any_instance_of(FollowImport::LocalLoadGuard).to receive(:missing_measurements)
+        .and_raise(RuntimeError, 'internal boom')
+      add_target(0)
+      allow(FollowImport::FairScheduler).to receive(:new).and_call_original
+
+      result = scheduler.call
+      observation = FollowImportDispatchTickObservation.last
+
+      expect(FollowImport::FairScheduler).to have_received(:new).with(hash_including(budget: 10))
+      expect(observation.local_load_state).to eq 'evaluation_error'
+      expect(observation.local_load_recommended_budget).to be_nil
+      expect(observation.effective_shadow_plan_budget).to eq 10
+      expect(result.plan.claimed_count).to eq 0
+      expect(FollowImport::Telemetry).to have_received(:warn_failure).with('local_load_guard', instance_of(RuntimeError))
+    end
   end
 end
 

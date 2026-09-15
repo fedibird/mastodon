@@ -10,7 +10,7 @@
 module FollowImport
   class DispatchTickObserver
     SCHEMA_NAME    = 'follow_import_dispatch_tick'
-    SCHEMA_VERSION = 4
+    SCHEMA_VERSION = 5
 
     def self.record(attrs)
       attrs = attrs.to_h.symbolize_keys
@@ -63,6 +63,7 @@ module FollowImport
         'plan_algorithm' => FollowImport::FairScheduler::ALGORITHM,
         'plan_schema_version' => FollowImport::FairScheduler::SCHEMA_VERSION,
         'local_load_shadow_enabled' => FollowImport::ExecutionPolicy.local_load_shadow_enabled?,
+        'local_load_enforcement_enabled' => FollowImport::ExecutionPolicy.local_load_enforcement_enabled?,
         'local_load_profile_schema_version' => FollowImport::LocalLoadProfile::SCHEMA_VERSION,
         'local_load_controller_schema_version' => FollowImport::LocalLoadGuard::SCHEMA_VERSION,
       }

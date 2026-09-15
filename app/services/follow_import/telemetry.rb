@@ -6,7 +6,7 @@
 # are not coerced to 0.
 module FollowImport
   class Telemetry
-    SCHEMA_VERSION = 3
+    SCHEMA_VERSION = 4
     SCHEMA_NAME    = 'follow_import_pacing_telemetry'
     WARN_TTL       = 60
 
@@ -123,6 +123,18 @@ module FollowImport
           load_snapshot: attrs[:load_snapshot],
           execution_policy: attrs[:execution_policy].presence || {},
           pass_error_class: attrs[:pass_error_class],
+          local_load_enforcement_enabled: attrs[:local_load_enforcement_enabled],
+          local_load_state: attrs[:local_load_state],
+          local_load_budget_percent: attrs[:local_load_budget_percent],
+          local_load_recommended_budget: attrs[:local_load_recommended_budget],
+          effective_execution_budget: attrs[:effective_execution_budget],
+          local_load_would_skip: attrs[:local_load_would_skip],
+          local_load_measurement_complete: attrs[:local_load_measurement_complete],
+          local_load_profile_version: attrs[:local_load_profile_version],
+          local_load_profile_source: attrs[:local_load_profile_source],
+          local_load_fallback_used: attrs[:local_load_fallback_used],
+          load_deferred: attrs[:load_deferred],
+          local_load_decision: attrs[:local_load_decision],
           created_at: Time.now.utc,
         }
       end

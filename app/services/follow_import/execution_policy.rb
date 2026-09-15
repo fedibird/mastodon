@@ -24,9 +24,12 @@
 # diagnostic planning size only.
 # local_load_shadow_enabled? is a second default-off flag. When both
 # shadow flags are on, LocalLoadGuard may shrink only the hypothetical
-# shadow plan. These flags are independent of
-# FOLLOW_IMPORT_EXECUTION_BATCH_SIZE and FOLLOW_IMPORT_EXECUTION_INTERVAL,
-# which continue to pace the legacy BatchExecutionWorker only.
+# shadow plan.
+# local_load_enforcement_enabled? is a third default-off flag, independent
+# of FOLLOW_IMPORT_DISPATCH_SHADOW. When true AND an enforcement-capable
+# (v2 + explicit fallback) profile is configured, the legacy
+# BatchExecutionWorker may shrink or defer a pass from its own
+# pre-dispatch LoadSnapshot. It does not invent production thresholds.
 module FollowImport
   module ExecutionPolicy
     module_function
@@ -103,10 +106,20 @@ module FollowImport
 
     # Shadow-only local-load controller. Default off. When true AND
     # dispatch_shadow_enabled?, the scheduler may shrink the hypothetical
-    # shadow plan from a configured UNCALIBRATED profile. It never changes
-    # BatchExecutionWorker, execution_batch_size, or execution_reschedule_in.
+    # shadow plan from a configured UNCALIBRATED profile. Independent of
+    # local_load_enforcement_enabled?.
     def local_load_shadow_enabled?
       ENV['FOLLOW_IMPORT_LOCAL_LOAD_SHADOW'].to_s == 'true'
+    end
+
+    # Optional legacy-executor local-load enforcement. Default off.
+    # Independent of FOLLOW_IMPORT_DISPATCH_SHADOW / local_load_shadow.
+    # When false, BatchExecutionWorker is unchanged: candidate limit is
+    # execution_batch_size, no load-deferred jobs. When true, a valid
+    # enforcement-capable profile is still required or the pass stays
+    # at the legacy budget.
+    def local_load_enforcement_enabled?
+      ENV['FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT'].to_s == 'true'
     end
   end
 end

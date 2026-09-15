@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
-# Global Follow Import dispatcher tick. PR A/B/D is SHADOW ONLY.
+# Global Follow Import dispatcher tick. PR A/B/D remains SHADOW ONLY.
+# PR E may enforce LocalLoadGuard on BatchExecutionWorker; this scheduler
+# still claims nothing.
 #
 # Flow:
 #   shadow enabled? → acquire session advisory lease → load snapshot
@@ -144,8 +146,9 @@ module FollowImport
         base_budget: base_budget,
         profile: profile
       )
-    rescue StandardError
-      FollowImport::LocalLoadDecision.invalid(base_budget)
+    rescue StandardError => e
+      FollowImport::Telemetry.warn_failure('local_load_decision', e)
+      FollowImport::LocalLoadDecision.evaluation_error(base_budget)
     end
 
     def capture_load_snapshot
@@ -172,6 +175,7 @@ module FollowImport
         'plan_algorithm' => FollowImport::FairScheduler::ALGORITHM,
         'plan_schema_version' => FollowImport::FairScheduler::SCHEMA_VERSION,
         'local_load_shadow_enabled' => FollowImport::ExecutionPolicy.local_load_shadow_enabled?,
+        'local_load_enforcement_enabled' => FollowImport::ExecutionPolicy.local_load_enforcement_enabled?,
         'local_load_profile_schema_version' => FollowImport::LocalLoadProfile::SCHEMA_VERSION,
         'local_load_controller_schema_version' => FollowImport::LocalLoadGuard::SCHEMA_VERSION,
       }
