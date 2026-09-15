@@ -235,9 +235,11 @@ RSpec.describe FollowImport::DispatchScheduler, 'authoritative global mode' do
     allow(FollowImport::ExecutionPolicy).to receive(:local_load_enforcement_enabled?).and_return(true)
     allow(FollowImport::LocalLoadProfile).to receive(:from_env).and_return(
       FollowImport::LocalLoadProfile.parse(
-        'version' => 2,
-        'levels' => { 'busy' => { 'budget_percent' => 50, 'push' => { 'latency' => 1 } } },
-        'fallback' => { 'budget_percent' => 20 }
+        {
+          'version' => 2,
+          'levels' => { 'busy' => { 'budget_percent' => 50, 'push' => { 'latency' => 1 } } },
+          'fallback' => { 'budget_percent' => 20 },
+        }
       )
     )
     allow(FollowImport::LoadSnapshot).to receive(:capture).and_return(
