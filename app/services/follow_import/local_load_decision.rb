@@ -1,12 +1,17 @@
 # frozen_string_literal: true
 
-# Immutable local-load recommendation. Observation only in PR D.
+# Immutable local-load recommendation.
 # recommended_budget nil means the controller did not compute a usable
-# number (disabled / unconfigured / invalid / unknown). 0 means it
-# computed zero and the SHADOW plan would skip.
+# number (disabled / unconfigured / invalid / unknown / evaluation_error).
+# 0 means it computed zero.
+#
+# State meanings:
+#   invalid           = profile/configuration is invalid
+#   unknown           = required runtime measurement unavailable
+#   evaluation_error  = unexpected controller evaluation failure
 module FollowImport
   class LocalLoadDecision
-    STATES = %w(disabled unconfigured invalid unknown normal busy heavy overloaded).freeze
+    STATES = %w(disabled unconfigured invalid unknown evaluation_error normal busy heavy overloaded).freeze
 
     attr_reader :state, :base_budget, :recommended_budget, :budget_percent,
                 :would_skip, :reasons, :measurement_complete, :profile_version,
@@ -26,8 +31,12 @@ module FollowImport
       @profile_digest = attrs[:profile_digest]
     end
 
-    def apply_to_shadow_plan?
+    def usable_recommendation?
       measurement_complete == true && !recommended_budget.nil?
+    end
+
+    def apply_to_shadow_plan?
+      usable_recommendation?
     end
 
     def would_skip?
@@ -38,15 +47,27 @@ module FollowImport
       measurement_complete
     end
 
+    def unknown?
+      state == 'unknown'
+    end
+
+    def evaluation_error?
+      state == 'evaluation_error'
+    end
+
+    def invalid?
+      state == 'invalid'
+    end
+
     def self.disabled(base_budget)
       new(state: 'disabled', base_budget: base_budget, reasons: [])
     end
 
-    def self.unconfigured(base_budget, profile = nil)
+    def self.unconfigured(base_budget, profile = nil, reasons: %w(profile_unconfigured))
       new(
         state: 'unconfigured',
         base_budget: base_budget,
-        reasons: %w(profile_unconfigured),
+        reasons: reasons,
         profile_version: profile&.version,
         profile_source: profile&.source || FollowImport::LocalLoadProfile::SOURCE_UNCONFIGURED,
         profile_digest: profile&.digest
@@ -73,6 +94,18 @@ module FollowImport
         profile_version: profile.version,
         profile_source: profile.source,
         profile_digest: profile.digest
+      )
+    end
+
+    def self.evaluation_error(base_budget, profile = nil)
+      new(
+        state: 'evaluation_error',
+        base_budget: base_budget,
+        measurement_complete: false,
+        reasons: %w(evaluation_error),
+        profile_version: profile&.version,
+        profile_source: profile&.source,
+        profile_digest: profile&.digest
       )
     end
   end

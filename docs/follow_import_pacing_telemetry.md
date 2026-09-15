@@ -134,9 +134,18 @@ snapshot would contaminate the baseline with work this pass just created.
 | `pending_count` | same as `batch_pending_after` (legacy alias) |
 | `global_pending_count` | pending targets across all batches (pre-dispatch) |
 | `active_batch_count` | distinct batches with at least one pending target (pre-dispatch) |
-| `candidate_count` | pending rows selected for this pass; NULL if selection failed |
+| `candidate_count` | pending rows selected for this pass; NULL if selection was not attempted or failed; 0 if the query ran and observed no rows |
 | `claimed_count` | successful claim+enqueue count so far; incremented after each enqueue |
 | `pass_error_class` | exception class if the pass raised (the error is still re-raised) |
+| `local_load_enforcement_enabled` | whether the PR E flag was on for this pass |
+| `local_load_state` | guard state; NULL if not evaluated |
+| `local_load_budget_percent` / `local_load_recommended_budget` | controller output; 0 is computed zero; NULL is not computed |
+| `effective_execution_budget` | per-pass candidate LIMIT actually used; NULL if enforcement was off |
+| `local_load_would_skip` / `local_load_measurement_complete` | NULL if not computed |
+| `local_load_profile_version` / `local_load_profile_source` | effective profile identity (`env` / `env_legacy` / `injected`) |
+| `local_load_fallback_used` | true when the v2 fallback was applied |
+| `load_deferred` | true only when this pass scheduled a load recheck |
+| `local_load_decision` | compact JSONB reasons / enforcement_configured / digest |
 
 These are scheduling/load facts. They do not store account or subject ids.
 `claimed_count` plus `observed_at` is enough to derive a global dispatch rate
@@ -158,6 +167,9 @@ the live dispatchable set) and supports both `COUNT(*)` and
 - `gate_enforcement_enabled`
 - telemetry `schema` / `schema_version`
 - `load_snapshot_timing` = `pre_dispatch`
+- `local_load_enforcement_enabled` / `local_load_enforcement_configured`
+- `local_load_profile_schema_version` / `local_load_controller_schema_version`
+- `local_load_profile_digest` / `local_load_profile_source`
 
 so later env changes remain reconstructable.
 
@@ -250,9 +262,13 @@ Uncalibrated, env-overridable, **not** load-aware:
 - `FOLLOW_IMPORT_DISPATCH_SHADOW_PLAN_BUDGET` (diagnostic shadow plan size;
   default = execution batch size; does **not** control real execution)
 - `FOLLOW_IMPORT_LOCAL_LOAD_SHADOW` (default off; shadow LocalLoadGuard only)
-- `FOLLOW_IMPORT_LOCAL_LOAD_SHADOW_PROFILE` (JSON; no bundled defaults)
+- `FOLLOW_IMPORT_LOCAL_LOAD_PROFILE` (canonical JSON profile; no bundled defaults)
+- `FOLLOW_IMPORT_LOCAL_LOAD_SHADOW_PROFILE` (deprecated alias if the canonical variable is absent)
+- `FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT` (default off; optional legacy-executor enforcement)
 
-This PR does not change those values or add an under-load short-circuit.
+Enforcement does not silently activate without an explicit v2 profile
+that includes `fallback.budget_percent`. No repository number is a
+calibrated production recommendation.
 
 ### `follow_import_dispatch_tick_observations`
 
@@ -277,13 +293,14 @@ scheduler is shadow-only.
 | `unique_destination_count` | distinct planned destination domains |
 | `skipped_missing_owner_count` | batches skipped because no owner key could be derived |
 | `fairness_state_source` | `redis` / `default` / `reset` / `persist_failed` |
-| `local_load_state` | `disabled` / `unconfigured` / `invalid` / `unknown` / `normal` / `busy` / `heavy` / `overloaded`; NULL if not evaluated |
+| `local_load_state` | `disabled` / `unconfigured` / `invalid` / `unknown` / `evaluation_error` / `normal` / `busy` / `heavy` / `overloaded`; NULL if not evaluated |
 | `local_load_budget_percent` | configured percent for the selected level; 100 for `normal`; NULL if not computed |
 | `local_load_recommended_budget` | computed shadow recommendation; 0 = shadow skip; NULL = not computed |
 | `effective_shadow_plan_budget` | budget given to the shadow planner |
 | `local_load_would_skip` | true when recommended_budget is 0; NULL if not computed |
 | `local_load_measurement_complete` | whether every profile-required metric was usable |
 | `local_load_profile_version` / `local_load_profile_source` | profile identity; digest lives in `execution_config` |
+| `local_load_fallback_used` | true when the v2 fallback was applied to the shadow budget; NULL if not evaluated |
 | `load_snapshot` | Sidekiq load facts, or NULL if capture failed |
 | `execution_config` | execution + shadow-flag snapshot, including `dispatch_shadow_interval` from `FollowImport::ExecutionPolicy` (same ENV/default as `config/sidekiq.yml`) |
 | `error_class` | exception class for `shadow_error` |
@@ -293,7 +310,10 @@ See `docs/follow_import_dispatch_shadow.md`. The shadow scheduler must
 not store handles, usernames, payloads, inbox paths, target accts, or
 moderation scores. Load snapshots are interpreted by the shadow LocalLoadGuard only when
 `FOLLOW_IMPORT_LOCAL_LOAD_SHADOW=true` and a valid profile is supplied.
-That interpretation never changes real Follow Import execution in PR D.
+Tick interpretation still does not claim work. Real per-pass
+enforcement is the separate `FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT`
+flag on `BatchExecutionWorker` (see
+`docs/follow_import_dispatch_shadow.md`).
 
 ## Expected row volume
 

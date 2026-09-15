@@ -91,12 +91,50 @@ RSpec.describe FollowImport::LocalLoadGuard do
   it 'clamps through configured capacity without inventing constants' do
     profile = profile_for(
       'version' => 1,
-      'capacity' => { 'per_push_thread' => 3, 'max_tick_claims' => 40 }
+      'capacity' => { 'per_push_thread' => 3, 'max_tick_claims' => 50 }
     )
     decision = evaluate(snapshot: snapshot('push_concurrency' => 4), base_budget: 50, profile: profile)
 
     expect(decision.state).to eq 'normal'
     expect(decision.recommended_budget).to eq 12
+    expect(decision.reasons).to include('push_capacity')
+    expect(decision.reasons).not_to include('max_tick_capacity')
+  end
+
+  it 'records max_tick_capacity only when that cap binds below the base budget' do
+    binding = profile_for('version' => 1, 'capacity' => { 'max_tick_claims' => 7 })
+    idle = profile_for('version' => 1, 'capacity' => { 'max_tick_claims' => 50 })
+
+    bound = evaluate(snapshot: snapshot, base_budget: 50, profile: binding)
+    unused = evaluate(snapshot: snapshot, base_budget: 50, profile: idle)
+
+    expect(bound.recommended_budget).to eq 7
+    expect(bound.reasons).to include('max_tick_capacity')
+    expect(unused.recommended_budget).to eq 50
+    expect(unused.reasons).not_to include('max_tick_capacity')
+  end
+
+  it 'treats a measured concurrency of 0 as an observed zero, not a missing measurement' do
+    profile = profile_for('version' => 1, 'capacity' => { 'per_push_thread' => 3 })
+    decision = evaluate(snapshot: snapshot('push_concurrency' => 0), base_budget: 50, profile: profile)
+
+    expect(decision.state).to eq 'normal'
+    expect(decision.measurement_complete).to be true
+    expect(decision.recommended_budget).to eq 0
+    expect(decision.would_skip).to be true
+    expect(decision.reasons).to include('push_capacity')
+  end
+
+  it 'treats a failed concurrency measurement as unknown, not zero' do
+    profile = profile_for('version' => 1, 'capacity' => { 'per_push_thread' => 3 })
+    decision = evaluate(
+      snapshot: snapshot('push_concurrency' => nil, 'concurrency_error_class' => 'RuntimeError'),
+      base_budget: 50,
+      profile: profile
+    )
+
+    expect(decision.state).to eq 'unknown'
+    expect(decision.recommended_budget).to be_nil
     expect(decision.reasons).to include('push_capacity')
   end
 
@@ -140,6 +178,20 @@ RSpec.describe FollowImport::LocalLoadGuard do
     expect(decision.state).to eq 'invalid'
     expect(decision.recommended_budget).to be_nil
     expect(decision.apply_to_shadow_plan?).to be false
+  end
+
+  it 'classifies unexpected evaluation failures as evaluation_error, not invalid' do
+    allow(FollowImport::Telemetry).to receive(:warn_failure)
+    allow_any_instance_of(described_class).to receive(:missing_measurements).and_raise(RuntimeError, 'internal boom')
+
+    decision = evaluate(snapshot: snapshot, base_budget: 10, profile: graded_profile)
+
+    expect(decision.state).to eq 'evaluation_error'
+    expect(decision.evaluation_error?).to be true
+    expect(decision.invalid?).to be false
+    expect(decision.recommended_budget).to be_nil
+    expect(decision.reasons).to eq %w(evaluation_error)
+    expect(FollowImport::Telemetry).to have_received(:warn_failure).with('local_load_guard', instance_of(RuntimeError))
   end
 
   it 'treats a blank profile as unconfigured' do

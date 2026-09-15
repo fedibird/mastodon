@@ -147,5 +147,32 @@ RSpec.describe FollowImport::ExecutionPolicy do
       end
     end
   end
+
+  describe '.local_load_enforcement_enabled?' do
+    it 'is disabled by default' do
+      expect(described_class.local_load_enforcement_enabled?).to be false
+    end
+
+    it 'is independent of the dispatch-shadow flag' do
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_SHADOW: 'true', FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT: 'true' do
+        expect(described_class.dispatch_shadow_enabled?).to be true
+        expect(described_class.local_load_enforcement_enabled?).to be true
+      end
+    end
+
+    it 'can be enabled while the global shadow scheduler stays off' do
+      ClimateControl.modify FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT: 'true' do
+        expect(described_class.local_load_enforcement_enabled?).to be true
+        expect(described_class.dispatch_shadow_enabled?).to be false
+        expect(described_class.local_load_shadow_enabled?).to be false
+      end
+    end
+
+    it 'stays disabled for any other flag value' do
+      ClimateControl.modify FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT: '1' do
+        expect(described_class.local_load_enforcement_enabled?).to be false
+      end
+    end
+  end
 end
 

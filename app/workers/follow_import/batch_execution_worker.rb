@@ -14,11 +14,17 @@
 # but is SHADOW BY DEFAULT: it only changes execution when the experimental
 # FollowImport::ExecutionPolicy.gate_enforcement_enabled? flag is on.
 #
-# Rescheduling is gated on FORWARD PROGRESS: the next pass is only enqueued when
-# at least one target was claimed+executed this pass. A pass that claims nothing
-# (e.g. the gate left everything pending, or nothing was recoverable) stops the
-# chain instead of spinning — those targets wait for a future explicit/manual/
-# policy-triggered recheck rather than being re-evaluated on a tight loop.
+# When FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT is on and an enforcement-capable
+# local-load profile is configured, LocalLoadGuard may shrink this pass's
+# candidate LIMIT from the pre-dispatch LoadSnapshot, or defer the entire
+# pass (claim nothing, retain the Import, schedule one batch-level recheck).
+# That is per-pass protection, not a global claim budget. Gate / unrecoverable
+# zero progress still does not automatically reschedule.
+#
+# Rescheduling is gated on FORWARD PROGRESS except for an explicit local-load
+# deferral: the next pass is only enqueued when at least one target was
+# claimed+executed this pass, or when the pass was skipped because local load
+# produced a zero budget while pending work remains.
 module FollowImport
   class BatchExecutionWorker
     include Sidekiq::Worker
@@ -35,26 +41,40 @@ module FollowImport
 
       # candidate_count stays nil until the pending-target query succeeds so an
       # interrupted/failed selection is not recorded as an observed 0.
+      # A load-deferred pass intentionally does not run that query, so it
+      # keeps NULL and records effective_execution_budget=0 / load_deferred.
       # claimed_count is incremented after each successful enqueue so a later
       # raise still reports how far the pass got.
       @dispatch_candidate_count = account ? nil : 0
       @dispatch_claimed_count   = 0
       @dispatch_pass_error      = nil
+      @dispatch_load_deferred   = false
+      @local_load               = nil
 
       begin
+        @local_load = FollowImport::LocalLoadEnforcement.evaluate(
+          load_snapshot: snapshot[:load_snapshot],
+          base_budget: FollowImport::ExecutionPolicy.execution_batch_size
+        )
+
         if account
-          candidates = select_pending_candidates(batch)
-          @dispatch_candidate_count = candidates.size
-          execute_pass(batch, account, candidates, now) unless candidates.empty?
+          if @local_load.skip_selection?
+            @dispatch_load_deferred = true
+            log_local_load_enforcement(batch)
+          else
+            candidates = select_pending_candidates(batch, limit: @local_load.effective_budget)
+            @dispatch_candidate_count = candidates.size
+            execute_pass(batch, account, candidates, now) unless candidates.empty?
+            log_local_load_enforcement(batch) if noteworthy_local_load_enforcement?
+          end
         end
 
         if account && batch.targets.where(state: :pending).exists?
-          # Only continue while making forward progress. Zero progress means the
-          # remaining pending targets are all gate-deferred (or unrecoverable); stop
-          # the automatic chain rather than re-evaluate them in a loop (the import is
-          # kept so a future explicit/policy recheck can still recover their CSV).
-          reschedule(batch) if @dispatch_claimed_count.positive?
+          # Load deferral is tracked explicitly — do not infer it from
+          # claimed_count == 0 (that also happens for gate / unrecoverable).
+          reschedule(batch) if @dispatch_load_deferred || @dispatch_claimed_count.positive?
         else
+          @dispatch_load_deferred = false
           # No pending targets remain (dispatch complete, or nothing to do, or the
           # importer is gone). Every follow has been enqueued with its address in the
           # job args, so the uploaded CSV is no longer needed — destroy the import.
@@ -70,8 +90,8 @@ module FollowImport
 
     private
 
-    def select_pending_candidates(batch)
-      batch.targets.where(state: :pending).order(:position).limit(FollowImport::ExecutionPolicy.execution_batch_size).to_a
+    def select_pending_candidates(batch, limit:)
+      batch.targets.where(state: :pending).order(:position).limit(limit).to_a
     end
 
     def execute_pass(batch, account, candidates, now)
@@ -133,6 +153,32 @@ module FollowImport
       gate.observation.merge('batch_id' => batch.id, 'candidates' => candidate_count)
     end
 
+    def noteworthy_local_load_enforcement?
+      return false unless @local_load&.enabled
+      return true unless @local_load.configured
+      return true if @local_load.fallback_used
+      return true if @dispatch_load_deferred
+
+      @local_load.effective_budget < @local_load.base_budget
+    end
+
+    def log_local_load_enforcement(batch)
+      return unless noteworthy_local_load_enforcement?
+
+      Rails.logger.info(
+        "[FollowImport::BatchExecutionWorker] local_load_enforcement #{
+          {
+            batch_id: batch.id,
+            local_load_state: @local_load.decision&.state,
+            base_budget: @local_load.base_budget,
+            effective_budget: @local_load.effective_budget,
+            fallback_used: @local_load.fallback_used,
+            load_deferred: @dispatch_load_deferred,
+          }.to_json
+        }"
+      )
+    end
+
     # Load and global backlog MUST be read before any claim/enqueue so the
     # baseline is not contaminated by work this pass just created.
     def capture_pre_dispatch_snapshot(batch, observed_at)
@@ -164,7 +210,9 @@ module FollowImport
         batch_pending_before: snapshot[:batch_pending_before],
         global_pending_count: snapshot[:global_pending_count],
         active_batch_count: snapshot[:active_batch_count],
-        pass_error_class: @dispatch_pass_error
+        pass_error_class: @dispatch_pass_error,
+        local_load: @local_load,
+        load_deferred: @dispatch_load_deferred
       )
     end
   end

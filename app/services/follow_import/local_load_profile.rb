@@ -3,26 +3,41 @@
 require 'digest'
 require 'json'
 
-# Parse/validate a SHADOW-ONLY local-load profile. No bundled production
-# numeric defaults. Blank input is unconfigured. Malformed or illegal
-# input is invalid and never raises to the scheduler.
+# Parse/validate a local-load profile. No bundled production numeric
+# defaults. Blank input is unconfigured. Malformed or illegal input is
+# invalid and never raises to the worker or scheduler.
 #
-# Schema version 1:
+# Schema version 1 (PR D / shadow observation):
 #   version (required, must be 1)
 #   levels.busy|heavy|overloaded.budget_percent 0..100
 #   levels.*.default|push|pull.size|latency  (optional, non-negative)
 #   levels.*.retry_size                      (optional, non-negative)
 #   capacity.max_tick_claims / per_push_thread / per_pull_thread
 #
+# Schema version 2 (enforcement-capable):
+#   everything in v1, plus required
+#   fallback.budget_percent 0..100
+#
+# Live enforcement requires v2. v1 remains valid for shadow observation.
 # Stronger levels must not recommend a larger budget percent than weaker
 # ones. Configured thresholds must be non-decreasing busy → heavy →
 # overloaded for the same signal.
+#
+# Canonical ENV is FOLLOW_IMPORT_LOCAL_LOAD_PROFILE. The PR D name
+# FOLLOW_IMPORT_LOCAL_LOAD_SHADOW_PROFILE is a deprecated alias used
+# only when the canonical variable is absent.
 module FollowImport
   class LocalLoadProfile
-    SCHEMA_VERSION = 1
-    ENV_KEY = 'FOLLOW_IMPORT_LOCAL_LOAD_SHADOW_PROFILE'
+    SCHEMA_VERSION_V1 = 1
+    SCHEMA_VERSION_V2 = 2
+    SCHEMA_VERSION = SCHEMA_VERSION_V2
+    SUPPORTED_VERSIONS = [SCHEMA_VERSION_V1, SCHEMA_VERSION_V2].freeze
+
+    ENV_KEY        = 'FOLLOW_IMPORT_LOCAL_LOAD_PROFILE'
+    LEGACY_ENV_KEY = 'FOLLOW_IMPORT_LOCAL_LOAD_SHADOW_PROFILE'
 
     SOURCE_ENV           = 'env'
+    SOURCE_ENV_LEGACY    = 'env_legacy'
     SOURCE_INJECTED      = 'injected'
     SOURCE_UNCONFIGURED  = 'unconfigured'
     SOURCE_INVALID       = 'invalid'
@@ -30,27 +45,41 @@ module FollowImport
     LEVEL_NAMES = %w(busy heavy overloaded).freeze
     QUEUE_NAMES = %w(default push pull).freeze
     QUEUE_FIELDS = %w(size latency).freeze
-    TOP_KEYS = %w(version levels capacity).freeze
+    TOP_KEYS_V1 = %w(version levels capacity).freeze
+    TOP_KEYS_V2 = %w(version levels capacity fallback).freeze
     LEVEL_KEYS = %w(budget_percent default push pull retry_size).freeze
     CAPACITY_KEYS = %w(max_tick_claims per_push_thread per_pull_thread).freeze
+    FALLBACK_KEYS = %w(budget_percent).freeze
 
     Level = Struct.new(:name, :budget_percent, :queues, :retry_size, keyword_init: true)
     Capacity = Struct.new(:max_tick_claims, :per_push_thread, :per_pull_thread, keyword_init: true)
+    Fallback = Struct.new(:budget_percent, keyword_init: true)
 
-    attr_reader :version, :levels, :capacity, :source, :error, :digest
+    attr_reader :version, :levels, :capacity, :fallback, :source, :error, :digest
 
     def self.from_env
-      parse(ENV[ENV_KEY], source: SOURCE_ENV)
+      if ENV.key?(ENV_KEY)
+        parse(ENV[ENV_KEY], source: SOURCE_ENV)
+      elsif ENV.key?(LEGACY_ENV_KEY)
+        parse(ENV[LEGACY_ENV_KEY], source: SOURCE_ENV_LEGACY)
+      else
+        unconfigured
+      end
     end
 
     def self.parse(raw, source: SOURCE_INJECTED)
-      return unconfigured if raw.blank?
+      return unconfigured if raw.nil? || (raw.is_a?(String) && raw.blank?)
       return parse(raw.to_json, source: source) if raw.is_a?(Hash)
+      return invalid('profile must be a JSON object') unless raw.is_a?(String)
 
       data = JSON.parse(raw)
+      return invalid('profile must be a JSON object') unless data.is_a?(Hash)
+
       build(data, source: source)
     rescue JSON::ParserError => e
       invalid(e.message)
+    rescue StandardError => e
+      invalid(e.class.name)
     end
 
     def self.build(data, source: SOURCE_INJECTED)
@@ -72,19 +101,23 @@ module FollowImport
     def initialize(data, source, allow_blank: false)
       @source = source
       payload = stringify(data)
-      reject_unknown!(payload.keys, TOP_KEYS, 'profile') unless payload.empty?
       @version = payload['version']
       @levels = {}
       @capacity = Capacity.new
+      @fallback = nil
       if payload.empty? && allow_blank
         @digest = nil
         return
       end
 
-      raise ArgumentError, 'version must be 1' unless @version == SCHEMA_VERSION
+      unless SUPPORTED_VERSIONS.include?(@version)
+        raise ArgumentError, "version must be #{SUPPORTED_VERSIONS.join(' or ')}"
+      end
 
+      reject_unknown!(payload.keys, top_keys_for(@version), 'profile')
       parse_levels(payload['levels'])
       parse_capacity(payload['capacity'])
+      parse_fallback(payload['fallback']) if @version == SCHEMA_VERSION_V2
       validate_monotonicity!
       @digest = Digest::SHA256.hexdigest(canonical_json)
     end
@@ -97,8 +130,19 @@ module FollowImport
       source == SOURCE_INVALID
     end
 
+    # Live enforcement requires an explicit v2 fallback. v1 is observation-only.
+    def enforcement_capable?
+      configured? && version == SCHEMA_VERSION_V2 && !fallback.nil?
+    end
+
     def level(name)
       @levels[name.to_s]
+    end
+
+    def fallback_budget(base)
+      return if fallback.nil?
+
+      (base.to_i * fallback.budget_percent) / 100
     end
 
     private
@@ -109,7 +153,12 @@ module FollowImport
       @version = nil
       @levels = {}
       @capacity = Capacity.new
+      @fallback = nil
       @digest = nil
+    end
+
+    def top_keys_for(version)
+      version == SCHEMA_VERSION_V2 ? TOP_KEYS_V2 : TOP_KEYS_V1
     end
 
     def parse_levels(raw)
@@ -159,6 +208,15 @@ module FollowImport
         per_push_thread: optional_number(attrs['per_push_thread'], 'capacity.per_push_thread', integer: true),
         per_pull_thread: optional_number(attrs['per_pull_thread'], 'capacity.per_pull_thread', integer: true)
       )
+    end
+
+    def parse_fallback(raw)
+      raise ArgumentError, 'fallback is required for version 2' if raw.nil?
+      raise ArgumentError, 'fallback must be an object' unless raw.is_a?(Hash)
+
+      attrs = stringify(raw)
+      reject_unknown!(attrs.keys, FALLBACK_KEYS, 'fallback')
+      @fallback = Fallback.new(budget_percent: require_percent(attrs['budget_percent'], 'fallback'))
     end
 
     def validate_monotonicity!
@@ -218,7 +276,7 @@ module FollowImport
     end
 
     def canonical_json
-      JSON.generate(
+      payload = {
         'version' => @version,
         'levels' => LEVEL_NAMES.each_with_object({}) do |name, memo|
           level = @levels[name]
@@ -234,8 +292,10 @@ module FollowImport
           'max_tick_claims' => @capacity.max_tick_claims,
           'per_push_thread' => @capacity.per_push_thread,
           'per_pull_thread' => @capacity.per_pull_thread,
-        }
-      )
+        },
+      }
+      payload['fallback'] = { 'budget_percent' => @fallback.budget_percent } if @fallback
+      JSON.generate(payload)
     end
   end
 end
