@@ -301,8 +301,11 @@ en:
         unique_negative_responders: Unique negative responders
         linked_negative_responders: Linked negative responders
         correlated_negative_responders: Correlated negative responders
+        qualified_negative_events: Qualified negative events
+        qualified_unique_negative_responders: Qualified unique negative responders
         negative_response_rate: Negative response rate
         linked_negative_rate: Linked negative rate
+        qualified_negative_response_rate: Qualified negative response rate
         follow_reject_rate: Follow reject rate
         first_negative_signal_at: First negative signal at
         new_targets_after_first_negative_signal: New targets after first negative signal

@@ -26,7 +26,9 @@
 #
 # Guardrails encoded here (see the design memo):
 #   * A single block/mute never contributes — the rejection sub-score requires
-#     multiple INDEPENDENT responders.
+#     multiple QUALIFIED independent responders (strong preceding-contact
+#     association). Raw / unlinked / synthetic Follow Rejects are observational
+#     only and do not raise this dimension.
 #   * Follow-import risk is DEFERRED (always scores 0): the only import signal we
 #     have, unresolved_target_ratio, means "did not resolve to a known Account at
 #     import time" — NOT "no known relationship with the actor". Using it as an
@@ -37,7 +39,7 @@
 #   * Unobserved remote signals are never scored as absence of behaviour.
 module Moderation
   class RiskEvaluationService
-    POLICY_VERSION = 'risk-eval-v0-2026-09-12'
+    POLICY_VERSION = 'risk-eval-v1-2026-09-15'
 
     # CALIBRATION TODO: the windows overlap (e.g. 24h ⊂ 7d), so the same
     # underlying event can contribute to more than one reason code within a
@@ -58,10 +60,11 @@ module Moderation
         'unique_targets_6h' => { 'threshold' => 100, 'weight' => 0.4 },
       },
       'rejection' => {
-        # Requires MULTIPLE independent responders — never fires on a single one.
-        'unique_negative_responders_24h' => { 'threshold' => 5, 'weight' => 0.5 },
-        'linked_negative_responders_24h' => { 'threshold' => 5, 'weight' => 0.3 },
-        'negative_response_rate_24h'     => { 'threshold' => 0.2, 'weight' => 0.3, 'min_unique_targets' => 10 },
+        # Qualified cohort only. linked_negative_responders is the same
+        # strong-association signal restricted to in-window contacts, so it is
+        # NOT scored here — that would double-count the same evidence.
+        'qualified_unique_negative_responders_24h' => { 'threshold' => 5, 'weight' => 0.5 },
+        'qualified_negative_response_rate_24h'     => { 'threshold' => 0.2, 'weight' => 0.3, 'min_unique_targets' => 10 },
       },
       'report' => {
         'reports_received_24h' => { 'threshold' => 1, 'weight' => 0.4 },
@@ -130,16 +133,20 @@ module Moderation
       data   = window(metrics, '24h')
 
       signals = [
-        threshold_signal('multiple_independent_rejectors', data['unique_negative_responders'], params['unique_negative_responders_24h'], '24h'),
-        threshold_signal('linked_independent_rejectors', data['linked_negative_responders'], params['linked_negative_responders_24h'], '24h'),
+        threshold_signal(
+          'multiple_qualified_independent_rejectors',
+          data['qualified_unique_negative_responders'],
+          params['qualified_unique_negative_responders_24h'],
+          '24h'
+        ),
       ]
 
-      rate_cfg = params['negative_response_rate_24h']
-      if data['unique_targets'].to_i >= rate_cfg['min_unique_targets'].to_i && data['negative_response_rate'].to_f >= rate_cfg['threshold']
+      rate_cfg = params['qualified_negative_response_rate_24h']
+      if rate_cfg && data['unique_targets'].to_i >= rate_cfg['min_unique_targets'].to_i && data['qualified_negative_response_rate'].to_f >= rate_cfg['threshold']
         # This signal has an extra firing condition beyond the threshold (a
         # minimum contact sample), so record the sample-size condition as reason
         # metadata for auditability/reproducibility.
-        signals << reason('elevated_negative_response_rate', data['negative_response_rate'], rate_cfg['weight'], '24h',
+        signals << reason('elevated_qualified_negative_response_rate', data['qualified_negative_response_rate'], rate_cfg['weight'], '24h',
                           threshold: rate_cfg['threshold'],
                           metadata: { 'observed_unique_targets' => data['unique_targets'].to_i, 'min_unique_targets' => rate_cfg['min_unique_targets'].to_i })
       end
@@ -147,6 +154,10 @@ module Moderation
       build(signals)
     end
 
+    # Reports remain an independent dimension. A qualified report event can
+    # still appear in the qualified-rejection cohort *and* increment
+    # reports_received; that cross-dimension overlap is unchanged and is
+    # documented rather than redesigned here.
     def report(metrics)
       params = @params['report']
       build([

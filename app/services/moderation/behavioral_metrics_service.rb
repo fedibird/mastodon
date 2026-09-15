@@ -81,23 +81,24 @@ module Moderation
       unique_responders  = distinct_ids(rejections, :rejector_subject_id).size
       mutes_received     = rejections_by_type['mute'] + rejections_by_type['mute_notifications']
 
-      # Raw analysis counts: rejectors that were also contacted in this window
-      # (any order). Kept as-is for analysis; NOT used for the rates below.
-      linked_set, correlated_set = classify_negative_responders(rejections, contacted_ids)
+      # One pass over in-window rejections: raw linked/correlated analysis
+      # counts, qualified event/responder cohorts, the in-window qualified
+      # rate numerator, and first_qualified_negative_at. Qualification is
+      # always NegativeSignalQualification (PrecedingContactLink).
+      qualified = summarize_qualified_signals(rejections, contacted_ids, window_start, window_end)
 
       # Rate cohorts add a temporal requirement: an in-window contact strictly at
       # or before an in-window rejection from the same responder. This makes a
       # rate mean "response to a preceding in-window contact", so an out-of-window
       # contact or a rejection that predates the in-window contact cannot count.
       responded_rate_cohort = temporal_response_cohort(interactions, rejections)
-      linked_rate_cohort    = temporal_linked_cohort(rejections, window_start, window_end)
       follow_reject_cohort  = temporal_follow_reject_cohort(interactions, rejections)
 
       # Continuation / repeat_behavior must originate from a qualified negative
       # signal (a rejection with a strong preceding-contact link), not any raw
       # ledger row. An uncorrelated protocol-level or legacy Reject therefore
       # cannot become first_negative_signal_at.
-      first_negative_at = first_qualified_negative_at(rejections)
+      first_negative_at = qualified[:first_qualified_at]
       continuation      = continuation_after(subject, interactions, first_negative_at)
 
       base.merge(
@@ -116,12 +117,17 @@ module Moderation
         'reports_received'                        => rejections_by_type['report'],
         'mutes_received'                          => mutes_received,
         'unique_negative_responders'              => unique_responders,
-        'linked_negative_responders'              => linked_set.size,
-        'correlated_negative_responders'          => correlated_set.size,
+        'linked_negative_responders'              => qualified[:linked].size,
+        'correlated_negative_responders'          => qualified[:correlated].size,
+        # Qualified cohort (strong preceding-contact association). Raw unique /
+        # total counts above stay for diagnostics; risk evaluation reads these.
+        'qualified_negative_events'               => qualified[:events],
+        'qualified_unique_negative_responders'    => qualified[:responders].size,
         # Rates: numerator and denominator share the in-window contact cohort, and
         # the numerator requires an in-window contact at/before an in-window rejection.
         'negative_response_rate'                  => ratio(responded_rate_cohort.size, unique_targets),
-        'linked_negative_rate'                    => ratio(linked_rate_cohort.size, unique_targets),
+        'linked_negative_rate'                    => ratio(qualified[:rate_cohort].size, unique_targets),
+        'qualified_negative_response_rate'        => ratio(qualified[:rate_cohort].size, unique_targets),
         'follow_reject_rate'                      => ratio(follow_reject_cohort.size, followed_ids.size),
         'first_negative_signal_at'                => first_negative_at&.iso8601,
         'new_targets_after_first_negative_signal' => continuation[:new_targets],
@@ -148,8 +154,11 @@ module Moderation
         'unique_negative_responders'              => 0,
         'linked_negative_responders'              => 0,
         'correlated_negative_responders'          => 0,
+        'qualified_negative_events'               => 0,
+        'qualified_unique_negative_responders'    => 0,
         'negative_response_rate'                  => 0.0,
         'linked_negative_rate'                    => 0.0,
+        'qualified_negative_response_rate'        => 0.0,
         'follow_reject_rate'                      => 0.0,
         'first_negative_signal_at'                => nil,
         'new_targets_after_first_negative_signal' => 0,
@@ -175,21 +184,45 @@ module Moderation
       scope.where.not(column => nil).distinct.pluck(column).to_set
     end
 
-    # Linked: rejector was contacted first with a preceding-contact link (strong
-    # temporal association). Correlated: rejector was contacted in this window
-    # but without that link. A rejector counted as linked is never also correlated.
-    # Both sets are restricted to rejectors that were contacted in-window, so the
-    # cohort-aligned rates built from them cannot exceed 1.
-    def classify_negative_responders(rejections, contacted_ids)
+    # Single read of in-window rejections. Distinguishes:
+    #
+    #   * linked / correlated — analysis counts among in-window contacts
+    #   * qualified events / unique responders — any in-window rejection that
+    #     has a strong preceding-contact association (contact may be older
+    #     than this metrics window, as long as PrecedingContactLink holds)
+    #   * rate_cohort — qualified AND the preceding contact itself is in-window
+    #     (same discipline as linked_negative_rate; cannot exceed 1)
+    def summarize_qualified_signals(rejections, contacted_ids, window_start, window_end)
       linked = Set.new
       correlated = Set.new
+      qualified_responders = Set.new
+      rate_cohort = Set.new
+      qualified_events = 0
+      first_qualified_at = nil
 
       rejections.includes(:preceding_interaction_event).find_each do |rejection|
         rejector_id = rejection.rejector_subject_id
+        qualified = Moderation::NegativeSignalQualification.qualified?(rejection)
+
+        if qualified
+          qualified_events += 1
+          qualified_responders << rejector_id unless rejector_id.nil?
+
+          at = rejection.occurred_at
+          first_qualified_at = at if at && (first_qualified_at.nil? || at < first_qualified_at)
+
+          interaction = rejection.preceding_interaction_event
+          if rejector_id && interaction && interaction.occurred_at
+            in_window = (!window_start || interaction.occurred_at >= window_start) &&
+                        (!window_end || interaction.occurred_at <= window_end)
+            rate_cohort << rejector_id if in_window
+          end
+        end
+
         next if rejector_id.nil?
         next unless contacted_ids.include?(rejector_id)
 
-        if Moderation::NegativeSignalQualification.qualified?(rejection)
+        if qualified
           linked << rejector_id
         else
           correlated << rejector_id
@@ -197,7 +230,15 @@ module Moderation
       end
 
       correlated.subtract(linked)
-      [linked, correlated]
+
+      {
+        linked: linked,
+        correlated: correlated,
+        events: qualified_events,
+        responders: qualified_responders,
+        rate_cohort: rate_cohort,
+        first_qualified_at: first_qualified_at,
+      }
     end
 
     # Responders with an in-window contact (any type) at or before an in-window
@@ -223,36 +264,6 @@ module Moderation
         cohort << id if contacted_at && rejected_at && contacted_at <= rejected_at
       end
       cohort
-    end
-
-    # Linked rate cohort: the rejection's preceding_interaction_event is itself
-    # in-window, at/before the rejection, and a strong association. (The raw
-    # linked count above may link to a preceding contact from outside the window;
-    # the rate must not.)
-    def temporal_linked_cohort(rejections, window_start, window_end)
-      cohort = Set.new
-
-      rejections.includes(:preceding_interaction_event).find_each do |rejection|
-        interaction = rejection.preceding_interaction_event
-        next if interaction.nil? || interaction.occurred_at.nil? || rejection.rejector_subject_id.nil?
-        next if window_start && interaction.occurred_at < window_start
-        next if window_end && interaction.occurred_at > window_end
-        next unless Moderation::NegativeSignalQualification.qualified?(rejection)
-
-        cohort << rejection.rejector_subject_id
-      end
-
-      cohort
-    end
-
-    # Earliest in-scope rejection that is a qualified negative signal: it has a
-    # strong preceding-contact link (actor → rejector before the rejection,
-    # inside the association window). Raw/unlinked rejection rows are ignored
-    # so they cannot start continuation-after-rejection / repeat_behavior.
-    def first_qualified_negative_at(rejections)
-      Moderation::NegativeSignalQualification.first_qualified_at(
-        rejections.includes(:preceding_interaction_event).find_each
-      )
     end
 
     # Genuinely new targets contacted after the first negative signal in scope: a

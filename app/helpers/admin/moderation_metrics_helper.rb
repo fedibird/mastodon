@@ -21,10 +21,13 @@ module Admin::ModerationMetricsHelper
       %w(unique_negative_responders unique_negative_responders count),
       %w(linked_negative_responders linked_negative_responders count),
       %w(correlated_negative_responders correlated_negative_responders count),
+      %w(qualified_negative_events qualified_negative_events count),
+      %w(qualified_unique_negative_responders qualified_unique_negative_responders count),
     ],
     'rates' => [
       %w(negative_response_rate negative_response_rate rate),
       %w(linked_negative_rate linked_negative_rate rate),
+      %w(qualified_negative_response_rate qualified_negative_response_rate rate),
       %w(follow_reject_rate follow_reject_rate rate),
     ],
     'continuation' => [
