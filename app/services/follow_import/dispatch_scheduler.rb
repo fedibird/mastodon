@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Global Follow Import dispatcher tick. PR A+B is SHADOW ONLY.
+# Global Follow Import dispatcher tick. PR A/B/D is SHADOW ONLY.
 #
 # Flow:
 #   shadow enabled? → acquire session advisory lease → load snapshot
@@ -62,10 +62,11 @@ module FollowImport
 
     def observe_acquired(tick_id, observed_at)
       load_snapshot, load_error = capture_load_snapshot
-      plan = build_shadow_plan(observed_at)
+      plan = build_shadow_plan(observed_at, load_snapshot)
       metadata = {}
       metadata['load_snapshot_error_class'] = load_error if load_error
       metadata['fairness_persist_failed'] = true if plan.fairness_state_source == FollowImport::FairnessCursor::SOURCE_PERSIST_FAILED
+      metadata['local_load_reasons'] = plan.local_load_reasons if plan.local_load_reasons.present?
 
       record_tick(
         tick_id: tick_id,
@@ -90,11 +91,18 @@ module FollowImport
       Result.new(outcome: OUTCOME_SHADOW_ERROR, lease_acquired: true, plan: nil, tick_id: tick_id)
     end
 
-    def build_shadow_plan(observed_at)
+    def build_shadow_plan(observed_at, load_snapshot)
+      base_budget = FollowImport::ExecutionPolicy.shadow_plan_budget
+      decision = local_load_decision(load_snapshot, base_budget)
+      effective_budget = if decision.apply_to_shadow_plan?
+                           decision.recommended_budget
+                         else
+                           base_budget
+                         end
+
       cursor = FollowImport::FairnessCursor.new.read
       owners, skipped = FollowImport::PendingBatchSource.new.owner_work(cursor: cursor)
-      budget = FollowImport::ExecutionPolicy.shadow_plan_budget
-      scheduled = FollowImport::FairScheduler.new(budget: budget, owners: owners, cursor: cursor).plan
+      scheduled = FollowImport::FairScheduler.new(budget: effective_budget, owners: owners, cursor: cursor).plan
       source = cursor.source
       persisted = FollowImport::FairnessCursor.new.write(
         scheduled.next_cursor,
@@ -107,17 +115,37 @@ module FollowImport
         observed_at: observed_at,
         global_pending_count: FollowImport::DispatchCounts.global_pending,
         active_batch_count: FollowImport::DispatchCounts.active_batches,
-        execution_config: execution_config,
+        execution_config: execution_config.merge(
+          'local_load_profile_digest' => decision.profile_digest,
+          'local_load_profile_source' => decision.profile_source
+        ).compact,
         planning: {
           planned: true,
           entries: scheduled.planned,
           skipped_missing_owner_count: skipped,
           fairness_state_source: source,
-          shadow_plan_budget: budget,
+          shadow_plan_budget: base_budget,
+          effective_shadow_plan_budget: effective_budget,
+          local_load: decision,
           executable_owner_count: owners.size,
           executable_batch_count: owners.sum { |owner| owner[:batches].size },
         }
       )
+    end
+
+    def local_load_decision(load_snapshot, base_budget)
+      unless FollowImport::ExecutionPolicy.local_load_shadow_enabled?
+        return FollowImport::LocalLoadDecision.disabled(base_budget)
+      end
+
+      profile = FollowImport::LocalLoadProfile.from_env
+      FollowImport::LocalLoadGuard.evaluate(
+        snapshot: load_snapshot,
+        base_budget: base_budget,
+        profile: profile
+      )
+    rescue StandardError
+      FollowImport::LocalLoadDecision.invalid(base_budget)
     end
 
     def capture_load_snapshot
@@ -143,6 +171,9 @@ module FollowImport
         'shadow_plan_budget' => FollowImport::ExecutionPolicy.shadow_plan_budget,
         'plan_algorithm' => FollowImport::FairScheduler::ALGORITHM,
         'plan_schema_version' => FollowImport::FairScheduler::SCHEMA_VERSION,
+        'local_load_shadow_enabled' => FollowImport::ExecutionPolicy.local_load_shadow_enabled?,
+        'local_load_profile_schema_version' => FollowImport::LocalLoadProfile::SCHEMA_VERSION,
+        'local_load_controller_schema_version' => FollowImport::LocalLoadGuard::SCHEMA_VERSION,
       }
     end
   end

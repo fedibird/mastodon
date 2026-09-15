@@ -249,6 +249,8 @@ Uncalibrated, env-overridable, **not** load-aware:
 - `FOLLOW_IMPORT_DISPATCH_SHADOW` (default off; global scheduler observes only)
 - `FOLLOW_IMPORT_DISPATCH_SHADOW_PLAN_BUDGET` (diagnostic shadow plan size;
   default = execution batch size; does **not** control real execution)
+- `FOLLOW_IMPORT_LOCAL_LOAD_SHADOW` (default off; shadow LocalLoadGuard only)
+- `FOLLOW_IMPORT_LOCAL_LOAD_SHADOW_PROFILE` (JSON; no bundled defaults)
 
 This PR does not change those values or add an under-load short-circuit.
 
@@ -275,6 +277,13 @@ scheduler is shadow-only.
 | `unique_destination_count` | distinct planned destination domains |
 | `skipped_missing_owner_count` | batches skipped because no owner key could be derived |
 | `fairness_state_source` | `redis` / `default` / `reset` / `persist_failed` |
+| `local_load_state` | `disabled` / `unconfigured` / `invalid` / `unknown` / `normal` / `busy` / `heavy` / `overloaded`; NULL if not evaluated |
+| `local_load_budget_percent` | configured percent for the selected level; 100 for `normal`; NULL if not computed |
+| `local_load_recommended_budget` | computed shadow recommendation; 0 = shadow skip; NULL = not computed |
+| `effective_shadow_plan_budget` | budget given to the shadow planner |
+| `local_load_would_skip` | true when recommended_budget is 0; NULL if not computed |
+| `local_load_measurement_complete` | whether every profile-required metric was usable |
+| `local_load_profile_version` / `local_load_profile_source` | profile identity; digest lives in `execution_config` |
 | `load_snapshot` | Sidekiq load facts, or NULL if capture failed |
 | `execution_config` | execution + shadow-flag snapshot, including `dispatch_shadow_interval` from `FollowImport::ExecutionPolicy` (same ENV/default as `config/sidekiq.yml`) |
 | `error_class` | exception class for `shadow_error` |
@@ -282,8 +291,9 @@ scheduler is shadow-only.
 
 See `docs/follow_import_dispatch_shadow.md`. The shadow scheduler must
 not store handles, usernames, payloads, inbox paths, target accts, or
-moderation scores. Load snapshots are not interpreted as
-NORMAL/BUSY/OVERLOADED here.
+moderation scores. Load snapshots are interpreted by the shadow LocalLoadGuard only when
+`FOLLOW_IMPORT_LOCAL_LOAD_SHADOW=true` and a valid profile is supplied.
+That interpretation never changes real Follow Import execution in PR D.
 
 ## Expected row volume
 

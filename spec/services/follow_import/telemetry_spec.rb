@@ -105,6 +105,8 @@ RSpec.describe FollowImport::Telemetry do
 
     expect(row.planned_count).to be_nil
     expect(row.planned_owner_count).to be_nil
+    expect(row.local_load_state).to be_nil
+    expect(row.local_load_recommended_budget).to be_nil
     expect(row.executable_owner_count).to be_nil
     expect(row.skipped_missing_owner_count).to be_nil
     expect(row.claimed_count).to eq 0

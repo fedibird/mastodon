@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_15_040002) do
+ActiveRecord::Schema.define(version: 2026_09_15_050001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -628,6 +628,14 @@ ActiveRecord::Schema.define(version: 2026_09_15_040002) do
     t.integer "planned_owner_count"
     t.integer "planned_batch_count"
     t.string "fairness_state_source"
+    t.string "local_load_state"
+    t.integer "local_load_budget_percent"
+    t.integer "local_load_recommended_budget"
+    t.integer "effective_shadow_plan_budget"
+    t.boolean "local_load_would_skip"
+    t.boolean "local_load_measurement_complete"
+    t.integer "local_load_profile_version"
+    t.string "local_load_profile_source"
     t.jsonb "load_snapshot"
     t.jsonb "execution_config"
     t.string "error_class"
