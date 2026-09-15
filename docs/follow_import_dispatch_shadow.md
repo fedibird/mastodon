@@ -1,13 +1,13 @@
-# Follow Import dispatch shadow scheduler (PR A)
+# Follow Import dispatch shadow scheduler
 
-Status: infrastructure / observation only.
+Status: infrastructure / observation only (PR A + PR B).
 Default: **off**.
 
-This is the Stage 1 skeleton from
-`docs/follow_import_dispatch_pacing_design.md`. It lets one global
-scheduler tick run, hold a PostgreSQL session advisory lease, inspect
-cheap backlog/load facts, and write tick telemetry. It does **not**
-dispatch, claim, enqueue, pause, or slow Follow Import execution.
+This is Stage 1 from `docs/follow_import_dispatch_pacing_design.md`.
+A global scheduler tick can take a PostgreSQL session advisory lease,
+build an **account-first shadow plan**, and write tick telemetry. It
+does **not** dispatch, claim, enqueue, pause, or slow Follow Import
+execution.
 
 `FollowImport::BatchExecutionWorker` remains the only real claimer.
 
@@ -17,102 +17,135 @@ dispatch, claim, enqueue, pause, or slow Follow Import execution.
 FOLLOW_IMPORT_DISPATCH_SHADOW=true
 ```
 
-Exposed as `FollowImport::ExecutionPolicy.dispatch_shadow_enabled?`.
-The raw ENV is not read from workers or observers.
+Optional diagnostic budget (positive integer; default = current
+`FOLLOW_IMPORT_EXECUTION_BATCH_SIZE` / 50):
 
-- `false` (default): `Scheduler::FollowImportDispatchScheduler` is a
-  cheap no-op. No lease, no planning, no tick row, no Follow Import
-  behavior change.
-- `true`: one process may acquire the global lease, inspect current
-  work/load, write `follow_import_dispatch_tick_observations`, and
-  **claim nothing**.
+```bash
+FOLLOW_IMPORT_DISPATCH_SHADOW_PLAN_BUDGET=50
+```
 
-Do not enable this to change production pacing. Legacy execution is
-still paced only by:
+Exposed as `FollowImport::ExecutionPolicy.dispatch_shadow_enabled?` and
+`.shadow_plan_budget`. Do not treat `shadow_plan_budget` as a production
+dispatch rate or as the future global budget.
+
+- `false` (default): cheap no-op. No lease, no planning, no cursor, no
+  tick row, no Follow Import behavior change.
+- `true`: one process may acquire the global lease, inspect work/load,
+  build a shadow plan, write `follow_import_dispatch_tick_observations`,
+  and **claim nothing**.
+
+Legacy execution is still paced only by:
 
 - `FOLLOW_IMPORT_EXECUTION_BATCH_SIZE`
 - `FOLLOW_IMPORT_EXECUTION_INTERVAL`
 
-Those knobs are unchanged.
+## Account-first shadow planning
+
+If the global dispatcher were authoritative, which currently-pending
+targets would receive this tick's scheduling share?
+
+```
+shadow_plan_budget
+    -> owner (account) rotating share
+        -> batch rotating share inside that owner
+            -> next pending target by position
+```
+
+All owners are equal-weight. Splitting one CSV into many batches does
+**not** increase that account's top-level share.
+
+`OwnerKey` is an opaque fairness id. The Fedibird adapter derives it
+from the local importing account at the batch-loading edge. The planner
+does not import `ModerationSubject`, reputation, or handles. A batch
+with no derivable owner is skipped (aggregate `skipped_missing_owner_count`)
+and does not become its own top-level peer.
+
+`Eligibility` currently always returns true. No Follow Gate / moderation
+coupling.
+
+Destination domains travel with plan entries so later destination-share
+math can split a cap **across accounts first**. PR B does not enable a
+runtime destination cap and does not call DFT / Stoplight.
+
+## `planned_count` vs `claimed_count`
+
+| field | meaning in shadow mode |
+|---|---|
+| `planned_count` | how many pending targets the allocator selected in this simulation |
+| `claimed_count` | always **0** — nothing was admitted |
+
+`NULL` means planning/measurement was not attempted or failed.
+`0` means planning ran and selected nothing (empty pending set).
+
+Lease busy / shadow disabled / tick error → `planned_count` is NULL.
+
+## Shadow plans are not reservations
+
+A shadow plan describes which **currently pending** work the proposed
+allocator would select at observation time. The legacy executor may
+claim those rows a moment later. The planner does not `FOR UPDATE`
+target rows. A disappearing/queued row is a stale observation.
+
+Because targets stay pending, the same row may appear in a later shadow
+plan. That is expected. Owner/batch (and optional per-batch position)
+cursors exist so successive ticks do not always start at the same
+stable-order prefix.
+
+Cursor advancement means "this owner/batch was served in the
+**simulation**", not "this target executed".
+
+## Fairness cursor
+
+Stored in Redis key `follow_import:dispatch:shadow_fairness` (TTL 7
+days): last owner, per-owner last batch, per-batch last position.
+
+- Reconstructable scheduler state, not the work ledger.
+- Redis loss → rebuild from stable DB order (`owner_key`, `batch_id`).
+- No catch-up credits. Plan budget is unchanged.
+- Write failure is non-fatal (`fairness_state_source=persist_failed`).
+- Single-flight correctness remains the PostgreSQL advisory lease.
+
+`fairness_state_source`: `redis` / `default` / `reset` / `persist_failed`.
+
+## No remote admission / no load enforcement
+
+Load snapshots are telemetry only. No LocalLoadGuard, no NORMAL/BUSY
+labels, no destination cooldown, no AIMD.
 
 ## Scheduler registration / cadence
 
-Registered in `config/sidekiq.yml` as
 `Scheduler::FollowImportDispatchScheduler` on the `scheduler` queue.
-
-The observation cadence is one value, shared by Sidekiq registration
-and tick `execution_config`:
-
-- `FollowImport::ExecutionPolicy.dispatch_shadow_interval` /
-  `dispatch_shadow_every`
-- `FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL` (positive seconds; default
-  **60**)
-
-It is **provisional / UNCALIBRATED** shadow observation. It is not a
-calibrated dispatch tick and must not be treated as
-`FOLLOW_IMPORT_EXECUTION_INTERVAL`. The eventual real dispatch cadence
-is not chosen here.
+Cadence: `FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL` (default 60s), shared
+with `ExecutionPolicy`. Provisional / UNCALIBRATED observation only.
 
 ## Why Sidekiq unique lock is not sufficient
 
-The worker uses `sidekiq_options retry: 0, lock: :until_executed`
-(same convention as `Scheduler::AccountsStatusesCleanupScheduler`).
+`retry: 0, lock: :until_executed` is job dedup only. The PostgreSQL
+session advisory lease is the correctness boundary.
 
-`lock: :until_executed` only deduplicates Sidekiq jobs. Redis can lose
-that lock (restart, eviction). Two jobs may then start. The
-correctness boundary for "only one global tick is in the critical
-section" is `FollowImport::DispatchLease`.
+## Why the lease uses the thread ActiveRecord connection
 
-## Why the PostgreSQL session advisory lease holds a connection
+`pool.with_connection` so the tick consumes one DB session for the lock
+and for counts/planning/telemetry. Unlock in `ensure` on that session.
 
-`pg_try_advisory_lock` / `pg_advisory_unlock` are **session** locks.
-They survive `COMMIT` and `ROLLBACK`. They are released only by unlock
-on the same session or by disconnect.
+## Inspecting recent fairness telemetry
 
-`FollowImport::DispatchLease` therefore uses
-`connection_pool.with_connection` so the leased session is the
-thread-cached ActiveRecord connection. The tick's normal queries
-(`DispatchCounts`, tick-observation inserts) reuse that same session.
-The lock is acquired and unlocked on that exact connection in
-`ensure`. A still-locked connection is never intentionally returned to
-the pool. If unlock cannot be confirmed, the connection is
-disconnected and `pool.remove`d (which also clears the Rails 6.1
-thread cache).
+```sql
+SELECT observed_at, outcome, planned_count, claimed_count,
+       executable_owner_count, executable_batch_count,
+       unique_destination_count, skipped_missing_owner_count,
+       fairness_state_source,
+       execution_config ->> 'shadow_plan_budget' AS shadow_plan_budget,
+       execution_config ->> 'plan_algorithm' AS plan_algorithm
+  FROM follow_import_dispatch_tick_observations
+ ORDER BY observed_at DESC
+ LIMIT 50;
+```
 
-Do not `pool.checkout` a second connection that is not installed in
-the thread cache: under Sidekiq concurrency 5 / DB pool 5 that can
-exhaust the pool while the global advisory lock is held.
+Do not treat those numbers as calibrated production limits.
 
-The lock identity is the documented pair `0x4649` (`FI`) + `1`, not
-Ruby `String#hash` (process-randomized).
-
-The tick is **not** wrapped in `pg_try_advisory_xact_lock` or one long
-transaction.
-
-## Why scheduler retry is disabled
-
-`retry: 0` so a raised tick does not replay. There is no stored budget
-in PR A; later claiming PRs must also start each tick from a fresh
-snapshot rather than catching up missed budgets.
-
-## Why `claimed_count` is always zero
-
-PR A never calls `TargetTransitionService#mark_queued` and never
-enqueues `Import::RelationshipWorker` or `ActivityPub::DeliveryWorker`.
-The tick writer forces `claimed_count = 0` so shadow observations
-cannot be mistaken for real admission.
-
-## Tick telemetry
-
-Table: `follow_import_dispatch_tick_observations`.
-
-Dedicated from per-batch `follow_import_dispatch_observations` so a
-legacy worker pass that claimed N is not mixed with a global tick that
-claimed 0.
-
-Outcomes: `shadow_disabled` (in-memory only; no row), `lease_busy`,
-`shadow_observed`, `shadow_error`.
-
-`0` on a count is an observed empty set. `NULL` is an unavailable
-measurement. Insert failure is a rate-limited warning and does not
-raise into Follow Import or the scheduler job.
+Target walks use `WHERE batch_id = ? AND state = pending ORDER BY
+position, id LIMIT n`. The existing pending `batch_id` partial index
+makes discovery cheap. A later `(batch_id, position, id) WHERE pending`
+index would help large-batch windowed scans in PR C/F; PR B does not
+add it speculatively.

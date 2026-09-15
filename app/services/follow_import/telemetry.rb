@@ -85,6 +85,12 @@ module FollowImport
           # planning PR cannot accidentally persist a non-zero claim through
           # this writer without an explicit schema change.
           claimed_count: 0,
+          planned_count: attrs[:planned_count],
+          executable_owner_count: attrs[:executable_owner_count],
+          executable_batch_count: attrs[:executable_batch_count],
+          unique_destination_count: attrs[:unique_destination_count],
+          skipped_missing_owner_count: attrs[:skipped_missing_owner_count],
+          fairness_state_source: attrs[:fairness_state_source],
           load_snapshot: attrs[:load_snapshot],
           execution_config: attrs[:execution_config],
           error_class: attrs[:error_class],

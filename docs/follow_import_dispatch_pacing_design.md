@@ -1047,7 +1047,7 @@ is this documentation PR. Numeric calibration is last, not first.
 | PR | Scope | Must not |
 |---|---|---|
 | **A** | Global scheduler skeleton; single-flight (unique job + **session** advisory lock on a checked-out connection, unlock in `ensure`); shadow planning only; tick observations. Implementation notes: `docs/follow_import_dispatch_shadow.md`. `DispatchPlan` in A is a read-only summary (no target selection). | Claim; change `ImportService` fallback; `xact` lock around the whole tick |
-| **B** | Account-first DRR + batch sub-scheduling in the **plan**; `owner_key` adapter; destination-share math in the plan | Claim; remote adaptive logic |
+| **B** | Account-first rotating RR (unit-cost DRR) + batch sub-scheduling in the **plan**; `owner_key` adapter; destination-share structure (optional cap in specs only). Shadow cursor in Redis (TTL; reconstructable). Implementation: `docs/follow_import_dispatch_shadow.md`. | Claim; remote adaptive logic; ACCOUNT_FLOOR/CAP numbers |
 | **C** | Authoritative global claiming for **new** imports; `dispatch_owner`; legacy/global ownership + drain; **remove unpaced recording fallback** when GLOBAL is on | Flip in-flight legacy owners implicitly; enable Follow Gate |
 | **D** | `LocalLoadGuard` integration: compute + log in scheduler **and** legacy worker (shadow) | Enforce skip |
 | **E** | Enforce `LocalLoadGuard` in both claimers; legacy **load-deferred reschedule** when the guard (not policy) yields zero claims | Tune production envelopes as if calibrated; tight retry loops |

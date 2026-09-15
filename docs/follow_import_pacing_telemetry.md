@@ -247,6 +247,8 @@ Uncalibrated, env-overridable, **not** load-aware:
 - `FOLLOW_IMPORT_EXECUTION_INTERVAL` (default 30 seconds)
 - `FOLLOW_IMPORT_GATE_ENFORCEMENT` (default off; gate is logged, not applied)
 - `FOLLOW_IMPORT_DISPATCH_SHADOW` (default off; global scheduler observes only)
+- `FOLLOW_IMPORT_DISPATCH_SHADOW_PLAN_BUDGET` (diagnostic shadow plan size;
+  default = execution batch size; does **not** control real execution)
 
 This PR does not change those values or add an under-load short-circuit.
 
@@ -266,7 +268,11 @@ scheduler is shadow-only.
 | `outcome` | `lease_busy` / `shadow_observed` / `shadow_error` |
 | `global_pending_count` | pending targets across batches; NULL if unmeasured |
 | `active_batch_count` | distinct batches with a pending target; NULL if unmeasured |
-| `claimed_count` | always 0 in PR A |
+| `claimed_count` | always 0 while shadow-only |
+| `planned_count` | account-first simulation size; NULL if planning was not attempted |
+| `executable_owner_count` / `executable_batch_count` / `unique_destination_count` | plan aggregates; NULL if not planned |
+| `skipped_missing_owner_count` | batches skipped because no owner key could be derived |
+| `fairness_state_source` | `redis` / `default` / `reset` / `persist_failed` |
 | `load_snapshot` | Sidekiq load facts, or NULL if capture failed |
 | `execution_config` | execution + shadow-flag snapshot, including `dispatch_shadow_interval` from `FollowImport::ExecutionPolicy` (same ENV/default as `config/sidekiq.yml`) |
 | `error_class` | exception class for `shadow_error` |

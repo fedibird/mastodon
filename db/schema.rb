@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_15_020001) do
+ActiveRecord::Schema.define(version: 2026_09_15_030001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -619,6 +619,12 @@ ActiveRecord::Schema.define(version: 2026_09_15_020001) do
     t.integer "global_pending_count"
     t.integer "active_batch_count"
     t.integer "claimed_count", default: 0, null: false
+    t.integer "planned_count"
+    t.integer "executable_owner_count"
+    t.integer "executable_batch_count"
+    t.integer "unique_destination_count"
+    t.integer "skipped_missing_owner_count"
+    t.string "fairness_state_source"
     t.jsonb "load_snapshot"
     t.jsonb "execution_config"
     t.string "error_class"
