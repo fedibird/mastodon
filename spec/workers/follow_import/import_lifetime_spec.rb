@@ -12,7 +12,14 @@ RSpec.describe 'Follow import CSV lifetime', type: :service do
   let!(:bob)     { Fabricate(:account, username: 'bob') }
   let!(:eve)     { Fabricate(:account, username: 'eve', domain: 'example.com', protocol: :activitypub, inbox_url: 'https://example.com/inbox') }
 
-  let(:import) { Import.create!(account: account, type: 'following', data: attachment_fixture('new-following-imports.txt')) }
+  let(:import) do
+    Import.create!(
+      account: account,
+      type: 'following',
+      data: attachment_fixture('new-following-imports.txt'),
+      follow_import_pipeline_version: Import::CURRENT_FOLLOW_IMPORT_PIPELINE_VERSION
+    )
+  end
 
   before do
     allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
