@@ -128,6 +128,24 @@ RSpec.describe FollowImport::ExecutionPolicy do
         expect(described_class.shadow_plan_budget).to eq described_class.execution_batch_size
       end
     end
+  end
+
+  describe '.local_load_shadow_enabled?' do
+    it 'is disabled by default' do
+      expect(described_class.local_load_shadow_enabled?).to be false
+    end
+
+    it 'is enabled only when the explicit flag is set to true' do
+      ClimateControl.modify FOLLOW_IMPORT_LOCAL_LOAD_SHADOW: 'true' do
+        expect(described_class.local_load_shadow_enabled?).to be true
+      end
+    end
+
+    it 'stays disabled for any other flag value' do
+      ClimateControl.modify FOLLOW_IMPORT_LOCAL_LOAD_SHADOW: '1' do
+        expect(described_class.local_load_shadow_enabled?).to be false
+      end
     end
   end
+end
 

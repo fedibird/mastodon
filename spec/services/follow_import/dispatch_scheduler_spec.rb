@@ -71,6 +71,7 @@ RSpec.describe FollowImport::DispatchScheduler do
       allow(FollowImport::FairScheduler).to receive(:new)
       allow(FollowImport::FairnessCursor).to receive(:new)
       allow(FollowImport::PendingBatchSource).to receive(:new)
+      allow(FollowImport::LocalLoadGuard).to receive(:evaluate)
 
       result = scheduler.call
 
@@ -82,6 +83,7 @@ RSpec.describe FollowImport::DispatchScheduler do
       expect(FollowImport::FairScheduler).not_to have_received(:new)
       expect(FollowImport::FairnessCursor).not_to have_received(:new)
       expect(FollowImport::PendingBatchSource).not_to have_received(:new)
+      expect(FollowImport::LocalLoadGuard).not_to have_received(:evaluate)
       expect(FollowImport::DispatchTickObserver).not_to have_received(:record)
       expect(FollowImportDispatchTickObservation.count).to eq 0
     end
@@ -121,6 +123,9 @@ RSpec.describe FollowImport::DispatchScheduler do
       expect(observation.scheduler_mode).to eq 'shadow'
       expect(observation.lease_acquired).to be true
       expect(observation.claimed_count).to eq 0
+      expect(observation.local_load_state).to eq 'disabled'
+      expect(observation.local_load_recommended_budget).to be_nil
+      expect(observation.effective_shadow_plan_budget).to eq FollowImport::ExecutionPolicy.shadow_plan_budget
       expect(observation.planned_count).to eq 1
       expect(observation.planned_owner_count).to eq 1
       expect(observation.planned_batch_count).to eq 1
@@ -189,6 +194,8 @@ RSpec.describe FollowImport::DispatchScheduler do
       expect(observation.lease_acquired).to be false
       expect(observation.claimed_count).to eq 0
       expect(observation.planned_count).to be_nil
+      expect(observation.local_load_state).to be_nil
+      expect(observation.local_load_recommended_budget).to be_nil
       expect(observation.global_pending_count).to be_nil
     end
   end
@@ -420,6 +427,156 @@ RSpec.describe FollowImport::DispatchScheduler do
 
       expect(result.outcome).to eq 'shadow_observed'
       expect(result.plan.skipped_missing_owner_count).to be >= 1
+      expect(result.plan.claimed_count).to eq 0
+    end
+  end
+
+  describe 'local-load shadow' do
+    def perform
+      scheduler.call
+    end
+
+    def profile(payload)
+      FollowImport::LocalLoadProfile.parse(payload)
+    end
+
+    def enable_local_load(injected)
+      allow(FollowImport::ExecutionPolicy).to receive(:dispatch_shadow_enabled?).and_return(true)
+      allow(FollowImport::ExecutionPolicy).to receive(:local_load_shadow_enabled?).and_return(true)
+      allow(FollowImport::ExecutionPolicy).to receive(:shadow_plan_budget).and_return(10)
+      allow(FollowImport::LocalLoadProfile).to receive(:from_env).and_return(injected)
+    end
+
+    it 'keeps the PR B budget when the local-load flag is off' do
+      allow(FollowImport::ExecutionPolicy).to receive(:dispatch_shadow_enabled?).and_return(true)
+      allow(FollowImport::ExecutionPolicy).to receive(:shadow_plan_budget).and_return(10)
+      add_target(0)
+      allow(FollowImport::FairScheduler).to receive(:new).and_call_original
+
+      result = scheduler.call
+
+      expect(FollowImport::FairScheduler).to have_received(:new).with(hash_including(budget: 10))
+      expect(result.plan.local_load_state).to eq 'disabled'
+      expect(result.plan.effective_shadow_plan_budget).to eq 10
+      expect(result.plan.claimed_count).to eq 0
+    end
+
+    it 'keeps the PR B budget when the profile is unconfigured' do
+      enable_local_load(profile(nil))
+      add_target(0)
+      allow(FollowImport::FairScheduler).to receive(:new).and_call_original
+
+      result = scheduler.call
+      observation = FollowImportDispatchTickObservation.last
+
+      expect(FollowImport::FairScheduler).to have_received(:new).with(hash_including(budget: 10))
+      expect(observation.local_load_state).to eq 'unconfigured'
+      expect(observation.local_load_recommended_budget).to be_nil
+      expect(observation.effective_shadow_plan_budget).to eq 10
+      expect(result.plan.claimed_count).to eq 0
+    end
+
+    it 'uses the full base budget for a healthy configured snapshot' do
+      enable_local_load(profile(
+                          'version' => 1,
+                          'levels' => { 'busy' => { 'budget_percent' => 50, 'push' => { 'latency' => 5 } } }
+                        ))
+      add_target(0)
+      allow(FollowImport::FairScheduler).to receive(:new).and_call_original
+
+      result = scheduler.call
+
+      expect(FollowImport::FairScheduler).to have_received(:new).with(hash_including(budget: 10))
+      expect(result.plan.local_load_state).to eq 'normal'
+      expect(result.plan.effective_shadow_plan_budget).to eq 10
+      expect(result.plan.planned_count).to eq 1
+      expect(result.plan.claimed_count).to eq 0
+    end
+
+    it 'shrinks only the shadow plan when a busy profile recommends half' do
+      enable_local_load(profile(
+                          'version' => 1,
+                          'levels' => { 'busy' => { 'budget_percent' => 50, 'push' => { 'latency' => 0.05 } } }
+                        ))
+      8.times { |position| add_target(position) }
+      allow(FollowImport::FairScheduler).to receive(:new).and_call_original
+
+      result = scheduler.call
+      observation = FollowImportDispatchTickObservation.last
+
+      expect(FollowImport::FairScheduler).to have_received(:new).with(hash_including(budget: 5))
+      expect(observation.local_load_state).to eq 'busy'
+      expect(observation.local_load_recommended_budget).to eq 5
+      expect(observation.effective_shadow_plan_budget).to eq 5
+      expect(observation.local_load_budget_percent).to eq 50
+      expect(result.plan.planned_count).to eq 5
+      expect(result.plan.claimed_count).to eq 0
+      expect(batch.targets.reload.map(&:state).uniq).to eq %w(pending)
+    end
+
+    it 'records a shadow skip without changing real Follow Import work' do
+      enable_local_load(profile(
+                          'version' => 1,
+                          'levels' => { 'overloaded' => { 'budget_percent' => 0, 'push' => { 'latency' => 0.05 } } }
+                        ))
+      pending_target = add_target(0)
+
+      result = scheduler.call
+      observation = FollowImportDispatchTickObservation.last
+
+      expect(result.plan.planned_count).to eq 0
+      expect(result.plan.claimed_count).to eq 0
+      expect(observation.local_load_state).to eq 'overloaded'
+      expect(observation.local_load_recommended_budget).to eq 0
+      expect(observation.effective_shadow_plan_budget).to eq 0
+      expect(observation.local_load_would_skip).to be true
+      expect(pending_target.reload.state).to eq 'pending'
+      expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+    end
+
+    it 'does not treat a shadow skip as a real skip: the legacy worker can still claim' do
+      enable_local_load(profile(
+                          'version' => 1,
+                          'levels' => { 'overloaded' => { 'budget_percent' => 0, 'push' => { 'latency' => 0.05 } } }
+                        ))
+      pending_target = add_target(0)
+      allow(Sidekiq::Queue).to receive(:new).and_return(instance_double(Sidekiq::Queue, size: 1, latency: 0.2))
+      allow(Sidekiq::Stats).to receive(:new).and_return(instance_double(Sidekiq::Stats, retry_size: 0))
+      allow(Sidekiq::ProcessSet).to receive(:new).and_return([])
+      allow_any_instance_of(FollowImport::ImportUnitResolver).to receive(:work_for)
+        .and_return({ acct: 'acct@remote.test', options: { 'show_reblogs' => true } })
+      allow_any_instance_of(Moderation::AdaptiveFollowGateDecisionService).to receive(:call)
+        .and_return({ 'proposed_friction' => 'allow' })
+
+      scheduler.call
+      expect(pending_target.reload.state).to eq 'pending'
+      expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+
+      FollowImport::BatchExecutionWorker.new.perform(batch.id)
+
+      expect(pending_target.reload.state).to eq 'queued'
+      expect(Import::RelationshipWorker).to have_received(:perform_async)
+    end
+
+    it 'falls back to the base shadow budget when a required measurement is missing' do
+      enable_local_load(profile(
+                          'version' => 1,
+                          'levels' => { 'busy' => { 'budget_percent' => 50, 'push' => { 'latency' => 1 } } }
+                        ))
+      allow(FollowImport::LoadSnapshot).to receive(:capture).and_return(
+        'queues' => { 'push' => { 'error_class' => 'RuntimeError' } }
+      )
+      add_target(0)
+      allow(FollowImport::FairScheduler).to receive(:new).and_call_original
+
+      result = scheduler.call
+      observation = FollowImportDispatchTickObservation.last
+
+      expect(FollowImport::FairScheduler).to have_received(:new).with(hash_including(budget: 10))
+      expect(observation.local_load_state).to eq 'unknown'
+      expect(observation.local_load_recommended_budget).to be_nil
+      expect(observation.local_load_measurement_complete).to be false
+      expect(observation.effective_shadow_plan_budget).to eq 10
       expect(result.plan.claimed_count).to eq 0
     end
   end

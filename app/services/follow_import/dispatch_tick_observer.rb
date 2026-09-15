@@ -10,7 +10,7 @@
 module FollowImport
   class DispatchTickObserver
     SCHEMA_NAME    = 'follow_import_dispatch_tick'
-    SCHEMA_VERSION = 3
+    SCHEMA_VERSION = 4
 
     def self.record(attrs)
       attrs = attrs.to_h.symbolize_keys
@@ -32,6 +32,14 @@ module FollowImport
         unique_destination_count: plan&.unique_destination_count,
         skipped_missing_owner_count: plan&.skipped_missing_owner_count,
         fairness_state_source: plan&.fairness_state_source,
+        local_load_state: plan&.local_load_state,
+        local_load_budget_percent: plan&.local_load_budget_percent,
+        local_load_recommended_budget: plan&.local_load_recommended_budget,
+        effective_shadow_plan_budget: plan&.effective_shadow_plan_budget,
+        local_load_would_skip: plan&.local_load_would_skip,
+        local_load_measurement_complete: plan&.local_load_measurement_complete,
+        local_load_profile_version: plan&.local_load_profile_version,
+        local_load_profile_source: plan&.local_load_profile_source,
         load_snapshot: attrs[:load_snapshot],
         execution_config: plan&.execution_config || execution_config,
         error_class: attrs[:error_class],
@@ -54,6 +62,9 @@ module FollowImport
         'shadow_plan_budget' => FollowImport::ExecutionPolicy.shadow_plan_budget,
         'plan_algorithm' => FollowImport::FairScheduler::ALGORITHM,
         'plan_schema_version' => FollowImport::FairScheduler::SCHEMA_VERSION,
+        'local_load_shadow_enabled' => FollowImport::ExecutionPolicy.local_load_shadow_enabled?,
+        'local_load_profile_schema_version' => FollowImport::LocalLoadProfile::SCHEMA_VERSION,
+        'local_load_controller_schema_version' => FollowImport::LocalLoadGuard::SCHEMA_VERSION,
       }
     end
     private_class_method :execution_config

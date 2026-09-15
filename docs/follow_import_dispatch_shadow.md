@@ -1,6 +1,6 @@
 # Follow Import dispatch shadow scheduler
 
-Status: infrastructure / observation only (PR A + PR B).
+Status: infrastructure / observation only (PR A + PR B + PR D).
 Default: **off**.
 
 This is Stage 1 from `docs/follow_import_dispatch_pacing_design.md`.
@@ -115,10 +115,100 @@ days): last owner, per-owner last batch, per-batch last position.
 
 `fairness_state_source`: `redis` / `default` / `reset` / `persist_failed`.
 
+## Shadow LocalLoadGuard (PR D)
+
+`FollowImport::LocalLoadGuard` is **shadow only**. It consumes the
+pre-dispatch `LoadSnapshot` already captured for the tick. It does
+**not** query Sidekiq again, read telemetry tables, or look at who is
+importing.
+
+```bash
+FOLLOW_IMPORT_DISPATCH_SHADOW=true
+FOLLOW_IMPORT_LOCAL_LOAD_SHADOW=true
+FOLLOW_IMPORT_LOCAL_LOAD_SHADOW_PROFILE='{"version":1,...}'
+```
+
+`FOLLOW_IMPORT_LOCAL_LOAD_SHADOW` defaults to **false**. When false,
+PR B planning is unchanged and the tick records
+`local_load_state=disabled`.
+
+There are **no bundled production thresholds**. A blank profile is
+`unconfigured`. Malformed JSON or illegal values are `invalid`. Both
+leave the shadow plan at the diagnostic `shadow_plan_budget`.
+
+### Profile schema (version 1)
+
+```json
+{
+  "version": 1,
+  "levels": {
+    "busy": {
+      "budget_percent": 0,
+      "default": { "size": 0, "latency": 0 },
+      "push":    { "size": 0, "latency": 0 },
+      "pull":    { "size": 0, "latency": 0 },
+      "retry_size": 0
+    },
+    "heavy": { "budget_percent": 0 },
+    "overloaded": { "budget_percent": 0 }
+  },
+  "capacity": {
+    "max_tick_claims": 0,
+    "per_push_thread": 0,
+    "per_pull_thread": 0
+  }
+}
+```
+
+The zeros above are schema placeholders, **not** calibrated defaults.
+Operators must supply measured values. Unknown keys are rejected.
+Stronger levels must not recommend more budget than weaker ones.
+Thresholds for the same signal must be non-decreasing toward
+`overloaded`.
+
+`budget_percent` is 0..100. Integer recommendation:
+
+```
+capacity_budget = min(base, configured capacity terms that are present)
+recommended_budget = (capacity_budget * budget_percent) / 100
+```
+
+Floor integer division. No secret minimum of 1. A computed 0 means
+`local_load_would_skip=true` for the **shadow plan only**.
+
+### Base vs effective shadow budget
+
+| field | meaning |
+|---|---|
+| `shadow_plan_budget` | unadjusted PR B diagnostic base |
+| `local_load_recommended_budget` | controller output, or NULL if not computed |
+| `effective_shadow_plan_budget` | budget actually given to `FairScheduler` |
+
+When the controller is disabled, unconfigured, invalid, or `unknown`,
+effective = base. When a usable recommendation exists, effective =
+recommended (including 0).
+
+### Missing measurements
+
+If the profile requires a signal the snapshot cannot supply, the
+decision is `unknown`, `measurement_complete=false`, and
+`recommended_budget` is **NULL** (not 0). Planning falls back to the
+base diagnostic budget. PR E must **not** enforce `unknown` until a
+calibrated conservative / last-good fallback is defined.
+
+### Shadow skip is not a real skip
+
+`planned_count=0` with `local_load_would_skip=true` does **not** stop
+`BatchExecutionWorker`. The legacy worker does not consult
+`LocalLoadGuard` in PR D. Enforcement is PR E.
+
+Fairness cursor advancement follows the **effective** shadow plan. A
+0-budget tick does not pretend anyone was served.
+
 ## No remote admission / no load enforcement
 
-Load snapshots are telemetry only. No LocalLoadGuard, no NORMAL/BUSY
-labels, no destination cooldown, no AIMD.
+PR D evaluates local load for the shadow plan only. No destination
+cooldown, DFT, Stoplight, AIMD, or legacy-worker skip.
 
 ## Scheduler registration / cadence
 
@@ -139,17 +229,21 @@ and for counts/planning/telemetry. Unlock in `ensure` on that session.
 ## Inspecting recent fairness telemetry
 
 ```sql
-SELECT observed_at, outcome, planned_count, claimed_count,
-       planned_owner_count, planned_batch_count,
-       executable_owner_count, executable_batch_count,
-       unique_destination_count, skipped_missing_owner_count,
-       fairness_state_source,
-       execution_config ->> 'shadow_plan_budget' AS shadow_plan_budget,
-       execution_config ->> 'plan_algorithm' AS plan_algorithm
+SELECT observed_at, outcome, global_pending_count, planned_count,
+       claimed_count, local_load_state, local_load_budget_percent,
+       local_load_recommended_budget, effective_shadow_plan_budget,
+       local_load_would_skip, local_load_measurement_complete,
+       metadata -> 'local_load_reasons' AS local_load_reasons,
+       load_snapshot,
+       execution_config ->> 'shadow_plan_budget' AS shadow_plan_budget
   FROM follow_import_dispatch_tick_observations
  ORDER BY observed_at DESC
- LIMIT 50;
+ LIMIT 100;
 ```
+
+Compare `load_snapshot` queue latency / retry pressure with
+`local_load_recommended_budget` to calibrate a later profile. Do not
+treat any recorded recommendation as a production limit.
 
 Do not treat those numbers as calibrated production limits.
 

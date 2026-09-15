@@ -13,7 +13,8 @@
 module FollowImport
   class DispatchPlan
     attr_reader :observed_at, :global_pending_count, :active_batch_count, :execution_config,
-                :entries, :skipped_missing_owner_count, :fairness_state_source, :shadow_plan_budget
+                :entries, :skipped_missing_owner_count, :fairness_state_source, :shadow_plan_budget,
+                :effective_shadow_plan_budget, :local_load
 
     def self.observe(observed_at:, global_pending_count:, active_batch_count:, execution_config:, planning: {})
       new(
@@ -38,6 +39,8 @@ module FollowImport
       @shadow_plan_budget = planning[:shadow_plan_budget]
       @executable_owner_count = planning[:executable_owner_count]
       @executable_batch_count = planning[:executable_batch_count]
+      @effective_shadow_plan_budget = planning[:effective_shadow_plan_budget]
+      @local_load = planning[:local_load]
     end
 
     def planned?
@@ -88,6 +91,54 @@ module FollowImport
       return {} unless @planned
 
       @entries.each_with_object(Hash.new(0)) { |entry, memo| memo[entry.owner_key] += 1 }
+    end
+
+    def local_load_state
+      return unless @planned
+
+      @local_load&.state
+    end
+
+    def local_load_budget_percent
+      return unless @planned
+
+      @local_load&.budget_percent
+    end
+
+    def local_load_recommended_budget
+      return unless @planned
+
+      @local_load&.recommended_budget
+    end
+
+    def local_load_would_skip
+      return unless @planned
+
+      @local_load&.would_skip
+    end
+
+    def local_load_measurement_complete
+      return unless @planned
+
+      @local_load&.measurement_complete
+    end
+
+    def local_load_profile_version
+      return unless @planned
+
+      @local_load&.profile_version
+    end
+
+    def local_load_profile_source
+      return unless @planned
+
+      @local_load&.profile_source
+    end
+
+    def local_load_reasons
+      return [] unless @planned
+
+      Array(@local_load&.reasons)
     end
 
     def planned_counts_by_destination

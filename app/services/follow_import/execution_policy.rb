@@ -21,7 +21,10 @@
 # dispatch_shadow_enabled? is OFF by default. When true, Scheduler::FollowImportDispatchScheduler
 # may acquire the global advisory lease, build an account-first shadow plan,
 # and write tick telemetry. It still claims nothing. shadow_plan_budget is a
-# diagnostic planning size only. These flags are independent of
+# diagnostic planning size only.
+# local_load_shadow_enabled? is a second default-off flag. When both
+# shadow flags are on, LocalLoadGuard may shrink only the hypothetical
+# shadow plan. These flags are independent of
 # FOLLOW_IMPORT_EXECUTION_BATCH_SIZE and FOLLOW_IMPORT_EXECUTION_INTERVAL,
 # which continue to pace the legacy BatchExecutionWorker only.
 module FollowImport
@@ -96,6 +99,14 @@ module FollowImport
     def shadow_plan_budget
       size = ENV['FOLLOW_IMPORT_DISPATCH_SHADOW_PLAN_BUDGET'].to_i
       size.positive? ? size : execution_batch_size
+    end
+
+    # Shadow-only local-load controller. Default off. When true AND
+    # dispatch_shadow_enabled?, the scheduler may shrink the hypothetical
+    # shadow plan from a configured UNCALIBRATED profile. It never changes
+    # BatchExecutionWorker, execution_batch_size, or execution_reschedule_in.
+    def local_load_shadow_enabled?
+      ENV['FOLLOW_IMPORT_LOCAL_LOAD_SHADOW'].to_s == 'true'
     end
   end
 end

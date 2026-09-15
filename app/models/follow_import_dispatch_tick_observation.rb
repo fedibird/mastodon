@@ -21,6 +21,14 @@
 #  unique_destination_count :integer
 #  skipped_missing_owner_count :integer
 #  fairness_state_source :string
+#  local_load_state      :string
+#  local_load_budget_percent :integer
+#  local_load_recommended_budget :integer
+#  effective_shadow_plan_budget :integer
+#  local_load_would_skip :boolean
+#  local_load_measurement_complete :boolean
+#  local_load_profile_version :integer
+#  local_load_profile_source :string
 #  load_snapshot         :jsonb
 #  execution_config      :jsonb
 #  error_class           :string

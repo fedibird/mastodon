@@ -45,6 +45,8 @@ RSpec.describe FollowImport::DispatchPlan do
     expect(plan.executable_owner_count).to eq 100
     expect(plan.executable_batch_count).to eq 40
     expect(plan.unique_destination_count).to eq 2
+    expect(plan.local_load_state).to be_nil
+    expect(plan.effective_shadow_plan_budget).to be_nil
     expect(plan.skipped_missing_owner_count).to eq 1
     expect(plan.planned_counts_by_owner).to eq('A' => 2, 'B' => 1)
     expect(plan.planned_counts_by_destination).to eq('one.test' => 2, 'two.test' => 1)
