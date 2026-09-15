@@ -4,6 +4,10 @@
 # time (ORDER BY position, id) so a 20k batch is never fully materialized
 # to build a 50-row shadow plan. No FOR UPDATE.
 #
+# remaining? and shift both fill. FairScheduler must not call remaining?
+# on every owner/batch before planning; touch a feed only when that
+# owner receives a scheduling opportunity.
+#
 # after_position is reconstructable simulation state only. Targets remain
 # pending and may be planned again after wrap-around.
 module FollowImport

@@ -122,6 +122,8 @@ RSpec.describe FollowImport::DispatchScheduler do
       expect(observation.lease_acquired).to be true
       expect(observation.claimed_count).to eq 0
       expect(observation.planned_count).to eq 1
+      expect(observation.planned_owner_count).to eq 1
+      expect(observation.planned_batch_count).to eq 1
       expect(observation.executable_owner_count).to eq 1
       expect(observation.executable_batch_count).to eq 1
       expect(observation.global_pending_count).to eq 1
@@ -325,8 +327,12 @@ RSpec.describe FollowImport::DispatchScheduler do
 
       expect(result.outcome).to eq 'shadow_observed'
       expect(result.plan.planned_count).to eq 0
+      expect(result.plan.planned_owner_count).to eq 0
+      expect(result.plan.executable_owner_count).to eq 0
       expect(result.plan.claimed_count).to eq 0
       expect(observation.planned_count).to eq 0
+      expect(observation.planned_owner_count).to eq 0
+      expect(observation.executable_owner_count).to eq 0
       expect(observation.claimed_count).to eq 0
     end
 
@@ -343,6 +349,7 @@ RSpec.describe FollowImport::DispatchScheduler do
       expect(result.plan.claimed_count).to eq 0
       expect(observation.planned_count).to eq 2
       expect(observation.claimed_count).to eq 0
+      expect(observation.planned_owner_count).to eq 2
       expect(observation.executable_owner_count).to eq 2
       expect(observation.unique_destination_count).to eq 2
       expect(batch.targets.reload.map(&:state)).to eq %w(pending)
@@ -368,6 +375,40 @@ RSpec.describe FollowImport::DispatchScheduler do
       target_row_selects = sql.reject { |query| query.include?('DISTINCT') }
       expect(target_row_selects).not_to be_empty
       expect(target_row_selects).to all(match(/LIMIT/i))
+    end
+
+    it 'does not issue one target-window query per active owner before planning' do
+      owner_count = 100
+      budget = 3
+      owner_count.times do |index|
+        extra = import_for(Fabricate(:account))
+        extra.targets.create!(target_key_hash: "many-#{index}", position: 0, destination_domain: 'many.test')
+      end
+
+      window_selects = []
+      callback = lambda do |*_args, payload|
+        query = payload[:sql]
+        next unless query.include?('follow_import_targets')
+        next unless query.include?('SELECT')
+        next if query.include?('COUNT') || query.include?('DISTINCT')
+        next unless query.match?(/LIMIT/i)
+
+        window_selects << query
+      end
+
+      result = nil
+      ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
+        result = scheduler.call
+      end
+
+      expect(result.plan.planned_count).to eq budget
+      expect(result.plan.planned_owner_count).to eq budget
+      expect(result.plan.executable_owner_count).to eq owner_count
+      expect(result.plan.executable_batch_count).to eq owner_count
+      expect(FollowImportDispatchTickObservation.last.executable_owner_count).to eq owner_count
+      expect(FollowImportDispatchTickObservation.last.planned_owner_count).to eq budget
+      expect(window_selects.size).to be <= (budget * 2)
+      expect(window_selects.size).to be < (owner_count / 4)
     end
 
     it 'skips a batch with no owner without crashing' do

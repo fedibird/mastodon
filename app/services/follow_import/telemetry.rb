@@ -86,6 +86,8 @@ module FollowImport
           # this writer without an explicit schema change.
           claimed_count: 0,
           planned_count: attrs[:planned_count],
+          planned_owner_count: attrs[:planned_owner_count],
+          planned_batch_count: attrs[:planned_batch_count],
           executable_owner_count: attrs[:executable_owner_count],
           executable_batch_count: attrs[:executable_batch_count],
           unique_destination_count: attrs[:unique_destination_count],

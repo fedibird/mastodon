@@ -10,7 +10,7 @@
 module FollowImport
   class DispatchTickObserver
     SCHEMA_NAME    = 'follow_import_dispatch_tick'
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 3
 
     def self.record(attrs)
       attrs = attrs.to_h.symbolize_keys
@@ -25,6 +25,8 @@ module FollowImport
         active_batch_count: plan&.active_batch_count,
         claimed_count: 0,
         planned_count: plan&.planned_count,
+        planned_owner_count: plan&.planned_owner_count,
+        planned_batch_count: plan&.planned_batch_count,
         executable_owner_count: plan&.executable_owner_count,
         executable_batch_count: plan&.executable_batch_count,
         unique_destination_count: plan&.unique_destination_count,

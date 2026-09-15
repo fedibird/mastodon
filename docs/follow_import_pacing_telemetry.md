@@ -270,7 +270,9 @@ scheduler is shadow-only.
 | `active_batch_count` | distinct batches with a pending target; NULL if unmeasured |
 | `claimed_count` | always 0 while shadow-only |
 | `planned_count` | account-first simulation size; NULL if planning was not attempted |
-| `executable_owner_count` / `executable_batch_count` / `unique_destination_count` | plan aggregates; NULL if not planned |
+| `planned_owner_count` / `planned_batch_count` | distinct owners/batches that received a plan slot |
+| `executable_owner_count` / `executable_batch_count` | eligible candidate population after Eligibility / missing-owner filtering, not the planned subset |
+| `unique_destination_count` | distinct planned destination domains |
 | `skipped_missing_owner_count` | batches skipped because no owner key could be derived |
 | `fairness_state_source` | `redis` / `default` / `reset` / `persist_failed` |
 | `load_snapshot` | Sidekiq load facts, or NULL if capture failed |

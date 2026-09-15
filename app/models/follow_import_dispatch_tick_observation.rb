@@ -14,6 +14,8 @@
 #  active_batch_count    :integer
 #  claimed_count         :integer          default(0), not null
 #  planned_count         :integer
+#  planned_owner_count   :integer
+#  planned_batch_count   :integer
 #  executable_owner_count :integer
 #  executable_batch_count :integer
 #  unique_destination_count :integer
@@ -32,8 +34,10 @@
 #
 # claimed_count is always 0 while the scheduler is shadow-only.
 # planned_count is the account-first simulation size when a plan was
-# built; NULL when planning was not attempted. Other new aggregates
-# follow the same 0-vs-NULL rule. Observation only — never consulted to
+# built; NULL when planning was not attempted. executable_* is the
+# eligible candidate population; planned_owner/batch_count is who
+# received a slot. Other new aggregates follow the same 0-vs-NULL
+# rule. Observation only — never consulted to
 # pause, slow, or skip dispatch. Does not store handles, payloads, inbox
 # paths, target accts, owner keys, or moderation scores.
 class FollowImportDispatchTickObservation < ApplicationRecord

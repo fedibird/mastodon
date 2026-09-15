@@ -8,6 +8,15 @@ RSpec.describe FollowImport::PendingTargetFeed do
                               target_count: 0, resolved_target_count: 0, unresolved_target_count: 0)
   end
 
+  it 'is backed by an ordered pending (batch_id, position, id) index' do
+    index = ActiveRecord::Base.connection.indexes(:follow_import_targets)
+                              .find { |item| item.name == 'index_follow_import_targets_on_pending_batch_position' }
+
+    expect(index).to be_present
+    expect(index.columns).to eq %w(batch_id position id)
+    expect(index.where).to include('state = 0')
+  end
+
   it 'walks pending targets in position order without loading the whole batch' do
     batch = create_batch
     5.times { |position| batch.targets.create!(target_key_hash: "p#{position}", position: position) }

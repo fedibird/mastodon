@@ -6,6 +6,13 @@
 # batches. Splitting one CSV into many batches cannot increase an
 # owner's share. ACCOUNT_FLOOR / ACCOUNT_CAP are not invented here.
 #
+# Target feeds are lazy: the owner list is rotated without probing
+# remaining? on every feed. A feed is touched only when that owner
+# receives a scheduling opportunity. Stale/empty feeds are skipped and
+# the pass continues. Termination is progress-based, not a global
+# pre-scan. Complexity is the plan budget plus stale candidates, not
+# the full active-owner population.
+#
 # Pure algorithm: given synthetic owners/batches/targets and a cursor,
 # returns a deterministic plan. No Sidekiq, Redis, or ActiveRecord.
 #
@@ -14,7 +21,7 @@
 module FollowImport
   class FairScheduler
     ALGORITHM      = 'account_first_rr'
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
     Entry = Struct.new(:owner_key, :batch_id, :target_id, :position, :destination_domain, keyword_init: true)
     Result = Struct.new(:planned, :next_cursor, keyword_init: true)
@@ -25,10 +32,6 @@ module FollowImport
       def initialize(id, feed)
         @id = id
         @feed = feed
-      end
-
-      def remaining?
-        @feed.remaining?
       end
 
       def take
@@ -43,21 +46,23 @@ module FollowImport
         @key = key.to_s
         @batches = batches
         @index = 0
+        @exhausted_ids = {}
       end
 
-      def remaining?
-        @batches.any?(&:remaining?)
-      end
-
-      def next_usable_batch
+      def each_candidate_batch
         return if @batches.empty?
 
-        @batches.length.times do
+        @batches.size.times do
           batch = @batches[@index]
-          @index = (@index + 1) % @batches.length
-          return batch if batch.remaining?
+          @index = (@index + 1) % @batches.size
+          next if @exhausted_ids[batch.id]
+
+          yield batch
         end
-        nil
+      end
+
+      def mark_exhausted(batch)
+        @exhausted_ids[batch.id] = true
       end
     end
 
@@ -101,24 +106,15 @@ module FollowImport
       last_owner = @cursor.last_owner_key
       last_batch_by_owner = @cursor.last_batch_by_owner.dup
       last_position_by_batch = @cursor.last_position_by_batch.dup
-
       owners = prepared_owners
-      safety = 0
-      limit = [(@budget * [owners.size, 1].max * 4) + 8, 8].max
 
-      while entries.size < @budget && owners.any?(&:remaining?)
-        safety += 1
-        break if safety > limit
-
+      while entries.size < @budget
         progressed = false
 
         owners.each do |owner|
           break if entries.size >= @budget
 
-          batch = owner.next_usable_batch
-          next if batch.nil?
-
-          target = take_admissible(batch, dest_counts)
+          batch, target = take_from_owner(owner, dest_counts)
           next if target.nil?
 
           entries << Entry.new(
@@ -159,7 +155,28 @@ module FollowImport
         )
         Owner.new(owner[:key], batches.map { |batch| Batch.new(batch[:id], batch[:feed]) })
       end
-      self.class.rotate_after(prepared.select(&:remaining?), @cursor.last_owner_key, ->(owner) { owner.key })
+      self.class.rotate_after(prepared, @cursor.last_owner_key, ->(owner) { owner.key })
+    end
+
+    def take_from_owner(owner, dest_counts)
+      selected_batch = nil
+      selected_target = nil
+
+      owner.each_candidate_batch do |batch|
+        target = take_admissible(batch, dest_counts)
+        if target.nil?
+          owner.mark_exhausted(batch)
+          next
+        end
+
+        selected_batch = batch
+        selected_target = target
+        break
+      end
+
+      return if selected_target.nil?
+
+      [selected_batch, selected_target]
     end
 
     def take_admissible(batch, dest_counts)

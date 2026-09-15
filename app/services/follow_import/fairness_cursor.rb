@@ -7,18 +7,20 @@
 # never duplicate or lose Follow Import work, change plan budget, or fail
 # the real executor. Claims stay on follow_import_targets.
 #
-# A durable DB dispatcher-state row is not added: the cursor is
-# reconstructable, TTL-bounded, and Redis is already used for failure-
-# tolerant Follow Import telemetry. Single-flight correctness remains the
-# PostgreSQL advisory lease.
+# Bound: persist cursor entries for the currently-active owner/batch set
+# and prune inactive ones. Do not apply an arbitrary MAX_OWNERS trim that
+# can evict an active owner's last-batch pointer before its next turn.
+# Redis loss may reset fairness temporarily; routine eviction of active
+# fairness state must not.
+#
+# A durable DB dispatcher-state row is not added. Single-flight
+# correctness remains the PostgreSQL advisory lease.
 module FollowImport
   class FairnessCursor
     include Redisable
 
-    KEY        = 'follow_import:dispatch:shadow_fairness'
-    TTL        = 7.days.to_i
-    MAX_OWNERS = 500
-    MAX_BATCHES = 2_000
+    KEY = 'follow_import:dispatch:shadow_fairness'
+    TTL = 7.days.to_i
 
     SOURCE_REDIS          = 'redis'
     SOURCE_DEFAULT        = 'default'
@@ -41,11 +43,16 @@ module FollowImport
       State.empty(source: SOURCE_RESET)
     end
 
-    def write(state)
+    def write(state, active_owner_keys: nil, active_batch_ids: nil)
+      last_batch = stringify_keys(state.last_batch_by_owner)
+      last_position = stringify_keys(state.last_position_by_batch)
+      last_batch = last_batch.slice(*active_owner_keys.map(&:to_s)) unless active_owner_keys.nil?
+      last_position = last_position.slice(*active_batch_ids.map(&:to_s)) unless active_batch_ids.nil?
+
       payload = JSON.generate(
         'last_owner_key' => state.last_owner_key,
-        'last_batch_by_owner' => trim_hash(state.last_batch_by_owner, MAX_OWNERS),
-        'last_position_by_batch' => trim_hash(state.last_position_by_batch, MAX_BATCHES)
+        'last_batch_by_owner' => last_batch,
+        'last_position_by_batch' => last_position
       )
       redis.set(KEY, payload, ex: TTL)
       true
@@ -73,10 +80,6 @@ module FollowImport
       return {} unless value.is_a?(Hash)
 
       value.transform_keys(&:to_s)
-    end
-
-    def trim_hash(hash, max)
-      hash.to_a.last(max).to_h
     end
   end
 end

@@ -72,6 +72,8 @@ runtime destination cap and does not call DFT / Stoplight.
 | field | meaning in shadow mode |
 |---|---|
 | `planned_count` | how many pending targets the allocator selected in this simulation |
+| `planned_owner_count` / `planned_batch_count` | distinct owners/batches that received a plan slot |
+| `executable_owner_count` / `executable_batch_count` | eligible candidate population after Eligibility / missing-owner filtering — **not** who received a slot |
 | `claimed_count` | always **0** — nothing was admitted |
 
 `NULL` means planning/measurement was not attempted or failed.
@@ -100,7 +102,13 @@ Stored in Redis key `follow_import:dispatch:shadow_fairness` (TTL 7
 days): last owner, per-owner last batch, per-batch last position.
 
 - Reconstructable scheduler state, not the work ledger.
+- Persist cursor entries for the **currently-active** owner/batch set
+  and prune inactive ones. There is no `MAX_OWNERS` trim: evicting an
+  active owner's last-batch pointer would restart that owner at its
+  first batch and starve later batches.
 - Redis loss → rebuild from stable DB order (`owner_key`, `batch_id`).
+  That may reset fairness quality temporarily; routine eviction of
+  active state must not.
 - No catch-up credits. Plan budget is unchanged.
 - Write failure is non-fatal (`fairness_state_source=persist_failed`).
 - Single-flight correctness remains the PostgreSQL advisory lease.
@@ -132,6 +140,7 @@ and for counts/planning/telemetry. Unlock in `ensure` on that session.
 
 ```sql
 SELECT observed_at, outcome, planned_count, claimed_count,
+       planned_owner_count, planned_batch_count,
        executable_owner_count, executable_batch_count,
        unique_destination_count, skipped_missing_owner_count,
        fairness_state_source,
@@ -145,7 +154,14 @@ SELECT observed_at, outcome, planned_count, claimed_count,
 Do not treat those numbers as calibrated production limits.
 
 Target walks use `WHERE batch_id = ? AND state = pending ORDER BY
-position, id LIMIT n`. The existing pending `batch_id` partial index
-makes discovery cheap. A later `(batch_id, position, id) WHERE pending`
-index would help large-batch windowed scans in PR C/F; PR B does not
-add it speculatively.
+position, id LIMIT n`. Discovery still uses the pending `batch_id`
+partial index. Windowed scans use
+`index_follow_import_targets_on_pending_batch_position`
+`(batch_id, position, id) WHERE state = pending` so a 20k-target
+batch is not sorted on every shadow tick.
+
+The planner rotates owners without calling `remaining?` on every
+feed. A target-row SELECT happens only when that owner receives a
+scheduling opportunity, plus stale/empty candidates encountered.
+The common-case window-query count is proportional to
+`shadow_plan_budget`, not `active_owner_count`.

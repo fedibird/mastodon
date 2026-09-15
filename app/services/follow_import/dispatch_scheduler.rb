@@ -96,7 +96,12 @@ module FollowImport
       budget = FollowImport::ExecutionPolicy.shadow_plan_budget
       scheduled = FollowImport::FairScheduler.new(budget: budget, owners: owners, cursor: cursor).plan
       source = cursor.source
-      source = FollowImport::FairnessCursor::SOURCE_PERSIST_FAILED unless FollowImport::FairnessCursor.new.write(scheduled.next_cursor)
+      persisted = FollowImport::FairnessCursor.new.write(
+        scheduled.next_cursor,
+        active_owner_keys: owners.map { |owner| owner[:key] },
+        active_batch_ids: owners.flat_map { |owner| owner[:batches].map { |batch| batch[:id] } }
+      )
+      source = FollowImport::FairnessCursor::SOURCE_PERSIST_FAILED unless persisted
 
       FollowImport::DispatchPlan.observe(
         observed_at: observed_at,
@@ -109,6 +114,8 @@ module FollowImport
           skipped_missing_owner_count: skipped,
           fairness_state_source: source,
           shadow_plan_budget: budget,
+          executable_owner_count: owners.size,
+          executable_batch_count: owners.sum { |owner| owner[:batches].size },
         }
       )
     end

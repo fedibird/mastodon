@@ -13,6 +13,7 @@ RSpec.describe FollowImport::DispatchPlan do
 
     expect(plan.claimed_count).to eq 0
     expect(plan.planned_count).to be_nil
+    expect(plan.planned_owner_count).to be_nil
     expect(plan.executable_owner_count).to be_nil
   end
 
@@ -32,13 +33,17 @@ RSpec.describe FollowImport::DispatchPlan do
         entries: entries,
         skipped_missing_owner_count: 1,
         shadow_plan_budget: 50,
+        executable_owner_count: 100,
+        executable_batch_count: 40,
       }
     )
 
     expect(plan.claimed_count).to eq 0
     expect(plan.planned_count).to eq 3
-    expect(plan.executable_owner_count).to eq 2
-    expect(plan.executable_batch_count).to eq 3
+    expect(plan.planned_owner_count).to eq 2
+    expect(plan.planned_batch_count).to eq 3
+    expect(plan.executable_owner_count).to eq 100
+    expect(plan.executable_batch_count).to eq 40
     expect(plan.unique_destination_count).to eq 2
     expect(plan.skipped_missing_owner_count).to eq 1
     expect(plan.planned_counts_by_owner).to eq('A' => 2, 'B' => 1)

@@ -3,6 +3,26 @@
 require 'rails_helper'
 
 RSpec.describe FollowImport::FairScheduler do
+  class CountingFeed
+    attr_reader :shift_calls, :remaining_calls
+
+    def initialize(rows)
+      @rows = rows.dup
+      @shift_calls = 0
+      @remaining_calls = 0
+    end
+
+    def shift
+      @shift_calls += 1
+      @rows.shift
+    end
+
+    def remaining?
+      @remaining_calls += 1
+      @rows.any?
+    end
+  end
+
   def feed(rows)
     described_class::ArrayFeed.new(rows)
   end
@@ -116,6 +136,19 @@ RSpec.describe FollowImport::FairScheduler do
 
     expect(first.planned.map { |entry| [entry.owner_key, entry.batch_id, entry.target_id] })
       .to eq(second.planned.map { |entry| [entry.owner_key, entry.batch_id, entry.target_id] })
+  end
+
+  it 'does not probe remaining? on owners that never receive a turn' do
+    feeds = Array.new(40) { |index| CountingFeed.new(targets(5, batch_id: index + 1)) }
+    owners = feeds.each_with_index.map do |feed, index|
+      { key: format('O%02d', index), batches: [{ id: index + 1, feed: feed }] }
+    end
+    result = plan_for(owners, budget: 3)
+
+    expect(result.planned.size).to eq 3
+    expect(feeds.sum(&:remaining_calls)).to eq 0
+    expect(feeds.first(3).sum(&:shift_calls)).to eq 3
+    expect(feeds.drop(3).sum(&:shift_calls)).to eq 0
   end
 
   it 'can optionally share a destination cap across owners, not batches' do

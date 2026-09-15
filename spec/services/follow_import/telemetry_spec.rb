@@ -98,11 +98,13 @@ RSpec.describe FollowImport::Telemetry do
       outcome: 'lease_busy',
       lease_acquired: false,
       planned_count: nil,
+      planned_owner_count: nil,
       executable_owner_count: nil,
       skipped_missing_owner_count: nil
     )
 
     expect(row.planned_count).to be_nil
+    expect(row.planned_owner_count).to be_nil
     expect(row.executable_owner_count).to be_nil
     expect(row.skipped_missing_owner_count).to be_nil
     expect(row.claimed_count).to eq 0

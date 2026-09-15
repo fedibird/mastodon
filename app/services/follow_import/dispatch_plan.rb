@@ -4,9 +4,12 @@
 # currently-pending targets the account-first allocator would select.
 # They are not reservations and do not mutate rows.
 #
-# planned_count is the size of this simulation. claimed_count stays 0
-# while the scheduler is shadow-only. When planning was not attempted,
-# planned_count is nil (unavailable), not 0.
+# planned_count / planned_owner_count / planned_batch_count describe
+# the selected simulation. executable_owner_count / executable_batch_count
+# describe the eligible candidate population after Eligibility and
+# missing-owner filtering — not the number of owners/batches that
+# received a plan slot. claimed_count stays 0 while shadow-only.
+# When planning was not attempted, these counts are nil, not 0.
 module FollowImport
   class DispatchPlan
     attr_reader :observed_at, :global_pending_count, :active_batch_count, :execution_config,
@@ -33,6 +36,8 @@ module FollowImport
       @skipped_missing_owner_count = planning[:skipped_missing_owner_count]
       @fairness_state_source = planning[:fairness_state_source]
       @shadow_plan_budget = planning[:shadow_plan_budget]
+      @executable_owner_count = planning[:executable_owner_count]
+      @executable_batch_count = planning[:executable_batch_count]
     end
 
     def planned?
@@ -52,10 +57,22 @@ module FollowImport
     def executable_owner_count
       return unless @planned
 
-      @entries.map(&:owner_key).uniq.size
+      @executable_owner_count
     end
 
     def executable_batch_count
+      return unless @planned
+
+      @executable_batch_count
+    end
+
+    def planned_owner_count
+      return unless @planned
+
+      @entries.map(&:owner_key).uniq.size
+    end
+
+    def planned_batch_count
       return unless @planned
 
       @entries.map(&:batch_id).uniq.size
