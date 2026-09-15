@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_14_010001) do
+ActiveRecord::Schema.define(version: 2026_09_15_010005) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -582,11 +582,61 @@ ActiveRecord::Schema.define(version: 2026_09_14_010001) do
     t.datetime "completed_at"
     t.integer "delivery_attempts", default: 0, null: false
     t.string "failure_code"
+    t.string "destination_domain"
     t.index ["batch_id", "state"], name: "index_follow_import_targets_on_batch_and_state"
+    t.index ["batch_id"], name: "index_follow_import_targets_on_pending_batch_id", where: "(state = 0)"
+    t.index ["destination_domain"], name: "index_follow_import_targets_on_destination_domain", where: "(destination_domain IS NOT NULL)"
     t.index ["batch_id", "target_subject_id"], name: "index_follow_import_targets_on_batch_and_target"
     t.index ["follow_request_uri"], name: "index_follow_import_targets_on_follow_request_uri", unique: true, where: "(follow_request_uri IS NOT NULL)"
     t.index ["target_key_hash"], name: "index_follow_import_targets_on_target_key_hash", where: "(target_key_hash IS NOT NULL)"
     t.index ["target_subject_id"], name: "index_follow_import_targets_on_target_subject", where: "(target_subject_id IS NOT NULL)"
+  end
+
+  create_table "follow_import_dispatch_observations", force: :cascade do |t|
+    t.bigint "batch_id"
+    t.datetime "observed_at", null: false
+    t.integer "candidate_count"
+    t.integer "claimed_count"
+    t.integer "pending_count"
+    t.jsonb "load_snapshot"
+    t.jsonb "execution_policy", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.integer "batch_pending_before"
+    t.integer "batch_pending_after"
+    t.integer "global_pending_count"
+    t.integer "active_batch_count"
+    t.string "pass_error_class"
+    t.index ["batch_id", "observed_at"], name: "index_fi_dispatch_observations_on_batch_and_observed_at"
+    t.index ["observed_at"], name: "index_fi_dispatch_observations_on_observed_at"
+  end
+
+  create_table "follow_import_transport_observations", force: :cascade do |t|
+    t.bigint "batch_id"
+    t.bigint "target_id"
+    t.string "phase", null: false
+    t.string "destination_domain"
+    t.string "endpoint_origin"
+    t.string "sidekiq_queue"
+    t.string "sidekiq_job_id"
+    t.datetime "started_at", null: false
+    t.datetime "finished_at", null: false
+    t.integer "duration_ms"
+    t.string "outcome", null: false
+    t.integer "http_status"
+    t.integer "retry_after_seconds"
+    t.string "error_class"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "enqueued_at"
+    t.datetime "request_started_at"
+    t.datetime "request_finished_at"
+    t.integer "queue_wait_ms"
+    t.integer "request_duration_ms"
+    t.index ["batch_id"], name: "index_fi_transport_observations_on_batch_id"
+    t.index ["phase", "destination_domain", "started_at"], name: "index_fi_transport_observations_on_phase_domain_started"
+    t.index ["phase", "endpoint_origin", "started_at"], name: "index_fi_transport_observations_on_phase_origin_started"
+    t.index ["started_at"], name: "index_fi_transport_observations_on_started_at"
+    t.index ["target_id"], name: "index_fi_transport_observations_on_target_id"
   end
 
   create_table "follow_recommendation_suppressions", force: :cascade do |t|

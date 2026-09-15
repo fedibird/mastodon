@@ -52,12 +52,15 @@ module Moderation
 
         target_account = resolve_account(acct)
 
+        destination_domain = FollowImport::DestinationDomain.from_acct(acct)
+
         if target_account
           resolved_count += 1
           target_subject = ModerationSubject.for_account!(target_account, observed_at: imported_at)
           target_rows << {
             target_subject_id: target_subject.id,
             target_key_hash: key,
+            destination_domain: destination_domain,
             position: index,
             prior_relationship_state: { following: account.following?(target_account) },
           }
@@ -65,6 +68,7 @@ module Moderation
           unresolved_count += 1
           target_rows << {
             target_key_hash: key,
+            destination_domain: destination_domain,
             position: index,
           }
         end

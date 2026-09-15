@@ -32,31 +32,59 @@ class ActivityPub::DeliveryWorker
 
   def perform(json, source_account_id, inbox_url, options = {})
     @options        = options.with_indifferent_access
+    started_at      = Time.now.utc
+    error           = nil
 
-    return unless @options[:bypass_availability] || DeliveryFailureTracker.available?(inbox_url)
-
-    @json           = json
-    @source_account = Account.find(source_account_id)
-    @inbox_url      = inbox_url
-    @host           = Addressable::URI.parse(inbox_url).normalized_site
-    @performed      = false
-
-    perform_request
-
-    # HTTP delivery succeeded; route optional tracking metadata to its generic
-    # handler. Delivery success is only that — not follow acceptance.
-    track_delivery_success! if @performed
-  ensure
-    if @inbox_url.present?
-      if @performed
-        failure_tracker.track_success!
-      else
-        failure_tracker.track_failure!
+    begin
+      unless @options[:bypass_availability] || DeliveryFailureTracker.available?(inbox_url)
+        @delivery_skip_reason = 'availability_suppression'
+        return
       end
+
+      @json           = json
+      @source_account = Account.find(source_account_id)
+      @inbox_url      = inbox_url
+      @host           = Addressable::URI.parse(inbox_url).normalized_site
+      @performed      = false
+
+      perform_request
+
+      # HTTP delivery succeeded; route optional tracking metadata to its generic
+      # handler. Delivery success is only that — not follow acceptance.
+      track_delivery_success! if @performed
+    rescue StandardError => e
+      error = e
+      raise
+    ensure
+      if @inbox_url.present?
+        if @performed
+          failure_tracker.track_success!
+        else
+          failure_tracker.track_failure!
+        end
+      end
+
+      record_follow_import_delivery_observation(inbox_url, started_at, error)
     end
   end
 
   private
+
+  def record_follow_import_delivery_observation(inbox_url, started_at, error)
+    FollowImport::DeliveryObserver.record_attempt(
+      options: @options,
+      inbox_url: inbox_url,
+      sidekiq_queue: 'push',
+      sidekiq_job_id: jid,
+      worker_started_at: started_at,
+      request_started_at: @request_started_at,
+      request_finished_at: @request_finished_at,
+      response: @http_response,
+      error: error,
+      skip_reason: @delivery_skip_reason,
+      performed: @performed
+    )
+  end
 
   def track_delivery_success!
     tracking = @options[:delivery_tracking]
@@ -82,10 +110,16 @@ class ActivityPub::DeliveryWorker
   def perform_request
     light = Stoplight(@inbox_url) do
       request_pool.with(@host) do |http_client|
-        build_request(http_client).perform do |response|
-          raise Mastodon::UnexpectedResponseError, response unless response_successful?(response) || response_error_unsalvageable?(response) || unsalvageable_authorization_failure?(response)
+        @request_started_at = Time.now.utc
+        begin
+          build_request(http_client).perform do |response|
+            @http_response = response
+            raise Mastodon::UnexpectedResponseError, response unless response_successful?(response) || response_error_unsalvageable?(response) || unsalvageable_authorization_failure?(response)
 
-          @performed = true
+            @performed = true
+          end
+        ensure
+          @request_finished_at = Time.now.utc
         end
       end
     end

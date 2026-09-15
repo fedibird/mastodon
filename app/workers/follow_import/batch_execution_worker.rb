@@ -29,40 +29,59 @@ module FollowImport
       batch = FollowImportBatch.find_by(id: batch_id)
       return if batch.nil?
 
-      account = batch.subject&.account
-      now     = Time.now.utc
+      account    = batch.subject&.account
+      now        = Time.now.utc
+      snapshot   = capture_pre_dispatch_snapshot(batch, now)
 
-      progress = 0
-      if account
-        candidates = batch.targets.where(state: :pending).order(:position).limit(FollowImport::ExecutionPolicy.execution_batch_size).to_a
-        progress   = execute_pass(batch, account, candidates, now) unless candidates.empty?
-      end
+      # candidate_count stays nil until the pending-target query succeeds so an
+      # interrupted/failed selection is not recorded as an observed 0.
+      # claimed_count is incremented after each successful enqueue so a later
+      # raise still reports how far the pass got.
+      @dispatch_candidate_count = account ? nil : 0
+      @dispatch_claimed_count   = 0
+      @dispatch_pass_error      = nil
 
-      if account && batch.targets.where(state: :pending).exists?
-        # Only continue while making forward progress. Zero progress means the
-        # remaining pending targets are all gate-deferred (or unrecoverable); stop
-        # the automatic chain rather than re-evaluate them in a loop (the import is
-        # kept so a future explicit/policy recheck can still recover their CSV).
-        reschedule(batch) if progress.positive?
-      else
-        # No pending targets remain (dispatch complete, or nothing to do, or the
-        # importer is gone). Every follow has been enqueued with its address in the
-        # job args, so the uploaded CSV is no longer needed — destroy the import.
-        finalize_import!(batch)
+      begin
+        if account
+          candidates = select_pending_candidates(batch)
+          @dispatch_candidate_count = candidates.size
+          execute_pass(batch, account, candidates, now) unless candidates.empty?
+        end
+
+        if account && batch.targets.where(state: :pending).exists?
+          # Only continue while making forward progress. Zero progress means the
+          # remaining pending targets are all gate-deferred (or unrecoverable); stop
+          # the automatic chain rather than re-evaluate them in a loop (the import is
+          # kept so a future explicit/policy recheck can still recover their CSV).
+          reschedule(batch) if @dispatch_claimed_count.positive?
+        else
+          # No pending targets remain (dispatch complete, or nothing to do, or the
+          # importer is gone). Every follow has been enqueued with its address in the
+          # job args, so the uploaded CSV is no longer needed — destroy the import.
+          finalize_import!(batch)
+        end
+      rescue StandardError => e
+        @dispatch_pass_error = e.class.name
+        raise
+      ensure
+        record_dispatch_observation(batch, snapshot)
       end
     end
 
     private
 
+    def select_pending_candidates(batch)
+      batch.targets.where(state: :pending).order(:position).limit(FollowImport::ExecutionPolicy.execution_batch_size).to_a
+    end
+
     def execute_pass(batch, account, candidates, now)
       gate = FollowImport::ExecutionGate.for_account(account, now: now)
       Rails.logger.info("[FollowImport::BatchExecutionWorker] #{observation(batch, candidates.size, gate).to_json}")
 
-      return 0 unless gate.execute?
+      return unless gate.execute?
 
       resolver    = FollowImport::ImportUnitResolver.new(import_for(batch))
       transitions = FollowImport::TargetTransitionService.new
-      progress    = 0
 
       candidates.each do |target|
         work = resolver.work_for(target)
@@ -84,10 +103,8 @@ module FollowImport
           raise
         end
 
-        progress += 1
+        @dispatch_claimed_count += 1
       end
-
-      progress
     end
 
     def enqueue_follow(account, target, work, batch)
@@ -114,6 +131,41 @@ module FollowImport
 
     def observation(batch, candidate_count, gate)
       gate.observation.merge('batch_id' => batch.id, 'candidates' => candidate_count)
+    end
+
+    # Load and global backlog MUST be read before any claim/enqueue so the
+    # baseline is not contaminated by work this pass just created.
+    def capture_pre_dispatch_snapshot(batch, observed_at)
+      {
+        observed_at: observed_at,
+        load_snapshot: FollowImport::LoadSnapshot.capture,
+        batch_pending_before: FollowImport::DispatchCounts.pending_for(batch),
+        global_pending_count: FollowImport::DispatchCounts.global_pending,
+        active_batch_count: FollowImport::DispatchCounts.active_batches,
+      }
+    rescue StandardError => e
+      FollowImport::Telemetry.warn_failure('dispatch_snapshot', e)
+      {
+        observed_at: observed_at,
+        load_snapshot: nil,
+        batch_pending_before: nil,
+        global_pending_count: nil,
+        active_batch_count: nil,
+      }
+    end
+
+    def record_dispatch_observation(batch, snapshot)
+      FollowImport::DispatchObserver.record(
+        batch: batch,
+        observed_at: snapshot[:observed_at],
+        candidate_count: @dispatch_candidate_count,
+        claimed_count: @dispatch_claimed_count,
+        load_snapshot: snapshot[:load_snapshot],
+        batch_pending_before: snapshot[:batch_pending_before],
+        global_pending_count: snapshot[:global_pending_count],
+        active_batch_count: snapshot[:active_batch_count],
+        pass_error_class: @dispatch_pass_error
+      )
     end
   end
 end

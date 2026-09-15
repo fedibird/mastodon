@@ -29,6 +29,30 @@ RSpec.describe Moderation::FollowImportRecorder, type: :service do
       expect(unresolved.position).to eq 2
     end
 
+    it 'stores a normalized destination_domain without the username' do
+      local_domain = TagManager.instance.normalize_domain(Rails.configuration.x.local_domain)
+      batch = described_class.record_batch(
+        account: account,
+        accts: ['eve@EXAMPLE.COM', 'bob', "bob@#{Rails.configuration.x.local_domain}", 'ghost@Unknown.example']
+      )
+
+      by_hash = batch.targets.index_by(&:target_key_hash)
+      expect(by_hash[FollowImportTarget.key_hash('eve@example.com')].destination_domain).to eq 'example.com'
+      expect(by_hash[FollowImportTarget.key_hash('bob')].destination_domain).to eq local_domain
+      expect(by_hash[FollowImportTarget.key_hash('ghost@unknown.example')].destination_domain).to eq 'unknown.example'
+    end
+
+    it 'keeps destination_domain on unresolved targets and preserves CSV position' do
+      batch = described_class.record_batch(account: account, accts: ['ghost@unknown.example', 'bob'])
+
+      unresolved = batch.targets.find_by(target_subject_id: nil)
+      expect(unresolved.destination_domain).to eq 'unknown.example'
+      expect(unresolved.position).to eq 0
+      expect(batch.targets.find_by(position: 1).destination_domain).to eq(
+        TagManager.instance.normalize_domain(Rails.configuration.x.local_domain)
+      )
+    end
+
     it 'stores the canonical key hash on resolved targets as the correlation key' do
       batch  = described_class.record_batch(account: account, accts: ['bob'], mode: :merge)
       target = batch.targets.first
