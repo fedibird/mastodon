@@ -14,9 +14,10 @@
 #   start if Redis loses the unique lock; only one may hold
 #   FollowImport::DispatchLease (PostgreSQL session advisory lock).
 #
-# Cadence in sidekiq.yml is provisional / UNCALIBRATED shadow observation.
-# It is not FOLLOW_IMPORT_EXECUTION_INTERVAL and does not pace real
-# dispatch. The worker is a cheap no-op unless
+# Cadence is FollowImport::ExecutionPolicy.dispatch_shadow_every
+# (same ENV/default as config/sidekiq.yml). Provisional / UNCALIBRATED
+# shadow observation. It is not FOLLOW_IMPORT_EXECUTION_INTERVAL and
+# does not pace real dispatch. The worker is a cheap no-op unless
 # FollowImport::ExecutionPolicy.dispatch_shadow_enabled? is true.
 class Scheduler::FollowImportDispatchScheduler
   include Sidekiq::Worker

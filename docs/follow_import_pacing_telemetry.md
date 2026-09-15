@@ -268,7 +268,7 @@ scheduler is shadow-only.
 | `active_batch_count` | distinct batches with a pending target; NULL if unmeasured |
 | `claimed_count` | always 0 in PR A |
 | `load_snapshot` | Sidekiq load facts, or NULL if capture failed |
-| `execution_config` | execution + shadow-flag snapshot |
+| `execution_config` | execution + shadow-flag snapshot, including `dispatch_shadow_interval` from `FollowImport::ExecutionPolicy` (same ENV/default as `config/sidekiq.yml`) |
 | `error_class` | exception class for `shadow_error` |
 | `metadata` | schema version plus non-identifying facts |
 

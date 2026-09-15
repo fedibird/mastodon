@@ -38,11 +38,18 @@ Those knobs are unchanged.
 ## Scheduler registration / cadence
 
 Registered in `config/sidekiq.yml` as
-`Scheduler::FollowImportDispatchScheduler` on the `scheduler` queue,
-`every: '1m'`.
+`Scheduler::FollowImportDispatchScheduler` on the `scheduler` queue.
 
-That interval is **provisional / UNCALIBRATED** shadow observation. It
-is not a calibrated dispatch tick and must not be treated as
+The observation cadence is one value, shared by Sidekiq registration
+and tick `execution_config`:
+
+- `FollowImport::ExecutionPolicy.dispatch_shadow_interval` /
+  `dispatch_shadow_every`
+- `FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL` (positive seconds; default
+  **60**)
+
+It is **provisional / UNCALIBRATED** shadow observation. It is not a
+calibrated dispatch tick and must not be treated as
 `FOLLOW_IMPORT_EXECUTION_INTERVAL`. The eventual real dispatch cadence
 is not chosen here.
 
@@ -62,12 +69,19 @@ section" is `FollowImport::DispatchLease`.
 They survive `COMMIT` and `ROLLBACK`. They are released only by unlock
 on the same session or by disconnect.
 
-`FollowImport::DispatchLease` therefore checks out **one** ActiveRecord
-connection, acquires the lock on that connection, keeps it checked out
-for the tick, and unlocks on the **same** connection in `ensure`. A
-still-locked connection is never intentionally returned to the pool.
-If unlock cannot be confirmed, the connection is disconnected and
-removed.
+`FollowImport::DispatchLease` therefore uses
+`connection_pool.with_connection` so the leased session is the
+thread-cached ActiveRecord connection. The tick's normal queries
+(`DispatchCounts`, tick-observation inserts) reuse that same session.
+The lock is acquired and unlocked on that exact connection in
+`ensure`. A still-locked connection is never intentionally returned to
+the pool. If unlock cannot be confirmed, the connection is
+disconnected and `pool.remove`d (which also clears the Rails 6.1
+thread cache).
+
+Do not `pool.checkout` a second connection that is not installed in
+the thread cache: under Sidekiq concurrency 5 / DB pool 5 that can
+exhaust the pool while the global advisory lock is held.
 
 The lock identity is the documented pair `0x4649` (`FI`) + `1`, not
 Ruby `String#hash` (process-randomized).

@@ -10,15 +10,22 @@
 # COMMIT and ROLLBACK and are released only by unlock on the same session or
 # by disconnect. Therefore this class:
 #
-# - checks out ONE ActiveRecord connection for the lease lifetime
+# - uses the thread-cached ActiveRecord connection (pool.with_connection)
+#   so the tick's normal queries reuse the leased session
 # - acquires and releases the lock on that exact connection
-# - keeps the connection checked out until unlock (or conservative isolate)
 # - never uses pg_try_advisory_xact_lock / a tick-spanning transaction
 # - never derives the lock key from Ruby String#hash (process-randomized)
 #
+# A tick therefore consumes ONE DB connection, not a dedicated lease
+# connection plus a second one for ActiveRecord work. That matters under
+# Fedibird's default Sidekiq concurrency 5 / DB pool 5: a manual
+# pool.checkout that is not installed in the thread cache can take the
+# last pool slot and then block while the global advisory lock is held.
+#
 # If explicit unlock cannot be confirmed on an otherwise live pooled
-# connection, the connection is disconnected and removed from the pool so a
-# still-locked session is not reused for unrelated application work.
+# connection, the connection is disconnected and pool.remove'd (Rails 6.1
+# remove also clears the thread cache) so a still-locked session is not
+# reused for unrelated application work.
 module FollowImport
   class DispatchLease
     # Stable two-integer identity: ASCII 'FI' (0x4649) + object 1.
@@ -36,20 +43,22 @@ module FollowImport
     end
 
     # Yields only when the session lease is acquired. Returns :busy without
-    # yielding when pg_try_advisory_lock is false. Returns :acquired after a
-    # successful body. Always unlocks (or isolates) in ensure.
+    # yielding when pg_try_advisory_lock is false. When the lease is
+    # acquired, returns the block result. Always unlocks (or isolates) in
+    # ensure, before the session is reusable.
     def with_lease
       pool = ActiveRecord::Base.connection_pool
-      connection = pool.checkout
-      acquired = false
 
-      begin
-        acquired = try_lock?(connection)
-        return BUSY unless acquired
+      pool.with_connection do |connection|
+        acquired = false
+        begin
+          acquired = try_lock?(connection)
+          return BUSY unless acquired
 
-        yield
-      ensure
-        finalize(pool, connection, acquired)
+          yield
+        ensure
+          release_lease(pool, connection, acquired)
+        end
       end
     end
 
@@ -66,15 +75,12 @@ module FollowImport
       false
     end
 
-    def finalize(pool, connection, acquired)
-      isolated = false
+    def release_lease(pool, connection, acquired)
+      return unless acquired
+      return if unlock?(connection)
 
-      if acquired
-        isolated = !unlock?(connection)
-        isolate_locked_connection!(connection) if isolated
-      end
-    ensure
-      return_connection(pool, connection, isolated: isolated)
+      isolate_locked_connection!(connection)
+      pool.remove(connection) if pool.respond_to?(:remove)
     end
 
     def isolate_locked_connection!(connection)
@@ -82,21 +88,6 @@ module FollowImport
       connection.disconnect!
     rescue StandardError => e
       Rails.logger.error("[FollowImport::DispatchLease] failed to disconnect unconfirmed lease connection: #{e.class}: #{e.message}")
-    end
-
-    def return_connection(pool, connection, isolated:)
-      if isolated && pool.respond_to?(:remove)
-        pool.remove(connection)
-      else
-        pool.checkin(connection)
-      end
-    rescue StandardError => e
-      Rails.logger.error("[FollowImport::DispatchLease] failed to return leased connection: #{e.class}: #{e.message}")
-      begin
-        connection.disconnect!
-      rescue StandardError
-        nil
-      end
     end
 
     def boolean_result(value)

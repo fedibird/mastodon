@@ -33,9 +33,12 @@ module FollowImport
     DEFAULT_RESCHEDULE_IN  = 30.seconds
 
     # Provisional / UNCALIBRATED observation cadence for the shadow dispatcher.
-    # This is NOT the real dispatch interval and must not be confused with
+    # Shared with config/sidekiq.yml (same ENV + same default). This is NOT
+    # the real dispatch interval and must not be confused with
     # FOLLOW_IMPORT_EXECUTION_INTERVAL.
-    DEFAULT_DISPATCH_SHADOW_INTERVAL = 1.minute
+    DISPATCH_SHADOW_INTERVAL_ENV = 'FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL'
+    DEFAULT_DISPATCH_SHADOW_INTERVAL_SECONDS = 60
+    DEFAULT_DISPATCH_SHADOW_INTERVAL = DEFAULT_DISPATCH_SHADOW_INTERVAL_SECONDS.seconds
 
     def response_wait
       RESPONSE_WAIT
@@ -70,8 +73,19 @@ module FollowImport
       ENV['FOLLOW_IMPORT_DISPATCH_SHADOW'].to_s == 'true'
     end
 
+    def dispatch_shadow_interval_seconds
+      seconds = ENV[DISPATCH_SHADOW_INTERVAL_ENV].to_i
+      seconds.positive? ? seconds : DEFAULT_DISPATCH_SHADOW_INTERVAL_SECONDS
+    end
+
     def dispatch_shadow_interval
-      DEFAULT_DISPATCH_SHADOW_INTERVAL
+      dispatch_shadow_interval_seconds.seconds
+    end
+
+    # sidekiq-scheduler `every` string. Must stay aligned with
+    # config/sidekiq.yml, which reads the same ENV and default.
+    def dispatch_shadow_every
+      "#{dispatch_shadow_interval_seconds}s"
     end
   end
 end

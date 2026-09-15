@@ -9,6 +9,21 @@ RSpec.describe FollowImport::DispatchLease do
                               target_count: 0, resolved_target_count: 0, unresolved_target_count: 0)
   end
 
+  def advisory_lock_held_on_current_session?
+    sql = <<~SQL.squish
+      SELECT EXISTS (
+        SELECT 1 FROM pg_locks
+        WHERE locktype = 'advisory'
+          AND classid = #{described_class::LOCK_NAMESPACE}
+          AND objid = #{described_class::LOCK_KEY}
+          AND objsubid = 1
+          AND granted
+          AND pid = pg_backend_pid()
+      )
+    SQL
+    ActiveModel::Type::Boolean.new.cast(ActiveRecord::Base.connection.select_value(sql))
+  end
+
   describe 'lock identity' do
     it 'uses a documented two-integer key that does not come from String#hash' do
       expect(described_class::LOCK_NAMESPACE).to eq 0x4649
@@ -26,7 +41,8 @@ RSpec.describe FollowImport::DispatchLease do
 
     before do
       allow(ActiveRecord::Base).to receive(:connection_pool).and_return(pool)
-      allow(pool).to receive(:checkout).and_return(connection)
+      allow(pool).to receive(:with_connection).and_yield(connection)
+      allow(pool).to receive(:checkout)
       allow(pool).to receive(:checkin)
       allow(pool).to receive(:remove)
     end
@@ -44,8 +60,9 @@ RSpec.describe FollowImport::DispatchLease do
       expect(yielded).to be true
       expect(result).to eq :body
       expect(sqls).to eq [described_class::TRY_LOCK_SQL, described_class::UNLOCK_SQL]
-      expect(pool).to have_received(:checkout).once
-      expect(pool).to have_received(:checkin).with(connection)
+      expect(pool).to have_received(:with_connection).once
+      expect(pool).not_to have_received(:checkout)
+      expect(pool).not_to have_received(:checkin)
     end
 
     it 'does not yield when pg_try_advisory_lock fails' do
@@ -58,7 +75,7 @@ RSpec.describe FollowImport::DispatchLease do
       expect(result).to eq described_class::BUSY
       expect(connection).to have_received(:select_value).with(described_class::TRY_LOCK_SQL)
       expect(connection).not_to have_received(:select_value).with(described_class::UNLOCK_SQL)
-      expect(pool).to have_received(:checkin).with(connection)
+      expect(pool).not_to have_received(:checkin)
     end
 
     it 'unlocks the same checked-out connection when the body raises' do
@@ -72,7 +89,7 @@ RSpec.describe FollowImport::DispatchLease do
         .to raise_error(StandardError, 'tick exploded')
 
       expect(sqls).to eq [described_class::TRY_LOCK_SQL, described_class::UNLOCK_SQL]
-      expect(pool).to have_received(:checkin).with(connection)
+      expect(pool).not_to have_received(:checkin)
     end
 
     it 'does not use a transaction-level advisory lock' do
@@ -102,6 +119,59 @@ RSpec.describe FollowImport::DispatchLease do
       expect(connection).to have_received(:disconnect!)
       expect(pool).to have_received(:remove).with(connection)
       expect(pool).not_to have_received(:checkin)
+    end
+  end
+
+  describe 'one connection per tick' do
+    it 'runs ActiveRecord work on the same PostgreSQL session that holds the lease' do
+      ActiveRecord::Base.connection
+      held_during_body = nil
+
+      described_class.with_lease do
+        FollowImportTarget.where(state: :pending).count
+        FollowImportDispatchTickObservation.create!(
+          observed_at: Time.now.utc,
+          tick_id: 'lease-same-session',
+          scheduler_mode: 'shadow',
+          lease_acquired: true,
+          outcome: 'shadow_observed',
+          claimed_count: 0,
+          metadata: {},
+          created_at: Time.now.utc
+        )
+        held_during_body = advisory_lock_held_on_current_session?
+      end
+
+      expect(held_during_body).to be true
+      expect(advisory_lock_held_on_current_session?).to be false
+    end
+
+    it 'does not check out a second pool connection for ActiveRecord work while holding the lease' do
+      pool = ActiveRecord::Base.connection_pool
+      thread_connection = ActiveRecord::Base.connection
+      checkouts = 0
+
+      allow(pool).to receive(:checkout).and_wrap_original do |original, *args|
+        checkouts += 1
+        original.call(*args)
+      end
+
+      described_class.with_lease do
+        expect(ActiveRecord::Base.connection.object_id).to eq(thread_connection.object_id)
+        FollowImportTarget.where(state: :pending).count
+        FollowImportDispatchTickObservation.create!(
+          observed_at: Time.now.utc,
+          tick_id: 'lease-no-second-checkout',
+          scheduler_mode: 'shadow',
+          lease_acquired: true,
+          outcome: 'shadow_observed',
+          claimed_count: 0,
+          metadata: {},
+          created_at: Time.now.utc
+        )
+      end
+
+      expect(checkouts).to eq 0
     end
   end
 

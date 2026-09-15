@@ -119,6 +119,7 @@ RSpec.describe FollowImport::DispatchScheduler do
       expect(observation.active_batch_count).to eq 1
       expect(observation.load_snapshot.dig('queues', 'push', 'size')).to eq 1
       expect(observation.execution_config['dispatch_shadow_enabled']).to eq true
+      expect(observation.execution_config['dispatch_shadow_interval']).to eq FollowImport::ExecutionPolicy.dispatch_shadow_interval.to_i
       expect(observation.execution_config['execution_batch_size']).to eq FollowImport::ExecutionPolicy.execution_batch_size
       expect(observation.tick_id).to be_present
 
