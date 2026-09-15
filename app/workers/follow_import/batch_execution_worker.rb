@@ -38,24 +38,27 @@ module FollowImport
       account    = batch.subject&.account
       now        = Time.now.utc
       snapshot   = capture_pre_dispatch_snapshot(batch, now)
-      @local_load = FollowImport::LocalLoadEnforcement.evaluate(
-        load_snapshot: snapshot[:load_snapshot],
-        base_budget: FollowImport::ExecutionPolicy.execution_batch_size
-      )
 
       # candidate_count stays nil until the pending-target query succeeds so an
       # interrupted/failed selection is not recorded as an observed 0.
+      # A load-deferred pass intentionally does not run that query, so it
+      # keeps NULL and records effective_execution_budget=0 / load_deferred.
       # claimed_count is incremented after each successful enqueue so a later
       # raise still reports how far the pass got.
       @dispatch_candidate_count = account ? nil : 0
       @dispatch_claimed_count   = 0
       @dispatch_pass_error      = nil
       @dispatch_load_deferred   = false
+      @local_load               = nil
 
       begin
+        @local_load = FollowImport::LocalLoadEnforcement.evaluate(
+          load_snapshot: snapshot[:load_snapshot],
+          base_budget: FollowImport::ExecutionPolicy.execution_batch_size
+        )
+
         if account
           if @local_load.skip_selection?
-            @dispatch_candidate_count = 0
             @dispatch_load_deferred = true
             log_local_load_enforcement(batch)
           else

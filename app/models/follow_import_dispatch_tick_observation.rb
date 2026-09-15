@@ -29,6 +29,7 @@
 #  local_load_measurement_complete :boolean
 #  local_load_profile_version :integer
 #  local_load_profile_source :string
+#  local_load_fallback_used :boolean
 #  load_snapshot         :jsonb
 #  execution_config      :jsonb
 #  error_class           :string

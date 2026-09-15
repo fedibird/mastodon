@@ -41,6 +41,7 @@ module FollowImport
       @executable_batch_count = planning[:executable_batch_count]
       @effective_shadow_plan_budget = planning[:effective_shadow_plan_budget]
       @local_load = planning[:local_load]
+      @local_load_fallback_used = planning[:local_load_fallback_used]
     end
 
     def planned?
@@ -139,6 +140,12 @@ module FollowImport
       return [] unless @planned
 
       Array(@local_load&.reasons)
+    end
+
+    def local_load_fallback_used
+      return unless @planned
+
+      @local_load_fallback_used
     end
 
     def planned_counts_by_destination

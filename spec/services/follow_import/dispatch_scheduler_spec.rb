@@ -558,7 +558,7 @@ RSpec.describe FollowImport::DispatchScheduler do
       expect(Import::RelationshipWorker).to have_received(:perform_async)
     end
 
-    it 'falls back to the base shadow budget when a required measurement is missing' do
+    it 'falls back to the base shadow budget when a v1 required measurement is missing' do
       enable_local_load(profile(
                           'version' => 1,
                           'levels' => { 'busy' => { 'budget_percent' => 50, 'push' => { 'latency' => 1 } } }
@@ -577,10 +577,37 @@ RSpec.describe FollowImport::DispatchScheduler do
       expect(observation.local_load_recommended_budget).to be_nil
       expect(observation.local_load_measurement_complete).to be false
       expect(observation.effective_shadow_plan_budget).to eq 10
+      expect(observation.local_load_fallback_used).to eq false
       expect(result.plan.claimed_count).to eq 0
     end
 
-    it 'does not reduce the shadow plan or claim work when the controller raises' do
+    it 'applies the v2 fallback to the shadow plan when a required measurement is missing' do
+      enable_local_load(profile(
+                          'version' => 2,
+                          'levels' => { 'busy' => { 'budget_percent' => 50, 'push' => { 'latency' => 1 } } },
+                          'fallback' => { 'budget_percent' => 20 }
+                        ))
+      allow(FollowImport::ExecutionPolicy).to receive(:shadow_plan_budget).and_return(50)
+      allow(FollowImport::LoadSnapshot).to receive(:capture).and_return(
+        'queues' => { 'push' => { 'error_class' => 'RuntimeError' } }
+      )
+      add_target(0)
+      allow(FollowImport::FairScheduler).to receive(:new).and_call_original
+
+      result = scheduler.call
+      observation = FollowImportDispatchTickObservation.last
+
+      expect(FollowImport::FairScheduler).to have_received(:new).with(hash_including(budget: 10))
+      expect(observation.local_load_state).to eq 'unknown'
+      expect(observation.local_load_recommended_budget).to be_nil
+      expect(observation.effective_shadow_plan_budget).to eq 10
+      expect(observation.local_load_fallback_used).to eq true
+      expect(observation.metadata['local_load_fallback_used']).to eq true
+      expect(result.plan.claimed_count).to eq 0
+      expect(batch.targets.reload.map(&:state).uniq).to eq %w(pending)
+    end
+
+    it 'applies the v2 fallback and still claims nothing when the controller raises' do
       enable_local_load(profile(
                           'version' => 2,
                           'levels' => { 'busy' => { 'budget_percent' => 50, 'push' => { 'latency' => 1 } } },
@@ -595,12 +622,52 @@ RSpec.describe FollowImport::DispatchScheduler do
       result = scheduler.call
       observation = FollowImportDispatchTickObservation.last
 
-      expect(FollowImport::FairScheduler).to have_received(:new).with(hash_including(budget: 10))
+      expect(FollowImport::FairScheduler).to have_received(:new).with(hash_including(budget: 0))
       expect(observation.local_load_state).to eq 'evaluation_error'
       expect(observation.local_load_recommended_budget).to be_nil
-      expect(observation.effective_shadow_plan_budget).to eq 10
+      expect(observation.effective_shadow_plan_budget).to eq 0
+      expect(observation.local_load_fallback_used).to eq true
       expect(result.plan.claimed_count).to eq 0
       expect(FollowImport::Telemetry).to have_received(:warn_failure).with('local_load_guard', instance_of(RuntimeError))
+    end
+
+    it 'uses the same v2 fallback control law as legacy enforcement, modulo base budget' do
+      injected = profile(
+        'version' => 2,
+        'levels' => { 'busy' => { 'budget_percent' => 50, 'push' => { 'latency' => 1 } } },
+        'fallback' => { 'budget_percent' => 20 }
+      )
+      unknown = { 'queues' => { 'push' => { 'error_class' => 'RuntimeError' } } }
+      enable_local_load(injected)
+      allow(FollowImport::ExecutionPolicy).to receive(:shadow_plan_budget).and_return(50)
+      allow(FollowImport::ExecutionPolicy).to receive(:local_load_enforcement_enabled?).and_return(true)
+      allow(FollowImport::ExecutionPolicy).to receive(:execution_batch_size).and_return(10)
+      allow(FollowImport::LoadSnapshot).to receive(:capture).and_return(unknown)
+      pending_target = add_target(0)
+
+      result = scheduler.call
+      tick = FollowImportDispatchTickObservation.last
+
+      expect(tick.effective_shadow_plan_budget).to eq 10
+      expect(tick.local_load_fallback_used).to eq true
+      expect(result.plan.claimed_count).to eq 0
+      expect(pending_target.reload.state).to eq 'pending'
+
+      allow(Sidekiq::Queue).to receive(:new).and_return(instance_double(Sidekiq::Queue, size: 1, latency: 0.2))
+      allow(Sidekiq::Stats).to receive(:new).and_return(instance_double(Sidekiq::Stats, retry_size: 0))
+      allow(Sidekiq::ProcessSet).to receive(:new).and_return([])
+      allow_any_instance_of(FollowImport::ImportUnitResolver).to receive(:work_for)
+        .and_return({ acct: 'acct@remote.test', options: { 'show_reblogs' => true } })
+      allow_any_instance_of(Moderation::AdaptiveFollowGateDecisionService).to receive(:call)
+        .and_return({ 'proposed_friction' => 'allow' })
+
+      FollowImport::BatchExecutionWorker.new.perform(batch.id)
+      dispatch = FollowImportDispatchObservation.last
+
+      expect(dispatch.effective_execution_budget).to eq 2
+      expect(dispatch.local_load_fallback_used).to eq true
+      expect(dispatch.local_load_state).to eq 'unknown'
+      expect(pending_target.reload.state).to eq 'queued'
     end
   end
 end

@@ -427,7 +427,7 @@ RSpec.describe FollowImport::BatchExecutionWorker do
         FollowImport::ExecutionPolicy.execution_reschedule_in, batch.id
       )
       observation = FollowImportDispatchObservation.last
-      expect(observation.candidate_count).to eq 0
+      expect(observation.candidate_count).to be_nil
       expect(observation.claimed_count).to eq 0
       expect(observation.effective_execution_budget).to eq 0
       expect(observation.load_deferred).to eq true
@@ -522,6 +522,26 @@ RSpec.describe FollowImport::BatchExecutionWorker do
       expect(observation.local_load_fallback_used).to eq true
       expect(observation.effective_execution_budget).to eq 2
       expect(observation.load_deferred).to eq false
+    end
+
+    it 'survives LocalLoadGuard.evaluate raising at the boundary and applies the v2 fallback' do
+      enable_enforcement(FollowImport::LocalLoadProfile.parse(v2_profile))
+      allow(FollowImport::ExecutionPolicy).to receive(:execution_batch_size).and_return(10)
+      allow(FollowImport::Telemetry).to receive(:warn_failure)
+      allow(FollowImport::LocalLoadGuard).to receive(:evaluate).and_raise(RuntimeError, 'boom')
+      add_target(0)
+      add_target(1)
+
+      expect { worker.perform(batch.id) }.not_to raise_error
+
+      expect(batch.targets.where(state: :queued).count).to eq 2
+      expect(FollowImport::Telemetry).to have_received(:warn_failure).with('local_load_budget', instance_of(RuntimeError))
+      observation = FollowImportDispatchObservation.last
+      expect(observation.local_load_state).to eq 'evaluation_error'
+      expect(observation.local_load_state).not_to eq 'invalid'
+      expect(observation.local_load_fallback_used).to eq true
+      expect(observation.effective_execution_budget).to eq 2
+      expect(observation.pass_error_class).to be_nil
     end
 
     it 'warns and uses fallback when the controller raises, without failing the pass' do

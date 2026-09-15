@@ -10,7 +10,7 @@
 module FollowImport
   class DispatchTickObserver
     SCHEMA_NAME    = 'follow_import_dispatch_tick'
-    SCHEMA_VERSION = 5
+    SCHEMA_VERSION = 6
 
     def self.record(attrs)
       attrs = attrs.to_h.symbolize_keys
@@ -40,6 +40,7 @@ module FollowImport
         local_load_measurement_complete: plan&.local_load_measurement_complete,
         local_load_profile_version: plan&.local_load_profile_version,
         local_load_profile_source: plan&.local_load_profile_source,
+        local_load_fallback_used: plan&.local_load_fallback_used,
         load_snapshot: attrs[:load_snapshot],
         execution_config: plan&.execution_config || execution_config,
         error_class: attrs[:error_class],

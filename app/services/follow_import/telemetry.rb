@@ -101,6 +101,7 @@ module FollowImport
           local_load_measurement_complete: attrs[:local_load_measurement_complete],
           local_load_profile_version: attrs[:local_load_profile_version],
           local_load_profile_source: attrs[:local_load_profile_source],
+          local_load_fallback_used: attrs[:local_load_fallback_used],
           load_snapshot: attrs[:load_snapshot],
           execution_config: attrs[:execution_config],
           error_class: attrs[:error_class],

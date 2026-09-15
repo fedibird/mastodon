@@ -69,6 +69,7 @@ module FollowImport
       metadata['load_snapshot_error_class'] = load_error if load_error
       metadata['fairness_persist_failed'] = true if plan.fairness_state_source == FollowImport::FairnessCursor::SOURCE_PERSIST_FAILED
       metadata['local_load_reasons'] = plan.local_load_reasons if plan.local_load_reasons.present?
+      metadata['local_load_fallback_used'] = plan.local_load_fallback_used unless plan.local_load_fallback_used.nil?
 
       record_tick(
         tick_id: tick_id,
@@ -95,12 +96,9 @@ module FollowImport
 
     def build_shadow_plan(observed_at, load_snapshot)
       base_budget = FollowImport::ExecutionPolicy.shadow_plan_budget
-      decision = local_load_decision(load_snapshot, base_budget)
-      effective_budget = if decision.apply_to_shadow_plan?
-                           decision.recommended_budget
-                         else
-                           base_budget
-                         end
+      resolved = local_load_budget(load_snapshot, base_budget)
+      decision = resolved.decision
+      effective_budget = resolved.effective_budget
 
       cursor = FollowImport::FairnessCursor.new.read
       owners, skipped = FollowImport::PendingBatchSource.new.owner_work(cursor: cursor)
@@ -129,26 +127,36 @@ module FollowImport
           shadow_plan_budget: base_budget,
           effective_shadow_plan_budget: effective_budget,
           local_load: decision,
+          local_load_fallback_used: resolved.fallback_used,
           executable_owner_count: owners.size,
           executable_batch_count: owners.sum { |owner| owner[:batches].size },
         }
       )
     end
 
-    def local_load_decision(load_snapshot, base_budget)
+    def local_load_budget(load_snapshot, base_budget)
       unless FollowImport::ExecutionPolicy.local_load_shadow_enabled?
-        return FollowImport::LocalLoadDecision.disabled(base_budget)
+        return FollowImport::LocalLoadBudget::Result.new(
+          decision: FollowImport::LocalLoadDecision.disabled(base_budget),
+          base_budget: base_budget.to_i,
+          effective_budget: base_budget.to_i,
+          fallback_used: nil
+        )
       end
 
       profile = FollowImport::LocalLoadProfile.from_env
-      FollowImport::LocalLoadGuard.evaluate(
+      FollowImport::LocalLoadBudget.resolve(
         snapshot: load_snapshot,
         base_budget: base_budget,
         profile: profile
       )
     rescue StandardError => e
       FollowImport::Telemetry.warn_failure('local_load_decision', e)
-      FollowImport::LocalLoadDecision.evaluation_error(base_budget)
+      FollowImport::LocalLoadBudget.apply(
+        decision: FollowImport::LocalLoadDecision.evaluation_error(base_budget),
+        profile: nil,
+        base_budget: base_budget
+      )
     end
 
     def capture_load_snapshot

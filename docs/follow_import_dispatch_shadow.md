@@ -195,16 +195,22 @@ Floor integer division. No secret minimum of 1. A computed 0 means
 | `local_load_recommended_budget` | controller output, or NULL if not computed |
 | `effective_shadow_plan_budget` | budget actually given to `FairScheduler` |
 
-When the controller is disabled, unconfigured, invalid, or `unknown`,
-effective = base. When a usable recommendation exists, effective =
-recommended (including 0).
+When the controller is disabled, unconfigured, or invalid, effective =
+base. When a usable recommendation exists, effective = recommended
+(including 0).
+
+`unknown` / `evaluation_error` share the same control law as live
+enforcement: a **v2** profile applies `fallback.budget_percent` to the
+tick's `shadow_plan_budget`. A v1 profile has no fallback, so shadow
+keeps the base diagnostic budget. The scheduler still claims nothing.
 
 ### Missing measurements
 
 If the profile requires a signal the snapshot cannot supply, the
 decision is `unknown`, `measurement_complete=false`, and
-`recommended_budget` is **NULL** (not 0). Shadow planning falls back
-to the base diagnostic budget.
+`recommended_budget` is **NULL** (not 0). A v2 profile then applies
+the explicit fallback to the shadow base. A v1 profile keeps the
+base diagnostic budget.
 
 ### Shadow skip is not a real skip
 
@@ -294,7 +300,7 @@ run. Global fairness is PR C.
 |---|---|
 | Flag off, or profile not enforcement-capable | Legacy `execution_batch_size`. No load recheck. |
 | Positive recommendation | `SELECT ... LIMIT effective_execution_budget`, then existing gate/claim. |
-| Budget 0 **because local load** and pending work remains | Claim 0, retain Import, schedule **exactly one** deferred `BatchExecutionWorker` via `execution_reschedule_in`. |
+| Budget 0 **because local load** and pending work remains | Claim 0, retain Import, `candidate_count` stays NULL, schedule **exactly one** deferred `BatchExecutionWorker` via `execution_reschedule_in`. |
 | Gate / unrecoverable zero progress | Preserve current stop-the-chain semantics. **No** load recheck. |
 | No pending targets | Finalize Import as today. No load recheck. |
 | Snapshot incomplete / controller error | Apply the explicit fallback (may be 0). Never become unlimited. |

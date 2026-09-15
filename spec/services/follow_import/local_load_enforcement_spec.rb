@@ -135,6 +135,20 @@ RSpec.describe FollowImport::LocalLoadEnforcement do
       expect(result.skip_selection?).to be false
     end
 
+    it 'applies the v2 fallback when LocalLoadGuard.evaluate itself raises' do
+      allow(FollowImport::Telemetry).to receive(:warn_failure)
+      allow(FollowImport::LocalLoadProfile).to receive(:from_env).and_return(profile(v2_profile))
+      allow(FollowImport::LocalLoadGuard).to receive(:evaluate).and_raise(RuntimeError, 'boom')
+
+      result = evaluate(base_budget: 10)
+
+      expect(result.decision.state).to eq 'evaluation_error'
+      expect(result.decision.invalid?).to be false
+      expect(result.effective_budget).to eq 2
+      expect(result.fallback_used).to be true
+      expect { evaluate(base_budget: 10) }.not_to raise_error
+    end
+
     it 'applies the explicit fallback when the controller raises' do
       allow(FollowImport::Telemetry).to receive(:warn_failure)
       allow(FollowImport::LocalLoadProfile).to receive(:from_env).and_return(profile(v2_profile))

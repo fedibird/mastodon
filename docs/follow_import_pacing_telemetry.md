@@ -134,7 +134,7 @@ snapshot would contaminate the baseline with work this pass just created.
 | `pending_count` | same as `batch_pending_after` (legacy alias) |
 | `global_pending_count` | pending targets across all batches (pre-dispatch) |
 | `active_batch_count` | distinct batches with at least one pending target (pre-dispatch) |
-| `candidate_count` | pending rows selected for this pass; NULL if selection failed |
+| `candidate_count` | pending rows selected for this pass; NULL if selection was not attempted or failed; 0 if the query ran and observed no rows |
 | `claimed_count` | successful claim+enqueue count so far; incremented after each enqueue |
 | `pass_error_class` | exception class if the pass raised (the error is still re-raised) |
 | `local_load_enforcement_enabled` | whether the PR E flag was on for this pass |
@@ -300,6 +300,7 @@ scheduler is shadow-only.
 | `local_load_would_skip` | true when recommended_budget is 0; NULL if not computed |
 | `local_load_measurement_complete` | whether every profile-required metric was usable |
 | `local_load_profile_version` / `local_load_profile_source` | profile identity; digest lives in `execution_config` |
+| `local_load_fallback_used` | true when the v2 fallback was applied to the shadow budget; NULL if not evaluated |
 | `load_snapshot` | Sidekiq load facts, or NULL if capture failed |
 | `execution_config` | execution + shadow-flag snapshot, including `dispatch_shadow_interval` from `FollowImport::ExecutionPolicy` (same ENV/default as `config/sidekiq.yml`) |
 | `error_class` | exception class for `shadow_error` |
