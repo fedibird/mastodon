@@ -72,9 +72,7 @@ module FollowImport
     def stringify_keys(value)
       return {} unless value.is_a?(Hash)
 
-      value.each_with_object({}) do |(key, item), memo|
-        memo[key.to_s] = item
-      end
+      value.transform_keys(&:to_s)
     end
 
     def trim_hash(hash, max)

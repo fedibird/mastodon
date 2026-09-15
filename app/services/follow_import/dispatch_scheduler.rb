@@ -103,11 +103,13 @@ module FollowImport
         global_pending_count: FollowImport::DispatchCounts.global_pending,
         active_batch_count: FollowImport::DispatchCounts.active_batches,
         execution_config: execution_config,
-        planned: true,
-        entries: scheduled.entries,
-        skipped_missing_owner_count: skipped,
-        fairness_state_source: source,
-        shadow_plan_budget: budget
+        planning: {
+          planned: true,
+          entries: scheduled.planned,
+          skipped_missing_owner_count: skipped,
+          fairness_state_source: source,
+          shadow_plan_budget: budget,
+        }
       )
     end
 
@@ -119,7 +121,7 @@ module FollowImport
     end
 
     def record_tick(**attrs)
-      FollowImport::DispatchTickObserver.record(**attrs)
+      FollowImport::DispatchTickObserver.record(attrs)
     end
 
     def execution_config

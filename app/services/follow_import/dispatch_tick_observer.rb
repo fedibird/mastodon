@@ -12,13 +12,15 @@ module FollowImport
     SCHEMA_NAME    = 'follow_import_dispatch_tick'
     SCHEMA_VERSION = 2
 
-    def self.record(tick_id:, observed_at:, outcome:, lease_acquired:, plan: nil, load_snapshot: nil, error_class: nil, metadata: {})
+    def self.record(attrs)
+      attrs = attrs.to_h.symbolize_keys
+      plan = attrs[:plan]
       FollowImport::Telemetry.record_dispatch_tick(
-        observed_at: observed_at,
-        tick_id: tick_id,
+        observed_at: attrs[:observed_at],
+        tick_id: attrs[:tick_id],
         scheduler_mode: 'shadow',
-        lease_acquired: lease_acquired,
-        outcome: outcome,
+        lease_acquired: attrs[:lease_acquired],
+        outcome: attrs[:outcome],
         global_pending_count: plan&.global_pending_count,
         active_batch_count: plan&.active_batch_count,
         claimed_count: 0,
@@ -28,10 +30,10 @@ module FollowImport
         unique_destination_count: plan&.unique_destination_count,
         skipped_missing_owner_count: plan&.skipped_missing_owner_count,
         fairness_state_source: plan&.fairness_state_source,
-        load_snapshot: load_snapshot,
+        load_snapshot: attrs[:load_snapshot],
         execution_config: plan&.execution_config || execution_config,
-        error_class: error_class,
-        metadata: tick_metadata(metadata)
+        error_class: attrs[:error_class],
+        metadata: tick_metadata(attrs[:metadata])
       )
     rescue StandardError => e
       FollowImport::Telemetry.warn_failure('dispatch_tick', e)

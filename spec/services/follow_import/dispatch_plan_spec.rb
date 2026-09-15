@@ -27,10 +27,12 @@ RSpec.describe FollowImport::DispatchPlan do
       global_pending_count: 3,
       active_batch_count: 3,
       execution_config: {},
-      planned: true,
-      entries: entries,
-      skipped_missing_owner_count: 1,
-      shadow_plan_budget: 50
+      planning: {
+        planned: true,
+        entries: entries,
+        skipped_missing_owner_count: 1,
+        shadow_plan_budget: 50,
+      }
     )
 
     expect(plan.claimed_count).to eq 0

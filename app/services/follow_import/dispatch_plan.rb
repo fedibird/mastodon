@@ -12,34 +12,27 @@ module FollowImport
     attr_reader :observed_at, :global_pending_count, :active_batch_count, :execution_config,
                 :entries, :skipped_missing_owner_count, :fairness_state_source, :shadow_plan_budget
 
-    def self.observe(observed_at:, global_pending_count:, active_batch_count:, execution_config:,
-                     planned: false, entries: [], skipped_missing_owner_count: nil, fairness_state_source: nil,
-                     shadow_plan_budget: nil)
+    def self.observe(observed_at:, global_pending_count:, active_batch_count:, execution_config:, planning: {})
       new(
         observed_at: observed_at,
         global_pending_count: global_pending_count,
         active_batch_count: active_batch_count,
         execution_config: execution_config,
-        planned: planned,
-        entries: entries,
-        skipped_missing_owner_count: skipped_missing_owner_count,
-        fairness_state_source: fairness_state_source,
-        shadow_plan_budget: shadow_plan_budget
+        planning: planning
       )
     end
 
-    def initialize(observed_at:, global_pending_count:, active_batch_count:, execution_config:,
-                   planned: false, entries: [], skipped_missing_owner_count: nil, fairness_state_source: nil,
-                   shadow_plan_budget: nil)
+    def initialize(observed_at:, global_pending_count:, active_batch_count:, execution_config:, planning: {})
+      planning = planning.to_h.symbolize_keys
       @observed_at = observed_at
       @global_pending_count = global_pending_count
       @active_batch_count = active_batch_count
       @execution_config = execution_config
-      @planned = planned
-      @entries = entries
-      @skipped_missing_owner_count = skipped_missing_owner_count
-      @fairness_state_source = fairness_state_source
-      @shadow_plan_budget = shadow_plan_budget
+      @planned = planning.fetch(:planned, false)
+      @entries = planning[:entries] || []
+      @skipped_missing_owner_count = planning[:skipped_missing_owner_count]
+      @fairness_state_source = planning[:fairness_state_source]
+      @shadow_plan_budget = planning[:shadow_plan_budget]
     end
 
     def planned?

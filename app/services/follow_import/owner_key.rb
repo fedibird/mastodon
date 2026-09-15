@@ -41,8 +41,6 @@ module FollowImport
     end
     alias == eql?
 
-    def hash
-      value.hash
-    end
+    delegate :hash, to: :value
   end
 end

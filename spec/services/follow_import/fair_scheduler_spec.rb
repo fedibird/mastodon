@@ -28,13 +28,13 @@ RSpec.describe FollowImport::FairScheduler do
     owners = [owner('A', [[1, targets(20, batch_id: 1)]]), owner('B', [[2, targets(20, batch_id: 2)]])]
     result = plan_for(owners, budget: 7)
 
-    expect(result.entries.size).to eq 7
-    expect(result.entries.size).to be <= 7
+    expect(result.planned.size).to eq 7
+    expect(result.planned.size).to be <= 7
   end
 
   it 'shares two equal backlogs within one target' do
     owners = [owner('A', [[1, targets(100, batch_id: 1)]]), owner('B', [[2, targets(100, batch_id: 2)]])]
-    counts = plan_for(owners, budget: 10).entries.each_with_object(Hash.new(0)) { |entry, memo| memo[entry.owner_key] += 1 }
+    counts = plan_for(owners, budget: 10).planned.each_with_object(Hash.new(0)) { |entry, memo| memo[entry.owner_key] += 1 }
 
     expect((counts['A'] - counts['B']).abs).to be <= 1
     expect(counts['A'] + counts['B']).to eq 10
@@ -43,11 +43,11 @@ RSpec.describe FollowImport::FairScheduler do
   it 'lets a small account make progress beside a huge account' do
     owners = [owner('A', [[1, targets(200, batch_id: 1)]]), owner('B', [[2, targets(3, batch_id: 2)]])]
     result = plan_for(owners, budget: 10)
-    counts = result.entries.each_with_object(Hash.new(0)) { |entry, memo| memo[entry.owner_key] += 1 }
+    counts = result.planned.each_with_object(Hash.new(0)) { |entry, memo| memo[entry.owner_key] += 1 }
 
     expect(counts['B']).to eq 3
     expect(counts['A']).to eq 7
-    expect(result.entries.map(&:owner_key).first(2)).to eq %w(A B)
+    expect(result.planned.map(&:owner_key).first(2)).to eq %w(A B)
   end
 
   it 'does not give a split CSV more top-level share than a single-batch account' do
@@ -60,8 +60,8 @@ RSpec.describe FollowImport::FairScheduler do
       owner('B', [[2, targets(1_000, batch_id: 2)]]),
     ]
 
-    one = plan_for(one_batch, budget: 10).entries.count { |entry| entry.owner_key == 'A' }
-    ten = plan_for(ten_batches, budget: 10).entries.count { |entry| entry.owner_key == 'A' }
+    one = plan_for(one_batch, budget: 10).planned.count { |entry| entry.owner_key == 'A' }
+    ten = plan_for(ten_batches, budget: 10).planned.count { |entry| entry.owner_key == 'A' }
 
     expect(one).to eq 5
     expect(ten).to eq 5
@@ -74,7 +74,7 @@ RSpec.describe FollowImport::FairScheduler do
                       [12, targets(2, batch_id: 12)],
                     ])]
     result = plan_for(owners, budget: 8)
-    by_batch = result.entries.each_with_object(Hash.new(0)) { |entry, memo| memo[entry.batch_id] += 1 }
+    by_batch = result.planned.each_with_object(Hash.new(0)) { |entry, memo| memo[entry.batch_id] += 1 }
 
     expect(by_batch.keys).to contain_exactly(10, 11, 12)
     expect(by_batch[12]).to eq 2
@@ -87,7 +87,7 @@ RSpec.describe FollowImport::FairScheduler do
     4.times do
       owners = ('A'..'J').map { |key| owner(key, [[key.ord, [{ id: key.ord, position: 0, destination_domain: 'd.test' }]]]) }
       result = plan_for(owners, budget: 3, cursor: cursor)
-      served.concat(result.entries.map(&:owner_key))
+      served.concat(result.planned.map(&:owner_key))
       cursor = result.next_cursor
     end
 
@@ -102,11 +102,11 @@ RSpec.describe FollowImport::FairScheduler do
       owner('B', [[3, targets(5, batch_id: 3)]]),
     ]
     result = plan_for(owners, budget: 4)
-    counts = result.entries.each_with_object(Hash.new(0)) { |entry, memo| memo[entry.owner_key] += 1 }
+    counts = result.planned.each_with_object(Hash.new(0)) { |entry, memo| memo[entry.owner_key] += 1 }
 
     expect(counts['A']).to eq 2
     expect(counts['B']).to eq 2
-    expect(result.entries.select { |entry| entry.owner_key == 'A' }.map(&:batch_id).uniq).to eq [2]
+    expect(result.planned.select { |entry| entry.owner_key == 'A' }.map(&:batch_id).uniq).to eq [2]
   end
 
   it 'is deterministic for identical candidates and cursor' do
@@ -114,8 +114,8 @@ RSpec.describe FollowImport::FairScheduler do
     first = plan_for(owners.call, budget: 4)
     second = plan_for(owners.call, budget: 4)
 
-    expect(first.entries.map { |entry| [entry.owner_key, entry.batch_id, entry.target_id] })
-      .to eq(second.entries.map { |entry| [entry.owner_key, entry.batch_id, entry.target_id] })
+    expect(first.planned.map { |entry| [entry.owner_key, entry.batch_id, entry.target_id] })
+      .to eq(second.planned.map { |entry| [entry.owner_key, entry.batch_id, entry.target_id] })
   end
 
   it 'can optionally share a destination cap across owners, not batches' do
@@ -124,11 +124,11 @@ RSpec.describe FollowImport::FairScheduler do
       owner('B', [[20, [{ id: 20, position: 0, destination_domain: 'popular.test' }]]]),
     ]
     result = plan_for(owners, budget: 10, destination_cap: 2)
-    dest = result.entries.count { |entry| entry.destination_domain == 'popular.test' }
-    owners_used = result.entries.map(&:owner_key).uniq
+    dest = result.planned.count { |entry| entry.destination_domain == 'popular.test' }
+    owners_used = result.planned.map(&:owner_key).uniq
 
     expect(dest).to eq 2
     expect(owners_used).to include('A', 'B')
-    expect(result.entries.count { |entry| entry.owner_key == 'A' }).to eq 1
+    expect(result.planned.count { |entry| entry.owner_key == 'A' }).to eq 1
   end
 end

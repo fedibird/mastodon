@@ -11,6 +11,7 @@
 # It's strongly recommended that you check this file into your version control system.
 
 ActiveRecord::Schema.define(version: 2026_09_15_030001) do
+
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -566,32 +567,6 @@ ActiveRecord::Schema.define(version: 2026_09_15_030001) do
     t.index ["subject_id", "imported_at"], name: "index_follow_import_batches_on_subject_and_imported_at"
   end
 
-  create_table "follow_import_targets", force: :cascade do |t|
-    t.bigint "batch_id", null: false
-    t.bigint "target_subject_id"
-    t.string "target_key_hash"
-    t.integer "position"
-    t.jsonb "prior_relationship_state"
-    t.datetime "created_at", precision: 6, null: false
-    t.datetime "updated_at", precision: 6, null: false
-    t.integer "state", default: 0, null: false
-    t.string "follow_request_uri"
-    t.datetime "queued_at"
-    t.datetime "delivered_at"
-    t.datetime "response_deadline_at"
-    t.datetime "completed_at"
-    t.integer "delivery_attempts", default: 0, null: false
-    t.string "failure_code"
-    t.string "destination_domain"
-    t.index ["batch_id", "state"], name: "index_follow_import_targets_on_batch_and_state"
-    t.index ["batch_id"], name: "index_follow_import_targets_on_pending_batch_id", where: "(state = 0)"
-    t.index ["destination_domain"], name: "index_follow_import_targets_on_destination_domain", where: "(destination_domain IS NOT NULL)"
-    t.index ["batch_id", "target_subject_id"], name: "index_follow_import_targets_on_batch_and_target"
-    t.index ["follow_request_uri"], name: "index_follow_import_targets_on_follow_request_uri", unique: true, where: "(follow_request_uri IS NOT NULL)"
-    t.index ["target_key_hash"], name: "index_follow_import_targets_on_target_key_hash", where: "(target_key_hash IS NOT NULL)"
-    t.index ["target_subject_id"], name: "index_follow_import_targets_on_target_subject", where: "(target_subject_id IS NOT NULL)"
-  end
-
   create_table "follow_import_dispatch_observations", force: :cascade do |t|
     t.bigint "batch_id"
     t.datetime "observed_at", null: false
@@ -619,19 +594,45 @@ ActiveRecord::Schema.define(version: 2026_09_15_030001) do
     t.integer "global_pending_count"
     t.integer "active_batch_count"
     t.integer "claimed_count", default: 0, null: false
+    t.jsonb "load_snapshot"
+    t.jsonb "execution_config"
+    t.string "error_class"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
     t.integer "planned_count"
     t.integer "executable_owner_count"
     t.integer "executable_batch_count"
     t.integer "unique_destination_count"
     t.integer "skipped_missing_owner_count"
     t.string "fairness_state_source"
-    t.jsonb "load_snapshot"
-    t.jsonb "execution_config"
-    t.string "error_class"
-    t.jsonb "metadata", default: {}, null: false
-    t.datetime "created_at", null: false
     t.index ["observed_at"], name: "index_fi_dispatch_tick_observations_on_observed_at"
     t.index ["tick_id"], name: "index_fi_dispatch_tick_observations_on_tick_id"
+  end
+
+  create_table "follow_import_targets", force: :cascade do |t|
+    t.bigint "batch_id", null: false
+    t.bigint "target_subject_id"
+    t.string "target_key_hash"
+    t.integer "position"
+    t.jsonb "prior_relationship_state"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.integer "state", default: 0, null: false
+    t.string "follow_request_uri"
+    t.datetime "queued_at"
+    t.datetime "delivered_at"
+    t.datetime "response_deadline_at"
+    t.datetime "completed_at"
+    t.integer "delivery_attempts", default: 0, null: false
+    t.string "failure_code"
+    t.string "destination_domain"
+    t.index ["batch_id", "state"], name: "index_follow_import_targets_on_batch_and_state"
+    t.index ["batch_id", "target_subject_id"], name: "index_follow_import_targets_on_batch_and_target"
+    t.index ["batch_id"], name: "index_follow_import_targets_on_pending_batch_id", where: "(state = 0)"
+    t.index ["destination_domain"], name: "index_follow_import_targets_on_destination_domain", where: "(destination_domain IS NOT NULL)"
+    t.index ["follow_request_uri"], name: "index_follow_import_targets_on_follow_request_uri", unique: true, where: "(follow_request_uri IS NOT NULL)"
+    t.index ["target_key_hash"], name: "index_follow_import_targets_on_target_key_hash", where: "(target_key_hash IS NOT NULL)"
+    t.index ["target_subject_id"], name: "index_follow_import_targets_on_target_subject", where: "(target_subject_id IS NOT NULL)"
   end
 
   create_table "follow_import_transport_observations", force: :cascade do |t|
@@ -922,10 +923,10 @@ ActiveRecord::Schema.define(version: 2026_09_15_030001) do
     t.datetime "updated_at", precision: 6, null: false
     t.index ["event_type", "occurred_at"], name: "index_mod_rejection_events_on_type_and_occurred"
     t.index ["preceding_interaction_event_id"], name: "index_mod_rejection_events_on_preceding_event", where: "(preceding_interaction_event_id IS NOT NULL)"
-    t.index ["source_event_key"], name: "index_mod_rejection_events_on_source_event_key", unique: true, where: "(source_event_key IS NOT NULL)"
     t.index ["rejected_subject_id", "occurred_at"], name: "index_mod_rejection_events_on_rejected_and_occurred"
     t.index ["rejected_subject_id", "rejector_subject_id", "occurred_at"], name: "index_mod_rejection_events_on_rejected_rejector_occurred"
     t.index ["rejector_subject_id", "occurred_at"], name: "index_mod_rejection_events_on_rejector_and_occurred"
+    t.index ["source_event_key"], name: "index_mod_rejection_events_on_source_event_key", unique: true, where: "(source_event_key IS NOT NULL)"
   end
 
   create_table "moderation_subjects", force: :cascade do |t|
@@ -1299,10 +1300,10 @@ ActiveRecord::Schema.define(version: 2026_09_15_030001) do
     t.bigint "generator_id"
     t.bigint "ordered_media_attachment_ids", array: true
     t.index ["account_id", "id", "visibility", "updated_at"], name: "index_statuses_20210710", order: { id: :desc }, where: "((deleted_at IS NULL) AND (expired_at IS NULL))"
+    t.index ["account_id", "id"], name: "index_statuses_personal_timeline", order: :desc, where: "((visibility = 200) AND (deleted_at IS NULL) AND (reblog_of_id IS NULL))"
     t.index ["account_id", "id"], name: "index_statuses_private_searchable", order: { id: :desc }, where: "((deleted_at IS NULL) AND (expired_at IS NULL) AND (reblog_of_id IS NULL) AND (searchability = ANY (ARRAY[0, 1, 2])))"
     t.index ["id", "account_id"], name: "index_statuses_local_20190824", order: { id: :desc }, where: "((local OR (uri IS NULL)) AND (deleted_at IS NULL) AND (visibility = 0) AND (reblog_of_id IS NULL) AND ((NOT reply) OR (in_reply_to_account_id = account_id)))"
     t.index ["id", "account_id"], name: "index_statuses_public_20200119", order: { id: :desc }, where: "((deleted_at IS NULL) AND (visibility = 0) AND (reblog_of_id IS NULL) AND ((NOT reply) OR (in_reply_to_account_id = account_id)))"
-    t.index ["account_id", "id"], name: "index_statuses_personal_timeline", order: :desc, where: "((visibility = 200) AND (deleted_at IS NULL) AND (reblog_of_id IS NULL))"
     t.index ["in_reply_to_account_id"], name: "index_statuses_on_in_reply_to_account_id"
     t.index ["in_reply_to_id"], name: "index_statuses_on_in_reply_to_id"
     t.index ["quote_id"], name: "index_statuses_on_quote_id"
@@ -1324,6 +1325,15 @@ ActiveRecord::Schema.define(version: 2026_09_15_030001) do
     t.datetime "updated_at", null: false
   end
 
+  create_table "tag_account_mutes", force: :cascade do |t|
+    t.bigint "tag_id"
+    t.bigint "account_id"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["account_id"], name: "index_tag_account_mutes_on_account_id"
+    t.index ["tag_id"], name: "index_tag_account_mutes_on_tag_id"
+  end
+
   create_table "tags", force: :cascade do |t|
     t.string "name", default: "", null: false
     t.datetime "created_at", null: false
@@ -1337,15 +1347,6 @@ ActiveRecord::Schema.define(version: 2026_09_15_030001) do
     t.float "max_score"
     t.datetime "max_score_at"
     t.index "lower((name)::text) text_pattern_ops", name: "index_tags_on_name_lower_btree", unique: true
-  end
-
-  create_table "tag_account_mutes", force: :cascade do |t|
-    t.bigint "tag_id"
-    t.bigint "account_id"
-    t.datetime "created_at", precision: 6, null: false
-    t.datetime "updated_at", precision: 6, null: false
-    t.index ["account_id"], name: "index_tag_account_mutes_on_account_id"
-    t.index ["tag_id"], name: "index_tag_account_mutes_on_tag_id"
   end
 
   create_table "tombstones", force: :cascade do |t|
@@ -1608,6 +1609,53 @@ ActiveRecord::Schema.define(version: 2026_09_15_030001) do
   add_foreign_key "web_settings", "users", name: "fk_11910667b2", on_delete: :cascade
   add_foreign_key "webauthn_credentials", "users"
 
+  create_view "account_summaries", materialized: true, sql_definition: <<-SQL
+      SELECT accounts.id AS account_id,
+      mode() WITHIN GROUP (ORDER BY t0.language) AS language,
+      mode() WITHIN GROUP (ORDER BY t0.sensitive) AS sensitive
+     FROM (accounts
+       CROSS JOIN LATERAL ( SELECT statuses.account_id,
+              statuses.language,
+              statuses.sensitive
+             FROM statuses
+            WHERE ((statuses.account_id = accounts.id) AND (statuses.deleted_at IS NULL) AND (statuses.reblog_of_id IS NULL))
+            ORDER BY statuses.id DESC
+           LIMIT 20) t0)
+    WHERE ((accounts.suspended_at IS NULL) AND (accounts.silenced_at IS NULL) AND (accounts.moved_to_account_id IS NULL) AND (accounts.discoverable = true) AND (accounts.locked = false))
+    GROUP BY accounts.id;
+  SQL
+  add_index "account_summaries", ["account_id"], name: "index_account_summaries_on_account_id", unique: true
+
+  create_view "follow_recommendations", materialized: true, sql_definition: <<-SQL
+      SELECT account_id,
+      sum(rank) AS rank,
+      array_agg(reason) AS reason
+     FROM ( SELECT account_summaries.account_id,
+              ((count(follows.id))::numeric / (1.0 + (count(follows.id))::numeric)) AS rank,
+              'most_followed'::text AS reason
+             FROM (((follows
+               JOIN account_summaries ON ((account_summaries.account_id = follows.target_account_id)))
+               JOIN users ON ((users.account_id = follows.account_id)))
+               LEFT JOIN follow_recommendation_suppressions ON ((follow_recommendation_suppressions.account_id = follows.target_account_id)))
+            WHERE ((users.current_sign_in_at >= (now() - 'P30D'::interval)) AND (account_summaries.sensitive = false) AND (follow_recommendation_suppressions.id IS NULL))
+            GROUP BY account_summaries.account_id
+           HAVING (count(follows.id) >= 5)
+          UNION ALL
+           SELECT account_summaries.account_id,
+              (sum(((status_stats.reblogs_count + status_stats.favourites_count) + status_stats.emoji_reactions_count)) / (1.0 + sum(((status_stats.reblogs_count + status_stats.favourites_count) + status_stats.emoji_reactions_count)))) AS rank,
+              'most_interactions'::text AS reason
+             FROM (((status_stats
+               JOIN statuses ON ((statuses.id = status_stats.status_id)))
+               JOIN account_summaries ON ((account_summaries.account_id = statuses.account_id)))
+               LEFT JOIN follow_recommendation_suppressions ON ((follow_recommendation_suppressions.account_id = statuses.account_id)))
+            WHERE ((statuses.id >= (((date_part('epoch'::text, (now() - 'P30D'::interval)) * (1000)::double precision))::bigint << 16)) AND (account_summaries.sensitive = false) AND (follow_recommendation_suppressions.id IS NULL))
+            GROUP BY account_summaries.account_id
+           HAVING (sum(((status_stats.reblogs_count + status_stats.favourites_count) + status_stats.emoji_reactions_count)) >= (5)::numeric)) t0
+    GROUP BY account_id
+    ORDER BY (sum(rank)) DESC;
+  SQL
+  add_index "follow_recommendations", ["account_id"], name: "index_follow_recommendations_on_account_id", unique: true
+
   create_view "instances", materialized: true, sql_definition: <<-SQL
       WITH domain_counts(domain, accounts_count) AS (
            SELECT accounts.domain,
@@ -1631,52 +1679,5 @@ ActiveRecord::Schema.define(version: 2026_09_15_030001) do
        LEFT JOIN domain_counts ON (((domain_counts.domain)::text = (domain_allows.domain)::text)));
   SQL
   add_index "instances", ["domain"], name: "index_instances_on_domain", unique: true
-
-  create_view "account_summaries", materialized: true, sql_definition: <<-SQL
-      SELECT accounts.id AS account_id,
-      mode() WITHIN GROUP (ORDER BY t0.language) AS language,
-      mode() WITHIN GROUP (ORDER BY t0.sensitive) AS sensitive
-     FROM (accounts
-       CROSS JOIN LATERAL ( SELECT statuses.account_id,
-              statuses.language,
-              statuses.sensitive
-             FROM statuses
-            WHERE ((statuses.account_id = accounts.id) AND (statuses.deleted_at IS NULL) AND (statuses.reblog_of_id IS NULL))
-            ORDER BY statuses.id DESC
-           LIMIT 20) t0)
-    WHERE ((accounts.suspended_at IS NULL) AND (accounts.silenced_at IS NULL) AND (accounts.moved_to_account_id IS NULL) AND (accounts.discoverable = true) AND (accounts.locked = false))
-    GROUP BY accounts.id;
-  SQL
-  add_index "account_summaries", ["account_id"], name: "index_account_summaries_on_account_id", unique: true
-
-  create_view "follow_recommendations", materialized: true, sql_definition: <<-SQL
-      SELECT t0.account_id,
-      sum(t0.rank) AS rank,
-      array_agg(t0.reason) AS reason
-     FROM ( SELECT account_summaries.account_id,
-              ((count(follows.id))::numeric / (1.0 + (count(follows.id))::numeric)) AS rank,
-              'most_followed'::text AS reason
-             FROM (((follows
-               JOIN account_summaries ON ((account_summaries.account_id = follows.target_account_id)))
-               JOIN users ON ((users.account_id = follows.account_id)))
-               LEFT JOIN follow_recommendation_suppressions ON ((follow_recommendation_suppressions.account_id = follows.target_account_id)))
-            WHERE ((users.current_sign_in_at >= (now() - 'P30D'::interval)) AND (account_summaries.sensitive = false) AND (follow_recommendation_suppressions.id IS NULL))
-            GROUP BY account_summaries.account_id
-           HAVING (count(follows.id) >= 5)
-          UNION ALL
-           SELECT account_summaries.account_id,
-              (sum(((status_stats.reblogs_count + status_stats.favourites_count) + status_stats.emoji_reactions_count)) / (1.0 + sum(((status_stats.reblogs_count + status_stats.favourites_count) + status_stats.emoji_reactions_count)))) AS rank,
-              'most_interactions'::text AS reason
-             FROM (((status_stats
-               JOIN statuses ON ((statuses.id = status_stats.status_id)))
-               JOIN account_summaries ON ((account_summaries.account_id = statuses.account_id)))
-               LEFT JOIN follow_recommendation_suppressions ON ((follow_recommendation_suppressions.account_id = statuses.account_id)))
-            WHERE ((statuses.id >= (((date_part('epoch'::text, (now() - 'P30D'::interval)) * (1000)::double precision))::bigint << 16)) AND (account_summaries.sensitive = false) AND (follow_recommendation_suppressions.id IS NULL))
-            GROUP BY account_summaries.account_id
-           HAVING (sum(((status_stats.reblogs_count + status_stats.favourites_count) + status_stats.emoji_reactions_count)) >= (5)::numeric)) t0
-    GROUP BY t0.account_id
-    ORDER BY (sum(t0.rank)) DESC;
-  SQL
-  add_index "follow_recommendations", ["account_id"], name: "index_follow_recommendations_on_account_id", unique: true
 
 end

@@ -17,7 +17,7 @@ module FollowImport
     SCHEMA_VERSION = 1
 
     Entry = Struct.new(:owner_key, :batch_id, :target_id, :position, :destination_domain, keyword_init: true)
-    Result = Struct.new(:entries, :next_cursor, keyword_init: true)
+    Result = Struct.new(:planned, :next_cursor, keyword_init: true)
 
     class Batch
       attr_reader :id
@@ -179,7 +179,7 @@ module FollowImport
 
     def result_for(entries, last_owner_key: @cursor.last_owner_key, last_batch_by_owner: @cursor.last_batch_by_owner, last_position_by_batch: @cursor.last_position_by_batch)
       Result.new(
-        entries: entries,
+        planned: entries,
         next_cursor: FollowImport::FairnessCursor::State.new(
           last_owner_key: last_owner_key,
           last_batch_by_owner: last_batch_by_owner,

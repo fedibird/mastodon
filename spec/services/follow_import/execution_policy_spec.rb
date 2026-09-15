@@ -128,8 +128,6 @@ RSpec.describe FollowImport::ExecutionPolicy do
         expect(described_class.shadow_plan_budget).to eq described_class.execution_batch_size
       end
     end
+    end
   end
-end
-
-
 
