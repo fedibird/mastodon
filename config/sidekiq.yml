@@ -83,3 +83,11 @@
       every: '1h'
       class: Scheduler::FollowImportCsvCleanupScheduler
       queue: scheduler
+    # Provisional / UNCALIBRATED shadow observation cadence for
+    # FollowImport::DispatchScheduler. This is NOT real dispatch pacing
+    # and must not be confused with FOLLOW_IMPORT_EXECUTION_INTERVAL.
+    # The worker is a cheap no-op unless FOLLOW_IMPORT_DISPATCH_SHADOW=true.
+    follow_import_dispatch_scheduler:
+      every: '1m'
+      class: Scheduler::FollowImportDispatchScheduler
+      queue: scheduler

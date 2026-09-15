@@ -246,8 +246,36 @@ Uncalibrated, env-overridable, **not** load-aware:
 - `FOLLOW_IMPORT_EXECUTION_BATCH_SIZE` (default 50)
 - `FOLLOW_IMPORT_EXECUTION_INTERVAL` (default 30 seconds)
 - `FOLLOW_IMPORT_GATE_ENFORCEMENT` (default off; gate is logged, not applied)
+- `FOLLOW_IMPORT_DISPATCH_SHADOW` (default off; global scheduler observes only)
 
 This PR does not change those values or add an under-load short-circuit.
+
+### `follow_import_dispatch_tick_observations`
+
+One row per **global** `FollowImport::DispatchScheduler` tick (PR A
+shadow skeleton). This is not a per-batch
+`BatchExecutionWorker` pass. `claimed_count` is always `0` while the
+scheduler is shadow-only.
+
+| column | meaning |
+|---|---|
+| `observed_at` | tick start (UTC) |
+| `tick_id` | opaque uuid for the tick |
+| `scheduler_mode` | `shadow` in PR A |
+| `lease_acquired` | whether the PostgreSQL session advisory lease was held |
+| `outcome` | `lease_busy` / `shadow_observed` / `shadow_error` |
+| `global_pending_count` | pending targets across batches; NULL if unmeasured |
+| `active_batch_count` | distinct batches with a pending target; NULL if unmeasured |
+| `claimed_count` | always 0 in PR A |
+| `load_snapshot` | Sidekiq load facts, or NULL if capture failed |
+| `execution_config` | execution + shadow-flag snapshot |
+| `error_class` | exception class for `shadow_error` |
+| `metadata` | schema version plus non-identifying facts |
+
+See `docs/follow_import_dispatch_shadow.md`. The shadow scheduler must
+not store handles, usernames, payloads, inbox paths, target accts, or
+moderation scores. Load snapshots are not interpreted as
+NORMAL/BUSY/OVERLOADED here.
 
 ## Expected row volume
 

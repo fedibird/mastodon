@@ -56,4 +56,30 @@ RSpec.describe FollowImport::ExecutionPolicy do
       end
     end
   end
+
+  describe '.dispatch_shadow_enabled?' do
+    it 'is disabled by default' do
+      expect(described_class.dispatch_shadow_enabled?).to be false
+    end
+
+    it 'is enabled only when the explicit flag is set to true' do
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_SHADOW: 'true' do
+        expect(described_class.dispatch_shadow_enabled?).to be true
+      end
+    end
+
+    it 'stays disabled for any other flag value' do
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_SHADOW: '1' do
+        expect(described_class.dispatch_shadow_enabled?).to be false
+      end
+    end
+  end
+
+  describe '.dispatch_shadow_interval' do
+    it 'exposes a provisional observation cadence distinct from execution pacing' do
+      expect(described_class.dispatch_shadow_interval).to eq 1.minute
+      expect(described_class.dispatch_shadow_interval).not_to eq described_class.execution_reschedule_in
+    end
+  end
 end
+

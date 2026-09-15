@@ -27,6 +27,13 @@ module FollowImport
         nil
       end
 
+      def record_dispatch_tick(**attrs)
+        FollowImportDispatchTickObservation.create!(dispatch_tick_attributes(attrs))
+      rescue StandardError => e
+        warn_failure('dispatch_tick', e)
+        nil
+      end
+
       def warn_failure(kind, error)
         return unless allow_warning?(kind, error.class.name)
 
@@ -59,6 +66,27 @@ module FollowImport
           outcome: attrs[:outcome],
           http_status: attrs[:http_status],
           retry_after_seconds: attrs[:retry_after_seconds],
+          error_class: attrs[:error_class],
+          metadata: attrs[:metadata].presence || {},
+          created_at: Time.now.utc,
+        }
+      end
+
+      def dispatch_tick_attributes(attrs)
+        {
+          observed_at: attrs[:observed_at] || Time.now.utc,
+          tick_id: attrs[:tick_id],
+          scheduler_mode: attrs[:scheduler_mode] || 'shadow',
+          lease_acquired: attrs[:lease_acquired],
+          outcome: attrs[:outcome],
+          global_pending_count: attrs[:global_pending_count],
+          active_batch_count: attrs[:active_batch_count],
+          # PR A shadow mode never claims. Ignore any caller value so a later
+          # planning PR cannot accidentally persist a non-zero claim through
+          # this writer without an explicit schema change.
+          claimed_count: 0,
+          load_snapshot: attrs[:load_snapshot],
+          execution_config: attrs[:execution_config],
           error_class: attrs[:error_class],
           metadata: attrs[:metadata].presence || {},
           created_at: Time.now.utc,

@@ -17,6 +17,12 @@
 # gate_enforcement_enabled? is OFF by default: the follow gate is observed/logged
 # during execution but must NOT affect it unless an operator explicitly opts in
 # with the experimental flag. No real Follow Import friction ships enabled.
+#
+# dispatch_shadow_enabled? is OFF by default. When true, Scheduler::FollowImportDispatchScheduler
+# may acquire the global advisory lease and write tick telemetry. It still
+# claims nothing. This flag is independent of FOLLOW_IMPORT_EXECUTION_BATCH_SIZE
+# and FOLLOW_IMPORT_EXECUTION_INTERVAL, which continue to pace the legacy
+# BatchExecutionWorker only.
 module FollowImport
   module ExecutionPolicy
     module_function
@@ -25,6 +31,11 @@ module FollowImport
 
     DEFAULT_BATCH_SIZE     = 50
     DEFAULT_RESCHEDULE_IN  = 30.seconds
+
+    # Provisional / UNCALIBRATED observation cadence for the shadow dispatcher.
+    # This is NOT the real dispatch interval and must not be confused with
+    # FOLLOW_IMPORT_EXECUTION_INTERVAL.
+    DEFAULT_DISPATCH_SHADOW_INTERVAL = 1.minute
 
     def response_wait
       RESPONSE_WAIT
@@ -49,6 +60,18 @@ module FollowImport
     # logged for observation.
     def gate_enforcement_enabled?
       ENV['FOLLOW_IMPORT_GATE_ENFORCEMENT'].to_s == 'true'
+    end
+
+    # Shadow-only global dispatcher. Default off: the scheduler is a cheap no-op.
+    # When true, one process may hold FollowImport::DispatchLease, inspect
+    # backlog/load, and write FollowImportDispatchTickObservation rows.
+    # It must not claim, enqueue, pause, or change Follow Import execution.
+    def dispatch_shadow_enabled?
+      ENV['FOLLOW_IMPORT_DISPATCH_SHADOW'].to_s == 'true'
+    end
+
+    def dispatch_shadow_interval
+      DEFAULT_DISPATCH_SHADOW_INTERVAL
     end
   end
 end

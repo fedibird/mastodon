@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_15_010005) do
+ActiveRecord::Schema.define(version: 2026_09_15_020001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -608,6 +608,24 @@ ActiveRecord::Schema.define(version: 2026_09_15_010005) do
     t.string "pass_error_class"
     t.index ["batch_id", "observed_at"], name: "index_fi_dispatch_observations_on_batch_and_observed_at"
     t.index ["observed_at"], name: "index_fi_dispatch_observations_on_observed_at"
+  end
+
+  create_table "follow_import_dispatch_tick_observations", force: :cascade do |t|
+    t.datetime "observed_at", null: false
+    t.string "tick_id", null: false
+    t.string "scheduler_mode", null: false
+    t.boolean "lease_acquired", null: false
+    t.string "outcome", null: false
+    t.integer "global_pending_count"
+    t.integer "active_batch_count"
+    t.integer "claimed_count", default: 0, null: false
+    t.jsonb "load_snapshot"
+    t.jsonb "execution_config"
+    t.string "error_class"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.index ["observed_at"], name: "index_fi_dispatch_tick_observations_on_observed_at"
+    t.index ["tick_id"], name: "index_fi_dispatch_tick_observations_on_tick_id"
   end
 
   create_table "follow_import_transport_observations", force: :cascade do |t|

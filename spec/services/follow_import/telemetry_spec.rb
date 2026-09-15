@@ -45,4 +45,51 @@ RSpec.describe FollowImport::Telemetry do
     expect(row.active_batch_count).to be_nil
     expect(row.load_snapshot).to be_nil
   end
+
+  it 'swallows dispatch-tick insert failures and logs a warning' do
+    allow(FollowImportDispatchTickObservation).to receive(:create!).and_raise(ActiveRecord::StatementInvalid, 'boom')
+    allow(Rails.logger).to receive(:warn)
+
+    expect(
+      described_class.record_dispatch_tick(
+        tick_id: 'tick',
+        outcome: 'shadow_observed',
+        lease_acquired: true,
+        claimed_count: 99
+      )
+    ).to be_nil
+
+    expect(Rails.logger).to have_received(:warn).with(/FollowImport::Telemetry.*dispatch_tick/)
+  end
+
+  it 'forces claimed_count to 0 on tick observations even if a caller passes a positive value' do
+    row = described_class.record_dispatch_tick(
+      tick_id: 'tick-zero',
+      outcome: 'shadow_observed',
+      lease_acquired: true,
+      claimed_count: 12,
+      global_pending_count: 3,
+      active_batch_count: 1
+    )
+
+    expect(row.claimed_count).to eq 0
+    expect(row.global_pending_count).to eq 3
+  end
+
+  it 'persists nil tick backlog counts instead of coercing them to zero' do
+    row = described_class.record_dispatch_tick(
+      tick_id: 'tick-nil',
+      outcome: 'shadow_observed',
+      lease_acquired: true,
+      global_pending_count: nil,
+      active_batch_count: nil,
+      load_snapshot: nil
+    )
+
+    expect(row.global_pending_count).to be_nil
+    expect(row.active_batch_count).to be_nil
+    expect(row.load_snapshot).to be_nil
+    expect(row.claimed_count).to eq 0
+  end
 end
+
