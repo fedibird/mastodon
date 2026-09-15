@@ -3,6 +3,10 @@
 # Observes account resolution for a Follow Import target. Records resolved vs
 # unresolved_or_unavailable; does not guess Stoplight fallback vs not-found
 # (both currently return nil). Recording failures never raise.
+#
+# duration_ms is end-to-end ResolveAccountService path cost (cache hit, local
+# lookup, or remote discovery). It is NOT remote HTTP response latency.
+# queued_at on the target is the executor claim/enqueue origin (pull queue wait).
 module FollowImport
   class ResolutionObserver
     def self.observe(target_id:, acct:, stoplight_wrapped:, sidekiq_queue:, sidekiq_job_id:)
@@ -33,6 +37,8 @@ module FollowImport
 
     def self.record(target_id:, acct:, stoplight_wrapped:, sidekiq_queue:, sidekiq_job_id:, started_at:, account:, error:)
       target = FollowImportTarget.find_by(id: target_id)
+      finished_at = Time.now.utc
+      enqueued_at = target&.queued_at
 
       FollowImport::Telemetry.record_transport(
         batch_id: target&.batch_id,
@@ -42,12 +48,16 @@ module FollowImport
         sidekiq_queue: sidekiq_queue,
         sidekiq_job_id: sidekiq_job_id,
         started_at: started_at,
-        finished_at: Time.now.utc,
+        finished_at: finished_at,
+        enqueued_at: enqueued_at,
+        queue_wait_ms: FollowImport::ObservationTime.duration_ms(enqueued_at, started_at),
         outcome: resolve_outcome(account, error),
         error_class: error&.class&.name,
         metadata: {
           'schema' => FollowImport::Telemetry::SCHEMA_NAME,
           'schema_version' => FollowImport::Telemetry::SCHEMA_VERSION,
+          'duration_kind' => 'resolve_path',
+          'enqueue_origin' => 'follow_import_target.queued_at',
           'stoplight_wrapped' => stoplight_wrapped,
         }
       )

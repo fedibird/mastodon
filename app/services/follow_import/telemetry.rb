@@ -2,10 +2,11 @@
 
 # Failure-tolerant writers for Follow Import transport/load telemetry.
 # Insert or snapshot failures are logged (rate-limited) and never raised to
-# the Follow Import business path.
+# the Follow Import business path. Nil count/duration values stay nil — they
+# are not coerced to 0.
 module FollowImport
   class Telemetry
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
     SCHEMA_NAME    = 'follow_import_pacing_telemetry'
     WARN_TTL       = 60
 
@@ -49,7 +50,12 @@ module FollowImport
           sidekiq_job_id: attrs[:sidekiq_job_id],
           started_at: started_at,
           finished_at: finished_at,
-          duration_ms: duration_ms(started_at, finished_at),
+          duration_ms: FollowImport::ObservationTime.duration_ms(started_at, finished_at) || 0,
+          enqueued_at: attrs[:enqueued_at],
+          request_started_at: attrs[:request_started_at],
+          request_finished_at: attrs[:request_finished_at],
+          queue_wait_ms: attrs[:queue_wait_ms],
+          request_duration_ms: attrs[:request_duration_ms],
           outcome: attrs[:outcome],
           http_status: attrs[:http_status],
           retry_after_seconds: attrs[:retry_after_seconds],
@@ -63,20 +69,17 @@ module FollowImport
         {
           batch_id: attrs[:batch_id],
           observed_at: attrs[:observed_at] || Time.now.utc,
-          candidate_count: attrs[:candidate_count].to_i,
-          claimed_count: attrs[:claimed_count].to_i,
-          pending_count: attrs[:pending_count].to_i,
-          load_snapshot: attrs[:load_snapshot].presence || {},
+          candidate_count: attrs[:candidate_count],
+          claimed_count: attrs[:claimed_count],
+          pending_count: attrs[:pending_count],
+          batch_pending_before: attrs[:batch_pending_before],
+          batch_pending_after: attrs[:batch_pending_after],
+          global_pending_count: attrs[:global_pending_count],
+          active_batch_count: attrs[:active_batch_count],
+          load_snapshot: attrs[:load_snapshot],
           execution_policy: attrs[:execution_policy].presence || {},
           created_at: Time.now.utc,
         }
-      end
-
-      def duration_ms(started_at, finished_at)
-        return 0 if started_at.blank? || finished_at.blank?
-
-        ms = ((finished_at - started_at) * 1000).round
-        ms.negative? ? 0 : ms
       end
 
       def allow_warning?(kind, error_class)

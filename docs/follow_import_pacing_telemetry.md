@@ -14,17 +14,35 @@ budgets, per-domain rate limits, fairness, automatic backoff, Follow Gate
 coupling, Node capacity scores, or removal of the existing CSV / domain-sort
 hack.
 
+## No moderation decision/signal coupling
+
+Telemetry does **not** consume Adaptive Follow Gate proposals, risk scores,
+block/mute/report counts, or Reject-as-abuse interpretation.
+
+Batch/target *ownership* still goes through `Moderation::FollowImportRecorder`
+and `ModerationSubject`. That is a Fedibird implementation legacy: the rows
+were created on the moderation ledger because Follow Import was recorded there
+first. Factor that into a neutral Follow Import layer before or when
+upstreaming the pacing work. This PR does not perform that refactor.
+
+`batch_id` and `target_id` on telemetry rows are nullable correlation tokens
+**without foreign keys**. Telemetry retention must not be tied to
+moderation-subject retention.
+
 ## What is collected
 
 Technical facts only:
 
-- dispatch volume (candidates / claimed / remaining pending)
-- local Sidekiq load (queue size/latency, retry size, push/pull concurrency)
+- dispatch volume (candidates / claimed / batch + global pending / active batches)
+- local Sidekiq load **before** the pass claims or enqueues work
 - destination domain (from the imported acct)
 - actual HTTP endpoint origin (scheme + host + non-default port)
-- resolve duration and outcome
-- ActivityPub delivery duration, HTTP status, Retry-After, error class
-- enough timestamps to derive delivery → Accept / delivery → Reject later
+- resolve-path duration and outcome (not remote HTTP unless separately observed)
+- ActivityPub worker duration **and** actual HTTP request duration
+- push-queue wait (from `delivery_tracking.enqueued_at`) and pull-queue wait
+  (from `FollowImportTarget.queued_at`)
+- HTTP status, Retry-After, error class
+- enough timestamps to derive request → Accept / request → Reject later
 
 ## What is never stored
 
@@ -35,11 +53,6 @@ Technical facts only:
 - extra source account IDs beyond the existing batch/target references
 - moderation risk scores, block/mute/report counts
 - negative-response interpretation
-
-`batch_id` and `target_id` on telemetry rows are nullable correlation tokens
-**without foreign keys**. Deleting a `ModerationSubject` / batch does not
-cascade into these tables, and telemetry retention must not be tied to
-moderation-subject retention.
 
 ## Schema
 
@@ -64,21 +77,67 @@ One row per observed attempt.
 | `destination_domain` | acct-derived routing domain |
 | `endpoint_origin` | origin of the HTTP request actually sent |
 | `sidekiq_queue` / `sidekiq_job_id` | worker identity |
-| `started_at` / `finished_at` / `duration_ms` | wall time |
+| `enqueued_at` | dispatch origin (see below); NULL if unknown |
+| `started_at` / `finished_at` / `duration_ms` | **worker** wall time |
+| `request_started_at` / `request_finished_at` / `request_duration_ms` | actual HTTP attempt; **NULL if no request** |
+| `queue_wait_ms` | `started_at - enqueued_at` when both are present; else NULL |
 | `outcome` | coarse technical bucket (see below) |
 | `http_status` | actual status when a response was received |
 | `retry_after_seconds` | parsed `Retry-After` when safely parseable |
 | `error_class` | exception class name when one escaped to the worker |
 | `metadata` | schema version plus non-identifying facts |
 
+`0` on a duration/count means an observed zero (or a clamped negative clock
+skew between two present timestamps). **NULL means the measurement was
+unavailable.** Telemetry code must not encode a failed count as `0`.
+
 `destination_domain` and `endpoint_origin` are different ideas. A shared inbox,
 a CDN, or an alternate host can make them diverge (`alice@example.social` vs
 `https://inbox.example.social:8443`).
+
+#### Timing fields (do not collapse them)
+
+**Worker duration** (`started_at` → `finished_at` / `duration_ms`) includes
+DeliveryFailureTracker, Account lookup, URL setup, Stoplight, RequestPool wait,
+signing, and the HTTP attempt. Do **not** treat it as remote response latency.
+
+**Request duration** is captured inside `request_pool.with`, immediately before
+`build_request(...).perform`, and closed in `ensure` so timeouts and connection
+errors still get `request_finished_at`. Availability suppression and
+Stoplight-open (`RedLight`) leave all `request_*` columns NULL.
+
+**Push queue wait** (`activitypub_delivery`): `FollowService` stamps
+`delivery_tracking.enqueued_at` (ISO8601) immediately before
+`ActivityPub::DeliveryWorker.perform_async` for Follow Import deliveries only.
+Ordinary deliveries are unchanged. On Sidekiq retry the original enqueue
+timestamp is reused, so `queue_wait_ms` includes retry delay.
+
+**Pull queue wait** (`resolve_account`): `FollowImportTarget.queued_at` is
+written when `BatchExecutionWorker` claims the target, immediately before
+`Import::RelationshipWorker.perform_async`. Resolution telemetry uses that as
+`enqueued_at`. It measures claim → RelationshipWorker start, **not** remote
+HTTP. RelationshipWorker retries keep the original `queued_at`.
 
 ### `follow_import_dispatch_observations`
 
 One row per `FollowImport::BatchExecutionWorker` pass, including passes that
 claim nothing.
+
+`load_snapshot` is captured at the **start** of the pass, before any target is
+claimed or any `RelationshipWorker` job is enqueued. Using a post-dispatch
+snapshot would contaminate the baseline with work this pass just created.
+
+| column | meaning |
+|---|---|
+| `batch_pending_before` | this batch's pending targets at pre-dispatch |
+| `batch_pending_after` | this batch's pending targets after the pass |
+| `pending_count` | same as `batch_pending_after` (legacy alias) |
+| `global_pending_count` | pending targets across all batches (pre-dispatch) |
+| `active_batch_count` | distinct batches with at least one pending target (pre-dispatch) |
+
+These are scheduling/load facts. They do not store account or subject ids.
+`claimed_count` plus `observed_at` is enough to derive a global dispatch rate
+later.
 
 `execution_policy` snapshots the knobs in force at that moment:
 
@@ -86,26 +145,29 @@ claim nothing.
 - `execution_reschedule_in` (seconds)
 - `gate_enforcement_enabled`
 - telemetry `schema` / `schema_version`
+- `load_snapshot_timing` = `pre_dispatch`
 
 so later env changes remain reconstructable.
 
-`load_snapshot` is read-only. This PR **never** skips or slows a pass because
-the instance is under load.
+This PR **never** skips or slows a pass because the instance is under load.
 
 ## Instrumented paths
 
 1. `Moderation::FollowImportRecorder#record_batch` — persist `destination_domain`.
 2. `Import::RelationshipWorker` — `resolve_account` observation only when
    `follow_import_target_id` is present on a follow.
-3. `ActivityPub::DeliveryWorker` — `activitypub_delivery` observation only when
+3. `FollowService#request_follow!` — stamp `enqueued_at` on Follow Import
+   `delivery_tracking` only.
+4. `ActivityPub::DeliveryWorker` — `activitypub_delivery` observation only when
    `delivery_tracking.type == follow_import_target`.
-4. `FollowImport::BatchExecutionWorker` — one dispatch/load observation per pass.
+5. `FollowImport::BatchExecutionWorker` — pre-dispatch load + backlog, then one
+   dispatch observation per pass.
 
 Ordinary (non-import) resolution and ActivityPub delivery are not observed.
 
 Telemetry insert failure, Sidekiq-stats failure, and unparseable endpoint /
-Retry-After values are swallowed by `FollowImport::Telemetry` after a
-rate-limited warning. They must not fail or retry the business path.
+Retry-After / enqueue timestamps are swallowed by `FollowImport::Telemetry`
+after a rate-limited warning. They must not fail or retry the business path.
 
 ## Outcomes and limitations
 
@@ -116,6 +178,11 @@ fallback is `{ nil }`. A circuit-open fallback and a genuine not-found are
 therefore **indistinguishable**. Both are recorded as
 `unresolved_or_unavailable`. The metadata flag `stoplight_wrapped` only records
 whether the remote-domain Stoplight path ran; it is not a suppression verdict.
+
+`duration_ms` on `resolve_account` is **end-to-end resolution-path duration**.
+`ResolveAccountService` may finish from a local/cached account as well as by
+remote discovery. Do **not** interpret that value as remote HTTP response
+latency. This PR does not instrument ResolveAccountService's HTTP calls.
 
 Raised exceptions that escape the worker are recorded as `unknown_exception`
 with `error_class` and then re-raised (existing retry behaviour).
@@ -155,10 +222,10 @@ No extra response-timestamp column is added. `completed_at` is the Accept /
 Reject receive time for those states.
 
 Accept/Reject can race **ahead** of the delivery-success callback, so
-`delivered_at` may be null and `completed_at` may precede a delivery
-observation's `finished_at`. Analysts should JOIN the target to
-`activitypub_delivery` observations (prefer the earliest `http_success`)
-rather than assume `delivered_at` is always present.
+`delivered_at` may be null and `completed_at` may precede worker `finished_at`.
+Analysts should JOIN the target to `activitypub_delivery` observations and use
+`request_started_at` (else `enqueued_at`) as the origin — not `finished_at` —
+so a bookkeeping race does not produce a negative latency by itself.
 
 ## Current baseline execution policy
 
@@ -186,12 +253,17 @@ Example: a 10_000-target remote import with 1.2 delivery attempts and one
 successful resolve each ≈ 10k resolve + 12k delivery + ~200 dispatch ≈ 22k
 rows. A high-retry domain multiplies delivery rows up to ~17× that target.
 
+Time-oriented indexes (`started_at`, `observed_at`, and
+`phase + domain/origin + started_at`) exist so later cleanup/aggregation can
+delete or roll up raw rows by window without a sequential scan.
+
 ### Future cleanup / aggregation (not implemented)
 
 Suggested later work, not part of this PR:
 
 1. Nightly aggregate to per-`destination_domain` / per-`endpoint_origin`
-   counters (attempts, status histogram, duration percentiles, Retry-After).
+   counters (attempts, status histogram, **request** duration percentiles,
+   Retry-After).
 2. Drop or archive raw rows older than an operator-chosen window
    (for example 14–30 days) independently of moderation-subject retention.
 3. Do **not** roll these facts into Node capacity scores until a later
@@ -199,7 +271,7 @@ Suggested later work, not part of this PR:
 
 ## Sample read-only SQL
 
-### A. Per destination domain
+### A. Per destination domain (actual HTTP request duration)
 
 ```sql
 SELECT
@@ -209,24 +281,19 @@ SELECT
   COUNT(*) FILTER (WHERE outcome = 'http_retryable') AS http_retryable,
   COUNT(*) FILTER (WHERE outcome = 'http_unsalvageable') AS http_unsalvageable,
   COUNT(*) FILTER (WHERE outcome IN ('timeout', 'connection_failure')) AS transport_errors,
-  jsonb_object_agg(http_status, status_count) FILTER (WHERE http_status IS NOT NULL) AS http_status_distribution,
-  percentile_cont(0.50) WITHIN GROUP (ORDER BY duration_ms) AS p50_duration_ms,
-  percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms) AS p95_duration_ms
-FROM (
-  SELECT
-    destination_domain,
-    outcome,
-    http_status,
-    duration_ms,
-    COUNT(*) OVER (PARTITION BY destination_domain, http_status) AS status_count
-  FROM follow_import_transport_observations
-  WHERE phase = 'activitypub_delivery'
-) attempts
+  percentile_cont(0.50) WITHIN GROUP (ORDER BY request_duration_ms)
+    FILTER (WHERE request_duration_ms IS NOT NULL) AS p50_request_ms,
+  percentile_cont(0.95) WITHIN GROUP (ORDER BY request_duration_ms)
+    FILTER (WHERE request_duration_ms IS NOT NULL) AS p95_request_ms
+FROM follow_import_transport_observations
+WHERE phase = 'activitypub_delivery'
 GROUP BY destination_domain
 ORDER BY attempts DESC;
 ```
 
-A simpler status histogram without the window:
+Do **not** use `duration_ms` here — that is worker wall time.
+
+Status histogram:
 
 ```sql
 SELECT destination_domain, http_status, COUNT(*) AS n
@@ -248,6 +315,8 @@ SELECT
   COUNT(*) FILTER (WHERE http_status BETWEEN 500 AND 599)::float / NULLIF(COUNT(*), 0) AS rate_5xx,
   COUNT(*) FILTER (WHERE outcome = 'timeout') AS count_timeout,
   COUNT(*) FILTER (WHERE outcome = 'timeout')::float / NULLIF(COUNT(*), 0) AS rate_timeout,
+  percentile_cont(0.50) WITHIN GROUP (ORDER BY request_duration_ms)
+    FILTER (WHERE request_duration_ms IS NOT NULL) AS p50_request_ms,
   percentile_cont(0.50) WITHIN GROUP (ORDER BY retry_after_seconds)
     FILTER (WHERE retry_after_seconds IS NOT NULL) AS p50_retry_after_seconds,
   MAX(retry_after_seconds) AS max_retry_after_seconds
@@ -258,7 +327,7 @@ GROUP BY endpoint_origin
 ORDER BY count_429 DESC, attempts DESC;
 ```
 
-### C. Dispatch pass vs local load
+### C. Dispatch pass vs pre-dispatch local load
 
 ```sql
 SELECT
@@ -267,7 +336,10 @@ SELECT
   d.observed_at,
   d.candidate_count,
   d.claimed_count,
-  d.pending_count,
+  d.batch_pending_before,
+  d.batch_pending_after,
+  d.global_pending_count,
+  d.active_batch_count,
   (d.load_snapshot -> 'queues' -> 'default' ->> 'latency')::float AS default_latency,
   (d.load_snapshot -> 'queues' -> 'push' ->> 'latency')::float AS push_latency,
   (d.load_snapshot -> 'queues' -> 'pull' ->> 'latency')::float AS pull_latency,
@@ -277,38 +349,44 @@ FROM follow_import_dispatch_observations d
 ORDER BY d.observed_at DESC;
 ```
 
-### D. Delivery → Accept / Reject latency
+### D. Request → Accept / Reject latency
+
+Use the HTTP request start (else enqueue time) as the origin, not worker
+`finished_at`.
 
 ```sql
 SELECT
   t.destination_domain,
   t.state,
-  EXTRACT(EPOCH FROM (t.completed_at - d.finished_at)) AS response_latency_seconds
+  EXTRACT(EPOCH FROM (
+    t.completed_at - COALESCE(d.request_started_at, d.enqueued_at)
+  )) AS response_latency_seconds
 FROM follow_import_targets t
 JOIN LATERAL (
-  SELECT o.finished_at
+  SELECT o.request_started_at, o.enqueued_at
   FROM follow_import_transport_observations o
   WHERE o.target_id = t.id
     AND o.phase = 'activitypub_delivery'
     AND o.outcome = 'http_success'
-  ORDER BY o.finished_at ASC
+  ORDER BY COALESCE(o.request_started_at, o.enqueued_at) ASC NULLS LAST
   LIMIT 1
 ) d ON TRUE
 WHERE t.state IN ('accepted', 'rejected')
   AND t.completed_at IS NOT NULL;
 ```
 
-Negative latency means Accept/Reject was recorded before the delivery
-observation finished (the known race). Those rows are still valid; they
-should not be treated as clock error alone.
+A remaining negative value means Accept/Reject was recorded before this
+request started (for example a prior attempt). Those rows are still valid.
 
 ## Known observation gaps
 
 - Local follows that never hit `ActivityPub::DeliveryWorker`.
 - Non-Follow-Import ActivityPub deliveries and relationship imports.
 - Stoplight-open vs not-found during resolve (see above).
+- Resolve path has no lower-level HTTP span (`request_*` stays NULL).
 - Shared-inbox / alternate-host mapping is visible only as
   `destination_domain` ≠ `endpoint_origin`, not as a graph.
-- Sidekiq retry index is not stored (only `sidekiq_job_id`).
+- Sidekiq retry index is not stored (only `sidekiq_job_id`). On retry,
+  `enqueued_at` is the original enqueue, so `queue_wait_ms` includes retry delay.
 - HTTP bodies, inbox paths, and remote error text are intentionally absent.
 - No Node-level aggregation yet.

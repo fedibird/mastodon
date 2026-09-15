@@ -165,7 +165,13 @@ class FollowService < BaseService
       # success/failure updates the target. Only set for follow-import follows;
       # normal follows leave delivery_options untouched.
       tracking = prepare_follow_import_tracking(follow_request)
-      delivery_options['delivery_tracking'] = tracking if tracking
+      if tracking
+        # Stamp enqueue time at the last moment before perform_async so
+        # Follow Import delivery telemetry can measure push-queue wait.
+        # Ordinary (non-import) follows never set delivery_tracking.
+        tracking = tracking.merge('enqueued_at' => Time.now.utc.iso8601(6))
+        delivery_options['delivery_tracking'] = tracking
+      end
 
       ActivityPub::DeliveryWorker.perform_async(build_json(follow_request), @source_account.id, @target_account.inbox_url, delivery_options)
     end

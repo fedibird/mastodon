@@ -37,7 +37,7 @@ RSpec.describe 'FollowService follow-import delivery tracking' do
     expect(import_target.follow_request_uri).to eq follow_request.uri
 
     options = args.last
-    expect(options['delivery_tracking']).to eq({ 'type' => 'follow_import_target', 'id' => import_target.id })
+    expect_follow_import_tracking(options, import_target)
   end
 
   it 'attaches no delivery tracking for a normal (non-import) follow' do
@@ -63,7 +63,7 @@ RSpec.describe 'FollowService follow-import delivery tracking' do
 
     import_target.reload
     expect(import_target.state).to eq 'queued'
-    expect(args.last['delivery_tracking']).to eq({ 'type' => 'follow_import_target', 'id' => import_target.id })
+    expect_follow_import_tracking(args.last, import_target)
   end
 
   it 'still persists the correlation URI when the target was already claimed (queued) by the executor' do
@@ -78,7 +78,7 @@ RSpec.describe 'FollowService follow-import delivery tracking' do
     import_target.reload
     expect(import_target.state).to eq 'queued'
     expect(import_target.follow_request_uri).to be_present
-    expect(args.last['delivery_tracking']).to eq({ 'type' => 'follow_import_target', 'id' => import_target.id })
+    expect_follow_import_tracking(args.last, import_target)
   end
 
   it 'ignores a target id that belongs to a different batch (fails closed)' do
@@ -109,7 +109,13 @@ RSpec.describe 'FollowService follow-import delivery tracking' do
       expect(unresolved_target.state).to eq 'queued'
       expect(unresolved_target.follow_request_uri).to be_present
       expect(unresolved_target.target_subject).to eq ModerationSubject.find_by(account_id: target.id)
-      expect(args.last['delivery_tracking']).to eq({ 'type' => 'follow_import_target', 'id' => unresolved_target.id })
+      expect_follow_import_tracking(args.last, unresolved_target)
     end
+  end
+
+  def expect_follow_import_tracking(options, target)
+    tracking = options['delivery_tracking']
+    expect(tracking).to include('type' => 'follow_import_target', 'id' => target.id)
+    expect { Time.iso8601(tracking['enqueued_at']) }.not_to raise_error
   end
 end

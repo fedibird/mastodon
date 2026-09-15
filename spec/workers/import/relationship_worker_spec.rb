@@ -106,6 +106,11 @@ describe Import::RelationshipWorker do
       expect(observation.outcome).to eq 'resolved'
       expect(observation.target_id).to eq import_target.id
       expect(observation.destination_domain).to eq 'example.com'
+      expect(observation.enqueued_at).to be_within(1.second).of(import_target.queued_at)
+      expect(observation.queue_wait_ms).to be >= 0
+      expect(observation.request_started_at).to be_nil
+      expect(observation.request_duration_ms).to be_nil
+      expect(observation.metadata['duration_kind']).to eq 'resolve_path'
       expect(follow_service).to have_received(:call)
     end
 

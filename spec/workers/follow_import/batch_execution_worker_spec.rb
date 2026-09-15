@@ -180,14 +180,68 @@ RSpec.describe FollowImport::BatchExecutionWorker do
       expect(observation.batch_id).to eq batch.id
       expect(observation.candidate_count).to eq 2
       expect(observation.claimed_count).to eq 2
+      expect(observation.batch_pending_before).to eq 2
+      expect(observation.batch_pending_after).to eq 0
       expect(observation.pending_count).to eq 0
+      expect(observation.global_pending_count).to eq 2
+      expect(observation.active_batch_count).to eq 1
       expect(observation.load_snapshot['queues']['push']).to include('size' => 1, 'latency' => 0.2)
       expect(observation.load_snapshot['push_concurrency']).to eq 4
       expect(observation.load_snapshot['pull_concurrency']).to eq 3
       expect(observation.execution_policy['execution_batch_size']).to eq FollowImport::ExecutionPolicy.execution_batch_size
       expect(observation.execution_policy['execution_reschedule_in']).to eq FollowImport::ExecutionPolicy.execution_reschedule_in.to_i
       expect(observation.execution_policy['gate_enforcement_enabled']).to eq false
-      expect(observation.execution_policy['schema_version']).to eq 1
+      expect(observation.execution_policy['schema_version']).to eq 2
+      expect(observation.execution_policy['load_snapshot_timing']).to eq 'pre_dispatch'
+    end
+
+    it 'captures LoadSnapshot before RelationshipWorker jobs are enqueued' do
+      order = []
+      allow(FollowImport::LoadSnapshot).to receive(:capture) do
+        order << :load_snapshot
+        { 'schema_version' => 2, 'queues' => {} }
+      end
+      allow(Import::RelationshipWorker).to receive(:perform_async) do |*_args|
+        order << :enqueue
+      end
+      add_target(0)
+
+      worker.perform(batch.id)
+
+      expect(order).to eq %i(load_snapshot enqueue)
+    end
+
+    it 'records global pending and active-batch counts at pre-dispatch' do
+      other = FollowImportBatch.create!(subject: Fabricate(:moderation_subject), imported_at: Time.now.utc, mode: :merge,
+                                        target_count: 0, resolved_target_count: 0, unresolved_target_count: 0)
+      other.targets.create!(target_key_hash: 'other-a', position: 0)
+      other.targets.create!(target_key_hash: 'other-b', position: 1)
+      add_target(0)
+      add_target(1)
+
+      worker.perform(batch.id)
+
+      observation = FollowImportDispatchObservation.last
+      expect(observation.batch_pending_before).to eq 2
+      expect(observation.batch_pending_after).to eq 0
+      expect(observation.global_pending_count).to eq 4
+      expect(observation.active_batch_count).to eq 2
+    end
+
+    it 'stores NULL rather than 0 when a backlog count cannot be measured' do
+      allow(FollowImport::DispatchCounts).to receive(:pending_for).and_return(nil)
+      allow(FollowImport::DispatchCounts).to receive(:global_pending).and_return(nil)
+      allow(FollowImport::DispatchCounts).to receive(:active_batches).and_return(nil)
+      add_target(0)
+
+      worker.perform(batch.id)
+
+      observation = FollowImportDispatchObservation.last
+      expect(observation.batch_pending_before).to be_nil
+      expect(observation.batch_pending_after).to be_nil
+      expect(observation.pending_count).to be_nil
+      expect(observation.global_pending_count).to be_nil
+      expect(observation.active_batch_count).to be_nil
     end
 
     it 'records an observation even when no targets are claimed' do

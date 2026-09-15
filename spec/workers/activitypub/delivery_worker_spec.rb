@@ -69,7 +69,8 @@ describe ActivityPub::DeliveryWorker do
     let(:import_target) do
       batch.targets.create!(target_key_hash: 'key', destination_domain: 'example.com', position: 0)
     end
-    let(:tracking) { { 'type' => 'follow_import_target', 'id' => import_target.id } }
+    let(:enqueued_at) { 2.seconds.ago.utc.change(usec: 0) }
+    let(:tracking) { { 'type' => 'follow_import_target', 'id' => import_target.id, 'enqueued_at' => enqueued_at.iso8601(6) } }
     let(:inbox_url) { 'https://cdn.example.social:8443/users/bob/inbox' }
 
     before do
@@ -92,6 +93,12 @@ describe ActivityPub::DeliveryWorker do
       expect(observation.target_id).to eq import_target.id
       expect(observation.batch_id).to eq batch.id
       expect(observation.metadata['performed']).to be true
+      expect(observation.enqueued_at).to be_within(1.second).of(enqueued_at)
+      expect(observation.queue_wait_ms).to be >= 0
+      expect(observation.request_started_at).to be_present
+      expect(observation.request_finished_at).to be_present
+      expect(observation.request_duration_ms).to be >= 0
+      expect(observation.metadata['duration_kind']).to eq 'worker'
     end
 
     it 'records a retryable HTTP error and still raises so Sidekiq retries' do
@@ -132,6 +139,23 @@ describe ActivityPub::DeliveryWorker do
       expect(observation.outcome).to eq 'timeout'
       expect(observation.error_class).to eq 'HTTP::TimeoutError'
       expect(observation.http_status).to be_nil
+      expect(observation.request_started_at).to be_present
+      expect(observation.request_finished_at).to be_present
+      expect(observation.request_duration_ms).to be >= 0
+    end
+
+    it 'leaves request timing NULL when availability suppression sends no HTTP request' do
+      allow(DeliveryFailureTracker).to receive(:available?).with(inbox_url).and_return(false)
+
+      expect {
+        subject.perform(payload, sender.id, inbox_url, { 'delivery_tracking' => tracking })
+      }.not_to raise_error
+
+      observation = FollowImportTransportObservation.last
+      expect(observation.outcome).to eq 'availability_suppression'
+      expect(observation.request_started_at).to be_nil
+      expect(observation.request_finished_at).to be_nil
+      expect(observation.request_duration_ms).to be_nil
     end
 
     it 'records a connection-failure observation and preserves the existing raise' do

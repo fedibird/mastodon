@@ -76,7 +76,9 @@ class ActivityPub::DeliveryWorker
       inbox_url: inbox_url,
       sidekiq_queue: 'push',
       sidekiq_job_id: jid,
-      started_at: started_at,
+      worker_started_at: started_at,
+      request_started_at: @request_started_at,
+      request_finished_at: @request_finished_at,
       response: @http_response,
       error: error,
       skip_reason: @delivery_skip_reason,
@@ -108,11 +110,16 @@ class ActivityPub::DeliveryWorker
   def perform_request
     light = Stoplight(@inbox_url) do
       request_pool.with(@host) do |http_client|
-        build_request(http_client).perform do |response|
-          @http_response = response
-          raise Mastodon::UnexpectedResponseError, response unless response_successful?(response) || response_error_unsalvageable?(response) || unsalvageable_authorization_failure?(response)
+        @request_started_at = Time.now.utc
+        begin
+          build_request(http_client).perform do |response|
+            @http_response = response
+            raise Mastodon::UnexpectedResponseError, response unless response_successful?(response) || response_error_unsalvageable?(response) || unsalvageable_authorization_failure?(response)
 
-          @performed = true
+            @performed = true
+          end
+        ensure
+          @request_finished_at = Time.now.utc
         end
       end
     end

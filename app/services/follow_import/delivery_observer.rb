@@ -4,15 +4,21 @@
 # target. Classifies from the actual HTTP status / exception — never from
 # DeliveryWorker's @performed flag, which is also set for unsalvageable
 # responses. Recording failures never raise.
+#
+# started_at/finished_at/duration_ms are worker wall time (includes queue-side
+# setup, Stoplight, RequestPool wait, signing). request_* is the actual HTTP
+# attempt inside request_pool.with; it stays NULL when no request was sent.
 module FollowImport
   class DeliveryObserver
-    def self.record_attempt(options:, inbox_url:, sidekiq_queue:, sidekiq_job_id:, started_at:, response:, error:, skip_reason:, performed:)
+    def self.record_attempt(options:, inbox_url:, sidekiq_queue:, sidekiq_job_id:, worker_started_at:, request_started_at:, request_finished_at:, response:, error:, skip_reason:, performed:)
       return unless follow_import_target?(options)
 
       tracking = tracking_from(options)
       target_id = tracking[:id]
       target = FollowImportTarget.find_by(id: target_id)
       http_response = response || response_from(error)
+      finished_at = Time.now.utc
+      enqueued_at = FollowImport::ObservationTime.parse(tracking[:enqueued_at])
 
       FollowImport::Telemetry.record_transport(
         batch_id: target&.batch_id,
@@ -22,8 +28,13 @@ module FollowImport
         endpoint_origin: FollowImport::EndpointOrigin.from_url(inbox_url),
         sidekiq_queue: sidekiq_queue,
         sidekiq_job_id: sidekiq_job_id,
-        started_at: started_at,
-        finished_at: Time.now.utc,
+        started_at: worker_started_at,
+        finished_at: finished_at,
+        enqueued_at: enqueued_at,
+        request_started_at: request_started_at,
+        request_finished_at: request_finished_at,
+        queue_wait_ms: FollowImport::ObservationTime.duration_ms(enqueued_at, worker_started_at),
+        request_duration_ms: FollowImport::ObservationTime.duration_ms(request_started_at, request_finished_at),
         outcome: delivery_outcome(http_response, error, skip_reason),
         http_status: http_status_from(http_response),
         retry_after_seconds: FollowImport::RetryAfter.seconds_from(http_response),
@@ -31,6 +42,7 @@ module FollowImport
         metadata: {
           'schema' => FollowImport::Telemetry::SCHEMA_NAME,
           'schema_version' => FollowImport::Telemetry::SCHEMA_VERSION,
+          'duration_kind' => 'worker',
           'performed' => performed,
           'skip_reason' => skip_reason,
         }.compact

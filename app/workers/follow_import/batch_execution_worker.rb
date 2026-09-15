@@ -33,6 +33,7 @@ module FollowImport
       now        = Time.now.utc
       candidates = []
       progress   = 0
+      snapshot   = capture_pre_dispatch_snapshot(batch, now)
 
       begin
         if account
@@ -53,7 +54,7 @@ module FollowImport
           finalize_import!(batch)
         end
       ensure
-        record_dispatch_observation(batch, now, candidates, progress)
+        record_dispatch_observation(batch, snapshot, candidates, progress)
       end
     end
 
@@ -121,12 +122,37 @@ module FollowImport
       gate.observation.merge('batch_id' => batch.id, 'candidates' => candidate_count)
     end
 
-    def record_dispatch_observation(batch, observed_at, candidates, claimed_count)
+    # Load and global backlog MUST be read before any claim/enqueue so the
+    # baseline is not contaminated by work this pass just created.
+    def capture_pre_dispatch_snapshot(batch, observed_at)
+      {
+        observed_at: observed_at,
+        load_snapshot: FollowImport::LoadSnapshot.capture,
+        batch_pending_before: FollowImport::DispatchCounts.pending_for(batch),
+        global_pending_count: FollowImport::DispatchCounts.global_pending,
+        active_batch_count: FollowImport::DispatchCounts.active_batches,
+      }
+    rescue StandardError => e
+      FollowImport::Telemetry.warn_failure('dispatch_snapshot', e)
+      {
+        observed_at: observed_at,
+        load_snapshot: nil,
+        batch_pending_before: nil,
+        global_pending_count: nil,
+        active_batch_count: nil,
+      }
+    end
+
+    def record_dispatch_observation(batch, snapshot, candidates, claimed_count)
       FollowImport::DispatchObserver.record(
         batch: batch,
-        observed_at: observed_at,
+        observed_at: snapshot[:observed_at],
         candidate_count: candidates.size,
-        claimed_count: claimed_count
+        claimed_count: claimed_count,
+        load_snapshot: snapshot[:load_snapshot],
+        batch_pending_before: snapshot[:batch_pending_before],
+        global_pending_count: snapshot[:global_pending_count],
+        active_batch_count: snapshot[:active_batch_count]
       )
     end
   end

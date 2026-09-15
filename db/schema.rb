@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_15_010003) do
+ActiveRecord::Schema.define(version: 2026_09_15_010004) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -596,11 +596,16 @@ ActiveRecord::Schema.define(version: 2026_09_15_010003) do
     t.datetime "observed_at", null: false
     t.integer "candidate_count", default: 0, null: false
     t.integer "claimed_count", default: 0, null: false
-    t.integer "pending_count", default: 0, null: false
-    t.jsonb "load_snapshot", default: {}, null: false
+    t.integer "pending_count"
+    t.jsonb "load_snapshot"
     t.jsonb "execution_policy", default: {}, null: false
     t.datetime "created_at", null: false
+    t.integer "batch_pending_before"
+    t.integer "batch_pending_after"
+    t.integer "global_pending_count"
+    t.integer "active_batch_count"
     t.index ["batch_id", "observed_at"], name: "index_fi_dispatch_observations_on_batch_and_observed_at"
+    t.index ["observed_at"], name: "index_fi_dispatch_observations_on_observed_at"
   end
 
   create_table "follow_import_transport_observations", force: :cascade do |t|
@@ -620,9 +625,15 @@ ActiveRecord::Schema.define(version: 2026_09_15_010003) do
     t.string "error_class"
     t.jsonb "metadata", default: {}, null: false
     t.datetime "created_at", null: false
+    t.datetime "enqueued_at"
+    t.datetime "request_started_at"
+    t.datetime "request_finished_at"
+    t.integer "queue_wait_ms"
+    t.integer "request_duration_ms"
     t.index ["batch_id"], name: "index_fi_transport_observations_on_batch_id"
-    t.index ["phase", "destination_domain"], name: "index_fi_transport_observations_on_phase_and_domain"
-    t.index ["phase", "endpoint_origin"], name: "index_fi_transport_observations_on_phase_and_origin"
+    t.index ["phase", "destination_domain", "started_at"], name: "index_fi_transport_observations_on_phase_domain_started"
+    t.index ["phase", "endpoint_origin", "started_at"], name: "index_fi_transport_observations_on_phase_origin_started"
+    t.index ["started_at"], name: "index_fi_transport_observations_on_started_at"
     t.index ["target_id"], name: "index_fi_transport_observations_on_target_id"
   end
 
