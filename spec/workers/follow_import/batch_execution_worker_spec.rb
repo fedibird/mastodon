@@ -17,6 +17,10 @@ RSpec.describe FollowImport::BatchExecutionWorker do
   end
 
   before do
+    allow(Sidekiq::Queue).to receive(:new).and_return(instance_double(Sidekiq::Queue, size: 1, latency: 0.2))
+    allow(Sidekiq::Stats).to receive(:new).and_return(instance_double(Sidekiq::Stats, retry_size: 0))
+    allow(Sidekiq::ProcessSet).to receive(:new).and_return([{ 'concurrency' => 4, 'queues' => ['push'] }, { 'concurrency' => 3, 'queues' => ['pull'] }])
+
     # Recover fixed work per claimed target (CSV parsing is covered elsewhere).
     allow_any_instance_of(FollowImport::ImportUnitResolver).to receive(:work_for) do |_resolver, target|
       { acct: "acct-#{target.id}@remote.test", options: { 'show_reblogs' => true } }
@@ -163,5 +167,49 @@ RSpec.describe FollowImport::BatchExecutionWorker do
 
   it 'is a no-op for an unknown batch' do
     expect { worker.perform(-1) }.not_to raise_error
+  end
+
+  describe 'dispatch/load observation' do
+    it 'records load and execution-policy snapshots for a pass' do
+      add_target(0)
+      add_target(1)
+
+      expect { worker.perform(batch.id) }.to change(FollowImportDispatchObservation, :count).by(1)
+
+      observation = FollowImportDispatchObservation.last
+      expect(observation.batch_id).to eq batch.id
+      expect(observation.candidate_count).to eq 2
+      expect(observation.claimed_count).to eq 2
+      expect(observation.pending_count).to eq 0
+      expect(observation.load_snapshot['queues']['push']).to include('size' => 1, 'latency' => 0.2)
+      expect(observation.load_snapshot['push_concurrency']).to eq 4
+      expect(observation.load_snapshot['pull_concurrency']).to eq 3
+      expect(observation.execution_policy['execution_batch_size']).to eq FollowImport::ExecutionPolicy.execution_batch_size
+      expect(observation.execution_policy['execution_reschedule_in']).to eq FollowImport::ExecutionPolicy.execution_reschedule_in.to_i
+      expect(observation.execution_policy['gate_enforcement_enabled']).to eq false
+      expect(observation.execution_policy['schema_version']).to eq 1
+    end
+
+    it 'records an observation even when no targets are claimed' do
+      expect { worker.perform(batch.id) }.to change(FollowImportDispatchObservation, :count).by(1)
+
+      observation = FollowImportDispatchObservation.last
+      expect(observation.candidate_count).to eq 0
+      expect(observation.claimed_count).to eq 0
+    end
+
+    it 'does not change claim count or reschedule timing when telemetry insert fails' do
+      allow(FollowImport::ExecutionPolicy).to receive(:execution_batch_size).and_return(1)
+      allow(FollowImport::ExecutionPolicy).to receive(:execution_reschedule_in).and_return(30.seconds)
+      allow(described_class).to receive(:perform_in)
+      allow(FollowImportDispatchObservation).to receive(:create!).and_raise(ActiveRecord::StatementInvalid, 'boom')
+      add_target(0)
+      add_target(1)
+
+      expect { worker.perform(batch.id) }.not_to raise_error
+
+      expect(batch.targets.order(:position).map(&:reload).map(&:state)).to eq %w(queued pending)
+      expect(described_class).to have_received(:perform_in).with(30.seconds, batch.id)
+    end
   end
 end

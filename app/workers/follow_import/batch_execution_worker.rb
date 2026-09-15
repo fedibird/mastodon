@@ -29,26 +29,31 @@ module FollowImport
       batch = FollowImportBatch.find_by(id: batch_id)
       return if batch.nil?
 
-      account = batch.subject&.account
-      now     = Time.now.utc
+      account    = batch.subject&.account
+      now        = Time.now.utc
+      candidates = []
+      progress   = 0
 
-      progress = 0
-      if account
-        candidates = batch.targets.where(state: :pending).order(:position).limit(FollowImport::ExecutionPolicy.execution_batch_size).to_a
-        progress   = execute_pass(batch, account, candidates, now) unless candidates.empty?
-      end
+      begin
+        if account
+          candidates = batch.targets.where(state: :pending).order(:position).limit(FollowImport::ExecutionPolicy.execution_batch_size).to_a
+          progress   = execute_pass(batch, account, candidates, now) unless candidates.empty?
+        end
 
-      if account && batch.targets.where(state: :pending).exists?
-        # Only continue while making forward progress. Zero progress means the
-        # remaining pending targets are all gate-deferred (or unrecoverable); stop
-        # the automatic chain rather than re-evaluate them in a loop (the import is
-        # kept so a future explicit/policy recheck can still recover their CSV).
-        reschedule(batch) if progress.positive?
-      else
-        # No pending targets remain (dispatch complete, or nothing to do, or the
-        # importer is gone). Every follow has been enqueued with its address in the
-        # job args, so the uploaded CSV is no longer needed — destroy the import.
-        finalize_import!(batch)
+        if account && batch.targets.where(state: :pending).exists?
+          # Only continue while making forward progress. Zero progress means the
+          # remaining pending targets are all gate-deferred (or unrecoverable); stop
+          # the automatic chain rather than re-evaluate them in a loop (the import is
+          # kept so a future explicit/policy recheck can still recover their CSV).
+          reschedule(batch) if progress.positive?
+        else
+          # No pending targets remain (dispatch complete, or nothing to do, or the
+          # importer is gone). Every follow has been enqueued with its address in the
+          # job args, so the uploaded CSV is no longer needed — destroy the import.
+          finalize_import!(batch)
+        end
+      ensure
+        record_dispatch_observation(batch, now, candidates, progress)
       end
     end
 
@@ -114,6 +119,15 @@ module FollowImport
 
     def observation(batch, candidate_count, gate)
       gate.observation.merge('batch_id' => batch.id, 'candidates' => candidate_count)
+    end
+
+    def record_dispatch_observation(batch, observed_at, candidates, claimed_count)
+      FollowImport::DispatchObserver.record(
+        batch: batch,
+        observed_at: observed_at,
+        candidate_count: candidates.size,
+        claimed_count: claimed_count
+      )
     end
   end
 end

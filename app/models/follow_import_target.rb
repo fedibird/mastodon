@@ -20,12 +20,15 @@
 #  completed_at             :datetime
 #  delivery_attempts        :integer          default(0), not null
 #  failure_code             :string
+#  destination_domain       :string
 #
 # A single target within a follow-import batch. `target_subject` is set when the
 # imported account address resolves to a known account at import time; otherwise
 # `target_key_hash` holds a pseudonymous stable key for the unresolved address.
-# The execution-state columns track per-target progress once controlled
-# execution lands; the DB is the source of truth (not the Sidekiq queue).
+# `destination_domain` is routing metadata (normalized domain from the CSV acct,
+# including unresolved rows) and is not a moderation signal. The execution-state
+# columns track per-target progress once controlled execution lands; the DB is
+# the source of truth (not the Sidekiq queue).
 class FollowImportTarget < ApplicationRecord
   self.table_name = 'follow_import_targets'
 

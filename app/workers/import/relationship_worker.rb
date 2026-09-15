@@ -8,7 +8,7 @@ class Import::RelationshipWorker
   def perform(account_id, target_account_uri, relationship, options)
     from_account   = Account.find(account_id)
     target_domain  = domain(target_account_uri)
-    target_account = stoplight_wrap_request(target_domain) { ResolveAccountService.new.call(target_account_uri, { check_delivery_availability: true }) }
+    target_account = resolve_target_account(target_account_uri, target_domain, relationship, options)
     options.symbolize_keys!
 
     if target_account.nil?
@@ -43,6 +43,30 @@ class Import::RelationshipWorker
     end
   rescue ActiveRecord::RecordNotFound
     true
+  end
+
+  def resolve_target_account(target_account_uri, target_domain, relationship, options)
+    resolve = lambda do
+      stoplight_wrap_request(target_domain) { ResolveAccountService.new.call(target_account_uri, { check_delivery_availability: true }) }
+    end
+
+    target_id = follow_import_target_id(relationship, options)
+    return resolve.call if target_id.blank?
+
+    FollowImport::ResolutionObserver.observe(
+      target_id: target_id,
+      acct: target_account_uri,
+      stoplight_wrapped: target_domain.present?,
+      sidekiq_queue: 'pull',
+      sidekiq_job_id: jid
+    ) { resolve.call }
+  end
+
+  def follow_import_target_id(relationship, options)
+    return unless relationship == 'follow'
+    return if options.blank?
+
+    options['follow_import_target_id'] || options[:follow_import_target_id]
   end
 
   def mark_follow_import_target_unresolved(relationship, options)

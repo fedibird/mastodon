@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_14_010001) do
+ActiveRecord::Schema.define(version: 2026_09_15_010003) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -582,11 +582,48 @@ ActiveRecord::Schema.define(version: 2026_09_14_010001) do
     t.datetime "completed_at"
     t.integer "delivery_attempts", default: 0, null: false
     t.string "failure_code"
+    t.string "destination_domain"
     t.index ["batch_id", "state"], name: "index_follow_import_targets_on_batch_and_state"
+    t.index ["destination_domain"], name: "index_follow_import_targets_on_destination_domain", where: "(destination_domain IS NOT NULL)"
     t.index ["batch_id", "target_subject_id"], name: "index_follow_import_targets_on_batch_and_target"
     t.index ["follow_request_uri"], name: "index_follow_import_targets_on_follow_request_uri", unique: true, where: "(follow_request_uri IS NOT NULL)"
     t.index ["target_key_hash"], name: "index_follow_import_targets_on_target_key_hash", where: "(target_key_hash IS NOT NULL)"
     t.index ["target_subject_id"], name: "index_follow_import_targets_on_target_subject", where: "(target_subject_id IS NOT NULL)"
+  end
+
+  create_table "follow_import_dispatch_observations", force: :cascade do |t|
+    t.bigint "batch_id"
+    t.datetime "observed_at", null: false
+    t.integer "candidate_count", default: 0, null: false
+    t.integer "claimed_count", default: 0, null: false
+    t.integer "pending_count", default: 0, null: false
+    t.jsonb "load_snapshot", default: {}, null: false
+    t.jsonb "execution_policy", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.index ["batch_id", "observed_at"], name: "index_fi_dispatch_observations_on_batch_and_observed_at"
+  end
+
+  create_table "follow_import_transport_observations", force: :cascade do |t|
+    t.bigint "batch_id"
+    t.bigint "target_id"
+    t.string "phase", null: false
+    t.string "destination_domain"
+    t.string "endpoint_origin"
+    t.string "sidekiq_queue"
+    t.string "sidekiq_job_id"
+    t.datetime "started_at", null: false
+    t.datetime "finished_at", null: false
+    t.integer "duration_ms", null: false
+    t.string "outcome", null: false
+    t.integer "http_status"
+    t.integer "retry_after_seconds"
+    t.string "error_class"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.index ["batch_id"], name: "index_fi_transport_observations_on_batch_id"
+    t.index ["phase", "destination_domain"], name: "index_fi_transport_observations_on_phase_and_domain"
+    t.index ["phase", "endpoint_origin"], name: "index_fi_transport_observations_on_phase_and_origin"
+    t.index ["target_id"], name: "index_fi_transport_observations_on_target_id"
   end
 
   create_table "follow_recommendation_suppressions", force: :cascade do |t|
