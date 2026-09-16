@@ -44,19 +44,29 @@ RSpec.describe Api::V1::FiltersController, type: :controller do
   describe 'GET #show' do
     let(:scopes) { 'read:filters' }
     let(:filter) { Fabricate(:custom_filter, account: user.account) }
+    let(:keyword) { Fabricate(:custom_filter_keyword, custom_filter: filter) }
 
     it 'returns http success' do
-      get :show, params: { id: filter.id }
+      get :show, params: { id: keyword.id }
       expect(response).to have_http_status(200)
+    end
+
+    it 'returns the keyword as a legacy v1 filter' do
+      get :show, params: { id: keyword.id }
+      json = body_as_json
+
+      expect(json[:id]).to eq keyword.id.to_s
+      expect(json[:phrase]).to eq keyword.phrase
     end
   end
 
   describe 'PUT #update' do
     let(:scopes) { 'write:filters' }
     let(:filter) { Fabricate(:custom_filter, account: user.account) }
+    let(:keyword) { Fabricate(:custom_filter_keyword, custom_filter: filter) }
 
     before do
-      put :update, params: { id: filter.id, phrase: 'updated' }
+      put :update, params: { id: keyword.id, phrase: 'updated' }
     end
 
     it 'returns http success' do
@@ -64,16 +74,17 @@ RSpec.describe Api::V1::FiltersController, type: :controller do
     end
 
     it 'updates the filter' do
-      expect(filter.reload.phrase).to eq 'updated'
+      expect(keyword.reload.phrase).to eq 'updated'
     end
   end
 
   describe 'DELETE #destroy' do
     let(:scopes) { 'write:filters' }
     let(:filter) { Fabricate(:custom_filter, account: user.account) }
+    let(:keyword) { Fabricate(:custom_filter_keyword, custom_filter: filter) }
 
     before do
-      delete :destroy, params: { id: filter.id }
+      delete :destroy, params: { id: keyword.id }
     end
 
     it 'returns http success' do
@@ -81,7 +92,7 @@ RSpec.describe Api::V1::FiltersController, type: :controller do
     end
 
     it 'removes the filter' do
-      expect { filter.reload }.to raise_error ActiveRecord::RecordNotFound
+      expect { keyword.reload }.to raise_error ActiveRecord::RecordNotFound
     end
   end
 end
