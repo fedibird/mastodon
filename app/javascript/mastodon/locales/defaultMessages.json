@@ -532,6 +532,10 @@
       {
         "defaultMessage": "Unblock @{name}",
         "id": "account.unblock"
+      },
+      {
+        "defaultMessage": "Hide post",
+        "id": "status.hide"
       }
     ],
     "path": "app/javascript/mastodon/components/status_action_bar.json"
@@ -578,6 +582,10 @@
       {
         "defaultMessage": "Filtered",
         "id": "status.filtered"
+      },
+      {
+        "defaultMessage": "Show anyway",
+        "id": "status.show_filter_reason"
       },
       {
         "defaultMessage": "Pinned toot",
