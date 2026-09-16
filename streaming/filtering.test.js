@@ -100,6 +100,8 @@ describe('streaming searchable text', () => {
     assert.equal(results[0].filter.title, 'links');
     assert.deepEqual(results[0].filter.context, ['public']);
     assert.ok(results[0].keyword_matches.includes('example.com'));
+    assert.equal(results[0].status_matches, null);
+    assert.deepEqual(Object.keys(results[0]).sort(), ['filter', 'keyword_matches', 'status_matches']);
   });
 
   it('matches keywords in spoiler_text', () => {
@@ -141,6 +143,9 @@ describe('streaming FilterResult payload', () => {
     assert.equal(payload.filter_results, undefined);
     assert.equal(payload.filtered.length, 1);
     assert.equal(payload.filtered[0].filter.filter_action, 'warn');
+    assert.ok(Array.isArray(payload.filtered[0].keyword_matches));
+    assert.equal(payload.filtered[0].status_matches, null);
+    assert.deepEqual(Object.keys(payload.filtered[0]).sort(), ['filter', 'keyword_matches', 'status_matches']);
   });
 
   it('uses hide as a string', () => {
@@ -148,6 +153,9 @@ describe('streaming FilterResult payload', () => {
     const results = filteredResultsForStatus(statusWith({ content: '<p>spam</p>' }), cachedFilters);
 
     assert.equal(results[0].filter.filter_action, 'hide');
+    assert.ok(Array.isArray(results[0].keyword_matches));
+    assert.equal(results[0].status_matches, null);
+    assert.deepEqual(Object.keys(results[0]).sort(), ['filter', 'keyword_matches', 'status_matches']);
   });
 
   it('does not overwrite an existing empty filtered array', () => {

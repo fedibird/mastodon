@@ -38,6 +38,7 @@ const filteredResultsForStatus = (status, cachedFilters, now = new Date()) => {
         filtered.push({
           filter: cachedFilter.repr,
           keyword_matches,
+          status_matches: null,
         });
       }
     }
