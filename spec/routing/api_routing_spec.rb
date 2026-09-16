@@ -116,16 +116,22 @@ describe 'API routes' do
           to route_to('api/v1/filters#destroy', id: '1')
       end
 
-      it 'does not route keyword collection actions' do
-        expect(get('/api/v1/filters/1/keywords')).to_not be_routable
-        expect(post('/api/v1/filters/1/keywords')).to_not be_routable
+      it 'does not expose keyword collection actions' do
+        expect(get('/api/v1/filters/1/keywords')).
+          to route_to(controller: 'application', action: 'raise_not_found', unmatched_route: 'api/v1/filters/1/keywords')
+        expect(post('/api/v1/filters/1/keywords')).
+          to route_to(controller: 'application', action: 'raise_not_found', unmatched_route: 'api/v1/filters/1/keywords')
       end
 
-      it 'does not route keyword member actions' do
-        expect(get('/api/v1/filters/keywords/1')).to_not be_routable
-        expect(put('/api/v1/filters/keywords/1')).to_not be_routable
-        expect(patch('/api/v1/filters/keywords/1')).to_not be_routable
-        expect(delete('/api/v1/filters/keywords/1')).to_not be_routable
+      it 'does not expose keyword member actions' do
+        expect(get('/api/v1/filters/keywords/1')).
+          to route_to(controller: 'application', action: 'raise_not_found', unmatched_route: 'api/v1/filters/keywords/1')
+        expect(put('/api/v1/filters/keywords/1')).
+          to route_to(controller: 'application', action: 'raise_not_found', unmatched_route: 'api/v1/filters/keywords/1')
+        expect(patch('/api/v1/filters/keywords/1')).
+          to route_to(controller: 'application', action: 'raise_not_found', unmatched_route: 'api/v1/filters/keywords/1')
+        expect(delete('/api/v1/filters/keywords/1')).
+          to route_to(controller: 'application', action: 'raise_not_found', unmatched_route: 'api/v1/filters/keywords/1')
       end
     end
 

@@ -10,6 +10,7 @@ RSpec.describe Api::V1::InstancesController, type: :controller do
 
   before do
     allow(controller).to receive(:doorkeeper_token) { token }
+    stub_webpacker_manifest
   end
 
   describe 'GET #show' do
@@ -24,5 +25,12 @@ RSpec.describe Api::V1::InstancesController, type: :controller do
 
       expect(JSON.parse(response.body)['fedibird_capabilities']).to include('filter_v2')
     end
+  end
+
+  def stub_webpacker_manifest
+    manifest = Webpacker.instance.manifest
+    resolver = ->(name, **opts) { opts[:with_integrity] ? ["/packs-test/#{name}", nil] : "/packs-test/#{name}" }
+    allow(manifest).to receive(:lookup!, &resolver)
+    allow(manifest).to receive(:lookup, &resolver)
   end
 end
