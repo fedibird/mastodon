@@ -2,10 +2,10 @@
 
 Status: infrastructure (PR A + PR B + PR D + optional PR E enforcement +
 PR C authoritative GLOBAL for **new** imports + PR F fixed remote
-admission for GLOBAL ticks).
+admission for GLOBAL ticks + PR G shadow adaptive remote pacing).
 Default: **off**.
 
-This is Stage 1–5 from `docs/follow_import_dispatch_pacing_design.md`.
+This is Stage 1–6 (shadow half) from `docs/follow_import_dispatch_pacing_design.md`.
 
 One periodic tick, one PostgreSQL session advisory lease, one budget,
 one plan:
@@ -93,7 +93,7 @@ runtime destination cap and does not call DFT / Stoplight.
 
 ## `planned_count` vs `claimed_count`
 
-Tick schema version **7**. Do not rewrite old rows.
+Tick schema version **9**. Do not rewrite old rows.
 
 | field | shadow | global |
 |---|---|---|
@@ -426,6 +426,112 @@ shadow tick as remote-admission enforcement.
 Overwrite-generated UNFOLLOW operations remain an unpaced burst.
 Retries of `Import::RelationshipWorker` / `ActivityPub::DeliveryWorker`
 do not re-enter this scheduler.
+
+## Shadow adaptive remote pacing (PR G)
+
+Default **off**: `FOLLOW_IMPORT_REMOTE_ADAPTIVE_SHADOW=false`.
+Adaptive recommendations **never** change actual claim / admission
+in this PR. PR F `RemoteAdmission` remains the only remote
+enforcement. The same inputs and the same PR F profile must produce
+the same claimed target IDs and counts with the flag on or off.
+
+```
+actual:  Fixed RemoteAdmission or PR C NullAdmission -> claim / skip
+shadow:  AdaptiveRemoteAdvisor -> would this current claim have been
+         blocked if adaptive were enforcing? Telemetry only.
+```
+
+Shadow routing reads `candidate[:destination_domain]` and an
+observation-only PR F `RemoteRuntimeState` snapshot for
+`destination_domain → endpoint_origin` mapping. That snapshot is
+shared with fixed admission when PR F is on, and is still created
+when PR F enforcement is off so mapped-origin telemetry works.
+It must not apply destination/origin caps, UnavailableDomain, or
+Retry-After / recent-429 suppression. `NullAdmission` remains the
+actual decision in that mode.
+
+The adaptive controller is **not** a replacement for fixed admission.
+It is an inner shrink whose recommended cap is always
+`<=` the corresponding PR F destination / origin per-tick cap.
+
+Activation requires all of:
+
+1. `FOLLOW_IMPORT_REMOTE_ADAPTIVE_SHADOW=true`
+2. a valid `FOLLOW_IMPORT_REMOTE_ADAPTIVE_PROFILE` (schema version 1)
+3. a valid PR F `FOLLOW_IMPORT_REMOTE_ADMISSION_PROFILE` whose
+   destination / origin caps are compatible ceilings
+   (`adaptive initial_cap` and `min_cap` must be `<=` the matching
+   fixed cap)
+
+Blank = `unconfigured`. Malformed / unknown key / illegal range =
+`invalid`. Flag ON + unconfigured/invalid/incompatible: scheduler
+and delivery keep working, adaptive stays inactive, PR F behavior
+is unchanged, telemetry can tell the cases apart.
+
+There is **no** `FOLLOW_IMPORT_REMOTE_ADAPTIVE_ENFORCEMENT` flag here.
+PR H alone may later enforce recommendations.
+
+### Control law (AIMD / slow recovery)
+
+Test fixtures may use synthetic numbers. The repository does **not**
+ship production AIMD coefficients, min/initial caps, stale windows,
+or multipliers.
+
+| Event | Action |
+|---|---|
+| Unknown / fresh Redis state | `initial_cap` |
+| HTTP 2xx | add success credit; after `successes_per_increase`, `+ additive_step` up to the fixed ceiling |
+| HTTP 429 | `rate_limit_multiplier_percent` decrease and credit reset |
+| HTTP 5xx / timeout / connection / SSL | `failure_multiplier_percent` decrease and credit reset |
+| Ordinary 4xx / 3xx / unknown exception | neutral |
+| Stoplight / DFT before the request starts | neutral |
+| Accept / Reject / Follow Gate / moderation / reputation | **never an input** |
+| `request_duration` / latency | **not** a PR G input |
+| Stale, digest-mismatched, corrupt, or lost state | conservative `initial_cap` |
+
+HTTP status wins when both status and exception are present, so a
+503 carried by `UnexpectedResponseError` is a 5xx.
+
+PR F Retry-After / recent-429 suppression is unchanged and remains
+authoritative for "do not send now". Adaptive may lower the
+*resume* cap after that window. It does not create a second cooldown
+or copy `honor_until`.
+
+Retries are observation input only. They do not consume the
+destination claim budget and do not re-enter the dispatcher.
+
+No active probing. No raw `follow_import_transport_observations`
+SELECT from the scheduler hot path. State is written at the actual
+delivery attempt into a separate Redis namespace:
+
+```
+follow_import:remote_adaptive:v1:destination:<destination_domain>
+follow_import:remote_adaptive:v1:origin:<endpoint_origin>
+```
+
+One key transition is atomic (Lua). Inbox path/query is never stored.
+Missing destination is not persisted as `__unknown_destination__`.
+Local destinations are excluded. Shared inbox origins share one
+origin controller.
+
+Redis read failure never changes actual admission. Shadow then uses
+the conservative initial cap (`runtime_unavailable`). Write failure
+never fails delivery, PR F admission, or telemetry.
+
+### Shadow counters
+
+Among actual fixed admits, cap=2 means:
+
+1. first current claim → shadow admit
+2. second → shadow admit
+3. later current claims → would-block (hypothetical counter is not consumed)
+
+`adaptive_shadow_would_block_current_claim_count` is that extra-stop
+count. It is **not** an alternate planned_count.
+
+A GLOBAL local-load zero-budget tick must not instantiate adaptive
+Redis/advisor state. Shadow scheduler mode (`GLOBAL=false`) must not
+claim that adaptive evaluation occurred (those columns stay NULL).
 
 ## Scheduler registration / cadence
 

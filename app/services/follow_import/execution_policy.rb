@@ -32,6 +32,11 @@
 # When true AND an enforcement-capable (v2 + explicit fallback) profile
 # is configured, both the legacy BatchExecutionWorker and the
 # authoritative global tick may shrink or zero their own base budget.
+#
+# remote_adaptive_shadow_enabled? is a default-off sidecar. When true
+# AND a valid adaptive profile is compatible with the PR F fixed
+# baseline, GLOBAL ticks may record what adaptive admission would have
+# done. Actual RemoteAdmission decisions are unchanged.
 module FollowImport
   module ExecutionPolicy
     module_function
@@ -192,6 +197,15 @@ module FollowImport
     # Does not apply to BatchExecutionWorker / GLOBAL=false.
     def remote_admission_enforcement_enabled?
       ENV['FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT'].to_s == 'true'
+    end
+
+    # Shadow-only adaptive remote pacing. Default off. When true, a
+    # valid AdaptiveRemoteProfile that is compatible with the PR F
+    # fixed baseline is still required or adaptive stays inactive.
+    # Adaptive recommendations never change actual claim / admission.
+    # There is no PR H enforcement flag here.
+    def remote_adaptive_shadow_enabled?
+      ENV['FOLLOW_IMPORT_REMOTE_ADAPTIVE_SHADOW'].to_s == 'true'
     end
   end
 end

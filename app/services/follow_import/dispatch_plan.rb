@@ -66,6 +66,20 @@ module FollowImport
       @windows_scanned = planning[:windows_scanned]
       @scan_budget_exhausted_count = planning[:scan_budget_exhausted_count]
       @mapped_origin_candidate_count = planning[:mapped_origin_candidate_count]
+      @adaptive_remote_shadow_enabled = planning[:adaptive_remote_shadow_enabled]
+      @adaptive_remote_configured = planning[:adaptive_remote_configured]
+      @adaptive_profile_version = planning[:adaptive_profile_version]
+      @adaptive_shadow_evaluated_current_claim_count = planning[:adaptive_shadow_evaluated_current_claim_count]
+      @adaptive_shadow_would_block_current_claim_count = planning[:adaptive_shadow_would_block_current_claim_count]
+      @adaptive_shadow_destination_would_block_count = planning[:adaptive_shadow_destination_would_block_count]
+      @adaptive_shadow_origin_would_block_count = planning[:adaptive_shadow_origin_would_block_count]
+      @adaptive_runtime_unavailable_count = planning[:adaptive_runtime_unavailable_count]
+      @adaptive_destination_cap_min = planning[:adaptive_destination_cap_min]
+      @adaptive_destination_cap_max = planning[:adaptive_destination_cap_max]
+      @adaptive_origin_cap_min = planning[:adaptive_origin_cap_min]
+      @adaptive_origin_cap_max = planning[:adaptive_origin_cap_max]
+      @adaptive_destination_state_sources = planning[:adaptive_destination_state_sources]
+      @adaptive_origin_state_sources = planning[:adaptive_origin_state_sources]
     end
 
     def planned?
@@ -287,6 +301,90 @@ module FollowImport
       return unless @planned
 
       @mapped_origin_candidate_count
+    end
+
+    def adaptive_remote_shadow_enabled
+      return unless @planned
+
+      @adaptive_remote_shadow_enabled
+    end
+
+    def adaptive_remote_configured
+      return unless @planned
+
+      @adaptive_remote_configured
+    end
+
+    def adaptive_profile_version
+      return unless @planned
+
+      @adaptive_profile_version
+    end
+
+    def adaptive_shadow_evaluated_current_claim_count
+      return unless @planned
+
+      @adaptive_shadow_evaluated_current_claim_count
+    end
+
+    def adaptive_shadow_would_block_current_claim_count
+      return unless @planned
+
+      @adaptive_shadow_would_block_current_claim_count
+    end
+
+    def adaptive_shadow_destination_would_block_count
+      return unless @planned
+
+      @adaptive_shadow_destination_would_block_count
+    end
+
+    def adaptive_shadow_origin_would_block_count
+      return unless @planned
+
+      @adaptive_shadow_origin_would_block_count
+    end
+
+    def adaptive_runtime_unavailable_count
+      return unless @planned
+
+      @adaptive_runtime_unavailable_count
+    end
+
+    def adaptive_destination_cap_min
+      return unless @planned
+
+      @adaptive_destination_cap_min
+    end
+
+    def adaptive_destination_cap_max
+      return unless @planned
+
+      @adaptive_destination_cap_max
+    end
+
+    def adaptive_origin_cap_min
+      return unless @planned
+
+      @adaptive_origin_cap_min
+    end
+
+    def adaptive_origin_cap_max
+      return unless @planned
+
+      @adaptive_origin_cap_max
+    end
+
+    def adaptive_destination_state_sources
+      return unless @planned
+
+      @adaptive_destination_state_sources
+    end
+
+    def adaptive_origin_state_sources
+      return unless @planned
+
+      @adaptive_origin_state_sources
     end
   end
 end

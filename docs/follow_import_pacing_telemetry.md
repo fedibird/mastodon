@@ -9,10 +9,10 @@ This is **not** a moderation ledger, an Adaptive Follow Gate input, or an
 abuse-detection feature. Reject remains a Follow Import result state. It is
 not interpreted here as a nuisance signal.
 
-This document does **not** introduce adaptive pacing, token buckets, global
-budgets, per-domain rate limits, fairness, automatic backoff, Follow Gate
-coupling, Node capacity scores, or removal of the existing CSV / domain-sort
-hack.
+This document records observation-only telemetry. PR G may *record*
+shadow adaptive recommendations. It does not enforce them, invent
+production AIMD numbers, couple Follow Gate, produce Node capacity
+scores, or remove the existing CSV / domain-sort hack.
 
 ## No moderation decision/signal coupling
 
@@ -85,7 +85,7 @@ One row per observed attempt.
 | `http_status` | actual status when a response was received |
 | `retry_after_seconds` | parsed `Retry-After` when safely parseable |
 | `error_class` | exception class name when one escaped to the worker |
-| `metadata` | schema version plus non-identifying facts |
+| `metadata` | schema version plus non-identifying facts. PR G may add `adaptive_event`, `adaptive_state_write_attempted`, `adaptive_state_write_success`, destination/origin cap before/after, and adaptive profile version/digest. Neutral / no-op events keep `adaptive_event` and set `adaptive_state_write_attempted=false` with `adaptive_state_write_success` omitted (NULL). A mutating write records `attempted=true` and `success=true|false`. Inbox path/query is never stored. Adaptive write failure must not fail delivery. |
 
 `0` on a duration/count means an observed zero. **NULL means the measurement
 was unavailable or invalid** (including a backwards clock interval). Telemetry
@@ -276,6 +276,10 @@ Uncalibrated, env-overridable, **not** load-aware:
   scheduler fixed remote admission only)
 - `FOLLOW_IMPORT_REMOTE_ADMISSION_PROFILE` (explicit versioned JSON;
   no bundled production defaults)
+- `FOLLOW_IMPORT_REMOTE_ADAPTIVE_SHADOW` (default off; PR G shadow
+  evaluation only — never changes actual claims)
+- `FOLLOW_IMPORT_REMOTE_ADAPTIVE_PROFILE` (explicit versioned JSON;
+  no bundled production AIMD / cap / stale defaults)
 
 Enforcement does not silently activate without an explicit v2 profile
 that includes `fallback.budget_percent`. Remote admission does not
@@ -287,7 +291,7 @@ No repository number is a calibrated production recommendation.
 One row per **global** `FollowImport::DispatchScheduler` tick.
 This is not a per-batch `BatchExecutionWorker` pass.
 
-Tick schema version **8**. Historical rows keep their original meaning:
+Tick schema version **9**. Historical rows keep their original meaning:
 older `scheduler_mode=shadow` rows always meant planned-but-not-claimed.
 Do not rewrite them. `scheduler_mode=global` means planned **and**
 actual claims.
@@ -328,8 +332,16 @@ actual claims.
 | `scanned_target_count` / `windows_scanned` | bounded candidate scan work |
 | `scan_budget_exhausted_count` | batches that hit the configured scan bound this tick |
 | `mapped_origin_candidate_count` | inspected candidates that had a fresh origin mapping |
+| `adaptive_remote_shadow_enabled` | whether the GLOBAL tick considered the PR G flag; NULL if not evaluated (shadow / no-op) |
+| `adaptive_remote_configured` | whether a valid compatible adaptive profile was present; NULL if not evaluated |
+| `adaptive_profile_version` | adaptive schema version when configured; NULL otherwise |
+| `adaptive_shadow_evaluated_current_claim_count` | actual fixed admits that received a shadow evaluation; NULL if not evaluated; 0 = evaluated none |
+| `adaptive_shadow_would_block_current_claim_count` | how many of those current claims adaptive would have blocked; not an alternate plan size |
+| `adaptive_shadow_destination_would_block_count` / `adaptive_shadow_origin_would_block_count` | which layer bound the would-block |
+| `adaptive_runtime_unavailable_count` | shadow reads that fell back because Redis was unavailable |
+| `adaptive_destination_cap_min` / `max` / `adaptive_origin_cap_min` / `max` | identity-free cap aggregates for the tick |
 | `load_snapshot` | Sidekiq load facts, or NULL if capture failed |
-| `execution_config` | execution + shadow-flag snapshot, including `dispatch_shadow_interval` from `FollowImport::ExecutionPolicy` (same ENV/default as `config/sidekiq.yml`). PR F adds `remote_admission_enforcement_enabled`, `remote_admission_profile_version`, `remote_admission_profile_digest`, `destination_per_tick_cap`, `origin_per_tick_cap`, `max_scan_targets`, `max_scan_windows`. Do not store the raw profile JSON. |
+| `execution_config` | execution + shadow-flag snapshot, including `dispatch_shadow_interval` from `FollowImport::ExecutionPolicy` (same ENV/default as `config/sidekiq.yml`). PR F adds `remote_admission_enforcement_enabled`, `remote_admission_profile_version`, `remote_admission_profile_digest`, `destination_per_tick_cap`, `origin_per_tick_cap`, `max_scan_targets`, `max_scan_windows`. PR G adds `adaptive_remote_shadow_enabled`, `adaptive_profile_schema_version`, `adaptive_profile_digest`. Do not store the raw profile JSON. State-source aggregates (`learned` / `initial` / `stale_reset` / `digest_reset` / `runtime_unavailable`) live in `metadata`. |
 | `error_class` | exception class for `shadow_error` |
 | `metadata` | schema version plus non-identifying facts |
 

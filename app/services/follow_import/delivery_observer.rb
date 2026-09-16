@@ -29,6 +29,13 @@ module FollowImport
         retry_after_seconds: retry_after_seconds,
         request_reached: request_started_at.present?
       )
+      adaptive_meta = write_adaptive_state(
+        destination_domain: target&.destination_domain,
+        inbox_url: inbox_url,
+        http_status: http_status,
+        error: error,
+        request_started_at: request_started_at
+      )
 
       FollowImport::Telemetry.record_transport(
         batch_id: target&.batch_id,
@@ -56,7 +63,7 @@ module FollowImport
           'performed' => performed,
           'skip_reason' => skip_reason,
           'remote_runtime_state_written' => runtime_written,
-        }.compact
+        }.merge(adaptive_meta).compact
       )
     rescue StandardError => e
       FollowImport::Telemetry.warn_failure('transport', e)
@@ -84,6 +91,70 @@ module FollowImport
       false
     end
     private_class_method :write_runtime_state
+
+    # Adaptive runtime state is written from the same actual HTTP
+    # attempt, never from a raw telemetry SELECT. Failure must not
+    # fail delivery, PR F runtime writes, or the transport row.
+    def self.write_adaptive_state(destination_domain:, inbox_url:, http_status:, error:, request_started_at:)
+      event = nil
+      write_attempted = false
+      return {} unless FollowImport::ExecutionPolicy.remote_adaptive_shadow_enabled?
+
+      adaptive = FollowImport::AdaptiveRemoteProfile.from_env
+      return {} unless adaptive.configured?
+
+      fixed = FollowImport::RemoteAdmissionProfile.from_env
+      return {} unless FollowImport::AdaptiveRemoteCompatibility.compatible?(adaptive, fixed)
+
+      observation = FollowImport::AdaptiveRemoteObservation.classify(
+        http_status: http_status,
+        error: error,
+        request_started_at: request_started_at
+      )
+      event = observation.event
+
+      # Neutral / no-op events must not look like Redis write failures.
+      # compact drops nil, so omit success when no write was attempted.
+      unless FollowImport::AdaptiveRemoteObservation.mutating?(event)
+        return {
+          'adaptive_event' => event,
+          'adaptive_state_write_attempted' => false,
+          'adaptive_profile_version' => adaptive.version,
+          'adaptive_profile_digest' => adaptive.digest,
+        }.compact
+      end
+
+      write_attempted = true
+      origin = FollowImport::EndpointOrigin.from_url(inbox_url)
+      result = FollowImport::AdaptiveRemoteState.new(
+        adaptive_profile: adaptive,
+        fixed_profile: fixed
+      ).apply(
+        destination_domain: destination_domain,
+        endpoint_origin: origin,
+        event: event
+      )
+
+      {
+        'adaptive_event' => event,
+        'adaptive_state_write_attempted' => true,
+        'adaptive_state_write_success' => result.written,
+        'adaptive_destination_cap_before' => result.destination&.cap_before,
+        'adaptive_destination_cap_after' => result.destination&.cap_after,
+        'adaptive_origin_cap_before' => result.origin&.cap_before,
+        'adaptive_origin_cap_after' => result.origin&.cap_after,
+        'adaptive_profile_version' => adaptive.version,
+        'adaptive_profile_digest' => adaptive.digest,
+      }.compact
+    rescue StandardError => e
+      FollowImport::Telemetry.warn_failure('adaptive_remote_state_write', e)
+      {
+        'adaptive_event' => event,
+        'adaptive_state_write_attempted' => write_attempted,
+        'adaptive_state_write_success' => (false if write_attempted),
+      }.compact
+    end
+    private_class_method :write_adaptive_state
 
     def self.follow_import_target?(options)
       tracking = tracking_from(options)

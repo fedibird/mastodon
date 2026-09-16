@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_16_020001) do
+ActiveRecord::Schema.define(version: 2026_09_16_080001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -667,6 +667,18 @@ ActiveRecord::Schema.define(version: 2026_09_16_020001) do
     t.integer "windows_scanned"
     t.integer "scan_budget_exhausted_count"
     t.integer "mapped_origin_candidate_count"
+    t.boolean "adaptive_remote_shadow_enabled"
+    t.boolean "adaptive_remote_configured"
+    t.integer "adaptive_profile_version"
+    t.integer "adaptive_shadow_evaluated_current_claim_count"
+    t.integer "adaptive_shadow_would_block_current_claim_count"
+    t.integer "adaptive_shadow_destination_would_block_count"
+    t.integer "adaptive_shadow_origin_would_block_count"
+    t.integer "adaptive_runtime_unavailable_count"
+    t.integer "adaptive_destination_cap_min"
+    t.integer "adaptive_destination_cap_max"
+    t.integer "adaptive_origin_cap_min"
+    t.integer "adaptive_origin_cap_max"
     t.jsonb "load_snapshot"
     t.jsonb "execution_config"
     t.string "error_class"
