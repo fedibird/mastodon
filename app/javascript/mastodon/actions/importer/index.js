@@ -5,6 +5,7 @@ export const ACCOUNTS_IMPORT = 'ACCOUNTS_IMPORT';
 export const STATUS_IMPORT   = 'STATUS_IMPORT';
 export const STATUSES_IMPORT = 'STATUSES_IMPORT';
 export const POLLS_IMPORT    = 'POLLS_IMPORT';
+export const FILTERS_IMPORT  = 'FILTERS_IMPORT';
 export const CUSTOM_EMOJI_DETAIL_IMPORT  = 'CUSTOM_EMOJI_DETAIL_IMPORT';
 export const CUSTOM_EMOJIS_DETAIL_IMPORT = 'CUSTOM_EMOJIS_DETAIL_IMPORT';
 
@@ -32,6 +33,10 @@ export function importStatuses(statuses) {
 
 export function importPolls(polls) {
   return { type: POLLS_IMPORT, polls };
+}
+
+export function importFilters(filters) {
+  return { type: FILTERS_IMPORT, filters };
 }
 
 export function importCustomEmojiDetail(custom_emoji) {
@@ -77,14 +82,27 @@ export function importFetchedStatuses(statuses) {
     const accounts = [];
     const normalStatuses = [];
     const polls = [];
+    const filters = [];
 
     function processStatus(status) {
+      if (!status.filtered && status.filter_results) {
+        status.filtered = status.filter_results;
+      }
+
       if (status.poll && status.poll.id) {
         pushUnique(polls, normalizePoll(status.poll));
       }
 
       if (typeof status.account === 'object') {
         pushUnique(accounts, status.account);
+      }
+
+      if (status.filtered) {
+        status.filtered.forEach(result => {
+          if (result.filter && typeof result.filter === 'object') {
+            pushUnique(filters, { ...result.filter, id: String(result.filter.id) });
+          }
+        });
       }
 
       if (status.reblog && status.reblog.id) {
@@ -101,6 +119,7 @@ export function importFetchedStatuses(statuses) {
     dispatch(importPolls(polls));
     dispatch(importFetchedAccounts(accounts));
     dispatch(importStatuses(normalStatuses));
+    dispatch(importFilters(filters));
   };
 }
 

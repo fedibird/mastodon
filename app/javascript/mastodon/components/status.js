@@ -518,7 +518,7 @@ class Status extends ImmutablePureComponent {
       );
     }
 
-    if (status.get('filtered', []).length || status.getIn(['reblog', 'filtered'], []).length) {
+    if (status.get('matched_filters')) {
       const minHandlers = this.props.muted ? {} : {
         moveUp: this.handleHotkeyMoveUp,
         moveDown: this.handleHotkeyMoveDown,

@@ -36,6 +36,7 @@ import circles from './circles';
 import circleEditor from './circle_editor';
 import circleAdder from './circle_adder';
 import filters from './filters';
+import notification_filters from './notification_filters';
 import conversations from './conversations';
 import suggestions from './suggestions';
 import polls from './polls';
@@ -89,6 +90,7 @@ const reducers = {
   circleEditor,
   circleAdder,
   filters,
+  notification_filters,
   conversations,
   suggestions,
   polls,

@@ -15,7 +15,7 @@ import { uploadCompose, resetCompose, changeComposeSpoilerness } from '../../act
 import { updateProcessingStatuses, refreshIntersectionStatuses } from '../../actions/statuses';
 import { expandHomeTimeline } from '../../actions/timelines';
 import { expandNotifications } from '../../actions/notifications';
-import { fetchFilters } from '../../actions/filters';
+import { fetchNotificationFilters } from '../../actions/notification_filters';
 import { clearHeight } from '../../actions/height_cache';
 import { focusApp, unfocusApp, changeLayout } from 'mastodon/actions/app';
 import { synchronouslySubmitMarkers, submitMarkers, fetchMarkers } from 'mastodon/actions/markers';
@@ -423,7 +423,7 @@ class UI extends React.PureComponent {
     dispatch(fetchMarkers());
     dispatch(expandHomeTimeline({ visibilities }));
     dispatch(expandNotifications());
-    setTimeout(() => this.props.dispatch(fetchFilters()), 500);
+    setTimeout(() => this.props.dispatch(fetchNotificationFilters()), 500);
 
     this._checkPolling(false, this.props.pollingStatuses);
 
