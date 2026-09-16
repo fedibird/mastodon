@@ -14,6 +14,6 @@ describe('streaming custom-filter query', () => {
   });
 
   it('emits warn/hide strings for filter_action', () => {
-    expect(source).toContain("filter_action: ['warn', 'hide'][row.filter_action]");
+    expect(source).toMatch(/filter_action: \['warn', 'hide'\]\[row\.filter_action\]/);
   });
 });
