@@ -97,10 +97,10 @@ RSpec.describe FollowImport::AdaptiveRemoteController do
 
   it 'does not change cap from latency alone' do
     view = initial
-    source = File.read(Rails.root.join('app/services/follow_import/adaptive_remote_controller.rb'))
+    credited = apply(view, 'success')
 
-    expect(apply(view, 'success').current_cap).to eq 2
-    expect(source).not_to match(/request_duration|latency/)
+    expect(described_class.method(:apply).parameters.map(&:last)).not_to include(:request_duration_ms)
+    expect(apply(credited, 'neutral').current_cap).to eq credited.current_cap
   end
 
   it 'resets stale state to initial before applying a new event' do

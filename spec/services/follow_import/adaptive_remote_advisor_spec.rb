@@ -197,13 +197,10 @@ RSpec.describe FollowImport::AdaptiveRemoteAdvisor do
     allow(Follow).to receive(:exists?)
     allow(FollowRequest).to receive(:exists?)
     allow(FollowImport::ExecutionGate).to receive(:for_account)
-    source = File.read(Rails.root.join('app/services/follow_import/adaptive_remote_advisor.rb'))
-
     advisor.decide(destination_domain: 'remote.example')
 
     expect(Follow).not_to have_received(:exists?)
     expect(FollowRequest).not_to have_received(:exists?)
     expect(FollowImport::ExecutionGate).not_to have_received(:for_account)
-    expect(source).not_to match(/Accept|Reject|Follow Gate|moderation|reputation/)
   end
 end

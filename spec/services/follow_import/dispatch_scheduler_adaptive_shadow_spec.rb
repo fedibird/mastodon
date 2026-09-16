@@ -169,11 +169,15 @@ RSpec.describe FollowImport::DispatchScheduler, 'adaptive remote shadow' do
   end
 
   it 'keeps actual claims identical when adaptive shadow is on with a lower cap' do
-    allow(Import::RelationshipWorker).to receive(:perform_async)
-    _off_batch, off_obs, off = run_identical_world(adaptive: false)
-    expect(Import::RelationshipWorker).to have_received(:perform_async).exactly(off[:claimed_count]).times
+    off_enqueues = 0
+    allow(Import::RelationshipWorker).to receive(:perform_async) { off_enqueues += 1 }
+    off_batch, off_obs, off = run_identical_world(adaptive: false)
+    expect(off_enqueues).to eq off[:claimed_count]
+    off_batch.targets.delete_all
+    off_batch.destroy!
 
-    allow(Import::RelationshipWorker).to receive(:perform_async)
+    on_enqueues = 0
+    allow(Import::RelationshipWorker).to receive(:perform_async) { on_enqueues += 1 }
     _on_batch, on_obs, on = run_identical_world(adaptive: true)
 
     expect(on[:claimed_positions]).to eq off[:claimed_positions]
@@ -182,7 +186,8 @@ RSpec.describe FollowImport::DispatchScheduler, 'adaptive remote shadow' do
     expect(on[:planned_count]).to eq off[:planned_count]
     expect(on[:claimed_observation]).to eq off[:claimed_observation]
     expect(on[:cursor_positions]).to eq off[:cursor_positions]
-    expect(Import::RelationshipWorker).to have_received(:perform_async).exactly(on[:claimed_count]).times
+    expect(on_enqueues).to eq on[:claimed_count]
+    expect(on_enqueues).to eq off_enqueues
     expect(off_obs.adaptive_shadow_would_block_current_claim_count).to be_nil
     expect(on_obs.adaptive_remote_shadow_enabled).to be true
     expect(on_obs.adaptive_shadow_would_block_current_claim_count).to be > 0
@@ -254,7 +259,7 @@ RSpec.describe FollowImport::DispatchScheduler, 'adaptive remote shadow' do
   it 'excludes local destinations from adaptive evaluation' do
     allow(FollowImport::ExecutionPolicy).to receive(:global_dispatch_budget).and_return(5)
     enable_remote_admission(fixed_profile(destination: 1))
-    enable_adaptive_shadow
+    enable_adaptive_shadow(adaptive_profile(dest_initial: 1, dest_min: 1, origin_initial: 1, origin_min: 1))
     local = TagManager.instance.normalize_domain(Rails.configuration.x.local_domain)
     account = Fabricate(:account)
     batch = create_batch(account)
@@ -271,7 +276,7 @@ RSpec.describe FollowImport::DispatchScheduler, 'adaptive remote shadow' do
 
   it 'evaluates destination only when mapping is absent and destination plus origin when present' do
     allow(FollowImport::ExecutionPolicy).to receive(:global_dispatch_budget).and_return(10)
-    profile = fixed_profile(destination: 5, origin: 4)
+    profile = fixed_profile(destination: 8, origin: 8)
     enable_remote_admission(profile)
     enable_adaptive_shadow
     now = Time.now.utc

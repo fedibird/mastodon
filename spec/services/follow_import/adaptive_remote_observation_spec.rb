@@ -59,9 +59,19 @@ RSpec.describe FollowImport::AdaptiveRemoteObservation do
   end
 
   it 'does not classify from request duration or follow business state' do
-    expect(described_class.instance_methods).not_to include(:request_duration_ms)
+    expect(described_class.method(:classify).parameters).to eq(
+      [[:key, :http_status], [:key, :error], [:key, :request_started_at]]
+    )
     expect(described_class.singleton_methods).not_to include(:from_follow_result)
-    source = File.read(Rails.root.join('app/services/follow_import/adaptive_remote_observation.rb'))
-    expect(source).not_to match(/Accept|Reject|Follow Gate|moderation|reputation/)
+    expect(described_class.instance_methods).not_to include(:request_duration_ms)
+
+    Dir[Rails.root.join('app/services/follow_import/adaptive_remote_*.rb')].each do |path|
+      code = File.readlines(path).reject { |line| line.match?(/^\s*#/) }.join
+      expect(code).not_to include('Follow.exists')
+      expect(code).not_to include('FollowRequest')
+      expect(code).not_to include('ExecutionGate')
+      expect(code).not_to include('BehavioralMetrics')
+      expect(code).not_to include('from_follow_result')
+    end
   end
 end
