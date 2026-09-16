@@ -520,8 +520,9 @@ class Status extends ImmutablePureComponent {
 
     const matchedFilters = status.get('matched_filters');
     const hasMatchedFilters = ImmutableList.isList(matchedFilters) ? !matchedFilters.isEmpty() : !!matchedFilters;
+    const shouldFilter = hasMatchedFilters && this.state.forceFilter !== false;
 
-    if (this.state.forceFilter === undefined ? hasMatchedFilters : this.state.forceFilter) {
+    if (shouldFilter) {
       const minHandlers = this.props.muted ? {} : {
         moveUp: this.handleHotkeyMoveUp,
         moveDown: this.handleHotkeyMoveDown,

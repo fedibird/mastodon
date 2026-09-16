@@ -189,6 +189,53 @@ describe('Status filter warning UI', () => {
     expect(screen.queryByText('next post')).not.toBeInTheDocument();
   });
 
+  it('returns to the status body when matched filters disappear after re-hide', () => {
+    const { rerender } = renderStatus(buildStatus({ matched_filters: ['spoiler'] }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show anyway' }));
+    fireEvent.click(screen.getByTitle('Hide post'));
+    expect(filteredText()).toContain('Filtered');
+
+    rerender(
+      <Provider store={store}>
+        <Status
+          status={buildStatus({ matched_filters: false })}
+          pictureInPicture={pictureInPicture}
+          addEmojiReaction={jest.fn()}
+          removeEmojiReaction={jest.fn()}
+          onAddToList={jest.fn()}
+        />
+      </Provider>,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Show anyway' })).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Hide post')).not.toBeInTheDocument();
+    expect(screen.getByText('hello world')).toBeInTheDocument();
+  });
+
+  it('returns to the status body when matched_filters becomes an empty list', () => {
+    const { rerender } = renderStatus(buildStatus({ matched_filters: ['spoiler'] }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show anyway' }));
+    fireEvent.click(screen.getByTitle('Hide post'));
+
+    rerender(
+      <Provider store={store}>
+        <Status
+          status={buildStatus({ matched_filters: [] })}
+          pictureInPicture={pictureInPicture}
+          addEmojiReaction={jest.fn()}
+          removeEmojiReaction={jest.fn()}
+          onAddToList={jest.fn()}
+        />
+      </Provider>,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Show anyway' })).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Hide post')).not.toBeInTheDocument();
+    expect(screen.getByText('hello world')).toBeInTheDocument();
+  });
+
   it('renders filter titles as text rather than HTML', () => {
     renderStatus(buildStatus({
       matched_filters: ['<script>alert(1)</script>'],
