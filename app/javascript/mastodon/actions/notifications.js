@@ -12,7 +12,7 @@ import { saveSettings } from './settings';
 import { defineMessages } from 'react-intl';
 import { List as ImmutableList } from 'immutable';
 import { unescapeHTML } from '../utils/html';
-import { legacyNotificationFilterFlags } from './legacy_notification_filter';
+import { notificationFilterFlags } from './notification_filter';
 import { usePendingItems as preferPendingItems, enableReaction, enableStatusReference } from 'mastodon/initial_state';
 import compareId from 'mastodon/compare_id';
 import { requestNotificationPermission } from '../utils/notifications';
@@ -61,7 +61,7 @@ export function updateNotifications(notification, intlMessages, intlLocale) {
     const showInColumn = getState().getIn(['settings', 'notifications', 'shows', notification.type], true);
     const showAlert    = getState().getIn(['settings', 'notifications', 'alerts', notification.type], true);
     const playSound    = getState().getIn(['settings', 'notifications', 'sounds', notification.type], true);
-    const { drop, filtered } = legacyNotificationFilterFlags(getState(), notification);
+    const { drop, filtered } = notificationFilterFlags(notification);
 
     if (drop) {
       return;
