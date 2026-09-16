@@ -13,7 +13,7 @@
 module FollowImport
   class DispatchTickObserver
     SCHEMA_NAME    = 'follow_import_dispatch_tick'
-    SCHEMA_VERSION = 8
+    SCHEMA_VERSION = 9
 
     def self.record(attrs)
       attrs = attrs.to_h.symbolize_keys
@@ -62,10 +62,22 @@ module FollowImport
         windows_scanned: plan&.windows_scanned,
         scan_budget_exhausted_count: plan&.scan_budget_exhausted_count,
         mapped_origin_candidate_count: plan&.mapped_origin_candidate_count,
+        adaptive_remote_shadow_enabled: plan&.adaptive_remote_shadow_enabled,
+        adaptive_remote_configured: plan&.adaptive_remote_configured,
+        adaptive_profile_version: plan&.adaptive_profile_version,
+        adaptive_shadow_evaluated_current_claim_count: plan&.adaptive_shadow_evaluated_current_claim_count,
+        adaptive_shadow_would_block_current_claim_count: plan&.adaptive_shadow_would_block_current_claim_count,
+        adaptive_shadow_destination_would_block_count: plan&.adaptive_shadow_destination_would_block_count,
+        adaptive_shadow_origin_would_block_count: plan&.adaptive_shadow_origin_would_block_count,
+        adaptive_runtime_unavailable_count: plan&.adaptive_runtime_unavailable_count,
+        adaptive_destination_cap_min: plan&.adaptive_destination_cap_min,
+        adaptive_destination_cap_max: plan&.adaptive_destination_cap_max,
+        adaptive_origin_cap_min: plan&.adaptive_origin_cap_min,
+        adaptive_origin_cap_max: plan&.adaptive_origin_cap_max,
         load_snapshot: attrs[:load_snapshot],
         execution_config: plan&.execution_config || execution_config,
         error_class: attrs[:error_class],
-        metadata: tick_metadata(attrs[:metadata])
+        metadata: tick_metadata(attrs[:metadata], plan)
       )
     rescue StandardError => e
       FollowImport::Telemetry.warn_failure('dispatch_tick', e)
@@ -93,17 +105,21 @@ module FollowImport
         'local_load_controller_schema_version' => FollowImport::LocalLoadGuard::SCHEMA_VERSION,
         'remote_admission_enforcement_enabled' => FollowImport::ExecutionPolicy.remote_admission_enforcement_enabled?,
         'remote_admission_profile_schema_version' => FollowImport::RemoteAdmissionProfile::SCHEMA_VERSION,
+        'adaptive_remote_shadow_enabled' => FollowImport::ExecutionPolicy.remote_adaptive_shadow_enabled?,
+        'adaptive_profile_schema_version' => FollowImport::AdaptiveRemoteProfile::SCHEMA_VERSION,
       }
     end
     private_class_method :execution_config
 
-    def self.tick_metadata(metadata)
+    def self.tick_metadata(metadata, plan = nil)
       base = {
         'schema' => SCHEMA_NAME,
         'schema_version' => SCHEMA_VERSION,
       }
-      extra = metadata.presence || {}
-      base.merge(extra.stringify_keys)
+      extra = (metadata.presence || {}).stringify_keys
+      extra['adaptive_destination_state_sources'] = plan.adaptive_destination_state_sources if plan&.adaptive_destination_state_sources.present?
+      extra['adaptive_origin_state_sources'] = plan.adaptive_origin_state_sources if plan&.adaptive_origin_state_sources.present?
+      base.merge(extra)
     end
     private_class_method :tick_metadata
   end

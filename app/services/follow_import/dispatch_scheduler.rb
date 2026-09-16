@@ -311,6 +311,8 @@ module FollowImport
         'local_load_controller_schema_version' => FollowImport::LocalLoadGuard::SCHEMA_VERSION,
         'remote_admission_enforcement_enabled' => FollowImport::ExecutionPolicy.remote_admission_enforcement_enabled?,
         'remote_admission_profile_schema_version' => FollowImport::RemoteAdmissionProfile::SCHEMA_VERSION,
+        'adaptive_remote_shadow_enabled' => FollowImport::ExecutionPolicy.remote_adaptive_shadow_enabled?,
+        'adaptive_profile_schema_version' => FollowImport::AdaptiveRemoteProfile::SCHEMA_VERSION,
       }
     end
 
@@ -318,58 +320,131 @@ module FollowImport
       return {} unless mode == :global
 
       enabled = FollowImport::ExecutionPolicy.remote_admission_enforcement_enabled?
-      facts = { remote_admission_enabled: enabled, remote_admission_configured: nil, profile: nil }
-      return facts unless enabled
+      adaptive_on = FollowImport::ExecutionPolicy.remote_adaptive_shadow_enabled?
+      facts = {
+        remote_admission_enabled: enabled,
+        remote_admission_configured: nil,
+        profile: nil,
+        adaptive_remote_shadow_enabled: adaptive_on,
+        adaptive_remote_configured: nil,
+        adaptive_profile: nil,
+      }
+      if enabled || adaptive_on
+        profile = FollowImport::RemoteAdmissionProfile.from_env
+        facts[:profile] = profile
+        if enabled
+          facts[:remote_admission_configured] = profile.configured?
+          facts[:remote_profile_version] = profile.version if profile.configured?
+          warn_remote_misconfiguration(profile) unless profile.configured?
+        end
+      end
+      facts.merge!(cheap_adaptive_identity(facts[:profile], adaptive_on))
+      facts
+    end
 
-      profile = FollowImport::RemoteAdmissionProfile.from_env
-      facts[:profile] = profile
-      facts[:remote_admission_configured] = profile.configured?
-      facts[:remote_profile_version] = profile.version if profile.configured?
-      warn_remote_misconfiguration(profile) unless profile.configured?
+    def cheap_adaptive_identity(fixed_profile, adaptive_on)
+      return {} unless adaptive_on
+
+      adaptive = FollowImport::AdaptiveRemoteProfile.from_env
+      facts = { adaptive_profile: adaptive, adaptive_remote_configured: false }
+      unless adaptive.configured?
+        warn_adaptive_misconfiguration(adaptive)
+        return facts
+      end
+      compatibility = FollowImport::AdaptiveRemoteCompatibility.check(adaptive, fixed_profile)
+      unless compatibility.ok
+        warn_adaptive_misconfiguration(adaptive, compatibility.error)
+        return facts
+      end
+
+      facts[:adaptive_remote_configured] = true
+      facts[:adaptive_profile_version] = adaptive.version
       facts
     end
 
     def remote_admission_context(mode)
       identity = cheap_remote_identity(mode)
       return identity unless mode == :global
-      return identity unless identity[:remote_admission_enabled]
-      return identity unless identity[:profile]&.configured?
 
-      runtime = FollowImport::RemoteRuntimeState.new(profile: identity[:profile]).snapshot
-      hosts, hosts_ok = FollowImport::RemoteAdmission.unavailable_hosts
-      identity[:admission] = FollowImport::RemoteAdmission.new(
-        profile: identity[:profile],
-        runtime: runtime,
-        unavailable_hosts: hosts,
-        unavailable_snapshot_available: hosts_ok,
-        now: Time.now.utc
-      )
-      identity[:scan_policy] = identity[:profile].scan_policy
+      admission = nil
+      if identity[:remote_admission_enabled] && identity[:profile]&.configured?
+        runtime = FollowImport::RemoteRuntimeState.new(profile: identity[:profile]).snapshot
+        hosts, hosts_ok = FollowImport::RemoteAdmission.unavailable_hosts
+        admission = FollowImport::RemoteAdmission.new(
+          profile: identity[:profile],
+          runtime: runtime,
+          unavailable_hosts: hosts,
+          unavailable_snapshot_available: hosts_ok,
+          now: Time.now.utc
+        )
+        identity[:scan_policy] = identity[:profile].scan_policy
+      end
+
+      identity[:admission] = wrap_adaptive_shadow(admission, identity)
+      identity.delete(:admission) if identity[:admission].nil?
       identity
     end
 
+    def wrap_adaptive_shadow(admission, identity)
+      return admission unless identity[:adaptive_remote_shadow_enabled]
+      return admission unless identity[:adaptive_remote_configured]
+      return admission if identity[:adaptive_profile].nil? || identity[:profile].nil?
+
+      state = FollowImport::AdaptiveRemoteState.new(
+        adaptive_profile: identity[:adaptive_profile],
+        fixed_profile: identity[:profile]
+      ).snapshot
+      FollowImport::AdaptiveRemoteAdvisor.new(
+        admission: admission || FollowImport::RemoteAdmission::NullAdmission.new,
+        adaptive_profile: identity[:adaptive_profile],
+        fixed_profile: identity[:profile],
+        state: state
+      )
+    rescue StandardError => e
+      FollowImport::Telemetry.warn_failure('adaptive_remote_shadow', e)
+      admission
+    end
+
     def remote_plan_facts(remote, scheduled)
-      facts = remote.slice(:remote_admission_enabled, :remote_admission_configured, :remote_profile_version, :profile)
+      facts = remote.slice(
+        :remote_admission_enabled,
+        :remote_admission_configured,
+        :remote_profile_version,
+        :profile,
+        :adaptive_remote_shadow_enabled,
+        :adaptive_remote_configured,
+        :adaptive_profile_version
+      )
       return facts unless remote[:admission]&.evaluated?
 
       facts.merge(scheduled.admission_stats || {})
     end
 
     def remote_planning_attrs(remote)
-      remote.to_h.symbolize_keys.except(:admission, :scan_policy, :profile)
+      remote.to_h.symbolize_keys.except(:admission, :scan_policy, :profile, :adaptive_profile)
     end
 
     def remote_execution_config(remote)
+      config = {}
       profile = remote[:profile]
-      return {} unless profile&.configured?
-
-      profile.identity
+      config.merge!(profile.identity) if profile&.configured?
+      adaptive = remote[:adaptive_profile]
+      config.merge!(adaptive.identity) if adaptive&.configured?
+      config
     end
 
     def warn_remote_misconfiguration(profile)
       message = profile.invalid? ? profile.error.to_s : 'unconfigured'
       FollowImport::Telemetry.warn_failure(
         'remote_admission_profile',
+        StandardError.new(message)
+      )
+    end
+
+    def warn_adaptive_misconfiguration(profile, extra = nil)
+      message = extra.presence || (profile.invalid? ? profile.error.to_s : 'unconfigured')
+      FollowImport::Telemetry.warn_failure(
+        'adaptive_remote_profile',
         StandardError.new(message)
       )
     end
