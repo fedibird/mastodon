@@ -228,6 +228,19 @@ RSpec.describe ImportService, type: :service do
       allow_any_instance_of(described_class).to receive(:import_data).and_return(csv_text)
     end
 
+    def create_owned_batch(import_record, dispatch_owner:)
+      FollowImportBatch.create!(
+        subject: ModerationSubject.for_account!(account),
+        import_id: import_record.id,
+        imported_at: Time.now.utc,
+        mode: :merge,
+        dispatch_owner: dispatch_owner,
+        target_count: 0,
+        resolved_target_count: 0,
+        unresolved_target_count: 0
+      )
+    end
+
     it 'records the batch and hands the follow set to the batch executor instead of a bulk enqueue' do
       allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
       expect(Import::RelationshipWorker).not_to receive(:push_bulk)
@@ -336,6 +349,66 @@ RSpec.describe ImportService, type: :service do
       follow_args = pushed.select { |args| args[2] == 'follow' }
       expect(follow_args).to be_present
       follow_args.each { |args| expect(args[3]).to_not have_key('import_batch_id') }
+    end
+
+    it 'does not use the direct fallback for a stored scheduler-owned batch when GLOBAL is later off' do
+      batch = create_owned_batch(import, dispatch_owner: :scheduler)
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:push_bulk)
+      allow(Import::RelationshipWorker).to receive(:perform_async)
+      allow(Moderation::FollowImportRecorder).to receive(:record_batch).and_return(nil)
+
+      subject.call(import)
+
+      expect(batch.reload.scheduler_dispatch_owner?).to be true
+      expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+      expect(Import::RelationshipWorker).not_to have_received(:push_bulk)
+      expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+    end
+
+    it 'raises and does not enqueue follows when the durable-batch lookup fails' do
+      allow(FollowImportBatch).to receive(:find_by).and_wrap_original do |method, *args|
+        attrs = args.first
+        raise ActiveRecord::StatementInvalid, 'lookup down' if attrs.is_a?(Hash) && attrs[:import_id] == import.id
+
+        method.call(*args)
+      end
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:push_bulk)
+      allow(Import::RelationshipWorker).to receive(:perform_async)
+      allow(Moderation::FollowImportRecorder).to receive(:record_batch)
+
+      expect { subject.call(import) }.to raise_error(ActiveRecord::StatementInvalid, 'lookup down')
+
+      expect(Moderation::FollowImportRecorder).not_to have_received(:record_batch)
+      expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+      expect(Import::RelationshipWorker).not_to have_received(:push_bulk)
+      expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+    end
+
+    it 'uses a concurrently visible durable batch after tolerant recording returns nil' do
+      batch = create_owned_batch(import, dispatch_owner: :scheduler)
+      lookups = 0
+      allow(FollowImportBatch).to receive(:find_by).and_wrap_original do |method, *args|
+        attrs = args.first
+        if attrs.is_a?(Hash) && attrs[:import_id] == import.id
+          lookups += 1
+          lookups == 1 ? nil : method.call(*args)
+        else
+          method.call(*args)
+        end
+      end
+      allow(Moderation::FollowImportRecorder).to receive(:record_batch).and_return(nil)
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:push_bulk)
+      allow(Import::RelationshipWorker).to receive(:perform_async)
+
+      subject.call(import)
+
+      expect(lookups).to be >= 2
+      expect(batch.reload.scheduler_dispatch_owner?).to be true
+      expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+      expect(Import::RelationshipWorker).not_to have_received(:push_bulk)
     end
   end
 end

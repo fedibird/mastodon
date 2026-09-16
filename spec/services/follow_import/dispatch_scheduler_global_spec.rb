@@ -226,8 +226,83 @@ RSpec.describe FollowImport::DispatchScheduler, 'authoritative global mode' do
     expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_in)
     expect(Import.exists?(import_record.id)).to be true
     expect(observation.claimed_count).to eq 0
+    expect(observation.global_base_budget).to eq 10
     expect(observation.effective_global_budget).to eq 0
     expect(observation.planned_count).to eq 0
+    expect(observation.local_load_state).to eq 'overloaded'
+    expect(observation.local_load_fallback_used).to eq false
+    expect(observation.executable_owner_count).to be_nil
+    expect(observation.executable_batch_count).to be_nil
+  end
+
+  it 'does not discover pending work or move the fairness cursor on a GLOBAL zero-budget tick' do
+    allow(FollowImport::ExecutionPolicy).to receive(:global_dispatch_budget).and_return(10)
+    allow(FollowImport::LocalLoadEnforcement).to receive(:evaluate).and_return(
+      FollowImport::LocalLoadEnforcement::Result.new(
+        enabled: true,
+        configured: true,
+        decision: FollowImport::LocalLoadDecision.new(
+          {
+            state: 'overloaded',
+            budget_percent: 0,
+            recommended_budget: 0,
+            would_skip: true,
+            measurement_complete: true,
+            profile_version: 2,
+            profile_source: 'injected',
+            profile_digest: 'd',
+            reasons: [],
+          }
+        ),
+        base_budget: 10,
+        effective_budget: 0,
+        fallback_used: false
+      )
+    )
+    account = Fabricate(:account)
+    import_record = create_import(account)
+    batch = create_batch(account, owner: :scheduler, import: import_record)
+    add_target(batch, 0)
+    allow(FollowImport::PendingBatchSource).to receive(:new).and_call_original
+    allow(FollowImport::FairScheduler).to receive(:new)
+    allow(FollowImport::PendingTargetFeed).to receive(:new)
+    allow(FollowImport::FairnessCursor).to receive(:new).and_call_original
+    allow(FollowImport::DispatchCounts).to receive(:global_pending)
+    allow(FollowImport::DispatchCounts).to receive(:active_batches)
+
+    target_selects = []
+    callback = lambda do |*_args, payload|
+      query = payload[:sql]
+      next unless query.include?('follow_import_targets')
+      next unless query.include?('SELECT')
+
+      target_selects << query
+    end
+
+    ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
+      scheduler.call
+    end
+
+    expect(FollowImport::PendingBatchSource).not_to have_received(:new)
+    expect(FollowImport::FairScheduler).not_to have_received(:new)
+    expect(FollowImport::PendingTargetFeed).not_to have_received(:new)
+    expect(FollowImport::FairnessCursor).not_to have_received(:new)
+    expect(FollowImport::DispatchCounts).not_to have_received(:global_pending)
+    expect(FollowImport::DispatchCounts).not_to have_received(:active_batches)
+    expect(target_selects).to be_empty
+    expect(batch.targets.reload.map(&:state).uniq).to eq %w(pending)
+    expect(Import.exists?(import_record.id)).to be true
+    expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+    expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_in)
+    observation = FollowImportDispatchTickObservation.last
+    expect(observation.claimed_count).to eq 0
+    expect(observation.planned_count).to eq 0
+    expect(observation.executable_owner_count).to be_nil
+    expect(observation.executable_batch_count).to be_nil
+    expect(observation.global_pending_count).to be_nil
+    expect(observation.active_batch_count).to be_nil
+    expect(observation.effective_global_budget).to eq 0
+    expect(observation.local_load_state).to eq 'overloaded'
   end
 
   it 'applies the explicit v2 fallback when the snapshot cannot be measured' do

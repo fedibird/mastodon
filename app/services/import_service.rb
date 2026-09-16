@@ -43,11 +43,10 @@ class ImportService < BaseService
       # and if retries are exhausted the import is retained (a batch exists).
       enqueue_follow_overwrite_unfollows! if @import.overwrite?
     else
-      # Legacy-only compatibility: tolerant recording returned nil, so
-      # there is no target set to drive execution from. Fall back to the
-      # original direct enqueue (ledger linkage absent). Forbidden when
-      # GLOBAL is authoritative — record_follow_import_batch! raises
-      # instead of returning nil.
+      # Legacy-only compatibility. Reached only after we have positively
+      # established that GLOBAL is off AND no durable FollowImportBatch
+      # exists for this Import. A lookup exception must not be treated
+      # as "no batch".
       import_relationships!('follow', 'unfollow', @account.following.map { |account| { acct: account.acct }}, ROWS_PROCESSING_LIMIT, show_reblogs: { header: 'Show boosts', default: true }, notify: { header: 'Notify on new posts', default: false }, languages: { header: 'Languages', default: nil }, delivery: { header: 'Delivery to home', default: true })
     end
   end
@@ -76,16 +75,21 @@ class ImportService < BaseService
     end
   end
 
-  # Record the follow-import target set into the moderation ledger before the
-  # follows are executed (the whole set is known here after CSV parsing).
-  # intended_dispatch_owner applies only to NEW rows. An existing batch for
-  # this import_id is returned unchanged.
+  # Durable ownership is authoritative once a batch exists. Look that
+  # row up first — a transient recorder failure must not hide a
+  # scheduler-owned batch and fall through to the unpaced follow path.
+  # A lookup exception raises (ProcessImportWorker retries); it is never
+  # interpreted as "no batch".
   #
-  # GLOBAL on: strict recording (raises on persistence failure) so the
-  # unpaced import_relationships! follow fallback cannot run.
-  # GLOBAL off: tolerant recording may return nil and the legacy fallback
-  # remains available.
+  # intended_dispatch_owner applies only to NEW rows.
+  # GLOBAL on: strict recording (raises on persistence failure).
+  # GLOBAL off: tolerant recording may return nil; we re-check for a
+  # concurrent/idempotent durable batch before allowing the legacy
+  # direct fallback.
   def record_follow_import_batch!
+    existing = existing_follow_import_batch
+    return existing if existing
+
     accts = @data.take(ROWS_PROCESSING_LIMIT).filter_map { |row| row['Account address']&.strip.presence }
     attrs = {
       account: @account,
@@ -98,8 +102,15 @@ class ImportService < BaseService
     if FollowImport::ExecutionPolicy.dispatch_global_enabled?
       Moderation::FollowImportRecorder.record_batch!(**attrs)
     else
-      Moderation::FollowImportRecorder.record_batch(**attrs)
+      batch = Moderation::FollowImportRecorder.record_batch(**attrs)
+      batch || existing_follow_import_batch
     end
+  end
+
+  def existing_follow_import_batch
+    return if @import&.id.blank?
+
+    FollowImportBatch.find_by(import_id: @import.id)
   end
 
   def import_account_subscribings!

@@ -1107,8 +1107,13 @@ off still binds the finite global base. Enforcement on + valid v2
 profile may shrink or zero it. Runtime measurement failure uses the
 explicit v2 fallback. Real claims must not depend on
 `FOLLOW_IMPORT_LOCAL_LOAD_SHADOW`. A global effective budget of 0
-claims nothing and does **not** enqueue per-batch deferred
-`BatchExecutionWorker` jobs — the periodic scheduler is the recheck.
+must not discover the pending universe (`PendingBatchSource` /
+target feeds / FairScheduler) or move the fairness cursor. It claims
+nothing, does **not** enqueue per-batch deferred
+`BatchExecutionWorker` jobs, records `planned_count=0` with
+unmeasured `executable_*` as NULL, and waits for the next periodic
+tick. Shadow observation (GLOBAL off) still builds a diagnostic plan
+at budget 0.
 
 #### Recording and fallback
 

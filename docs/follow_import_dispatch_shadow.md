@@ -248,7 +248,8 @@ base diagnostic budget.
 `effective_shadow_plan_budget` with the legacy pass
 `effective_execution_budget` / `claimed_count` — they may differ
 because their base budgets differ. When GLOBAL is on, a zero
-`effective_global_budget` claims nothing and does not enqueue deferred
+`effective_global_budget` claims nothing, does not discover pending
+work, does not move the fairness cursor, and does not enqueue deferred
 legacy workers; the next periodic tick is the recheck.
 
 Fairness cursor advancement follows the **effective** shadow plan. A
