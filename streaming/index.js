@@ -12,7 +12,7 @@ const url = require('url');
 const uuid = require('uuid');
 const fs = require('fs');
 const WebSocket = require('ws');
-const { JSDOM } = require('jsdom');
+const { filteredResultsForStatus } = require('./filtering');
 
 const env = process.env.NODE_ENV || 'development';
 const alwaysRequireAuth = process.env.LIMITED_FEDERATION_MODE === 'true' || process.env.WHITELIST_MODE === 'true' || process.env.AUTHORIZED_FETCH === 'true';
@@ -667,7 +667,7 @@ const startWorker = (workerId) => {
           queries.push(client.query('SELECT 1 FROM account_domain_blocks WHERE account_id = $1 AND domain = $2', [req.accountId, accountDomain]));
         }
 
-        if (!unpackedPayload.filter_results && !req.cachedFilters) {
+        if (!unpackedPayload.filtered && !req.cachedFilters) {
           queries.push(client.query('SELECT filter.id AS id, filter.phrase AS title, filter.context AS context, filter.expires_at AS expires_at, filter.action AS filter_action, keyword.keyword AS keyword, keyword.whole_word AS whole_word FROM custom_filter_keywords keyword JOIN custom_filters filter ON keyword.custom_filter_id = filter.id WHERE filter.account_id = $1 AND (filter.expires_at IS NULL OR filter.expires_at > NOW())', [req.accountId]));
         }
 
@@ -678,7 +678,7 @@ const startWorker = (workerId) => {
             return;
           }
 
-          if (!unpackedPayload.filter_results && !req.cachedFilters) {
+          if (!unpackedPayload.filtered && !req.cachedFilters) {
             const filterRows = values[accountDomain ? 2 : 1].rows;
 
             req.cachedFilters = filterRows.reduce((cache, row) => {
@@ -721,26 +721,10 @@ const startWorker = (workerId) => {
           }
 
           // Check filters
-          if (req.cachedFilters && !unpackedPayload.filter_results) {
-            const status = unpackedPayload;
-            const searchContent = ([status.spoiler_text || '', status.content].concat((status.poll && status.poll.options) ? status.poll.options.map(option => option.title) : [])).concat(status.media_attachments.map(att => att.description)).join('\n\n').replace(/<br\s*\/?>/g, '\n').replace(/<\/p><p>/g, '\n\n');
-            const searchIndex = JSDOM.fragment(searchContent).textContent;
-
-            const now = new Date();
-            payload.filter_results = [];
-            Object.values(req.cachedFilters).forEach((cachedFilter) => {
-              if ((cachedFilter.expires_at === null || cachedFilter.expires_at > now)) {
-                const keyword_matches = searchIndex.match(cachedFilter.regexp);
-                if (keyword_matches) {
-                  payload.filter_results.push({
-                    filter: cachedFilter.repr,
-                    keyword_matches,
-                  });
-                }
-              }
-            });
+          if (req.cachedFilters && !unpackedPayload.filtered) {
+            payload.filtered = filteredResultsForStatus(unpackedPayload, req.cachedFilters);
           }
-          
+
           transmit();
         }).catch(err => {
           log.error(err);

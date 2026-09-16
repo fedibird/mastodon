@@ -85,9 +85,13 @@ export function importFetchedStatuses(statuses) {
     const filters = [];
 
     function processStatus(status) {
+      status = { ...status };
+
       if (!status.filtered && status.filter_results) {
         status.filtered = status.filter_results;
       }
+
+      delete status.filter_results;
 
       if (status.poll && status.poll.id) {
         pushUnique(polls, normalizePoll(status.poll));
