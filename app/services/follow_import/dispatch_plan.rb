@@ -54,6 +54,18 @@ module FollowImport
       @skipped_stale_count = planning[:skipped_stale_count]
       @skipped_unrecoverable_count = planning[:skipped_unrecoverable_count]
       @skipped_wrong_owner_count = planning[:skipped_wrong_owner_count]
+      @remote_admission_enabled = planning[:remote_admission_enabled]
+      @remote_admission_configured = planning[:remote_admission_configured]
+      @remote_profile_version = planning[:remote_profile_version]
+      @skipped_destination_cap_count = planning[:skipped_destination_cap_count]
+      @skipped_origin_cap_count = planning[:skipped_origin_cap_count]
+      @skipped_unavailable_count = planning[:skipped_unavailable_count]
+      @skipped_retry_after_count = planning[:skipped_retry_after_count]
+      @skipped_recent_429_count = planning[:skipped_recent_429_count]
+      @scanned_target_count = planning[:scanned_target_count]
+      @windows_scanned = planning[:windows_scanned]
+      @scan_budget_exhausted_count = planning[:scan_budget_exhausted_count]
+      @mapped_origin_candidate_count = planning[:mapped_origin_candidate_count]
     end
 
     def planned?
@@ -203,6 +215,78 @@ module FollowImport
 
         memo[entry.destination_domain] += 1
       end
+    end
+
+    def remote_admission_enabled
+      return unless @planned
+
+      @remote_admission_enabled
+    end
+
+    def remote_admission_configured
+      return unless @planned
+
+      @remote_admission_configured
+    end
+
+    def remote_profile_version
+      return unless @planned
+
+      @remote_profile_version
+    end
+
+    def skipped_destination_cap_count
+      return unless @planned
+
+      @skipped_destination_cap_count
+    end
+
+    def skipped_origin_cap_count
+      return unless @planned
+
+      @skipped_origin_cap_count
+    end
+
+    def skipped_unavailable_count
+      return unless @planned
+
+      @skipped_unavailable_count
+    end
+
+    def skipped_retry_after_count
+      return unless @planned
+
+      @skipped_retry_after_count
+    end
+
+    def skipped_recent_429_count
+      return unless @planned
+
+      @skipped_recent_429_count
+    end
+
+    def scanned_target_count
+      return unless @planned
+
+      @scanned_target_count
+    end
+
+    def windows_scanned
+      return unless @planned
+
+      @windows_scanned
+    end
+
+    def scan_budget_exhausted_count
+      return unless @planned
+
+      @scan_budget_exhausted_count
+    end
+
+    def mapped_origin_candidate_count
+      return unless @planned
+
+      @mapped_origin_candidate_count
     end
   end
 end

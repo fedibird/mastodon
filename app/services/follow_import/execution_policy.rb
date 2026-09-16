@@ -183,5 +183,15 @@ module FollowImport
     def local_load_enforcement_enabled?
       ENV['FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT'].to_s == 'true'
     end
+
+    # Fixed remote admission for scheduler-owned GLOBAL ticks.
+    # Default off: the GLOBAL scheduler keeps PR C destination behavior
+    # (finite global/local-load budget only). When true, a valid
+    # RemoteAdmission profile is still required or the tick stays at
+    # that PR C behavior and records remote_admission_configured=false.
+    # Does not apply to BatchExecutionWorker / GLOBAL=false.
+    def remote_admission_enforcement_enabled?
+      ENV['FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT'].to_s == 'true'
+    end
   end
 end

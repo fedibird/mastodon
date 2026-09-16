@@ -158,8 +158,9 @@ module FollowImport
       effective_budget = resolved.effective_budget
 
       # Authoritative GLOBAL: a zero effective budget must not discover
-      # the pending universe, walk target feeds, or move the fairness
-      # cursor. Shadow observation keeps today's discover-and-plan-0 path.
+      # the pending universe, walk target feeds, move the fairness
+      # cursor, or instantiate remote admission / DFT state. Shadow
+      # observation keeps today's discover-and-plan-0 path.
       if mode == :global && effective_budget.to_i <= 0
         return observe_plan(
           observed_at: observed_at,
@@ -172,13 +173,24 @@ module FollowImport
           fairness_state_source: nil,
           executable_owner_count: nil,
           executable_batch_count: nil,
-          measure_backlog: false
+          measure_backlog: false,
+          remote: cheap_remote_identity(mode)
         )
       end
 
+      remote = remote_admission_context(mode)
       cursor = FollowImport::FairnessCursor.new.read
-      owners, skipped = FollowImport::PendingBatchSource.new(batch_scope: batch_scope).owner_work(cursor: cursor)
-      scheduled = FollowImport::FairScheduler.new(budget: effective_budget, owners: owners, cursor: cursor).plan
+      owners, skipped = FollowImport::PendingBatchSource.new(
+        batch_scope: batch_scope,
+        scan_policy: remote[:scan_policy]
+      ).owner_work(cursor: cursor)
+      scheduled = FollowImport::FairScheduler.new(
+        budget: effective_budget,
+        owners: owners,
+        cursor: cursor,
+        admission: remote[:admission],
+        scan_policy: remote[:scan_policy]
+      ).plan
       source = cursor.source
       persisted = FollowImport::FairnessCursor.new.write(
         scheduled.next_cursor,
@@ -198,11 +210,12 @@ module FollowImport
         fairness_state_source: source,
         executable_owner_count: owners.size,
         executable_batch_count: owners.sum { |owner| owner[:batches].size },
-        measure_backlog: true
+        measure_backlog: true,
+        remote: remote_plan_facts(remote, scheduled)
       )
     end
 
-    def observe_plan(observed_at:, decision:, resolved:, budget_attrs:, scheduler_mode:, entries:, skipped_missing_owner_count:, fairness_state_source:, executable_owner_count:, executable_batch_count:, measure_backlog:)
+    def observe_plan(observed_at:, decision:, resolved:, budget_attrs:, scheduler_mode:, entries:, skipped_missing_owner_count:, fairness_state_source:, executable_owner_count:, executable_batch_count:, measure_backlog:, remote: {})
       FollowImport::DispatchPlan.observe(
         observed_at: observed_at,
         global_pending_count: measure_backlog ? FollowImport::DispatchCounts.global_pending : nil,
@@ -210,7 +223,7 @@ module FollowImport
         execution_config: execution_config.merge(
           'local_load_profile_digest' => decision&.profile_digest,
           'local_load_profile_source' => decision&.profile_source
-        ).compact,
+        ).merge(remote_execution_config(remote)).compact,
         planning: {
           planned: true,
           scheduler_mode: scheduler_mode,
@@ -222,7 +235,7 @@ module FollowImport
           executable_owner_count: executable_owner_count,
           executable_batch_count: executable_batch_count,
           claimed_count: 0,
-        }.merge(budget_attrs)
+        }.merge(budget_attrs).merge(remote_planning_attrs(remote))
       )
     end
 
@@ -296,7 +309,69 @@ module FollowImport
         'local_load_enforcement_enabled' => FollowImport::ExecutionPolicy.local_load_enforcement_enabled?,
         'local_load_profile_schema_version' => FollowImport::LocalLoadProfile::SCHEMA_VERSION,
         'local_load_controller_schema_version' => FollowImport::LocalLoadGuard::SCHEMA_VERSION,
+        'remote_admission_enforcement_enabled' => FollowImport::ExecutionPolicy.remote_admission_enforcement_enabled?,
+        'remote_admission_profile_schema_version' => FollowImport::RemoteAdmissionProfile::SCHEMA_VERSION,
       }
+    end
+
+    def cheap_remote_identity(mode)
+      return {} unless mode == :global
+
+      enabled = FollowImport::ExecutionPolicy.remote_admission_enforcement_enabled?
+      facts = { remote_admission_enabled: enabled, remote_admission_configured: nil, profile: nil }
+      return facts unless enabled
+
+      profile = FollowImport::RemoteAdmissionProfile.from_env
+      facts[:profile] = profile
+      facts[:remote_admission_configured] = profile.configured?
+      facts[:remote_profile_version] = profile.version if profile.configured?
+      warn_remote_misconfiguration(profile) unless profile.configured?
+      facts
+    end
+
+    def remote_admission_context(mode)
+      identity = cheap_remote_identity(mode)
+      return identity unless mode == :global
+      return identity unless identity[:remote_admission_enabled]
+      return identity unless identity[:profile]&.configured?
+
+      runtime = FollowImport::RemoteRuntimeState.new(profile: identity[:profile]).snapshot
+      hosts, hosts_ok = FollowImport::RemoteAdmission.unavailable_hosts
+      identity[:admission] = FollowImport::RemoteAdmission.new(
+        profile: identity[:profile],
+        runtime: runtime,
+        unavailable_hosts: hosts,
+        unavailable_snapshot_available: hosts_ok,
+        now: Time.now.utc
+      )
+      identity[:scan_policy] = identity[:profile].scan_policy
+      identity
+    end
+
+    def remote_plan_facts(remote, scheduled)
+      facts = remote.slice(:remote_admission_enabled, :remote_admission_configured, :remote_profile_version, :profile)
+      return facts unless remote[:admission]&.evaluated?
+
+      facts.merge(scheduled.admission_stats || {})
+    end
+
+    def remote_planning_attrs(remote)
+      remote.to_h.symbolize_keys.except(:admission, :scan_policy, :profile)
+    end
+
+    def remote_execution_config(remote)
+      profile = remote[:profile]
+      return {} unless profile&.configured?
+
+      profile.identity
+    end
+
+    def warn_remote_misconfiguration(profile)
+      message = profile.invalid? ? profile.error.to_s : 'unconfigured'
+      FollowImport::Telemetry.warn_failure(
+        'remote_admission_profile',
+        StandardError.new(message)
+      )
     end
   end
 end

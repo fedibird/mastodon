@@ -243,5 +243,29 @@ RSpec.describe FollowImport::ExecutionPolicy do
       end
     end
   end
+
+  describe '.remote_admission_enforcement_enabled?' do
+    it 'is disabled by default' do
+      expect(described_class.remote_admission_enforcement_enabled?).to be false
+    end
+
+    it 'is enabled only when the explicit flag is set to true' do
+      ClimateControl.modify FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT: 'true' do
+        expect(described_class.remote_admission_enforcement_enabled?).to be true
+      end
+    end
+
+    it 'stays disabled for any other flag value' do
+      ClimateControl.modify FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT: '1' do
+        expect(described_class.remote_admission_enforcement_enabled?).to be false
+      end
+    end
+
+    it 'does not depend on DISPATCH_SHADOW' do
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_SHADOW: 'true' do
+        expect(described_class.remote_admission_enforcement_enabled?).to be false
+      end
+    end
+  end
 end
 

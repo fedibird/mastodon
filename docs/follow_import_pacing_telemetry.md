@@ -272,17 +272,22 @@ Uncalibrated, env-overridable, **not** load-aware:
 - `FOLLOW_IMPORT_LOCAL_LOAD_SHADOW_PROFILE` (deprecated alias if the canonical variable is absent)
 - `FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT` (default off; legacy executor and
   GLOBAL tick share the same v2/fallback control law)
+- `FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT` (default off; GLOBAL
+  scheduler fixed remote admission only)
+- `FOLLOW_IMPORT_REMOTE_ADMISSION_PROFILE` (explicit versioned JSON;
+  no bundled production defaults)
 
 Enforcement does not silently activate without an explicit v2 profile
-that includes `fallback.budget_percent`. No repository number is a
-calibrated production recommendation.
+that includes `fallback.budget_percent`. Remote admission does not
+silently activate without an explicit valid RemoteAdmission profile.
+No repository number is a calibrated production recommendation.
 
 ### `follow_import_dispatch_tick_observations`
 
 One row per **global** `FollowImport::DispatchScheduler` tick.
 This is not a per-batch `BatchExecutionWorker` pass.
 
-Tick schema version **7**. Historical rows keep their original meaning:
+Tick schema version **8**. Historical rows keep their original meaning:
 older `scheduler_mode=shadow` rows always meant planned-but-not-claimed.
 Do not rewrite them. `scheduler_mode=global` means planned **and**
 actual claims.
@@ -314,8 +319,17 @@ actual claims.
 | `global_base_budget` | GLOBAL tick unadjusted ceiling; NULL in shadow / unplanned ticks |
 | `effective_global_budget` | GLOBAL budget after LocalLoadEnforcement; NULL in shadow / unplanned ticks |
 | `skipped_stale_count` / `skipped_unrecoverable_count` / `skipped_wrong_owner_count` | GLOBAL claim skips; NULL when claiming was not attempted |
+| `remote_admission_enabled` | whether the GLOBAL tick considered the remote-admission flag; NULL if not evaluated (shadow / no-op) |
+| `remote_admission_configured` | whether a valid RemoteAdmission profile was present; NULL if not evaluated |
+| `remote_profile_version` | profile schema version when configured; NULL otherwise |
+| `skipped_destination_cap_count` / `skipped_origin_cap_count` | planned candidates skipped by fixed caps; NULL if remote admission was not evaluated; 0 = evaluated and none |
+| `skipped_unavailable_count` | exact UnavailableDomain / DFT host skips |
+| `skipped_retry_after_count` / `skipped_recent_429_count` | origin suppression skips |
+| `scanned_target_count` / `windows_scanned` | bounded candidate scan work |
+| `scan_budget_exhausted_count` | batches that hit the configured scan bound this tick |
+| `mapped_origin_candidate_count` | inspected candidates that had a fresh origin mapping |
 | `load_snapshot` | Sidekiq load facts, or NULL if capture failed |
-| `execution_config` | execution + shadow-flag snapshot, including `dispatch_shadow_interval` from `FollowImport::ExecutionPolicy` (same ENV/default as `config/sidekiq.yml`) |
+| `execution_config` | execution + shadow-flag snapshot, including `dispatch_shadow_interval` from `FollowImport::ExecutionPolicy` (same ENV/default as `config/sidekiq.yml`). PR F adds `remote_admission_enforcement_enabled`, `remote_admission_profile_version`, `remote_admission_profile_digest`, `destination_per_tick_cap`, `origin_per_tick_cap`, `max_scan_targets`, `max_scan_windows`. Do not store the raw profile JSON. |
 | `error_class` | exception class for `shadow_error` |
 | `metadata` | schema version plus non-identifying facts |
 

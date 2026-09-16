@@ -20,6 +20,16 @@ module FollowImport
       finished_at = Time.now.utc
       enqueued_at = FollowImport::ObservationTime.parse(tracking[:enqueued_at])
 
+      http_status = http_status_from(http_response)
+      retry_after_seconds = FollowImport::RetryAfter.seconds_from(http_response)
+      runtime_written = write_runtime_state(
+        destination_domain: target&.destination_domain,
+        inbox_url: inbox_url,
+        http_status: http_status,
+        retry_after_seconds: retry_after_seconds,
+        request_reached: request_started_at.present?
+      )
+
       FollowImport::Telemetry.record_transport(
         batch_id: target&.batch_id,
         target_id: target_id,
@@ -36,8 +46,8 @@ module FollowImport
         queue_wait_ms: FollowImport::ObservationTime.duration_ms(enqueued_at, worker_started_at),
         request_duration_ms: FollowImport::ObservationTime.duration_ms(request_started_at, request_finished_at),
         outcome: delivery_outcome(http_response, error, skip_reason),
-        http_status: http_status_from(http_response),
-        retry_after_seconds: FollowImport::RetryAfter.seconds_from(http_response),
+        http_status: http_status,
+        retry_after_seconds: retry_after_seconds,
         error_class: error&.class&.name,
         metadata: {
           'schema' => FollowImport::Telemetry::SCHEMA_NAME,
@@ -45,12 +55,35 @@ module FollowImport
           'duration_kind' => 'worker',
           'performed' => performed,
           'skip_reason' => skip_reason,
+          'remote_runtime_state_written' => runtime_written,
         }.compact
       )
     rescue StandardError => e
       FollowImport::Telemetry.warn_failure('transport', e)
       nil
     end
+
+    # Runtime state is independent of historical telemetry. A write
+    # failure must not fail delivery or the transport row. Mapping TTL
+    # and suppression windows come only from a valid configured profile;
+    # writes also run when enforcement is still off so operators can
+    # warm mappings before flipping the flag.
+    def self.write_runtime_state(destination_domain:, inbox_url:, http_status:, retry_after_seconds:, request_reached:)
+      profile = FollowImport::RemoteAdmissionProfile.from_env
+      return unless profile.configured?
+
+      FollowImport::RemoteRuntimeState.new(profile: profile).observe(
+        destination_domain: destination_domain,
+        inbox_url: inbox_url,
+        http_status: http_status,
+        retry_after_seconds: retry_after_seconds,
+        request_reached: request_reached
+      )
+    rescue StandardError => e
+      FollowImport::Telemetry.warn_failure('remote_runtime_state_write', e)
+      false
+    end
+    private_class_method :write_runtime_state
 
     def self.follow_import_target?(options)
       tracking = tracking_from(options)

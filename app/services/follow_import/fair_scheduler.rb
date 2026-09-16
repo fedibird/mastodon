@@ -13,21 +13,36 @@
 # pre-scan. Complexity is the plan budget plus stale candidates, not
 # the full active-owner population.
 #
-# Pure algorithm: given synthetic owners/batches/targets and a cursor,
-# returns a deterministic plan. No Sidekiq, Redis, or ActiveRecord.
+# Pure algorithm: given synthetic owners/batches/targets, a cursor, and
+# an admission object, returns a deterministic plan. No Sidekiq, Redis,
+# or ActiveRecord.
 #
-# Optional destination_cap is for specs / future destination-share math.
-# Runtime PR B leaves it unset (no remote admission).
+# Admission is asked "may I plan this candidate?" per inspected row.
+# Remote-blocked rows stay pending and do not consume the global claim
+# budget. The planner keeps looking for healthy later rows until the
+# configured scan budget is exhausted, then returns unused share
+# upward (batch → account → other accounts).
+#
+# Cursor distinction (FairnessCursor is reconstructable simulation
+# state, not a work ledger):
+#   - last_owner_key / last_batch_by_owner: who received a planned slot.
+#     An owner does not get an extra top-level share because many of
+#     its candidates were blocked.
+#   - last_position_by_batch: how far this tick inspected inside that
+#     batch, including destination-cap / origin-cap / Retry-After /
+#     recent-429 / UnavailableDomain skips. Advancing this cursor is
+#     not completion. The skipped row stays pending and wrap/rebuild
+#     makes it eligible again after backoff expires.
 module FollowImport
   class FairScheduler
     ALGORITHM      = 'account_first_rr'
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 3
 
     Entry = Struct.new(:owner_key, :batch_id, :target_id, :position, :destination_domain, keyword_init: true)
-    Result = Struct.new(:planned, :next_cursor, keyword_init: true)
+    Result = Struct.new(:planned, :next_cursor, :admission_stats, keyword_init: true)
 
     class Batch
-      attr_reader :id
+      attr_reader :id, :feed
 
       def initialize(id, feed)
         @id = id
@@ -36,6 +51,14 @@ module FollowImport
 
       def take
         @feed.shift
+      end
+
+      def scan_budget_exhausted?
+        @feed.respond_to?(:scan_budget_exhausted?) && @feed.scan_budget_exhausted?
+      end
+
+      def windows_scanned
+        @feed.respond_to?(:windows_scanned) ? @feed.windows_scanned.to_i : 0
       end
     end
 
@@ -67,16 +90,57 @@ module FollowImport
     end
 
     class ArrayFeed
-      def initialize(rows)
+      attr_reader :targets_scanned, :windows_scanned, :last_inspected_position
+
+      def initialize(rows, max_targets: nil, max_windows: nil, window: 8)
         @rows = rows.dup
+        @max_targets = max_targets
+        @max_windows = max_windows
+        @window = window
+        @targets_scanned = 0
+        @windows_scanned = 0
+        @last_inspected_position = nil
+        @exhausted = false
       end
 
       def shift
-        @rows.shift
+        return if scan_budget_exhausted?
+
+        start_window_if_needed
+        return if scan_budget_exhausted?
+
+        row = @rows.shift
+        return if row.nil?
+
+        @targets_scanned += 1
+        @last_inspected_position = row[:position]
+        @exhausted = true if @max_targets && @targets_scanned >= @max_targets
+        row
       end
 
       def remaining?
-        @rows.any?
+        !scan_budget_exhausted? && @rows.any?
+      end
+
+      def scan_budget_exhausted?
+        return true if @exhausted
+        return true if @max_targets && @targets_scanned >= @max_targets
+
+        false
+      end
+
+      private
+
+      def start_window_if_needed
+        return unless (@targets_scanned % @window).zero?
+        return if @rows.empty?
+
+        if @max_windows && @windows_scanned >= @max_windows
+          @exhausted = true
+          return
+        end
+
+        @windows_scanned += 1
       end
     end
 
@@ -91,18 +155,23 @@ module FollowImport
       index ? ordered.rotate(index) : ordered
     end
 
-    def initialize(budget:, owners:, cursor: FollowImport::FairnessCursor::State.empty, destination_cap: nil)
+    def initialize(budget:, owners:, cursor: FollowImport::FairnessCursor::State.empty, admission: nil, scan_policy: nil)
       @budget = budget.to_i
       @owners = owners
       @cursor = cursor
-      @destination_cap = destination_cap
+      @admission = admission || FollowImport::RemoteAdmission::NullAdmission.new
+      @scan_policy = scan_policy
+      @inspected_by_batch = Hash.new(0)
+      @scan_exhausted_recorded = {}
+      @scanned_target_count = 0
+      @windows_scanned = 0
+      @scan_budget_exhausted_count = 0
     end
 
     def plan
       entries = []
       return result_for(entries) if @budget <= 0
 
-      dest_counts = Hash.new(0)
       last_owner = @cursor.last_owner_key
       last_batch_by_owner = @cursor.last_batch_by_owner.dup
       last_position_by_batch = @cursor.last_position_by_batch.dup
@@ -114,7 +183,7 @@ module FollowImport
         owners.each do |owner|
           break if entries.size >= @budget
 
-          batch, target = take_from_owner(owner, dest_counts)
+          batch, target = take_from_owner(owner, last_position_by_batch)
           next if target.nil?
 
           entries << Entry.new(
@@ -126,9 +195,6 @@ module FollowImport
           )
           last_owner = owner.key
           last_batch_by_owner[owner.key] = batch.id
-          last_position_by_batch[batch.id.to_s] = target[:position]
-          domain = target[:destination_domain]
-          dest_counts[domain] += 1 if domain
           progressed = true
         end
 
@@ -158,12 +224,12 @@ module FollowImport
       self.class.rotate_after(prepared, @cursor.last_owner_key, ->(owner) { owner.key })
     end
 
-    def take_from_owner(owner, dest_counts)
+    def take_from_owner(owner, last_position_by_batch)
       selected_batch = nil
       selected_target = nil
 
       owner.each_candidate_batch do |batch|
-        target = take_admissible(batch, dest_counts)
+        target = take_admissible(batch, last_position_by_batch)
         if target.nil?
           owner.mark_exhausted(batch)
           next
@@ -179,19 +245,47 @@ module FollowImport
       [selected_batch, selected_target]
     end
 
-    def take_admissible(batch, dest_counts)
+    def take_admissible(batch, last_position_by_batch)
       loop do
+        if batch_scan_exhausted?(batch)
+          record_scan_exhausted(batch)
+          return
+        end
+
+        windows_before = batch.windows_scanned
         target = batch.take
-        return if target.nil?
-        return target unless capped_destination?(target, dest_counts)
+        @windows_scanned += [batch.windows_scanned - windows_before, 0].max
+        if target.nil?
+          record_scan_exhausted(batch) if batch.scan_budget_exhausted?
+          return
+        end
+
+        @inspected_by_batch[batch.id] += 1
+        @scanned_target_count += 1
+        last_position_by_batch[batch.id.to_s] = target[:position]
+
+        decision = @admission.decide(target)
+        if decision.admit?
+          @admission.record_admit(decision)
+          return target
+        end
+
+        @admission.record_skip(decision)
       end
     end
 
-    def capped_destination?(target, dest_counts)
-      return false if @destination_cap.nil?
+    def batch_scan_exhausted?(batch)
+      return true if batch.scan_budget_exhausted?
+      return false if @scan_policy.nil?
 
-      domain = target[:destination_domain]
-      domain.present? && dest_counts[domain] >= @destination_cap
+      @inspected_by_batch[batch.id] >= @scan_policy.max_targets_per_batch
+    end
+
+    def record_scan_exhausted(batch)
+      return if @scan_exhausted_recorded[batch.id]
+
+      @scan_exhausted_recorded[batch.id] = true
+      @scan_budget_exhausted_count += 1
     end
 
     def result_for(entries, last_owner_key: @cursor.last_owner_key, last_batch_by_owner: @cursor.last_batch_by_owner, last_position_by_batch: @cursor.last_position_by_batch)
@@ -202,7 +296,16 @@ module FollowImport
           last_batch_by_owner: last_batch_by_owner,
           last_position_by_batch: last_position_by_batch,
           source: @cursor.source
-        )
+        ),
+        admission_stats: collected_stats
+      )
+    end
+
+    def collected_stats
+      @admission.stats.merge(
+        'scanned_target_count' => @scanned_target_count,
+        'windows_scanned' => @windows_scanned,
+        'scan_budget_exhausted_count' => @scan_budget_exhausted_count
       )
     end
   end
