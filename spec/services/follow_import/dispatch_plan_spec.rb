@@ -51,4 +51,39 @@ RSpec.describe FollowImport::DispatchPlan do
     expect(plan.planned_counts_by_owner).to eq('A' => 2, 'B' => 1)
     expect(plan.planned_counts_by_destination).to eq('one.test' => 2, 'two.test' => 1)
   end
+
+  it 'exposes the actual claimed_count only in global mode' do
+    entries = [
+      FollowImport::FairScheduler::Entry.new(owner_key: 'A', batch_id: 1, target_id: 10, position: 0, destination_domain: 'one.test'),
+    ]
+    plan = described_class.observe(
+      observed_at: Time.now.utc,
+      global_pending_count: 1,
+      active_batch_count: 1,
+      execution_config: {},
+      planning: {
+        planned: true,
+        scheduler_mode: 'global',
+        entries: entries,
+        claimed_count: 0,
+        global_base_budget: 10,
+        effective_global_budget: 4,
+      }
+    )
+    execution = FollowImport::DispatchExecutor::Result.new(
+      claimed_count: 1,
+      skipped_stale_count: 0,
+      skipped_unrecoverable_count: 0,
+      skipped_wrong_owner_count: 0,
+      error_class: nil,
+      stopped: false
+    )
+
+    expect(plan.claimed_count).to eq 0
+    plan.with_execution(execution)
+    expect(plan.claimed_count).to eq 1
+    expect(plan.global_base_budget).to eq 10
+    expect(plan.effective_global_budget).to eq 4
+    expect(plan.scheduler_mode).to eq 'global'
+  end
 end

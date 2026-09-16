@@ -917,12 +917,12 @@ Invariants carried forward:
 - Pending scans keep using
   `index_follow_import_targets_on_pending_batch_id`.
 
-**Ownership column or metadata** (implementation PR C): each batch has
-exactly one `dispatch_owner`: `legacy` | `scheduler`. Set at creation
-from the feature flag. Scheduler queries `dispatch_owner = scheduler`.
-`BatchExecutionWorker` refuses to claim (or to start) a
-`scheduler`-owned batch. Flag flips do not rewrite in-flight owners
-except via an explicit drain (§13).
+**Ownership column** (implementation PR C): each batch has exactly one
+first-class `dispatch_owner`: `legacy` (0) | `scheduler` (1). Set at
+creation from `FOLLOW_IMPORT_DISPATCH_GLOBAL`. Scheduler queries
+`dispatch_owner = scheduler`. `BatchExecutionWorker` refuses to start
+a `scheduler`-owned batch. Flag flips do not rewrite stored owners.
+There is no automatic drain/conversion in PR C.
 
 Suggested indexes when implementing (not in this PR):
 
@@ -1007,7 +1007,7 @@ That cannot protect the instance. Local-load work is a **shared guard**
 | **1 — shadow scheduler** | PR A (+ PR B plan math) | Scheduler runs single-flight, builds an account-first plan, **does not claim**. Legacy worker is the only claimer. |
 | **2 — shared load guard, shadow** | PR D | Global scheduler *computes and logs* `LocalLoadGuard` and may shrink only the shadow plan. Legacy `BatchExecutionWorker` is unchanged so a shadow skip cannot stop a live chain. **No protection yet.** |
 | **3 — shared load guard, enforce** | PR E | Legacy `BatchExecutionWorker` consults the shared guard **before** `select_pending_candidates` when `FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT` is on and a v2+fallback profile is configured. Positive recommendation shrinks the per-pass LIMIT. Zero due load schedules one deferred recheck (§6.2.1). The global scheduler remains shadow-only. Temporary compatibility; **not** global fairness. |
-| **4 — global claiming for new imports** | PR C | New batches are `dispatch_owner = scheduler`. Recording failure must not bulk-enqueue. In-flight `legacy` batches keep their chains. |
+| **4 — global claiming for new imports** | PR C | New batches are `dispatch_owner = scheduler` when `FOLLOW_IMPORT_DISPATCH_GLOBAL=true`. Recording failure must not bulk-enqueue. In-flight `legacy` batches keep their chains. Scheduler cadence is real admission pacing for NEW follow additions only. |
 | **5 — fixed destination admission** | PR F | Domain caps + DFT/UnavailableDomain + Retry-After cache. |
 | **6 — adaptive destination, shadow then enforce** | PR G / H | After telemetry calibration. Still no Node score. |
 | **7 — retire legacy** | PR I | No new `BatchExecutionWorker` chains. Drain or flip remaining `legacy` owners. Historical domain-ordering workaround can be removed when proven unused. |
@@ -1047,6 +1047,108 @@ Feature flags (names illustrative), all default **off**:
 "Optional pause of new per-batch reschedules" is **not** described as
 load protection. Only the shared enforced guard (Stage 3 / PR E) or
 the global scheduler under load (after Stage 4) provides that.
+
+### 13.2 PR C / Stage 4 GLOBAL rollout (implemented)
+
+Default **off**. Deploy code and schema with
+`FOLLOW_IMPORT_DISPATCH_GLOBAL=false` everywhere first.
+
+Durable field: `follow_import_batches.dispatch_owner`
+(`legacy=0`, `scheduler=1`, NOT NULL, existing rows `legacy`).
+One batch = exactly one owner. Never both.
+
+| Flag / stored owner | Who claims |
+|---|---|
+| GLOBAL off, new batch | `legacy` → `BatchExecutionWorker` |
+| GLOBAL on, new batch | `scheduler` → periodic `DispatchScheduler` only |
+| Existing row after a flag flip | stored `dispatch_owner` wins |
+
+**Do not** infer ownership from the current ENV after the row exists.
+An import retry that finds a legacy batch while GLOBAL is later true
+must remain legacy. Turning GLOBAL off must not convert scheduler-owned
+batches back to legacy and must not auto-enqueue `BatchExecutionWorker`
+for them (dual-ownership risk during a partial rollback). Those batches
+wait until the scheduler is re-enabled or an operator performs an
+explicit conversion that refuses to flip while a legacy worker could
+still be active. PR C does not ship that conversion.
+
+#### Rolling deploy
+
+1. Deploy schema/code with GLOBAL=false everywhere.
+2. Finish the `dispatch_owner` migration.
+3. Ensure all web / Sidekiq / scheduler processes run this revision.
+4. Verify global scheduler ticks in disabled or shadow mode.
+5. Configure the desired local-load profile / enforcement.
+6. Enable `FOLLOW_IMPORT_DISPATCH_GLOBAL=true` consistently.
+7. Restart/reload all relevant processes so feature state matches.
+
+Do not enable GLOBAL midway through a mixed old/new application deploy.
+An old process must never receive a scheduler-owned batch it does not
+understand.
+
+#### Scheduler cadence and global budget
+
+Canonical cadence: `FOLLOW_IMPORT_DISPATCH_INTERVAL` (default 60s,
+PROVISIONAL / UNCALIBRATED). Deprecated alias:
+`FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL` when the canonical variable
+is absent. This is now real admission pacing once GLOBAL is on. No
+catch-up budget: a missed tick does not add extra budget next tick.
+Restart = fresh tick, fresh load snapshot, current budget.
+
+Global base budget: `FOLLOW_IMPORT_DISPATCH_GLOBAL_BUDGET`, default
+`execution_batch_size`. Provisional / uncalibrated per-tick ceiling.
+Not a remote-server capacity estimate, retry-attempt cap, or
+moderation limit. Do not use `shadow_plan_budget` as the production
+budget.
+
+Local-load in GLOBAL mode reuses `LocalLoadEnforcement` /
+`LocalLoadBudget` with `base = global_dispatch_budget`. Enforcement
+off still binds the finite global base. Enforcement on + valid v2
+profile may shrink or zero it. Runtime measurement failure uses the
+explicit v2 fallback. Real claims must not depend on
+`FOLLOW_IMPORT_LOCAL_LOAD_SHADOW`. A global effective budget of 0
+must not discover the pending universe (`PendingBatchSource` /
+target feeds / FairScheduler) or move the fairness cursor. It claims
+nothing, does **not** enqueue per-batch deferred
+`BatchExecutionWorker` jobs, records `planned_count=0` with
+unmeasured `executable_*` as NULL, and waits for the next periodic
+tick. Shadow observation (GLOBAL off) still builds a diagnostic plan
+at budget 0.
+
+#### Recording and fallback
+
+GLOBAL recording uses the strict recorder (`record_batch!`). Failure
+raises; `ProcessImportWorker` retries; the Import/CSV is retained.
+The unpaced `import_relationships!` follow fallback is closed for a
+new GLOBAL-owned import. Legacy mode may still use tolerant recording
+and that fallback.
+
+`BatchExecutionWorker` no-ops immediately on a scheduler-owned batch.
+
+#### Known gaps (do not claim they are paced)
+
+- Overwrite-generated **UNFOLLOW** operations remain a burst path.
+  PR C paces imported FOLLOW additions only.
+- Existing `Import::RelationshipWorker` / `ActivityPub::DeliveryWorker`
+  retries do **not** re-enter `DispatchScheduler`.
+  `global_dispatch_budget` is not a total HTTP attempt budget.
+- No remote admission yet (destination caps, Retry-After cache, DFT,
+  Stoplight, AIMD, Node capacity). Those are PR F/G/H.
+- No Follow Gate / moderation coupling. `Eligibility` still defaults
+  true.
+
+#### Fairness cursor under real claims
+
+The Redis cursor is reconstructable scheduling state, not a claim
+ledger. The planner may advance past an inspected pending row
+(including a permanently unrecoverable first row) so it does not
+head-of-line block later work. Unclaimed pending rows remain
+discoverable after wrap/rebuild. Target state is the source of truth.
+
+The CSV may be removed only when no pending targets remain. The
+existing `FollowImportCsvCleanupScheduler` is the backstop, including
+zero-target scheduler-owned batches (they never appear in
+`PendingBatchSource`).
 
 ---
 

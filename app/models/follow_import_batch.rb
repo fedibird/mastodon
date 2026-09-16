@@ -15,6 +15,7 @@
 #  account_age_seconds     :bigint(8)
 #  migration_evidence      :integer          default("none"), not null
 #  metadata                :jsonb            not null
+#  dispatch_owner          :integer          default("legacy"), not null
 #  created_at              :datetime         not null
 #  updated_at              :datetime         not null
 #
@@ -29,6 +30,7 @@ class FollowImportBatch < ApplicationRecord
 
   enum mode: { unknown: 0, merge: 1, overwrite: 2 }, _suffix: :mode
   enum migration_evidence: { none: 0, weak: 1, strong: 2 }, _prefix: :migration
+  enum dispatch_owner: { legacy: 0, scheduler: 1 }, _suffix: :dispatch_owner
 
   belongs_to :subject, class_name: 'ModerationSubject'
 
@@ -37,6 +39,10 @@ class FollowImportBatch < ApplicationRecord
   validates :imported_at, presence: true
   validates :target_count, :resolved_target_count, :unresolved_target_count, numericality: { greater_than_or_equal_to: 0 }
   validates :import_id, uniqueness: { allow_nil: true }
+  validates :dispatch_owner, inclusion: { in: dispatch_owners.keys }
+
+  scope :scheduler_owned, -> { scheduler_dispatch_owner }
+  scope :legacy_owned, -> { legacy_dispatch_owner }
 
   COMPLETED_AT_KEY        = 'completed_at'
   COMPLETION_NOTIFIED_KEY = 'completion_notified_at'

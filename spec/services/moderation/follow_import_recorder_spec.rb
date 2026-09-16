@@ -104,6 +104,35 @@ RSpec.describe Moderation::FollowImportRecorder, type: :service do
       expect(described_class.record_batch(account: nil, accts: ['bob'])).to be_nil
     end
 
+    it 'defaults a new batch to legacy dispatch ownership' do
+      batch = described_class.record_batch(account: account, accts: ['bob'])
+      expect(batch.legacy_dispatch_owner?).to be true
+    end
+
+    it 'persists an explicit scheduler owner only for a newly created batch' do
+      batch = described_class.record_batch(account: account, accts: ['bob'], dispatch_owner: :scheduler)
+      expect(batch.scheduler_dispatch_owner?).to be true
+    end
+
+    it 'does not rewrite stored ownership when the same import is retried' do
+      import = instance_double(Import, id: 880_010)
+      first = described_class.record_batch(account: account, accts: ['bob'], import: import, dispatch_owner: :legacy)
+      second = described_class.record_batch!(account: account, accts: ['eve@example.com'], import: import, dispatch_owner: :scheduler)
+
+      expect(second.id).to eq first.id
+      expect(second.legacy_dispatch_owner?).to be true
+      expect(second.scheduler_dispatch_owner?).to be false
+    end
+
+    it 'preserves a scheduler-owned batch when a later retry asks for legacy' do
+      import = instance_double(Import, id: 880_011)
+      first = described_class.record_batch!(account: account, accts: ['bob'], import: import, dispatch_owner: :scheduler)
+      second = described_class.record_batch(account: account, accts: ['eve@example.com'], import: import, dispatch_owner: :legacy)
+
+      expect(second.id).to eq first.id
+      expect(second.scheduler_dispatch_owner?).to be true
+    end
+
     it 'does not create a second batch when the same import is retried' do
       import = instance_double(Import, id: 880_001)
 
@@ -164,6 +193,22 @@ RSpec.describe Moderation::FollowImportRecorder, type: :service do
       expect(raced.id).to eq first.id
       expect(FollowImportBatch.where(import_id: import.id).count).to eq 1
       expect(lookups).to be >= 1
+    end
+  end
+
+  describe '.record_batch!' do
+    it 'raises on persistence failure instead of returning nil' do
+      expect { described_class.record_batch!(account: nil, accts: ['bob']) }.to raise_error(StandardError)
+    end
+
+    it 'shares import_id idempotency with the tolerant API' do
+      import = instance_double(Import, id: 880_012)
+      first = described_class.record_batch!(account: account, accts: ['bob'], import: import, dispatch_owner: :scheduler)
+      second = described_class.record_batch!(account: account, accts: ['eve@example.com'], import: import, dispatch_owner: :legacy)
+
+      expect(second.id).to eq first.id
+      expect(second.scheduler_dispatch_owner?).to be true
+      expect(FollowImportTarget.where(batch_id: first.id).count).to eq 1
     end
   end
 end

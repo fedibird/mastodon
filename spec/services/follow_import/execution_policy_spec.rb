@@ -77,7 +77,36 @@ RSpec.describe FollowImport::ExecutionPolicy do
     end
   end
 
-  describe '.dispatch_shadow_interval' do
+  describe '.dispatch_global_enabled?' do
+    it 'is disabled by default' do
+      expect(described_class.dispatch_global_enabled?).to be false
+      expect(described_class.intended_dispatch_owner).to eq :legacy
+      expect(described_class.dispatch_scheduler_mode).to be_nil
+    end
+
+    it 'is enabled only when the explicit flag is set to true' do
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_GLOBAL: 'true' do
+        expect(described_class.dispatch_global_enabled?).to be true
+        expect(described_class.intended_dispatch_owner).to eq :scheduler
+        expect(described_class.dispatch_scheduler_mode).to eq :global
+      end
+    end
+
+    it 'takes precedence over shadow when both flags are on' do
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_GLOBAL: 'true', FOLLOW_IMPORT_DISPATCH_SHADOW: 'true' do
+        expect(described_class.dispatch_scheduler_mode).to eq :global
+      end
+    end
+
+    it 'stays disabled for any other flag value' do
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_GLOBAL: '1' do
+        expect(described_class.dispatch_global_enabled?).to be false
+        expect(described_class.intended_dispatch_owner).to eq :legacy
+      end
+    end
+  end
+
+  describe '.dispatch_interval' do
     def parsed_sidekiq_every
       path = Rails.root.join('config/sidekiq.yml')
       erb = ERB.new(File.read(path), trim_mode: '-')
@@ -85,29 +114,69 @@ RSpec.describe FollowImport::ExecutionPolicy do
       yaml.fetch(:scheduler).fetch(:schedule).fetch('follow_import_dispatch_scheduler').fetch('every')
     end
 
-    it 'exposes a provisional observation cadence distinct from execution pacing' do
-      expect(described_class.dispatch_shadow_interval).to eq 60.seconds
-      expect(described_class.dispatch_shadow_interval).not_to eq described_class.execution_reschedule_in
+    it 'exposes a provisional cadence distinct from execution pacing' do
+      expect(described_class.dispatch_interval).to eq 60.seconds
+      expect(described_class.dispatch_interval).not_to eq described_class.execution_reschedule_in
     end
 
     it 'is the single source of truth for the Sidekiq scheduler registration' do
-      expect(described_class.dispatch_shadow_every).to eq '60s'
-      expect(parsed_sidekiq_every).to eq described_class.dispatch_shadow_every
-      expect(described_class::DEFAULT_DISPATCH_SHADOW_INTERVAL_SECONDS).to eq 60
+      expect(described_class.dispatch_every).to eq '60s'
+      expect(parsed_sidekiq_every).to eq described_class.dispatch_every
+      expect(described_class::DEFAULT_DISPATCH_INTERVAL_SECONDS).to eq 60
     end
 
-    it 'honors the same ENV override as config/sidekiq.yml' do
-      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL: '90' do
-        expect(described_class.dispatch_shadow_interval).to eq 90.seconds
-        expect(described_class.dispatch_shadow_every).to eq '90s'
+    it 'honors the canonical ENV override in both ExecutionPolicy and sidekiq.yml' do
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_INTERVAL: '90' do
+        expect(described_class.dispatch_interval).to eq 90.seconds
+        expect(described_class.dispatch_every).to eq '90s'
         expect(parsed_sidekiq_every).to eq '90s'
       end
     end
 
+    it 'accepts the deprecated shadow interval alias when the canonical ENV is absent' do
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL: '75' do
+        expect(described_class.dispatch_interval).to eq 75.seconds
+        expect(described_class.dispatch_shadow_every).to eq '75s'
+        expect(parsed_sidekiq_every).to eq '75s'
+      end
+    end
+
+    it 'lets the canonical cadence win when both variables are set' do
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_INTERVAL: '45', FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL: '90' do
+        expect(described_class.dispatch_interval).to eq 45.seconds
+        expect(parsed_sidekiq_every).to eq '45s'
+      end
+    end
+
     it 'ignores a non-positive cadence override' do
-      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL: '0' do
-        expect(described_class.dispatch_shadow_every).to eq '60s'
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_INTERVAL: '0', FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL: '0' do
+        expect(described_class.dispatch_every).to eq '60s'
         expect(parsed_sidekiq_every).to eq '60s'
+      end
+    end
+  end
+
+  describe '.global_dispatch_budget' do
+    it 'defaults to the legacy execution batch size' do
+      expect(described_class.global_dispatch_budget).to eq described_class.execution_batch_size
+    end
+
+    it 'reads a positive global per-tick ceiling' do
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_GLOBAL_BUDGET: '8' do
+        expect(described_class.global_dispatch_budget).to eq 8
+      end
+    end
+
+    it 'does not silently use the shadow planning budget' do
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_GLOBAL_BUDGET: '4', FOLLOW_IMPORT_DISPATCH_SHADOW_PLAN_BUDGET: '99' do
+        expect(described_class.global_dispatch_budget).to eq 4
+        expect(described_class.shadow_plan_budget).to eq 99
+      end
+    end
+
+    it 'falls back when the override is not a positive integer' do
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_GLOBAL_BUDGET: '0' do
+        expect(described_class.global_dispatch_budget).to eq described_class.execution_batch_size
       end
     end
   end

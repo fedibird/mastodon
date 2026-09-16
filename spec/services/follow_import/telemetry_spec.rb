@@ -66,18 +66,54 @@ RSpec.describe FollowImport::Telemetry do
     expect(Rails.logger).to have_received(:warn).with(/FollowImport::Telemetry.*dispatch_tick/)
   end
 
-  it 'forces claimed_count to 0 on tick observations even if a caller passes a positive value' do
+  it 'forces claimed_count to 0 on shadow tick observations even if a caller passes a positive value' do
     row = described_class.record_dispatch_tick(
       tick_id: 'tick-zero',
       outcome: 'shadow_observed',
+      scheduler_mode: 'shadow',
       lease_acquired: true,
       claimed_count: 12,
       global_pending_count: 3,
       active_batch_count: 1
     )
 
+    expect(row.scheduler_mode).to eq 'shadow'
     expect(row.claimed_count).to eq 0
     expect(row.global_pending_count).to eq 3
+  end
+
+  it 'defaults a missing scheduler_mode to shadow and still forces claimed_count 0' do
+    row = described_class.record_dispatch_tick(
+      tick_id: 'tick-default-shadow',
+      outcome: 'shadow_observed',
+      lease_acquired: true,
+      claimed_count: 4
+    )
+
+    expect(row.scheduler_mode).to eq 'shadow'
+    expect(row.claimed_count).to eq 0
+  end
+
+  it 'persists the actual claimed_count for a global authoritative tick' do
+    row = described_class.record_dispatch_tick(
+      tick_id: 'tick-global',
+      outcome: 'global_observed',
+      scheduler_mode: 'global',
+      lease_acquired: true,
+      claimed_count: 3,
+      planned_count: 10,
+      global_base_budget: 10,
+      effective_global_budget: 10,
+      skipped_stale_count: 0,
+      error_class: 'RuntimeError'
+    )
+
+    expect(row.scheduler_mode).to eq 'global'
+    expect(row.claimed_count).to eq 3
+    expect(row.planned_count).to eq 10
+    expect(row.global_base_budget).to eq 10
+    expect(row.effective_global_budget).to eq 10
+    expect(row.error_class).to eq 'RuntimeError'
   end
 
   it 'persists nil tick backlog counts instead of coercing them to zero' do

@@ -1,11 +1,17 @@
 # frozen_string_literal: true
 
-# Reconstructable shadow fairness cursor. Not business/work state.
+# Reconstructable fairness cursor. Not a claim ledger.
 #
-# Redis is an optimization so successive shadow ticks rotate owners/batches.
+# Redis is an optimization so successive ticks rotate owners/batches.
 # Losing it only resets to stable DB order (owner_key, batch_id). It must
-# never duplicate or lose Follow Import work, change plan budget, or fail
-# the real executor. Claims stay on follow_import_targets.
+# never duplicate or lose Follow Import work, change plan budget, or stand
+# in for follow_import_targets.state. Claims stay on those rows.
+#
+# The cursor advances as the planner *inspects* a pending row, including
+# rows later skipped as unrecoverable/stale. That prevents a permanently
+# unrecoverable first row from head-of-line blocking later work. An
+# unclaimed pending row is not completed: wrap/rebuild (PendingTargetFeed
+# wrap, Redis loss) makes it discoverable again.
 #
 # Bound: persist cursor entries for the currently-active owner/batch set
 # and prune inactive ones. Do not apply an arbitrary MAX_OWNERS trim that

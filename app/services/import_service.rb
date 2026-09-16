@@ -32,25 +32,32 @@ class ImportService < BaseService
     batch = record_follow_import_batch!
 
     if batch
-      # Hand the follow set to the executor. If the enqueue fails (e.g. Sidekiq/
-      # Redis unavailable), let it BUBBLE: ImportWorker is retryable and will retry
-      # the handoff with the same import_id-idempotent batch, and a duplicate
-      # executor job is safe because execution is DB-claim based. A second Sidekiq
-      # enqueue here (a direct fallback) would share the same failure dependency.
-      FollowImport::BatchExecutionWorker.perform_async(batch.id)
+      # Stored dispatch_owner — not the current GLOBAL flag — decides
+      # who may claim this batch. A retry after a flag flip must not
+      # create a second owner or silently convert the row.
+      enqueue_follow_import_handoff!(batch)
 
       # Overwrite removals are independent of the follow set and are enqueued after
-      # the handoff. A failure here still bubbles to a retry, and if retries are
-      # exhausted the import is retained (a batch exists), because an executor job
-      # may already be queued — see ImportWorker.
+      # the handoff. They remain an UNPACED burst: PR C scheduler pacing covers
+      # imported FOLLOW additions only. A failure here still bubbles to a retry,
+      # and if retries are exhausted the import is retained (a batch exists).
       enqueue_follow_overwrite_unfollows! if @import.overwrite?
     else
-      # Batch recording failed: there is no target set to drive execution from, so
-      # fall back to the original direct enqueue (ledger linkage simply absent, as
-      # before). This path does not depend on a recorded batch, so a retry would
-      # re-attempt recording anyway.
+      # Legacy-only compatibility. Reached only after we have positively
+      # established that GLOBAL is off AND no durable FollowImportBatch
+      # exists for this Import. A lookup exception must not be treated
+      # as "no batch".
       import_relationships!('follow', 'unfollow', @account.following.map { |account| { acct: account.acct }}, ROWS_PROCESSING_LIMIT, show_reblogs: { header: 'Show boosts', default: true }, notify: { header: 'Notify on new posts', default: false }, languages: { header: 'Languages', default: nil }, delivery: { header: 'Delivery to home', default: true })
     end
+  end
+
+  # One batch = exactly one dispatch owner. Scheduler-owned batches stay
+  # pending for FollowImport::DispatchScheduler. Do not enqueue a kick
+  # BatchExecutionWorker — that would be dual ownership.
+  def enqueue_follow_import_handoff!(batch)
+    return if batch.scheduler_dispatch_owner?
+
+    FollowImport::BatchExecutionWorker.perform_async(batch.id)
   end
 
   # Overwrite mode for follow imports: unfollow every account the importer
@@ -68,13 +75,42 @@ class ImportService < BaseService
     end
   end
 
-  # Record the follow-import target set into the moderation ledger before the
-  # follows are executed (the whole set is known here after CSV parsing).
-  # Returns the FollowImportBatch (or nil when recording failed).
+  # Durable ownership is authoritative once a batch exists. Look that
+  # row up first — a transient recorder failure must not hide a
+  # scheduler-owned batch and fall through to the unpaced follow path.
+  # A lookup exception raises (ProcessImportWorker retries); it is never
+  # interpreted as "no batch".
+  #
+  # intended_dispatch_owner applies only to NEW rows.
+  # GLOBAL on: strict recording (raises on persistence failure).
+  # GLOBAL off: tolerant recording may return nil; we re-check for a
+  # concurrent/idempotent durable batch before allowing the legacy
+  # direct fallback.
   def record_follow_import_batch!
-    accts = @data.take(ROWS_PROCESSING_LIMIT).filter_map { |row| row['Account address']&.strip.presence }
+    existing = existing_follow_import_batch
+    return existing if existing
 
-    Moderation::FollowImportRecorder.record_batch(account: @account, accts: accts, import: @import, mode: @import.mode)
+    accts = @data.take(ROWS_PROCESSING_LIMIT).filter_map { |row| row['Account address']&.strip.presence }
+    attrs = {
+      account: @account,
+      accts: accts,
+      import: @import,
+      mode: @import.mode,
+      dispatch_owner: FollowImport::ExecutionPolicy.intended_dispatch_owner,
+    }
+
+    if FollowImport::ExecutionPolicy.dispatch_global_enabled?
+      Moderation::FollowImportRecorder.record_batch!(**attrs)
+    else
+      batch = Moderation::FollowImportRecorder.record_batch(**attrs)
+      batch || existing_follow_import_batch
+    end
+  end
+
+  def existing_follow_import_batch
+    return if @import&.id.blank?
+
+    FollowImportBatch.find_by(import_id: @import.id)
   end
 
   def import_account_subscribings!

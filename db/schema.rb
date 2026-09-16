@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_15_140001) do
+ActiveRecord::Schema.define(version: 2026_09_15_180002) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -560,6 +560,7 @@ ActiveRecord::Schema.define(version: 2026_09_15_140001) do
     t.bigint "account_age_seconds"
     t.integer "migration_evidence", default: 0, null: false
     t.jsonb "metadata", default: {}, null: false
+    t.integer "dispatch_owner", default: 0, null: false
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.index ["import_id"], name: "index_follow_import_batches_on_import_id", unique: true, where: "(import_id IS NOT NULL)"
@@ -649,6 +650,11 @@ ActiveRecord::Schema.define(version: 2026_09_15_140001) do
     t.integer "local_load_profile_version"
     t.string "local_load_profile_source"
     t.boolean "local_load_fallback_used"
+    t.integer "global_base_budget"
+    t.integer "effective_global_budget"
+    t.integer "skipped_stale_count"
+    t.integer "skipped_unrecoverable_count"
+    t.integer "skipped_wrong_owner_count"
     t.jsonb "load_snapshot"
     t.jsonb "execution_config"
     t.string "error_class"

@@ -259,12 +259,19 @@ Uncalibrated, env-overridable, **not** load-aware:
 - `FOLLOW_IMPORT_EXECUTION_INTERVAL` (default 30 seconds)
 - `FOLLOW_IMPORT_GATE_ENFORCEMENT` (default off; gate is logged, not applied)
 - `FOLLOW_IMPORT_DISPATCH_SHADOW` (default off; global scheduler observes only)
+- `FOLLOW_IMPORT_DISPATCH_GLOBAL` (default off; new batches are scheduler-owned
+  and the global tick may claim/enqueue)
+- `FOLLOW_IMPORT_DISPATCH_INTERVAL` (canonical scheduler cadence; default 60s)
+- `FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL` (deprecated cadence alias)
+- `FOLLOW_IMPORT_DISPATCH_GLOBAL_BUDGET` (provisional global per-tick base;
+  default = execution batch size; not a remote/retry/moderation limit)
 - `FOLLOW_IMPORT_DISPATCH_SHADOW_PLAN_BUDGET` (diagnostic shadow plan size;
   default = execution batch size; does **not** control real execution)
 - `FOLLOW_IMPORT_LOCAL_LOAD_SHADOW` (default off; shadow LocalLoadGuard only)
 - `FOLLOW_IMPORT_LOCAL_LOAD_PROFILE` (canonical JSON profile; no bundled defaults)
 - `FOLLOW_IMPORT_LOCAL_LOAD_SHADOW_PROFILE` (deprecated alias if the canonical variable is absent)
-- `FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT` (default off; optional legacy-executor enforcement)
+- `FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT` (default off; legacy executor and
+  GLOBAL tick share the same v2/fallback control law)
 
 Enforcement does not silently activate without an explicit v2 profile
 that includes `fallback.budget_percent`. No repository number is a
@@ -272,21 +279,24 @@ calibrated production recommendation.
 
 ### `follow_import_dispatch_tick_observations`
 
-One row per **global** `FollowImport::DispatchScheduler` tick (PR A
-shadow skeleton). This is not a per-batch
-`BatchExecutionWorker` pass. `claimed_count` is always `0` while the
-scheduler is shadow-only.
+One row per **global** `FollowImport::DispatchScheduler` tick.
+This is not a per-batch `BatchExecutionWorker` pass.
+
+Tick schema version **7**. Historical rows keep their original meaning:
+older `scheduler_mode=shadow` rows always meant planned-but-not-claimed.
+Do not rewrite them. `scheduler_mode=global` means planned **and**
+actual claims.
 
 | column | meaning |
 |---|---|
 | `observed_at` | tick start (UTC) |
 | `tick_id` | opaque uuid for the tick |
-| `scheduler_mode` | `shadow` in PR A |
+| `scheduler_mode` | `shadow` or `global` |
 | `lease_acquired` | whether the PostgreSQL session advisory lease was held |
-| `outcome` | `lease_busy` / `shadow_observed` / `shadow_error` |
+| `outcome` | `lease_busy` / `shadow_observed` / `shadow_error` / `global_observed` / `global_error` |
 | `global_pending_count` | pending targets across batches; NULL if unmeasured |
 | `active_batch_count` | distinct batches with a pending target; NULL if unmeasured |
-| `claimed_count` | always 0 while shadow-only |
+| `claimed_count` | shadow: always 0 (writer-enforced). global: actual successful enqueues |
 | `planned_count` | account-first simulation size; NULL if planning was not attempted |
 | `planned_owner_count` / `planned_batch_count` | distinct owners/batches that received a plan slot |
 | `executable_owner_count` / `executable_batch_count` | eligible candidate population after Eligibility / missing-owner filtering, not the planned subset |
@@ -300,7 +310,10 @@ scheduler is shadow-only.
 | `local_load_would_skip` | true when recommended_budget is 0; NULL if not computed |
 | `local_load_measurement_complete` | whether every profile-required metric was usable |
 | `local_load_profile_version` / `local_load_profile_source` | profile identity; digest lives in `execution_config` |
-| `local_load_fallback_used` | true when the v2 fallback was applied to the shadow budget; NULL if not evaluated |
+| `local_load_fallback_used` | true when the v2 fallback was applied; NULL if not evaluated |
+| `global_base_budget` | GLOBAL tick unadjusted ceiling; NULL in shadow / unplanned ticks |
+| `effective_global_budget` | GLOBAL budget after LocalLoadEnforcement; NULL in shadow / unplanned ticks |
+| `skipped_stale_count` / `skipped_unrecoverable_count` / `skipped_wrong_owner_count` | GLOBAL claim skips; NULL when claiming was not attempted |
 | `load_snapshot` | Sidekiq load facts, or NULL if capture failed |
 | `execution_config` | execution + shadow-flag snapshot, including `dispatch_shadow_interval` from `FollowImport::ExecutionPolicy` (same ENV/default as `config/sidekiq.yml`) |
 | `error_class` | exception class for `shadow_error` |

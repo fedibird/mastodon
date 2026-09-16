@@ -18,18 +18,20 @@
 # during execution but must NOT affect it unless an operator explicitly opts in
 # with the experimental flag. No real Follow Import friction ships enabled.
 #
-# dispatch_shadow_enabled? is OFF by default. When true, Scheduler::FollowImportDispatchScheduler
-# may acquire the global advisory lease, build an account-first shadow plan,
-# and write tick telemetry. It still claims nothing. shadow_plan_budget is a
-# diagnostic planning size only.
-# local_load_shadow_enabled? is a second default-off flag. When both
-# shadow flags are on, LocalLoadGuard may shrink only the hypothetical
-# shadow plan.
-# local_load_enforcement_enabled? is a third default-off flag, independent
-# of FOLLOW_IMPORT_DISPATCH_SHADOW. When true AND an enforcement-capable
-# (v2 + explicit fallback) profile is configured, the legacy
-# BatchExecutionWorker may shrink or defer a pass from its own
-# pre-dispatch LoadSnapshot. It does not invent production thresholds.
+# dispatch_global_enabled? is OFF by default. When true, NEW successfully
+# recorded FollowImportBatch rows are scheduler-owned. Existing stored
+# dispatch_owner is never rewritten from the current ENV.
+# dispatch_shadow_enabled? remains the diagnostic planner. When GLOBAL is
+# on it takes precedence for the single scheduler tick (one lease, one
+# budget, one plan). When both flags are off the scheduler is a cheap no-op.
+#
+# local_load_shadow_enabled? is a default-off flag for hypothetical shadow
+# interpretation only. Real GLOBAL claims use LocalLoadEnforcement /
+# FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT, never the shadow flag.
+# local_load_enforcement_enabled? is independent of DISPATCH_SHADOW.
+# When true AND an enforcement-capable (v2 + explicit fallback) profile
+# is configured, both the legacy BatchExecutionWorker and the
+# authoritative global tick may shrink or zero their own base budget.
 module FollowImport
   module ExecutionPolicy
     module_function
@@ -39,13 +41,19 @@ module FollowImport
     DEFAULT_BATCH_SIZE     = 50
     DEFAULT_RESCHEDULE_IN  = 30.seconds
 
-    # Provisional / UNCALIBRATED observation cadence for the shadow dispatcher.
-    # Shared with config/sidekiq.yml (same ENV + same default). This is NOT
-    # the real dispatch interval and must not be confused with
+    # Provisional / UNCALIBRATED cadence for the global dispatcher
+    # (shadow observation or authoritative claiming). Shared with
+    # config/sidekiq.yml (same ENV + same default). This is NOT
     # FOLLOW_IMPORT_EXECUTION_INTERVAL.
-    DISPATCH_SHADOW_INTERVAL_ENV = 'FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL'
-    DEFAULT_DISPATCH_SHADOW_INTERVAL_SECONDS = 60
-    DEFAULT_DISPATCH_SHADOW_INTERVAL = DEFAULT_DISPATCH_SHADOW_INTERVAL_SECONDS.seconds
+    DISPATCH_INTERVAL_ENV = 'FOLLOW_IMPORT_DISPATCH_INTERVAL'
+    DISPATCH_INTERVAL_ALIAS_ENV = 'FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL'
+    DEFAULT_DISPATCH_INTERVAL_SECONDS = 60
+    DEFAULT_DISPATCH_INTERVAL = DEFAULT_DISPATCH_INTERVAL_SECONDS.seconds
+
+    # Compatibility names for the deprecated shadow-only ENV / APIs.
+    DISPATCH_SHADOW_INTERVAL_ENV = DISPATCH_INTERVAL_ALIAS_ENV
+    DEFAULT_DISPATCH_SHADOW_INTERVAL_SECONDS = DEFAULT_DISPATCH_INTERVAL_SECONDS
+    DEFAULT_DISPATCH_SHADOW_INTERVAL = DEFAULT_DISPATCH_INTERVAL
 
     def response_wait
       RESPONSE_WAIT
@@ -72,52 +80,106 @@ module FollowImport
       ENV['FOLLOW_IMPORT_GATE_ENFORCEMENT'].to_s == 'true'
     end
 
-    # Shadow-only global dispatcher. Default off: the scheduler is a cheap no-op.
-    # When true, one process may hold FollowImport::DispatchLease, inspect
-    # backlog/load, and write FollowImportDispatchTickObservation rows.
-    # It must not claim, enqueue, pause, or change Follow Import execution.
+    # Authoritative global dispatcher for NEW follow-import batches.
+    # Default off: new batches stay legacy-owned. When true, newly
+    # created batches are scheduler-owned. Does not rewrite stored
+    # dispatch_owner on existing rows.
+    def dispatch_global_enabled?
+      ENV['FOLLOW_IMPORT_DISPATCH_GLOBAL'].to_s == 'true'
+    end
+
+    # Intended owner for a NEW FollowImportBatch. Once a row exists,
+    # stored dispatch_owner is the source of truth — do not re-read
+    # this after record_batch / record_batch!.
+    def intended_dispatch_owner
+      dispatch_global_enabled? ? :scheduler : :legacy
+    end
+
+    # Shadow-only global dispatcher. Default off: the scheduler is a cheap no-op
+    # unless dispatch_global_enabled? is also on. When true and GLOBAL is off,
+    # one process may hold FollowImport::DispatchLease, build an account-first
+    # shadow plan, and write tick telemetry. It must not claim.
     def dispatch_shadow_enabled?
       ENV['FOLLOW_IMPORT_DISPATCH_SHADOW'].to_s == 'true'
     end
 
-    def dispatch_shadow_interval_seconds
-      seconds = ENV[DISPATCH_SHADOW_INTERVAL_ENV].to_i
-      seconds.positive? ? seconds : DEFAULT_DISPATCH_SHADOW_INTERVAL_SECONDS
+    # Effective scheduler activation. GLOBAL wins over SHADOW when both
+    # are on; both off is a cheap no-op.
+    def dispatch_scheduler_mode
+      return :global if dispatch_global_enabled?
+      return :shadow if dispatch_shadow_enabled?
+
+      nil
     end
 
-    def dispatch_shadow_interval
-      dispatch_shadow_interval_seconds.seconds
+    def dispatch_enabled?
+      !dispatch_scheduler_mode.nil?
+    end
+
+    # Canonical cadence. FOLLOW_IMPORT_DISPATCH_INTERVAL wins when set
+    # to a positive integer. Otherwise the deprecated
+    # FOLLOW_IMPORT_DISPATCH_SHADOW_INTERVAL alias is accepted.
+    def dispatch_interval_seconds
+      seconds = ENV[DISPATCH_INTERVAL_ENV].to_i
+      seconds = ENV[DISPATCH_INTERVAL_ALIAS_ENV].to_i unless seconds.positive?
+      seconds.positive? ? seconds : DEFAULT_DISPATCH_INTERVAL_SECONDS
+    end
+
+    def dispatch_interval
+      dispatch_interval_seconds.seconds
     end
 
     # sidekiq-scheduler `every` string. Must stay aligned with
-    # config/sidekiq.yml, which reads the same ENV and default.
+    # config/sidekiq.yml, which reads the same ENV pair and default.
+    def dispatch_every
+      "#{dispatch_interval_seconds}s"
+    end
+
+    def dispatch_shadow_interval_seconds
+      dispatch_interval_seconds
+    end
+
+    def dispatch_shadow_interval
+      dispatch_interval
+    end
+
     def dispatch_shadow_every
-      "#{dispatch_shadow_interval_seconds}s"
+      dispatch_every
     end
 
     # Diagnostic / UNCALIBRATED shadow planning budget. Does not control
     # real Follow Import execution. Defaults to the current legacy
     # execution_batch_size so shadow plans are easy to compare with
-    # BatchExecutionWorker. This is not the future global dispatch budget.
+    # BatchExecutionWorker. Never use this as the production GLOBAL budget.
     def shadow_plan_budget
       size = ENV['FOLLOW_IMPORT_DISPATCH_SHADOW_PLAN_BUDGET'].to_i
       size.positive? ? size : execution_batch_size
     end
 
+    # Provisional / UNCALIBRATED global per-tick BASE ceiling for
+    # authoritative claiming. Not a remote-server capacity estimate,
+    # retry-attempt cap, or moderation limit. Defaults to
+    # execution_batch_size. LocalLoadEnforcement may shrink or zero
+    # this value; it must never raise the effective budget above it.
+    def global_dispatch_budget
+      size = ENV['FOLLOW_IMPORT_DISPATCH_GLOBAL_BUDGET'].to_i
+      size.positive? ? size : execution_batch_size
+    end
+
     # Shadow-only local-load controller. Default off. When true AND
-    # dispatch_shadow_enabled?, the scheduler may shrink the hypothetical
-    # shadow plan from a configured UNCALIBRATED profile. Independent of
-    # local_load_enforcement_enabled?.
+    # dispatch_shadow_enabled? (and GLOBAL is off), the scheduler may
+    # shrink the hypothetical shadow plan from a configured UNCALIBRATED
+    # profile. Must not control real GLOBAL claims.
     def local_load_shadow_enabled?
       ENV['FOLLOW_IMPORT_LOCAL_LOAD_SHADOW'].to_s == 'true'
     end
 
-    # Optional legacy-executor local-load enforcement. Default off.
+    # Optional local-load enforcement. Default off.
     # Independent of FOLLOW_IMPORT_DISPATCH_SHADOW / local_load_shadow.
-    # When false, BatchExecutionWorker is unchanged: candidate limit is
-    # execution_batch_size, no load-deferred jobs. When true, a valid
-    # enforcement-capable profile is still required or the pass stays
-    # at the legacy budget.
+    # When false, BatchExecutionWorker uses execution_batch_size and the
+    # global tick uses the finite global_dispatch_budget. When true, a
+    # valid enforcement-capable profile is still required or the pass /
+    # tick stays at its own base budget.
     def local_load_enforcement_enabled?
       ENV['FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT'].to_s == 'true'
     end

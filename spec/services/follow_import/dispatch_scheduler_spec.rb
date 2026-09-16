@@ -520,10 +520,12 @@ RSpec.describe FollowImport::DispatchScheduler do
                           'levels' => { 'overloaded' => { 'budget_percent' => 0, 'push' => { 'latency' => 0.05 } } }
                         ))
       pending_target = add_target(0)
+      allow(FollowImport::PendingBatchSource).to receive(:new).and_call_original
 
       result = scheduler.call
       observation = FollowImportDispatchTickObservation.last
 
+      expect(FollowImport::PendingBatchSource).to have_received(:new)
       expect(result.plan.planned_count).to eq 0
       expect(result.plan.claimed_count).to eq 0
       expect(observation.local_load_state).to eq 'overloaded'

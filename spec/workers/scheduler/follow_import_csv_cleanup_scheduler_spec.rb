@@ -33,6 +33,19 @@ RSpec.describe Scheduler::FollowImportCsvCleanupScheduler do
     expect(Import.exists?(import.id)).to be false
   end
 
+  it 'cleans a zero-target scheduler-owned batch without a BatchExecutionWorker chain' do
+    import = import_for(account)
+    batch  = batch_with_import(import)
+    batch.update!(dispatch_owner: :scheduler, target_count: 0)
+    allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+
+    worker.perform
+
+    expect(Import.exists?(import.id)).to be false
+    expect(FollowImportBatch.exists?(batch.id)).to be true
+    expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+  end
+
   it 'leaves an import with pending targets alone regardless of age (age is not abandonment)' do
     # PR C leaves gate-deferred (delay / moderator_review) targets pending on
     # purpose; the CSV is still needed to recover their acct/options on a future

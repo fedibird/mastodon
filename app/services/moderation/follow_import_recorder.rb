@@ -7,23 +7,33 @@
 # front. Resolvable addresses are linked to a ModerationSubject; unresolved ones
 # keep a pseudonymous target_key_hash so they can still be correlated later.
 #
-# Recording only — no scoring or enforcement. The class-level entry point is
-# failure-tolerant so a recording error never breaks the import.
+# Recording only — no scoring or enforcement.
+#
+# record_batch is failure-tolerant (returns nil) so a recording error
+# never breaks a *legacy* import. record_batch! is the same persistence
+# path without the rescue: GLOBAL authoritative dispatch requires the
+# batch/target ledger and must raise so ProcessImportWorker can retry.
 module Moderation
   class FollowImportRecorder
     class << self
       def record_batch(**options)
-        new.record_batch(**options)
+        record_batch!(**options)
       rescue StandardError => e
         Rails.logger.warn("[Moderation::FollowImportRecorder] failed to record follow import batch: #{e.class}: #{e.message}")
         nil
       end
+
+      def record_batch!(**options)
+        new.record_batch(**options)
+      end
     end
 
-    def record_batch(account:, accts:, import: nil, mode: nil, imported_at: nil)
+    def record_batch(account:, accts:, import: nil, mode: nil, imported_at: nil, dispatch_owner: nil)
       imported_at ||= Time.now.utc
 
       # Sidekiq retries the same Import row; import_id is the idempotency key.
+      # An existing batch keeps its stored dispatch_owner — do not rewrite
+      # ownership from today's feature flag.
       if import&.id
         existing = FollowImportBatch.find_by(import_id: import.id)
         return existing if existing
@@ -82,6 +92,7 @@ module Moderation
           import_id: import&.id,
           imported_at: imported_at,
           mode: normalize_mode(mode),
+          dispatch_owner: normalize_dispatch_owner(dispatch_owner),
           target_count: target_rows.size,
           resolved_target_count: resolved_count,
           unresolved_target_count: unresolved_count,
@@ -122,6 +133,19 @@ module Moderation
       when :merge then :merge
       when :overwrite then :overwrite
       else :unknown
+      end
+    end
+
+    # NEW batches only. nil / omitted → legacy (safe DB default).
+    # Existing rows are returned before create and never reach this.
+    def normalize_dispatch_owner(owner)
+      return :legacy if owner.nil? || owner.to_s.strip.empty?
+
+      case owner.to_s
+      when 'legacy', '0' then :legacy
+      when 'scheduler', '1' then :scheduler
+      else
+        raise ArgumentError, "unsupported dispatch_owner: #{owner.inspect}"
       end
     end
 

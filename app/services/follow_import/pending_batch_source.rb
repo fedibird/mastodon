@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 
-# Read-only source of pending Follow Import work for shadow planning.
+# Read-only source of pending Follow Import work.
 #
-# PR B observes the current pending universe (no dispatch_owner yet).
-# PR C can pass a narrower +batch_scope+ (scheduler-owned batches) without
-# rewriting FairScheduler.
+# Shadow ticks (GLOBAL=false) observe the current pending universe
+# (legacy + scheduler) so PR A/B/D diagnostics stay comparable.
+# Authoritative GLOBAL ticks MUST pass
+# batch_scope: FollowImportBatch.scheduler_owned
+# so a legacy-owned batch can never enter the real claim plan.
 #
 # Discovery uses the pending-only partial index. Batches preload
 # subject/account so owner resolution is not N+1. Targets are not loaded
