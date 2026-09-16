@@ -13,7 +13,7 @@
 module FollowImport
   class DispatchTickObserver
     SCHEMA_NAME    = 'follow_import_dispatch_tick'
-    SCHEMA_VERSION = 7
+    SCHEMA_VERSION = 8
 
     def self.record(attrs)
       attrs = attrs.to_h.symbolize_keys
@@ -50,6 +50,18 @@ module FollowImport
         skipped_stale_count: plan&.skipped_stale_count,
         skipped_unrecoverable_count: plan&.skipped_unrecoverable_count,
         skipped_wrong_owner_count: plan&.skipped_wrong_owner_count,
+        remote_admission_enabled: plan&.remote_admission_enabled,
+        remote_admission_configured: plan&.remote_admission_configured,
+        remote_profile_version: plan&.remote_profile_version,
+        skipped_destination_cap_count: plan&.skipped_destination_cap_count,
+        skipped_origin_cap_count: plan&.skipped_origin_cap_count,
+        skipped_unavailable_count: plan&.skipped_unavailable_count,
+        skipped_retry_after_count: plan&.skipped_retry_after_count,
+        skipped_recent_429_count: plan&.skipped_recent_429_count,
+        scanned_target_count: plan&.scanned_target_count,
+        windows_scanned: plan&.windows_scanned,
+        scan_budget_exhausted_count: plan&.scan_budget_exhausted_count,
+        mapped_origin_candidate_count: plan&.mapped_origin_candidate_count,
         load_snapshot: attrs[:load_snapshot],
         execution_config: plan&.execution_config || execution_config,
         error_class: attrs[:error_class],
@@ -79,6 +91,8 @@ module FollowImport
         'local_load_enforcement_enabled' => FollowImport::ExecutionPolicy.local_load_enforcement_enabled?,
         'local_load_profile_schema_version' => FollowImport::LocalLoadProfile::SCHEMA_VERSION,
         'local_load_controller_schema_version' => FollowImport::LocalLoadGuard::SCHEMA_VERSION,
+        'remote_admission_enforcement_enabled' => FollowImport::ExecutionPolicy.remote_admission_enforcement_enabled?,
+        'remote_admission_profile_schema_version' => FollowImport::RemoteAdmissionProfile::SCHEMA_VERSION,
       }
     end
     private_class_method :execution_config

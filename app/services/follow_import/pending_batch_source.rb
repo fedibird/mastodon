@@ -13,8 +13,9 @@
 # here; each batch gets a bounded PendingTargetFeed.
 module FollowImport
   class PendingBatchSource
-    def initialize(batch_scope: FollowImportBatch.all)
+    def initialize(batch_scope: FollowImportBatch.all, scan_policy: nil)
       @batch_scope = batch_scope
+      @scan_policy = scan_policy
     end
 
     def owner_work(cursor:)
@@ -38,7 +39,12 @@ module FollowImport
           after = cursor.last_position_by_batch[batch.id.to_s]
           {
             id: batch.id,
-            feed: FollowImport::PendingTargetFeed.new(batch.id, after_position: after),
+            feed: FollowImport::PendingTargetFeed.new(
+              batch.id,
+              after_position: after,
+              max_targets: @scan_policy&.max_targets_per_batch,
+              max_windows: @scan_policy&.max_windows_per_batch
+            ),
           }
         end
         { key: key.to_s, batches: batches }

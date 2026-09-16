@@ -523,7 +523,9 @@ Bounded paging / scan budget (numbers **uncalibrated**):
    position cursor past the inspected rows).
 4. Stop after `MAX_SCAN_TARGETS` rows inspected **or**
    `MAX_SCAN_WINDOWS` windows for this account/batch in this tick,
-   whichever binds first.
+   whichever binds first. PR F reads those bounds from the operator
+   profile (`scan.max_targets_per_batch` / `scan.max_windows_per_batch`).
+   The repository does not ship production numeric defaults.
 
 Do **not** unbounded-scan a 20k import. Unused share after the scan
 budget is exhausted returns to the parent allocator (other batches of
@@ -774,6 +776,124 @@ Do not implement a Node capacity score. Do not scan raw telemetry
 tables on each tick; the controller reads the same runtime
 cache/aggregates as §7.1–7.2.
 
+### 7.7 PR F — fixed remote admission (implemented)
+
+PR F is **fixed** admission only. It does not implement AIMD, additive
+increase, multiplicative decrease, slow start, learned capacities,
+latency-derived rates, 5xx/timeout adaptive budgets, Node
+capacity/reputation, remote software-type or user-count heuristics,
+active probes, or a generic `DeliveryWorker` throttle.
+
+**Default off.** `FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT=true` is
+required. A valid `FOLLOW_IMPORT_REMOTE_ADMISSION_PROFILE` (schema
+version 1) is also required. Merging this PR does not introduce a
+production per-domain number. No numeric value in the repository is a
+calibrated production recommendation.
+
+GLOBAL scheduler only. Legacy `BatchExecutionWorker` and `GLOBAL=false`
+keep PR C / legacy behavior. Shadow ticks must not claim that remote
+admission was evaluated.
+
+Hierarchy:
+
+```
+local global budget
+    -> account fairness
+        -> batch fairness
+            -> remote admission
+                -> target plan
+                    -> existing DispatchExecutor
+```
+
+Destination-domain is the mandatory first-stage key. Planning does not
+resolve inbox URLs, DNS, WebFinger, or accounts. Local destinations
+(existing `TagManager` local/web domain semantics) consume GLOBAL and
+local-load budget but not remote destination/origin caps and are not
+checked against `UnavailableDomain`. Missing `destination_domain` uses
+an internal synthetic `__unknown_destination__` bucket with the same
+destination cap; that token is never persisted.
+
+The destination cap `D` is one tick-wide ceiling across all accounts
+and batches (new claims only). Sidekiq retries stay outside it.
+Account-first rotation shares that finite capacity: ten batches of
+account A do not get ten destination shares before account B.
+
+`destination_domain → endpoint_origin` is a Redis TTL map written by
+`DeliveryObserver` from an actual HTTP attempt. The value is the
+privacy-safe `FollowImport::EndpointOrigin` (scheme + host +
+non-default port). TTL comes only from the configured profile. Stale
+or absent mapping = unknown origin = destination cap only. One shared
+origin serving many acct domains shares one origin cap `O`.
+
+`UnavailableDomain` / DFT is an exact host match on the destination
+or, when a fresh mapping exists, on the mapped origin host. One
+snapshot per tick (`unavailable_domains` cache).
+`DeliveryFailureTracker::FAILURE_DAYS_THRESHOLD` is unchanged.
+
+**Stoplight is not consulted pre-claim.** This repository vendors
+Stoplight 3.0.2. `Light#color` reads failure/state via the data store
+and does not run the user block, but it is not a clearly safe
+admission status API: `color` is an internal circuit calculation,
+`safely` constructs nested lights, Delivery Stoplight is the exact
+inbox URL (which planning does not have), and `endpoint_origin` must
+not be treated as that inbox key. Resolve/Delivery Stoplight remain
+transport-layer fallback.
+
+Retry-After uses `FollowImport::RetryAfter` (delta-seconds or
+HTTP-date; invalid → nil). Honor window is
+`min(requested, profile.max_retry_after_seconds)` keyed by
+`endpoint_origin`. A 429 without a usable Retry-After uses the
+configured `recent_429_cooldown_seconds`. Ordinary success does not
+clear an unexpired window. A newer stronger honor uses
+`max(existing_until, new_until)`, applied **atomically in Redis** so
+concurrent DeliveryWorkers cannot shorten a longer wait. TTL follows
+the final stored honor_until. No generic 5xx/timeout cooldown.
+
+Redis runtime state is reconstructable. Flush/restart loses mapping
+and suppression only. Pending rows stay in PostgreSQL. The destination
+cap still applies. Runtime-state read failure degrades to
+unknown-origin + destination cap, never to uncapped destinations.
+
+Bounded paging (§5.5) is required. Profile
+`scan.max_targets_per_batch` / `scan.max_windows_per_batch` bound one
+batch in one tick. `last_position_by_batch` advances on **inspection**,
+including blocked pending rows. Owner/batch cursors still represent
+who received a planned slot. Blocked rows stay `pending`. Scan-budget
+exhaustion returns unused share upward and records
+`scan_budget_exhausted`. The next tick continues from the inspection
+cursor. An empty tail probe does **not** consume a logical candidate
+window, so `max_windows_per_batch = 1` can still wrap from a cursor
+parked at the last pending position. Wrap/rebuild eventually
+reconsiders skipped rows.
+
+Accept / Reject / `completed_no_response` / Follow Gate / block / mute
+/ report / account reputation / BehavioralMetricsService are forbidden
+inputs. A Reject is a follow result, not remote backpressure.
+
+#### Operator rollout
+
+1. Deploy the code with `FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT`
+   false (default).
+2. Configure an explicit `FOLLOW_IMPORT_REMOTE_ADMISSION_PROFILE`.
+   Every number is operator-chosen and uncalibrated.
+3. Allow `DeliveryObserver` to populate domain → origin mappings
+   (warmup works while enforcement is still off, once a valid profile
+   exists).
+4. Inspect tick telemetry and runtime health.
+5. Set `FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT=true`.
+6. Monitor skipped destination/origin/Retry-After/429/unavailable
+   counts, scan-budget exhaustion, planned vs claimed, and queue/load
+   telemetry.
+
+Turning the flag back to false restores PR C destination behavior on
+the next GLOBAL tick. Pending targets are not deleted.
+`dispatch_owner` is not reset. Redis runtime keys may remain and expire
+naturally.
+
+If the flag is true but the profile is absent/malformed/unsupported,
+the scheduler does not crash. It keeps the finite GLOBAL budget, emits
+a rate-limited warning, and records `remote_admission_configured=false`.
+
 ---
 
 ## 8. Fair scheduling (account → batch → target)
@@ -1008,7 +1128,7 @@ That cannot protect the instance. Local-load work is a **shared guard**
 | **2 — shared load guard, shadow** | PR D | Global scheduler *computes and logs* `LocalLoadGuard` and may shrink only the shadow plan. Legacy `BatchExecutionWorker` is unchanged so a shadow skip cannot stop a live chain. **No protection yet.** |
 | **3 — shared load guard, enforce** | PR E | Legacy `BatchExecutionWorker` consults the shared guard **before** `select_pending_candidates` when `FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT` is on and a v2+fallback profile is configured. Positive recommendation shrinks the per-pass LIMIT. Zero due load schedules one deferred recheck (§6.2.1). The global scheduler remains shadow-only. Temporary compatibility; **not** global fairness. |
 | **4 — global claiming for new imports** | PR C | New batches are `dispatch_owner = scheduler` when `FOLLOW_IMPORT_DISPATCH_GLOBAL=true`. Recording failure must not bulk-enqueue. In-flight `legacy` batches keep their chains. Scheduler cadence is real admission pacing for NEW follow additions only. |
-| **5 — fixed destination admission** | PR F | Domain caps + DFT/UnavailableDomain + Retry-After cache. |
+| **5 — fixed destination admission** | PR F | Default-off `FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT` plus an explicit uncalibrated `FOLLOW_IMPORT_REMOTE_ADMISSION_PROFILE`. GLOBAL scheduler only. Fixed destination/origin caps, exact UnavailableDomain/DFT skip, Retry-After / recent-429 runtime cache, bounded candidate paging. No AIMD. |
 | **6 — adaptive destination, shadow then enforce** | PR G / H | After telemetry calibration. Still no Node score. |
 | **7 — retire legacy** | PR I | No new `BatchExecutionWorker` chains. Drain or flip remaining `legacy` owners. Historical domain-ordering workaround can be removed when proven unused. |
 
@@ -1018,8 +1138,12 @@ Feature flags (names illustrative), all default **off**:
 - `FOLLOW_IMPORT_DISPATCH_LOAD_GUARD` (`shadow` \| `enforce`)
 - `FOLLOW_IMPORT_DISPATCH_GLOBAL` (authoritative claiming + required
   recording)
-- `FOLLOW_IMPORT_DISPATCH_REMOTE_ADMISSION` (`off` \| `fixed` \|
-  `adaptive_shadow` \| `adaptive`)
+- `FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT` (default off; PR F fixed
+  admission only, GLOBAL scheduler only)
+- `FOLLOW_IMPORT_REMOTE_ADMISSION_PROFILE` (explicit versioned JSON;
+  no bundled production numbers)
+- `FOLLOW_IMPORT_DISPATCH_REMOTE_ADMISSION` (illustrative later name for
+  adaptive `off` \| `fixed` \| `adaptive_shadow` \| `adaptive`)
 
 ### 13.1 Ownership during Stage 4 → 7
 
@@ -1164,7 +1288,7 @@ is this documentation PR. Numeric calibration is last, not first.
 | **C** | Authoritative global claiming for **new** imports; `dispatch_owner`; legacy/global ownership + drain; **remove unpaced recording fallback** when GLOBAL is on | Flip in-flight legacy owners implicitly; enable Follow Gate |
 | **D** | `LocalLoadGuard` in the **global shadow scheduler** only: consume the pre-dispatch `LoadSnapshot`, evaluate a configured uncalibrated profile, shrink the hypothetical shadow plan, record state/percent/recommended budget. `BatchExecutionWorker` is unchanged (a shadow skip must not stop the legacy chain). Implementation: `docs/follow_import_dispatch_shadow.md`. | Enforce skip; invent production thresholds; change legacy claim rate |
 | **E** | Enforce `LocalLoadGuard` on the legacy executor (default-off); shrink per-pass LIMIT or schedule one load-deferred recheck when the guard (not policy) yields zero claims. No bundled production thresholds. | Tune production envelopes as if calibrated; tight retry loops; global claiming |
-| **F** | Fixed destination/domain budgets; DFT / UnavailableDomain where host mapping is known; Retry-After **runtime cache** (no raw scans); bounded candidate paging (§5.5) | Adaptive rates; Node scores; inbox Stoplight-as-if-known; unbounded 20k scans |
+| **F** | Fixed destination/domain budgets; DFT / UnavailableDomain where host mapping is known; Retry-After **runtime cache** (no raw scans); bounded candidate paging (§5.5). Implementation notes below. | Adaptive rates; Node scores; inbox Stoplight-as-if-known; unbounded 20k scans |
 | **G** | Shadow adaptive destination pacing (§7.6 AIMD) from aggregates | Enforce; active probing |
 | **H** | Enforce adaptive destination pacing **after** PR #59 (+ tick) calibration | Invent thresholds without data |
 | **I** | Retire `BatchExecutionWorker` path; retire historical domain-ordering workaround when proven safe | Leave an unpaced `import_relationships!` follow fallback; forget import-generated unfollows as a future completion item |

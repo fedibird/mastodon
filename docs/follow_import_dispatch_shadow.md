@@ -1,10 +1,11 @@
 # Follow Import dispatch scheduler (shadow + GLOBAL)
 
 Status: infrastructure (PR A + PR B + PR D + optional PR E enforcement +
-PR C authoritative GLOBAL for **new** imports).
+PR C authoritative GLOBAL for **new** imports + PR F fixed remote
+admission for GLOBAL ticks).
 Default: **off**.
 
-This is Stage 1–4 from `docs/follow_import_dispatch_pacing_design.md`.
+This is Stage 1–5 from `docs/follow_import_dispatch_pacing_design.md`.
 
 One periodic tick, one PostgreSQL session advisory lease, one budget,
 one plan:
@@ -354,10 +355,73 @@ Compare global hypothetical `effective_shadow_plan_budget` against
 per-batch `effective_execution_budget`. Do not assume they are
 numerically identical.
 
-## No remote admission
+## Fixed remote admission (PR F, GLOBAL only)
 
-PR C does not add destination cooldown, DFT, Stoplight, AIMD, Node
-capacity, or a destination cap. Those remain PR F/G/H.
+Default **off**: `FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT=false`.
+When the flag is off, the GLOBAL scheduler keeps PR C destination
+behavior (finite global / local-load budget only). Shadow ticks never
+claim that remote admission was evaluated.
+
+When the flag is on, a valid `FOLLOW_IMPORT_REMOTE_ADMISSION_PROFILE`
+is required before fixed policy is enforced. The profile is structural
+JSON (version 1) with operator-supplied caps, TTLs, and scan bounds.
+Blank / malformed / unknown-version / unknown-key / non-positive values
+are unconfigured or invalid. **No bundled production numeric defaults.**
+No repository number is a calibrated production recommendation.
+
+Enforced only for scheduler-owned GLOBAL batches:
+
+```
+local global budget
+    -> account fairness
+        -> batch fairness
+            -> remote admission
+                -> target plan
+                    -> DispatchExecutor
+```
+
+Remote admission may skip a candidate **for this tick** because of:
+
+- the configured destination-domain per-tick cap (shared across
+  accounts and batches; new claims only)
+- the configured endpoint-origin per-tick cap, only when a fresh
+  `destination_domain → endpoint_origin` mapping exists
+- an exact `UnavailableDomain` / DFT host match on the destination or
+  mapped origin host
+- an active Retry-After honor window
+- a configured recent-429 cooldown
+
+Skipped targets stay `pending`. They are not rejected follows,
+failures, moderation signals, completed, or deleted. The planner keeps
+looking for other healthy targets inside the configured scan budget.
+
+Local destinations do not consume remote destination/origin caps and
+are not checked against `UnavailableDomain`. Missing
+`destination_domain` uses an internal `__unknown_destination__` bucket
+so it is never treated as unlimited.
+
+`DeliveryObserver` writes Redis runtime state
+(`follow_import:remote_admission:v1:...`) from an actual HTTP attempt:
+privacy-safe `EndpointOrigin` mapping plus Retry-After / recent-429
+suppression. Suppression extension is atomic (`max` of honor_until) so
+concurrent DeliveryWorkers cannot shorten a longer wait. TTL comes
+only from the profile and the final stored honor_until. Redis loss
+does not lose work; the destination cap still applies. An empty tail
+probe does not consume a scan window, so `max_windows_per_batch = 1`
+can still wrap.
+
+**Stoplight is not inspected pre-claim.** Stoplight 3.0.2 in this
+repository does not expose a clearly safe read-only admission lookup
+that we can use without inventing inbox keys. Resolve/Delivery
+Stoplight remain transport-layer fallback.
+
+PR F does **not** add AIMD, learned capacities, 5xx/timeout adaptive
+budgets, Node scores, software-type heuristics, active probes, raw
+telemetry hot-path reads, or Accept/Reject/moderation inputs. Those
+remain PR G/H or later. Retries stay outside the admission budget.
+
+`FOLLOW_IMPORT_DISPATCH_SHADOW` still never claims. Do not treat a
+shadow tick as remote-admission enforcement.
 
 Overwrite-generated UNFOLLOW operations remain an unpaced burst.
 Retries of `Import::RelationshipWorker` / `ActivityPub::DeliveryWorker`

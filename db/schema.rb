@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_15_180002) do
+ActiveRecord::Schema.define(version: 2026_09_16_020001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -655,6 +655,18 @@ ActiveRecord::Schema.define(version: 2026_09_15_180002) do
     t.integer "skipped_stale_count"
     t.integer "skipped_unrecoverable_count"
     t.integer "skipped_wrong_owner_count"
+    t.boolean "remote_admission_enabled"
+    t.boolean "remote_admission_configured"
+    t.integer "remote_profile_version"
+    t.integer "skipped_destination_cap_count"
+    t.integer "skipped_origin_cap_count"
+    t.integer "skipped_unavailable_count"
+    t.integer "skipped_retry_after_count"
+    t.integer "skipped_recent_429_count"
+    t.integer "scanned_target_count"
+    t.integer "windows_scanned"
+    t.integer "scan_budget_exhausted_count"
+    t.integer "mapped_origin_candidate_count"
     t.jsonb "load_snapshot"
     t.jsonb "execution_config"
     t.string "error_class"
