@@ -20,7 +20,6 @@ import {
   deleteAnnouncement,
 } from './announcements';
 import { getLocale } from '../locales';
-import { fetchNotificationFilters } from './notification_filters';
 import { deleteScheduledStatusSuccess } from './scheduled_statuses';
 
 const { messages } = getLocale();
@@ -93,9 +92,6 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
           break;
         case 'conversation':
           dispatch(updateConversations(JSON.parse(data.payload)));
-          break;
-        case 'filters_changed':
-          dispatch(fetchNotificationFilters());
           break;
         case 'emoji_reaction':
           const emojiReaction = JSON.parse(data.payload);

@@ -1,5 +1,5 @@
 import { createSelector } from 'reselect';
-import { List as ImmutableList, Map as ImmutableMap, is } from 'immutable';
+import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 import { me, enableLimitedTimeline, hideDirectFromTimeline, hidePersonalFromTimeline, maxFrequentlyUsedEmojis } from '../initial_state';
 import { buildCustomEmojis, categoriesFromEmojis } from 'mastodon/features/emoji/emoji';
 
@@ -37,53 +37,6 @@ const toServerSideType = columnType => {
     }
   }
 };
-
-const escapeRegExp = string =>
-  string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
-
-const regexFromFilters = filters => {
-  if (filters.size === 0) {
-    return null;
-  }
-
-  return new RegExp(filters.map(filter => {
-    let expr = escapeRegExp(filter.get('phrase'));
-
-    if (filter.get('whole_word')) {
-      if (/^[\w]/.test(expr)) {
-        expr = `\\b${expr}`;
-      }
-
-      if (/[\w]$/.test(expr)) {
-        expr = `${expr}\\b`;
-      }
-    }
-
-    return expr;
-  }).join('|'), 'i');
-};
-
-// Kept for notifications (PR C will migrate them to FilterResult).
-// Reads legacy v1 filters from notification_filters, not the v2 entity map.
-const makeGetFiltersRegex = () => {
-  let memo = {};
-
-  return (state, { contextType }) => {
-    if (!contextType) return ImmutableList();
-
-    const serverSideType = toServerSideType(contextType);
-    const filters = state.get('notification_filters', ImmutableList()).filter(filter => filter.get('context').includes(serverSideType) && (filter.get('expires_at') === null || Date.parse(filter.get('expires_at')) > (new Date())));
-
-    if (!memo[serverSideType] || !is(memo[serverSideType].filters, filters)) {
-      const dropRegex = regexFromFilters(filters.filter(filter => filter.get('irreversible')));
-      const regex = regexFromFilters(filters);
-      memo[serverSideType] = { filters: filters, results: [dropRegex, regex] };
-    }
-    return memo[serverSideType].results;
-  };
-};
-
-export const getFiltersRegex = makeGetFiltersRegex();
 
 const getFilters = (state, { contextType }) => {
   if (!contextType) return null;

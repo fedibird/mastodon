@@ -163,7 +163,7 @@ describe('makeGetStatus FilterResult pipeline', () => {
     expect(result.get('matched_filters')).toEqual(false);
   });
 
-  it('does not apply legacy notification_filters to timeline statuses', () => {
+  it('does not apply leftover notification_filters state to timeline statuses', () => {
     const state = buildState({
       filters: {},
       status: baseStatus({ filtered: [], search_index: 'spam from a bot' }),
