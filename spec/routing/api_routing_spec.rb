@@ -84,6 +84,109 @@ describe 'API routes' do
     end
   end
 
+  describe 'Filter routes' do
+    describe 'v1' do
+      it 'routes to index' do
+        expect(get('/api/v1/filters')).
+          to route_to('api/v1/filters#index')
+      end
+
+      it 'routes to create' do
+        expect(post('/api/v1/filters')).
+          to route_to('api/v1/filters#create')
+      end
+
+      it 'routes to show' do
+        expect(get('/api/v1/filters/1')).
+          to route_to('api/v1/filters#show', id: '1')
+      end
+
+      it 'routes to update via PUT' do
+        expect(put('/api/v1/filters/1')).
+          to route_to('api/v1/filters#update', id: '1')
+      end
+
+      it 'routes to update via PATCH' do
+        expect(patch('/api/v1/filters/1')).
+          to route_to('api/v1/filters#update', id: '1')
+      end
+
+      it 'routes to destroy' do
+        expect(delete('/api/v1/filters/1')).
+          to route_to('api/v1/filters#destroy', id: '1')
+      end
+
+      it 'does not route keyword collection actions' do
+        expect(get('/api/v1/filters/1/keywords')).to_not be_routable
+        expect(post('/api/v1/filters/1/keywords')).to_not be_routable
+      end
+
+      it 'does not route keyword member actions' do
+        expect(get('/api/v1/filters/keywords/1')).to_not be_routable
+        expect(put('/api/v1/filters/keywords/1')).to_not be_routable
+        expect(patch('/api/v1/filters/keywords/1')).to_not be_routable
+        expect(delete('/api/v1/filters/keywords/1')).to_not be_routable
+      end
+    end
+
+    describe 'v2' do
+      it 'routes to index' do
+        expect(get('/api/v2/filters')).
+          to route_to('api/v2/filters#index')
+      end
+
+      it 'routes to create' do
+        expect(post('/api/v2/filters')).
+          to route_to('api/v2/filters#create')
+      end
+
+      it 'routes to show' do
+        expect(get('/api/v2/filters/1')).
+          to route_to('api/v2/filters#show', id: '1')
+      end
+
+      it 'routes to update' do
+        expect(put('/api/v2/filters/1')).
+          to route_to('api/v2/filters#update', id: '1')
+      end
+
+      it 'routes to destroy' do
+        expect(delete('/api/v2/filters/1')).
+          to route_to('api/v2/filters#destroy', id: '1')
+      end
+
+      it 'routes nested keywords' do
+        expect(get('/api/v2/filters/1/keywords')).
+          to route_to('api/v2/filters/keywords#index', filter_id: '1')
+        expect(post('/api/v2/filters/1/keywords')).
+          to route_to('api/v2/filters/keywords#create', filter_id: '1')
+      end
+
+      it 'routes nested statuses' do
+        expect(get('/api/v2/filters/1/statuses')).
+          to route_to('api/v2/filters/statuses#index', filter_id: '1')
+        expect(post('/api/v2/filters/1/statuses')).
+          to route_to('api/v2/filters/statuses#create', filter_id: '1')
+      end
+
+      it 'routes keyword member actions' do
+        expect(get('/api/v2/filters/keywords/1')).
+          to route_to('api/v2/filters/keywords#show', id: '1')
+        expect(put('/api/v2/filters/keywords/1')).
+          to route_to('api/v2/filters/keywords#update', id: '1')
+        expect(delete('/api/v2/filters/keywords/1')).
+          to route_to('api/v2/filters/keywords#destroy', id: '1')
+      end
+
+      it 'routes status member actions' do
+        expect(get('/api/v2/filters/statuses/1')).
+          to route_to('api/v2/filters/statuses#show', id: '1')
+        expect(delete('/api/v2/filters/statuses/1')).
+          to route_to('api/v2/filters/statuses#destroy', id: '1')
+      end
+    end
+  end
+
   describe 'Timeline routes' do
     it 'routes to home timeline' do
       expect(get('/api/v1/timelines/home')).
