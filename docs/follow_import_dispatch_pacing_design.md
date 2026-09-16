@@ -747,34 +747,74 @@ change ordinary (non-import) delivery.
 `queue_wait_ms` on retries includes retry delay (PR #59); it is not
 remote RTT. Jobs claimed before backoff was noticed are not yanked.
 
-### 7.6 Adaptive remote pacing (conceptual; PR G/H)
+### 7.6 Adaptive remote pacing (PR G shadow; PR H later)
 
-PR F ships **fixed** destination/domain budgets plus DFT /
-UnavailableDomain / Retry-After cache. PR G shadows, then PR H
-enforces, an adaptive controller on top of those observations. The
-control law is architectural and **non-numeric**. Coefficients,
-windows, minima/maxima, and latency thresholds stay **uncalibrated**
-until PR #59 production telemetry is analyzed.
+PR F remains the **only** actual remote admission enforcement. Its
+fixed destination / origin per-tick caps are the **hard ceiling**.
+The adaptive controller is an inner shrink: it may temporarily
+recommend a lower cap, and it may recover additively toward the
+fixed cap, but it must never exceed it.
 
-AIMD / slow-start is the conceptual model. **No active probing or load
-testing of remote servers.**
+```
+adaptive_destination_cap <= fixed destination_per_tick_cap
+adaptive_origin_cap      <= fixed origin_per_tick_cap
+```
+
+**PR G is shadow only.** `FOLLOW_IMPORT_REMOTE_ADAPTIVE_SHADOW`
+defaults to **false**. A valid `FOLLOW_IMPORT_REMOTE_ADAPTIVE_PROFILE`
+that is compatible with the configured PR F baseline is also
+required. Flag ON + blank/malformed/incompatible profile leaves
+adaptive inactive, keeps the exact PR F plan, and records
+`unconfigured` / `invalid` without crashing the scheduler or
+delivery. There is **no PR H enforcement flag** in this revision.
+Adaptive recommendations are never written into
+`RemoteAdmission` caps.
+
+PR G does **not** compute a full alternate scheduler plan. The
+sidecar evaluates actual PR F admits only:
+
+- base deny → stays deny
+- base admit → still admit, even when adaptive would have blocked
+
+Telemetry names this
+`adaptive_shadow_would_block_current_claim_count`. Adaptive has its
+own per-tick destination / origin counters. A would-block candidate
+does not consume those hypothetical counters.
+
+AIMD / slow recovery is the control law. **No active probing.**
+**No raw telemetry SQL on the hot path.** State is updated from the
+actual ActivityPub delivery attempt (`DeliveryObserver` →
+`AdaptiveRemoteObservation` → Redis Lua). Coefficients stay
+**uncalibrated**. The repository ships no production numeric
+defaults.
 
 | Observed condition | Controller action |
 |---|---|
-| Unknown destination / origin (no usable runtime state) | Conservative **initial** budget (same class as the fixed first-contact cap) |
-| Stable successful observations | Increase **gradually** |
-| 429 / `Retry-After` | Pause or strongly reduce; honour `Retry-After` (honour window still capped, uncalibrated) |
-| 5xx / timeout / connection degradation | **Multiplicative decrease** |
-| Recovery after decrease | Gradual increase (slow-start / additive), not an instant jump to the last high rate |
-| Stale or lost runtime state | Return to the **conservative initial** state, never a learned-high state |
+| Unknown / missing Redis state | Conservative **initial_cap** |
+| HTTP 2xx | Success credit; `successes_per_increase` then `+ additive_step`, capped by the fixed ceiling |
+| HTTP 429 | Strong multiplicative decrease (`rate_limit_multiplier_percent`) and credit reset. PR F Retry-After / recent-429 suppression remains the authoritative "do not send now" |
+| HTTP 5xx / timeout / connection / SSL | Multiplicative decrease (`failure_multiplier_percent`) and credit reset |
+| Ordinary HTTP 4xx / 3xx / unknown exception | Neutral — cap is not lowered |
+| Stoplight / DFT skip before a request starts | Neutral — not stacked as an adaptive failure |
+| Accept / Reject / follow business state | **Never an input** |
+| `request_duration` / latency | Recorded as telemetry only. **Not** a PR G control-law input |
+| Stale or lost / digest-mismatched state | Conservative **initial_cap**. Learned-high rates are not restored |
 
-Reject / Accept remain follow **results**, not controller inputs.
-Request-duration percentiles may later inform calibration; they are
-not a v1 probe signal.
+Retries of `RelationshipWorker` / `DeliveryWorker` do **not** re-enter
+the dispatcher and do **not** consume the destination claim budget.
+An actual retry HTTP attempt **may** update adaptive health state so
+the next *new* admission recommendation can shrink. That is
+observation, not an admission-budget attempt.
 
-Do not implement a Node capacity score. Do not scan raw telemetry
-tables on each tick; the controller reads the same runtime
-cache/aggregates as §7.1–7.2.
+Redis keys (`follow_import:remote_adaptive:v1:destination|origin:…`)
+are reconstructable controller state, not work state. One key
+transition is atomic (Lua). Destination and origin keys are
+independent. Missing `destination_domain` is not persisted as a
+synthetic key. Local destinations are excluded. Two logical domains
+that share one `EndpointOrigin` share one origin controller.
+
+Do not implement a Node capacity score. Do not scrape Stoplight
+internal state. Do not invent a new Retry-After cooldown.
 
 ### 7.7 PR F — fixed remote admission (implemented)
 
@@ -1129,7 +1169,7 @@ That cannot protect the instance. Local-load work is a **shared guard**
 | **3 — shared load guard, enforce** | PR E | Legacy `BatchExecutionWorker` consults the shared guard **before** `select_pending_candidates` when `FOLLOW_IMPORT_LOCAL_LOAD_ENFORCEMENT` is on and a v2+fallback profile is configured. Positive recommendation shrinks the per-pass LIMIT. Zero due load schedules one deferred recheck (§6.2.1). The global scheduler remains shadow-only. Temporary compatibility; **not** global fairness. |
 | **4 — global claiming for new imports** | PR C | New batches are `dispatch_owner = scheduler` when `FOLLOW_IMPORT_DISPATCH_GLOBAL=true`. Recording failure must not bulk-enqueue. In-flight `legacy` batches keep their chains. Scheduler cadence is real admission pacing for NEW follow additions only. |
 | **5 — fixed destination admission** | PR F | Default-off `FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT` plus an explicit uncalibrated `FOLLOW_IMPORT_REMOTE_ADMISSION_PROFILE`. GLOBAL scheduler only. Fixed destination/origin caps, exact UnavailableDomain/DFT skip, Retry-After / recent-429 runtime cache, bounded candidate paging. No AIMD. |
-| **6 — adaptive destination, shadow then enforce** | PR G / H | After telemetry calibration. Still no Node score. |
+| **6 — adaptive destination, shadow then enforce** | PR G / H | PR G (this revision): default-off shadow sidecar. PR H later may enforce recommendations **after** calibration. Still no Node score. |
 | **7 — retire legacy** | PR I | No new `BatchExecutionWorker` chains. Drain or flip remaining `legacy` owners. Historical domain-ordering workaround can be removed when proven unused. |
 
 Feature flags (names illustrative), all default **off**:
@@ -1141,6 +1181,10 @@ Feature flags (names illustrative), all default **off**:
 - `FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT` (default off; PR F fixed
   admission only, GLOBAL scheduler only)
 - `FOLLOW_IMPORT_REMOTE_ADMISSION_PROFILE` (explicit versioned JSON;
+  no bundled production numbers)
+- `FOLLOW_IMPORT_REMOTE_ADAPTIVE_SHADOW` (default off; PR G shadow
+  evaluation only, GLOBAL ticks only)
+- `FOLLOW_IMPORT_REMOTE_ADAPTIVE_PROFILE` (explicit versioned JSON;
   no bundled production numbers)
 - `FOLLOW_IMPORT_DISPATCH_REMOTE_ADMISSION` (illustrative later name for
   adaptive `off` \| `fixed` \| `adaptive_shadow` \| `adaptive`)
@@ -1289,7 +1333,7 @@ is this documentation PR. Numeric calibration is last, not first.
 | **D** | `LocalLoadGuard` in the **global shadow scheduler** only: consume the pre-dispatch `LoadSnapshot`, evaluate a configured uncalibrated profile, shrink the hypothetical shadow plan, record state/percent/recommended budget. `BatchExecutionWorker` is unchanged (a shadow skip must not stop the legacy chain). Implementation: `docs/follow_import_dispatch_shadow.md`. | Enforce skip; invent production thresholds; change legacy claim rate |
 | **E** | Enforce `LocalLoadGuard` on the legacy executor (default-off); shrink per-pass LIMIT or schedule one load-deferred recheck when the guard (not policy) yields zero claims. No bundled production thresholds. | Tune production envelopes as if calibrated; tight retry loops; global claiming |
 | **F** | Fixed destination/domain budgets; DFT / UnavailableDomain where host mapping is known; Retry-After **runtime cache** (no raw scans); bounded candidate paging (§5.5). Implementation notes below. | Adaptive rates; Node scores; inbox Stoplight-as-if-known; unbounded 20k scans |
-| **G** | Shadow adaptive destination pacing (§7.6 AIMD) from aggregates | Enforce; active probing |
+| **G** | Shadow adaptive destination pacing (§7.6 AIMD) from live delivery observations + Redis controller state | Enforce; change actual claims; active probing; latency control; PR H flag |
 | **H** | Enforce adaptive destination pacing **after** PR #59 (+ tick) calibration | Invent thresholds without data |
 | **I** | Retire `BatchExecutionWorker` path; retire historical domain-ordering workaround when proven safe | Leave an unpaced `import_relationships!` follow fallback; forget import-generated unfollows as a future completion item |
 

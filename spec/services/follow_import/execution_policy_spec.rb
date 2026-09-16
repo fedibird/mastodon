@@ -267,5 +267,27 @@ RSpec.describe FollowImport::ExecutionPolicy do
       end
     end
   end
+
+  describe '.remote_adaptive_shadow_enabled?' do
+    it 'is disabled by default' do
+      expect(described_class.remote_adaptive_shadow_enabled?).to be false
+    end
+
+    it 'is enabled only when the explicit flag is set to true' do
+      ClimateControl.modify FOLLOW_IMPORT_REMOTE_ADAPTIVE_SHADOW: 'true' do
+        expect(described_class.remote_adaptive_shadow_enabled?).to be true
+      end
+    end
+
+    it 'stays disabled for any other flag value' do
+      ClimateControl.modify FOLLOW_IMPORT_REMOTE_ADAPTIVE_SHADOW: '1' do
+        expect(described_class.remote_adaptive_shadow_enabled?).to be false
+      end
+    end
+
+    it 'does not enable PR H enforcement' do
+      expect(described_class).not_to respond_to(:remote_adaptive_enforcement_enabled?)
+    end
+  end
 end
 
