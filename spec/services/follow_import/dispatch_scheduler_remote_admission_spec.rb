@@ -33,17 +33,19 @@ RSpec.describe FollowImport::DispatchScheduler, 'fixed remote admission' do
 
   def test_profile(**caps)
     FollowImport::RemoteAdmissionProfile.parse(
-      version: 1,
-      destination: { per_tick_cap: caps.fetch(:destination, 3) },
-      origin: { per_tick_cap: caps.fetch(:origin, 2) },
-      runtime: {
-        mapping_ttl_seconds: caps.fetch(:mapping_ttl, 3600),
-        max_retry_after_seconds: caps.fetch(:max_retry, 120),
-        recent_429_cooldown_seconds: caps.fetch(:cooldown, 30),
-      },
-      scan: {
-        max_targets_per_batch: caps.fetch(:max_targets, 50),
-        max_windows_per_batch: caps.fetch(:max_windows, 8),
+      {
+        version: 1,
+        destination: { per_tick_cap: caps.fetch(:destination, 3) },
+        origin: { per_tick_cap: caps.fetch(:origin, 2) },
+        runtime: {
+          mapping_ttl_seconds: caps.fetch(:mapping_ttl, 3600),
+          max_retry_after_seconds: caps.fetch(:max_retry, 120),
+          recent_429_cooldown_seconds: caps.fetch(:cooldown, 30),
+        },
+        scan: {
+          max_targets_per_batch: caps.fetch(:max_targets, 50),
+          max_windows_per_batch: caps.fetch(:max_windows, 8),
+        },
       }
     )
   end

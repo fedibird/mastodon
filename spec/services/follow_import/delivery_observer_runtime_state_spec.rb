@@ -5,15 +5,17 @@ require 'rails_helper'
 RSpec.describe FollowImport::DeliveryObserver, 'remote runtime state' do
   def profile
     FollowImport::RemoteAdmissionProfile.parse(
-      version: 1,
-      destination: { per_tick_cap: 3 },
-      origin: { per_tick_cap: 2 },
-      runtime: {
-        mapping_ttl_seconds: 3600,
-        max_retry_after_seconds: 90,
-        recent_429_cooldown_seconds: 40,
-      },
-      scan: { max_targets_per_batch: 20, max_windows_per_batch: 4 }
+      {
+        version: 1,
+        destination: { per_tick_cap: 3 },
+        origin: { per_tick_cap: 2 },
+        runtime: {
+          mapping_ttl_seconds: 3600,
+          max_retry_after_seconds: 90,
+          recent_429_cooldown_seconds: 40,
+        },
+        scan: { max_targets_per_batch: 20, max_windows_per_batch: 4 },
+      }
     )
   end
 

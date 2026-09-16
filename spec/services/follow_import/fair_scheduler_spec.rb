@@ -46,17 +46,19 @@ RSpec.describe FollowImport::FairScheduler do
 
   def test_profile(**caps)
     FollowImport::RemoteAdmissionProfile.parse(
-      version: 1,
-      destination: { per_tick_cap: caps.fetch(:destination, 3) },
-      origin: { per_tick_cap: caps.fetch(:origin, 10) },
-      runtime: {
-        mapping_ttl_seconds: 3600,
-        max_retry_after_seconds: 120,
-        recent_429_cooldown_seconds: 30,
-      },
-      scan: {
-        max_targets_per_batch: caps.fetch(:max_targets, 50),
-        max_windows_per_batch: caps.fetch(:max_windows, 8),
+      {
+        version: 1,
+        destination: { per_tick_cap: caps.fetch(:destination, 3) },
+        origin: { per_tick_cap: caps.fetch(:origin, 10) },
+        runtime: {
+          mapping_ttl_seconds: 3600,
+          max_retry_after_seconds: 120,
+          recent_429_cooldown_seconds: 30,
+        },
+        scan: {
+          max_targets_per_batch: caps.fetch(:max_targets, 50),
+          max_windows_per_batch: caps.fetch(:max_windows, 8),
+        },
       }
     )
   end
@@ -226,7 +228,7 @@ RSpec.describe FollowImport::FairScheduler do
   it 'shares destination capacity through owner rotation rather than letting ten batches of A go first' do
     owners = [
       owner('A', (1..10).map { |id| [id, [{ id: id, position: 0, destination_domain: 'remote.example' }]] }),
-      owner('B', [[20, [{ id: 200, position: 0, destination_domain: 'remote.example' }]]]),
+      owner('B', [[20, 5.times.map { |index| { id: 200 + index, position: index, destination_domain: 'remote.example' } }]]),
     ]
     result = plan_for(owners, budget: 5, admission: admission_for(profile: test_profile(destination: 5)))
     counts = result.planned.each_with_object(Hash.new(0)) { |entry, memo| memo[entry.owner_key] += 1 }
@@ -256,7 +258,7 @@ RSpec.describe FollowImport::FairScheduler do
 
   it 'skips a blocked prefix and plans a later healthy destination inside the scan budget' do
     blocked = 50.times.map { |index| { id: index, position: index, destination_domain: 'blocked.example' } }
-    healthy = 10.times.map { |index| { id: 100 + index, position: 50 + index, destination_domain: 'healthy.example' } }
+    healthy = 3.times.map { |index| { id: 100 + index, position: 50 + index, destination_domain: 'healthy.example' } }
     owners = [owner('A', [[1, blocked + healthy]])]
     admission = admission_for(
       profile: test_profile(destination: 3, max_targets: 60),
