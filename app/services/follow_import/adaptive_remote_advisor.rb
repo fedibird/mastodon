@@ -19,14 +19,23 @@
 # destination cap. Mapping-absent candidates evaluate destination
 # only. Mapping-present candidates evaluate destination + shared origin.
 #
-# Sidecar exceptions never abort the actual PR F plan.
+# Shadow routing uses the planner candidate, not the base decision
+# payload. NullAdmission (PR F enforcement off) admits without
+# destination / origin metadata; the sidecar still reads
+# candidate[:destination_domain] and an observation-only
+# RemoteRuntimeState snapshot for destination → origin mapping.
+# That snapshot must not apply destination/origin caps,
+# UnavailableDomain, or Retry-After / recent-429 suppression.
+#
+# Sidecar exceptions never abort the actual PR F / PR C plan.
 module FollowImport
   class AdaptiveRemoteAdvisor
-    def initialize(admission:, adaptive_profile:, fixed_profile:, state:, now: Time.now.utc)
+    def initialize(admission:, adaptive_profile:, fixed_profile:, state:, runtime: nil, now: Time.now.utc)
       @admission = admission
       @adaptive_profile = adaptive_profile
       @fixed_profile = fixed_profile
       @state = state
+      @runtime = runtime
       @now = now
       @shadow_by_destination = Hash.new(0)
       @shadow_by_origin = Hash.new(0)
@@ -47,7 +56,7 @@ module FollowImport
 
     def decide(candidate)
       decision = @admission.decide(candidate)
-      evaluate_shadow(decision) if decision.admit?
+      evaluate_shadow(candidate, decision) if decision.admit?
       decision
     end
 
@@ -88,13 +97,13 @@ module FollowImport
 
     private
 
-    def evaluate_shadow(decision)
-      return if decision.reason == 'local_destination'
-      return if local_destination?(decision.destination_domain)
+    def evaluate_shadow(candidate, decision)
+      dest_key = candidate_destination(candidate)
+      return if local_destination?(dest_key)
 
-      dest_key = decision.destination_domain.presence
       dest_view = destination_view(dest_key)
-      origin_key = decision.endpoint_origin.presence
+      origin_key = mapping_origin(dest_key)
+      origin_key ||= decision.endpoint_origin.presence if decision.respond_to?(:endpoint_origin)
       origin_view = origin_key.present? ? origin_view_for(origin_key) : nil
 
       @evaluated_current_claim_count += 1
@@ -141,6 +150,23 @@ module FollowImport
       @origin_caps << view.current_cap
       @origin_sources[view.source] += 1
       @runtime_unavailable_count += 1 if view.source == FollowImport::AdaptiveRemoteController::SOURCE_RUNTIME_UNAVAILABLE
+    end
+
+    def candidate_destination(candidate)
+      return if candidate.nil?
+      return unless candidate.respond_to?(:[])
+
+      candidate[:destination_domain].to_s.presence || candidate['destination_domain'].to_s.presence
+    end
+
+    def mapping_origin(destination_domain)
+      return if destination_domain.blank?
+      return unless @runtime.respond_to?(:mapping_for)
+
+      @runtime.mapping_for(destination_domain)&.endpoint_origin.presence
+    rescue StandardError => e
+      FollowImport::Telemetry.warn_failure('adaptive_remote_mapping', e)
+      nil
     end
 
     def shadow_destination_key(destination_domain)

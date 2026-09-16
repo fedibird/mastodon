@@ -771,10 +771,18 @@ Adaptive recommendations are never written into
 `RemoteAdmission` caps.
 
 PR G does **not** compute a full alternate scheduler plan. The
-sidecar evaluates actual PR F admits only:
+sidecar evaluates actual base admits only (PR F `RemoteAdmission`
+when enforcement is on, otherwise PR C `NullAdmission`):
 
 - base deny → stays deny
 - base admit → still admit, even when adaptive would have blocked
+
+Shadow evaluation uses the planner candidate destination, not the
+base decision payload. When PR F enforcement is off, the sidecar
+still receives one memoized observation-only `RemoteRuntimeState`
+snapshot so it can map `destination_domain → endpoint_origin`.
+That snapshot must not enable fixed dest/origin caps,
+UnavailableDomain, or Retry-After / recent-429 suppression.
 
 Telemetry names this
 `adaptive_shadow_would_block_current_claim_count`. Adaptive has its

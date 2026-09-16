@@ -92,6 +92,54 @@ RSpec.describe FollowImport::DispatchScheduler, 'adaptive remote shadow' do
     allow(FollowImport::ExecutionPolicy).to receive(:remote_adaptive_shadow_enabled?).and_return(false)
   end
 
+  def disable_remote_admission(profile = fixed_profile)
+    allow(FollowImport::ExecutionPolicy).to receive(:remote_admission_enforcement_enabled?).and_return(false)
+    allow(FollowImport::RemoteAdmissionProfile).to receive(:from_env).and_return(profile)
+  end
+
+  def seed_runtime_mapping(profile, destination_domain, inbox_url)
+    FollowImport::RemoteRuntimeState.new(profile: profile, now: Time.now.utc).observe(
+      destination_domain: destination_domain,
+      inbox_url: inbox_url,
+      http_status: 200,
+      retry_after_seconds: nil,
+      request_reached: true
+    )
+  end
+
+  def run_pr_f_off_world(adaptive:, local:, profile: nil, adaptive_prof: nil)
+    profile ||= fixed_profile(destination: 1, origin: 1)
+    adaptive_prof ||= adaptive_profile(dest_initial: 1, dest_min: 1, origin_initial: 1, origin_min: 1)
+    allow(FollowImport::ExecutionPolicy).to receive(:global_dispatch_budget).and_return(20)
+    disable_remote_admission(profile)
+    adaptive ? enable_adaptive_shadow(adaptive_prof) : disable_adaptive_shadow
+    RedisConfiguration.with { |redis| redis.del(FollowImport::FairnessCursor::KEY) }
+    seed_runtime_mapping(profile, 'remote-a.example', 'https://shared.example/inbox')
+    seed_runtime_mapping(profile, 'remote-b.example', 'https://shared.example/inbox')
+    FollowImport::RemoteRuntimeState.new(profile: profile, now: Time.now.utc).observe(
+      destination_domain: 'remote-a.example',
+      inbox_url: 'https://shared.example/inbox',
+      http_status: 429,
+      retry_after_seconds: 60,
+      request_reached: true
+    )
+    UnavailableDomain.create!(domain: 'remote-a.example') unless UnavailableDomain.exists?(domain: 'remote-a.example')
+    if adaptive
+      seed_adaptive_cap(:destination, 'remote-a.example', 2, adaptive: adaptive_prof, fixed: profile)
+      seed_adaptive_cap(:destination, 'remote-b.example', 2, adaptive: adaptive_prof, fixed: profile)
+      seed_adaptive_cap(:origin, 'https://shared.example', 1, adaptive: adaptive_prof, fixed: profile)
+    end
+    account = Fabricate(:account)
+    batch = create_batch(account)
+    add_target(batch, 0, destination_domain: local)
+    add_target(batch, 1, destination_domain: 'remote-a.example')
+    add_target(batch, 2, destination_domain: 'remote-b.example')
+    add_target(batch, 3, destination_domain: 'remote-a.example')
+    add_target(batch, 4, destination_domain: 'remote-b.example')
+    scheduler.call
+    [batch, FollowImportDispatchTickObservation.last, world_snapshot(batch)]
+  end
+
   def seed_adaptive_cap(layer, key, cap, adaptive: adaptive_profile, fixed: fixed_profile)
     writer = FollowImport::AdaptiveRemoteState.new(adaptive_profile: adaptive, fixed_profile: fixed)
     redis_key = layer == :origin ? writer.origin_key(key) : writer.destination_key(key)
@@ -382,6 +430,82 @@ RSpec.describe FollowImport::DispatchScheduler, 'adaptive remote shadow' do
     expect(batch.targets.first.reload.state).to eq 'pending'
     expect(observation.adaptive_remote_shadow_enabled).to be true
     expect(observation.adaptive_shadow_evaluated_current_claim_count).to be_nil
+  end
+
+  it 'evaluates adaptive shadow from candidate destinations when PR F enforcement is off' do
+    local = TagManager.instance.normalize_domain(Rails.configuration.x.local_domain)
+    viewed = []
+    allow_any_instance_of(FollowImport::AdaptiveRemoteState::Snapshot).to receive(:view_for_destination).and_wrap_original do |orig, domain|
+      viewed << domain
+      orig.call(domain)
+    end
+    allow(FollowImport::RemoteAdmission).to receive(:new).and_call_original
+    allow(FollowImport::RemoteAdmission).to receive(:unavailable_hosts).and_call_original
+
+    off_enqueues = 0
+    allow(Import::RelationshipWorker).to receive(:perform_async) { off_enqueues += 1 }
+    off_batch, off_obs, off = run_pr_f_off_world(adaptive: false, local: local)
+    expect(off_enqueues).to eq off[:claimed_count]
+    off_ids = off_batch.targets.where(state: :queued).order(:id).pluck(:id)
+    off_batch.targets.delete_all
+    off_batch.destroy!
+
+    on_enqueues = 0
+    allow(Import::RelationshipWorker).to receive(:perform_async) { on_enqueues += 1 }
+    on_batch, on_obs, on = run_pr_f_off_world(adaptive: true, local: local)
+
+    expect(FollowImport::RemoteAdmission).not_to have_received(:new)
+    expect(FollowImport::RemoteAdmission).not_to have_received(:unavailable_hosts)
+    expect(on[:claimed_positions]).to eq off[:claimed_positions]
+    expect(on[:claimed_count]).to eq off[:claimed_count]
+    expect(on[:claimed_count]).to eq 5
+    expect(on[:states]).to eq off[:states]
+    expect(on[:planned_count]).to eq off[:planned_count]
+    expect(on[:claimed_observation]).to eq off[:claimed_observation]
+    expect(on_enqueues).to eq off_enqueues
+    expect(on_batch.targets.where(state: :queued).order(:id).pluck(:destination_domain)).to contain_exactly(
+      local, 'remote-a.example', 'remote-b.example', 'remote-a.example', 'remote-b.example'
+    )
+    expect(on_batch.targets.where(state: :queued).order(:id).pluck(:id).size).to eq off_ids.size
+    expect(off_obs.adaptive_shadow_would_block_current_claim_count).to be_nil
+    expect(on_obs.skipped_destination_cap_count).to be_nil.or eq(0)
+    expect(on_obs.skipped_origin_cap_count).to be_nil.or eq(0)
+    expect(on_obs.skipped_unavailable_count).to be_nil.or eq(0)
+    expect(on_obs.skipped_retry_after_count).to be_nil.or eq(0)
+    expect(on_obs.adaptive_remote_shadow_enabled).to be true
+    expect(on_obs.adaptive_shadow_evaluated_current_claim_count).to eq 4
+    expect(on_obs.adaptive_shadow_origin_would_block_count).to be > 0
+    expect(on_obs.adaptive_shadow_would_block_current_claim_count).to be > 0
+    expect(viewed).to include('remote-a.example', 'remote-b.example')
+    expect(viewed).not_to include(FollowImport::RemoteAdmission::UNKNOWN_DESTINATION)
+    expect(viewed).not_to include(local)
+  ensure
+    UnavailableDomain.find_by(domain: 'remote-a.example')&.destroy
+  end
+
+  it 'reuses one RemoteRuntimeState snapshot for fixed admission and adaptive mapping' do
+    allow(FollowImport::ExecutionPolicy).to receive(:global_dispatch_budget).and_return(4)
+    profile = fixed_profile(destination: 4, origin: 4)
+    enable_remote_admission(profile)
+    enable_adaptive_shadow
+    snapshots = []
+    allow(FollowImport::RemoteRuntimeState).to receive(:new).and_wrap_original do |orig, **kwargs|
+      state = orig.call(**kwargs)
+      allow(state).to receive(:snapshot).and_wrap_original do |inner|
+        snap = inner.call
+        snapshots << snap
+        snap
+      end
+      state
+    end
+    account = Fabricate(:account)
+    batch = create_batch(account)
+    add_target(batch, 0, destination_domain: 'remote.example')
+
+    scheduler.call
+
+    expect(snapshots.size).to eq 1
+    expect(batch.targets.first.reload.state).to eq 'queued'
   end
 
   it 'does not claim adaptive evaluation in shadow scheduler mode' do

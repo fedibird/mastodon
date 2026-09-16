@@ -96,6 +96,8 @@ module FollowImport
     # attempt, never from a raw telemetry SELECT. Failure must not
     # fail delivery, PR F runtime writes, or the transport row.
     def self.write_adaptive_state(destination_domain:, inbox_url:, http_status:, error:, request_started_at:)
+      event = nil
+      write_attempted = false
       return {} unless FollowImport::ExecutionPolicy.remote_adaptive_shadow_enabled?
 
       adaptive = FollowImport::AdaptiveRemoteProfile.from_env
@@ -109,6 +111,20 @@ module FollowImport
         error: error,
         request_started_at: request_started_at
       )
+      event = observation.event
+
+      # Neutral / no-op events must not look like Redis write failures.
+      # compact drops nil, so omit success when no write was attempted.
+      unless FollowImport::AdaptiveRemoteObservation.mutating?(event)
+        return {
+          'adaptive_event' => event,
+          'adaptive_state_write_attempted' => false,
+          'adaptive_profile_version' => adaptive.version,
+          'adaptive_profile_digest' => adaptive.digest,
+        }.compact
+      end
+
+      write_attempted = true
       origin = FollowImport::EndpointOrigin.from_url(inbox_url)
       result = FollowImport::AdaptiveRemoteState.new(
         adaptive_profile: adaptive,
@@ -116,11 +132,12 @@ module FollowImport
       ).apply(
         destination_domain: destination_domain,
         endpoint_origin: origin,
-        event: observation.event
+        event: event
       )
 
       {
-        'adaptive_event' => observation.event,
+        'adaptive_event' => event,
+        'adaptive_state_write_attempted' => true,
         'adaptive_state_write_success' => result.written,
         'adaptive_destination_cap_before' => result.destination&.cap_before,
         'adaptive_destination_cap_after' => result.destination&.cap_after,
@@ -131,7 +148,11 @@ module FollowImport
       }.compact
     rescue StandardError => e
       FollowImport::Telemetry.warn_failure('adaptive_remote_state_write', e)
-      { 'adaptive_state_write_success' => false }
+      {
+        'adaptive_event' => event,
+        'adaptive_state_write_attempted' => write_attempted,
+        'adaptive_state_write_success' => (false if write_attempted),
+      }.compact
     end
     private_class_method :write_adaptive_state
 

@@ -366,9 +366,15 @@ module FollowImport
       identity = cheap_remote_identity(mode)
       return identity unless mode == :global
 
+      # One memoized PR F runtime snapshot per GLOBAL tick. Adaptive
+      # shadow may reuse it for destination → origin mapping even when
+      # fixed enforcement is off. Do not construct RemoteAdmission,
+      # UnavailableDomain, or fixed dest/origin suppression just to
+      # obtain that mapping.
+      runtime = shared_runtime_snapshot(identity)
+
       admission = nil
       if identity[:remote_admission_enabled] && identity[:profile]&.configured?
-        runtime = FollowImport::RemoteRuntimeState.new(profile: identity[:profile]).snapshot
         hosts, hosts_ok = FollowImport::RemoteAdmission.unavailable_hosts
         admission = FollowImport::RemoteAdmission.new(
           profile: identity[:profile],
@@ -380,12 +386,22 @@ module FollowImport
         identity[:scan_policy] = identity[:profile].scan_policy
       end
 
-      identity[:admission] = wrap_adaptive_shadow(admission, identity)
+      identity[:admission] = wrap_adaptive_shadow(admission, identity, runtime)
       identity.delete(:admission) if identity[:admission].nil?
       identity
     end
 
-    def wrap_adaptive_shadow(admission, identity)
+    def shared_runtime_snapshot(identity)
+      return unless identity[:profile]&.configured?
+      return unless identity[:remote_admission_enabled] || identity[:adaptive_remote_configured]
+
+      FollowImport::RemoteRuntimeState.new(profile: identity[:profile]).snapshot
+    rescue StandardError => e
+      FollowImport::Telemetry.warn_failure('remote_runtime_state', e)
+      nil
+    end
+
+    def wrap_adaptive_shadow(admission, identity, runtime)
       return admission unless identity[:adaptive_remote_shadow_enabled]
       return admission unless identity[:adaptive_remote_configured]
       return admission if identity[:adaptive_profile].nil? || identity[:profile].nil?
@@ -398,7 +414,8 @@ module FollowImport
         admission: admission || FollowImport::RemoteAdmission::NullAdmission.new,
         adaptive_profile: identity[:adaptive_profile],
         fixed_profile: identity[:profile],
-        state: state
+        state: state,
+        runtime: runtime
       )
     rescue StandardError => e
       FollowImport::Telemetry.warn_failure('adaptive_remote_shadow', e)

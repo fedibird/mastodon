@@ -436,10 +436,19 @@ enforcement. The same inputs and the same PR F profile must produce
 the same claimed target IDs and counts with the flag on or off.
 
 ```
-actual:  Fixed RemoteAdmission -> claim / skip
+actual:  Fixed RemoteAdmission or PR C NullAdmission -> claim / skip
 shadow:  AdaptiveRemoteAdvisor -> would this current claim have been
          blocked if adaptive were enforcing? Telemetry only.
 ```
+
+Shadow routing reads `candidate[:destination_domain]` and an
+observation-only PR F `RemoteRuntimeState` snapshot for
+`destination_domain → endpoint_origin` mapping. That snapshot is
+shared with fixed admission when PR F is on, and is still created
+when PR F enforcement is off so mapped-origin telemetry works.
+It must not apply destination/origin caps, UnavailableDomain, or
+Retry-After / recent-429 suppression. `NullAdmission` remains the
+actual decision in that mode.
 
 The adaptive controller is **not** a replacement for fixed admission.
 It is an inner shrink whose recommended cap is always

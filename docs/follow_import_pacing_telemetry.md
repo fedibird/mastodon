@@ -85,7 +85,7 @@ One row per observed attempt.
 | `http_status` | actual status when a response was received |
 | `retry_after_seconds` | parsed `Retry-After` when safely parseable |
 | `error_class` | exception class name when one escaped to the worker |
-| `metadata` | schema version plus non-identifying facts. PR G may add `adaptive_event`, `adaptive_state_write_success`, destination/origin cap before/after, and adaptive profile version/digest. Inbox path/query is never stored. Adaptive write failure must not fail delivery. |
+| `metadata` | schema version plus non-identifying facts. PR G may add `adaptive_event`, `adaptive_state_write_attempted`, `adaptive_state_write_success`, destination/origin cap before/after, and adaptive profile version/digest. Neutral / no-op events keep `adaptive_event` and set `adaptive_state_write_attempted=false` with `adaptive_state_write_success` omitted (NULL). A mutating write records `attempted=true` and `success=true|false`. Inbox path/query is never stored. Adaptive write failure must not fail delivery. |
 
 `0` on a duration/count means an observed zero. **NULL means the measurement
 was unavailable or invalid** (including a backwards clock interval). Telemetry

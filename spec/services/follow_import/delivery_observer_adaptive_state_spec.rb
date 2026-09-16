@@ -112,6 +112,7 @@ RSpec.describe FollowImport::DeliveryObserver, 'adaptive remote state' do
     expect(dest.success_credit).to eq 1
     expect(origin.success_credit).to eq 1
     expect(observation.metadata['adaptive_event']).to eq 'success'
+    expect(observation.metadata['adaptive_state_write_attempted']).to be true
     expect(observation.metadata['adaptive_state_write_success']).to be true
     expect(observation.metadata['adaptive_destination_cap_after']).to eq 2
     expect(observation.endpoint_origin).not_to include('inbox')
@@ -139,7 +140,20 @@ RSpec.describe FollowImport::DeliveryObserver, 'adaptive remote state' do
                                             .view_for_destination('a.example')
     expect(view.source).to eq 'initial'
     expect(FollowImportTransportObservation.last.metadata['adaptive_event']).to eq 'neutral'
-    expect(FollowImportTransportObservation.last.metadata['adaptive_state_write_success']).to be false
+    expect(FollowImportTransportObservation.last.metadata['adaptive_state_write_attempted']).to be false
+    expect(FollowImportTransportObservation.last.metadata).not_to have_key('adaptive_state_write_success')
+  end
+
+  it 'records HTTP 404 as a neutral no-write observation' do
+    target = target_row
+    record(target, response: response(404))
+
+    view = FollowImport::AdaptiveRemoteState.new(adaptive_profile: adaptive_profile, fixed_profile: fixed_profile)
+                                            .view_for_destination('a.example')
+    expect(view.source).to eq 'initial'
+    expect(FollowImportTransportObservation.last.metadata['adaptive_event']).to eq 'neutral'
+    expect(FollowImportTransportObservation.last.metadata['adaptive_state_write_attempted']).to be false
+    expect(FollowImportTransportObservation.last.metadata).not_to have_key('adaptive_state_write_success')
   end
 
   it 'does not fail delivery when adaptive Redis writes fail' do
@@ -148,6 +162,8 @@ RSpec.describe FollowImport::DeliveryObserver, 'adaptive remote state' do
 
     expect { record(target, response: response(200)) }.not_to raise_error
     expect(FollowImportTransportObservation.last.target_id).to eq target.id
+    expect(FollowImportTransportObservation.last.metadata['adaptive_event']).to eq 'success'
+    expect(FollowImportTransportObservation.last.metadata['adaptive_state_write_attempted']).to be true
     expect(FollowImportTransportObservation.last.metadata['adaptive_state_write_success']).to be false
   end
 

@@ -65,7 +65,7 @@ RSpec.describe FollowImport::AdaptiveRemoteAdvisor do
     )
   end
 
-  def advisor(admission: nil, state: nil, destination: 4)
+  def advisor(admission: nil, state: nil, destination: 4, runtime: nil)
     described_class.new(
       admission: admission || base_admission(destination: destination),
       adaptive_profile: adaptive_profile,
@@ -73,7 +73,8 @@ RSpec.describe FollowImport::AdaptiveRemoteAdvisor do
       state: state || FollowImport::AdaptiveRemoteState.new(
         adaptive_profile: adaptive_profile,
         fixed_profile: fixed_profile(destination: destination)
-      ).snapshot
+      ).snapshot,
+      runtime: runtime
     )
   end
 
@@ -202,5 +203,52 @@ RSpec.describe FollowImport::AdaptiveRemoteAdvisor do
     expect(Follow).not_to have_received(:exists?)
     expect(FollowRequest).not_to have_received(:exists?)
     expect(FollowImport::ExecutionGate).not_to have_received(:for_account)
+  end
+
+  it 'evaluates candidate destinations and mapped origins when wrapping NullAdmission' do
+    local = TagManager.instance.normalize_domain(Rails.configuration.x.local_domain)
+    seed_cap(:destination, 'remote-a.example', 2)
+    seed_cap(:destination, 'remote-b.example', 2)
+    seed_cap(:origin, 'https://shared.example', 1)
+    viewed = []
+    state = FollowImport::AdaptiveRemoteState.new(
+      adaptive_profile: adaptive_profile,
+      fixed_profile: fixed_profile
+    ).snapshot
+    allow(state).to receive(:view_for_destination).and_wrap_original do |orig, domain|
+      viewed << domain
+      orig.call(domain)
+    end
+    policy = advisor(
+      admission: FollowImport::RemoteAdmission::NullAdmission.new,
+      state: state,
+      runtime: runtime(mappings: {
+        'remote-a.example' => 'https://shared.example',
+        'remote-b.example' => 'https://shared.example',
+      })
+    )
+
+    local_decision = policy.decide(destination_domain: local)
+    policy.record_admit(local_decision)
+    first = policy.decide(destination_domain: 'remote-a.example')
+    policy.record_admit(first)
+    second = policy.decide(destination_domain: 'remote-b.example')
+    policy.record_admit(second)
+    third = policy.decide(destination_domain: 'remote-a.example')
+    policy.record_admit(third)
+
+    expect(local_decision.admit?).to be true
+    expect(first.admit?).to be true
+    expect(second.admit?).to be true
+    expect(third.admit?).to be true
+    expect(first.destination_domain).to be_nil
+    expect(first.endpoint_origin).to be_nil
+    expect(local_decision.reason).to eq 'admitted'
+    expect(viewed).to include('remote-a.example', 'remote-b.example')
+    expect(viewed).not_to include(FollowImport::RemoteAdmission::UNKNOWN_DESTINATION)
+    expect(viewed).not_to include(local)
+    expect(policy.stats['adaptive_shadow_evaluated_current_claim_count']).to eq 3
+    expect(policy.stats['adaptive_shadow_origin_would_block_count']).to eq 2
+    expect(policy.stats['adaptive_shadow_would_block_current_claim_count']).to eq 2
   end
 end
