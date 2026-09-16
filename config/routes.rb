@@ -513,15 +513,9 @@ Rails.application.routes.draw do
       resources :emoji_reactions, only: [:index]
       resources :reports,         only: [:create]
       resources :trends,          only: [:index]
-      resources :filters,         only: [:index, :create, :show, :update, :destroy] do
-        resources :keywords, only: [:index, :create], controller: 'filters/keywords'
-      end
+      resources :filters,         only: [:index, :create, :show, :update, :destroy]
       resources :endorsements,    only: [:index]
       resources :markers,         only: [:index, :create]
-
-      namespace :filters do
-        resources :keywords, only: [:show, :update, :destroy]
-      end
 
       namespace :apps do
         get :verify_credentials, to: 'credentials#show'

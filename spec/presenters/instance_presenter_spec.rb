@@ -64,6 +64,16 @@ RSpec.describe InstancePresenter do
     end
   end
 
+  describe '#fedibird_capabilities' do
+    it 'includes filter_v2' do
+      expect(instance_presenter.fedibird_capabilities).to include(:filter_v2)
+    end
+
+    it 'serializes filter_v2 as a JSON string' do
+      expect(JSON.parse(instance_presenter.fedibird_capabilities.to_json)).to include('filter_v2')
+    end
+  end
+
   describe '#source_url' do
     context 'with the GITHUB_REPOSITORY env variable set' do
       around do |example|

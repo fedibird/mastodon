@@ -143,6 +143,7 @@ class InstancePresenter < ActiveModelSerializers::Model
       :timeline_personal_media_option,
       :bulk_get_api_for_accounts,
       :bulk_get_api_for_statuses,
+      :filter_v2,
       :sorted_custom_emojis,
       :ordered_media_attachment,
       :followed_message,
