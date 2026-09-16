@@ -19,7 +19,6 @@ import {
   updateReaction as updateAnnouncementsReaction,
   deleteAnnouncement,
 } from './announcements';
-import { fetchFilters } from './filters';
 import { getLocale } from '../locales';
 import { deleteScheduledStatusSuccess } from './scheduled_statuses';
 
@@ -95,7 +94,6 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
           dispatch(updateConversations(JSON.parse(data.payload)));
           break;
         case 'filters_changed':
-          dispatch(fetchFilters());
           break;
         case 'emoji_reaction':
           const emojiReaction = JSON.parse(data.payload);

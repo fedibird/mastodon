@@ -1,5 +1,5 @@
 import { createSelector } from 'reselect';
-import { List as ImmutableList, Map as ImmutableMap, is } from 'immutable';
+import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 import { me, enableLimitedTimeline, hideDirectFromTimeline, hidePersonalFromTimeline, maxFrequentlyUsedEmojis } from '../initial_state';
 import { buildCustomEmojis, categoriesFromEmojis } from 'mastodon/features/emoji/emoji';
 
@@ -46,7 +46,7 @@ const regexFromFilters = filters => {
     return null;
   }
 
-  return new RegExp(filters.map(filter => {
+  return new RegExp(filters.valueSeq().map(filter => {
     let expr = escapeRegExp(filter.get('phrase'));
 
     if (filter.get('whole_word')) {
@@ -63,26 +63,44 @@ const regexFromFilters = filters => {
   }).join('|'), 'i');
 };
 
-// Memoize the filter regexps for each valid server contextType
+// Kept for notifications (PR C will migrate them to FilterResult).
+// v2 Filter entities do not include phrase/irreversible, so this helper
+// only matches legacy v1-shaped filters if any remain in state.
 const makeGetFiltersRegex = () => {
-  let memo = {};
-
   return (state, { contextType }) => {
     if (!contextType) return ImmutableList();
 
     const serverSideType = toServerSideType(contextType);
-    const filters = state.get('filters', ImmutableList()).filter(filter => filter.get('context').includes(serverSideType) && (filter.get('expires_at') === null || Date.parse(filter.get('expires_at')) > (new Date())));
+    const now = new Date();
+    const filters = state.get('filters', ImmutableMap()).filter(filter => {
+      const phrase = filter.get('phrase');
+      const context = filter.get('context');
+      const expiresAt = filter.get('expires_at');
 
-    if (!memo[serverSideType] || !is(memo[serverSideType].filters, filters)) {
-      const dropRegex = regexFromFilters(filters.filter(filter => filter.get('irreversible')));
-      const regex = regexFromFilters(filters);
-      memo[serverSideType] = { filters: filters, results: [dropRegex, regex] };
-    }
-    return memo[serverSideType].results;
+      return phrase && context && context.includes(serverSideType) && (expiresAt === null || new Date(expiresAt) > now);
+    });
+
+    const dropRegex = regexFromFilters(filters.filter(filter => filter.get('irreversible')));
+    const regex = regexFromFilters(filters);
+    return [dropRegex, regex];
   };
 };
 
 export const getFiltersRegex = makeGetFiltersRegex();
+
+const getFilters = (state, { contextType }) => {
+  if (!contextType) return null;
+
+  const serverSideType = toServerSideType(contextType);
+  const now = new Date();
+
+  return state.get('filters', ImmutableMap()).filter(filter => {
+    const context = filter.get('context');
+    const expiresAt = filter.get('expires_at');
+
+    return context && context.includes(serverSideType) && (expiresAt === null || expiresAt > now);
+  });
+};
 
 export const makeGetStatus = () => {
   return createSelector(
@@ -107,7 +125,7 @@ export const makeGetStatus = () => {
       (state, { id }) => state.getIn(['accounts',      state.getIn(['statuses', state.getIn(['statuses', state.getIn(['statuses', id, 'reblog']), 'quote_id']), 'account']), 'moved'], null),
       (state, { id }) => state.getIn(['relationships', state.getIn(['statuses', state.getIn(['statuses', state.getIn(['statuses', id, 'reblog']), 'quote_id']), 'account'])], null),
 
-      getFiltersRegex,
+      getFilters,
     ],
 
     (
@@ -131,19 +149,27 @@ export const makeGetStatus = () => {
       reblogQuoteMoved,
       reblogQuoteRelationship,
 
-      filtersRegex,
+      filters,
     ) => {
       if (!statusBase || !accountBase) {
         return null;
       }
 
-      const dropRegex = (accountReblog || accountBase).get('id') !== me && filtersRegex[0];
-      if (dropRegex && dropRegex.test(statusBase.get('reblog') ? statusReblog.get('search_index') : statusBase.get('search_index'))) {
-        return null;
-      }
+      let matchedFilters = false;
 
-      const regex     = (accountReblog || accountBase).get('id') !== me && filtersRegex[1];
-      const filtered  = regex && regex.test(statusBase.get('reblog') ? statusReblog.get('search_index') : statusBase.get('search_index'));
+      if ((accountReblog || accountBase).get('id') !== me && filters) {
+        let filterResults = statusReblog?.get('filtered') || statusBase.get('filtered') || ImmutableList();
+
+        if (filterResults.some(result => filters.getIn([result.get('filter'), 'filter_action']) === 'hide')) {
+          return null;
+        }
+
+        filterResults = filterResults.filter(result => filters.has(result.get('filter')));
+
+        if (!filterResults.isEmpty()) {
+          matchedFilters = filterResults.map(result => filters.getIn([result.get('filter'), 'title']));
+        }
+      }
 
       if (statusReblogQuote && accountReblogQuote) {
         accountReblogQuote = accountReblogQuote.withMutations(map => {
@@ -185,7 +211,7 @@ export const makeGetStatus = () => {
         map.set('reblog', statusReblog);
         map.set('quote', statusQuote);
         map.set('account', accountBase);
-        map.set('filtered', filtered ? [true] : []);
+        map.set('matched_filters', matchedFilters);
       });
 
       return statusBase;
