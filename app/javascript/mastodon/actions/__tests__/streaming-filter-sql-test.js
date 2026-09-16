@@ -29,7 +29,7 @@ describe('streaming custom-filter query', () => {
   });
 
   it('invalidates the Node filter cache on filters_changed', () => {
-    expect(source).toContain("event === 'filters_changed'");
+    expect(source).toMatch(/event === 'filters_changed'/);
     expect(source).toContain('req.cachedFilters = null');
   });
 

@@ -1,7 +1,6 @@
 import { fromJS } from 'immutable';
 
 import { importFetchedStatuses, STATUSES_IMPORT, FILTERS_IMPORT } from '../index';
-import statusesReducer from '../../../reducers/statuses';
 import filtersReducer from '../../../reducers/filters';
 
 jest.mock('../../../initial_state', () => ({
@@ -85,11 +84,16 @@ const importedFilters = (actions) => {
 };
 
 const reduceImported = (actions) => {
-  let statuses = statusesReducer(undefined, { type: '@@INIT' });
+  let statuses = fromJS({});
   let filters = filtersReducer(undefined, { type: '@@INIT' });
 
   actions.forEach(action => {
-    statuses = statusesReducer(statuses, action);
+    if (action.type === STATUSES_IMPORT) {
+      action.statuses.forEach(status => {
+        statuses = statuses.set(status.id, fromJS(status));
+      });
+    }
+
     filters = filtersReducer(filters, action);
   });
 

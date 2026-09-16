@@ -1,8 +1,11 @@
+const { describe, it } = require('node:test');
+const assert = require('node:assert/strict');
+
 const {
   INLINE_EXCLUDE_SELECTORS,
   searchIndexFromStatus,
   filteredResultsForStatus,
-} = require('../../../../../streaming/filtering');
+} = require('./filtering');
 
 const compileCachedFilter = (id, keyword, { title = 'spoiler', filter_action = 'warn', whole_word = false, context = ['public'], expires_at = null } = {}) => {
   let expr = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -50,7 +53,7 @@ const statusWith = (overrides = {}) => ({
 
 describe('streaming searchable text', () => {
   it('excludes Fedibird quote/reference/media helper markup', () => {
-    expect(INLINE_EXCLUDE_SELECTORS).toEqual([
+    assert.deepEqual(INLINE_EXCLUDE_SELECTORS, [
       '.quote-inline',
       '.reference-link-inline',
       '.original-media-link',
@@ -63,8 +66,8 @@ describe('streaming searchable text', () => {
       content: '<p>hello</p><span class="quote-inline">QT: https://example.com/foo</span>',
     });
 
-    expect(searchIndexFromStatus(status)).not.toContain('example.com');
-    expect(filteredResultsForStatus(status, cachedFilters)).toEqual([]);
+    assert.equal(searchIndexFromStatus(status).includes('example.com'), false);
+    assert.deepEqual(filteredResultsForStatus(status, cachedFilters), []);
   });
 
   it('does not match keywords that only appear in reference-link-inline markup', () => {
@@ -73,7 +76,7 @@ describe('streaming searchable text', () => {
       content: '<p>hello</p><span class="reference-link-inline">https://example.com/ref</span>',
     });
 
-    expect(filteredResultsForStatus(status, cachedFilters)).toEqual([]);
+    assert.deepEqual(filteredResultsForStatus(status, cachedFilters), []);
   });
 
   it('does not match keywords that only appear in original-media-link markup', () => {
@@ -82,7 +85,7 @@ describe('streaming searchable text', () => {
       content: '<p>hello</p><span class="original-media-link">https://cdn.example/media.png</span>',
     });
 
-    expect(filteredResultsForStatus(status, cachedFilters)).toEqual([]);
+    assert.deepEqual(filteredResultsForStatus(status, cachedFilters), []);
   });
 
   it('matches keywords in the status body', () => {
@@ -92,11 +95,11 @@ describe('streaming searchable text', () => {
     });
     const results = filteredResultsForStatus(status, cachedFilters);
 
-    expect(results).toHaveLength(1);
-    expect(results[0].filter.id).toEqual('1');
-    expect(results[0].filter.title).toEqual('links');
-    expect(results[0].filter.context).toEqual(['public']);
-    expect(results[0].keyword_matches).toContain('example.com');
+    assert.equal(results.length, 1);
+    assert.equal(results[0].filter.id, '1');
+    assert.equal(results[0].filter.title, 'links');
+    assert.deepEqual(results[0].filter.context, ['public']);
+    assert.ok(results[0].keyword_matches.includes('example.com'));
   });
 
   it('matches keywords in spoiler_text', () => {
@@ -106,7 +109,7 @@ describe('streaming searchable text', () => {
       content: '<p>hello</p>',
     });
 
-    expect(filteredResultsForStatus(status, cachedFilters)).toHaveLength(1);
+    assert.equal(filteredResultsForStatus(status, cachedFilters).length, 1);
   });
 
   it('matches keywords in poll option titles', () => {
@@ -116,7 +119,7 @@ describe('streaming searchable text', () => {
       poll: { options: [{ title: 'pineapple' }, { title: 'mango' }] },
     });
 
-    expect(filteredResultsForStatus(status, cachedFilters)).toHaveLength(1);
+    assert.equal(filteredResultsForStatus(status, cachedFilters).length, 1);
   });
 
   it('matches keywords in media attachment descriptions', () => {
@@ -126,7 +129,7 @@ describe('streaming searchable text', () => {
       media_attachments: [{ description: 'an alttext description' }],
     });
 
-    expect(filteredResultsForStatus(status, cachedFilters)).toHaveLength(1);
+    assert.equal(filteredResultsForStatus(status, cachedFilters).length, 1);
   });
 });
 
@@ -135,23 +138,23 @@ describe('streaming FilterResult payload', () => {
     const cachedFilters = compileCachedFilter('1', 'foo', { filter_action: 'warn' });
     const payload = applyIfMissing(statusWith({ content: '<p>foo</p>' }), cachedFilters);
 
-    expect(payload.filter_results).toBeUndefined();
-    expect(payload.filtered).toHaveLength(1);
-    expect(payload.filtered[0].filter.filter_action).toEqual('warn');
+    assert.equal(payload.filter_results, undefined);
+    assert.equal(payload.filtered.length, 1);
+    assert.equal(payload.filtered[0].filter.filter_action, 'warn');
   });
 
   it('uses hide as a string', () => {
     const cachedFilters = compileCachedFilter('2', 'spam', { title: 'spam', filter_action: 'hide' });
     const results = filteredResultsForStatus(statusWith({ content: '<p>spam</p>' }), cachedFilters);
 
-    expect(results[0].filter.filter_action).toEqual('hide');
+    assert.equal(results[0].filter.filter_action, 'hide');
   });
 
   it('does not overwrite an existing empty filtered array', () => {
     const cachedFilters = compileCachedFilter('1', 'foo');
     const payload = applyIfMissing({ ...statusWith({ content: '<p>foo</p>' }), filtered: [] }, cachedFilters);
 
-    expect(payload.filtered).toEqual([]);
+    assert.deepEqual(payload.filtered, []);
   });
 
   it('does not overwrite server-provided matches', () => {
@@ -162,6 +165,6 @@ describe('streaming FilterResult payload', () => {
     }];
     const payload = applyIfMissing({ ...statusWith({ content: '<p>foo</p>' }), filtered: existing }, cachedFilters);
 
-    expect(payload.filtered).toBe(existing);
+    assert.equal(payload.filtered, existing);
   });
 });
