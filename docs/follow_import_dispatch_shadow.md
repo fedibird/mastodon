@@ -403,8 +403,12 @@ so it is never treated as unlimited.
 `DeliveryObserver` writes Redis runtime state
 (`follow_import:remote_admission:v1:...`) from an actual HTTP attempt:
 privacy-safe `EndpointOrigin` mapping plus Retry-After / recent-429
-suppression. TTL comes only from the profile. Redis loss does not lose
-work; the destination cap still applies.
+suppression. Suppression extension is atomic (`max` of honor_until) so
+concurrent DeliveryWorkers cannot shorten a longer wait. TTL comes
+only from the profile and the final stored honor_until. Redis loss
+does not lose work; the destination cap still applies. An empty tail
+probe does not consume a scan window, so `max_windows_per_batch = 1`
+can still wrap.
 
 **Stoplight is not inspected pre-claim.** Stoplight 3.0.2 in this
 repository does not expose a clearly safe read-only admission lookup

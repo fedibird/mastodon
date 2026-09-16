@@ -441,4 +441,59 @@ RSpec.describe FollowImport::DispatchScheduler, 'fixed remote admission' do
 
     expect(batch.targets.where(state: :queued).count).to eq 4
   end
+
+  def persist_cursor(batch, position)
+    owner_key = FollowImport::OwnerKey.for_batch(batch).to_s
+    FollowImport::FairnessCursor.new.write(
+      FollowImport::FairnessCursor::State.new(
+        last_owner_key: owner_key,
+        last_batch_by_owner: { owner_key => batch.id },
+        last_position_by_batch: { batch.id.to_s => position },
+        source: FollowImport::FairnessCursor::SOURCE_REDIS
+      ),
+      active_owner_keys: [owner_key],
+      active_batch_ids: [batch.id]
+    )
+  end
+
+  it 'wraps and inspects the head when the cursor is at the last row and max_windows is 1' do
+    allow(FollowImport::ExecutionPolicy).to receive(:global_dispatch_budget).and_return(1)
+    enable_remote_admission(test_profile(destination: 3, max_targets: 8, max_windows: 1))
+    account = Fabricate(:account)
+    batch = create_batch(account)
+    5.times { |position| add_target(batch, position, destination_domain: 'healthy.example') }
+    persist_cursor(batch, 4)
+
+    scheduler.call
+
+    expect(batch.targets.where(state: :queued).count).to eq 1
+    expect(batch.targets.order(:position).first.reload.state).to eq 'queued'
+    expect(FollowImport::FairnessCursor.new.read.last_position_by_batch[batch.id.to_s]).not_to eq 4
+  end
+
+  it 'reconsiders a previously blocked row after the cursor wraps and the block clears' do
+    allow(FollowImport::ExecutionPolicy).to receive(:global_dispatch_budget).and_return(1)
+    enable_remote_admission(test_profile(destination: 3, max_targets: 8, max_windows: 1))
+    blocked = UnavailableDomain.create!(domain: 'blocked.example')
+    account = Fabricate(:account)
+    batch = create_batch(account)
+    targets = 3.times.map { |position| add_target(batch, position, destination_domain: 'blocked.example') }
+
+    first = scheduler.call
+    expect(targets.map { |target| target.reload.state }.uniq).to eq %w(pending)
+    expect(first.plan.scanned_target_count).to be_positive
+    cursor_after_first = FollowImport::FairnessCursor.new.read.last_position_by_batch[batch.id.to_s]
+    expect(cursor_after_first).to eq 2
+
+    second = scheduler.call
+    expect(targets.map { |target| target.reload.state }.uniq).to eq %w(pending)
+    expect(second.plan.scanned_target_count).to be_positive
+
+    blocked.destroy!
+    Rails.cache.delete('unavailable_domains')
+
+    scheduler.call
+    expect(targets.count { |target| target.reload.state == 'queued' }).to eq 1
+    expect(targets.all? { |target| target.reload.state.in?(%w(pending queued)) }).to be true
+  end
 end

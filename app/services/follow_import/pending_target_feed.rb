@@ -18,6 +18,13 @@
 #
 # last_inspected_position advances on every inspected row, including
 # admission-blocked pending rows. That is not completion.
+#
+# An empty tail probe (position > cursor, zero rows) is not a logical
+# candidate window. If this tick started mid-batch it may wrap and
+# fetch the head even when max_windows_per_batch is 1. That wrap+head
+# fetch counts as one window. Otherwise a cursor parked at the last
+# pending position would spend every tick on the empty tail and never
+# reconsider earlier rows.
 module FollowImport
   class PendingTargetFeed
     WINDOW = 8
@@ -80,24 +87,21 @@ module FollowImport
     def fill
       return if @done
 
-      if window_budget_exhausted? || remaining_target_budget <= 0
+      if remaining_target_budget <= 0 || window_budget_exhausted?
         @scan_budget_exhausted = true
         @done = true
         return
       end
 
-      rows = fetch_next_window(@after_position)
-      if rows.empty? && @started_after && !@wrapped
-        if window_budget_exhausted?
-          @scan_budget_exhausted = true
-          @done = true
-          return
-        end
-
-        @wrap_ceiling = @started_after
-        @after_position = nil
-        @wrapped = true
-        rows = fetch_next_window(nil)
+      rows = fetch_window(@after_position, current_limit)
+      if rows.empty? && wrap_available?
+        begin_wrap
+        rows = fetch_counted_window(nil)
+      elsif rows.any?
+        record_window
+      else
+        @done = true
+        return
       end
 
       if rows.empty?
@@ -109,9 +113,27 @@ module FollowImport
       @buffer.concat(rows)
     end
 
-    def fetch_next_window(after_position)
+    def wrap_available?
+      @started_after && !@wrapped
+    end
+
+    def begin_wrap
+      @wrap_ceiling = @started_after
+      @after_position = nil
+      @wrapped = true
+    end
+
+    def fetch_counted_window(after_position)
+      record_window
+      fetch_window(after_position, current_limit)
+    end
+
+    def record_window
       @windows_scanned += 1
-      fetch_window(after_position, [@window, remaining_target_budget].min)
+    end
+
+    def current_limit
+      [@window, remaining_target_budget].min
     end
 
     def fetch_window(after_position, limit)

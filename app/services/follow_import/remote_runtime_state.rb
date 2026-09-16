@@ -21,6 +21,35 @@ module FollowImport
     SCHEMA_VERSION = 1
     KEY_PREFIX = 'follow_import:remote_admission:v1'
 
+    # Atomic max(existing, proposed) across DeliveryWorker processes.
+    # A GET/compare/SET pair can lose a longer honor_until when two
+    # writers both read the old value; this Lua script keeps the later
+    # timestamp and sets TTL from that final value.
+    EXTEND_SUPPRESSION_LUA = <<~LUA.freeze
+      local key = KEYS[1]
+      local payload = ARGV[1]
+      local new_until = tonumber(ARGV[2])
+      local new_ttl = tonumber(ARGV[3])
+      local now = tonumber(ARGV[4])
+
+      local existing = redis.call('GET', key)
+      if existing then
+        local ok, data = pcall(cjson.decode, existing)
+        if ok and type(data) == 'table' then
+          local existing_until = tonumber(data['honor_until_unix'])
+          if existing_until and existing_until >= new_until then
+            local remain = existing_until - now
+            if remain < 1 then remain = 1 end
+            redis.call('EXPIRE', key, remain)
+            return existing
+          end
+        end
+      end
+
+      redis.call('SET', key, payload, 'EX', new_ttl)
+      return payload
+    LUA
+
     Mapping = Struct.new(:endpoint_origin, :observed_at, keyword_init: true)
     Suppression = Struct.new(:honor_until, :reason, :observed_at, keyword_init: true)
 
@@ -111,19 +140,20 @@ module FollowImport
       honor_until, reason = next_honor(http_status, retry_after_seconds)
       return if honor_until.nil?
 
-      existing = suppression_for(origin)
-      if existing && existing.honor_until && existing.honor_until >= honor_until
-        return
-      end
-
+      honor_unix = honor_until.to_i
       payload = JSON.generate(
         'schema_version' => SCHEMA_VERSION,
         'honor_until' => honor_until.iso8601,
+        'honor_until_unix' => honor_unix,
         'reason' => reason,
         'observed_at' => @now.iso8601
       )
-      ttl = [(honor_until - @now).to_i, 1].max
-      redis.set(suppression_key(origin), payload, ex: ttl)
+      ttl = [(honor_unix - @now.to_i), 1].max
+      redis.eval(
+        EXTEND_SUPPRESSION_LUA,
+        keys: [suppression_key(origin)],
+        argv: [payload, honor_unix, ttl, @now.to_i]
+      )
     end
 
     def next_honor(http_status, retry_after_seconds)
@@ -168,6 +198,7 @@ module FollowImport
       return unless data['schema_version'].to_i == SCHEMA_VERSION
 
       honor_until = parse_time(data['honor_until'])
+      honor_until ||= parse_unix(data['honor_until_unix'])
       return if honor_until.nil? || honor_until <= @now
 
       Suppression.new(
@@ -190,6 +221,14 @@ module FollowImport
       return value if value.is_a?(Time)
 
       Time.iso8601(value.to_s)
+    rescue StandardError
+      nil
+    end
+
+    def parse_unix(value)
+      return if value.blank?
+
+      Time.at(value.to_i).utc
     rescue StandardError
       nil
     end

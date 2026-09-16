@@ -845,7 +845,9 @@ HTTP-date; invalid → nil). Honor window is
 `endpoint_origin`. A 429 without a usable Retry-After uses the
 configured `recent_429_cooldown_seconds`. Ordinary success does not
 clear an unexpired window. A newer stronger honor uses
-`max(existing_until, new_until)`. No generic 5xx/timeout cooldown.
+`max(existing_until, new_until)`, applied **atomically in Redis** so
+concurrent DeliveryWorkers cannot shorten a longer wait. TTL follows
+the final stored honor_until. No generic 5xx/timeout cooldown.
 
 Redis runtime state is reconstructable. Flush/restart loses mapping
 and suppression only. Pending rows stay in PostgreSQL. The destination
@@ -859,7 +861,10 @@ including blocked pending rows. Owner/batch cursors still represent
 who received a planned slot. Blocked rows stay `pending`. Scan-budget
 exhaustion returns unused share upward and records
 `scan_budget_exhausted`. The next tick continues from the inspection
-cursor. Wrap/rebuild eventually reconsiders skipped rows.
+cursor. An empty tail probe does **not** consume a logical candidate
+window, so `max_windows_per_batch = 1` can still wrap from a cursor
+parked at the last pending position. Wrap/rebuild eventually
+reconsiders skipped rows.
 
 Accept / Reject / `completed_no_response` / Follow Gate / block / mute
 / report / account reputation / BehavioralMetricsService are forbidden

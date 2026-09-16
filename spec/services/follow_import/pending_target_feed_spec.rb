@@ -84,6 +84,46 @@ RSpec.describe FollowImport::PendingTargetFeed do
     expect(queries.none? { |sql| sql.match(/LIMIT\s+20\b/i) }).to be true
   end
 
+  it 'wraps from the last pending position even when max_windows_per_batch is 1' do
+    batch = create_batch
+    rows = 5.times.map { |position| batch.targets.create!(target_key_hash: "p#{position}", position: position) }
+
+    queries = []
+    callback = lambda do |*_args, payload|
+      sql = payload[:sql]
+      next unless sql.include?('follow_import_targets')
+      next unless sql.include?('SELECT')
+      next if sql.include?('SCHEMA')
+
+      queries << sql
+    end
+
+    feed = described_class.new(batch.id, after_position: rows.last.position, window: 8, max_targets: 8, max_windows: 1)
+    first = nil
+    ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
+      first = feed.shift
+    end
+
+    expect(first[:id]).to eq rows.first.id
+    expect(first[:position]).to eq 0
+    expect(feed.windows_scanned).to eq 1
+    expect(feed.scan_budget_exhausted?).to be false
+    expect(queries.size).to be <= 3
+  end
+
+  it 'does not stay parked at the last position across ticks when max_windows is 1' do
+    batch = create_batch
+    rows = 4.times.map { |position| batch.targets.create!(target_key_hash: "p#{position}", position: position) }
+
+    first = described_class.new(batch.id, after_position: rows.last.position, window: 2, max_targets: 2, max_windows: 1)
+    inspected = first.shift
+    expect(inspected[:position]).to eq 0
+
+    second = described_class.new(batch.id, after_position: first.last_inspected_position, window: 2, max_targets: 2, max_windows: 1)
+    expect(second.shift[:position]).to eq 1
+    expect(second.last_inspected_position).not_to eq rows.last.position
+  end
+
   it 'advances last_inspected_position on every inspected row' do
     batch = create_batch
     3.times { |position| batch.targets.create!(target_key_hash: "p#{position}", position: position) }

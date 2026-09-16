@@ -180,4 +180,107 @@ RSpec.describe FollowImport::RemoteRuntimeState do
     expect(writer.mapping_for('a.example')).to be_nil
     expect(writer.available?).to be false
   end
+
+  # Deterministic interleaving of GET/compare/SET. If write_suppression
+  # reads then writes from Ruby, both GETs see nil and the shorter SET
+  # is applied last. The Lua path never calls GET/SET for suppression,
+  # so the longer honor_until wins.
+  class InterleavingRedis
+    def initialize(inner)
+      @inner = inner
+      @mutex = Mutex.new
+      @cv = ConditionVariable.new
+      @gets = 0
+      @pending_sets = []
+      @applied = false
+    end
+
+    def get(key)
+      value = @inner.get(key)
+      return value unless suppression_key?(key)
+
+      @mutex.synchronize do
+        @gets += 1
+        @cv.broadcast
+        @cv.wait(@mutex) while @gets < 2
+      end
+      value
+    end
+
+    def set(key, value, **opts)
+      return @inner.set(key, value, **opts) unless suppression_key?(key)
+
+      @mutex.synchronize do
+        @pending_sets << [key, value, opts]
+        @cv.broadcast
+        @cv.wait(@mutex) while @pending_sets.size < 2 && !@applied
+        apply_sets_shorter_last unless @applied
+        @cv.broadcast
+      end
+      'OK'
+    end
+
+    def eval(*args, **kwargs)
+      @inner.eval(*args, **kwargs)
+    end
+
+    def method_missing(name, *args, **kwargs, &block)
+      @inner.public_send(name, *args, **kwargs, &block)
+    end
+
+    def respond_to_missing?(name, include_private = false)
+      @inner.respond_to?(name, include_private)
+    end
+
+    private
+
+    def suppression_key?(key)
+      key.to_s.include?(':suppression:')
+    end
+
+    def apply_sets_shorter_last
+      ordered = @pending_sets.sort_by do |_key, value, _opts|
+        Time.iso8601(JSON.parse(value).fetch('honor_until'))
+      end
+      ordered.reverse_each do |key, value, opts|
+        @inner.set(key, value, **opts)
+      end
+      @applied = true
+    end
+  end
+
+  it 'does not let a shorter concurrent writer overwrite a longer suppression' do
+    now = Time.utc(2026, 9, 16, 12, 0, 0)
+    longer = state(now: now, max_retry: 120)
+    shorter = state(now: now, max_retry: 120)
+    wrapper = InterleavingRedis.new(longer.redis)
+    allow(longer).to receive(:redis).and_return(wrapper)
+    allow(shorter).to receive(:redis).and_return(wrapper)
+
+    threads = [
+      Thread.new do
+        longer.observe(
+          destination_domain: 'a.example',
+          inbox_url: 'https://shared.example/inbox',
+          http_status: 429,
+          retry_after_seconds: 120,
+          request_reached: true
+        )
+      end,
+      Thread.new do
+        shorter.observe(
+          destination_domain: 'a.example',
+          inbox_url: 'https://shared.example/inbox',
+          http_status: 429,
+          retry_after_seconds: 20,
+          request_reached: true
+        )
+      end,
+    ]
+    threads.each(&:join)
+
+    suppression = state(now: now).suppression_for('https://shared.example')
+    expect(suppression.honor_until).to eq now + 120
+    expect(suppression.reason).to eq 'retry_after'
+  end
 end

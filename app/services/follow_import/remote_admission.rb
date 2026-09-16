@@ -58,11 +58,12 @@ module FollowImport
       routing_key = missing ? UNKNOWN_DESTINATION : dest
       extra << 'missing_destination' if missing
 
-      runtime_source = runtime_state_source
-      extra << 'runtime_state_unavailable' if runtime_source == FollowImport::RemoteAdmissionDecision::SOURCE_UNAVAILABLE
-
       origin = lookup_origin(routing_key) unless missing
       @mapped_origin_candidate_count += 1 if origin.present?
+      # Recompute after mapping_for so a first-lookup Redis failure is
+      # recorded as runtime_state_unavailable, not unknown.
+      runtime_source = runtime_state_source
+      extra << 'runtime_state_unavailable' if runtime_source == FollowImport::RemoteAdmissionDecision::SOURCE_UNAVAILABLE
       runtime_source = if runtime_source == FollowImport::RemoteAdmissionDecision::SOURCE_UNAVAILABLE
                          runtime_source
                        elsif origin.present?

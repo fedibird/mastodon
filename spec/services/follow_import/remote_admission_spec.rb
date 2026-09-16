@@ -142,6 +142,29 @@ RSpec.describe FollowImport::RemoteAdmission do
     expect(policy.decide(destination_domain: 'remote.example').reason).to eq 'recent_429'
   end
 
+  it 'records runtime_state_unavailable on the candidate whose lookup failed' do
+    failed = false
+    runtime = Object.new
+    runtime.define_singleton_method(:available?) { !failed }
+    runtime.define_singleton_method(:mapping_for) do |_domain|
+      failed = true
+      nil
+    end
+    runtime.define_singleton_method(:suppression_for) { |_origin| nil }
+    policy = described_class.new(
+      profile: profile,
+      runtime: runtime,
+      unavailable_hosts: Set.new,
+      unavailable_snapshot_available: true
+    )
+
+    decision = policy.decide(destination_domain: 'remote.example')
+
+    expect(decision.admit?).to be true
+    expect(decision.runtime_state_source).to eq 'unavailable'
+    expect(decision.reasons).to include('runtime_state_unavailable')
+  end
+
   it 'falls back to destination cap only when runtime state is unavailable' do
     policy = admission(profile: profile(destination: 1), available: false)
 
