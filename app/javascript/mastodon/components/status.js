@@ -192,6 +192,7 @@ class Status extends ImmutablePureComponent {
     showMedia: defaultMediaVisibility(this.props.status),
     showQuoteMedia: defaultMediaVisibility(this.props.status ? this.props.status.get('quote', null) : null),
     statusId: undefined,
+    forceFilter: undefined,
   };
 
   static getDerivedStateFromProps(nextProps, prevState) {
@@ -200,18 +201,7 @@ class Status extends ImmutablePureComponent {
         showMedia: defaultMediaVisibility(nextProps.status),
         showQuoteMedia: defaultMediaVisibility(nextProps.status.get('quote', null)),
         statusId: nextProps.status.get('id'),
-      };
-    } else {
-      return null;
-    }
-  }
-
-  static getDerivedStateFromProps(nextProps, prevState) {
-    if (nextProps.status && nextProps.status.get('id') !== prevState.statusId) {
-      return {
-        showMedia: defaultMediaVisibility(nextProps.status),
-        showQuoteMedia: defaultMediaVisibility(nextProps.status.get('quote', null)),
-        statusId: nextProps.status.get('id'),
+        forceFilter: undefined,
       };
     } else {
       return null;
@@ -339,6 +329,16 @@ class Status extends ImmutablePureComponent {
 
   handleCollapsedToggle = isCollapsed => {
     this.props.onToggleCollapsed(this._properStatus(), isCollapsed);
+  }
+
+  handleUnfilterClick = e => {
+    this.setState({ forceFilter: false });
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  handleFilterClick = () => {
+    this.setState({ forceFilter: true });
   }
 
   handleExpandedQuoteToggle = () => {
@@ -518,7 +518,11 @@ class Status extends ImmutablePureComponent {
       );
     }
 
-    if (status.get('matched_filters')) {
+    const matchedFilters = status.get('matched_filters');
+    const hasMatchedFilters = ImmutableList.isList(matchedFilters) ? !matchedFilters.isEmpty() : !!matchedFilters;
+    const shouldFilter = hasMatchedFilters && this.state.forceFilter !== false;
+
+    if (shouldFilter) {
       const minHandlers = this.props.muted ? {} : {
         moveUp: this.handleHotkeyMoveUp,
         moveDown: this.handleHotkeyMoveDown,
@@ -528,6 +532,11 @@ class Status extends ImmutablePureComponent {
         <HotKeys handlers={minHandlers}>
           <div className='status__wrapper status__wrapper--filtered focusable' tabIndex='0' ref={this.handleRef}>
             <FormattedMessage id='status.filtered' defaultMessage='Filtered' />
+            : {ImmutableList.isList(matchedFilters) ? matchedFilters.join(', ') : ''}.
+            {' '}
+            <button type='button' className='status__wrapper--filtered__button' onClick={this.handleUnfilterClick}>
+              <FormattedMessage id='status.show_filter_reason' defaultMessage='Show anyway' />
+            </button>
           </div>
         </HotKeys>
       );
@@ -879,7 +888,7 @@ class Status extends ImmutablePureComponent {
               removeEmojiReaction={this.props.removeEmojiReaction}
               reactionLimitReached={reactionLimitReached}
             />}
-            <StatusActionBar scrollKey={scrollKey} status={status} account={account} expired={expired} {...other} />
+            <StatusActionBar scrollKey={scrollKey} status={status} account={account} expired={expired} {...other} onFilter={hasMatchedFilters ? this.handleFilterClick : null} />
           </div>
         </div>
       </HotKeys>

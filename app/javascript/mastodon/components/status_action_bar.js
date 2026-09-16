@@ -62,6 +62,7 @@ const messages = defineMessages({
   visibilityKeepMessage: { id: 'visibility.keep_message', defaultMessage: 'Do you want to keep the visibility of the post to the reference?' },
   visibilityChange: { id: 'visibility.change', defaultMessage: 'Change' },
   visibilityKeep: { id: 'visibility.keep', defaultMessage: 'Keep' },
+  hide: { id: 'status.hide', defaultMessage: 'Hide post' },
 });
 
 const mapStateToProps = (state, { status }) => ({
@@ -106,6 +107,7 @@ class StatusActionBar extends ImmutablePureComponent {
     onUnblockDomain: PropTypes.func,
     onReport: PropTypes.func,
     onEmbed: PropTypes.func,
+    onFilter: PropTypes.func,
     onMuteConversation: PropTypes.func,
     onPin: PropTypes.func,
     onBookmark: PropTypes.func,
@@ -203,6 +205,10 @@ class StatusActionBar extends ImmutablePureComponent {
 
   handleQuoteClick = () => {
     this.props.onQuote(this.props.status, this.context.router.history);
+  }
+
+  handleHideClick = () => {
+    this.props.onFilter();
   }
 
   handleDeleteClick = () => {
@@ -489,6 +495,10 @@ class StatusActionBar extends ImmutablePureComponent {
       <IconButton className='status__action-bar-button' disabled={expired} title={intl.formatMessage(messages.share)} icon='share-alt' onClick={this.handleShareClick} />
     );
 
+    const filterButton = this.props.onFilter && (
+      <IconButton className='status__action-bar-button' title={intl.formatMessage(messages.hide)} icon='eye' onClick={this.handleHideClick} />
+    );
+
     const referenceDisabled = expired || !referenced && referenceCountLimit || ['limited', 'direct', 'personal'].includes(status.get('visibility'));
 
     const reactionsCounter = compactReaction && contextType !== 'thread' && status.get('emoji_reactions_count') > 0 ? status.get('emoji_reactions_count') : undefined;
@@ -532,6 +542,8 @@ class StatusActionBar extends ImmutablePureComponent {
             reactionLimitReached={reactionLimitReached}
           />
         </div>}
+
+        {filterButton}
 
         <div className='status__action-bar-dropdown'>
           <DropdownMenuContainer
