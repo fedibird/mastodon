@@ -1,5 +1,5 @@
 import { createSelector } from 'reselect';
-import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
+import { List as ImmutableList, Map as ImmutableMap, is } from 'immutable';
 import { me, enableLimitedTimeline, hideDirectFromTimeline, hidePersonalFromTimeline, maxFrequentlyUsedEmojis } from '../initial_state';
 import { buildCustomEmojis, categoriesFromEmojis } from 'mastodon/features/emoji/emoji';
 
@@ -46,7 +46,7 @@ const regexFromFilters = filters => {
     return null;
   }
 
-  return new RegExp(filters.valueSeq().map(filter => {
+  return new RegExp(filters.map(filter => {
     let expr = escapeRegExp(filter.get('phrase'));
 
     if (filter.get('whole_word')) {
@@ -64,25 +64,22 @@ const regexFromFilters = filters => {
 };
 
 // Kept for notifications (PR C will migrate them to FilterResult).
-// v2 Filter entities do not include phrase/irreversible, so this helper
-// only matches legacy v1-shaped filters if any remain in state.
+// Reads legacy v1 filters from notification_filters, not the v2 entity map.
 const makeGetFiltersRegex = () => {
+  let memo = {};
+
   return (state, { contextType }) => {
     if (!contextType) return ImmutableList();
 
     const serverSideType = toServerSideType(contextType);
-    const now = new Date();
-    const filters = state.get('filters', ImmutableMap()).filter(filter => {
-      const phrase = filter.get('phrase');
-      const context = filter.get('context');
-      const expiresAt = filter.get('expires_at');
+    const filters = state.get('notification_filters', ImmutableList()).filter(filter => filter.get('context').includes(serverSideType) && (filter.get('expires_at') === null || Date.parse(filter.get('expires_at')) > (new Date())));
 
-      return phrase && context && context.includes(serverSideType) && (expiresAt === null || new Date(expiresAt) > now);
-    });
-
-    const dropRegex = regexFromFilters(filters.filter(filter => filter.get('irreversible')));
-    const regex = regexFromFilters(filters);
-    return [dropRegex, regex];
+    if (!memo[serverSideType] || !is(memo[serverSideType].filters, filters)) {
+      const dropRegex = regexFromFilters(filters.filter(filter => filter.get('irreversible')));
+      const regex = regexFromFilters(filters);
+      memo[serverSideType] = { filters: filters, results: [dropRegex, regex] };
+    }
+    return memo[serverSideType].results;
   };
 };
 

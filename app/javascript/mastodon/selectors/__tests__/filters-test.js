@@ -162,4 +162,24 @@ describe('makeGetStatus FilterResult pipeline', () => {
     expect(result).not.toBeNull();
     expect(result.get('matched_filters')).toEqual(false);
   });
+
+  it('does not apply legacy notification_filters to timeline statuses', () => {
+    const state = buildState({
+      filters: {},
+      status: baseStatus({ filtered: [], search_index: 'spam from a bot' }),
+      account: otherAccount,
+    }).set('notification_filters', fromJS([{
+      id: '9',
+      phrase: 'spam',
+      context: ['home', 'notifications'],
+      irreversible: true,
+      whole_word: false,
+      expires_at: null,
+    }]));
+
+    const result = getStatus(state, { id: 's1', contextType: 'home' });
+
+    expect(result).not.toBeNull();
+    expect(result.get('matched_filters')).toEqual(false);
+  });
 });

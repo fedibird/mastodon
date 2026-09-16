@@ -668,7 +668,7 @@ const startWorker = (workerId) => {
         }
 
         if (!unpackedPayload.filter_results && !req.cachedFilters) {
-          queries.push(client.query('SELECT filter.id AS id, filter.phrase AS title, filter.context AS context, filter.expires_at AS expires_at, filter.action AS filter_action, keyword.keyword AS keyword, keyword.whole_word AS whole_word FROM custom_filter_keywords keyword JOIN custom_filters filter ON keyword.custom_filter_id = filter.id WHERE filter.account_id = $1 AND filter.expires_at IS NULL OR filter.expires_at > NOW()', [req.accountId]));
+          queries.push(client.query('SELECT filter.id AS id, filter.phrase AS title, filter.context AS context, filter.expires_at AS expires_at, filter.action AS filter_action, keyword.keyword AS keyword, keyword.whole_word AS whole_word FROM custom_filter_keywords keyword JOIN custom_filters filter ON keyword.custom_filter_id = filter.id WHERE filter.account_id = $1 AND (filter.expires_at IS NULL OR filter.expires_at > NOW())', [req.accountId]));
         }
 
         Promise.all(queries).then(values => {
@@ -693,7 +693,7 @@ const startWorker = (workerId) => {
                     title: row.title,
                     context: row.context,
                     expires_at: row.expires_at,
-                    filter_action: row.filter_action,
+                    filter_action: ['warn', 'hide'][row.filter_action],
                   },
                 };
               }
