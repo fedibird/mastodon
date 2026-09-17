@@ -128,5 +128,42 @@ describe Report do
       report.valid?
       expect(report).to model_have_error_on_field(:comment)
     end
+
+    it 'is valid as a violation with an existing rule' do
+      rule = Fabricate(:rule, deleted_at: nil, priority: 0)
+      report = Fabricate.build(:report, category: :violation, rule_ids: [rule.id])
+
+      expect(report).to be_valid
+    end
+
+    it 'is invalid as a violation with an unknown rule' do
+      report = Fabricate.build(:report, category: :violation, rule_ids: [-1])
+      report.valid?
+
+      expect(report).to model_have_error_on_field(:rule_ids)
+    end
+
+    it 'is invalid as a violation without rules' do
+      report = Fabricate.build(:report, category: :violation, rule_ids: nil)
+      report.valid?
+
+      expect(report).to model_have_error_on_field(:rule_ids)
+    end
+
+    it 'is invalid when a non-violation category includes rule_ids' do
+      rule = Fabricate(:rule, deleted_at: nil, priority: 0)
+      report = Fabricate.build(:report, category: :spam, rule_ids: [rule.id])
+      report.valid?
+
+      expect(report).to model_have_error_on_field(:rule_ids)
+    end
+
+    it 'is valid as a violation with a discarded rule' do
+      rule = Fabricate(:rule, deleted_at: nil, priority: 0)
+      rule.discard
+      report = Fabricate.build(:report, category: :violation, rule_ids: [rule.id])
+
+      expect(report).to be_valid
+    end
   end
 end

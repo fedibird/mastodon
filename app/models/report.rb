@@ -15,6 +15,8 @@
 #  assigned_account_id        :bigint(8)
 #  uri                        :string
 #  forwarded                  :boolean
+#  category                   :integer          default("other"), not null
+#  rule_ids                   :bigint(8)        is an Array
 #
 
 class Report < ApplicationRecord
@@ -35,6 +37,15 @@ class Report < ApplicationRecord
   scope :with_accounts, -> { includes([:account, :target_account, :action_taken_by_account, :assigned_account].index_with({ user: [:invite_request, :invite] })) }
 
   validates :comment, length: { maximum: 1000 }
+  validates :rule_ids, absence: true, unless: :violation?
+
+  validate :validate_rule_ids
+
+  enum category: {
+    other: 0,
+    spam: 1_000,
+    violation: 2_000,
+  }
 
   def local?
     false # Force uri_for to use uri attribute
@@ -48,6 +59,10 @@ class Report < ApplicationRecord
 
   def statuses
     Status.with_discarded.where(id: status_ids).includes(:account, :media_attachments, :mentions)
+  end
+
+  def rules
+    Rule.with_discarded.where(id: rule_ids)
   end
 
   def media_attachments_count
@@ -127,5 +142,11 @@ class Report < ApplicationRecord
 
   def set_uri
     self.uri = ActivityPub::TagManager.instance.generate_uri_for(self) if uri.nil? && account.local?
+  end
+
+  def validate_rule_ids
+    return unless violation?
+
+    errors.add(:rule_ids, I18n.t('reports.errors.invalid_rules')) unless rules.size == rule_ids&.size
   end
 end

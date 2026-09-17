@@ -1666,6 +1666,9 @@ en:
     remove_selected_followers: Remove selected followers
     remove_selected_follows: Unfollow selected users
     status: Account status
+  reports:
+    errors:
+      invalid_rules: does not reference valid rules
   remote_follow:
     acct: Enter your username@domain you want to act from
     missing_resource: Could not find the required redirect URL for your account
