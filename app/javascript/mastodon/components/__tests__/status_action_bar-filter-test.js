@@ -1,3 +1,5 @@
+/* eslint-disable react/prop-types */
+
 import { render, fireEvent, screen } from '@testing-library/react';
 import React from 'react';
 import { Map as ImmutableMap, Set as ImmutableSet, fromJS } from 'immutable';
@@ -39,7 +41,13 @@ jest.mock('react-intl', () => {
   };
 });
 
-jest.mock('../../containers/dropdown_menu_container', () => () => <div data-testid='more-menu' />);
+jest.mock('../../containers/dropdown_menu_container', () => ({ items }) => (
+  <div data-testid='more-menu'>
+    {(items || []).filter(Boolean).map((item, index) => (
+      <button key={index} type='button' onClick={item.action}>{item.text}</button>
+    ))}
+  </div>
+));
 jest.mock('../../containers/reaction_picker_dropdown_container', () => () => <div data-testid='emoji-reaction' />);
 
 import StatusActionBar from '../status_action_bar';
@@ -116,5 +124,41 @@ describe('StatusActionBar filter eye button', () => {
     expect(screen.getByTitle('Bookmark')).toBeInTheDocument();
     expect(screen.getByTestId('emoji-reaction')).toBeInTheDocument();
     expect(screen.getByTestId('more-menu')).toBeInTheDocument();
+  });
+});
+
+describe('StatusActionBar Filter this post menu', () => {
+  it('shows Filter this post in the more menu when onAddFilter is provided', () => {
+    const onAddFilter = jest.fn();
+    renderBar({ onAddFilter });
+
+    fireEvent.click(screen.getByText('Filter this post'));
+    expect(onAddFilter).toHaveBeenCalledTimes(1);
+    expect(onAddFilter.mock.calls[0][0].get('id')).toEqual('s1');
+  });
+
+  it('does not add Filter this post when onAddFilter is missing', () => {
+    renderBar();
+
+    expect(screen.queryByText('Filter this post')).not.toBeInTheDocument();
+  });
+
+  it('does not add Filter this post for expired statuses', () => {
+    renderBar({ onAddFilter: jest.fn(), expired: true });
+
+    expect(screen.queryByText('Filter this post')).not.toBeInTheDocument();
+  });
+
+  it('keeps the hide eye button distinct from Filter this post', () => {
+    const onFilter = jest.fn();
+    const onAddFilter = jest.fn();
+    renderBar({ onFilter, onAddFilter });
+
+    expect(screen.getByTitle('Hide post')).toBeInTheDocument();
+    expect(screen.getByText('Filter this post')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle('Hide post'));
+    expect(onFilter).toHaveBeenCalledTimes(1);
+    expect(onAddFilter).not.toHaveBeenCalled();
   });
 });

@@ -6002,6 +6002,129 @@ a.status-card.compact:hover {
   }
 }
 
+.filter-modal {
+  background: lighten($ui-secondary-color, 8%);
+  color: $inverted-text-color;
+  border-radius: 8px;
+  overflow: hidden;
+  max-width: 90vw;
+  width: 480px;
+  position: relative;
+  flex-direction: column;
+  display: flex;
+  max-height: 80vh;
+
+  .search__input {
+    background: $simple-background-color;
+    color: $inverted-text-color;
+
+    &:focus {
+      background: $white;
+    }
+  }
+
+  .search__icon .fa {
+    color: $lighter-text-color;
+  }
+}
+
+.filter-modal__container {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.filter-modal__target {
+  padding: 15px;
+  font-size: 16px;
+  font-weight: 500;
+  text-align: center;
+  position: relative;
+
+  .media-modal__close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+  }
+}
+
+.filter-modal__status {
+  padding: 0 20px 20px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.filter-modal__select-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: 10px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.filter-modal__select-filter {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  padding: 10px 12px;
+  text-align: left;
+  color: $inverted-text-color;
+  font-size: 15px;
+
+  &:hover,
+  &:focus {
+    background: $ui-highlight-color;
+    color: $primary-text-color;
+
+    .filter-modal__warning {
+      color: $primary-text-color;
+    }
+  }
+
+  &--create {
+    font-weight: 500;
+  }
+}
+
+.filter-modal__warning {
+  color: $error-value-color;
+  font-size: 13px;
+}
+
+.filter-modal__added {
+  padding-top: 10px;
+
+  h3 {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 10px;
+  }
+
+  p {
+    font-size: 15px;
+    line-height: 22px;
+    margin-bottom: 12px;
+  }
+
+  a {
+    color: $highlight-text-color;
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+.filter-modal__action-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
 .loading-bar {
   background-color: $highlight-text-color;
   height: 3px;

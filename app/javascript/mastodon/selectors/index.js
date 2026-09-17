@@ -2,6 +2,7 @@ import { createSelector } from 'reselect';
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 import { me, enableLimitedTimeline, hideDirectFromTimeline, hidePersonalFromTimeline, maxFrequentlyUsedEmojis } from '../initial_state';
 import { buildCustomEmojis, categoriesFromEmojis } from 'mastodon/features/emoji/emoji';
+import { toServerSideType } from 'mastodon/utils/filters';
 
 const getAccountBase         = (state, id) => state.getIn(['accounts', id], null);
 const getAccountCounters     = (state, id) => state.getIn(['accounts_counters', id], null);
@@ -19,23 +20,6 @@ export const makeGetAccount = () => {
       map.set('moved', moved);
     });
   });
-};
-
-const toServerSideType = columnType => {
-  switch (columnType) {
-  case 'home':
-  case 'notifications':
-  case 'public':
-  case 'thread':
-  case 'account':
-    return columnType;
-  default:
-    if (columnType.indexOf('list:') > -1) {
-      return 'home';
-    } else {
-      return 'public'; // community, account, hashtag
-    }
-  }
 };
 
 const getFilters = (state, { contextType }) => {

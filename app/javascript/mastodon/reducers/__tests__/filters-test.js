@@ -53,6 +53,58 @@ describe('filters reducer', () => {
     expect(state.getIn(['3', 'expires_at'])).toEqual(Date.parse(expiresAt));
   });
 
+  it('stores keywords and statuses from a full Filters v2 payload', () => {
+    const state = filters(undefined, {
+      type: FILTERS_IMPORT,
+      filters: [{
+        id: '4',
+        title: 'status filter',
+        context: ['home', 'public'],
+        filter_action: 'warn',
+        expires_at: null,
+        keywords: [{ id: 'k1', keyword: 'foo', whole_word: true }],
+        statuses: [{ id: 'fs1', status_id: 's9' }],
+      }],
+    });
+
+    expect(state.getIn(['4', 'keywords']).toJS()).toEqual([
+      { id: 'k1', keyword: 'foo', whole_word: true },
+    ]);
+    expect(state.getIn(['4', 'statuses']).toJS()).toEqual([
+      { id: 'fs1', status_id: 's9' },
+    ]);
+  });
+
+  it('does not wipe keywords or statuses on a partial FilterResult import', () => {
+    const initial = filters(undefined, {
+      type: FILTERS_IMPORT,
+      filters: [{
+        id: '5',
+        title: 'keep rules',
+        context: ['home'],
+        filter_action: 'warn',
+        expires_at: null,
+        keywords: [{ keyword: 'keepme' }],
+        statuses: [{ status_id: 's1' }],
+      }],
+    });
+
+    const state = filters(initial, {
+      type: FILTERS_IMPORT,
+      filters: [{
+        id: '5',
+        title: 'keep rules',
+        context: ['home'],
+        filter_action: 'hide',
+        expires_at: null,
+      }],
+    });
+
+    expect(state.getIn(['5', 'filter_action'])).toEqual('hide');
+    expect(state.getIn(['5', 'keywords']).toJS()).toEqual([{ keyword: 'keepme' }]);
+    expect(state.getIn(['5', 'statuses']).toJS()).toEqual([{ status_id: 's1' }]);
+  });
+
   it('ignores incomplete filter objects', () => {
     const initial = fromJS({});
     const state = filters(initial, {

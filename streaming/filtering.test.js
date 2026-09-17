@@ -4,6 +4,8 @@ const assert = require('node:assert/strict');
 const {
   INLINE_EXCLUDE_SELECTORS,
   searchIndexFromStatus,
+  compileKeywordRegexp,
+  buildCachedFilters,
   filteredResultsForStatus,
 } = require('./filtering');
 
@@ -174,5 +176,110 @@ describe('streaming FilterResult payload', () => {
     const payload = applyIfMissing({ ...statusWith({ content: '<p>foo</p>' }), filtered: existing }, cachedFilters);
 
     assert.equal(payload.filtered, existing);
+  });
+});
+
+describe('streaming status-specific filters', () => {
+  const keywordRow = (overrides = {}) => ({
+    id: '1',
+    title: 'spoilers',
+    context: ['home', 'public'],
+    expires_at: null,
+    filter_action: 0,
+    keyword: 'foo',
+    whole_word: false,
+    ...overrides,
+  });
+
+  const statusRow = (overrides = {}) => ({
+    id: '1',
+    title: 'spoilers',
+    context: ['home', 'public'],
+    expires_at: null,
+    filter_action: 0,
+    status_id: 's1',
+    ...overrides,
+  });
+
+  it('returns null from compileKeywordRegexp when a filter has no keywords', () => {
+    assert.equal(compileKeywordRegexp([]), null);
+    assert.equal(compileKeywordRegexp([['', false]]), null);
+  });
+
+  it('does not match every status when a filter has no keywords', () => {
+    const cached = buildCachedFilters([keywordRow({ keyword: null })], []);
+    assert.equal(cached['1'].regexp, null);
+    assert.deepEqual(filteredResultsForStatus(statusWith({ id: 's9', content: '<p>hello</p>' }), cached), []);
+  });
+
+  it('matches a CustomFilterStatus by status id', () => {
+    const cached = buildCachedFilters([keywordRow({ keyword: null })], [statusRow({ status_id: 99 })]);
+    const results = filteredResultsForStatus(statusWith({ id: '99', content: '<p>hello</p>' }), cached);
+
+    assert.equal(results.length, 1);
+    assert.equal(results[0].filter.id, '1');
+    assert.equal(results[0].keyword_matches, null);
+    assert.deepEqual(results[0].status_matches, ['99']);
+    assert.equal(results[0].filter.filter_action, 'warn');
+    assert.deepEqual(results[0].filter.context, ['home', 'public']);
+  });
+
+  it('matches a reblog of a filtered status', () => {
+    const cached = buildCachedFilters([], [statusRow({ status_id: 'orig' })]);
+    const results = filteredResultsForStatus(statusWith({
+      id: 'boost',
+      reblog_of_id: 'orig',
+      reblog: { id: 'orig' },
+      content: '<p>hello</p>',
+    }), cached);
+
+    assert.deepEqual(results[0].status_matches, ['orig']);
+    assert.equal(results[0].keyword_matches, null);
+  });
+
+  it('matches both a keyword and a status id on the same filter', () => {
+    const cached = buildCachedFilters(
+      [keywordRow({ keyword: 'foo' })],
+      [statusRow({ status_id: 's1' })],
+    );
+    const results = filteredResultsForStatus(statusWith({ id: 's1', content: '<p>foo bar</p>' }), cached);
+
+    assert.equal(results.length, 1);
+    assert.ok(results[0].keyword_matches.includes('foo'));
+    assert.deepEqual(results[0].status_matches, ['s1']);
+  });
+
+  it('does not match an unrelated status', () => {
+    const cached = buildCachedFilters([], [statusRow({ status_id: 's1' })]);
+    assert.deepEqual(filteredResultsForStatus(statusWith({ id: 's2', content: '<p>hello</p>' }), cached), []);
+  });
+
+  it('skips expired status-specific filters', () => {
+    const cached = buildCachedFilters([], [statusRow({ expires_at: new Date('2000-01-01T00:00:00.000Z') })]);
+    assert.deepEqual(filteredResultsForStatus(statusWith({ id: 's1' }), cached, new Date('2024-01-01T00:00:00.000Z')), []);
+  });
+
+  it('preserves home-only context on FilterResult instead of dropping the filter', () => {
+    const cached = buildCachedFilters([], [statusRow({ context: ['home'] })]);
+    const results = filteredResultsForStatus(statusWith({ id: 's1', content: '<p>hello</p>' }), cached);
+
+    assert.equal(results.length, 1);
+    assert.deepEqual(results[0].filter.context, ['home']);
+  });
+
+  it('emits hide as a string for status-specific matches', () => {
+    const cached = buildCachedFilters([], [statusRow({ filter_action: 1 })]);
+    const results = filteredResultsForStatus(statusWith({ id: 's1' }), cached);
+
+    assert.equal(results[0].filter.filter_action, 'hide');
+    assert.deepEqual(results[0].status_matches, ['s1']);
+  });
+
+  it('does not reuse another account filter because rows are already account-scoped', () => {
+    const cached = buildCachedFilters([], [statusRow({ id: 'other-account-filter', status_id: 's1' })]);
+    const results = filteredResultsForStatus(statusWith({ id: 's1' }), cached);
+
+    assert.equal(results[0].filter.id, 'other-account-filter');
+    assert.equal(Object.keys(cached).length, 1);
   });
 });

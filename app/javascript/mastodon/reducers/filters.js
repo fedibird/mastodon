@@ -16,13 +16,23 @@ const normalizeFilter = (state, filter) => {
   }
 
   const filterId = String(filter.id);
-  const normalizedFilter = fromJS({
+  const normalized = {
     id: filterId,
     title: filter.title,
     context: filter.context,
     filter_action: normalizeFilterAction(filter.filter_action),
     expires_at: filter.expires_at ? Date.parse(filter.expires_at) : null,
-  });
+  };
+
+  if (Object.prototype.hasOwnProperty.call(filter, 'keywords')) {
+    normalized.keywords = filter.keywords;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(filter, 'statuses')) {
+    normalized.statuses = filter.statuses;
+  }
+
+  const normalizedFilter = fromJS(normalized);
 
   if (is(state.get(filterId), normalizedFilter)) {
     return state;
