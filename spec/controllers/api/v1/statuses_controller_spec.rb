@@ -20,6 +20,41 @@ RSpec.describe Api::V1::StatusesController, type: :controller do
         get :show, params: { id: status.id }
         expect(response).to have_http_status(200)
       end
+
+      it 'returns canonical filtered FilterResult without filter_results or searchable_text' do
+        author = Fabricate(:account)
+        filtered_status = Fabricate(:status, account: author, text: "hello foo\nhttps://example.com/filter-url-test")
+        filter = Fabricate(:custom_filter, account: user.account, phrase: 'foo', context: %w(home notifications public thread account))
+        Fabricate(:custom_filter_keyword, custom_filter: filter, keyword: 'foo')
+
+        get :show, params: { id: filtered_status.id }
+        body = body_as_json
+
+        expect(response).to have_http_status(200)
+        expect(body).not_to have_key(:filter_results)
+        expect(body).not_to have_key(:_fedibird_searchable_text)
+        expect(body[:filtered]).to contain_exactly(
+          include(
+            filter: include(id: filter.id.to_s, title: 'foo', filter_action: 'warn'),
+            keyword_matches: include('foo')
+          )
+        )
+      end
+
+      it 'does not match an ordinary URL as a keyword' do
+        author = Fabricate(:account)
+        filtered_status = Fabricate(:status, account: author, text: "URL CHECK\nhttps://example.com/filter-url-test")
+        filter = Fabricate(:custom_filter, account: user.account, phrase: 'urls', context: %w(home notifications public thread account))
+        Fabricate(:custom_filter_keyword, custom_filter: filter, keyword: 'example.com')
+
+        get :show, params: { id: filtered_status.id }
+        body = body_as_json
+
+        expect(response).to have_http_status(200)
+        expect(body[:filtered]).to eq([])
+        expect(body).not_to have_key(:filter_results)
+        expect(body).not_to have_key(:_fedibird_searchable_text)
+      end
     end
 
     describe 'GET #context' do

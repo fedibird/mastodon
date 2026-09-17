@@ -1,12 +1,16 @@
 import { fromJS } from 'immutable';
 
-import { importFetchedStatuses, STATUSES_IMPORT, FILTERS_IMPORT } from '../index';
-import filtersReducer from '../../../reducers/filters';
-
 jest.mock('../../../initial_state', () => ({
   expandSpoilers: false,
   autoPlayEmoji: false,
 }));
+
+jest.mock('../../../actions/statuses', () => ({
+  fetchStatus: jest.fn(),
+}));
+
+import { importFetchedStatuses, STATUSES_IMPORT, FILTERS_IMPORT } from '../index';
+import filtersReducer from '../../../reducers/filters';
 
 const warnResult = {
   filter: {
