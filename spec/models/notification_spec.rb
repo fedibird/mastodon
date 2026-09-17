@@ -50,6 +50,13 @@ RSpec.describe Notification, type: :model do
       expect(receiver.notifications.browserable).to include(mention, favourite, follow)
     end
 
+    it 'excludes notifications whose type column is nil' do
+      mention.update_column(:type, nil)
+
+      expect(receiver.notifications.browserable).to_not include(mention)
+      expect(receiver.notifications.browserable).to include(favourite, follow)
+    end
+
     it 'restricts results to the requested types' do
       result = receiver.notifications.browserable(types: %w(mention))
 
