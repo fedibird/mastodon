@@ -3,14 +3,8 @@
 require 'rails_helper'
 
 RSpec.describe 'Deleting profile images' do
-  let(:user) { Fabricate(:user, account: account) }
-  let(:account) do
-    Fabricate(
-      :account,
-      avatar: fixture_file_upload('avatar.gif', 'image/gif'),
-      header: fixture_file_upload('attachment.jpg', 'image/jpeg')
-    )
-  end
+  let(:user) { Fabricate(:user) }
+  let(:account) { user.account }
   let(:token) { Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: scopes) }
   let(:scopes) { 'write:accounts' }
   let(:headers) { { 'Authorization' => "Bearer #{token.token}" } }
@@ -25,6 +19,13 @@ RSpec.describe 'Deleting profile images' do
     end
   end
 
+  def attach_avatar_and_header!
+    account.update!(
+      avatar: fixture_file_upload('avatar.gif', 'image/gif'),
+      header: fixture_file_upload('attachment.jpg', 'image/jpeg')
+    )
+  end
+
   describe 'DELETE /api/v1/profile' do
     before do
       allow(ActivityPub::UpdateDistributionWorker).to receive(:perform_async)
@@ -32,6 +33,8 @@ RSpec.describe 'Deleting profile images' do
 
     context 'when deleting an avatar' do
       subject { delete '/api/v1/profile/avatar', headers: headers }
+
+      before { attach_avatar_and_header! }
 
       it_behaves_like 'forbidden for wrong scope', 'read'
 
@@ -67,6 +70,8 @@ RSpec.describe 'Deleting profile images' do
     context 'when deleting a header' do
       subject { delete '/api/v1/profile/header', headers: headers }
 
+      before { attach_avatar_and_header! }
+
       it 'returns http success and a credential account' do
         subject
 
@@ -99,6 +104,8 @@ RSpec.describe 'Deleting profile images' do
     context 'when provided picture value is invalid' do
       subject { delete '/api/v1/profile/invalid', headers: headers }
 
+      before { attach_avatar_and_header! }
+
       it 'returns http bad request' do
         subject
 
@@ -121,11 +128,8 @@ RSpec.describe 'Deleting profile images' do
     end
 
     context 'when avatar is already missing' do
-      let(:account) do
-        Fabricate(
-          :account,
-          header: fixture_file_upload('attachment.jpg', 'image/jpeg')
-        )
+      before do
+        account.update!(header: fixture_file_upload('attachment.jpg', 'image/jpeg'))
       end
 
       it 'returns http success' do
@@ -133,6 +137,7 @@ RSpec.describe 'Deleting profile images' do
 
         expect(response).to have_http_status(200)
         expect(account.reload.header).to exist
+        expect(account.avatar).to_not exist
       end
     end
 
