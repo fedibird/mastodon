@@ -3,6 +3,11 @@
 class FanOutOnWriteService < BaseService
   include Redisable
 
+  # Transport-only field for Node streaming Filter keyword matching.
+  # Must not be added to REST::StatusSerializer. Node strips it before
+  # transmitting to clients.
+  STREAMING_SEARCHABLE_TEXT_KEY = '_fedibird_searchable_text'
+
   # Push a status into home and mentions feeds
   # @param [Status] status
   def call(status)
@@ -201,15 +206,22 @@ class FanOutOnWriteService < BaseService
   def render_anonymous_payload(status)
     return @payload if defined?(@payload)
 
-    @payload = InlineRenderer.render(status, nil, :status)
+    @payload = attach_streaming_searchable_text(InlineRenderer.render(status, nil, :status), status)
     @payload = Oj.dump(event: :update, payload: @payload)
   end
 
   def render_anonymous_reblog_payload(status)
     return @reblog_payload if defined?(@reblog_payload)
 
-    @reblog_payload = InlineRenderer.render(status.reblog, nil, :status)
+    @reblog_payload = attach_streaming_searchable_text(InlineRenderer.render(status.reblog, nil, :status), status.reblog)
     @reblog_payload = Oj.dump(event: :update, payload: @reblog_payload)
+  end
+
+  def attach_streaming_searchable_text(payload, status)
+    return payload unless payload.is_a?(Hash)
+
+    payload[STREAMING_SEARCHABLE_TEXT_KEY] = status.proper.searchable_text
+    payload
   end
 
   def deliver_to_hashtags(status)

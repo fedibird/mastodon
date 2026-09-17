@@ -6,6 +6,9 @@ const INLINE_EXCLUDE_SELECTORS = [
   '.original-media-link',
 ];
 
+// Must match FanOutOnWriteService::STREAMING_SEARCHABLE_TEXT_KEY
+const STREAMING_SEARCHABLE_TEXT_KEY = '_fedibird_searchable_text';
+
 const searchContentFromStatus = (status) => {
   const spoilerText = status.spoiler_text || '';
   const pollTitles = (status.poll && status.poll.options) ? status.poll.options.map(option => option.title) : [];
@@ -17,7 +20,7 @@ const searchContentFromStatus = (status) => {
     .replace(/<\/p><p>/g, '\n\n');
 };
 
-const searchIndexFromStatus = (status) => {
+const legacySearchIndexFromSerializedStatus = (status) => {
   const fragment = JSDOM.fragment(searchContentFromStatus(status));
 
   INLINE_EXCLUDE_SELECTORS.forEach(selector => {
@@ -25,6 +28,36 @@ const searchIndexFromStatus = (status) => {
   });
 
   return fragment.textContent;
+};
+
+const searchIndexFromStatus = (status) => {
+  if (status && typeof status[STREAMING_SEARCHABLE_TEXT_KEY] === 'string') {
+    return status[STREAMING_SEARCHABLE_TEXT_KEY];
+  }
+
+  return legacySearchIndexFromSerializedStatus(status);
+};
+
+const stripStreamingSearchableText = (payload) => {
+  if (!payload || typeof payload !== 'object') {
+    return payload;
+  }
+
+  delete payload[STREAMING_SEARCHABLE_TEXT_KEY];
+
+  if (payload.reblog && typeof payload.reblog === 'object') {
+    delete payload.reblog[STREAMING_SEARCHABLE_TEXT_KEY];
+  }
+
+  if (payload.status && typeof payload.status === 'object') {
+    delete payload.status[STREAMING_SEARCHABLE_TEXT_KEY];
+
+    if (payload.status.reblog && typeof payload.status.reblog === 'object') {
+      delete payload.status.reblog[STREAMING_SEARCHABLE_TEXT_KEY];
+    }
+  }
+
+  return payload;
 };
 
 const compileKeywordRegexp = (keywords) => {
@@ -138,8 +171,10 @@ const filteredResultsForStatus = (status, cachedFilters, now = new Date()) => {
 
 module.exports = {
   INLINE_EXCLUDE_SELECTORS,
+  STREAMING_SEARCHABLE_TEXT_KEY,
   searchContentFromStatus,
   searchIndexFromStatus,
+  stripStreamingSearchableText,
   compileKeywordRegexp,
   buildCachedFilters,
   filteredResultsForStatus,

@@ -12,7 +12,7 @@ const url = require('url');
 const uuid = require('uuid');
 const fs = require('fs');
 const WebSocket = require('ws');
-const { filteredResultsForStatus, buildCachedFilters } = require('./filtering');
+const { filteredResultsForStatus, buildCachedFilters, stripStreamingSearchableText } = require('./filtering');
 
 const env = process.env.NODE_ENV || 'development';
 const alwaysRequireAuth = process.env.LIMITED_FEDERATION_MODE === 'true' || process.env.WHITELIST_MODE === 'true' || process.env.AUTHORIZED_FETCH === 'true';
@@ -611,6 +611,11 @@ const startWorker = (workerId) => {
       const transmit = () => {
         const now            = new Date().getTime();
         const delta          = now - queued_at;
+
+        if (payload && typeof payload === 'object') {
+          stripStreamingSearchableText(payload);
+        }
+
         const encodedPayload = typeof payload === 'object' ? JSON.stringify(payload) : payload;
 
         log.silly(req.requestId, `Transmitting for ${accountId}: ${event} ${encodedPayload} Delay: ${delta}ms`);

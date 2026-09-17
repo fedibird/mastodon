@@ -3,7 +3,9 @@ const assert = require('node:assert/strict');
 
 const {
   INLINE_EXCLUDE_SELECTORS,
+  STREAMING_SEARCHABLE_TEXT_KEY,
   searchIndexFromStatus,
+  stripStreamingSearchableText,
   compileKeywordRegexp,
   buildCachedFilters,
   filteredResultsForStatus,
@@ -134,6 +136,120 @@ describe('streaming searchable text', () => {
     });
 
     assert.equal(filteredResultsForStatus(status, cachedFilters).length, 1);
+  });
+});
+
+describe('streaming Rails searchable text parity', () => {
+  it('prefers the internal searchable text over serialized HTML', () => {
+    const cachedFilters = compileCachedFilter('1', 'example.com');
+    const status = statusWith({
+      content: '<p>URL CHECK<br><a href="https://example.com/filter-url-test">https://example.com/filter-url-test</a></p>',
+      [STREAMING_SEARCHABLE_TEXT_KEY]: 'URL CHECK',
+    });
+
+    assert.equal(searchIndexFromStatus(status), 'URL CHECK');
+    assert.deepEqual(filteredResultsForStatus(status, cachedFilters), []);
+  });
+
+  it('falls back to HTML-derived text when the internal field is absent', () => {
+    const cachedFilters = compileCachedFilter('1', 'example.com');
+    const status = statusWith({
+      content: '<p>URL CHECK<br><a href="https://example.com/filter-url-test">https://example.com/filter-url-test</a></p>',
+    });
+
+    assert.equal(searchIndexFromStatus(status).includes('example.com'), true);
+    assert.equal(filteredResultsForStatus(status, cachedFilters).length, 1);
+  });
+
+  it('uses an empty internal string instead of falling back to HTML', () => {
+    const cachedFilters = compileCachedFilter('1', 'example.com');
+    const status = statusWith({
+      content: '<p>https://example.com/filter-url-test</p>',
+      [STREAMING_SEARCHABLE_TEXT_KEY]: '',
+    });
+
+    assert.equal(searchIndexFromStatus(status), '');
+    assert.deepEqual(filteredResultsForStatus(status, cachedFilters), []);
+  });
+
+  it('still matches ordinary body keywords from the canonical text', () => {
+    const cachedFilters = compileCachedFilter('1', 'foo');
+    const status = statusWith({
+      content: '<p>hello foo https://example.com/x</p>',
+      [STREAMING_SEARCHABLE_TEXT_KEY]: 'hello foo',
+    });
+
+    const results = filteredResultsForStatus(status, cachedFilters);
+    assert.equal(results.length, 1);
+    assert.ok(results[0].keyword_matches.includes('foo'));
+  });
+
+  it('uses the outer payload canonical text for a reblog wrapper', () => {
+    const cachedFilters = compileCachedFilter('1', 'innerword');
+    const status = statusWith({
+      id: 'boost',
+      reblog_of_id: 'orig',
+      reblog: { id: 'orig', content: '<p>innerword</p>' },
+      content: '<p>boost wrapper</p>',
+      [STREAMING_SEARCHABLE_TEXT_KEY]: 'innerword',
+    });
+
+    const results = filteredResultsForStatus(status, cachedFilters);
+    assert.equal(results.length, 1);
+    assert.ok(results[0].keyword_matches.includes('innerword'));
+    assert.equal(results[0].status_matches, null);
+  });
+
+  it('keeps status-specific matches when canonical searchable text is present', () => {
+    const cached = buildCachedFilters([], [{
+      id: '1',
+      title: 'spoilers',
+      context: ['home', 'public'],
+      expires_at: null,
+      filter_action: 0,
+      status_id: 'orig',
+    }]);
+    const results = filteredResultsForStatus(statusWith({
+      id: 'boost',
+      reblog_of_id: 'orig',
+      reblog: { id: 'orig' },
+      content: '<p>hello</p>',
+      [STREAMING_SEARCHABLE_TEXT_KEY]: 'hello',
+    }), cached);
+
+    assert.deepEqual(results[0].status_matches, ['orig']);
+    assert.equal(results[0].keyword_matches, null);
+  });
+
+  it('strips the internal field even when filtered is already present', () => {
+    const payload = {
+      id: 's1',
+      filtered: [],
+      reblog: { id: 'orig', [STREAMING_SEARCHABLE_TEXT_KEY]: 'inner' },
+      [STREAMING_SEARCHABLE_TEXT_KEY]: 'outer',
+    };
+
+    stripStreamingSearchableText(payload);
+
+    assert.equal(payload[STREAMING_SEARCHABLE_TEXT_KEY], undefined);
+    assert.equal(payload.reblog[STREAMING_SEARCHABLE_TEXT_KEY], undefined);
+    assert.deepEqual(payload.filtered, []);
+  });
+
+  it('strips the internal field from nested notification statuses', () => {
+    const payload = {
+      type: 'mention',
+      status: {
+        id: 's1',
+        [STREAMING_SEARCHABLE_TEXT_KEY]: 'secret',
+        reblog: { id: 'orig', [STREAMING_SEARCHABLE_TEXT_KEY]: 'inner' },
+      },
+    };
+
+    stripStreamingSearchableText(payload);
+
+    assert.equal(payload.status[STREAMING_SEARCHABLE_TEXT_KEY], undefined);
+    assert.equal(payload.status.reblog[STREAMING_SEARCHABLE_TEXT_KEY], undefined);
   });
 });
 
