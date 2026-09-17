@@ -66,6 +66,37 @@ RSpec.describe Filters::StatusesController do
         end
       end
 
+      context 'with Fedibird-specific visibilities' do
+        let!(:limited_status) { Fabricate(:status, account: filter.account, visibility: :limited, text: 'limited filtered post') }
+        let!(:mutual_status) { Fabricate(:status, account: filter.account, visibility: :mutual, text: 'mutual filtered post') }
+        let!(:personal_status) { Fabricate(:status, account: filter.account, visibility: :personal, text: 'personal filtered post') }
+
+        before do
+          Fabricate(:custom_filter_status, custom_filter: filter, status: limited_status)
+          Fabricate(:custom_filter_status, custom_filter: filter, status: mutual_status)
+          Fabricate(:custom_filter_status, custom_filter: filter, status: personal_status)
+          sign_in(user)
+          get :index, params: { filter_id: filter }
+        end
+
+        it 'lists limited, mutual, and personal posts with Fedibird visibility icons' do
+          expect(response).to have_http_status(200)
+          expect(response.body).not_to include('translation missing')
+
+          expect(response.body).to include('limited filtered post')
+          expect(response.body).to include(I18n.t('statuses.visibilities.limited'))
+          expect(response.body).to include('fa-user-circle')
+
+          expect(response.body).to include('mutual filtered post')
+          expect(response.body).to include(I18n.t('statuses.visibilities.mutual'))
+          expect(response.body).to include('fa-exchange')
+
+          expect(response.body).to include('personal filtered post')
+          expect(response.body).to include(I18n.t('statuses.visibilities.personal'))
+          expect(response.body).to include('fa-book')
+        end
+      end
+
       context 'with another user signed in' do
         before do
           sign_in(Fabricate(:user))

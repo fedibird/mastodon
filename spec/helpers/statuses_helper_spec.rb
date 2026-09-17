@@ -106,6 +106,18 @@ RSpec.describe StatusesHelper, type: :helper do
     end
   end
 
+  describe '#fa_visibility_icon' do
+    it 'uses the same icons as the WebUI for Mastodon and Fedibird visibilities' do
+      expect(helper.fa_visibility_icon(double(visibility: 'public'))).to include('fa-globe')
+      expect(helper.fa_visibility_icon(double(visibility: 'unlisted'))).to include('fa-unlock')
+      expect(helper.fa_visibility_icon(double(visibility: 'private'))).to include('fa-lock')
+      expect(helper.fa_visibility_icon(double(visibility: 'direct'))).to include('fa-envelope')
+      expect(helper.fa_visibility_icon(double(visibility: 'limited'))).to include('fa-user-circle')
+      expect(helper.fa_visibility_icon(double(visibility: 'mutual'))).to include('fa-exchange')
+      expect(helper.fa_visibility_icon(double(visibility: 'personal'))).to include('fa-book')
+    end
+  end
+
   describe '#microformats_h_class' do
     it do
       status = double(reblog?: false)

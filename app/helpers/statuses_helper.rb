@@ -111,8 +111,14 @@ module StatusesHelper
       fa_icon 'unlock fw'
     when 'private'
       fa_icon 'lock fw'
+    when 'mutual'
+      fa_icon 'exchange fw'
+    when 'limited'
+      fa_icon 'user-circle fw'
     when 'direct'
       fa_icon 'envelope fw'
+    when 'personal'
+      fa_icon 'book fw'
     end
   end
 
