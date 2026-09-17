@@ -50,4 +50,12 @@ describe('streaming custom-filter query', () => {
     expect(source).toMatch(/transmit\(\);/);
     expect(source).not.toMatch(/filter_action === 'hide'[\s\S]{0,80}return;/);
   });
+
+  it('strips the internal searchable text at the transmit boundary', () => {
+    expect(source).toContain('stripStreamingSearchableText(payload)');
+    expect(source).toMatch(/const transmit = \(\) => \{[\s\S]*stripStreamingSearchableText\(payload\);[\s\S]*JSON\.stringify\(payload\)/);
+    expect(filtering).toContain("const STREAMING_SEARCHABLE_TEXT_KEY = '_fedibird_searchable_text'");
+    expect(filtering).toContain('typeof status[STREAMING_SEARCHABLE_TEXT_KEY] === \'string\'');
+    expect(filtering).not.toMatch(/querySelectorAll\('a'\)/);
+  });
 });
