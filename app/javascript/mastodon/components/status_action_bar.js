@@ -63,6 +63,7 @@ const messages = defineMessages({
   visibilityChange: { id: 'visibility.change', defaultMessage: 'Change' },
   visibilityKeep: { id: 'visibility.keep', defaultMessage: 'Keep' },
   hide: { id: 'status.hide', defaultMessage: 'Hide post' },
+  filter: { id: 'status.filter', defaultMessage: 'Filter this post' },
 });
 
 const mapStateToProps = (state, { status }) => ({
@@ -108,6 +109,7 @@ class StatusActionBar extends ImmutablePureComponent {
     onReport: PropTypes.func,
     onEmbed: PropTypes.func,
     onFilter: PropTypes.func,
+    onAddFilter: PropTypes.func,
     onMuteConversation: PropTypes.func,
     onPin: PropTypes.func,
     onBookmark: PropTypes.func,
@@ -209,6 +211,10 @@ class StatusActionBar extends ImmutablePureComponent {
 
   handleHideClick = () => {
     this.props.onFilter();
+  }
+
+  handleAddFilter = () => {
+    this.props.onAddFilter(this.props.status);
   }
 
   handleDeleteClick = () => {
@@ -414,6 +420,11 @@ class StatusActionBar extends ImmutablePureComponent {
 
     if (writtenByMe && limitedByMe) {
       menu.push({ text: intl.formatMessage(messages.showMemberList), action: this.handleMemberListClick });
+      menu.push(null);
+    }
+
+    if (me && !expired && this.props.onAddFilter) {
+      menu.push({ text: intl.formatMessage(messages.filter), action: this.handleAddFilter });
       menu.push(null);
     }
 

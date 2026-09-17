@@ -1,5 +1,6 @@
 import { Map as ImmutableMap, is, fromJS } from 'immutable';
 
+import { FILTERS_FETCH_SUCCESS } from '../actions/filters';
 import { FILTERS_IMPORT } from '../actions/importer';
 
 const normalizeFilterAction = filterAction => {
@@ -16,13 +17,23 @@ const normalizeFilter = (state, filter) => {
   }
 
   const filterId = String(filter.id);
-  const normalizedFilter = fromJS({
+  const normalized = {
     id: filterId,
     title: filter.title,
     context: filter.context,
     filter_action: normalizeFilterAction(filter.filter_action),
     expires_at: filter.expires_at ? Date.parse(filter.expires_at) : null,
-  });
+  };
+
+  if (Object.prototype.hasOwnProperty.call(filter, 'keywords')) {
+    normalized.keywords = filter.keywords;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(filter, 'statuses')) {
+    normalized.statuses = filter.statuses;
+  }
+
+  const normalizedFilter = fromJS(normalized);
 
   if (is(state.get(filterId), normalizedFilter)) {
     return state;
@@ -43,6 +54,8 @@ const normalizeFilters = (state, filters) => {
 
 export default function filters(state = ImmutableMap(), action) {
   switch(action.type) {
+  case FILTERS_FETCH_SUCCESS:
+    return normalizeFilters(ImmutableMap(), action.filters);
   case FILTERS_IMPORT:
     return normalizeFilters(state, action.filters);
   default:

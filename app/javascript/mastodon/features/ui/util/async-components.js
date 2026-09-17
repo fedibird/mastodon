@@ -178,6 +178,10 @@ export function EmbedModal () {
   return import(/* webpackChunkName: "modals/embed_modal" */'../components/embed_modal');
 }
 
+export function FilterModal () {
+  return import(/* webpackChunkName: "modals/filter_modal" */'../components/filter_modal');
+}
+
 export function ListEditor () {
   return import(/* webpackChunkName: "features/list_editor" */'../../list_editor');
 }

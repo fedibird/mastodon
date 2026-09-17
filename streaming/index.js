@@ -12,7 +12,7 @@ const url = require('url');
 const uuid = require('uuid');
 const fs = require('fs');
 const WebSocket = require('ws');
-const { filteredResultsForStatus } = require('./filtering');
+const { filteredResultsForStatus, buildCachedFilters } = require('./filtering');
 
 const env = process.env.NODE_ENV || 'development';
 const alwaysRequireAuth = process.env.LIMITED_FEDERATION_MODE === 'true' || process.env.WHITELIST_MODE === 'true' || process.env.AUTHORIZED_FETCH === 'true';
@@ -668,7 +668,8 @@ const startWorker = (workerId) => {
         }
 
         if (!unpackedPayload.filtered && !req.cachedFilters) {
-          queries.push(client.query('SELECT filter.id AS id, filter.phrase AS title, filter.context AS context, filter.expires_at AS expires_at, filter.action AS filter_action, keyword.keyword AS keyword, keyword.whole_word AS whole_word FROM custom_filter_keywords keyword JOIN custom_filters filter ON keyword.custom_filter_id = filter.id WHERE filter.account_id = $1 AND (filter.expires_at IS NULL OR filter.expires_at > NOW())', [req.accountId]));
+          queries.push(client.query('SELECT filter.id AS id, filter.phrase AS title, filter.context AS context, filter.expires_at AS expires_at, filter.action AS filter_action, keyword.keyword AS keyword, keyword.whole_word AS whole_word FROM custom_filters filter LEFT JOIN custom_filter_keywords keyword ON keyword.custom_filter_id = filter.id WHERE filter.account_id = $1 AND (filter.expires_at IS NULL OR filter.expires_at > NOW())', [req.accountId]));
+          queries.push(client.query('SELECT filter.id AS id, filter.phrase AS title, filter.context AS context, filter.expires_at AS expires_at, filter.action AS filter_action, filtered_status.status_id AS status_id FROM custom_filter_statuses filtered_status JOIN custom_filters filter ON filtered_status.custom_filter_id = filter.id WHERE filter.account_id = $1 AND (filter.expires_at IS NULL OR filter.expires_at > NOW())', [req.accountId]));
         }
 
         Promise.all(queries).then(values => {
@@ -679,45 +680,10 @@ const startWorker = (workerId) => {
           }
 
           if (!unpackedPayload.filtered && !req.cachedFilters) {
-            const filterRows = values[accountDomain ? 2 : 1].rows;
+            const keywordRows = values[accountDomain ? 2 : 1].rows;
+            const statusRows = values[accountDomain ? 3 : 2].rows;
 
-            req.cachedFilters = filterRows.reduce((cache, row) => {
-              if (cache[row.id]) {
-                cache[row.id].keywords.push([row.keyword, row.whole_word]);
-              } else {
-                cache[row.id] = {
-                  keywords: [[row.keyword, row.whole_word]],
-                  expires_at: row.expires_at,
-                  repr: {
-                    id: row.id,
-                    title: row.title,
-                    context: row.context,
-                    expires_at: row.expires_at,
-                    filter_action: ['warn', 'hide'][row.filter_action],
-                  },
-                };
-              }
-
-              return cache;
-            }, {});
-
-            Object.keys(req.cachedFilters).forEach((key) => {
-              req.cachedFilters[key].regexp = new RegExp(req.cachedFilters[key].keywords.map(([keyword, whole_word]) => {
-                let expr = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');;
-
-                if (whole_word) {
-                  if (/^[\w]/.test(expr)) {
-                    expr = `\\b${expr}`;
-                  }
-
-                  if (/[\w]$/.test(expr)) {
-                    expr = `${expr}\\b`;
-                  }
-                }
-
-                return expr;
-              }).join('|'), 'i');
-            });
+            req.cachedFilters = buildCachedFilters(keywordRows, statusRows);
           }
 
           // Check filters

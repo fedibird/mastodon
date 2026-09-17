@@ -48,6 +48,7 @@ import { initMuteModal } from '../actions/mutes';
 import { initBlockModal } from '../actions/blocks';
 import { initBoostModal } from '../actions/boosts';
 import { initReport } from '../actions/reports';
+import { initAddFilter } from '../actions/filters';
 import { openModal } from '../actions/modal';
 import { deployPictureInPicture } from '../actions/picture_in_picture';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
@@ -112,7 +113,7 @@ const mergeProps = ({ status, pictureInPicture, referenced, contextReferenced, e
   };
 };
 
-const mapDispatchToProps = (dispatch, { intl }) => ({
+const mapDispatchToProps = (dispatch, { intl, contextType }) => ({
 
   onReply (status, router) {
     dispatch((_, getState) => {
@@ -364,6 +365,10 @@ const mapDispatchToProps = (dispatch, { intl }) => ({
 
   onRemoveReference (id) {
     dispatch(removeReference(id));
+  },
+
+  onAddFilter (status) {
+    dispatch(initAddFilter(status, { contextType }));
   },
 
 });

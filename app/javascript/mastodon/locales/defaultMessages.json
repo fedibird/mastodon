@@ -536,6 +536,10 @@
       {
         "defaultMessage": "Hide post",
         "id": "status.hide"
+      },
+      {
+        "defaultMessage": "Filter this post",
+        "id": "status.filter"
       }
     ],
     "path": "app/javascript/mastodon/components/status_action_bar.json"
