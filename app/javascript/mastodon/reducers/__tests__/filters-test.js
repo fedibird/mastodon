@@ -1,5 +1,6 @@
 import { fromJS } from 'immutable';
 
+import { FILTERS_FETCH_SUCCESS } from '../../actions/filters';
 import { FILTERS_IMPORT } from '../../actions/importer';
 import filters from '../filters';
 
@@ -72,6 +73,54 @@ describe('filters reducer', () => {
     ]);
     expect(state.getIn(['4', 'statuses']).toJS()).toEqual([
       { id: 'fs1', status_id: 's9' },
+    ]);
+  });
+
+  it('replaces the current filter collection on FILTERS_FETCH_SUCCESS', () => {
+    const initial = filters(undefined, {
+      type: FILTERS_IMPORT,
+      filters: [
+        {
+          id: '1',
+          title: 'deleted filter',
+          context: ['home'],
+          filter_action: 'warn',
+          expires_at: null,
+          keywords: [{ id: 'k-old', keyword: 'gone', whole_word: false }],
+          statuses: [{ id: 'fs-old', status_id: 's-old' }],
+        },
+        {
+          id: '2',
+          title: 'kept filter',
+          context: ['home'],
+          filter_action: 'warn',
+          expires_at: null,
+          keywords: [{ id: 'k2', keyword: 'keepme', whole_word: true }],
+          statuses: [{ id: 'fs2', status_id: 's2' }],
+        },
+      ],
+    });
+
+    const state = filters(initial, {
+      type: FILTERS_FETCH_SUCCESS,
+      filters: [{
+        id: '2',
+        title: 'kept filter',
+        context: ['home'],
+        filter_action: 'warn',
+        expires_at: null,
+        keywords: [{ id: 'k2', keyword: 'keepme', whole_word: true }],
+        statuses: [{ id: 'fs2', status_id: 's2' }],
+      }],
+    });
+
+    expect(state.has('1')).toEqual(false);
+    expect(state.has('2')).toEqual(true);
+    expect(state.getIn(['2', 'keywords']).toJS()).toEqual([
+      { id: 'k2', keyword: 'keepme', whole_word: true },
+    ]);
+    expect(state.getIn(['2', 'statuses']).toJS()).toEqual([
+      { id: 'fs2', status_id: 's2' },
     ]);
   });
 

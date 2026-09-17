@@ -1,5 +1,6 @@
 import { Map as ImmutableMap, is, fromJS } from 'immutable';
 
+import { FILTERS_FETCH_SUCCESS } from '../actions/filters';
 import { FILTERS_IMPORT } from '../actions/importer';
 
 const normalizeFilterAction = filterAction => {
@@ -53,6 +54,8 @@ const normalizeFilters = (state, filters) => {
 
 export default function filters(state = ImmutableMap(), action) {
   switch(action.type) {
+  case FILTERS_FETCH_SUCCESS:
+    return normalizeFilters(ImmutableMap(), action.filters);
   case FILTERS_IMPORT:
     return normalizeFilters(state, action.filters);
   default:

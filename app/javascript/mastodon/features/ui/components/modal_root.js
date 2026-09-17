@@ -39,7 +39,6 @@ const MODAL_COMPONENTS = {
   'EMBED': EmbedModal,
   'FILTER': FilterModal,
   'LIST_EDITOR': ListEditor,
-  'LIST_EDITOR': ListEditor,
   'FOCAL_POINT': () => Promise.resolve({ default: FocalPointModal }),
   'LIST_ADDER': ListAdder,
   'CIRCLE_EDITOR': CircleEditor,
