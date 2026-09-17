@@ -7,11 +7,21 @@ describe Admin::StatusesController do
   let(:account) { Fabricate(:account) }
   let!(:status) { Fabricate(:status, account: account) }
   let(:media_attached_status) { Fabricate(:status, account: account, sensitive: !sensitive) }
-  let!(:media_attachment) { Fabricate(:media_attachment, account: account, status: media_attached_status) }
+  let!(:media_attachment) do
+    MediaAttachment.new(
+      account: account,
+      status: media_attached_status,
+      type: :image,
+      file_file_name: 'test.jpg',
+      file_content_type: 'image/jpeg',
+      file_file_size: 1
+    ).tap { |media| media.save!(validate: false) }
+  end
   let(:sensitive) { true }
 
   before do
     sign_in user, scope: :user
+    stub_webpacker_manifest
   end
 
   describe 'GET #index' do
@@ -28,6 +38,15 @@ describe Admin::StatusesController do
 
       statuses = assigns(:statuses).to_a
       expect(statuses.size).to eq 1
+      expect(response).to have_http_status(200)
+    end
+
+    it 'includes expired public statuses' do
+      expired_status = Fabricate(:status, account: account, expired_at: 1.hour.ago)
+
+      get :index, params: { account_id: account.id }
+
+      expect(assigns(:statuses).map(&:id)).to include(expired_status.id)
       expect(response).to have_http_status(200)
     end
   end
@@ -73,5 +92,12 @@ describe Admin::StatusesController do
       subject.call
       expect(response).to redirect_to(admin_account_statuses_path(account.id))
     end
+  end
+
+  def stub_webpacker_manifest
+    manifest = Webpacker.instance.manifest
+    resolver = ->(name, **opts) { opts[:with_integrity] ? ["/packs-test/#{name}", nil] : "/packs-test/#{name}" }
+    allow(manifest).to receive(:lookup!, &resolver)
+    allow(manifest).to receive(:lookup, &resolver)
   end
 end

@@ -1288,6 +1288,8 @@ ja:
     edit:
       add_keyword: キーワードを追加
       keywords: キーワード
+      statuses: 個別の投稿
+      statuses_hint_html: このフィルタは、以下のキーワードにマッチするかどうかに関わらず、個々の投稿を選択して適用されます。 <a href="%{path}">フィルターを確認または投稿を削除</a>。
       title: フィルターを編集
     errors:
       deprecated_api_multiple_keywords: これらのパラメータは複数のフィルタキーワードに適用されるため、このアプリケーションから変更できません。 最新のアプリケーションまたはWebインターフェースを使用してください。
@@ -1300,10 +1302,21 @@ ja:
       expires_on: 有効期限 %{date}
       keywords:
         other: "%{count}件のキーワード"
+      statuses:
+        other: "%{count}件の投稿"
+      statuses_long:
+        other: "%{count}件の投稿を非表示にしました"
       title: フィルター
     new:
       save: 新規フィルターを保存
       title: 新規フィルターを追加
+    statuses:
+      back_to_filter: フィルタに戻る
+      batch:
+        remove: フィルターから削除する
+      index:
+        hint: このフィルターは、他の条件に関係なく個々の投稿を選択する場合に適用されます。Webインターフェースからこのフィルターにさらに投稿を追加できます。
+        title: フィルターされた投稿
   first_aid:
     hint_html: 設定の初期化や正常化を行います。
     reset_counters: フォロー数・投稿数・注目のハッシュタグ使用数を再計算する

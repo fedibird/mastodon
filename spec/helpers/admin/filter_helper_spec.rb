@@ -17,4 +17,9 @@ describe Admin::FilterHelper do
 
     expect(result).to match(/text/)
   end
+
+  it 'includes Admin::StatusFilter keys without raising NameError' do
+    expect { Admin::FilterHelper::FILTERS }.not_to raise_error
+    expect(Admin::FilterHelper::FILTERS).to include(*Admin::StatusFilter::KEYS)
+  end
 end
