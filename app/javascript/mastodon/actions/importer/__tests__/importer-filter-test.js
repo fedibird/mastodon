@@ -1,12 +1,16 @@
 import { fromJS } from 'immutable';
 
-import { importFetchedStatuses, STATUSES_IMPORT, FILTERS_IMPORT } from '../index';
-import filtersReducer from '../../../reducers/filters';
-
 jest.mock('../../../initial_state', () => ({
   expandSpoilers: false,
   autoPlayEmoji: false,
 }));
+
+jest.mock('../../../actions/statuses', () => ({
+  fetchStatus: jest.fn(),
+}));
+
+import { importFetchedStatuses, STATUSES_IMPORT, FILTERS_IMPORT } from '../index';
+import filtersReducer from '../../../reducers/filters';
 
 const warnResult = {
   filter: {
@@ -187,5 +191,67 @@ describe('importFetchedStatuses FilterResult canonicalization', () => {
     expect(filters.getIn(['1', 'title'])).toEqual('spoiler');
     expect(filters.getIn(['2', 'title'])).toEqual('spam');
     expect(filters.getIn(['2', 'filter_action'])).toEqual('hide');
+  });
+
+  it('imports a quote on a boost wrapper that also has a reblog', () => {
+    const quote = statusFixture({
+      id: 'quote',
+      account: account('a3', 'quoted'),
+      filtered: [hideResult],
+      content: '<p>quoted</p>',
+    });
+    const reblog = statusFixture({
+      id: 'reblog',
+      account: account('a2', 'boosted'),
+      content: '<p>boosted</p>',
+    });
+    const outer = statusFixture({
+      id: 'outer',
+      reblog,
+      quote,
+      filtered: [warnResult],
+    });
+
+    const actions = dispatchImport([outer]);
+    const { statuses } = reduceImported(actions);
+
+    expect(importedStatuses(actions).map(status => status.id)).toEqual(
+      expect.arrayContaining(['outer', 'reblog', 'quote']),
+    );
+    expect(statuses.getIn(['outer', 'filtered', 0, 'filter'])).toEqual('1');
+    expect(statuses.getIn(['quote', 'filtered', 0, 'filter'])).toEqual('2');
+  });
+
+  it('imports FilterResult together with a nested poll and account', () => {
+    const actions = dispatchImport([statusFixture({
+      filtered: [{
+        filter: warnResult.filter,
+        keyword_matches: ['foo'],
+        status_matches: ['s1'],
+      }],
+      poll: {
+        id: 'p1',
+        options: [{ title: 'yes' }, { title: 'no' }],
+        emojis: [],
+      },
+    })]);
+    const status = importedStatuses(actions)[0];
+
+    expect(status.poll).toEqual('p1');
+    expect(status.account).toEqual('a1');
+    expect(status.filtered).toEqual([{
+      filter: '1',
+      keyword_matches: ['foo'],
+      status_matches: ['s1'],
+    }]);
+    expect(actions.find(item => item.type === 'POLLS_IMPORT').polls[0].id).toEqual('p1');
+    expect(importedFilters(actions)[0].id).toEqual('1');
+  });
+
+  it('dispatches FILTERS_IMPORT before STATUSES_IMPORT', () => {
+    const actions = dispatchImport([statusFixture({ filtered: [warnResult] })]);
+    const types = actions.map(action => action.type);
+
+    expect(types.indexOf(FILTERS_IMPORT)).toBeLessThan(types.indexOf(STATUSES_IMPORT));
   });
 });

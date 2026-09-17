@@ -38,23 +38,25 @@ const searchIndexFromStatus = (status) => {
   return legacySearchIndexFromSerializedStatus(status);
 };
 
+const stripSearchableTextKey = (value) => {
+  if (value && typeof value === 'object') {
+    delete value[STREAMING_SEARCHABLE_TEXT_KEY];
+  }
+};
+
 const stripStreamingSearchableText = (payload) => {
   if (!payload || typeof payload !== 'object') {
     return payload;
   }
 
-  delete payload[STREAMING_SEARCHABLE_TEXT_KEY];
-
-  if (payload.reblog && typeof payload.reblog === 'object') {
-    delete payload.reblog[STREAMING_SEARCHABLE_TEXT_KEY];
-  }
+  stripSearchableTextKey(payload);
+  stripSearchableTextKey(payload.reblog);
+  stripSearchableTextKey(payload.quote);
 
   if (payload.status && typeof payload.status === 'object') {
-    delete payload.status[STREAMING_SEARCHABLE_TEXT_KEY];
-
-    if (payload.status.reblog && typeof payload.status.reblog === 'object') {
-      delete payload.status.reblog[STREAMING_SEARCHABLE_TEXT_KEY];
-    }
+    stripSearchableTextKey(payload.status);
+    stripSearchableTextKey(payload.status.reblog);
+    stripSearchableTextKey(payload.status.quote);
   }
 
   return payload;

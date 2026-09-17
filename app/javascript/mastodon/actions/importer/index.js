@@ -87,6 +87,11 @@ export function importFetchedStatuses(statuses) {
     function processStatus(status) {
       status = { ...status };
 
+      // Rolling-deploy adapter for pre-#75 streaming Node, which attached
+      // FilterResult as `filter_results`. Current Rails REST and current Node
+      // streaming both emit canonical `filtered` only. Keep this copy so a
+      // new WebUI against an old streaming process still hydrates hide/warn;
+      // always drop the legacy key so it never lands in Redux.
       if (!status.filtered && status.filter_results) {
         status.filtered = status.filter_results;
       }
@@ -109,9 +114,13 @@ export function importFetchedStatuses(statuses) {
         });
       }
 
+      // Fedibird statuses can carry both `reblog` and `quote`. Process each
+      // independently so a quote on a boost wrapper is still imported.
       if (status.reblog && status.reblog.id) {
         processStatus(status.reblog);
-      } else if (status.quote && status.quote.id) {
+      }
+
+      if (status.quote && status.quote.id) {
         processStatus(status.quote);
       }
 
@@ -122,8 +131,10 @@ export function importFetchedStatuses(statuses) {
 
     dispatch(importPolls(polls));
     dispatch(importFetchedAccounts(accounts));
-    dispatch(importStatuses(normalStatuses));
+    // Import Filter entities before statuses so hide/warn selectors see
+    // filter_action on the same tick the status lands in Redux.
     dispatch(importFilters(filters));
+    dispatch(importStatuses(normalStatuses));
   };
 }
 
