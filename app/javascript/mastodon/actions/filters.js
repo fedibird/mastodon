@@ -31,7 +31,8 @@ export const fetchFilters = () => (dispatch, getState) => {
   return api(getState)
     .get('/api/v2/filters')
     .then(({ data }) => {
-      dispatch(importFilters(data));
+      // FILTERS_FETCH_SUCCESS replaces the collection. A preceding
+      // FILTERS_IMPORT merge would be overwritten on the next dispatch.
       dispatch({
         type: FILTERS_FETCH_SUCCESS,
         filters: data,
@@ -50,6 +51,8 @@ export const createFilter = (params, onSuccess, onFail) => (dispatch, getState) 
   dispatch(createFilterRequest());
 
   return api(getState).post('/api/v2/filters', params).then(response => {
+    // FILTERS_CREATE_* drives the loading bar; the filters reducer ignores
+    // it. Merge the created entity so the modal can select it immediately.
     dispatch(importFilters([response.data]));
     dispatch(createFilterSuccess(response.data));
     if (onSuccess) onSuccess(response.data);

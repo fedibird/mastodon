@@ -46,5 +46,19 @@ RSpec.describe FanOutOnWriteService, type: :service do
       expect(payload[FanOutOnWriteService::STREAMING_SEARCHABLE_TEXT_KEY]).to include('innerword')
       expect(payload[FanOutOnWriteService::STREAMING_SEARCHABLE_TEXT_KEY]).not_to include('example.com')
     end
+
+    it 'does not attach searchable_text to a nested quote object' do
+      quoted = Fabricate(:status, account: author, text: 'quoted body')
+      status = Fabricate(:status, account: author, text: 'hello quote', quote: quoted)
+      json = dumped_payload(status)
+      payload = json['payload'] || json[:payload]
+      quote = payload['quote'] || payload[:quote]
+
+      expect(payload[FanOutOnWriteService::STREAMING_SEARCHABLE_TEXT_KEY]).to eq status.searchable_text
+      expect(quote).to be_present
+      expect(quote).not_to have_key(FanOutOnWriteService::STREAMING_SEARCHABLE_TEXT_KEY)
+      expect(quote).not_to have_key(:_fedibird_searchable_text)
+      expect(quote).not_to have_key('_fedibird_searchable_text')
+    end
   end
 end

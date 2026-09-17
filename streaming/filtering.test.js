@@ -243,6 +243,7 @@ describe('streaming Rails searchable text parity', () => {
         id: 's1',
         [STREAMING_SEARCHABLE_TEXT_KEY]: 'secret',
         reblog: { id: 'orig', [STREAMING_SEARCHABLE_TEXT_KEY]: 'inner' },
+        quote: { id: 'quoted', [STREAMING_SEARCHABLE_TEXT_KEY]: 'quoted' },
       },
     };
 
@@ -250,6 +251,20 @@ describe('streaming Rails searchable text parity', () => {
 
     assert.equal(payload.status[STREAMING_SEARCHABLE_TEXT_KEY], undefined);
     assert.equal(payload.status.reblog[STREAMING_SEARCHABLE_TEXT_KEY], undefined);
+    assert.equal(payload.status.quote[STREAMING_SEARCHABLE_TEXT_KEY], undefined);
+  });
+
+  it('strips the internal field from a nested quote', () => {
+    const payload = {
+      id: 's1',
+      quote: { id: 'quoted', [STREAMING_SEARCHABLE_TEXT_KEY]: 'quoted' },
+      [STREAMING_SEARCHABLE_TEXT_KEY]: 'outer',
+    };
+
+    stripStreamingSearchableText(payload);
+
+    assert.equal(payload[STREAMING_SEARCHABLE_TEXT_KEY], undefined);
+    assert.equal(payload.quote[STREAMING_SEARCHABLE_TEXT_KEY], undefined);
   });
 });
 

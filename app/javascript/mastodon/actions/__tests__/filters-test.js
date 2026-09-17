@@ -59,7 +59,7 @@ describe('filter actions', () => {
     }]);
   });
 
-  it('fetches Filters v2 and imports them', async () => {
+  it('fetches Filters v2 and replaces the collection without a redundant import', async () => {
     const filters = [{ id: '1', title: 'spoilers', keywords: [{ keyword: 'foo' }] }];
     api.mockReturnValue({
       get: jest.fn().mockResolvedValue({ data: filters }),
@@ -68,12 +68,16 @@ describe('filter actions', () => {
     const actions = await dispatchThunk(fetchFilters());
 
     expect(api().get).toHaveBeenCalledWith('/api/v2/filters');
-    expect(importFilters).toHaveBeenCalledWith(filters);
+    expect(importFilters).not.toHaveBeenCalled();
     expect(actions.map(action => action.type)).toEqual([
       'FILTERS_FETCH_REQUEST',
-      'FILTERS_IMPORT',
       'FILTERS_FETCH_SUCCESS',
     ]);
+    expect(actions[1]).toEqual({
+      type: 'FILTERS_FETCH_SUCCESS',
+      filters,
+      skipLoading: true,
+    });
   });
 
   it('creates a filter with filter_action rather than action', async () => {
@@ -95,6 +99,7 @@ describe('filter actions', () => {
       filter_action: 'warn',
     });
     expect(onSuccess).toHaveBeenCalledWith(created);
+    expect(importFilters).toHaveBeenCalledWith([created]);
   });
 
   it('attaches a status then force-refreshes it', async () => {

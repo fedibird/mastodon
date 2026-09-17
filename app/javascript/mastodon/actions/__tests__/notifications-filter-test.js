@@ -181,6 +181,16 @@ describe('notificationFilterFlags', () => {
       filtered: false,
     });
   });
+
+  it.each(['reblog', 'poll', 'emoji_reaction', 'follow', 'follow_request'])(
+    'does not filter %s notifications even with a hide FilterResult',
+    (type) => {
+      expect(notificationFilterFlags(notification(type, [hideResult]))).toEqual({
+        drop: false,
+        filtered: false,
+      });
+    },
+  );
 });
 
 describe('updateNotifications FilterResult integration', () => {
