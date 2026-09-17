@@ -1,5 +1,9 @@
 import { fromJS } from 'immutable';
 
+jest.mock('../../actions/statuses', () => ({
+  fetchStatus: jest.fn(),
+}));
+
 import { FILTERS_FETCH_SUCCESS } from '../../actions/filters';
 import { FILTERS_IMPORT } from '../../actions/importer';
 import filters from '../filters';
