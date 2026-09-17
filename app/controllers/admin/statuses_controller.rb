@@ -11,14 +11,7 @@ module Admin
     def index
       authorize :status, :index?
 
-      @statuses = Status.include_expired.where(account: @account).where(visibility: [:public, :unlisted])
-
-      if params[:media]
-        @statuses.merge!(Status.include_expired.joins(:media_attachments).merge(@account.media_attachments.reorder(nil)).group(:id))
-        @statuses = @statuses.order(id: :desc)
-      end
-
-      @statuses = @statuses.preload(:media_attachments, :mentions).page(params[:page]).per(PER_PAGE)
+      @statuses = Admin::StatusFilter.new(@account, filter_params).results.preload(:media_attachments, :mentions).page(params[:page]).per(PER_PAGE)
       @form     = Form::StatusBatch.new
     end
 
@@ -48,6 +41,10 @@ module Admin
 
     def form_status_batch_params
       params.require(:form_status_batch).permit(:action, status_ids: [])
+    end
+
+    def filter_params
+      params.slice(*Admin::StatusFilter::KEYS).permit(*Admin::StatusFilter::KEYS)
     end
 
     def set_account
