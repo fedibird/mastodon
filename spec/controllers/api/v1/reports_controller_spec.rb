@@ -19,16 +19,122 @@ RSpec.describe Api::V1::ReportsController, type: :controller do
 
     before do
       allow(AdminMailer).to receive(:new_report).and_return(double('email', deliver_later: nil))
-      post :create, params: { status_ids: [status.id], account_id: status.account.id, comment: 'reasons' }
     end
 
-    it 'creates a report' do
-      expect(status.reload.account.targeted_reports).not_to be_empty
-      expect(response).to have_http_status(200)
+    context 'with default params' do
+      before do
+        post :create, params: { status_ids: [status.id], account_id: status.account.id, comment: 'reasons' }
+      end
+
+      it 'creates a report' do
+        expect(status.reload.account.targeted_reports).not_to be_empty
+        expect(response).to have_http_status(200)
+      end
+
+      it 'defaults to the other category without rule ids' do
+        report = status.account.targeted_reports.last
+
+        expect(report).to be_other
+        expect(report.rule_ids).to be_blank
+      end
+
+      it 'sends e-mails to admins' do
+        expect(AdminMailer).to have_received(:new_report).with(admin.account, Report)
+      end
     end
 
-    it 'sends e-mails to admins' do
-      expect(AdminMailer).to have_received(:new_report).with(admin.account, Report)
+    context 'with spam category' do
+      it 'creates a spam report' do
+        post :create, params: { status_ids: [status.id], account_id: status.account.id, category: 'spam' }
+
+        expect(response).to have_http_status(200)
+        expect(status.account.targeted_reports.last).to be_spam
+      end
+    end
+
+    context 'with violation and a valid rule' do
+      let!(:rule) { Fabricate(:rule, deleted_at: nil, priority: 0) }
+
+      it 'creates a violation report with those rule ids' do
+        post :create, params: {
+          status_ids: [status.id],
+          account_id: status.account.id,
+          category: 'violation',
+          rule_ids: [rule.id],
+        }
+
+        report = status.account.targeted_reports.last
+
+        expect(response).to have_http_status(200)
+        expect(report).to be_violation
+        expect(report.rule_ids).to eq [rule.id]
+      end
+    end
+
+    context 'with rule ids and a non-violation category' do
+      let!(:rule) { Fabricate(:rule, deleted_at: nil, priority: 0) }
+
+      it 'forces the category to violation' do
+        post :create, params: {
+          status_ids: [status.id],
+          account_id: status.account.id,
+          category: 'spam',
+          rule_ids: [rule.id],
+        }
+
+        report = status.account.targeted_reports.last
+
+        expect(response).to have_http_status(200)
+        expect(report).to be_violation
+        expect(report).to_not be_spam
+        expect(report.rule_ids).to eq [rule.id]
+      end
+    end
+
+    context 'with violation and a nonexistent rule' do
+      it 'does not create a report' do
+        expect do
+          post :create, params: {
+            status_ids: [status.id],
+            account_id: status.account.id,
+            category: 'violation',
+            rule_ids: [-1],
+          }
+        end.to_not change(Report, :count)
+
+        expect(response).to have_http_status(422)
+      end
+    end
+
+    context 'with violation and no rules' do
+      it 'does not create a report' do
+        expect do
+          post :create, params: {
+            status_ids: [status.id],
+            account_id: status.account.id,
+            category: 'violation',
+          }
+        end.to_not change(Report, :count)
+
+        expect(response).to have_http_status(422)
+      end
+    end
+
+    context 'with a status that does not belong to the reported account' do
+      let!(:other_status) { Fabricate(:status) }
+
+      it 'does not create a report' do
+        expect do
+          post :create, params: {
+            status_ids: [other_status.id],
+            account_id: status.account.id,
+            comment: 'reasons',
+            category: 'spam',
+          }
+        end.to_not change(Report, :count)
+
+        expect(response).to have_http_status(404)
+      end
     end
   end
 end

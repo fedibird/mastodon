@@ -8,6 +8,8 @@ class ReportService < BaseService
     @target_account = target_account
     @status_ids     = options.delete(:status_ids) || []
     @comment        = options.delete(:comment) || ''
+    @category       = options[:rule_ids].present? ? 'violation' : (options.delete(:category).presence || 'other')
+    @rule_ids       = options.delete(:rule_ids).presence
     @options        = options
 
     raise ActiveRecord::RecordNotFound if @target_account.suspended?
@@ -38,7 +40,9 @@ class ReportService < BaseService
       status_ids: @status_ids,
       comment: @comment,
       uri: @options[:uri],
-      forwarded: ActiveModel::Type::Boolean.new.cast(@options[:forward])
+      forwarded: ActiveModel::Type::Boolean.new.cast(@options[:forward]),
+      category: @category,
+      rule_ids: @rule_ids
     )
   end
 

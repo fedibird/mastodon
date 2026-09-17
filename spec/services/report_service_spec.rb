@@ -45,4 +45,22 @@ RSpec.describe ReportService, type: :service do
       is_expected.to_not change(ActionMailer::Base.deliveries, :count).from(0)
     end
   end
+
+  context 'with report categories' do
+    let(:target_account) { Fabricate(:account) }
+
+    it 'stores spam as spam' do
+      report = subject.call(source_account, target_account, category: 'spam')
+
+      expect(report).to be_spam
+    end
+
+    it 'forces rule ids to violation even when spam is requested' do
+      rule = Fabricate(:rule, deleted_at: nil, priority: 0)
+      report = subject.call(source_account, target_account, category: 'spam', rule_ids: [rule.id])
+
+      expect(report).to be_violation
+      expect(report.rule_ids).to eq [rule.id]
+    end
+  end
 end

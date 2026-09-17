@@ -14,6 +14,8 @@ class Api::V1::ReportsController < Api::BaseController
       reported_account,
       status_ids: reported_status_ids,
       comment: report_params[:comment],
+      category: report_params[:category],
+      rule_ids: report_params[:rule_ids],
       forward: report_params[:forward]
     )
 
@@ -35,6 +37,6 @@ class Api::V1::ReportsController < Api::BaseController
   end
 
   def report_params
-    params.permit(:account_id, :comment, :forward, status_ids: [])
+    params.permit(:account_id, :comment, :category, :forward, status_ids: [], rule_ids: [])
   end
 end
