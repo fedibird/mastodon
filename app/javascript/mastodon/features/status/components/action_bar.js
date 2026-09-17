@@ -9,6 +9,7 @@ import { me, isStaff, show_quote_button, show_share_button, enableReaction, enab
 import classNames from 'classnames';
 import ReactionPickerDropdownContainer from 'mastodon/containers/reaction_picker_dropdown_container';
 import { openModal } from '../../../actions/modal';
+import { initAddFilter } from '../../../actions/filters';
 
 const messages = defineMessages({
   expire: { id: 'status.expire', defaultMessage: 'Expire' },
@@ -57,6 +58,7 @@ const messages = defineMessages({
   visibilityKeepMessage: { id: 'visibility.keep_message', defaultMessage: 'Do you want to keep the visibility of the post to the reference?' },
   visibilityChange: { id: 'visibility.change', defaultMessage: 'Change' },
   visibilityKeep: { id: 'visibility.keep', defaultMessage: 'Keep' },
+  filter: { id: 'status.filter', defaultMessage: 'Filter this post' },
 });
 
 const mapStateToProps = (state, { status }) => ({
@@ -147,6 +149,10 @@ class ActionBar extends React.PureComponent {
 
   handleQuoteClick = () => {
     this.props.onQuote(this.props.status, this.context.router.history);
+  }
+
+  handleAddFilter = () => {
+    this.props.dispatch(initAddFilter(this.props.status, { contextType: 'thread' }));
   }
 
   handleFavouriteClick = () => {
@@ -354,6 +360,11 @@ class ActionBar extends React.PureComponent {
     }
 
     menu.push(null);
+
+    if (me && !expired) {
+      menu.push({ text: intl.formatMessage(messages.filter), action: this.handleAddFilter });
+      menu.push(null);
+    }
 
     if (writtenByMe) {
       if (pinnableStatus && !expired) {
