@@ -502,6 +502,7 @@ Rails.application.routes.draw do
       resources :conversations, only: [:index, :destroy] do
         member do
           post :read
+          post :unread
         end
       end
 
