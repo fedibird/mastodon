@@ -158,6 +158,22 @@ describe Report do
       expect(report).to model_have_error_on_field(:rule_ids)
     end
 
+    it 'is valid as legal without rule ids' do
+      report = Fabricate.build(:report, category: :legal, rule_ids: nil)
+
+      expect(report).to be_valid
+      expect(report).to be_legal
+    end
+
+    it 'is invalid as legal with rule ids' do
+      rule = Fabricate(:rule, deleted_at: nil, priority: 0)
+      report = Fabricate.build(:report, category: :legal, rule_ids: [rule.id])
+      report.valid?
+
+      expect(report).to_not be_valid
+      expect(report).to model_have_error_on_field(:rule_ids)
+    end
+
     it 'is valid as a violation with a discarded rule' do
       rule = Fabricate(:rule, deleted_at: nil, priority: 0)
       rule.discard
