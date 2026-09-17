@@ -73,16 +73,6 @@ class Notification < ApplicationRecord
 
   scope :without_suspended, -> { joins(:from_account).merge(Account.without_suspended) }
 
-  scope :browserable, ->(exclude_types = [], account_id = nil) {
-    types = TYPES - exclude_types.map(&:to_sym)
-
-    if account_id.nil?
-      where(type: types)
-    else
-      where(type: types, from_account_id: account_id)
-    end
-  }
-
   def type
     @type ||= (super || LEGACY_TYPE_CLASS_MAP[activity_type]).to_sym
   end
@@ -126,6 +116,21 @@ class Notification < ApplicationRecord
   end
 
   class << self
+    def browserable(types: [], exclude_types: [], from_account_id: nil)
+      requested_types = if types.empty?
+                          TYPES
+                        else
+                          types.map(&:to_sym) & TYPES
+                        end
+
+      requested_types -= exclude_types.map(&:to_sym)
+
+      all.tap do |scope|
+        scope.merge!(where(from_account_id: from_account_id)) if from_account_id.present?
+        scope.merge!(where(type: requested_types))
+      end
+    end
+
     def preload_cache_collection_target_statuses(notifications, &_block)
       notifications.group_by(&:type).each do |type, grouped_notifications|
         associations = TARGET_STATUS_INCLUDES_BY_TYPE[type]
