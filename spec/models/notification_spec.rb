@@ -34,6 +34,48 @@ RSpec.describe Notification, type: :model do
     end
   end
 
+  describe '.browserable' do
+    let(:receiver) { Fabricate(:account) }
+    let!(:mention) do
+      Fabricate(:notification, account: receiver, activity: Fabricate(:mention), type: :mention)
+    end
+    let!(:favourite) do
+      Fabricate(:notification, account: receiver, activity: Fabricate(:favourite), type: :favourite)
+    end
+    let!(:follow) do
+      Fabricate(:notification, account: receiver, activity: Fabricate(:follow, target_account: receiver), type: :follow)
+    end
+
+    it 'returns all supported types when types is empty' do
+      expect(receiver.notifications.browserable).to include(mention, favourite, follow)
+    end
+
+    it 'restricts results to the requested types' do
+      result = receiver.notifications.browserable(types: %w(mention))
+
+      expect(result).to include(mention)
+      expect(result).to_not include(favourite, follow)
+    end
+
+    it 'subtracts exclude_types from the allow-list' do
+      result = receiver.notifications.browserable(types: %w(mention favourite), exclude_types: %w(mention))
+
+      expect(result).to include(favourite)
+      expect(result).to_not include(mention)
+    end
+
+    it 'returns none for unknown types' do
+      expect(receiver.notifications.browserable(types: %w(not_a_real_notification_type))).to be_empty
+    end
+
+    it 'filters by from_account_id' do
+      result = receiver.notifications.browserable(from_account_id: favourite.from_account_id)
+
+      expect(result).to include(favourite)
+      expect(result).to_not include(mention, follow)
+    end
+  end
+
   describe '#type' do
     it 'returns :reblog for a Status' do
       notification = Notification.new(activity: Status.new)
