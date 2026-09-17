@@ -570,6 +570,7 @@ Rails.application.routes.draw do
         resource :search, only: :show, controller: :search
         resource :lookup, only: :show, controller: :lookup
         resources :relationships, only: :index
+        resources :familiar_followers, only: :index
         resources :subscribing, only: :index, controller: 'subscribing_accounts'
       end
 
