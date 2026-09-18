@@ -285,7 +285,9 @@ RSpec.describe Api::V1::NotificationsController, type: :controller do
 
     context 'with more than the default limit of notifications' do
       before do
-        41.times { Fabricate(:notification, account: user.account) }
+        41.times do
+          Fabricate(:notification, account: user.account, activity: Fabricate(:favourite), type: :favourite)
+        end
       end
 
       it 'returns at most 40 notifications when limit is omitted' do
