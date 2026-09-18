@@ -14,6 +14,7 @@ class REST::AccountSerializer < ActiveModel::Serializer
 
   attribute :suspended,          if: :suspended?
   attribute :silenced,           key: :limited, if: :silenced?
+  attribute :noindex,            if: :local?
   attribute :memorial,           if: :memorial?
   attribute :avatar_full,        if: :with_fullsize_avatar?
   attribute :avatar_full_static, if: :with_fullsize_avatar?
@@ -180,7 +181,11 @@ class REST::AccountSerializer < ActiveModel::Serializer
     object.silenced?
   end
 
-  delegate :suspended?, :silenced?, :memorial?, to: :object
+  def noindex
+    object.user_noindex?
+  end
+
+  delegate :suspended?, :silenced?, :local?, :memorial?, to: :object
 
   def remote?
     !object.local?
