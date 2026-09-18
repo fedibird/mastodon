@@ -5,6 +5,10 @@ RSpec.describe FollowService, type: :service do
 
   subject { FollowService.new }
 
+  before do
+    allow(LocalNotificationWorker).to receive(:perform_async)
+  end
+
   context 'local account' do
     describe 'locked account' do
       let(:bob) { Fabricate(:user, email: 'bob@example.com', account: Fabricate(:account, locked: true, username: 'bob')).account }

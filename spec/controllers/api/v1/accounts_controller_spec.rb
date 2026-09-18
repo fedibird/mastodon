@@ -71,6 +71,10 @@ RSpec.describe Api::V1::AccountsController, type: :controller do
     let(:scopes) { 'write:follows' }
     let(:other_account) { Fabricate(:user, email: 'bob@example.com', account: Fabricate(:account, username: 'bob', locked: locked)).account }
 
+    before do
+      allow(LocalNotificationWorker).to receive(:perform_async)
+    end
+
     context do
       before do
         post :follow, params: { id: other_account.id }
@@ -160,7 +164,7 @@ RSpec.describe Api::V1::AccountsController, type: :controller do
       it 'clears languages with an explicit empty array' do
         user.account.follow!(other_account, languages: %w(en))
 
-        post :follow, params: { id: other_account.id, languages: [] }
+        post :follow, params: { id: other_account.id, languages: [] }, as: :json
 
         json = body_as_json
 
