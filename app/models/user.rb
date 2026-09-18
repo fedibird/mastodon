@@ -50,6 +50,7 @@ class User < ApplicationRecord
   include Settings::Extend
   include UserRoles
   include Redisable
+  include LanguagesHelper
 
   # The home and list feeds will be stored in Redis for this amount
   # of time, and status fan-out to followers will include only people
@@ -289,6 +290,10 @@ class User < ApplicationRecord
 
   def setting_default_privacy
     settings.default_privacy || (account.locked? ? 'private' : 'public')
+  end
+
+  def preferred_posting_language
+    valid_locale_cascade(setting_default_language, locale, I18n.locale)
   end
 
   def allows_digest_emails?
