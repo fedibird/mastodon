@@ -216,6 +216,34 @@ RSpec.describe User, type: :model do
     end
   end
 
+  describe '#preferred_posting_language' do
+    let(:user) { Fabricate(:user, locale: 'ja') }
+
+    it 'returns a valid configured default language' do
+      user.settings[:default_language] = 'de'
+      expect(user.preferred_posting_language).to eq 'de'
+    end
+
+    it 'falls back to the user locale for an invalid default language' do
+      user.settings[:default_language] = 'invalid'
+      expect(user.preferred_posting_language).to eq 'ja'
+    end
+
+    it 'falls back to the current I18n locale' do
+      user.locale = nil
+      user.settings[:default_language] = nil
+
+      I18n.with_locale(:en) do
+        expect(user.preferred_posting_language).to eq 'en'
+      end
+    end
+
+    it 'normalizes a regional locale to the primary language' do
+      user.settings[:default_language] = 'ja-JP'
+      expect(user.preferred_posting_language).to eq 'ja'
+    end
+  end
+
   describe 'whitelist' do
     around(:each) do |example|
       old_whitelist = Rails.configuration.x.email_domains_whitelist

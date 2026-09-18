@@ -16,6 +16,19 @@ RSpec.describe REST::PreferencesSerializer do
   let(:user) { Fabricate(:user) }
   let(:account) { user.account }
 
+  it 'returns a valid configured posting language' do
+    user.settings['default_language'] = 'de'
+
+    expect(json[:'posting:default:language']).to eq 'de'
+  end
+
+  it 'falls back posting language to the user locale when the default is invalid' do
+    user.locale = 'ja'
+    user.settings['default_language'] = 'invalid'
+
+    expect(json[:'posting:default:language']).to eq 'ja'
+  end
+
   it 'returns false by default' do
     expect(json).to include('reading:autoplay:gifs': false)
   end
