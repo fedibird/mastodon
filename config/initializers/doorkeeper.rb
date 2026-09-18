@@ -101,9 +101,11 @@ Doorkeeper.configure do
                   :'admin:read',
                   :'admin:read:accounts',
                   :'admin:read:reports',
+                  :'admin:read:domain_allows',
                   :'admin:write',
                   :'admin:write:accounts',
                   :'admin:write:reports',
+                  :'admin:write:domain_allows',
                   :crypto
 
   # Change the way client credentials are retrieved from the request object.

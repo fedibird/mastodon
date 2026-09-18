@@ -669,6 +669,8 @@ Rails.application.routes.draw do
             post :resolve
           end
         end
+
+        resources :domain_allows, only: [:index, :show, :create, :destroy]
       end
     end
 
