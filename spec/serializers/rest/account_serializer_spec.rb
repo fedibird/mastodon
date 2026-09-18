@@ -22,9 +22,10 @@ RSpec.describe REST::AccountSerializer do
       expect(json[:uri]).not_to eq(json[:url])
     end
 
-    it 'omits memorial and limited for a normal account' do
+    it 'omits memorial, limited, and moved for a normal account' do
       expect(json).not_to have_key(:memorial)
       expect(json).not_to have_key(:limited)
+      expect(json).not_to have_key(:moved)
     end
 
     it 'includes noindex false by default' do
@@ -65,6 +66,33 @@ RSpec.describe REST::AccountSerializer do
     it 'includes limited=true' do
       expect(json[:limited]).to be true
       expect(json).not_to have_key(:silenced)
+    end
+  end
+
+  describe 'moved account' do
+    let(:account) { Fabricate(:account, username: 'alice') }
+    let(:target) { Fabricate(:account, username: 'bob') }
+
+    before { account.update!(moved_to_account: target) }
+
+    it 'includes the direct moved-to account' do
+      expect(json.dig(:moved, :id)).to eq(target.id.to_s)
+    end
+  end
+
+  describe 'chained moved account' do
+    let(:account) { Fabricate(:account, username: 'alice') }
+    let(:middle) { Fabricate(:account, username: 'bob') }
+    let(:final) { Fabricate(:account, username: 'carol') }
+
+    before do
+      middle.update!(moved_to_account: final)
+      account.update!(moved_to_account: middle)
+    end
+
+    it 'includes the direct moved-to account without nested moved' do
+      expect(json.dig(:moved, :id)).to eq(middle.id.to_s)
+      expect(json[:moved]).not_to have_key(:moved)
     end
   end
 end

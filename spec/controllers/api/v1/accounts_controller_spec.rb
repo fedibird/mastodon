@@ -116,6 +116,22 @@ RSpec.describe Api::V1::AccountsController, type: :controller do
       end
     end
 
+    context 'when the account has moved to an account that has itself moved' do
+      let(:middle) { Fabricate(:account, username: 'bob') }
+      let(:final) { Fabricate(:account, username: 'carol') }
+
+      before do
+        middle.update!(moved_to_account: final)
+        user.account.update!(moved_to_account: middle)
+        get :show, params: { id: user.account.id }
+      end
+
+      it 'returns the direct moved-to account without nested moved' do
+        expect(body_as_json.dig(:moved, :id)).to eq(middle.id.to_s)
+        expect(body_as_json[:moved]).not_to have_key(:moved)
+      end
+    end
+
     it_behaves_like 'forbidden for wrong scope', 'write:statuses'
   end
 
