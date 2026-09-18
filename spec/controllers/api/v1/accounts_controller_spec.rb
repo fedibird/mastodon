@@ -70,6 +70,21 @@ RSpec.describe Api::V1::AccountsController, type: :controller do
       )
     end
 
+    it 'does not include memorial for a normal account' do
+      expect(body_as_json).not_to have_key(:memorial)
+    end
+
+    context 'when the account is memorialized' do
+      before do
+        user.account.memorialize!
+        get :show, params: { id: user.account.id }
+      end
+
+      it 'returns memorial true' do
+        expect(body_as_json[:memorial]).to be true
+      end
+    end
+
     it_behaves_like 'forbidden for wrong scope', 'write:statuses'
   end
 

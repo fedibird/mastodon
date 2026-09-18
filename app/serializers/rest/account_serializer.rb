@@ -13,6 +13,7 @@ class REST::AccountSerializer < ActiveModel::Serializer
   has_many :emojis, serializer: REST::CustomEmojiSerializer
 
   attribute :suspended,          if: :suspended?
+  attribute :memorial,           if: :memorial?
   attribute :avatar_full,        if: :with_fullsize_avatar?
   attribute :avatar_full_static, if: :with_fullsize_avatar?
   attribute :header_full,        if: :with_fullsize_header?
@@ -170,7 +171,11 @@ class REST::AccountSerializer < ActiveModel::Serializer
     object.suspended?
   end
 
-  delegate :suspended?, to: :object
+  def memorial
+    object.memorial?
+  end
+
+  delegate :suspended?, :memorial?, to: :object
 
   def remote?
     !object.local?
