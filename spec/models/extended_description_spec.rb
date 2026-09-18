@@ -19,6 +19,7 @@ RSpec.describe ExtendedDescription do
 
     it 'returns the stored HTML and updated_at' do
       setting = Setting.create!(var: 'site_extended_description', value: '<h2>Hello</h2>')
+      setting.reload
       description = described_class.current
 
       expect(description.text).to eq '<h2>Hello</h2>'
