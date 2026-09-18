@@ -671,6 +671,7 @@ Rails.application.routes.draw do
         end
 
         resources :domain_allows, only: [:index, :show, :create, :destroy]
+        resources :domain_blocks, only: [:index, :show, :create, :update, :destroy]
       end
     end
 
