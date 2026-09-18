@@ -205,6 +205,7 @@ ja:
         severities:
           no_access: すべてのリソースへのアクセスをブロックします
           sign_up_requires_approval: 承認するまで新規登録が完了しなくなります
+          sign_up_block: 新規のアカウント作成はできません
         severity: このIPに対する措置を選択してください
       keyword_subscribe:
         exclude_keyword: カンマで区切って複数の除外するキーワードを並べます（または正規表現で指定します）
@@ -480,6 +481,7 @@ ja:
         severities:
           no_access: ブロック
           sign_up_requires_approval: 登録を制限
+          sign_up_block: アカウント作成をブロック
         severity: ルール
       keyword_subscribe:
         disabled: 一時的に購読を無効にする

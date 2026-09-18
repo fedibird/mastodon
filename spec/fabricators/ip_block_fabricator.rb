@@ -1,6 +1,5 @@
 Fabricator(:ip_block) do
-  ip         ""
-  severity   ""
-  expires_at "2020-10-08 22:20:37"
-  comment    "MyText"
+  ip       { '192.0.2.1' }
+  severity { :no_access }
+  comment  { 'MyText' }
 end

@@ -2,6 +2,8 @@
 
 class AppSignUpService < BaseService
   def call(app, remote_ip, params)
+    raise Mastodon::NotPermittedError if ip_blocked?(remote_ip)
+
     return unless allowed_registrations?
 
     user_params           = params.slice(:email, :password, :agreement, :locale)
@@ -20,5 +22,9 @@ class AppSignUpService < BaseService
 
   def allowed_registrations?
     Setting.registrations_mode != 'none' && !Rails.configuration.x.single_user_mode
+  end
+
+  def ip_blocked?(remote_ip)
+    IpBlock.where(severity: :sign_up_block).where('ip >>= ?', remote_ip.to_s).exists?
   end
 end

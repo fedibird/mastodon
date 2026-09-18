@@ -76,6 +76,60 @@ RSpec.describe Auth::RegistrationsController, type: :controller do
       end
     end
 
+    context 'when the request IP is sign-up blocked' do
+      around do |example|
+        registrations_mode = Setting.registrations_mode
+        example.run
+        Setting.registrations_mode = registrations_mode
+      end
+
+      it 'redirects to the root path' do
+        Setting.registrations_mode = 'open'
+        Fabricate(:ip_block, ip: '192.0.2.123', severity: :sign_up_block)
+        request.env['REMOTE_ADDR'] = '192.0.2.123'
+
+        get :new
+
+        expect(response).to redirect_to '/'
+      end
+    end
+
+    context 'when the request IP is covered by a sign-up block CIDR' do
+      around do |example|
+        registrations_mode = Setting.registrations_mode
+        example.run
+        Setting.registrations_mode = registrations_mode
+      end
+
+      it 'redirects to the root path' do
+        Setting.registrations_mode = 'open'
+        Fabricate(:ip_block, ip: '192.0.2.0/24', severity: :sign_up_block)
+        request.env['REMOTE_ADDR'] = '192.0.2.123'
+
+        get :new
+
+        expect(response).to redirect_to '/'
+      end
+    end
+
+    context 'when the request IP requires approval' do
+      around do |example|
+        registrations_mode = Setting.registrations_mode
+        example.run
+        Setting.registrations_mode = registrations_mode
+      end
+
+      it 'returns http success' do
+        Setting.registrations_mode = 'open'
+        Fabricate(:ip_block, ip: '192.0.2.50', severity: :sign_up_requires_approval)
+        request.env['REMOTE_ADDR'] = '192.0.2.50'
+
+        get :new
+
+        expect(response).to have_http_status(200)
+      end
+    end
+
     include_examples 'checks for enabled registrations', :new
   end
 
@@ -230,6 +284,117 @@ RSpec.describe Auth::RegistrationsController, type: :controller do
     it 'does nothing if user already exists' do
       Fabricate(:user, account: Fabricate(:account, username: 'test'))
       subject
+    end
+
+    context 'when the request IP is sign-up blocked' do
+      around do |example|
+        registrations_mode = Setting.registrations_mode
+        example.run
+        Setting.registrations_mode = registrations_mode
+      end
+
+      subject do
+        Setting.registrations_mode = 'open'
+        request.env['REMOTE_ADDR'] = '192.0.2.123'
+        post :create, params: { user: { account_attributes: { username: 'test' }, email: 'test@example.com', password: '12345678', password_confirmation: '12345678', agreement: 'true' } }
+      end
+
+      before do
+        Fabricate(:ip_block, ip: '192.0.2.123', severity: :sign_up_block)
+      end
+
+      it 'redirects to the root path' do
+        subject
+        expect(response).to redirect_to '/'
+      end
+
+      it 'does not create a user' do
+        subject
+        expect(User.find_by(email: 'test@example.com')).to be_nil
+      end
+    end
+
+    context 'when the request IP is covered by a sign-up block CIDR' do
+      around do |example|
+        registrations_mode = Setting.registrations_mode
+        example.run
+        Setting.registrations_mode = registrations_mode
+      end
+
+      subject do
+        Setting.registrations_mode = 'open'
+        request.env['REMOTE_ADDR'] = '192.0.2.123'
+        post :create, params: { user: { account_attributes: { username: 'test' }, email: 'test@example.com', password: '12345678', password_confirmation: '12345678', agreement: 'true' } }
+      end
+
+      before do
+        Fabricate(:ip_block, ip: '192.0.2.0/24', severity: :sign_up_block)
+      end
+
+      it 'redirects to the root path' do
+        subject
+        expect(response).to redirect_to '/'
+      end
+
+      it 'does not create a user' do
+        subject
+        expect(User.find_by(email: 'test@example.com')).to be_nil
+      end
+    end
+
+    context 'when the request IP requires approval' do
+      around do |example|
+        registrations_mode = Setting.registrations_mode
+        example.run
+        Setting.registrations_mode = registrations_mode
+      end
+
+      subject do
+        Setting.registrations_mode = 'open'
+        request.env['REMOTE_ADDR'] = '192.0.2.50'
+        post :create, params: { user: { account_attributes: { username: 'test' }, email: 'test@example.com', password: '12345678', password_confirmation: '12345678', agreement: 'true' } }
+      end
+
+      before do
+        Fabricate(:ip_block, ip: '192.0.2.50', severity: :sign_up_requires_approval)
+      end
+
+      it 'creates an unapproved user' do
+        subject
+        user = User.find_by(email: 'test@example.com')
+        expect(user).to_not be_nil
+        expect(user.approved).to eq(false)
+      end
+    end
+
+    context 'when a valid invite is present but the IP is sign-up blocked' do
+      around do |example|
+        registrations_mode = Setting.registrations_mode
+        example.run
+        Setting.registrations_mode = registrations_mode
+      end
+
+      subject do
+        Setting.registrations_mode = 'none'
+        request.env['REMOTE_ADDR'] = '192.0.2.123'
+        post :create, params: { user: { account_attributes: { username: 'test' }, email: 'test@example.com', password: '12345678', password_confirmation: '12345678', invite_code: invite.code, agreement: 'true' } }
+      end
+
+      let(:invite) { Fabricate(:invite) }
+
+      before do
+        Fabricate(:ip_block, ip: '192.0.2.123', severity: :sign_up_block)
+      end
+
+      it 'redirects to the root path' do
+        subject
+        expect(response).to redirect_to '/'
+      end
+
+      it 'does not create a user' do
+        subject
+        expect(User.find_by(email: 'test@example.com')).to be_nil
+      end
     end
 
     include_examples 'checks for enabled registrations', :create

@@ -53,6 +53,29 @@ RSpec.describe Api::V1::AccountsController, type: :controller do
     end
   end
 
+  describe 'POST #create with a sign-up blocked IP' do
+    let(:app) { Fabricate(:application) }
+    let(:token) { Doorkeeper::AccessToken.find_or_create_for(application: app, resource_owner: nil, scopes: 'read write', use_refresh_token: false) }
+
+    before do
+      Fabricate(:ip_block, ip: '192.0.2.123', severity: :sign_up_block)
+      request.env['REMOTE_ADDR'] = '192.0.2.123'
+      post :create, params: { username: 'blockeduser', password: '12345678', email: 'blocked@world.tld', agreement: 'true' }
+    end
+
+    it 'returns http forbidden' do
+      expect(response).to have_http_status(403)
+    end
+
+    it 'does not create a user' do
+      expect(User.find_by(email: 'blocked@world.tld')).to be_nil
+    end
+
+    it 'does not create an access token for a user' do
+      expect(Doorkeeper::AccessToken.where.not(resource_owner_id: nil)).to be_empty
+    end
+  end
+
   describe 'GET #show' do
     let(:scopes) { 'read:accounts' }
 
