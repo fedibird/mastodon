@@ -24,6 +24,10 @@ RSpec.describe REST::AccountSerializer do
     it 'does not include memorial for a normal account' do
       expect(json).not_to have_key(:memorial)
     end
+
+    it 'does not include limited for a normal account' do
+      expect(json).not_to have_key(:limited)
+    end
   end
 
   describe 'remote account' do
@@ -52,6 +56,19 @@ RSpec.describe REST::AccountSerializer do
 
     it 'includes memorial=true' do
       expect(json[:memorial]).to be true
+    end
+  end
+
+  describe 'limited account' do
+    let(:account) { Fabricate(:account, username: 'alice') }
+
+    before do
+      account.silence!
+    end
+
+    it 'includes limited=true' do
+      expect(json[:limited]).to be true
+      expect(json).not_to have_key(:silenced)
     end
   end
 end

@@ -74,6 +74,10 @@ RSpec.describe Api::V1::AccountsController, type: :controller do
       expect(body_as_json).not_to have_key(:memorial)
     end
 
+    it 'does not include limited for a normal account' do
+      expect(body_as_json).not_to have_key(:limited)
+    end
+
     context 'when the account is memorialized' do
       before do
         user.account.memorialize!
@@ -82,6 +86,18 @@ RSpec.describe Api::V1::AccountsController, type: :controller do
 
       it 'returns memorial true' do
         expect(body_as_json[:memorial]).to be true
+      end
+    end
+
+    context 'when the account is silenced' do
+      before do
+        user.account.silence!
+        get :show, params: { id: user.account.id }
+      end
+
+      it 'returns limited true' do
+        expect(body_as_json[:limited]).to be true
+        expect(body_as_json).not_to have_key(:silenced)
       end
     end
 
