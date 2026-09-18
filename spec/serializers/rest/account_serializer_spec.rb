@@ -20,6 +20,10 @@ RSpec.describe REST::AccountSerializer do
       expect(json[:uri]).to eq(ActivityPub::TagManager.instance.uri_for(account))
       expect(json[:uri]).not_to eq(json[:url])
     end
+
+    it 'does not include memorial for a normal account' do
+      expect(json).not_to have_key(:memorial)
+    end
   end
 
   describe 'remote account' do
@@ -36,6 +40,18 @@ RSpec.describe REST::AccountSerializer do
     it 'returns the stored ActivityPub URI' do
       expect(json[:uri]).to eq(account.uri)
       expect(json[:uri]).to eq('https://remote.example/users/alice')
+    end
+  end
+
+  describe 'memorial account' do
+    let(:account) { Fabricate(:account, username: 'alice') }
+
+    before do
+      account.memorialize!
+    end
+
+    it 'includes memorial=true' do
+      expect(json[:memorial]).to be true
     end
   end
 end
