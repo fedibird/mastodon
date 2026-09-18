@@ -193,6 +193,28 @@ describe 'API routes' do
     end
   end
 
+  describe 'Admin Domain Allow routes' do
+    it 'routes to index' do
+      expect(get('/api/v1/admin/domain_allows')).
+        to route_to('api/v1/admin/domain_allows#index')
+    end
+
+    it 'routes to show' do
+      expect(get('/api/v1/admin/domain_allows/1')).
+        to route_to('api/v1/admin/domain_allows#show', id: '1')
+    end
+
+    it 'routes to create' do
+      expect(post('/api/v1/admin/domain_allows')).
+        to route_to('api/v1/admin/domain_allows#create')
+    end
+
+    it 'routes to destroy' do
+      expect(delete('/api/v1/admin/domain_allows/1')).
+        to route_to('api/v1/admin/domain_allows#destroy', id: '1')
+    end
+  end
+
   describe 'Timeline routes' do
     it 'routes to home timeline' do
       expect(get('/api/v1/timelines/home')).
