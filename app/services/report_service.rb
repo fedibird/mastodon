@@ -70,10 +70,9 @@ class ReportService < BaseService
   end
 
   def forward_to_replied_to!
-    inbox_urls = Account.remote
-                       .where(domain: forward_to_domains)
-                       .where(id: Status.where(id: @status_ids).where.not(in_reply_to_account_id: nil).select(:in_reply_to_account_id))
-                       .inboxes - [@target_account.inbox_url, @target_account.shared_inbox_url]
+    replied_to_account_ids = Status.where(id: @status_ids).where.not(in_reply_to_account_id: nil).select(:in_reply_to_account_id)
+    inbox_urls = Account.remote.where(domain: forward_to_domains).where(id: replied_to_account_ids).inboxes
+    inbox_urls -= [@target_account.inbox_url, @target_account.shared_inbox_url]
 
     inbox_urls.each do |inbox_url|
       ActivityPub::DeliveryWorker.perform_async(
