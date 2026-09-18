@@ -688,6 +688,7 @@ ja:
       destroyed_msg: ドメインブロックを外しました
       domain: ドメイン
       edit: ドメインブロックを編集
+      existing_domain_block: 既に%{name}に対して、より厳しい制限を課しています。
       existing_domain_block_html: 既に%{name}に対して、より厳しい制限を課しています。先に<a href="%{unblock_url}">その制限を解除</a>する必要があります。
       new:
         create: ブロックを作成
