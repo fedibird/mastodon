@@ -106,4 +106,27 @@ RSpec.describe Api::V1::Admin::ReportsController, type: :controller do
       expect(response).to have_http_status(200)
     end
   end
+
+  describe 'disabled staff' do
+    before { user.disable! }
+
+    it 'forbids a disabled moderator from reading reports' do
+      get :index, format: :json
+      expect(response).to have_http_status(403)
+    end
+
+    it 'forbids a disabled moderator from writing reports' do
+      post :resolve, params: { id: report.id }, format: :json
+      expect(response).to have_http_status(403)
+    end
+
+    context 'as a disabled admin' do
+      let(:role) { 'admin' }
+
+      it 'forbids reading reports with a valid admin token' do
+        get :show, params: { id: report.id }, format: :json
+        expect(response).to have_http_status(403)
+      end
+    end
+  end
 end

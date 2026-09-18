@@ -8,7 +8,17 @@ class ApplicationPolicy
     @record          = record
   end
 
-  delegate :admin?, :moderator?, :staff?, to: :current_user, allow_nil: true
+  def admin?
+    current_user&.functional? && current_user&.admin?
+  end
+
+  def moderator?
+    current_user&.functional? && current_user&.moderator?
+  end
+
+  def staff?
+    current_user&.functional? && current_user&.staff?
+  end
 
   private
 

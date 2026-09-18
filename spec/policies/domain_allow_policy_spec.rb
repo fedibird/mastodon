@@ -27,5 +27,13 @@ RSpec.describe DomainAllowPolicy do
         expect(subject).to_not permit(john, DomainAllow)
       end
     end
+
+    context 'disabled admin' do
+      let(:disabled_admin) { Fabricate(:user, admin: true, disabled: true).account }
+
+      it 'denies' do
+        expect(subject).to_not permit(disabled_admin, DomainAllow)
+      end
+    end
   end
 end

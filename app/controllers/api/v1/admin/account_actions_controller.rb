@@ -2,7 +2,7 @@
 
 class Api::V1::Admin::AccountActionsController < Api::BaseController
   before_action -> { doorkeeper_authorize! :'admin:write', :'admin:write:accounts' }
-  before_action :require_staff!
+  include ::Admin::PermissionsConcern
   before_action :set_account
 
   def create

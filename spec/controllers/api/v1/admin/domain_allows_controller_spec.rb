@@ -319,4 +319,36 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
       end
     end
   end
+
+  describe 'disabled admin' do
+    before { user.disable! }
+
+    it 'forbids index with admin:read' do
+      get :index, format: :json
+      expect(response).to have_http_status(403)
+    end
+
+    context 'with admin:read:domain_allows' do
+      let(:scopes) { 'admin:read:domain_allows' }
+
+      it 'forbids index' do
+        get :index, format: :json
+        expect(response).to have_http_status(403)
+      end
+    end
+
+    it 'forbids create with admin:write' do
+      post :create, params: { domain: 'disabled.example' }, format: :json
+      expect(response).to have_http_status(403)
+    end
+
+    context 'with admin:write:domain_allows' do
+      let(:scopes) { 'admin:write:domain_allows' }
+
+      it 'forbids create' do
+        post :create, params: { domain: 'disabled.example' }, format: :json
+        expect(response).to have_http_status(403)
+      end
+    end
+  end
 end

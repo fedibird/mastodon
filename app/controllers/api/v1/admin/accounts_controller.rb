@@ -8,7 +8,7 @@ class Api::V1::Admin::AccountsController < Api::BaseController
 
   before_action -> { doorkeeper_authorize! :'admin:read', :'admin:read:accounts' }, only: [:index, :show]
   before_action -> { doorkeeper_authorize! :'admin:write', :'admin:write:accounts' }, except: [:index, :show]
-  before_action :require_staff!
+  include ::Admin::PermissionsConcern
   before_action :set_accounts, only: :index
   before_action :set_account, except: :index
   before_action :require_local_account!, only: [:enable, :approve, :reject]
