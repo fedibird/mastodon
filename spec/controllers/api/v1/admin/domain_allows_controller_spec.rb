@@ -31,7 +31,7 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
   describe 'GET #index' do
     context 'with no allowed domains' do
       before do
-        get :index
+        get :index, format: :json
       end
 
       it_behaves_like 'forbidden for wrong scope', 'write:statuses'
@@ -51,7 +51,7 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
       let(:scopes) { 'admin:read' }
 
       it 'returns http success' do
-        get :index
+        get :index, format: :json
         expect(response).to have_http_status(200)
       end
     end
@@ -60,7 +60,7 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
       let(:scopes) { 'admin:read:domain_allows' }
 
       it 'returns http success' do
-        get :index
+        get :index, format: :json
         expect(response).to have_http_status(200)
       end
     end
@@ -69,7 +69,7 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
       let(:token) { nil }
 
       it 'returns http unauthorized' do
-        get :index
+        get :index, format: :json
         expect(response).to have_http_status(401)
       end
     end
@@ -79,7 +79,7 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
       let!(:newer_allow) { Fabricate(:domain_allow, domain: 'newer.example', created_at: 1.day.ago) }
 
       it 'returns serialized domain allows newest first' do
-        get :index
+        get :index, format: :json
 
         expect(response).to have_http_status(200)
         expect(body_as_json.size).to eq(2)
@@ -90,14 +90,14 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
       end
 
       it 'respects the limit parameter' do
-        get :index, params: { limit: 1 }
+        get :index, params: { limit: 1 }, format: :json
 
         expect(body_as_json.size).to eq(1)
         expect(body_as_json.first[:id]).to eq(newer_allow.id.to_s)
       end
 
       it 'sets pagination Link headers' do
-        get :index, params: { limit: 1 }
+        get :index, params: { limit: 1 }, format: :json
 
         expect(response.headers['Link'].find_link(['rel', 'next']).href).to eq api_v1_admin_domain_allows_url(limit: 1, max_id: newer_allow.id)
         expect(response.headers['Link'].find_link(['rel', 'prev']).href).to eq api_v1_admin_domain_allows_url(limit: 1, min_id: newer_allow.id)
@@ -109,7 +109,7 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
     let!(:domain_allow) { Fabricate(:domain_allow) }
 
     before do
-      get :show, params: { id: domain_allow.id }
+      get :show, params: { id: domain_allow.id }, format: :json
     end
 
     it_behaves_like 'forbidden for wrong scope', 'write:statuses'
@@ -136,7 +136,7 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
 
     context 'when the domain allow does not exist' do
       it 'returns http not found' do
-        get :show, params: { id: -1 }
+        get :show, params: { id: -1 }, format: :json
         expect(response).to have_http_status(404)
       end
     end
@@ -154,20 +154,20 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
     let(:params) { { domain: 'foo.bar.com' } }
 
     it_behaves_like 'forbidden for wrong scope', 'write:statuses' do
-      before { post :create, params: params }
+      before { post :create, params: params, format: :json }
     end
 
     it_behaves_like 'forbidden for wrong role', 'user' do
-      before { post :create, params: params }
+      before { post :create, params: params, format: :json }
     end
 
     it_behaves_like 'forbidden for wrong role', 'moderator' do
-      before { post :create, params: params }
+      before { post :create, params: params, format: :json }
     end
 
     context 'with a valid domain name' do
       it 'returns http success and persists the domain allow' do
-        expect { post :create, params: params }.to change(DomainAllow, :count).by(1)
+        expect { post :create, params: params, format: :json }.to change(DomainAllow, :count).by(1)
         expect(response).to have_http_status(200)
         expect(body_as_json[:domain]).to eq('foo.bar.com')
         expect(body_as_json[:id]).to be_a(String)
@@ -175,7 +175,7 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
       end
 
       it 'creates an Admin::ActionLog' do
-        expect { post :create, params: params }.to change(Admin::ActionLog, :count).by(1)
+        expect { post :create, params: params, format: :json }.to change(Admin::ActionLog, :count).by(1)
         expect(Admin::ActionLog.last.action).to eq(:create)
       end
     end
@@ -184,7 +184,7 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
       let(:scopes) { 'admin:write' }
 
       it 'returns http success' do
-        post :create, params: params
+        post :create, params: params, format: :json
         expect(response).to have_http_status(200)
       end
     end
@@ -193,7 +193,7 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
       let(:scopes) { 'admin:write:domain_allows' }
 
       it 'returns http success' do
-        post :create, params: params
+        post :create, params: params, format: :json
         expect(response).to have_http_status(200)
       end
     end
@@ -202,7 +202,7 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
       let(:scopes) { 'admin:read' }
 
       it 'returns http forbidden' do
-        post :create, params: params
+        post :create, params: params, format: :json
         expect(response).to have_http_status(403)
       end
     end
@@ -211,30 +211,30 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
       let!(:existing) { DomainAllow.create!(domain: 'foo.bar.com') }
 
       it 'returns the existing record without creating a duplicate or action log' do
-        expect { post :create, params: params }.to_not change(DomainAllow, :count)
+        expect { post :create, params: params, format: :json }.to_not change(DomainAllow, :count)
         expect(response).to have_http_status(200)
         expect(body_as_json[:id]).to eq(existing.id.to_s)
-        expect { post :create, params: params }.to_not change(Admin::ActionLog, :count)
+        expect { post :create, params: params, format: :json }.to_not change(Admin::ActionLog, :count)
       end
     end
 
     context 'when domain name is not specified' do
       it 'returns http unprocessable entity' do
-        post :create, params: {}
+        post :create, params: {}, format: :json
         expect(response).to have_http_status(422)
       end
     end
 
     context 'when domain name is blank' do
       it 'returns http unprocessable entity' do
-        post :create, params: { domain: '' }
+        post :create, params: { domain: '' }, format: :json
         expect(response).to have_http_status(422)
       end
     end
 
     context 'with an invalid domain name' do
       it 'returns http unprocessable entity' do
-        post :create, params: { domain: 'foo bar' }
+        post :create, params: { domain: 'foo bar' }, format: :json
         expect(response).to have_http_status(422)
       end
     end
@@ -243,7 +243,7 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
       let(:token) { nil }
 
       it 'returns http unauthorized' do
-        post :create, params: params
+        post :create, params: params, format: :json
         expect(response).to have_http_status(401)
       end
     end
@@ -253,26 +253,26 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
     let!(:domain_allow) { Fabricate(:domain_allow) }
 
     it_behaves_like 'forbidden for wrong scope', 'write:statuses' do
-      before { delete :destroy, params: { id: domain_allow.id } }
+      before { delete :destroy, params: { id: domain_allow.id }, format: :json }
     end
 
     it_behaves_like 'forbidden for wrong role', 'user' do
-      before { delete :destroy, params: { id: domain_allow.id } }
+      before { delete :destroy, params: { id: domain_allow.id }, format: :json }
     end
 
     it_behaves_like 'forbidden for wrong role', 'moderator' do
-      before { delete :destroy, params: { id: domain_allow.id } }
+      before { delete :destroy, params: { id: domain_allow.id }, format: :json }
     end
 
     it 'returns empty JSON and removes the domain allow' do
-      expect { delete :destroy, params: { id: domain_allow.id } }.to change(DomainAllow, :count).by(-1)
+      expect { delete :destroy, params: { id: domain_allow.id }, format: :json }.to change(DomainAllow, :count).by(-1)
       expect(response).to have_http_status(200)
       expect(body_as_json).to eq({})
       expect(DomainAllow.find_by(id: domain_allow.id)).to be_nil
     end
 
     it 'creates a destroy Admin::ActionLog' do
-      expect { delete :destroy, params: { id: domain_allow.id } }.to change(Admin::ActionLog, :count).by(1)
+      expect { delete :destroy, params: { id: domain_allow.id }, format: :json }.to change(Admin::ActionLog, :count).by(1)
       expect(Admin::ActionLog.last.action).to eq(:destroy)
     end
 
@@ -280,7 +280,7 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
       service = instance_double(UnallowDomainService, call: true)
       allow(UnallowDomainService).to receive(:new).and_return(service)
 
-      delete :destroy, params: { id: domain_allow.id }
+      delete :destroy, params: { id: domain_allow.id }, format: :json
 
       expect(service).to have_received(:call).with(domain_allow)
     end
@@ -289,7 +289,7 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
       let(:scopes) { 'admin:write:domain_allows' }
 
       it 'returns http success' do
-        delete :destroy, params: { id: domain_allow.id }
+        delete :destroy, params: { id: domain_allow.id }, format: :json
         expect(response).to have_http_status(200)
       end
     end
@@ -298,14 +298,14 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
       let(:scopes) { 'admin:read' }
 
       it 'returns http forbidden' do
-        delete :destroy, params: { id: domain_allow.id }
+        delete :destroy, params: { id: domain_allow.id }, format: :json
         expect(response).to have_http_status(403)
       end
     end
 
     context 'when the domain allow does not exist' do
       it 'returns http not found' do
-        delete :destroy, params: { id: -1 }
+        delete :destroy, params: { id: -1 }, format: :json
         expect(response).to have_http_status(404)
       end
     end
@@ -314,7 +314,7 @@ RSpec.describe Api::V1::Admin::DomainAllowsController, type: :controller do
       let(:token) { nil }
 
       it 'returns http unauthorized' do
-        delete :destroy, params: { id: domain_allow.id }
+        delete :destroy, params: { id: domain_allow.id }, format: :json
         expect(response).to have_http_status(401)
       end
     end
