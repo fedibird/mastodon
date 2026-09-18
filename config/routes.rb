@@ -539,7 +539,7 @@ Rails.application.routes.draw do
           resources :rules, only: [:index]
           # resources :domain_blocks, only: [:index]
           # resource :privacy_policy, only: [:show]
-          # resource :extended_description, only: [:show]
+          resource :extended_description, only: [:show]
           resource :translation_languages, only: [:show]
           resource :languages, only: [:show]
           resource :activity, only: [:show], controller: :activity
