@@ -62,9 +62,7 @@ RSpec.describe REST::AccountSerializer do
   describe 'limited account' do
     let(:account) { Fabricate(:account, username: 'alice') }
 
-    before do
-      account.silence!
-    end
+    before { account.silence! }
 
     it 'includes limited=true' do
       expect(json[:limited]).to be true
