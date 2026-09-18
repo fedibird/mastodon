@@ -38,15 +38,7 @@ RSpec.describe REST::AccountSerializer do
   end
 
   describe 'remote account' do
-    let(:account) do
-      Fabricate(
-        :account,
-        username: 'alice',
-        domain: 'remote.example',
-        uri: 'https://remote.example/users/alice',
-        url: 'https://remote.example/@alice'
-      )
-    end
+    let(:account) { Fabricate(:account, username: 'alice', domain: 'remote.example', uri: 'https://remote.example/users/alice', url: 'https://remote.example/@alice') }
 
     it 'returns the stored ActivityPub URI' do
       expect(json[:uri]).to eq(account.uri)
