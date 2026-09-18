@@ -82,6 +82,36 @@ describe Api::V1::Accounts::CredentialsController do
         end
       end
     end
+
+    describe 'PATCH #update hide_collections' do
+      let(:scopes) { 'write:accounts' }
+
+      before { allow(ActivityPub::UpdateDistributionWorker).to receive(:perform_async) }
+
+      it 'sets hide_collections to true' do
+        patch :update, params: { hide_collections: true }
+
+        expect(response).to have_http_status(200)
+        expect(user.account.reload.hide_collections).to be true
+      end
+
+      it 'sets hide_collections to false' do
+        user.account.update!(hide_collections: true)
+
+        patch :update, params: { hide_collections: false }, as: :json
+
+        expect(response).to have_http_status(200)
+        expect(user.account.reload.hide_collections).to be false
+      end
+
+      it 'does not change hide_collections when omitted' do
+        user.account.update!(hide_collections: true)
+
+        patch :update, params: { display_name: 'Alice' }
+
+        expect(user.account.reload.hide_collections).to be true
+      end
+    end
   end
 
   context 'without an oauth token' do

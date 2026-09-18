@@ -32,6 +32,7 @@ class Api::V1::Accounts::CredentialsController < Api::BaseController
       :locked,
       :bot,
       :discoverable,
+      :hide_collections,
       :searchability,
       :birthday,
       :birth_year,
