@@ -64,6 +64,12 @@ RSpec.describe Api::V1::AccountsController, type: :controller do
       expect(response).to have_http_status(200)
     end
 
+    it 'returns the ActivityPub URI' do
+      expect(body_as_json[:uri]).to eq(
+        ActivityPub::TagManager.instance.uri_for(user.account)
+      )
+    end
+
     it_behaves_like 'forbidden for wrong scope', 'write:statuses'
   end
 
