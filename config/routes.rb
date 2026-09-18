@@ -537,7 +537,7 @@ Rails.application.routes.draw do
         scope module: :instances do
           resources :peers, only: [:index]
           resources :rules, only: [:index]
-          # resources :domain_blocks, only: [:index]
+          resources :domain_blocks, only: [:index]
           # resource :privacy_policy, only: [:show]
           resource :extended_description, only: [:show]
           resource :translation_languages, only: [:show]
