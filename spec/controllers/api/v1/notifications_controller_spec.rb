@@ -283,6 +283,26 @@ RSpec.describe Api::V1::NotificationsController, type: :controller do
       end
     end
 
+    context 'with more than the default limit of notifications' do
+      before do
+        41.times { Fabricate(:notification, account: user.account) }
+      end
+
+      it 'returns at most 40 notifications when limit is omitted' do
+        get :index
+
+        expect(response).to have_http_status(200)
+        expect(body_as_json.size).to eq 40
+      end
+
+      it 'respects an explicit limit' do
+        get :index, params: { limit: 10 }
+
+        expect(response).to have_http_status(200)
+        expect(body_as_json.size).to eq 10
+      end
+    end
+
     describe 'with types emoji_reaction when reactions are disabled' do
       before do
         user.settings['enable_reaction'] = false
