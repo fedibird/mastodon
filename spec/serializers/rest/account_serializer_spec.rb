@@ -68,31 +68,30 @@ RSpec.describe REST::AccountSerializer do
       expect(json).not_to have_key(:silenced)
     end
   end
+end
 
-  describe 'moved account' do
-    let(:account) { Fabricate(:account, username: 'alice') }
-    let(:target) { Fabricate(:account, username: 'bob') }
-
-    before { account.update!(moved_to_account: target) }
-
-    it 'includes the direct moved-to account' do
-      expect(json.dig(:moved, :id)).to eq(target.id.to_s)
-    end
+RSpec.describe REST::AccountSerializer, 'moved accounts' do
+  subject(:json) do
+    JSON.parse(
+      ActiveModelSerializers::SerializableResource.new(account, serializer: described_class).to_json,
+      symbolize_names: true
+    )
   end
 
-  describe 'chained moved account' do
-    let(:account) { Fabricate(:account, username: 'alice') }
-    let(:middle) { Fabricate(:account, username: 'bob') }
-    let(:final) { Fabricate(:account, username: 'carol') }
+  let(:account) { Fabricate(:account, username: 'alice') }
 
-    before do
-      middle.update!(moved_to_account: final)
-      account.update!(moved_to_account: middle)
-    end
+  it 'includes the direct moved-to account' do
+    target = Fabricate(:account, username: 'bob')
+    account.update!(moved_to_account: target)
+    expect(json.dig(:moved, :id)).to eq(target.id.to_s)
+  end
 
-    it 'includes the direct moved-to account without nested moved' do
-      expect(json.dig(:moved, :id)).to eq(middle.id.to_s)
-      expect(json[:moved]).not_to have_key(:moved)
-    end
+  it 'omits nested moved when the target has itself moved' do
+    middle = Fabricate(:account, username: 'bob')
+    final = Fabricate(:account, username: 'carol')
+    middle.update!(moved_to_account: final)
+    account.update!(moved_to_account: middle)
+    expect(json.dig(:moved, :id)).to eq(middle.id.to_s)
+    expect(json[:moved]).not_to have_key(:moved)
   end
 end
