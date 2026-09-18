@@ -145,6 +145,65 @@ RSpec.describe Api::V1::AccountsController, type: :controller do
         expect(json[:showing_reblogs]).to be false
         expect(json[:notifying]).to be true
       end
+
+      it 'sets languages on the follow' do
+        post :follow, params: { id: other_account.id, languages: %w(en ja) }
+
+        json = body_as_json
+
+        expect(response).to have_http_status(200)
+        expect(json[:following]).to be true
+        expect(json[:languages]).to match_array %w(en ja)
+        expect(Follow.find_by(account: user.account, target_account: other_account).languages).to match_array %w(en ja)
+      end
+
+      it 'clears languages with an explicit empty array' do
+        user.account.follow!(other_account, languages: %w(en))
+
+        post :follow, params: { id: other_account.id, languages: [] }
+
+        json = body_as_json
+
+        expect(json[:languages]).to eq []
+        expect(Follow.find_by(account: user.account, target_account: other_account).languages).to eq []
+      end
+
+      it 'keeps languages when the parameter is omitted' do
+        user.account.follow!(other_account, languages: %w(en))
+
+        post :follow, params: { id: other_account.id, notify: true }
+
+        json = body_as_json
+
+        expect(json[:notifying]).to be true
+        expect(json[:languages]).to eq ['en']
+        expect(Follow.find_by(account: user.account, target_account: other_account).languages).to eq ['en']
+      end
+
+      it 'rejects an invalid language without changing the follow' do
+        existing = user.account.follow!(other_account, languages: %w(en))
+
+        post :follow, params: { id: other_account.id, languages: ['zz-invalid'] }
+
+        expect(response).to have_http_status(422)
+        expect(existing.reload.languages).to eq ['en']
+      end
+    end
+
+    context 'with a locked account and languages' do
+      let(:locked) { true }
+
+      it 'stores languages on the follow request' do
+        post :follow, params: { id: other_account.id, languages: ['en'] }
+
+        json = body_as_json
+
+        expect(response).to have_http_status(200)
+        expect(json[:following]).to be false
+        expect(json[:requested]).to be true
+        expect(json[:languages]).to eq ['en']
+        expect(FollowRequest.find_by(account: user.account, target_account: other_account).languages).to eq ['en']
+      end
     end
   end
 

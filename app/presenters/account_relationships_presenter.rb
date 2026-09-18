@@ -3,7 +3,7 @@
 class AccountRelationshipsPresenter
   attr_reader :following, :showing_reblogs, :notifying, :delivery_following, :followed_by, :subscribing, :blocking, :blocked_by,
               :muting, :muting_notifications, :requested, :requested_by, :domain_blocking,
-              :endorsed, :account_note
+              :endorsed, :account_note, :languages
 
   def initialize(account_ids, current_account_id, **options)
     @account_ids        = account_ids.map { |a| a.is_a?(Account) ? a.id : a.to_i }.uniq
@@ -24,6 +24,7 @@ class AccountRelationshipsPresenter
     @domain_blocking      = cached[:domain_blocking]
     @endorsed             = cached[:endorsed]
     @account_note         = cached[:account_note]
+    @languages            = cached[:languages]
 
     if current_account_id.present? && !account_ids.empty?
       result = ActiveRecord::Base.connection.select_all(ActiveRecord::Base.sanitize_sql_array([<<-SQL.squish, account_ids: @uncached_account_ids, current_account_id: @current_account_id])).to_a.first
@@ -49,7 +50,9 @@ class AccountRelationshipsPresenter
         (select string_agg(a.id::text, ',') from accounts a join account_domain_blocks adb on a.domain = adb.domain where adb.account_id = :current_account_id and a.id in (:account_ids)) as domain_blocking,
         (select string_agg(target_account_id::text, ',') from account_pins where account_id = :current_account_id and target_account_id in (:account_ids)) as endorsed,
         (select json_object_agg(n.target_account_id, n.val)
-          from (select target_account_id, json_object_agg('comment', comment) as val from account_notes where account_id = :current_account_id and target_account_id in (:account_ids) group by target_account_id) as n) as account_note
+          from (select target_account_id, json_object_agg('comment', comment) as val from account_notes where account_id = :current_account_id and target_account_id in (:account_ids) group by target_account_id) as n) as account_note,
+        (select json_object_agg(target_account_id, languages) from followings) as following_languages,
+        (select json_object_agg(target_account_id, languages) from follow_requesteds) as requested_languages
       SQL
 
       @following.merge!(mapping_from_string(result['following']))
@@ -67,6 +70,8 @@ class AccountRelationshipsPresenter
       @domain_blocking.merge!(mapping_from_string(result['domain_blocking']))
       @endorsed.merge!(mapping_from_string(result['endorsed']))
       @account_note.merge!(mapping_from_json(result['account_note']))
+      @languages.merge!(mapping_from_json(result['following_languages']))
+      @languages.merge!(mapping_from_json(result['requested_languages']))
 
       cache_uncached!
     end
@@ -85,6 +90,7 @@ class AccountRelationshipsPresenter
     @domain_blocking.merge!(options[:domain_blocking_map] || {})
     @endorsed.merge!(options[:endorsed_map] || {})
     @account_note.merge!(options[:account_note_map] || {})
+    @languages.merge!(options[:languages_map] || {})
   end
 
   private
@@ -98,7 +104,9 @@ class AccountRelationshipsPresenter
   def mapping_from_json(json)
     return {} if json.blank?
 
-    (Oj.load(json, mode: :strict, symbol_keys: true) || {}).tap do |json_data|
+    parsed = json.is_a?(String) ? Oj.load(json, mode: :strict, symbol_keys: true) : json
+
+    (parsed || {}).tap do |json_data|
       json_data.keys.each do |key|
         json_data[(Integer(key.to_s) rescue key) || key] = json_data.delete(key)
       end
@@ -124,6 +132,7 @@ class AccountRelationshipsPresenter
       domain_blocking: {},
       endorsed: {},
       account_note: {},
+      languages: {},
     }
 
     @uncached_account_ids = []
@@ -159,6 +168,7 @@ class AccountRelationshipsPresenter
         domain_blocking:      { account_id => domain_blocking[account_id] },
         endorsed:             { account_id => endorsed[account_id] },
         account_note:         { account_id => account_note[account_id] },
+        languages:            { account_id => languages[account_id] },
       }
 
       Rails.cache.write("relationship:#{@current_account_id}:#{account_id}", maps_for_account, expires_in: 1.day)

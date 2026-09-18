@@ -3,7 +3,7 @@
 class REST::RelationshipSerializer < ActiveModel::Serializer
   attributes :id, :following, :delivery_following, :showing_reblogs, :notifying, :followed_by, :account_subscribing,
              :blocking, :blocked_by, :muting, :muting_notifications, :requested, :requested_by,
-             :domain_blocking, :endorsed, :note
+             :domain_blocking, :endorsed, :note, :languages
 
   def id
     object.id.to_s
@@ -67,5 +67,9 @@ class REST::RelationshipSerializer < ActiveModel::Serializer
 
   def note
     (instance_options[:relationships].account_note[object.id] || {})[:comment] || ''
+  end
+
+  def languages
+    instance_options[:relationships].languages[object.id]
   end
 end

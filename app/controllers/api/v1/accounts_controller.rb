@@ -39,13 +39,14 @@ class Api::V1::AccountsController < Api::BaseController
   def follow
     raise Mastodon::NotPermittedError if current_user.setting_disable_follow && !current_user.account.following?(@account)
 
-    follow  = FollowService.new.call(current_user.account, @account, reblogs: params.key?(:reblogs) ? truthy_param?(:reblogs) : nil, notify: params.key?(:notify) ? truthy_param?(:notify) : nil, delivery: params.key?(:delivery) ? truthy_param?(:delivery) : nil, with_rate_limit: true)
+    follow  = FollowService.new.call(current_user.account, @account, reblogs: params.key?(:reblogs) ? truthy_param?(:reblogs) : nil, notify: params.key?(:notify) ? truthy_param?(:notify) : nil, delivery: params.key?(:delivery) ? truthy_param?(:delivery) : nil, languages: params.key?(:languages) ? params[:languages] : nil, with_rate_limit: true)
     options = @account.locked? || current_user.account.silenced? ? {} : {
       following_map:          { @account.id => true },
       showing_reblogs_map:    { @account.id => follow.show_reblogs? },
       notifying_map:          { @account.id => follow.notify? },
       delivery_following_map: { @account.id => follow.delivery? },
-      requested_map:          { @account.id => false }
+      requested_map:          { @account.id => false },
+      languages_map:          { @account.id => follow.languages },
     }
 
     render json: @account, serializer: REST::RelationshipSerializer, relationships: relationships(**options)

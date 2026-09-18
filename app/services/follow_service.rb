@@ -11,6 +11,7 @@ class FollowService < BaseService
   # @param [Hash] options
   # @option [Boolean] :reblogs Whether or not to show reblogs, defaults to true
   # @option [Boolean] :notify Whether to create notifications about new posts, defaults to false
+  # @option [Array<String>] :languages Which languages to allow on the home feed from this account, defaults to all
   # @option [Boolean] :bypass_locked
   # @option [Boolean] :bypass_limit Allow following past the total follow number
   # @option [Boolean] :with_rate_limit
@@ -146,15 +147,15 @@ class FollowService < BaseService
     elsif @source_account.delivery_following?(@target_account) && !@options[:delivery]
       UnmergeWorker.perform_async(@target_account.id, @source_account.id) if @source_account.delivery_following?(@target_account) && !@options[:delivery]
     end
-    @source_account.follow!(@target_account, reblogs: @options[:reblogs], notify: @options[:notify], delivery: @options[:delivery])
+    @source_account.follow!(@target_account, reblogs: @options[:reblogs], notify: @options[:notify], delivery: @options[:delivery], languages: @options[:languages])
   end
 
   def change_follow_request_options!
-    @source_account.request_follow!(@target_account, reblogs: @options[:reblogs], notify: @options[:notify], delivery: @options[:delivery])
+    @source_account.request_follow!(@target_account, reblogs: @options[:reblogs], notify: @options[:notify], delivery: @options[:delivery], languages: @options[:languages])
   end
 
   def request_follow!
-    follow_request = @source_account.request_follow!(@target_account, reblogs: @options[:reblogs], notify: @options[:notify], delivery: @options[:delivery], rate_limit: @options[:with_rate_limit], bypass_limit: @options[:bypass_limit])
+    follow_request = @source_account.request_follow!(@target_account, reblogs: @options[:reblogs], notify: @options[:notify], delivery: @options[:delivery], languages: @options[:languages], rate_limit: @options[:with_rate_limit], bypass_limit: @options[:bypass_limit])
 
     if @target_account.local?
       LocalNotificationWorker.perform_async(@target_account.id, follow_request.id, follow_request.class.name, 'follow_request')
@@ -289,7 +290,7 @@ class FollowService < BaseService
   end
 
   def direct_follow!
-    follow = @source_account.follow!(@target_account, reblogs: @options[:reblogs], notify: @options[:notify], delivery: @options[:delivery], rate_limit: @options[:with_rate_limit], bypass_limit: @options[:bypass_limit])
+    follow = @source_account.follow!(@target_account, reblogs: @options[:reblogs], notify: @options[:notify], delivery: @options[:delivery], languages: @options[:languages], rate_limit: @options[:with_rate_limit], bypass_limit: @options[:bypass_limit])
 
     LocalNotificationWorker.perform_async(@target_account.id, follow.id, follow.class.name, 'follow')
     NotifyService.new.call(@source_account, 'followed', follow)
