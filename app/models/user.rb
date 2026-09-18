@@ -46,7 +46,7 @@
 #  time_zone                 :string
 #
 
-class User < ApplicationRecord
+class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
   include Settings::Extend
   include UserRoles
   include Redisable
