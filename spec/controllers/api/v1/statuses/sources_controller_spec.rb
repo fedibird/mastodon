@@ -17,7 +17,7 @@ RSpec.describe Api::V1::Statuses::SourcesController, type: :controller do
       end
 
       it 'returns the unformatted status source' do
-        get :show, params: { status_id: status.id }
+        get :show, params: { status_id: status.id }, format: :json
 
         expect(response).to have_http_status(200)
         expect(body_as_json).to eq(
@@ -31,7 +31,7 @@ RSpec.describe Api::V1::Statuses::SourcesController, type: :controller do
         let(:scopes) { 'write:statuses' }
 
         it 'returns http forbidden' do
-          get :show, params: { status_id: status.id }
+          get :show, params: { status_id: status.id }, format: :json
           expect(response).to have_http_status(403)
         end
       end
@@ -40,7 +40,7 @@ RSpec.describe Api::V1::Statuses::SourcesController, type: :controller do
         let(:status) { Fabricate(:status, visibility: :private, text: 'secret', spoiler_text: '') }
 
         it 'returns http not found' do
-          get :show, params: { status_id: status.id }
+          get :show, params: { status_id: status.id }, format: :json
           expect(response).to have_http_status(404)
         end
       end
@@ -51,7 +51,7 @@ RSpec.describe Api::V1::Statuses::SourcesController, type: :controller do
         before { user.account.follow!(status.account) }
 
         it 'returns the unformatted status source' do
-          get :show, params: { status_id: status.id }
+          get :show, params: { status_id: status.id }, format: :json
 
           expect(response).to have_http_status(200)
           expect(body_as_json).to eq(
@@ -65,7 +65,7 @@ RSpec.describe Api::V1::Statuses::SourcesController, type: :controller do
 
     context 'without an oauth token' do
       it 'returns http unauthorized' do
-        get :show, params: { status_id: status.id }
+        get :show, params: { status_id: status.id }, format: :json
         expect(response).to have_http_status(401)
       end
     end
