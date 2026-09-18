@@ -78,6 +78,10 @@ RSpec.describe Api::V1::AccountsController, type: :controller do
       expect(body_as_json).not_to have_key(:limited)
     end
 
+    it 'returns noindex false by default' do
+      expect(body_as_json).to include(noindex: false)
+    end
+
     context 'when the account is memorialized' do
       before do
         user.account.memorialize!
@@ -98,6 +102,17 @@ RSpec.describe Api::V1::AccountsController, type: :controller do
       it 'returns limited true' do
         expect(body_as_json[:limited]).to be true
         expect(body_as_json).not_to have_key(:silenced)
+      end
+    end
+
+    context 'when noindex is enabled' do
+      before do
+        user.settings['noindex'] = true
+        get :show, params: { id: user.account.id }
+      end
+
+      it 'returns noindex true' do
+        expect(body_as_json[:noindex]).to be true
       end
     end
 
