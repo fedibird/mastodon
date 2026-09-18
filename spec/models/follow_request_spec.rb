@@ -7,8 +7,8 @@ RSpec.describe FollowRequest, type: :model do
     let(:target_account) { Fabricate(:account) }
 
     it 'calls Account#follow!, MergeWorker.perform_async, and #destroy!' do
-      expect(account).to        receive(:follow!).with(target_account, reblogs: true, notify: false, uri: follow_request.uri, bypass_limit: true)
-      expect(MergeWorker).to    receive(:perform_async).with(target_account.id, account.id)
+      expect(account).to receive(:follow!).with(target_account, reblogs: true, notify: false, delivery: true, languages: nil, uri: follow_request.uri, bypass_limit: true)
+      expect(MergeWorker).to receive(:perform_async).with(target_account.id, account.id)
       expect(follow_request).to receive(:destroy!)
       follow_request.authorize!
     end
@@ -25,6 +25,14 @@ RSpec.describe FollowRequest, type: :model do
       follow_request.authorize!
       target = follow_request.target_account
       expect(follow_request.account.muting_reblogs?(target)).to be true
+    end
+
+    it 'copies languages onto the resulting follow' do
+      follow_request = Fabricate(:follow_request, account: account, target_account: target_account, languages: %w(en ja))
+      follow_request.authorize!
+
+      follow = Follow.find_by(account: account, target_account: target_account)
+      expect(follow.languages).to match_array %w(en ja)
     end
   end
 end

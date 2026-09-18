@@ -159,6 +159,46 @@ RSpec.describe FeedManager do
           expect(FeedManager.instance.filter?(:home, status, alice)).to be true
         end
       end
+
+      context 'for subscribed languages' do
+        it 'returns true for a followee status in a disallowed language' do
+          alice.follow!(jeff, languages: %w(en))
+          status = Fabricate(:status, account: jeff, language: 'de')
+          expect(FeedManager.instance.filter?(:home, status, alice)).to be true
+        end
+
+        it 'returns false for a followee status in an allowed language' do
+          alice.follow!(jeff, languages: %w(de))
+          status = Fabricate(:status, account: jeff, language: 'de')
+          expect(FeedManager.instance.filter?(:home, status, alice)).to be false
+        end
+
+        it 'returns false when the status has no language' do
+          alice.follow!(jeff, languages: %w(en))
+          status = Fabricate(:status, account: jeff, language: nil)
+          expect(FeedManager.instance.filter?(:home, status, alice)).to be false
+        end
+
+        it 'returns false when the follow has no language restriction' do
+          alice.follow!(jeff, languages: nil)
+          status = Fabricate(:status, account: jeff, language: 'de')
+          expect(FeedManager.instance.filter?(:home, status, alice)).to be false
+        end
+
+        it 'returns false when the follow languages list is empty' do
+          alice.follow!(jeff, languages: [])
+          status = Fabricate(:status, account: jeff, language: 'de')
+          expect(FeedManager.instance.filter?(:home, status, alice)).to be false
+        end
+
+        it 'filters a list timeline by follow languages' do
+          alice.follow!(jeff, languages: %w(en))
+          list = Fabricate(:list, account: alice)
+          list.accounts << jeff
+          status = Fabricate(:status, account: jeff, language: 'de')
+          expect(FeedManager.instance.filter?(:list, status, list)).to be true
+        end
+      end
     end
 
     context 'for mentions feed' do

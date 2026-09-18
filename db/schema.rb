@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_17_100000) do
+ActiveRecord::Schema.define(version: 2026_09_18_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -733,6 +733,7 @@ ActiveRecord::Schema.define(version: 2026_09_17_100000) do
     t.string "uri"
     t.boolean "notify", default: false, null: false
     t.boolean "delivery", default: true, null: false
+    t.string "languages", array: true
     t.index ["account_id", "target_account_id"], name: "index_follow_requests_on_account_id_and_target_account_id", unique: true
   end
 
@@ -757,6 +758,7 @@ ActiveRecord::Schema.define(version: 2026_09_17_100000) do
     t.string "uri"
     t.boolean "notify", default: false, null: false
     t.boolean "delivery", default: true, null: false
+    t.string "languages", array: true
     t.index ["account_id", "target_account_id"], name: "index_follows_on_account_id_and_target_account_id", unique: true
     t.index ["target_account_id"], name: "index_follows_on_target_account_id"
   end

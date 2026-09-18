@@ -5,6 +5,10 @@ RSpec.describe FollowService, type: :service do
 
   subject { FollowService.new }
 
+  before do
+    allow(LocalNotificationWorker).to receive(:perform_async)
+  end
+
   context 'local account' do
     describe 'locked account' do
       let(:bob) { Fabricate(:user, email: 'bob@example.com', account: Fabricate(:account, locked: true, username: 'bob')).account }
@@ -119,6 +123,47 @@ RSpec.describe FollowService, type: :service do
 
       it 'disables reblogs' do
         expect(sender.muting_reblogs?(bob)).to be false
+      end
+    end
+
+    describe 'languages on a new follow' do
+      let(:bob) { Fabricate(:user, email: 'bob@example.com', account: Fabricate(:account, username: 'bob')).account }
+
+      it 'stores languages on the follow' do
+        subject.call(sender, bob, languages: %w(en ja))
+        expect(Follow.find_by(account: sender, target_account: bob).languages).to match_array %w(en ja)
+      end
+    end
+
+    describe 'updating languages on an existing follow' do
+      let(:bob) { Fabricate(:user, email: 'bob@example.com', account: Fabricate(:account, username: 'bob')).account }
+
+      before do
+        sender.follow!(bob, languages: %w(en))
+      end
+
+      it 'updates languages when a new list is given' do
+        subject.call(sender, bob, languages: %w(ja))
+        expect(Follow.find_by(account: sender, target_account: bob).languages).to eq %w(ja)
+      end
+
+      it 'keeps languages when the option is omitted' do
+        subject.call(sender, bob, notify: true)
+        expect(Follow.find_by(account: sender, target_account: bob).languages).to eq %w(en)
+      end
+
+      it 'clears the restriction when an empty array is given' do
+        subject.call(sender, bob, languages: [])
+        expect(Follow.find_by(account: sender, target_account: bob).languages).to eq []
+      end
+    end
+
+    describe 'languages on a pending follow request' do
+      let(:bob) { Fabricate(:user, email: 'bob@example.com', account: Fabricate(:account, locked: true, username: 'bob')).account }
+
+      it 'stores languages on the follow request' do
+        subject.call(sender, bob, languages: %w(en ja))
+        expect(FollowRequest.find_by(account: sender, target_account: bob).languages).to match_array %w(en ja)
       end
     end
   end

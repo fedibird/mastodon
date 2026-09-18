@@ -37,6 +37,28 @@ RSpec.describe Follow, type: :model do
       expect(subject).to be_valid
       expect(subject).to_not model_have_error_on_field(:base)
     end
+
+    it 'persists languages to the database' do
+      follow = Follow.create!(account: alice, target_account: bob, languages: %w(en ja))
+
+      expect(follow.reload.languages).to eq %w(en ja)
+    end
+
+    it 'is valid with no language restriction' do
+      follow = Follow.new(account: alice, target_account: bob, languages: nil)
+      expect(follow).to be_valid
+    end
+
+    it 'is valid with an empty languages array' do
+      follow = Follow.new(account: alice, target_account: bob, languages: [])
+      expect(follow).to be_valid
+    end
+
+    it 'is invalid with an unknown language' do
+      follow = Follow.new(account: alice, target_account: bob, languages: ['zz-invalid'])
+      follow.valid?
+      expect(follow).to model_have_error_on_field(:languages)
+    end
   end
 
   describe 'recent' do
@@ -65,6 +87,14 @@ RSpec.describe Follow, type: :model do
     it 'creates a follow request' do
       follow.revoke_request!
       expect(account.requested?(target_account)).to be true
+    end
+
+    it 'preserves languages on the follow request' do
+      follow.update!(languages: %w(en ja))
+      follow.revoke_request!
+
+      request = FollowRequest.find_by(account: account, target_account: target_account)
+      expect(request.languages).to match_array %w(en ja)
     end
   end
 end

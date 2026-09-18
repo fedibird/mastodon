@@ -58,6 +58,7 @@ describe Api::V1::Accounts::RelationshipsController do
         expect(json.first[:requested]).to be false
         expect(json.first[:requested_by]).to be false
         expect(json.first[:domain_blocking]).to be false
+        expect(json.first[:languages]).to be_nil
 
         expect(json.second[:id]).to eq lewis.id.to_s
         expect(json.second[:following]).to be false
@@ -142,6 +143,46 @@ describe Api::V1::Accounts::RelationshipsController do
 
         get :index, params: { id: [simon.id] }
         expect(body_as_json.first[:requested_by]).to be false
+      end
+    end
+
+    context 'with follow languages' do
+      let(:target) { Fabricate(:account, username: 'nina') }
+
+      it 'returns languages for an established follow' do
+        user.account.follow!(target, languages: %w(en ja))
+
+        get :index, params: { id: [target.id] }
+
+        expect(body_as_json.first[:languages]).to match_array %w(en ja)
+      end
+
+      it 'returns languages for a pending follow request' do
+        user.account.request_follow!(target, languages: ['ja'])
+
+        get :index, params: { id: [target.id] }
+
+        json = body_as_json
+
+        expect(json.first[:requested]).to be true
+        expect(json.first[:languages]).to eq ['ja']
+      end
+
+      it 'returns null languages when there is no restriction' do
+        get :index, params: { id: [simon.id] }
+        expect(body_as_json.first[:languages]).to be_nil
+      end
+
+      it 'invalidates cached languages after the follow is updated' do
+        user.account.follow!(target, languages: ['en'])
+
+        get :index, params: { id: [target.id] }
+        expect(body_as_json.first[:languages]).to eq ['en']
+
+        user.account.follow!(target, languages: ['ja'])
+
+        get :index, params: { id: [target.id] }
+        expect(body_as_json.first[:languages]).to eq ['ja']
       end
     end
   end
