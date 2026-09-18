@@ -55,11 +55,27 @@ RSpec.describe ReportService, type: :service do
       expect(report).to be_spam
     end
 
+    it 'stores legal as legal without rule ids' do
+      report = subject.call(source_account, target_account, category: 'legal')
+
+      expect(report).to be_legal
+      expect(report.rule_ids).to be_blank
+    end
+
     it 'forces rule ids to violation even when spam is requested' do
       rule = Fabricate(:rule, deleted_at: nil, priority: 0)
       report = subject.call(source_account, target_account, category: 'spam', rule_ids: [rule.id])
 
       expect(report).to be_violation
+      expect(report.rule_ids).to eq [rule.id]
+    end
+
+    it 'forces rule ids to violation even when legal is requested' do
+      rule = Fabricate(:rule, deleted_at: nil, priority: 0)
+      report = subject.call(source_account, target_account, category: 'legal', rule_ids: [rule.id])
+
+      expect(report).to be_violation
+      expect(report).to_not be_legal
       expect(report.rule_ids).to eq [rule.id]
     end
   end

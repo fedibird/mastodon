@@ -52,6 +52,42 @@ RSpec.describe Api::V1::ReportsController, type: :controller do
       end
     end
 
+    context 'with legal category' do
+      it 'creates a legal report without rule ids' do
+        post :create, params: {
+          account_id: status.account.id,
+          status_ids: [status.id],
+          category: 'legal',
+          comment: 'legal reason',
+        }
+
+        report = status.account.targeted_reports.last
+
+        expect(response).to have_http_status(200)
+        expect(report).to be_legal
+        expect(report.rule_ids).to be_blank
+      end
+    end
+
+    context 'with legal category and rule ids' do
+      let!(:rule) { Fabricate(:rule, deleted_at: nil, priority: 0) }
+
+      it 'forces the category to violation' do
+        post :create, params: {
+          account_id: status.account.id,
+          category: 'legal',
+          rule_ids: [rule.id],
+        }
+
+        report = status.account.targeted_reports.last
+
+        expect(response).to have_http_status(200)
+        expect(report).to be_violation
+        expect(report).to_not be_legal
+        expect(report.rule_ids).to eq [rule.id]
+      end
+    end
+
     context 'with violation and a valid rule' do
       let!(:rule) { Fabricate(:rule, deleted_at: nil, priority: 0) }
 
