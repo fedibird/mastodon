@@ -8,7 +8,7 @@ class Api::V1::Admin::DomainAllowsController < Api::BaseController
 
   before_action -> { doorkeeper_authorize! :'admin:read', :'admin:read:domain_allows' }, only: [:index, :show]
   before_action -> { doorkeeper_authorize! :'admin:write', :'admin:write:domain_allows' }, except: [:index, :show]
-  before_action :require_staff!
+  include ::Admin::PermissionsConcern
   before_action :set_domain_allows, only: :index
   before_action :set_domain_allow, only: [:show, :destroy]
 

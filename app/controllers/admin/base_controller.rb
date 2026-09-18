@@ -4,10 +4,10 @@ module Admin
   class BaseController < ApplicationController
     include Authorization
     include AccountableConcern
+    include ::Admin::PermissionsConcern
 
     layout 'admin'
 
-    before_action :require_staff!
     before_action :set_body_classes
 
     private

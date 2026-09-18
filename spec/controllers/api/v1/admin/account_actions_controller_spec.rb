@@ -54,4 +54,32 @@ RSpec.describe Api::V1::Admin::AccountActionsController, type: :controller do
       expect(log_item.target_id).to eq account.user.id
     end
   end
+
+  describe 'disabled staff' do
+    before { user.disable! }
+
+    it 'forbids a disabled moderator from creating account actions' do
+      post :create, params: { account_id: account.id, type: 'disable' }, format: :json
+      expect(response).to have_http_status(403)
+      expect(account.reload.user_disabled?).to be false
+    end
+
+    context 'as a disabled admin' do
+      let(:role) { 'admin' }
+
+      it 'forbids a disabled admin with admin:write from creating account actions' do
+        post :create, params: { account_id: account.id, type: 'disable' }, format: :json
+        expect(response).to have_http_status(403)
+      end
+    end
+
+    context 'with admin:write:accounts scope' do
+      let(:scopes) { 'admin:write:accounts' }
+
+      it 'forbids a disabled moderator with a granular write token' do
+        post :create, params: { account_id: account.id, type: 'disable' }, format: :json
+        expect(response).to have_http_status(403)
+      end
+    end
+  end
 end

@@ -8,7 +8,7 @@ class Api::V1::Admin::ReportsController < Api::BaseController
 
   before_action -> { doorkeeper_authorize! :'admin:read', :'admin:read:reports' }, only: [:index, :show]
   before_action -> { doorkeeper_authorize! :'admin:write', :'admin:write:reports' }, except: [:index, :show]
-  before_action :require_staff!
+  include ::Admin::PermissionsConcern
   before_action :set_reports, only: :index
   before_action :set_report, except: :index
 

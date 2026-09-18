@@ -16,9 +16,33 @@ RSpec.describe AccountPolicy do
       end
     end
 
+    context 'enabled moderator' do
+      let(:moderator) { Fabricate(:user, moderator: true).account }
+
+      it 'permits' do
+        expect(subject).to permit(moderator)
+      end
+    end
+
     context 'not staff' do
       it 'denies' do
         expect(subject).to_not permit(john)
+      end
+    end
+
+    context 'disabled admin' do
+      let(:disabled_admin) { Fabricate(:user, admin: true, disabled: true).account }
+
+      it 'denies' do
+        expect(subject).to_not permit(disabled_admin)
+      end
+    end
+
+    context 'disabled moderator' do
+      let(:disabled_moderator) { Fabricate(:user, moderator: true, disabled: true).account }
+
+      it 'denies' do
+        expect(subject).to_not permit(disabled_moderator)
       end
     end
   end

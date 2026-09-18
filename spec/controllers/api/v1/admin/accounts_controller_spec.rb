@@ -162,4 +162,32 @@ RSpec.describe Api::V1::Admin::AccountsController, type: :controller do
       expect(account.reload.silenced?).to be false
     end
   end
+
+  describe 'disabled staff' do
+    before { user.disable! }
+
+    it 'forbids a disabled moderator from reading accounts' do
+      get :index, format: :json
+      expect(response).to have_http_status(403)
+    end
+
+    it 'forbids a disabled moderator from writing accounts' do
+      post :unsilence, params: { id: account.id }, format: :json
+      expect(response).to have_http_status(403)
+    end
+
+    context 'as a disabled admin' do
+      let(:role) { 'admin' }
+
+      it 'forbids reading accounts with a valid admin token' do
+        get :index, format: :json
+        expect(response).to have_http_status(403)
+      end
+
+      it 'forbids writing accounts with a valid admin token' do
+        post :unsilence, params: { id: account.id }, format: :json
+        expect(response).to have_http_status(403)
+      end
+    end
+  end
 end
