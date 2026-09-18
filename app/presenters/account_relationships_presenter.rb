@@ -2,7 +2,7 @@
 
 class AccountRelationshipsPresenter
   attr_reader :following, :showing_reblogs, :notifying, :delivery_following, :followed_by, :subscribing, :blocking, :blocked_by,
-              :muting, :muting_notifications, :requested, :domain_blocking,
+              :muting, :muting_notifications, :requested, :requested_by, :domain_blocking,
               :endorsed, :account_note
 
   def initialize(account_ids, current_account_id, **options)
@@ -20,6 +20,7 @@ class AccountRelationshipsPresenter
     @muting               = cached[:muting]
     @muting_notifications = cached[:muting_notifications]
     @requested            = cached[:requested]
+    @requested_by         = cached[:requested_by]
     @domain_blocking      = cached[:domain_blocking]
     @endorsed             = cached[:endorsed]
     @account_note         = cached[:account_note]
@@ -37,6 +38,7 @@ class AccountRelationshipsPresenter
         (select string_agg(target_account_id::text, ',') from (select target_account_id from followings where notify union all select target_account_id from follow_requesteds where notify) a) as notifying,
         (select string_agg(target_account_id::text, ',') from (select target_account_id from followings where delivery union all select target_account_id from follow_requesteds where delivery) a) as delivery_following,
         (select string_agg(target_account_id::text, ',') from follow_requesteds) as requested,
+        (select string_agg(account_id::text, ',') from follow_requests where target_account_id = :current_account_id and account_id in (:account_ids)) as requested_by,
         (select string_agg(account_id::text, ',') from follows where target_account_id = :current_account_id and account_id in (:account_ids)) as followed_by,
         (select json_object_agg(list.target_account_id, list.val)
           from (select target_account_id, json_object_agg(lists.id, lists.reblogs) as val from subscribe_lists as lists group by target_account_id) as list) as subscribing,
@@ -61,6 +63,7 @@ class AccountRelationshipsPresenter
       @muting.merge!(mapping_from_string(result['muting']))
       @muting_notifications.merge!(mapping_from_string(result['muting_notifications']))
       @requested.merge!(mapping_from_string(result['requested']))
+      @requested_by.merge!(mapping_from_string(result['requested_by']))
       @domain_blocking.merge!(mapping_from_string(result['domain_blocking']))
       @endorsed.merge!(mapping_from_string(result['endorsed']))
       @account_note.merge!(mapping_from_json(result['account_note']))
@@ -78,6 +81,7 @@ class AccountRelationshipsPresenter
     @blocked_by.merge!(options[:blocked_by_map] || {})
     @muting.merge!(options[:muting_map] || {})
     @requested.merge!(options[:requested_map] || {})
+    @requested_by.merge!(options[:requested_by_map] || {})
     @domain_blocking.merge!(options[:domain_blocking_map] || {})
     @endorsed.merge!(options[:endorsed_map] || {})
     @account_note.merge!(options[:account_note_map] || {})
@@ -116,6 +120,7 @@ class AccountRelationshipsPresenter
       muting: {},
       muting_notifications: {},
       requested: {},
+      requested_by: {},
       domain_blocking: {},
       endorsed: {},
       account_note: {},
@@ -150,6 +155,7 @@ class AccountRelationshipsPresenter
         muting:               { account_id => muting[account_id] },
         muting_notifications: { account_id => muting_notifications[account_id] },
         requested:            { account_id => requested[account_id] },
+        requested_by:         { account_id => requested_by[account_id] },
         domain_blocking:      { account_id => domain_blocking[account_id] },
         endorsed:             { account_id => endorsed[account_id] },
         account_note:         { account_id => account_note[account_id] },

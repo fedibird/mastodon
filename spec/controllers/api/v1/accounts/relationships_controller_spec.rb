@@ -56,6 +56,7 @@ describe Api::V1::Accounts::RelationshipsController do
         expect(json.first[:followed_by]).to be false
         expect(json.first[:muting]).to be false
         expect(json.first[:requested]).to be false
+        expect(json.first[:requested_by]).to be false
         expect(json.first[:domain_blocking]).to be false
 
         expect(json.second[:id]).to eq lewis.id.to_s
@@ -64,6 +65,7 @@ describe Api::V1::Accounts::RelationshipsController do
         expect(json.second[:followed_by]).to be true
         expect(json.second[:muting]).to be false
         expect(json.second[:requested]).to be false
+        expect(json.second[:requested_by]).to be false
         expect(json.second[:domain_blocking]).to be false
       end
 
@@ -87,6 +89,59 @@ describe Api::V1::Accounts::RelationshipsController do
         expect(json).to be_a Enumerable
         expect(json.first[:following]).to be false
         expect(json.first[:showing_reblogs]).to be false
+      end
+    end
+
+    context 'with follow requests' do
+      let(:target) { Fabricate(:account, username: 'nina') }
+
+      it 'returns requested_by for an incoming follow request' do
+        Fabricate(:follow_request, account: simon, target_account: user.account)
+
+        get :index, params: { id: [simon.id] }
+
+        json = body_as_json
+
+        expect(json.first[:requested_by]).to be true
+        expect(json.first[:requested]).to be false
+        expect(json.first[:followed_by]).to be false
+      end
+
+      it 'returns requested for an outgoing follow request' do
+        Fabricate(:follow_request, account: user.account, target_account: target)
+
+        get :index, params: { id: [target.id] }
+
+        json = body_as_json
+
+        expect(json.first[:requested]).to be true
+        expect(json.first[:requested_by]).to be false
+      end
+
+      it 'invalidates cached requested_by when an incoming follow request is created' do
+        get :index, params: { id: [simon.id] }
+        expect(body_as_json.first[:requested_by]).to be false
+
+        Fabricate(:follow_request, account: simon, target_account: user.account)
+
+        get :index, params: { id: [simon.id] }
+
+        json = body_as_json
+
+        expect(json.first[:requested_by]).to be true
+        expect(json.first[:followed_by]).to be false
+      end
+
+      it 'invalidates cached requested_by after the follow request is rejected' do
+        follow_request = Fabricate(:follow_request, account: simon, target_account: user.account)
+
+        get :index, params: { id: [simon.id] }
+        expect(body_as_json.first[:requested_by]).to be true
+
+        follow_request.reject!
+
+        get :index, params: { id: [simon.id] }
+        expect(body_as_json.first[:requested_by]).to be false
       end
     end
   end
