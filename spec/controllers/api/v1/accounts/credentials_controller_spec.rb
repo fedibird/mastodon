@@ -18,6 +18,16 @@ describe Api::V1::Accounts::CredentialsController do
         get :show
         expect(response).to have_http_status(200)
       end
+
+      it 'includes source visibility fields' do
+        user.account.update!(hide_collections: true, discoverable: false, indexable: false)
+        get :show
+        source = body_as_json[:source]
+
+        expect(source[:hide_collections]).to be true
+        expect(source[:discoverable]).to be false
+        expect(source[:indexable]).to be false
+      end
     end
 
     describe 'PATCH #update' do
@@ -110,6 +120,27 @@ describe Api::V1::Accounts::CredentialsController do
         patch :update, params: { display_name: 'Alice' }
 
         expect(user.account.reload.hide_collections).to be true
+      end
+    end
+
+    describe 'PATCH #update source visibility fields' do
+      let(:scopes) { 'write:accounts' }
+
+      before { allow(ActivityPub::UpdateDistributionWorker).to receive(:perform_async) }
+
+      it 'returns updated source visibility fields' do
+        user.account.update!(hide_collections: true, discoverable: false, indexable: false)
+
+        patch :update, params: {
+          hide_collections: false,
+          discoverable: true,
+          indexable: true,
+        }, as: :json
+
+        source = body_as_json[:source]
+        expect(source[:hide_collections]).to be false
+        expect(source[:discoverable]).to be true
+        expect(source[:indexable]).to be true
       end
     end
   end
