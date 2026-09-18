@@ -172,5 +172,31 @@ RSpec.describe Api::V1::ReportsController, type: :controller do
         expect(response).to have_http_status(404)
       end
     end
+
+    context 'with forward_to_domains targeting a replied-to server' do
+      let(:remote_account) { Fabricate(:account, domain: 'example.com', protocol: :activitypub, inbox_url: 'http://example.com/inbox') }
+      let(:remote_thread_account) { Fabricate(:account, domain: 'foo.com', protocol: :activitypub, inbox_url: 'http://foo.com/inbox') }
+      let!(:reported_status) { Fabricate(:status, account: remote_account, thread: Fabricate(:status, account: remote_thread_account)) }
+
+      before do
+        stub_request(:post, 'http://example.com/inbox').to_return(status: 200)
+        stub_request(:post, 'http://foo.com/inbox').to_return(status: 200)
+      end
+
+      it 'forwards only to the selected domain' do
+        post :create, params: {
+          account_id: remote_account.id,
+          status_ids: [reported_status.id],
+          comment: 'reasons',
+          forward: true,
+          forward_to_domains: ['foo.com'],
+        }
+
+        expect(response).to have_http_status(200)
+        expect(a_request(:post, 'http://example.com/inbox')).to_not have_been_made
+        expect(a_request(:post, 'http://foo.com/inbox')).to have_been_made.once
+        expect(remote_account.targeted_reports.last.forwarded).to be false
+      end
+    end
   end
 end
