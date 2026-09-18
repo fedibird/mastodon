@@ -4,7 +4,7 @@ class REST::AccountSerializer < ActiveModel::Serializer
   include RoutingHelper
 
   attributes :id, :username, :acct, :display_name, :locked, :bot, :cat, :discoverable, :group, :created_at,
-             :note, :url, :avatar, :avatar_static, :header, :header_static, :searchability,
+             :note, :url, :uri, :avatar, :avatar_static, :header, :header_static, :searchability,
              :followers_count, :following_count, :subscribing_count, :statuses_count, :last_status_at,
              :avatar_thumbhash, :header_thumbhash, :other_settings, :moved_acct
 
@@ -52,6 +52,10 @@ class REST::AccountSerializer < ActiveModel::Serializer
 
   def url
     ActivityPub::TagManager.instance.url_for(object)
+  end
+
+  def uri
+    ActivityPub::TagManager.instance.uri_for(object)
   end
 
   def avatar
