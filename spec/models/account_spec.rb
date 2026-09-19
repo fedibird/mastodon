@@ -817,4 +817,38 @@ RSpec.describe Account, type: :model do
       expect(subject.reload.followers_count).to eq 15
     end
   end
+
+  describe '#suspend! and #unsuspend! canonical email blocks' do
+    let(:local_user) { Fabricate(:user, email: 'owner@example.com') }
+    let(:account)    { local_user.account }
+
+    it 'creates an account-linked block on suspend' do
+      expect { account.suspend! }.to change(CanonicalEmailBlock, :count).by(1)
+      block = CanonicalEmailBlock.find_by(reference_account: account)
+      expect(block).to be_present
+      expect(block.canonical_email_hash).to eq CanonicalEmailBlock.new.tap { |item| item.email = 'owner@example.com' }.canonical_email_hash
+    end
+
+    it 'removes the linked block on unsuspend' do
+      account.suspend!
+      expect { account.unsuspend! }.to change(CanonicalEmailBlock, :count).by(-1)
+      expect(CanonicalEmailBlock.find_by(reference_account: account)).to be_nil
+    end
+
+    it 'does not create a block when block_email is false' do
+      expect { account.suspend!(block_email: false) }.to_not change(CanonicalEmailBlock, :count)
+    end
+
+    it 'keeps a manual block through suspend and unsuspend' do
+      manual = CanonicalEmailBlock.create!(email: 'owner@example.com')
+      expect(manual.reference_account_id).to be_nil
+
+      expect { account.suspend! }.to_not change(CanonicalEmailBlock, :count)
+      expect(CanonicalEmailBlock.find_by(id: manual.id)).to eq manual
+      expect(CanonicalEmailBlock.where(reference_account: account)).to be_empty
+
+      account.unsuspend!
+      expect(CanonicalEmailBlock.find_by(id: manual.id)).to eq manual
+    end
+  end
 end

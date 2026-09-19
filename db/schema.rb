@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_19_120000) do
+ActiveRecord::Schema.define(version: 2026_09_19_180000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -309,7 +309,7 @@ ActiveRecord::Schema.define(version: 2026_09_19_120000) do
 
   create_table "canonical_email_blocks", force: :cascade do |t|
     t.string "canonical_email_hash", default: "", null: false
-    t.bigint "reference_account_id", null: false
+    t.bigint "reference_account_id"
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.index ["canonical_email_hash"], name: "index_canonical_email_blocks_on_canonical_email_hash", unique: true
