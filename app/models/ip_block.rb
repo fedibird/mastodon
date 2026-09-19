@@ -20,6 +20,7 @@ class IpBlock < ApplicationRecord
   CACHE_KEY = 'blocked_ips'
 
   include Expireable
+  include Paginable
 
   enum severity: {
     sign_up_requires_approval: 5000,
