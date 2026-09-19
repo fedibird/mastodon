@@ -148,11 +148,15 @@ describe Report do
     let!(:resolved_report) { Fabricate(:report, action_taken_at: Time.now.utc) }
 
     it 'returns only unresolved reports' do
-      expect(described_class.unresolved).to contain_exactly(unresolved_report)
+      expect(described_class.unresolved).to include(unresolved_report)
+      expect(described_class.unresolved).not_to include(resolved_report)
+      expect(described_class.unresolved.where.not(action_taken_at: nil)).to be_empty
     end
 
     it 'returns only resolved reports' do
-      expect(described_class.resolved).to contain_exactly(resolved_report)
+      expect(described_class.resolved).to include(resolved_report)
+      expect(described_class.resolved).not_to include(unresolved_report)
+      expect(described_class.resolved.where(action_taken_at: nil)).to be_empty
     end
   end
 

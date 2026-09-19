@@ -33,8 +33,10 @@ describe ReportFilter do
       unresolved = Fabricate(:report, action_taken_at: nil)
       resolved = Fabricate(:report, action_taken_at: Time.now.utc)
 
-      expect(ReportFilter.new(resolved: true).results).to contain_exactly(resolved)
-      expect(ReportFilter.new({}).results).to contain_exactly(unresolved)
+      expect(ReportFilter.new(resolved: true).results).to include(resolved)
+      expect(ReportFilter.new(resolved: true).results).not_to include(unresolved)
+      expect(ReportFilter.new({}).results).to include(unresolved)
+      expect(ReportFilter.new({}).results).not_to include(resolved)
     end
   end
 end

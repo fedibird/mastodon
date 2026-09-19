@@ -7,6 +7,7 @@ describe Admin::ReportNotesController do
 
   before do
     sign_in user, scope: :user
+    stub_webpacker_manifest
   end
 
   describe 'POST #create' do
@@ -86,5 +87,12 @@ describe Admin::ReportNotesController do
       expect { subject }.to change { ReportNote.count }.by(-1)
       expect(subject).to redirect_to admin_report_path(report_note.report)
     end
+  end
+
+  def stub_webpacker_manifest
+    manifest = Webpacker.instance.manifest
+    resolver = ->(name, **opts) { opts[:with_integrity] ? ["/packs-test/#{name}", nil] : "/packs-test/#{name}" }
+    allow(manifest).to receive(:lookup!, &resolver)
+    allow(manifest).to receive(:lookup, &resolver)
   end
 end
