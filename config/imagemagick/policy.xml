@@ -21,8 +21,10 @@
   <policy domain="path" rights="none" pattern="@*" />
 
   <!-- Disallow any coder by default, and only enable ones required by Mastodon -->
-  <!-- Temporarily disable HEIC/HEIF/AVIF (Mastodon 4.7.2 HEIF processing security). -->
   <policy domain="coder" rights="none" pattern="*" />
   <policy domain="coder" rights="read | write" pattern="{PNG,APNG,JPEG,GIF,WEBP,BMP}" />
   <policy domain="coder" rights="write" pattern="{HISTOGRAM,RGB,RGBA,INFO}" />
+
+  <!-- HEIC/HEIF/AVIF are temporarily disabled for security reasons. -->
+  <policy domain="coder" rights="none" pattern="{HEIC,HEIF,AVIF}" />
 </policymap>
