@@ -2,6 +2,7 @@
 
 require 'rails_helper'
 
+# rubocop:disable Metrics/BlockLength
 RSpec.describe HashtagUnification::TagCanonicalizationPlanner do
   subject(:result) { described_class.new(bucket_count: 4, batch_size: 100, mapping_rows_per_query: 100).call }
 
@@ -19,7 +20,7 @@ RSpec.describe HashtagUnification::TagCanonicalizationPlanner do
     status_with_loser_only.tags << loser
 
     now = Time.now.utc
-    FeaturedTag.insert_all!([
+    featured_tags = [
       {
         account_id: account.id,
         tag_id: survivor.id,
@@ -34,7 +35,8 @@ RSpec.describe HashtagUnification::TagCanonicalizationPlanner do
         created_at: now,
         updated_at: now,
       },
-    ])
+    ]
+    FeaturedTag.insert_all!(featured_tags)
 
     FollowTag.create!(account: account, tag: survivor, list_id: nil, media_only: false)
     FollowTag.create!(account: account, tag: loser, list_id: nil, media_only: true)
@@ -92,3 +94,4 @@ RSpec.describe HashtagUnification::TagCanonicalizationPlanner do
     expect(FollowTag.order(:id).pluck(:id, :account_id, :tag_id, :list_id, :media_only)).to eq before_follow_tags
   end
 end
+# rubocop:enable Metrics/BlockLength

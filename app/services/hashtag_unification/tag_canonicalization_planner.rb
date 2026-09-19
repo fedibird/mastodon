@@ -162,7 +162,8 @@ module HashtagUnification
 
       case_insensitive = members.select do |member|
         member[:name].mb_chars.casecmp(canonical_name.mb_chars).zero?
-      end.min_by { |member| member[:id] }
+      end
+      case_insensitive = case_insensitive.min_by { |member| member[:id] }
       return [case_insensitive, :case_insensitive_canonical] if case_insensitive
 
       [members.min_by { |member| member[:id] }, :lowest_id_fallback]
@@ -229,7 +230,7 @@ module HashtagUnification
       key_group = keys.map { |key| connection.quote_column_name(key) }.join(', ')
       media_select = spec[:media_only] ? ', source.media_only' : ''
       media_aggregate = spec[:media_only] ? ', COUNT(DISTINCT media_only) AS media_variants' : ''
-      media_output = spec[:media_only] ? ", COUNT(*) FILTER (WHERE losing_rows > 0 AND media_variants > 1) AS media_only_conflict_relationships" : ''
+      media_output = spec[:media_only] ? ', COUNT(*) FILTER (WHERE losing_rows > 0 AND media_variants > 1) AS media_only_conflict_relationships' : ''
       destination_output = if spec[:destination]
                              <<~SQL.squish
                                , COUNT(*) FILTER (WHERE losing_rows > 0 AND list_id IS NULL) AS home_affected_relationships
