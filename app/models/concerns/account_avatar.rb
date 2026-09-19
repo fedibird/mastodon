@@ -3,8 +3,9 @@
 module AccountAvatar
   extend ActiveSupport::Concern
 
-  IMAGE_MIME_TYPES = %w(image/jpeg image/png image/gif image/webp image/heif image/heic image/avif image/bmp image/vnd.microsoft.icon).freeze
-  IMAGE_CONVERTIBLE_MIME_TYPES = %w(image/heif image/heic image/bmp image/vnd.microsoft.icon).freeze
+  # HEIC/HEIF/AVIF temporarily disabled (Mastodon 4.7.2 HEIF processing security).
+  IMAGE_MIME_TYPES = %w(image/jpeg image/png image/gif image/webp image/bmp image/vnd.microsoft.icon).freeze
+  IMAGE_CONVERTIBLE_MIME_TYPES = %w(image/bmp image/vnd.microsoft.icon).freeze
   IMAGE_ANIMATED_MIME_TYPES = %w(image/png image/gif image/webp).freeze
   LIMIT = 4.megabytes
 

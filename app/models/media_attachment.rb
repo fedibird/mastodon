@@ -47,7 +47,8 @@ class MediaAttachment < ApplicationRecord
   MAX_VIDEO_MATRIX_LIMIT = 8_294_400 # 3840x2160px
   MAX_VIDEO_FRAME_RATE   = 120
 
-  IMAGE_FILE_EXTENSIONS = %w(.jpg .jpeg .png .gif .webp .heic .heif .avif .bmp).freeze
+  # HEIC/HEIF/AVIF temporarily disabled (Mastodon 4.7.2 HEIF processing security).
+  IMAGE_FILE_EXTENSIONS = %w(.jpg .jpeg .png .gif .webp .bmp).freeze
   VIDEO_FILE_EXTENSIONS = %w(.webm .mp4 .m4v .mov).freeze
   AUDIO_FILE_EXTENSIONS = %w(.ogg .oga .mp3 .wav .flac .opus .aac .m4a .3gp .wma).freeze
 
@@ -59,8 +60,8 @@ class MediaAttachment < ApplicationRecord
     tiny
   ).freeze
 
-  IMAGE_MIME_TYPES             = %w(image/jpeg image/png image/gif image/webp image/heif image/heic image/avif image/bmp).freeze
-  IMAGE_CONVERTIBLE_MIME_TYPES = %w(image/heif image/heic image/bmp).freeze
+  IMAGE_MIME_TYPES             = %w(image/jpeg image/png image/gif image/webp image/bmp).freeze
+  IMAGE_CONVERTIBLE_MIME_TYPES = %w(image/bmp).freeze
   VIDEO_MIME_TYPES             = %w(video/webm video/mp4 video/quicktime video/ogg).freeze
   VIDEO_CONVERTIBLE_MIME_TYPES = %w(video/webm video/quicktime).freeze
   AUDIO_MIME_TYPES             = %w(audio/wave audio/wav audio/x-wav audio/x-pn-wave audio/ogg audio/vorbis audio/mpeg audio/mp3 audio/webm audio/flac audio/aac audio/m4a audio/x-m4a audio/mp4 audio/3gpp video/x-ms-asf).freeze

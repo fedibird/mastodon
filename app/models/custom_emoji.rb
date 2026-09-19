@@ -91,9 +91,10 @@ class CustomEmoji < ApplicationRecord
     'https://creativecommons.org/publicdomain/mark/1.0/' => 'PD',
   }
 
-  IMAGE_FILE_EXTENSIONS = %w(.png .gif .webp .jpg .jpeg .heif .heic .avif .bmp).freeze
-  IMAGE_MIME_TYPES = %w(image/png image/gif image/webp image/jpeg image/heif image/heic image/avif image/bmp).freeze
-  IMAGE_CONVERTIBLE_MIME_TYPES = %w(image/jpeg image/heif image/heic image/bmp).freeze
+  # HEIC/HEIF/AVIF temporarily disabled (Mastodon 4.7.2 HEIF processing security).
+  IMAGE_FILE_EXTENSIONS = %w(.png .gif .webp .jpg .jpeg .bmp).freeze
+  IMAGE_MIME_TYPES = %w(image/png image/gif image/webp image/jpeg image/bmp).freeze
+  IMAGE_CONVERTIBLE_MIME_TYPES = %w(image/jpeg image/bmp).freeze
 
   GLOBAL_CONVERT_OPTIONS = {
     all: '+profile "!icc,*" +set modify-date +set create-date -define webp:use-sharp-yuv=1 -define webp:emulate-jpeg-size=true -quality 70',

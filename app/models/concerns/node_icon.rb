@@ -3,8 +3,9 @@
 module NodeIcon
   extend ActiveSupport::Concern
 
-  IMAGE_MIME_TYPES = %w(image/jpeg image/png image/gif image/webp image/heif image/heic image/avif image/vnd.microsoft.icon).freeze
-  IMAGE_CONVERTIBLE_MIME_TYPES = %w(image/heif image/heic image/vnd.microsoft.icon).freeze
+  # HEIC/HEIF/AVIF temporarily disabled (Mastodon 4.7.2 HEIF processing security).
+  IMAGE_MIME_TYPES = %w(image/jpeg image/png image/gif image/webp image/vnd.microsoft.icon).freeze
+  IMAGE_CONVERTIBLE_MIME_TYPES = %w(image/vnd.microsoft.icon).freeze
   LIMIT = 4.megabytes
 
   GLOBAL_CONVERT_OPTIONS = {

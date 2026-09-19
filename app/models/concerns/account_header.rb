@@ -3,8 +3,9 @@
 module AccountHeader
   extend ActiveSupport::Concern
 
-  IMAGE_MIME_TYPES = %w(image/jpeg image/png image/gif image/webp image/heif image/heic image/avif image/bmp).freeze
-  IMAGE_CONVERTIBLE_MIME_TYPES = %w(image/heif image/heic image/bmp).freeze
+  # HEIC/HEIF/AVIF temporarily disabled (Mastodon 4.7.2 HEIF processing security).
+  IMAGE_MIME_TYPES = %w(image/jpeg image/png image/gif image/webp image/bmp).freeze
+  IMAGE_CONVERTIBLE_MIME_TYPES = %w(image/bmp).freeze
   LIMIT = 4.megabytes
   MAX_PIXELS = 750_000 # 1500x500px
 
