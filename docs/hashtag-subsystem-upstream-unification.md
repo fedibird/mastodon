@@ -894,6 +894,71 @@ Pin:
 
 ---
 
+## 11.5 Observed production-scale data (2026-09-19)
+
+The first read-only analysis was run against a production-scale database copy.
+
+### FollowTag shape
+
+Observed:
+
+- 14,550 legacy `follow_tags` rows
+- 14,429 distinct `(account_id, tag_id)` relations
+- 11,194 Home-only relations
+- 3,144 Lists-only relations
+- 91 Home + List relations
+- 30 multi-List relations
+- maximum two destinations per relation
+- zero duplicate destination groups
+- zero `media_only` conflicts
+- zero orphaned account/tag/list references
+
+This confirms that Lists-only hashtag following is a major real-world Fedibird
+use case, not an edge case. A `TagFollow` must therefore never synthesize Home
+delivery implicitly.
+
+The structural migration target is expected to be approximately:
+
+```text
+14,550 FollowTag rows
+    -> 14,429 TagFollow rows
+    -> 14,550 TagFollowDelivery rows
+```
+
+subject to re-verification immediately before backfill.
+
+### Tag canonicalization shape
+
+Observed:
+
+- 7,126,482 Tag rows
+- 617,958 names would change under upstream `HashtagNormalizer`
+- 29,474 canonical collision groups
+- 59,827 Tag rows participate in collisions
+- maximum collision group size: 14
+- therefore 30,353 losing Tag rows if every collision group is reduced to one
+  survivor
+- no `display_name` values had yet been persisted in the analyzed dataset
+
+Collision-participating Tags are referenced by more than 20 million
+`statuses_tags` rows. That number is intentionally **not** treated as the
+number of rows that must be rewritten: it includes references already attached
+to the eventual survivor Tag.
+
+Before the destructive migration is designed, a second read-only planner must
+select the deterministic survivor for every group and separately measure:
+
+- references already on the survivor
+- losing references that can be repointed
+- resulting unique-key collisions that must be deduplicated
+- FeaturedTag relationships requiring recount
+- FollowTag/TagFollow destination merges and `media_only` conflicts
+
+This planner is the U0.1 step between the broad collision analyzer and the
+write migration.
+
+---
+
 ## 12. Proposed PR / deployment decomposition
 
 Keep individual changes reviewable even though they belong to one coordinated
