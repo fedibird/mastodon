@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe 'Temporarily disabled HEIC/HEIF/AVIF' do
+RSpec.describe 'Temporarily disabled HEIC/HEIF/AVIF' do # rubocop:disable Metrics/BlockLength
   let(:disabled_mime_types) { %w(image/heic image/heif image/avif) }
   let(:disabled_extensions) { %w(.heic .heif .avif) }
   let(:enabled_image_mime_types) { %w(image/jpeg image/png image/gif image/webp image/bmp) }
@@ -73,16 +73,18 @@ RSpec.describe 'Temporarily disabled HEIC/HEIF/AVIF' do
     end
 
     it 'does not advertise HEIC, HEIF, or AVIF from REST::InstanceSerializer' do
-      mime_types = serialize(InstancePresenter.new, REST::InstanceSerializer)
-        .dig('configuration', 'media_attachments', 'supported_mime_types')
+      mime_types = serialize(InstancePresenter.new, REST::InstanceSerializer).dig(
+        'configuration', 'media_attachments', 'supported_mime_types'
+      )
 
       expect(mime_types).not_to include(*disabled_mime_types)
       expect(mime_types).to include(*enabled_image_mime_types)
     end
 
     it 'does not advertise HEIC, HEIF, or AVIF from REST::V1::InstanceSerializer' do
-      mime_types = serialize(InstancePresenter.new, REST::V1::InstanceSerializer)
-        .dig('configuration', 'media_attachments', 'supported_mime_types')
+      mime_types = serialize(InstancePresenter.new, REST::V1::InstanceSerializer).dig(
+        'configuration', 'media_attachments', 'supported_mime_types'
+      )
 
       expect(mime_types).not_to include(*disabled_mime_types)
       expect(mime_types).to include(*enabled_image_mime_types)
