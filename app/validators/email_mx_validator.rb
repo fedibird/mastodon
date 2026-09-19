@@ -15,7 +15,7 @@ class EmailMxValidator < ActiveModel::Validator
 
       if ips.empty?
         user.errors.add(:email, :unreachable)
-      elsif on_blacklist?(hostnames + ips)
+      elsif on_blacklist?(hostnames, ips, user.sign_up_ip)
         user.errors.add(:email, :blocked)
       end
     end
@@ -57,7 +57,15 @@ class EmailMxValidator < ActiveModel::Validator
     [ips, hostnames]
   end
 
-  def on_blacklist?(values)
-    EmailDomainBlock.where(domain: values.uniq).any?
+  def on_blacklist?(hostnames, ips, attempt_ip)
+    EmailDomainBlock.block?(hostnames, attempt_ip: attempt_ip) || blocked_ip?(ips, attempt_ip)
+  end
+
+  def blocked_ip?(ips, attempt_ip)
+    return false if ips.blank?
+
+    blocks = EmailDomainBlock.where(domain: ips.uniq)
+    blocks.each { |block| block.history.add(attempt_ip) } if attempt_ip.present?
+    blocks.any?
   end
 end
