@@ -209,6 +209,7 @@ en:
         severities:
           no_access: Block access to all resources
           sign_up_requires_approval: New sign-ups will require your approval
+          sign_up_block: New sign-ups will not be possible
         severity: Choose what will happen with requests from this IP
       keyword_subscribe:
         exclude_keyword: List multiple excluded keywords separated by commas (or use regular expressions)
@@ -480,6 +481,7 @@ en:
         severities:
           no_access: Block access
           sign_up_requires_approval: Limit sign-ups
+          sign_up_block: Block sign-ups
         severity: Rule
       keyword_subscribe:
         disabled: Temporarily disable subscription

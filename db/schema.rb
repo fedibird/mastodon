@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_18_120000) do
+ActiveRecord::Schema.define(version: 2026_09_18_220000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -816,6 +816,7 @@ ActiveRecord::Schema.define(version: 2026_09_18_120000) do
     t.inet "ip", default: "0.0.0.0", null: false
     t.integer "severity", default: 0, null: false
     t.text "comment", default: "", null: false
+    t.index ["ip"], name: "index_ip_blocks_on_ip", unique: true
   end
 
   create_table "keyword_subscribes", force: :cascade do |t|

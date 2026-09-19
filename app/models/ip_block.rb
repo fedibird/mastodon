@@ -11,6 +11,10 @@
 #  severity   :integer          default(NULL), not null
 #  comment    :text             default(""), not null
 #
+# Indexes
+#
+#  index_ip_blocks_on_ip  (ip) UNIQUE
+#
 
 class IpBlock < ApplicationRecord
   CACHE_KEY = 'blocked_ips'
@@ -19,12 +23,18 @@ class IpBlock < ApplicationRecord
 
   enum severity: {
     sign_up_requires_approval: 5000,
+    sign_up_block: 5500,
     no_access: 9999,
   }
 
   validates :ip, :severity, presence: true
+  validates :ip, uniqueness: true
 
   after_commit :reset_cache
+
+  def to_log_human_identifier
+    "#{ip}/#{ip.prefix}"
+  end
 
   class << self
     def blocked?(remote_ip)
