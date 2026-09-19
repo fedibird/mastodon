@@ -38,5 +38,33 @@ describe ReportFilter do
       expect(ReportFilter.new({}).results).to include(unresolved)
       expect(ReportFilter.new({}).results).not_to include(resolved)
     end
+
+    it 'returns timestamp-resolved reports when resolved is 1' do
+      unresolved = Fabricate(:report, action_taken_at: nil)
+      resolved = Fabricate(:report, action_taken_at: Time.now.utc)
+
+      expect(ReportFilter.new(resolved: '1').results).to include(resolved)
+      expect(ReportFilter.new(resolved: '1').results).not_to include(unresolved)
+    end
+
+    it 'combines resolved with account_id and target_account_id' do
+      reporter = Fabricate(:account)
+      target = Fabricate(:account)
+      matching = Fabricate(:report, account: reporter, target_account: target, action_taken_at: Time.now.utc)
+      other_account = Fabricate(:report, target_account: target, action_taken_at: Time.now.utc)
+      other_target = Fabricate(:report, account: reporter, action_taken_at: Time.now.utc)
+      unresolved_match = Fabricate(:report, account: reporter, target_account: target, action_taken_at: nil)
+
+      results = ReportFilter.new(
+        resolved: true,
+        account_id: reporter.id,
+        target_account_id: target.id
+      ).results
+
+      expect(results).to include(matching)
+      expect(results).not_to include(other_account)
+      expect(results).not_to include(other_target)
+      expect(results).not_to include(unresolved_match)
+    end
   end
 end

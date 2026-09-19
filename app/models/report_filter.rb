@@ -16,12 +16,10 @@ class ReportFilter
   end
 
   def results
-    scope = params[:resolved].present? ? Report.resolved : Report.unresolved
+    scope = Report.unresolved
 
     params.each do |key, value|
-      next if key.to_s == 'resolved'
-
-      scope = scope.merge scope_for(key, value)
+      scope = scope.merge scope_for(key, value), rewhere: true
     end
 
     scope
