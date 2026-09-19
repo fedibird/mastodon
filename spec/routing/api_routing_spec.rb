@@ -247,6 +247,43 @@ describe 'API routes' do
     end
   end
 
+  describe 'Admin Canonical Email Block routes' do
+    it 'routes to index' do
+      expect(get('/api/v1/admin/canonical_email_blocks')).
+        to route_to('api/v1/admin/canonical_email_blocks#index')
+    end
+
+    it 'routes to show' do
+      expect(get('/api/v1/admin/canonical_email_blocks/1')).
+        to route_to('api/v1/admin/canonical_email_blocks#show', id: '1')
+    end
+
+    it 'routes to create' do
+      expect(post('/api/v1/admin/canonical_email_blocks')).
+        to route_to('api/v1/admin/canonical_email_blocks#create')
+    end
+
+    it 'routes to test' do
+      expect(post('/api/v1/admin/canonical_email_blocks/test')).
+        to route_to('api/v1/admin/canonical_email_blocks#test')
+    end
+
+    it 'routes to destroy' do
+      expect(delete('/api/v1/admin/canonical_email_blocks/1')).
+        to route_to('api/v1/admin/canonical_email_blocks#destroy', id: '1')
+    end
+
+    it 'does not expose update via PUT' do
+      expect(put('/api/v1/admin/canonical_email_blocks/1')).
+        to route_to(controller: 'application', action: 'raise_not_found', unmatched_route: 'api/v1/admin/canonical_email_blocks/1')
+    end
+
+    it 'does not expose update via PATCH' do
+      expect(patch('/api/v1/admin/canonical_email_blocks/1')).
+        to route_to(controller: 'application', action: 'raise_not_found', unmatched_route: 'api/v1/admin/canonical_email_blocks/1')
+    end
+  end
+
   describe 'Admin Email Domain Block routes' do
     it 'routes to index' do
       expect(get('/api/v1/admin/email_domain_blocks')).

@@ -372,6 +372,53 @@ RSpec.describe User, type: :model do
     end
   end
 
+  describe 'canonical email blocks during user updates' do
+    around do |example|
+      ClimateControl.modify EMAIL_DOMAIN_LISTS_APPLY_AFTER_CONFIRMATION: 'true' do
+        example.run
+      end
+    end
+
+    before do
+      allow(UserMailer).to receive(:welcome).and_return(double(deliver_later: nil))
+      allow(BootstrapTimelineWorker).to receive(:perform_async)
+    end
+
+    it 'allows disabling a user whose email is canonically blocked' do
+      user = Fabricate(:user, email: 'blocked-disable@example.com')
+      CanonicalEmailBlock.create!(email: user.email)
+
+      expect { user.disable! }.not_to raise_error
+      expect(user.reload.disabled?).to be true
+    end
+
+    it 'allows approving a pending user whose email is canonically blocked' do
+      user = Fabricate(:user, email: 'blocked-approve@example.com', approved: false)
+      CanonicalEmailBlock.create!(email: user.email)
+
+      expect { user.approve! }.not_to raise_error
+      expect(user.reload.approved?).to be true
+    end
+
+    it 'still rejects changing an existing user email to a blocked address' do
+      user = Fabricate(:user, email: 'safe@example.com')
+      CanonicalEmailBlock.create!(email: 'blocked-change@example.com')
+
+      user.email = 'blocked-change@example.com'
+
+      expect(user).not_to be_valid
+      expect(user.errors[:email]).to be_present
+    end
+
+    it 'still rejects signup with a canonically blocked email' do
+      CanonicalEmailBlock.create!(email: 'blocked-signup@example.com')
+      user = User.new(email: 'blocked-signup@example.com', account: account, password: password, agreement: true)
+
+      expect(user).not_to be_valid
+      expect(user.errors[:email]).to be_present
+    end
+  end
+
   describe '#enable!' do
     subject(:user) { Fabricate(:user, disabled: true) }
 

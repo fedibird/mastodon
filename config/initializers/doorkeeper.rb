@@ -104,6 +104,7 @@ Doorkeeper.configure do
                   :'admin:read:domain_allows',
                   :'admin:read:domain_blocks',
                   :'admin:read:email_domain_blocks',
+                  :'admin:read:canonical_email_blocks',
                   :'admin:read:ip_blocks',
                   :'admin:write',
                   :'admin:write:accounts',
@@ -111,6 +112,7 @@ Doorkeeper.configure do
                   :'admin:write:domain_allows',
                   :'admin:write:domain_blocks',
                   :'admin:write:email_domain_blocks',
+                  :'admin:write:canonical_email_blocks',
                   :'admin:write:ip_blocks',
                   :crypto
 

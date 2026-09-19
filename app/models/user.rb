@@ -91,7 +91,7 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
 
   validates :email, presence: true, email_address: true
 
-  validates_with BlacklistedEmailValidator, if: -> { ENV['EMAIL_DOMAIN_LISTS_APPLY_AFTER_CONFIRMATION'] == 'true' || !confirmed? }
+  validates_with BlacklistedEmailValidator, if: -> { (ENV['EMAIL_DOMAIN_LISTS_APPLY_AFTER_CONFIRMATION'] == 'true' || !confirmed?) && will_save_change_to_email? }
   validates_with EmailMxValidator, if: :validate_email_dns?
   validates :agreement, acceptance: { allow_nil: false, accept: [true, 'true', '1'] }, on: :create
   validates :setting_max_frequently_used_emojis, numericality: { greater_than_or_equal_to: 1, less_than_or_equal_to: CustomEmoji::FREQUENTLY_USED_EMOJIS_LIMIT }

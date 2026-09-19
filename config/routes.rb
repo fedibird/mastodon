@@ -673,6 +673,11 @@ Rails.application.routes.draw do
         resources :domain_allows, only: [:index, :show, :create, :destroy]
         resources :domain_blocks, only: [:index, :show, :create, :update, :destroy]
         resources :email_domain_blocks, only: [:index, :show, :create, :destroy]
+        resources :canonical_email_blocks, only: [:index, :create, :show, :destroy] do
+          collection do
+            post :test
+          end
+        end
         resources :ip_blocks, only: [:index, :show, :create, :update, :destroy]
       end
     end
