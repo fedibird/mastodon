@@ -37,6 +37,7 @@ RSpec.describe Api::V1::Admin::TagsController, type: :controller do # rubocop:di
   describe 'GET #index' do # rubocop:disable Metrics/BlockLength
     context 'with no tags' do
       before do
+        Tag.delete_all
         get :index, format: :json
       end
 
@@ -98,6 +99,8 @@ RSpec.describe Api::V1::Admin::TagsController, type: :controller do # rubocop:di
     end
 
     context 'with tags' do
+      before { Tag.delete_all }
+
       let!(:older) { Fabricate(:tag, name: 'alpha') }
       let!(:newer) { Fabricate(:tag, name: 'beta') }
 
@@ -218,13 +221,13 @@ RSpec.describe Api::V1::Admin::TagsController, type: :controller do # rubocop:di
     end
 
     it 'allows an ASCII-folding equivalent display_name' do
-      tag.update_columns(name: 'blahaj') # rubocop:disable Rails/SkipsModelValidations
+      folded = Fabricate(:tag, name: 'blahaj')
 
-      put :update, params: { id: tag.id, display_name: 'BLÅHAJ' }, format: :json
+      put :update, params: { id: folded.id, display_name: 'BLÅHAJ' }, format: :json
 
       expect(response).to have_http_status(200)
       expect(body_as_json[:name]).to eq('BLÅHAJ')
-      expect(tag.reload.name).to eq('blahaj')
+      expect(folded.reload.name).to eq('blahaj')
     end
 
     it 'updates trendable usable and listable including false' do

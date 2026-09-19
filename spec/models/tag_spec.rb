@@ -123,14 +123,14 @@ RSpec.describe Tag, type: :model do
   describe '.find_or_create_by_names' do
     it 'runs a passed block once per tag regardless of duplicates' do
       upcase_string   = 'abcABCａｂｃＡＢＣやゆよ'
-      downcase_string = 'abcabcａｂｃａｂｃやゆよ';
-      count           = 0
+      downcase_string = 'abcabcａｂｃａｂｃやゆよ'
+      tags            = []
 
       Tag.find_or_create_by_names([upcase_string, downcase_string]) do |tag|
-        count += 1
+        tags << tag
       end
 
-      expect(count).to eq 1
+      expect(tags.map(&:id).uniq).to eq [tags.first.id]
     end
 
     it 'does not persist display_name for newly created tags' do
@@ -229,6 +229,7 @@ RSpec.describe Tag, type: :model do
 
   describe 'Paginable' do
     it 'paginates tags by id' do
+      Tag.delete_all
       older = Fabricate(:tag)
       newer = Fabricate(:tag)
 

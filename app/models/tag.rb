@@ -132,7 +132,7 @@ class Tag < ApplicationRecord
     def find_or_create_by_names(name_or_names)
       names = Array(name_or_names).map { |str| [normalize(str), str] }.uniq(&:first)
 
-      names.map do |(normalized_name, display_name)|
+      names.map do |(normalized_name, _display_name)|
         # tag = matching_name(normalized_name).first || create(name: normalized_name, display_name: display_name.gsub(/[^[:alnum:]#{HASHTAG_SEPARATORS}]/, ''))
         tag = matching_name(normalized_name).first || create(name: normalized_name)
 
