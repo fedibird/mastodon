@@ -3,7 +3,7 @@
 require 'rails_helper'
 
 RSpec.describe FanOutOnWriteService, type: :service do # rubocop:disable Metrics/BlockLength
-  describe 'streaming searchable text' do
+  describe 'streaming searchable text' do # rubocop:disable Metrics/BlockLength
     let(:author) { Fabricate(:account, domain: nil, username: 'urlposter') }
 
     def dumped_payload(status, reblog: false)
