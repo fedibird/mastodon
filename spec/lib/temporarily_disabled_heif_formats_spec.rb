@@ -47,10 +47,12 @@ RSpec.describe 'Temporarily disabled HEIC/HEIF/AVIF' do
     expect(allow_line).not_to include('AVIF')
   end
 
-  it 'fails media attachment content type validation for HEIC' do
-    media = Fabricate.build(:media_attachment, file: fixture_file_upload('attachment.jpg', 'image/heic'))
+  it 'does not allow HEIC, HEIF, or AVIF in the Paperclip content type validator' do
+    allowed = MediaAttachment.validators.grep(Paperclip::Validators::AttachmentContentTypeValidator).flat_map do |validator|
+      Array(validator.options[:content_type])
+    end
 
-    expect(media).not_to be_valid
-    expect(media.errors[:file_content_type]).to be_present
+    expect(allowed).not_to include(*disabled_mime_types)
+    expect(allowed).to include('image/jpeg', 'image/png')
   end
 end
