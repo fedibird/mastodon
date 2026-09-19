@@ -48,7 +48,15 @@ RSpec.describe REST::Admin::ReportSerializer do
 
     report.resolve!(Fabricate(:account))
 
-    expect(json[:action_taken]).to eq true
+    resolved_json = JSON.parse(
+      ActiveModelSerializers::SerializableResource.new(
+        report,
+        serializer: described_class
+      ).to_json,
+      symbolize_names: true
+    )
+
+    expect(resolved_json[:action_taken]).to eq true
   end
 
   it 'does not expose action_taken_at yet' do
