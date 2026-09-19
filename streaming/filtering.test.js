@@ -172,6 +172,34 @@ describe('streaming Rails searchable text parity', () => {
     assert.deepEqual(filteredResultsForStatus(status, cachedFilters), []);
   });
 
+  it('matches a referenced status URL from the internal field', () => {
+    const referencedUrl = 'https://example.social/@bob/123';
+    const referencedUri = 'https://example.social/users/bob/statuses/123';
+    const cachedFilters = compileCachedFilter('1', referencedUrl);
+    const status = statusWith({
+      content: '<p>see remote</p>',
+      [STREAMING_SEARCHABLE_TEXT_KEY]: `see remote\n\n${referencedUrl}\n${referencedUri}`,
+    });
+
+    const results = filteredResultsForStatus(status, cachedFilters);
+    assert.equal(results.length, 1);
+    assert.ok(results[0].keyword_matches.includes(referencedUrl));
+  });
+
+  it('matches a referenced status ActivityPub URI from the internal field', () => {
+    const referencedUrl = 'https://example.social/@bob/123';
+    const referencedUri = 'https://example.social/users/bob/statuses/123';
+    const cachedFilters = compileCachedFilter('1', referencedUri);
+    const status = statusWith({
+      content: '<p>see remote</p>',
+      [STREAMING_SEARCHABLE_TEXT_KEY]: `see remote\n\n${referencedUrl}\n${referencedUri}`,
+    });
+
+    const results = filteredResultsForStatus(status, cachedFilters);
+    assert.equal(results.length, 1);
+    assert.ok(results[0].keyword_matches.includes(referencedUri));
+  });
+
   it('still matches ordinary body keywords from the canonical text', () => {
     const cachedFilters = compileCachedFilter('1', 'foo');
     const status = statusWith({

@@ -89,8 +89,10 @@ def self.cached_filters_for(account_id)
   end
 
   def self.apply_cached_filters(cached_filters, status)
+    filterable_text = status.proper.filterable_text
+
     cached_filters.filter_map do |filter, rules|
-      match = rules[:keywords].match(status.proper.searchable_text) if rules[:keywords].present?
+      match = rules[:keywords].match(filterable_text) if rules[:keywords].present?
       keyword_matches = [match.to_s] unless match.nil?
 
       status_matches = [status.id, status.reblog_of_id].compact & rules[:status_ids] if rules[:status_ids].present?
