@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_19_200000) do
+ActiveRecord::Schema.define(version: 2026_09_19_213000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1409,6 +1409,27 @@ ActiveRecord::Schema.define(version: 2026_09_19_200000) do
     t.index ["tag_id"], name: "index_tag_account_mutes_on_tag_id"
   end
 
+  create_table "tag_follow_deliveries", force: :cascade do |t|
+    t.bigint "tag_follow_id", null: false
+    t.bigint "list_id"
+    t.boolean "media_only", default: false, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["list_id"], name: "index_tag_follow_deliveries_on_list_id"
+    t.index ["tag_follow_id", "list_id"], name: "index_tag_follow_deliveries_on_list", unique: true, where: "(list_id IS NOT NULL)"
+    t.index ["tag_follow_id"], name: "index_tag_follow_deliveries_on_home", unique: true, where: "(list_id IS NULL)"
+    t.index ["tag_follow_id"], name: "index_tag_follow_deliveries_on_tag_follow_id"
+  end
+
+  create_table "tag_follows", force: :cascade do |t|
+    t.bigint "tag_id", null: false
+    t.bigint "account_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["account_id", "tag_id"], name: "index_tag_follows_on_account_id_and_tag_id", unique: true
+    t.index ["tag_id"], name: "index_tag_follows_on_tag_id"
+  end
+
   create_table "tombstones", force: :cascade do |t|
     t.bigint "account_id"
     t.string "uri", null: false
@@ -1659,6 +1680,10 @@ ActiveRecord::Schema.define(version: 2026_09_19_200000) do
   add_foreign_key "statuses", "statuses", column: "reblog_of_id", on_delete: :cascade
   add_foreign_key "statuses_tags", "statuses", on_delete: :cascade
   add_foreign_key "statuses_tags", "tags", name: "fk_3081861e21", on_delete: :cascade
+  add_foreign_key "tag_follow_deliveries", "lists", on_delete: :cascade
+  add_foreign_key "tag_follow_deliveries", "tag_follows", on_delete: :cascade
+  add_foreign_key "tag_follows", "accounts", on_delete: :cascade
+  add_foreign_key "tag_follows", "tags", on_delete: :cascade
   add_foreign_key "tombstones", "accounts", on_delete: :cascade
   add_foreign_key "user_invite_requests", "users", on_delete: :cascade
   add_foreign_key "users", "accounts", name: "fk_50500f500d", on_delete: :cascade
