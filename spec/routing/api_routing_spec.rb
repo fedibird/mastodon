@@ -406,4 +406,36 @@ describe 'API routes' do
         to route_to('api/v1/timelines/tag#show', id: 'test')
     end
   end
+
+  describe 'Admin Tag routes' do
+    it 'routes to index' do
+      expect(get('/api/v1/admin/tags')).
+        to route_to('api/v1/admin/tags#index')
+    end
+
+    it 'routes to show' do
+      expect(get('/api/v1/admin/tags/1')).
+        to route_to('api/v1/admin/tags#show', id: '1')
+    end
+
+    it 'routes to update via PUT' do
+      expect(put('/api/v1/admin/tags/1')).
+        to route_to('api/v1/admin/tags#update', id: '1')
+    end
+
+    it 'routes to update via PATCH' do
+      expect(patch('/api/v1/admin/tags/1')).
+        to route_to('api/v1/admin/tags#update', id: '1')
+    end
+
+    it 'does not expose create' do
+      expect(post('/api/v1/admin/tags')).
+        to route_to(controller: 'application', action: 'raise_not_found', unmatched_route: 'api/v1/admin/tags')
+    end
+
+    it 'does not expose destroy' do
+      expect(delete('/api/v1/admin/tags/1')).
+        to route_to(controller: 'application', action: 'raise_not_found', unmatched_route: 'api/v1/admin/tags/1')
+    end
+  end
 end

@@ -15,9 +15,11 @@
 #  last_status_at      :datetime
 #  max_score           :float
 #  max_score_at        :datetime
+#  display_name        :string
 #
 
 class Tag < ApplicationRecord
+  include Paginable
   include Redisable
 
   has_and_belongs_to_many :statuses
@@ -43,8 +45,9 @@ class Tag < ApplicationRecord
   HASHTAG_INVALID_CHARS_RE = /[^[:alnum:]#{HASHTAG_SEPARATORS}]/
 
   validates :name, presence: true, format: { with: HASHTAG_NAME_RE }
-  # validates :display_name, format: { with: /\A(#{HASHTAG_NAME_RE})\z/i }
+  validates :display_name, format: { with: HASHTAG_NAME_RE }
   # validate :validate_name_change, if: -> { !new_record? && name_changed? }
+  validate :validate_display_name_change, if: -> { !new_record? && display_name_changed? }
 
   scope :reviewed, -> { where.not(reviewed_at: nil) }
   scope :unreviewed, -> { where(reviewed_at: nil) }
@@ -64,7 +67,7 @@ class Tag < ApplicationRecord
   end
 
   def display_name
-    name
+    attributes['display_name'] || name
   end
 
   def usable
@@ -129,7 +132,7 @@ class Tag < ApplicationRecord
     def find_or_create_by_names(name_or_names)
       names = Array(name_or_names).map { |str| [normalize(str), str] }.uniq(&:first)
 
-      names.map do |(normalized_name, display_name)|
+      names.map do |(normalized_name, _display_name)|
         # tag = matching_name(normalized_name).first || create(name: normalized_name, display_name: display_name.gsub(/[^[:alnum:]#{HASHTAG_SEPARATORS}]/, ''))
         tag = matching_name(normalized_name).first || create(name: normalized_name)
 
@@ -181,5 +184,12 @@ class Tag < ApplicationRecord
 
   def validate_name_change
     errors.add(:name, I18n.t('tags.does_not_match_previous_name')) unless name_was.mb_chars.casecmp(name.mb_chars).zero?
+  end
+
+  def validate_display_name_change
+    normalized_display_name = HashtagNormalizer.new.normalize(display_name)
+    normalized_name         = HashtagNormalizer.new.normalize(name)
+
+    errors.add(:display_name, I18n.t('tags.does_not_match_previous_name')) unless normalized_display_name.casecmp(normalized_name).zero?
   end
 end

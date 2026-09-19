@@ -123,14 +123,22 @@ RSpec.describe Tag, type: :model do
   describe '.find_or_create_by_names' do
     it 'runs a passed block once per tag regardless of duplicates' do
       upcase_string   = 'abcABCａｂｃＡＢＣやゆよ'
-      downcase_string = 'abcabcａｂｃａｂｃやゆよ';
-      count           = 0
+      downcase_string = 'abcabcａｂｃａｂｃやゆよ'
+      yielded_tags    = []
 
       Tag.find_or_create_by_names([upcase_string, downcase_string]) do |tag|
-        count += 1
+        yielded_tags << tag
       end
 
-      expect(count).to eq 1
+      expect(yielded_tags.size).to eq 1
+      expect(yielded_tags.map(&:id).uniq).to eq [yielded_tags.first.id]
+    end
+
+    it 'does not persist display_name for newly created tags' do
+      tag = Tag.find_or_create_by_names('FreshDisplayNameTag').first
+
+      expect(tag.attributes['display_name']).to be_nil
+      expect(tag.display_name).to eq tag.name
     end
   end
 
@@ -160,6 +168,96 @@ RSpec.describe Tag, type: :model do
       results = Tag.search_for("match")
 
       expect(results).to eq [tag, similar_tag]
+    end
+  end
+
+  describe '#display_name' do
+    it 'falls back to name when display_name is nil' do
+      tag = Fabricate(:tag, name: 'foo')
+
+      expect(tag.attributes['display_name']).to be_nil
+      expect(tag.display_name).to eq 'foo'
+    end
+
+    it 'returns the stored display_name when present' do
+      tag = Fabricate(:tag, name: 'foo')
+      tag.update!(display_name: 'FOO')
+
+      expect(tag.reload.attributes['display_name']).to eq 'FOO'
+      expect(tag.name).to eq 'foo'
+      expect(tag.display_name).to eq 'FOO'
+    end
+  end
+
+  describe 'display_name validation' do
+    let(:tag) { Fabricate(:tag, name: 'foo') }
+
+    it 'allows a nil display_name' do
+      tag.display_name = nil
+      expect(tag).to be_valid
+    end
+
+    it 'allows a same-tag display_name with different case' do
+      tag.display_name = 'FOO'
+      expect(tag).to be_valid
+    end
+
+    it 'allows a full-width equivalent display_name' do
+      tag.display_name = 'ｆｏｏ'
+      expect(tag).to be_valid
+    end
+
+    it 'allows an ASCII-folding equivalent display_name' do
+      tag = Fabricate(:tag, name: 'blahaj')
+      tag.display_name = 'BLÅHAJ'
+      expect(tag).to be_valid
+    end
+
+    it 'rejects a different-tag display_name' do
+      tag.display_name = 'bar'
+      expect(tag).not_to be_valid
+      expect(tag.errors[:display_name]).to be_present
+    end
+  end
+
+  describe '.normalize' do
+    it 'only strips a leading hash and otherwise leaves Fedibird names unchanged' do
+      expect(Tag.normalize('#Foo')).to eq 'Foo'
+      expect(Tag.normalize('BLÅHAJ')).to eq 'BLÅHAJ'
+      expect(Tag.normalize('ａｅｓｔｈｅｔｉｃ')).to eq 'ａｅｓｔｈｅｔｉｃ'
+    end
+  end
+
+  describe 'Fedibird tag identity' do
+    it 'does not merge HashtagNormalizer-equivalent names into one tag' do
+      ascii = Fabricate(:tag, name: 'blahaj')
+      accented = Fabricate(:tag, name: 'BLÅHAJ')
+
+      expect(accented.id).to_not eq ascii.id
+      expect(Tag.normalize('BLÅHAJ')).to eq 'BLÅHAJ'
+      expect(HashtagNormalizer.new.normalize('BLÅHAJ')).to eq 'blahaj'
+      expect(Tag.find_or_create_by_names('BLÅHAJ').map(&:id)).to eq [accented.id]
+      expect(Tag.find_or_create_by_names('blahaj').map(&:id)).to eq [ascii.id]
+    end
+
+    it 'does not collapse full-width names into ASCII identities' do
+      ascii = Fabricate(:tag, name: 'synthwave')
+      fullwidth = Fabricate(:tag, name: 'Ｓｙｎｔｈｗａｖｅ')
+
+      expect(fullwidth.id).to_not eq ascii.id
+      expect(Tag.normalize('Ｓｙｎｔｈｗａｖｅ')).to eq 'Ｓｙｎｔｈｗａｖｅ'
+      expect(HashtagNormalizer.new.normalize('Ｓｙｎｔｈｗａｖｅ')).to eq 'synthwave'
+    end
+  end
+
+  describe 'Paginable' do
+    it 'paginates tags by id' do
+      Tag.delete_all
+      older = Fabricate(:tag)
+      newer = Fabricate(:tag)
+
+      expect(Tag.to_a_paginated_by_id(1)).to eq [newer]
+      expect(Tag.to_a_paginated_by_id(1, max_id: newer.id)).to eq [older]
     end
   end
 end
