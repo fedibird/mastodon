@@ -279,6 +279,48 @@ describe 'API routes' do
     end
   end
 
+  describe 'Admin Report routes' do
+    it 'routes to index' do
+      expect(get('/api/v1/admin/reports')).
+        to route_to('api/v1/admin/reports#index')
+    end
+
+    it 'routes to show' do
+      expect(get('/api/v1/admin/reports/1')).
+        to route_to('api/v1/admin/reports#show', id: '1')
+    end
+
+    it 'routes to update via PUT' do
+      expect(put('/api/v1/admin/reports/1')).
+        to route_to('api/v1/admin/reports#update', id: '1')
+    end
+
+    it 'routes to update via PATCH' do
+      expect(patch('/api/v1/admin/reports/1')).
+        to route_to('api/v1/admin/reports#update', id: '1')
+    end
+
+    it 'routes to assign_to_self' do
+      expect(post('/api/v1/admin/reports/1/assign_to_self')).
+        to route_to('api/v1/admin/reports#assign_to_self', id: '1')
+    end
+
+    it 'routes to unassign' do
+      expect(post('/api/v1/admin/reports/1/unassign')).
+        to route_to('api/v1/admin/reports#unassign', id: '1')
+    end
+
+    it 'routes to reopen' do
+      expect(post('/api/v1/admin/reports/1/reopen')).
+        to route_to('api/v1/admin/reports#reopen', id: '1')
+    end
+
+    it 'routes to resolve' do
+      expect(post('/api/v1/admin/reports/1/resolve')).
+        to route_to('api/v1/admin/reports#resolve', id: '1')
+    end
+  end
+
   describe 'Timeline routes' do
     it 'routes to home timeline' do
       expect(get('/api/v1/timelines/home')).

@@ -60,6 +60,12 @@ class Api::V1::Admin::ReportsController < Api::BaseController
     render json: @report, serializer: REST::Admin::ReportSerializer
   end
 
+  def update
+    authorize @report, :update?
+    @report.update!(report_params)
+    render json: @report, serializer: REST::Admin::ReportSerializer
+  end
+
   private
 
   def set_reports
@@ -76,6 +82,10 @@ class Api::V1::Admin::ReportsController < Api::BaseController
 
   def filter_params
     params.permit(*FILTER_PARAMS)
+  end
+
+  def report_params
+    params.permit(:category, rule_ids: [])
   end
 
   def insert_pagination_headers
