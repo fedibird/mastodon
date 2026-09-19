@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
-RSpec.describe IpBlock, type: :model do
+RSpec.describe IpBlock, type: :model do # rubocop:disable Metrics/BlockLength
   describe 'severity enum' do
     it 'maps sign_up_requires_approval to 5000' do
       expect(described_class.severities[:sign_up_requires_approval]).to eq 5000

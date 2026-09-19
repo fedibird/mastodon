@@ -25,6 +25,8 @@ RSpec.describe Api::V1::AccountsController, type: :controller do
     let(:agreement) { nil }
 
     before do
+      stub_webpacker_manifest
+      allow_any_instance_of(User).to receive(:send_devise_notification)
       post :create, params: { username: 'test', password: '12345678', email: 'hello@world.tld', agreement: agreement }
     end
 
@@ -489,5 +491,12 @@ RSpec.describe Api::V1::AccountsController, type: :controller do
     end
 
     it_behaves_like 'forbidden for wrong scope', 'read:accounts'
+  end
+
+  def stub_webpacker_manifest
+    manifest = Webpacker.instance.manifest
+    resolver = ->(name, **opts) { opts[:with_integrity] ? ["/packs-test/#{name}", nil] : "/packs-test/#{name}" }
+    allow(manifest).to receive(:lookup!, &resolver)
+    allow(manifest).to receive(:lookup, &resolver)
   end
 end

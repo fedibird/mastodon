@@ -3,6 +3,11 @@ require 'rails_helper'
 RSpec.describe Auth::RegistrationsController, type: :controller do
   render_views
 
+  before do
+    stub_webpacker_manifest
+    allow_any_instance_of(User).to receive(:send_devise_notification)
+  end
+
   shared_examples 'checks for enabled registrations' do |path|
     around do |example|
       registrations_mode = Setting.registrations_mode
@@ -57,7 +62,7 @@ RSpec.describe Auth::RegistrationsController, type: :controller do
     end
   end
 
-  describe 'GET #new' do
+  describe 'GET #new' do # rubocop:disable Metrics/BlockLength
     before do
       request.env["devise.mapping"] = Devise.mappings[:user]
     end
@@ -133,7 +138,7 @@ RSpec.describe Auth::RegistrationsController, type: :controller do
     include_examples 'checks for enabled registrations', :new
   end
 
-  describe 'POST #create' do
+  describe 'POST #create' do # rubocop:disable Metrics/BlockLength
     let(:accept_language) { Rails.application.config.i18n.available_locales.sample.to_s }
 
     before do
@@ -416,5 +421,12 @@ RSpec.describe Auth::RegistrationsController, type: :controller do
     it 'does not delete user' do
       expect(User.find(user.id)).to_not be_nil
     end
+  end
+
+  def stub_webpacker_manifest
+    manifest = Webpacker.instance.manifest
+    resolver = ->(name, **opts) { opts[:with_integrity] ? ["/packs-test/#{name}", nil] : "/packs-test/#{name}" }
+    allow(manifest).to receive(:lookup!, &resolver)
+    allow(manifest).to receive(:lookup, &resolver)
   end
 end

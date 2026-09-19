@@ -28,7 +28,8 @@ class AddIndexIpBlocksOnIp < ActiveRecord::Migration[6.1]
       ids = row['ids'].split(',')
       next if ids.size < 2
 
-      execute("DELETE FROM ip_blocks WHERE id IN (#{ids[0...-1].map(&:to_i).join(',')})")
+      # Exact inet duplicates only; keep the newest id. Different CIDR prefixes are distinct.
+      safety_assured { execute("DELETE FROM ip_blocks WHERE id IN (#{ids[0...-1].map(&:to_i).join(',')})") }
     end
   end
 end

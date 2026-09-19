@@ -1,13 +1,20 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
-RSpec.describe AppSignUpService, type: :service do
+RSpec.describe AppSignUpService, type: :service do # rubocop:disable Metrics/BlockLength
   let(:app) { Fabricate(:application, scopes: 'read write') }
   let(:good_params) { { username: 'alice', password: '12345678', email: 'good@email.com', agreement: true } }
   let(:remote_ip) { IPAddr.new('198.0.2.1') }
 
   subject { described_class.new }
 
-  describe '#call' do
+  before do
+    stub_webpacker_manifest
+    allow_any_instance_of(User).to receive(:send_devise_notification)
+  end
+
+  describe '#call' do # rubocop:disable Metrics/BlockLength
     it 'returns nil when registrations are closed' do
       tmp = Setting.registrations_mode
       Setting.registrations_mode = 'none'
@@ -84,5 +91,11 @@ RSpec.describe AppSignUpService, type: :service do
       expect(User.find_by(id: access_token.resource_owner_id)).to_not be_nil
     end
   end
-end
 
+  def stub_webpacker_manifest
+    manifest = Webpacker.instance.manifest
+    resolver = ->(name, **opts) { opts[:with_integrity] ? ["/packs-test/#{name}", nil] : "/packs-test/#{name}" }
+    allow(manifest).to receive(:lookup!, &resolver)
+    allow(manifest).to receive(:lookup, &resolver)
+  end
+end
