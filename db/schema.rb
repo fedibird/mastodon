@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_18_220000) do
+ActiveRecord::Schema.define(version: 2026_09_19_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1227,6 +1227,7 @@ ActiveRecord::Schema.define(version: 2026_09_18_220000) do
     t.boolean "forwarded"
     t.integer "category", default: 0, null: false
     t.bigint "rule_ids", array: true
+    t.datetime "action_taken_at"
     t.index ["account_id"], name: "index_reports_on_account_id"
     t.index ["target_account_id"], name: "index_reports_on_target_account_id"
   end

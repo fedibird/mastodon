@@ -17,9 +17,12 @@
 #  forwarded                  :boolean
 #  category                   :integer          default("other"), not null
 #  rule_ids                   :bigint(8)        is an Array
+#  action_taken_at            :datetime
 #
 
 class Report < ApplicationRecord
+  self.ignored_columns += %w(action_taken)
+
   include Paginable
   include RateLimitable
 
@@ -32,8 +35,8 @@ class Report < ApplicationRecord
 
   has_many :notes, class_name: 'ReportNote', foreign_key: :report_id, inverse_of: :report, dependent: :destroy
 
-  scope :unresolved, -> { where(action_taken: false) }
-  scope :resolved,   -> { where(action_taken: true) }
+  scope :unresolved, -> { where(action_taken_at: nil) }
+  scope :resolved,   -> { where.not(action_taken_at: nil) }
   scope :with_accounts, -> { includes([:account, :target_account, :action_taken_by_account, :assigned_account].index_with({ user: [:invite_request, :invite] })) }
 
   validates :comment, length: { maximum: 1000 }
@@ -100,12 +103,18 @@ class Report < ApplicationRecord
     end
 
     RemovalWorker.push_bulk(Status.with_discarded.discarded.where(id: status_ids).pluck(:id)) { |status_id| [status_id, { 'immediate' => true }] }
-    update!(action_taken: true, action_taken_by_account_id: acting_account.id)
+    update!(action_taken_at: Time.now.utc, action_taken_by_account_id: acting_account.id)
   end
 
   def unresolve!
-    update!(action_taken: false, action_taken_by_account_id: nil)
+    update!(action_taken_at: nil, action_taken_by_account_id: nil)
   end
+
+  def action_taken?
+    action_taken_at.present?
+  end
+
+  alias action_taken action_taken?
 
   def unresolved?
     !action_taken?

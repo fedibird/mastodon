@@ -7,12 +7,13 @@ describe Admin::ReportNotesController do
 
   before do
     sign_in user, scope: :user
+    stub_webpacker_manifest
   end
 
   describe 'POST #create' do
     subject { post :create, params: params }
 
-    let(:report) { Fabricate(:report, action_taken: action_taken, action_taken_by_account_id: account_id) }
+    let(:report) { Fabricate(:report, action_taken_at: action_taken ? Time.now.utc : nil, action_taken_by_account_id: account_id) }
 
     context 'when parameter is valid' do
       context 'when report is unsolved' do
@@ -86,5 +87,12 @@ describe Admin::ReportNotesController do
       expect { subject }.to change { ReportNote.count }.by(-1)
       expect(subject).to redirect_to admin_report_path(report_note.report)
     end
+  end
+
+  def stub_webpacker_manifest
+    manifest = Webpacker.instance.manifest
+    resolver = ->(name, **opts) { opts[:with_integrity] ? ["/packs-test/#{name}", nil] : "/packs-test/#{name}" }
+    allow(manifest).to receive(:lookup!, &resolver)
+    allow(manifest).to receive(:lookup, &resolver)
   end
 end

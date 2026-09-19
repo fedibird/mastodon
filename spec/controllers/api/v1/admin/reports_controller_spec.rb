@@ -31,7 +31,7 @@ RSpec.describe Api::V1::Admin::ReportsController, type: :controller do
 
   describe 'GET #index' do
     before do
-      get :index
+      get :index, format: :json
     end
 
     it_behaves_like 'forbidden for wrong scope', 'write:statuses'
@@ -44,7 +44,7 @@ RSpec.describe Api::V1::Admin::ReportsController, type: :controller do
 
   describe 'GET #show' do
     before do
-      get :show, params: { id: report.id }
+      get :show, params: { id: report.id }, format: :json
     end
 
     it_behaves_like 'forbidden for wrong scope', 'write:statuses'
@@ -52,12 +52,19 @@ RSpec.describe Api::V1::Admin::ReportsController, type: :controller do
 
     it 'returns http success' do
       expect(response).to have_http_status(200)
+    end
+
+    it 'returns action_taken as a boolean' do
+      get :show, params: { id: report.id }, format: :json
+
+      expect(body_as_json[:action_taken]).to eq false
+      expect(body_as_json).to_not have_key(:action_taken_at)
     end
   end
 
   describe 'POST #resolve' do
     before do
-      post :resolve, params: { id: report.id }
+      post :resolve, params: { id: report.id }, format: :json
     end
 
     it_behaves_like 'forbidden for wrong scope', 'write:statuses'
@@ -66,11 +73,18 @@ RSpec.describe Api::V1::Admin::ReportsController, type: :controller do
     it 'returns http success' do
       expect(response).to have_http_status(200)
     end
+
+    it 'returns action_taken as true' do
+      post :resolve, params: { id: report.id }, format: :json
+
+      expect(body_as_json[:action_taken]).to eq true
+      expect(report.reload.action_taken_at).to be_present
+    end
   end
 
   describe 'POST #reopen' do
     before do
-      post :reopen, params: { id: report.id }
+      post :reopen, params: { id: report.id }, format: :json
     end
 
     it_behaves_like 'forbidden for wrong scope', 'write:statuses'
@@ -83,7 +97,7 @@ RSpec.describe Api::V1::Admin::ReportsController, type: :controller do
 
   describe 'POST #assign_to_self' do
     before do
-      post :assign_to_self, params: { id: report.id }
+      post :assign_to_self, params: { id: report.id }, format: :json
     end
 
     it_behaves_like 'forbidden for wrong scope', 'write:statuses'
@@ -96,7 +110,7 @@ RSpec.describe Api::V1::Admin::ReportsController, type: :controller do
 
   describe 'POST #unassign' do
     before do
-      post :unassign, params: { id: report.id }
+      post :unassign, params: { id: report.id }, format: :json
     end
 
     it_behaves_like 'forbidden for wrong scope', 'write:statuses'

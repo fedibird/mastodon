@@ -53,21 +53,45 @@ describe Report do
   end
 
   describe 'resolve!' do
-    subject(:report) { Fabricate(:report, action_taken: false, action_taken_by_account_id: nil) }
+    subject(:report) { Fabricate(:report, action_taken_at: nil, action_taken_by_account_id: nil) }
 
     let(:acting_account) { Fabricate(:account) }
 
-    before do
-      report.resolve!(acting_account)
+    it 'records action taken as a timestamp' do
+      freeze_time do
+        report.resolve!(acting_account)
+
+        expect(report.action_taken_at).to eq Time.now.utc
+        expect(report.action_taken_by_account_id).to eq acting_account.id
+        expect(report).to be_action_taken
+        expect(report.action_taken).to be true
+        expect(report).to_not be_unresolved
+      end
     end
 
-    it 'records action taken' do
-      expect(report).to have_attributes(action_taken: true, action_taken_by_account_id: acting_account.id)
+    it 'restores trust level for automated anti-spam false positives' do
+      target = Fabricate(:account, trust_level: Account::TRUST_LEVELS[:untrusted])
+      report = Fabricate(:report, account: Account.representative, target_account: target)
+
+      report.resolve!(acting_account)
+
+      expect(target.reload.trust_level).to eq Account::TRUST_LEVELS[:trusted]
+    end
+
+    it 'enqueues RemovalWorker for discarded statuses' do
+      status = Fabricate(:status)
+      status.discard
+      report = Fabricate(:report, status_ids: [status.id])
+      allow(RemovalWorker).to receive(:push_bulk)
+
+      report.resolve!(acting_account)
+
+      expect(RemovalWorker).to have_received(:push_bulk).with([status.id])
     end
   end
 
   describe 'unresolve!' do
-    subject(:report) { Fabricate(:report, action_taken: true, action_taken_by_account_id: acting_account.id) }
+    subject(:report) { Fabricate(:report, action_taken_at: Time.now.utc, action_taken_by_account_id: acting_account.id) }
 
     let(:acting_account) { Fabricate(:account) }
 
@@ -75,26 +99,64 @@ describe Report do
       report.unresolve!
     end
 
-    it 'unresolves' do
-      expect(report).to have_attributes(action_taken: false, action_taken_by_account_id: nil)
+    it 'clears the resolution timestamp' do
+      expect(report.action_taken_at).to be_nil
+      expect(report.action_taken_by_account_id).to be_nil
+      expect(report).to_not be_action_taken
+      expect(report.action_taken).to be false
+    end
+  end
+
+  describe 'action_taken?' do
+    it 'is false when action_taken_at is nil' do
+      report = Fabricate(:report, action_taken_at: nil)
+
+      expect(report.action_taken_at).to be_nil
+      expect(report).to_not be_action_taken
+      expect(report).to be_unresolved
+    end
+
+    it 'is true when action_taken_at is present' do
+      report = Fabricate(:report, action_taken_at: Time.now.utc)
+
+      expect(report.action_taken_at).to be_present
+      expect(report).to be_action_taken
+      expect(report).to_not be_unresolved
     end
   end
 
   describe 'unresolved?' do
     subject { report.unresolved? }
 
-    let(:report) { Fabricate(:report, action_taken: action_taken) }
+    let(:report) { Fabricate(:report, action_taken_at: action_taken_at) }
 
     context 'if action is taken' do
-      let(:action_taken) { true }
+      let(:action_taken_at) { Time.now.utc }
 
       it { is_expected.to be false }
     end
 
     context 'if action not is taken' do
-      let(:action_taken) { false }
+      let(:action_taken_at) { nil }
 
       it { is_expected.to be true }
+    end
+  end
+
+  describe 'scopes' do
+    let!(:unresolved_report) { Fabricate(:report, action_taken_at: nil) }
+    let!(:resolved_report) { Fabricate(:report, action_taken_at: Time.now.utc) }
+
+    it 'returns only unresolved reports' do
+      expect(described_class.unresolved).to include(unresolved_report)
+      expect(described_class.unresolved).not_to include(resolved_report)
+      expect(described_class.unresolved.where.not(action_taken_at: nil)).to be_empty
+    end
+
+    it 'returns only resolved reports' do
+      expect(described_class.resolved).to include(resolved_report)
+      expect(described_class.resolved).not_to include(unresolved_report)
+      expect(described_class.resolved.where(action_taken_at: nil)).to be_empty
     end
   end
 
