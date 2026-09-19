@@ -12,7 +12,7 @@ describe Admin::ReportNotesController do
   describe 'POST #create' do
     subject { post :create, params: params }
 
-    let(:report) { Fabricate(:report, action_taken: action_taken, action_taken_by_account_id: account_id) }
+    let(:report) { Fabricate(:report, action_taken_at: action_taken ? Time.now.utc : nil, action_taken_by_account_id: account_id) }
 
     context 'when parameter is valid' do
       context 'when report is unsolved' do

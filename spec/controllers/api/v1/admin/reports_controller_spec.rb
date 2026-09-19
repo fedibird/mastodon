@@ -53,6 +53,13 @@ RSpec.describe Api::V1::Admin::ReportsController, type: :controller do
     it 'returns http success' do
       expect(response).to have_http_status(200)
     end
+
+    it 'returns action_taken as a boolean' do
+      get :show, params: { id: report.id }, format: :json
+
+      expect(body_as_json[:action_taken]).to eq false
+      expect(body_as_json).to_not have_key(:action_taken_at)
+    end
   end
 
   describe 'POST #resolve' do
@@ -65,6 +72,13 @@ RSpec.describe Api::V1::Admin::ReportsController, type: :controller do
 
     it 'returns http success' do
       expect(response).to have_http_status(200)
+    end
+
+    it 'returns action_taken as true' do
+      post :resolve, params: { id: report.id }, format: :json
+
+      expect(body_as_json[:action_taken]).to eq true
+      expect(report.reload.action_taken_at).to be_present
     end
   end
 

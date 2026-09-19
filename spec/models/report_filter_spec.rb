@@ -28,5 +28,13 @@ describe ReportFilter do
       expect(Report).to have_received(:where).with(target_account_id: '456')
       expect(Report).to have_received(:resolved)
     end
+
+    it 'returns timestamp-resolved reports when resolved is true' do
+      unresolved = Fabricate(:report, action_taken_at: nil)
+      resolved = Fabricate(:report, action_taken_at: Time.now.utc)
+
+      expect(ReportFilter.new(resolved: true).results).to contain_exactly(resolved)
+      expect(ReportFilter.new({}).results).to contain_exactly(unresolved)
+    end
   end
 end
