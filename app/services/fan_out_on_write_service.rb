@@ -220,7 +220,7 @@ class FanOutOnWriteService < BaseService
   def attach_streaming_searchable_text(payload, status)
     return payload unless payload.is_a?(Hash)
 
-    payload[STREAMING_SEARCHABLE_TEXT_KEY] = status.proper.searchable_text
+    payload[STREAMING_SEARCHABLE_TEXT_KEY] = status.proper.filterable_text
     payload
   end
 
