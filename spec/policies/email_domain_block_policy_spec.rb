@@ -8,7 +8,7 @@ RSpec.describe EmailDomainBlockPolicy do
   let(:admin)   { Fabricate(:user, admin: true).account }
   let(:john)    { Fabricate(:user).account }
 
-  permissions :index?, :create?, :destroy? do
+  permissions :index?, :show?, :create?, :destroy? do
     context 'admin' do
       it 'permits' do
         expect(subject).to permit(admin, EmailDomainBlock)

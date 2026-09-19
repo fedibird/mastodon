@@ -5,6 +5,10 @@ class EmailDomainBlockPolicy < ApplicationPolicy
     admin?
   end
 
+  def show?
+    admin?
+  end
+
   def create?
     admin?
   end

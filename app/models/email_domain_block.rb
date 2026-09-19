@@ -11,6 +11,7 @@
 #
 
 class EmailDomainBlock < ApplicationRecord
+  include Paginable
   include DomainNormalizable
 
   belongs_to :parent, class_name: 'EmailDomainBlock', optional: true
