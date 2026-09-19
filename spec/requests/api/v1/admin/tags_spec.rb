@@ -11,7 +11,12 @@ RSpec.describe 'Admin Tags API' do # rubocop:disable Metrics/BlockLength
   let(:user)    { Fabricate(:user, role: role, account: Fabricate(:account, username: 'alice')) }
   let(:scopes)  { 'admin:read admin:write' }
   let(:token)   { Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: scopes) }
-  let(:headers) { { 'Authorization' => "Bearer #{token.token}" } }
+  let(:headers) do
+    {
+      'Authorization' => "Bearer #{token.token}",
+      'Accept' => 'application/json',
+    }
+  end
 
   shared_examples 'forbidden for wrong scope' do |wrong_scope|
     let(:scopes) { wrong_scope }
@@ -34,7 +39,7 @@ RSpec.describe 'Admin Tags API' do # rubocop:disable Metrics/BlockLength
   end
 
   describe 'GET /api/v1/admin/tags' do # rubocop:disable Metrics/BlockLength
-    subject { get '/api/v1/admin/tags', headers: headers, params: params }
+    subject { get '/api/v1/admin/tags', headers: headers, params: params, as: :json }
 
     let(:params) { {} }
 
@@ -69,7 +74,7 @@ RSpec.describe 'Admin Tags API' do # rubocop:disable Metrics/BlockLength
 
     context 'without a token' do
       it 'returns http unauthorized' do
-        get '/api/v1/admin/tags'
+        get '/api/v1/admin/tags', headers: { 'Accept' => 'application/json' }, as: :json
 
         expect(response).to have_http_status(401)
       end
@@ -123,14 +128,14 @@ RSpec.describe 'Admin Tags API' do # rubocop:disable Metrics/BlockLength
       end
 
       it 'respects the limit parameter' do
-        get '/api/v1/admin/tags', headers: headers, params: { limit: 1 }
+        get '/api/v1/admin/tags', headers: headers, params: { limit: 1 }, as: :json
 
         expect(body_as_json.size).to eq(1)
         expect(body_as_json.first[:id]).to eq(newer.id.to_s)
       end
 
       it 'sets pagination Link headers' do
-        get '/api/v1/admin/tags', headers: headers, params: { limit: 1 }
+        get '/api/v1/admin/tags', headers: headers, params: { limit: 1 }, as: :json
 
         links = LinkHeader.parse(response.headers['Link'].to_s)
         expect(links.find_link(%w(rel next)).href).to eq api_v1_admin_tags_url(limit: 1, max_id: newer.id)
@@ -138,19 +143,19 @@ RSpec.describe 'Admin Tags API' do # rubocop:disable Metrics/BlockLength
       end
 
       it 'paginates with max_id' do
-        get '/api/v1/admin/tags', headers: headers, params: { max_id: newer.id }
+        get '/api/v1/admin/tags', headers: headers, params: { max_id: newer.id }, as: :json
 
         expect(body_as_json.map { |entry| entry[:id] }).to eq([older.id.to_s])
       end
 
       it 'paginates with since_id' do
-        get '/api/v1/admin/tags', headers: headers, params: { since_id: older.id }
+        get '/api/v1/admin/tags', headers: headers, params: { since_id: older.id }, as: :json
 
         expect(body_as_json.map { |entry| entry[:id] }).to eq([newer.id.to_s])
       end
 
       it 'paginates with min_id' do
-        get '/api/v1/admin/tags', headers: headers, params: { min_id: older.id, limit: 2 }
+        get '/api/v1/admin/tags', headers: headers, params: { min_id: older.id, limit: 2 }, as: :json
 
         expect(body_as_json.map { |entry| entry[:id] }).to eq([newer.id.to_s])
       end
@@ -158,7 +163,7 @@ RSpec.describe 'Admin Tags API' do # rubocop:disable Metrics/BlockLength
   end
 
   describe 'GET /api/v1/admin/tags/:id' do
-    subject { get "/api/v1/admin/tags/#{tag.id}", headers: headers }
+    subject { get "/api/v1/admin/tags/#{tag.id}", headers: headers, as: :json }
 
     let!(:tag) { Fabricate(:tag, name: 'foo') }
 
@@ -204,14 +209,14 @@ RSpec.describe 'Admin Tags API' do # rubocop:disable Metrics/BlockLength
     end
 
     it 'returns http not found for a missing record' do
-      get '/api/v1/admin/tags/-1', headers: headers
+      get '/api/v1/admin/tags/-1', headers: headers, as: :json
 
       expect(response).to have_http_status(404)
     end
   end
 
   describe 'PUT /api/v1/admin/tags/:id' do # rubocop:disable Metrics/BlockLength
-    subject { put "/api/v1/admin/tags/#{tag.id}", headers: headers, params: params }
+    subject { put "/api/v1/admin/tags/#{tag.id}", headers: headers, params: params, as: :json }
 
     let!(:tag) { Fabricate(:tag, name: 'foo', reviewed_at: nil) }
     let(:params) { { display_name: 'FOO' } }
@@ -230,7 +235,7 @@ RSpec.describe 'Admin Tags API' do # rubocop:disable Metrics/BlockLength
     end
 
     it 'rejects a display_name that changes tag identity' do
-      put "/api/v1/admin/tags/#{tag.id}", headers: headers, params: { display_name: 'bar' }
+      put "/api/v1/admin/tags/#{tag.id}", headers: headers, params: { display_name: 'bar' }, as: :json
 
       expect(response).to have_http_status(422)
       expect(tag.reload.name).to eq('foo')
@@ -238,7 +243,7 @@ RSpec.describe 'Admin Tags API' do # rubocop:disable Metrics/BlockLength
     end
 
     it 'allows a full-width equivalent display_name' do
-      put "/api/v1/admin/tags/#{tag.id}", headers: headers, params: { display_name: 'ｆｏｏ' }
+      put "/api/v1/admin/tags/#{tag.id}", headers: headers, params: { display_name: 'ｆｏｏ' }, as: :json
 
       expect(response).to have_http_status(200)
       expect(body_as_json[:name]).to eq('ｆｏｏ')
@@ -248,7 +253,7 @@ RSpec.describe 'Admin Tags API' do # rubocop:disable Metrics/BlockLength
     it 'allows an ASCII-folding equivalent display_name' do
       folded = Fabricate(:tag, name: 'blahaj')
 
-      put "/api/v1/admin/tags/#{folded.id}", headers: headers, params: { display_name: 'BLÅHAJ' }
+      put "/api/v1/admin/tags/#{folded.id}", headers: headers, params: { display_name: 'BLÅHAJ' }, as: :json
 
       expect(response).to have_http_status(200)
       expect(body_as_json[:name]).to eq('BLÅHAJ')
@@ -256,7 +261,7 @@ RSpec.describe 'Admin Tags API' do # rubocop:disable Metrics/BlockLength
     end
 
     it 'updates trendable usable and listable including false' do
-      put "/api/v1/admin/tags/#{tag.id}", headers: headers, params: { trendable: false, usable: false, listable: false }
+      put "/api/v1/admin/tags/#{tag.id}", headers: headers, params: { trendable: false, usable: false, listable: false }, as: :json
 
       expect(response).to have_http_status(200)
       expect(body_as_json[:trendable]).to eq false
@@ -271,7 +276,7 @@ RSpec.describe 'Admin Tags API' do # rubocop:disable Metrics/BlockLength
     it 'marks the tag reviewed' do
       expect(tag.requires_review?).to be true
 
-      put "/api/v1/admin/tags/#{tag.id}", headers: headers, params: { usable: true }
+      put "/api/v1/admin/tags/#{tag.id}", headers: headers, params: { usable: true }, as: :json
 
       expect(response).to have_http_status(200)
       expect(body_as_json[:requires_review]).to eq false
@@ -304,7 +309,7 @@ RSpec.describe 'Admin Tags API' do # rubocop:disable Metrics/BlockLength
     end
 
     it 'returns http not found for a missing record' do
-      put '/api/v1/admin/tags/-1', headers: headers, params: { display_name: 'FOO' }
+      put '/api/v1/admin/tags/-1', headers: headers, params: { display_name: 'FOO' }, as: :json
 
       expect(response).to have_http_status(404)
     end
@@ -314,7 +319,7 @@ RSpec.describe 'Admin Tags API' do # rubocop:disable Metrics/BlockLength
     let!(:tag) { Fabricate(:tag, name: 'foo') }
 
     it 'updates through PATCH' do
-      patch "/api/v1/admin/tags/#{tag.id}", headers: headers, params: { trendable: true }
+      patch "/api/v1/admin/tags/#{tag.id}", headers: headers, params: { trendable: true }, as: :json
 
       expect(response).to have_http_status(200)
       expect(body_as_json[:trendable]).to eq true
