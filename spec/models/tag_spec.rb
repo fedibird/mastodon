@@ -124,13 +124,14 @@ RSpec.describe Tag, type: :model do
     it 'runs a passed block once per tag regardless of duplicates' do
       upcase_string   = 'abcABCａｂｃＡＢＣやゆよ'
       downcase_string = 'abcabcａｂｃａｂｃやゆよ'
-      tags            = []
+      yielded_tags    = []
 
       Tag.find_or_create_by_names([upcase_string, downcase_string]) do |tag|
-        tags << tag
+        yielded_tags << tag
       end
 
-      expect(tags.map(&:id).uniq).to eq [tags.first.id]
+      expect(yielded_tags.size).to eq 1
+      expect(yielded_tags.map(&:id).uniq).to eq [yielded_tags.first.id]
     end
 
     it 'does not persist display_name for newly created tags' do
