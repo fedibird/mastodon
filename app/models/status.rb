@@ -435,6 +435,22 @@ class Status < ApplicationRecord
     ].compact.join("\n\n")
   end
 
+  def filterable_text
+    @filterable_text ||= [
+      searchable_text,
+      filterable_reference_urls.join("\n"),
+    ].filter(&:present?).join("\n\n")
+  end
+
+  def filterable_reference_urls
+    references.flat_map do |reference|
+      [
+        ActivityPub::TagManager.instance.url_for(reference),
+        ActivityPub::TagManager.instance.uri_for(reference),
+      ]
+    end.compact.uniq
+  end
+
   def searchable_text_without_urls
     @searchable_text_without_urls ||= searchable_text.gsub(Regexp.union(urls), ' ')
   end
