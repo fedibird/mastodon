@@ -981,10 +981,25 @@ project.
 
 ### PR U2 — FollowTag backfill + parity tooling
 
-- restartable backfill
-- duplicate/media conflict rules
-- parity report
-- no read cutover until verified
+Implementation rules:
+
+- source of truth remains legacy `follow_tags` during U2
+- backfill is idempotent and may be rerun
+- one `TagFollow` is upserted per distinct `(account_id, tag_id)`
+- one explicit delivery row is upserted per legacy destination
+- `list_id = NULL` maps only to an explicit Home delivery
+- duplicate legacy destinations are collapsed
+- conflicting `media_only` values use `BOOL_AND` / false-wins semantics
+- source rows are never deleted or modified
+- List ownership mismatches and null account/tag source rows are hard blockers
+- parity compares relations, destinations, and `media_only` values in both directions
+- U2 does not prune target-only rows automatically; a non-zero parity diff must be understood before cutover
+
+Because runtime still writes only legacy `FollowTag` in U2, a production
+backfill may become stale immediately after it runs. Re-running is safe. The
+final parity check for U3 must occur under a write-quiescent or dual-write
+cutover procedure; do not infer authoritativeness from one historical backfill.
+
 
 ### PR U3 — runtime TagFollow cutover
 
