@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
 RSpec.describe Api::V1::Admin::IpBlocksController, type: :controller do # rubocop:disable Metrics/BlockLength
@@ -28,7 +30,7 @@ RSpec.describe Api::V1::Admin::IpBlocksController, type: :controller do # ruboco
     end
   end
 
-  describe 'GET #index' do
+  describe 'GET #index' do # rubocop:disable Metrics/BlockLength
     context 'with no IP blocks' do
       before do
         get :index, format: :json
@@ -188,7 +190,7 @@ RSpec.describe Api::V1::Admin::IpBlocksController, type: :controller do # ruboco
     end
   end
 
-  describe 'POST #create' do
+  describe 'POST #create' do # rubocop:disable Metrics/BlockLength
     it_behaves_like 'forbidden for wrong scope', 'write:statuses' do
       before { post :create, params: { ip: '192.0.2.1', severity: 'no_access' }, format: :json }
     end
@@ -293,7 +295,7 @@ RSpec.describe Api::V1::Admin::IpBlocksController, type: :controller do # ruboco
     end
   end
 
-  describe 'PUT/PATCH #update' do
+  describe 'PUT/PATCH #update' do # rubocop:disable Metrics/BlockLength
     let!(:ip_block) { Fabricate(:ip_block, ip: '192.0.2.10', severity: :no_access, comment: 'old') }
 
     it_behaves_like 'forbidden for wrong role', 'moderator' do

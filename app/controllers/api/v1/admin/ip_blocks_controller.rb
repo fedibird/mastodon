@@ -28,6 +28,8 @@ class Api::V1::Admin::IpBlocksController < Api::BaseController
 
   def create
     authorize :ip_block, :create?
+    raise_ip_blank! if resource_params[:ip].blank?
+
     @ip_block = IpBlock.create!(resource_params)
     log_action :create, @ip_block
     render json: @ip_block, serializer: REST::Admin::IpBlockSerializer
@@ -63,6 +65,12 @@ class Api::V1::Admin::IpBlocksController < Api::BaseController
 
   def resource_params
     params.permit(:ip, :severity, :comment, :expires_in)
+  end
+
+  def raise_ip_blank!
+    record = IpBlock.new(resource_params)
+    record.errors.add(:ip, :blank)
+    raise ActiveRecord::RecordInvalid, record
   end
 
   def insert_pagination_headers
