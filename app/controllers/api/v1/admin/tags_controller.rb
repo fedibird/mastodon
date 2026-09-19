@@ -14,6 +14,7 @@ class Api::V1::Admin::TagsController < Api::BaseController
   before_action :set_tag, except: :index
 
   after_action :insert_pagination_headers, only: :index
+  after_action :verify_authorized
 
   PAGINATION_PARAMS = %i(limit).freeze
 

@@ -227,6 +227,28 @@ RSpec.describe Tag, type: :model do
     end
   end
 
+  describe 'Fedibird tag identity' do
+    it 'does not merge HashtagNormalizer-equivalent names into one tag' do
+      ascii = Fabricate(:tag, name: 'blahaj')
+      accented = Fabricate(:tag, name: 'BLÅHAJ')
+
+      expect(accented.id).to_not eq ascii.id
+      expect(Tag.normalize('BLÅHAJ')).to eq 'BLÅHAJ'
+      expect(HashtagNormalizer.new.normalize('BLÅHAJ')).to eq 'blahaj'
+      expect(Tag.find_or_create_by_names('BLÅHAJ').map(&:id)).to eq [accented.id]
+      expect(Tag.find_or_create_by_names('blahaj').map(&:id)).to eq [ascii.id]
+    end
+
+    it 'does not collapse full-width names into ASCII identities' do
+      ascii = Fabricate(:tag, name: 'synthwave')
+      fullwidth = Fabricate(:tag, name: 'Ｓｙｎｔｈｗａｖｅ')
+
+      expect(fullwidth.id).to_not eq ascii.id
+      expect(Tag.normalize('Ｓｙｎｔｈｗａｖｅ')).to eq 'Ｓｙｎｔｈｗａｖｅ'
+      expect(HashtagNormalizer.new.normalize('Ｓｙｎｔｈｗａｖｅ')).to eq 'synthwave'
+    end
+  end
+
   describe 'Paginable' do
     it 'paginates tags by id' do
       Tag.delete_all
