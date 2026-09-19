@@ -132,6 +132,13 @@ RSpec.describe Tag, type: :model do
 
       expect(count).to eq 1
     end
+
+    it 'does not persist display_name for newly created tags' do
+      tag = Tag.find_or_create_by_names('FreshDisplayNameTag').first
+
+      expect(tag.attributes['display_name']).to be_nil
+      expect(tag.display_name).to eq tag.name
+    end
   end
 
   describe '.search_for' do
@@ -160,6 +167,73 @@ RSpec.describe Tag, type: :model do
       results = Tag.search_for("match")
 
       expect(results).to eq [tag, similar_tag]
+    end
+  end
+
+  describe '#display_name' do
+    it 'falls back to name when display_name is nil' do
+      tag = Fabricate(:tag, name: 'foo')
+
+      expect(tag.attributes['display_name']).to be_nil
+      expect(tag.display_name).to eq 'foo'
+    end
+
+    it 'returns the stored display_name when present' do
+      tag = Fabricate(:tag, name: 'foo')
+      tag.update!(display_name: 'FOO')
+
+      expect(tag.reload.attributes['display_name']).to eq 'FOO'
+      expect(tag.name).to eq 'foo'
+      expect(tag.display_name).to eq 'FOO'
+    end
+  end
+
+  describe 'display_name validation' do
+    let(:tag) { Fabricate(:tag, name: 'foo') }
+
+    it 'allows a nil display_name' do
+      tag.display_name = nil
+      expect(tag).to be_valid
+    end
+
+    it 'allows a same-tag display_name with different case' do
+      tag.display_name = 'FOO'
+      expect(tag).to be_valid
+    end
+
+    it 'allows a full-width equivalent display_name' do
+      tag.display_name = 'ｆｏｏ'
+      expect(tag).to be_valid
+    end
+
+    it 'allows an ASCII-folding equivalent display_name' do
+      tag = Fabricate(:tag, name: 'blahaj')
+      tag.display_name = 'BLÅHAJ'
+      expect(tag).to be_valid
+    end
+
+    it 'rejects a different-tag display_name' do
+      tag.display_name = 'bar'
+      expect(tag).not_to be_valid
+      expect(tag.errors[:display_name]).to be_present
+    end
+  end
+
+  describe '.normalize' do
+    it 'only strips a leading hash and otherwise leaves Fedibird names unchanged' do
+      expect(Tag.normalize('#Foo')).to eq 'Foo'
+      expect(Tag.normalize('BLÅHAJ')).to eq 'BLÅHAJ'
+      expect(Tag.normalize('ａｅｓｔｈｅｔｉｃ')).to eq 'ａｅｓｔｈｅｔｉｃ'
+    end
+  end
+
+  describe 'Paginable' do
+    it 'paginates tags by id' do
+      older = Fabricate(:tag)
+      newer = Fabricate(:tag)
+
+      expect(Tag.to_a_paginated_by_id(1)).to eq [newer]
+      expect(Tag.to_a_paginated_by_id(1, max_id: newer.id)).to eq [older]
     end
   end
 end

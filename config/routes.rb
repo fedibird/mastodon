@@ -679,6 +679,7 @@ Rails.application.routes.draw do
           end
         end
         resources :ip_blocks, only: [:index, :show, :create, :update, :destroy]
+        resources :tags, only: [:index, :show, :update]
       end
     end
 
