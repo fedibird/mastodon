@@ -53,4 +53,18 @@ namespace :hashtag_unification do
 
     puts JSON.pretty_generate(result)
   end
+
+  desc 'Dry-run (default) or APPLY legacy FollowTag -> TagFollow/TagFollowDelivery backfill'
+  task follow_tag_backfill: :environment do
+    result = HashtagUnification::FollowTagBackfill.new(
+      apply: ENV['APPLY'] == '1',
+      prune: ENV['PRUNE'] == '1'
+    ).call
+    puts JSON.pretty_generate(result)
+  end
+
+  desc 'Print read-only FollowTag -> TagFollow parity diagnostics as JSON'
+  task follow_tag_parity: :environment do
+    puts JSON.pretty_generate(HashtagUnification::FollowTagParity.new.call)
+  end
 end
