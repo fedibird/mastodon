@@ -128,8 +128,8 @@ RSpec.describe Api::V1::Admin::IpBlocksController, type: :controller do # ruboco
       it 'sets pagination Link headers' do
         get :index, params: { limit: 1 }, format: :json
 
-        expect(response.headers['Link'].find_link(['rel', 'next']).href).to eq api_v1_admin_ip_blocks_url(limit: 1, max_id: ipv6.id)
-        expect(response.headers['Link'].find_link(['rel', 'prev']).href).to eq api_v1_admin_ip_blocks_url(limit: 1, min_id: ipv6.id)
+        expect(response.headers['Link'].find_link(%w(rel next)).href).to eq api_v1_admin_ip_blocks_url(limit: 1, max_id: ipv6.id)
+        expect(response.headers['Link'].find_link(%w(rel prev)).href).to eq api_v1_admin_ip_blocks_url(limit: 1, min_id: ipv6.id)
       end
 
       it 'paginates with max_id' do
@@ -295,7 +295,7 @@ RSpec.describe Api::V1::Admin::IpBlocksController, type: :controller do # ruboco
     end
   end
 
-  describe 'PUT/PATCH #update' do # rubocop:disable Metrics/BlockLength
+  describe 'PUT/PATCH #update' do
     let!(:ip_block) { Fabricate(:ip_block, ip: '192.0.2.10', severity: :no_access, comment: 'old') }
 
     it_behaves_like 'forbidden for wrong role', 'moderator' do
