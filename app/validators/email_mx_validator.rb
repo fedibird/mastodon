@@ -58,7 +58,10 @@ class EmailMxValidator < ActiveModel::Validator
   end
 
   def on_blacklist?(hostnames, ips, attempt_ip)
-    EmailDomainBlock.block?(hostnames, attempt_ip: attempt_ip) || blocked_ip?(ips, attempt_ip)
+    blocked_hostname = EmailDomainBlock.block?(hostnames, attempt_ip: attempt_ip)
+    blocked_ip       = blocked_ip?(ips, attempt_ip)
+
+    blocked_hostname || blocked_ip
   end
 
   def blocked_ip?(ips, attempt_ip)

@@ -175,5 +175,22 @@ describe EmailMxValidator do
       expect(user.errors).to have_received(:add)
       expect(child.history.get(now).uses).to eq 1
     end
+
+    it 'records history on both a hostname parent block and a matching IPv4 child block' do
+      parent = EmailDomainBlock.create!(domain: 'mail.example.com')
+      child  = EmailDomainBlock.create!(domain: '1.2.3.4', parent: parent)
+      resolver = stub_resolver
+
+      allow(resolver).to receive(:getresources).with('example.com', Resolv::DNS::Resource::IN::MX).and_return([double(exchange: 'mail.example.com')])
+      allow(resolver).to receive(:getresources).with('example.com', Resolv::DNS::Resource::IN::A).and_return([])
+      allow(resolver).to receive(:getresources).with('example.com', Resolv::DNS::Resource::IN::AAAA).and_return([])
+      allow(resolver).to receive(:getresources).with('mail.example.com', Resolv::DNS::Resource::IN::A).and_return([double(address: '1.2.3.4')])
+      allow(resolver).to receive(:getresources).with('mail.example.com', Resolv::DNS::Resource::IN::AAAA).and_return([])
+
+      subject.validate(user)
+      expect(user.errors).to have_received(:add)
+      expect(parent.history.get(now).uses).to eq 1
+      expect(child.history.get(now).uses).to eq 1
+    end
   end
 end
