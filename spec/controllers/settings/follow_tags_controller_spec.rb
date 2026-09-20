@@ -101,6 +101,20 @@ RSpec.describe Settings::FollowTagsController, type: :controller do # rubocop:di
       expect(response).to have_http_status(200)
       expect(assigns(:follow_tag)).to eq source
     end
+
+    it 'edits an API-created destination through the legacy FollowTag shadow' do
+      delivery = HashtagUnification::TagFollowDeliveryWriter.new.create!(
+        account: user.account,
+        name: 'u3b3csettings'
+      )
+      source = FollowTag.find(delivery.legacy_resource_id)
+
+      get :edit, params: { id: delivery.legacy_resource_id }
+
+      expect(response).to have_http_status(200)
+      expect(assigns(:follow_tag)).to eq source
+      expect(source.tag.name).to eq 'u3b3csettings'
+    end
   end
 
   def stub_webpacker_manifest
