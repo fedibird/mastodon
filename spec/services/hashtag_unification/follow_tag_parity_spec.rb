@@ -8,11 +8,29 @@ RSpec.describe HashtagUnification::FollowTagParity do
   let!(:list) { Fabricate(:list, account: account) }
 
   before do
-    Fabricate(:follow_tag, account: account, tag: tag, list_id: nil, media_only: false)
-    Fabricate(:follow_tag, account: account, tag: tag, list: list, media_only: true)
+    now = Time.now.utc
+    rows = [
+      {
+        account_id: account.id,
+        tag_id: tag.id,
+        list_id: nil,
+        media_only: false,
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        account_id: account.id,
+        tag_id: tag.id,
+        list_id: list.id,
+        media_only: true,
+        created_at: now,
+        updated_at: now,
+      },
+    ]
+    FollowTag.insert_all!(rows)
   end
 
-  it 'reports missing target rows before backfill' do
+  it 'reports callback-bypassing legacy rows as missing before backfill' do
     result = described_class.new.call
 
     expect(result[:ok]).to be false

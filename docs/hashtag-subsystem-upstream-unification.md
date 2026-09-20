@@ -1,7 +1,6 @@
 # Hashtag subsystem upstream unification
 
-Status: **design / pre-implementation**. This document does not describe code that
-has already shipped.
+Status: **implementation in progress**. U0/U0.1 analyzers, U1 schema expansion, and U2 backfill/parity tooling have been merged. Runtime still reads and writes the legacy `FollowTag` representation at the end of U2.
 
 Base for this design: Fedibird PR #117 head
 `777ca4eabe36f6dc0abb8ec431505ecbc18d6fa8` (2026-09-19).
@@ -499,6 +498,80 @@ old Home + N lists
 Also compare effective media eligibility destination by destination.
 
 Do not cut over on count equality alone. Validate sampled semantic tuples.
+
+### A4.1 Production backfill result
+
+After U2 was deployed to the production database, the authoritative legacy
+source had advanced by one row since the first analysis:
+
+```text
+legacy follow_tags rows       14,551
+distinct (account, tag)       14,430
+Home destinations             11,286
+List destinations              3,265
+```
+
+The first real APPLY run created exactly:
+
+```text
+tag_follows                   14,430
+tag_follow_deliveries         14,551
+  Home                        11,286
+  List                         3,265
+```
+
+Source integrity remained clean:
+
+- duplicate destination groups: 0
+- media_only conflict groups: 0
+- null account/tag rows: 0
+- orphaned List rows: 0
+- List owner mismatches: 0
+
+The backfill's post-write parity report was `ok: true`, with zero missing,
+extra, or media-only-mismatched relations/destinations. A separate parity run
+approximately 30 seconds later was also `ok: true`.
+
+The fact that one new legacy relation appeared between the earlier analyzer run
+and this production backfill is useful evidence: the migration does not depend
+on a frozen historical count and can synchronize the live authoritative source.
+
+### A4.2 U3a dual-write bridge
+
+Before switching any reads, fan-out, API representation, or Settings UI to the
+new structure, enable synchronous legacy-to-new mirroring on ordinary
+`FollowTag` model writes.
+
+During U3a:
+
+- legacy `follow_tags` remains authoritative
+- all reads continue to use legacy `FollowTag`
+- successful model create/update/destroy mirrors the complete affected
+  `(account_id, tag_id)` relation into `TagFollow` +
+  `TagFollowDelivery`
+- Home remains an explicit `list_id = NULL` delivery
+- List-only remains List-only
+- destination `media_only` remains per-destination
+- deleting the final legacy destination removes the mirrored `TagFollow`
+- moving a source row between account/tag relations synchronizes both the old
+  and new relation
+- mirror writes occur in the same database transaction as the legacy model
+  write, so a mirror failure rolls the legacy write back rather than silently
+  diverging the two representations
+
+U3a deliberately does **not** change:
+
+- standard hashtag follow/unfollow semantics
+- Fedibird `/api/v1/follow_tags` external behavior
+- Settings UI
+- FanOutOnWriteService
+- FeedManager
+- followed-tags reads
+
+Continue running the U2 parity task during this bridge. Raw SQL/bulk writes to
+`follow_tags` do not run Active Record callbacks and therefore remain an
+operational exception; rerun the U2 backfill/parity tools after any such
+maintenance.
 
 ### A5. Runtime cutover
 
