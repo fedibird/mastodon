@@ -77,7 +77,7 @@ RSpec.describe Moderation::AdaptiveFollowGateDecisionService do
     end
 
     it 'proposes moderator_review for sustained rejection with continuation' do
-      result = decide(evaluation(rejection: 0.8, repeat_behavior: 0.6))
+      result = decide(evaluation(rejection: 0.5, repeat_behavior: 0.6))
       expect(result['proposed_friction']).to eq 'moderator_review'
       expect(result['matched_rules']).to include(a_hash_including('friction' => 'moderator_review', 'rule' => 'sustained_rejection_with_continuation'))
     end
@@ -89,23 +89,25 @@ RSpec.describe Moderation::AdaptiveFollowGateDecisionService do
     end
   end
 
-  # v1 calibration: velocity alone must not escalate to delay (it caught
-  # legitimate high-volume bursts in backtests); delay is feedback-aware only.
-  describe 'v1 calibration boundaries' do
+  # v2 calibration retains v1's feedback-aware delay routing and lowers only
+  # moderator_review's rejection minimum. Rejection 0.5 already represents the
+  # absolute qualified-independent-responder signal; review still requires
+  # continuation via repeat_behavior.
+  describe 'v2 calibration boundaries' do
     it 'does not keep a velocity-only delay threshold' do
       expect(described_class::DEFAULT_PARAMS['delay']).to eq('remote_or_unknown_rejection_min' => 0.5)
       expect(described_class::DEFAULT_PARAMS['delay']).to_not have_key('velocity_min')
     end
 
-    it 'changes params_digest from the pre-v1 default that had delay.velocity_min' do
-      v0_params = Marshal.load(Marshal.dump(described_class::DEFAULT_PARAMS))
-      v0_params['delay'] = { 'velocity_min' => 0.6, 'remote_or_unknown_rejection_min' => 0.5 }
+    it 'changes params_digest from the v1 moderator-review threshold' do
+      v1_params = Marshal.load(Marshal.dump(described_class::DEFAULT_PARAMS))
+      v1_params['moderator_review']['rejection_min'] = 0.8
 
-      v0 = decide(evaluation, params: v0_params)
-      v1 = decide(evaluation)
+      v1 = decide(evaluation, params: v1_params, policy_version: 'follow-gate-decision-v1-2026-09-13')
+      v2 = decide(evaluation)
 
-      expect(v1['policy_version']).to eq 'follow-gate-decision-v1-2026-09-13'
-      expect(v1['params_digest']).to_not eq v0['params_digest']
+      expect(v2['policy_version']).to eq 'follow-gate-decision-v2-2026-09-21'
+      expect(v2['params_digest']).to_not eq v1['params_digest']
     end
 
     {
@@ -153,20 +155,20 @@ RSpec.describe Moderation::AdaptiveFollowGateDecisionService do
       expect(result['matched_rules'].map { |r| r['friction'] }).to_not include('delay')
     end
 
-    it 'does not fire moderator_review at rejection 0.79 + repeat 0.60' do
-      result = decide(evaluation(rejection: 0.79, repeat_behavior: 0.60), context: { 'target_locality' => 'local', 'target_locked' => true })
+    it 'does not fire moderator_review at rejection 0.49 + repeat 0.60' do
+      result = decide(evaluation(rejection: 0.49, repeat_behavior: 0.60), context: { 'target_locality' => 'local', 'target_locked' => true })
       expect(result['proposed_friction']).to_not eq 'moderator_review'
       expect(result['matched_rules'].map { |r| r['friction'] }).to_not include('moderator_review')
     end
 
-    it 'does not fire moderator_review at rejection 0.80 + repeat 0.59' do
-      result = decide(evaluation(rejection: 0.80, repeat_behavior: 0.59), context: { 'target_locality' => 'local', 'target_locked' => true })
+    it 'does not fire moderator_review at rejection 0.50 + repeat 0.59' do
+      result = decide(evaluation(rejection: 0.50, repeat_behavior: 0.59), context: { 'target_locality' => 'local', 'target_locked' => true })
       expect(result['proposed_friction']).to_not eq 'moderator_review'
       expect(result['matched_rules'].map { |r| r['friction'] }).to_not include('moderator_review')
     end
 
-    it 'fires moderator_review at rejection 0.80 + repeat 0.60' do
-      expect(decide(evaluation(rejection: 0.80, repeat_behavior: 0.60))['proposed_friction']).to eq 'moderator_review'
+    it 'fires moderator_review at rejection 0.50 + repeat 0.60' do
+      expect(decide(evaluation(rejection: 0.50, repeat_behavior: 0.60))['proposed_friction']).to eq 'moderator_review'
     end
 
     it 'lets delay win over velocity-only rate_limit on remote rejection 0.50' do
@@ -176,7 +178,7 @@ RSpec.describe Moderation::AdaptiveFollowGateDecisionService do
     end
 
     it 'lets moderator_review win over velocity 1.0 + remote rejection' do
-      result = decide(evaluation(velocity: 1.0, rejection: 0.80, repeat_behavior: 0.60), context: { 'target_locality' => 'remote' })
+      result = decide(evaluation(velocity: 1.0, rejection: 0.50, repeat_behavior: 0.60), context: { 'target_locality' => 'remote' })
       expect(result['proposed_friction']).to eq 'moderator_review'
     end
   end
