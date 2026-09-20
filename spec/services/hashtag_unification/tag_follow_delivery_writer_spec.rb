@@ -82,7 +82,7 @@ RSpec.describe HashtagUnification::TagFollowDeliveryWriter, type: :service do # 
     end
   end
 
-  describe '#update!' do
+  describe '#update!' do # rubocop:disable Metrics/BlockLength
     it 'updates media_only while preserving the compatibility ID' do
       stub_follow_tag_mirror
       delivery = writer.create!(account: account, name: 'u3b3cmedia')

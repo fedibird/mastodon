@@ -26,7 +26,7 @@ class Api::V1::FollowTagsController < Api::BaseController
   end
 
   def update
-    @follow_tag = tag_follow_delivery_writer.update!(update_writer_params)
+    @follow_tag = tag_follow_delivery_writer.update!(**update_writer_params)
     render json: @follow_tag, serializer: REST::FollowTagSerializer
   end
 

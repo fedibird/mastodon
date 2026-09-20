@@ -129,7 +129,7 @@ RSpec.describe Api::V1::FollowTagsController, type: :controller do # rubocop:dis
     end
   end
 
-  describe 'canonical write path' do
+  describe 'canonical write path' do # rubocop:disable Metrics/BlockLength
     it 'creates through TagFollowDelivery and keeps a FollowTag shadow with the same ID' do
       stub_follow_tag_mirror
 
