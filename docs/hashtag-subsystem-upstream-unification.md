@@ -1,6 +1,6 @@
 # Hashtag subsystem upstream unification
 
-Status: **implementation in progress**. U0/U0.1 analyzers, U1 schema expansion, and U2 backfill/parity tooling have been merged. Runtime still reads and writes the legacy `FollowTag` representation at the end of U2.
+Status: **implementation in progress**. U0/U0.1 analyzers, U1 schema expansion, U2 backfill/parity tooling, U3a dual-write, and U3b-1 standard read cutover have been merged or are in review. Writes and delivery routing still use legacy `FollowTag`. Standard following-state reads use `TagFollow`.
 
 Base for this design: Fedibird PR #117 head
 `777ca4eabe36f6dc0abb8ec431505ecbc18d6fa8` (2026-09-19).
@@ -561,26 +561,54 @@ During U3a:
 
 U3a deliberately does **not** change:
 
-- standard hashtag follow/unfollow semantics
+- standard hashtag follow/unfollow write semantics
 - Fedibird `/api/v1/follow_tags` external behavior
 - Settings UI
 - FanOutOnWriteService
 - FeedManager
-- followed-tags reads
+
+U3b-1 later switched standard following-state **reads** to `TagFollow` while
+leaving those write and delivery paths on legacy `FollowTag`.
 
 Continue running the U2 parity task during this bridge. Raw SQL/bulk writes to
 `follow_tags` do not run Active Record callbacks and therefore remain an
 operational exception; rerun the U2 backfill/parity tools after any such
 maintenance.
 
-### A5. Runtime cutover
+### A4.3 U3b-1 standard read cutover
 
-Switch:
+U3b-1 is a read-only cutover of the upstream-compatible hashtag-follow
+relation. It does not change writes or delivery routing.
 
-- `Api::V1::TagsController`
-- `Api::V1::FollowedTagsController`
+Authoritative for standard following-state reads:
+
 - `TagRelationshipsPresenter`
 - `REST::TagSerializer#following`
+- `GET /api/v1/followed_tags`
+
+Authoritative for writes and timeline delivery, unchanged:
+
+- `Api::V1::TagsController` follow/unfollow (`FollowTag` + U3a mirror)
+- `/api/v1/follow_tags`
+- Settings hashtag-follow UI
+- `FanOutOnWriteService`
+- `FeedManager`
+
+`TagFollow` existence means the account follows the hashtag. It does **not**
+mean Home delivery exists. A List-only relation therefore reports
+`following: true` and appears once in `GET /api/v1/followed_tags`.
+
+`GET /api/v1/followed_tags` paginates canonical `TagFollow` rows, not legacy
+destination rows, so one account/tag relation with Home plus Lists is returned
+once.
+
+### A5. Runtime cutover
+
+U3b-1 already switched standard following-state reads
+(`TagRelationshipsPresenter`, `REST::TagSerializer#following`,
+`GET /api/v1/followed_tags`) to `TagFollow`. Remaining cutover still includes:
+
+- `Api::V1::TagsController` writes
 - `FanOutOnWriteService`
 - `FeedManager`
 - Settings hashtag-follow UI
@@ -1076,10 +1104,12 @@ cutover procedure; do not infer authoritativeness from one historical backfill.
 
 ### PR U3 — runtime TagFollow cutover
 
-- upstream-standard tag follow relation
-- Fedibird delivery extension
+U3 is staged. U3a dual-write and U3b-1 standard read cutover are complete.
+
+Remaining U3 work still includes:
+
 - fan-out and FeedManager routing
-- Settings/API compatibility adapters
+- Settings/API destination-management adapters
 - exhaustive Home/List matrix
 - old `follow_tags` retained
 
