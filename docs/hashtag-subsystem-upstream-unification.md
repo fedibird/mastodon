@@ -1,6 +1,6 @@
 # Hashtag subsystem upstream unification
 
-Status: **implementation in progress**. U0/U0.1 analyzers, U1 schema expansion, U2 backfill/parity tooling, U3a dual-write, U3b-1 standard read cutover, U3b-2 hashtag delivery/read-admission cutover, U3b-3a legacy resource-ID foundation, and U3b-3b management read cutover have been merged or are in review. Destination-management **writes and forms** still use legacy `FollowTag`. Standard following-state reads use `TagFollow`. Home/List delivery, FeedManager tag admission, and management **index/show** use `TagFollowDelivery`. Outward management IDs remain `legacy_follow_tag_id`.
+Status: **implementation in progress**. U0/U0.1 analyzers, U1 schema expansion, U2 backfill/parity tooling, U3a dual-write, U3b-1 standard read cutover, U3b-2 hashtag delivery/read-admission cutover, U3b-3a legacy resource-ID foundation, U3b-3b management read cutover, and U3b-3c compatibility-API write cutover have been merged or are in review. Settings forms/writes and standard `TagsController` follow/unfollow still use legacy `FollowTag`. Compatibility API create/update/destroy write `TagFollow` / `TagFollowDelivery` and keep `follow_tags` as a callback-free rollback shadow. Standard following-state reads use `TagFollow`. Home/List delivery, FeedManager tag admission, and management index/show use `TagFollowDelivery`. Outward management IDs remain `legacy_follow_tag_id`, allocated from the existing `follow_tags` sequence.
 
 Base for this design: Fedibird PR #117 head
 `777ca4eabe36f6dc0abb8ec431505ecbc18d6fa8` (2026-09-19).
@@ -803,6 +803,88 @@ existing Settings rows and API IDs, create/update/delete one temporary follow
 through the legacy write path, confirm the same ID on canonical reads, then
 rerun parity.
 
+### A4.7 U3b-3c compatibility API write cutover
+
+U3b-3c cuts Fedibird compatibility-API **mutations** to canonical
+`TagFollow` / `TagFollowDelivery` while leaving Settings and standard tag
+follow/unfollow on `FollowTag`.
+
+Canonical API writes:
+
+- `POST /api/v1/follow_tags`
+- `PUT/PATCH /api/v1/follow_tags/:id`
+- `DELETE /api/v1/follow_tags/:id`
+
+Still legacy writes/forms:
+
+- Settings new/create/edit/update/destroy
+- `Api::V1::TagsController` follow/unfollow
+- U3a `FollowTag` callbacks for those paths
+
+```text
+Fedibird compatibility API
+  read  -> TagFollowDelivery
+  write -> HashtagUnification::TagFollowDeliveryWriter
+            -> TagFollow / TagFollowDelivery
+            -> follow_tags rollback shadow (same transaction, no callbacks)
+
+Settings + standard tag writes
+  write -> FollowTag
+  -> U3a mirror
+  -> TagFollowDelivery
+```
+
+New API-created destinations obtain `legacy_follow_tag_id` from the existing
+`follow_tags` primary-key sequence by inserting the shadow row without an
+explicit id and using `RETURNING id`. No second compatibility-ID sequence is
+introduced while any legacy writer remains active.
+
+The writer never calls `FollowTag.create!` / `update!` / `destroy!`. Shadow
+synchronization uses callback-bypassing SQL (`INSERT … RETURNING`,
+`update_all`, `delete_all`) so U3a cannot recurse into the canonical write.
+
+Create order inside one transaction:
+
+1. resolve/create canonical `Tag` via `Tag.find_or_create_by_names`
+2. find/create `TagFollow(account, tag)`
+3. create `TagFollowDelivery` with `legacy_follow_tag_id` temporarily nil
+4. `INSERT` the `follow_tags` shadow row without callbacks and `RETURNING id`
+5. assign that id to `delivery.legacy_follow_tag_id`
+6. commit
+
+Update/destroy lock order matches remaining legacy writers:
+
+1. lock/verify the `follow_tags` shadow row
+2. lock/load the canonical delivery for the current account
+3. mutate canonical + shadow
+4. delete the parent `TagFollow` when no deliveries remain
+5. commit
+
+A missing or account-mismatched shadow fails closed. Peer Home/List
+destinations stay independent. The same `legacy_follow_tag_id` survives tag
+movement. Collision on the destination unique indexes rolls back both
+canonical and shadow changes.
+
+API-created rows remain Settings-editable because the shadow row is a normal
+`follow_tags` record. Legacy-created rows remain API-mutable because the
+writer locates the canonical delivery by `legacy_follow_tag_id`.
+
+Rollback is application-code-only: revert to U3b-3b and API mutations use
+`FollowTag` again. Dual-write, the compatibility column, and shadow parity
+remain.
+
+Before deploying U3b-3c:
+
+```bash
+RAILS_ENV=production bundle exec rake hashtag_unification:follow_tag_parity
+```
+
+Require both `"ok": true` and `"management_ready": true`. After deploy, canary
+an API create (same ID on GET and Settings edit), an API update, optionally a
+Settings edit of that row, an API delete, then rerun parity.
+
+U3b-3d will cut Settings form/write actions over to the same writer.
+
 ### A5. Runtime cutover
 
 U3b-1 already switched standard following-state reads
@@ -819,11 +901,16 @@ U3b-3b already switched Fedibird management **index/show** reads to
 `TagFollowDelivery` while keeping create/update/destroy and Settings forms on
 `FollowTag`.
 
+U3b-3c already switched Fedibird `/api/v1/follow_tags` create/update/destroy
+to `HashtagUnification::TagFollowDeliveryWriter`. Those mutations write
+canonical rows and keep `follow_tags` as a callback-free rollback shadow.
+Settings forms/writes and standard `TagsController` follow/unfollow still
+use `FollowTag` + U3a.
+
 Remaining cutover still includes:
 
 - `Api::V1::TagsController` writes
 - Settings hashtag-follow form/write actions
-- Fedibird `/api/v1/follow_tags` create/update/destroy
 - model associations on `Tag`, `List`, and account-related concerns
 
 to `TagFollow` + `TagFollowDelivery`.
@@ -1317,13 +1404,14 @@ cutover procedure; do not infer authoritativeness from one historical backfill.
 
 U3 is staged. U3a dual-write, U3b-1 standard read cutover, U3b-2
 hashtag delivery/read-admission cutover, U3b-3a legacy resource-ID
-foundation, and U3b-3b management read cutover are complete.
+foundation, U3b-3b management read cutover, and U3b-3c compatibility-API
+write cutover are complete.
 
 Remaining U3 work still includes:
 
-- Settings/API destination-management **writes and forms**
-- write-path cutover off legacy `FollowTag`
-- old `follow_tags` retained
+- Settings destination-management **writes and forms** (U3b-3d)
+- standard `TagsController` follow/unfollow write cutover
+- old `follow_tags` retained as the rollback shadow / shared ID allocator
 
 ### PR U4 — legacy follow cleanup
 

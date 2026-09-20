@@ -41,6 +41,17 @@ RSpec.describe Api::V1::FollowTagsController, type: :controller do # rubocop:dis
     TagFollowDelivery.create!(tag_follow: tag_follow, list: list, legacy_follow_tag_id: legacy_id)
   end
 
+  def stub_follow_tag_mirror
+    allow(HashtagUnification::FollowTagMirror).to receive(:new)
+      .and_raise('U3a mirror must not run for canonical API writes')
+  end
+
+  def expect_parity_ok
+    result = HashtagUnification::FollowTagParity.new.call
+    expect(result[:ok]).to eq(true), result.inspect
+    expect(result[:management_ready]).to eq(true), result.inspect
+  end
+
   describe 'GET #index' do
     it 'includes a canonical-only delivery and uses the compatibility ID' do
       tag = Fabricate(:tag, name: 'u3b3bindex')
@@ -118,47 +129,104 @@ RSpec.describe Api::V1::FollowTagsController, type: :controller do # rubocop:dis
     end
   end
 
-  describe 'write/read bridge' do
-    it 'creates through FollowTag and shows the mirrored canonical delivery' do
-      post :create, params: { name: 'u3b3bcreate' }
+  describe 'canonical write path' do # rubocop:disable Metrics/BlockLength
+    it 'creates through TagFollowDelivery and keeps a FollowTag shadow with the same ID' do
+      stub_follow_tag_mirror
+
+      post :create, params: { name: 'u3b3ccreate', media_only: true }
       created = body_as_json
-      source = FollowTag.find(created[:id])
-      delivery = TagFollowDelivery.find_by!(legacy_follow_tag_id: source.id)
+      delivery = TagFollowDelivery.find_by!(legacy_follow_tag_id: created[:id])
+      shadow = FollowTag.find(created[:id])
       canonical_time = 2.days.from_now.change(usec: 0)
       delivery.update_columns(updated_at: canonical_time)
 
       get :show, params: { id: created[:id] }
 
-      expect(created[:id]).to eq source.id.to_s
-      expect(created[:name]).to eq 'u3b3bcreate'
-      expect(delivery.legacy_follow_tag_id).to eq source.id
       expect(response).to have_http_status(200)
-      expect(body_as_json[:id]).to eq source.id.to_s
-      expect(body_as_json[:name]).to eq 'u3b3bcreate'
+      expect(created[:id]).to eq shadow.id.to_s
+      expect(created[:id]).not_to eq delivery.id.to_s
+      expect(created[:name]).to eq 'u3b3ccreate'
+      expect(delivery.media_only).to be true
+      expect(shadow.media_only).to be true
+      expect(body_as_json[:id]).to eq shadow.id.to_s
       expect(Time.zone.parse(body_as_json[:updated_at])).to be_within(1.second).of(canonical_time)
+      expect_parity_ok
     end
 
-    it 'updates the legacy write path and keeps the same compatibility ID' do
-      source = FollowTag.create!(account: user.account, tag: Fabricate(:tag, name: 'u3b3bold'))
+    it 'rejects a duplicate Home create' do
+      stub_follow_tag_mirror
+      post :create, params: { name: 'u3b3cdup' }
 
-      put :update, params: { id: source.id, name: 'u3b3bnew' }
-      get :show, params: { id: source.id }
+      expect { post :create, params: { name: 'u3b3cdup' } }.not_to change(TagFollowDelivery, :count)
+      expect(response).to have_http_status(422)
+      expect_parity_ok
+    end
+
+    it 'updates a canonical resource without FollowTag callbacks' do
+      stub_follow_tag_mirror
+      post :create, params: { name: 'u3b3cold' }
+      compatibility_id = body_as_json[:id]
+
+      put :update, params: { id: compatibility_id, name: 'u3b3cnew', media_only: true }
+      get :show, params: { id: compatibility_id }
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json[:id]).to eq compatibility_id
+      expect(body_as_json[:name]).to eq 'u3b3cnew'
+      expect(TagFollowDelivery.find_by!(legacy_follow_tag_id: compatibility_id).media_only).to be true
+      expect(FollowTag.find(compatibility_id).media_only).to be true
+      expect_parity_ok
+    end
+
+    it 'destroys a canonical resource and its shadow' do
+      stub_follow_tag_mirror
+      post :create, params: { name: 'u3b3cdel' }
+      compatibility_id = body_as_json[:id]
+
+      delete :destroy, params: { id: compatibility_id }
+      get :show, params: { id: compatibility_id }
+
+      expect(FollowTag.where(id: compatibility_id)).to be_empty
+      expect(TagFollowDelivery.where(legacy_follow_tag_id: compatibility_id)).to be_empty
+      expect(response).to have_http_status(404)
+      expect_parity_ok
+    end
+
+    it 'updates a legacy-created row through the canonical writer' do
+      source = FollowTag.create!(account: user.account, tag: Fabricate(:tag, name: 'u3b3cbridge'))
+      stub_follow_tag_mirror
+
+      put :update, params: { id: source.id, name: 'u3b3cbridged' }
 
       expect(response).to have_http_status(200)
       expect(body_as_json[:id]).to eq source.id.to_s
-      expect(body_as_json[:name]).to eq 'u3b3bnew'
-      expect(TagFollowDelivery.find_by!(legacy_follow_tag_id: source.id).name).to eq 'u3b3bnew'
+      expect(body_as_json[:name]).to eq 'u3b3cbridged'
+      expect(FollowTag.find(source.id).tag.name).to eq 'u3b3cbridged'
+      expect_parity_ok
     end
 
-    it 'destroys the legacy write path and hides the canonical read resource' do
-      source = FollowTag.create!(account: user.account, tag: Fabricate(:tag, name: 'u3b3bdel'))
+    it 'does not update or destroy another account\'s compatibility ID' do
+      source = FollowTag.create!(account: other.account, tag: Fabricate(:tag, name: 'u3b3ciso'))
+
+      put :update, params: { id: source.id, name: 'nope' }
+      expect(response).to have_http_status(404)
 
       delete :destroy, params: { id: source.id }
-      get :show, params: { id: source.id }
-
-      expect(FollowTag.where(id: source.id)).to be_empty
-      expect(TagFollowDelivery.where(legacy_follow_tag_id: source.id)).to be_empty
       expect(response).to have_http_status(404)
+      expect(FollowTag.where(id: source.id)).to exist
+    end
+
+    it 'fails closed when the rollback shadow is missing' do
+      tag = Fabricate(:tag, name: 'u3b3cnoshadow')
+      delivery = create_canonical_delivery(account: user.account, tag: tag)
+
+      put :update, params: { id: delivery.legacy_follow_tag_id, media_only: true }
+      expect(response).to have_http_status(422)
+      expect(delivery.reload.media_only).to be false
+
+      delete :destroy, params: { id: delivery.legacy_follow_tag_id }
+      expect(response).to have_http_status(422)
+      expect(TagFollowDelivery.where(id: delivery.id)).to exist
     end
   end
 end
