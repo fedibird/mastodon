@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe TagFollowDelivery, type: :model do
+RSpec.describe TagFollowDelivery, type: :model do # rubocop:disable Metrics/BlockLength
   let(:account) { Fabricate(:account) }
   let(:tag) { Fabricate(:tag) }
   let(:tag_follow) { TagFollow.create!(account: account, tag: tag) }
