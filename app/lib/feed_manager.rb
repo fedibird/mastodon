@@ -605,7 +605,7 @@ class FeedManager
     crutches[:domain_blocking]    = AccountDomainBlock.where(account_id: receiver_id, domain: statuses.map { |s| s.account&.domain }.compact).pluck(:domain).index_with(true)
     crutches[:domain_blocking_r]  = AccountDomainBlock.where(account_id: receiver_id, domain: statuses.map { |s| s.reblog&.account&.domain }.compact).pluck(:domain).index_with(true)
     crutches[:blocked_by]         = Block.where(target_account_id: receiver_id, account_id: statuses.flat_map { |s| [s&.account_id, s.reblog&.account_id] }.compact).pluck(:account_id).index_with(true)
-    crutches[:following_tag_by]   = FollowTag.where(account_id: receiver_id, tag: statuses.map { |s| s.tags }.flatten.uniq.compact, list_id: list_id).pluck(:tag_id).index_with(true)
+    crutches[:following_tag_by]   = TagFollowDelivery.for_tags(statuses.flat_map(&:tags).uniq.compact).merge(TagFollow.where(account_id: receiver_id)).where(list_id: list_id).pluck('tag_follows.tag_id').index_with(true)
     crutches[:domain_subscribe]   = DomainSubscribe.where(account_id: receiver_id, list_id: list_id, domain: statuses.map { |s| s&.account&.domain }.compact).pluck(:domain).index_with(true)
     crutches[:account_subscribe]  = AccountSubscribe.where(account_id: receiver_id, target_account_id: statuses.map(&:account_id).compact, list_id: list_id).pluck(:target_account_id).index_with(true)
     crutches

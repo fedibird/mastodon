@@ -241,13 +241,27 @@ class FanOutOnWriteService < BaseService
   end
 
   def deliver_to_hashtag_followers_home(status)
-    @feedInsertWorker.push_bulk(FollowTag.home.where(tag: status.tags_without_mute).with_media(status.proper).merge(visibility_scope(status, FollowTag)).pluck(:account_id).uniq) do |follower|
+    account_ids = TagFollowDelivery.home
+                                   .for_tags(status.tags_without_mute)
+                                   .with_media(status.proper)
+                                   .merge(visibility_scope(status, TagFollow))
+                                   .pluck('tag_follows.account_id')
+                                   .uniq
+
+    @feedInsertWorker.push_bulk(account_ids) do |follower|
       [status.id, follower, 'home']
     end
   end
 
   def deliver_to_hashtag_followers_list(status)
-    @feedInsertWorker.push_bulk(FollowTag.list.where(tag: status.tags_without_mute).with_media(status.proper).merge(visibility_scope(status, FollowTag)).pluck(:list_id).uniq) do |list_id|
+    list_ids = TagFollowDelivery.list
+                                .for_tags(status.tags_without_mute)
+                                .with_media(status.proper)
+                                .merge(visibility_scope(status, TagFollow))
+                                .pluck(:list_id)
+                                .uniq
+
+    @feedInsertWorker.push_bulk(list_ids) do |list_id|
       [status.id, list_id, 'list']
     end
   end

@@ -67,4 +67,13 @@ RSpec.describe TagFollowDelivery, type: :model do
     expect(delivery).not_to be_valid
     expect(delivery.errors[:list]).to be_present
   end
+
+  it 'scopes deliveries to the requested tags through TagFollow' do
+    other_tag = Fabricate(:tag)
+    other_follow = TagFollow.create!(account: account, tag: other_tag)
+    matching = described_class.create!(tag_follow: tag_follow)
+    described_class.create!(tag_follow: other_follow)
+
+    expect(described_class.for_tags([tag])).to contain_exactly(matching)
+  end
 end

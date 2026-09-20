@@ -1,6 +1,6 @@
 # Hashtag subsystem upstream unification
 
-Status: **implementation in progress**. U0/U0.1 analyzers, U1 schema expansion, U2 backfill/parity tooling, U3a dual-write, and U3b-1 standard read cutover have been merged or are in review. Writes and delivery routing still use legacy `FollowTag`. Standard following-state reads use `TagFollow`.
+Status: **implementation in progress**. U0/U0.1 analyzers, U1 schema expansion, U2 backfill/parity tooling, U3a dual-write, U3b-1 standard read cutover, and U3b-2 hashtag delivery/read-admission cutover have been merged or are in review. Writes and destination management still use legacy `FollowTag`. Standard following-state reads use `TagFollow`. Home/List delivery and FeedManager tag admission use `TagFollowDelivery`.
 
 Base for this design: Fedibird PR #117 head
 `777ca4eabe36f6dc0abb8ec431505ecbc18d6fa8` (2026-09-19).
@@ -586,13 +586,16 @@ Authoritative for standard following-state reads:
 - `REST::TagSerializer#following`
 - `GET /api/v1/followed_tags`
 
-Authoritative for writes and timeline delivery, unchanged:
+Authoritative for writes and timeline delivery, unchanged at U3b-1:
 
 - `Api::V1::TagsController` follow/unfollow (`FollowTag` + U3a mirror)
 - `/api/v1/follow_tags`
 - Settings hashtag-follow UI
 - `FanOutOnWriteService`
 - `FeedManager`
+
+U3b-2 later switched FanOut hashtag delivery and FeedManager tag admission to
+`TagFollowDelivery` without changing those write/management surfaces.
 
 `TagFollow` existence means the account follows the hashtag. It does **not**
 mean Home delivery exists. A List-only relation therefore reports
@@ -602,15 +605,82 @@ mean Home delivery exists. A List-only relation therefore reports
 destination rows, so one account/tag relation with Home plus Lists is returned
 once.
 
+### A4.4 U3b-2 delivery/read-admission cutover
+
+U3b-2 is a read-only cutover of **hashtag delivery and FeedManager tag
+admission** from legacy destination rows to explicit `TagFollowDelivery`.
+
+It does not change writes, and it does not change destination-management
+resource IDs.
+
+Authoritative for timeline delivery and feed tag admission:
+
+- `FanOutOnWriteService#deliver_to_hashtag_followers_home`
+- `FanOutOnWriteService#deliver_to_hashtag_followers_list`
+- `FeedManager#build_crutches` → `crutches[:following_tag_by]`
+
+Authoritative for writes and destination management, unchanged:
+
+- `Api::V1::TagsController` follow/unfollow (`FollowTag` + U3a mirror)
+- `/api/v1/follow_tags`
+- Settings hashtag-follow UI
+- legacy `follow_tags.id` as the management resource ID
+
+Home delivery exists only when an explicit Home `TagFollowDelivery`
+(`list_id` NULL) exists. List delivery exists only for that List's delivery
+row. A bare `TagFollow` with zero deliveries delivers nowhere and does not
+unlock reply admission.
+
+Destination-level `media_only`, existing `visibility_scope`, and
+`Status#tags_without_mute` remain in force. FanOut applies `visibility_scope`
+to `TagFollow` (the relation that owns `account_id`) after joining
+`TagFollowDelivery`.
+
+`/api/v1/follow_tags` and Settings remain on legacy `FollowTag` because those
+surfaces expose `follow_tags.id`. Backfilled `tag_follow_deliveries.id` values
+are not guaranteed to match. That compatibility/resource-ID problem is U3b-3.
+
+Rollback remains application-code-only while dual-write is retained:
+
+```text
+deploy problem
+  -> revert application code to U3b-1
+  -> FanOut/FeedManager read legacy FollowTag again
+  -> legacy writes were never stopped
+```
+
+Before deploying U3b-2, administrators must run:
+
+```bash
+RAILS_ENV=production bundle exec rake hashtag_unification:follow_tag_parity
+```
+
+and require `"ok": true`. After deploy, exercise real Home/List/`media_only`
+mutations and rerun parity.
+
+Recommended canary matrix:
+
+- Home-only follow receives a tagged post only in Home
+- List-only follow receives it only in that List
+- Home + List receives both
+- `media_only` blocks text-only and admits media
+- removing Home while retaining List stops Home delivery but keeps List
+- removing the final destination stops delivery
+
+Then rerun parity and require `"ok": true`.
+
 ### A5. Runtime cutover
 
 U3b-1 already switched standard following-state reads
 (`TagRelationshipsPresenter`, `REST::TagSerializer#following`,
-`GET /api/v1/followed_tags`) to `TagFollow`. Remaining cutover still includes:
+`GET /api/v1/followed_tags`) to `TagFollow`.
+
+U3b-2 already switched hashtag Home/List delivery and FeedManager tag
+admission to `TagFollowDelivery`.
+
+Remaining cutover still includes:
 
 - `Api::V1::TagsController` writes
-- `FanOutOnWriteService`
-- `FeedManager`
 - Settings hashtag-follow UI
 - Fedibird `/api/v1/follow_tags` compatibility controller/serializer
 - model associations on `Tag`, `List`, and account-related concerns
@@ -1104,13 +1174,13 @@ cutover procedure; do not infer authoritativeness from one historical backfill.
 
 ### PR U3 — runtime TagFollow cutover
 
-U3 is staged. U3a dual-write and U3b-1 standard read cutover are complete.
+U3 is staged. U3a dual-write, U3b-1 standard read cutover, and U3b-2
+hashtag delivery/read-admission cutover are complete.
 
 Remaining U3 work still includes:
 
-- fan-out and FeedManager routing
-- Settings/API destination-management adapters
-- exhaustive Home/List matrix
+- Settings/API destination-management adapters (`/api/v1/follow_tags`, Settings)
+- write-path cutover off legacy `FollowTag`
 - old `follow_tags` retained
 
 ### PR U4 — legacy follow cleanup

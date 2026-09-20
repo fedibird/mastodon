@@ -15,6 +15,7 @@ class TagFollowDelivery < ApplicationRecord
 
   scope :home, -> { where(list_id: nil) }
   scope :list, -> { where.not(list_id: nil) }
+  scope :for_tags, ->(tags) { joins(:tag_follow).merge(TagFollow.where(tag: tags)) }
   scope :with_media, ->(status) { where(media_only: false) unless status&.with_media? }
 
   validates :tag_follow_id, uniqueness: true, if: -> { list_id.nil? }
