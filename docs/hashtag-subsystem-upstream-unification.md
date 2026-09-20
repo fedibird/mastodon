@@ -220,6 +220,10 @@ Recommended constraints:
   unique partial/composite index on `(tag_follow_id, list_id)`
   where `list_id IS NOT NULL`
 
+Active Record uniqueness on Home must use the same condition (`list_id IS
+NULL`). Unscoped uniqueness on `tag_follow_id` would reject a valid Home row
+when a List destination already exists.
+
 No implicit delivery row is synthesized by the model merely because a
 `TagFollow` exists.
 
