@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_19_213000) do
+ActiveRecord::Schema.define(version: 2026_09_20_070000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1415,6 +1415,8 @@ ActiveRecord::Schema.define(version: 2026_09_19_213000) do
     t.boolean "media_only", default: false, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "legacy_follow_tag_id"
+    t.index ["legacy_follow_tag_id"], name: "index_tag_follow_deliveries_on_legacy_follow_tag_id", unique: true
     t.index ["list_id"], name: "index_tag_follow_deliveries_on_list_id"
     t.index ["tag_follow_id", "list_id"], name: "index_tag_follow_deliveries_on_list", unique: true, where: "(list_id IS NOT NULL)"
     t.index ["tag_follow_id"], name: "index_tag_follow_deliveries_on_home", unique: true, where: "(list_id IS NULL)"

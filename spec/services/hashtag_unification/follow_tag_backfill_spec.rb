@@ -36,6 +36,7 @@ RSpec.describe HashtagUnification::FollowTagBackfill do
     result = described_class.new(apply: true).call
 
     expect(result.dig(:after, :ok)).to be true
+    expect(result.dig(:after, :management_ready)).to be true
     expect(TagFollow.count).to eq 3
     expect(TagFollowDelivery.count).to eq 5
 
@@ -48,14 +49,34 @@ RSpec.describe HashtagUnification::FollowTagBackfill do
     expect(mixed_follow.deliveries.list.pluck(:list_id)).to contain_exactly(list_a.id)
   end
 
+  it 'copies exact legacy FollowTag ids onto matching canonical deliveries' do
+    described_class.new(apply: true).call
+
+    home_source = FollowTag.find_by!(account: account, tag: home_tag, list_id: nil)
+    list_a_source = FollowTag.find_by!(account: account, tag: list_tag, list_id: list_a.id)
+    list_b_source = FollowTag.find_by!(account: account, tag: list_tag, list_id: list_b.id)
+
+    home_follow = TagFollow.find_by!(account: account, tag: home_tag)
+    list_follow = TagFollow.find_by!(account: account, tag: list_tag)
+
+    expect(TagFollowDelivery.home.find_by!(tag_follow: home_follow).legacy_follow_tag_id).to eq home_source.id
+    expect(TagFollowDelivery.list.find_by!(tag_follow: list_follow, list: list_a).legacy_follow_tag_id).to eq list_a_source.id
+    expect(TagFollowDelivery.list.find_by!(tag_follow: list_follow, list: list_b).legacy_follow_tag_id).to eq list_b_source.id
+  end
+
   it 'is idempotent and tracks later callback-bypassing media_only changes in the source' do
     described_class.new(apply: true).call
+
+    home_source = FollowTag.find_by!(account: account, tag: home_tag, list_id: nil)
+    first_id = TagFollowDelivery.home.find_by!(tag_follow: TagFollow.find_by!(account: account, tag: home_tag)).legacy_follow_tag_id
 
     FollowTag.where(account: account, tag: mixed_tag, list_id: nil).update_all(media_only: false)
     described_class.new(apply: true).call
 
     target = TagFollow.find_by!(account: account, tag: mixed_tag)
     expect(TagFollowDelivery.home.find_by!(tag_follow: target).media_only).to be false
+    expect(TagFollowDelivery.home.find_by!(tag_follow: TagFollow.find_by!(account: account, tag: home_tag)).legacy_follow_tag_id).to eq first_id
+    expect(first_id).to eq home_source.id
 
     FollowTag.where(account: account, tag: mixed_tag, list_id: nil).update_all(media_only: true)
     described_class.new(apply: true).call
@@ -74,7 +95,12 @@ RSpec.describe HashtagUnification::FollowTagBackfill do
     described_class.new(apply: true).call
 
     target = TagFollow.find_by!(account: other_account, tag: home_tag)
-    expect(TagFollowDelivery.home.find_by!(tag_follow: target).media_only).to be false
+    ids = FollowTag.where(account: other_account, tag: home_tag, list_id: nil).pluck(:id)
+    delivery = TagFollowDelivery.home.find_by!(tag_follow: target)
+
+    expect(delivery.media_only).to be false
+    expect(delivery.legacy_follow_tag_id).to eq ids.min
+    expect(ids.size).to eq 2
   end
 
   it 'does not delete target-only rows unless pruning is explicitly requested' do

@@ -86,4 +86,25 @@ RSpec.describe TagFollowDelivery, type: :model do # rubocop:disable Metrics/Bloc
 
     expect(described_class.for_tags([tag])).to contain_exactly(matching)
   end
+
+  it 'rejects a duplicate non-null compatibility resource ID' do
+    other_follow = TagFollow.create!(account: account, tag: Fabricate(:tag))
+    unused_id = (FollowTag.maximum(:id) || 0) + 1
+    described_class.create!(tag_follow: tag_follow, legacy_follow_tag_id: unused_id)
+
+    duplicate = described_class.new(tag_follow: other_follow, legacy_follow_tag_id: unused_id)
+
+    expect(duplicate).not_to be_valid
+    expect(duplicate.errors[:legacy_follow_tag_id]).to be_present
+  end
+
+  it 'allows multiple deliveries with a nil compatibility resource ID' do
+    home = described_class.create!(tag_follow: tag_follow)
+    list_delivery = described_class.create!(tag_follow: tag_follow, list: list_a)
+
+    expect(home.legacy_follow_tag_id).to be_nil
+    expect(list_delivery.legacy_follow_tag_id).to be_nil
+    expect(home).to be_valid
+    expect(list_delivery).to be_valid
+  end
 end

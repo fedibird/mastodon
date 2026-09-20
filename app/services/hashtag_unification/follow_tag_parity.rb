@@ -6,13 +6,15 @@ module HashtagUnification
       source = source_metrics
       target = target_metrics
       differences = difference_metrics
+      ok = parity_ok?(source, target, differences)
 
       {
         generated_at: Time.now.utc.iso8601,
         source: source,
         target: target,
         differences: differences,
-        ok: parity_ok?(source, target, differences),
+        ok: ok,
+        management_ready: ok && source.fetch(:duplicate_destination_groups).zero?,
       }
     end
 
@@ -96,7 +98,20 @@ module HashtagUnification
             INNER JOIN tag_follows tf ON tf.id = d.tag_follow_id
             INNER JOIN lists l ON l.id = d.list_id
             WHERE d.list_id IS NOT NULL AND l.account_id <> tf.account_id
-          ) AS list_owner_mismatches
+          ) AS list_owner_mismatches,
+          (
+            SELECT COUNT(*)
+            FROM tag_follow_deliveries d
+            INNER JOIN tag_follows tf ON tf.id = d.tag_follow_id
+            WHERE d.legacy_follow_tag_id IS NULL
+              AND EXISTS (
+                SELECT 1
+                FROM follow_tags source
+                WHERE source.account_id = tf.account_id
+                  AND source.tag_id = tf.tag_id
+                  AND source.list_id IS NOT DISTINCT FROM d.list_id
+              )
+          ) AS deliveries_without_legacy_follow_tag_id
       SQL
 
       integerize(row)
@@ -147,7 +162,8 @@ module HashtagUnification
             account_id,
             tag_id,
             list_id,
-            BOOL_AND(media_only) AS media_only
+            BOOL_AND(media_only) AS media_only,
+            MIN(id) AS legacy_follow_tag_id
           FROM follow_tags
           WHERE account_id IS NOT NULL AND tag_id IS NOT NULL
           GROUP BY account_id, tag_id, list_id
@@ -157,7 +173,8 @@ module HashtagUnification
             tf.account_id,
             tf.tag_id,
             d.list_id,
-            d.media_only
+            d.media_only,
+            d.legacy_follow_tag_id
           FROM tag_follow_deliveries d
           INNER JOIN tag_follows tf ON tf.id = d.tag_follow_id
         )
@@ -192,7 +209,17 @@ module HashtagUnification
              AND actual.tag_id = expected.tag_id
              AND actual.list_id IS NOT DISTINCT FROM expected.list_id
             WHERE actual.media_only <> expected.media_only
-          ) AS media_only_mismatches
+          ) AS media_only_mismatches,
+          (
+            SELECT COUNT(*)
+            FROM expected_destinations expected
+            INNER JOIN actual_destinations actual
+              ON actual.account_id = expected.account_id
+             AND actual.tag_id = expected.tag_id
+             AND actual.list_id IS NOT DISTINCT FROM expected.list_id
+            WHERE actual.legacy_follow_tag_id IS NOT NULL
+              AND actual.legacy_follow_tag_id <> expected.legacy_follow_tag_id
+          ) AS legacy_follow_tag_id_mismatches
       SQL
 
       integerize(row)
@@ -200,7 +227,7 @@ module HashtagUnification
 
     def parity_ok?(source, target, differences)
       source.values_at(:null_account_or_tag_rows, :orphaned_list_rows, :list_owner_mismatches).all?(&:zero?) &&
-        target.values_at(:tag_follows_without_deliveries, :list_owner_mismatches).all?(&:zero?) &&
+        target.values_at(:tag_follows_without_deliveries, :list_owner_mismatches, :deliveries_without_legacy_follow_tag_id).all?(&:zero?) &&
         differences.values.all?(&:zero?)
     end
 

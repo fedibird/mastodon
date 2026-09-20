@@ -2,28 +2,31 @@
 
 require 'rails_helper'
 
-RSpec.describe FollowTag, type: :model do
+RSpec.describe FollowTag, type: :model do # rubocop:disable Metrics/BlockLength
   let!(:account) { Fabricate(:account) }
   let!(:tag) { Fabricate(:tag, name: 'dualwrite') }
   let!(:list_a) { Fabricate(:list, account: account, title: 'A') }
   let!(:list_b) { Fabricate(:list, account: account, title: 'B') }
 
   it 'mirrors an explicit Home destination on create' do
-    described_class.create!(account: account, tag: tag, media_only: true)
+    source = described_class.create!(account: account, tag: tag, media_only: true)
 
     target = TagFollow.find_by!(account: account, tag: tag)
     delivery = TagFollowDelivery.home.find_by!(tag_follow: target)
 
     expect(delivery.media_only).to be true
+    expect(delivery.legacy_follow_tag_id).to eq source.id
   end
 
   it 'keeps a List-only follow List-only' do
-    described_class.create!(account: account, tag: tag, list: list_a)
+    source = described_class.create!(account: account, tag: tag, list: list_a)
 
     target = TagFollow.find_by!(account: account, tag: tag)
+    delivery = TagFollowDelivery.list.find_by!(tag_follow: target, list: list_a)
 
     expect(target.deliveries.home).to be_empty
     expect(target.deliveries.list.pluck(:list_id)).to contain_exactly(list_a.id)
+    expect(delivery.legacy_follow_tag_id).to eq source.id
   end
 
   it 'mirrors multiple peer destinations into one TagFollow' do
@@ -50,8 +53,21 @@ RSpec.describe FollowTag, type: :model do
     source.update!(list: list_b)
 
     target = TagFollow.find_by!(account: account, tag: tag)
+    delivery = TagFollowDelivery.list.find_by!(tag_follow: target, list: list_b)
 
     expect(target.deliveries.list.pluck(:list_id)).to contain_exactly(list_b.id)
+    expect(delivery.legacy_follow_tag_id).to eq source.id
+  end
+
+  it 'keeps the compatibility resource ID when a List destination moves to Home' do
+    source = described_class.create!(account: account, tag: tag, list: list_a)
+    source.update!(list: nil)
+
+    target = TagFollow.find_by!(account: account, tag: tag)
+    delivery = TagFollowDelivery.home.find_by!(tag_follow: target)
+
+    expect(target.deliveries.list).to be_empty
+    expect(delivery.legacy_follow_tag_id).to eq source.id
   end
 
   it 'keeps the relation while another destination remains' do
