@@ -112,7 +112,7 @@ RSpec.describe Settings::FollowTagsController, type: :controller do # rubocop:di
     end
   end
 
-  describe 'POST #create' do
+  describe 'POST #create' do # rubocop:disable Metrics/BlockLength
     it 'creates a Home destination without FollowTag callbacks' do
       stub_follow_tag_mirror
 
