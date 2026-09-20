@@ -20,6 +20,12 @@ RSpec.describe Status, '#filterable_text', type: :model do # rubocop:disable Met
     sqls
   end
 
+  def stub_tag_manager_nil(method_name, target)
+    allow(ActivityPub::TagManager.instance).to receive(method_name).and_wrap_original do |original, actual|
+      actual.id == target.id ? nil : original.call(actual)
+    end
+  end
+
   it 'includes searchable body text' do
     status = Fabricate(:status, account: local_account, text: 'hello foo')
 
@@ -27,11 +33,20 @@ RSpec.describe Status, '#filterable_text', type: :model do # rubocop:disable Met
     expect(status.filterable_text).to include(status.searchable_text)
   end
 
-  it 'does not include ordinary body URLs' do
+  it 'includes ordinary body URLs that searchable_text strips' do
     status = Fabricate(:status, account: local_account, text: 'hello https://example.com/article')
 
     expect(status.searchable_text).not_to include('example.com')
-    expect(status.filterable_text).not_to include('example.com')
+    expect(status.filterable_text).to include('https://example.com/article')
+  end
+
+  it 'includes ordinary remote HTML anchor URLs that searchable_text strips' do
+    remote_account = Fabricate(:account, domain: 'remote.test', username: 'bob', url: 'https://remote.test/@bob')
+    html = '<p>hello <a href="https://example.com/article">https://example.com/article</a></p>'
+    status = Fabricate(:status, account: remote_account, text: html)
+
+    expect(status.searchable_text).not_to include('example.com')
+    expect(status.filterable_text).to include('https://example.com/article')
   end
 
   it 'includes referenced status URL and URI without putting them in searchable_text' do
@@ -63,6 +78,70 @@ RSpec.describe Status, '#filterable_text', type: :model do # rubocop:disable Met
     expect(referencing.filterable_text).to include('https://example.social/@bob/123')
     expect(referencing.filterable_text).to include('https://example.social/users/bob/statuses/123')
     expect(referencing.searchable_text).not_to include('example.social')
+  end
+
+  it 'falls back to the source URL when url_for is nil' do
+    remote = Fabricate(:account, domain: 'example.social', username: 'bob', url: 'https://example.social/@bob')
+    referenced = Fabricate(
+      :status,
+      account: remote,
+      text: 'remote original',
+      uri: 'https://example.social/users/bob/statuses/123',
+      url: 'https://example.social/@bob/123'
+    )
+    source_url = referenced.url
+    referencing = Fabricate(:status, account: local_account, text: "see #{source_url}")
+    Fabricate(:status_reference, status: referencing, target_status: referenced)
+    stub_tag_manager_nil(:url_for, referenced)
+
+    expect(referencing.urls).to include(source_url)
+    expect(referencing.filterable_text).to include(source_url)
+    expect(referencing.filterable_text).to include(referenced.uri)
+  end
+
+  it 'falls back to the source URL when uri_for is nil' do
+    remote = Fabricate(:account, domain: 'example.social', username: 'bob', url: 'https://example.social/@bob')
+    referenced = Fabricate(
+      :status,
+      account: remote,
+      text: 'remote original',
+      uri: 'https://example.social/users/bob/statuses/123',
+      url: 'https://example.social/@bob/123'
+    )
+    source_url = referenced.url
+    referencing = Fabricate(:status, account: local_account, text: "see #{source_url}")
+    Fabricate(:status_reference, status: referencing, target_status: referenced)
+    stub_tag_manager_nil(:uri_for, referenced)
+
+    expect(referencing.urls).to include(source_url)
+    expect(referencing.filterable_text).to include(source_url)
+    expect(referencing.filterable_text).to include(ActivityPub::TagManager.instance.url_for(referenced))
+  end
+
+  it 'collapses duplicate URL forms' do
+    remote = Fabricate(:account, domain: 'example.social', username: 'bob', url: 'https://example.social/@bob')
+    referenced = Fabricate(
+      :status,
+      account: remote,
+      text: 'remote original',
+      uri: 'https://example.social/users/bob/statuses/123',
+      url: 'https://example.social/@bob/123'
+    )
+    referencing = Fabricate(:status, account: local_account, text: "see #{referenced.url} #{referenced.url}")
+    Fabricate(:status_reference, status: referencing, target_status: referenced)
+
+    expect(referencing.filterable_urls.count(referenced.url)).to eq 1
+    expect(referencing.filterable_urls.count(referenced.uri)).to eq 1
+  end
+
+  it 'uses the original status filterable_text for reblogs, including ordinary URLs' do
+    original = Fabricate(:status, account: local_account, text: 'innerword https://example.com/article')
+    reblog = Fabricate(:status, account: local_account, reblog: original)
+
+    expect(reblog.proper.filterable_text).to eq original.filterable_text
+    expect(reblog.proper.filterable_text).to include('innerword')
+    expect(reblog.proper.filterable_text).to include('https://example.com/article')
+    expect(reblog.proper.searchable_text).not_to include('example.com')
   end
 
   it 'keeps spoiler and poll options from searchable_text' do
