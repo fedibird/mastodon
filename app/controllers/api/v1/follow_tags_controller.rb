@@ -5,10 +5,11 @@ class Api::V1::FollowTagsController < Api::BaseController
   before_action -> { doorkeeper_authorize! :write, :'write:follows' }, except: [:index, :show]
 
   before_action :require_user!
-  before_action :set_follow_tag, except: [:index, :create]
+  before_action :set_follow_tag_delivery, only: :show
+  before_action :set_follow_tag, only: [:update, :destroy]
 
   def index
-    @follow_tags = FollowTag.where(account: current_account).all
+    @follow_tags = TagFollowDelivery.for_account(current_account).includes(tag_follow: :tag)
     render json: @follow_tags, each_serializer: REST::FollowTagSerializer
   end
 
@@ -32,6 +33,10 @@ class Api::V1::FollowTagsController < Api::BaseController
   end
 
   private
+
+  def set_follow_tag_delivery
+    @follow_tag = TagFollowDelivery.for_account(current_account).find_by!(legacy_follow_tag_id: params[:id])
+  end
 
   def set_follow_tag
     @follow_tag = FollowTag.where(account: current_account).find(params[:id])

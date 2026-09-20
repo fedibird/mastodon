@@ -107,4 +107,28 @@ RSpec.describe TagFollowDelivery, type: :model do # rubocop:disable Metrics/Bloc
     expect(home).to be_valid
     expect(list_delivery).to be_valid
   end
+
+  it 'exposes the compatibility resource ID and never falls back to the canonical PK' do
+    unused_id = (FollowTag.maximum(:id) || 0) + 1_000_000
+    delivery = described_class.create!(tag_follow: tag_follow, legacy_follow_tag_id: unused_id)
+
+    expect(delivery.legacy_resource_id).to eq unused_id
+    expect(delivery.legacy_resource_id).not_to eq delivery.id
+    expect(delivery.name).to eq tag.name
+  end
+
+  it 'raises when a compatibility resource ID is missing' do
+    delivery = described_class.create!(tag_follow: tag_follow)
+
+    expect { delivery.legacy_resource_id }.to raise_error(ActiveRecord::RecordNotFound)
+  end
+
+  it 'scopes deliveries to the requested account through TagFollow' do
+    other_account = Fabricate(:account)
+    other_follow = TagFollow.create!(account: other_account, tag: Fabricate(:tag))
+    matching = described_class.create!(tag_follow: tag_follow)
+    described_class.create!(tag_follow: other_follow)
+
+    expect(described_class.for_account(account)).to contain_exactly(matching)
+  end
 end

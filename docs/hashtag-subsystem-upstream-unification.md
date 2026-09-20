@@ -1,6 +1,6 @@
 # Hashtag subsystem upstream unification
 
-Status: **implementation in progress**. U0/U0.1 analyzers, U1 schema expansion, U2 backfill/parity tooling, U3a dual-write, U3b-1 standard read cutover, U3b-2 hashtag delivery/read-admission cutover, and U3b-3a legacy resource-ID foundation have been merged or are in review. Writes and destination management still use legacy `FollowTag`. Standard following-state reads use `TagFollow`. Home/List delivery and FeedManager tag admission use `TagFollowDelivery`. Canonical deliveries carry a nullable `legacy_follow_tag_id` compatibility identifier.
+Status: **implementation in progress**. U0/U0.1 analyzers, U1 schema expansion, U2 backfill/parity tooling, U3a dual-write, U3b-1 standard read cutover, U3b-2 hashtag delivery/read-admission cutover, U3b-3a legacy resource-ID foundation, and U3b-3b management read cutover have been merged or are in review. Destination-management **writes and forms** still use legacy `FollowTag`. Standard following-state reads use `TagFollow`. Home/List delivery, FeedManager tag admission, and management **index/show** use `TagFollowDelivery`. Outward management IDs remain `legacy_follow_tag_id`.
 
 Base for this design: Fedibird PR #117 head
 `777ca4eabe36f6dc0abb8ec431505ecbc18d6fa8` (2026-09-19).
@@ -736,7 +736,72 @@ RAILS_ENV=production bundle exec rake hashtag_unification:follow_tag_parity
 Require both `"ok": true` and `"management_ready": true`.
 
 U3b-3b may proceed only after that gate. `/api/v1/follow_tags` and Settings
-are unchanged in U3b-3a.
+remain write/form-legacy until U3b-3b cuts their **read** surfaces over.
+
+### A4.6 U3b-3b management read cutover
+
+U3b-3b cuts Fedibird destination-management **reads** to
+`TagFollowDelivery` while leaving mutations on `FollowTag`.
+
+Canonical management reads:
+
+- `GET /api/v1/follow_tags`
+- `GET /api/v1/follow_tags/:id`
+- Settings `/settings/follow_tags` index/listing
+
+Still legacy writes/forms:
+
+- API create/update/destroy
+- Settings new/create/edit/update/destroy
+
+```text
+management read
+  -> TagFollowDelivery
+
+management write
+  -> FollowTag
+  -> U3a mirror
+  -> TagFollowDelivery
+```
+
+Outward IDs remain `TagFollowDelivery.legacy_follow_tag_id`, historically
+`follow_tags.id`. `TagFollowDelivery.id` is internal only. There is no
+`to_param` override; serializer and Settings links call
+`legacy_resource_id` explicitly. A missing compatibility ID fails closed
+with `ActiveRecord::RecordNotFound` instead of substituting the canonical PK.
+
+API show looks up `legacy_follow_tag_id` scoped through `TagFollow` to the
+current account. It does not fall back to the canonical primary key.
+
+A normal source-backed row keeps one public ID across the seam:
+
+```text
+POST /api/v1/follow_tags
+  -> FollowTag id 123
+  -> U3a mirrors TagFollowDelivery.legacy_follow_tag_id 123
+  -> create response id "123"
+
+GET /api/v1/follow_tags/123
+  -> TagFollowDelivery by legacy_follow_tag_id
+  -> response id "123"
+```
+
+Settings index links still use that same ID so GET edit continues to load
+legacy `FollowTag.find(123)`.
+
+Rollback is application-code-only: revert to U3b-3a and the read surfaces
+use `FollowTag` again. Dual-write and the compatibility column remain.
+
+Before deploying U3b-3b:
+
+```bash
+RAILS_ENV=production bundle exec rake hashtag_unification:follow_tag_parity
+```
+
+Require both `"ok": true` and `"management_ready": true`. After deploy, canary
+existing Settings rows and API IDs, create/update/delete one temporary follow
+through the legacy write path, confirm the same ID on canonical reads, then
+rerun parity.
 
 ### A5. Runtime cutover
 
@@ -748,13 +813,17 @@ U3b-2 already switched hashtag Home/List delivery and FeedManager tag
 admission to `TagFollowDelivery`.
 
 U3b-3a already added `legacy_follow_tag_id` as a nullable unique compatibility
-identifier maintained by U2/U3a. It does not cut management APIs over.
+identifier maintained by U2/U3a.
+
+U3b-3b already switched Fedibird management **index/show** reads to
+`TagFollowDelivery` while keeping create/update/destroy and Settings forms on
+`FollowTag`.
 
 Remaining cutover still includes:
 
 - `Api::V1::TagsController` writes
-- Settings hashtag-follow UI
-- Fedibird `/api/v1/follow_tags` compatibility controller/serializer
+- Settings hashtag-follow form/write actions
+- Fedibird `/api/v1/follow_tags` create/update/destroy
 - model associations on `Tag`, `List`, and account-related concerns
 
 to `TagFollow` + `TagFollowDelivery`.
@@ -1247,13 +1316,12 @@ cutover procedure; do not infer authoritativeness from one historical backfill.
 ### PR U3 — runtime TagFollow cutover
 
 U3 is staged. U3a dual-write, U3b-1 standard read cutover, U3b-2
-hashtag delivery/read-admission cutover, and U3b-3a legacy resource-ID
-foundation are complete.
+hashtag delivery/read-admission cutover, U3b-3a legacy resource-ID
+foundation, and U3b-3b management read cutover are complete.
 
 Remaining U3 work still includes:
 
-- Settings/API destination-management adapters (`/api/v1/follow_tags`, Settings)
-  after parity reports `ok: true` and `management_ready: true`
+- Settings/API destination-management **writes and forms**
 - write-path cutover off legacy `FollowTag`
 - old `follow_tags` retained
 

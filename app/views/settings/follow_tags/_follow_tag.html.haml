@@ -13,5 +13,5 @@
       = fa_icon 'home'
       = t 'lists.home'
   %td.nowrap
-    = table_link_to 'pencil', t('follow_tags.edit.title'), edit_settings_follow_tag_path(follow_tag)
-    = table_link_to 'trash', t('filters.index.delete'), settings_follow_tag_path(follow_tag), method: :delete, data: { confirm: t('admin.accounts.are_you_sure') }
+    = table_link_to 'pencil', t('follow_tags.edit.title'), edit_settings_follow_tag_path(follow_tag.legacy_resource_id)
+    = table_link_to 'trash', t('filters.index.delete'), settings_follow_tag_path(follow_tag.legacy_resource_id), method: :delete, data: { confirm: t('admin.accounts.are_you_sure') }
