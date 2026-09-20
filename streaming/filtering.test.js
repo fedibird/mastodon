@@ -200,6 +200,18 @@ describe('streaming Rails searchable text parity', () => {
     assert.ok(results[0].keyword_matches.includes(referencedUri));
   });
 
+  it('matches an ordinary body URL from the internal field', () => {
+    const cachedFilters = compileCachedFilter('1', 'example.com');
+    const status = statusWith({
+      content: '<p>hello</p>',
+      [STREAMING_SEARCHABLE_TEXT_KEY]: 'hello\n\nhttps://example.com/article',
+    });
+
+    const results = filteredResultsForStatus(status, cachedFilters);
+    assert.equal(results.length, 1);
+    assert.ok(results[0].keyword_matches.includes('example.com'));
+  });
+
   it('still matches ordinary body keywords from the canonical text', () => {
     const cachedFilters = compileCachedFilter('1', 'foo');
     const status = statusWith({

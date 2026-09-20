@@ -16,11 +16,15 @@ RSpec.describe CustomFilter, type: :model do # rubocop:disable Metrics/BlockLeng
   let(:viewer) { Fabricate(:account) }
   let(:author) { Fabricate(:account, domain: nil, username: 'alice') }
 
-  it 'does not match an ordinary body URL' do
+  it 'matches an ordinary body URL' do
     keyword_filter_for(viewer, 'example.com')
     status = Fabricate(:status, account: author, text: 'hello https://example.com/article')
 
-    expect(apply_filters(viewer, status)).to eq([])
+    results = apply_filters(viewer, status)
+
+    expect(status.searchable_text).not_to include('example.com')
+    expect(results.length).to eq 1
+    expect(results.first.keyword_matches).to include('example.com')
   end
 
   it 'matches a referenced status public URL' do
@@ -102,6 +106,17 @@ RSpec.describe CustomFilter, type: :model do # rubocop:disable Metrics/BlockLeng
 
     expect(results.length).to eq 1
     expect(results.first.keyword_matches).to include('innerword')
+  end
+
+  it 'matches an ordinary body URL on a reblog' do
+    keyword_filter_for(viewer, 'example.com')
+    original = Fabricate(:status, account: author, text: 'innerword https://example.com/article')
+    reblog = Fabricate(:status, account: author, reblog: original)
+
+    results = apply_filters(viewer, reblog)
+
+    expect(results.length).to eq 1
+    expect(results.first.keyword_matches).to include('example.com')
   end
 
   it 'matches a referenced URL on a reblog of the referencing status' do

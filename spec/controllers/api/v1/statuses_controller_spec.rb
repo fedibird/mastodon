@@ -41,7 +41,7 @@ RSpec.describe Api::V1::StatusesController, type: :controller do
         )
       end
 
-      it 'does not match an ordinary URL as a keyword' do
+      it 'matches an ordinary URL as a keyword without exposing searchable_text' do
         author = Fabricate(:account)
         filtered_status = Fabricate(:status, account: author, text: "URL CHECK\nhttps://example.com/filter-url-test")
         filter = Fabricate(:custom_filter, account: user.account, phrase: 'urls', context: %w(home notifications public thread account))
@@ -51,7 +51,13 @@ RSpec.describe Api::V1::StatusesController, type: :controller do
         body = body_as_json
 
         expect(response).to have_http_status(200)
-        expect(body[:filtered]).to eq([])
+        expect(filtered_status.searchable_text).not_to include('example.com')
+        expect(body[:filtered]).to contain_exactly(
+          include(
+            filter: include(id: filter.id.to_s, title: 'urls', filter_action: 'warn'),
+            keyword_matches: include('example.com')
+          )
+        )
         expect(body).not_to have_key(:filter_results)
         expect(body).not_to have_key(:_fedibird_searchable_text)
       end

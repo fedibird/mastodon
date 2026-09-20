@@ -438,17 +438,17 @@ class Status < ApplicationRecord
   def filterable_text
     @filterable_text ||= [
       searchable_text,
-      filterable_reference_urls.join("\n"),
+      filterable_urls.join("\n"),
     ].filter(&:present?).join("\n\n")
   end
 
-  def filterable_reference_urls
-    references.flat_map do |reference|
-      [
-        ActivityPub::TagManager.instance.url_for(reference),
-        ActivityPub::TagManager.instance.uri_for(reference),
-      ]
-    end.compact.uniq
+  def filterable_urls
+    index = filterable_reference_index
+
+    (
+      urls.flat_map { |source_url| expand_filterable_source_url(source_url, index) } +
+      references.flat_map { |reference| expanded_urls_for_reference(reference) }
+    ).compact.uniq
   end
 
   def searchable_text_without_urls
@@ -723,6 +723,37 @@ class Status < ApplicationRecord
   end
 
   private
+
+  def filterable_reference_index
+    index = {}
+
+    references.each do |reference|
+      [
+        reference.url,
+        reference.uri,
+        ActivityPub::TagManager.instance.url_for(reference),
+        ActivityPub::TagManager.instance.uri_for(reference),
+      ].compact.each do |form|
+        index[form] = reference
+      end
+    end
+
+    index
+  end
+
+  def expand_filterable_source_url(source_url, index)
+    reference = index[source_url]
+    return [source_url] if reference.nil?
+
+    expanded_urls_for_reference(reference, source_url)
+  end
+
+  def expanded_urls_for_reference(reference, source_url = nil)
+    [
+      ActivityPub::TagManager.instance.url_for(reference) || source_url,
+      ActivityPub::TagManager.instance.uri_for(reference) || source_url,
+    ]
+  end
 
   def set_status_expire
     create_status_expire(expires_at: expires_at, action: expires_action)

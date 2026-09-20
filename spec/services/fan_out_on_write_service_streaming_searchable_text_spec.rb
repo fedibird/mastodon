@@ -23,7 +23,8 @@ RSpec.describe FanOutOnWriteService, type: :service do # rubocop:disable Metrics
       attached = payload[FanOutOnWriteService::STREAMING_SEARCHABLE_TEXT_KEY]
 
       expect(attached).to eq status.proper.filterable_text
-      expect(attached).not_to include('example.com')
+      expect(status.searchable_text).not_to include('example.com')
+      expect(attached).to include('example.com')
       expect(attached).to include('URL CHECK')
     end
 
@@ -87,7 +88,8 @@ RSpec.describe FanOutOnWriteService, type: :service do # rubocop:disable Metrics
       expect(attached).to eq original.filterable_text
       expect(attached).to eq reblog.proper.filterable_text
       expect(attached).to include('innerword')
-      expect(attached).not_to include('example.com')
+      expect(original.searchable_text).not_to include('example.com')
+      expect(attached).to include('example.com')
       expect(attached).to include(referenced_url)
       expect(attached).to include(referenced_uri)
     end

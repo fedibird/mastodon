@@ -56,13 +56,16 @@ RSpec.describe Status, '#searchable_text', type: :model do
     expect(reblog.proper.searchable_text).not_to include('example.com')
   end
 
-  it 'does not match an ordinary URL keyword via CustomFilter' do
+  it 'still strips ordinary URLs from searchable_text while CustomFilter matches them via filterable_text' do
     viewer = Fabricate(:account)
     filter = Fabricate(:custom_filter, account: viewer, phrase: 'urls', context: %w(home notifications public thread account))
     Fabricate(:custom_filter_keyword, custom_filter: filter, keyword: 'example.com')
     status = Fabricate(:status, account: local_account, text: "URL CHECK\nhttps://example.com/filter-url-test")
 
-    expect(CustomFilter.apply_cached_filters(CustomFilter.cached_filters_for(viewer.id), status)).to eq([])
+    expect(status.searchable_text).not_to include('example.com')
+    results = CustomFilter.apply_cached_filters(CustomFilter.cached_filters_for(viewer.id), status)
+    expect(results.length).to eq 1
+    expect(results.first.keyword_matches).to include('example.com')
   end
 
   it 'matches a body keyword via CustomFilter' do
