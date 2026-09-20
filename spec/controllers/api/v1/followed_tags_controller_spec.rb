@@ -14,7 +14,7 @@ RSpec.describe Api::V1::FollowedTagsController, type: :controller do # rubocop:d
     body_as_json.map { |tag| tag[:name] }
   end
 
-  describe 'GET #index' do
+  describe 'GET #index' do # rubocop:disable Metrics/BlockLength
     it 'includes a TagFollow-only relation and reports following' do
       tag = Fabricate(:tag, name: 'u3b1targetonly')
       TagFollow.create!(account: user.account, tag: tag)
@@ -77,14 +77,17 @@ RSpec.describe Api::V1::FollowedTagsController, type: :controller do # rubocop:d
     it 'does not list callback-bypassing FollowTag without TagFollow' do
       tag = Fabricate(:tag, name: 'u3b1legacyonly')
       now = Time.now.utc
-      FollowTag.insert_all!([{
-        account_id: user.account.id,
-        tag_id: tag.id,
-        list_id: nil,
-        media_only: false,
-        created_at: now,
-        updated_at: now,
-      }])
+      rows = [
+        {
+          account_id: user.account.id,
+          tag_id: tag.id,
+          list_id: nil,
+          media_only: false,
+          created_at: now,
+          updated_at: now,
+        },
+      ]
+      FollowTag.insert_all!(rows)
 
       get :index
 

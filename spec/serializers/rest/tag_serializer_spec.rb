@@ -26,8 +26,7 @@ RSpec.describe REST::TagSerializer do
     user = Fabricate(:user)
     TagFollow.create!(account: user.account, tag: tag)
 
-    serializer = described_class.new(tag)
-    allow(serializer).to receive(:current_user).and_return(user)
+    serializer = described_class.new(tag, scope: user, scope_name: :current_user)
     json = JSON.parse(serializer.to_json, symbolize_names: true)
 
     expect(FollowTag.where(account: user.account, tag: tag)).to be_empty
@@ -37,17 +36,19 @@ RSpec.describe REST::TagSerializer do
   it 'does not report following from callback-bypassing FollowTag without TagFollow' do
     user = Fabricate(:user)
     now = Time.now.utc
-    FollowTag.insert_all!([{
-      account_id: user.account.id,
-      tag_id: tag.id,
-      list_id: nil,
-      media_only: false,
-      created_at: now,
-      updated_at: now,
-    }])
+    rows = [
+      {
+        account_id: user.account.id,
+        tag_id: tag.id,
+        list_id: nil,
+        media_only: false,
+        created_at: now,
+        updated_at: now,
+      },
+    ]
+    FollowTag.insert_all!(rows)
 
-    serializer = described_class.new(tag)
-    allow(serializer).to receive(:current_user).and_return(user)
+    serializer = described_class.new(tag, scope: user, scope_name: :current_user)
     json = JSON.parse(serializer.to_json, symbolize_names: true)
 
     expect(FollowTag.exists?(account: user.account, tag: tag)).to be true

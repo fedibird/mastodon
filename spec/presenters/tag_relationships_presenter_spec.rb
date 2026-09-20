@@ -17,14 +17,17 @@ RSpec.describe TagRelationshipsPresenter do
 
   it 'does not report following from callback-bypassing FollowTag without TagFollow' do
     now = Time.now.utc
-    FollowTag.insert_all!([{
-      account_id: account.id,
-      tag_id: tag.id,
-      list_id: nil,
-      media_only: false,
-      created_at: now,
-      updated_at: now,
-    }])
+    rows = [
+      {
+        account_id: account.id,
+        tag_id: tag.id,
+        list_id: nil,
+        media_only: false,
+        created_at: now,
+        updated_at: now,
+      },
+    ]
+    FollowTag.insert_all!(rows)
 
     presenter = described_class.new([tag], account.id)
 
