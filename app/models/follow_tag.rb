@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # == Schema Information
 #
 # Table name: follow_tags
@@ -33,7 +35,37 @@ class FollowTag < ApplicationRecord
 
   rate_limit by: :account, family: :follows
 
+  after_save :mirror_tag_follow_relation
+  after_destroy :mirror_destroyed_tag_follow_relation
+
   def name=(str)
     self.tag = Tag.find_or_create_by_names(str.strip)&.first
+  end
+
+  private
+
+  def mirror_tag_follow_relation
+    mirror_previous_tag_follow_relation if saved_change_to_account_id? || saved_change_to_tag_id?
+    mirror_tag_follow_relation_for(account_id, tag_id)
+  end
+
+  def mirror_destroyed_tag_follow_relation
+    mirror_tag_follow_relation_for(account_id, tag_id)
+  end
+
+  def mirror_previous_tag_follow_relation
+    previous_account_id = saved_change_to_account_id&.first || account_id
+    previous_tag_id = saved_change_to_tag_id&.first || tag_id
+
+    mirror_tag_follow_relation_for(previous_account_id, previous_tag_id)
+  end
+
+  def mirror_tag_follow_relation_for(mirror_account_id, mirror_tag_id)
+    return if mirror_account_id.nil? || mirror_tag_id.nil?
+
+    HashtagUnification::FollowTagMirror.new(
+      account_id: mirror_account_id,
+      tag_id: mirror_tag_id
+    ).call
   end
 end

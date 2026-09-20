@@ -13,11 +13,15 @@ RSpec.describe HashtagUnification::FollowTagBackfill do
   let!(:list_b) { Fabricate(:list, account: account, title: 'B') }
 
   before do
-    Fabricate(:follow_tag, account: account, tag: home_tag, list_id: nil, media_only: false)
-    Fabricate(:follow_tag, account: account, tag: list_tag, list: list_a, media_only: true)
-    Fabricate(:follow_tag, account: account, tag: list_tag, list: list_b, media_only: false)
-    Fabricate(:follow_tag, account: account, tag: mixed_tag, list_id: nil, media_only: true)
-    Fabricate(:follow_tag, account: account, tag: mixed_tag, list: list_a, media_only: false)
+    now = Time.now.utc
+    rows = [
+      legacy_row(account: account, tag: home_tag, list: nil, media_only: false, now: now),
+      legacy_row(account: account, tag: list_tag, list: list_a, media_only: true, now: now),
+      legacy_row(account: account, tag: list_tag, list: list_b, media_only: false, now: now),
+      legacy_row(account: account, tag: mixed_tag, list: nil, media_only: true, now: now),
+      legacy_row(account: account, tag: mixed_tag, list: list_a, media_only: false, now: now),
+    ]
+    FollowTag.insert_all!(rows)
   end
 
   it 'is dry-run by default' do
@@ -44,17 +48,16 @@ RSpec.describe HashtagUnification::FollowTagBackfill do
     expect(mixed_follow.deliveries.list.pluck(:list_id)).to contain_exactly(list_a.id)
   end
 
-  it 'is idempotent and tracks later media_only changes in the source' do
+  it 'is idempotent and tracks later callback-bypassing media_only changes in the source' do
     described_class.new(apply: true).call
 
-    source = FollowTag.find_by!(account: account, tag: mixed_tag, list_id: nil)
-    source.update!(media_only: false)
+    FollowTag.where(account: account, tag: mixed_tag, list_id: nil).update_all(media_only: false)
     described_class.new(apply: true).call
 
     target = TagFollow.find_by!(account: account, tag: mixed_tag)
     expect(TagFollowDelivery.home.find_by!(tag_follow: target).media_only).to be false
 
-    source.update!(media_only: true)
+    FollowTag.where(account: account, tag: mixed_tag, list_id: nil).update_all(media_only: true)
     described_class.new(apply: true).call
 
     expect(TagFollowDelivery.home.find_by!(tag_follow: target).media_only).to be true
@@ -63,22 +66,8 @@ RSpec.describe HashtagUnification::FollowTagBackfill do
   it 'uses false-wins semantics when duplicate legacy destinations disagree on media_only' do
     now = Time.now.utc
     rows = [
-      {
-        account_id: other_account.id,
-        tag_id: home_tag.id,
-        list_id: nil,
-        media_only: true,
-        created_at: now,
-        updated_at: now,
-      },
-      {
-        account_id: other_account.id,
-        tag_id: home_tag.id,
-        list_id: nil,
-        media_only: false,
-        created_at: now,
-        updated_at: now,
-      },
+      legacy_row(account: other_account, tag: home_tag, list: nil, media_only: true, now: now),
+      legacy_row(account: other_account, tag: home_tag, list: nil, media_only: false, now: now),
     ]
     FollowTag.insert_all!(rows)
 
@@ -103,15 +92,32 @@ RSpec.describe HashtagUnification::FollowTagBackfill do
     expect(TagFollow.exists?(account: account, tag: home_tag)).to be false
   end
 
-  it 'refuses a legacy List destination owned by a different account' do
+  it 'refuses a callback-bypassing legacy List destination owned by a different account' do
+    foreign_tag = Fabricate(:tag)
     foreign_list = Fabricate(:list, account: other_account)
-    Fabricate(:follow_tag, account: account, tag: Fabricate(:tag), list: foreign_list)
+    now = Time.now.utc
+
+    rows = [
+      legacy_row(account: account, tag: foreign_tag, list: foreign_list, media_only: false, now: now),
+    ]
+    FollowTag.insert_all!(rows)
 
     expect { described_class.new(apply: true).call }
       .to raise_error(described_class::UnsafeSourceDataError)
 
     expect(TagFollow.count).to eq 0
     expect(TagFollowDelivery.count).to eq 0
+  end
+
+  def legacy_row(account:, tag:, list:, media_only:, now:)
+    {
+      account_id: account.id,
+      tag_id: tag.id,
+      list_id: list&.id,
+      media_only: media_only,
+      created_at: now,
+      updated_at: now,
+    }
   end
 end
 # rubocop:enable Metrics/BlockLength
