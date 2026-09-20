@@ -31,7 +31,11 @@ RSpec.describe HashtagUnification::FollowTagMirror do
     described_class.new(account_id: account.id, tag_id: tag.id).call
 
     tag_follow = TagFollow.find_by!(account: account, tag: tag)
-    expect(TagFollowDelivery.home.find_by!(tag_follow: tag_follow).media_only).to be false
+    ids = FollowTag.where(account: account, tag: tag, list_id: nil).pluck(:id)
+    delivery = TagFollowDelivery.home.find_by!(tag_follow: tag_follow)
+
+    expect(delivery.media_only).to be false
+    expect(delivery.legacy_follow_tag_id).to eq ids.min
   end
 
   it 'removes the target relation when no legacy destinations remain' do
@@ -43,5 +47,18 @@ RSpec.describe HashtagUnification::FollowTagMirror do
 
     expect(TagFollow.where(id: tag_follow_id)).to be_empty
     expect(TagFollowDelivery.where(tag_follow_id: tag_follow_id)).to be_empty
+  end
+
+  it 'keeps the compatibility resource ID when a List destination moves to Home' do
+    list = Fabricate(:list, account: account, title: 'A')
+    follow_tag = FollowTag.create!(account: account, tag: tag, list: list)
+
+    follow_tag.update!(list: nil)
+
+    tag_follow = TagFollow.find_by!(account: account, tag: tag)
+    delivery = TagFollowDelivery.home.find_by!(tag_follow: tag_follow)
+
+    expect(tag_follow.deliveries.list).to be_empty
+    expect(delivery.legacy_follow_tag_id).to eq follow_tag.id
   end
 end

@@ -17,6 +17,7 @@ module HashtagUnification
         return
       end
 
+      clear_reassigned_legacy_follow_tag_ids(tag_follow_id)
       upsert_home_delivery(tag_follow_id)
       delete_stale_home_delivery(tag_follow_id)
       upsert_list_deliveries(tag_follow_id)
@@ -63,15 +64,31 @@ module HashtagUnification
       TagFollow.where(account_id: account_id, tag_id: tag_id).delete_all
     end
 
+    def clear_reassigned_legacy_follow_tag_ids(tag_follow_id)
+      connection.execute(<<~SQL.squish)
+        UPDATE tag_follow_deliveries
+        SET legacy_follow_tag_id = NULL
+        WHERE tag_follow_id = #{connection.quote(tag_follow_id)}
+          AND legacy_follow_tag_id IN (
+            SELECT MIN(id)
+            FROM follow_tags
+            WHERE account_id = #{quoted_account_id}
+              AND tag_id = #{quoted_tag_id}
+            GROUP BY list_id
+          )
+      SQL
+    end
+
     def upsert_home_delivery(tag_follow_id)
       connection.execute(<<~SQL.squish)
-        INSERT INTO tag_follow_deliveries (tag_follow_id, list_id, media_only, created_at, updated_at)
+        INSERT INTO tag_follow_deliveries (tag_follow_id, list_id, media_only, created_at, updated_at, legacy_follow_tag_id)
         SELECT
           #{connection.quote(tag_follow_id)},
           NULL,
           BOOL_AND(media_only),
           MIN(created_at),
-          MAX(updated_at)
+          MAX(updated_at),
+          MIN(id)
         FROM follow_tags
         WHERE account_id = #{quoted_account_id}
           AND tag_id = #{quoted_tag_id}
@@ -81,7 +98,8 @@ module HashtagUnification
         SET
           media_only = EXCLUDED.media_only,
           created_at = EXCLUDED.created_at,
-          updated_at = EXCLUDED.updated_at
+          updated_at = EXCLUDED.updated_at,
+          legacy_follow_tag_id = EXCLUDED.legacy_follow_tag_id
       SQL
     end
 
@@ -102,13 +120,14 @@ module HashtagUnification
 
     def upsert_list_deliveries(tag_follow_id)
       connection.execute(<<~SQL.squish)
-        INSERT INTO tag_follow_deliveries (tag_follow_id, list_id, media_only, created_at, updated_at)
+        INSERT INTO tag_follow_deliveries (tag_follow_id, list_id, media_only, created_at, updated_at, legacy_follow_tag_id)
         SELECT
           #{connection.quote(tag_follow_id)},
           list_id,
           BOOL_AND(media_only),
           MIN(created_at),
-          MAX(updated_at)
+          MAX(updated_at),
+          MIN(id)
         FROM follow_tags
         WHERE account_id = #{quoted_account_id}
           AND tag_id = #{quoted_tag_id}
@@ -118,7 +137,8 @@ module HashtagUnification
         SET
           media_only = EXCLUDED.media_only,
           created_at = EXCLUDED.created_at,
-          updated_at = EXCLUDED.updated_at
+          updated_at = EXCLUDED.updated_at,
+          legacy_follow_tag_id = EXCLUDED.legacy_follow_tag_id
       SQL
     end
 

@@ -24,6 +24,7 @@ module HashtagUnification
       writes = {}
 
       ApplicationRecord.transaction do
+        writes[:cleared_legacy_follow_tag_ids] = execute(clear_reassigned_legacy_follow_tag_ids_sql)
         writes[:tag_follows] = execute(tag_follows_upsert_sql)
         writes[:home_deliveries] = execute(home_deliveries_upsert_sql)
         writes[:list_deliveries] = execute(list_deliveries_upsert_sql)
@@ -65,6 +66,19 @@ module HashtagUnification
       result.respond_to?(:cmd_tuples) ? result.cmd_tuples : nil
     end
 
+    def clear_reassigned_legacy_follow_tag_ids_sql
+      <<~SQL.squish
+        UPDATE tag_follow_deliveries
+        SET legacy_follow_tag_id = NULL
+        WHERE legacy_follow_tag_id IN (
+          SELECT MIN(id)
+          FROM follow_tags
+          WHERE account_id IS NOT NULL AND tag_id IS NOT NULL
+          GROUP BY account_id, tag_id, list_id
+        )
+      SQL
+    end
+
     def tag_follows_upsert_sql
       <<~SQL.squish
         INSERT INTO tag_follows (account_id, tag_id, created_at, updated_at)
@@ -85,13 +99,14 @@ module HashtagUnification
 
     def home_deliveries_upsert_sql
       <<~SQL.squish
-        INSERT INTO tag_follow_deliveries (tag_follow_id, list_id, media_only, created_at, updated_at)
+        INSERT INTO tag_follow_deliveries (tag_follow_id, list_id, media_only, created_at, updated_at, legacy_follow_tag_id)
         SELECT
           target.id,
           NULL,
           BOOL_AND(source.media_only),
           MIN(source.created_at),
-          MAX(source.updated_at)
+          MAX(source.updated_at),
+          MIN(source.id)
         FROM follow_tags source
         INNER JOIN tag_follows target
           ON target.account_id = source.account_id
@@ -102,19 +117,21 @@ module HashtagUnification
         SET
           media_only = EXCLUDED.media_only,
           created_at = EXCLUDED.created_at,
-          updated_at = EXCLUDED.updated_at
+          updated_at = EXCLUDED.updated_at,
+          legacy_follow_tag_id = EXCLUDED.legacy_follow_tag_id
       SQL
     end
 
     def list_deliveries_upsert_sql
       <<~SQL.squish
-        INSERT INTO tag_follow_deliveries (tag_follow_id, list_id, media_only, created_at, updated_at)
+        INSERT INTO tag_follow_deliveries (tag_follow_id, list_id, media_only, created_at, updated_at, legacy_follow_tag_id)
         SELECT
           target.id,
           source.list_id,
           BOOL_AND(source.media_only),
           MIN(source.created_at),
-          MAX(source.updated_at)
+          MAX(source.updated_at),
+          MIN(source.id)
         FROM follow_tags source
         INNER JOIN tag_follows target
           ON target.account_id = source.account_id
@@ -125,7 +142,8 @@ module HashtagUnification
         SET
           media_only = EXCLUDED.media_only,
           created_at = EXCLUDED.created_at,
-          updated_at = EXCLUDED.updated_at
+          updated_at = EXCLUDED.updated_at,
+          legacy_follow_tag_id = EXCLUDED.legacy_follow_tag_id
       SQL
     end
 

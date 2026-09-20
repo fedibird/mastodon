@@ -1,6 +1,6 @@
 # Hashtag subsystem upstream unification
 
-Status: **implementation in progress**. U0/U0.1 analyzers, U1 schema expansion, U2 backfill/parity tooling, U3a dual-write, U3b-1 standard read cutover, and U3b-2 hashtag delivery/read-admission cutover have been merged or are in review. Writes and destination management still use legacy `FollowTag`. Standard following-state reads use `TagFollow`. Home/List delivery and FeedManager tag admission use `TagFollowDelivery`.
+Status: **implementation in progress**. U0/U0.1 analyzers, U1 schema expansion, U2 backfill/parity tooling, U3a dual-write, U3b-1 standard read cutover, U3b-2 hashtag delivery/read-admission cutover, and U3b-3a legacy resource-ID foundation have been merged or are in review. Writes and destination management still use legacy `FollowTag`. Standard following-state reads use `TagFollow`. Home/List delivery and FeedManager tag admission use `TagFollowDelivery`. Canonical deliveries carry a nullable `legacy_follow_tag_id` compatibility identifier.
 
 Base for this design: Fedibird PR #117 head
 `777ca4eabe36f6dc0abb8ec431505ecbc18d6fa8` (2026-09-19).
@@ -642,7 +642,8 @@ to `TagFollow` (the relation that owns `account_id`) after joining
 
 `/api/v1/follow_tags` and Settings remain on legacy `FollowTag` because those
 surfaces expose `follow_tags.id`. Backfilled `tag_follow_deliveries.id` values
-are not guaranteed to match. That compatibility/resource-ID problem is U3b-3.
+are not guaranteed to match. U3b-3a stores the historical ID on
+`TagFollowDelivery.legacy_follow_tag_id` without cutting those surfaces over.
 
 Rollback remains application-code-only while dual-write is retained:
 
@@ -673,6 +674,70 @@ Recommended canary matrix:
 
 Then rerun parity and require `"ok": true`.
 
+### A4.5 U3b-3a legacy resource-ID foundation
+
+U3b-3a adds a compatibility identifier so later management cutover can keep
+the resource IDs already exposed as `follow_tags.id`.
+
+```text
+TagFollowDelivery.id
+  = canonical internal primary key
+
+TagFollowDelivery.legacy_follow_tag_id
+  = stable compatibility resource ID historically exposed as follow_tags.id
+```
+
+The column is:
+
+- nullable
+- unique
+- **not a foreign key** to `follow_tags`
+
+There is no FK because the value is a historical identity, not a continuing
+relational dependency. It must survive after `follow_tags` is eventually
+removed. Existing `TagFollowDelivery` primary keys are not rewritten.
+
+Mapping for one destination `(account_id, tag_id, list_id)` is the matching
+legacy `follow_tags.id`. Pathological duplicate source rows collapse with
+`MIN(id)`. That is deterministic, but it is not lossless: more than one
+historically exposed ID cannot live on one canonical destination.
+
+U2 backfill and U3a mirror populate and maintain `legacy_follow_tag_id` from
+the legacy source. Ordinary `FollowTag` writes remain authoritative.
+
+Parity after U3b-3a reports both:
+
+```json
+{
+  "ok": true,
+  "management_ready": true
+}
+```
+
+`ok` includes compatibility-ID completeness and correctness for source-backed
+deliveries. A nil or wrong `legacy_follow_tag_id` on a source-backed
+destination makes `ok` false.
+
+`management_ready` requires `ok` and
+`source.duplicate_destination_groups == 0`. Duplicate source destinations may
+still backfill, but they block U3b-3b because old IDs cannot be represented
+losslessly.
+
+The column stays nullable until later cleanup/cutover proves a stronger
+constraint is safe.
+
+Operational sequence before any management-API cutover:
+
+```bash
+RAILS_ENV=production APPLY=1 bundle exec rake hashtag_unification:follow_tag_backfill
+RAILS_ENV=production bundle exec rake hashtag_unification:follow_tag_parity
+```
+
+Require both `"ok": true` and `"management_ready": true`.
+
+U3b-3b may proceed only after that gate. `/api/v1/follow_tags` and Settings
+are unchanged in U3b-3a.
+
 ### A5. Runtime cutover
 
 U3b-1 already switched standard following-state reads
@@ -681,6 +746,9 @@ U3b-1 already switched standard following-state reads
 
 U3b-2 already switched hashtag Home/List delivery and FeedManager tag
 admission to `TagFollowDelivery`.
+
+U3b-3a already added `legacy_follow_tag_id` as a nullable unique compatibility
+identifier maintained by U2/U3a. It does not cut management APIs over.
 
 Remaining cutover still includes:
 
@@ -1178,12 +1246,14 @@ cutover procedure; do not infer authoritativeness from one historical backfill.
 
 ### PR U3 — runtime TagFollow cutover
 
-U3 is staged. U3a dual-write, U3b-1 standard read cutover, and U3b-2
-hashtag delivery/read-admission cutover are complete.
+U3 is staged. U3a dual-write, U3b-1 standard read cutover, U3b-2
+hashtag delivery/read-admission cutover, and U3b-3a legacy resource-ID
+foundation are complete.
 
 Remaining U3 work still includes:
 
 - Settings/API destination-management adapters (`/api/v1/follow_tags`, Settings)
+  after parity reports `ok: true` and `management_ready: true`
 - write-path cutover off legacy `FollowTag`
 - old `follow_tags` retained
 

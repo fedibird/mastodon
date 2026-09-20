@@ -7,6 +7,10 @@
 # list_id = N    => List N
 #
 # No callback or default may create a Home row merely because TagFollow exists.
+#
+# legacy_follow_tag_id is a compatibility resource ID historically exposed as
+# follow_tags.id. It is not a foreign key; the value must survive after the
+# legacy table is removed.
 class TagFollowDelivery < ApplicationRecord
   belongs_to :tag_follow, inverse_of: :deliveries
   belongs_to :list, optional: true
@@ -20,6 +24,7 @@ class TagFollowDelivery < ApplicationRecord
 
   validates :tag_follow_id, uniqueness: { conditions: -> { where(list_id: nil) } }, if: -> { list_id.nil? }
   validates :list_id, uniqueness: { scope: :tag_follow_id }, if: -> { list_id.present? }
+  validates :legacy_follow_tag_id, uniqueness: true, allow_nil: true
   validate :list_belongs_to_following_account
 
   private
