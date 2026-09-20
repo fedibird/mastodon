@@ -56,7 +56,7 @@ RSpec.describe FanOutOnWriteService, type: :service do # rubocop:disable Metrics
     [home_ids || [], list_ids || []]
   end
 
-  describe 'canonical destination delivery' do # rubocop:disable Metrics/BlockLength
+  describe 'canonical destination delivery' do
     it 'delivers a Home-only canonical follow to Home and not to Lists' do
       create_canonical_delivery(account: follower, tag: tag)
       expect(FollowTag.where(account: follower, tag: tag)).to be_empty
@@ -149,10 +149,10 @@ RSpec.describe FanOutOnWriteService, type: :service do # rubocop:disable Metrics
   end
 
   describe 'media_only' do
-    def status_with_media
+    def tagged_status_with_media
       status = tagged_status
-      Fabricate(:media_attachment, account: author, status: status)
-      status.reload
+      allow(status).to receive(:with_media?).and_return(true)
+      status
     end
 
     it 'blocks a text-only status from a Home media_only delivery' do
@@ -166,7 +166,7 @@ RSpec.describe FanOutOnWriteService, type: :service do # rubocop:disable Metrics
     it 'admits a media status to a Home media_only delivery' do
       create_canonical_delivery(account: follower, tag: tag, media_only: true)
 
-      home_ids, = capture_hashtag_targets(status_with_media)
+      home_ids, = capture_hashtag_targets(tagged_status_with_media)
 
       expect(home_ids).to contain_exactly(follower.id)
     end
@@ -182,7 +182,7 @@ RSpec.describe FanOutOnWriteService, type: :service do # rubocop:disable Metrics
     it 'admits a media status to a List media_only delivery' do
       create_canonical_delivery(account: follower, tag: tag, list: list_a, media_only: true)
 
-      _, list_ids = capture_hashtag_targets(status_with_media)
+      _, list_ids = capture_hashtag_targets(tagged_status_with_media)
 
       expect(list_ids).to contain_exactly(list_a.id)
     end
@@ -212,7 +212,7 @@ RSpec.describe FanOutOnWriteService, type: :service do # rubocop:disable Metrics
   describe 'tags_without_mute' do
     it 'does not deliver a tag muted by the author' do
       create_canonical_delivery(account: follower, tag: tag)
-      Fabricate(:tag_account_mute, account: author, tag: tag)
+      TagAccountMute.create!(account: author, tag: tag)
       status = tagged_status
 
       expect(status.tags_without_mute).to be_empty
