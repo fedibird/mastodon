@@ -12,12 +12,16 @@ class Api::V1::TagsController < Api::BaseController
   end
 
   def follow
-    FollowTag.create!(tag: @tag, account: current_account, rate_limit: true)
+    @tag = tag_follow_delivery_writer.standard_follow!(
+      account: current_account,
+      tag: @tag,
+      rate_limit: true
+    )
     render json: @tag, serializer: REST::TagSerializer
   end
 
   def unfollow
-    FollowTag.find_by(account: current_account, tag: @tag)&.destroy!
+    tag_follow_delivery_writer.standard_unfollow!(account: current_account, tag: @tag)
     render json: @tag, serializer: REST::TagSerializer
   end
 
@@ -26,5 +30,9 @@ class Api::V1::TagsController < Api::BaseController
   def set_or_create_tag
     return not_found unless Tag::HASHTAG_NAME_RE.match?(params[:id])
     @tag = Tag.find_normalized(params[:id]) || Tag.new(name: Tag.normalize(params[:id]))
+  end
+
+  def tag_follow_delivery_writer
+    HashtagUnification::TagFollowDeliveryWriter.new
   end
 end

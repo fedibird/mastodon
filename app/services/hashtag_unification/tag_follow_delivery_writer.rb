@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
 module HashtagUnification
-  # Canonical create/update/destroy for TagFollowDelivery, plus a callback-free
-  # follow_tags rollback shadow that keeps the existing follow_tags id sequence
-  # as the shared compatibility-ID allocator.
+  # Canonical create/update/destroy for TagFollowDelivery, plus relation-level
+  # standard follow/unfollow. Compatibility IDs are allocated from the existing
+  # follow_tags sequence via a callback-free rollback shadow.
   #
-  # Lock order for update/destroy matches remaining legacy writers:
-  # follow_tags row first, then the canonical delivery, then parent TagFollow.
+  # Lock order for update/destroy and relation-level work:
+  # follow_tags rows first, then TagFollowDelivery rows, then parent TagFollow.
   class TagFollowDeliveryWriter
     UNCHANGED = Object.new.freeze
 
@@ -61,6 +61,29 @@ module HashtagUnification
       end
     end
 
+    def standard_follow!(account:, tag:, rate_limit: false)
+      ApplicationRecord.transaction do
+        persisted_tag = persist_tag!(tag)
+        verify_or_allow_empty_relation!(account, persisted_tag)
+        tag_follow = find_or_create_tag_follow_with_rate_limit(account, persisted_tag, rate_limit)
+        ensure_home_delivery!(tag_follow)
+        persisted_tag.reload
+      end
+    end
+
+    def standard_unfollow!(account:, tag:)
+      return if tag.new_record?
+
+      ApplicationRecord.transaction do
+        tag_follow = verify_or_allow_empty_relation!(account, tag)
+        if tag_follow
+          tag_follow.deliveries.delete_all
+          FollowTag.unscoped.where(account: account, tag: tag).delete_all
+          tag_follow.destroy!
+        end
+      end
+    end
+
     private
 
     def unchanged?(value)
@@ -80,6 +103,84 @@ module HashtagUnification
       TagFollow.find_or_create_by!(account: account, tag: tag)
     rescue ActiveRecord::RecordNotUnique
       TagFollow.find_by!(account: account, tag: tag)
+    end
+
+    def persist_tag!(tag)
+      return tag if tag.persisted?
+
+      tag.save!
+      tag
+    end
+
+    def find_or_create_tag_follow_with_rate_limit(account, tag, rate_limit)
+      existing = TagFollow.find_by(account: account, tag: tag)
+      return existing if existing
+
+      TagFollow.create_with(rate_limit: rate_limit).find_or_create_by!(account: account, tag: tag)
+    rescue ActiveRecord::RecordNotUnique
+      TagFollow.find_by!(account: account, tag: tag)
+    end
+
+    def ensure_home_delivery!(tag_follow)
+      home = tag_follow.deliveries.home.lock.first
+      return home if home
+
+      delivery = tag_follow.deliveries.new
+      delivery.media_only = false
+      delivery.save!
+      assign_shadow_id!(delivery)
+      delivery
+    rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique
+      existing = tag_follow.deliveries.reload.home.first
+      raise unless existing
+
+      existing
+    end
+
+    def verify_or_allow_empty_relation!(account, tag)
+      shadows = lock_relation_shadows(account, tag)
+      tag_follow = TagFollow.find_by(account: account, tag: tag)
+      return if tag_follow.nil? && shadows.empty?
+
+      raise InconsistentLegacyShadowError if tag_follow.nil?
+
+      deliveries = tag_follow.deliveries.lock.to_a
+      raise InconsistentLegacyShadowError if deliveries.empty?
+
+      tag_follow.lock!
+      verify_relation_correspondence!(account, tag, deliveries, shadows)
+      tag_follow
+    end
+
+    def lock_relation_shadows(account, tag)
+      connection.select_all(<<~SQL.squish).to_a
+        SELECT id, account_id, tag_id, list_id, media_only
+        FROM follow_tags
+        WHERE account_id = #{connection.quote(account.id)}
+          AND tag_id = #{connection.quote(tag.id)}
+        FOR UPDATE
+      SQL
+    end
+
+    def verify_relation_correspondence!(account, tag, deliveries, shadows)
+      raise InconsistentLegacyShadowError if deliveries.any? { |delivery| delivery.legacy_follow_tag_id.nil? }
+      raise InconsistentLegacyShadowError unless deliveries.size == shadows.size
+
+      shadows_by_id = shadows.index_by { |row| row['id'].to_i }
+      raise InconsistentLegacyShadowError unless shadows_by_id.size == shadows.size
+
+      deliveries.each do |delivery|
+        row = shadows_by_id[delivery.legacy_follow_tag_id]
+        raise InconsistentLegacyShadowError if row.nil?
+        raise InconsistentLegacyShadowError unless row['account_id'].to_i == account.id
+        raise InconsistentLegacyShadowError unless row['tag_id'].to_i == tag.id
+        raise InconsistentLegacyShadowError unless row['list_id']&.to_i == delivery.list_id
+        raise InconsistentLegacyShadowError unless boolean_cast(row['media_only']) == delivery.media_only
+      end
+    end
+
+    def boolean_cast(value)
+      ActiveModel::Type::Boolean.new.cast(value)
     end
 
     def assign_shadow_id!(delivery)
