@@ -918,9 +918,12 @@ Destination `list_id` preserves the existing Settings contract:
 - owned List id -> that List
 - `-1` -> find/create a List for the current account titled with the submitted hashtag name
 
-Foreign Lists 404 and are never assigned. Destination movement (Home <-> List,
-List A -> List B), tag rename, `media_only`, peer preservation, and collision
-rollback are handled by the shared writer. Compatibility IDs stay stable.
+Foreign Lists 404 and are never assigned. `list_id=-1` List creation runs
+inside the same `ApplicationRecord.transaction` as the writer, so a failed
+canonical mutation does not leave an orphan List. Destination movement
+(Home <-> List, List A -> List B), tag rename, `media_only`, peer
+preservation, and collision rollback are handled by the shared writer.
+Compatibility IDs stay stable.
 
 Standard `Api::V1::TagsController` follow/unfollow remains the only intended
 normal legacy writer, so U3a remains required. The existing `follow_tags`

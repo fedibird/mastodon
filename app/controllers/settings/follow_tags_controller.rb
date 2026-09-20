@@ -61,11 +61,13 @@ class Settings::FollowTagsController < Settings::BaseController
   def persist_delivery(action)
     return false unless @follow_tag.valid?
 
-    case action
-    when :create
-      tag_follow_delivery_writer.create!(**writer_attributes)
-    when :update
-      tag_follow_delivery_writer.update!(**writer_attributes, legacy_resource_id: params[:id])
+    ApplicationRecord.transaction do
+      case action
+      when :create
+        tag_follow_delivery_writer.create!(**writer_attributes)
+      when :update
+        tag_follow_delivery_writer.update!(**writer_attributes, legacy_resource_id: params[:id])
+      end
     end
 
     true

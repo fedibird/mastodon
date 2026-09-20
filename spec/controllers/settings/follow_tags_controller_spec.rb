@@ -174,6 +174,17 @@ RSpec.describe Settings::FollowTagsController, type: :controller do # rubocop:di
       expect(assigns(:follow_tag).errors).to be_present
       expect_parity_ok
     end
+
+    it 'does not keep a List created for list_id=-1 when the hashtag is invalid' do
+      expect do
+        post :create, params: { follow_tag: { name: '123', list_id: '-1' } }
+      end.not_to change(List, :count)
+
+      expect(response).to have_http_status(200)
+      expect(assigns(:follow_tag).errors).to be_present
+      expect(List.where(account: user.account, title: '123')).to be_empty
+      expect(TagFollowDelivery.for_account(user.account)).to be_empty
+    end
   end
 
   describe 'GET #edit' do
@@ -353,6 +364,38 @@ RSpec.describe Settings::FollowTagsController, type: :controller do # rubocop:di
       expect(FollowTag.find(source.id).media_only).to be true
       expect_parity_ok
     end
+
+    it 'moves a destination onto a new List via list_id=-1' do
+      stub_follow_tag_mirror
+      delivery = writer.create!(account: user.account, name: 'u3b3dtonelist')
+      compatibility_id = delivery.legacy_follow_tag_id
+
+      put :update, params: {
+        id: compatibility_id,
+        follow_tag: { name: 'u3b3dtonelist', list_id: '-1' },
+      }
+
+      list = List.find_by!(account: user.account, title: 'u3b3dtonelist')
+      expect(response).to redirect_to(settings_follow_tags_path)
+      expect(delivery.reload.list_id).to eq list.id
+      expect(delivery.legacy_follow_tag_id).to eq compatibility_id
+      expect(FollowTag.find(compatibility_id).list_id).to eq list.id
+      expect_parity_ok
+    end
+
+    it 'does not move a destination onto another account\'s List' do
+      stub_follow_tag_mirror
+      delivery = writer.create!(account: user.account, name: 'u3b3dforeignlist')
+      foreign = Fabricate(:list, account: other.account, title: 'Nope')
+
+      put :update, params: {
+        id: delivery.legacy_follow_tag_id,
+        follow_tag: { name: 'u3b3dforeignlist', list_id: foreign.id },
+      }
+
+      expect(response).to have_http_status(404)
+      expect(delivery.reload.list_id).to be_nil
+    end
   end
 
   describe 'DELETE #destroy' do
@@ -431,6 +474,23 @@ RSpec.describe Settings::FollowTagsController, type: :controller do # rubocop:di
       delete :destroy, params: { id: delivery.legacy_follow_tag_id }
       expect(response).to have_http_status(422)
       expect(TagFollowDelivery.where(id: delivery.id)).to exist
+    end
+
+    it 'does not keep a List created for list_id=-1 when the rollback shadow is missing' do
+      tag = Fabricate(:tag, name: 'u3b3dshadowlist')
+      delivery = create_canonical_delivery(account: user.account, tag: tag)
+
+      expect do
+        put :update, params: {
+          id: delivery.legacy_follow_tag_id,
+          follow_tag: { name: 'u3b3dshadowlist', list_id: '-1' },
+        }
+      end.not_to change(List, :count)
+
+      expect(response).to have_http_status(200)
+      expect(assigns(:follow_tag).errors).to be_present
+      expect(List.where(account: user.account, title: 'u3b3dshadowlist')).to be_empty
+      expect(delivery.reload.list_id).to be_nil
     end
   end
 
