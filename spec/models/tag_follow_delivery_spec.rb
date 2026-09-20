@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe TagFollowDelivery, type: :model do
+RSpec.describe TagFollowDelivery, type: :model do # rubocop:disable Metrics/BlockLength
   let(:account) { Fabricate(:account) }
   let(:tag) { Fabricate(:tag) }
   let(:tag_follow) { TagFollow.create!(account: account, tag: tag) }
@@ -23,6 +23,16 @@ RSpec.describe TagFollowDelivery, type: :model do
 
     expect(described_class.home).to be_empty
     expect(described_class.list).to contain_exactly(delivery)
+  end
+
+  it 'allows Home after a List-only destination already exists' do
+    list_delivery = described_class.create!(tag_follow: tag_follow, list: list_a)
+    home = described_class.create!(tag_follow: tag_follow)
+
+    expect(home.list_id).to be_nil
+    expect(described_class.home).to contain_exactly(home)
+    expect(described_class.list).to contain_exactly(list_delivery)
+    expect(tag_follow.deliveries.reload).to contain_exactly(home, list_delivery)
   end
 
   it 'allows multiple peer destinations for one TagFollow' do
