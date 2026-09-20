@@ -157,27 +157,7 @@ module HashtagUnification
 
     def delivery_difference_metrics
       row = connection.select_one(<<~SQL.squish)
-        WITH expected_destinations AS (
-          SELECT
-            account_id,
-            tag_id,
-            list_id,
-            BOOL_AND(media_only) AS media_only,
-            MIN(id) AS legacy_follow_tag_id
-          FROM follow_tags
-          WHERE account_id IS NOT NULL AND tag_id IS NOT NULL
-          GROUP BY account_id, tag_id, list_id
-        ),
-        actual_destinations AS (
-          SELECT
-            tf.account_id,
-            tf.tag_id,
-            d.list_id,
-            d.media_only,
-            d.legacy_follow_tag_id
-          FROM tag_follow_deliveries d
-          INNER JOIN tag_follows tf ON tf.id = d.tag_follow_id
-        )
+        #{destination_comparison_sql}
         SELECT
           (
             SELECT COUNT(*)
@@ -223,6 +203,32 @@ module HashtagUnification
       SQL
 
       integerize(row)
+    end
+
+    def destination_comparison_sql
+      <<~SQL.squish
+        WITH expected_destinations AS (
+          SELECT
+            account_id,
+            tag_id,
+            list_id,
+            BOOL_AND(media_only) AS media_only,
+            MIN(id) AS legacy_follow_tag_id
+          FROM follow_tags
+          WHERE account_id IS NOT NULL AND tag_id IS NOT NULL
+          GROUP BY account_id, tag_id, list_id
+        ),
+        actual_destinations AS (
+          SELECT
+            tf.account_id,
+            tf.tag_id,
+            d.list_id,
+            d.media_only,
+            d.legacy_follow_tag_id
+          FROM tag_follow_deliveries d
+          INNER JOIN tag_follows tf ON tf.id = d.tag_follow_id
+        )
+      SQL
     end
 
     def parity_ok?(source, target, differences)
