@@ -16,16 +16,22 @@ class TagFollowDelivery < ApplicationRecord
   belongs_to :list, optional: true
 
   delegate :account, :account_id, :tag, :tag_id, to: :tag_follow
+  delegate :name, to: :tag
 
   scope :home, -> { where(list_id: nil) }
   scope :list, -> { where.not(list_id: nil) }
   scope :for_tags, ->(tags) { joins(:tag_follow).merge(TagFollow.where(tag: tags)) }
+  scope :for_account, ->(account) { joins(:tag_follow).merge(TagFollow.where(account: account)) }
   scope :with_media, ->(status) { where(media_only: false) unless status&.with_media? }
 
   validates :tag_follow_id, uniqueness: { conditions: -> { where(list_id: nil) } }, if: -> { list_id.nil? }
   validates :list_id, uniqueness: { scope: :tag_follow_id }, if: -> { list_id.present? }
   validates :legacy_follow_tag_id, uniqueness: true, allow_nil: true
   validate :list_belongs_to_following_account
+
+  def legacy_resource_id
+    legacy_follow_tag_id || raise(ActiveRecord::RecordNotFound)
+  end
 
   private
 
