@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe Status, '#searchable_text', type: :model do
+RSpec.describe Status, '#searchable_text', type: :model do # rubocop:disable Metrics/BlockLength
   let(:local_account) { Fabricate(:account, domain: nil, username: 'alice') }
 
   it 'keeps ordinary body text' do
@@ -24,7 +24,7 @@ RSpec.describe Status, '#searchable_text', type: :model do
   end
 
   it 'keeps local mentions and hashtags after URL stripping' do
-    status = Fabricate(:status, account: local_account, text: "hello @alice #test https://example.com/x")
+    status = Fabricate(:status, account: local_account, text: 'hello @alice #test https://example.com/x')
 
     expect(status.searchable_text).to include('@alice')
     expect(status.searchable_text).to include('#test')
@@ -48,7 +48,7 @@ RSpec.describe Status, '#searchable_text', type: :model do
   end
 
   it 'uses proper searchable_text for reblogs' do
-    original = Fabricate(:status, account: local_account, text: "innerword https://example.com/filter-url-test")
+    original = Fabricate(:status, account: local_account, text: 'innerword https://example.com/filter-url-test')
     reblog = Fabricate(:status, account: local_account, reblog: original)
 
     expect(reblog.proper.searchable_text).to eq original.searchable_text

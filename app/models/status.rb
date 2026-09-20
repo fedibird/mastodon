@@ -725,20 +725,14 @@ class Status < ApplicationRecord
   private
 
   def filterable_reference_index
-    index = {}
-
-    references.each do |reference|
+    references.flat_map do |reference|
       [
         reference.url,
         reference.uri,
         ActivityPub::TagManager.instance.url_for(reference),
         ActivityPub::TagManager.instance.uri_for(reference),
-      ].compact.each do |form|
-        index[form] = reference
-      end
-    end
-
-    index
+      ].compact.map { |form| [form, reference] }
+    end.to_h
   end
 
   def expand_filterable_source_url(source_url, index)
