@@ -8,7 +8,10 @@ RSpec.describe Settings::FollowTagsController, type: :controller do # rubocop:di
   let(:user) { Fabricate(:user, account: Fabricate(:account, username: 'alice')) }
   let(:other) { Fabricate(:user, account: Fabricate(:account, username: 'bob')) }
 
-  before { sign_in user, scope: :user }
+  before do
+    sign_in user, scope: :user
+    stub_webpacker_manifest
+  end
 
   def unused_legacy_id
     [
@@ -98,5 +101,12 @@ RSpec.describe Settings::FollowTagsController, type: :controller do # rubocop:di
       expect(response).to have_http_status(200)
       expect(assigns(:follow_tag)).to eq source
     end
+  end
+
+  def stub_webpacker_manifest
+    manifest = Webpacker.instance.manifest
+    resolver = ->(name, **opts) { opts[:with_integrity] ? ["/packs-test/#{name}", nil] : "/packs-test/#{name}" }
+    allow(manifest).to receive(:lookup!, &resolver)
+    allow(manifest).to receive(:lookup, &resolver)
   end
 end
