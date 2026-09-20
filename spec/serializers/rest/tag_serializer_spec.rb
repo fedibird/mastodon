@@ -21,4 +21,38 @@ RSpec.describe REST::TagSerializer do
     expect(json).not_to have_key(:listable)
     expect(json).not_to have_key(:requires_review)
   end
+
+  it 'reads following from TagFollow when no relationships presenter is supplied' do
+    user = Fabricate(:user)
+    TagFollow.create!(account: user.account, tag: tag)
+
+    serializer = described_class.new(tag, scope: user, scope_name: :current_user)
+    json = JSON.parse(serializer.to_json, symbolize_names: true)
+
+    expect(FollowTag.where(account: user.account, tag: tag)).to be_empty
+    expect(json[:following]).to be true
+  end
+
+  it 'does not report following from callback-bypassing FollowTag without TagFollow' do
+    user = Fabricate(:user)
+    now = Time.now.utc
+    rows = [
+      {
+        account_id: user.account.id,
+        tag_id: tag.id,
+        list_id: nil,
+        media_only: false,
+        created_at: now,
+        updated_at: now,
+      },
+    ]
+    FollowTag.insert_all!(rows)
+
+    serializer = described_class.new(tag, scope: user, scope_name: :current_user)
+    json = JSON.parse(serializer.to_json, symbolize_names: true)
+
+    expect(FollowTag.exists?(account: user.account, tag: tag)).to be true
+    expect(TagFollow.where(account: user.account, tag: tag)).to be_empty
+    expect(json[:following]).to be false
+  end
 end
