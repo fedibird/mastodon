@@ -3,7 +3,7 @@
 require 'rails_helper'
 require 'timeout'
 
-RSpec.describe FollowImport::DispatchLease do
+RSpec.describe FollowImport::DispatchLease do # rubocop:disable Metrics/BlockLength
   def create_batch
     FollowImportBatch.create!(subject: Fabricate(:moderation_subject), imported_at: Time.now.utc, mode: :merge,
                               target_count: 0, resolved_target_count: 0, unresolved_target_count: 0)
@@ -22,9 +22,9 @@ RSpec.describe FollowImport::DispatchLease do
     it 'uses a documented two-integer key that does not come from String#hash' do
       expect(described_class::LOCK_NAMESPACE).to eq 0x4649
       expect(described_class::LOCK_KEY).to eq 1
-      expect(described_class::TRY_LOCK_SQL).to eq "SELECT pg_try_advisory_lock(#{0x4649}, 1)"
-      expect(described_class::UNLOCK_SQL).to eq "SELECT pg_advisory_unlock(#{0x4649}, 1)"
-      expect(described_class::CURRENT_SESSION_LOCK_SQL).to include("classid = #{0x4649}")
+      expect(described_class::TRY_LOCK_SQL).to eq "SELECT pg_try_advisory_lock(#{described_class::LOCK_NAMESPACE}, #{described_class::LOCK_KEY})"
+      expect(described_class::UNLOCK_SQL).to eq "SELECT pg_advisory_unlock(#{described_class::LOCK_NAMESPACE}, #{described_class::LOCK_KEY})"
+      expect(described_class::CURRENT_SESSION_LOCK_SQL).to include("classid = #{described_class::LOCK_NAMESPACE}")
       expect(described_class::CURRENT_SESSION_LOCK_SQL).to include('objid = 1')
       expect(described_class::CURRENT_SESSION_LOCK_SQL).to include('objsubid = 2')
       expect(described_class::CURRENT_SESSION_LOCK_SQL).to include('pid = pg_backend_pid()')
@@ -33,7 +33,7 @@ RSpec.describe FollowImport::DispatchLease do
     end
   end
 
-  describe 'connection checkout semantics' do
+  describe 'connection checkout semantics' do # rubocop:disable Metrics/BlockLength
     let(:connection) { double('lease-connection') }
     let(:pool) { double('connection-pool') }
 
@@ -56,7 +56,10 @@ RSpec.describe FollowImport::DispatchLease do
       end
 
       yielded = false
-      result = described_class.with_lease { yielded = true; :body }
+      result = described_class.with_lease do
+        yielded = true
+        :body
+      end
 
       expect(yielded).to be true
       expect(result).to eq :body
@@ -157,7 +160,10 @@ RSpec.describe FollowImport::DispatchLease do
       end
 
       yielded = false
-      result = described_class.with_lease { yielded = true; :recovered }
+      result = described_class.with_lease do
+        yielded = true
+        :recovered
+      end
 
       expect(yielded).to be true
       expect(result).to eq :recovered
@@ -193,9 +199,25 @@ RSpec.describe FollowImport::DispatchLease do
       expect(pool).to have_received(:remove).with(connection)
       expect(connection).not_to have_received(:select_value).with(described_class::TRY_LOCK_SQL)
     end
+
+    it 'isolates the connection when stale lock depth exceeds the defensive bound' do
+      allow(connection).to receive(:select_value).with(described_class::CURRENT_SESSION_LOCK_SQL).and_return(true)
+      allow(connection).to receive(:select_value).with(described_class::UNLOCK_SQL).and_return(true)
+      allow(connection).to receive(:disconnect!)
+
+      yielded = false
+      result = described_class.with_lease { yielded = true }
+
+      expect(yielded).to be false
+      expect(result).to eq described_class::BUSY
+      expect(connection).to have_received(:select_value).with(described_class::UNLOCK_SQL).exactly(described_class::MAX_STALE_LOCK_DEPTH).times
+      expect(connection).to have_received(:disconnect!)
+      expect(pool).to have_received(:remove).with(connection)
+      expect(connection).not_to have_received(:select_value).with(described_class::TRY_LOCK_SQL)
+    end
   end
 
-  describe 'one connection per tick' do
+  describe 'one connection per tick' do # rubocop:disable Metrics/BlockLength
     it 'runs ActiveRecord work on the same PostgreSQL session that holds the lease' do
       ActiveRecord::Base.connection
       held_during_body = nil
