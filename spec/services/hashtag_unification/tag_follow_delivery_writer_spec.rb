@@ -399,9 +399,14 @@ RSpec.describe HashtagUnification::TagFollowDeliveryWriter, type: :service do # 
     end
 
     it 'fails closed on an inconsistent relation and does not add Home' do
+      list = Fabricate(:list, account: account, title: 'A')
       tag = Fabricate(:tag, name: 'u3b3ebadfollow')
       tag_follow = TagFollow.create!(account: account, tag: tag)
-      TagFollowDelivery.create!(tag_follow: tag_follow, legacy_follow_tag_id: unused_legacy_id)
+      listed = TagFollowDelivery.create!(
+        tag_follow: tag_follow,
+        list: list,
+        legacy_follow_tag_id: unused_legacy_id
+      )
       before = relation_counts(account, tag)
 
       expect { writer.standard_follow!(account: account, tag: tag) }
@@ -409,6 +414,7 @@ RSpec.describe HashtagUnification::TagFollowDeliveryWriter, type: :service do # 
 
       expect(relation_counts(account, tag)).to eq before
       expect(tag_follow.deliveries.home).to be_empty
+      expect(TagFollowDelivery.where(id: listed.id)).to exist
     end
   end
 

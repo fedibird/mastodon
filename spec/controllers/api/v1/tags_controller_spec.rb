@@ -92,8 +92,13 @@ RSpec.describe Api::V1::TagsController, type: :controller do # rubocop:disable M
     end
 
     it 'returns 422 and does not add Home when the rollback shadow is inconsistent' do
+      list = Fabricate(:list, account: user.account, title: 'A')
       tag_follow = TagFollow.create!(account: user.account, tag: tag)
-      TagFollowDelivery.create!(tag_follow: tag_follow, legacy_follow_tag_id: unused_legacy_id)
+      TagFollowDelivery.create!(
+        tag_follow: tag_follow,
+        list: list,
+        legacy_follow_tag_id: unused_legacy_id
+      )
 
       post :follow, params: { id: tag.name }
 
