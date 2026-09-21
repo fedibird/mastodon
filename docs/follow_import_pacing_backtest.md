@@ -88,7 +88,6 @@ cannot support. They are never coerced to `0`.
 
 Required core headers:
 
-- `target_id`
 - `phase`
 - `started_at`
 - `finished_at`
@@ -103,14 +102,16 @@ Required core headers:
 - `error_class`
 
 Routing identity is selected **once per transport file** from headers.
-Do not mix a raw destination with an anonymous origin. If both complete
-sets are present, the task fails as ambiguous.
+Do not mix a raw destination with an anonymous origin, or `target_id`
+with `anon_target_id`. If both complete sets are present, the task
+fails as ambiguous.
 
 #### Raw mode
 
 Headers:
 
 ```text
+target_id
 destination_domain
 endpoint_origin
 ```
@@ -126,15 +127,17 @@ never coerced to false.
 Headers:
 
 ```text
+anon_target_id
 anon_destination_domain
 anon_endpoint_origin
 destination_is_local
 ```
 
-Map them internally to the existing destination/origin identity fields.
-Pseudonyms are opaque routing identities. Do not parse them as host
-names. Never fall back to `TagManager`. Never require the raw
-destination to accompany anonymous mode.
+Map them internally to the existing target/destination/origin identity
+fields. Pseudonyms are opaque routing identities. Do not parse them as
+host names. Never fall back to `TagManager`. Never require the raw
+`target_id` or raw destination to accompany anonymous mode. `anon_target_id`
+is used only for per-export attempt ordinal / retry grouping.
 
 `destination_is_local` is required for every row whose anonymous
 destination is nonblank. A blank destination may have blank locality
@@ -150,7 +153,8 @@ true / false
 ```
 
 The selected mode is reported as
-`baseline.dataset.routing_identity_mode` (`raw` or `anonymous`).
+`baseline.dataset.routing_identity_mode` and
+`baseline.dataset.target_identity_mode` (`raw` or `anonymous`).
 
 The SQL exporter itself is operator-side and is not in this repository.
 The operator export should emit `destination_is_local` from the **raw**
@@ -431,7 +435,7 @@ integers.
 ## Privacy
 
 Default JSON/Markdown must not emit raw destination domains, raw
-endpoint origins, or raw anonymous identifiers. Detail tables hash
+endpoint origins, raw target IDs, or raw anonymous identifiers. Detail tables hash
 whatever identity the input supplied:
 
 ```text

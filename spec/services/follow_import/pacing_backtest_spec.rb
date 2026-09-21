@@ -76,6 +76,7 @@ RSpec.describe FollowImport::PacingBacktest do # rubocop:disable Metrics/BlockLe
     expect(first.dig('baseline', 'retry_amplification', 'right_censoring_note')).to include('not a final failure')
     expect(first.dig('baseline', 'dataset', 'actual_http_request_rows')).to eq first.dig('baseline', 'dataset', 'rows_with_request_timestamps')
     expect(first.dig('baseline', 'dataset', 'routing_identity_mode')).to eq 'raw'
+    expect(first.dig('baseline', 'dataset', 'target_identity_mode')).to eq 'raw'
     expect(File.read(File.join(dir, 'out.md'))).to include('right-censored')
     expect(File.read(File.join(dir, 'out.md'))).to include('Legacy buckets above global budget')
     expect(File.read(File.join(dir, 'out.md'))).not_to match(/\b(best|recommended|winner)\b/i)
@@ -160,7 +161,7 @@ RSpec.describe FollowImport::PacingBacktest do # rubocop:disable Metrics/BlockLe
       [
         anonymous_transport_row,
         anonymous_transport_row(
-          'target_id' => '2',
+          'anon_target_id' => 'tgt_deadbeef02',
           'anon_destination_domain' => 'd1111aaaa',
           'anon_endpoint_origin' => 'o1111bbbb',
           'request_started_at' => '2026-09-16T12:00:01Z',
@@ -177,13 +178,17 @@ RSpec.describe FollowImport::PacingBacktest do # rubocop:disable Metrics/BlockLe
     )
 
     expect(result.dig('baseline', 'dataset', 'routing_identity_mode')).to eq 'anonymous'
+    expect(result.dig('baseline', 'dataset', 'target_identity_mode')).to eq 'anonymous'
     dumped = JSON.generate(result)
     expect(dumped).not_to include('d0000972')
     expect(dumped).not_to include('d1111aaaa')
     expect(dumped).not_to include('o0000abcd')
     expect(dumped).not_to include('o1111bbbb')
+    expect(dumped).not_to include('tgt_00000001')
+    expect(dumped).not_to include('tgt_deadbeef02')
     expect(result['warnings'].join).to include('not guaranteed to be stable across separately generated exports')
     expect(dumped).not_to include('cross-export stable')
     expect(File.read(File.join(dir, 'out.json'))).to include('d_')
+    expect(File.read(File.join(dir, 'out.json'))).not_to include('tgt_')
   end
 end

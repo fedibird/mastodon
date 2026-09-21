@@ -49,6 +49,7 @@ module FollowImport
           'destination_count' => timed.map(&:destination_domain).compact.uniq.length,
           'origin_count' => timed.map(&:endpoint_origin).compact.uniq.length,
           'routing_identity_mode' => @dataset.routing_identity_mode,
+          'target_identity_mode' => @dataset.routing_identity_mode,
         }
       end
 

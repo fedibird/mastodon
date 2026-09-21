@@ -14,7 +14,6 @@ module FollowImport
   class PacingBacktest
     class Input
       CORE_TRANSPORT_HEADERS = %w(
-        target_id
         phase
         started_at
         finished_at
@@ -29,6 +28,19 @@ module FollowImport
         error_class
       ).freeze
 
+      RAW_IDENTITY_HEADERS = %w(
+        target_id
+        destination_domain
+        endpoint_origin
+      ).freeze
+
+      ANONYMOUS_IDENTITY_HEADERS = %w(
+        anon_target_id
+        anon_destination_domain
+        anon_endpoint_origin
+        destination_is_local
+      ).freeze
+
       RAW_ROUTING_HEADERS = %w(
         destination_domain
         endpoint_origin
@@ -40,7 +52,7 @@ module FollowImport
         destination_is_local
       ).freeze
 
-      REQUIRED_TRANSPORT_HEADERS = (CORE_TRANSPORT_HEADERS + RAW_ROUTING_HEADERS).freeze
+      REQUIRED_TRANSPORT_HEADERS = (CORE_TRANSPORT_HEADERS + RAW_IDENTITY_HEADERS).freeze
       MODE_RAW = 'raw'
       MODE_ANONYMOUS = 'anonymous'
       BOOLEAN_TRUE = %w(t true 1).freeze
@@ -199,15 +211,21 @@ module FollowImport
       end
 
       def detect_routing_mode(headers)
-        raw_complete = RAW_ROUTING_HEADERS.all? { |header| headers.include?(header) }
-        anon_complete = ANONYMOUS_ROUTING_HEADERS.all? { |header| headers.include?(header) }
+        raw_complete = RAW_IDENTITY_HEADERS.all? { |header| headers.include?(header) }
+        anon_complete = ANONYMOUS_IDENTITY_HEADERS.all? { |header| headers.include?(header) }
         if raw_complete && anon_complete
           raise FollowImport::PacingBacktest::Error, 'ambiguous transport routing headers: both raw and anonymous identity sets are present'
         end
-        return MODE_RAW if raw_complete
-        return MODE_ANONYMOUS if anon_complete
+        return MODE_RAW if raw_complete && !headers.include?('anon_target_id')
+        if raw_complete && headers.include?('anon_target_id')
+          raise FollowImport::PacingBacktest::Error, 'mixed transport target identity headers: expected target_id or anon_target_id, not both'
+        end
+        return MODE_ANONYMOUS if anon_complete && !headers.include?('target_id')
+        if anon_complete && headers.include?('target_id')
+          raise FollowImport::PacingBacktest::Error, 'mixed transport target identity headers: expected target_id or anon_target_id, not both'
+        end
 
-        raise FollowImport::PacingBacktest::Error, 'incomplete or mixed transport routing headers: expected destination_domain+endpoint_origin, or anon_destination_domain+anon_endpoint_origin+destination_is_local'
+        raise FollowImport::PacingBacktest::Error, 'incomplete or mixed transport routing headers: expected target_id+destination_domain+endpoint_origin, or anon_target_id+anon_destination_domain+anon_endpoint_origin+destination_is_local'
       end
 
       def build_attempt(row, row_number)
@@ -219,7 +237,7 @@ module FollowImport
         attempt = Attempt.new(
           row_number: row_number,
           phase: blank_to_nil(row['phase']),
-          target_id: blank_to_nil(row['target_id']),
+          target_id: target_identity(row),
           destination_domain: destination_domain,
           endpoint_origin: endpoint_origin,
           destination_is_local: destination_is_local,
@@ -240,6 +258,14 @@ module FollowImport
         )
         record_malformed(attempt.malformed_fields)
         attempt
+      end
+
+      def target_identity(row)
+        if @routing_identity_mode == MODE_ANONYMOUS
+          blank_to_nil(row['anon_target_id'])
+        else
+          blank_to_nil(row['target_id'])
+        end
       end
 
       def identity_for(row, row_number)

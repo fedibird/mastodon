@@ -7,7 +7,7 @@ module FollowImportPacingBacktestFixtures
   TRANSPORT_HEADERS = FollowImport::PacingBacktest::Input::REQUIRED_TRANSPORT_HEADERS
   ANONYMOUS_TRANSPORT_HEADERS = (
     FollowImport::PacingBacktest::Input::CORE_TRANSPORT_HEADERS +
-    FollowImport::PacingBacktest::Input::ANONYMOUS_ROUTING_HEADERS
+    FollowImport::PacingBacktest::Input::ANONYMOUS_IDENTITY_HEADERS
   ).freeze
 
   module_function
@@ -48,9 +48,11 @@ module FollowImportPacingBacktestFixtures
 
   def anonymous_transport_row(overrides = {})
     row = transport_row
+    row.delete('target_id')
     row.delete('destination_domain')
     row.delete('endpoint_origin')
     row.merge(
+      'anon_target_id' => 'tgt_00000001',
       'anon_destination_domain' => 'd0000972',
       'anon_endpoint_origin' => 'o0000abcd',
       'destination_is_local' => 'f'

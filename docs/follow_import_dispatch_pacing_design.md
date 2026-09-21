@@ -1392,7 +1392,7 @@ See `docs/follow_import_pacing_backtest.md`. Do not treat backtest
 constraint-exposure counts as prevented failures, created successes,
 or CPU/DB safety. The backtest accepts either raw destination/origin
 headers or a privacy-minimized anonymous set
-(`anon_destination_domain`, `anon_endpoint_origin`,
+(`anon_target_id`, `anon_destination_domain`, `anon_endpoint_origin`,
 `destination_is_local`).
 
 #### Known gaps (do not claim they are paced)

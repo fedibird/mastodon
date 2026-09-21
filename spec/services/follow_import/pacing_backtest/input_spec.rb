@@ -182,10 +182,39 @@ RSpec.describe FollowImport::PacingBacktest::Input do # rubocop:disable Metrics/
 
     expect(dataset.routing_identity_mode).to eq 'anonymous'
     row = dataset.delivery_rows.first
+    expect(row.target_id).to eq 'tgt_00000001'
     expect(row.destination_domain).to eq 'd0000972'
     expect(row.endpoint_origin).to eq 'o0000abcd'
     expect(row.destination_is_local).to eq false
     expect(dataset.warnings.join).to include('not guaranteed to be stable across separately generated exports')
+  end
+
+  it 'groups anonymous retries by anon_target_id' do
+    dataset = load_anonymous([
+                               anonymous_transport_row('anon_target_id' => 'tgt_aaa', 'outcome' => 'timeout'),
+                               anonymous_transport_row(
+                                 'anon_target_id' => 'tgt_aaa',
+                                 'request_started_at' => '2026-09-16T12:00:00Z',
+                                 'outcome' => 'http_success'
+                               ),
+                               anonymous_transport_row('anon_target_id' => 'tgt_bbb', 'request_started_at' => '2026-09-16T12:00:00Z'),
+                             ])
+
+    first, second = dataset.timed_rows.select { |row| row.target_id == 'tgt_aaa' }.sort_by(&:attempt_ordinal)
+    expect(first.attempt_ordinal).to eq 1
+    expect(first.outcome).to eq 'timeout'
+    expect(second.attempt_ordinal).to eq 2
+    expect(dataset.timed_rows.find { |row| row.target_id == 'tgt_bbb' }.attempt_ordinal).to eq 1
+  end
+
+  it 'fails when anonymous mode is missing anon_target_id' do
+    path = tmp('no-anon-target.csv')
+    headers = FollowImport::PacingBacktest::Input::CORE_TRANSPORT_HEADERS + FollowImport::PacingBacktest::Input::ANONYMOUS_ROUTING_HEADERS
+    write_csv(path, headers, [anonymous_transport_row])
+
+    expect do
+      described_class.load(transport: path, scenarios: tmp('unused.json'))
+    end.to raise_error(FollowImport::PacingBacktest::Error, /incomplete or mixed transport routing headers/)
   end
 
   it 'fails when anonymous routing headers are incomplete' do
@@ -207,11 +236,18 @@ RSpec.describe FollowImport::PacingBacktest::Input do # rubocop:disable Metrics/
     end.to raise_error(FollowImport::PacingBacktest::Error, /incomplete or mixed transport routing headers/)
 
     both = tmp('both.csv')
-    both_headers = FollowImportPacingBacktestFixtures::TRANSPORT_HEADERS + FollowImport::PacingBacktest::Input::ANONYMOUS_ROUTING_HEADERS
+    both_headers = FollowImportPacingBacktestFixtures::TRANSPORT_HEADERS + FollowImport::PacingBacktest::Input::ANONYMOUS_IDENTITY_HEADERS
     write_csv(both, both_headers, [transport_row.merge(anonymous_transport_row)])
     expect do
       described_class.load(transport: both, scenarios: tmp('unused.json'))
     end.to raise_error(FollowImport::PacingBacktest::Error, /ambiguous transport routing headers/)
+
+    leftover = tmp('leftover-target.csv')
+    leftover_headers = FollowImportPacingBacktestFixtures::ANONYMOUS_TRANSPORT_HEADERS + ['target_id']
+    write_csv(leftover, leftover_headers, [anonymous_transport_row.merge('target_id' => '1')])
+    expect do
+      described_class.load(transport: leftover, scenarios: tmp('unused.json'))
+    end.to raise_error(FollowImport::PacingBacktest::Error, /mixed transport target identity headers/)
   end
 
   it 'fails when an anonymous nonblank destination is missing locality' do
