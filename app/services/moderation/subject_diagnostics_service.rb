@@ -13,7 +13,8 @@
 #
 # This service writes nothing: no ModerationSubject creation, no evidence
 # snapshot, no moderation action, and no follow-gate enforcement. Follow
-# Import unresolved ratios are reported as observational context only.
+# Import unresolved ratios and campaign recurrence observations are
+# reported as observational context only.
 #
 # Absence of observed negatives is not treated as evidence of absence.
 # Output is structured metadata (ids, types, counts, timestamps, rates,
@@ -22,11 +23,12 @@ module Moderation
   class SubjectDiagnosticsService
     CONTACT_WINDOWS = %w(1h 24h 7d).freeze
 
-    def initialize(metrics_service: BehavioralMetricsService.new, evaluator: nil, gate: nil, negative_signal_query: NegativeSignalQuery.new)
+    def initialize(metrics_service: BehavioralMetricsService.new, evaluator: nil, gate: nil, negative_signal_query: NegativeSignalQuery.new, recurrence_observer: FollowImportRecurrenceObservationService.new)
       @metrics_service = metrics_service
       @evaluator = evaluator
       @gate = gate
       @negative_signal_query = negative_signal_query
+      @recurrence_observer = recurrence_observer
     end
 
     # +context+ is the optional follow-attempt context forwarded unchanged to
@@ -39,7 +41,7 @@ module Moderation
       decision    = gate_for(evaluation).call(subject_or_account, context: context, now: now)
       window_24h  = metrics.dig('windows', '24h') || {}
       follow_import = metrics['follow_import_context'] || {}
-      negatives   = @negative_signal_query.summarize(subject, window_start: now - 24.hours, window_end: now)
+      negatives = @negative_signal_query.summarize(subject, window_start: now - 24.hours, window_end: now)
 
       unique_responders = window_24h['unique_negative_responders'].to_i
       linked_responders = window_24h['linked_negative_responders'].to_i
@@ -74,13 +76,7 @@ module Moderation
           '24h' => window_24h['reports_received'].to_i,
           '7d' => (metrics.dig('windows', '7d') || {})['reports_received'].to_i,
         },
-        'follow_import' => {
-          'batch_count' => follow_import['batch_count'].to_i,
-          'target_total' => follow_import['target_total'].to_i,
-          'resolved_target_count' => follow_import['resolved_target_total'].to_i,
-          'unresolved_target_count' => follow_import['unresolved_target_total'].to_i,
-          'unresolved_target_ratio' => follow_import['unresolved_target_ratio'].to_f,
-        },
+        'follow_import' => follow_import_block(follow_import, subject_or_account, now),
         'observation_quality' => {
           'negative_qualification_rate' => qualification_rate,
           'contact_link_rate' => link_rate,
@@ -121,13 +117,24 @@ module Moderation
       end
     end
 
+    def follow_import_block(follow_import, subject_or_account, now)
+      {
+        'batch_count' => follow_import['batch_count'].to_i,
+        'target_total' => follow_import['target_total'].to_i,
+        'resolved_target_count' => follow_import['resolved_target_total'].to_i,
+        'unresolved_target_count' => follow_import['unresolved_target_total'].to_i,
+        'unresolved_target_ratio' => follow_import['unresolved_target_ratio'].to_f,
+        'recurrence_observation' => @recurrence_observer.call(subject_or_account, now: now),
+      }
+    end
+
     def observation_quality_notes
       [
         'absence of observed negatives is not evidence of absence',
         'remote negative signals may be incompletely observed',
         'inbound ActivityPub coverage is partial; a hooked follow_reject shape can still be lost under double recorder failure',
         'follow-import unresolved_target_ratio is observational and is not used as an abuse signal',
-      ]
+      ] + FollowImportRecurrenceObservationService::NOTES
     end
 
     def ratio(numerator, denominator)
