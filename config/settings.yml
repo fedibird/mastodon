@@ -194,6 +194,11 @@ defaults: &defaults
   reject_pattern: ''
   reject_blurhash: ''
   max_frequently_used_emojis: 16
+  action_review_policies:
+    follow_import: 'off'
+    account_migration: 'off'
+    invite_creation: 'off'
+    status_import: 'off'
 
 development:
   <<: *defaults
