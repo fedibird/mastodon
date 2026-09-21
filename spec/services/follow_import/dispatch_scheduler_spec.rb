@@ -135,6 +135,7 @@ RSpec.describe FollowImport::DispatchScheduler do
       expect(observation.active_batch_count).to eq 1
       expect(observation.load_snapshot.dig('queues', 'push', 'size')).to eq 1
       expect(observation.execution_config['dispatch_shadow_enabled']).to eq true
+      expect(observation.execution_config['lease_strategy']).to eq FollowImport::DispatchLease::STRATEGY
       expect(observation.execution_config['shadow_plan_budget']).to eq FollowImport::ExecutionPolicy.shadow_plan_budget
       expect(observation.execution_config['plan_algorithm']).to eq 'account_first_rr'
       expect(observation.execution_config['dispatch_shadow_interval']).to eq FollowImport::ExecutionPolicy.dispatch_shadow_interval.to_i

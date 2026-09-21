@@ -97,6 +97,7 @@ module FollowImport
         'dispatch_shadow_interval' => FollowImport::ExecutionPolicy.dispatch_interval.to_i,
         'shadow_plan_budget' => FollowImport::ExecutionPolicy.shadow_plan_budget,
         'global_dispatch_budget' => FollowImport::ExecutionPolicy.global_dispatch_budget,
+        'lease_strategy' => FollowImport::DispatchLease::STRATEGY,
         'plan_algorithm' => FollowImport::FairScheduler::ALGORITHM,
         'plan_schema_version' => FollowImport::FairScheduler::SCHEMA_VERSION,
         'local_load_shadow_enabled' => FollowImport::ExecutionPolicy.local_load_shadow_enabled?,

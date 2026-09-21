@@ -125,4 +125,56 @@ RSpec.describe FollowImport::DispatchExecutor do
     expect(second.reload.state).to eq 'pending'
     expect(third.reload.state).to eq 'pending'
   end
+
+  it 'claims when the current lease generation still owns the row' do
+    target = add_target(0)
+
+    result = nil
+    FollowImport::DispatchLease.with_lease do |handle|
+      result = described_class.new(lease: handle).execute([entry_for(target)])
+    end
+
+    expect(result.claimed_count).to eq 1
+    expect(result.stopped).to be false
+    expect(target.reload.state).to eq 'queued'
+    expect(Import::RelationshipWorker).to have_received(:perform_async)
+  end
+
+  it 'does not claim when the lease handle is no longer current' do
+    FollowImportDispatchLease.find(FollowImportDispatchLease::SINGLETON_ID).update!(
+      owner_token: 'newer',
+      fencing_generation: 2,
+      expires_at: 1.hour.from_now
+    )
+    handle = FollowImport::DispatchLease::Handle.new(
+      owner_token: 'stale',
+      fencing_generation: 1,
+      strategy: FollowImport::DispatchLease::STRATEGY
+    )
+    target = add_target(0)
+
+    result = described_class.new(lease: handle).execute([entry_for(target)])
+
+    expect(result.claimed_count).to eq 0
+    expect(result.stopped).to be true
+    expect(result.error_class).to eq 'FollowImport::DispatchLease::LostOwnership'
+    expect(target.reload.state).to eq 'pending'
+    expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+  end
+
+  it 'keeps already-enqueued claims when a later fencing check fails' do
+    first = add_target(0)
+    second = add_target(1)
+    handle = instance_double(FollowImport::DispatchLease::Handle)
+    allow(handle).to receive(:current_owner?).and_return(true, false)
+
+    result = described_class.new(lease: handle).execute([entry_for(first), entry_for(second)])
+
+    expect(result.claimed_count).to eq 1
+    expect(result.stopped).to be true
+    expect(result.error_class).to eq 'FollowImport::DispatchLease::LostOwnership'
+    expect(first.reload.state).to eq 'queued'
+    expect(second.reload.state).to eq 'pending'
+    expect(Import::RelationshipWorker).to have_received(:perform_async).once
+  end
 end

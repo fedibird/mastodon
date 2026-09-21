@@ -30,8 +30,9 @@ module FollowImport
       end
     end
 
-    def initialize(now: Time.now.utc)
+    def initialize(now: Time.now.utc, lease: nil)
       @now = now
+      @lease = lease
       @resolvers = {}
       @transitions = FollowImport::TargetTransitionService.new
     end
@@ -62,6 +63,12 @@ module FollowImport
     private
 
     def claim_entry(entry, result)
+      unless lease_owned?
+        result.stopped = true
+        result.error_class ||= 'FollowImport::DispatchLease::LostOwnership'
+        return
+      end
+
       target = nil
       batch = FollowImportBatch.find_by(id: entry.batch_id)
       unless batch&.scheduler_dispatch_owner?
@@ -95,6 +102,10 @@ module FollowImport
       release_failed_claim(target)
       result.error_class = e.class.name
       result.stopped = true
+    end
+
+    def lease_owned?
+      @lease.nil? || @lease.current_owner?
     end
 
     def work_for(batch, target)

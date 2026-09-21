@@ -2,7 +2,7 @@
 
 # Global Follow Import dispatcher tick.
 #
-# Modes (one tick, one advisory lease, one budget, one plan):
+# Modes (one tick, one durable lease, one budget, one plan):
 #   GLOBAL=false, SHADOW=false -> cheap no-op
 #   GLOBAL=false, SHADOW=true  -> existing shadow planner, claimed_count=0
 #   GLOBAL=true                -> authoritative claim/enqueue of
@@ -17,9 +17,9 @@
 # A GLOBAL effective budget of 0 skips owner/batch/target discovery
 # and does not write the fairness cursor.
 #
-# The PostgreSQL session advisory lease (DispatchLease) remains the
-# real single-flight boundary and covers snapshot, budget, planning,
-# claims, enqueue, and telemetry.
+# The durable DispatchLease row + fencing generation is the real
+# single-flight boundary and covers snapshot, budget, planning,
+# claims, enqueue, and telemetry. Session advisory locks are not used.
 module FollowImport
   class DispatchScheduler
     OUTCOME_SHADOW_DISABLED = 'shadow_disabled'
@@ -40,8 +40,8 @@ module FollowImport
         return Result.new(outcome: OUTCOME_SHADOW_DISABLED, lease_acquired: false, plan: nil, tick_id: tick_id)
       end
 
-      status = FollowImport::DispatchLease.with_lease do
-        run_acquired(tick_id, observed_at, mode)
+      status = FollowImport::DispatchLease.with_lease do |handle|
+        run_acquired(tick_id, observed_at, mode, handle)
       end
 
       return busy_result(tick_id, observed_at, mode) if status == FollowImport::DispatchLease::BUSY
@@ -73,13 +73,13 @@ module FollowImport
       Result.new(outcome: OUTCOME_LEASE_BUSY, lease_acquired: false, plan: nil, tick_id: tick_id)
     end
 
-    def run_acquired(tick_id, observed_at, mode)
+    def run_acquired(tick_id, observed_at, mode, handle)
       load_snapshot, load_error = capture_load_snapshot
       plan = nil
       execution = nil
 
       plan = build_plan(observed_at, load_snapshot, mode)
-      execution = execute_global(plan) if mode == :global
+      execution = execute_global(plan, handle) if mode == :global
       plan.with_execution(execution) if plan && execution
 
       metadata = {}
@@ -122,7 +122,7 @@ module FollowImport
       Result.new(outcome: error_outcome(mode), lease_acquired: true, plan: plan, tick_id: tick_id)
     end
 
-    def execute_global(plan)
+    def execute_global(plan, handle)
       return FollowImport::DispatchExecutor::Result.new(
         claimed_count: 0,
         skipped_stale_count: 0,
@@ -132,7 +132,7 @@ module FollowImport
         stopped: false
       ) if plan.nil? || !plan.planned? || plan.entries.empty?
 
-      FollowImport::DispatchExecutor.new(now: plan.observed_at).execute(plan.entries)
+      FollowImport::DispatchExecutor.new(now: plan.observed_at, lease: handle).execute(plan.entries)
     end
 
     def build_plan(observed_at, load_snapshot, mode)
@@ -303,6 +303,7 @@ module FollowImport
         'dispatch_shadow_interval' => FollowImport::ExecutionPolicy.dispatch_interval.to_i,
         'shadow_plan_budget' => FollowImport::ExecutionPolicy.shadow_plan_budget,
         'global_dispatch_budget' => FollowImport::ExecutionPolicy.global_dispatch_budget,
+        'lease_strategy' => FollowImport::DispatchLease::STRATEGY,
         'plan_algorithm' => FollowImport::FairScheduler::ALGORITHM,
         'plan_schema_version' => FollowImport::FairScheduler::SCHEMA_VERSION,
         'local_load_shadow_enabled' => FollowImport::ExecutionPolicy.local_load_shadow_enabled?,

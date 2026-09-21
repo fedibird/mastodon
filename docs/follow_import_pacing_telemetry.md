@@ -301,7 +301,7 @@ actual claims.
 | `observed_at` | tick start (UTC) |
 | `tick_id` | opaque uuid for the tick |
 | `scheduler_mode` | `shadow` or `global` |
-| `lease_acquired` | whether the PostgreSQL session advisory lease was held |
+| `lease_acquired` | whether this tick held the durable dispatcher lease (`lease_strategy=durable_row_v1` in `execution_config`) |
 | `outcome` | `lease_busy` / `shadow_observed` / `shadow_error` / `global_observed` / `global_error` |
 | `global_pending_count` | pending targets across batches; NULL if unmeasured |
 | `active_batch_count` | distinct batches with a pending target; NULL if unmeasured |
@@ -341,7 +341,7 @@ actual claims.
 | `adaptive_runtime_unavailable_count` | shadow reads that fell back because Redis was unavailable |
 | `adaptive_destination_cap_min` / `max` / `adaptive_origin_cap_min` / `max` | identity-free cap aggregates for the tick |
 | `load_snapshot` | Sidekiq load facts, or NULL if capture failed |
-| `execution_config` | execution + shadow-flag snapshot, including `dispatch_shadow_interval` from `FollowImport::ExecutionPolicy` (same ENV/default as `config/sidekiq.yml`). PR F adds `remote_admission_enforcement_enabled`, `remote_admission_profile_version`, `remote_admission_profile_digest`, `destination_per_tick_cap`, `origin_per_tick_cap`, `max_scan_targets`, `max_scan_windows`. PR G adds `adaptive_remote_shadow_enabled`, `adaptive_profile_schema_version`, `adaptive_profile_digest`. Do not store the raw profile JSON. State-source aggregates (`learned` / `initial` / `stale_reset` / `digest_reset` / `runtime_unavailable`) live in `metadata`. |
+| `execution_config` | execution + shadow-flag snapshot, including `dispatch_shadow_interval` from `FollowImport::ExecutionPolicy` (same ENV/default as `config/sidekiq.yml`) and `lease_strategy` (`durable_row_v1`). PR F adds `remote_admission_enforcement_enabled`, `remote_admission_profile_version`, `remote_admission_profile_digest`, `destination_per_tick_cap`, `origin_per_tick_cap`, `max_scan_targets`, `max_scan_windows`. PR G adds `adaptive_remote_shadow_enabled`, `adaptive_profile_schema_version`, `adaptive_profile_digest`. Do not store the raw profile JSON. State-source aggregates (`learned` / `initial` / `stale_reset` / `digest_reset` / `runtime_unavailable`) live in `metadata`. |
 | `error_class` | exception class for `shadow_error` |
 | `metadata` | schema version plus non-identifying facts |
 

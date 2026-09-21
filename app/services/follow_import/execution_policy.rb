@@ -102,7 +102,7 @@ module FollowImport
 
     # Shadow-only global dispatcher. Default off: the scheduler is a cheap no-op
     # unless dispatch_global_enabled? is also on. When true and GLOBAL is off,
-    # one process may hold FollowImport::DispatchLease, build an account-first
+    # one process may hold the durable FollowImport::DispatchLease, build an account-first
     # shadow plan, and write tick telemetry. It must not claim.
     def dispatch_shadow_enabled?
       ENV['FOLLOW_IMPORT_DISPATCH_SHADOW'].to_s == 'true'
