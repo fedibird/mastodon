@@ -1,0 +1,55 @@
+- content_for :header_tags do
+  = javascript_pack_tag 'admin', async: true, crossorigin: 'anonymous'
+
+- content_for :page_title do
+  = t('admin.action_reviews.show', id: @action_review_request.id)
+
+.table-wrapper
+  %table.table.inline-table
+    %tbody
+      %tr
+        %th= t('admin.action_reviews.state')
+        %td{ colspan: 3 }= action_review_state_label(@action_review_request.state)
+      %tr
+        %th= t('admin.action_reviews.operation')
+        %td{ colspan: 3 }= action_review_operation_label(@action_review_request.operation_type)
+      %tr
+        %th= t('admin.action_reviews.actor')
+        %td{ colspan: 3 }= action_review_account_label(@action_review_request.actor_account)
+      %tr
+        %th= t('admin.action_reviews.resource')
+        %td{ colspan: 3 }= action_review_resource_display(@action_review_request)
+      %tr
+        %th= t('admin.action_reviews.requested_at')
+        %td{ colspan: 3 }= formatted_browser_local_time(@action_review_request.requested_at)
+      %tr
+        %th= t('admin.action_reviews.signal_level')
+        %td{ colspan: 3 }= action_review_signal_label(@action_review_request.signal_level)
+      %tr
+        %th= t('admin.action_reviews.trigger')
+        %td{ colspan: 3 }= action_review_trigger_label(@action_review_request.trigger)
+      %tr
+        %th= t('admin.action_reviews.policy_mode')
+        %td{ colspan: 3 }= action_review_mode_label(@action_review_request.policy_mode)
+      %tr
+        %th= t('admin.action_reviews.policy_version')
+        %td{ colspan: 3 }= @action_review_request.policy_version
+      %tr
+        %th= t('admin.action_reviews.evaluator_version')
+        %td{ colspan: 3 }= @action_review_request.evaluator_version.presence || t('admin.action_reviews.none')
+      %tr
+        %th= t('admin.action_reviews.reason_codes')
+        %td{ colspan: 3 }= action_review_reason_summary(@action_review_request)
+      %tr
+        %th= t('admin.action_reviews.evidence')
+        %td{ colspan: 3 }
+          %pre= action_review_evidence_json(@action_review_request)
+      %tr
+        %th= t('admin.action_reviews.reviewed_at')
+        %td{ colspan: 3 }= formatted_browser_local_time(@action_review_request.reviewed_at) || t('admin.action_reviews.none')
+      %tr
+        %th= t('admin.action_reviews.reviewer')
+        %td{ colspan: 3 }= action_review_account_label(@action_review_request.reviewer_account)
+      %tr
+        %th= t('admin.action_reviews.decision_note')
+        %td{ colspan: 3 }= @action_review_request.decision_note.presence || t('admin.action_reviews.none')

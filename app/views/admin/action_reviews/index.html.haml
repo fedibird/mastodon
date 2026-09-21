@@ -1,0 +1,46 @@
+- content_for :page_title do
+  = t('admin.action_reviews.title')
+
+- content_for :header_tags do
+  = javascript_pack_tag 'admin', async: true, crossorigin: 'anonymous'
+
+.filters
+  .filter-subset
+    %strong= t('admin.action_reviews.state')
+    %ul
+      %li= filter_link_to t('admin.action_reviews.states.pending'), state: nil
+      %li= filter_link_to t('admin.action_reviews.states.approved'), state: 'approved'
+      %li= filter_link_to t('admin.action_reviews.states.rejected'), state: 'rejected'
+      %li= filter_link_to t('admin.action_reviews.states.cancelled'), state: 'cancelled'
+      %li= filter_link_to t('admin.action_reviews.states.all'), state: 'all'
+
+- if @action_review_requests.empty?
+  = nothing_here
+- else
+  .table-wrapper
+    %table.table
+      %thead
+        %tr
+          %th= t('admin.action_reviews.operation')
+          %th= t('admin.action_reviews.actor')
+          %th= t('admin.action_reviews.requested_at')
+          %th= t('admin.action_reviews.signal_level')
+          %th= t('admin.action_reviews.trigger')
+          %th= t('admin.action_reviews.policy_mode')
+          %th= t('admin.action_reviews.reason_codes')
+          %th= t('admin.action_reviews.resource')
+          %th= t('admin.action_reviews.state')
+      %tbody
+        - @action_review_requests.each do |request|
+          %tr
+            %td= link_to action_review_operation_label(request.operation_type), admin_action_review_path(request)
+            %td= action_review_account_label(request.actor_account)
+            %td= formatted_browser_local_time(request.requested_at)
+            %td= action_review_signal_label(request.signal_level)
+            %td= action_review_trigger_label(request.trigger)
+            %td= action_review_mode_label(request.policy_mode)
+            %td= action_review_reason_summary(request)
+            %td= action_review_resource_label(request)
+            %td= action_review_state_label(request.state)
+
+= paginate @action_review_requests

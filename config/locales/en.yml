@@ -507,6 +507,70 @@ en:
       filter_by_action: Filter by action
       filter_by_user: Filter by user
       title: Audit log
+    action_review_settings:
+      errors:
+        unsupported_mode: is not supported for this operation
+      hints:
+        account_migration: Detectorless operations offer off or always. Saving a policy here does not hold or release account moves until that adapter is connected.
+        follow_import: Five intervention modes are available. Saving a policy here does not hold or release Follow Import until that adapter is connected.
+        invite_creation: Detectorless operations offer off or always. Saving a policy here does not hold or release invite creation until that adapter is connected.
+        status_import: Future feature. This choice is stored for the framework only and does not enable status import.
+      modes:
+        always: Always require moderator approval
+        high: High review-signal only
+        low: Low and above
+        medium: Medium and above
+        off: No intervention
+      operations:
+        account_migration: Account migration
+        follow_import: Follow import
+        invite_creation: Invite creation
+        status_import: Status import (future)
+      preface: These settings configure the generic Action Review framework only. Enforcement for each operation is rolled out separately and is not active yet.
+      title: Action review policies
+    action_reviews:
+      account_unavailable: Account unavailable
+      actor: Actor
+      decision_note: Decision note
+      empty: No action review requests found.
+      evaluator_version: Evaluator version
+      evidence: Evidence
+      none: None
+      operation: Operation
+      operations:
+        account_migration: Account migration
+        follow_import: Follow import
+        invite_creation: Invite creation
+        status_import: Status import (future)
+      policy_mode: Intervention mode
+      policy_version: Policy version
+      reason_codes: Reason codes
+      requested_at: Requested
+      resource: Resource
+      resource_identity: "%{type} #%{id}"
+      reviewed_at: Reviewed
+      reviewer: Reviewer
+      show: 'Action review #%{id}'
+      signal_level: Review signal
+      signals:
+        high: High
+        low: Low
+        medium: Medium
+        none: None
+      state: State
+      states:
+        all: All
+        approved: Approved
+        cancelled: Cancelled
+        pending: Pending
+        rejected: Rejected
+      title: Action reviews
+      title_with_count: "Action reviews (%{count})"
+      trigger: Trigger
+      triggers:
+        evaluator_unavailable: Evaluator unavailable
+        none: None
+        policy: Policy
     announcements:
       destroyed_msg: Announcement successfully deleted!
       edit:
