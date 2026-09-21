@@ -24,6 +24,7 @@ RSpec.describe FollowImport::DispatchScheduler, 'adaptive remote shadow' do
       imported_at: Time.now.utc,
       mode: :merge,
       dispatch_owner: owner,
+      dispatch_cohort: :operational,
       target_count: 0,
       resolved_target_count: 0,
       unresolved_target_count: 0

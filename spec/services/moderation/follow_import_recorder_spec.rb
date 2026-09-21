@@ -109,9 +109,16 @@ RSpec.describe Moderation::FollowImportRecorder, type: :service do
       expect(batch.legacy_dispatch_owner?).to be true
     end
 
+    it 'explicitly records a new batch in the operational dispatch cohort' do
+      batch = described_class.record_batch(account: account, accts: ['bob'])
+      expect(batch.operational_dispatch_cohort?).to be true
+      expect(batch.historical_dispatch_cohort?).to be false
+    end
+
     it 'persists an explicit scheduler owner only for a newly created batch' do
       batch = described_class.record_batch(account: account, accts: ['bob'], dispatch_owner: :scheduler)
       expect(batch.scheduler_dispatch_owner?).to be true
+      expect(batch.operational_dispatch_cohort?).to be true
     end
 
     it 'does not rewrite stored ownership when the same import is retried' do
@@ -122,6 +129,39 @@ RSpec.describe Moderation::FollowImportRecorder, type: :service do
       expect(second.id).to eq first.id
       expect(second.legacy_dispatch_owner?).to be true
       expect(second.scheduler_dispatch_owner?).to be false
+      expect(second.operational_dispatch_cohort?).to be true
+    end
+
+    it 'does not promote a historical batch when the same import is retried' do
+      import = instance_double(Import, id: 880_013)
+      historical = FollowImportBatch.create!(
+        subject: ModerationSubject.for_account!(account),
+        import_id: import.id,
+        imported_at: Time.now.utc,
+        mode: :merge,
+        dispatch_owner: :legacy,
+        dispatch_cohort: :historical,
+        target_count: 0,
+        resolved_target_count: 0,
+        unresolved_target_count: 0
+      )
+
+      retried = described_class.record_batch!(account: account, accts: ['bob'], import: import, dispatch_owner: :scheduler)
+
+      expect(retried.id).to eq historical.id
+      expect(retried.historical_dispatch_cohort?).to be true
+      expect(retried.legacy_dispatch_owner?).to be true
+      expect(FollowImportTarget.where(batch_id: historical.id).count).to eq 0
+    end
+
+    it 'preserves an operational batch cohort when the same import is retried' do
+      import = instance_double(Import, id: 880_014)
+      first = described_class.record_batch(account: account, accts: ['bob'], import: import, dispatch_owner: :legacy)
+      second = described_class.record_batch(account: account, accts: ['eve@example.com'], import: import)
+
+      expect(second.id).to eq first.id
+      expect(second.operational_dispatch_cohort?).to be true
+      expect(second.legacy_dispatch_owner?).to be true
     end
 
     it 'preserves a scheduler-owned batch when a later retry asks for legacy' do
@@ -131,6 +171,7 @@ RSpec.describe Moderation::FollowImportRecorder, type: :service do
 
       expect(second.id).to eq first.id
       expect(second.scheduler_dispatch_owner?).to be true
+      expect(second.operational_dispatch_cohort?).to be true
     end
 
     it 'does not create a second batch when the same import is retried' do
@@ -191,8 +232,45 @@ RSpec.describe Moderation::FollowImportRecorder, type: :service do
       raced = described_class.new.record_batch(account: account, accts: ['bob'], import: import)
 
       expect(raced.id).to eq first.id
+      expect(raced.operational_dispatch_cohort?).to be true
+      expect(raced.legacy_dispatch_owner?).to be true
       expect(FollowImportBatch.where(import_id: import.id).count).to eq 1
       expect(lookups).to be >= 1
+    end
+
+    it 'returns a committed historical row unchanged after a uniqueness race' do
+      import = instance_double(Import, id: 880_015)
+      first = FollowImportBatch.create!(
+        subject: ModerationSubject.for_account!(account),
+        import_id: import.id,
+        imported_at: Time.now.utc,
+        mode: :merge,
+        dispatch_owner: :legacy,
+        dispatch_cohort: :historical,
+        target_count: 0,
+        resolved_target_count: 0,
+        unresolved_target_count: 0
+      )
+      lookups = 0
+
+      allow(FollowImportBatch).to receive(:find_by).and_wrap_original do |method, *args|
+        attrs = args.first
+        if attrs.is_a?(Hash) && attrs[:import_id] == import.id
+          lookups += 1
+          lookups == 1 ? nil : method.call(*args)
+        else
+          method.call(*args)
+        end
+      end
+
+      allow_any_instance_of(FollowImportBatch).to receive(:valid?).and_return(true)
+
+      raced = described_class.new.record_batch(account: account, accts: ['bob'], import: import, dispatch_owner: :scheduler)
+
+      expect(raced.id).to eq first.id
+      expect(raced.historical_dispatch_cohort?).to be true
+      expect(raced.legacy_dispatch_owner?).to be true
+      expect(FollowImportBatch.where(import_id: import.id).count).to eq 1
     end
   end
 
@@ -208,6 +286,7 @@ RSpec.describe Moderation::FollowImportRecorder, type: :service do
 
       expect(second.id).to eq first.id
       expect(second.scheduler_dispatch_owner?).to be true
+      expect(second.operational_dispatch_cohort?).to be true
       expect(FollowImportTarget.where(batch_id: first.id).count).to eq 1
     end
   end

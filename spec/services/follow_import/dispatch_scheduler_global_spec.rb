@@ -14,13 +14,14 @@ RSpec.describe FollowImport::DispatchScheduler, 'authoritative global mode' do
     )
   end
 
-  def create_batch(account, owner:, import: nil)
+  def create_batch(account, owner:, import: nil, cohort: :operational)
     FollowImportBatch.create!(
       subject: ModerationSubject.for_account!(account),
       import_id: (import || create_import(account)).id,
       imported_at: Time.now.utc,
       mode: :merge,
       dispatch_owner: owner,
+      dispatch_cohort: cohort,
       target_count: 0,
       resolved_target_count: 0,
       unresolved_target_count: 0
@@ -97,6 +98,34 @@ RSpec.describe FollowImport::DispatchScheduler, 'authoritative global mode' do
     FollowImport::BatchExecutionWorker.new.perform(scheduler_batch.id)
     expect(scheduler_target.reload.state).to eq 'queued'
     expect(Import::RelationshipWorker).to have_received(:perform_async).twice
+  end
+
+  it 'claims only operational scheduler-owned pending and leaves other cohorts pending' do
+    historical_scheduler = create_batch(Fabricate(:account), owner: :scheduler, cohort: :historical)
+    operational_legacy = create_batch(Fabricate(:account), owner: :legacy, cohort: :operational)
+    operational_scheduler = create_batch(Fabricate(:account), owner: :scheduler, cohort: :operational)
+    historical_target = add_target(historical_scheduler, 0)
+    legacy_target = add_target(operational_legacy, 0)
+    scheduler_target = add_target(operational_scheduler, 0)
+
+    scheduler.call
+    observation = FollowImportDispatchTickObservation.last
+
+    expect(scheduler_target.reload.state).to eq 'queued'
+    expect(historical_target.reload.state).to eq 'pending'
+    expect(legacy_target.reload.state).to eq 'pending'
+    expect(observation.claimed_count).to eq 1
+    expect(observation.planned_count).to eq 1
+    expect(observation.global_pending_count).to eq 3
+    expect(observation.active_batch_count).to eq 3
+    expect(observation.historical_pending_count).to eq 1
+    expect(observation.historical_active_batch_count).to eq 1
+    expect(observation.operational_pending_count).to eq 2
+    expect(observation.operational_active_batch_count).to eq 2
+    expect(observation.planning_pending_count).to eq 1
+    expect(observation.planning_active_batch_count).to eq 1
+    expect(observation.execution_config['backlog_scope_strategy']).to eq 'dispatch_cohort_v1'
+    expect(Import::RelationshipWorker).to have_received(:perform_async).once
   end
 
   it 'shares a finite global budget across equal accounts' do
@@ -269,6 +298,7 @@ RSpec.describe FollowImport::DispatchScheduler, 'authoritative global mode' do
     allow(FollowImport::FairnessCursor).to receive(:new).and_call_original
     allow(FollowImport::DispatchCounts).to receive(:global_pending)
     allow(FollowImport::DispatchCounts).to receive(:active_batches)
+    allow(FollowImport::DispatchCounts).to receive(:backlog_snapshot)
 
     target_selects = []
     callback = lambda do |*_args, payload|
@@ -289,6 +319,7 @@ RSpec.describe FollowImport::DispatchScheduler, 'authoritative global mode' do
     expect(FollowImport::FairnessCursor).not_to have_received(:new)
     expect(FollowImport::DispatchCounts).not_to have_received(:global_pending)
     expect(FollowImport::DispatchCounts).not_to have_received(:active_batches)
+    expect(FollowImport::DispatchCounts).not_to have_received(:backlog_snapshot)
     expect(target_selects).to be_empty
     expect(batch.targets.reload.map(&:state).uniq).to eq %w(pending)
     expect(Import.exists?(import_record.id)).to be true
@@ -301,6 +332,12 @@ RSpec.describe FollowImport::DispatchScheduler, 'authoritative global mode' do
     expect(observation.executable_batch_count).to be_nil
     expect(observation.global_pending_count).to be_nil
     expect(observation.active_batch_count).to be_nil
+    expect(observation.historical_pending_count).to be_nil
+    expect(observation.operational_pending_count).to be_nil
+    expect(observation.planning_pending_count).to be_nil
+    expect(observation.historical_active_batch_count).to be_nil
+    expect(observation.operational_active_batch_count).to be_nil
+    expect(observation.planning_active_batch_count).to be_nil
     expect(observation.effective_global_budget).to eq 0
     expect(observation.local_load_state).to eq 'overloaded'
   end
