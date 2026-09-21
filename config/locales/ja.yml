@@ -492,6 +492,70 @@ ja:
       filter_by_action: アクションでフィルター
       filter_by_user: ユーザーでフィルター
       title: 操作履歴
+    action_review_settings:
+      errors:
+        unsupported_mode: この操作では使えません
+      hints:
+        account_migration: 検出器のない操作は「介入しない」か「常にモデレーター承認」のみです。アダプター接続までは引っ越しの実行を止めません。
+        follow_import: 承認介入の感度を5段階から選べます。アダプター接続まではフォローインポートの実行を止めません。
+        invite_creation: 検出器のない操作は「介入しない」か「常にモデレーター承認」のみです。アダプター接続までは招待コード発行の実行を止めません。
+        status_import: 将来機能です。ここでの選択は枠組み用に保存されるだけで、投稿データのインポートは有効になりません。
+      modes:
+        always: 常にモデレーター承認
+        high: 高い要確認シグナルのみ
+        low: 低以上
+        medium: 中以上
+        off: 介入しない
+      operations:
+        account_migration: アカウントの引っ越し
+        follow_import: フォローインポート
+        invite_creation: 招待コードの発行
+        status_import: 投稿データのインポート（将来機能）
+      preface: この画面は汎用の操作承認フレームワークの設定だけを変更します。各操作への適用は別途接続されるまで有効になりません。
+      title: 操作の承認ポリシー
+    action_reviews:
+      account_unavailable: アカウントなし
+      actor: 実行アカウント
+      decision_note: 判断メモ
+      empty: 判断待ちの操作はありません。
+      evaluator_version: 評価器バージョン
+      evidence: 根拠
+      none: なし
+      operation: 操作
+      operations:
+        account_migration: アカウントの引っ越し
+        follow_import: フォローインポート
+        invite_creation: 招待コードの発行
+        status_import: 投稿データのインポート（将来機能）
+      policy_mode: 承認介入の感度
+      policy_version: ポリシーバージョン
+      reason_codes: 理由コード
+      requested_at: 依頼日時
+      resource: 対象
+      resource_identity: "%{type} #%{id}"
+      reviewed_at: 判断日時
+      reviewer: 判断者
+      show: '操作の承認 #%{id}'
+      signal_level: 要確認シグナル
+      signals:
+        high: 高
+        low: 低
+        medium: 中
+        none: なし
+      state: 状態
+      states:
+        all: すべて
+        approved: 承認済み
+        cancelled: 取消済み
+        pending: 判断待ち
+        rejected: 却下
+      title: 判断待ち
+      title_with_count: "判断待ち (%{count})"
+      trigger: きっかけ
+      triggers:
+        evaluator_unavailable: 評価器を利用できない
+        none: なし
+        policy: ポリシー
     announcements:
       destroyed_msg: お知らせが削除されました
       edit:

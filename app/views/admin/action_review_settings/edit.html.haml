@@ -1,0 +1,23 @@
+- content_for :header_tags do
+  = javascript_pack_tag 'admin', async: true, crossorigin: 'anonymous'
+
+- content_for :page_title do
+  = t('admin.action_review_settings.title')
+
+  - content_for :heading_actions do
+    = button_tag t('generic.save_changes'), class: 'button', form: 'edit_action_review_settings'
+
+%p.muted-hint= t('admin.action_review_settings.preface')
+
+= simple_form_for @form, url: admin_action_review_settings_path, html: { method: :patch, id: 'edit_action_review_settings' } do |f|
+  = render 'shared/error_messages', object: @form
+
+  - Form::ActionReviewSettings::OPERATIONS.each do |operation|
+    .fields-group
+      = f.input operation.to_sym,
+        collection: ActionReview::OperationRegistry.supported_policy_modes(operation),
+        include_blank: false,
+        wrapper: :with_label,
+        label: t("admin.action_review_settings.operations.#{operation}"),
+        hint: t("admin.action_review_settings.hints.#{operation}"),
+        label_method: lambda { |mode| t("admin.action_review_settings.modes.#{mode}") }

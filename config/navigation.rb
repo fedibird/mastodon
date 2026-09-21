@@ -53,6 +53,7 @@ SimpleNavigation::Configuration.run do |navigation|
     n.item :moderation, safe_join([fa_icon('gavel fw'), t('moderation.title')]), admin_reports_url, if: proc { current_user.staff? } do |s|
       s.item :action_logs, safe_join([fa_icon('bars fw'), t('admin.action_logs.title')]), admin_action_logs_url
       s.item :moderation_evidence_snapshots, safe_join([fa_icon('folder-open fw'), t('admin.moderation_evidence_snapshots.title')]), admin_moderation_evidence_snapshots_url, highlights_on: %r{/admin/moderation_evidence}
+      s.item :action_reviews, safe_join([fa_icon('hourglass-half fw'), action_review_queue_nav_label]), admin_action_reviews_url, highlights_on: %r{/admin/action_reviews(/|\z)}
       s.item :reports, safe_join([fa_icon('flag fw'), t('admin.reports.title')]), admin_reports_url, highlights_on: %r{/admin/reports}
       s.item :accounts, safe_join([fa_icon('users fw'), t('admin.accounts.title')]), admin_accounts_url, highlights_on: %r{/admin/accounts|/admin/pending_accounts}
       s.item :invites, safe_join([fa_icon('user-plus fw'), t('admin.invites.title')]), admin_invites_path
@@ -66,6 +67,7 @@ SimpleNavigation::Configuration.run do |navigation|
     n.item :admin, safe_join([fa_icon('cogs fw'), t('admin.title')]), admin_dashboard_url, if: proc { current_user.staff? } do |s|
       s.item :dashboard, safe_join([fa_icon('tachometer fw'), t('admin.dashboard.title')]), admin_dashboard_url
       s.item :settings, safe_join([fa_icon('cogs fw'), t('admin.settings.title')]), edit_admin_settings_url, if: -> { current_user.admin? }, highlights_on: %r{/admin/settings}
+      s.item :action_review_settings, safe_join([fa_icon('sliders fw'), t('admin.action_review_settings.title')]), edit_admin_action_review_settings_url, if: -> { current_user.admin? }, highlights_on: %r{/admin/action_review_settings}
       s.item :rules, safe_join([fa_icon('gavel fw'), t('admin.rules.title')]), admin_rules_path, highlights_on: %r{/admin/rules}
       s.item :announcements, safe_join([fa_icon('bullhorn fw'), t('admin.announcements.title')]), admin_announcements_path, highlights_on: %r{/admin/announcements}
       s.item :custom_emojis, safe_join([fa_icon('smile-o fw'), t('admin.custom_emojis.title')]), admin_custom_emojis_url, highlights_on: %r{/admin/custom_emojis}

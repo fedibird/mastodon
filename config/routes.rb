@@ -290,6 +290,9 @@ Rails.application.routes.draw do
 
     resources :rules
 
+    resources :action_reviews, only: [:index, :show]
+    resource :action_review_settings, only: [:edit, :update]
+
     resources :reports, only: [:index, :show] do
       member do
         post :assign_to_self
