@@ -149,8 +149,12 @@ module FollowImport
 
     # Destroy the uploaded import once its follows are dispatched. The batch (and
     # its target rows) persist as the execution/ledger record; only the raw CSV is
-    # removed. Failure-tolerant.
+    # removed. Keep the CSV while Action Review resume is still pending, even
+    # if no targets are pending, so overwrite removals can still be computed.
+    # Failure-tolerant.
     def finalize_import!(batch)
+      return if FollowImport::CsvRetention.retain?(batch)
+
       Import.find_by(id: batch.import_id)&.destroy
     rescue StandardError => e
       Rails.logger.warn("[FollowImport::BatchExecutionWorker] failed to finalize import for batch #{batch.id}: #{e.class}: #{e.message}")

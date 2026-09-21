@@ -4,16 +4,12 @@
 #
 # This is an execution-safety primitive, not a moderation decision.
 # It never infers risk, identity, or abuse, and it does not enqueue
-# work. ImportService calls it after recording so current imports
-# still execute immediately, while leaving a single insertion point
-# for a later preflight evaluator.
+# work. FollowImport::ActionReviewPreflightService is the ImportService
+# entry point. It calls this service for the no-review path and for
+# batches that are already ready, review_required, or stopped.
 #
-# Next PR: after a batch is durably recorded in screening, a
-# preflight evaluator may inspect the known target set and
-# transition exactly one way:
-#   screening -> ready
-#   screening -> review_required
-# A moderator workflow can later transition:
+# screening -> review_required is owned by Action Review, not here.
+# A moderator decision can later transition:
 #   review_required -> ready
 #   review_required -> stopped
 # There is no automatic review_required -> ready path. This service

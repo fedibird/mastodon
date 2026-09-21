@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe FollowImport::ProgressService do
+RSpec.describe FollowImport::ProgressService do # rubocop:disable Metrics/BlockLength
   subject(:service) { described_class.new }
 
   let(:batch) do
@@ -91,7 +91,10 @@ RSpec.describe FollowImport::ProgressService do
     it 'exposes only coarse buckets (no internal state / gate / risk detail)' do
       summary = service.user_summary(batch)
 
-      expect(summary.keys).to match_array(%w(total processed waiting failed completed preparing))
+      expect(summary.keys).to match_array(%w(total processed waiting failed completed preparing review_pending stopped))
+      expect(summary['review_pending']).to be false
+      expect(summary['stopped']).to be false
+      expect(summary.keys).not_to include('signal', 'evidence', 'reason')
       expect(summary['preparing']).to be false
       expect(summary['total']).to eq 5
       expect(summary['processed']).to eq 3
@@ -129,6 +132,35 @@ RSpec.describe FollowImport::ProgressService do
       expect(summary['completed']).to be false
       expect(summary['total']).to be_nil
       expect(summary['waiting']).to be_nil
+      expect(summary['review_pending']).to be false
+      expect(summary['stopped']).to be false
     end
+  end
+
+  it 'flags review_required without exposing signal or evidence' do
+    batch.update!(preflight_state: :review_required, metadata: { 'sockpuppet-signal' => 'hidden' })
+    target_in(:pending, 0)
+
+    summary = service.user_summary(batch)
+
+    expect(summary['review_pending']).to be true
+    expect(summary['stopped']).to be false
+    expect(summary['waiting']).to eq 1
+    expect(summary.values.join(' ')).not_to include('sockpuppet-signal')
+    expect(summary.values.join(' ')).not_to include('hidden')
+  end
+
+  it 'reports a stopped import as inactive waiting work' do
+    batch.update!(preflight_state: :stopped)
+    target_in(:pending, 0)
+    target_in(:accepted, 1)
+
+    summary = service.user_summary(batch)
+
+    expect(summary['stopped']).to be true
+    expect(summary['review_pending']).to be false
+    expect(summary['waiting']).to eq 0
+    expect(summary['total']).to eq 2
+    expect(summary['processed']).to eq 1
   end
 end

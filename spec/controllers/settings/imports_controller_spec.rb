@@ -94,6 +94,52 @@ RSpec.describe Settings::ImportsController, type: :controller do
       expect(response.body).to include(I18n.t('imports.follow_progress.status.completed'))
       expect(response.body).not_to include(I18n.t('imports.follow_progress.status.preparing'))
     end
+
+    it 'shows a review_required import as waiting for review without evidence' do
+      user = Fabricate(:user)
+      sign_in user, scope: :user
+      batch = FollowImportBatch.create!(
+        subject: ModerationSubject.for_account!(user.account),
+        imported_at: Time.now.utc,
+        mode: :merge,
+        preflight_state: :review_required,
+        target_count: 1,
+        resolved_target_count: 0,
+        unresolved_target_count: 1,
+        metadata: { 'sockpuppet-signal' => 'hidden-evidence' }
+      )
+      batch.targets.create!(target_key_hash: 'secret-target-hash-xyz', position: 0, state: :pending)
+
+      get :show
+
+      expect(response.body).to include(I18n.t('imports.follow_progress.status.waiting_for_review'))
+      expect(response.body).not_to include('secret-target-hash-xyz')
+      expect(response.body).not_to include('hidden-evidence')
+      expect(response.body).not_to include('sockpuppet-signal')
+    end
+
+    it 'shows a stopped import as stopped with no active waiting count' do
+      user = Fabricate(:user)
+      sign_in user, scope: :user
+      batch = FollowImportBatch.create!(
+        subject: ModerationSubject.for_account!(user.account),
+        imported_at: Time.now.utc,
+        mode: :merge,
+        preflight_state: :stopped,
+        target_count: 1,
+        resolved_target_count: 0,
+        unresolved_target_count: 1
+      )
+      batch.targets.create!(target_key_hash: 'still-pending', position: 0, state: :pending)
+
+      get :show
+
+      row = Nokogiri::HTML(response.body).css('tr').find { |tr| tr.text.include?(I18n.t('imports.follow_progress.status.stopped')) }
+      cells = row.css('td').map { |td| td.text.strip }
+      expect(cells[1]).to eq I18n.t('imports.follow_progress.status.stopped')
+      expect(cells[3]).to eq '0'
+      expect(response.body).not_to include(I18n.t('imports.follow_progress.status.in_progress'))
+    end
   end
 
   describe 'POST #create' do

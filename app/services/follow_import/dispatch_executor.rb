@@ -177,10 +177,11 @@ module FollowImport
       FollowImport::Telemetry.warn_failure('dispatch_release_claim', e)
     end
 
-    # Failure-tolerant and consistent with FollowImportCsvCleanupScheduler:
-    # the CSV may be removed only when no pending targets remain.
+    # Failure-tolerant and consistent with FollowImportCsvCleanupScheduler.
+    # FollowImport::CsvRetention keeps screening, review_required, and
+    # resume-pending CSVs, and otherwise waits until no targets are pending.
     def release_csv_if_dispatched(batch)
-      return if batch.targets.where(state: :pending).exists?
+      return if FollowImport::CsvRetention.retain?(batch)
 
       Import.find_by(id: batch.import_id)&.destroy
     rescue StandardError => e

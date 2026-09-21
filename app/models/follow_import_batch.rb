@@ -76,8 +76,10 @@ class FollowImportBatch < ApplicationRecord
     operational_dispatch_cohort? && scheduler_dispatch_owner? && ready_preflight_state?
   end
 
-  COMPLETED_AT_KEY        = 'completed_at'
-  COMPLETION_NOTIFIED_KEY = 'completion_notified_at'
+  COMPLETED_AT_KEY               = 'completed_at'
+  COMPLETION_NOTIFIED_KEY        = 'completion_notified_at'
+  REVIEW_RESUME_REQUIRED_AT_KEY  = 'review_resume_required_at'
+  REVIEW_RESUME_COMPLETED_AT_KEY = 'review_resume_completed_at'
 
   # Un-notified batches that are eligible for a completion email. Bounded by a
   # completion signal, never by imported_at: PR C can leave targets pending for
@@ -136,5 +138,34 @@ class FollowImportBatch < ApplicationRecord
 
   def mark_completion_notified!(at = Time.now.utc)
     update!(metadata: metadata.merge(COMPLETION_NOTIFIED_KEY => at.utc.iso8601))
+  end
+
+  # Post-approval handoff bookkeeping. required_at is written in the same
+  # update that moves review_required -> ready. completed_at is written
+  # only after the resume worker finishes its at-least-once handoff.
+  # While required and not completed, the raw CSV must stay available.
+  def review_resume_required?
+    metadata[REVIEW_RESUME_REQUIRED_AT_KEY].present?
+  end
+
+  def review_resume_completed?
+    metadata[REVIEW_RESUME_COMPLETED_AT_KEY].present?
+  end
+
+  def review_resume_pending?
+    review_resume_required? && !review_resume_completed?
+  end
+
+  def mark_review_resume_required!(at = Time.now.utc)
+    update!(
+      preflight_state: :ready,
+      metadata: metadata.merge(REVIEW_RESUME_REQUIRED_AT_KEY => at.utc.iso8601)
+    )
+  end
+
+  def mark_review_resume_completed!(at = Time.now.utc)
+    return if review_resume_completed?
+
+    update!(metadata: metadata.merge(REVIEW_RESUME_COMPLETED_AT_KEY => at.utc.iso8601))
   end
 end

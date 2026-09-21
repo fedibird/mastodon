@@ -83,6 +83,10 @@
       every: '1h'
       class: Scheduler::FollowImportCsvCleanupScheduler
       queue: scheduler
+    follow_import_action_review_resume_scheduler:
+      every: '5m'
+      class: Scheduler::FollowImportActionReviewResumeScheduler
+      queue: scheduler
     # Provisional / UNCALIBRATED dispatcher cadence (shadow or GLOBAL).
     # Same ENV + default as FollowImport::ExecutionPolicy:
     # FOLLOW_IMPORT_DISPATCH_INTERVAL, with deprecated alias

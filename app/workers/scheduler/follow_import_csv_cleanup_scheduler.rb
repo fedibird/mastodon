@@ -3,13 +3,13 @@
 # Maintains the raw uploaded Import (CSV) for follow imports in two bounded,
 # non-destructive-by-inference passes:
 #
-#   1. Cleanup (dispatch complete) — a batch whose targets have NO pending entries:
-#      every follow has been enqueued with its address, so no executor will re-read
-#      the CSV. The import is dropped. Age alone does NOT prove abandonment:
-#      gate-enforced delay/moderator_review targets are left pending on purpose
-#      (PR C) and still need the CSV for a future recheck, so a batch with pending
-#      targets is never cleaned here regardless of age. (A durable defer/
-#      abandonment lifecycle for those is deferred to a later PR.)
+#   1. Cleanup — FollowImport::CsvRetention decides. A stopped batch drops
+#      the raw CSV even if target rows are still pending (it will never run).
+#      screening, review_required, and ready-with-review-resume-pending keep
+#      the CSV. Otherwise the import is dropped only when no targets are
+#      pending. Age alone does NOT prove abandonment: gate-enforced
+#      delay/moderator_review targets are left pending on purpose (PR C)
+#      and still need the CSV. Ledger rows are never deleted here.
 #
 #   2. Recovery (stalled handoff) — a current-version follow Import that, after
 #      RECOVERY_GRACE, still has NO FollowImportBatch. Its FollowImport::ProcessImportWorker
@@ -57,7 +57,7 @@ class Scheduler::FollowImportCsvCleanupScheduler
     batches_with_surviving_import.order(:imported_at).limit(BATCH_LIMIT).each do |batch|
       import = Import.find_by(id: batch.import_id)
       next if import.nil?
-      next if batch.targets.where(state: :pending).exists? # dispatch not complete; CSV still needed
+      next if FollowImport::CsvRetention.retain?(batch)
 
       import.destroy
       dropped += 1

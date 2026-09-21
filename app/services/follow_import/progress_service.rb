@@ -43,19 +43,25 @@ module FollowImport
     COARSE_FAILURE_STATES = %w(rejected delivery_failed).freeze
 
     # Coarse, user-facing progress for display. Deliberately omits internal state
-    # names, gate/risk, and accept/reject detail — only how far along the import
-    # is. `processed` counts every settled target (including failures); `failed`
+    # names, gate/risk, signal, evidence, and accept/reject detail.
+    # `review_pending` and `stopped` are workflow flags only.
+    # A stopped import is not active work, so its waiting count is 0.
+    # `processed` counts every settled target (including failures); `failed`
     # is surfaced separately as the count that could not be followed.
     def user_summary(batch_or_id)
-      progress = call(batch_or_id)
+      batch    = batch_record(batch_or_id)
+      progress = call(batch)
+      stopped  = batch.stopped_preflight_state?
 
       {
-        'total'      => progress['total'],
-        'processed'  => progress['processed'],
-        'waiting'    => progress['remaining'],
-        'failed'     => COARSE_FAILURE_STATES.sum { |state| progress[state] },
-        'completed'  => progress['completed'],
-        'preparing'  => false,
+        'total'          => progress['total'],
+        'processed'      => progress['processed'],
+        'waiting'        => stopped ? 0 : progress['remaining'],
+        'failed'         => COARSE_FAILURE_STATES.sum { |state| progress[state] },
+        'completed'      => progress['completed'],
+        'preparing'      => false,
+        'review_pending' => batch.review_required_preflight_state?,
+        'stopped'        => stopped,
       }
     end
 
@@ -64,21 +70,29 @@ module FollowImport
     # Counts are unknown. Never treat absence of a batch as completed.
     def preparing_summary
       {
-        'total'     => nil,
-        'processed' => 0,
-        'waiting'   => nil,
-        'failed'    => 0,
-        'completed' => false,
-        'preparing' => true,
+        'total'          => nil,
+        'processed'      => 0,
+        'waiting'        => nil,
+        'failed'         => 0,
+        'completed'      => false,
+        'preparing'      => true,
+        'review_pending' => false,
+        'stopped'        => false,
       }
     end
 
     private
 
+    def batch_record(batch_or_id)
+      return batch_or_id if batch_or_id.is_a?(FollowImportBatch)
+
+      FollowImportBatch.find(batch_or_id)
+    end
+
     def counts_by_state(batch_id)
-      raw          = FollowImportTarget.where(batch_id: batch_id).group(:state).count
+      raw = FollowImportTarget.where(batch_id: batch_id).group(:state).count
       name_by_value = FollowImportTarget.states.invert
-      by_state      = STATE_NAMES.index_with { 0 }
+      by_state = STATE_NAMES.index_with { 0 }
 
       raw.each do |key, value|
         name = key.is_a?(Integer) ? name_by_value[key] : key.to_s
