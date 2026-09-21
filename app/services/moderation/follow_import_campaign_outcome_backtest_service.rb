@@ -3,6 +3,12 @@
 # Offline calibration backtest: join later ModerationAction rows to PR #143
 # campaign feature rows without feeding those outcomes back into overlap.
 #
+# observation_end is the backtest cutoff. Caller-supplied batches are
+# restricted to imported_at <= observation_end before the campaign service
+# groups them. A later batch is not part of campaign union, ended_at,
+# grouping, or overlap features. ModerationAction rows are likewise
+# limited to performed_at <= observation_end.
+#
 # The campaign service freezes historical linked-negative evidence at
 # campaign.started_at. This service does not change that. It only classifies
 # actions on the *current campaign subject*:
@@ -50,7 +56,8 @@ module Moderation
 
     def call(batches, max_gap: DEFAULT_MAX_GAP, observation_end: Time.now.utc, horizons: DEFAULT_HORIZONS)
       started_clock = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      analysis = @campaign_service.call(batches, max_gap: max_gap, now: observation_end)
+      visible, excluded = restrict_batches(batches, observation_end)
+      analysis = @campaign_service.call(visible, max_gap: max_gap, now: observation_end)
       campaigns = Array(analysis['campaigns'])
       actions_by_subject = preload_actions(campaigns, observation_end)
       decorated = decorate_campaigns(campaigns, actions_by_subject, observation_end)
@@ -60,6 +67,7 @@ module Moderation
         'observation_end'                      => observation_end,
         'max_gap_seconds'                      => analysis['max_gap_seconds'],
         'horizons_seconds'                     => horizon_seconds(horizons),
+        'batches_excluded_after_observation_end' => excluded,
         'campaign_count'                       => analysis['campaign_count'],
         'subject_count'                        => analysis['subject_count'],
         'campaigns_with_any_overlap'           => analysis['campaigns_with_any_overlap'],
@@ -78,6 +86,26 @@ module Moderation
     def horizon_seconds(horizons)
       horizons.each_with_object({}) do |(name, duration), memo|
         memo[name] = duration.to_f
+      end
+    end
+
+    def restrict_batches(batches, observation_end)
+      if batches.is_a?(ActiveRecord::Relation)
+        [
+          batches.where('imported_at <= ?', observation_end),
+          batches.where('imported_at > ?', observation_end).count,
+        ]
+      else
+        visible = []
+        excluded = 0
+        Array(batches).each do |batch|
+          if batch.imported_at <= observation_end
+            visible << batch
+          else
+            excluded += 1
+          end
+        end
+        [visible, excluded]
       end
     end
 

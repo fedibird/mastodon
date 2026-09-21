@@ -286,11 +286,63 @@ RSpec.describe Moderation::FollowImportCampaignOutcomeBacktestService do
 
       expect(result['observation_end']).to eq observation_end
       expect(result['campaign_count']).to eq 0
+      expect(result['batches_excluded_after_observation_end']).to eq 0
       expect(result['campaigns']).to eq []
       expect(result['horizons_seconds']['1h']).to eq 1.hour.to_f
       expect(result['outcomes']['suspend']['1h']['campaigns_reached']).to eq 0
       expect(result['outcomes']['suspend']['1h']['campaigns_censored']).to eq 0
       expect(result['elapsed_seconds']).to be >= 0
+    end
+  end
+
+  describe 'no-future-leakage batch cutoff' do
+    let(:cutoff) { Time.utc(2026, 9, 21, 12, 0, 0) }
+
+    it 'keeps campaign grouping, union, and overlap on batches imported at or before observation_end' do
+      visible = create_batch(importer, targets: [target_a, target_b], at: cutoff - 1.hour)
+      at_cutoff = create_batch(importer, targets: [target_a], at: cutoff)
+      future = create_batch(importer, targets: [target_c], at: cutoff + 30.minutes)
+      create_moderated_snapshot(
+        historical,
+        linked_ids: [target_a.id, target_b.id, target_c.id],
+        performed_at: cutoff - 1.day
+      )
+
+      result = described_class.new.call(
+        FollowImportBatch.where(subject_id: importer.id),
+        max_gap: 2.hours,
+        observation_end: cutoff,
+        horizons: horizons
+      )
+      campaign = result['campaigns'].first
+      match = campaign.dig('cross_subject', 'best_match')
+
+      expect(result['campaign_count']).to eq 1
+      expect(result['batches_excluded_after_observation_end']).to eq 1
+      expect(campaign['batch_ids']).to eq [visible.id, at_cutoff.id]
+      expect(campaign['batch_ids']).to_not include(future.id)
+      expect(campaign['ended_at']).to eq cutoff
+      expect(campaign['comparable_unique_target_count']).to eq 2
+      expect(match['overlap_count']).to eq 2
+    end
+
+    it 'does not count a later same-subject batch as a second campaign after observation_end' do
+      visible = create_batch(importer, targets: [target_a], at: cutoff - 1.hour)
+      create_batch(importer, targets: [target_b], at: cutoff + 2.hours)
+
+      result = described_class.new.call(
+        FollowImportBatch.where(subject_id: importer.id).to_a,
+        max_gap: 30.minutes,
+        observation_end: cutoff,
+        horizons: horizons
+      )
+      campaign = result['campaigns'].first
+
+      expect(result['campaign_count']).to eq 1
+      expect(result['batches_excluded_after_observation_end']).to eq 1
+      expect(campaign['batch_ids']).to eq [visible.id]
+      expect(campaign['ended_at']).to eq cutoff - 1.hour
+      expect(campaign['comparable_unique_target_count']).to eq 1
     end
   end
 
