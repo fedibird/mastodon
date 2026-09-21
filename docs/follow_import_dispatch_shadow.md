@@ -7,7 +7,9 @@ Default: **off**.
 
 This is Stage 1–6 (shadow half) from `docs/follow_import_dispatch_pacing_design.md`,
 plus I2 operational-cohort scoping. Historical pre-I2 pending rows are
-not live scheduler backlog.
+not live scheduler backlog. Candidate pacing profiles are calibrated
+offline by I3 (`docs/follow_import_pacing_backtest.md`); that tooling
+does not change this scheduler.
 
 One periodic tick, one durable PostgreSQL dispatcher lease, one budget,
 one plan:

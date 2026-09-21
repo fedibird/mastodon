@@ -1370,6 +1370,18 @@ A retry of an existing historical Import does not newly enqueue
 An already-running legacy chain is unchanged. `BatchExecutionWorker`
 itself is not gated on cohort.
 
+#### I3 offline pacing backtest (implemented)
+
+I3 is analysis tooling only. `FollowImport::PacingBacktest` plus
+`rake follow_import:pacing_backtest` replay exported transport / tick /
+dispatch-pass CSVs against operator-supplied candidate profiles. It
+does not enable GLOBAL, remote-admission enforcement, or adaptive
+enforcement, and it does not write Follow Import rows or Redis.
+
+See `docs/follow_import_pacing_backtest.md`. Do not treat backtest
+constraint-exposure counts as prevented failures, created successes,
+or CPU/DB safety.
+
 #### Known gaps (do not claim they are paced)
 
 - Overwrite-generated **UNFOLLOW** operations remain a burst path.
@@ -1408,6 +1420,7 @@ is this documentation PR. Numeric calibration is last, not first.
 | **B** | Account-first rotating RR (unit-cost DRR) + batch sub-scheduling in the **plan**; `owner_key` adapter; destination-share structure (optional cap in specs only). Shadow cursor in Redis (TTL; reconstructable; prune inactive, keep all currently-active owner/batch pointers). Lazy target feeds; pending `(batch_id, position, id)` index. Implementation: `docs/follow_import_dispatch_shadow.md`. | Claim; remote adaptive logic; ACCOUNT_FLOOR/CAP numbers |
 | **C** | Authoritative global claiming for **new** imports; `dispatch_owner`; legacy/global ownership + drain; **remove unpaced recording fallback** when GLOBAL is on | Flip in-flight legacy owners implicitly; enable Follow Gate |
 | **I2** | Durable `dispatch_cohort` so historical pending is not live scheduler backlog; SHADOW/GLOBAL planning scopes; tick schema 10 scoped counts | Delete/promote/replay historical targets; enable GLOBAL; gate `BatchExecutionWorker` on cohort |
+| **I3** | Read-only offline pacing backtest / profile calibration against exported telemetry CSVs | Enable GLOBAL/remote/adaptive runtime; ship production numeric defaults; mutate Follow Import rows or Redis; infer CPU/DB safety |
 | **D** | `LocalLoadGuard` in the **global shadow scheduler** only: consume the pre-dispatch `LoadSnapshot`, evaluate a configured uncalibrated profile, shrink the hypothetical shadow plan, record state/percent/recommended budget. `BatchExecutionWorker` is unchanged (a shadow skip must not stop the legacy chain). Implementation: `docs/follow_import_dispatch_shadow.md`. | Enforce skip; invent production thresholds; change legacy claim rate |
 | **E** | Enforce `LocalLoadGuard` on the legacy executor (default-off); shrink per-pass LIMIT or schedule one load-deferred recheck when the guard (not policy) yields zero claims. No bundled production thresholds. | Tune production envelopes as if calibrated; tight retry loops; global claiming |
 | **F** | Fixed destination/domain budgets; DFT / UnavailableDomain where host mapping is known; Retry-After **runtime cache** (no raw scans); bounded candidate paging (§5.5). Implementation notes below. | Adaptive rates; Node scores; inbox Stoplight-as-if-known; unbounded 20k scans |

@@ -14,6 +14,11 @@ shadow adaptive recommendations. It does not enforce them, invent
 production AIMD numbers, couple Follow Gate, produce Node capacity
 scores, or remove the existing CSV / domain-sort hack.
 
+Offline calibration of candidate remote-pacing profiles against an
+export of these tables is I3
+(`docs/follow_import_pacing_backtest.md`). That tool is read-only and
+does not change collectors or runtime flags.
+
 ## No moderation decision/signal coupling
 
 Telemetry does **not** consume Adaptive Follow Gate proposals, risk scores,

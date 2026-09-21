@@ -46,4 +46,38 @@ namespace :follow_import do
     puts "destroyed=#{result.destroyed_ids.size} skipped=#{result.skipped_ids.size}" if apply
     puts "manifest=#{result.manifest_path}" if result.manifest_path
   end
+
+  # Read-only offline pacing backtest. Compares candidate profiles against
+  # exported telemetry CSVs. Never writes Follow Import rows, Redis, or
+  # federation. TRANSPORT and SCENARIOS are required. TICKS and DISPATCH
+  # are optional. Example:
+  #
+  #   TRANSPORT=/tmp/transport.csv \
+  #   TICKS=/tmp/scheduler_ticks.csv \
+  #   DISPATCH=/tmp/dispatch_passes.csv \
+  #   SCENARIOS=/tmp/scenarios.json \
+  #   OUT_JSON=/tmp/follow-import-pacing-backtest.json \
+  #   OUT_MD=/tmp/follow-import-pacing-backtest.md \
+  #   bundle exec rake follow_import:pacing_backtest
+  desc 'Read-only Follow Import pacing backtest against exported telemetry CSVs'
+  task pacing_backtest: :environment do
+    missing = %w(TRANSPORT SCENARIOS).select { |key| ENV[key].to_s.strip.empty? }
+    abort "missing required env: #{missing.join(', ')}" if missing.any?
+
+    begin
+      result = FollowImport::PacingBacktest.call(
+        transport: ENV['TRANSPORT'],
+        ticks: ENV['TICKS'],
+        dispatch: ENV['DISPATCH'],
+        scenarios: ENV['SCENARIOS'],
+        out_json: ENV['OUT_JSON'],
+        out_md: ENV['OUT_MD']
+      )
+      puts "schema=#{result['schema']} schema_version=#{result['schema_version']} scenarios=#{Array(result['scenarios']).length}"
+      puts "json=#{ENV['OUT_JSON']}" if ENV['OUT_JSON'].present?
+      puts "md=#{ENV['OUT_MD']}" if ENV['OUT_MD'].present?
+    rescue FollowImport::PacingBacktest::Error => e
+      abort e.message
+    end
+  end
 end
