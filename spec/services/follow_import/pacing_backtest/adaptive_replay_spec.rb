@@ -44,7 +44,7 @@ RSpec.describe FollowImport::PacingBacktest::AdaptiveReplay do
   it 'classifies events through production AdaptiveRemoteObservation' do
     expect(FollowImport::AdaptiveRemoteObservation).to receive(:classify).and_call_original.at_least(:once)
 
-    described_class.new([attempt], candidate, 60).to_h
+    described_class.new(dataset_for([attempt]), candidate, 60).to_h
   end
 
   it 'recovers additively on successes and never exceeds the fixed ceiling' do
@@ -55,7 +55,7 @@ RSpec.describe FollowImport::PacingBacktest::AdaptiveReplay do
         event_time: Time.utc(2026, 9, 16, 12, 0, index)
       )
     end
-    result = described_class.new(rows, candidate, 60).to_h
+    result = described_class.new(dataset_for(rows), candidate, 60).to_h
 
     expect(result['destination']['additive_increases']).to be >= 1
     expect(result['destination']['maximum_reached']).to eq 4
@@ -70,8 +70,8 @@ RSpec.describe FollowImport::PacingBacktest::AdaptiveReplay do
       attempt(row_number: 1, http_status: 429, outcome: 'http_retryable'),
     ]
 
-    failed = described_class.new(failure_rows, candidate, 60).to_h
-    limited = described_class.new(limited_rows, candidate, 60).to_h
+    failed = described_class.new(dataset_for(failure_rows), candidate, 60).to_h
+    limited = described_class.new(dataset_for(limited_rows), candidate, 60).to_h
 
     expect(failed['destination']['decreases_due_failure']).to eq 1
     expect(failed['destination']['minimum_reached']).to eq 1
@@ -84,7 +84,7 @@ RSpec.describe FollowImport::PacingBacktest::AdaptiveReplay do
       attempt(row_number: 1, http_status: 200, outcome: 'http_success'),
       attempt(row_number: 2, target_id: '2', event_time: Time.utc(2026, 9, 16, 12, 0, 1), http_status: 404, outcome: 'http_unsalvageable', request_duration_ms: 50_000),
     ]
-    result = described_class.new(rows, candidate, 60).to_h
+    result = described_class.new(dataset_for(rows), candidate, 60).to_h
 
     expect(result['destination']['additive_increases']).to eq 0
     expect(result['destination']['decreases_due_failure']).to eq 0
@@ -96,7 +96,7 @@ RSpec.describe FollowImport::PacingBacktest::AdaptiveReplay do
       attempt(row_number: 1, http_status: 200),
       attempt(row_number: 2, target_id: '2', event_time: Time.utc(2026, 9, 16, 12, 1, 2), http_status: 200),
     ]
-    result = described_class.new(rows, candidate, 60).to_h
+    result = described_class.new(dataset_for(rows), candidate, 60).to_h
 
     expect(result['destination']['stale_resets']).to be >= 1
   end
@@ -106,7 +106,7 @@ RSpec.describe FollowImport::PacingBacktest::AdaptiveReplay do
       attempt(row_number: 1, destination_domain: 'alpha.example', endpoint_origin: 'https://one.example', http_status: 503, outcome: 'http_retryable'),
       attempt(row_number: 2, target_id: '2', event_time: Time.utc(2026, 9, 16, 12, 0, 1), destination_domain: 'beta.example', endpoint_origin: 'https://two.example', http_status: 200),
     ]
-    result = described_class.new(rows, candidate, 60).to_h
+    result = described_class.new(dataset_for(rows), candidate, 60).to_h
 
     expect(result['destination']['keys_observed']).to eq 2
     expect(result['origin']['keys_observed']).to eq 2
@@ -121,7 +121,7 @@ RSpec.describe FollowImport::PacingBacktest::AdaptiveReplay do
       attempt(row_number: 3, target_id: '2', attempt_ordinal: 1, event_time: Time.utc(2026, 9, 16, 12, 0, 2), http_status: 404, outcome: 'http_unsalvageable'),
       attempt(row_number: 4, target_id: '3', attempt_ordinal: 1, event_time: Time.utc(2026, 9, 16, 12, 0, 3), http_status: 404, outcome: 'http_unsalvageable'),
     ]
-    result = described_class.new(rows, candidate, 60).to_h
+    result = described_class.new(dataset_for(rows), candidate, 60).to_h
 
     expect(result['first_attempt_pressure']['above_either_cap']).to eq 1
     expect(result['all_attempt_pressure']['above_either_cap']).to eq 2
@@ -132,9 +132,68 @@ RSpec.describe FollowImport::PacingBacktest::AdaptiveReplay do
     rows = [
       attempt(row_number: 1, request_started_at: nil, http_status: 503, outcome: 'timeout', error_class: 'HTTP::TimeoutError'),
     ]
-    result = described_class.new(rows, candidate, 60).to_h
+    result = described_class.new(dataset_for(rows), candidate, 60).to_h
 
     expect(result['destination']['decreases_due_failure']).to eq 0
     expect(result['destination']['mutating_event_count']).to eq 0
+  end
+
+  it 'does not persist a stale reset on a neutral event' do
+    t0 = Time.utc(2026, 9, 16, 12, 0, 0)
+    rows = 8.times.map do |index|
+      attempt(
+        target_id: (index + 1).to_s,
+        row_number: index + 1,
+        event_time: t0 + index
+      )
+    end
+    rows << attempt(
+      row_number: 9,
+      target_id: 'n',
+      event_time: t0 + 70,
+      http_status: 404,
+      outcome: 'http_unsalvageable'
+    )
+    rows << attempt(
+      row_number: 10,
+      target_id: 'm',
+      event_time: t0 + 71,
+      http_status: 200
+    )
+    result = described_class.new(dataset_for(rows), candidate, 60).to_h
+
+    expect(result['destination']['stale_resets']).to eq 1
+    expect(result['destination']['maximum_reached']).to eq 4
+    expect(result['destination']['mutating_event_count']).to eq 9
+  end
+
+  it 'caps missing destinations in pressure without persisting an unknown key' do
+    rows = [
+      attempt(row_number: 1, destination_domain: ''),
+      attempt(row_number: 2, target_id: '2', event_time: Time.utc(2026, 9, 16, 12, 0, 1), destination_domain: ''),
+      attempt(row_number: 3, target_id: '3', event_time: Time.utc(2026, 9, 16, 12, 0, 2), destination_domain: ''),
+    ]
+    result = described_class.new(dataset_for(rows), candidate, 60).to_h
+
+    expect(result['first_attempt_pressure']['above_destination_cap']).to eq 1
+    expect(result['destination']['keys_observed']).to eq 0
+    expect(result['destination']['mutating_event_count']).to eq 0
+  end
+
+  it 'does not apply remote adaptive dest/origin pressure to a local destination' do
+    local = Rails.configuration.x.local_domain
+    rows = [
+      attempt(row_number: 1, destination_domain: local),
+      attempt(row_number: 2, target_id: '2', event_time: Time.utc(2026, 9, 16, 12, 0, 1), destination_domain: local),
+      attempt(row_number: 3, target_id: '3', event_time: Time.utc(2026, 9, 16, 12, 0, 2), destination_domain: local),
+    ]
+    result = described_class.new(dataset_for(rows), candidate, 60).to_h
+
+    expect(result['first_attempt_pressure']['above_destination_cap']).to eq 0
+    expect(result['first_attempt_pressure']['above_origin_cap']).to eq 0
+    expect(result['destination']['keys_observed']).to eq 0
+    expect(result['origin']['keys_observed']).to eq 0
+    expect(result['destination']['mutating_event_count']).to eq 0
+    expect(result['origin']['mutating_event_count']).to eq 0
   end
 end

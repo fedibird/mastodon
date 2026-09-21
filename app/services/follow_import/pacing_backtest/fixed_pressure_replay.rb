@@ -2,21 +2,25 @@
 
 # Bucket-local pressure replay against fixed destination/origin caps.
 # Excess stays in the historical bucket; it is never reflowed.
+#
+# first_attempt is a DeliveryWorker-execution / claim-pressure proxy and
+# may include a first execution that never reached HTTP.
+# all_attempt is actual HTTP request pressure only.
 module FollowImport
   class PacingBacktest
     class FixedPressureReplay
-      def initialize(rows, profile, bucket_seconds)
-        @rows = rows
+      def initialize(dataset, profile, bucket_seconds)
+        @dataset = dataset
         @profile = profile
         @bucket_seconds = bucket_seconds
       end
 
       def first_attempt
-        summarize(@rows.select(&:first_attempt?), 'first_attempt')
+        summarize(@dataset.timed_rows.select(&:first_attempt?), 'first_attempt')
       end
 
       def all_attempt
-        summarize(@rows, 'all_attempt')
+        summarize(@dataset.http_rows, 'all_attempt')
       end
 
       private
@@ -33,11 +37,13 @@ module FollowImport
         failed_either = 0
 
         rows.sort_by { |row| [row.event_time.to_f, row.row_number] }.each do |row|
-          dest_key = bucket_key(row, row.destination_domain)
-          origin_key = bucket_key(row, row.endpoint_origin)
+          dest_id = Routing.destination_pressure_key(row.destination_domain)
+          origin_id = Routing.origin_pressure_key(row.destination_domain, row.endpoint_origin)
+          dest_key = bucket_key(row, dest_id)
+          origin_key = bucket_key(row, origin_id)
           dest_over = dest_key && dest_counts[dest_key] + 1 > dest_cap
           origin_over = origin_key && origin_counts[origin_key] + 1 > origin_cap
-          either_over = row.destination_domain.present? && row.endpoint_origin.present? && (dest_over || origin_over)
+          either_over = dest_over || origin_over
 
           above_dest += 1 if dest_over
           above_origin += 1 if origin_over
@@ -57,6 +63,7 @@ module FollowImport
         {
           'view' => view,
           'bucket_seconds' => @bucket_seconds,
+          'synthetic_tick_width_seconds' => @bucket_seconds,
           'observed_attempts' => rows.length,
           'above_destination_cap' => above_dest,
           'above_origin_cap' => above_origin,
@@ -65,6 +72,7 @@ module FollowImport
           'failed_above_either_cap' => failed_either,
           'note' => 'constraint exposure, not prevented successes or failures',
           'reflow' => FollowImport::PacingBacktest::NO_REFLOW_NOTE,
+          'tick_width_note' => FollowImport::PacingBacktest::SYNTHETIC_TICK_NOTE,
         }
       end
 

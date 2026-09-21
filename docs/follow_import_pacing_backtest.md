@@ -45,6 +45,11 @@ bundle exec rake follow_import:pacing_backtest
 
 `TRANSPORT` and `SCENARIOS` are required. `TICKS` and `DISPATCH` are
 optional; when omitted, those sections are **unavailable**, not zero.
+When those optional files are supplied, every parseable timestamp and
+integer cell is read at load time. Malformed optional cells are counted
+under prefixed keys such as `dispatch.observed_at` and
+`ticks.planned_count`; they are never silently skipped or coerced to
+`0`.
 
 The task is read-only. Rails is loaded so the tool can reuse
 `FollowImport::RemoteAdmissionProfile`,
@@ -69,8 +74,11 @@ and scenario JSON, every analytical value is stable.
 
 The tool depends on **column headers**, not operator filenames. Extra
 columns are ignored. Missing required transport headers, a missing
-required file, an invalid scenario/profile, or zero usable
-`activitypub_delivery` rows fail the task with a non-zero exit.
+required file, an invalid scenario/profile, zero usable
+`activitypub_delivery` rows, or delivery rows that exist but none with a
+usable event time (`request_started_at` else `started_at`) fail the
+task with a non-zero exit. That last case is
+`no usable timed activitypub_delivery rows`.
 
 Malformed numeric or timestamp cells are counted in
 `baseline.malformed_counts` and omitted from **only** the metric they
@@ -96,21 +104,24 @@ Required headers:
 - `retry_after_seconds`
 - `error_class`
 
-Only `phase=activitypub_delivery` enters HTTP-delivery replay.
+Only `phase=activitypub_delivery` enters delivery replay.
 `resolve_account` and other phases remain in `row_count` only.
 
-Event time for an HTTP attempt:
+Two clocks are distinct:
 
-1. `request_started_at`
-2. else `started_at`
+- **Event time** (ordering, first-attempt ordinal, observation window):
+  `request_started_at`, else `started_at`. `finished_at` is never the
+  attempt origin.
+- **Actual HTTP attempt**: `request_started_at` is present. A
+  DeliveryWorker execution may have `started_at` without ever sending
+  HTTP (Stoplight / DFT interruption). Those rows are timed executions,
+  not HTTP attempts.
 
-`finished_at` is never the attempt origin.
-
-Attempt ordinal is reconstructed per `target_id` by sorting event time
-then original CSV row number. Do not use a target's current
-`delivery_attempts` field. Missing `target_id` stays in aggregate
-transport counts and is excluded from target-level first/retry metrics
-(`missing_target_id_count`).
+Attempt ordinal is reconstructed per `target_id` from timed delivery
+rows by sorting event time then original CSV row number. Do not use a
+target's current `delivery_attempts` field. Missing `target_id` stays
+in aggregate transport counts and is excluded from target-level
+first/retry metrics (`missing_target_id_count`).
 
 ### Scheduler ticks (optional)
 
@@ -154,6 +165,13 @@ pass `FollowImport::AdaptiveRemoteCompatibility` against that fixed
 baseline. Omit `adaptive_profile` for fixed-only analysis. Omit
 `global_budget` to skip the load-envelope comparison for that scenario.
 
+`bucket_seconds` is the **synthetic scheduler tick width** used to
+group first-attempt / HTTP / claimed-count samples for
+`per_tick_cap` and `global_budget`. It is not a wall-clock minute and
+it is not a historical scheduler-tick boundary from the tick CSV.
+Changing `bucket_seconds` changes how many samples fall in one bucket.
+JSON reports `synthetic_tick_width_seconds` next to those views.
+
 No scenario file with production recommendations is committed in this
 repository. Synthetic specs may use arbitrary small numbers.
 
@@ -161,13 +179,19 @@ repository. Synthetic specs may use arbitrary small numbers.
 
 ## First attempts vs retries
 
-Remote admission caps govern **scheduler claims**, which this tool
-approximates with **scheduler-originated first attempts** (ordinal 1
-per `target_id` in the export).
+Remote admission caps govern **scheduler claims**. This tool
+approximates them with **scheduler-originated first attempts** (ordinal
+1 per `target_id` among timed delivery executions). That first-attempt
+view is a claim-pressure proxy: it may include a first DeliveryWorker
+execution that never reached HTTP.
 
-Sidekiq retries appear as ordinal 2+ transport rows. They are reported
-in the **all-attempt** views as diagnostic transport pressure. They
-are not re-paced by the dispatcher.
+Sidekiq retries appear as ordinal 2+ timed rows. The **all-attempt**
+views count **actual HTTP requests** only (`request_started_at`
+present). They are diagnostic transport pressure. They are not
+re-paced by the dispatcher. A `circuit_or_stoplight_interruption` (or
+any other pre-request interruption) with `started_at` and no
+`request_started_at` is not an HTTP attempt and is not a suppression
+in-window hit.
 
 Always read both views. Do not treat all-attempt cap excess as a claim
 budget miss.
@@ -178,13 +202,22 @@ budget miss.
 
 This is a **pressure replay**, not an exact scheduler counterfactual.
 
-For each scenario and each `bucket_seconds` bucket, first-attempt and
-all-attempt rows are counted per destination and per origin in
-deterministic input order. An attempt is above a cap when it would be
-the (cap+1)th or later row for that key in that bucket.
+For each scenario and each synthetic `bucket_seconds` tick, first-attempt
+(timed executions, ordinal 1) and all-attempt (actual HTTP) rows are
+counted per destination and per origin in deterministic input order. An
+attempt is above a cap when it would be the (cap+1)th or later row for
+that key in that bucket.
 
-When both destination and origin are known, `above_either_cap` counts
-the attempt once if it exceeds destination **or** origin.
+Routing matches production `RemoteAdmission`:
+
+- a **local** destination consumes neither remote destination nor remote
+  origin caps
+- a **missing** destination is pressure-counted in the synthetic
+  `UNKNOWN_DESTINATION` bucket and is never treated as unlimited
+- a missing destination is not persisted as an adaptive key
+
+When destination and origin identities both exist, `above_either_cap`
+counts the attempt once if it exceeds destination **or** origin.
 
 `successful_above_either_cap` / `failed_above_either_cap` are
 **constraint exposure**, not “this cap would have prevented N
@@ -206,9 +239,10 @@ using the same honour rules as `FollowImport::RemoteRuntimeState`:
 - otherwise HTTP 429 uses `recent_429_cooldown_seconds`
 - the stored honour deadline is `max(existing, proposed)`
 
-Subsequent **observed** attempts whose event time falls inside that
+Subsequent **observed HTTP** attempts whose event time falls inside that
 hypothetical window are counted (`attempts_in_retry_after_window` /
-`attempts_in_recent_429_window`), split first vs retry.
+`attempts_in_recent_429_window`), split first vs retry. Pre-request
+DeliveryWorker executions are excluded.
 
 This does **not** prove those requests would be absent in a live
 system. It only records that their timestamps sit inside the candidate
@@ -226,22 +260,29 @@ The actual transport stream is replayed in memory through:
 - `view_from_payload` (stale / digest reset)
 - `AdaptiveRemoteController.apply`
 
-No Redis. Destination and origin keys are independent. Local
-destinations are skipped on the destination layer, matching production
-`AdaptiveRemoteState`. Latency, Accept/Reject, blocks, reports,
-software type, user counts, and Follow Gate are not inputs.
+No Redis. Destination and origin keys are independent. A local
+destination skips both destination and origin remote layers, matching
+production `RemoteAdmission`. A missing destination uses the unknown
+bucket for pressure and is not persisted. Latency, Accept/Reject,
+blocks, reports, software type, user counts, and Follow Gate are not
+inputs.
 
 Neutral events (no request started, ordinary 4xx/3xx, unknown errors)
-do not mutate cap state, matching production.
+do not mutate cap state, matching `DeliveryObserver`. Persisted
+controller state is updated **only** on a mutating apply. A stale /
+digest reset from `view_from_payload` is counted as `stale_resets`
+only when that reset is persisted as part of a mutating write. A
+neutral event may observe a conservative cap for pressure; it does not
+refresh stored `observed_at`.
 
 Before each event is applied, the current adaptive cap is used for a
-bucket-local pressure diagnostic (first-attempt and all-attempt
-separately). Those counts are constraint exposure, not causal
-prevention.
+bucket-local pressure diagnostic (first-attempt timed executions and
+all-attempt HTTP separately). Those counts are constraint exposure,
+not causal prevention.
 
 State summaries report cap distributions, min/max reached, failure vs
-429 decreases, additive increases, stale resets, and the fraction of
-mutating events spent at `min_cap` or the fixed ceiling.
+429 decreases, additive increases, persisted stale resets, and the
+fraction of mutating events spent at `min_cap` or the fixed ceiling.
 
 ---
 
@@ -267,20 +308,23 @@ JSON and Markdown both include the window end and this warning.
 ## Global-budget load envelope
 
 When dispatch-pass CSV is supplied **and** the scenario has
-`global_budget`, the tool sums `claimed_count` into `bucket_seconds`
-minutes and compares **active** minutes (claimed_count > 0) with the
-candidate budget.
+`global_budget`, the tool sums `claimed_count` into synthetic
+`bucket_seconds` ticks and compares **active buckets**
+(claimed_count > 0) with the candidate budget. Those ticks are not
+wall-clock minutes.
 
 Reported:
 
-- active minutes
-- claims/min distribution (nearest-rank percentiles)
-- fraction of active minutes above the candidate budget
+- `active_buckets`
+- `claims_per_bucket` distribution (nearest-rank percentiles)
+- `fraction_of_active_buckets_above_budget`
 - sum of `max(observed_claims - candidate_budget, 0)`
 - candidate budget / observed p50 and / observed peak
+- `synthetic_tick_width_seconds`
 
-Excess is not reflowed into later minutes. Clipped claims are not
-called a “safe delay”.
+There are no `active_minutes` / `claims_per_minute` fields. Excess is
+not reflowed into later buckets. Clipped claims are not called a
+“safe delay”.
 
 CPU and database saturation are **not in the export**. The envelope
 must not be used as a resource-safety verdict. There is no `cpu_safe`

@@ -40,8 +40,7 @@ module FollowImport
       private
 
       def replay_scenario(candidate, dataset, bucket_seconds, tick_summary)
-        rows = dataset.timed_rows
-        pressure = FixedPressureReplay.new(rows, candidate.fixed_profile, bucket_seconds)
+        pressure = FixedPressureReplay.new(dataset, candidate.fixed_profile, bucket_seconds)
         {
           'name' => candidate.name,
           'global_budget' => candidate.global_budget,
@@ -49,14 +48,15 @@ module FollowImport
             'digest' => candidate.fixed_profile.digest
           ),
           'adaptive_profile' => adaptive_identity(candidate),
+          'synthetic_tick_width_seconds' => bucket_seconds,
           'fixed_cap_pressure' => {
             'first_attempt' => pressure.first_attempt,
             'all_attempt' => pressure.all_attempt.merge(
               'note' => FollowImport::PacingBacktest::ALL_ATTEMPT_NOTE
             ),
           },
-          'suppression' => SuppressionReplay.new(rows, candidate.fixed_profile).to_h,
-          'adaptive' => AdaptiveReplay.new(rows, candidate, bucket_seconds).to_h,
+          'suppression' => SuppressionReplay.new(dataset.http_rows, candidate.fixed_profile).to_h,
+          'adaptive' => AdaptiveReplay.new(dataset, candidate, bucket_seconds).to_h,
           'global_budget_envelope' => GlobalEnvelope.new(dataset.dispatch_passes, candidate.global_budget, bucket_seconds).to_h,
           'scheduler_ticks' => tick_summary,
           'limitations' => [
@@ -82,6 +82,7 @@ module FollowImport
           FollowImport::PacingBacktest::MODERATION_WARNING,
           FollowImport::PacingBacktest::ALL_ATTEMPT_NOTE,
           FollowImport::PacingBacktest::NO_REFLOW_NOTE,
+          FollowImport::PacingBacktest::SYNTHETIC_TICK_NOTE,
         ]
         list.concat(dataset.warnings)
         list

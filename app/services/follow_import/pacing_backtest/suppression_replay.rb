@@ -21,8 +21,8 @@ module FollowImport
         retries = 0
         targets = {}
 
-        timed = @rows.select { |row| row.timed? && row.endpoint_origin.present? }
-        timed.sort_by { |row| [row.event_time.to_f, row.row_number] }.each do |row|
+        http_rows = @rows.select { |row| row.http? && row.endpoint_origin.present? }
+        http_rows.sort_by { |row| [row.event_time.to_f, row.row_number] }.each do |row|
           state = states[row.endpoint_origin]
           if state && state.honor_until > row.event_time
             if state.reason == 'retry_after'
@@ -50,7 +50,7 @@ module FollowImport
           'unique_targets' => targets.length,
           'first_attempts_in_window' => firsts,
           'retry_attempts_in_window' => retries,
-          'note' => 'observed timestamps fall inside the candidate suppression window; this is not a full-system counterfactual that those requests would not occur',
+          'note' => 'observed HTTP request timestamps fall inside the candidate suppression window; this is not a full-system counterfactual that those requests would not occur. Pre-request DeliveryWorker executions are excluded.',
         }
       end
 

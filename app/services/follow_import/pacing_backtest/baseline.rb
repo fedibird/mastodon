@@ -12,18 +12,19 @@ module FollowImport
 
       def to_h
         timed = @dataset.timed_rows
+        http_rows = @dataset.http_rows
         window = observation_window(timed)
         identified = timed.select { |row| row.attempt_ordinal.present? }
         firsts = identified.select(&:first_attempt?)
         {
-          'dataset' => dataset_section(timed, window),
+          'dataset' => dataset_section(timed, http_rows, window),
           'first_attempts' => first_attempt_section(firsts),
           'retry_amplification' => retry_section(identified, firsts, window),
           'concentration' => {
-            'destination' => concentration_for(timed, :destination_domain, 'd'),
-            'origin' => concentration_for(timed, :endpoint_origin, 'o'),
+            'destination' => concentration_for(http_rows, :destination_domain, 'd'),
+            'origin' => concentration_for(http_rows, :endpoint_origin, 'o'),
           },
-          'latency' => latency_section(firsts, timed),
+          'latency' => latency_section(firsts, http_rows),
           'malformed_counts' => Hash[@dataset.malformed_counts.sort],
           'missing_target_id_count' => @dataset.missing_target_id_count,
         }
@@ -31,12 +32,14 @@ module FollowImport
 
       private
 
-      def dataset_section(timed, window)
+      def dataset_section(timed, http_rows, window)
         rows = @dataset.rows
         delivery = @dataset.delivery_rows
         {
           'row_count' => rows.length,
           'usable_activitypub_delivery_rows' => delivery.length,
+          'timed_delivery_execution_rows' => timed.length,
+          'actual_http_request_rows' => http_rows.length,
           'rows_with_request_timestamps' => delivery.count { |row| row.request_started_at.present? },
           'rows_with_target_id' => delivery.count { |row| row.target_id.present? },
           'rows_missing_target_id' => delivery.count { |row| row.target_id.blank? },
@@ -158,11 +161,12 @@ module FollowImport
         Distribution.ratio(counts.first(limit).reduce(0, :+), total)
       end
 
-      def latency_section(firsts, timed)
+      def latency_section(firsts, http_rows)
+        http_firsts = firsts.select(&:http?)
         {
           'first_attempt_queue_wait_ms' => Distribution.summary(firsts.map(&:queue_wait_ms).compact),
-          'first_attempt_request_duration_ms' => Distribution.summary(firsts.map(&:request_duration_ms).compact),
-          'all_attempt_request_duration_ms' => Distribution.summary(timed.map(&:request_duration_ms).compact),
+          'first_attempt_request_duration_ms' => Distribution.summary(http_firsts.map(&:request_duration_ms).compact),
+          'all_attempt_request_duration_ms' => Distribution.summary(http_rows.map(&:request_duration_ms).compact),
         }
       end
 

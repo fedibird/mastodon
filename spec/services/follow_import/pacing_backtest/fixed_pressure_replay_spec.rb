@@ -42,7 +42,7 @@ RSpec.describe FollowImport::PacingBacktest::FixedPressureReplay do
       attempt('target_id' => '3', :row_number => 3, :attempt_ordinal => 1, 'request_started_at' => '2026-09-16T12:00:02Z', 'outcome' => 'timeout', 'http_status' => ''),
     ]
     rows.last.http_status = nil
-    result = described_class.new(rows, profile, 60).first_attempt
+    result = described_class.new(dataset_for(rows), profile, 60).first_attempt
 
     expect(result['above_destination_cap']).to eq 1
     expect(result['above_origin_cap']).to eq 1
@@ -58,7 +58,7 @@ RSpec.describe FollowImport::PacingBacktest::FixedPressureReplay do
       attempt('target_id' => '3', :row_number => 3, 'request_started_at' => '2026-09-16T12:00:02Z'),
       attempt('target_id' => '4', :row_number => 4, 'request_started_at' => '2026-09-16T12:00:03Z', 'outcome' => 'timeout'),
     ]
-    result = described_class.new(rows, profile, 60).first_attempt
+    result = described_class.new(dataset_for(rows), profile, 60).first_attempt
 
     expect(result['above_either_cap']).to eq 2
     expect(result['successful_above_either_cap']).to eq 1
@@ -71,7 +71,7 @@ RSpec.describe FollowImport::PacingBacktest::FixedPressureReplay do
       attempt('target_id' => '2', :row_number => 2, :attempt_ordinal => 1, 'request_started_at' => '2026-09-16T12:00:01Z'),
       attempt('target_id' => '1', :row_number => 3, :attempt_ordinal => 2, 'request_started_at' => '2026-09-16T12:00:02Z'),
     ]
-    replay = described_class.new(rows, profile, 60)
+    replay = described_class.new(dataset_for(rows), profile, 60)
 
     expect(replay.first_attempt['observed_attempts']).to eq 2
     expect(replay.first_attempt['above_either_cap']).to eq 0
@@ -86,10 +86,73 @@ RSpec.describe FollowImport::PacingBacktest::FixedPressureReplay do
       attempt('target_id' => '3', :row_number => 3, 'request_started_at' => '2026-09-16T12:00:02Z'),
       attempt('target_id' => '4', :row_number => 4, 'request_started_at' => '2026-09-16T12:01:00Z'),
     ]
-    result = described_class.new(rows, profile, 60).first_attempt
+    result = described_class.new(dataset_for(rows), profile, 60).first_attempt
 
     expect(result['above_either_cap']).to eq 1
     expect(result).not_to have_key('reflowed_attempts')
     expect(result['reflow']).to include('not moved into later buckets')
+  end
+
+  it 'does not count a pre-request interruption as an actual HTTP attempt' do
+    rows = [
+      attempt('target_id' => '1', :row_number => 1),
+      attempt('target_id' => '2', :row_number => 2, 'request_started_at' => '2026-09-16T12:00:01Z'),
+      stoplight_attempt(row_number: 3),
+    ]
+    replay = described_class.new(dataset_for(rows), profile, 60)
+
+    expect(replay.first_attempt['observed_attempts']).to eq 3
+    expect(replay.all_attempt['observed_attempts']).to eq 2
+    expect(replay.all_attempt['above_either_cap']).to eq 0
+  end
+
+  it 'applies the destination cap to a missing destination via the unknown bucket' do
+    rows = [
+      attempt('target_id' => '1', :row_number => 1, 'destination_domain' => ''),
+      attempt('target_id' => '2', :row_number => 2, 'destination_domain' => '', 'request_started_at' => '2026-09-16T12:00:01Z'),
+      attempt('target_id' => '3', :row_number => 3, 'destination_domain' => '', 'request_started_at' => '2026-09-16T12:00:02Z'),
+    ]
+    result = described_class.new(dataset_for(rows), profile, 60).first_attempt
+
+    expect(result['above_destination_cap']).to eq 1
+  end
+
+  it 'does not apply remote dest/origin caps to a local destination' do
+    local = Rails.configuration.x.local_domain
+    rows = [
+      attempt('target_id' => '1', :row_number => 1, 'destination_domain' => local),
+      attempt('target_id' => '2', :row_number => 2, 'destination_domain' => local, 'request_started_at' => '2026-09-16T12:00:01Z'),
+      attempt('target_id' => '3', :row_number => 3, 'destination_domain' => local, 'request_started_at' => '2026-09-16T12:00:02Z'),
+    ]
+    result = described_class.new(dataset_for(rows), profile, 60).first_attempt
+
+    expect(result['above_destination_cap']).to eq 0
+    expect(result['above_origin_cap']).to eq 0
+    expect(result['above_either_cap']).to eq 0
+  end
+
+  def stoplight_attempt(row_number:)
+    started = Time.utc(2026, 9, 16, 12, 0, 2)
+    FollowImport::PacingBacktest::Attempt.new(
+      row_number: row_number,
+      phase: 'activitypub_delivery',
+      target_id: '9',
+      destination_domain: 'alpha.example',
+      endpoint_origin: 'https://inbox.example',
+      started_at: started,
+      finished_at: started + 1,
+      request_started_at: nil,
+      request_finished_at: nil,
+      enqueued_at: started - 1,
+      queue_wait_ms: 10,
+      request_duration_ms: nil,
+      outcome: 'circuit_or_stoplight_interruption',
+      http_status: nil,
+      retry_after_seconds: nil,
+      error_class: 'Stoplight::Error::RedLight',
+      event_time: started,
+      attempt_ordinal: 1,
+      malformed_fields: []
+    )
   end
 end

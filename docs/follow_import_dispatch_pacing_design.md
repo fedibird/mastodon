@@ -1378,6 +1378,13 @@ dispatch-pass CSVs against operator-supplied candidate profiles. It
 does not enable GLOBAL, remote-admission enforcement, or adaptive
 enforcement, and it does not write Follow Import rows or Redis.
 
+Event time is `request_started_at` else `started_at`. Actual HTTP
+views require `request_started_at`; first-attempt claim pressure may
+include DeliveryWorker executions that never reached HTTP.
+`bucket_seconds` is a synthetic scheduler tick width, not a wall-clock
+minute. Adaptive replay persists controller state only on mutating
+events.
+
 See `docs/follow_import_pacing_backtest.md`. Do not treat backtest
 constraint-exposure counts as prevented failures, created successes,
 or CPU/DB safety.

@@ -45,7 +45,7 @@ module FollowImport
         lines << ''
         lines << '## Scenario comparison'
         lines << ''
-        lines << '| Scenario | First attempts above fixed caps | Successful first attempts above caps | 429/Retry-After window attempts | Adaptive min-cap exposure | Legacy minutes above global budget |'
+        lines << '| Scenario | First attempts above fixed caps | Successful first attempts above caps | 429/Retry-After window attempts | Adaptive min-cap exposure | Legacy buckets above global budget |'
         lines << '|---|---:|---:|---:|---:|---:|'
         Array(@result['scenarios']).each do |scenario|
           lines << scenario_row(scenario)
@@ -80,8 +80,8 @@ module FollowImport
         envelope = scenario['global_budget_envelope'] || {}
         window_attempts = suppression['attempts_in_retry_after_window'].to_i + suppression['attempts_in_recent_429_window'].to_i
         min_cap = adaptive['available'] ? adaptive.dig('destination', 'fraction_at_min_cap') : 'unavailable'
-        minutes_above = if envelope['available']
-                          envelope['fraction_of_active_minutes_above_budget']
+        buckets_above = if envelope['available']
+                          envelope['fraction_of_active_buckets_above_budget']
                         else
                           'unavailable'
                         end
@@ -92,7 +92,7 @@ module FollowImport
           first['successful_above_either_cap'],
           window_attempts,
           min_cap,
-          minutes_above,
+          buckets_above,
           '',
         ].join(' | ').strip
       end

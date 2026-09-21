@@ -118,4 +118,39 @@ RSpec.describe FollowImport::PacingBacktest::Input do
     expect(dataset.dispatch_passes).to be_nil
     expect(dataset.warnings.join).to include('unavailable rather than zero')
   end
+
+  it 'fails when there are no usable timed activitypub_delivery rows' do
+    expect do
+      load_rows([
+                  transport_row(
+                    'started_at' => '',
+                    'request_started_at' => '',
+                    'finished_at' => '',
+                    'enqueued_at' => ''
+                  ),
+                ])
+    end.to raise_error(FollowImport::PacingBacktest::Error, /no usable timed activitypub_delivery rows/)
+  end
+
+  it 'reports malformed optional tick and dispatch cells at load time' do
+    dir = Dir.mktmpdir('fi-malformed-optional')
+    transport = write_transport(File.join(dir, 't.csv'), [transport_row])
+    write_dispatch(File.join(dir, 'd.csv'), [
+                     { 'observed_at' => 'not-a-time', 'claimed_count' => 'nope', 'candidate_count' => '1', 'global_pending_count' => '1', 'active_batch_count' => '1' },
+                   ])
+    write_ticks(File.join(dir, 'k.csv'), [
+                  { 'observed_at' => '2026-09-16T12:00:00Z', 'scheduler_mode' => 'shadow', 'outcome' => 'shadow_observed', 'planned_count' => 'x', 'claimed_count' => '0' },
+                ], headers: %w(observed_at scheduler_mode outcome planned_count claimed_count))
+
+    dataset = described_class.load(
+      transport: transport,
+      scenarios: File.join(dir, 'unused.json'),
+      dispatch: File.join(dir, 'd.csv'),
+      ticks: File.join(dir, 'k.csv')
+    )
+
+    expect(dataset.malformed_counts['dispatch.observed_at']).to eq 1
+    expect(dataset.malformed_counts['dispatch.claimed_count']).to eq 1
+    expect(dataset.malformed_counts['ticks.planned_count']).to eq 1
+  end
 end

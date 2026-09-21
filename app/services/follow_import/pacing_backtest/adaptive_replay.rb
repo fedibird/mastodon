@@ -2,6 +2,11 @@
 
 # In-memory AIMD replay using production AdaptiveRemoteObservation and
 # AdaptiveRemoteController. No Redis.
+#
+# Persisted controller state is updated only for mutating events, matching
+# DeliveryObserver / AdaptiveRemoteState. A stale reset is persisted only
+# as part of a mutating write. Neutral events may observe a conservative
+# cap for pressure but do not refresh stored observed_at.
 module FollowImport
   class PacingBacktest
     class AdaptiveReplay
@@ -11,8 +16,8 @@ module FollowImport
         'OpenSSL::SSL::SSLError' => OpenSSL::SSL::SSLError,
       }.freeze
 
-      def initialize(rows, candidate, bucket_seconds)
-        @rows = rows
+      def initialize(dataset, candidate, bucket_seconds)
+        @dataset = dataset
         @candidate = candidate
         @bucket_seconds = bucket_seconds
         @fixed = candidate.fixed_profile
@@ -29,34 +34,22 @@ module FollowImport
         first_pressure = Pressure.new
         all_pressure = Pressure.new
 
-        ordered = @rows.select(&:timed?).sort_by { |row| [row.event_time.to_f, row.row_number] }
+        ordered = @dataset.timed_rows.sort_by { |row| [row.event_time.to_f, row.row_number] }
         ordered.each do |row|
           observation = classify(row)
-          dest_view = prepare_view(dest_states, row.destination_domain, :destination, row.event_time)
-          origin_view = prepare_view(origin_states, row.endpoint_origin, :origin, row.event_time)
-
-          views = { destination: dest_view, origin: origin_view }
-          all_pressure.observe(row, views, @bucket_seconds)
+          dest_view = pressure_destination_view(dest_states, row)
+          origin_view = pressure_origin_view(origin_states, row)
+          views = {
+            destination: dest_view,
+            origin: origin_view,
+            destination_key: Routing.destination_pressure_key(row.destination_domain),
+            origin_key: Routing.origin_pressure_key(row.destination_domain, row.endpoint_origin),
+          }
           first_pressure.observe(row, views, @bucket_seconds) if row.first_attempt?
+          all_pressure.observe(row, views, @bucket_seconds) if row.http?
 
-          apply_layer(
-            'store' => dest_states,
-            'stats' => dest_stats,
-            'key' => row.destination_domain,
-            'layer' => :destination,
-            'view' => dest_view,
-            'observation' => observation,
-            'now' => row.event_time
-          )
-          apply_layer(
-            'store' => origin_states,
-            'stats' => origin_stats,
-            'key' => row.endpoint_origin,
-            'layer' => :origin,
-            'view' => origin_view,
-            'observation' => observation,
-            'now' => row.event_time
-          )
+          persist_layer(dest_states, dest_stats, :destination, row, observation)
+          persist_layer(origin_states, origin_stats, :origin, row, observation)
         end
 
         {
@@ -67,7 +60,7 @@ module FollowImport
           'all_attempt_pressure' => all_pressure.to_h,
           'destination' => dest_stats.to_h(dest_states),
           'origin' => origin_stats.to_h(origin_states),
-          'note' => 'constraint exposure against the current adaptive cap before each event is applied; not a causal prevention estimate',
+          'note' => 'constraint exposure against the current adaptive cap before each event is applied; not a causal prevention estimate. Persisted state updates only on mutating events.',
         }
       end
 
@@ -95,34 +88,37 @@ module FollowImport
         klass.new
       end
 
-      def prepare_view(store, key, layer, now)
-        return if skip_key?(key, layer)
+      def pressure_destination_view(store, row)
+        key = Routing.destination_pressure_key(row.destination_domain)
+        return if key.nil?
 
+        persistable = Routing.persist_destination?(row.destination_domain)
+        read_view(persistable ? store : {}, persistable ? row.destination_domain : nil, :destination, row.event_time)
+      end
+
+      def pressure_origin_view(store, row)
+        key = Routing.origin_pressure_key(row.destination_domain, row.endpoint_origin)
+        return if key.nil?
+
+        read_view(store, key, :origin, row.event_time)
+      end
+
+      def read_view(store, key, layer, now)
         params = params_for(layer)
         ceiling = ceiling_for(layer)
-        view = store[key]
-        if view.nil?
-          view = FollowImport::AdaptiveRemoteController.initial_view(
+        if key.blank? || store[key].nil?
+          return FollowImport::AdaptiveRemoteController.initial_view(
             params,
             now: now,
             adaptive_digest: @adaptive.digest,
             fixed_digest: @fixed.digest,
             ceiling: ceiling
           )
-          store[key] = view
-          return view
         end
 
-        payload = {
-          'schema_version' => view.schema_version,
-          'current_cap' => view.current_cap,
-          'success_credit' => view.success_credit,
-          'observed_at' => view.observed_at,
-          'adaptive_profile_digest' => view.adaptive_profile_digest,
-          'fixed_profile_digest' => view.fixed_profile_digest,
-        }
-        refreshed = FollowImport::AdaptiveRemoteController.view_from_payload(
-          payload,
+        view = store[key]
+        FollowImport::AdaptiveRemoteController.view_from_payload(
+          payload_from(view),
           params: params,
           now: now,
           stale_after: @adaptive.stale_after_seconds,
@@ -130,33 +126,26 @@ module FollowImport
           fixed_digest: @fixed.digest,
           ceiling: ceiling
         )
-        store[key] = refreshed
-        refreshed
       end
 
-      def apply_layer(attrs)
-        store = attrs['store']
-        stats = attrs['stats']
-        key = attrs['key']
-        layer = attrs['layer']
-        view = attrs['view']
-        observation = attrs['observation']
-        now = attrs['now']
-        return if view.nil? || skip_key?(key, layer)
+      def persist_layer(store, stats, layer, row, observation)
+        key = persist_key(layer, row)
+        return if key.blank?
 
+        view = read_view(store, key, layer, row.event_time)
         event = observation.event
-        stats.observe_before(view, event)
         unless FollowImport::AdaptiveRemoteObservation.mutating?(event)
           stats.observe_neutral
           return
         end
 
+        stats.observe_before(view, event)
         after = FollowImport::AdaptiveRemoteController.apply(
           view,
           event,
           params_for(layer),
           ceiling: ceiling_for(layer),
-          now: now,
+          now: row.event_time,
           adaptive_digest: @adaptive.digest,
           fixed_digest: @fixed.digest
         )
@@ -164,17 +153,27 @@ module FollowImport
         store[key] = after
       end
 
-      def skip_key?(key, layer)
-        return true if key.blank?
-        return local_destination?(key) if layer == :destination
+      def persist_key(layer, row)
+        if layer == :origin
+          return unless Routing.persist_origin?(row.destination_domain, row.endpoint_origin)
 
-        false
+          row.endpoint_origin
+        else
+          return unless Routing.persist_destination?(row.destination_domain)
+
+          row.destination_domain
+        end
       end
 
-      def local_destination?(domain)
-        TagManager.instance.local_domain?(domain) || TagManager.instance.web_domain?(domain)
-      rescue StandardError
-        false
+      def payload_from(view)
+        {
+          'schema_version' => view.schema_version,
+          'current_cap' => view.current_cap,
+          'success_credit' => view.success_credit,
+          'observed_at' => view.observed_at,
+          'adaptive_profile_digest' => view.adaptive_profile_digest,
+          'fixed_profile_digest' => view.fixed_profile_digest,
+        }
       end
 
       def params_for(layer)
@@ -196,12 +195,10 @@ module FollowImport
         end
 
         def observe(row, views, bucket_seconds)
-          dest_over = over?(row, row.destination_domain, views[:destination], bucket_seconds, 'd')
-          origin_over = over?(row, row.endpoint_origin, views[:origin], bucket_seconds, 'o')
+          dest_over = over?(row, views[:destination_key], views[:destination], bucket_seconds, 'd')
+          origin_over = over?(row, views[:origin_key], views[:origin], bucket_seconds, 'o')
           @above_destination += 1 if dest_over
           @above_origin += 1 if origin_over
-          return unless row.destination_domain.present? && row.endpoint_origin.present?
-
           either = dest_over || origin_over
           return unless either
 
@@ -253,9 +250,9 @@ module FollowImport
         end
 
         def observe_before(view, event)
-          @stale_resets += 1 if view.source == FollowImport::AdaptiveRemoteController::SOURCE_STALE_RESET
           return unless FollowImport::AdaptiveRemoteObservation.mutating?(event)
 
+          @stale_resets += 1 if view.source == FollowImport::AdaptiveRemoteController::SOURCE_STALE_RESET
           @mutating += 1
           @before_caps << view.current_cap
           @at_min += 1 if view.current_cap == @params.min_cap

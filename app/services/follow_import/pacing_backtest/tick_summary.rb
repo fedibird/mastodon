@@ -12,12 +12,13 @@ module FollowImport
       def to_h
         return unavailable if @ticks.nil?
 
-        times = @ticks.map { |row| row.time('observed_at') }.compact.sort
+        rows = @ticks.rows
+        times = rows.map(&:observed_at).compact.sort
         gaps = []
-        times.each_cons(2) { |a, b| gaps << (b - a).to_f }
+        times.each_cons(2) { |left, right| gaps << (right - left).to_f }
         {
           'available' => true,
-          'row_count' => @ticks.length,
+          'row_count' => rows.length,
           'min_observed_at' => times.first&.utc&.iso8601(6),
           'max_observed_at' => times.last&.utc&.iso8601(6),
           'cadence_seconds' => Distribution.summary(gaps),
@@ -75,9 +76,7 @@ module FollowImport
       end
 
       def column?(name)
-        return false if @ticks.empty?
-
-        @ticks.first.values.key?(name)
+        @ticks.column?(name)
       end
     end
   end

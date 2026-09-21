@@ -32,6 +32,10 @@ module FollowImport
         !event_time.nil?
       end
 
+      def http?
+        request_started_at.present?
+      end
+
       def first_attempt?
         attempt_ordinal == 1
       end

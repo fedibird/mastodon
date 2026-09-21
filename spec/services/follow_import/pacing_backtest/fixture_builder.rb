@@ -104,6 +104,22 @@ module FollowImportPacingBacktestFixtures
     }
   end
 
+  def dataset_for(rows)
+    timed = rows.select(&:timed?)
+    FollowImport::PacingBacktest::Input::Dataset.new(
+      rows: rows,
+      delivery_rows: rows,
+      timed_rows: timed,
+      http_rows: timed.select(&:http?),
+      ticks: nil,
+      dispatch_passes: nil,
+      malformed_counts: {},
+      missing_target_id_count: rows.count { |row| row.target_id.blank? },
+      input_files: {},
+      warnings: []
+    )
+  end
+
   def write_scenarios(path, scenarios:, bucket_seconds: 60)
     payload = {
       'schema_version' => 1,

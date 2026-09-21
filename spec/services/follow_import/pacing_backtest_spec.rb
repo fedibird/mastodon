@@ -74,7 +74,9 @@ RSpec.describe FollowImport::PacingBacktest do
     expect(first.dig('baseline', 'retry_amplification', 'later_success_observed_within_window')).to eq 1
     expect(first.dig('baseline', 'retry_amplification', 'no_later_success_observed_within_window')).to eq 1
     expect(first.dig('baseline', 'retry_amplification', 'right_censoring_note')).to include('not a final failure')
+    expect(first.dig('baseline', 'dataset', 'actual_http_request_rows')).to eq first.dig('baseline', 'dataset', 'rows_with_request_timestamps')
     expect(File.read(File.join(dir, 'out.md'))).to include('right-censored')
+    expect(File.read(File.join(dir, 'out.md'))).to include('Legacy buckets above global budget')
     expect(File.read(File.join(dir, 'out.md'))).not_to match(/\b(best|recommended|winner)\b/i)
   end
 
@@ -89,9 +91,12 @@ RSpec.describe FollowImport::PacingBacktest do
     )
 
     keys = nested_keys(result)
-    expect(keys).not_to include('cpu_safe', 'db_safe', 'safe_budget', 'recommended', 'winner')
+    forbidden = %w(cpu_safe db_safe safe_budget recommended winner active_minutes claims_per_minute)
+    expect(keys & forbidden).to eq([])
     expect(result.dig('scenarios', 0, 'global_budget_envelope', 'available')).to be true
     expect(result.dig('scenarios', 0, 'global_budget_envelope', 'cpu_db_note')).to include('CPU or database')
+    expect(result.dig('scenarios', 0, 'global_budget_envelope', 'active_buckets')).to be_a(Integer)
+    expect(result['warnings'].join).to include('synthetic scheduler tick width')
   end
 
   it 'marks scheduler tick I2 columns unavailable when the export predates them' do

@@ -88,4 +88,35 @@ RSpec.describe FollowImport::PacingBacktest::SuppressionReplay do
     expect(result['retry_attempts_in_window']).to eq 1
     expect(result['note']).to include('not a full-system counterfactual')
   end
+
+  it 'does not count a pre-request interruption inside a suppression window' do
+    rows = [
+      attempt(event_time: Time.utc(2026, 9, 16, 12, 0, 0), retry_after_seconds: 60, row_number: 1),
+      FollowImport::PacingBacktest::Attempt.new(
+        row_number: 2,
+        phase: 'activitypub_delivery',
+        target_id: '9',
+        destination_domain: 'alpha.example',
+        endpoint_origin: 'https://inbox.example',
+        started_at: Time.utc(2026, 9, 16, 12, 0, 10),
+        finished_at: Time.utc(2026, 9, 16, 12, 0, 11),
+        request_started_at: nil,
+        request_finished_at: nil,
+        enqueued_at: Time.utc(2026, 9, 16, 12, 0, 9),
+        queue_wait_ms: 10,
+        request_duration_ms: nil,
+        outcome: 'circuit_or_stoplight_interruption',
+        http_status: nil,
+        retry_after_seconds: nil,
+        error_class: 'Stoplight::Error::RedLight',
+        event_time: Time.utc(2026, 9, 16, 12, 0, 10),
+        attempt_ordinal: 1,
+        malformed_fields: []
+      ),
+    ]
+    result = described_class.new(rows, profile).to_h
+
+    expect(result['attempts_in_retry_after_window']).to eq 0
+    expect(result['unique_targets']).to eq 0
+  end
 end

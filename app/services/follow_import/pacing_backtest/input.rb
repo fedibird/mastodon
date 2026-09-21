@@ -4,7 +4,8 @@ require 'csv'
 
 # CSV loaders for exported Follow Import telemetry. Extra columns are
 # ignored. Required transport headers must be present; missing cells are
-# not coerced to zero.
+# not coerced to zero. Optional tick/dispatch fields are parsed once at
+# load time so malformed counts are complete and deterministic.
 module FollowImport
   class PacingBacktest
     class Input
@@ -28,11 +29,28 @@ module FollowImport
 
       REQUIRED_TICK_HEADERS = %w(observed_at).freeze
       REQUIRED_DISPATCH_HEADERS = %w(observed_at).freeze
+      TICK_INT_FIELDS = %w(
+        planned_count
+        claimed_count
+        global_base_budget
+        effective_global_budget
+        global_pending_count
+        historical_pending_count
+        operational_pending_count
+        planning_pending_count
+      ).freeze
+      DISPATCH_INT_FIELDS = %w(
+        claimed_count
+        candidate_count
+        global_pending_count
+        active_batch_count
+      ).freeze
 
       Dataset = Struct.new(
         :rows,
         :delivery_rows,
         :timed_rows,
+        :http_rows,
         :ticks,
         :dispatch_passes,
         :malformed_counts,
@@ -41,6 +59,46 @@ module FollowImport
         :warnings,
         keyword_init: true
       )
+
+      OptionalTable = Struct.new(:headers, :rows, keyword_init: true) do
+        def column?(name)
+          headers.include?(name.to_s)
+        end
+
+        def empty?
+          rows.empty?
+        end
+
+        def length
+          rows.length
+        end
+
+        def map(&block)
+          rows.map(&block)
+        end
+
+        def each(&block)
+          rows.each(&block)
+        end
+      end
+
+      ParsedRow = Struct.new(:row_number, :raw, :times, :ints, :headers, keyword_init: true) do
+        def [](key)
+          raw[key.to_s]
+        end
+
+        def time(key)
+          times[key.to_s]
+        end
+
+        def int(key)
+          ints[key.to_s]
+        end
+
+        def observed_at
+          time('observed_at')
+        end
+      end
 
       def self.load(**paths)
         new(paths).load
@@ -60,13 +118,15 @@ module FollowImport
 
         assign_ordinals!(delivery_rows)
         timed_rows = delivery_rows.select(&:timed?).sort_by { |row| [row.event_time.to_f, row.row_number] }
+        raise FollowImport::PacingBacktest::Error, 'no usable timed activitypub_delivery rows' if timed_rows.empty?
 
         Dataset.new(
           rows: rows,
           delivery_rows: delivery_rows,
           timed_rows: timed_rows,
-          ticks: optional_table(:ticks, 'TICKS', REQUIRED_TICK_HEADERS),
-          dispatch_passes: optional_table(:dispatch, 'DISPATCH', REQUIRED_DISPATCH_HEADERS),
+          http_rows: timed_rows.select(&:http?),
+          ticks: optional_table(:ticks, 'TICKS', REQUIRED_TICK_HEADERS, TICK_INT_FIELDS),
+          dispatch_passes: optional_table(:dispatch, 'DISPATCH', REQUIRED_DISPATCH_HEADERS, DISPATCH_INT_FIELDS),
           malformed_counts: @malformed_counts.dup,
           missing_target_id_count: delivery_rows.count { |row| row.target_id.blank? },
           input_files: input_files,
@@ -99,7 +159,7 @@ module FollowImport
         path
       end
 
-      def optional_table(key, env_name, required_headers)
+      def optional_table(key, env_name, required_headers, int_fields)
         path = @paths[key].to_s
         if path.strip.empty?
           @warnings << "#{env_name} not supplied; corresponding sections are unavailable rather than zero"
@@ -109,7 +169,7 @@ module FollowImport
           raise FollowImport::PacingBacktest::Error, "optional input file not found (#{env_name}): #{path}"
         end
 
-        read_generic(path, required_headers)
+        read_optional(path, env_name.downcase, required_headers, int_fields)
       end
 
       def load_transport(path)
@@ -166,7 +226,7 @@ module FollowImport
         end
       end
 
-      def read_generic(path, required_headers)
+      def read_optional(path, prefix, required_headers, int_fields)
         table = read_table(path)
         headers = Array(table.headers).map(&:to_s)
         missing = required_headers - headers
@@ -174,9 +234,25 @@ module FollowImport
           raise FollowImport::PacingBacktest::Error, "missing required headers in #{File.basename(path)}: #{missing.join(', ')}"
         end
 
-        table.each_with_index.map do |row, index|
-          GenericRow.new(index + 1, table.headers, row, @malformed_counts)
+        rows = table.each_with_index.map do |row, index|
+          parse_optional_row(row, index + 1, headers, prefix, int_fields)
         end
+        OptionalTable.new(headers: headers, rows: rows)
+      end
+
+      def parse_optional_row(row, row_number, headers, prefix, int_fields)
+        raw = {}
+        headers.each { |header| raw[header] = row[header] }
+        malformed = []
+        times = { 'observed_at' => parse_time(raw['observed_at'], "#{prefix}.observed_at", malformed) }
+        ints = {}
+        int_fields.each do |field|
+          next unless headers.include?(field)
+
+          ints[field] = parse_int(raw[field], "#{prefix}.#{field}", malformed)
+        end
+        record_malformed(malformed)
+        ParsedRow.new(row_number: row_number, raw: raw, times: times, ints: ints, headers: headers)
       end
 
       def read_table(path)
@@ -213,45 +289,6 @@ module FollowImport
 
       def record_malformed(fields)
         fields.uniq.each { |field| @malformed_counts[field] += 1 }
-      end
-
-      class GenericRow
-        attr_reader :row_number, :values
-
-        def initialize(row_number, headers, row, malformed_counts)
-          @row_number = row_number
-          @values = {}
-          headers.each do |header|
-            @values[header] = row[header]
-          end
-          @malformed_counts = malformed_counts
-        end
-
-        def [](key)
-          @values[key.to_s]
-        end
-
-        def time(key)
-          raw = self[key]
-          return if raw.to_s.strip.empty?
-
-          parsed = FollowImport::ObservationTime.parse(raw)
-          if parsed.nil?
-            @malformed_counts[key.to_s] += 1
-            return
-          end
-          parsed
-        end
-
-        def int(key)
-          raw = self[key]
-          return if raw.to_s.strip.empty?
-
-          Integer(raw.to_s.strip)
-        rescue ArgumentError, TypeError
-          @malformed_counts[key.to_s] += 1
-          nil
-        end
       end
     end
   end
