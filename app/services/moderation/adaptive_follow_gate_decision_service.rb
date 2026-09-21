@@ -23,10 +23,13 @@
 #     the policy; matched_rules carry each firing condition's value + minimum.
 #
 # Thresholds in DEFAULT_PARAMS are injectable. v1 calibrated delay routing
-# (velocity alone stays at rate_limit); other numbers remain initial.
+# (velocity alone stays at rate_limit). v2 calibrates moderator_review so
+# sustained collective rejection + continuation does not also require the
+# percentage-rate contribution to the rejection subscore. This remains shadow
+# proposal logic only; no enforcement is wired here.
 module Moderation
   class AdaptiveFollowGateDecisionService
-    POLICY_VERSION = 'follow-gate-decision-v1-2026-09-13'
+    POLICY_VERSION = 'follow-gate-decision-v2-2026-09-21'
 
     # Reversible frictions, ordered least -> most (used to pick the strongest
     # matched proposal). There is deliberately no "deny".
@@ -37,7 +40,14 @@ module Moderation
     DEFAULT_PARAMS = {
       # Strongest reversible friction: sustained rejection by multiple independent
       # responders AND continued contact after the first negative signal.
-      'moderator_review' => { 'rejection_min' => 0.8, 'repeat_behavior_min' => 0.6 },
+      #
+      # v2 calibration lowers rejection_min from 0.8 to 0.5. In the current
+      # RiskEvaluation policy, 0.5 already requires the absolute qualified-
+      # independent-responder signal (>=5); 0.8 additionally required the >=20%
+      # qualified response-rate contribution. Large campaigns can have hundreds
+      # of qualified responders while remaining below 20%, so moderator_review
+      # now relies on the absolute collective signal + repeat_behavior.
+      'moderator_review' => { 'rejection_min' => 0.5, 'repeat_behavior_min' => 0.6 },
       # Delay is FEEDBACK-AWARE, not volume-driven: it slows an attempt down so
       # rejection feedback can arrive before more follows. v1 calibration removed
       # the velocity-alone -> delay rule (backtests showed it caught legitimate
