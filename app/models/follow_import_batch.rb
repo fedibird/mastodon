@@ -120,30 +120,38 @@ class FollowImportBatch < ApplicationRecord
   # Durable "this batch has finished" mark. Written when the last target becomes
   # terminal (and as a sweeper backfill) so a late finish stays email-eligible
   # even after the recent-settlement lookback. Does not overwrite a first time.
+  # The row is reloaded under lock so a stale copy cannot drop resume keys.
   def record_completion!(at = Time.now.utc)
-    return if completion_recorded?
+    with_lock do
+      reload
+      return if completion_recorded?
 
-    update!(metadata: metadata.merge(COMPLETED_AT_KEY => at.utc.iso8601))
+      write_merged_metadata!({ COMPLETED_AT_KEY => at.utc.iso8601 })
+    end
   end
 
   def record_completion_if_settled!(at = Time.now.utc)
     with_lock do
+      reload
       return if completion_recorded?
       return unless targets.exists?
       return if targets.non_terminal.exists?
 
-      record_completion!(at)
+      write_merged_metadata!({ COMPLETED_AT_KEY => at.utc.iso8601 })
     end
   end
 
   def mark_completion_notified!(at = Time.now.utc)
-    update!(metadata: metadata.merge(COMPLETION_NOTIFIED_KEY => at.utc.iso8601))
+    merge_metadata!({ COMPLETION_NOTIFIED_KEY => at.utc.iso8601 })
   end
 
   # Post-approval handoff bookkeeping. required_at is written in the same
   # update that moves review_required -> ready. completed_at is written
   # only after the resume worker finishes its at-least-once handoff.
   # While required and not completed, the raw CSV must stay available.
+  # Metadata writes reload under the row lock. Completion and resume
+  # markers share this jsonb column, so a stale whole-hash write would
+  # drop the other marker and break CSV retention or resume recovery.
   def review_resume_required?
     metadata[REVIEW_RESUME_REQUIRED_AT_KEY].present?
   end
@@ -156,16 +164,37 @@ class FollowImportBatch < ApplicationRecord
     review_resume_required? && !review_resume_completed?
   end
 
+  # Joins an already-open transaction. Approve holds this row, then calls
+  # here, so ready and review_resume_required_at commit with the request.
   def mark_review_resume_required!(at = Time.now.utc)
-    update!(
-      preflight_state: :ready,
-      metadata: metadata.merge(REVIEW_RESUME_REQUIRED_AT_KEY => at.utc.iso8601)
+    merge_metadata!(
+      { REVIEW_RESUME_REQUIRED_AT_KEY => at.utc.iso8601 },
+      preflight_state: :ready
     )
   end
 
   def mark_review_resume_completed!(at = Time.now.utc)
-    return if review_resume_completed?
+    with_lock do
+      reload
+      return if review_resume_completed?
 
-    update!(metadata: metadata.merge(REVIEW_RESUME_COMPLETED_AT_KEY => at.utc.iso8601))
+      write_merged_metadata!({ REVIEW_RESUME_COMPLETED_AT_KEY => at.utc.iso8601 })
+    end
+  end
+
+  private
+
+  # Lock, reload, then merge. Callers that already hold the row lock use
+  # write_merged_metadata! so record_completion_if_settled! does not nest
+  # another lock around the same write.
+  def merge_metadata!(attrs, **columns)
+    with_lock do
+      write_merged_metadata!(attrs, **columns)
+    end
+  end
+
+  def write_merged_metadata!(attrs, **columns)
+    reload
+    update!(columns.merge(metadata: metadata.merge(attrs)))
   end
 end
