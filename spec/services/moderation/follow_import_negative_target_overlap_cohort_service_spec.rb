@@ -32,6 +32,13 @@ RSpec.describe Moderation::FollowImportNegativeTargetOverlapCohortService do
   def match_row(same_subject:, overlap_count:, **attrs)
     snapshot_id = attrs.fetch(:snapshot_id, 1)
     complete = attrs.fetch(:complete, true)
+    reported = if complete.nil?
+                 nil
+               elsif complete
+                 4
+               else
+                 12
+               end
     {
       'snapshot_id'                           => snapshot_id,
       'historical_subject_id'                 => attrs.fetch(:historical_subject_id, 9),
@@ -40,7 +47,7 @@ RSpec.describe Moderation::FollowImportNegativeTargetOverlapCohortService do
       'action_types'                          => ['suspend'],
       'latest_action_performed_at'            => imported_at - 1.day,
       'stored_linked_negative_target_count'   => 4,
-      'reported_linked_negative_target_count' => complete.nil? ? nil : (complete ? 4 : 12),
+      'reported_linked_negative_target_count' => reported,
       'historical_fingerprint_complete'       => complete,
       'overlap_count'                         => overlap_count,
       'current_target_overlap_ratio'          => attrs[:ratio] || (overlap_count / 4.0),
