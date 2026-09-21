@@ -56,7 +56,7 @@ module FollowImport
       def ratio(numerator, denominator)
         return if numerator.nil? || denominator.nil? || denominator.to_f.zero?
 
-        (numerator.to_f / denominator.to_f).round(6)
+        (numerator.to_f / denominator).round(6)
       end
     end
   end

@@ -152,10 +152,10 @@ module FollowImport
         }
       end
 
-      def top_share(counts, n, total)
+      def top_share(counts, limit, total)
         return if total.to_i <= 0
 
-        Distribution.ratio(counts.first(n).reduce(0, :+), total)
+        Distribution.ratio(counts.first(limit).reduce(0, :+), total)
       end
 
       def latency_section(firsts, timed)

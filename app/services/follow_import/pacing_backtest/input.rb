@@ -128,9 +128,7 @@ module FollowImport
         request_started_at = parse_time(row['request_started_at'], 'request_started_at', malformed)
         started_at = parse_time(row['started_at'], 'started_at', malformed)
         event_time = request_started_at || started_at
-        record_malformed(malformed)
-
-        Attempt.new(
+        attempt = Attempt.new(
           row_number: row_number,
           phase: blank_to_nil(row['phase']),
           target_id: blank_to_nil(row['target_id']),
@@ -151,6 +149,8 @@ module FollowImport
           attempt_ordinal: nil,
           malformed_fields: malformed.uniq
         )
+        record_malformed(attempt.malformed_fields)
+        attempt
       end
 
       def assign_ordinals!(rows)

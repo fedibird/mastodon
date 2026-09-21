@@ -16,7 +16,7 @@ module FollowImport
       def to_h
         states = {}
         in_retry_after = 0
-        in_recent_429 = 0
+        in_recent_cooldown = 0
         firsts = 0
         retries = 0
         targets = {}
@@ -28,7 +28,7 @@ module FollowImport
             if state.reason == 'retry_after'
               in_retry_after += 1
             elsif state.reason == 'recent_429'
-              in_recent_429 += 1
+              in_recent_cooldown += 1
             end
             firsts += 1 if row.first_attempt?
             retries += 1 if row.retry_attempt?
@@ -46,7 +46,7 @@ module FollowImport
 
         {
           'attempts_in_retry_after_window' => in_retry_after,
-          'attempts_in_recent_429_window' => in_recent_429,
+          'attempts_in_recent_429_window' => in_recent_cooldown,
           'unique_targets' => targets.length,
           'first_attempts_in_window' => firsts,
           'retry_attempts_in_window' => retries,

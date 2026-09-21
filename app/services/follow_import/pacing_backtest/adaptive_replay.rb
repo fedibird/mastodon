@@ -252,7 +252,6 @@ module FollowImport
           @success_credits = []
         end
 
-
         def observe_before(view, event)
           @stale_resets += 1 if view.source == FollowImport::AdaptiveRemoteController::SOURCE_STALE_RESET
           return unless FollowImport::AdaptiveRemoteObservation.mutating?(event)

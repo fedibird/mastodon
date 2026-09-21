@@ -60,7 +60,7 @@ module FollowImport
       end
 
       def json_text
-        JSON.pretty_generate(@result) + "\n"
+        "#{JSON.pretty_generate(@result)}\n"
       end
 
       private

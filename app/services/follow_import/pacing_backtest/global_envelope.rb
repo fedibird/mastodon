@@ -26,7 +26,7 @@ module FollowImport
           unix = observed_at.to_i
           minutes[unix - (unix % @bucket_seconds)] += claimed
         end
-        active = minutes.values.select { |count| count.positive? }
+        active = minutes.values.select(&:positive?)
         return unavailable('no claimed_count samples with usable observed_at') if active.empty?
 
         excess_minutes = active.count { |count| count > @global_budget }
