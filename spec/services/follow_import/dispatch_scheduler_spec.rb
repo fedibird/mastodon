@@ -13,7 +13,7 @@ RSpec.describe FollowImport::DispatchScheduler do # rubocop:disable Metrics/Bloc
   end
   let(:batch) do
     FollowImportBatch.create!(subject: importer_subject, import_id: import_record.id, imported_at: Time.now.utc,
-                              mode: :merge, target_count: 0, resolved_target_count: 0, unresolved_target_count: 0)
+                              mode: :merge, dispatch_cohort: :operational, target_count: 0, resolved_target_count: 0, unresolved_target_count: 0)
   end
 
   def add_target(position, **attrs)
@@ -136,6 +136,8 @@ RSpec.describe FollowImport::DispatchScheduler do # rubocop:disable Metrics/Bloc
       expect(observation.load_snapshot.dig('queues', 'push', 'size')).to eq 1
       expect(observation.execution_config['dispatch_shadow_enabled']).to eq true
       expect(observation.execution_config['lease_strategy']).to eq FollowImport::DispatchLease::STRATEGY
+      expect(observation.execution_config['schema_version']).to eq FollowImport::DispatchTickObserver::SCHEMA_VERSION
+      expect(observation.execution_config['backlog_scope_strategy']).to eq FollowImport::DispatchTickObserver::BACKLOG_SCOPE_STRATEGY
       expect(observation.execution_config['shadow_plan_budget']).to eq FollowImport::ExecutionPolicy.shadow_plan_budget
       expect(observation.execution_config['plan_algorithm']).to eq 'account_first_rr'
       expect(observation.execution_config['dispatch_shadow_interval']).to eq FollowImport::ExecutionPolicy.dispatch_shadow_interval.to_i
@@ -229,8 +231,9 @@ RSpec.describe FollowImport::DispatchScheduler do # rubocop:disable Metrics/Bloc
   describe 'when a backlog count cannot be measured' do
     before do
       allow(FollowImport::ExecutionPolicy).to receive(:dispatch_shadow_enabled?).and_return(true)
-      allow(FollowImport::DispatchCounts).to receive(:global_pending).and_return(nil)
-      allow(FollowImport::DispatchCounts).to receive(:active_batches).and_return(nil)
+      allow(FollowImport::DispatchCounts).to receive(:backlog_snapshot).and_return(
+        FollowImport::DispatchCounts::BacklogSnapshot.unmeasured
+      )
       add_target(0)
     end
 
@@ -240,6 +243,12 @@ RSpec.describe FollowImport::DispatchScheduler do # rubocop:disable Metrics/Bloc
       observation = FollowImportDispatchTickObservation.last
       expect(observation.global_pending_count).to be_nil
       expect(observation.active_batch_count).to be_nil
+      expect(observation.historical_pending_count).to be_nil
+      expect(observation.operational_pending_count).to be_nil
+      expect(observation.planning_pending_count).to be_nil
+      expect(observation.historical_active_batch_count).to be_nil
+      expect(observation.operational_active_batch_count).to be_nil
+      expect(observation.planning_active_batch_count).to be_nil
       expect(observation.claimed_count).to eq 0
     end
   end
@@ -323,6 +332,7 @@ RSpec.describe FollowImport::DispatchScheduler do # rubocop:disable Metrics/Bloc
         subject: ModerationSubject.for_account!(account),
         imported_at: Time.now.utc,
         mode: :merge,
+        dispatch_cohort: :operational,
         target_count: 0,
         resolved_target_count: 0,
         unresolved_target_count: 0
@@ -671,6 +681,61 @@ RSpec.describe FollowImport::DispatchScheduler do # rubocop:disable Metrics/Bloc
       expect(dispatch.local_load_fallback_used).to eq true
       expect(dispatch.local_load_state).to eq 'unknown'
       expect(pending_target.reload.state).to eq 'queued'
+    end
+  end
+
+  describe 'operational cohort planning' do
+    def historical_batch_for(account)
+      FollowImportBatch.create!(
+        subject: ModerationSubject.for_account!(account),
+        imported_at: Time.now.utc,
+        mode: :merge,
+        dispatch_owner: :legacy,
+        dispatch_cohort: :historical,
+        target_count: 0,
+        resolved_target_count: 0,
+        unresolved_target_count: 0
+      )
+    end
+
+    before do
+      allow(FollowImport::ExecutionPolicy).to receive(:dispatch_shadow_enabled?).and_return(true)
+      allow(FollowImport::ExecutionPolicy).to receive(:shadow_plan_budget).and_return(10)
+    end
+
+    it 'plans only operational pending and leaves historical rows untouched' do
+      historical_account = Fabricate(:account)
+      historical_batch = historical_batch_for(historical_account)
+      historical_target = historical_batch.targets.create!(target_key_hash: 'historical', position: 0, destination_domain: 'old.test')
+      operational_target = add_target(0, destination_domain: 'live.test')
+      written = nil
+      allow_any_instance_of(FollowImport::FairnessCursor).to receive(:write).and_wrap_original do |method, state, **kwargs|
+        written = kwargs
+        method.call(state, **kwargs)
+      end
+
+      result = scheduler.call
+      observation = FollowImportDispatchTickObservation.last
+
+      expect(result.plan.planned_count).to eq 1
+      expect(result.plan.entries.map(&:batch_id)).to eq [batch.id]
+      expect(result.plan.entries.map(&:target_id)).to eq [operational_target.id]
+      expect(historical_target.reload.state).to eq 'pending'
+      expect(operational_target.reload.state).to eq 'pending'
+      expect(written[:active_batch_ids]).to contain_exactly(batch.id)
+      expect(written[:active_owner_keys]).to contain_exactly(FollowImport::OwnerKey.for_batch(batch).to_s)
+      expect(written[:active_owner_keys]).not_to include(FollowImport::OwnerKey.for_batch(historical_batch).to_s)
+      expect(observation.global_pending_count).to eq 2
+      expect(observation.active_batch_count).to eq 2
+      expect(observation.historical_pending_count).to eq 1
+      expect(observation.historical_active_batch_count).to eq 1
+      expect(observation.operational_pending_count).to eq 1
+      expect(observation.operational_active_batch_count).to eq 1
+      expect(observation.planning_pending_count).to eq 1
+      expect(observation.planning_active_batch_count).to eq 1
+      expect(observation.execution_config['schema_version']).to eq 10
+      expect(observation.execution_config['backlog_scope_strategy']).to eq 'dispatch_cohort_v1'
+      expect(Import::RelationshipWorker).not_to have_received(:perform_async)
     end
   end
 end

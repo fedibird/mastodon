@@ -291,10 +291,11 @@ No repository number is a calibrated production recommendation.
 One row per **global** `FollowImport::DispatchScheduler` tick.
 This is not a per-batch `BatchExecutionWorker` pass.
 
-Tick schema version **9**. Historical rows keep their original meaning:
+Tick schema version **10**. Historical rows keep their original meaning:
 older `scheduler_mode=shadow` rows always meant planned-but-not-claimed.
 Do not rewrite them. `scheduler_mode=global` means planned **and**
-actual claims.
+actual claims. Schema 10 adds scoped backlog columns; it does not
+redefine `global_pending_count` / `active_batch_count`.
 
 | column | meaning |
 |---|---|
@@ -303,8 +304,11 @@ actual claims.
 | `scheduler_mode` | `shadow` or `global` |
 | `lease_acquired` | whether this tick held the durable dispatcher lease (`lease_strategy=durable_row_v1` in `execution_config`) |
 | `outcome` | `lease_busy` / `shadow_observed` / `shadow_error` / `global_observed` / `global_error` |
-| `global_pending_count` | pending targets across batches; NULL if unmeasured |
-| `active_batch_count` | distinct batches with a pending target; NULL if unmeasured |
+| `global_pending_count` | pending targets across **all** batches (all-universe diagnostic); NULL if unmeasured |
+| `active_batch_count` | distinct batches with a pending target across **all** cohorts; NULL if unmeasured |
+| `historical_pending_count` / `historical_active_batch_count` | pending rows / active batches in `dispatch_cohort=historical`; 0 = observed empty; NULL if unmeasured |
+| `operational_pending_count` / `operational_active_batch_count` | pending rows / active batches in `dispatch_cohort=operational`, regardless of owner |
+| `planning_pending_count` / `planning_active_batch_count` | pending rows / active batches in this tick's planning scope (SHADOW = operational all owners; GLOBAL = operational + scheduler-owned) |
 | `claimed_count` | shadow: always 0 (writer-enforced). global: actual successful enqueues |
 | `planned_count` | account-first simulation size; NULL if planning was not attempted |
 | `planned_owner_count` / `planned_batch_count` | distinct owners/batches that received a plan slot |
@@ -322,7 +326,7 @@ actual claims.
 | `local_load_fallback_used` | true when the v2 fallback was applied; NULL if not evaluated |
 | `global_base_budget` | GLOBAL tick unadjusted ceiling; NULL in shadow / unplanned ticks |
 | `effective_global_budget` | GLOBAL budget after LocalLoadEnforcement; NULL in shadow / unplanned ticks |
-| `skipped_stale_count` / `skipped_unrecoverable_count` / `skipped_wrong_owner_count` | GLOBAL claim skips; NULL when claiming was not attempted |
+| `skipped_stale_count` / `skipped_unrecoverable_count` / `skipped_wrong_owner_count` | GLOBAL claim skips; NULL when claiming was not attempted. `skipped_wrong_owner_count` is the claim-scope skip: the batch is not (`operational` AND `scheduler-owned`). A wrong cohort is counted here; it is not a distinct owner-axis event. |
 | `remote_admission_enabled` | whether the GLOBAL tick considered the remote-admission flag; NULL if not evaluated (shadow / no-op) |
 | `remote_admission_configured` | whether a valid RemoteAdmission profile was present; NULL if not evaluated |
 | `remote_profile_version` | profile schema version when configured; NULL otherwise |
@@ -341,7 +345,7 @@ actual claims.
 | `adaptive_runtime_unavailable_count` | shadow reads that fell back because Redis was unavailable |
 | `adaptive_destination_cap_min` / `max` / `adaptive_origin_cap_min` / `max` | identity-free cap aggregates for the tick |
 | `load_snapshot` | Sidekiq load facts, or NULL if capture failed |
-| `execution_config` | execution + shadow-flag snapshot, including `dispatch_shadow_interval` from `FollowImport::ExecutionPolicy` (same ENV/default as `config/sidekiq.yml`) and `lease_strategy` (`durable_row_v1`). PR F adds `remote_admission_enforcement_enabled`, `remote_admission_profile_version`, `remote_admission_profile_digest`, `destination_per_tick_cap`, `origin_per_tick_cap`, `max_scan_targets`, `max_scan_windows`. PR G adds `adaptive_remote_shadow_enabled`, `adaptive_profile_schema_version`, `adaptive_profile_digest`. Do not store the raw profile JSON. State-source aggregates (`learned` / `initial` / `stale_reset` / `digest_reset` / `runtime_unavailable`) live in `metadata`. |
+| `execution_config` | execution + shadow-flag snapshot, including `dispatch_shadow_interval` from `FollowImport::ExecutionPolicy` (same ENV/default as `config/sidekiq.yml`) and `lease_strategy` (`durable_row_v1`). I2 adds `backlog_scope_strategy=dispatch_cohort_v1` and tick `schema_version` 10. PR F adds `remote_admission_enforcement_enabled`, `remote_admission_profile_version`, `remote_admission_profile_digest`, `destination_per_tick_cap`, `origin_per_tick_cap`, `max_scan_targets`, `max_scan_windows`. PR G adds `adaptive_remote_shadow_enabled`, `adaptive_profile_schema_version`, `adaptive_profile_digest`. Do not store the raw profile JSON. State-source aggregates (`learned` / `initial` / `stale_reset` / `digest_reset` / `runtime_unavailable`) live in `metadata`. |
 | `error_class` | exception class for `shadow_error` |
 | `metadata` | schema version plus non-identifying facts |
 

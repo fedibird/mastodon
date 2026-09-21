@@ -5,7 +5,7 @@ require 'rails_helper'
 # PR G shadow adaptive pacing. Test-only numbers are fixtures, not
 # production defaults. Actual claimed targets must stay identical
 # whether the adaptive sidecar is on or off.
-RSpec.describe FollowImport::DispatchScheduler, 'adaptive remote shadow' do
+RSpec.describe FollowImport::DispatchScheduler, 'adaptive remote shadow' do # rubocop:disable Metrics/BlockLength
   subject(:scheduler) { described_class.new }
 
   def create_import(account)
@@ -24,6 +24,7 @@ RSpec.describe FollowImport::DispatchScheduler, 'adaptive remote shadow' do
       imported_at: Time.now.utc,
       mode: :merge,
       dispatch_owner: owner,
+      dispatch_cohort: :operational,
       target_count: 0,
       resolved_target_count: 0,
       unresolved_target_count: 0

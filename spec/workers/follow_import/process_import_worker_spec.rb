@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe FollowImport::ProcessImportWorker do
+RSpec.describe FollowImport::ProcessImportWorker do # rubocop:disable Metrics/BlockLength
   subject(:worker) { described_class.new }
 
   let(:account) { Fabricate(:account) }
@@ -31,6 +31,31 @@ RSpec.describe FollowImport::ProcessImportWorker do
     expect(batch).to be_present
     expect(batch.legacy_dispatch_owner?).to be true
     expect(FollowImport::BatchExecutionWorker).to have_received(:perform_async).with(batch.id)
+    expect(Import.exists?(import.id)).to be true
+  end
+
+  it 'does not enqueue BatchExecutionWorker or mutate targets when retrying a historical legacy import' do
+    import = create_follow_import
+    batch = FollowImportBatch.create!(
+      subject: ModerationSubject.for_account!(account),
+      import_id: import.id,
+      imported_at: Time.now.utc,
+      mode: :merge,
+      dispatch_owner: :legacy,
+      dispatch_cohort: :historical,
+      target_count: 0,
+      resolved_target_count: 0,
+      unresolved_target_count: 0
+    )
+    target = batch.targets.create!(target_key_hash: 'historical-retry', position: 0)
+
+    worker.perform(import.id)
+
+    expect(batch.reload.legacy_dispatch_owner?).to be true
+    expect(batch.historical_dispatch_cohort?).to be true
+    expect(target.reload.state).to eq 'pending'
+    expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+    expect(Import::RelationshipWorker).not_to have_received(:perform_async)
     expect(Import.exists?(import.id)).to be true
   end
 

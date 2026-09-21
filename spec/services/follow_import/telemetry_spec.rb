@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe FollowImport::Telemetry do
+RSpec.describe FollowImport::Telemetry do # rubocop:disable Metrics/BlockLength
   it 'swallows transport insert failures and logs a warning' do
     allow(FollowImportTransportObservation).to receive(:create!).and_raise(ActiveRecord::StatementInvalid, 'boom')
     allow(Rails.logger).to receive(:warn)
@@ -132,6 +132,62 @@ RSpec.describe FollowImport::Telemetry do
     expect(row.claimed_count).to eq 0
   end
 
+  it 'persists scoped tick backlog 0 without coercing sibling NULLs' do
+    row = described_class.record_dispatch_tick(
+      tick_id: 'tick-scoped',
+      outcome: 'shadow_observed',
+      scheduler_mode: 'shadow',
+      lease_acquired: true,
+      global_pending_count: 4,
+      active_batch_count: 2,
+      historical_pending_count: 4,
+      operational_pending_count: 0,
+      planning_pending_count: 0,
+      historical_active_batch_count: 2,
+      operational_active_batch_count: 0,
+      planning_active_batch_count: 0,
+      execution_config: {
+        'schema_version' => FollowImport::DispatchTickObserver::SCHEMA_VERSION,
+        'backlog_scope_strategy' => FollowImport::DispatchTickObserver::BACKLOG_SCOPE_STRATEGY,
+      }
+    )
+
+    expect(row.global_pending_count).to eq 4
+    expect(row.historical_pending_count).to eq 4
+    expect(row.operational_pending_count).to eq 0
+    expect(row.planning_pending_count).to eq 0
+    expect(row.historical_active_batch_count).to eq 2
+    expect(row.operational_active_batch_count).to eq 0
+    expect(row.planning_active_batch_count).to eq 0
+    expect(row.execution_config['schema_version']).to eq 10
+    expect(row.execution_config['backlog_scope_strategy']).to eq 'dispatch_cohort_v1'
+  end
+
+  it 'persists NULL scoped tick backlog counts instead of coercing them to zero' do
+    row = described_class.record_dispatch_tick(
+      tick_id: 'tick-scoped-nil',
+      outcome: 'global_observed',
+      scheduler_mode: 'global',
+      lease_acquired: true,
+      global_pending_count: nil,
+      active_batch_count: nil,
+      historical_pending_count: nil,
+      operational_pending_count: nil,
+      planning_pending_count: nil,
+      historical_active_batch_count: nil,
+      operational_active_batch_count: nil,
+      planning_active_batch_count: nil
+    )
+
+    expect(row.historical_pending_count).to be_nil
+    expect(row.operational_pending_count).to be_nil
+    expect(row.planning_pending_count).to be_nil
+    expect(row.historical_active_batch_count).to be_nil
+    expect(row.operational_active_batch_count).to be_nil
+    expect(row.planning_active_batch_count).to be_nil
+    expect(row.claimed_count).to eq 0
+  end
+
   it 'persists nil plan aggregates instead of coercing them to zero' do
     row = described_class.record_dispatch_tick(
       tick_id: 'tick-plan-nil',
@@ -152,4 +208,3 @@ RSpec.describe FollowImport::Telemetry do
     expect(row.claimed_count).to eq 0
   end
 end
-

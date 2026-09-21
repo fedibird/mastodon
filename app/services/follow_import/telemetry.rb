@@ -75,7 +75,7 @@ module FollowImport
         }
       end
 
-      def dispatch_tick_attributes(attrs)
+      def dispatch_tick_attributes(attrs) # rubocop:disable Metrics/MethodLength
         mode = attrs[:scheduler_mode].to_s
         mode = 'shadow' if mode.blank?
 
@@ -87,6 +87,12 @@ module FollowImport
           outcome: attrs[:outcome],
           global_pending_count: attrs[:global_pending_count],
           active_batch_count: attrs[:active_batch_count],
+          historical_pending_count: attrs[:historical_pending_count],
+          operational_pending_count: attrs[:operational_pending_count],
+          planning_pending_count: attrs[:planning_pending_count],
+          historical_active_batch_count: attrs[:historical_active_batch_count],
+          operational_active_batch_count: attrs[:operational_active_batch_count],
+          planning_active_batch_count: attrs[:planning_active_batch_count],
           # Shadow mode never claims. Force 0 even if a buggy caller
           # supplies another value. Global mode persists the actual
           # successfully-enqueued count (0 is a real observation).

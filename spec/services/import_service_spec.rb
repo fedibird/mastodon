@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
-RSpec.describe ImportService, type: :service do
+RSpec.describe ImportService, type: :service do # rubocop:disable Metrics/BlockLength
   include RoutingHelper
 
   let!(:account) { Fabricate(:account, locked: false) }
@@ -8,7 +10,7 @@ RSpec.describe ImportService, type: :service do
   let!(:eve)     { Fabricate(:account, username: 'eve', domain: 'example.com', locked: false, protocol: :activitypub, inbox_url: 'https://example.com/inbox') }
 
   before do
-    stub_request(:post, "https://example.com/inbox").to_return(status: 200)
+    stub_request(:post, 'https://example.com/inbox').to_return(status: 200)
   end
 
   context 'import old-style list of muted users' do
@@ -218,7 +220,7 @@ RSpec.describe ImportService, type: :service do
   # ImportService boundary; the executor -> RelationshipWorker -> FollowService
   # -> ledger legs are covered in batch_execution_worker_spec,
   # relationship_worker_spec, and interaction_hooks_spec.
-  context 'follow-import controlled execution' do
+  context 'follow-import controlled execution' do # rubocop:disable Metrics/BlockLength
     subject { ImportService.new }
 
     let(:csv_text) { "Account address,Show boosts\nbob,true\neve@example.com,false" }
@@ -228,13 +230,14 @@ RSpec.describe ImportService, type: :service do
       allow_any_instance_of(described_class).to receive(:import_data).and_return(csv_text)
     end
 
-    def create_owned_batch(import_record, dispatch_owner:)
+    def create_owned_batch(import_record, dispatch_owner:, dispatch_cohort: :historical)
       FollowImportBatch.create!(
         subject: ModerationSubject.for_account!(account),
         import_id: import_record.id,
         imported_at: Time.now.utc,
         mode: :merge,
         dispatch_owner: dispatch_owner,
+        dispatch_cohort: dispatch_cohort,
         target_count: 0,
         resolved_target_count: 0,
         unresolved_target_count: 0
@@ -408,6 +411,44 @@ RSpec.describe ImportService, type: :service do
       expect(lookups).to be >= 2
       expect(batch.reload.scheduler_dispatch_owner?).to be true
       expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+      expect(Import::RelationshipWorker).not_to have_received(:push_bulk)
+    end
+
+    it 'does not enqueue BatchExecutionWorker when retrying a historical legacy batch' do
+      batch = create_owned_batch(import, dispatch_owner: :legacy, dispatch_cohort: :historical)
+      pending = batch.targets.create!(target_key_hash: 'historical-pending', position: 0)
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:push_bulk)
+
+      subject.call(import)
+
+      expect(batch.reload.legacy_dispatch_owner?).to be true
+      expect(batch.historical_dispatch_cohort?).to be true
+      expect(pending.reload.state).to eq 'pending'
+      expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+      expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+      expect(Import::RelationshipWorker).not_to have_received(:push_bulk)
+    end
+
+    it 'does not replay overwrite unfollows when retrying a historical batch' do
+      other = Fabricate(:account, username: 'carol')
+      account.follow!(other)
+      batch = create_owned_batch(import, dispatch_owner: :legacy, dispatch_cohort: :historical)
+      pending = batch.targets.create!(target_key_hash: 'historical-overwrite', position: 0)
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:push_bulk)
+
+      import.update!(overwrite: true)
+      subject.call(import)
+
+      expect(batch.reload.historical_dispatch_cohort?).to be true
+      expect(batch.legacy_dispatch_owner?).to be true
+      expect(pending.reload.state).to eq 'pending'
+      expect(account.following?(other)).to be true
+      expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+      expect(Import::RelationshipWorker).not_to have_received(:perform_async)
       expect(Import::RelationshipWorker).not_to have_received(:push_bulk)
     end
   end

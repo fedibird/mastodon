@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe FollowImport::DispatchPlan do
+RSpec.describe FollowImport::DispatchPlan do # rubocop:disable Metrics/BlockLength
   it 'keeps claimed_count at 0 and leaves planned_count nil when planning was not attempted' do
     plan = described_class.observe(
       observed_at: Time.utc(2026, 9, 15, 12, 0, 0),
@@ -15,6 +15,8 @@ RSpec.describe FollowImport::DispatchPlan do
     expect(plan.planned_count).to be_nil
     expect(plan.planned_owner_count).to be_nil
     expect(plan.executable_owner_count).to be_nil
+    expect(plan.historical_pending_count).to be_nil
+    expect(plan.planning_pending_count).to be_nil
   end
 
   it 'exposes in-memory plan aggregates without claiming' do
@@ -27,6 +29,12 @@ RSpec.describe FollowImport::DispatchPlan do
       observed_at: Time.now.utc,
       global_pending_count: 3,
       active_batch_count: 3,
+      historical_pending_count: 2,
+      operational_pending_count: 1,
+      planning_pending_count: 1,
+      historical_active_batch_count: 2,
+      operational_active_batch_count: 1,
+      planning_active_batch_count: 1,
       execution_config: {},
       planning: {
         planned: true,
@@ -44,6 +52,12 @@ RSpec.describe FollowImport::DispatchPlan do
     expect(plan.planned_batch_count).to eq 3
     expect(plan.executable_owner_count).to eq 100
     expect(plan.executable_batch_count).to eq 40
+    expect(plan.historical_pending_count).to eq 2
+    expect(plan.operational_pending_count).to eq 1
+    expect(plan.planning_pending_count).to eq 1
+    expect(plan.historical_active_batch_count).to eq 2
+    expect(plan.operational_active_batch_count).to eq 1
+    expect(plan.planning_active_batch_count).to eq 1
     expect(plan.unique_destination_count).to eq 2
     expect(plan.local_load_state).to be_nil
     expect(plan.effective_shadow_plan_budget).to be_nil

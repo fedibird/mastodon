@@ -17,25 +17,39 @@
 module FollowImport
   class DispatchPlan
     attr_reader :observed_at, :global_pending_count, :active_batch_count, :execution_config,
+                :historical_pending_count, :operational_pending_count, :planning_pending_count,
+                :historical_active_batch_count, :operational_active_batch_count, :planning_active_batch_count,
                 :entries, :skipped_missing_owner_count, :fairness_state_source, :shadow_plan_budget,
                 :effective_shadow_plan_budget, :local_load, :scheduler_mode, :global_base_budget,
                 :effective_global_budget
 
-    def self.observe(observed_at:, global_pending_count:, active_batch_count:, execution_config:, planning: {})
+    def self.observe(observed_at:, global_pending_count:, active_batch_count:, execution_config:, planning: {}, historical_pending_count: nil, operational_pending_count: nil, planning_pending_count: nil, historical_active_batch_count: nil, operational_active_batch_count: nil, planning_active_batch_count: nil) # rubocop:disable Metrics/ParameterLists
       new(
         observed_at: observed_at,
         global_pending_count: global_pending_count,
         active_batch_count: active_batch_count,
+        historical_pending_count: historical_pending_count,
+        operational_pending_count: operational_pending_count,
+        planning_pending_count: planning_pending_count,
+        historical_active_batch_count: historical_active_batch_count,
+        operational_active_batch_count: operational_active_batch_count,
+        planning_active_batch_count: planning_active_batch_count,
         execution_config: execution_config,
         planning: planning
       )
     end
 
-    def initialize(observed_at:, global_pending_count:, active_batch_count:, execution_config:, planning: {})
+    def initialize(observed_at:, global_pending_count:, active_batch_count:, execution_config:, planning: {}, historical_pending_count: nil, operational_pending_count: nil, planning_pending_count: nil, historical_active_batch_count: nil, operational_active_batch_count: nil, planning_active_batch_count: nil) # rubocop:disable Metrics/ParameterLists
       planning = planning.to_h.symbolize_keys
       @observed_at = observed_at
       @global_pending_count = global_pending_count
       @active_batch_count = active_batch_count
+      @historical_pending_count = historical_pending_count
+      @operational_pending_count = operational_pending_count
+      @planning_pending_count = planning_pending_count
+      @historical_active_batch_count = historical_active_batch_count
+      @operational_active_batch_count = operational_active_batch_count
+      @planning_active_batch_count = planning_active_batch_count
       @execution_config = execution_config
       @planned = planning.fetch(:planned, false)
       @entries = planning[:entries] || []

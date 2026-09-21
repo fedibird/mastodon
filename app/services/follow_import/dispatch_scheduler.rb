@@ -23,7 +23,7 @@
 # Authoritative pending->queued is fenced in DispatchExecutor against
 # the same singleton row. Session advisory locks are not used.
 module FollowImport
-  class DispatchScheduler
+  class DispatchScheduler # rubocop:disable Metrics/ClassLength
     OUTCOME_SHADOW_DISABLED = 'shadow_disabled'
     OUTCOME_LEASE_BUSY      = 'lease_busy'
     OUTCOME_SHADOW_OBSERVED = 'shadow_observed'
@@ -143,7 +143,7 @@ module FollowImport
       if mode == :global
         base_budget = FollowImport::ExecutionPolicy.global_dispatch_budget
         resolved = global_local_load(load_snapshot, base_budget)
-        batch_scope = FollowImportBatch.scheduler_owned
+        batch_scope = FollowImportBatch.global_planning_scope
         budget_attrs = {
           global_base_budget: base_budget,
           effective_global_budget: resolved.effective_budget,
@@ -151,7 +151,7 @@ module FollowImport
       else
         base_budget = FollowImport::ExecutionPolicy.shadow_plan_budget
         resolved = shadow_local_load(load_snapshot, base_budget)
-        batch_scope = FollowImportBatch.all
+        batch_scope = FollowImportBatch.shadow_planning_scope
         budget_attrs = {
           shadow_plan_budget: base_budget,
           effective_shadow_plan_budget: resolved.effective_budget,
@@ -178,6 +178,7 @@ module FollowImport
           executable_owner_count: nil,
           executable_batch_count: nil,
           measure_backlog: false,
+          batch_scope: batch_scope,
           remote: cheap_remote_identity(mode)
         )
       end
@@ -215,15 +216,28 @@ module FollowImport
         executable_owner_count: owners.size,
         executable_batch_count: owners.sum { |owner| owner[:batches].size },
         measure_backlog: true,
+        batch_scope: batch_scope,
         remote: remote_plan_facts(remote, scheduled)
       )
     end
 
-    def observe_plan(observed_at:, decision:, resolved:, budget_attrs:, scheduler_mode:, entries:, skipped_missing_owner_count:, fairness_state_source:, executable_owner_count:, executable_batch_count:, measure_backlog:, remote: {}) # rubocop:disable Metrics/ParameterLists
+    def observe_plan(observed_at:, decision:, resolved:, budget_attrs:, scheduler_mode:, entries:, skipped_missing_owner_count:, fairness_state_source:, executable_owner_count:, executable_batch_count:, measure_backlog:, batch_scope:, remote: {}) # rubocop:disable Metrics/ParameterLists
+      backlog = if measure_backlog
+                  FollowImport::DispatchCounts.backlog_snapshot(planning_scope: batch_scope)
+                else
+                  FollowImport::DispatchCounts::BacklogSnapshot.unmeasured
+                end
+
       FollowImport::DispatchPlan.observe(
         observed_at: observed_at,
-        global_pending_count: measure_backlog ? FollowImport::DispatchCounts.global_pending : nil,
-        active_batch_count: measure_backlog ? FollowImport::DispatchCounts.active_batches : nil,
+        global_pending_count: backlog.global_pending_count,
+        active_batch_count: backlog.active_batch_count,
+        historical_pending_count: backlog.historical_pending_count,
+        operational_pending_count: backlog.operational_pending_count,
+        planning_pending_count: backlog.planning_pending_count,
+        historical_active_batch_count: backlog.historical_active_batch_count,
+        operational_active_batch_count: backlog.operational_active_batch_count,
+        planning_active_batch_count: backlog.planning_active_batch_count,
         execution_config: execution_config.merge(
           'local_load_profile_digest' => decision&.profile_digest,
           'local_load_profile_source' => decision&.profile_source
@@ -308,6 +322,7 @@ module FollowImport
         'shadow_plan_budget' => FollowImport::ExecutionPolicy.shadow_plan_budget,
         'global_dispatch_budget' => FollowImport::ExecutionPolicy.global_dispatch_budget,
         'lease_strategy' => FollowImport::DispatchLease::STRATEGY,
+        'backlog_scope_strategy' => FollowImport::DispatchTickObserver::BACKLOG_SCOPE_STRATEGY,
         'plan_algorithm' => FollowImport::FairScheduler::ALGORITHM,
         'plan_schema_version' => FollowImport::FairScheduler::SCHEMA_VERSION,
         'local_load_shadow_enabled' => FollowImport::ExecutionPolicy.local_load_shadow_enabled?,
