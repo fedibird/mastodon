@@ -51,9 +51,9 @@ module Admin::ModerationEvidenceSnapshotsHelper
 
   def moderation_snapshot_window(snapshot)
     if snapshot.window_start && snapshot.window_end
-      "#{l(snapshot.window_start)} – #{l(snapshot.window_end)}"
+      safe_join([formatted_browser_local_time(snapshot.window_start), ' – ', formatted_browser_local_time(snapshot.window_end)])
     elsif snapshot.window_end
-      "… – #{l(snapshot.window_end)}"
+      safe_join(['… – ', formatted_browser_local_time(snapshot.window_end)])
     else
       t('admin.moderation_evidence_snapshots.all_time')
     end

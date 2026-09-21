@@ -16,7 +16,7 @@
       %span.dashboard__counters__label= t('admin.moderation_evidence_snapshots.columns.origin')
   %div
     %div
-      %span.dashboard__counters__num= l(Time.iso8601(@metrics['generated_at']))
+      %span.dashboard__counters__num= format_moderation_metric(@metrics['generated_at'], 'time')
       %span.dashboard__counters__label= t('admin.moderation_metrics.generated_at')
 
 %hr.spacer/
@@ -76,7 +76,7 @@
           %td= number_with_delimiter(import_context['prior_relationship_known_targets'].to_i)
         %tr
           %th= t('admin.moderation_metrics.import.latest_import_at')
-          %td= import_context['latest_import_at'].present? ? l(Time.iso8601(import_context['latest_import_at'])) : '—'
+          %td= format_moderation_metric(import_context['latest_import_at'], 'time')
         %tr
           %th= t('admin.moderation_metrics.import.min_account_age_seconds_at_import')
           %td= import_context['min_account_age_seconds_at_import'].present? ? number_with_delimiter(import_context['min_account_age_seconds_at_import']) : '—'

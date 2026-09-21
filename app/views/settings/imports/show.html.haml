@@ -33,7 +33,7 @@
         - @follow_import_progress_rows.each do |row|
           - summary = row[:summary]
           %tr
-            %td= l(row[:occurred_at])
+            %td= formatted_browser_local_time(row[:occurred_at])
             %td= follow_import_status_label(summary)
             %td= follow_import_processed_label(summary)
             %td= follow_import_count_label(summary, 'waiting')

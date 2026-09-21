@@ -41,7 +41,7 @@
             %td= snapshot.summary['interactions_count'].to_i
             %td= snapshot.summary['negative_responders'].to_i
             %td= snapshot.summary['linked_negative_target_count'].to_i
-            %td= l(snapshot.created_at)
+            %td= formatted_browser_local_time(snapshot.created_at)
             %td= link_to t('admin.moderation_evidence_snapshots.view'), admin_moderation_evidence_snapshot_path(snapshot)
 
   = paginate @snapshots
