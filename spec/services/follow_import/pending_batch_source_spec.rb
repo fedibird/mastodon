@@ -28,6 +28,18 @@ RSpec.describe FollowImport::PendingBatchSource do
     expect(owners.flat_map { |owner| owner[:batches].map { |batch| batch[:id] } }).to eq [operational.id]
   end
 
+  it 'does not surface a screening operational batch as executable owner work' do
+    screening = create_batch(dispatch_cohort: :operational, dispatch_owner: :legacy, preflight_state: :screening)
+    ready = create_batch(dispatch_cohort: :operational, dispatch_owner: :legacy, preflight_state: :ready)
+    screening.targets.create!(target_key_hash: 'held', position: 0)
+    ready.targets.create!(target_key_hash: 'live', position: 0)
+
+    owners, skipped = described_class.new.owner_work(cursor: FollowImport::FairnessCursor::State.empty)
+
+    expect(skipped).to eq 0
+    expect(owners.flat_map { |owner| owner[:batches].map { |batch| batch[:id] } }).to eq [ready.id]
+  end
+
   it 'does not load pending target rows during batch discovery' do
     batch = create_batch(dispatch_cohort: :operational, dispatch_owner: :legacy)
     12.times { |position| batch.targets.create!(target_key_hash: "t-#{position}", position: position) }

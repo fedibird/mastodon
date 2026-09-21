@@ -14,7 +14,7 @@ RSpec.describe FollowImport::DispatchScheduler, 'authoritative global mode' do #
     )
   end
 
-  def create_batch(account, owner:, import: nil, cohort: :operational)
+  def create_batch(account, owner:, import: nil, cohort: :operational, preflight: :ready)
     FollowImportBatch.create!(
       subject: ModerationSubject.for_account!(account),
       import_id: (import || create_import(account)).id,
@@ -22,6 +22,7 @@ RSpec.describe FollowImport::DispatchScheduler, 'authoritative global mode' do #
       mode: :merge,
       dispatch_owner: owner,
       dispatch_cohort: cohort,
+      preflight_state: preflight,
       target_count: 0,
       resolved_target_count: 0,
       unresolved_target_count: 0
@@ -130,6 +131,47 @@ RSpec.describe FollowImport::DispatchScheduler, 'authoritative global mode' do #
     expect(observation.planning_active_batch_count).to eq 1
     expect(observation.execution_config['backlog_scope_strategy']).to eq 'dispatch_cohort_v1'
     expect(Import::RelationshipWorker).to have_received(:perform_async).once
+  end
+
+  it 'does not claim a screening scheduler-owned batch until it is released to ready' do
+    account = Fabricate(:account)
+    batch = create_batch(account, owner: :scheduler, preflight: :screening)
+    target = add_target(batch, 0)
+
+    scheduler.call
+
+    expect(target.reload.state).to eq 'pending'
+    expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+    expect(FollowImportDispatchTickObservation.last.claimed_count).to eq 0
+    expect(FollowImportDispatchTickObservation.last.planning_pending_count).to eq 0
+    expect(FollowImportDispatchTickObservation.last.operational_pending_count).to eq 1
+
+    FollowImport::PreflightReleaseService.new.call(batch)
+    scheduler.call
+
+    expect(target.reload.state).to eq 'queued'
+    expect(Import::RelationshipWorker).to have_received(:perform_async).once
+    expect(FollowImportDispatchTickObservation.last.claimed_count).to eq 1
+  end
+
+  it 'excludes review_required and stopped scheduler-owned batches from GLOBAL planning' do
+    review_batch = create_batch(Fabricate(:account), owner: :scheduler, preflight: :review_required)
+    stopped_batch = create_batch(Fabricate(:account), owner: :scheduler, preflight: :stopped)
+    ready_batch = create_batch(Fabricate(:account), owner: :scheduler, preflight: :ready)
+    review_target = add_target(review_batch, 0)
+    stopped_target = add_target(stopped_batch, 0)
+    ready_target = add_target(ready_batch, 0)
+
+    scheduler.call
+    observation = FollowImportDispatchTickObservation.last
+
+    expect(ready_target.reload.state).to eq 'queued'
+    expect(review_target.reload.state).to eq 'pending'
+    expect(stopped_target.reload.state).to eq 'pending'
+    expect(observation.claimed_count).to eq 1
+    expect(observation.planned_count).to eq 1
+    expect(observation.operational_pending_count).to eq 3
+    expect(observation.planning_pending_count).to eq 1
   end
 
   it 'shares a finite global budget across equal accounts' do

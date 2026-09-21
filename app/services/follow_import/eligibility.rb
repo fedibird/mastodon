@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
-# Future hook: may this import run at all? PR B defaults to true and does
-# not read moderation, Follow Gate, or risk. Pacing stays independent of
-# why an import might later be paused.
+# May this import run at all? Ready-only: screening, review_required,
+# and stopped batches are not executable. Pacing stays independent of
+# why a batch is held. This is not a risk score or moderation verdict.
 module FollowImport
   class Eligibility
-    def self.executable?(_batch)
-      true
+    def self.executable?(batch)
+      batch.ready_preflight_state?
     end
   end
 end

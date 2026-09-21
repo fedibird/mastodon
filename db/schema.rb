@@ -589,6 +589,7 @@ ActiveRecord::Schema.define(version: 2026_09_21_200000) do
     t.integer "dispatch_cohort", default: 0, null: false
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
+    t.integer "preflight_state", default: 1, null: false
     t.index ["import_id"], name: "index_follow_import_batches_on_import_id", unique: true, where: "(import_id IS NOT NULL)"
     t.index ["subject_id", "imported_at"], name: "index_follow_import_batches_on_subject_and_imported_at"
   end

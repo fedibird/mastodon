@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe Scheduler::FollowImportCsvCleanupScheduler do
+RSpec.describe Scheduler::FollowImportCsvCleanupScheduler do # rubocop:disable Metrics/BlockLength
   subject(:worker) { described_class.new }
 
   let(:account) { Fabricate(:account) }
@@ -70,6 +70,18 @@ RSpec.describe Scheduler::FollowImportCsvCleanupScheduler do
     expect(Import.exists?(import.id)).to be true
   end
 
+  it 'retains the Import/CSV for a non-ready batch with pending targets' do
+    import = import_for(account)
+    batch  = batch_with_import(import)
+    batch.update!(preflight_state: :screening, dispatch_cohort: :operational)
+    add_target(batch, :pending, 0)
+
+    worker.perform
+
+    expect(Import.exists?(import.id)).to be true
+    expect(batch.reload.screening_preflight_state?).to be true
+  end
+
   it 'is a no-op for a batch whose import is already gone' do
     batch = FollowImportBatch.create!(subject: ModerationSubject.for_account!(account), import_id: 999_999,
                                       imported_at: Time.now.utc, mode: :merge, target_count: 0,
@@ -108,7 +120,7 @@ RSpec.describe Scheduler::FollowImportCsvCleanupScheduler do
     end
 
     it 'does not enqueue an unknown pipeline version even after the grace window' do
-      v2  = stalled_import(created_at: 7.hours.ago, pipeline_version: 2)
+      v2 = stalled_import(created_at: 7.hours.ago, pipeline_version: 2)
       v999 = stalled_import(created_at: 3.years.ago, pipeline_version: 999)
 
       worker.perform

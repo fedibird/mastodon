@@ -47,6 +47,14 @@ RSpec.describe FollowImportBatch do # rubocop:disable Metrics/BlockLength
     expect(described_class.legacy_owned).not_to include(batch)
   end
 
+  it 'defaults new rows to ready preflight so existing inserts stay executable' do
+    batch = create_batch
+
+    expect(batch.preflight_state).to eq 'ready'
+    expect(batch.ready_preflight_state?).to be true
+    expect(batch.screening_preflight_state?).to be false
+  end
+
   it 'accepts operational cohort when the application selects it' do
     batch = create_batch(dispatch_cohort: :operational)
 
@@ -69,11 +77,32 @@ RSpec.describe FollowImportBatch do # rubocop:disable Metrics/BlockLength
     expect(described_class.shadow_planning_scope).not_to include(historical_scheduler)
   end
 
+  it 'excludes non-ready operational rows from planning scopes and GLOBAL claims' do
+    screening = create_batch(dispatch_owner: :scheduler, dispatch_cohort: :operational, preflight_state: :screening)
+    review_required = create_batch(dispatch_owner: :scheduler, dispatch_cohort: :operational, preflight_state: :review_required)
+    stopped = create_batch(dispatch_owner: :scheduler, dispatch_cohort: :operational, preflight_state: :stopped)
+    ready = create_batch(dispatch_owner: :scheduler, dispatch_cohort: :operational, preflight_state: :ready)
+    ready_legacy = create_batch(dispatch_owner: :legacy, dispatch_cohort: :operational, preflight_state: :ready)
+
+    expect(described_class.global_planning_scope).to contain_exactly(ready)
+    expect(described_class.shadow_planning_scope).to contain_exactly(ready, ready_legacy)
+    expect(described_class.operational_cohort).to include(screening, review_required, stopped, ready, ready_legacy)
+    expect(ready.globally_claimable?).to be true
+    expect(screening.globally_claimable?).to be false
+    expect(review_required.globally_claimable?).to be false
+    expect(stopped.globally_claimable?).to be false
+    expect(ready_legacy.globally_claimable?).to be false
+  end
+
   it 'rejects an unsupported dispatch_owner' do
     expect { create_batch(dispatch_owner: :remote) }.to raise_error(ArgumentError)
   end
 
   it 'rejects an unsupported dispatch_cohort' do
     expect { create_batch(dispatch_cohort: :staging) }.to raise_error(ArgumentError)
+  end
+
+  it 'rejects an unsupported preflight_state' do
+    expect { create_batch(preflight_state: :safe) }.to raise_error(ArgumentError)
   end
 end
