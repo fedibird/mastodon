@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe FollowImport::PendingBatchSource do # rubocop:disable Metrics/BlockLength
+RSpec.describe FollowImport::PendingBatchSource do
   def create_batch(**attrs)
     FollowImportBatch.create!(
       {

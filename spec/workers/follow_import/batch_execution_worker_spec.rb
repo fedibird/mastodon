@@ -227,7 +227,7 @@ RSpec.describe FollowImport::BatchExecutionWorker do # rubocop:disable Metrics/B
     expect { worker.perform(-1) }.not_to raise_error
   end
 
-  describe 'dispatch/load observation' do
+  describe 'dispatch/load observation' do # rubocop:disable Metrics/BlockLength
     it 'records load and execution-policy snapshots for a pass' do
       add_target(0)
       add_target(1)
@@ -359,7 +359,7 @@ RSpec.describe FollowImport::BatchExecutionWorker do # rubocop:disable Metrics/B
     end
   end
 
-  describe 'local-load enforcement' do
+  describe 'local-load enforcement' do # rubocop:disable Metrics/BlockLength
     def v2_profile(overrides = {})
       {
         'version' => 2,

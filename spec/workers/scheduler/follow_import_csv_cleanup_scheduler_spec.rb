@@ -120,7 +120,7 @@ RSpec.describe Scheduler::FollowImportCsvCleanupScheduler do # rubocop:disable M
     end
 
     it 'does not enqueue an unknown pipeline version even after the grace window' do
-      v2  = stalled_import(created_at: 7.hours.ago, pipeline_version: 2)
+      v2 = stalled_import(created_at: 7.hours.ago, pipeline_version: 2)
       v999 = stalled_import(created_at: 3.years.ago, pipeline_version: 999)
 
       worker.perform
