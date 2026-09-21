@@ -2,13 +2,12 @@
 
 require 'rails_helper'
 
-RSpec.describe Moderation::AdaptiveFollowGateDecisionService do
+RSpec.describe Moderation::AdaptiveFollowGateDecisionService do # rubocop:disable Metrics/BlockLength
   let(:now) { Time.now.utc }
 
-  GATE_DIMENSIONS = %w(contact_volume velocity rejection report follow_import repeat_behavior).freeze
-
   def evaluation(**scores)
-    subscores = GATE_DIMENSIONS.index_with do |dimension|
+    dimensions = %w(contact_volume velocity rejection report follow_import repeat_behavior)
+    subscores = dimensions.index_with do |dimension|
       { 'score' => scores.fetch(dimension.to_sym, 0.0), 'reason_codes' => [] }
     end
     { 'policy_version' => 'risk-eval-v0-test', 'params_digest' => 'sha256:test', 'subject_id' => 1, 'generated_at' => now.iso8601, 'subscores' => subscores }
@@ -93,7 +92,7 @@ RSpec.describe Moderation::AdaptiveFollowGateDecisionService do
   # moderator_review's rejection minimum. Rejection 0.5 already represents the
   # absolute qualified-independent-responder signal; review still requires
   # continuation via repeat_behavior.
-  describe 'v2 calibration boundaries' do
+  describe 'v2 calibration boundaries' do # rubocop:disable Metrics/BlockLength
     it 'does not keep a velocity-only delay threshold' do
       expect(described_class::DEFAULT_PARAMS['delay']).to eq('remote_or_unknown_rejection_min' => 0.5)
       expect(described_class::DEFAULT_PARAMS['delay']).to_not have_key('velocity_min')
