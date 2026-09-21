@@ -20,7 +20,10 @@ export of these tables is I3
 does not change collectors or runtime flags. I3 treats
 `request_started_at` as the actual-HTTP gate: a DeliveryWorker row
 with `started_at` but no `request_started_at` is a timed execution,
-not an HTTP attempt.
+not an HTTP attempt. A privacy-minimized transport export can be
+consumed directly in anonymous mode
+(`anon_destination_domain`, `anon_endpoint_origin`,
+`destination_is_local`); see the backtest input contract.
 
 ## No moderation decision/signal coupling
 

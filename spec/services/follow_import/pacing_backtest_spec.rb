@@ -75,6 +75,7 @@ RSpec.describe FollowImport::PacingBacktest do # rubocop:disable Metrics/BlockLe
     expect(first.dig('baseline', 'retry_amplification', 'no_later_success_observed_within_window')).to eq 1
     expect(first.dig('baseline', 'retry_amplification', 'right_censoring_note')).to include('not a final failure')
     expect(first.dig('baseline', 'dataset', 'actual_http_request_rows')).to eq first.dig('baseline', 'dataset', 'rows_with_request_timestamps')
+    expect(first.dig('baseline', 'dataset', 'routing_identity_mode')).to eq 'raw'
     expect(File.read(File.join(dir, 'out.md'))).to include('right-censored')
     expect(File.read(File.join(dir, 'out.md'))).to include('Legacy buckets above global budget')
     expect(File.read(File.join(dir, 'out.md'))).not_to match(/\b(best|recommended|winner)\b/i)
@@ -150,5 +151,39 @@ RSpec.describe FollowImport::PacingBacktest do # rubocop:disable Metrics/BlockLe
     Rails.application.load_tasks unless Rake::Task.task_defined?('follow_import:pacing_backtest')
 
     expect(Rake::Task.task_defined?('follow_import:pacing_backtest')).to be true
+  end
+
+  it 'hashes anonymous routing identities and reports anonymous mode' do
+    dir = build_dir
+    transport = write_anonymous_transport(
+      File.join(dir, 'transport.csv'),
+      [
+        anonymous_transport_row,
+        anonymous_transport_row(
+          'target_id' => '2',
+          'anon_destination_domain' => 'd1111aaaa',
+          'anon_endpoint_origin' => 'o1111bbbb',
+          'request_started_at' => '2026-09-16T12:00:01Z',
+          'started_at' => '2026-09-16T12:00:01Z'
+        ),
+      ]
+    )
+    scenario_path = write_scenarios(File.join(dir, 'scenarios.json'), scenarios: [default_scenario])
+    result = described_class.call(
+      transport: transport,
+      scenarios: scenario_path,
+      out_json: File.join(dir, 'out.json'),
+      now: Time.utc(2026, 9, 21, 7, 0, 0)
+    )
+
+    expect(result.dig('baseline', 'dataset', 'routing_identity_mode')).to eq 'anonymous'
+    dumped = JSON.generate(result)
+    expect(dumped).not_to include('d0000972')
+    expect(dumped).not_to include('d1111aaaa')
+    expect(dumped).not_to include('o0000abcd')
+    expect(dumped).not_to include('o1111bbbb')
+    expect(result['warnings'].join).to include('not guaranteed to be stable across separately generated exports')
+    expect(dumped).not_to include('cross-export stable')
+    expect(File.read(File.join(dir, 'out.json'))).to include('d_')
   end
 end

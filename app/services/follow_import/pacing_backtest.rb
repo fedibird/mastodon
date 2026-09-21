@@ -19,6 +19,7 @@ module FollowImport
     MODERATION_WARNING = 'Accept/Reject, Follow Gate, blocks, reports, and other moderation signals are excluded from this tool.'
     SYNTHETIC_TICK_NOTE = 'bucket_seconds is the scenario synthetic scheduler tick width. per_tick_cap and global_budget are compared to counts inside that bucket, not to wall-clock minutes or historical scheduler tick boundaries.'
     ORIGIN_PRESSURE_NOTE = 'Origin pressure is retrospective observed-origin pressure from exported endpoint_origin. It is not a replay of claim-time RemoteRuntimeState mapping availability, and mapping_ttl_seconds is not used. Missing destinations apply UNKNOWN destination pressure only; they do not apply origin pressure.'
+    ANONYMOUS_LABEL_WARNING = 'Anonymous routing identities inherit the operator export identity stability and are not guaranteed to be stable across separately generated exports.'
 
     class Error < StandardError; end
 

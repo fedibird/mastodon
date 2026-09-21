@@ -5,6 +5,10 @@ require 'json'
 
 module FollowImportPacingBacktestFixtures
   TRANSPORT_HEADERS = FollowImport::PacingBacktest::Input::REQUIRED_TRANSPORT_HEADERS
+  ANONYMOUS_TRANSPORT_HEADERS = (
+    FollowImport::PacingBacktest::Input::CORE_TRANSPORT_HEADERS +
+    FollowImport::PacingBacktest::Input::ANONYMOUS_ROUTING_HEADERS
+  ).freeze
 
   module_function
 
@@ -40,6 +44,21 @@ module FollowImportPacingBacktestFixtures
 
   def write_transport(path, rows)
     write_csv(path, TRANSPORT_HEADERS, rows)
+  end
+
+  def anonymous_transport_row(overrides = {})
+    row = transport_row
+    row.delete('destination_domain')
+    row.delete('endpoint_origin')
+    row.merge(
+      'anon_destination_domain' => 'd0000972',
+      'anon_endpoint_origin' => 'o0000abcd',
+      'destination_is_local' => 'f'
+    ).merge(overrides)
+  end
+
+  def write_anonymous_transport(path, rows)
+    write_csv(path, ANONYMOUS_TRANSPORT_HEADERS, rows)
   end
 
   def write_dispatch(path, rows)
@@ -116,7 +135,8 @@ module FollowImportPacingBacktestFixtures
       malformed_counts: {},
       missing_target_id_count: rows.count { |row| row.target_id.blank? },
       input_files: {},
-      warnings: []
+      warnings: [],
+      routing_identity_mode: 'raw'
     )
   end
 

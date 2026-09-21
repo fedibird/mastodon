@@ -22,6 +22,7 @@ module FollowImport
       :event_time,
       :attempt_ordinal,
       :malformed_fields,
+      :destination_is_local,
       keyword_init: true
     ) do
       def delivery?

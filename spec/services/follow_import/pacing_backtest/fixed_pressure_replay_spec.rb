@@ -27,6 +27,7 @@ RSpec.describe FollowImport::PacingBacktest::FixedPressureReplay do
       error_class: nil,
       event_time: Time.iso8601(data['request_started_at']),
       attempt_ordinal: overrides[:attempt_ordinal] || 1,
+      destination_is_local: overrides[:destination_is_local],
       malformed_fields: []
     )
   end
@@ -134,6 +135,46 @@ RSpec.describe FollowImport::PacingBacktest::FixedPressureReplay do
     expect(result['above_destination_cap']).to eq 0
     expect(result['above_origin_cap']).to eq 0
     expect(result['above_either_cap']).to eq 0
+  end
+
+  it 'does not apply remote dest/origin caps to an anonymous local destination' do
+    rows = [
+      attempt('target_id' => '1', :row_number => 1, 'destination_domain' => 'd0000972', 'endpoint_origin' => 'o0000abcd', :destination_is_local => true),
+      attempt('target_id' => '2', :row_number => 2, 'destination_domain' => 'd0000972', 'endpoint_origin' => 'o0000abcd', 'request_started_at' => '2026-09-16T12:00:01Z', :destination_is_local => true),
+      attempt('target_id' => '3', :row_number => 3, 'destination_domain' => 'd0000972', 'endpoint_origin' => 'o0000abcd', 'request_started_at' => '2026-09-16T12:00:02Z', :destination_is_local => true),
+    ]
+    result = described_class.new(dataset_for(rows), profile, 60).first_attempt
+
+    expect(result['above_destination_cap']).to eq 0
+    expect(result['above_origin_cap']).to eq 0
+    expect(result['above_either_cap']).to eq 0
+  end
+
+  it 'applies dest/origin caps to an anonymous remote destination' do
+    rows = [
+      attempt('target_id' => '1', :row_number => 1, 'destination_domain' => 'd0000972', 'endpoint_origin' => 'o0000abcd', :destination_is_local => false),
+      attempt('target_id' => '2', :row_number => 2, 'destination_domain' => 'd0000972', 'endpoint_origin' => 'o0000abcd', 'request_started_at' => '2026-09-16T12:00:01Z', :destination_is_local => false),
+      attempt('target_id' => '3', :row_number => 3, 'destination_domain' => 'd0000972', 'endpoint_origin' => 'o0000abcd', 'request_started_at' => '2026-09-16T12:00:02Z', :destination_is_local => false),
+    ]
+    result = described_class.new(dataset_for(rows), profile, 60).first_attempt
+
+    expect(result['above_destination_cap']).to eq 1
+    expect(result['above_origin_cap']).to eq 1
+    expect(result['above_either_cap']).to eq 1
+  end
+
+  it 'caps anonymous missing destinations without applying origin pressure' do
+    tight_origin = FollowImport::RemoteAdmissionProfile.parse(fixed_profile(dest: 2, origin: 1))
+    rows = [
+      attempt('target_id' => '1', :row_number => 1, 'destination_domain' => '', 'endpoint_origin' => 'o0000abcd', :destination_is_local => nil),
+      attempt('target_id' => '2', :row_number => 2, 'destination_domain' => '', 'endpoint_origin' => 'o0000abcd', 'request_started_at' => '2026-09-16T12:00:01Z', :destination_is_local => nil),
+      attempt('target_id' => '3', :row_number => 3, 'destination_domain' => '', 'endpoint_origin' => 'o0000abcd', 'request_started_at' => '2026-09-16T12:00:02Z', :destination_is_local => nil),
+    ]
+    result = described_class.new(dataset_for(rows), tight_origin, 60).first_attempt
+
+    expect(result['above_destination_cap']).to eq 1
+    expect(result['above_origin_cap']).to eq 0
+    expect(result['above_either_cap']).to eq 1
   end
 
   def stoplight_attempt(row_number:)

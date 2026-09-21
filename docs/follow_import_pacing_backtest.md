@@ -86,12 +86,10 @@ cannot support. They are never coerced to `0`.
 
 ### Transport (required)
 
-Required headers:
+Required core headers:
 
 - `target_id`
 - `phase`
-- `destination_domain`
-- `endpoint_origin`
 - `started_at`
 - `finished_at`
 - `request_started_at`
@@ -103,6 +101,60 @@ Required headers:
 - `http_status`
 - `retry_after_seconds`
 - `error_class`
+
+Routing identity is selected **once per transport file** from headers.
+Do not mix a raw destination with an anonymous origin. If both complete
+sets are present, the task fails as ambiguous.
+
+#### Raw mode
+
+Headers:
+
+```text
+destination_domain
+endpoint_origin
+```
+
+Backward compatible with #139. `destination_is_local` may be absent.
+When absent, locality uses `TagManager#local_domain?` /
+`web_domain?`. When present, the cell is an explicit hint (`t`/`f`,
+`true`/`false`, `1`/`0`; case-insensitive words). An unknown value is
+never coerced to false.
+
+#### Anonymous mode (privacy export)
+
+Headers:
+
+```text
+anon_destination_domain
+anon_endpoint_origin
+destination_is_local
+```
+
+Map them internally to the existing destination/origin identity fields.
+Pseudonyms are opaque routing identities. Do not parse them as host
+names. Never fall back to `TagManager`. Never require the raw
+destination to accompany anonymous mode.
+
+`destination_is_local` is required for every row whose anonymous
+destination is nonblank. A blank destination may have blank locality
+and remains the `UNKNOWN_DESTINATION` case. Missing or invalid
+locality on a required row fails the task with a row/field error.
+
+Accepted boolean cells:
+
+```text
+t / f
+true / false
+1 / 0
+```
+
+The selected mode is reported as
+`baseline.dataset.routing_identity_mode` (`raw` or `anonymous`).
+
+The SQL exporter itself is operator-side and is not in this repository.
+The operator export should emit `destination_is_local` from the **raw**
+destination before pseudonymization.
 
 Only `phase=activitypub_delivery` enters delivery replay.
 `resolve_account` and other phases remain in `row_count` only.
@@ -208,10 +260,13 @@ counted per destination and per origin in deterministic input order. An
 attempt is above a cap when it would be the (cap+1)th or later row for
 that key in that bucket.
 
-Routing matches production `RemoteAdmission`:
+Routing matches production `RemoteAdmission`. Locality is the explicit
+`destination_is_local` observation when supplied (required in anonymous
+mode). Raw mode without that column still uses TagManager.
 
 - a **local** destination consumes neither remote destination nor remote
-  origin caps
+  origin caps, and persists neither destination nor origin adaptive
+  state
 - a **missing** destination is pressure-counted in the synthetic
   `UNKNOWN_DESTINATION` bucket and is never treated as unlimited
 - a missing destination does **not** apply origin pressure, even when
@@ -220,6 +275,9 @@ Routing matches production `RemoteAdmission`:
 - a missing destination is not persisted as an adaptive destination key.
   Observed origin may still persist adaptive controller state after an
   actual HTTP delivery
+- a **remote** destination uses normal fixed/adaptive destination
+  pressure. Origin pressure remains retrospective observed-origin
+  pressure (I3 v1 limitation)
 
 Destination pressure is directly observable from the imported routing
 domain. Origin pressure is **retrospective observed-origin pressure**
@@ -372,11 +430,27 @@ integers.
 
 ## Privacy
 
-Default JSON/Markdown must not emit raw destination domains or endpoint
-origins. Detail tables use `d_<sha256-12>` / `o_<sha256-12>`. Blank
-keys are labelled `unknown` and are not hashed.
+Default JSON/Markdown must not emit raw destination domains, raw
+endpoint origins, or raw anonymous identifiers. Detail tables hash
+whatever identity the input supplied:
 
-Input file paths in the result are basenames only.
+```text
+input anon_destination_domain d0000972
+-> output privacy label d_<sha256-12>
+```
+
+Blank keys are labelled `unknown` and are not hashed. Input file paths
+in the result are basenames only.
+
+Label stability:
+
+- **raw** input: the same raw key produces the same output hash
+- **anonymous** input: labels inherit the operator export's identity
+  stability and are **not** guaranteed to be stable across separately
+  generated exports
+
+Do not treat anonymous `d_` / `o_` labels as cross-export destination
+identity.
 
 ---
 
@@ -408,8 +482,9 @@ Run the same scenario JSON against each export window and keep the JSON
 beside that export. Compare:
 
 - first-attempt vs all-attempt pressure (retries vs claims)
-- destination/origin concentration shares (privacy labels are stable
-  for the same raw key)
+- destination/origin concentration shares (raw-mode privacy labels are
+  stable for the same raw key; anonymous-mode labels are not
+  cross-export stable)
 - right-censored later-success counts (they grow if the window is
   longer)
 - tick schema: older exports lack I2 columns

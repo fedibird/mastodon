@@ -37,8 +37,8 @@ module FollowImport
         failed_either = 0
 
         rows.sort_by { |row| [row.event_time.to_f, row.row_number] }.each do |row|
-          dest_id = Routing.destination_pressure_key(row.destination_domain)
-          origin_id = Routing.origin_pressure_key(row.destination_domain, row.endpoint_origin)
+          dest_id = Routing.destination_pressure_key(row)
+          origin_id = Routing.origin_pressure_key(row)
           dest_key = bucket_key(row, dest_id)
           origin_key = bucket_key(row, origin_id)
           dest_over = dest_key && dest_counts[dest_key] + 1 > dest_cap
