@@ -15,6 +15,7 @@ RSpec.describe FollowImport::DispatchExecutor do # rubocop:disable Metrics/Block
       imported_at: Time.now.utc,
       mode: :merge,
       dispatch_owner: :scheduler,
+      dispatch_cohort: :operational,
       target_count: 0,
       resolved_target_count: 0,
       unresolved_target_count: 0
@@ -77,6 +78,33 @@ RSpec.describe FollowImport::DispatchExecutor do # rubocop:disable Metrics/Block
     it 'does not claim a legacy-owned batch' do
       batch.update!(dispatch_owner: :legacy)
       target = add_target(0)
+
+      result = executor.execute([entry_for(target)])
+
+      expect(result.claimed_count).to eq 0
+      expect(result.skipped_wrong_owner_count).to eq 1
+      expect(target.reload.state).to eq 'pending'
+      expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+    end
+
+    it 'does not claim a historical scheduler-owned batch handed directly to the executor' do
+      batch.update!(dispatch_cohort: :historical, dispatch_owner: :scheduler)
+      target = add_target(0)
+
+      result = executor.execute([entry_for(target)])
+
+      expect(result.claimed_count).to eq 0
+      expect(result.skipped_wrong_owner_count).to eq 1
+      expect(target.reload.state).to eq 'pending'
+      expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+    end
+
+    it 're-checks owner and cohort inside the claim fence' do
+      target = add_target(0)
+      allow_any_instance_of(FollowImport::ImportUnitResolver).to receive(:work_for) do |_resolver, row|
+        batch.update!(dispatch_cohort: :historical)
+        { acct: "acct-#{row.id}@remote.test", options: { 'show_reblogs' => true } }
+      end
 
       result = executor.execute([entry_for(target)])
 

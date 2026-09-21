@@ -62,7 +62,9 @@ dispatch rate or as the future global budget.
 - GLOBAL true: the same tick may claim/enqueue operational
   scheduler-owned pending targets through
   `FollowImport::DispatchExecutor`. Legacy-owned batches and
-  historical batches are excluded from the plan.
+  historical batches are excluded from the plan. The executor
+  re-checks both axes at the fenced claim; a historical
+  scheduler-owned row is not queued even from a direct call.
 
 Legacy execution is still paced only by:
 

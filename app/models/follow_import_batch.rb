@@ -62,6 +62,13 @@ class FollowImportBatch < ApplicationRecord
     operational_cohort.scheduler_owned
   end
 
+  # Authoritative GLOBAL claim predicate. Planner scope is not enough:
+  # DispatchExecutor re-checks both axes at the mutation boundary.
+  # A historical scheduler-owned row is not executable.
+  def globally_claimable?
+    operational_dispatch_cohort? && scheduler_dispatch_owner?
+  end
+
   COMPLETED_AT_KEY        = 'completed_at'
   COMPLETION_NOTIFIED_KEY = 'completion_notified_at'
 

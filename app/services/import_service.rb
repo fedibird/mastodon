@@ -32,16 +32,19 @@ class ImportService < BaseService
     batch = record_follow_import_batch!
 
     if batch
-      # Stored dispatch_owner — not the current GLOBAL flag — decides
-      # who may claim this batch. A retry after a flag flip must not
-      # create a second owner or silently convert the row.
-      enqueue_follow_import_handoff!(batch)
+      # Stored dispatch_owner / dispatch_cohort — not the current
+      # GLOBAL flag — decide who may start work. A retry must not
+      # create a second owner, silently convert the row, or resurrect
+      # a historical execution chain.
+      unless batch.historical_dispatch_cohort?
+        enqueue_follow_import_handoff!(batch)
 
-      # Overwrite removals are independent of the follow set and are enqueued after
-      # the handoff. They remain an UNPACED burst: PR C scheduler pacing covers
-      # imported FOLLOW additions only. A failure here still bubbles to a retry,
-      # and if retries are exhausted the import is retained (a batch exists).
-      enqueue_follow_overwrite_unfollows! if @import.overwrite?
+        # Overwrite removals are independent of the follow set and are enqueued after
+        # the handoff. They remain an UNPACED burst: PR C scheduler pacing covers
+        # imported FOLLOW additions only. A failure here still bubbles to a retry,
+        # and if retries are exhausted the import is retained (a batch exists).
+        enqueue_follow_overwrite_unfollows! if @import.overwrite?
+      end
     else
       # Legacy-only compatibility. Reached only after we have positively
       # established that GLOBAL is off AND no durable FollowImportBatch
@@ -52,10 +55,12 @@ class ImportService < BaseService
   end
 
   # One batch = exactly one dispatch owner. Scheduler-owned batches stay
-  # pending for FollowImport::DispatchScheduler. Do not enqueue a kick
-  # BatchExecutionWorker — that would be dual ownership.
+  # pending for FollowImport::DispatchScheduler. Historical batches are
+  # not newly handed to BatchExecutionWorker — an already-running legacy
+  # chain is unchanged, but a retry must not start a second one.
   def enqueue_follow_import_handoff!(batch)
     return if batch.scheduler_dispatch_owner?
+    return if batch.historical_dispatch_cohort?
 
     FollowImport::BatchExecutionWorker.perform_async(batch.id)
   end

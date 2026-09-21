@@ -1358,6 +1358,18 @@ DispatchCounts query; old and new backlog columns are NULL.
 I2 does not enable GLOBAL, does not mutate historical targets, and
 does not auto-promote historical batches.
 
+`DispatchExecutor` is the mutation boundary. It claims only when
+`globally_claimable?` (`operational` AND `scheduler`) both at entry
+and inside the claim fence. A historical scheduler-owned row stays
+pending even if a stale plan or a direct executor call supplies it.
+`skipped_wrong_owner_count` is that GLOBAL claim-scope skip (wrong
+owner and/or cohort).
+
+A retry of an existing historical Import does not newly enqueue
+`BatchExecutionWorker` and does not replay overwrite unfollows.
+An already-running legacy chain is unchanged. `BatchExecutionWorker`
+itself is not gated on cohort.
+
 #### Known gaps (do not claim they are paced)
 
 - Overwrite-generated **UNFOLLOW** operations remain a burst path.

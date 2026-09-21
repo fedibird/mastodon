@@ -62,6 +62,9 @@ RSpec.describe FollowImportBatch do # rubocop:disable Metrics/BlockLength
     operational_scheduler = create_batch(dispatch_owner: :scheduler, dispatch_cohort: :operational)
 
     expect(described_class.global_planning_scope).to contain_exactly(operational_scheduler)
+    expect(operational_scheduler.globally_claimable?).to be true
+    expect(historical_scheduler.globally_claimable?).to be false
+    expect(operational_legacy.globally_claimable?).to be false
     expect(described_class.shadow_planning_scope).to contain_exactly(operational_legacy, operational_scheduler)
     expect(described_class.shadow_planning_scope).not_to include(historical_scheduler)
   end

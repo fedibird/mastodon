@@ -326,7 +326,7 @@ redefine `global_pending_count` / `active_batch_count`.
 | `local_load_fallback_used` | true when the v2 fallback was applied; NULL if not evaluated |
 | `global_base_budget` | GLOBAL tick unadjusted ceiling; NULL in shadow / unplanned ticks |
 | `effective_global_budget` | GLOBAL budget after LocalLoadEnforcement; NULL in shadow / unplanned ticks |
-| `skipped_stale_count` / `skipped_unrecoverable_count` / `skipped_wrong_owner_count` | GLOBAL claim skips; NULL when claiming was not attempted |
+| `skipped_stale_count` / `skipped_unrecoverable_count` / `skipped_wrong_owner_count` | GLOBAL claim skips; NULL when claiming was not attempted. `skipped_wrong_owner_count` is the claim-scope skip: the batch is not (`operational` AND `scheduler-owned`). A wrong cohort is counted here; it is not a distinct owner-axis event. |
 | `remote_admission_enabled` | whether the GLOBAL tick considered the remote-admission flag; NULL if not evaluated (shadow / no-op) |
 | `remote_admission_configured` | whether a valid RemoteAdmission profile was present; NULL if not evaluated |
 | `remote_profile_version` | profile schema version when configured; NULL otherwise |

@@ -3,10 +3,19 @@
 # Authoritative claim/enqueue for one global Follow Import tick.
 #
 # A plan is not a reservation. Each entry is re-checked against current
-# DB state: scheduler-owned batch, recoverable Import/CSV work, then
-# pending -> queued via TargetTransitionService. Only a successful
-# pending->queued transition plus a successful RelationshipWorker
-# enqueue counts as a claim.
+# DB state: operational + scheduler-owned batch, recoverable Import/CSV
+# work, then pending -> queued via TargetTransitionService. Only a
+# successful pending->queued transition plus a successful
+# RelationshipWorker enqueue counts as a claim.
+#
+# The planner is not the mutation boundary. A historical scheduler-owned
+# row must not be claimed even if a stale plan or a direct executor call
+# supplies an entry. Owner+cohort are re-checked inside the claim fence.
+#
+# skipped_wrong_owner_count is the GLOBAL claim-scope skip: the batch is
+# not (operational AND scheduler-owned). A wrong cohort is counted here
+# because it is the same fail-closed claim rejection, not a distinct
+# owner-axis event.
 #
 # ImportUnitResolver is cached per batch_id so one CSV is not reparsed
 # for every target from the same batch in this tick.
@@ -76,7 +85,7 @@ module FollowImport
 
       target = nil
       batch = FollowImportBatch.find_by(id: entry.batch_id)
-      unless batch&.scheduler_dispatch_owner?
+      unless batch&.globally_claimable?
         result.skipped_wrong_owner_count += 1
         return
       end
@@ -94,9 +103,13 @@ module FollowImport
         return
       end
 
-      outcome = fenced_mark_queued(target)
+      outcome = fenced_mark_queued(target, batch)
       if outcome == :lost_ownership
         lost_ownership!(result)
+        return
+      end
+      if outcome == :wrong_scope
+        result.skipped_wrong_owner_count += 1
         return
       end
       if outcome == :stale
@@ -117,15 +130,20 @@ module FollowImport
       !@lease.nil? && @lease.current_owner?
     end
 
-    def fenced_mark_queued(target)
+    def fenced_mark_queued(target, batch)
       outcome = :lost_ownership
       fenced = FollowImport::DispatchLease.with_claim_fence(@lease) do
-        @transitions.mark_queued(target, at: @now)
-        outcome = if target.saved_change_to_state? && target.state_queued?
-                    :queued
-                  else
-                    :stale
-                  end
+        batch.lock!
+        unless batch.globally_claimable?
+          outcome = :wrong_scope
+        else
+          @transitions.mark_queued(target, at: @now)
+          outcome = if target.saved_change_to_state? && target.state_queued?
+                      :queued
+                    else
+                      :stale
+                    end
+        end
       end
       return :lost_ownership unless fenced
 
