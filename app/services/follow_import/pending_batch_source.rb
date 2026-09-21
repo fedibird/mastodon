@@ -2,18 +2,20 @@
 
 # Read-only source of pending Follow Import work.
 #
-# Shadow ticks (GLOBAL=false) observe the current pending universe
-# (legacy + scheduler) so PR A/B/D diagnostics stay comparable.
-# Authoritative GLOBAL ticks MUST pass
-# batch_scope: FollowImportBatch.scheduler_owned
-# so a legacy-owned batch can never enter the real claim plan.
+# Shadow ticks (GLOBAL=false) observe the operational cohort
+# (legacy + scheduler owners) so live GLOBAL-off imports stay
+# comparable without treating pre-I2 historical pending as live
+# scheduler backlog. Authoritative GLOBAL ticks MUST pass
+# batch_scope: FollowImportBatch.global_planning_scope
+# (operational AND scheduler-owned) so a legacy-owned or
+# historical batch can never enter the real claim plan.
 #
 # Discovery uses the pending-only partial index. Batches preload
 # subject/account so owner resolution is not N+1. Targets are not loaded
 # here; each batch gets a bounded PendingTargetFeed.
 module FollowImport
   class PendingBatchSource
-    def initialize(batch_scope: FollowImportBatch.all, scan_policy: nil)
+    def initialize(batch_scope: FollowImportBatch.shadow_planning_scope, scan_policy: nil)
       @batch_scope = batch_scope
       @scan_policy = scan_policy
     end

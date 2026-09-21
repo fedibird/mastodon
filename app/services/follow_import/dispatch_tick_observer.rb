@@ -13,7 +13,8 @@
 module FollowImport
   class DispatchTickObserver
     SCHEMA_NAME    = 'follow_import_dispatch_tick'
-    SCHEMA_VERSION = 9
+    SCHEMA_VERSION = 10
+    BACKLOG_SCOPE_STRATEGY = 'dispatch_cohort_v1'
 
     def self.record(attrs)
       attrs = attrs.to_h.symbolize_keys
@@ -27,6 +28,12 @@ module FollowImport
         outcome: attrs[:outcome],
         global_pending_count: plan&.global_pending_count,
         active_batch_count: plan&.active_batch_count,
+        historical_pending_count: plan&.historical_pending_count,
+        operational_pending_count: plan&.operational_pending_count,
+        planning_pending_count: plan&.planning_pending_count,
+        historical_active_batch_count: plan&.historical_active_batch_count,
+        operational_active_batch_count: plan&.operational_active_batch_count,
+        planning_active_batch_count: plan&.planning_active_batch_count,
         claimed_count: plan&.claimed_count,
         planned_count: plan&.planned_count,
         planned_owner_count: plan&.planned_owner_count,
@@ -98,6 +105,7 @@ module FollowImport
         'shadow_plan_budget' => FollowImport::ExecutionPolicy.shadow_plan_budget,
         'global_dispatch_budget' => FollowImport::ExecutionPolicy.global_dispatch_budget,
         'lease_strategy' => FollowImport::DispatchLease::STRATEGY,
+        'backlog_scope_strategy' => BACKLOG_SCOPE_STRATEGY,
         'plan_algorithm' => FollowImport::FairScheduler::ALGORITHM,
         'plan_schema_version' => FollowImport::FairScheduler::SCHEMA_VERSION,
         'local_load_shadow_enabled' => FollowImport::ExecutionPolicy.local_load_shadow_enabled?,

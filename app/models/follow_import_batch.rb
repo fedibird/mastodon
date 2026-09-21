@@ -16,6 +16,7 @@
 #  migration_evidence      :integer          default("none"), not null
 #  metadata                :jsonb            not null
 #  dispatch_owner          :integer          default("legacy"), not null
+#  dispatch_cohort         :integer          default("historical"), not null
 #  created_at              :datetime         not null
 #  updated_at              :datetime         not null
 #
@@ -31,6 +32,7 @@ class FollowImportBatch < ApplicationRecord
   enum mode: { unknown: 0, merge: 1, overwrite: 2 }, _suffix: :mode
   enum migration_evidence: { none: 0, weak: 1, strong: 2 }, _prefix: :migration
   enum dispatch_owner: { legacy: 0, scheduler: 1 }, _suffix: :dispatch_owner
+  enum dispatch_cohort: { historical: 0, operational: 1 }, _suffix: :dispatch_cohort
 
   belongs_to :subject, class_name: 'ModerationSubject'
 
@@ -40,9 +42,25 @@ class FollowImportBatch < ApplicationRecord
   validates :target_count, :resolved_target_count, :unresolved_target_count, numericality: { greater_than_or_equal_to: 0 }
   validates :import_id, uniqueness: { allow_nil: true }
   validates :dispatch_owner, inclusion: { in: dispatch_owners.keys }
+  validates :dispatch_cohort, inclusion: { in: dispatch_cohorts.keys }
 
   scope :scheduler_owned, -> { scheduler_dispatch_owner }
   scope :legacy_owned, -> { legacy_dispatch_owner }
+  scope :historical_cohort, -> { historical_dispatch_cohort }
+  scope :operational_cohort, -> { operational_dispatch_cohort }
+
+  # SHADOW may plan/observe every operational batch, including those
+  # still owned by the legacy worker while GLOBAL is off.
+  def self.shadow_planning_scope
+    operational_cohort
+  end
+
+  # GLOBAL may claim only the intersection of operational provenance
+  # and scheduler ownership. A historical scheduler-owned row is not
+  # live work.
+  def self.global_planning_scope
+    operational_cohort.scheduler_owned
+  end
 
   COMPLETED_AT_KEY        = 'completed_at'
   COMPLETION_NOTIFIED_KEY = 'completion_notified_at'

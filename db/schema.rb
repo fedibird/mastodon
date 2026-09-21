@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_21_020000) do
+ActiveRecord::Schema.define(version: 2026_09_21_050001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -561,6 +561,7 @@ ActiveRecord::Schema.define(version: 2026_09_21_020000) do
     t.integer "migration_evidence", default: 0, null: false
     t.jsonb "metadata", default: {}, null: false
     t.integer "dispatch_owner", default: 0, null: false
+    t.integer "dispatch_cohort", default: 0, null: false
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
     t.index ["import_id"], name: "index_follow_import_batches_on_import_id", unique: true, where: "(import_id IS NOT NULL)"
@@ -640,6 +641,12 @@ ActiveRecord::Schema.define(version: 2026_09_21_020000) do
     t.string "outcome", null: false
     t.integer "global_pending_count"
     t.integer "active_batch_count"
+    t.integer "historical_pending_count"
+    t.integer "operational_pending_count"
+    t.integer "planning_pending_count"
+    t.integer "historical_active_batch_count"
+    t.integer "operational_active_batch_count"
+    t.integer "planning_active_batch_count"
     t.integer "claimed_count", default: 0, null: false
     t.integer "planned_count"
     t.integer "executable_owner_count"

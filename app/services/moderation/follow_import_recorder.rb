@@ -32,8 +32,9 @@ module Moderation
       imported_at ||= Time.now.utc
 
       # Sidekiq retries the same Import row; import_id is the idempotency key.
-      # An existing batch keeps its stored dispatch_owner — do not rewrite
-      # ownership from today's feature flag.
+      # An existing batch keeps its stored dispatch_owner and
+      # dispatch_cohort — do not rewrite either axis from today's
+      # feature flag or the I2 recorder default.
       if import&.id
         existing = FollowImportBatch.find_by(import_id: import.id)
         return existing if existing
@@ -93,6 +94,7 @@ module Moderation
           imported_at: imported_at,
           mode: normalize_mode(mode),
           dispatch_owner: normalize_dispatch_owner(dispatch_owner),
+          dispatch_cohort: :operational,
           target_count: target_rows.size,
           resolved_target_count: resolved_count,
           unresolved_target_count: unresolved_count,

@@ -12,6 +12,12 @@
 #  outcome               :string           not null
 #  global_pending_count  :integer
 #  active_batch_count    :integer
+#  historical_pending_count :integer
+#  operational_pending_count :integer
+#  planning_pending_count :integer
+#  historical_active_batch_count :integer
+#  operational_active_batch_count :integer
+#  planning_active_batch_count :integer
 #  claimed_count         :integer          default(0), not null
 #  planned_count         :integer
 #  planned_owner_count   :integer
@@ -76,7 +82,12 @@
 # plan size when a plan was built; NULL when planning was not
 # attempted. executable_* is the eligible candidate population;
 # planned_owner/batch_count is who received a slot. Other new
-# aggregates follow the same 0-vs-NULL rule. Observation only — never
+# aggregates follow the same 0-vs-NULL rule. global_pending_count
+# and active_batch_count remain the all-pending universe.
+# historical_* / operational_* split that universe by durable
+# dispatch_cohort. planning_* is the exact batch scope this tick
+# walked (SHADOW = operational all owners; GLOBAL = operational
+# AND scheduler-owned). Observation only — never
 # consulted to pause, slow, or skip dispatch. Does not store handles,
 # payloads, inbox paths, target accts, owner keys, or moderation scores.
 class FollowImportDispatchTickObservation < ApplicationRecord
