@@ -230,7 +230,7 @@ RSpec.describe ImportService, type: :service do # rubocop:disable Metrics/BlockL
       allow_any_instance_of(described_class).to receive(:import_data).and_return(csv_text)
     end
 
-    def create_owned_batch(import_record, dispatch_owner:, dispatch_cohort: :historical)
+    def create_owned_batch(import_record, dispatch_owner:, dispatch_cohort: :historical, preflight_state: :ready)
       FollowImportBatch.create!(
         subject: ModerationSubject.for_account!(account),
         import_id: import_record.id,
@@ -238,6 +238,7 @@ RSpec.describe ImportService, type: :service do # rubocop:disable Metrics/BlockL
         mode: :merge,
         dispatch_owner: dispatch_owner,
         dispatch_cohort: dispatch_cohort,
+        preflight_state: preflight_state,
         target_count: 0,
         resolved_target_count: 0,
         unresolved_target_count: 0
@@ -253,6 +254,7 @@ RSpec.describe ImportService, type: :service do # rubocop:disable Metrics/BlockL
       batch = FollowImportBatch.find_by(import_id: import.id)
       expect(batch).to be_present
       expect(batch.legacy_dispatch_owner?).to be true
+      expect(batch.ready_preflight_state?).to be true
       # One target per execution unit (bob local + eve remote).
       expect(batch.targets.count).to eq 2
       expect(FollowImport::BatchExecutionWorker).to have_received(:perform_async).with(batch.id)
@@ -270,6 +272,7 @@ RSpec.describe ImportService, type: :service do # rubocop:disable Metrics/BlockL
       batch = FollowImportBatch.find_by(import_id: import.id)
       expect(batch).to be_present
       expect(batch.scheduler_dispatch_owner?).to be true
+      expect(batch.ready_preflight_state?).to be true
       expect(batch.targets.where(state: :pending).count).to eq 2
       expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
       expect(Import::RelationshipWorker).not_to have_received(:push_bulk)
@@ -335,6 +338,51 @@ RSpec.describe ImportService, type: :service do # rubocop:disable Metrics/BlockL
 
       unfollows = captured.select { |args| args[2] == 'unfollow' }
       expect(unfollows.map { |args| args[1] }).to include('carol')
+      expect(FollowImportBatch.find_by(import_id: import.id).ready_preflight_state?).to be true
+    end
+
+    it 'does not enqueue overwrite unfollows while a batch is held' do
+      other = Fabricate(:account, username: 'carol')
+      account.follow!(other)
+      batch = create_owned_batch(import, dispatch_owner: :legacy, dispatch_cohort: :operational, preflight_state: :review_required)
+      pending = batch.targets.create!(target_key_hash: 'held-overwrite', position: 0)
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:push_bulk)
+
+      import.update!(overwrite: true)
+      subject.call(import)
+
+      expect(batch.reload.review_required_preflight_state?).to be true
+      expect(pending.reload.state).to eq 'pending'
+      expect(account.following?(other)).to be true
+      expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+      expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+      expect(Import::RelationshipWorker).not_to have_received(:push_bulk)
+    end
+
+    it 'does not enqueue overwrite unfollows when neutral release has not made the batch ready' do
+      other = Fabricate(:account, username: 'carol')
+      account.follow!(other)
+      release = FollowImport::PreflightReleaseService::Result.new(
+        batch_id: 1, from: 'screening', to: 'screening', released: false, transitioned: false
+      )
+      service = instance_double(FollowImport::PreflightReleaseService)
+      allow(FollowImport::PreflightReleaseService).to receive(:new).and_return(service)
+      allow(service).to receive(:call).and_return(release)
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:push_bulk)
+
+      import.update!(overwrite: true)
+      subject.call(import)
+
+      batch = FollowImportBatch.find_by(import_id: import.id)
+      expect(batch.screening_preflight_state?).to be true
+      expect(account.following?(other)).to be true
+      expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+      expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+      expect(Import::RelationshipWorker).not_to have_received(:push_bulk)
     end
 
     it 'falls back to a direct bulk enqueue when batch recording failed, without ledger linkage' do
@@ -450,6 +498,47 @@ RSpec.describe ImportService, type: :service do # rubocop:disable Metrics/BlockL
       expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
       expect(Import::RelationshipWorker).not_to have_received(:perform_async)
       expect(Import::RelationshipWorker).not_to have_received(:push_bulk)
+    end
+
+    it 'does not release review_required or enqueue work when the same import is retried' do
+      batch = create_owned_batch(import, dispatch_owner: :legacy, dispatch_cohort: :operational, preflight_state: :review_required)
+      pending = batch.targets.create!(target_key_hash: 'held-retry', position: 0)
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:push_bulk)
+
+      subject.call(import)
+
+      expect(batch.reload.review_required_preflight_state?).to be true
+      expect(pending.reload.state).to eq 'pending'
+      expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+      expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+    end
+
+    it 'does not release stopped when the same import is retried' do
+      batch = create_owned_batch(import, dispatch_owner: :legacy, dispatch_cohort: :operational, preflight_state: :stopped)
+      pending = batch.targets.create!(target_key_hash: 'stopped-retry', position: 0)
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:perform_async)
+
+      subject.call(import)
+
+      expect(batch.reload.stopped_preflight_state?).to be true
+      expect(pending.reload.state).to eq 'pending'
+      expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+      expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+    end
+
+    it 'keeps a ready batch ready and reuses the existing handoff on retry' do
+      batch = create_owned_batch(import, dispatch_owner: :legacy, dispatch_cohort: :operational, preflight_state: :ready)
+      batch.targets.create!(target_key_hash: 'ready-retry', position: 0)
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:perform_async)
+
+      subject.call(import)
+
+      expect(batch.reload.ready_preflight_state?).to be true
+      expect(FollowImport::BatchExecutionWorker).to have_received(:perform_async).with(batch.id)
     end
   end
 end

@@ -32,26 +32,40 @@ class ImportService < BaseService
     batch = record_follow_import_batch!
 
     if batch
-      # Stored dispatch_owner / dispatch_cohort — not the current
-      # GLOBAL flag — decide who may start work. A retry must not
-      # create a second owner, silently convert the row, or resurrect
-      # a historical execution chain.
-      unless batch.historical_dispatch_cohort?
-        enqueue_follow_import_handoff!(batch)
-
-        # Overwrite removals are independent of the follow set and are enqueued after
-        # the handoff. They remain an UNPACED burst: PR C scheduler pacing covers
-        # imported FOLLOW additions only. A failure here still bubbles to a retry,
-        # and if retries are exhausted the import is retained (a batch exists).
-        enqueue_follow_overwrite_unfollows! if @import.overwrite?
-      end
+      # Stored dispatch_owner / dispatch_cohort / preflight_state — not
+      # the current GLOBAL flag — decide who may start work. A retry
+      # must not create a second owner, silently convert the row,
+      # resurrect a historical execution chain, or release
+      # review_required/stopped.
+      start_follow_import_execution!(batch) unless batch.historical_dispatch_cohort?
     else
       # Legacy-only compatibility. Reached only after we have positively
       # established that GLOBAL is off AND no durable FollowImportBatch
       # exists for this Import. A lookup exception must not be treated
       # as "no batch".
+      #
+      # TODO: when moderator preflight enforcement is enabled, require a
+      # durable FollowImportBatch and do not fall through to this unpaced
+      # path. Keep the fallback while preflight is not yet enforced.
       import_relationships!('follow', 'unfollow', @account.following.map { |account| { acct: account.acct }}, ROWS_PROCESSING_LIMIT, show_reblogs: { header: 'Show boosts', default: true }, notify: { header: 'Notify on new posts', default: false }, languages: { header: 'Languages', default: nil }, delivery: { header: 'Delivery to home', default: true })
     end
+  end
+
+  # Neutral preflight first: new operational rows are born screening.
+  # Only a ready batch may hand off to the legacy worker or become
+  # scheduler-visible, and only then may overwrite unfollows enqueue.
+  # PreflightReleaseService is idempotent for ready and refuses
+  # review_required/stopped.
+  def start_follow_import_execution!(batch)
+    release = FollowImport::PreflightReleaseService.new.call(batch)
+    return unless release.released?
+
+    enqueue_follow_import_handoff!(batch)
+
+    # Overwrite removals are independent of the follow set and are enqueued after
+    # the batch is ready. They remain an UNPACED burst: PR C scheduler pacing
+    # covers imported FOLLOW additions only. A held batch must not unfollow.
+    enqueue_follow_overwrite_unfollows! if @import.overwrite?
   end
 
   # One batch = exactly one dispatch owner. Scheduler-owned batches stay

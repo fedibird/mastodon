@@ -357,7 +357,7 @@ be retired once the dispatcher + admission control are proven (PR I).
 | `FollowImport::OwnerKey` | Adapter: batch → opaque fairness key | **Yes** (thin) |
 | `FollowImport::RemoteAdmission` | Pre-claim signals actually available (see §7) | **Yes** |
 | `FollowImport::LocalLoadGuard` | Shared `under_load?` / baseline budget from a snapshot | **Yes** |
-| `FollowImport::Eligibility` | `executable?(batch)` (default true) | Thin wrapper |
+| `FollowImport::Eligibility` | `executable?(batch)` (ready-only preflight) | Thin wrapper |
 | `FollowImport::TargetTransitionService` | Claim / release / later result transitions | Existing |
 | `Import::RelationshipWorker` | Resolve + `FollowService` | Existing |
 | `ActivityPub::DeliveryWorker` | HTTP delivery + inbox Stoplight + DFT | Existing |
@@ -1341,34 +1341,44 @@ stays off, a new import is `operational` + `legacy`: the legacy
 worker still executes it, and SHADOW may plan/observe it. GLOBAL,
 when later enabled, may claim only `operational` + `scheduler`.
 
-| dispatch_cohort | dispatch_owner | Who may plan / claim |
-|---|---|---|
-| historical | legacy | excluded from scheduler planning; existing legacy chain unchanged |
-| historical | scheduler | excluded from scheduler planning until an explicit later drain/promotion |
-| operational | legacy | SHADOW may observe; only `BatchExecutionWorker` may claim |
-| operational | scheduler | SHADOW may observe; GLOBAL may claim |
+| dispatch_cohort | dispatch_owner | preflight_state | Who may plan / claim |
+|---|---|---|---|
+| historical | legacy | ready (existing default) | excluded from scheduler planning; existing legacy chain unchanged |
+| historical | scheduler | ready (existing default) | excluded from scheduler planning until an explicit later drain/promotion |
+| operational | legacy | ready | SHADOW may observe; only `BatchExecutionWorker` may claim |
+| operational | scheduler | ready | SHADOW may observe; GLOBAL may claim |
+| operational | * | screening / review_required / stopped | excluded from planning; no claims, no overwrite unfollows |
 
 Tick schema 10 keeps `global_pending_count` / `active_batch_count` as
 the all-pending universe and adds `historical_*`, `operational_*`,
 and `planning_*` counts. `planning_*` is the exact batch scope for
-that tick (SHADOW = operational all owners; GLOBAL = operational +
-scheduler-owned). A GLOBAL effective budget of 0 still skips every
-DispatchCounts query; old and new backlog columns are NULL.
+that tick (SHADOW = operational + ready, all owners; GLOBAL =
+operational + scheduler-owned + ready). Non-ready operational pending
+stays in `operational_*` provenance counts. A GLOBAL effective budget
+of 0 still skips every DispatchCounts query; old and new backlog
+columns are NULL.
 
 I2 does not enable GLOBAL, does not mutate historical targets, and
 does not auto-promote historical batches.
 
 `DispatchExecutor` is the mutation boundary. It claims only when
-`globally_claimable?` (`operational` AND `scheduler`) both at entry
-and inside the claim fence. A historical scheduler-owned row stays
-pending even if a stale plan or a direct executor call supplies it.
-`skipped_wrong_owner_count` is that GLOBAL claim-scope skip (wrong
-owner and/or cohort).
+`globally_claimable?` (`operational` AND `scheduler` AND `ready`)
+both at entry and inside the claim fence. A historical or non-ready
+scheduler-owned row stays pending even if a stale plan or a direct
+executor call supplies it. `skipped_wrong_owner_count` is that GLOBAL
+claim-scope skip (wrong owner, cohort, and/or preflight).
+
+New operational batches are born `screening` so a global tick cannot
+claim them before preflight finishes. The current ImportService path
+immediately releases `screening -> ready` (no scoring). Generic
+release never moves `review_required` or `stopped`. Overwrite
+unfollows enqueue only after ready.
 
 A retry of an existing historical Import does not newly enqueue
 `BatchExecutionWorker` and does not replay overwrite unfollows.
 An already-running legacy chain is unchanged. `BatchExecutionWorker`
-itself is not gated on cohort.
+itself is not gated on cohort; it refuses non-ready immediately after
+find, before snapshot/claim/enqueue/finalize.
 
 #### I3 offline pacing backtest (implemented)
 
@@ -1404,8 +1414,9 @@ headers or a privacy-minimized anonymous set
   `global_dispatch_budget` is not a total HTTP attempt budget.
 - No remote admission yet (destination caps, Retry-After cache, DFT,
   Stoplight, AIMD, Node capacity). Those are PR F/G/H.
-- No Follow Gate / moderation coupling. `Eligibility` still defaults
-  true.
+- No Follow Gate coupling. `Eligibility.executable?` is ready-only
+  preflight (`screening` / `review_required` / `stopped` are not
+  executable). That is an execution barrier, not a risk score.
 
 #### Fairness cursor under real claims
 

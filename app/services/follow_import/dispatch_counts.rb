@@ -65,9 +65,12 @@ module FollowImport
 
       # One tick's backlog universes. `global_*` stay all-pending for
       # continuity. `historical_*` / `operational_*` split by durable
-      # cohort. `planning_*` is the exact batch_scope this tick will
-      # (or would) walk. Failures on a group become NULL for that group
-      # only; an observed empty group is 0.
+      # cohort (operational includes screening / review_required /
+      # stopped). `planning_*` is the exact batch_scope this tick will
+      # (or would) walk — SHADOW/GLOBAL scopes are ready-only, so
+      # non-ready pending is provenance, not executable work. Failures
+      # on a group become NULL for that group only; an observed empty
+      # group is 0.
       def backlog_snapshot(planning_scope:)
         historical = scoped_pending_snapshot(FollowImportBatch.historical_cohort)
         operational = scoped_pending_snapshot(FollowImportBatch.operational_cohort)

@@ -99,10 +99,37 @@ RSpec.describe FollowImport::DispatchExecutor do # rubocop:disable Metrics/Block
       expect(Import::RelationshipWorker).not_to have_received(:perform_async)
     end
 
+    it 'does not claim a screening scheduler-owned batch' do
+      batch.update!(preflight_state: :screening)
+      target = add_target(0)
+
+      result = executor.execute([entry_for(target)])
+
+      expect(result.claimed_count).to eq 0
+      expect(result.skipped_wrong_owner_count).to eq 1
+      expect(target.reload.state).to eq 'pending'
+      expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+    end
+
     it 're-checks owner and cohort inside the claim fence' do
       target = add_target(0)
       allow_any_instance_of(FollowImport::ImportUnitResolver).to receive(:work_for) do |_resolver, row|
         batch.update!(dispatch_cohort: :historical)
+        { acct: "acct-#{row.id}@remote.test", options: { 'show_reblogs' => true } }
+      end
+
+      result = executor.execute([entry_for(target)])
+
+      expect(result.claimed_count).to eq 0
+      expect(result.skipped_wrong_owner_count).to eq 1
+      expect(target.reload.state).to eq 'pending'
+      expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+    end
+
+    it 'does not claim a stale plan after ready becomes review_required inside the fence' do
+      target = add_target(0)
+      allow_any_instance_of(FollowImport::ImportUnitResolver).to receive(:work_for) do |_resolver, row|
+        batch.update!(preflight_state: :review_required)
         { acct: "acct-#{row.id}@remote.test", options: { 'show_reblogs' => true } }
       end
 

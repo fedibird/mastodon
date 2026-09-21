@@ -3,19 +3,20 @@
 # Authoritative claim/enqueue for one global Follow Import tick.
 #
 # A plan is not a reservation. Each entry is re-checked against current
-# DB state: operational + scheduler-owned batch, recoverable Import/CSV
-# work, then pending -> queued via TargetTransitionService. Only a
-# successful pending->queued transition plus a successful
+# DB state: operational + scheduler-owned + ready batch, recoverable
+# Import/CSV work, then pending -> queued via TargetTransitionService.
+# Only a successful pending->queued transition plus a successful
 # RelationshipWorker enqueue counts as a claim.
 #
-# The planner is not the mutation boundary. A historical scheduler-owned
-# row must not be claimed even if a stale plan or a direct executor call
-# supplies an entry. Owner+cohort are re-checked inside the claim fence.
+# The planner is not the mutation boundary. A historical or non-ready
+# scheduler-owned row must not be claimed even if a stale plan or a
+# direct executor call supplies an entry. Owner, cohort, and
+# preflight are re-checked inside the claim fence.
 #
 # skipped_wrong_owner_count is the GLOBAL claim-scope skip: the batch is
-# not (operational AND scheduler-owned). A wrong cohort is counted here
-# because it is the same fail-closed claim rejection, not a distinct
-# owner-axis event.
+# not globally_claimable? (operational AND scheduler-owned AND ready).
+# A wrong cohort or non-ready preflight is counted here because it is
+# the same fail-closed claim rejection, not a distinct owner-axis event.
 #
 # ImportUnitResolver is cached per batch_id so one CSV is not reparsed
 # for every target from the same batch in this tick.

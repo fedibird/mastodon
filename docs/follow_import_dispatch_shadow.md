@@ -100,8 +100,9 @@ does not import `ModerationSubject`, reputation, or handles. A batch
 with no derivable owner is skipped (aggregate `skipped_missing_owner_count`)
 and does not become its own top-level peer.
 
-`Eligibility` currently always returns true. No Follow Gate / moderation
-coupling.
+`Eligibility.executable?` is ready-only. Screening / review_required /
+stopped batches are not executable planning work. That is an execution
+barrier, not a Follow Gate or moderation verdict.
 
 Destination domains travel with plan entries so later destination-share
 math can split a cap **across accounts first**. PR B does not enable a

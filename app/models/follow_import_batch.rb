@@ -15,10 +15,11 @@
 #  account_age_seconds     :bigint(8)
 #  migration_evidence      :integer          default("none"), not null
 #  metadata                :jsonb            not null
-#  dispatch_owner          :integer          default("legacy"), not null
-#  dispatch_cohort         :integer          default("historical"), not null
 #  created_at              :datetime         not null
 #  updated_at              :datetime         not null
+#  dispatch_owner          :integer          default("legacy"), not null
+#  dispatch_cohort         :integer          default("historical"), not null
+#  preflight_state         :integer          default("ready"), not null
 #
 # A single follow-import event, recorded before the follows are executed.
 #
@@ -33,6 +34,7 @@ class FollowImportBatch < ApplicationRecord
   enum migration_evidence: { none: 0, weak: 1, strong: 2 }, _prefix: :migration
   enum dispatch_owner: { legacy: 0, scheduler: 1 }, _suffix: :dispatch_owner
   enum dispatch_cohort: { historical: 0, operational: 1 }, _suffix: :dispatch_cohort
+  enum preflight_state: { screening: 0, ready: 1, review_required: 2, stopped: 3 }, _suffix: :preflight_state
 
   belongs_to :subject, class_name: 'ModerationSubject'
 
@@ -43,30 +45,35 @@ class FollowImportBatch < ApplicationRecord
   validates :import_id, uniqueness: { allow_nil: true }
   validates :dispatch_owner, inclusion: { in: dispatch_owners.keys }
   validates :dispatch_cohort, inclusion: { in: dispatch_cohorts.keys }
+  validates :preflight_state, inclusion: { in: preflight_states.keys }
 
   scope :scheduler_owned, -> { scheduler_dispatch_owner }
   scope :legacy_owned, -> { legacy_dispatch_owner }
   scope :historical_cohort, -> { historical_dispatch_cohort }
   scope :operational_cohort, -> { operational_dispatch_cohort }
 
-  # SHADOW may plan/observe every operational batch, including those
-  # still owned by the legacy worker while GLOBAL is off.
+  # SHADOW may plan/observe ready operational batches, including those
+  # still owned by the legacy worker while GLOBAL is off. Screening /
+  # review_required / stopped rows stay in operational provenance
+  # counts but are not executable planning work.
   def self.shadow_planning_scope
-    operational_cohort
+    operational_cohort.ready_preflight_state
   end
 
-  # GLOBAL may claim only the intersection of operational provenance
-  # and scheduler ownership. A historical scheduler-owned row is not
-  # live work.
+  # GLOBAL may claim only the intersection of operational provenance,
+  # scheduler ownership, and ready preflight. A historical
+  # scheduler-owned row is not live work. A screening row is not
+  # executable until released.
   def self.global_planning_scope
-    operational_cohort.scheduler_owned
+    operational_cohort.scheduler_owned.ready_preflight_state
   end
 
   # Authoritative GLOBAL claim predicate. Planner scope is not enough:
-  # DispatchExecutor re-checks both axes at the mutation boundary.
-  # A historical scheduler-owned row is not executable.
+  # DispatchExecutor re-checks owner, cohort, and preflight at the
+  # mutation boundary. A historical or non-ready scheduler-owned row
+  # is not executable.
   def globally_claimable?
-    operational_dispatch_cohort? && scheduler_dispatch_owner?
+    operational_dispatch_cohort? && scheduler_dispatch_owner? && ready_preflight_state?
   end
 
   COMPLETED_AT_KEY        = 'completed_at'

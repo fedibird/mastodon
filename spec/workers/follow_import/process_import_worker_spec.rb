@@ -30,6 +30,7 @@ RSpec.describe FollowImport::ProcessImportWorker do # rubocop:disable Metrics/Bl
     batch = FollowImportBatch.find_by(import_id: import.id)
     expect(batch).to be_present
     expect(batch.legacy_dispatch_owner?).to be true
+    expect(batch.ready_preflight_state?).to be true
     expect(FollowImport::BatchExecutionWorker).to have_received(:perform_async).with(batch.id)
     expect(Import.exists?(import.id)).to be true
   end
@@ -59,6 +60,54 @@ RSpec.describe FollowImport::ProcessImportWorker do # rubocop:disable Metrics/Bl
     expect(Import.exists?(import.id)).to be true
   end
 
+  it 'does not release review_required on retry and retains the Import' do
+    import = create_follow_import
+    batch = FollowImportBatch.create!(
+      subject: ModerationSubject.for_account!(account),
+      import_id: import.id,
+      imported_at: Time.now.utc,
+      mode: :merge,
+      dispatch_owner: :legacy,
+      dispatch_cohort: :operational,
+      preflight_state: :review_required,
+      target_count: 0,
+      resolved_target_count: 0,
+      unresolved_target_count: 0
+    )
+    target = batch.targets.create!(target_key_hash: 'held-retry', position: 0)
+
+    worker.perform(import.id)
+
+    expect(batch.reload.review_required_preflight_state?).to be true
+    expect(target.reload.state).to eq 'pending'
+    expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+    expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+    expect(Import.exists?(import.id)).to be true
+  end
+
+  it 'does not revert a ready batch on retry' do
+    import = create_follow_import
+    batch = FollowImportBatch.create!(
+      subject: ModerationSubject.for_account!(account),
+      import_id: import.id,
+      imported_at: Time.now.utc,
+      mode: :merge,
+      dispatch_owner: :legacy,
+      dispatch_cohort: :operational,
+      preflight_state: :ready,
+      target_count: 0,
+      resolved_target_count: 0,
+      unresolved_target_count: 0
+    )
+    batch.targets.create!(target_key_hash: 'ready-retry', position: 0)
+
+    worker.perform(import.id)
+
+    expect(batch.reload.ready_preflight_state?).to be true
+    expect(FollowImport::BatchExecutionWorker).to have_received(:perform_async).with(batch.id)
+    expect(Import.exists?(import.id)).to be true
+  end
+
   it 'retains the Import when GLOBAL recording fails so the worker can retry' do
     import = create_follow_import
     allow(Moderation::FollowImportRecorder).to receive(:record_batch!).and_raise(ActiveRecord::StatementInvalid, 'boom')
@@ -84,6 +133,7 @@ RSpec.describe FollowImport::ProcessImportWorker do # rubocop:disable Metrics/Bl
 
     batch = FollowImportBatch.find_by(import_id: import.id)
     expect(batch.scheduler_dispatch_owner?).to be true
+    expect(batch.ready_preflight_state?).to be true
     expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
     expect(Import.exists?(import.id)).to be true
   end
