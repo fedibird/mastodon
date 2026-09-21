@@ -27,6 +27,7 @@ RSpec.describe FollowImport::PacingBacktest::AdaptiveReplay do
       error_class: overrides[:error_class],
       event_time: started,
       attempt_ordinal: overrides[:attempt_ordinal] || 1,
+      destination_is_local: overrides[:destination_is_local],
       malformed_fields: []
     )
   end
@@ -200,5 +201,50 @@ RSpec.describe FollowImport::PacingBacktest::AdaptiveReplay do
     expect(result['origin']['keys_observed']).to eq 0
     expect(result['destination']['mutating_event_count']).to eq 0
     expect(result['origin']['mutating_event_count']).to eq 0
+  end
+
+  it 'does not create remote adaptive state for an anonymous local destination' do
+    rows = [
+      attempt(row_number: 1, destination_domain: 'd0000972', endpoint_origin: 'o0000abcd', destination_is_local: true),
+      attempt(row_number: 2, target_id: '2', event_time: Time.utc(2026, 9, 16, 12, 0, 1), destination_domain: 'd0000972', endpoint_origin: 'o0000abcd', destination_is_local: true),
+      attempt(row_number: 3, target_id: '3', event_time: Time.utc(2026, 9, 16, 12, 0, 2), destination_domain: 'd0000972', endpoint_origin: 'o0000abcd', destination_is_local: true),
+    ]
+    result = described_class.new(dataset_for(rows), candidate, 60).to_h
+
+    expect(result['first_attempt_pressure']['above_destination_cap']).to eq 0
+    expect(result['first_attempt_pressure']['above_origin_cap']).to eq 0
+    expect(result['destination']['keys_observed']).to eq 0
+    expect(result['origin']['keys_observed']).to eq 0
+    expect(result['destination']['mutating_event_count']).to eq 0
+    expect(result['origin']['mutating_event_count']).to eq 0
+  end
+
+  it 'treats an anonymous remote destination like raw remote input' do
+    rows = [
+      attempt(row_number: 1, destination_domain: 'd0000972', endpoint_origin: 'o0000abcd', destination_is_local: false, http_status: 404, outcome: 'http_unsalvageable'),
+      attempt(row_number: 2, target_id: '2', event_time: Time.utc(2026, 9, 16, 12, 0, 1), destination_domain: 'd0000972', endpoint_origin: 'o0000abcd', destination_is_local: false, http_status: 404, outcome: 'http_unsalvageable'),
+      attempt(row_number: 3, target_id: '3', event_time: Time.utc(2026, 9, 16, 12, 0, 2), destination_domain: 'd0000972', endpoint_origin: 'o0000abcd', destination_is_local: false, http_status: 404, outcome: 'http_unsalvageable'),
+    ]
+    result = described_class.new(dataset_for(rows), candidate, 60).to_h
+
+    expect(result['first_attempt_pressure']['above_destination_cap']).to eq 1
+    expect(result['first_attempt_pressure']['above_origin_cap']).to eq 1
+    expect(result['destination']['keys_observed']).to eq 0
+    expect(result['destination']['mutating_event_count']).to eq 0
+  end
+
+  it 'keeps missing anonymous destinations as UNKNOWN dest pressure without origin claim pressure' do
+    rows = [
+      attempt(row_number: 1, destination_domain: '', endpoint_origin: 'o0000abcd', destination_is_local: nil),
+      attempt(row_number: 2, target_id: '2', event_time: Time.utc(2026, 9, 16, 12, 0, 1), destination_domain: '', endpoint_origin: 'o0000abcd', destination_is_local: nil),
+      attempt(row_number: 3, target_id: '3', event_time: Time.utc(2026, 9, 16, 12, 0, 2), destination_domain: '', endpoint_origin: 'o0000abcd', destination_is_local: nil),
+    ]
+    result = described_class.new(dataset_for(rows), candidate, 60).to_h
+
+    expect(result['first_attempt_pressure']['above_destination_cap']).to eq 1
+    expect(result['first_attempt_pressure']['above_origin_cap']).to eq 0
+    expect(result['destination']['keys_observed']).to eq 0
+    expect(result['destination']['mutating_event_count']).to eq 0
+    expect(result['origin']['keys_observed']).to eq 1
   end
 end

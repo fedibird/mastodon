@@ -42,8 +42,8 @@ module FollowImport
           views = {
             destination: dest_view,
             origin: origin_view,
-            destination_key: Routing.destination_pressure_key(row.destination_domain),
-            origin_key: Routing.origin_pressure_key(row.destination_domain, row.endpoint_origin),
+            destination_key: Routing.destination_pressure_key(row),
+            origin_key: Routing.origin_pressure_key(row),
           }
           first_pressure.observe(row, views, @bucket_seconds) if row.first_attempt?
           all_pressure.observe(row, views, @bucket_seconds) if row.http?
@@ -90,15 +90,15 @@ module FollowImport
       end
 
       def pressure_destination_view(store, row)
-        key = Routing.destination_pressure_key(row.destination_domain)
+        key = Routing.destination_pressure_key(row)
         return if key.nil?
 
-        persistable = Routing.persist_destination?(row.destination_domain)
+        persistable = Routing.persist_destination?(row)
         read_view(persistable ? store : {}, persistable ? row.destination_domain : nil, :destination, row.event_time)
       end
 
       def pressure_origin_view(store, row)
-        key = Routing.origin_pressure_key(row.destination_domain, row.endpoint_origin)
+        key = Routing.origin_pressure_key(row)
         return if key.nil?
 
         read_view(store, key, :origin, row.event_time)
@@ -156,11 +156,11 @@ module FollowImport
 
       def persist_key(layer, row)
         if layer == :origin
-          return unless Routing.persist_origin?(row.destination_domain, row.endpoint_origin)
+          return unless Routing.persist_origin?(row)
 
           row.endpoint_origin
         else
-          return unless Routing.persist_destination?(row.destination_domain)
+          return unless Routing.persist_destination?(row)
 
           row.destination_domain
         end

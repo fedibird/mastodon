@@ -6,14 +6,15 @@ require 'csv'
 # ignored. Required transport headers must be present; missing cells are
 # not coerced to zero. Optional tick/dispatch fields are parsed once at
 # load time so malformed counts are complete and deterministic.
+#
+# Transport routing identity is selected once per file: raw
+# destination_domain/endpoint_origin, or anonymous
+# anon_destination_domain/anon_endpoint_origin plus destination_is_local.
 module FollowImport
   class PacingBacktest
     class Input
-      REQUIRED_TRANSPORT_HEADERS = %w(
-        target_id
+      CORE_TRANSPORT_HEADERS = %w(
         phase
-        destination_domain
-        endpoint_origin
         started_at
         finished_at
         request_started_at
@@ -26,6 +27,36 @@ module FollowImport
         retry_after_seconds
         error_class
       ).freeze
+
+      RAW_IDENTITY_HEADERS = %w(
+        target_id
+        destination_domain
+        endpoint_origin
+      ).freeze
+
+      ANONYMOUS_IDENTITY_HEADERS = %w(
+        anon_target_id
+        anon_destination_domain
+        anon_endpoint_origin
+        destination_is_local
+      ).freeze
+
+      RAW_ROUTING_HEADERS = %w(
+        destination_domain
+        endpoint_origin
+      ).freeze
+
+      ANONYMOUS_ROUTING_HEADERS = %w(
+        anon_destination_domain
+        anon_endpoint_origin
+        destination_is_local
+      ).freeze
+
+      REQUIRED_TRANSPORT_HEADERS = (CORE_TRANSPORT_HEADERS + RAW_IDENTITY_HEADERS).freeze
+      MODE_RAW = 'raw'
+      MODE_ANONYMOUS = 'anonymous'
+      BOOLEAN_TRUE = %w(t true 1).freeze
+      BOOLEAN_FALSE = %w(f false 0).freeze
 
       REQUIRED_TICK_HEADERS = %w(observed_at).freeze
       REQUIRED_DISPATCH_HEADERS = %w(observed_at).freeze
@@ -57,6 +88,7 @@ module FollowImport
         :missing_target_id_count,
         :input_files,
         :warnings,
+        :routing_identity_mode,
         keyword_init: true
       )
 
@@ -94,6 +126,8 @@ module FollowImport
         @paths = paths
         @malformed_counts = Hash.new(0)
         @warnings = []
+        @routing_identity_mode = nil
+        @raw_locality_header = false
       end
 
       def load
@@ -106,6 +140,10 @@ module FollowImport
         timed_rows = delivery_rows.select(&:timed?).sort_by { |row| [row.event_time.to_f, row.row_number] }
         raise FollowImport::PacingBacktest::Error, 'no usable timed activitypub_delivery rows' if timed_rows.empty?
 
+        if @routing_identity_mode == MODE_ANONYMOUS
+          @warnings << FollowImport::PacingBacktest::ANONYMOUS_LABEL_WARNING
+        end
+
         Dataset.new(
           rows: rows,
           delivery_rows: delivery_rows,
@@ -116,7 +154,8 @@ module FollowImport
           malformed_counts: @malformed_counts.dup,
           missing_target_id_count: delivery_rows.count { |row| row.target_id.blank? },
           input_files: input_files,
-          warnings: @warnings.dup
+          warnings: @warnings.dup,
+          routing_identity_mode: @routing_identity_mode
         )
       end
 
@@ -161,12 +200,32 @@ module FollowImport
       def load_transport(path)
         table = read_table(path)
         headers = Array(table.headers).map(&:to_s)
-        missing = REQUIRED_TRANSPORT_HEADERS - headers
+        missing = CORE_TRANSPORT_HEADERS - headers
         unless missing.empty?
           raise FollowImport::PacingBacktest::Error, "missing required transport headers: #{missing.join(', ')}"
         end
 
+        @routing_identity_mode = detect_routing_mode(headers)
+        @raw_locality_header = headers.include?('destination_is_local')
         table.each_with_index.map { |row, index| build_attempt(row, index + 1) }
+      end
+
+      def detect_routing_mode(headers)
+        raw_complete = RAW_IDENTITY_HEADERS.all? { |header| headers.include?(header) }
+        anon_complete = ANONYMOUS_IDENTITY_HEADERS.all? { |header| headers.include?(header) }
+        if raw_complete && anon_complete
+          raise FollowImport::PacingBacktest::Error, 'ambiguous transport routing headers: both raw and anonymous identity sets are present'
+        end
+        return MODE_RAW if raw_complete && !headers.include?('anon_target_id')
+        if raw_complete && headers.include?('anon_target_id')
+          raise FollowImport::PacingBacktest::Error, 'mixed transport target identity headers: expected target_id or anon_target_id, not both'
+        end
+        return MODE_ANONYMOUS if anon_complete && !headers.include?('target_id')
+        if anon_complete && headers.include?('target_id')
+          raise FollowImport::PacingBacktest::Error, 'mixed transport target identity headers: expected target_id or anon_target_id, not both'
+        end
+
+        raise FollowImport::PacingBacktest::Error, 'incomplete or mixed transport routing headers: expected target_id+destination_domain+endpoint_origin, or anon_target_id+anon_destination_domain+anon_endpoint_origin+destination_is_local'
       end
 
       def build_attempt(row, row_number)
@@ -174,12 +233,14 @@ module FollowImport
         request_started_at = parse_time(row['request_started_at'], 'request_started_at', malformed)
         started_at = parse_time(row['started_at'], 'started_at', malformed)
         event_time = request_started_at || started_at
+        destination_domain, endpoint_origin, destination_is_local = identity_for(row, row_number)
         attempt = Attempt.new(
           row_number: row_number,
           phase: blank_to_nil(row['phase']),
-          target_id: blank_to_nil(row['target_id']),
-          destination_domain: blank_to_nil(row['destination_domain']),
-          endpoint_origin: blank_to_nil(row['endpoint_origin']),
+          target_id: target_identity(row),
+          destination_domain: destination_domain,
+          endpoint_origin: endpoint_origin,
+          destination_is_local: destination_is_local,
           started_at: started_at,
           finished_at: parse_time(row['finished_at'], 'finished_at', malformed),
           request_started_at: request_started_at,
@@ -197,6 +258,66 @@ module FollowImport
         )
         record_malformed(attempt.malformed_fields)
         attempt
+      end
+
+      def target_identity(row)
+        if @routing_identity_mode == MODE_ANONYMOUS
+          blank_to_nil(row['anon_target_id'])
+        else
+          blank_to_nil(row['target_id'])
+        end
+      end
+
+      def identity_for(row, row_number)
+        if @routing_identity_mode == MODE_ANONYMOUS
+          domain = blank_to_nil(row['anon_destination_domain'])
+          origin = blank_to_nil(row['anon_endpoint_origin'])
+          [domain, origin, anonymous_locality(row['destination_is_local'], domain, row_number)]
+        else
+          domain = blank_to_nil(row['destination_domain'])
+          origin = blank_to_nil(row['endpoint_origin'])
+          [domain, origin, raw_locality(row['destination_is_local'], domain, row_number)]
+        end
+      end
+
+      def anonymous_locality(value, domain, row_number)
+        parsed = parse_boolean(value)
+        if domain.blank?
+          raise anonymous_locality_error(row_number, 'invalid destination_is_local') if parsed == :invalid
+
+          return parsed
+        end
+        raise anonymous_locality_error(row_number, 'missing destination_is_local') if parsed.nil?
+        raise anonymous_locality_error(row_number, 'invalid destination_is_local') if parsed == :invalid
+
+        parsed
+      end
+
+      def anonymous_locality_error(row_number, detail)
+        FollowImport::PacingBacktest::Error.new("anonymous transport row #{row_number}: #{detail}")
+      end
+
+      def raw_locality(value, domain, row_number)
+        if @raw_locality_header
+          parsed = parse_boolean(value)
+          raise FollowImport::PacingBacktest::Error, "raw transport row #{row_number}: invalid destination_is_local" if parsed == :invalid
+          return parsed unless parsed.nil?
+        end
+
+        return if domain.blank?
+
+        Routing.tag_manager_local?(domain)
+      end
+
+      def parse_boolean(value)
+        text = value.to_s.strip
+        return if text.empty?
+
+        lowered = text.downcase
+        return true if BOOLEAN_TRUE.include?(lowered)
+        return false if BOOLEAN_FALSE.include?(lowered)
+
+        :invalid
       end
 
       def assign_ordinals!(rows)
