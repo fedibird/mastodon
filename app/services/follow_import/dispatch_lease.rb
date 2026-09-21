@@ -17,9 +17,12 @@
 # Crash recovery is the row's `expires_at`, compared with PostgreSQL
 # `clock_timestamp()`. The liveness window is the existing dispatcher
 # cadence (`ExecutionPolicy.dispatch_interval`), not a new pacing budget.
-# A stuck owner whose expiry has passed can be replaced; the old handle
-# cannot make a later authoritative claim because its fencing generation
-# no longer matches.
+# The durable row may expire while snapshot/planning/telemetry still
+# run; that is not a claim. Authoritative `pending -> queued` runs
+# inside a short transaction that locks this singleton row and checks
+# token + generation + DB-clock expiry, so a stolen/expired generation
+# cannot mark a target queued. Already-enqueued claims are not rolled
+# back.
 module FollowImport
   class DispatchLease
     STRATEGY = 'durable_row_v1'
@@ -47,6 +50,10 @@ module FollowImport
       new.owned?(handle)
     end
 
+    def self.with_claim_fence(handle, &block)
+      new.with_claim_fence(handle, &block)
+    end
+
     # Yields a Handle only when a fresh durable lease is acquired.
     # Returns BUSY when another unexpired owner exists, when acquisition
     # cannot be serialized, or when setup fails. Fail closed: never yield
@@ -72,6 +79,25 @@ module FollowImport
         )
         .where('expires_at > clock_timestamp()')
         .exists?
+    end
+
+    # Short mutation fence: lock the singleton row, verify this handle
+    # still owns it, then run the block in the same transaction.
+    # Acquire/steal also lock this row, so takeover and pending->queued
+    # are ordered. Returns false without yielding when ownership is lost.
+    # The block must stay cheap (row-locked claim only), not CSV parse.
+    def with_claim_fence(handle)
+      return false if handle.nil? || handle.owner_token.blank?
+
+      applied = false
+      ApplicationRecord.transaction do
+        row = FollowImportDispatchLease.lock.find_by(id: FollowImportDispatchLease::SINGLETON_ID)
+        raise ActiveRecord::Rollback unless current_row?(row, handle)
+
+        yield
+        applied = true
+      end
+      applied
     end
 
     private
@@ -118,6 +144,15 @@ module FollowImport
       )
     rescue StandardError => e
       Rails.logger.error("[FollowImport::DispatchLease] release failed: #{e.class}: #{e.message}")
+    end
+
+    def current_row?(row, handle)
+      return false if row.nil?
+      return false unless row.owner_token == handle.owner_token
+      return false unless row.fencing_generation.to_i == handle.fencing_generation.to_i
+
+      now = database_time
+      now.present? && row.held_at?(now)
     end
 
     def try_xact_lock?

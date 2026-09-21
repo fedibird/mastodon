@@ -17,9 +17,11 @@
 # A GLOBAL effective budget of 0 skips owner/batch/target discovery
 # and does not write the fairness cursor.
 #
-# The durable DispatchLease row + fencing generation is the real
-# single-flight boundary and covers snapshot, budget, planning,
-# claims, enqueue, and telemetry. Session advisory locks are not used.
+# The durable DispatchLease row + fencing generation is the
+# single-flight boundary for acquiring a tick. Snapshot, planning,
+# and telemetry may still run after expires_at; that must not claim.
+# Authoritative pending->queued is fenced in DispatchExecutor against
+# the same singleton row. Session advisory locks are not used.
 module FollowImport
   class DispatchScheduler
     OUTCOME_SHADOW_DISABLED = 'shadow_disabled'

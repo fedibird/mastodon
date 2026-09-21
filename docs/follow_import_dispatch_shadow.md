@@ -562,18 +562,26 @@ as unlock) must not be used as cross-transaction dispatcher state.
 
 A short `pg_try_advisory_xact_lock` transaction serializes
 acquire/steal. PgBouncer pins a server backend only for that
-explicit transaction. The tick body (snapshot, plan, claim, enqueue,
-telemetry) uses ordinary connections. Ownership is
+explicit transaction. Snapshot, plan, and telemetry then use
+ordinary connections and may still be running after `expires_at`.
+That is not an authoritative claim. Ownership is
 `(owner_token, fencing_generation)` with `expires_at` compared to
 PostgreSQL `clock_timestamp()`. The TTL is
 `ExecutionPolicy.dispatch_interval` (crash-recovery bound, not a new
-pacing number). GLOBAL claims re-check current ownership before each
-authoritative claim.
+pacing number). GLOBAL `pending -> queued` is fenced: a short
+transaction locks the singleton lease row, verifies the current
+generation, and applies `mark_queued` in that same transaction.
+Enqueue happens after that claim commits. Stale generations cannot
+perform authoritative claims.
 
 Seeing advisory key `(classid=17993, objid=1, objsubid=2)` only
 during the short acquire transaction is expected. Seeing it stranded
-on an idle backend between ticks is not. Session locks for this key
-(`objsubid=1`) must stay at zero.
+on an idle backend between ticks is not.
+
+`objsubid = 2` is the PostgreSQL two-integer locktag form for both
+session-level and transaction-level advisory locks on `(17993, 1)`.
+`objsubid = 1` is the single-bigint representation, not “session vs
+xact”. The verification query below is the relevant one.
 
 GLOBAL must remain off until production shadow verification confirms
 the new mechanism: ticks succeed at approximately the configured
@@ -598,6 +606,28 @@ WHERE l.locktype = 'advisory'
   AND l.objid = 1
   AND l.objsubid = 2;
 ```
+
+### Cutover: clear #135 stranded session locks before enabling #137
+
+The new xact lock reuses `(classid=17993, objid=1, objsubid=2)`. A
+#135-era **session** advisory lock granted on that same key conflicts
+with `pg_try_advisory_xact_lock`, so a leftover holder makes every
+#137 tick `lease_busy`.
+
+Pre-deploy / cutover (operator action; application code must not
+call `pg_terminate_backend`):
+
+1. Keep `FOLLOW_IMPORT_DISPATCH_GLOBAL` off. Temporarily stop
+   SHADOW / scheduler acquisition (disable the scheduler or set
+   `FOLLOW_IMPORT_DISPATCH_SHADOW=false` and restart Sidekiq
+   scheduler processes).
+2. Identify granted advisory holders with the query above.
+3. Recycle or terminate those legacy PostgreSQL **server** backends
+   (the PgBouncer client disconnect is not enough).
+4. Re-run the query and confirm **zero** granted rows.
+5. Deploy / restart #137 processes, then re-enable SHADOW only.
+6. Confirm `execution_config.lease_strategy = durable_row_v1` and
+   that `lease_busy` is only genuine overlap.
 
 ## Inspecting recent fairness telemetry
 

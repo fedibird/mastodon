@@ -40,7 +40,10 @@ measured p95.
   generation (`FollowImport::DispatchLease`). Session advisory locks
   are not used: they leak under PgBouncer transaction pooling. Target
   row locks are necessary but not sufficient for a global budget.
-  Claim budget is not a strict HTTP-attempt cap.
+  Authoritative `pending -> queued` is ordered against lease
+  takeover by locking that singleton row in the same short
+  transaction as the claim. Claim budget is not a strict HTTP-attempt
+  cap.
 - The **database target set** remains the source of truth. Sidekiq is a
   transport, not business state. Redis is not a second budget ledger.
 - Claim-then-enqueue stays **idempotent and row-locked**.
@@ -402,19 +405,27 @@ that each compute `budget = 50` can claim 100 different rows.
 - The liveness window is the existing dispatcher cadence
   (`ExecutionPolicy.dispatch_interval`, default 60s). It is a crash-
   recovery bound, not a new pacing number and not the admission
-  budget.
+  budget. The durable row may expire while snapshot / planning /
+  telemetry code is still running. That is not an authoritative
+  claim. Do not treat the lease TTL as covering the whole tick body.
 - Release/steal uses a conditional `UPDATE` so a non-owner cannot
   clear a newer generation.
-- Authoritative GLOBAL claims re-check `handle.current_owner?` before
-  each claim. An older generation must not enqueue after a newer
-  owner has taken the row. Already-enqueued claims are not rolled
-  back if a later fencing check fails (same as the existing
-  enqueue-failure stop path).
+- Authoritative GLOBAL `pending -> queued` runs inside a **short**
+  transaction that `SELECT … FOR UPDATE`s the singleton lease row and
+  checks token + generation + DB-clock expiry, then applies
+  `mark_queued` in that same transaction. CSV / work resolution stays
+  outside. Enqueue happens after the claim commits. An older
+  generation therefore cannot queue a target after a newer owner has
+  taken the row: steal and claim both lock the same singleton row, so
+  they are ordered. Already-enqueued claims are not rolled back if a
+  later fencing check fails (same as the existing enqueue-failure
+  stop path).
 - Do **not** wrap plan/claim/enqueue in one long DB transaction
-  merely to keep an xact advisory lock alive. Per-target claim
-  transactions commit independently.
+  merely to keep an xact advisory lock alive. Per-target fenced claim
+  transactions commit independently of enqueue.
 - Fail closed (`lease_busy`) if the singleton row is missing, the
-  short xact lock cannot be taken, or acquisition raises.
+  short xact lock cannot be taken, or acquisition raises. The
+  executor requires a lease handle; a nil handle cannot claim.
 
 #### Process crash while holding the lease
 
@@ -483,10 +494,13 @@ Each scheduler tick, in order:
    caches/aggregates only. No raw telemetry table scan.
 7. `plan = DispatchPlan.build(budget, owners → batches, admission,
    cursors)` — account-first, then batch, then diverse targets.
-8. For each planned target: claim via
+8. For each planned target: resolve CSV/work outside the lease
+   transaction; then in a short transaction lock the singleton lease
+   row, verify the current fencing generation, and claim via
    `TargetTransitionService#mark_queued`; enqueue `RelationshipWorker`
-   with today's options. On enqueue failure, release the claim and stop
-   the tick. Increment `claimed_count` only after a successful enqueue.
+   after that claim commits. On enqueue failure, release the claim and
+   stop the tick. Increment `claimed_count` only after a successful
+   enqueue. A stolen generation must not mark the target queued.
 9. Persist fairness cursors (last `owner_key` / per-owner batch cursor /
    deficits). Reconstructable from DB if missing.
 10. Write one **tick-level** dispatch observation. Do not skip telemetry

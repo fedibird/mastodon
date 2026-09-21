@@ -199,6 +199,27 @@ RSpec.describe FollowImport::DispatchLease do # rubocop:disable Metrics/BlockLen
         expect(handle.current_owner?).to be false
       end
     end
+
+    it 'yields a claim fence only while the handle still owns the row' do
+      described_class.with_lease do |handle|
+        yielded = false
+        expect(described_class.with_claim_fence(handle) { yielded = true }).to be true
+        expect(yielded).to be true
+      end
+    end
+
+    it 'does not yield a claim fence after a newer generation owns the row' do
+      yielded = false
+      described_class.with_lease do |handle|
+        lease_row.update!(
+          owner_token: 'newer',
+          fencing_generation: handle.fencing_generation + 1,
+          expires_at: 1.hour.from_now
+        )
+        expect(described_class.with_claim_fence(handle) { yielded = true }).to be false
+      end
+      expect(yielded).to be false
+    end
   end
 
   describe 'transaction-scoped advisory lock' do
