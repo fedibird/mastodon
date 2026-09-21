@@ -170,7 +170,7 @@ RSpec.describe FollowImport::PacingBacktest::Input do # rubocop:disable Metrics/
 
   it 'uses an explicit destination_is_local hint in raw mode when present' do
     path = tmp('raw-hint.csv')
-    write_csv(path, TRANSPORT_HEADERS + ['destination_is_local'], [transport_row('destination_is_local' => 't')])
+    write_csv(path, FollowImportPacingBacktestFixtures::TRANSPORT_HEADERS + ['destination_is_local'], [transport_row('destination_is_local' => 't')])
     dataset = described_class.load(transport: path, scenarios: tmp('unused.json'))
 
     expect(dataset.routing_identity_mode).to eq 'raw'
@@ -207,7 +207,7 @@ RSpec.describe FollowImport::PacingBacktest::Input do # rubocop:disable Metrics/
     end.to raise_error(FollowImport::PacingBacktest::Error, /incomplete or mixed transport routing headers/)
 
     both = tmp('both.csv')
-    both_headers = TRANSPORT_HEADERS + FollowImport::PacingBacktest::Input::ANONYMOUS_ROUTING_HEADERS
+    both_headers = FollowImportPacingBacktestFixtures::TRANSPORT_HEADERS + FollowImport::PacingBacktest::Input::ANONYMOUS_ROUTING_HEADERS
     write_csv(both, both_headers, [transport_row.merge(anonymous_transport_row)])
     expect do
       described_class.load(transport: both, scenarios: tmp('unused.json'))
