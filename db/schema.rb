@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_21_050001) do
+ActiveRecord::Schema.define(version: 2026_09_21_200000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -229,6 +229,31 @@ ActiveRecord::Schema.define(version: 2026_09_21_050001) do
     t.bigint "tag_id", null: false
     t.index ["account_id", "tag_id"], name: "index_accounts_tags_on_account_id_and_tag_id"
     t.index ["tag_id", "account_id"], name: "index_accounts_tags_on_tag_id_and_account_id", unique: true
+  end
+
+  create_table "action_review_requests", force: :cascade do |t|
+    t.string "operation_type", null: false
+    t.integer "state", default: 0, null: false
+    t.bigint "actor_account_id"
+    t.string "resource_type", null: false
+    t.bigint "resource_id", null: false
+    t.string "trigger", null: false
+    t.string "signal_level", null: false
+    t.string "policy_mode", null: false
+    t.string "policy_version", null: false
+    t.string "evaluator_version"
+    t.jsonb "reason_codes", default: [], null: false
+    t.jsonb "evidence", default: {}, null: false
+    t.datetime "requested_at", null: false
+    t.datetime "reviewed_at"
+    t.bigint "reviewer_account_id"
+    t.text "decision_note"
+    t.integer "lock_version", default: 0, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["actor_account_id"], name: "index_action_review_requests_on_actor_account_id"
+    t.index ["operation_type", "resource_type", "resource_id"], name: "index_action_review_requests_on_pending_resource", unique: true, where: "(state = 0)"
+    t.index ["reviewer_account_id"], name: "index_action_review_requests_on_reviewer_account_id"
   end
 
   create_table "admin_action_logs", force: :cascade do |t|
@@ -1584,6 +1609,8 @@ ActiveRecord::Schema.define(version: 2026_09_21_050001) do
   add_foreign_key "account_warnings", "accounts", column: "target_account_id", on_delete: :cascade
   add_foreign_key "account_warnings", "accounts", on_delete: :nullify
   add_foreign_key "accounts", "accounts", column: "moved_to_account_id", on_delete: :nullify
+  add_foreign_key "action_review_requests", "accounts", column: "actor_account_id", on_delete: :nullify
+  add_foreign_key "action_review_requests", "accounts", column: "reviewer_account_id", on_delete: :nullify
   add_foreign_key "admin_action_logs", "accounts", on_delete: :cascade
   add_foreign_key "announcement_mutes", "accounts", on_delete: :cascade
   add_foreign_key "announcement_mutes", "announcements", on_delete: :cascade
