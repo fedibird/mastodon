@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe FollowImport::DispatchPlan do
+RSpec.describe FollowImport::DispatchPlan do # rubocop:disable Metrics/BlockLength
   it 'keeps claimed_count at 0 and leaves planned_count nil when planning was not attempted' do
     plan = described_class.observe(
       observed_at: Time.utc(2026, 9, 15, 12, 0, 0),

@@ -28,7 +28,7 @@ module Moderation
       end
     end
 
-    def record_batch(account:, accts:, import: nil, mode: nil, imported_at: nil, dispatch_owner: nil)
+    def record_batch(account:, accts:, import: nil, mode: nil, imported_at: nil, dispatch_owner: nil) # rubocop:disable Metrics/ParameterLists
       imported_at ||= Time.now.utc
 
       # Sidekiq retries the same Import row; import_id is the idempotency key.

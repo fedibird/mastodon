@@ -1,11 +1,13 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
-RSpec.describe Moderation::FollowImportRecorder, type: :service do
+RSpec.describe Moderation::FollowImportRecorder, type: :service do # rubocop:disable Metrics/BlockLength
   let(:account) { Fabricate(:account, username: 'importer') }
   let!(:bob)    { Fabricate(:account, username: 'bob') }
   let!(:eve)    { Fabricate(:account, username: 'eve', domain: 'example.com') }
 
-  describe '.record_batch' do
+  describe '.record_batch' do # rubocop:disable Metrics/BlockLength
     it 'records a batch with resolved and unresolved targets' do
       accts = ['bob', 'eve@example.com', 'ghost@unknown.example']
 
@@ -190,21 +192,23 @@ RSpec.describe Moderation::FollowImportRecorder, type: :service do
       import = instance_double(Import, id: 880_003)
       first = described_class.record_batch(account: account, accts: ['bob'], import: import)
 
-      expect {
-        FollowImportBatch.insert!({
-          subject_id: first.subject_id,
-          import_id: import.id,
-          imported_at: Time.now.utc,
-          mode: 0,
-          target_count: 0,
-          resolved_target_count: 0,
-          unresolved_target_count: 0,
-          migration_evidence: 0,
-          metadata: {},
-          created_at: Time.now.utc,
-          updated_at: Time.now.utc,
-        })
-      }.to raise_error(ActiveRecord::RecordNotUnique)
+      expect do
+        FollowImportBatch.insert!(
+          {
+            subject_id: first.subject_id,
+            import_id: import.id,
+            imported_at: Time.now.utc,
+            mode: 0,
+            target_count: 0,
+            resolved_target_count: 0,
+            unresolved_target_count: 0,
+            migration_evidence: 0,
+            metadata: {},
+            created_at: Time.now.utc,
+            updated_at: Time.now.utc,
+          }
+        )
+      end.to raise_error(ActiveRecord::RecordNotUnique)
     end
 
     it 'returns the existing batch when a uniqueness race loses the insert' do

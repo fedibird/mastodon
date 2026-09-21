@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe FollowImport::Telemetry do
+RSpec.describe FollowImport::Telemetry do # rubocop:disable Metrics/BlockLength
   it 'swallows transport insert failures and logs a warning' do
     allow(FollowImportTransportObservation).to receive(:create!).and_raise(ActiveRecord::StatementInvalid, 'boom')
     allow(Rails.logger).to receive(:warn)
@@ -208,4 +208,3 @@ RSpec.describe FollowImport::Telemetry do
     expect(row.claimed_count).to eq 0
   end
 end
-

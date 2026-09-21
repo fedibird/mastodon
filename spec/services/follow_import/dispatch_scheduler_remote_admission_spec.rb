@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe FollowImport::DispatchScheduler, 'fixed remote admission' do
+RSpec.describe FollowImport::DispatchScheduler, 'fixed remote admission' do # rubocop:disable Metrics/BlockLength
   subject(:scheduler) { described_class.new }
 
   def create_import(account)

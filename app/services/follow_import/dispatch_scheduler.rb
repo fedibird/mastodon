@@ -23,7 +23,7 @@
 # Authoritative pending->queued is fenced in DispatchExecutor against
 # the same singleton row. Session advisory locks are not used.
 module FollowImport
-  class DispatchScheduler
+  class DispatchScheduler # rubocop:disable Metrics/ClassLength
     OUTCOME_SHADOW_DISABLED = 'shadow_disabled'
     OUTCOME_LEASE_BUSY      = 'lease_busy'
     OUTCOME_SHADOW_OBSERVED = 'shadow_observed'

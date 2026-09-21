@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe FollowImportBatch do
+RSpec.describe FollowImportBatch do # rubocop:disable Metrics/BlockLength
   let(:subject_record) { Fabricate(:moderation_subject) }
 
   def create_batch(**attrs)

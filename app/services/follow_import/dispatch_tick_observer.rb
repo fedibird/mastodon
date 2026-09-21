@@ -16,7 +16,7 @@ module FollowImport
     SCHEMA_VERSION = 10
     BACKLOG_SCOPE_STRATEGY = 'dispatch_cohort_v1'
 
-    def self.record(attrs)
+    def self.record(attrs) # rubocop:disable Metrics/MethodLength
       attrs = attrs.to_h.symbolize_keys
       plan = attrs[:plan]
       mode = (attrs[:scheduler_mode] || plan&.scheduler_mode || 'shadow').to_s

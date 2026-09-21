@@ -75,7 +75,7 @@ module FollowImport
         }
       end
 
-      def dispatch_tick_attributes(attrs)
+      def dispatch_tick_attributes(attrs) # rubocop:disable Metrics/MethodLength
         mode = attrs[:scheduler_mode].to_s
         mode = 'shadow' if mode.blank?
 

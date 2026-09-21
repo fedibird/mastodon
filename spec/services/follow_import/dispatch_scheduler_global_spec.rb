@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe FollowImport::DispatchScheduler, 'authoritative global mode' do
+RSpec.describe FollowImport::DispatchScheduler, 'authoritative global mode' do # rubocop:disable Metrics/BlockLength
   subject(:scheduler) { described_class.new }
 
   def create_import(account)
@@ -60,11 +60,15 @@ RSpec.describe FollowImport::DispatchScheduler, 'authoritative global mode' do
 
     expect(result.outcome).to eq 'global_observed'
     expect(target.reload.state).to eq 'queued'
-    expect(Import::RelationshipWorker).to have_received(:perform_async)
-      .with(account.id, "acct-#{target.id}@remote.test", 'follow', hash_including(
-                                                                    'import_batch_id' => batch.id,
-                                                                    'follow_import_target_id' => target.id
-                                                                  ))
+    expect(Import::RelationshipWorker).to have_received(:perform_async).with(
+      account.id,
+      "acct-#{target.id}@remote.test",
+      'follow',
+      hash_including(
+        'import_batch_id' => batch.id,
+        'follow_import_target_id' => target.id
+      )
+    )
     expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
     expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_in)
     expect(observation.scheduler_mode).to eq 'global'
@@ -264,7 +268,7 @@ RSpec.describe FollowImport::DispatchScheduler, 'authoritative global mode' do
     expect(observation.executable_batch_count).to be_nil
   end
 
-  it 'does not discover pending work or move the fairness cursor on a GLOBAL zero-budget tick' do
+  it 'does not discover pending work or move the fairness cursor on a GLOBAL zero-budget tick' do # rubocop:disable Metrics/BlockLength
     allow(FollowImport::ExecutionPolicy).to receive(:global_dispatch_budget).and_return(10)
     allow(FollowImport::LocalLoadEnforcement).to receive(:evaluate).and_return(
       FollowImport::LocalLoadEnforcement::Result.new(
