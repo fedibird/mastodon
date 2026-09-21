@@ -2,6 +2,7 @@
 
 require 'rails_helper'
 
+# rubocop:disable Metrics/BlockLength
 RSpec.describe Moderation::SubjectDiagnosticsService do
   subject(:service) { described_class.new }
 
@@ -85,11 +86,19 @@ RSpec.describe Moderation::SubjectDiagnosticsService do
         'unresolved_target_count' => 0,
         'unresolved_target_ratio' => 0.0
       )
+      expect(result.dig('follow_import', 'recurrence_observation')).to include(
+        'available' => false,
+        'reason' => 'no_moderation_subject',
+        'latest_campaign' => nil,
+        'batch_count' => 0
+      )
       expect(result['observation_quality']['negative_qualification_rate']).to eq 0.0
       expect(result['observation_quality']['contact_link_rate']).to eq 0.0
       expect(result['observation_quality']['notes']).to include(
         'absence of observed negatives is not evidence of absence',
-        'remote negative signals may be incompletely observed'
+        'remote negative signals may be incompletely observed',
+        'cross-subject linked-negative overlap is behavioral recurrence evidence, not identity proof',
+        'max_gap is a grouping heuristic, not a policy threshold'
       )
       expect(result['observation_quality']).to_not have_key('confidence_score')
       expect(result['evaluation']).to include('subscores', 'policy_version')
@@ -231,8 +240,8 @@ RSpec.describe Moderation::SubjectDiagnosticsService do
       }
       seen = nil
       gate = instance_double(Moderation::AdaptiveFollowGateDecisionService)
-      allow(gate).to receive(:call) do |target, context:, now:|
-        seen = { target: target, context: context, now: now }
+      allow(gate).to receive(:call) do |target, **kwargs|
+        seen = { target: target, context: kwargs[:context], now: kwargs[:now] }
         { 'proposed_friction' => 'delay', 'matched_rules' => [{ 'rule' => 'elevated_rejection_non_local_target' }], 'shadow' => true }
       end
 
@@ -300,4 +309,83 @@ RSpec.describe Moderation::SubjectDiagnosticsService do
       expect(result.dig('observation_quality', 'complete_for_remote_subjects')).to be false
     end
   end
+
+  describe 'Follow Import recurrence observation' do
+    def create_import_batch(subject, targets:, at:)
+      batch = FollowImportBatch.create!(
+        subject: subject,
+        imported_at: at,
+        mode: :merge,
+        target_count: targets.size,
+        resolved_target_count: targets.size,
+        unresolved_target_count: 0
+      )
+      targets.each_with_index do |target, position|
+        batch.targets.create!(target_subject: target, position: position)
+      end
+      batch
+    end
+
+    it 'embeds recurrence_observation under follow_import without changing evaluation or follow_gate' do
+      record_interaction(b, :follow, now - 50.minutes, 'diag-recurrence-i')
+      record_rejection(b, :block, now - 40.minutes, 'diag-recurrence-r')
+      subject_row = ModerationSubject.find_by!(account_id: actor.id)
+      target_a = Fabricate(:moderation_subject)
+      target_b = Fabricate(:moderation_subject)
+      historical = Fabricate(:moderation_subject)
+      create_import_batch(subject_row, targets: [target_a, target_b], at: now - 12.minutes)
+      create_import_batch(subject_row, targets: [target_b], at: now - 10.minutes)
+      snapshot = Fabricate(
+        :moderation_evidence_snapshot,
+        subject: historical,
+        summary: { 'linked_negative_target_count' => 4 },
+        fingerprint: { 'linked_negative_target_subject_ids' => [target_a.id, target_b.id, Fabricate(:moderation_subject).id, Fabricate(:moderation_subject).id] }
+      )
+      Fabricate(:moderation_action, subject: historical, evidence_snapshot: snapshot, action_type: :suspend, performed_at: now - 1.day)
+
+      result = nil
+      expect { result = service.call(actor, now: now) }.to_not(change { mutation_counts })
+
+      observation = result.dig('follow_import', 'recurrence_observation')
+      match = observation.dig('latest_campaign', 'cross_subject', 'best_match')
+      evaluation = Moderation::RiskEvaluationService.new.call(actor, now: now)
+      decision = Moderation::AdaptiveFollowGateDecisionService.new.call(actor, now: now)
+
+      expect(observation['available']).to be true
+      expect(observation['subject_id']).to eq subject_row.id
+      expect(observation['lookback_seconds']).to eq 7.days.to_f
+      expect(observation['max_gap_seconds']).to eq 30.minutes.to_f
+      expect(observation.dig('latest_campaign', 'batch_count')).to eq 2
+      expect(match['historical_subject_id']).to eq historical.id
+      expect(match['stored_negative_containment']).to eq 0.5
+      expect(result['evaluation']).to eq evaluation
+      expect(result['follow_gate']['proposed_friction']).to eq decision['proposed_friction']
+      expect(result['follow_gate']['matched_rules']).to eq decision['matched_rules']
+      expect(result['evaluation']['subscores']['follow_import']['score']).to eq 0.0
+      expect(observation).to_not have_key('score')
+      expect(collect_keys(observation)).to_not include(
+        'linked_negative_target_subject_ids',
+        'target_subject_ids',
+        'comparable_ids'
+      )
+    end
+
+    it 'uses an injected recurrence observer without touching evaluation output' do
+      fake_observation = {
+        'available' => true,
+        'reason' => nil,
+        'subject_id' => 1,
+        'latest_campaign' => { 'campaign_key' => 'injected' },
+      }
+      observer = instance_double(Moderation::FollowImportRecurrenceObservationService)
+      expect(observer).to receive(:call).with(actor, now: now).and_return(fake_observation)
+
+      result = described_class.new(recurrence_observer: observer).call(actor, now: now)
+      evaluation = Moderation::RiskEvaluationService.new.call(actor, now: now)
+
+      expect(result.dig('follow_import', 'recurrence_observation')).to eq fake_observation
+      expect(result['evaluation']).to eq evaluation
+    end
+  end
 end
+# rubocop:enable Metrics/BlockLength
