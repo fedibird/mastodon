@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
-RSpec.describe ImportService, type: :service do
+RSpec.describe ImportService, type: :service do # rubocop:disable Metrics/BlockLength
   include RoutingHelper
 
   let!(:account) { Fabricate(:account, locked: false) }
@@ -8,7 +10,7 @@ RSpec.describe ImportService, type: :service do
   let!(:eve)     { Fabricate(:account, username: 'eve', domain: 'example.com', locked: false, protocol: :activitypub, inbox_url: 'https://example.com/inbox') }
 
   before do
-    stub_request(:post, "https://example.com/inbox").to_return(status: 200)
+    stub_request(:post, 'https://example.com/inbox').to_return(status: 200)
   end
 
   context 'import old-style list of muted users' do
@@ -218,7 +220,7 @@ RSpec.describe ImportService, type: :service do
   # ImportService boundary; the executor -> RelationshipWorker -> FollowService
   # -> ledger legs are covered in batch_execution_worker_spec,
   # relationship_worker_spec, and interaction_hooks_spec.
-  context 'follow-import controlled execution' do
+  context 'follow-import controlled execution' do # rubocop:disable Metrics/BlockLength
     subject { ImportService.new }
 
     let(:csv_text) { "Account address,Show boosts\nbob,true\neve@example.com,false" }

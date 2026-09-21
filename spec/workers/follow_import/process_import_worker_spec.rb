@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe FollowImport::ProcessImportWorker do
+RSpec.describe FollowImport::ProcessImportWorker do # rubocop:disable Metrics/BlockLength
   subject(:worker) { described_class.new }
 
   let(:account) { Fabricate(:account) }

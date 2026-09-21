@@ -134,15 +134,15 @@ module FollowImport
       outcome = :lost_ownership
       fenced = FollowImport::DispatchLease.with_claim_fence(@lease) do
         batch.lock!
-        unless batch.globally_claimable?
-          outcome = :wrong_scope
-        else
+        if batch.globally_claimable?
           @transitions.mark_queued(target, at: @now)
           outcome = if target.saved_change_to_state? && target.state_queued?
                       :queued
                     else
                       :stale
                     end
+        else
+          outcome = :wrong_scope
         end
       end
       return :lost_ownership unless fenced
