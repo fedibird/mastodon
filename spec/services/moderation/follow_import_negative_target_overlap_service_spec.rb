@@ -2,6 +2,7 @@
 
 require 'rails_helper'
 
+# rubocop:disable Metrics/BlockLength
 RSpec.describe Moderation::FollowImportNegativeTargetOverlapService do
   subject(:service) { described_class.new }
 
@@ -34,7 +35,12 @@ RSpec.describe Moderation::FollowImportNegativeTargetOverlapService do
     batch
   end
 
-  def create_moderated_snapshot(subject, linked_ids:, correlated_ids: [], reported_count: nil, performed_at: imported_at - 1.day, action_type: :suspend)
+  def create_moderated_snapshot(subject, linked_ids:, **attrs)
+    correlated_ids = attrs.fetch(:correlated_ids, [])
+    reported_count = attrs[:reported_count]
+    performed_at = attrs.fetch(:performed_at, imported_at - 1.day)
+    action_type = attrs.fetch(:action_type, :suspend)
+
     snapshot = Fabricate(
       :moderation_evidence_snapshot,
       subject: subject,
@@ -54,6 +60,21 @@ RSpec.describe Moderation::FollowImportNegativeTargetOverlapService do
     )
 
     snapshot
+  end
+
+  def ledger_counts
+    [
+      ModerationSubject.count,
+      ModerationInteractionEvent.count,
+      ModerationRejectionEvent.count,
+      ModerationAction.count,
+      ModerationEvidenceSnapshot.count,
+      FollowImportBatch.count,
+      FollowImportTarget.count,
+      Follow.count,
+      Block.count,
+      Mute.count,
+    ]
   end
 
   describe 'basic linked-negative overlap' do
@@ -276,20 +297,7 @@ RSpec.describe Moderation::FollowImportNegativeTargetOverlapService do
     end
 
     it 'does not change subjects, interactions, rejections, actions, snapshots, batches, targets, follows, blocks, or mutes' do
-      expect { service.call(batch) }.to_not change {
-        [
-          ModerationSubject.count,
-          ModerationInteractionEvent.count,
-          ModerationRejectionEvent.count,
-          ModerationAction.count,
-          ModerationEvidenceSnapshot.count,
-          FollowImportBatch.count,
-          FollowImportTarget.count,
-          Follow.count,
-          Block.count,
-          Mute.count,
-        ]
-      }
+      expect { service.call(batch) }.to_not(change { ledger_counts })
     end
   end
 
@@ -340,3 +348,4 @@ RSpec.describe Moderation::FollowImportNegativeTargetOverlapService do
     end
   end
 end
+# rubocop:enable Metrics/BlockLength
