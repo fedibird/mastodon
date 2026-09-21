@@ -26,6 +26,39 @@ describe Admin::ModerationMetricsController, type: :controller do
         expect(response).to have_http_status(404)
         expect(assigns(:metrics)).to be_nil
       end
+
+      context 'with rendered timestamps' do
+        render_views
+
+        def stub_webpacker_manifest
+          manifest = Webpacker.instance.manifest
+          resolver = ->(name, **opts) { opts[:with_integrity] ? ["/packs-test/#{name}", nil] : "/packs-test/#{name}" }
+          allow(manifest).to receive(:lookup!, &resolver)
+          allow(manifest).to receive(:lookup, &resolver)
+        end
+
+        before { stub_webpacker_manifest }
+
+        it 'renders generated_at and latest_import_at as time.formatted' do
+          imported_at = Time.utc(2026, 9, 21, 8, 0, 0)
+          FollowImportBatch.create!(
+            subject: subject_record,
+            imported_at: imported_at,
+            mode: :merge,
+            target_count: 0,
+            resolved_target_count: 0,
+            unresolved_target_count: 0
+          )
+
+          travel_to Time.utc(2026, 9, 21, 12, 0, 0) do
+            get :show, params: { id: subject_record.id }
+          end
+
+          expect(response).to have_http_status(200)
+          expect(response.body).to include(%(<time class="formatted" datetime="#{Time.utc(2026, 9, 21, 12, 0, 0).iso8601}"></time>))
+          expect(response.body).to include(%(<time class="formatted" datetime="#{imported_at.iso8601}"></time>))
+        end
+      end
     end
   end
 

@@ -23,10 +23,17 @@ RSpec.describe Admin::ModerationMetricsHelper, type: :helper do
       expect(helper.format_moderation_metric(1234, 'count')).to eq '1,234'
     end
 
-    it 'renders an ISO time as a localized time and blank as a dash' do
-      time = Time.now.utc.iso8601
-      expect(helper.format_moderation_metric(time, 'time')).to eq I18n.l(Time.iso8601(time))
+    it 'renders an ISO time as an empty time.formatted tag and blank as a dash' do
+      instant = Time.utc(2026, 9, 21, 12, 0, 0)
+      html = helper.format_moderation_metric(instant.iso8601, 'time')
+      node = Nokogiri::HTML.fragment(html).at_css('time.formatted')
+
+      expect(node).to be_present
+      expect(node.text).to eq ''
+      expect(node['datetime']).to eq instant.iso8601
+      expect(Time.iso8601(node['datetime'])).to eq instant
       expect(helper.format_moderation_metric(nil, 'time')).to eq '—'
+      expect(helper.format_moderation_metric('', 'time')).to eq '—'
     end
   end
 end

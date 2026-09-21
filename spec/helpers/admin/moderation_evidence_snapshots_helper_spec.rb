@@ -2,6 +2,7 @@
 
 require 'rails_helper'
 
+# rubocop:disable Metrics/BlockLength
 RSpec.describe Admin::ModerationEvidenceSnapshotsHelper, type: :helper do
   describe '#moderation_subject_label' do
     it 'labels a local account by username' do
@@ -47,6 +48,40 @@ RSpec.describe Admin::ModerationEvidenceSnapshotsHelper, type: :helper do
     end
   end
 
+  describe '#moderation_snapshot_window' do
+    it 'renders a full window as two formatted time tags with a separator' do
+      started = Time.utc(2026, 9, 1, 0, 0, 0)
+      ended = Time.utc(2026, 9, 21, 12, 0, 0)
+      snapshot = Fabricate(:moderation_evidence_snapshot, window_start: started, window_end: ended)
+      html = helper.moderation_snapshot_window(snapshot)
+      nodes = Nokogiri::HTML.fragment(html).css('time.formatted')
+
+      expect(html).to include(' – ')
+      expect(nodes.size).to eq 2
+      expect(nodes[0]['datetime']).to eq started.iso8601
+      expect(nodes[1]['datetime']).to eq ended.iso8601
+      expect(Time.iso8601(nodes[0]['datetime'])).to eq started
+      expect(Time.iso8601(nodes[1]['datetime'])).to eq ended
+    end
+
+    it 'renders an end-only window with an ellipsis and one formatted time tag' do
+      ended = Time.utc(2026, 9, 21, 12, 0, 0)
+      snapshot = Fabricate(:moderation_evidence_snapshot, window_start: nil, window_end: ended)
+      html = helper.moderation_snapshot_window(snapshot)
+      nodes = Nokogiri::HTML.fragment(html).css('time.formatted')
+
+      expect(html).to start_with('… – ')
+      expect(nodes.size).to eq 1
+      expect(nodes.first['datetime']).to eq ended.iso8601
+    end
+
+    it 'renders an all-time window without time tags' do
+      snapshot = Fabricate(:moderation_evidence_snapshot, window_start: nil, window_end: nil)
+
+      expect(helper.moderation_snapshot_window(snapshot)).to eq I18n.t('admin.moderation_evidence_snapshots.all_time')
+    end
+  end
+
   describe '#moderation_boolean' do
     it 'renders localized yes/no and unknown' do
       expect(helper.moderation_boolean(true)).to eq I18n.t('admin.moderation_evidence_snapshots.boolean.affirmative')
@@ -55,3 +90,4 @@ RSpec.describe Admin::ModerationEvidenceSnapshotsHelper, type: :helper do
     end
   end
 end
+# rubocop:enable Metrics/BlockLength

@@ -45,14 +45,14 @@ module Admin::ModerationMetricsHelper
   end
 
   # Present a raw metric value for display. Rates (raw 0..1 floats from the
-  # analysis layer) are rounded here for the UI; counts stay integers; times are
-  # localized.
+  # analysis layer) are rounded here for the UI; counts stay integers; times
+  # are empty `time.formatted` tags for packs/public.js to fill locally.
   def format_moderation_metric(value, kind)
     case kind
     when 'rate'
       value.nil? ? '—' : number_to_percentage(value.to_f * 100, precision: 1)
     when 'time'
-      value.present? ? l(Time.iso8601(value)) : '—'
+      formatted_browser_local_time(value) || '—'
     else
       number_with_delimiter(value.to_i)
     end

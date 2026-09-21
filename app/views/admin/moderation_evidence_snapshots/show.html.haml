@@ -16,7 +16,7 @@
       %span.dashboard__counters__label= t('admin.moderation_evidence_snapshots.columns.origin')
   %div
     %div
-      %span.dashboard__counters__num= l(@snapshot.created_at)
+      %span.dashboard__counters__num= formatted_browser_local_time(@snapshot.created_at)
       %span.dashboard__counters__label= t('admin.moderation_evidence_snapshots.columns.created_at')
 
 %hr.spacer/
@@ -59,7 +59,7 @@
               - else
                 = t('admin.moderation_evidence_snapshots.system')
             %td= action.reason_code.presence || '—'
-            %td= l(action.performed_at)
+            %td= formatted_browser_local_time(action.performed_at)
 
 %h3= t('admin.moderation_evidence_snapshots.sections.summary')
 .table-wrapper

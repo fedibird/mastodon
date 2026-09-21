@@ -1,5 +1,8 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
+# rubocop:disable Metrics/BlockLength
 RSpec.describe Settings::ImportsController, type: :controller do
   render_views
 
@@ -7,7 +10,7 @@ RSpec.describe Settings::ImportsController, type: :controller do
     sign_in Fabricate(:user), scope: :user
   end
 
-  describe "GET #show" do
+  describe 'GET #show' do
     def stub_webpack_manifest
       # Render the settings/admin layout without the compiled webpack manifest
       # (not built in this test env; CI precompiles packs). Stub the manifest
@@ -20,7 +23,7 @@ RSpec.describe Settings::ImportsController, type: :controller do
 
     before { stub_webpack_manifest }
 
-    it "returns http success" do
+    it 'returns http success' do
       get :show
       expect(response).to have_http_status(200)
     end
@@ -28,7 +31,8 @@ RSpec.describe Settings::ImportsController, type: :controller do
     it 'renders recent follow-import progress for the current account' do
       user = Fabricate(:user)
       sign_in user, scope: :user
-      batch = FollowImportBatch.create!(subject: ModerationSubject.for_account!(user.account), imported_at: Time.now.utc,
+      imported_at = Time.utc(2026, 9, 21, 7, 30, 0)
+      batch = FollowImportBatch.create!(subject: ModerationSubject.for_account!(user.account), imported_at: imported_at,
                                         mode: :merge, target_count: 0, resolved_target_count: 0, unresolved_target_count: 0)
       batch.targets.create!(target_subject: Fabricate(:moderation_subject), position: 0, state: :accepted)
 
@@ -36,6 +40,7 @@ RSpec.describe Settings::ImportsController, type: :controller do
 
       expect(response).to have_http_status(200)
       expect(response.body).to include(I18n.t('imports.follow_progress.title'))
+      expect(response.body).to include(%(<time class="formatted" datetime="#{imported_at.iso8601}"></time>))
     end
 
     it 'shows a marked follow import with no batch as preparing (CSV retained until a batch is recorded)' do
@@ -98,8 +103,8 @@ RSpec.describe Settings::ImportsController, type: :controller do
       post :create, params: {
         import: {
           type: 'following',
-          data: fixture_file_upload('imports.txt')
-        }
+          data: fixture_file_upload('imports.txt'),
+        },
       }
 
       expect(response).to redirect_to(settings_import_path)
@@ -111,8 +116,8 @@ RSpec.describe Settings::ImportsController, type: :controller do
       post :create, params: {
         import: {
           type: 'blocking',
-          data: fixture_file_upload('imports.txt')
-        }
+          data: fixture_file_upload('imports.txt'),
+        },
       }
 
       expect(response).to redirect_to(settings_import_path)
@@ -144,3 +149,4 @@ RSpec.describe Settings::ImportsController, type: :controller do
     end
   end
 end
+# rubocop:enable Metrics/BlockLength
