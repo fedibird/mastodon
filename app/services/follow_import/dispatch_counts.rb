@@ -69,57 +69,23 @@ module FollowImport
       # (or would) walk. Failures on a group become NULL for that group
       # only; an observed empty group is 0.
       def backlog_snapshot(planning_scope:)
-        cohort = cohort_pending_snapshot
+        historical = scoped_pending_snapshot(FollowImportBatch.historical_cohort)
+        operational = scoped_pending_snapshot(FollowImportBatch.operational_cohort)
         planning = scoped_pending_snapshot(planning_scope)
 
         BacklogSnapshot.new(
           global_pending_count: global_pending,
           active_batch_count: active_batches,
-          historical_pending_count: cohort && cohort[:historical_pending],
-          operational_pending_count: cohort && cohort[:operational_pending],
+          historical_pending_count: historical && historical[:pending],
+          operational_pending_count: operational && operational[:pending],
           planning_pending_count: planning && planning[:pending],
-          historical_active_batch_count: cohort && cohort[:historical_active],
-          operational_active_batch_count: cohort && cohort[:operational_active],
+          historical_active_batch_count: historical && historical[:active],
+          operational_active_batch_count: operational && operational[:active],
           planning_active_batch_count: planning && planning[:active]
         )
       end
 
       private
-
-      def cohort_pending_snapshot
-        rows = FollowImportTarget.where(state: :pending).joins(:batch).group(
-          'follow_import_batches.dispatch_cohort'
-        ).pluck(
-          Arel.sql('follow_import_batches.dispatch_cohort'),
-          Arel.sql('COUNT(*)'),
-          Arel.sql('COUNT(DISTINCT follow_import_targets.batch_id)')
-        )
-
-        snapshot = {
-          historical_pending: 0,
-          historical_active: 0,
-          operational_pending: 0,
-          operational_active: 0,
-        }
-        historical = FollowImportBatch.dispatch_cohorts.fetch('historical')
-        operational = FollowImportBatch.dispatch_cohorts.fetch('operational')
-
-        rows.each do |cohort, pending_count, active_count|
-          case cohort
-          when historical
-            snapshot[:historical_pending] = pending_count
-            snapshot[:historical_active] = active_count
-          when operational
-            snapshot[:operational_pending] = pending_count
-            snapshot[:operational_active] = active_count
-          end
-        end
-
-        snapshot
-      rescue StandardError => e
-        FollowImport::Telemetry.warn_failure('dispatch_count', e)
-        nil
-      end
 
       def scoped_pending_snapshot(batch_scope)
         pending = FollowImportTarget.where(state: :pending, batch_id: batch_scope.select(:id))

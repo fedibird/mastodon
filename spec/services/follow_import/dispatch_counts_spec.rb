@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe FollowImport::DispatchCounts do
+RSpec.describe FollowImport::DispatchCounts do # rubocop:disable Metrics/BlockLength
   def create_batch(**attrs)
     FollowImportBatch.create!(
       {
@@ -86,7 +86,7 @@ RSpec.describe FollowImport::DispatchCounts do
     expect(snapshot.planning_active_batch_count).to eq 0
   end
 
-  it 'returns NULL scoped counts when the grouped snapshot cannot be measured' do
+  it 'returns NULL scoped counts when pending measurement cannot run' do
     allow(FollowImportTarget).to receive(:where).and_raise(ActiveRecord::StatementInvalid, 'boom')
 
     snapshot = described_class.backlog_snapshot(planning_scope: FollowImportBatch.shadow_planning_scope)
