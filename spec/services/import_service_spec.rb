@@ -540,5 +540,97 @@ RSpec.describe ImportService, type: :service do # rubocop:disable Metrics/BlockL
       expect(batch.reload.ready_preflight_state?).to be true
       expect(FollowImport::BatchExecutionWorker).to have_received(:perform_async).with(batch.id)
     end
+
+    def stub_action_review_policies(value)
+      allow(Setting).to receive(:[]).and_wrap_original do |method, key|
+        key.to_s == 'action_review_policies' ? value : method.call(key)
+      end
+    end
+
+    it 'holds the batch and does not enqueue follows or overwrite removals when policy is always' do
+      other = Fabricate(:account, username: 'carol')
+      account.follow!(other)
+      stub_action_review_policies('follow_import' => 'always')
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:push_bulk)
+      import.update!(overwrite: true)
+
+      subject.call(import)
+
+      batch = FollowImportBatch.find_by(import_id: import.id)
+      expect(batch.review_required_preflight_state?).to be true
+      expect(ActionReviewRequest.where(resource: batch).count).to eq 1
+      expect(account.following?(other)).to be true
+      expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+      expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+      expect(Import::RelationshipWorker).not_to have_received(:push_bulk)
+    end
+
+    it 'requires durable recording for a reserved threshold mode and still releases when the signal is none' do
+      stub_action_review_policies('follow_import' => 'high')
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      expect(Moderation::FollowImportRecorder).to receive(:record_batch!).and_call_original
+      expect(Moderation::FollowImportRecorder).not_to receive(:record_batch)
+
+      subject.call(import)
+
+      batch = FollowImportBatch.find_by(import_id: import.id)
+      expect(batch.ready_preflight_state?).to be true
+      expect(ActionReviewRequest.count).to eq 0
+      expect(FollowImport::BatchExecutionWorker).to have_received(:perform_async).with(batch.id)
+    end
+
+    it 'raises and does not bulk-enqueue when an active policy cannot record a batch' do
+      stub_action_review_policies('follow_import' => 'always')
+      allow(Moderation::FollowImportRecorder).to receive(:record_batch!).and_raise(ActiveRecord::StatementInvalid, 'boom')
+      expect(Moderation::FollowImportRecorder).not_to receive(:record_batch)
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:push_bulk)
+      allow(Import::RelationshipWorker).to receive(:perform_async)
+
+      expect { subject.call(import) }.to raise_error(ActiveRecord::StatementInvalid, 'boom')
+
+      expect(FollowImportBatch.find_by(import_id: import.id)).to be_nil
+      expect(FollowImport::BatchExecutionWorker).not_to have_received(:perform_async)
+      expect(Import::RelationshipWorker).not_to have_received(:push_bulk)
+      expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+    end
+
+    it 'forbids the direct fallback when a malformed policy resolves to always' do
+      stub_action_review_policies('not-a-hash')
+      allow(Moderation::FollowImportRecorder).to receive(:record_batch!).and_raise(ActiveRecord::StatementInvalid, 'boom')
+      expect(Moderation::FollowImportRecorder).not_to receive(:record_batch)
+      allow(Import::RelationshipWorker).to receive(:push_bulk)
+
+      expect { subject.call(import) }.to raise_error(ActiveRecord::StatementInvalid, 'boom')
+      expect(Import::RelationshipWorker).not_to have_received(:push_bulk)
+    end
+
+    it 'keeps the tolerant fallback only when policy is off and GLOBAL is off' do
+      stub_action_review_policies('follow_import' => 'off')
+      allow(Moderation::FollowImportRecorder).to receive(:record_batch).and_return(nil)
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      pushed = []
+      allow(Import::RelationshipWorker).to receive(:push_bulk) do |items, &block|
+        items.each { |item| pushed << block.call(item) }
+      end
+
+      expect { subject.call(import) }.to_not raise_error
+      expect(pushed.select { |args| args[2] == 'follow' }).to be_present
+    end
+
+    it 'stays strict when GLOBAL is on even if Action Review policy is off' do
+      stub_action_review_policies('follow_import' => 'off')
+      allow(Moderation::FollowImportRecorder).to receive(:record_batch!).and_raise(ActiveRecord::StatementInvalid, 'boom')
+      expect(Moderation::FollowImportRecorder).not_to receive(:record_batch)
+      allow(Import::RelationshipWorker).to receive(:push_bulk)
+
+      ClimateControl.modify FOLLOW_IMPORT_DISPATCH_GLOBAL: 'true' do
+        expect { subject.call(import) }.to raise_error(ActiveRecord::StatementInvalid, 'boom')
+      end
+
+      expect(Import::RelationshipWorker).not_to have_received(:push_bulk)
+    end
   end
 end

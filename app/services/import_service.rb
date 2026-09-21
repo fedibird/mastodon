@@ -44,20 +44,21 @@ class ImportService < BaseService
       # exists for this Import. A lookup exception must not be treated
       # as "no batch".
       #
-      # TODO: when moderator preflight enforcement is enabled, require a
-      # durable FollowImportBatch and do not fall through to this unpaced
-      # path. Keep the fallback while preflight is not yet enforced.
+      # Direct bulk follow is legal only when GLOBAL is off AND the
+      # effective Follow Import Action Review policy is off. Any other
+      # policy, including a malformed setting that resolves to always,
+      # requires a durable batch so review cannot be skipped.
       import_relationships!('follow', 'unfollow', @account.following.map { |account| { acct: account.acct }}, ROWS_PROCESSING_LIMIT, show_reblogs: { header: 'Show boosts', default: true }, notify: { header: 'Notify on new posts', default: false }, languages: { header: 'Languages', default: nil }, delivery: { header: 'Delivery to home', default: true })
     end
   end
 
-  # Neutral preflight first: new operational rows are born screening.
-  # Only a ready batch may hand off to the legacy worker or become
-  # scheduler-visible, and only then may overwrite unfollows enqueue.
-  # PreflightReleaseService is idempotent for ready and refuses
-  # review_required/stopped.
+  # Action Review preflight first: new operational rows are born
+  # screening. off and the reserved threshold modes (signal is none)
+  # release to ready. always holds the batch and creates a pending
+  # review. Only a ready batch may hand off or enqueue overwrite
+  # unfollows. review_required and stopped are never auto-released.
   def start_follow_import_execution!(batch)
-    release = FollowImport::PreflightReleaseService.new.call(batch)
+    release = FollowImport::ActionReviewPreflightService.new.call(batch)
     return unless release.released?
 
     enqueue_follow_import_handoff!(batch)
@@ -84,14 +85,10 @@ class ImportService < BaseService
   # (including re-follows that only update options) are handled by the batch
   # executor, so only removals are enqueued here.
   def enqueue_follow_overwrite_unfollows!
-    local_suffix = "@#{Rails.configuration.x.local_domain}"
-    import_accts = @data.take(ROWS_PROCESSING_LIMIT).filter_map { |row| row['Account address']&.strip&.delete_suffix(local_suffix).presence }.to_set
-
-    @account.following.find_each do |followee|
-      next if import_accts.include?(followee.acct)
-
-      Import::RelationshipWorker.perform_async(@account.id, followee.acct, 'unfollow', {})
-    end
+    FollowImport::OverwriteRemovalEnqueue.new.call(
+      account: @account,
+      csv_rows: @data.take(ROWS_PROCESSING_LIMIT)
+    )
   end
 
   # Durable ownership is authoritative once a batch exists. Look that
@@ -101,15 +98,16 @@ class ImportService < BaseService
   # interpreted as "no batch".
   #
   # intended_dispatch_owner applies only to NEW rows.
-  # GLOBAL on: strict recording (raises on persistence failure).
-  # GLOBAL off: tolerant recording may return nil; we re-check for a
-  # concurrent/idempotent durable batch before allowing the legacy
+  # Strict recording (raises, no direct bulk fallback) when GLOBAL is
+  # on OR the effective Follow Import Action Review policy is not off.
+  # Malformed policy resolves to always and is therefore strict.
+  # Only off + GLOBAL off may use tolerant recording and the legacy
   # direct fallback.
   def record_follow_import_batch!
     existing = existing_follow_import_batch
     return existing if existing
 
-    accts = @data.take(ROWS_PROCESSING_LIMIT).filter_map { |row| row['Account address']&.strip.presence }
+    accts = @data.take(ROWS_PROCESSING_LIMIT).map { |row| row['Account address']&.strip.presence }.compact
     attrs = {
       account: @account,
       accts: accts,
@@ -118,12 +116,20 @@ class ImportService < BaseService
       dispatch_owner: FollowImport::ExecutionPolicy.intended_dispatch_owner,
     }
 
-    if FollowImport::ExecutionPolicy.dispatch_global_enabled?
+    if strict_follow_import_recording?
       Moderation::FollowImportRecorder.record_batch!(**attrs)
     else
       batch = Moderation::FollowImportRecorder.record_batch(**attrs)
       batch || existing_follow_import_batch
     end
+  end
+
+  def strict_follow_import_recording?
+    FollowImport::ExecutionPolicy.dispatch_global_enabled? || follow_import_review_policy_active?
+  end
+
+  def follow_import_review_policy_active?
+    ActionReview::PolicySettings.mode_for('follow_import') != 'off'
   end
 
   def existing_follow_import_batch

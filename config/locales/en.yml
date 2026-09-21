@@ -512,7 +512,7 @@ en:
         unsupported_mode: is not supported for this operation
       hints:
         account_migration: Detectorless operations offer off or always. Saving a policy here does not hold or release account moves until that adapter is connected.
-        follow_import: Five intervention modes are available. Saving a policy here does not hold or release Follow Import until that adapter is connected.
+        follow_import: always sends every Follow Import to moderator review before follows or overwrite removals run. off proceeds normally. high, medium, and low are reserved for automated review-signal integration and currently receive no automatic signal, so they do not hold imports yet.
         invite_creation: Detectorless operations offer off or always. Saving a policy here does not hold or release invite creation until that adapter is connected.
         status_import: Future feature. This choice is stored for the framework only and does not enable status import.
       modes:
@@ -526,15 +526,19 @@ en:
         follow_import: Follow import
         invite_creation: Invite creation
         status_import: Status import (future)
-      preface: These settings configure the generic Action Review framework only. Enforcement for each operation is rolled out separately and is not active yet.
+      preface: Follow Import is connected. always holds each import for moderator approval before it runs. off and the reserved high, medium, and low modes currently proceed because there is no automatic review signal yet. Other operations are not connected.
       title: Action review policies
     action_reviews:
       account_unavailable: Account unavailable
       actor: Actor
+      approve_and_run: Approve and run
+      approved_msg: Follow import approved. It will run.
+      decision_failed: This review could not be applied.
       decision_note: Decision note
       empty: No action review requests found.
       evaluator_version: Evaluator version
       evidence: Evidence
+      inconsistent_resource: This Follow Import review has no matching import waiting for review, so it cannot be approved or stopped here.
       none: None
       operation: Operation
       operations:
@@ -564,6 +568,9 @@ en:
         cancelled: Cancelled
         pending: Pending
         rejected: Rejected
+      stop: Stop
+      stop_confirm: Stop this import? It will not run. This does not limit or suspend the account.
+      stopped_msg: Follow import stopped. The account was not limited or suspended.
       title: Action reviews
       title_with_count: "Action reviews (%{count})"
       trigger: Trigger
@@ -1480,6 +1487,8 @@ en:
         completed: Completed
         in_progress: In progress
         preparing: Preparing
+        stopped: Stopped
+        waiting_for_review: Waiting for review
       unknown: "—"
       status_column: Status
       title: Recent follow imports

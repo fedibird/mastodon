@@ -497,7 +497,7 @@ ja:
         unsupported_mode: この操作では使えません
       hints:
         account_migration: 検出器のない操作は「介入しない」か「常にモデレーター承認」のみです。アダプター接続までは引っ越しの実行を止めません。
-        follow_import: 承認介入の感度を5段階から選べます。アダプター接続まではフォローインポートの実行を止めません。
+        follow_import: 「常にモデレーター承認」は、フォローや上書き解除が始まる前に、すべてのフォローインポートを確認待ちにします。「介入しない」はそのまま処理します。「高い要確認シグナルのみ」「中以上」「低以上」は自動シグナル接続用に残してあり、今は自動シグナルがないためインポートを止めません。
         invite_creation: 検出器のない操作は「介入しない」か「常にモデレーター承認」のみです。アダプター接続までは招待コード発行の実行を止めません。
         status_import: 将来機能です。ここでの選択は枠組み用に保存されるだけで、投稿データのインポートは有効になりません。
       modes:
@@ -511,15 +511,19 @@ ja:
         follow_import: フォローインポート
         invite_creation: 招待コードの発行
         status_import: 投稿データのインポート（将来機能）
-      preface: この画面は汎用の操作承認フレームワークの設定だけを変更します。各操作への適用は別途接続されるまで有効になりません。
+      preface: フォローインポートは接続済みです。「常にモデレーター承認」は実行前にモデレーターの承認を待ちます。「介入しない」と、自動シグナル未接続の「高い要確認シグナルのみ」「中以上」「低以上」は現在そのまま処理します。それ以外の操作はまだ接続されていません。
       title: 操作の承認ポリシー
     action_reviews:
       account_unavailable: アカウントなし
       actor: 実行アカウント
+      approve_and_run: 承認して実行
+      approved_msg: フォローインポートを承認しました。実行を再開します。
+      decision_failed: この判断を適用できませんでした。
       decision_note: 判断メモ
       empty: 判断待ちの操作はありません。
       evaluator_version: 評価器バージョン
       evidence: 根拠
+      inconsistent_resource: 対応するフォローインポートが確認待ちではないため、ここでは承認または停止できません。
       none: なし
       operation: 操作
       operations:
@@ -549,6 +553,9 @@ ja:
         cancelled: 取消済み
         pending: 判断待ち
         rejected: 却下
+      stop: 停止
+      stop_confirm: このインポートを停止しますか？実行されません。アカウントの制限や停止は行いません。
+      stopped_msg: フォローインポートを停止しました。アカウントへのモデレーションは行っていません。
       title: 判断待ち
       title_with_count: "判断待ち (%{count})"
       trigger: きっかけ
@@ -1440,6 +1447,8 @@ ja:
         completed: 完了
         in_progress: 処理中
         preparing: 準備中
+        stopped: 停止
+        waiting_for_review: 確認待ち
       unknown: "—"
       status_column: 状態
       title: 最近のフォローインポート

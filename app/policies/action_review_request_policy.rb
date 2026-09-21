@@ -8,4 +8,12 @@ class ActionReviewRequestPolicy < ApplicationPolicy
   def show?
     staff?
   end
+
+  def approve?
+    staff?
+  end
+
+  def reject?
+    staff?
+  end
 end

@@ -159,8 +159,6 @@ RSpec.describe Admin::ActionReviewsController, type: :controller do # rubocop:di
       expect(response.body).to include(request.requested_at.iso8601)
       expect(response.body).not_to include('<script>alert(1)</script>')
       expect(response.body).to include('&lt;script&gt;alert(1)&lt;/script&gt;')
-      expect(controller).not_to respond_to(:approve)
-      expect(controller).not_to respond_to(:reject)
     end
 
     it 'tolerates deleted actor, reviewer, and resource' do
@@ -187,14 +185,128 @@ RSpec.describe Admin::ActionReviewsController, type: :controller do # rubocop:di
       expect(response.body).to include('recorded')
     end
 
-    it 'has no approve or reject routes' do
+    it 'routes approve and reject to the action review controller' do
       request = fabricate_request
 
       %w(approve reject).each do |action|
         recognized = Rails.application.routes.recognize_path("/admin/action_reviews/#{request.id}/#{action}", method: :post)
-        expect(recognized[:controller]).to eq 'application'
-        expect(recognized[:action]).to eq 'raise_not_found'
+        expect(recognized[:controller]).to eq 'admin/action_reviews'
+        expect(recognized[:action]).to eq action
       end
+    end
+  end
+
+  describe 'decisions' do # rubocop:disable Metrics/BlockLength
+    def held_follow_request(preflight_state: :review_required, state: :pending, operation_type: 'follow_import')
+      owner = Fabricate(:account)
+      import = Import.create!(account: owner, type: 'following', data: attachment_fixture('new-following-imports.txt'))
+      batch = FollowImportBatch.create!(
+        subject: ModerationSubject.for_account!(owner),
+        import_id: import.id,
+        imported_at: Time.now.utc,
+        mode: :merge,
+        dispatch_owner: :legacy,
+        dispatch_cohort: :operational,
+        preflight_state: preflight_state,
+        target_count: 1,
+        resolved_target_count: 1,
+        unresolved_target_count: 0
+      )
+      fabricate_request(
+        operation_type: operation_type,
+        resource: batch,
+        state: state,
+        actor_account: owner,
+        evidence: { 'schema_version' => 1, 'batch_id' => batch.id }
+      )
+    end
+
+    before do
+      allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
+      allow(Import::RelationshipWorker).to receive(:perform_async)
+    end
+
+    it 'shows approve and stop controls for a pending follow import' do
+      sign_in admin, scope: :user
+      request = held_follow_request
+
+      get :show, params: { id: request }
+
+      expect(response.body).to include(I18n.t('admin.action_reviews.approve_and_run'))
+      expect(response.body).to include(I18n.t('admin.action_reviews.stop'))
+      expect(response.body).to include('data-confirm')
+      expect(response.body).to include(I18n.t('admin.action_reviews.stop_confirm'))
+      expect(response.body).to include('decision_note')
+    end
+
+    it 'does not show controls for a terminal or unsupported request' do
+      sign_in admin, scope: :user
+      terminal = held_follow_request(state: :approved, preflight_state: :ready)
+      unsupported = fabricate_request
+
+      get :show, params: { id: terminal }
+      expect(response.body).not_to include(I18n.t('admin.action_reviews.approve_and_run'))
+
+      get :show, params: { id: unsupported }
+      expect(response.body).not_to include(I18n.t('admin.action_reviews.approve_and_run'))
+      expect(response.body).not_to include(I18n.t('admin.action_reviews.stop_confirm'))
+    end
+
+    it 'warns and hides controls when the follow import is not waiting' do
+      sign_in admin, scope: :user
+      request = held_follow_request(preflight_state: :ready)
+
+      get :show, params: { id: request }
+
+      expect(response.body).to include(I18n.t('admin.action_reviews.inconsistent_resource'))
+      expect(response.body).not_to include(I18n.t('admin.action_reviews.approve_and_run'))
+    end
+
+    it 'lets staff approve, persists an escaped note, and keeps browser-local reviewed_at' do
+      sign_in Fabricate(:user, moderator: true), scope: :user
+      request = held_follow_request
+      note = '<script>alert(1)</script>'
+
+      post :approve, params: { id: request.id, decision_note: note }
+
+      expect(response).to redirect_to(admin_action_review_path(request))
+      expect(flash[:notice]).to eq I18n.t('admin.action_reviews.approved_msg')
+      expect(request.reload.approved_state?).to be true
+      expect(request.decision_note).to eq note
+      expect(request.resource.reload.ready_preflight_state?).to be true
+      expect(ModerationAction.count).to eq 0
+
+      get :show, params: { id: request }
+      expect(response.body).to include('&lt;script&gt;alert(1)&lt;/script&gt;')
+      expect(response.body).not_to include('<script>alert(1)</script>')
+      expect(response.body).to include('time class="formatted"')
+      expect(response.body).to include(request.reviewed_at.iso8601)
+      expect(response.body).not_to include(I18n.t('admin.action_reviews.approve_and_run'))
+    end
+
+    it 'lets staff stop the import' do
+      sign_in admin, scope: :user
+      request = held_follow_request
+
+      expect { post :reject, params: { id: request.id, decision_note: 'stop this import' } }.not_to change(ModerationAction, :count)
+
+      expect(response).to redirect_to(admin_action_review_path(request))
+      expect(request.reload.rejected_state?).to be true
+      expect(request.resource.reload.stopped_preflight_state?).to be true
+      expect(request.decision_note).to eq 'stop this import'
+    end
+
+    it 'forbids an ordinary user from approving or stopping' do
+      sign_in Fabricate(:user), scope: :user
+      request = held_follow_request
+
+      post :approve, params: { id: request.id }
+      expect(response).to have_http_status(:forbidden)
+
+      post :reject, params: { id: request.id }
+      expect(response).to have_http_status(:forbidden)
+      expect(request.reload.pending_state?).to be true
+      expect(request.resource.reload.review_required_preflight_state?).to be true
     end
   end
 

@@ -160,4 +160,58 @@ RSpec.describe Scheduler::FollowImportCsvCleanupScheduler do # rubocop:disable M
       expect(FollowImport::ProcessImportWorker).not_to have_received(:perform_async)
     end
   end
+
+  it 'retains screening and review_required csvs even when nothing is pending' do
+    screening_import = import_for(account)
+    screening = batch_with_import(screening_import)
+    screening.update!(preflight_state: :screening, dispatch_cohort: :operational)
+
+    review_import = import_for(account)
+    review = batch_with_import(review_import)
+    review.update!(preflight_state: :review_required, dispatch_cohort: :operational)
+
+    worker.perform
+
+    expect(Import.exists?(screening_import.id)).to be true
+    expect(Import.exists?(review_import.id)).to be true
+    expect(FollowImportBatch.exists?(screening.id)).to be true
+    expect(FollowImportBatch.exists?(review.id)).to be true
+  end
+
+  it 'retains a ready csv while review resume is still pending' do
+    import = import_for(account)
+    batch = batch_with_import(import)
+    batch.mark_review_resume_required!
+
+    worker.perform
+
+    expect(Import.exists?(import.id)).to be true
+    expect(batch.reload.review_resume_pending?).to be true
+  end
+
+  it 'drops a stopped csv even while pending target rows remain' do
+    import = import_for(account)
+    batch = batch_with_import(import)
+    batch.update!(preflight_state: :stopped)
+    target = add_target(batch, :pending, 0)
+
+    worker.perform
+
+    expect(Import.exists?(import.id)).to be false
+    expect(FollowImportBatch.exists?(batch.id)).to be true
+    expect(FollowImportTarget.exists?(target.id)).to be true
+    expect(target.reload.state).to eq 'pending'
+  end
+
+  it 'drops a ready csv after resume is complete and nothing is pending' do
+    import = import_for(account)
+    batch = batch_with_import(import)
+    batch.mark_review_resume_required!
+    batch.mark_review_resume_completed!
+
+    worker.perform
+
+    expect(Import.exists?(import.id)).to be false
+    expect(FollowImportBatch.exists?(batch.id)).to be true
+  end
 end

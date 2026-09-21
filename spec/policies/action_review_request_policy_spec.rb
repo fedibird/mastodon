@@ -8,7 +8,7 @@ RSpec.describe ActionReviewRequestPolicy do
   let(:admin)   { Fabricate(:user, admin: true).account }
   let(:john)    { Fabricate(:user).account }
 
-  permissions :index?, :show? do
+  permissions :index?, :show?, :approve?, :reject? do
     context 'staff?' do
       it 'permits' do
         expect(subject).to permit(admin, ActionReviewRequest)

@@ -1,9 +1,14 @@
 # frozen_string_literal: true
 
 module Settings::ImportsHelper
-  # Coarse, user-facing progress (no internal state / gate / risk detail).
+  # Coarse, user-facing progress. Workflow labels only: no signal,
+  # evidence, or moderation reason.
   def follow_import_status_label(summary)
-    if summary['completed']
+    if summary['stopped']
+      t('imports.follow_progress.status.stopped')
+    elsif summary['review_pending']
+      t('imports.follow_progress.status.waiting_for_review')
+    elsif summary['completed']
       t('imports.follow_progress.status.completed')
     elsif summary['preparing']
       t('imports.follow_progress.status.preparing')

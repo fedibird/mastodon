@@ -52,4 +52,21 @@ module Admin::ActionReviewHelper
   def action_review_trigger_label(trigger)
     t("admin.action_reviews.triggers.#{trigger}", default: trigger.to_s)
   end
+
+  # Pending, adapter-backed Follow Import that is still review_required.
+  # Terminal, unsupported, missing, or inconsistent rows get no buttons.
+  def action_review_decision_controls?(request)
+    return false unless request.pending_state?
+    return false unless ActionReview::AdapterRegistry.registered?(request.operation_type)
+
+    resource = request.resource
+    resource.is_a?(FollowImportBatch) && request.resource_type == 'FollowImportBatch' && resource.review_required_preflight_state?
+  end
+
+  def action_review_decision_warning?(request)
+    return false unless request.pending_state?
+    return false unless request.operation_type == 'follow_import'
+
+    !action_review_decision_controls?(request)
+  end
 end
