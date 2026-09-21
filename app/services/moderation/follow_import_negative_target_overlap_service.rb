@@ -17,7 +17,9 @@
 #     lists, and identity inference are out of scope.
 #   * as_of defaults to batch.imported_at so historical replay has no look-ahead.
 #   * Fingerprint truncation is surfaced, not "corrected". An incomplete
-#     stored set makes overlap a lower-bound observation.
+#     stored set makes overlap a lower-bound observation. Missing or invalid
+#     summary['linked_negative_target_count'] leaves completeness unknown
+#     (nil); it is never inferred from the stored ID count.
 #   * same_subject is a boolean only; two different subjects are not claimed
 #     to be the same person.
 #
@@ -85,7 +87,7 @@ module Moderation
       return if overlap_count.zero?
 
       stored_count = stored_ids.size
-      reported_count = reported_linked_negative_target_count(snapshot, stored_count)
+      reported_count = reported_linked_negative_target_count(snapshot)
       union_count = (comparable_ids | stored_ids).size
       action_ids, action_types, latest_performed_at = action_metadata(eligible_actions)
 
@@ -98,7 +100,7 @@ module Moderation
         'latest_action_performed_at'           => latest_performed_at,
         'stored_linked_negative_target_count'  => stored_count,
         'reported_linked_negative_target_count' => reported_count,
-        'historical_fingerprint_complete'      => reported_count <= stored_count,
+        'historical_fingerprint_complete'      => historical_fingerprint_complete(reported_count, stored_count),
         'overlap_count'                        => overlap_count,
         'current_target_overlap_ratio'         => ratio(overlap_count, comparable_ids.size),
         'stored_negative_containment'          => ratio(overlap_count, stored_count),
@@ -106,13 +108,22 @@ module Moderation
       }
     end
 
-    def reported_linked_negative_target_count(snapshot, stored_count)
+    def reported_linked_negative_target_count(snapshot)
       raw = snapshot.summary['linked_negative_target_count']
-      return stored_count if raw.nil?
+      return if raw.nil?
 
       Integer(raw)
     rescue ArgumentError, TypeError
-      stored_count
+      nil
+    end
+
+    # Unknown when the snapshot never recorded a reported total. Do not treat
+    # stored ID count as a substitute — that overstates coverage for old
+    # schema rows and truncated fingerprints.
+    def historical_fingerprint_complete(reported_count, stored_count)
+      return if reported_count.nil?
+
+      reported_count <= stored_count
     end
 
     def normalize_subject_ids(values)

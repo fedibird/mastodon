@@ -268,6 +268,53 @@ RSpec.describe Moderation::FollowImportNegativeTargetOverlapService do
     end
   end
 
+  describe 'unknown fingerprint completeness' do
+    let!(:batch) { create_batch(importer, targets: [target_a, target_b, target_c]) }
+
+    it 'leaves completeness unknown when the reported count is missing' do
+      snapshot = Fabricate(
+        :moderation_evidence_snapshot,
+        subject: other_subject,
+        summary: {},
+        fingerprint: { 'negative_target_subject_ids' => [target_a.id, target_x.id] }
+      )
+      Fabricate(
+        :moderation_action,
+        subject: other_subject,
+        evidence_snapshot: snapshot,
+        action_type: :suspend,
+        performed_at: imported_at - 1.day
+      )
+
+      match = service.call(batch)['matches'].first
+
+      expect(match['snapshot_id']).to eq snapshot.id
+      expect(match['reported_linked_negative_target_count']).to be_nil
+      expect(match['historical_fingerprint_complete']).to be_nil
+      expect(match['stored_linked_negative_target_count']).to eq 2
+      expect(match['overlap_count']).to eq 1
+      expect(match['current_target_overlap_ratio']).to eq(1.0 / 3)
+      expect(match['stored_negative_containment']).to eq 0.5
+    end
+
+    it 'leaves completeness unknown when the reported count is invalid' do
+      snapshot = create_moderated_snapshot(
+        other_subject,
+        linked_ids: [target_a.id, target_b.id],
+        reported_count: 'not-a-number'
+      )
+
+      match = service.call(batch)['matches'].first
+
+      expect(match['snapshot_id']).to eq snapshot.id
+      expect(match['reported_linked_negative_target_count']).to be_nil
+      expect(match['historical_fingerprint_complete']).to be_nil
+      expect(match['overlap_count']).to eq 2
+      expect(match['stored_negative_containment']).to eq 1.0
+      expect(match['jaccard']).to eq(2.0 / 3)
+    end
+  end
+
   describe 'no-overlap' do
     let!(:batch) { create_batch(importer, targets: [target_a, target_b]) }
 
