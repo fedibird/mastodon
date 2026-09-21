@@ -61,24 +61,10 @@ module FollowImport
       )
 
       OptionalTable = Struct.new(:headers, :rows, keyword_init: true) do
+        delegate :empty?, :length, :map, :each, to: :rows
+
         def column?(name)
           headers.include?(name.to_s)
-        end
-
-        def empty?
-          rows.empty?
-        end
-
-        def length
-          rows.length
-        end
-
-        def map(&block)
-          rows.map(&block)
-        end
-
-        def each(&block)
-          rows.each(&block)
         end
       end
 

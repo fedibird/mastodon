@@ -3,14 +3,14 @@
 require 'rails_helper'
 require_relative 'pacing_backtest/fixture_builder'
 
-RSpec.describe FollowImport::PacingBacktest do
+RSpec.describe FollowImport::PacingBacktest do # rubocop:disable Metrics/BlockLength
   include FollowImportPacingBacktestFixtures
 
   def build_dir
     Dir.mktmpdir('fi-pacing-backtest')
   end
 
-  def run_backtest(dir, transport_rows:, dispatch_rows: nil, tick_rows: nil, tick_headers: nil, scenarios: nil, now: Time.utc(2026, 9, 21, 7, 0, 0))
+  def run_backtest(dir, transport_rows:, dispatch_rows: nil, tick_rows: nil, tick_headers: nil, scenarios: nil, now: Time.utc(2026, 9, 21, 7, 0, 0)) # rubocop:disable Metrics/ParameterLists
     transport = write_transport(File.join(dir, 'transport.csv'), transport_rows)
     scenario_path = write_scenarios(
       File.join(dir, 'scenarios.json'),
