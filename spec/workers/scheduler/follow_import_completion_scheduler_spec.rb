@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe Scheduler::FollowImportCompletionScheduler do
+RSpec.describe Scheduler::FollowImportCompletionScheduler do # rubocop:disable Metrics/BlockLength
   subject(:worker) { described_class.new }
 
   let(:account) { Fabricate(:account) }
@@ -52,6 +52,20 @@ RSpec.describe Scheduler::FollowImportCompletionScheduler do
 
     expect(UserMailer).not_to have_received(:follow_import_finished)
     expect(batch.reload.completion_notified?).to be false
+  end
+
+  it 'does not notify a held batch that still has pending targets' do
+    %i(screening review_required stopped).each do |state|
+      held = batch_for(account)
+      held.update!(preflight_state: state, dispatch_cohort: :operational)
+      add_target(held, :pending, 0)
+
+      worker.perform
+
+      expect(UserMailer).not_to have_received(:follow_import_finished)
+      expect(held.reload.completion_notified?).to be false
+      expect(held.preflight_state).to eq state.to_s
+    end
   end
 
   it 'does not notify a batch that was already notified' do

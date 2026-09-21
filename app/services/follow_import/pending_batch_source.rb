@@ -2,13 +2,15 @@
 
 # Read-only source of pending Follow Import work.
 #
-# Shadow ticks (GLOBAL=false) observe the operational cohort
+# Shadow ticks (GLOBAL=false) observe ready operational batches
 # (legacy + scheduler owners) so live GLOBAL-off imports stay
-# comparable without treating pre-I2 historical pending as live
-# scheduler backlog. Authoritative GLOBAL ticks MUST pass
+# comparable without treating pre-I2 historical pending, or
+# non-ready preflight rows, as live scheduler backlog.
+# Authoritative GLOBAL ticks MUST pass
 # batch_scope: FollowImportBatch.global_planning_scope
-# (operational AND scheduler-owned) so a legacy-owned or
-# historical batch can never enter the real claim plan.
+# (operational AND scheduler-owned AND ready) so a legacy-owned,
+# historical, or non-ready batch can never enter the real claim
+# plan. Eligibility.executable? is a second ready-only fence.
 #
 # Discovery uses the pending-only partial index. Batches preload
 # subject/account so owner resolution is not N+1. Targets are not loaded

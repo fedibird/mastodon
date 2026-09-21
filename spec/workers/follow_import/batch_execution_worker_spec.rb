@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe FollowImport::BatchExecutionWorker do
+RSpec.describe FollowImport::BatchExecutionWorker do # rubocop:disable Metrics/BlockLength
   subject(:worker) { described_class.new }
 
   let(:account)          { Fabricate(:account) }
@@ -57,6 +57,36 @@ RSpec.describe FollowImport::BatchExecutionWorker do
     expect(FollowImport::TargetTransitionService).not_to have_received(:new)
     expect(Import.exists?(import_record.id)).to be true
     expect(FollowImportBatch.exists?(batch.id)).to be true
+  end
+
+  %i(screening review_required stopped).each do |state|
+    it "refuses a #{state} batch before any load, claim, or enqueue work" do
+      import_record = Import.create!(account: account, type: 'following', data: attachment_fixture('new-following-imports.txt'),
+                                     follow_import_pipeline_version: Import::CURRENT_FOLLOW_IMPORT_PIPELINE_VERSION)
+      batch.update!(preflight_state: state, import_id: import_record.id)
+      target = add_target(0)
+      allow(described_class).to receive(:perform_in)
+      allow(FollowImport::LoadSnapshot).to receive(:capture)
+      allow(FollowImport::LocalLoadEnforcement).to receive(:evaluate)
+      allow(FollowImport::DispatchObserver).to receive(:record)
+      allow(FollowImport::ExecutionGate).to receive(:for_account)
+      allow(FollowImport::ImportUnitResolver).to receive(:new)
+      allow(FollowImport::TargetTransitionService).to receive(:new)
+
+      worker.perform(batch.id)
+
+      expect(target.reload.state).to eq 'pending'
+      expect(Import::RelationshipWorker).not_to have_received(:perform_async)
+      expect(described_class).not_to have_received(:perform_in)
+      expect(FollowImport::LoadSnapshot).not_to have_received(:capture)
+      expect(FollowImport::LocalLoadEnforcement).not_to have_received(:evaluate)
+      expect(FollowImport::DispatchObserver).not_to have_received(:record)
+      expect(FollowImport::ExecutionGate).not_to have_received(:for_account)
+      expect(FollowImport::ImportUnitResolver).not_to have_received(:new)
+      expect(FollowImport::TargetTransitionService).not_to have_received(:new)
+      expect(Import.exists?(import_record.id)).to be true
+      expect(FollowImportBatch.exists?(batch.id)).to be true
+    end
   end
 
   it 'claims pending targets, transitions them to queued, and enqueues their follow work' do

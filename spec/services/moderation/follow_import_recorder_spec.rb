@@ -117,6 +117,12 @@ RSpec.describe Moderation::FollowImportRecorder, type: :service do # rubocop:dis
       expect(batch.historical_dispatch_cohort?).to be false
     end
 
+    it 'records a new operational batch as screening before any release' do
+      batch = described_class.record_batch(account: account, accts: ['bob'])
+      expect(batch.screening_preflight_state?).to be true
+      expect(batch.ready_preflight_state?).to be false
+    end
+
     it 'persists an explicit scheduler owner only for a newly created batch' do
       batch = described_class.record_batch(account: account, accts: ['bob'], dispatch_owner: :scheduler)
       expect(batch.scheduler_dispatch_owner?).to be true
@@ -132,6 +138,29 @@ RSpec.describe Moderation::FollowImportRecorder, type: :service do # rubocop:dis
       expect(second.legacy_dispatch_owner?).to be true
       expect(second.scheduler_dispatch_owner?).to be false
       expect(second.operational_dispatch_cohort?).to be true
+      expect(second.screening_preflight_state?).to be true
+    end
+
+    it 'does not convert review_required or stopped back to screening or ready on retry' do
+      import = instance_double(Import, id: 880_015)
+      held = FollowImportBatch.create!(
+        subject: ModerationSubject.for_account!(account),
+        import_id: import.id,
+        imported_at: Time.now.utc,
+        mode: :merge,
+        dispatch_owner: :legacy,
+        dispatch_cohort: :operational,
+        preflight_state: :review_required,
+        target_count: 0,
+        resolved_target_count: 0,
+        unresolved_target_count: 0
+      )
+
+      retried = described_class.record_batch!(account: account, accts: ['bob'], import: import)
+
+      expect(retried.id).to eq held.id
+      expect(retried.review_required_preflight_state?).to be true
+      expect(FollowImportTarget.where(batch_id: held.id).count).to eq 0
     end
 
     it 'does not promote a historical batch when the same import is retried' do

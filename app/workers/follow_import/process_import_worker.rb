@@ -5,10 +5,11 @@
 # the periodic global scheduler). Isolated from ImportWorker (retry: false)
 # so retry semantics change ONLY for follow imports — a transient failure
 # while recording or handing off is retried, and reprocessing is idempotent
-# (batch recording is keyed on import_id; stored dispatch_owner and
-# dispatch_cohort are not rewritten). A retry of a historical batch
-# does not newly enqueue BatchExecutionWorker and does not replay
-# overwrite unfollows. Other import types keep retry: false.
+# (batch recording is keyed on import_id; stored dispatch_owner,
+# dispatch_cohort, and preflight_state are not rewritten). A retry of a
+# historical batch does not newly enqueue BatchExecutionWorker and does
+# not replay overwrite unfollows. A retry must not convert
+# review_required/stopped back to ready. Other import types keep retry: false.
 #
 # When FOLLOW_IMPORT_DISPATCH_GLOBAL is on, a recording failure raises
 # instead of falling back to a direct RelationshipWorker bulk enqueue.

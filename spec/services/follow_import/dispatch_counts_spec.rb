@@ -86,6 +86,26 @@ RSpec.describe FollowImport::DispatchCounts do # rubocop:disable Metrics/BlockLe
     expect(snapshot.planning_active_batch_count).to eq 0
   end
 
+  it 'keeps non-ready operational pending in provenance counts but out of planning' do
+    ready = create_batch(dispatch_owner: :scheduler, dispatch_cohort: :operational, preflight_state: :ready)
+    screening = create_batch(dispatch_owner: :scheduler, dispatch_cohort: :operational, preflight_state: :screening)
+    review_required = create_batch(dispatch_owner: :legacy, dispatch_cohort: :operational, preflight_state: :review_required)
+    ready.targets.create!(target_key_hash: 'ready', position: 0)
+    screening.targets.create!(target_key_hash: 'screen', position: 0)
+    review_required.targets.create!(target_key_hash: 'held', position: 0)
+
+    shadow = described_class.backlog_snapshot(planning_scope: FollowImportBatch.shadow_planning_scope)
+    global = described_class.backlog_snapshot(planning_scope: FollowImportBatch.global_planning_scope)
+
+    expect(shadow.operational_pending_count).to eq 3
+    expect(shadow.operational_active_batch_count).to eq 3
+    expect(shadow.planning_pending_count).to eq 1
+    expect(shadow.planning_active_batch_count).to eq 1
+    expect(global.operational_pending_count).to eq 3
+    expect(global.planning_pending_count).to eq 1
+    expect(global.planning_active_batch_count).to eq 1
+  end
+
   it 'returns NULL scoped counts when pending measurement cannot run' do
     allow(FollowImportTarget).to receive(:where).and_raise(ActiveRecord::StatementInvalid, 'boom')
 
