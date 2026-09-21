@@ -1,5 +1,10 @@
 # frozen_string_literal: true
 
+# Admin form for the existing `action_review_policies` hash setting.
+#
+# Displayed values are effective modes from PolicySettings, not raw stored
+# strings, so a leftover unsupported threshold still shows as `always`.
+# Persistence keeps unknown extra keys when the stored blob is a hash.
 class Form::ActionReviewSettings
   include ActiveModel::Model
 
@@ -24,15 +29,16 @@ class Form::ActionReviewSettings
   private
 
   def apply_current_policies
-    current = current_policies
     OPERATIONS.each do |key|
-      public_send("#{key}=", current[key].presence || 'off')
+      public_send("#{key}=", ActionReview::PolicySettings.mode_for(key))
     end
   end
 
   def current_policies
     raw = Setting['action_review_policies']
     raw.is_a?(Hash) ? raw.stringify_keys : {}
+  rescue StandardError
+    {}
   end
 
   def merged_policies

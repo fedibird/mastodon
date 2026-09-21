@@ -47,14 +47,12 @@ RSpec.describe Form::ActionReviewSettings do
   end
 
   it 'preserves registered keys that the form is not changing' do
-    Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(
-      value: {
-        'follow_import' => 'high',
-        'account_migration' => 'always',
-        'invite_creation' => 'off',
-        'status_import' => 'off',
-        'future_op' => 'always',
-      }
+    store_policies(
+      'follow_import' => 'high',
+      'account_migration' => 'always',
+      'invite_creation' => 'off',
+      'status_import' => 'off',
+      'future_op' => 'always'
     )
 
     form = described_class.new(follow_import: 'low')
@@ -64,5 +62,50 @@ RSpec.describe Form::ActionReviewSettings do
     expect(policies['follow_import']).to eq 'low'
     expect(policies['account_migration']).to eq 'always'
     expect(policies['future_op']).to eq 'always'
+  end
+
+  it 'displays always when a detectorless operation is stored as a threshold' do
+    store_policies(
+      'follow_import' => 'off',
+      'account_migration' => 'off',
+      'invite_creation' => 'medium',
+      'status_import' => 'off'
+    )
+
+    form = described_class.new
+
+    expect(ActionReview::PolicySettings.mode_for('invite_creation')).to eq 'always'
+    expect(form.invite_creation).to eq 'always'
+  end
+
+  it 'displays always when follow_import is an unrecognized string' do
+    store_policies(
+      'follow_import' => 'dangerous',
+      'account_migration' => 'off',
+      'invite_creation' => 'off',
+      'status_import' => 'off'
+    )
+
+    form = described_class.new
+
+    expect(ActionReview::PolicySettings.mode_for('follow_import')).to eq 'always'
+    expect(form.follow_import).to eq 'always'
+  end
+
+  it 'loads always for every operation when the stored blob is not a hash' do
+    store_policies('off')
+
+    form = described_class.new
+
+    expect(form.follow_import).to eq 'always'
+    expect(form.account_migration).to eq 'always'
+    expect(form.invite_creation).to eq 'always'
+    expect(form.status_import).to eq 'always'
+    expect(ActionReview::PolicySettings.mode_for('follow_import')).to eq 'always'
+  end
+
+  def store_policies(value)
+    Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(value: value)
+    Rails.cache.clear
   end
 end

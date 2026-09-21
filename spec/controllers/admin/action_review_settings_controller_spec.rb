@@ -18,6 +18,15 @@ RSpec.describe Admin::ActionReviewSettingsController, type: :controller do # rub
     Nokogiri::HTML(body).css("select[name='form_action_review_settings[#{field}]'] option").map { |node| node['value'] }
   end
 
+  def selected_value(body, field)
+    Nokogiri::HTML(body).at_css("select[name='form_action_review_settings[#{field}]'] option[selected]")&.[]('value')
+  end
+
+  def store_policies(value)
+    Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(value: value)
+    Rails.cache.clear
+  end
+
   around do |example|
     example.run
   ensure
@@ -72,6 +81,31 @@ RSpec.describe Admin::ActionReviewSettingsController, type: :controller do # rub
       expect(option_values(response.body, 'invite_creation')).to eq %w(off always)
       expect(option_values(response.body, 'status_import')).to eq %w(off always)
       expect(response.body).to include(I18n.t('admin.action_review_settings.operations.status_import'))
+    end
+
+    it 'selects effective always when stored detectorless or malformed values would not match the collection' do
+      store_policies(
+        'follow_import' => 'dangerous',
+        'account_migration' => 'off',
+        'invite_creation' => 'medium',
+        'status_import' => 'off'
+      )
+
+      get :edit
+
+      expect(response).to have_http_status(200)
+      expect(selected_value(response.body, 'follow_import')).to eq 'always'
+      expect(selected_value(response.body, 'invite_creation')).to eq 'always'
+    end
+
+    it 'renders always when the stored setting blob is not a hash' do
+      store_policies('off')
+
+      get :edit
+
+      expect(response).to have_http_status(200)
+      expect(selected_value(response.body, 'follow_import')).to eq 'always'
+      expect(selected_value(response.body, 'invite_creation')).to eq 'always'
     end
   end
 
