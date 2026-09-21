@@ -175,9 +175,14 @@ RSpec.describe FollowImport::PacingBacktest::AdaptiveReplay do
     ]
     result = described_class.new(dataset_for(rows), candidate, 60).to_h
 
+    expect(rows.map(&:endpoint_origin).uniq).to eq ['https://inbox.example']
     expect(result['first_attempt_pressure']['above_destination_cap']).to eq 1
+    expect(result['first_attempt_pressure']['above_origin_cap']).to eq 0
+    expect(result['all_attempt_pressure']['above_origin_cap']).to eq 0
     expect(result['destination']['keys_observed']).to eq 0
     expect(result['destination']['mutating_event_count']).to eq 0
+    expect(result['origin']['keys_observed']).to eq 1
+    expect(result['origin_pressure_note']).to include('retrospective observed-origin')
   end
 
   it 'does not apply remote adaptive dest/origin pressure to a local destination' do

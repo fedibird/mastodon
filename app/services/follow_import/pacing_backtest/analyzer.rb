@@ -64,6 +64,7 @@ module FollowImport
             FollowImport::PacingBacktest::RIGHT_CENSOR_WARNING,
             FollowImport::PacingBacktest::CPU_DB_WARNING,
             FollowImport::PacingBacktest::MODERATION_WARNING,
+            FollowImport::PacingBacktest::ORIGIN_PRESSURE_NOTE,
           ],
         }
       end
@@ -83,6 +84,7 @@ module FollowImport
           FollowImport::PacingBacktest::ALL_ATTEMPT_NOTE,
           FollowImport::PacingBacktest::NO_REFLOW_NOTE,
           FollowImport::PacingBacktest::SYNTHETIC_TICK_NOTE,
+          FollowImport::PacingBacktest::ORIGIN_PRESSURE_NOTE,
         ]
         list.concat(dataset.warnings)
         list

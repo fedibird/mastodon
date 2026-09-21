@@ -106,15 +106,20 @@ RSpec.describe FollowImport::PacingBacktest::FixedPressureReplay do
     expect(replay.all_attempt['above_either_cap']).to eq 0
   end
 
-  it 'applies the destination cap to a missing destination via the unknown bucket' do
+  it 'caps missing destinations in the unknown bucket without applying origin pressure' do
+    tight_origin = FollowImport::RemoteAdmissionProfile.parse(fixed_profile(dest: 2, origin: 1))
     rows = [
       attempt('target_id' => '1', :row_number => 1, 'destination_domain' => ''),
       attempt('target_id' => '2', :row_number => 2, 'destination_domain' => '', 'request_started_at' => '2026-09-16T12:00:01Z'),
       attempt('target_id' => '3', :row_number => 3, 'destination_domain' => '', 'request_started_at' => '2026-09-16T12:00:02Z'),
     ]
-    result = described_class.new(dataset_for(rows), profile, 60).first_attempt
+    result = described_class.new(dataset_for(rows), tight_origin, 60).first_attempt
 
+    expect(rows.map { |row| row.endpoint_origin }.uniq).to eq ['https://inbox.example']
     expect(result['above_destination_cap']).to eq 1
+    expect(result['above_origin_cap']).to eq 0
+    expect(result['above_either_cap']).to eq 1
+    expect(result['origin_pressure_note']).to include('retrospective observed-origin')
   end
 
   it 'does not apply remote dest/origin caps to a local destination' do

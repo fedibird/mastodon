@@ -2,7 +2,11 @@
 
 # Destination/origin routing aligned with PR F/G RemoteAdmission.
 # Local destinations consume no remote dest/origin caps. Missing
-# destination uses the synthetic unknown bucket and is never unlimited.
+# destination uses the synthetic unknown bucket for destination
+# pressure only; origin pressure is not applied because production
+# cannot look up a destination→origin mapping without a dest key.
+# Observed origin may still persist adaptive controller state after
+# an actual HTTP delivery.
 module FollowImport
   class PacingBacktest
     module Routing
@@ -25,7 +29,7 @@ module FollowImport
       end
 
       def origin_pressure_key(domain, origin)
-        return if local_destination?(domain)
+        return if domain.blank? || local_destination?(domain)
 
         origin.to_s.presence
       end

@@ -73,6 +73,7 @@ module FollowImport
           'note' => 'constraint exposure, not prevented successes or failures',
           'reflow' => FollowImport::PacingBacktest::NO_REFLOW_NOTE,
           'tick_width_note' => FollowImport::PacingBacktest::SYNTHETIC_TICK_NOTE,
+          'origin_pressure_note' => FollowImport::PacingBacktest::ORIGIN_PRESSURE_NOTE,
         }
       end
 

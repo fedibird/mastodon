@@ -214,7 +214,23 @@ Routing matches production `RemoteAdmission`:
   origin caps
 - a **missing** destination is pressure-counted in the synthetic
   `UNKNOWN_DESTINATION` bucket and is never treated as unlimited
-- a missing destination is not persisted as an adaptive key
+- a missing destination does **not** apply origin pressure, even when
+  the later transport row has `endpoint_origin`. Production cannot look
+  up a destination→origin mapping without a destination key
+- a missing destination is not persisted as an adaptive destination key.
+  Observed origin may still persist adaptive controller state after an
+  actual HTTP delivery
+
+Destination pressure is directly observable from the imported routing
+domain. Origin pressure is **retrospective observed-origin pressure**
+from exported `endpoint_origin`. That is useful observationally, but it
+is not an exact replay of PR F/G origin admission: production applies
+the origin cap only when `RemoteRuntimeState` already has a fresh
+destination→origin mapping at planning time. I3 v1 does not reconstruct
+mapping-cache availability or TTL. `mapping_ttl_seconds` therefore does
+not control whether a historical claim had an origin cap available.
+`above_origin_cap` can overstate how often the live scheduler could
+have applied the origin cap at claim time.
 
 When destination and origin identities both exist, `above_either_cap`
 counts the attempt once if it exceeds destination **or** origin.
@@ -263,9 +279,11 @@ The actual transport stream is replayed in memory through:
 No Redis. Destination and origin keys are independent. A local
 destination skips both destination and origin remote layers, matching
 production `RemoteAdmission`. A missing destination uses the unknown
-bucket for pressure and is not persisted. Latency, Accept/Reject,
-blocks, reports, software type, user counts, and Follow Gate are not
-inputs.
+bucket for destination pressure only, does not apply origin pressure,
+and is not persisted as a destination key. Observed origin may still
+persist origin controller state after an actual HTTP delivery. Latency,
+Accept/Reject, blocks, reports, software type, user counts, and Follow
+Gate are not inputs.
 
 Neutral events (no request started, ordinary 4xx/3xx, unknown errors)
 do not mutate cap state, matching `DeliveryObserver`. Persisted

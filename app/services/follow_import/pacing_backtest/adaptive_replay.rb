@@ -61,6 +61,7 @@ module FollowImport
           'destination' => dest_stats.to_h(dest_states),
           'origin' => origin_stats.to_h(origin_states),
           'note' => 'constraint exposure against the current adaptive cap before each event is applied; not a causal prevention estimate. Persisted state updates only on mutating events.',
+          'origin_pressure_note' => FollowImport::PacingBacktest::ORIGIN_PRESSURE_NOTE,
         }
       end
 

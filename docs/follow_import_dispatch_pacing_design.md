@@ -1383,7 +1383,10 @@ views require `request_started_at`; first-attempt claim pressure may
 include DeliveryWorker executions that never reached HTTP.
 `bucket_seconds` is a synthetic scheduler tick width, not a wall-clock
 minute. Adaptive replay persists controller state only on mutating
-events.
+events. Missing destinations apply UNKNOWN destination pressure only
+and no origin pressure. Origin pressure is retrospective observed-origin
+pressure; `mapping_ttl_seconds` is not used to reconstruct claim-time
+mapping availability.
 
 See `docs/follow_import_pacing_backtest.md`. Do not treat backtest
 constraint-exposure counts as prevented failures, created successes,

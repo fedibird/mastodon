@@ -97,6 +97,7 @@ RSpec.describe FollowImport::PacingBacktest do # rubocop:disable Metrics/BlockLe
     expect(result.dig('scenarios', 0, 'global_budget_envelope', 'cpu_db_note')).to include('CPU or database')
     expect(result.dig('scenarios', 0, 'global_budget_envelope', 'active_buckets')).to be_a(Integer)
     expect(result['warnings'].join).to include('synthetic scheduler tick width')
+    expect(result['warnings'].join).to include('retrospective observed-origin')
   end
 
   it 'marks scheduler tick I2 columns unavailable when the export predates them' do
