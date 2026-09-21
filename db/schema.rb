@@ -598,8 +598,8 @@ ActiveRecord::Schema.define(version: 2026_09_21_020000) do
     t.string "owner_token"
     t.bigint "fencing_generation", default: 0, null: false
     t.datetime "expires_at"
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
   end
 
   create_table "follow_import_dispatch_observations", force: :cascade do |t|

@@ -35,17 +35,16 @@ RSpec.describe FollowImport::DispatchLease do # rubocop:disable Metrics/BlockLen
 
   def with_extra_connection
     pool = ActiveRecord::Base.connection_pool
-    previous = pool.lock_thread
     pool.lock_thread = false
     conn = pool.checkout
     yield conn
   ensure
     if conn
-      conn.rollback_db_transaction while conn.transaction_open?
+      conn.rollback_db_transaction if conn.transaction_open?
       conn.disconnect!
       pool.remove(conn)
     end
-    pool.lock_thread = previous unless previous.nil?
+    ActiveRecord::Base.connection_pool.lock_thread = true
   end
 
   after do
@@ -71,7 +70,7 @@ RSpec.describe FollowImport::DispatchLease do # rubocop:disable Metrics/BlockLen
     end
   end
 
-  describe 'durable row acquisition' do
+  describe 'durable row acquisition' do # rubocop:disable Metrics/BlockLength
     it 'yields exactly once on uncontended acquisition and releases afterward' do
       yielded = 0
       handle_during = nil
@@ -260,7 +259,6 @@ RSpec.describe FollowImport::DispatchLease do # rubocop:disable Metrics/BlockLen
 
     it 'does not allow two threads to enter the critical section' do
       pool = ActiveRecord::Base.connection_pool
-      previous = pool.lock_thread
       pool.lock_thread = false
 
       ready = Queue.new
@@ -288,7 +286,7 @@ RSpec.describe FollowImport::DispatchLease do # rubocop:disable Metrics/BlockLen
       release << true if release
       holder&.join(2)
       waiter&.join(2)
-      pool.lock_thread = previous unless previous.nil?
+      ActiveRecord::Base.connection_pool.lock_thread = true
     end
 
     it 'does not mutate Follow Import rows while the lease is held' do

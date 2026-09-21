@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe FollowImport::DispatchExecutor do
+RSpec.describe FollowImport::DispatchExecutor do # rubocop:disable Metrics/BlockLength
   subject(:executor) { described_class.new }
 
   let(:account) { Fabricate(:account) }
@@ -53,9 +53,9 @@ RSpec.describe FollowImport::DispatchExecutor do
     expect(target.reload.state).to eq 'queued'
     expect(Import::RelationshipWorker).to have_received(:perform_async)
       .with(account.id, "acct-#{target.id}@remote.test", 'follow', hash_including(
-                                                                    'import_batch_id' => batch.id,
-                                                                    'follow_import_target_id' => target.id
-                                                                  ))
+                                                                     'import_batch_id' => batch.id,
+                                                                     'follow_import_target_id' => target.id
+                                                                   ))
   end
 
   it 'does not claim a legacy-owned batch' do

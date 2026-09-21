@@ -9,10 +9,12 @@ class CreateFollowImportDispatchLeases < ActiveRecord::Migration[6.1]
       t.timestamps
     end
 
-    execute <<~SQL.squish
-      INSERT INTO follow_import_dispatch_leases (id, fencing_generation, created_at, updated_at)
-      VALUES (1, 0, NOW(), NOW())
-    SQL
+    safety_assured do
+      execute <<~SQL.squish
+        INSERT INTO follow_import_dispatch_leases (id, fencing_generation, created_at, updated_at)
+        VALUES (1, 0, NOW(), NOW())
+      SQL
+    end
   end
 
   def down

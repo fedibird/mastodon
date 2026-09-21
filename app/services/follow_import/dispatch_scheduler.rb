@@ -123,19 +123,21 @@ module FollowImport
     end
 
     def execute_global(plan, handle)
-      return FollowImport::DispatchExecutor::Result.new(
-        claimed_count: 0,
-        skipped_stale_count: 0,
-        skipped_unrecoverable_count: 0,
-        skipped_wrong_owner_count: 0,
-        error_class: nil,
-        stopped: false
-      ) if plan.nil? || !plan.planned? || plan.entries.empty?
+      if plan.nil? || !plan.planned? || plan.entries.empty?
+        return FollowImport::DispatchExecutor::Result.new(
+          claimed_count: 0,
+          skipped_stale_count: 0,
+          skipped_unrecoverable_count: 0,
+          skipped_wrong_owner_count: 0,
+          error_class: nil,
+          stopped: false
+        )
+      end
 
       FollowImport::DispatchExecutor.new(now: plan.observed_at, lease: handle).execute(plan.entries)
     end
 
-    def build_plan(observed_at, load_snapshot, mode)
+    def build_plan(observed_at, load_snapshot, mode) # rubocop:disable Metrics/MethodLength
       if mode == :global
         base_budget = FollowImport::ExecutionPolicy.global_dispatch_budget
         resolved = global_local_load(load_snapshot, base_budget)
@@ -215,7 +217,7 @@ module FollowImport
       )
     end
 
-    def observe_plan(observed_at:, decision:, resolved:, budget_attrs:, scheduler_mode:, entries:, skipped_missing_owner_count:, fairness_state_source:, executable_owner_count:, executable_batch_count:, measure_backlog:, remote: {})
+    def observe_plan(observed_at:, decision:, resolved:, budget_attrs:, scheduler_mode:, entries:, skipped_missing_owner_count:, fairness_state_source:, executable_owner_count:, executable_batch_count:, measure_backlog:, remote: {}) # rubocop:disable Metrics/ParameterLists
       FollowImport::DispatchPlan.observe(
         observed_at: observed_at,
         global_pending_count: measure_backlog ? FollowImport::DispatchCounts.global_pending : nil,

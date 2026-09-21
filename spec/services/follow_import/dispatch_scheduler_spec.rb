@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe FollowImport::DispatchScheduler do
+RSpec.describe FollowImport::DispatchScheduler do # rubocop:disable Metrics/BlockLength
   subject(:scheduler) { described_class.new }
 
   let(:account)          { Fabricate(:account) }
@@ -89,7 +89,7 @@ RSpec.describe FollowImport::DispatchScheduler do
     end
   end
 
-  describe 'when shadow is enabled and the lease is acquired' do
+  describe 'when shadow is enabled and the lease is acquired' do # rubocop:disable Metrics/BlockLength
     def perform
       scheduler.call
     end
@@ -312,7 +312,7 @@ RSpec.describe FollowImport::DispatchScheduler do
     end
   end
 
-  describe 'account-first integration' do
+  describe 'account-first integration' do # rubocop:disable Metrics/BlockLength
     before do
       allow(FollowImport::ExecutionPolicy).to receive(:dispatch_shadow_enabled?).and_return(true)
       allow(FollowImport::ExecutionPolicy).to receive(:shadow_plan_budget).and_return(3)
@@ -432,7 +432,7 @@ RSpec.describe FollowImport::DispatchScheduler do
     end
   end
 
-  describe 'local-load shadow' do
+  describe 'local-load shadow' do # rubocop:disable Metrics/BlockLength
     def perform
       scheduler.call
     end
@@ -674,4 +674,3 @@ RSpec.describe FollowImport::DispatchScheduler do
     end
   end
 end
-
