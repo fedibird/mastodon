@@ -86,6 +86,22 @@ RSpec.describe ActionReview::PolicyDecisionService do # rubocop:disable Metrics/
     expect(always.signal_level).to eq 'none'
   end
 
+  it 'treats an explicit threshold mode on a detectorless operation as always' do
+    result = decide(operation_type: 'invite_creation', signal_level: 'none', policy_mode: 'medium')
+
+    expect(result.policy_mode).to eq 'always'
+    expect(result.requires_review?).to be true
+    expect(result.trigger).to eq 'policy'
+    expect(result.reason_codes).to include('policy_always')
+  end
+
+  it 'rejects a non-none signal for a detectorless operation' do
+    expect { decide(operation_type: 'invite_creation', signal_level: 'high', policy_mode: 'always') }
+      .to raise_error(ArgumentError, /detectorless action review operation/)
+    expect { decide(operation_type: 'account_migration', signal_level: 'low', policy_mode: 'off') }
+      .to raise_error(ArgumentError, /detectorless action review operation/)
+  end
+
   it 'returns a factual snapshot with the policy version and no score' do
     result = decide(signal_level: 'high', policy_mode: 'high')
 

@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe ActionReview::PolicySettings do
+RSpec.describe ActionReview::PolicySettings do # rubocop:disable Metrics/BlockLength
   def stub_policies(value)
     allow(Setting).to receive(:[]).and_wrap_original do |method, key|
       key.to_s == 'action_review_policies' ? value : method.call(key)
@@ -37,10 +37,32 @@ RSpec.describe ActionReview::PolicySettings do
     expect(described_class.mode_for('invite_creation')).to eq 'off'
   end
 
-  it 'treats an unrecognized configured mode as always so a typo cannot disable review' do
-    stub_policies('follow_import' => 'dangerous')
+  it 'treats a threshold mode on a detectorless operation as always' do
+    stub_policies(
+      'invite_creation' => 'medium',
+      'account_migration' => 'low',
+      'status_import' => 'high'
+    )
 
-    expect(described_class.mode_for('follow_import')).to eq 'always'
+    expect(described_class.mode_for('invite_creation')).to eq 'always'
+    expect(described_class.mode_for('account_migration')).to eq 'always'
+    expect(described_class.mode_for('status_import')).to eq 'always'
+  end
+
+  it 'still accepts off and always for detectorless operations' do
+    stub_policies(
+      'invite_creation' => 'off',
+      'account_migration' => 'always'
+    )
+
+    expect(described_class.mode_for('invite_creation')).to eq 'off'
+    expect(described_class.mode_for('account_migration')).to eq 'always'
+  end
+
+  it 'normalizes an explicit unsupported detectorless mode to always' do
+    expect(described_class.normalize_mode('medium', operation_type: 'invite_creation')).to eq 'always'
+    expect(described_class.normalize_mode('off', operation_type: 'invite_creation')).to eq 'off'
+    expect(described_class.normalize_mode('always', operation_type: 'status_import')).to eq 'always'
   end
 
   it 'treats a non-hash setting blob as always' do

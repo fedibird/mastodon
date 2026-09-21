@@ -44,7 +44,7 @@ module ActionReview
     def call(operation_type:, signal_level: 'none', evaluation_status: EVALUATION_OK, policy_mode: nil)
       ActionReview::OperationRegistry.fetch!(operation_type)
       mode = resolve_mode(operation_type, policy_mode)
-      signal = normalize_signal(signal_level)
+      signal = normalize_signal(operation_type, signal_level)
       status = evaluation_status.to_s
       review, trigger, reasons = decide(mode, signal, status)
 
@@ -66,15 +66,18 @@ module ActionReview
       if policy_mode.nil?
         ActionReview::PolicySettings.mode_for(operation_type)
       else
-        ActionReview::PolicySettings.normalize_mode(policy_mode)
+        ActionReview::PolicySettings.normalize_mode(policy_mode, operation_type: operation_type)
       end
     end
 
-    def normalize_signal(signal_level)
+    def normalize_signal(operation_type, signal_level)
       text = signal_level.to_s.strip.downcase
-      return text if ActionReview::OperationRegistry::SIGNAL_LEVELS.include?(text)
+      unless ActionReview::OperationRegistry::SIGNAL_LEVELS.include?(text)
+        raise ArgumentError, "unknown action review signal_level: #{signal_level.inspect}"
+      end
+      return text if ActionReview::OperationRegistry.automated_signal?(operation_type) || text == 'none'
 
-      raise ArgumentError, "unknown action review signal_level: #{signal_level.inspect}"
+      raise ArgumentError, "detectorless action review operation #{operation_type.inspect} cannot take signal_level #{signal_level.inspect}"
     end
 
     def decide(mode, signal, status)

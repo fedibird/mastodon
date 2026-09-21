@@ -102,4 +102,49 @@ RSpec.describe ActionReview::RequestService do # rubocop:disable Metrics/BlockLe
     expect(resource.updated_at).to eq updated_at
     expect(UserMailer).not_to have_received(:new)
   end
+
+  it 'rejects a decision for a different operation before looking up pending rows' do
+    call_with(review_decision)
+    follow_decision = ActionReview::PolicyDecisionService.new.call(
+      operation_type: 'follow_import',
+      signal_level: 'high',
+      policy_mode: 'high'
+    )
+
+    expect do
+      service.call(
+        operation_type: 'invite_creation',
+        actor_account: actor,
+        resource: resource,
+        decision: follow_decision
+      )
+    end.to raise_error(ArgumentError, /does not match/)
+
+    expect(ActionReviewRequest.pending_state.count).to eq 1
+    expect(ActionReviewRequest.pending_state.first.operation_type).to eq 'invite_creation'
+    expect(ActionReviewRequest.pending_state.first.policy_mode).to eq 'always'
+  end
+
+  it 'rejects a mismatched decision even when review is not required' do
+    follow_skip = ActionReview::PolicyDecisionService.new.call(
+      operation_type: 'follow_import',
+      signal_level: 'none',
+      policy_mode: 'off'
+    )
+
+    expect { call_with(follow_skip) }.to raise_error(ArgumentError, /does not match/)
+    expect(ActionReviewRequest.count).to eq 0
+  end
+
+  it 'rejects an unknown operation before creating a request' do
+    expect do
+      service.call(
+        operation_type: 'widget_import',
+        actor_account: actor,
+        resource: resource,
+        decision: review_decision
+      )
+    end.to raise_error(ActionReview::OperationRegistry::UnknownOperation)
+    expect(ActionReviewRequest.count).to eq 0
+  end
 end

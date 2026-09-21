@@ -7,8 +7,9 @@
 # operation (raises). Malformed configuration is conservative:
 #
 # - missing / blank per-operation key -> `off` (unconfigured)
-# - unrecognized configured value, or a non-hash setting blob -> `always`
-#   so a typo cannot silently disable intended intervention
+# - unrecognized configured value, a mode the operation does not support,
+#   or a non-hash setting blob -> `always` so a typo or unsupported
+#   threshold cannot silently disable intended intervention
 #
 # `always` is a review-required policy, not an automatic reject.
 module ActionReview
@@ -24,24 +25,28 @@ module ActionReview
       hash = policies_hash
       return MALFORMED_FALLBACK_MODE if hash.nil?
 
-      normalize_configured_value(hash[operation_type.to_s])
+      normalize_configured_value(hash[operation_type.to_s], operation_type: operation_type)
     end
 
     def self.supported_modes_for(operation_type)
       ActionReview::OperationRegistry.supported_policy_modes(operation_type)
     end
 
-    def self.normalize_mode(value)
-      new.normalize_configured_value(value)
+    def self.normalize_mode(value, operation_type: nil)
+      new.normalize_configured_value(value, operation_type: operation_type)
     end
 
-    def normalize_configured_value(value)
+    def normalize_configured_value(value, operation_type: nil)
       return 'off' if value.nil? || value == false
       return MALFORMED_FALLBACK_MODE unless value.is_a?(String) || value.is_a?(Symbol)
 
       text = value.to_s.strip.downcase
       return 'off' if text.empty?
-      return text if ActionReview::OperationRegistry::POLICY_MODES.include?(text)
+      return MALFORMED_FALLBACK_MODE unless ActionReview::OperationRegistry::POLICY_MODES.include?(text)
+      return text if operation_type.nil?
+
+      supported = ActionReview::OperationRegistry.supported_policy_modes(operation_type)
+      return text if supported.include?(text)
 
       MALFORMED_FALLBACK_MODE
     end

@@ -2,10 +2,12 @@
 
 # Idempotent creator of pending ActionReviewRequest rows.
 #
-# Creates a snapshot only when a policy decision requires review. It never
-# mutates the underlying resource, never changes account moderation state,
-# and never notifies. Evidence is caller-supplied and stored as given;
-# this service does not infer Follow Import (or any other) evidence.
+# Creates a snapshot only when a policy decision requires review. The
+# decision must be for the same registered operation_type; a mismatch is
+# rejected before any pending lookup. It never mutates the underlying
+# resource, never changes account moderation state, and never notifies.
+# Evidence is caller-supplied and stored as given; this service does not
+# infer Follow Import (or any other) evidence.
 module ActionReview
   class RequestService
     Result = Struct.new(:requires_review, :request, :created, keyword_init: true) do
@@ -15,6 +17,11 @@ module ActionReview
     end
 
     def call(operation_type:, actor_account:, resource:, decision:, evaluator_version: nil, evidence: nil) # rubocop:disable Metrics/ParameterLists
+      ActionReview::OperationRegistry.fetch!(operation_type)
+      unless decision.operation_type.to_s == operation_type.to_s
+        raise ArgumentError, "decision operation_type #{decision.operation_type.inspect} does not match #{operation_type.inspect}"
+      end
+
       unless decision.requires_review?
         return Result.new(requires_review: false, request: nil, created: false)
       end
