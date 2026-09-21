@@ -1107,9 +1107,20 @@ Invariants carried forward:
 **Ownership column** (implementation PR C): each batch has exactly one
 first-class `dispatch_owner`: `legacy` (0) | `scheduler` (1). Set at
 creation from `FOLLOW_IMPORT_DISPATCH_GLOBAL`. Scheduler queries
-`dispatch_owner = scheduler`. `BatchExecutionWorker` refuses to start
+`dispatch_owner = scheduler` **and** `dispatch_cohort = operational`.
+`BatchExecutionWorker` refuses to start
 a `scheduler`-owned batch. Flag flips do not rewrite stored owners.
 There is no automatic drain/conversion in PR C.
+
+**Cohort column** (I2): each batch also has exactly one
+`dispatch_cohort`: `historical` (0) | `operational` (1). This is
+independent of ownership. It answers whether the batch was recorded
+before or after the controlled scheduler-cohort boundary. Existing
+rows and the database default are historical. The recorder writes
+operational only for newly created batches. Historical pending is
+pre-controlled-execution ledger pollution, not a safe replay list
+and not evidence of failed delivery. I2 does not delete, promote, or
+re-execute those rows.
 
 Suggested indexes when implementing (not in this PR):
 
@@ -1231,9 +1242,11 @@ Feature flags (names illustrative), all default **off**:
 
 **Dual-claim prevention:**
 
-- Scheduler `WHERE dispatch_owner = 'scheduler'`.
+- Scheduler plans SHADOW against the operational cohort (all owners)
+  and GLOBAL against operational **and** scheduler-owned. Historical
+  rows never enter the planner, even if `dispatch_owner = scheduler`.
 - `BatchExecutionWorker` no-ops (and does not reschedule) if
-  `dispatch_owner != 'legacy'`.
+  `dispatch_owner != 'legacy'`. It is **not** gated on cohort.
 - Target row locks remain.
 - Turning GLOBAL **off** does not create a second chain for
   scheduler-owned batches; those wait for the scheduler or an operator
@@ -1320,6 +1333,31 @@ and that fallback.
 
 `BatchExecutionWorker` no-ops immediately on a scheduler-owned batch.
 
+#### I2 operational cohort (implemented)
+
+Ownership (`dispatch_owner`) and cohort (`dispatch_cohort`) are
+separate axes. `legacy` does **not** mean historical. While GLOBAL
+stays off, a new import is `operational` + `legacy`: the legacy
+worker still executes it, and SHADOW may plan/observe it. GLOBAL,
+when later enabled, may claim only `operational` + `scheduler`.
+
+| dispatch_cohort | dispatch_owner | Who may plan / claim |
+|---|---|---|
+| historical | legacy | excluded from scheduler planning; existing legacy chain unchanged |
+| historical | scheduler | excluded from scheduler planning until an explicit later drain/promotion |
+| operational | legacy | SHADOW may observe; only `BatchExecutionWorker` may claim |
+| operational | scheduler | SHADOW may observe; GLOBAL may claim |
+
+Tick schema 10 keeps `global_pending_count` / `active_batch_count` as
+the all-pending universe and adds `historical_*`, `operational_*`,
+and `planning_*` counts. `planning_*` is the exact batch scope for
+that tick (SHADOW = operational all owners; GLOBAL = operational +
+scheduler-owned). A GLOBAL effective budget of 0 still skips every
+DispatchCounts query; old and new backlog columns are NULL.
+
+I2 does not enable GLOBAL, does not mutate historical targets, and
+does not auto-promote historical batches.
+
 #### Known gaps (do not claim they are paced)
 
 - Overwrite-generated **UNFOLLOW** operations remain a burst path.
@@ -1357,6 +1395,7 @@ is this documentation PR. Numeric calibration is last, not first.
 | **A** | Global scheduler skeleton; single-flight (unique job + durable PostgreSQL lease row / fencing generation; short `pg_try_advisory_xact_lock` only to serialize acquire). Session advisory locks are not used. Shadow planning only; tick observations. Implementation notes: `docs/follow_import_dispatch_shadow.md`. `DispatchPlan` in A is a read-only summary (no target selection). | Claim; change `ImportService` fallback; wrap the whole tick in one xact lock; treat Sidekiq UniqueJobs as the sole correctness boundary |
 | **B** | Account-first rotating RR (unit-cost DRR) + batch sub-scheduling in the **plan**; `owner_key` adapter; destination-share structure (optional cap in specs only). Shadow cursor in Redis (TTL; reconstructable; prune inactive, keep all currently-active owner/batch pointers). Lazy target feeds; pending `(batch_id, position, id)` index. Implementation: `docs/follow_import_dispatch_shadow.md`. | Claim; remote adaptive logic; ACCOUNT_FLOOR/CAP numbers |
 | **C** | Authoritative global claiming for **new** imports; `dispatch_owner`; legacy/global ownership + drain; **remove unpaced recording fallback** when GLOBAL is on | Flip in-flight legacy owners implicitly; enable Follow Gate |
+| **I2** | Durable `dispatch_cohort` so historical pending is not live scheduler backlog; SHADOW/GLOBAL planning scopes; tick schema 10 scoped counts | Delete/promote/replay historical targets; enable GLOBAL; gate `BatchExecutionWorker` on cohort |
 | **D** | `LocalLoadGuard` in the **global shadow scheduler** only: consume the pre-dispatch `LoadSnapshot`, evaluate a configured uncalibrated profile, shrink the hypothetical shadow plan, record state/percent/recommended budget. `BatchExecutionWorker` is unchanged (a shadow skip must not stop the legacy chain). Implementation: `docs/follow_import_dispatch_shadow.md`. | Enforce skip; invent production thresholds; change legacy claim rate |
 | **E** | Enforce `LocalLoadGuard` on the legacy executor (default-off); shrink per-pass LIMIT or schedule one load-deferred recheck when the guard (not policy) yields zero claims. No bundled production thresholds. | Tune production envelopes as if calibrated; tight retry loops; global claiming |
 | **F** | Fixed destination/domain budgets; DFT / UnavailableDomain where host mapping is known; Retry-After **runtime cache** (no raw scans); bounded candidate paging (§5.5). Implementation notes below. | Adaptive rates; Node scores; inbox Stoplight-as-if-known; unbounded 20k scans |
@@ -1417,6 +1456,8 @@ change the architecture above.
   without side effects (if not, resolve backoff stays transport-only).
 - Tick-level vs per-batch observation table shape.
 - Drain automation vs operator-only flip of `dispatch_owner`.
+- Explicit operator drain/promotion of historical `dispatch_cohort`
+  rows. I2 does not auto-promote or delete them.
 
 ---
 

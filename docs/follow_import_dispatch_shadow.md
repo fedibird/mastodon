@@ -5,7 +5,9 @@ PR C authoritative GLOBAL for **new** imports + PR F fixed remote
 admission for GLOBAL ticks + PR G shadow adaptive remote pacing).
 Default: **off**.
 
-This is Stage 1–6 (shadow half) from `docs/follow_import_dispatch_pacing_design.md`.
+This is Stage 1–6 (shadow half) from `docs/follow_import_dispatch_pacing_design.md`,
+plus I2 operational-cohort scoping. Historical pre-I2 pending rows are
+not live scheduler backlog.
 
 One periodic tick, one durable PostgreSQL dispatcher lease, one budget,
 one plan:
@@ -13,8 +15,8 @@ one plan:
 | GLOBAL | SHADOW | Mode |
 |---|---|---|
 | false | false | cheap no-op |
-| false | true | existing shadow planner; `claimed_count` forced 0 |
-| true | * | authoritative scheduler; may claim/enqueue **scheduler-owned** targets |
+| false | true | existing shadow planner over the **operational** cohort; `claimed_count` forced 0 |
+| true | * | authoritative scheduler; may claim/enqueue **operational + scheduler-owned** targets |
 
 GLOBAL takes precedence when both flags are true. Do not run a second
 shadow allocation in the same tick.
@@ -52,11 +54,15 @@ dispatch rate or as the future global budget.
 - both false (default): cheap no-op. No lease, no planning, no cursor, no
   tick row, no Follow Import behavior change.
 - SHADOW true, GLOBAL false: one process may acquire the global lease,
-  inspect work/load, build a shadow plan, write
+  inspect **operational** work/load, build a shadow plan, write
   `follow_import_dispatch_tick_observations`, and **claim nothing**.
-- GLOBAL true: the same tick may claim/enqueue scheduler-owned pending
-  targets through `FollowImport::DispatchExecutor`. Legacy-owned
-  batches are excluded from the plan.
+  Historical batches are omitted from discovery, fairness, and
+  `planning_*` counts. `global_pending_count` still reports the
+  all-pending universe.
+- GLOBAL true: the same tick may claim/enqueue operational
+  scheduler-owned pending targets through
+  `FollowImport::DispatchExecutor`. Legacy-owned batches and
+  historical batches are excluded from the plan.
 
 Legacy execution is still paced only by:
 
@@ -66,11 +72,17 @@ Legacy execution is still paced only by:
 ## Account-first shadow planning
 
 If the global dispatcher were authoritative, which currently-pending
-targets would receive this tick's scheduling share?
+**operational** targets would receive this tick's scheduling share?
+
+Historical pending exists because some pre-I2 import rows were recorded
+before controlled execution and never transitioned in this ledger era.
+Those rows are not a safe replay list and must not consume shadow
+fairness slots. Do not infer cohort from `imported_at`, target state,
+or the current GLOBAL/SHADOW flag.
 
 ```
 shadow_plan_budget
-    -> owner (account) rotating share
+    -> owner (account) rotating share (operational cohort only)
         -> batch rotating share inside that owner
             -> next pending target by position
 ```
@@ -93,7 +105,11 @@ runtime destination cap and does not call DFT / Stoplight.
 
 ## `planned_count` vs `claimed_count`
 
-Tick schema version **9**. Do not rewrite old rows.
+Tick schema version **10**. Do not rewrite old rows. Schema 9 and
+earlier treated `global_pending_count` / `active_batch_count` as the
+all-pending universe; schema 10 keeps that meaning and adds scoped
+cohort counts. `execution_config.backlog_scope_strategy` is
+`dispatch_cohort_v1`.
 
 | field | shadow | global |
 |---|---|---|
@@ -632,13 +648,16 @@ call `pg_terminate_backend`):
 ## Inspecting recent fairness telemetry
 
 ```sql
-SELECT observed_at, outcome, global_pending_count, planned_count,
+SELECT observed_at, outcome, global_pending_count, historical_pending_count,
+       operational_pending_count, planning_pending_count, planned_count,
        claimed_count, local_load_state, local_load_budget_percent,
        local_load_recommended_budget, effective_shadow_plan_budget,
        local_load_would_skip, local_load_measurement_complete,
        metadata -> 'local_load_reasons' AS local_load_reasons,
        load_snapshot,
-       execution_config ->> 'shadow_plan_budget' AS shadow_plan_budget
+       execution_config ->> 'shadow_plan_budget' AS shadow_plan_budget,
+       execution_config ->> 'backlog_scope_strategy' AS backlog_scope_strategy,
+       execution_config ->> 'schema_version' AS schema_version
   FROM follow_import_dispatch_tick_observations
  ORDER BY observed_at DESC
  LIMIT 100;
