@@ -19,8 +19,9 @@
 # Redis loss may reset fairness temporarily; routine eviction of active
 # fairness state must not.
 #
-# A durable DB dispatcher-state row is not added. Single-flight
-# correctness remains the PostgreSQL advisory lease.
+# Fairness cursor state stays in Redis. Single-flight correctness is
+# FollowImport::DispatchLease (durable PostgreSQL row + fencing
+# generation), not this cursor and not Sidekiq UniqueJobs.
 module FollowImport
   class FairnessCursor
     include Redisable

@@ -12,7 +12,8 @@
 # - lock: :until_executed — Sidekiq/Redis job deduplication only. It is
 #   NOT the correctness boundary for the global scheduler. Two jobs may
 #   start if Redis loses the unique lock; only one may hold
-#   FollowImport::DispatchLease (PostgreSQL session advisory lock).
+#   FollowImport::DispatchLease (durable PostgreSQL row + fencing
+#   generation; PgBouncer transaction-pooler safe).
 #
 # Cadence is FollowImport::ExecutionPolicy.dispatch_every
 # (same ENV/default as config/sidekiq.yml). Provisional / UNCALIBRATED.

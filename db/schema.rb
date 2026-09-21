@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_20_070000) do
+ActiveRecord::Schema.define(version: 2026_09_21_020000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -592,6 +592,14 @@ ActiveRecord::Schema.define(version: 2026_09_20_070000) do
     t.index ["follow_request_uri"], name: "index_follow_import_targets_on_follow_request_uri", unique: true, where: "(follow_request_uri IS NOT NULL)"
     t.index ["target_key_hash"], name: "index_follow_import_targets_on_target_key_hash", where: "(target_key_hash IS NOT NULL)"
     t.index ["target_subject_id"], name: "index_follow_import_targets_on_target_subject", where: "(target_subject_id IS NOT NULL)"
+  end
+
+  create_table "follow_import_dispatch_leases", force: :cascade do |t|
+    t.string "owner_token"
+    t.bigint "fencing_generation", default: 0, null: false
+    t.datetime "expires_at"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
   end
 
   create_table "follow_import_dispatch_observations", force: :cascade do |t|

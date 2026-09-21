@@ -35,10 +35,15 @@ measured p95.
   CSV into many batches must not multiply throughput.
 - The portable core depends on a neutral **owner / fairness key**, not on
   `ModerationSubject`.
-- Concurrent scheduler ticks are **single-flight**. The DB **session**
-  advisory lease is the correctness boundary (checked-out connection,
-  explicit unlock). Target row locks are necessary but not sufficient
-  for a global budget. Claim budget is not a strict HTTP-attempt cap.
+- Concurrent scheduler ticks are **single-flight**. The correctness
+  boundary is a **durable PostgreSQL lease row** plus a fencing
+  generation (`FollowImport::DispatchLease`). Session advisory locks
+  are not used: they leak under PgBouncer transaction pooling. Target
+  row locks are necessary but not sufficient for a global budget.
+  Authoritative `pending -> queued` is ordered against lease
+  takeover by locking that singleton row in the same short
+  transaction as the claim. Claim budget is not a strict HTTP-attempt
+  cap.
 - The **database target set** remains the source of truth. Sidekiq is a
   transport, not business state. Redis is not a second budget ledger.
 - Claim-then-enqueue stays **idempotent and row-locked**.
@@ -370,65 +375,75 @@ Row-locking a target prevents **that target** from being dispatched
 twice. It does **not** enforce a global budget. Two overlapping ticks
 that each compute `budget = 50` can claim 100 different rows.
 
-**Preferred architecture (simplest, existing Mastodon convention + one
-DB lock):**
+**Architecture:**
 
 1. **Sidekiq unique job** on the scheduler:
    `sidekiq_options retry: 0, lock: :until_executed`
    (same pattern as `Scheduler::AccountsStatusesCleanupScheduler`).
    This prevents a pile-up of overlapping *jobs* while one tick runs.
-2. **PostgreSQL session advisory lock** around plan+claim+enqueue
-   (`pg_try_advisory_lock` / `pg_advisory_lock` with a dedicated
-   Follow Import dispatch key). This is the **correctness boundary**
-   for the global budget. Sidekiq `lock: :until_executed` only
-   deduplicates jobs; it is not enough if Redis loses the unique lock.
+   It is **job deduplication only**. Redis can lose that lock.
+2. **Durable PostgreSQL lease row** (`follow_import_dispatch_leases`,
+   singleton id=1) plus a monotonic **fencing generation**. This is the
+   **correctness boundary** for the global budget. Acquisition is
+   serialized by a **short** `pg_try_advisory_xact_lock(17993, 1)`
+   transaction that is compatible with PgBouncer transaction pooling
+   (the pooler pins a server backend for an explicit transaction).
+   The scheduler body then runs on ordinary connections. Session-level
+   `pg_try_advisory_lock` / `pg_advisory_unlock` / `pg_backend_pid()`
+   identity across autocommit statements must not be used: one
+   ActiveRecord/PgBouncer client connection is not one PostgreSQL
+   server session.
 3. **No Redis remaining-budget counter.** There is no "owed" work
-   accumulated across ticks. A tick either holds the lease and admits
-   up to *this* tick's budget, or it does nothing.
+   accumulated across ticks. A tick either holds the durable lease and
+   admits up to *this* tick's budget, or it does nothing.
 
-**Session-lock semantics (implementation requirement):**
+**Durable-row / fencing semantics:**
 
-`pg_advisory_lock` / `pg_try_advisory_lock` are **session-level**. They
-survive `COMMIT` and `ROLLBACK`. They are released only by:
-
-- explicit `pg_advisory_unlock` on the **same PostgreSQL session**, or
-- session disconnect / crash.
-
-They are **not** released on commit/rollback. Therefore the
-implementation must:
-
-- check out **one** ActiveRecord connection for the lease lifetime
-- acquire the advisory lock on **that exact connection**
-- keep that connection checked out through plan / claim / enqueue
-- explicitly `pg_advisory_unlock` on that same connection in `ensure`
-- **not** return a still-locked connection to the pool
-- **not** wrap the whole dispatch/enqueue tick in a long DB transaction
-  that uses `pg_try_advisory_xact_lock` (enqueue and Sidekiq must not
-  sit inside an open transaction spanning the tick)
-
-Per-target claim transactions may still `COMMIT` independently on that
-same checked-out connection (or on short-lived others for row work,
-provided the lease connection stays checked out and locked). The lease
-connection is held for serialization, not to make the tick one ACID
-unit.
+- Ownership is `(owner_token, fencing_generation)` on the singleton
+  row. `expires_at` is compared with PostgreSQL `clock_timestamp()`,
+  not the application host clock.
+- The liveness window is the existing dispatcher cadence
+  (`ExecutionPolicy.dispatch_interval`, default 60s). It is a crash-
+  recovery bound, not a new pacing number and not the admission
+  budget. The durable row may expire while snapshot / planning /
+  telemetry code is still running. That is not an authoritative
+  claim. Do not treat the lease TTL as covering the whole tick body.
+- Release/steal uses a conditional `UPDATE` so a non-owner cannot
+  clear a newer generation.
+- Authoritative GLOBAL `pending -> queued` runs inside a **short**
+  transaction that `SELECT … FOR UPDATE`s the singleton lease row and
+  checks token + generation + DB-clock expiry, then applies
+  `mark_queued` in that same transaction. CSV / work resolution stays
+  outside. Enqueue happens after the claim commits. An older
+  generation therefore cannot queue a target after a newer owner has
+  taken the row: steal and claim both lock the same singleton row, so
+  they are ordered. Already-enqueued claims are not rolled back if a
+  later fencing check fails (same as the existing enqueue-failure
+  stop path).
+- Do **not** wrap plan/claim/enqueue in one long DB transaction
+  merely to keep an xact advisory lock alive. Per-target fenced claim
+  transactions commit independently of enqueue.
+- Fail closed (`lease_busy`) if the singleton row is missing, the
+  short xact lock cannot be taken, or acquisition raises. The
+  executor requires a lease handle; a nil handle cannot claim.
 
 #### Process crash while holding the lease
 
 The Sidekiq unique lock expires with `until_executed` (process gone).
-The session advisory lock is released only because the **backend
-disconnects**. The next tick starts clean: new load snapshot, new
-budget. No catch-up.
+The durable row stays owned until `expires_at`. Later ticks observe
+`lease_busy` until that bound passes, then a new fencing generation
+is installed. No manual cleanup. No catch-up budget.
 
 Target `SELECT … FOR UPDATE` (or the existing row-locked transition)
 remains **necessary** so a legacy worker and a scheduler, or a lock
 failure, cannot double-send the same follow. It is not sufficient for
-pacing.
+the global budget.
 
 #### Overlapping Sidekiq ticks
 
 If UniqueJobs / Redis is healthy, the second enqueue is deduplicated or
 waits until `until_executed` releases. If a second process nevertheless
-starts, `pg_try_advisory_lock` fails → that process records a skipped
+starts, durable-row acquisition fails → that process records a skipped
 tick (`lease_busy`) and exits without claiming. Budget is not added.
 
 #### Scheduler retry
@@ -441,30 +456,32 @@ budget.
 
 #### Redis restart
 
-Unique job locks disappear. Two ticks might be enqueued. The advisory
-lock still serializes claiming. Fairness cursors stored only in Redis
+Unique job locks disappear. Two ticks might be enqueued. The durable
+lease still serializes claiming. Fairness cursors stored only in Redis
 are lost → rebuild from a stable DB order (`owner_key`, `batch_id`) at
 conservative initial deficits (zero). **Not** "we missed 10 ticks, claim
 10× budget".
 
 #### DB restart
 
-Advisory locks are gone. In-flight tick dies with the connection.
-Uncommitted claims roll back. Committed claims stay. Next tick takes a
-new lease and a new (non-multiplied) budget.
+The durable row survives PostgreSQL restart. An in-flight tick dies
+with the connection. Uncommitted claims roll back. Committed claims
+stay. If the dead owner had not released, later ticks wait until
+`expires_at`, then steal with a new fencing generation. Next admitted
+tick uses a new (non-multiplied) budget.
 
 #### Why a restart cannot cause a catch-up burst
 
 There is no backlog of unused budgets. Idleness only leaves `pending`
 rows. Admission is always `min(computed_budget_for_this_snapshot,
-available_pending_after_limiters)`. After an hour down, the first tick
-looks like any other tick under current load.
+available_pending_after_limiters)`. After an hour down, the first
+admitted tick looks like any other tick under current load.
 
 ### 5.3 Tick algorithm (normative)
 
 Each scheduler tick, in order:
 
-1. Try the advisory lease. If not acquired → observe `lease_busy`, exit.
+1. Try the durable dispatcher lease. If not acquired → observe `lease_busy`, exit.
 2. **Snapshot local load** (`FollowImport::LoadSnapshot`) **before** any
    claim. If the snapshot fails, use last-good or conservative baseline
    budget (§4.9) — never "unlimited".
@@ -477,17 +494,19 @@ Each scheduler tick, in order:
    caches/aggregates only. No raw telemetry table scan.
 7. `plan = DispatchPlan.build(budget, owners → batches, admission,
    cursors)` — account-first, then batch, then diverse targets.
-8. For each planned target: claim via
+8. For each planned target: resolve CSV/work outside the lease
+   transaction; then in a short transaction lock the singleton lease
+   row, verify the current fencing generation, and claim via
    `TargetTransitionService#mark_queued`; enqueue `RelationshipWorker`
-   with today's options. On enqueue failure, release the claim and stop
-   the tick. Increment `claimed_count` only after a successful enqueue.
+   after that claim commits. On enqueue failure, release the claim and
+   stop the tick. Increment `claimed_count` only after a successful
+   enqueue. A stolen generation must not mark the target queued.
 9. Persist fairness cursors (last `owner_key` / per-owner batch cursor /
    deficits). Reconstructable from DB if missing.
 10. Write one **tick-level** dispatch observation. Do not skip telemetry
     because the tick claimed nothing.
-11. In `ensure`, `pg_advisory_unlock` on the **same checked-out
-    connection**, then return that connection to the pool only after
-    unlock. A raised tick must still unlock.
+11. In `ensure`, release the durable lease only if the caller still
+    owns the same token/generation. A raised tick must still release.
 
 Do not enqueue `BatchExecutionWorker` from this path.
 
@@ -1154,9 +1173,9 @@ Architectural behaviour only. No numeric thresholds.
 | **Slow but healthy destination** | No Reject-based slowdown. Request-duration is **not** a v1 admission input (calibration later). First-contact cap still limits burst. Do not treat slowness as death. |
 | **429 + Retry-After** | Transport records it. Runtime cache/aggregate sets `retry_after_until` on `endpoint_origin` (and mapped domain if the map is fresh). Dispatcher skips that origin until then (honour capped). DeliveryWorker retries remain. |
 | **Sidekiq overload** | `LocalLoadGuard` zeros or shrinks the tick. In-flight jobs drain. No catch-up burst when load falls. |
-| **Concurrent scheduler ticks** | Unique job + advisory lock. Loser observes `lease_busy` and claims 0. Target locks still prevent double-send. |
-| **Redis loss** | Unique locks and Redis cursors vanish. Advisory lock + DB claims remain. Next tick: conservative fairness rebuild, current budget, no 10× catch-up. |
-| **Scheduler process restart** | Lease released. Next interval starts a normal tick. Partial work is already claimed+enqueued or rolled back. |
+| **Concurrent scheduler ticks** | Unique job + durable lease row. Loser observes `lease_busy` and claims 0. Target locks still prevent double-send. |
+| **Redis loss** | Unique locks and Redis cursors vanish. Durable lease + DB claims remain. Next tick: conservative fairness rebuild, current budget, no 10× catch-up. |
+| **Scheduler process restart** | Unique job expires. Durable row remains until `expires_at`, then a new fencing generation is installed. Next admitted tick is a normal tick. Partial work is already claimed+enqueued or rolled back. |
 
 ---
 
@@ -1335,7 +1354,7 @@ is this documentation PR. Numeric calibration is last, not first.
 
 | PR | Scope | Must not |
 |---|---|---|
-| **A** | Global scheduler skeleton; single-flight (unique job + **session** advisory lock on a checked-out connection, unlock in `ensure`); shadow planning only; tick observations. Implementation notes: `docs/follow_import_dispatch_shadow.md`. `DispatchPlan` in A is a read-only summary (no target selection). | Claim; change `ImportService` fallback; `xact` lock around the whole tick |
+| **A** | Global scheduler skeleton; single-flight (unique job + durable PostgreSQL lease row / fencing generation; short `pg_try_advisory_xact_lock` only to serialize acquire). Session advisory locks are not used. Shadow planning only; tick observations. Implementation notes: `docs/follow_import_dispatch_shadow.md`. `DispatchPlan` in A is a read-only summary (no target selection). | Claim; change `ImportService` fallback; wrap the whole tick in one xact lock; treat Sidekiq UniqueJobs as the sole correctness boundary |
 | **B** | Account-first rotating RR (unit-cost DRR) + batch sub-scheduling in the **plan**; `owner_key` adapter; destination-share structure (optional cap in specs only). Shadow cursor in Redis (TTL; reconstructable; prune inactive, keep all currently-active owner/batch pointers). Lazy target feeds; pending `(batch_id, position, id)` index. Implementation: `docs/follow_import_dispatch_shadow.md`. | Claim; remote adaptive logic; ACCOUNT_FLOOR/CAP numbers |
 | **C** | Authoritative global claiming for **new** imports; `dispatch_owner`; legacy/global ownership + drain; **remove unpaced recording fallback** when GLOBAL is on | Flip in-flight legacy owners implicitly; enable Follow Gate |
 | **D** | `LocalLoadGuard` in the **global shadow scheduler** only: consume the pre-dispatch `LoadSnapshot`, evaluate a configured uncalibrated profile, shrink the hypothetical shadow plan, record state/percent/recommended budget. `BatchExecutionWorker` is unchanged (a shadow skip must not stop the legacy chain). Implementation: `docs/follow_import_dispatch_shadow.md`. | Enforce skip; invent production thresholds; change legacy claim rate |

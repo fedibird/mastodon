@@ -7,7 +7,7 @@ Default: **off**.
 
 This is Stage 1–6 (shadow half) from `docs/follow_import_dispatch_pacing_design.md`.
 
-One periodic tick, one PostgreSQL session advisory lease, one budget,
+One periodic tick, one durable PostgreSQL dispatcher lease, one budget,
 one plan:
 
 | GLOBAL | SHADOW | Mode |
@@ -144,7 +144,8 @@ days): last owner, per-owner last batch, per-batch last position.
   active state must not.
 - No catch-up credits. Plan budget is unchanged.
 - Write failure is non-fatal (`fairness_state_source=persist_failed`).
-- Single-flight correctness remains the PostgreSQL advisory lease.
+- Single-flight correctness remains `FollowImport::DispatchLease`
+  (durable row + fencing generation). This cursor is not a lock.
 
 `fairness_state_source`: `redis` / `default` / `reset` / `persist_failed`.
 
@@ -545,13 +546,88 @@ catch-up budget.
 
 ## Why Sidekiq unique lock is not sufficient
 
-`retry: 0, lock: :until_executed` is job dedup only. The PostgreSQL
-session advisory lease is the correctness boundary.
+`retry: 0, lock: :until_executed` is job dedup only. Redis can lose
+that lock. The durable PostgreSQL lease row plus fencing generation
+is the correctness boundary for one global admission budget. Target
+row locks still prevent double-send of one follow; they do not
+enforce that budget.
 
-## Why the lease uses the thread ActiveRecord connection
+Transaction pooling (PgBouncer, `PREPARED_STATEMENTS=false`) is a
+supported deployment topology. Session-level PostgreSQL features
+(`pg_try_advisory_lock`, `pg_advisory_unlock`, assuming
+`pg_backend_pid()` is stable across autocommit statements, disconnect
+as unlock) must not be used as cross-transaction dispatcher state.
 
-`pool.with_connection` so the tick consumes one DB session for the lock
-and for counts/planning/telemetry. Unlock in `ensure` on that session.
+## Why the lease is a durable row, not a checked-out session
+
+A short `pg_try_advisory_xact_lock` transaction serializes
+acquire/steal. PgBouncer pins a server backend only for that
+explicit transaction. Snapshot, plan, and telemetry then use
+ordinary connections and may still be running after `expires_at`.
+That is not an authoritative claim. Ownership is
+`(owner_token, fencing_generation)` with `expires_at` compared to
+PostgreSQL `clock_timestamp()`. The TTL is
+`ExecutionPolicy.dispatch_interval` (crash-recovery bound, not a new
+pacing number). GLOBAL `pending -> queued` is fenced: a short
+transaction locks the singleton lease row, verifies the current
+generation, and applies `mark_queued` in that same transaction.
+Enqueue happens after that claim commits. Stale generations cannot
+perform authoritative claims.
+
+Seeing advisory key `(classid=17993, objid=1, objsubid=2)` only
+during the short acquire transaction is expected. Seeing it stranded
+on an idle backend between ticks is not.
+
+`objsubid = 2` is the PostgreSQL two-integer locktag form for both
+session-level and transaction-level advisory locks on `(17993, 1)`.
+`objsubid = 1` is the single-bigint representation, not “session vs
+xact”. The verification query below is the relevant one.
+
+GLOBAL must remain off until production shadow verification confirms
+the new mechanism: ticks succeed at approximately the configured
+cadence, `lease_busy` is genuine overlap rather than a leaked
+session lock, and this query returns **zero rows** between ticks:
+
+```sql
+SELECT
+  l.pid,
+  l.mode,
+  l.granted,
+  l.classid,
+  l.objid,
+  l.objsubid,
+  a.state,
+  a.state_change,
+  left(a.query, 200) AS query
+FROM pg_locks l
+LEFT JOIN pg_stat_activity a ON a.pid = l.pid
+WHERE l.locktype = 'advisory'
+  AND l.classid = 17993
+  AND l.objid = 1
+  AND l.objsubid = 2;
+```
+
+### Cutover: clear #135 stranded session locks before enabling #137
+
+The new xact lock reuses `(classid=17993, objid=1, objsubid=2)`. A
+#135-era **session** advisory lock granted on that same key conflicts
+with `pg_try_advisory_xact_lock`, so a leftover holder makes every
+#137 tick `lease_busy`.
+
+Pre-deploy / cutover (operator action; application code must not
+call `pg_terminate_backend`):
+
+1. Keep `FOLLOW_IMPORT_DISPATCH_GLOBAL` off. Temporarily stop
+   SHADOW / scheduler acquisition (disable the scheduler or set
+   `FOLLOW_IMPORT_DISPATCH_SHADOW=false` and restart Sidekiq
+   scheduler processes).
+2. Identify granted advisory holders with the query above.
+3. Recycle or terminate those legacy PostgreSQL **server** backends
+   (the PgBouncer client disconnect is not enough).
+4. Re-run the query and confirm **zero** granted rows.
+5. Deploy / restart #137 processes, then re-enable SHADOW only.
+6. Confirm `execution_config.lease_strategy = durable_row_v1` and
+   that `lease_busy` is only genuine overlap.
 
 ## Inspecting recent fairness telemetry
 

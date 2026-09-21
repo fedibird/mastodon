@@ -3,176 +3,178 @@
 # Single-flight lease for the global Follow Import dispatcher.
 #
 # Sidekiq `lock: :until_executed` only deduplicates jobs. Redis can lose that
-# lock. The correctness boundary for "only one tick may hold the global
-# scheduler critical section" is this PostgreSQL SESSION advisory lock.
+# lock. Target row locks prevent duplicate work for one target but do not
+# enforce one global admission budget.
 #
-# pg_try_advisory_lock / pg_advisory_unlock are session-level: they survive
-# COMMIT and ROLLBACK and are released only by unlock on the same session or
-# by disconnect. They are also REENTRANT on the same session: calling
-# pg_try_advisory_lock again while already holding the same key returns true and
-# increments the hold count. That matters for pooled connections: if a previous
-# execution leaks one hold, a later tick on that same session must not treat the
-# reentrant true as a fresh exclusive acquisition and then unlock only once.
+# The correctness boundary is a durable singleton PostgreSQL row plus a
+# monotonic fencing generation. Acquisition/release serialization uses a
+# short `pg_try_advisory_xact_lock` transaction, which is compatible with
+# PgBouncer transaction pooling because the pooler pins a server backend for
+# an explicit transaction. The scheduler body then runs on ordinary
+# connections. Session-level advisory locks are never used: they leak across
+# autocommit statements when the client is a transaction pooler.
 #
-# Therefore this class:
-#
-# - uses the thread-cached ActiveRecord connection (pool.with_connection)
-#   so the tick's normal queries reuse the leased session
-# - detects and clears a pre-existing hold of THIS lease key on the current
-#   session before attempting a fresh acquisition
-# - acquires and releases the lock on that exact connection
-# - never uses pg_try_advisory_xact_lock / a tick-spanning transaction
-# - never derives the lock key from Ruby String#hash (process-randomized)
-#
-# A tick therefore consumes ONE DB connection, not a dedicated lease
-# connection plus a second one for ActiveRecord work. That matters under
-# Fedibird's default Sidekiq concurrency 5 / DB pool 5: a manual
-# pool.checkout that is not installed in the thread cache can take the
-# last pool slot and then block while the global advisory lock is held.
-#
-# A pre-existing hold on the current session is always stale for this class:
-# DispatchScheduler never nests DispatchLease on the same thread/session. The
-# stale hold is drained for this exact advisory key, then the tick performs a
-# fresh pg_try_advisory_lock. If stale recovery or normal unlock cannot be
-# confirmed, the connection is disconnected and removed from the pool so a
-# still-locked session is never reused for unrelated application work.
+# Crash recovery is the row's `expires_at`, compared with PostgreSQL
+# `clock_timestamp()`. The liveness window is the existing dispatcher
+# cadence (`ExecutionPolicy.dispatch_interval`), not a new pacing budget.
+# The durable row may expire while snapshot/planning/telemetry still
+# run; that is not a claim. Authoritative `pending -> queued` runs
+# inside a short transaction that locks this singleton row and checks
+# token + generation + DB-clock expiry, so a stolen/expired generation
+# cannot mark a target queued. Already-enqueued claims are not rolled
+# back.
 module FollowImport
   class DispatchLease
+    STRATEGY = 'durable_row_v1'
+
     # Stable two-integer identity: ASCII 'FI' (0x4649) + object 1.
-    # Documented constants — not Digest, not String#hash.
+    # Used only as a short transaction-scoped serialization primitive.
     LOCK_NAMESPACE = 0x4649
     LOCK_KEY       = 1
 
-    # PostgreSQL represents two-int advisory locks in pg_locks with objsubid = 2.
-    CURRENT_SESSION_LOCK_SQL = <<~SQL.squish
-      SELECT EXISTS (
-        SELECT 1
-        FROM pg_locks
-        WHERE locktype = 'advisory'
-          AND classid = #{LOCK_NAMESPACE}
-          AND objid = #{LOCK_KEY}
-          AND objsubid = 2
-          AND granted
-          AND pid = pg_backend_pid()
-      )
-    SQL
-
-    TRY_LOCK_SQL = "SELECT pg_try_advisory_lock(#{LOCK_NAMESPACE}, #{LOCK_KEY})"
-    UNLOCK_SQL   = "SELECT pg_advisory_unlock(#{LOCK_NAMESPACE}, #{LOCK_KEY})"
-
-    # Defensive bound only. A healthy execution has depth 0 before acquire and
-    # depth 1 while held. Reaching this many stale holds means session state is
-    # corrupt enough that disconnecting is safer than continuing to unwind.
-    MAX_STALE_LOCK_DEPTH = 32
+    TRY_XACT_LOCK_SQL = "SELECT pg_try_advisory_xact_lock(#{LOCK_NAMESPACE}, #{LOCK_KEY})"
 
     BUSY = :busy
+
+    Handle = Struct.new(:owner_token, :fencing_generation, :strategy, keyword_init: true) do
+      def current_owner?
+        FollowImport::DispatchLease.owned?(self)
+      end
+    end
 
     def self.with_lease(&block)
       new.with_lease(&block)
     end
 
-    # Yields only when a FRESH session lease is acquired.
-    #
-    # If the current pooled session already owns this lock before acquisition,
-    # recover that stale ownership first. If another PostgreSQL session owns the
-    # lock, pg_try_advisory_lock returns false and this method returns BUSY.
-    #
-    # When the lease is acquired, returns the block result. Always unlocks (or
-    # isolates) in ensure, before the session is reusable.
+    def self.owned?(handle)
+      new.owned?(handle)
+    end
+
+    def self.with_claim_fence(handle, &block)
+      new.with_claim_fence(handle, &block)
+    end
+
+    # Yields a Handle only when a fresh durable lease is acquired.
+    # Returns BUSY when another unexpired owner exists, when acquisition
+    # cannot be serialized, or when setup fails. Fail closed: never yield
+    # unleased.
     def with_lease
-      pool = ActiveRecord::Base.connection_pool
+      handle = nil
+      handle = acquire
+      return BUSY if handle.nil?
 
-      pool.with_connection do |connection|
-        acquired = false
-        begin
-          return BUSY unless recover_stale_current_session_lease!(pool, connection)
+      yield handle
+    ensure
+      release(handle) if handle
+    end
 
-          acquired = try_lock?(connection)
-          return BUSY unless acquired
+    def owned?(handle)
+      return false if handle.nil? || handle.owner_token.blank?
 
-          yield
-        ensure
-          release_lease(pool, connection, acquired)
-        end
+      FollowImportDispatchLease
+        .where(
+          id: FollowImportDispatchLease::SINGLETON_ID,
+          owner_token: handle.owner_token,
+          fencing_generation: handle.fencing_generation
+        )
+        .where('expires_at > clock_timestamp()')
+        .exists?
+    end
+
+    # Short mutation fence: lock the singleton row, verify this handle
+    # still owns it, then run the block in the same transaction.
+    # Acquire/steal also lock this row, so takeover and pending->queued
+    # are ordered. Returns false without yielding when ownership is lost.
+    # The block must stay cheap (row-locked claim only), not CSV parse.
+    def with_claim_fence(handle)
+      return false if handle.nil? || handle.owner_token.blank?
+
+      applied = false
+      ApplicationRecord.transaction do
+        row = FollowImportDispatchLease.lock.find_by(id: FollowImportDispatchLease::SINGLETON_ID)
+        raise ActiveRecord::Rollback unless current_row?(row, handle)
+
+        yield
+        applied = true
       end
+      applied
     end
 
     private
 
-    def try_lock?(connection)
-      boolean_result(connection.select_value(TRY_LOCK_SQL))
-    end
+    def acquire
+      handle = nil
 
-    def current_session_holds_lock?(connection)
-      boolean_result(connection.select_value(CURRENT_SESSION_LOCK_SQL))
-    end
+      ApplicationRecord.transaction do
+        raise ActiveRecord::Rollback unless try_xact_lock?
 
-    def unlock_once?(connection)
-      boolean_result(connection.select_value(UNLOCK_SQL))
-    end
+        row = FollowImportDispatchLease.lock.find_by(id: FollowImportDispatchLease::SINGLETON_ID)
+        raise ActiveRecord::Rollback if row.nil?
 
-    # A current-session hold before our fresh acquire is stale by invariant.
-    # Drain only THIS advisory key; never call pg_advisory_unlock_all().
-    #
-    # Returns true when the session is verified clear and can be reused for a
-    # fresh acquisition. On any uncertainty, isolates/removes the connection and
-    # returns false so the current tick does not enter the critical section.
-    def recover_stale_current_session_lease!(pool, connection)
-      return true unless current_session_holds_lock?(connection)
+        now = database_time
+        raise ActiveRecord::Rollback if row.held_at?(now)
 
-      Rails.logger.error('[FollowImport::DispatchLease] current DB session already owned dispatcher advisory lock before acquisition; recovering stale lease')
-
-      released = 0
-
-      while current_session_holds_lock?(connection)
-        if released >= MAX_STALE_LOCK_DEPTH
-          Rails.logger.error("[FollowImport::DispatchLease] stale advisory lock depth exceeded #{MAX_STALE_LOCK_DEPTH}; isolating connection")
-          isolate_and_remove!(pool, connection)
-          return false
-        end
-
-        unless unlock_once?(connection)
-          Rails.logger.error('[FollowImport::DispatchLease] stale advisory unlock could not be confirmed; isolating connection')
-          isolate_and_remove!(pool, connection)
-          return false
-        end
-
-        released += 1
+        token = SecureRandom.uuid
+        generation = row.fencing_generation.to_i + 1
+        row.update!(
+          owner_token: token,
+          fencing_generation: generation,
+          expires_at: now + ttl
+        )
+        handle = Handle.new(owner_token: token, fencing_generation: generation, strategy: STRATEGY)
       end
 
-      Rails.logger.warn("[FollowImport::DispatchLease] recovered #{released} stale advisory lock hold(s) on current DB session")
-      true
+      handle
+    rescue ActiveRecord::Rollback
+      nil
     rescue StandardError => e
-      Rails.logger.error("[FollowImport::DispatchLease] stale advisory lock recovery failed: #{e.class}: #{e.message}")
-      isolate_and_remove!(pool, connection)
-      false
+      Rails.logger.error("[FollowImport::DispatchLease] acquisition failed: #{e.class}: #{e.message}")
+      nil
     end
 
-    def release_lease(pool, connection, acquired)
-      return unless acquired
-      return if unlock_once?(connection)
-
-      Rails.logger.error('[FollowImport::DispatchLease] advisory unlock not confirmed after dispatcher tick; isolating connection')
-      isolate_and_remove!(pool, connection)
+    def release(handle)
+      FollowImportDispatchLease.where(
+        id: FollowImportDispatchLease::SINGLETON_ID,
+        owner_token: handle.owner_token,
+        fencing_generation: handle.fencing_generation
+      ).update_all(
+        owner_token: nil,
+        expires_at: nil,
+        updated_at: Time.now.utc
+      )
     rescue StandardError => e
-      Rails.logger.error("[FollowImport::DispatchLease] advisory unlock failed after dispatcher tick: #{e.class}: #{e.message}")
-      isolate_and_remove!(pool, connection)
+      Rails.logger.error("[FollowImport::DispatchLease] release failed: #{e.class}: #{e.message}")
     end
 
-    def isolate_and_remove!(pool, connection)
-      isolate_locked_connection!(connection)
-      pool.remove(connection) if pool.respond_to?(:remove)
+    def current_row?(row, handle)
+      return false if row.nil?
+      return false unless row.owner_token == handle.owner_token
+      return false unless row.fencing_generation.to_i == handle.fencing_generation.to_i
+
+      now = database_time
+      now.present? && row.held_at?(now)
     end
 
-    def isolate_locked_connection!(connection)
-      Rails.logger.error('[FollowImport::DispatchLease] disconnecting advisory-lock connection so it is not returned to the pool')
-      connection.disconnect!
-    rescue StandardError => e
-      Rails.logger.error("[FollowImport::DispatchLease] failed to disconnect advisory-lock connection: #{e.class}: #{e.message}")
+    def try_xact_lock?
+      boolean_result(connection.select_value(TRY_XACT_LOCK_SQL))
+    end
+
+    def database_time
+      value = connection.select_value('SELECT clock_timestamp()')
+      time = value.is_a?(Time) ? value : Time.zone.parse(value.to_s)
+      time&.utc
+    end
+
+    def ttl
+      FollowImport::ExecutionPolicy.dispatch_interval
     end
 
     def boolean_result(value)
       ActiveModel::Type::Boolean.new.cast(value) == true
+    end
+
+    def connection
+      ApplicationRecord.connection
     end
   end
 end

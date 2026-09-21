@@ -11,6 +11,12 @@
 # ImportUnitResolver is cached per batch_id so one CSV is not reparsed
 # for every target from the same batch in this tick.
 #
+# pending -> queued is fenced: a short transaction locks the dispatcher
+# lease row, verifies token + generation + DB-clock expiry, and applies
+# mark_queued in that same transaction. CSV resolution stays outside.
+# Enqueue happens after that claim commits. If a newer generation stole
+# the lease, this generation cannot queue the target.
+#
 # On enqueue failure: release that target's queued claim, stop admitting
 # further targets, keep already-enqueued claims, leave the rest pending.
 # The scheduler job is retry: 0; the next periodic tick has a fresh budget.
@@ -30,8 +36,9 @@ module FollowImport
       end
     end
 
-    def initialize(now: Time.now.utc)
+    def initialize(lease:, now: Time.now.utc)
       @now = now
+      @lease = lease
       @resolvers = {}
       @transitions = FollowImport::TargetTransitionService.new
     end
@@ -62,6 +69,11 @@ module FollowImport
     private
 
     def claim_entry(entry, result)
+      unless lease_owned?
+        lost_ownership!(result)
+        return
+      end
+
       target = nil
       batch = FollowImportBatch.find_by(id: entry.batch_id)
       unless batch&.scheduler_dispatch_owner?
@@ -82,8 +94,12 @@ module FollowImport
         return
       end
 
-      @transitions.mark_queued(target, at: @now)
-      unless target.saved_change_to_state? && target.state_queued?
+      outcome = fenced_mark_queued(target)
+      if outcome == :lost_ownership
+        lost_ownership!(result)
+        return
+      end
+      if outcome == :stale
         result.skipped_stale_count += 1
         return
       end
@@ -95,6 +111,30 @@ module FollowImport
       release_failed_claim(target)
       result.error_class = e.class.name
       result.stopped = true
+    end
+
+    def lease_owned?
+      !@lease.nil? && @lease.current_owner?
+    end
+
+    def fenced_mark_queued(target)
+      outcome = :lost_ownership
+      fenced = FollowImport::DispatchLease.with_claim_fence(@lease) do
+        @transitions.mark_queued(target, at: @now)
+        outcome = if target.saved_change_to_state? && target.state_queued?
+                    :queued
+                  else
+                    :stale
+                  end
+      end
+      return :lost_ownership unless fenced
+
+      outcome
+    end
+
+    def lost_ownership!(result)
+      result.stopped = true
+      result.error_class ||= 'FollowImport::DispatchLease::LostOwnership'
     end
 
     def work_for(batch, target)
