@@ -7,9 +7,9 @@ RSpec.describe CustomFilter, type: :model do # rubocop:disable Metrics/BlockLeng
     described_class.apply_cached_filters(described_class.cached_filters_for(account.id), status)
   end
 
-  def keyword_filter_for(account, keyword)
+  def keyword_filter_for(account, keyword, whole_word: true)
     filter = Fabricate(:custom_filter, account: account, phrase: keyword, context: %w(home notifications public thread account))
-    Fabricate(:custom_filter_keyword, custom_filter: filter, keyword: keyword)
+    Fabricate(:custom_filter_keyword, custom_filter: filter, keyword: keyword, whole_word: whole_word)
     filter
   end
 
@@ -117,6 +117,55 @@ RSpec.describe CustomFilter, type: :model do # rubocop:disable Metrics/BlockLeng
 
     expect(results.length).to eq 1
     expect(results.first.keyword_matches).to include('example.com')
+  end
+
+  # A percent-encoded URL does not read like the link a user sees, so filterable
+  # material carries the human-readable form of every canonical URL as well.
+  it 'matches a CJK filter keyword against a percent-encoded URL path' do
+    keyword_filter_for(viewer, '東京')
+    status = Fabricate(:status, account: author, text: 'look https://example.com/%E6%9D%B1%E4%BA%AC/page')
+
+    results = apply_filters(viewer, status)
+
+    expect(status.searchable_text).not_to include('example.com')
+    expect(results.length).to eq 1
+    expect(results.first.keyword_matches).to include('東京')
+  end
+
+  it 'matches a CJK filter keyword against a percent-encoded query value' do
+    keyword_filter_for(viewer, '東京')
+    status = Fabricate(:status, account: author, text: 'look https://example.com/search?q=%E6%9D%B1%E4%BA%AC')
+
+    results = apply_filters(viewer, status)
+
+    expect(results.length).to eq 1
+  end
+
+  it 'still matches a filter keyword written in the canonical percent-encoded form' do
+    keyword_filter_for(viewer, '%E6%9D%B1%E4%BA%AC')
+    status = Fabricate(:status, account: author, text: 'look https://example.com/%E6%9D%B1%E4%BA%AC/page')
+
+    results = apply_filters(viewer, status)
+
+    expect(results.length).to eq 1
+    expect(results.first.keyword_matches).to include('%E6%9D%B1%E4%BA%AC')
+  end
+
+  it 'does not match a percent-encoded keyword against ordinary body text' do
+    keyword_filter_for(viewer, '%E6%9D%B1%E4%BA%AC')
+    status = Fabricate(:status, account: author, text: '東京の話')
+
+    expect(apply_filters(viewer, status)).to be_empty
+  end
+
+  it 'leaves ordinary CJK body matching unchanged' do
+    keyword_filter_for(viewer, '東京', whole_word: false)
+    status = Fabricate(:status, account: author, text: '東京の話')
+
+    results = apply_filters(viewer, status)
+
+    expect(results.length).to eq 1
+    expect(results.first.keyword_matches).to include('東京')
   end
 
   it 'matches a referenced URL on a reblog of the referencing status' do

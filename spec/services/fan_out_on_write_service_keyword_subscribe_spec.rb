@@ -72,6 +72,23 @@ RSpec.describe FanOutOnWriteService, 'keyword subscribe delivery' do # rubocop:d
     expect(pushes_for(status)).not_to include home_push(status)
   end
 
+  # URL material carries the canonical percent-encoded URL and the human-readable
+  # form the link shows, so a subscription written the way the link reads is
+  # delivered too.
+  it 'delivers to a home subscriber matched by the readable form of a percent-encoded URL' do
+    subscribe('東京', match_urls: true)
+    status = status_with('look https://example.com/%E6%9D%B1%E4%BA%AC/page')
+
+    expect(pushes_for(status)).to include home_push(status)
+  end
+
+  it 'does not deliver the readable form of a percent-encoded URL when match_urls is off' do
+    subscribe('東京')
+    status = status_with('look https://example.com/%E6%9D%B1%E4%BA%AC/page')
+
+    expect(pushes_for(status)).not_to include home_push(status)
+  end
+
   it 'inserts a URL-matched status into the home feed' do
     subscribe('pathword', match_urls: true)
     status = status_with('look https://example.com/pathword')

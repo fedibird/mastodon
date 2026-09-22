@@ -153,6 +153,95 @@ RSpec.describe Status, '#filterable_text', type: :model do # rubocop:disable Met
     expect(status.filterable_text).to include('Alpha')
   end
 
+  # A URL is stored and matched in its canonical percent-encoded form, which does
+  # not read like the link a user sees. Every canonical URL therefore carries its
+  # display form as an additional filterable representation.
+  describe 'human-readable URL variants' do
+    it 'adds the display form of a percent-encoded body URL after the canonical one' do
+      status = Fabricate(:status, account: local_account, text: 'look https://example.com/%E6%9D%B1%E4%BA%AC/page')
+
+      expect(status.filterable_urls).to eq [
+        'https://example.com/%E6%9D%B1%E4%BA%AC/page',
+        'https://example.com/東京/page',
+      ]
+    end
+
+    it 'adds the display form of a percent-encoded query value' do
+      status = Fabricate(:status, account: local_account, text: 'look https://example.com/search?q=%E6%9D%B1%E4%BA%AC')
+
+      expect(status.filterable_urls).to eq [
+        'https://example.com/search?q=%E6%9D%B1%E4%BA%AC',
+        'https://example.com/search?q=東京',
+      ]
+    end
+
+    it 'adds no variant for an ASCII URL whose display form is identical' do
+      status = Fabricate(:status, account: local_account, text: 'look https://example.com/article?page=2')
+
+      expect(status.filterable_urls).to eq ['https://example.com/article?page=2']
+    end
+
+    it 'keeps only the canonical form when decoding would produce invalid UTF-8' do
+      status = Fabricate(:status, account: local_account, text: 'look https://example.com/%FF/page')
+
+      expect(status.filterable_urls).to eq ['https://example.com/%FF/page']
+    end
+
+    it 'keeps only the canonical form when decoding would produce a control character' do
+      status = Fabricate(:status, account: local_account, text: 'look https://example.com/%00/page')
+
+      expect(status.filterable_urls).to eq ['https://example.com/%00/page']
+      expect(status.filterable_urls.join).not_to include KeywordSubscribe::MatchingText::SEPARATOR
+    end
+
+    it 'exposes both representations through filterable_text' do
+      status = Fabricate(:status, account: local_account, text: 'look https://example.com/%E6%9D%B1%E4%BA%AC/page')
+
+      expect(status.filterable_text).to include 'https://example.com/%E6%9D%B1%E4%BA%AC/page'
+      expect(status.filterable_text).to include 'https://example.com/東京/page'
+    end
+  end
+
+  describe 'human-readable URL variants of referenced statuses' do
+    it 'adds display forms for a referenced status canonical URL and ActivityPub URI' do
+      remote = Fabricate(:account, domain: 'example.social', username: 'bob', url: 'https://example.social/@bob')
+      referenced = Fabricate(
+        :status,
+        account: remote,
+        text: 'remote original',
+        uri: 'https://example.social/users/%E6%9D%B1%E4%BA%AC/statuses/123',
+        url: 'https://example.social/@%E6%9D%B1%E4%BA%AC/123'
+      )
+      referencing = Fabricate(:status, account: local_account, text: "see #{referenced.url}")
+      Fabricate(:status_reference, status: referencing, target_status: referenced)
+
+      expect(referencing.filterable_urls).to eq [
+        'https://example.social/@%E6%9D%B1%E4%BA%AC/123',
+        'https://example.social/@東京/123',
+        'https://example.social/users/%E6%9D%B1%E4%BA%AC/statuses/123',
+        'https://example.social/users/東京/statuses/123',
+      ]
+    end
+
+    it 'does not let a display variant change which reference a URL resolves to' do
+      remote = Fabricate(:account, domain: 'example.social', username: 'bob', url: 'https://example.social/@bob')
+      referenced = Fabricate(
+        :status,
+        account: remote,
+        text: 'remote original',
+        uri: 'https://example.social/users/bob/statuses/%E6%9D%B1%E4%BA%AC',
+        url: 'https://example.social/@bob/%E6%9D%B1%E4%BA%AC'
+      )
+      referencing = Fabricate(:status, account: local_account, text: "see #{referenced.url}")
+      Fabricate(:status_reference, status: referencing, target_status: referenced)
+
+      expect(referencing.references).to eq [referenced]
+      expect(referencing.urls).to eq [referenced.url]
+      expect(referencing.filterable_urls.first).to eq referenced.url
+      expect(referencing.filterable_urls).to include referenced.uri
+    end
+  end
+
   it 'does not query status_references when they are already loaded' do
     referenced = Fabricate(:status, account: local_account, text: 'original')
     referencing = Fabricate(:status, account: local_account, text: 'see this')

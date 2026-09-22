@@ -445,10 +445,16 @@ class Status < ApplicationRecord
   def filterable_urls
     index = filterable_reference_index
 
-    (
+    canonical_urls = (
       urls.flat_map { |source_url| expand_filterable_source_url(source_url, index) } +
       references.flat_map { |reference| expanded_urls_for_reference(reference) }
     ).compact.uniq
+
+    # Keep canonical URL forms and add the same human-readable representation
+    # Formatter uses for link text, so a filter or a keyword written the way the
+    # link reads matches a percent-encoded URL too. The display form never
+    # replaces the canonical one and is never used as an identity.
+    canonical_urls.flat_map { |url| [url, Formatter.instance.display_url(url)] }.uniq
   end
 
   def searchable_text_without_urls

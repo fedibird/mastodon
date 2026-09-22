@@ -190,7 +190,10 @@ RSpec.describe KeywordSubscribe, '#match? with a status' do # rubocop:disable Me
 
     it 'leaves the written URL in Status#searchable_text' do
       expect(status.searchable_text).to include 'https://example.com/東京/page'
-      expect(status.filterable_urls).to eq ['https://example.com/%E6%9D%B1%E4%BA%AC/page']
+      expect(status.filterable_urls).to eq [
+        'https://example.com/%E6%9D%B1%E4%BA%AC/page',
+        'https://example.com/東京/page',
+      ]
     end
 
     it 'hides the written URL from a raw regexp while match_urls is off' do
@@ -204,18 +207,69 @@ RSpec.describe KeywordSubscribe, '#match? with a status' do # rubocop:disable Me
       expect(subscribe('https://example.com/東京/page').match?(status)).to be false
     end
 
-    it 'adds only the normalized URL material with match_urls on' do
+    it 'adds only normalized URL material with match_urls on' do
       expect(subscribe('example.com', match_urls: true).match?(status)).to be true
       expect(subscribe('%E6%9D%B1%E4%BA%AC', match_urls: true).match?(status)).to be true
       expect(subscribe('example\.com/%E6%9D%B1%E4%BA%AC', regexp: true, match_urls: true).match?(status)).to be true
     end
+  end
 
-    # The percent-encoded form is all the matcher receives, so a Japanese keyword
-    # still does not reach a Japanese URL path. A follow-up will add a decoded
-    # matching representation; this pins today's behavior.
-    it 'does not match a Japanese keyword against a percent-encoded path' do
-      expect(subscribe('東京', match_urls: true).match?(status)).to be false
-      expect(subscribe('東京', regexp: true, match_urls: true).match?(status)).to be false
+  # Status#filterable_urls reports the canonical percent-encoded URL and the
+  # human-readable form Formatter shows as link text, so a keyword written the way
+  # the link reads reaches URL material too. The option still decides whether any
+  # URL material is presented at all.
+  describe 'human-readable URL material' do
+    let(:status) { status_with('look https://example.com/%E6%9D%B1%E4%BA%AC/page') }
+
+    it 'matches a Japanese keyword against a percent-encoded path with match_urls on' do
+      expect(subscribe('東京', match_urls: true).match?(status)).to be true
+      expect(subscribe('東京都', match_urls: true).match?(status)).to be false
+    end
+
+    it 'matches a raw regexp written the way the link reads' do
+      expect(subscribe('東京', regexp: true, match_urls: true).match?(status)).to be true
+      expect(subscribe('example\.com/東京/page', regexp: true, match_urls: true).match?(status)).to be true
+    end
+
+    it 'keeps matching the canonical percent-encoded form' do
+      expect(subscribe('%E6%9D%B1%E4%BA%AC', match_urls: true).match?(status)).to be true
+      expect(subscribe('%E6%9D%B1%E4%BA%AC', regexp: true, match_urls: true).match?(status)).to be true
+    end
+
+    it 'presents no URL material at all with match_urls off' do
+      expect(subscribe('東京', match_urls: false).match?(status)).to be false
+      expect(subscribe('東京', regexp: true, match_urls: false).match?(status)).to be false
+      expect(subscribe('%E6%9D%B1%E4%BA%AC', match_urls: false).match?(status)).to be false
+      expect(subscribe('example.com', match_urls: false).match?(status)).to be false
+    end
+
+    it 'excludes on the human-readable form through the same prepared string' do
+      expect(subscribe('look', exclude_keyword: '東京', match_urls: true).match?(status)).to be false
+      expect(subscribe('look', exclude_keyword: '東京').match?(status)).to be true
+    end
+
+    it 'matches a decoded fragment as URL material rather than as a hashtag' do
+      fragment = status_with('see https://example.com/page#%E6%9D%B1%E4%BA%AC now')
+
+      expect(fragment.tags).to be_empty
+      expect(subscribe('#東京', match_urls: true).match?(fragment)).to be true
+      expect(subscribe('#東京', match_hashtags: true).match?(fragment)).to be false
+    end
+
+    it 'keeps the body boundaries of a Japanese keyword whichever way match_urls is set' do
+      body = status_with('まとめ/東京の話')
+
+      expect(subscribe('東京', match_urls: false).match?(body)).to be false
+      expect(subscribe('東京', match_urls: true).match?(body)).to be false
+    end
+
+    # A decoded control character would be able to forge a segment separator or a
+    # segment marker, so such a URL contributes its canonical form only.
+    it 'refuses a decoded variant that would carry a segment control character' do
+      encoded = status_with('look https://example.com/%00%01%02/page')
+
+      expect(encoded.filterable_urls).to eq ['https://example.com/%00%01%02/page']
+      expect(subscribe('%00%01%02', match_urls: true).match?(encoded)).to be true
     end
   end
 
