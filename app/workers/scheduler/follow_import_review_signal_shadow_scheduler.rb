@@ -27,7 +27,7 @@ class Scheduler::FollowImportReviewSignalShadowScheduler
     FollowImportBatch
       .operational_cohort
       .where('imported_at >= ?', WINDOW.ago)
-      .where("(metadata ->> :key) IS NULL", key: FollowImportBatch::REVIEW_SIGNAL_SHADOW_V1_KEY)
+      .where('(metadata ->> :key) IS NULL', key: FollowImportBatch::REVIEW_SIGNAL_SHADOW_V1_KEY)
       .order(:imported_at, :id)
   end
 end

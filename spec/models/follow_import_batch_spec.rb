@@ -106,7 +106,7 @@ RSpec.describe FollowImportBatch do # rubocop:disable Metrics/BlockLength
     expect { create_batch(preflight_state: :safe) }.to raise_error(ArgumentError)
   end
 
-  describe 'metadata merges' do
+  describe 'metadata merges' do # rubocop:disable Metrics/BlockLength
     let(:at) { Time.utc(2026, 9, 21, 3, 0, 0) }
 
     def fresh_copies

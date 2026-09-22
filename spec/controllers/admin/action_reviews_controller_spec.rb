@@ -137,7 +137,7 @@ RSpec.describe Admin::ActionReviewsController, type: :controller do # rubocop:di
     end
   end
 
-  describe 'GET #show' do
+  describe 'GET #show' do # rubocop:disable Metrics/BlockLength
     before { sign_in admin, scope: :user }
 
     it 'displays the audit snapshot with escaped evidence and local times' do

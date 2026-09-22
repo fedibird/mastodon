@@ -112,10 +112,11 @@ RSpec.describe FollowImport::ReviewSignalClassifier do # rubocop:disable Metrics
   end
 
   it 'does not let same-subject overlap raise the level' do
-    result = classify(nil, {
+    context = {
       'same_subject_matching_snapshot_count' => 4,
       'same_subject_best_match' => overlap_match(overlap: 500, stored: 500, reported: 500),
-    })
+    }
+    result = classify(nil, context)
 
     expect(result['signal_level']).to eq 'none'
     expect(result['reason_codes']).to eq [described_class::REASON_NO_MATCH]
