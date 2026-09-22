@@ -13,8 +13,10 @@
 #
 # This service writes nothing: no ModerationSubject creation, no evidence
 # snapshot, no moderation action, and no follow-gate enforcement. Follow
-# Import unresolved ratios and campaign recurrence observations are
-# reported as observational context only.
+# Import unresolved ratios, campaign recurrence observations, and the
+# Follow Reject timing / actor / domain decomposition are reported as
+# observational context only. That decomposition is not passed to
+# evaluation or the follow gate.
 #
 # Absence of observed negatives is not treated as evidence of absence.
 # Output is structured metadata (ids, types, counts, timestamps, rates,
@@ -23,13 +25,16 @@ module Moderation
   class SubjectDiagnosticsService
     CONTACT_WINDOWS = %w(1h 24h 7d).freeze
 
-    def initialize(metrics_service: BehavioralMetricsService.new, evaluator: nil, gate: nil, negative_signal_query: NegativeSignalQuery.new, recurrence_observer: FollowImportRecurrenceObservationService.new)
+    # rubocop:disable Metrics/ParameterLists
+    def initialize(metrics_service: BehavioralMetricsService.new, evaluator: nil, gate: nil, negative_signal_query: NegativeSignalQuery.new, recurrence_observer: FollowImportRecurrenceObservationService.new, follow_reject_observer: FollowRejectObservationService.new)
       @metrics_service = metrics_service
       @evaluator = evaluator
       @gate = gate
       @negative_signal_query = negative_signal_query
       @recurrence_observer = recurrence_observer
+      @follow_reject_observer = follow_reject_observer
     end
+    # rubocop:enable Metrics/ParameterLists
 
     # +context+ is the optional follow-attempt context forwarded unchanged to
     # AdaptiveFollowGateDecisionService (mechanism / target_locality /
@@ -66,6 +71,7 @@ module Moderation
             'qualification_rate' => qualification_rate,
             'link_rate' => link_rate
           ),
+          'follow_reject_observation' => @follow_reject_observer.call(subject_or_account, now: now),
         },
         'continuation' => {
           'first_qualified_negative_at' => window_24h['first_negative_signal_at'],
