@@ -62,12 +62,12 @@ class FeedManager
   # @param [Account] account
   # @param [Status] status
   # @return [Boolean]
-  def push_to_home(account, status)
+  def push_to_home(account, status, update: false)
     return false unless account.user&.signed_in_recently?
     return false unless add_to_feed(:home, account.id, status, account.user&.aggregates_reblogs?)
 
     trim(:home, account.id)
-    PushUpdateWorker.perform_async(account.id, status.id, "timeline:#{account.id}") if push_update_required?("timeline:#{account.id}")
+    publish_push_update(account.id, status.id, "timeline:#{account.id}", update) if push_update_required?("timeline:#{account.id}")
     true
   end
 
@@ -77,6 +77,7 @@ class FeedManager
   # @return [Boolean]
   def unpush_from_home(account, status, **options)
     return false unless remove_from_feed(:home, account.id, status, account.user&.aggregates_reblogs?)
+    return true if options[:update]
 
     redis.publish("timeline:#{account.id}", Oj.dump(event: options[:mark_expired] ? :expire : :delete, payload: status.id.to_s))
     true
@@ -86,13 +87,13 @@ class FeedManager
   # @param [List] list
   # @param [Status] status
   # @return [Boolean]
-  def push_to_list(list, status)
+  def push_to_list(list, status, update: false)
     return false if filter_from_list?(status, list, build_crutches(list.account_id, [status], list))
     return false unless list.account.user&.signed_in_recently?
     return false unless add_to_feed(:list, list.id, status, list.account.user&.aggregates_reblogs?)
 
     trim(:list, list.id)
-    PushUpdateWorker.perform_async(list.account_id, status.id, "timeline:list:#{list.id}") if push_update_required?("timeline:list:#{list.id}")
+    publish_push_update(list.account_id, status.id, "timeline:list:#{list.id}", update) if push_update_required?("timeline:list:#{list.id}")
     true
   end
 
@@ -102,6 +103,7 @@ class FeedManager
   # @return [Boolean]
   def unpush_from_list(list, status, **options)
     return false unless remove_from_feed(:list, list.id, status, list.account.user&.aggregates_reblogs?)
+    return true if options[:update]
 
     redis.publish("timeline:list:#{list.id}", Oj.dump(event: options[:mark_expired] ? :expire : :delete, payload: status.id.to_s))
     true
@@ -354,6 +356,14 @@ class FeedManager
       # another reblog, but also that any new reblog can be inserted into the
       # feed.
       redis.del(key(type, timeline_id, "reblogs:#{reblogged_id}"))
+    end
+  end
+
+  def publish_push_update(account_id, status_id, timeline_id, update)
+    if update
+      PushUpdateWorker.perform_async(account_id, status_id, timeline_id, { 'update' => true })
+    else
+      PushUpdateWorker.perform_async(account_id, status_id, timeline_id)
     end
   end
 

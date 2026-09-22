@@ -4,13 +4,14 @@ class PushUpdateWorker
   include Sidekiq::Worker
   include Redisable
 
-  def perform(account_id, status_id, timeline_id = nil)
+  def perform(account_id, status_id, timeline_id = nil, options = {})
     account     = Account.find(account_id)
     status      = Status.find(status_id)
     message     = InlineRenderer.render(status, account, :status)
     timeline_id = "timeline:#{account.id}" if timeline_id.nil?
+    update      = options.symbolize_keys[:update]
 
-    redis.publish(timeline_id, Oj.dump(event: :update, payload: message, queued_at: (Time.now.to_f * 1000.0).to_i))
+    redis.publish(timeline_id, Oj.dump(event: update ? :'status.update' : :update, payload: message, queued_at: (Time.now.to_f * 1000.0).to_i))
   rescue ActiveRecord::RecordNotFound
     true
   end

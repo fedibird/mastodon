@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_22_060000) do
+ActiveRecord::Schema.define(version: 2026_09_22_153000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1337,6 +1337,21 @@ ActiveRecord::Schema.define(version: 2026_09_22_060000) do
     t.index ["status_id"], name: "index_status_capability_tokens_on_status_id"
   end
 
+  create_table "status_edits", force: :cascade do |t|
+    t.bigint "status_id", null: false
+    t.bigint "account_id"
+    t.text "text", default: "", null: false
+    t.text "spoiler_text", default: "", null: false
+    t.bigint "ordered_media_attachment_ids", array: true
+    t.text "media_descriptions", array: true
+    t.string "poll_options", array: true
+    t.boolean "sensitive"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["account_id"], name: "index_status_edits_on_account_id"
+    t.index ["status_id"], name: "index_status_edits_on_status_id"
+  end
+
   create_table "status_expires", force: :cascade do |t|
     t.bigint "status_id", null: false
     t.datetime "expires_at", null: false
@@ -1402,6 +1417,7 @@ ActiveRecord::Schema.define(version: 2026_09_22_060000) do
     t.integer "searchability"
     t.bigint "generator_id"
     t.bigint "ordered_media_attachment_ids", array: true
+    t.datetime "edited_at"
     t.index ["account_id", "id", "visibility", "updated_at"], name: "index_statuses_20210710", order: { id: :desc }, where: "((deleted_at IS NULL) AND (expired_at IS NULL))"
     t.index ["account_id", "id"], name: "index_statuses_private_searchable", order: { id: :desc }, where: "((deleted_at IS NULL) AND (expired_at IS NULL) AND (reblog_of_id IS NULL) AND (searchability = ANY (ARRAY[0, 1, 2])))"
     t.index ["id", "account_id"], name: "index_statuses_local_20190824", order: { id: :desc }, where: "((local OR (uri IS NULL)) AND (deleted_at IS NULL) AND (visibility = 0) AND (reblog_of_id IS NULL) AND ((NOT reply) OR (in_reply_to_account_id = account_id)))"
@@ -1715,6 +1731,8 @@ ActiveRecord::Schema.define(version: 2026_09_22_060000) do
   add_foreign_key "session_activations", "oauth_access_tokens", column: "access_token_id", name: "fk_957e5bda89", on_delete: :cascade
   add_foreign_key "session_activations", "users", name: "fk_e5fda67334", on_delete: :cascade
   add_foreign_key "status_capability_tokens", "statuses", on_delete: :cascade
+  add_foreign_key "status_edits", "accounts", on_delete: :nullify
+  add_foreign_key "status_edits", "statuses", on_delete: :cascade
   add_foreign_key "status_expires", "statuses", on_delete: :cascade
   add_foreign_key "status_pins", "accounts", name: "fk_d4cb435b62", on_delete: :cascade
   add_foreign_key "status_pins", "statuses", on_delete: :cascade

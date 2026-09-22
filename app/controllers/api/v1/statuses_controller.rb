@@ -3,8 +3,8 @@
 class Api::V1::StatusesController < Api::BaseController
   include Authorization
 
-  before_action -> { authorize_if_got_token! :read, :'read:statuses' }, except: [:create, :destroy, :expire]
-  before_action -> { doorkeeper_authorize! :write, :'write:statuses' }, only:   [:create, :destroy, :expire]
+  before_action -> { authorize_if_got_token! :read, :'read:statuses' }, except: [:create, :update, :destroy, :expire]
+  before_action -> { doorkeeper_authorize! :write, :'write:statuses' }, only:   [:create, :update, :destroy, :expire]
   before_action :require_user!, except:      [:index, :show, :context, :updated]
   before_action :set_statuses, only:         [:index]
   before_action :set_updated_statuses, only: [:updated]
@@ -15,6 +15,7 @@ class Api::V1::StatusesController < Api::BaseController
   before_action :set_expire, only:           [:create]
 
   override_rate_limit_headers :create, family: :statuses
+  override_rate_limit_headers :update, family: :statuses
 
   # This API was originally unlimited, pagination cannot be introduced without
   # breaking backwards-compatibility. Arbitrarily high number to cover most
@@ -86,6 +87,17 @@ class Api::V1::StatusesController < Api::BaseController
                                          
 
     render json: @status, serializer: @status.is_a?(ScheduledStatus) ? REST::ScheduledStatusSerializer : REST::StatusSerializer
+  end
+
+  def update
+    raise Mastodon::NotPermittedError if current_user.setting_disable_post
+
+    @status = Status.where(account: current_account).find(params[:id])
+    authorize @status, :update?
+
+    @status = UpdateStatusService.new.call(@status, current_account.id, edit_options)
+
+    render json: @status, serializer: REST::StatusSerializer
   end
 
   def destroy
@@ -213,9 +225,30 @@ class Api::V1::StatusesController < Api::BaseController
         :expires_in,
         options: [],
       ],
+      media_attributes: [
+        :id,
+        :thumbnail,
+        :description,
+        :focus,
+      ],
       status_reference_ids: [],
       status_reference_urls: []
     )
+  end
+
+  # Only fields Mastodon 4.2 allows a status edit to change. Visibility,
+  # reply, quote, references, circle, searchability, and expiry stay out
+  # of this hash even when a client sends them.
+  def edit_options
+    options = {}
+    options[:text] = status_params[:status] if params.key?(:status)
+    options[:spoiler_text] = status_params[:spoiler_text] if params.key?(:spoiler_text)
+    options[:sensitive] = status_params[:sensitive] if params.key?(:sensitive)
+    options[:language] = status_params[:language] if params.key?(:language)
+    options[:media_ids] = status_params[:media_ids] if params.key?(:media_ids)
+    options[:media_attributes] = status_params[:media_attributes] if params.key?(:media_attributes)
+    options[:poll] = status_params[:poll] if params.key?(:poll)
+    options
   end
 
   def pagination_params(core_params)

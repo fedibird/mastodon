@@ -8,6 +8,7 @@
 #  text                         :text             default(""), not null
 #  created_at                   :datetime         not null
 #  updated_at                   :datetime         not null
+#  edited_at                    :datetime
 #  in_reply_to_id               :bigint(8)
 #  reblog_of_id                 :bigint(8)
 #  url                          :string
@@ -41,6 +42,7 @@ class Status < ApplicationRecord
   include StatusThreadingConcern
   include RateLimitable
   include Redisable
+  include StatusSnapshotConcern
 
   extend OrderAsSpecified
 

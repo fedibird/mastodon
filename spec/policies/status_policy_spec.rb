@@ -3,7 +3,7 @@
 require 'rails_helper'
 require 'pundit/rspec'
 
-RSpec.describe StatusPolicy, type: :model do
+RSpec.describe StatusPolicy, type: :model do # rubocop:disable Metrics/BlockLength
   subject { described_class }
 
   let(:admin) { Fabricate(:user, admin: true) }
@@ -156,13 +156,27 @@ RSpec.describe StatusPolicy, type: :model do
     end
   end
 
-  permissions :index?, :update? do
+  permissions :index?, :moderate? do
     it 'grants access if staff' do
       expect(subject).to permit(admin.account)
     end
 
     it 'denies access unless staff' do
       expect(subject).to_not permit(alice)
+    end
+  end
+
+  permissions :update? do
+    it 'grants access to the owning account' do
+      expect(subject).to permit(alice, status)
+    end
+
+    it 'denies access to staff who do not own the status' do
+      expect(subject).to_not permit(admin.account, status)
+    end
+
+    it 'denies access to another account' do
+      expect(subject).to_not permit(bob, status)
     end
   end
 end

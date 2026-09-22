@@ -420,7 +420,7 @@ Rails.application.routes.draw do
         get :updated
       end
 
-      resources :statuses, only: [:index, :create, :show, :destroy] do
+      resources :statuses, only: [:index, :create, :show, :update, :destroy] do
         scope module: :statuses do
           resources :reblogged_by, controller: :reblogged_by_accounts, only: :index
           resources :favourited_by, controller: :favourited_by_accounts, only: :index

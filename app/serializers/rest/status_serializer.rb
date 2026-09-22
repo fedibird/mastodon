@@ -3,7 +3,7 @@
 class REST::StatusSerializer < ActiveModel::Serializer
   include Redisable
 
-  attributes :id, :created_at, :updated_at, :in_reply_to_id, :in_reply_to_account_id,
+  attributes :id, :created_at, :edited_at, :updated_at, :in_reply_to_id, :in_reply_to_account_id,
              :sensitive, :spoiler_text, :visibility, :language,
              :uri, :url, :replies_count, :reblogs_count,
              :favourites_count, :emoji_reactions, :emoji_reactions_count,

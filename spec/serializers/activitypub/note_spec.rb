@@ -41,4 +41,16 @@ describe ActivityPub::NoteSerializer do
   it 'does not include replies with direct visibility in its replies collection' do
     expect(subject['replies']['first']['items']).to_not include(reply5.uri)
   end
+
+  it 'omits updated until the status has been edited' do
+    expect(subject).not_to have_key('updated')
+  end
+
+  it 'serializes updated from edited_at' do
+    parent.update!(edited_at: Time.utc(2026, 9, 22, 3, 4, 5))
+    serialization = ActiveModelSerializers::SerializableResource.new(parent, serializer: ActivityPub::NoteSerializer, adapter: ActivityPub::Adapter)
+    json = JSON.parse(serialization.to_json)
+
+    expect(json['updated']).to eq parent.edited_at.iso8601
+  end
 end

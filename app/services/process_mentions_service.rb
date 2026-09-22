@@ -8,10 +8,14 @@ class ProcessMentionsService < BaseService
   # remote users
   # @param [Status] status
   # @param [Circle] circle
-  def call(status, circle = nil)
+  # @param [Boolean] edit Reuse explicit mentions and silence removed ones.
+  #   Circle and limited audiences are not rebuilt during an edit.
+  def call(status, circle = nil, edit: false)
     return unless status.local?
 
-    @status  = status
+    @status = status
+    return process_edit! if edit
+
     mentions = []
 
     status.text = status.text.gsub(Account::MENTION_RE) do |match|
@@ -86,6 +90,62 @@ class ProcessMentionsService < BaseService
         source_record: mention
       )
     end
+  end
+
+  # Explicit mentions already stored are reused. Mentions dropped from the
+  # text become silent instead of being deleted, and circle or limited
+  # silent audiences are left in place. Moderation and notifications run
+  # only for mention rows created by this edit.
+  def process_edit!
+    existing = @status.mentions.includes(:account).to_a
+    current  = []
+    introduced = []
+
+    @status.text = @status.text.to_s.gsub(Account::MENTION_RE) do |match|
+      username, domain = Regexp.last_match(1).split('@')
+
+      domain = if TagManager.instance.local_domain?(domain)
+                 nil
+               else
+                 TagManager.instance.normalize_domain(domain)
+               end
+
+      mentioned_account = Account.find_remote(username, domain)
+
+      if mention_undeliverable?(mentioned_account)
+        begin
+          mentioned_account = resolve_account_service.call(Regexp.last_match(1))
+        rescue Webfinger::Error, HTTP::Error, OpenSSL::SSL::SSLError, Mastodon::UnexpectedResponseError
+          mentioned_account = nil
+        end
+      end
+
+      next match if mention_undeliverable?(mentioned_account) || mentioned_account&.suspended?
+
+      mention = current.find { |item| item.account_id == mentioned_account.id }
+      mention ||= existing.find { |item| item.account_id == mentioned_account.id }
+      mention ||= mentioned_account.mentions.new(status: @status)
+      mention.silent = false
+      current << mention unless current.include?(mention)
+
+      "@#{mentioned_account.acct}"
+    end
+
+    current.each do |mention|
+      if mention.new_record?
+        introduced << mention if mention.save
+      elsif mention.changed?
+        mention.save!
+      end
+    end
+
+    removed = existing.select { |mention| !mention.silent? && !current.include?(mention) }
+    Mention.where(id: removed.map(&:id)).update_all(silent: true) if removed.any?
+
+    @status.save!
+
+    record_moderation_mentions!(introduced)
+    introduced.each { |mention| create_notification(mention) }
   end
 
   def mention_undeliverable?(mentioned_account)
