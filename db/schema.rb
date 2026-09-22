@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_22_040000) do
+ActiveRecord::Schema.define(version: 2026_09_22_060000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -874,6 +874,8 @@ ActiveRecord::Schema.define(version: 2026_09_22_040000) do
     t.string "exclude_keyword", default: "", null: false
     t.bigint "list_id"
     t.boolean "media_only", default: false, null: false
+    t.boolean "match_hashtags", default: false, null: false
+    t.boolean "match_urls", default: false, null: false
     t.index ["account_id"], name: "index_keyword_subscribes_on_account_id"
     t.index ["list_id"], name: "index_keyword_subscribes_on_list_id"
   end

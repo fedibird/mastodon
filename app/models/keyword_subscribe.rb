@@ -15,6 +15,8 @@
 #  exclude_keyword :string           default(""), not null
 #  list_id         :bigint(8)
 #  media_only      :boolean          default(FALSE), not null
+#  match_hashtags  :boolean          default(FALSE), not null
+#  match_urls      :boolean          default(FALSE), not null
 #
 
 class KeywordSubscribe < ApplicationRecord
@@ -43,8 +45,17 @@ class KeywordSubscribe < ApplicationRecord
     super(regexp ? val : keyword_normalization(val))
   end
 
-  def match?(text)
-    keyword_regexp.match?(text) && (exclude_keyword.empty? || !exclude_keyword_regexp.match?(text))
+  # Accepts a Status, a prepared KeywordSubscribe::MatchingText, or a plain
+  # String. A String is treated as the body, which keeps every legacy caller
+  # working. The positive keyword and exclude_keyword are evaluated against the
+  # very same prepared string, in both generated and raw regexp mode.
+  def match?(target)
+    text = matching_text_for(target)
+
+    return false if keyword.blank? || !keyword_regexp.match?(text)
+    return true if exclude_keyword.blank?
+
+    !exclude_keyword_regexp.match?(text)
   end
 
   def keyword_regexp
@@ -56,27 +67,58 @@ class KeywordSubscribe < ApplicationRecord
   end
 
   class << self
-    def match?(text, account_id: account_id = nil, as_ignore_block: as_ignore_block = false, list_id: nil)
-      target = KeywordSubscribe.active.where(list_id: list_id)
-      target = target.where(account_id: account_id) if account_id.present?
-      target = target.ignore_block                  if as_ignore_block
-      !target.find{ |t| t.match?(text) }.nil?
+    def match?(target, account_id: nil, as_ignore_block: false, list_id: nil)
+      text = KeywordSubscribe::MatchingText.wrap(target)
+
+      scope = KeywordSubscribe.active.where(list_id: list_id)
+      scope = scope.where(account_id: account_id) if account_id.present?
+      scope = scope.ignore_block                  if as_ignore_block
+      !scope.find { |t| t.match?(text) }.nil?
     end
   end
 
   private
 
+  # The prepared string depends only on the status and on this subscription's two
+  # options, so many subscriptions can share one KeywordSubscribe::MatchingText
+  # and each combination is prepared at most once per status.
+  def matching_text_for(target)
+    KeywordSubscribe::MatchingText.wrap(target).text_for(match_hashtags: match_hashtags?, match_urls: match_urls?)
+  end
+
+  # Cached per keyword list, case option, and matching options, so one status
+  # compared against many subscriptions does not rebuild the same pattern, and a
+  # changed attribute cannot be served from the cache.
+  def pattern_for(keywords)
+    @patterns ||= {}
+    @patterns[[keywords, ignorecase, match_hashtags?, match_urls?]] ||= pattern_builder.call(keywords)
+  end
+
+  # An option adds a branch for the segments it introduces into the prepared
+  # string. The body branch stays the legacy pattern either way, so no option
+  # changes how ordinary body text is matched.
+  def pattern_builder
+    KeywordSubscribe::PatternBuilder.new(
+      ignorecase: ignorecase,
+      match_hashtags: match_hashtags?,
+      match_urls: match_urls?
+    )
+  end
+
+  def split_keywords(words)
+    words.to_s.split(',')
+  end
+
   def keyword_normalization(val)
     val.to_s.strip.gsub(/\s{2,}/, ' ').split(/\s*,\s*/).reject(&:blank?).uniq.join(',')
   end
 
+  # A raw regexp keeps its source byte for byte. Only the string it is matched
+  # against is prepared by the two options.
   def to_regexp(words)
-    Regexp.new(regexp ? words : "(?<![#])(#{words.split(',').map do |k|
-      sb = case k when /\A[A-Za-z0-9]/ then '(?<![A-Za-z0-9])' when /\A[\/\.]/ then '' else '(?<![\/\.])' end
-      eb = case k when /[A-Za-z0-9]\z/ then '(?![A-Za-z0-9])'  when /[\/\.]\z/ then '' else '(?![\/\.])'  end
+    return Regexp.new(words, ignorecase, timeout: KeywordSubscribe::PatternBuilder::MATCH_TIMEOUT) if regexp
 
-      /(?m#{ignorecase ? 'i': ''}x:#{sb}#{Regexp.quote(k).gsub("\\ ", "[[:space:]]+")}#{eb})/
-    end.join('|')})", ignorecase, timeout: 2.0)
+    pattern_for(split_keywords(words))
   end
 
   def validate_keyword_regexp_syntax

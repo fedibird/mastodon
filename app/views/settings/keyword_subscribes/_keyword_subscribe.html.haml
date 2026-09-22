@@ -21,6 +21,16 @@
   %td.nowrap.symbol
     - if keyword_subscribe.media_only
       = fa_icon('check')
+  %td.nowrap.symbol
+    - if keyword_subscribe.match_hashtags
+      %span.positive-hint= fa_icon('check')
+    - else
+      %span.negative-hint= fa_icon('times')
+  %td.nowrap.symbol
+    - if keyword_subscribe.match_urls
+      %span.positive-hint= fa_icon('check')
+    - else
+      %span.negative-hint= fa_icon('times')
   %td.nowrap
     - if keyword_subscribe.list_id
       = fa_icon 'list-ul'
