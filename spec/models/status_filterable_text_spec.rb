@@ -194,6 +194,15 @@ RSpec.describe Status, '#filterable_text', type: :model do # rubocop:disable Met
       expect(status.filterable_urls.join).not_to include KeywordSubscribe::MatchingText::SEPARATOR
     end
 
+    it 'exposes both representations through filterable_text' do
+      status = Fabricate(:status, account: local_account, text: 'look https://example.com/%E6%9D%B1%E4%BA%AC/page')
+
+      expect(status.filterable_text).to include 'https://example.com/%E6%9D%B1%E4%BA%AC/page'
+      expect(status.filterable_text).to include 'https://example.com/東京/page'
+    end
+  end
+
+  describe 'human-readable URL variants of referenced statuses' do
     it 'adds display forms for a referenced status canonical URL and ActivityPub URI' do
       remote = Fabricate(:account, domain: 'example.social', username: 'bob', url: 'https://example.social/@bob')
       referenced = Fabricate(
@@ -230,13 +239,6 @@ RSpec.describe Status, '#filterable_text', type: :model do # rubocop:disable Met
       expect(referencing.urls).to eq [referenced.url]
       expect(referencing.filterable_urls.first).to eq referenced.url
       expect(referencing.filterable_urls).to include referenced.uri
-    end
-
-    it 'exposes both representations through filterable_text' do
-      status = Fabricate(:status, account: local_account, text: 'look https://example.com/%E6%9D%B1%E4%BA%AC/page')
-
-      expect(status.filterable_text).to include 'https://example.com/%E6%9D%B1%E4%BA%AC/page'
-      expect(status.filterable_text).to include 'https://example.com/東京/page'
     end
   end
 

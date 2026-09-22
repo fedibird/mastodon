@@ -5,7 +5,7 @@ require 'rails_helper'
 # The display representation of a URL: what link text shows, and what filters and
 # keyword subscriptions match against besides the canonical percent-encoded form.
 # It is never URL identity, so href and every other canonical form stay encoded.
-RSpec.describe Formatter, '#display_url' do
+RSpec.describe Formatter, '#display_url' do # rubocop:disable Metrics/BlockLength
   subject(:formatter) { described_class.instance }
 
   describe 'decoding' do
@@ -28,7 +28,6 @@ RSpec.describe Formatter, '#display_url' do
     it 'decodes a percent-encoded emoji' do
       expect(formatter.display_url('https://example.com/%F0%9F%98%80')).to eq 'https://example.com/😀'
     end
-
 
     it 'decodes reserved punctuation, which is display material rather than URL structure' do
       expect(formatter.display_url('https://example.com/a%2Fb%3Fc%23d')).to eq 'https://example.com/a/b?c#d'
@@ -59,7 +58,6 @@ RSpec.describe Formatter, '#display_url' do
       expect(formatter.display_url(url)).to eq url
     end
 
-
     it 'returns the input when decoding produces a control character' do
       {
         '%00' => 'NUL, the KeywordSubscribe segment separator',
@@ -89,7 +87,6 @@ RSpec.describe Formatter, '#display_url' do
       expect(url).to eq 'https://example.com/%E6%9D%B1%E4%BA%AC'
     end
   end
-
 
   # The link keeps the canonical URL as its identity and shows the display form,
   # which is the behavior link_html always had for valid UTF-8 URLs.

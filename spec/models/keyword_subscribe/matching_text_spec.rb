@@ -55,6 +55,14 @@ RSpec.describe KeywordSubscribe::MatchingText do # rubocop:disable Metrics/Block
       expect(segments(text_for(status, match_hashtags: true))).to eq [status.searchable_text, "#{marker}#fediverse"]
     end
 
+    it 'leaves protocol-less text that Mastodon does not treat as a URL' do
+      status = status_with('mail example.com for details')
+
+      expect(text_for(status)).to include 'example.com'
+    end
+  end
+
+  describe '#text_for URL material' do
     it 'appends nothing but the body while match_urls is off' do
       status = status_with('look https://example.com/pathword')
 
@@ -107,12 +115,6 @@ RSpec.describe KeywordSubscribe::MatchingText do # rubocop:disable Metrics/Block
       ]
     end
 
-    it 'leaves protocol-less text that Mastodon does not treat as a URL' do
-      status = status_with('mail example.com for details')
-
-      expect(text_for(status)).to include 'example.com'
-    end
-
     it 'keeps a URL fragment in URL material even while hashtags are masked' do
       status = status_with('see https://example.com/#foo now #foo', tags: %w(foo))
 
@@ -121,7 +123,9 @@ RSpec.describe KeywordSubscribe::MatchingText do # rubocop:disable Metrics/Block
       expect(prepared).to include 'https://example.com/#foo'
       expect(prepared).not_to include 'now #foo'
     end
+  end
 
+  describe '#text_for caching' do
     it 'prepares each combination once and caches it' do
       status = status_with('look https://example.com/pathword', tags: %w(fediverse))
       prepared = described_class.new(status: status)

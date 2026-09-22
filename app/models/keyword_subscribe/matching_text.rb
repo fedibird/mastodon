@@ -15,7 +15,8 @@
 #   match_urls      false  no URL material at all
 #                   true   Status#filterable_urls is appended, which covers
 #                          ordinary URLs, reference canonical URLs, and
-#                          ActivityPub URIs
+#                          ActivityPub URIs, each in its canonical form and in
+#                          the human-readable form Formatter shows as link text
 #
 # URL spans written in the body are masked whichever way match_urls is set.
 # Status#searchable_text only removes the URLs that Status itself discovered, so
@@ -23,7 +24,7 @@
 # body of https://example.com/東京/page keeps the written form while
 # Status#filterable_urls reports the percent-encoded one. Masking the body keeps
 # the option honest, and it also means URL material only ever reaches the matcher
-# in the normalized form, in its own segment.
+# through Status#filterable_urls, one segment per representation.
 #
 # The four combinations are built lazily and memoized per status, so one status
 # compared against many subscriptions prepares each string at most once, and a
