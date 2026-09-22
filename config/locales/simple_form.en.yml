@@ -215,7 +215,7 @@ en:
         exclude_keyword: List multiple excluded keywords separated by commas (or use regular expressions)
         ignore_block: You can prioritize keyword subscriptions while keeping the entire domain block
         keyword: List multiple keywords separated by commas (or use regular expressions)
-        match_hashtags: Also match the hashtags of a post, including hashtags attached to the post without being written in the text
+        match_hashtags: Also match the hashtags of a post, including hashtags attached to the post without being written in the text. While off, hashtags written in the text are not matched either
         match_urls: Also match URLs in a post, including the canonical URL of a referenced post
         media_only: Target only statuses with media attached
         name: Optional

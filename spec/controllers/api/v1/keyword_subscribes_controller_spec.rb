@@ -11,13 +11,6 @@ RSpec.describe Api::V1::KeywordSubscribesController, type: :controller do
 
   before do
     allow(controller).to receive(:doorkeeper_token) { token }
-    # REST::KeywordSubscribesSerializer still lists exclude_home, a column that
-    # was removed in 2019, so every rendering action raises NoMethodError on
-    # this branch as well as on fedibird. Repairing unrelated serializer fields
-    # is out of scope here, so the stub keeps this spec on the two new options.
-    without_partial_double_verification do
-      allow_any_instance_of(KeywordSubscribe).to receive(:exclude_home).and_return(false)
-    end
   end
 
   describe 'POST #create' do

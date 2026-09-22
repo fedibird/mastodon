@@ -45,7 +45,7 @@ RSpec.describe REST::KeywordSubscribesSerializer do
 
   context 'when the matching options are enabled' do
     let(:keyword_subscribe) do
-      Fabricate(:keyword_subscribe, keyword: 'fediverse', match_hashtags: true, match_urls: true)
+      Fabricate(:keyword_subscribe, keyword: 'fediverse', ignorecase: true, regexp: false, match_hashtags: true, match_urls: true)
     end
 
     it 'serializes the enabled matching options' do

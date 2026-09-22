@@ -45,16 +45,17 @@ class KeywordSubscribe < ApplicationRecord
     super(regexp ? val : keyword_normalization(val))
   end
 
-  # Accepts a Status, a prepared KeywordSubscribe::MatchingContexts, or a plain
-  # String. A String is treated as the body channel, which keeps every legacy
-  # caller working.
+  # Accepts a Status, a prepared KeywordSubscribe::MatchingText, or a plain
+  # String. A String is treated as the body, which keeps every legacy caller
+  # working. The positive keyword and exclude_keyword are evaluated against the
+  # very same prepared string, in both generated and raw regexp mode.
   def match?(target)
-    contexts = KeywordSubscribe::MatchingContexts.wrap(target)
+    text = matching_text_for(target)
 
-    return false unless match_words?(keyword, contexts)
-    return true if exclude_keyword.empty?
+    return false if keyword.blank? || !keyword_regexp.match?(text)
+    return true if exclude_keyword.blank?
 
-    !match_words?(exclude_keyword, contexts)
+    !exclude_keyword_regexp.match?(text)
   end
 
   def keyword_regexp
@@ -67,62 +68,41 @@ class KeywordSubscribe < ApplicationRecord
 
   class << self
     def match?(target, account_id: nil, as_ignore_block: false, list_id: nil)
-      contexts = KeywordSubscribe::MatchingContexts.wrap(target)
+      text = KeywordSubscribe::MatchingText.wrap(target)
 
       scope = KeywordSubscribe.active.where(list_id: list_id)
       scope = scope.where(account_id: account_id) if account_id.present?
       scope = scope.ignore_block                  if as_ignore_block
-      !scope.find { |t| t.match?(contexts) }.nil?
+      !scope.find { |t| t.match?(text) }.nil?
     end
   end
 
   private
 
-  # The body channel is always matched. The URL and hashtag channels are added
-  # only by their own option, and exclude_keyword sees exactly the same set of
-  # channels as the positive keyword.
-  def match_words?(words, contexts)
-    return false if words.blank?
-    return match_raw?(words, contexts) if regexp
-
-    match_generated?(words, contexts)
+  # The prepared string depends only on the status and on this subscription's two
+  # options, so many subscriptions can share one KeywordSubscribe::MatchingText
+  # and each combination is prepared at most once per status.
+  def matching_text_for(target)
+    KeywordSubscribe::MatchingText.wrap(target).text_for(match_hashtags: match_hashtags?, match_urls: match_urls?)
   end
 
-  # Raw regexp mode keeps the legacy body behavior exactly: the source is
-  # matched against searchable_text, hashtags included, because visible hashtag
-  # text has always been part of that channel. The options only add channels.
-  def match_raw?(words, contexts)
-    pattern = to_regexp(words)
-
-    return true if pattern.match?(contexts.body)
-    return true if match_urls? && contexts.urls.any? { |url| pattern.match?(url) }
-    return true if match_hashtags? && contexts.hashtag_tokens.any? { |token| pattern.match?(token) }
-
-    false
-  end
-
-  # Generated keywords read the body with hashtag spans removed, so an ordinary
-  # keyword cannot match somewhere inside a hashtag. A keyword that spells a
-  # hash itself is an explicit hashtag keyword and keeps reading the raw body,
-  # which preserves its legacy behavior.
-  def match_generated?(words, contexts)
-    keywords      = split_keywords(words)
-    hashed, plain = keywords.partition { |k| k.include?('#') }
-
-    return true if plain.any? && pattern_for(plain, :body).match?(contexts.body_without_hashtags)
-    return true if hashed.any? && pattern_for(hashed, :body).match?(contexts.body)
-    return true if match_urls? && contexts.urls.any? { |url| pattern_for(keywords, :url).match?(url) }
-    return true if match_hashtags? && contexts.hashtag_tokens.any? { |token| pattern_for(keywords, :hashtag).match?(token) }
-
-    false
-  end
-
-  # Cached per keyword list, context, and case option, so one status compared
-  # against many subscriptions does not rebuild the same pattern, and a changed
-  # attribute cannot be served from the cache.
-  def pattern_for(keywords, context)
+  # Cached per keyword list, case option, and matching options, so one status
+  # compared against many subscriptions does not rebuild the same pattern, and a
+  # changed attribute cannot be served from the cache.
+  def pattern_for(keywords)
     @patterns ||= {}
-    @patterns[[keywords, context, ignorecase]] ||= KeywordSubscribe::PatternBuilder.new(ignorecase: ignorecase).call(keywords, context)
+    @patterns[[keywords, ignorecase, match_hashtags?, match_urls?]] ||= pattern_builder.call(keywords)
+  end
+
+  # The legacy `(?<![#])` guard is dropped by either option: match_hashtags makes
+  # hashtag material matchable on purpose, and match_urls makes `#` ordinary URL
+  # material, such as the fragment in https://example.com/#foo.
+  def pattern_builder
+    KeywordSubscribe::PatternBuilder.new(
+      ignorecase: ignorecase,
+      hashtag_guard: !match_hashtags? && !match_urls?,
+      punctuation_guard: !match_urls?
+    )
   end
 
   def split_keywords(words)
@@ -133,10 +113,12 @@ class KeywordSubscribe < ApplicationRecord
     val.to_s.strip.gsub(/\s{2,}/, ' ').split(/\s*,\s*/).reject(&:blank?).uniq.join(',')
   end
 
+  # A raw regexp keeps its source byte for byte. Only the string it is matched
+  # against is prepared by the two options.
   def to_regexp(words)
     return Regexp.new(words, ignorecase, timeout: KeywordSubscribe::PatternBuilder::MATCH_TIMEOUT) if regexp
 
-    pattern_for(split_keywords(words), :body)
+    pattern_for(split_keywords(words))
   end
 
   def validate_keyword_regexp_syntax

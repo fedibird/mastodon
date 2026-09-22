@@ -2,23 +2,28 @@
 
 require 'rails_helper'
 
-# The matching matrix for the two new options. The body channel is always
-# legacy Status#searchable_text; match_urls adds Status#filterable_urls and
-# match_hashtags adds one token per tag the status carries.
+# The matching matrix for the two new options.
+#
+# Both matching modes read one prepared string per status and option pair, built
+# by KeywordSubscribe::MatchingText:
+#
+#   base           legacy Status#searchable_text, which Status already strips of
+#                  the URLs it discovered
+#   match_hashtags off masks visible hashtag spans, on keeps them and appends one
+#                  "#name" token per tag the status carries
+#   match_urls     off adds nothing, on appends Status#filterable_urls
+#
+# Parts are joined with a single NUL, which no stored keyword can contain.
 RSpec.describe KeywordSubscribe, '#match? with a status' do # rubocop:disable Metrics/BlockLength
   let(:account) { Fabricate(:account, username: 'subscriber') }
   let(:author)  { Fabricate(:account, domain: nil, username: 'author') }
 
-  def subscribe(keyword, exclude_keyword: '', ignorecase: true, regexp: false, match_hashtags: false, match_urls: false)
-    described_class.new(
-      account: account,
-      regexp: regexp,
-      ignorecase: ignorecase,
-      match_hashtags: match_hashtags,
-      match_urls: match_urls,
-      keyword: keyword,
-      exclude_keyword: exclude_keyword
-    )
+  # keyword= and exclude_keyword= normalize based on the regexp flag, so the flag
+  # is assigned before them.
+  def subscribe(keyword, **options)
+    attributes = { account: account, regexp: false, ignorecase: true, match_hashtags: false, match_urls: false, exclude_keyword: '' }.merge(options)
+
+    described_class.new(attributes.merge(keyword: keyword))
   end
 
   def status_with(text, tags: [])
@@ -71,23 +76,28 @@ RSpec.describe KeywordSubscribe, '#match? with a status' do # rubocop:disable Me
       expect(subscribe('foo').match?(status)).to be false
       expect(subscribe('bar').match?(status)).to be false
       expect(subscribe('foo_bar').match?(status)).to be false
+      expect(subscribe('#foo_bar').match?(status)).to be false
       expect(subscribe('東京').match?(status)).to be false
       expect(subscribe('hello').match?(status)).to be true
     end
 
-    it 'follows ignorecase on the body channel' do
+    it 'follows ignorecase' do
       status = status_with('a BODYWORD here')
 
       expect(subscribe('bodyword').match?(status)).to be true
       expect(subscribe('bodyword', ignorecase: false).match?(status)).to be false
     end
 
-    it 'keeps raw regexp body behavior and adds no channel' do
-      status = status_with('regexpbody https://example.com/pathword', tags: %w(fediverse))
+    # Revised in this change: a raw regexp reads the same prepared string as a
+    # generated keyword, so it sees neither hashtag nor URL material here.
+    it 'gives a raw regexp the same body only string' do
+      status = status_with('regexpbody https://example.com/pathword #fediverse', tags: %w(fediverse))
 
       expect(subscribe('regexpb.dy', regexp: true).match?(status)).to be true
       expect(subscribe('pathword', regexp: true).match?(status)).to be false
-      expect(subscribe('fediverse', regexp: true).match?(status)).to be false
+      expect(subscribe('example\.com', regexp: true).match?(status)).to be false
+      expect(subscribe('#fediverse', regexp: true).match?(status)).to be false
+      expect(subscribe('fedi\w+', regexp: true).match?(status)).to be false
     end
   end
 
@@ -127,27 +137,10 @@ RSpec.describe KeywordSubscribe, '#match? with a status' do # rubocop:disable Me
       status = status_with('look https://example.com/c++/page')
 
       expect(subscribe('c++', match_urls: true).match?(status)).to be true
-      # Body text still refuses the same adjacency, where `/` stays a boundary.
       expect(subscribe('c++').match?('c++/page')).to be false
     end
 
-    # Status#filterable_urls normalizes URLs, so a non-ASCII path arrives
-    # percent-encoded. The URL channel matches what the status actually carries.
-    it 'sees a non-ASCII URL path in its percent-encoded form' do
-      status = status_with('look https://example.com/東京/page')
-
-      expect(status.filterable_urls).to eq ['https://example.com/%E6%9D%B1%E4%BA%AC/page']
-      expect(subscribe('東京', match_urls: true).match?(status)).to be false
-      expect(subscribe('%E6%9D%B1%E4%BA%AC', match_urls: true).match?(status)).to be true
-    end
-
-    it 'does not match an associated tag' do
-      status = status_with('no tag in this text', tags: %w(fediverse))
-
-      expect(subscribe('fediverse', match_urls: true).match?(status)).to be false
-    end
-
-    it 'lets a raw regexp match the URL channel without rewriting the source' do
+    it 'lets a raw regexp match URL material without rewriting the source' do
       status = status_with('look https://example.com/pathword')
       subscription = subscribe('example\.com/path\w+', regexp: true, match_urls: true)
 
@@ -157,11 +150,61 @@ RSpec.describe KeywordSubscribe, '#match? with a status' do # rubocop:disable Me
     end
   end
 
+  describe 'with match_urls only, outside URL material' do
+    # The `/` and `.` guards are dropped from the whole prepared string, not only
+    # from the appended URLs, because one pattern now matches one string. This is
+    # the body side of enabling match_urls.
+    it 'also drops the slash and dot guards on body text' do
+      status = status_with('まとめ/東京の話')
+
+      expect(subscribe('東京').match?(status)).to be false
+      expect(subscribe('東京', match_urls: true).match?(status)).to be true
+    end
+
+    # A fragment is URL material, so it stays matchable even though visible body
+    # hashtags are masked out by match_hashtags being off.
+    it 'matches a URL fragment while body hashtags stay masked' do
+      status = status_with('see https://example.com/#foo now #foo', tags: %w(foo))
+
+      expect(status.filterable_urls).to eq ['https://example.com/#foo']
+      expect(subscribe('foo', match_urls: true).match?(status)).to be true
+      expect(subscribe('#foo', match_urls: true).match?(status)).to be true
+    end
+
+    it 'does not match a body hashtag whose name is absent from URL material' do
+      status = status_with('hello #fediverse https://example.com/pathword', tags: %w(fediverse))
+
+      expect(subscribe('fediverse', match_urls: true).match?(status)).to be false
+      expect(subscribe('pathword', match_urls: true).match?(status)).to be true
+    end
+
+    # Status#filterable_urls normalizes URLs, so a non-ASCII path arrives
+    # percent-encoded and a Japanese keyword never reaches that URL material. A
+    # follow-up will add a decoded matching form; this pins today's behavior,
+    # including the raw URL text that Status leaves in the body when
+    # normalization changed the URL.
+    it 'sees a non-ASCII URL path in its percent-encoded form' do
+      status = status_with('look https://example.com/東京/page')
+
+      expect(status.filterable_urls).to eq ['https://example.com/%E6%9D%B1%E4%BA%AC/page']
+      expect(subscribe('%E6%9D%B1%E4%BA%AC', match_urls: true).match?(status)).to be true
+      expect(subscribe('東京', match_urls: true).match?('https://example.com/%E6%9D%B1%E4%BA%AC/page')).to be false
+      expect(status.searchable_text).to include 'https://example.com/東京/page'
+    end
+
+    it 'does not match an associated tag' do
+      status = status_with('no tag in this text', tags: %w(fediverse))
+
+      expect(subscribe('fediverse', match_urls: true).match?(status)).to be false
+    end
+  end
+
   describe 'with match_hashtags only' do
     it 'matches a visible hashtag' do
       status = status_with('hello #fediverse', tags: %w(fediverse))
 
       expect(subscribe('fediverse', match_hashtags: true).match?(status)).to be true
+      expect(subscribe('#fediverse', match_hashtags: true).match?(status)).to be true
     end
 
     it 'matches a tag that is not written in the body' do
@@ -171,6 +214,26 @@ RSpec.describe KeywordSubscribe, '#match? with a status' do # rubocop:disable Me
       expect(subscribe('#fediverse', match_hashtags: true).match?(status)).to be true
     end
 
+    it 'does not match a URL' do
+      status = status_with('look https://example.com/pathword')
+
+      expect(subscribe('pathword', match_hashtags: true).match?(status)).to be false
+      expect(subscribe('example.com', match_hashtags: true).match?(status)).to be false
+    end
+
+    it 'lets a raw regexp match a visible hashtag and a hidden tag token' do
+      visible = status_with('hello #fediverse', tags: [])
+      hidden  = status_with('no tag in this text', tags: %w(fediverse))
+      source  = '#fedi\w+'
+
+      expect(subscribe(source, regexp: true, match_hashtags: true).match?(visible)).to be true
+      expect(subscribe(source, regexp: true, match_hashtags: true).match?(hidden)).to be true
+      expect(subscribe(source, regexp: true).match?(visible)).to be false
+      expect(subscribe(source, regexp: true).match?(hidden)).to be false
+    end
+  end
+
+  describe 'with match_hashtags only, keyword boundaries' do
     it 'keeps the ASCII end boundary inside a tag' do
       status = status_with('no tag in this text', tags: %w(foobar))
 
@@ -178,7 +241,7 @@ RSpec.describe KeywordSubscribe, '#match? with a status' do # rubocop:disable Me
       expect(subscribe('foobar', match_hashtags: true).match?(status)).to be true
     end
 
-    it 'matches across an underscore separator inside a tag' do
+    it 'matches across an underscore separator inside a tag, like body text' do
       status = status_with('no tag in this text', tags: %w(foo_bar))
 
       expect(subscribe('foo', match_hashtags: true).match?(status)).to be true
@@ -193,19 +256,12 @@ RSpec.describe KeywordSubscribe, '#match? with a status' do # rubocop:disable Me
       expect(subscribe('大阪', match_hashtags: true).match?(status)).to be false
     end
 
-    it 'follows ignorecase on the hashtag channel' do
+    it 'follows ignorecase on hashtag material' do
       status = status_with('no tag in this text', tags: %w(Fediverse))
 
       expect(subscribe('fediverse', match_hashtags: true).match?(status)).to be true
       expect(subscribe('fediverse', match_hashtags: true, ignorecase: false).match?(status)).to be false
       expect(subscribe('Fediverse', match_hashtags: true, ignorecase: false).match?(status)).to be true
-    end
-
-    it 'does not match a URL' do
-      status = status_with('look https://example.com/pathword')
-
-      expect(subscribe('pathword', match_hashtags: true).match?(status)).to be false
-      expect(subscribe('example.com', match_hashtags: true).match?(status)).to be false
     end
 
     it 'does not treat a URL fragment as a hashtag of the status' do
@@ -222,15 +278,6 @@ RSpec.describe KeywordSubscribe, '#match? with a status' do # rubocop:disable Me
 
       expect(subscribe('foo', match_hashtags: true).match?(status)).to be true
     end
-
-    it 'lets a raw regexp match the hashtag token channel' do
-      status = status_with('no tag in this text', tags: %w(fediverse))
-      subscription = subscribe('\A#fedi\w+\z', regexp: true, match_hashtags: true)
-
-      expect(subscription.keyword_regexp.source).to eq '\A#fedi\w+\z'
-      expect(subscription.match?(status)).to be true
-      expect(subscribe('\A#fedi\w+\z', regexp: true).match?(status)).to be false
-    end
   end
 
   describe 'with both options on' do
@@ -243,7 +290,7 @@ RSpec.describe KeywordSubscribe, '#match? with a status' do # rubocop:disable Me
       expect(subscribe('otherword', match_hashtags: true, match_urls: true).match?(status)).to be false
     end
 
-    it 'does not let a keyword span two URLs' do
+    it 'does not let a generated keyword bridge two URLs' do
       first = status_with('the first')
       second = status_with('the second')
       status = Fabricate(:status, account: author, text: "see #{ActivityPub::TagManager.instance.url_for(first)} and #{ActivityPub::TagManager.instance.url_for(second)}")
@@ -255,7 +302,7 @@ RSpec.describe KeywordSubscribe, '#match? with a status' do # rubocop:disable Me
       expect(subscribe(first.id.to_s, match_hashtags: true, match_urls: true).match?(status)).to be true
     end
 
-    it 'does not let a keyword span two hashtags' do
+    it 'does not let a generated keyword bridge two tags' do
       status = status_with('no tag in this text', tags: %w(alpha beta))
 
       expect(subscribe('alpha beta', match_hashtags: true, match_urls: true).match?(status)).to be false
@@ -263,30 +310,40 @@ RSpec.describe KeywordSubscribe, '#match? with a status' do # rubocop:disable Me
       expect(subscribe('alpha', match_hashtags: true, match_urls: true).match?(status)).to be true
     end
 
-    it 'does not let a keyword span the body and a URL' do
+    it 'does not let a generated keyword bridge the body and a URL' do
       status = status_with('bodyword https://example.com/pathword')
 
       expect(subscribe('bodyword https', match_hashtags: true, match_urls: true).match?(status)).to be false
       expect(subscribe('bodyword pathword', match_hashtags: true, match_urls: true).match?(status)).to be false
     end
 
-    it 'does not let a raw regexp span two channels' do
+    it 'does not let a generated keyword bridge a masked hashtag' do
+      status = status_with('foo #tag bar')
+
+      expect(subscribe('foo bar').match?(status)).to be false
+      expect(subscribe('foo bar', match_urls: true).match?(status)).to be false
+    end
+
+    # Accepted consequence of the one prepared string contract: a deliberately
+    # broad raw regexp that matches any byte can cross a seam. Generated keywords
+    # cannot, which is what the examples above pin down.
+    it 'lets a deliberately broad raw regexp cross the seams' do
       status = status_with('bodyword https://example.com/pathword', tags: %w(fediverse))
 
-      expect(subscribe('bodyword[\s\S]*pathword', regexp: true, match_hashtags: true, match_urls: true).match?(status)).to be false
-      expect(subscribe('fediverse[\s\S]*pathword', regexp: true, match_hashtags: true, match_urls: true).match?(status)).to be false
+      expect(subscribe('bodyword[\s\S]*pathword', regexp: true, match_hashtags: true, match_urls: true).match?(status)).to be true
+      expect(subscribe('bodyword pathword', regexp: true, match_hashtags: true, match_urls: true).match?(status)).to be false
     end
   end
 
   describe 'exclude_keyword' do
-    it 'excludes on the URL channel only when match_urls is on' do
+    it 'reads the same prepared string as the positive keyword' do
       status = status_with('bodyword https://example.com/pathword')
 
       expect(subscribe('bodyword', exclude_keyword: 'pathword', match_urls: true).match?(status)).to be false
       expect(subscribe('bodyword', exclude_keyword: 'pathword').match?(status)).to be true
     end
 
-    it 'excludes on the hashtag channel only when match_hashtags is on' do
+    it 'excludes on hashtag material only when match_hashtags is on' do
       status = status_with('bodyword here', tags: %w(spoiledtag))
 
       expect(subscribe('bodyword', exclude_keyword: 'spoiledtag', match_hashtags: true).match?(status)).to be false
@@ -299,7 +356,7 @@ RSpec.describe KeywordSubscribe, '#match? with a status' do # rubocop:disable Me
       expect(subscribe('fediverse', exclude_keyword: 'bodyword', match_hashtags: true).match?(status)).to be false
     end
 
-    it 'uses the same regexp mode for exclusion' do
+    it 'uses the same prepared string in raw regexp mode' do
       status = status_with('bodyword https://example.com/pathword')
 
       expect(subscribe('bodyw.rd', exclude_keyword: 'path\w+', regexp: true, match_urls: true).match?(status)).to be false
@@ -307,8 +364,8 @@ RSpec.describe KeywordSubscribe, '#match? with a status' do # rubocop:disable Me
     end
   end
 
-  describe 'multiple comma keywords across channels' do
-    it 'lets separate alternatives match separate channels' do
+  describe 'multiple comma keywords' do
+    it 'lets separate alternatives match separate material' do
       status = status_with('plain body https://example.com/pathword', tags: %w(fediverse))
       keywords = 'bodyword,pathword,fediverse'
 
@@ -318,7 +375,7 @@ RSpec.describe KeywordSubscribe, '#match? with a status' do # rubocop:disable Me
       expect(subscribe('nothinghere,stillnothing', match_hashtags: true, match_urls: true).match?(status)).to be false
     end
 
-    it 'keeps each alternative boundary in the URL channel' do
+    it 'keeps each alternative boundary in URL material' do
       status = status_with('look https://example.com/pathword')
 
       expect(subscribe('ample,athword', match_urls: true).match?(status)).to be false
@@ -326,27 +383,40 @@ RSpec.describe KeywordSubscribe, '#match? with a status' do # rubocop:disable Me
     end
   end
 
-  describe 'timeout and quoting on the new channels' do
-    it 'keeps the match timeout on every generated context' do
-      builder = KeywordSubscribe::PatternBuilder.new(ignorecase: true)
+  describe 'generated pattern sources' do
+    it 'builds the default combination exactly as the legacy pattern did' do
+      legacy = '(?<![#])((?mix:(?<![A-Za-z0-9])foo(?![A-Za-z0-9]))|(?mix:(?<![\/\.])東京(?![\/\.])))'
 
-      KeywordSubscribe::PatternBuilder::CONTEXTS.each_key do |context|
-        expect(builder.call(%w(foo), context).timeout).to eq 2.0
+      expect(subscribe('foo,東京').keyword_regexp.source).to eq legacy
+    end
+
+    it 'drops the hash guard with match_hashtags' do
+      expect(subscribe('foo,東京', match_hashtags: true).keyword_regexp.source).to eq '((?mix:(?<![A-Za-z0-9])foo(?![A-Za-z0-9]))|(?mix:(?<![\/\.])東京(?![\/\.])))'
+    end
+
+    it 'drops the hash and punctuation guards with match_urls' do
+      expect(subscribe('foo,東京', match_urls: true).keyword_regexp.source).to eq '((?mix:(?<![A-Za-z0-9])foo(?![A-Za-z0-9]))|(?mix:東京))'
+    end
+
+    it 'keeps the match timeout in every combination' do
+      [[false, false], [true, false], [false, true], [true, true]].each do |match_hashtags, match_urls|
+        subscription = subscribe('foo', exclude_keyword: 'bar', match_hashtags: match_hashtags, match_urls: match_urls)
+
+        expect(subscription.keyword_regexp.timeout).to eq 2.0
+        expect(subscription.exclude_keyword_regexp.timeout).to eq 2.0
       end
     end
 
-    it 'builds the body context exactly as the legacy pattern did' do
-      legacy = '(?<![#])((?mix:(?<![A-Za-z0-9])foo(?![A-Za-z0-9]))|(?mix:(?<![\/\.])東京(?![\/\.])))'
+    it 'keeps a raw regexp source byte for byte in every combination' do
+      source = '^\s*#fo+o\s*(bar|baz)\z'
 
-      expect(KeywordSubscribe::PatternBuilder.new(ignorecase: true).call(%w(foo 東京), :body).source).to eq legacy
-    end
+      [[false, false], [true, false], [false, true], [true, true]].each do |match_hashtags, match_urls|
+        subscription = subscribe(source, regexp: true, match_hashtags: match_hashtags, match_urls: match_urls)
 
-    it 'drops only the hash and punctuation guards in the other contexts' do
-      builder = KeywordSubscribe::PatternBuilder.new(ignorecase: true)
-
-      expect(builder.call(%w(東京), :hashtag).source).to eq '((?mix:(?<![\/\.])東京(?![\/\.])))'
-      expect(builder.call(%w(東京), :url).source).to eq '((?mix:東京))'
-      expect(builder.call(%w(foo), :url).source).to eq '((?mix:(?<![A-Za-z0-9])foo(?![A-Za-z0-9])))'
+        expect(subscription.keyword).to eq source
+        expect(subscription.keyword_regexp.source).to eq source
+        expect(subscription.keyword_regexp.timeout).to eq 2.0
+      end
     end
   end
 end

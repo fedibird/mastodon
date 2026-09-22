@@ -1,11 +1,10 @@
 # frozen_string_literal: true
 
-# Builds the generated pattern for one keyword list in one matching context.
-# Raw regexp subscriptions never come through here: their source is used as
-# written.
+# Builds the generated pattern for one keyword list. Raw regexp subscriptions
+# never come through here: their source is used exactly as written.
 #
-# Every context keeps the legacy alternative shape, one alternative per keyword
-# joined with `|`:
+# The generated pattern keeps the legacy alternative shape, one alternative per
+# keyword joined with `|`:
 #
 #   (?-mix:(?m[i]x:<start boundary><quoted keyword><end boundary>))
 #
@@ -13,16 +12,25 @@
 # source. It isolates each alternative's flags, so `x` (which makes the quoted
 # keyword immune to stray whitespace) and `i` apply per alternative.
 #
-# Contexts differ in exactly two deliberate ways:
+# Two guards are switched by the subscription options, because the prepared
+# string they are matched against changes with those options:
 #
-#   body      the legacy pattern, byte for byte: a leading `(?<![#])` guard and
-#             `/` `.` guards on non-alphanumeric keyword edges.
-#   hashtag   the body rules without `(?<![#])`, so `foo` can match the token
-#             `#foo` while `foo` still stays out of `#foobar`.
-#   url       neither `(?<![#])` nor the `/` `.` guards, because `.` `/` `:`
-#             `?` `&` `=` `#` are ordinary URL material rather than a reason to
-#             refuse the match. Alphanumeric edges keep their boundary, so
-#             `ample` stays out of `https://example.com`.
+#   hashtag_guard      the legacy `(?<![#])`, kept while both options are off.
+#                      Hashtag spans are already masked out of the prepared
+#                      string then, so the guard only still covers a `#` that is
+#                      not a hashtag, such as `#1`. Dropping it is what lets
+#                      `foo` match the token `#foo` with match_hashtags on and
+#                      the fragment of https://example.com/#foo with match_urls
+#                      on, while the alphanumeric guards still keep `foo` out of
+#                      `#foobar`.
+#   punctuation_guard  the legacy `/` `.` guards on non-alphanumeric keyword
+#                      edges, kept while match_urls is off. With match_urls on,
+#                      `.` `/` `:` `?` `&` `=` `#` are ordinary URL material
+#                      rather than a reason to refuse the match, so the guards
+#                      are dropped for the whole prepared string.
+#
+# Alphanumeric edge guards are never switched, so `ample` stays out of
+# `https://example.com/path` and `athword` stays out of `/pathword`.
 class KeywordSubscribe::PatternBuilder
   ALPHANUMERIC_START = /\A[A-Za-z0-9]/.freeze
   ALPHANUMERIC_END   = /[A-Za-z0-9]\z/.freeze
@@ -37,27 +45,22 @@ class KeywordSubscribe::PatternBuilder
 
   MATCH_TIMEOUT = 2.0
 
-  CONTEXTS = {
-    body:    { hashtag_guard: true,  punctuation_guard: true  },
-    hashtag: { hashtag_guard: false, punctuation_guard: true  },
-    url:     { hashtag_guard: false, punctuation_guard: false },
-  }.freeze
-
-  def initialize(ignorecase: true)
-    @ignorecase = ignorecase
+  def initialize(ignorecase: true, hashtag_guard: true, punctuation_guard: true)
+    @ignorecase        = ignorecase
+    @hashtag_guard     = hashtag_guard
+    @punctuation_guard = punctuation_guard
   end
 
-  def call(keywords, context)
-    rules  = CONTEXTS.fetch(context)
-    source = keywords.map { |keyword| alternative(keyword, rules) }.join('|')
+  def call(keywords)
+    source = keywords.map { |keyword| alternative(keyword) }.join('|')
 
-    Regexp.new("#{rules[:hashtag_guard] ? HASHTAG_START_GUARD : ''}(#{source})", @ignorecase, timeout: MATCH_TIMEOUT)
+    Regexp.new("#{@hashtag_guard ? HASHTAG_START_GUARD : ''}(#{source})", @ignorecase, timeout: MATCH_TIMEOUT)
   end
 
   private
 
-  def alternative(keyword, rules)
-    /(?m#{@ignorecase ? 'i' : ''}x:#{start_boundary(keyword, rules)}#{quoted(keyword)}#{end_boundary(keyword, rules)})/.to_s
+  def alternative(keyword)
+    /(?m#{@ignorecase ? 'i' : ''}x:#{start_boundary(keyword)}#{quoted(keyword)}#{end_boundary(keyword)})/.to_s
   end
 
   # A space inside one keyword matches a run of whitespace, which is why the
@@ -67,17 +70,17 @@ class KeywordSubscribe::PatternBuilder
     Regexp.quote(keyword).gsub('\ ', '[[:space:]]+')
   end
 
-  def start_boundary(keyword, rules)
+  def start_boundary(keyword)
     return ALPHANUMERIC_START_GUARD if keyword.match?(ALPHANUMERIC_START)
-    return '' unless rules[:punctuation_guard]
+    return '' unless @punctuation_guard
     return '' if keyword.match?(PUNCTUATION_START)
 
     PUNCTUATION_START_GUARD
   end
 
-  def end_boundary(keyword, rules)
+  def end_boundary(keyword)
     return ALPHANUMERIC_END_GUARD if keyword.match?(ALPHANUMERIC_END)
-    return '' unless rules[:punctuation_guard]
+    return '' unless @punctuation_guard
     return '' if keyword.match?(PUNCTUATION_END)
 
     PUNCTUATION_END_GUARD

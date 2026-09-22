@@ -10,17 +10,20 @@ RSpec.describe FanOutOnWriteService, 'keyword subscribe delivery' do # rubocop:d
   let(:subscriber) { Fabricate(:user, account: Fabricate(:account, username: 'subscriber')).account }
   let(:list)       { Fabricate(:list, account: subscriber) }
 
-  def subscribe(keyword, exclude_keyword: '', regexp: false, match_hashtags: false, match_urls: false, list_id: nil)
-    KeywordSubscribe.create!(
+  # keyword= and exclude_keyword= normalize based on the regexp flag, so the flag
+  # is assigned before them.
+  def subscribe(keyword, **options)
+    attributes = {
       account: subscriber,
       name: "subscription #{SecureRandom.hex(4)}",
-      regexp: regexp,
-      match_hashtags: match_hashtags,
-      match_urls: match_urls,
-      list_id: list_id,
-      keyword: keyword,
-      exclude_keyword: exclude_keyword
-    )
+      regexp: false,
+      match_hashtags: false,
+      match_urls: false,
+      list_id: nil,
+      exclude_keyword: '',
+    }.merge(options)
+
+    KeywordSubscribe.create!(attributes.merge(keyword: keyword))
   end
 
   def status_with(text, tags: [], visibility: :public)
@@ -92,28 +95,28 @@ RSpec.describe FanOutOnWriteService, 'keyword subscribe delivery' do # rubocop:d
     expect(pushes_for(status)).not_to include list_push(status)
   end
 
-  it 'stops delivery when exclude_keyword matches the URL channel' do
+  it 'stops delivery when exclude_keyword matches URL material' do
     subscribe('bodyword', exclude_keyword: 'pathword', match_urls: true)
     status = status_with('a bodyword and https://example.com/pathword')
 
     expect(pushes_for(status)).not_to include home_push(status)
   end
 
-  it 'keeps delivery when the excluded URL keyword has no enabled channel' do
+  it 'keeps delivery when the excluded URL keyword has no URL material to read' do
     subscribe('bodyword', exclude_keyword: 'pathword')
     status = status_with('a bodyword and https://example.com/pathword')
 
     expect(pushes_for(status)).to include home_push(status)
   end
 
-  it 'stops delivery when exclude_keyword matches the hashtag channel' do
+  it 'stops delivery when exclude_keyword matches hashtag material' do
     subscribe('bodyword', exclude_keyword: 'spoiledtag', match_hashtags: true, list_id: list.id)
     status = status_with('a bodyword here', tags: %w(spoiledtag))
 
     expect(pushes_for(status)).not_to include list_push(status)
   end
 
-  it 'keeps delivery when the excluded hashtag keyword has no enabled channel' do
+  it 'keeps delivery when the excluded hashtag keyword has no hashtag material to read' do
     subscribe('bodyword', exclude_keyword: 'spoiledtag', list_id: list.id)
     status = status_with('a bodyword here', tags: %w(spoiledtag))
 
@@ -134,7 +137,7 @@ RSpec.describe FanOutOnWriteService, 'keyword subscribe delivery' do # rubocop:d
     expect(pushes_for(status)).not_to include list_push(status)
   end
 
-  it 'does not keyword-deliver a reblog matched through the new channels' do
+  it 'does not keyword-deliver a reblog matched through the new options' do
     subscribe('pathword,fediverse', match_hashtags: true, match_urls: true, list_id: nil)
     original = status_with('look https://example.com/pathword', tags: %w(fediverse))
     booster = Fabricate(:user, account: Fabricate(:account, username: 'booster')).account
@@ -144,6 +147,34 @@ RSpec.describe FanOutOnWriteService, 'keyword subscribe delivery' do # rubocop:d
 
     expect(pushes).not_to include [reblog.id, subscriber.id, 'home']
     expect(pushes).not_to include [reblog.id, list.id, 'list']
+  end
+
+  it 'delivers a raw regexp subscription matched only by URL material when match_urls is on' do
+    subscribe('example\.com/path\w+', regexp: true, match_urls: true)
+    status = status_with('look https://example.com/pathword')
+
+    expect(pushes_for(status)).to include home_push(status)
+  end
+
+  it 'does not deliver the same raw regexp subscription when match_urls is off' do
+    subscribe('example\.com/path\w+', regexp: true)
+    status = status_with('look https://example.com/pathword')
+
+    expect(pushes_for(status)).not_to include home_push(status)
+  end
+
+  it 'does not deliver a raw regexp subscription matched only by a visible hashtag when match_hashtags is off' do
+    subscribe('#fedi\w+', regexp: true)
+    status = status_with('hello #fediverse', tags: %w(fediverse))
+
+    expect(pushes_for(status)).not_to include home_push(status)
+  end
+
+  it 'delivers the same raw regexp subscription when match_hashtags is on' do
+    subscribe('#fedi\w+', regexp: true, match_hashtags: true)
+    status = status_with('hello #fediverse', tags: %w(fediverse))
+
+    expect(pushes_for(status)).to include home_push(status)
   end
 
   it 'skips a media_only subscription for a status without media' do

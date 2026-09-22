@@ -131,27 +131,27 @@ class FanOutOnWriteService < BaseService
   def deliver_to_keyword_subscribers(status)
     return if status.reblog?
 
-    # Body, URL, and hashtag channels are built once per status and shared by
-    # every subscription, so enabling the options does not re-expand URLs or
-    # reload tags per subscriber.
-    contexts = KeywordSubscribe::MatchingContexts.new(status: status)
+    # The prepared matching strings are built once per status and shared by every
+    # subscription, so enabling the options does not re-expand URLs or reload
+    # tags per subscriber.
+    matching_text = KeywordSubscribe::MatchingText.new(status: status)
 
-    deliver_to_keyword_subscribers_home(status, contexts)
-    deliver_to_keyword_subscribers_list(status, contexts)
+    deliver_to_keyword_subscribers_home(status, matching_text)
+    deliver_to_keyword_subscribers_list(status, matching_text)
   end
 
-  def deliver_to_keyword_subscribers_home(status, contexts)
+  def deliver_to_keyword_subscribers_home(status, matching_text)
     keyword_subscribes = KeywordSubscribe.active.with_media(status).without_local_followed_home(status.account).order(:account_id).merge(visibility_scope(status, KeywordSubscribe))
-    match_ids          = keyword_subscribes.chunk(&:account_id).filter_map { |id, subscribes| id if subscribes.any? { |s| s.match?(contexts) } }
+    match_ids          = keyword_subscribes.chunk(&:account_id).filter_map { |id, subscribes| id if subscribes.any? { |s| s.match?(matching_text) } }
 
     @feedInsertWorker.push_bulk(match_ids) do |account_id|
       [status.id, account_id, 'home']
     end
   end
 
-  def deliver_to_keyword_subscribers_list(status, contexts)
+  def deliver_to_keyword_subscribers_list(status, matching_text)
     keyword_subscribes = KeywordSubscribe.active.with_media(status).without_local_followed_list(status.account).order(:list_id).merge(visibility_scope(status, KeywordSubscribe))
-    match_ids          = keyword_subscribes.chunk(&:list_id).filter_map { |id, subscribes| id if subscribes.any? { |s| s.match?(contexts) } }
+    match_ids          = keyword_subscribes.chunk(&:list_id).filter_map { |id, subscribes| id if subscribes.any? { |s| s.match?(matching_text) } }
 
     @feedInsertWorker.push_bulk(match_ids) do |list_id|
       [status.id, list_id, 'list']

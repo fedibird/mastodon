@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe Settings::KeywordSubscribesController, type: :controller do
+RSpec.describe Settings::KeywordSubscribesController, type: :controller do # rubocop:disable Metrics/BlockLength
   render_views
 
   let(:user) { Fabricate(:user, account: Fabricate(:account, username: 'alice')) }
@@ -14,8 +14,13 @@ RSpec.describe Settings::KeywordSubscribesController, type: :controller do
 
   # Column order in the index table: name, type, string, case, block, media,
   # hashtags, URLs, timeline, state, actions.
-  HASHTAG_COLUMN = 6
-  URL_COLUMN = 7
+  def hashtag_column
+    6
+  end
+
+  def url_column
+    7
+  end
 
   def create_subscription(**options)
     KeywordSubscribe.create!({ account: user.account, name: 'subscription', keyword: 'foo' }.merge(options))
@@ -36,10 +41,10 @@ RSpec.describe Settings::KeywordSubscribesController, type: :controller do
       cells = table.css('tbody tr').first.css('td')
 
       expect(cells.size).to eq headers.size
-      expect(headers[HASHTAG_COLUMN].text.strip).to eq I18n.t('simple_form.labels.keyword_subscribes.match_hashtags')
-      expect(headers[URL_COLUMN].text.strip).to eq I18n.t('simple_form.labels.keyword_subscribes.match_urls')
-      expect(cells[HASHTAG_COLUMN].css('.positive-hint').size).to eq 1
-      expect(cells[URL_COLUMN].css('.negative-hint').size).to eq 1
+      expect(headers[hashtag_column].text.strip).to eq I18n.t('simple_form.labels.keyword_subscribes.match_hashtags')
+      expect(headers[url_column].text.strip).to eq I18n.t('simple_form.labels.keyword_subscribes.match_urls')
+      expect(cells[hashtag_column].css('.positive-hint').size).to eq 1
+      expect(cells[url_column].css('.negative-hint').size).to eq 1
     end
   end
 

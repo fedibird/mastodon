@@ -2,23 +2,25 @@
 
 require 'rails_helper'
 
-# Characterization of Keyword Subscribe matching.
+# Characterization of Keyword Subscribe matching with both matching options off,
+# which is the default for every new subscription.
 #
 # Sections marked LEGACY record behavior that predates the URL/hashtag matching
-# options and must not change. Sections marked HASHTAG LEAK record what the old
-# single `(?<![#])` guard did; those cases are the ones the new hashtag
-# semantics are allowed to change, and each has a paired regression example.
+# options and must not change. The sections about hashtag material record where
+# the options deliberately changed matching: with match_hashtags off, visible
+# hashtag spans are masked out of the prepared string before either matching
+# mode sees it, so the old weak `(?<![#])` guard is no longer the only thing
+# keeping keywords out of hashtags. The enabled side of each case lives in
+# spec/models/keyword_subscribe_matching_spec.rb.
 RSpec.describe KeywordSubscribe, type: :model do # rubocop:disable Metrics/BlockLength
   let(:account) { Fabricate(:account) }
 
-  def subscribe(keyword, exclude_keyword: '', ignorecase: true, regexp: false)
-    described_class.new(
-      account: account,
-      regexp: regexp,
-      ignorecase: ignorecase,
-      keyword: keyword,
-      exclude_keyword: exclude_keyword
-    )
+  # keyword= and exclude_keyword= normalize based on the regexp flag, so the flag
+  # is assigned before them.
+  def subscribe(keyword, **options)
+    attributes = { account: account, regexp: false, ignorecase: true, match_hashtags: false, match_urls: false, exclude_keyword: '' }.merge(options)
+
+    described_class.new(attributes.merge(keyword: keyword))
   end
 
   def matches?(keyword, text, **options)
@@ -128,7 +130,7 @@ RSpec.describe KeywordSubscribe, type: :model do # rubocop:disable Metrics/Block
 
     it 'matches a Japanese keyword next to punctuation and whitespace' do
       expect(matches?('東京', '「東京」')).to be true
-      expect(matches?('東京', "話 東京 です")).to be true
+      expect(matches?('東京', '話 東京 です')).to be true
     end
 
     it 'refuses a Japanese keyword touching a slash or a dot' do
@@ -153,17 +155,14 @@ RSpec.describe KeywordSubscribe, type: :model do # rubocop:disable Metrics/Block
     it 'does not match a keyword that is a prefix of a longer ASCII tag' do
       expect(matches?('foo', '#foobar')).to be false
     end
-
-    it 'matches a keyword that itself contains a hash' do
-      expect(matches?('#foo', 'hello #foo')).to be true
-    end
   end
 
   # The old guard only refused a keyword written immediately after the hash, so
-  # `bar` matched `#foo_bar` and `京` matched `#東京`. Ordinary keywords now read
-  # the body with hashtag spans removed and reach hashtags only through the
-  # hashtag channel, which the match_hashtags option enables.
-  describe 'hashtag leakage the old guard allowed' do
+  # `bar` matched `#foo_bar` and `京` matched `#東京`. With match_hashtags off the
+  # whole hashtag span is masked out before matching, which closes that leak and
+  # also stops a keyword that spells a hash, because no hashtag material is
+  # presented at all. match_hashtags is the option that puts it back.
+  describe 'hashtag material with match_hashtags off' do
     it 'no longer matches an ASCII keyword after a separator inside a tag' do
       expect(matches?('bar', '#foo_bar')).to be false
     end
@@ -179,12 +178,17 @@ RSpec.describe KeywordSubscribe, type: :model do # rubocop:disable Metrics/Block
       expect(matches?('bar', 'a #foo_bar and bar')).to be true
     end
 
-    it 'keeps a keyword that spells a hash matching visible hashtag text' do
-      expect(matches?('#foo', 'hello #foo')).to be true
-      expect(matches?('#foo_bar', 'hello #foo_bar')).to be true
+    it 'no longer matches a keyword that spells a hash' do
+      expect(matches?('#foo', 'hello #foo')).to be false
+      expect(matches?('#foo_bar', 'hello #foo_bar')).to be false
     end
 
-    it 'does not let a removed hashtag act as whitespace inside a keyword' do
+    it 'matches a keyword that spells a hash once match_hashtags is on' do
+      expect(matches?('#foo', 'hello #foo', match_hashtags: true)).to be true
+      expect(matches?('#foo_bar', 'hello #foo_bar', match_hashtags: true)).to be true
+    end
+
+    it 'does not let a masked hashtag act as whitespace inside a keyword' do
       expect(matches?('foo bar', 'foo #tag bar')).to be false
       expect(matches?('foo bar', 'foo bar')).to be true
     end
@@ -211,8 +215,12 @@ RSpec.describe KeywordSubscribe, type: :model do # rubocop:disable Metrics/Block
       expect(matches?('foo', 'FOO', regexp: true, ignorecase: false)).to be false
     end
 
-    it 'can match visible hashtag text because the guard is not applied' do
-      expect(matches?('foo', '#foo', regexp: true)).to be true
+    # Revised in this change: a raw regexp is matched against the same prepared
+    # string as a generated keyword, so with match_hashtags off it no longer
+    # reaches visible hashtag material either.
+    it 'does not match visible hashtag text while match_hashtags is off' do
+      expect(matches?('foo', '#foo', regexp: true)).to be false
+      expect(matches?('foo', '#foo', regexp: true, match_hashtags: true)).to be true
     end
 
     it 'rejects an invalid source' do
