@@ -4,6 +4,8 @@ class InviteFilter
   KEYS = %i(
     available
     expired
+    review_pending
+    review_rejected
   ).freeze
 
   attr_reader :params
@@ -30,8 +32,21 @@ class InviteFilter
       Invite.available
     when 'expired'
       Invite.expired
+    when 'review_pending'
+      reviewed_invites(:pending)
+    when 'review_rejected'
+      reviewed_invites(:rejected)
     else
       raise "Unknown filter: #{key}"
     end
+  end
+
+  def reviewed_invites(state)
+    ids = ActionReviewRequest.where(
+      operation_type: 'invite_creation',
+      resource_type: 'Invite',
+      state: state
+    ).select(:resource_id)
+    Invite.where(id: ids)
   end
 end

@@ -54,6 +54,9 @@
         %th= t('admin.action_reviews.decision_note')
         %td{ colspan: 3 }= @action_review_request.decision_note.presence || t('admin.action_reviews.none')
 
+- if @action_review_request.operation_type == 'invite_creation'
+  = render 'invite_creation', request: @action_review_request
+
 - if action_review_decision_controls?(@action_review_request)
   %hr.spacer/
   = form_tag approve_admin_action_review_path(@action_review_request), method: :post do
@@ -62,6 +65,6 @@
       = text_area_tag :decision_note, nil, rows: 3
     .actions
       = button_tag t('admin.action_reviews.approve_and_run'), type: 'submit', class: 'button'
-      = button_tag t('admin.action_reviews.stop'), type: 'submit', class: 'button button--destructive', formaction: reject_admin_action_review_path(@action_review_request), data: { confirm: t('admin.action_reviews.stop_confirm') }
+      = button_tag t('admin.action_reviews.stop'), type: 'submit', class: 'button button--destructive', formaction: reject_admin_action_review_path(@action_review_request), data: { confirm: action_review_stop_confirm(@action_review_request) }
 - elsif action_review_decision_warning?(@action_review_request)
-  %p.hint= t('admin.action_reviews.inconsistent_resource')
+  %p.hint= action_review_decision_warning_text(@action_review_request)

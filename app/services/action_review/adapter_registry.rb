@@ -8,10 +8,24 @@ module ActionReview
 
     ADAPTERS = {
       'follow_import' => ActionReview::Adapters::FollowImport,
+      'invite_creation' => ActionReview::Adapters::InviteCreation,
     }.freeze
 
     def self.registered?(operation_type)
       ADAPTERS.key?(operation_type.to_s)
+    end
+
+    # Read-only. Unknown operations, missing rows, and malformed
+    # snapshots are not actionable and are not mutated.
+    def self.actionable?(request)
+      return false if request.nil?
+
+      adapter = ADAPTERS[request.operation_type.to_s]
+      return false if adapter.nil? || !adapter.respond_to?(:actionable?)
+
+      adapter.actionable?(request)
+    rescue StandardError
+      false
     end
 
     def self.fetch!(operation_type)

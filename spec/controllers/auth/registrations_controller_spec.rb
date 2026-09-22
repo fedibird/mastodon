@@ -405,6 +405,95 @@ RSpec.describe Auth::RegistrationsController, type: :controller do
     include_examples 'checks for enabled registrations', :create
   end
 
+  describe 'invite creation review codes' do # rubocop:disable Metrics/BlockLength
+    let(:owner) do
+      user = Fabricate(:user, admin: true)
+      user.update!(approved: true)
+      user
+    end
+
+    around do |example|
+      registrations_mode = Setting.registrations_mode
+      example.run
+      Setting.registrations_mode = registrations_mode
+      Setting.where(var: 'action_review_policies').delete_all
+      Rails.cache.clear
+    end
+
+    before do
+      request.env['devise.mapping'] = Devise.mappings[:user]
+      Setting.registrations_mode = 'none'
+      Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(
+        value: { 'invite_creation' => 'always' }
+      )
+      Rails.cache.clear
+    end
+
+    def held_invite(expires_in: 3600)
+      InviteCreation::CreateService.new.call(user: owner, attributes: { max_uses: 1, expires_in: expires_in }).invite
+    end
+
+    def register_with(invite)
+      post :create, params: {
+        user: {
+          account_attributes: { username: "person#{invite.id}" },
+          email: "person#{invite.id}@example.com",
+          password: '12345678',
+          password_confirmation: '12345678',
+          invite_code: invite.code,
+          agreement: 'true',
+        },
+      }
+    end
+
+    it 'does not accept a pending shell' do
+      invite = held_invite
+
+      expect(invite.valid_for_use?).to be false
+      expect(Invite.available).not_to include(invite)
+
+      register_with(invite)
+
+      expect(response).to redirect_to('/')
+      expect(User.find_by(email: "person#{invite.id}@example.com")).to be_nil
+      expect(invite.reload.uses).to eq 0
+    end
+
+    it 'accepts a code only after approval' do
+      invite = held_invite(expires_in: '')
+      ActionReview::DecisionService.new.call(
+        request: ActionReviewRequest.find_by!(resource: invite),
+        decision: 'approve',
+        reviewer_account: owner.account,
+        decision_note: nil
+      )
+
+      register_with(invite.reload)
+
+      created = User.find_by(email: "person#{invite.id}@example.com")
+      expect(created).to be_present
+      expect(created.invite_id).to eq invite.id
+      expect(invite.reload.uses).to eq 1
+    end
+
+    it 'does not accept a rejected shell' do
+      invite = held_invite
+      ActionReview::DecisionService.new.call(
+        request: ActionReviewRequest.find_by!(resource: invite),
+        decision: 'reject',
+        reviewer_account: owner.account,
+        decision_note: nil
+      )
+
+      register_with(invite)
+
+      expect(response).to redirect_to('/')
+      expect(User.find_by(email: "person#{invite.id}@example.com")).to be_nil
+      expect(invite.reload.uses).to eq 0
+      expect(invite.valid_for_use?).to be false
+    end
+  end
+
   describe 'DELETE #destroy' do
     let(:user) { Fabricate(:user) }
 
