@@ -1,8 +1,17 @@
 # frozen_string_literal: true
 
 class StatusReachFinder
-  def initialize(status)
+  # @param [Status] status
+  # @param [Boolean] unsafe Keep the historical delete reach, including
+  #   followers of direct and limited statuses and interactions that a
+  #   non-follower could have created. Status updates leave this false.
+  # @param [Array<Integer>] exclude_mentioned_account_ids Accounts omitted
+  #   from mention reach only. Favourite, reblog, reply, reply-target, and
+  #   follower reach are left in place.
+  def initialize(status, unsafe: false, exclude_mentioned_account_ids: [])
     @status = status
+    @unsafe = unsafe
+    @exclude_mentioned_account_ids = Array(exclude_mentioned_account_ids).map(&:to_i)
   end
 
   def inboxes
@@ -16,16 +25,14 @@ class StatusReachFinder
   end
 
   def reached_account_ids
-    # When the status is a reblog, there are no interactions with it
-    # directly, we assume all interactions are with the original one
-
+    # A reblog has no interactions of its own. Delete still needs the
+    # original author, who may not follow the booster.
     if @status.reblog?
-      [reblog_of_account_id]
+      [reblog_of_account_id].compact
     else
       [
-        replied_to_account_id,
-        reblog_of_account_id,
         mentioned_account_ids,
+        replied_to_account_id,
         reblogs_account_ids,
         favourites_account_ids,
         replies_account_ids,
@@ -38,7 +45,7 @@ class StatusReachFinder
   end
 
   def replied_to_account_id
-    @status.in_reply_to_account_id
+    @status.in_reply_to_account_id if distributable? || unsafe?
   end
 
   def reblog_of_account_id
@@ -46,23 +53,30 @@ class StatusReachFinder
   end
 
   def mentioned_account_ids
-    @status.mentions.pluck(:account_id)
+    @status.mentions.pluck(:account_id) - @exclude_mentioned_account_ids
   end
 
+  # Reblogs, favourites, and replies can exist without the interactor
+  # having received the status through followers. Include them for
+  # public and unlisted statuses, and for deletes.
   def reblogs_account_ids
-    @status.reblogs.pluck(:account_id)
+    return unless distributable? || unsafe?
+
+    @status.reblogs.rewhere(deleted_at: [nil, @status.deleted_at]).pluck(:account_id)
   end
 
   def favourites_account_ids
-    @status.favourites.pluck(:account_id)
+    @status.favourites.pluck(:account_id) if distributable? || unsafe?
   end
 
   def replies_account_ids
-    @status.replies.pluck(:account_id)
+    @status.replies.pluck(:account_id) if distributable? || unsafe?
   end
 
   def followers_inboxes
-    if @status.in_reply_to_local_account? && @status.distributable?
+    return [] if (@status.direct_visibility? || @status.limited_visibility?) && !unsafe?
+
+    if @status.in_reply_to_local_account? && distributable?
       @status.account.delivery_followers.or(@status.thread.account.delivery_followers).inboxes
     else
       @status.account.delivery_followers.inboxes
@@ -75,5 +89,13 @@ class StatusReachFinder
     else
       []
     end
+  end
+
+  def distributable?
+    @status.distributable?
+  end
+
+  def unsafe?
+    @unsafe
   end
 end

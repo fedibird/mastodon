@@ -5,6 +5,7 @@ describe('streaming custom-filter query', () => {
   const source = fs.readFileSync(path.join(__dirname, '../../../../../streaming/index.js'), 'utf8');
   const filtering = fs.readFileSync(path.join(__dirname, '../../../../../streaming/filtering.js'), 'utf8');
   const webUiStreaming = fs.readFileSync(path.join(__dirname, '../streaming.js'), 'utf8');
+  const statuses = fs.readFileSync(path.join(__dirname, '../statuses.js'), 'utf8');
 
   it('scopes expiration checks to the current account', () => {
     expect(source).toContain(
@@ -49,6 +50,26 @@ describe('streaming custom-filter query', () => {
     expect(source).toContain('payload.filtered = filteredResultsForStatus(unpackedPayload, req.cachedFilters)');
     expect(source).toMatch(/transmit\(\);/);
     expect(source).not.toMatch(/filter_action === 'hide'[\s\S]{0,80}return;/);
+  });
+
+  it('filters status.update through the same custom-filter path as update', () => {
+    const guard = 'if (!needsFiltering || (event !== \'update\' && event !== \'status.update\'))';
+    const filterCall = 'payload.filtered = filteredResultsForStatus(unpackedPayload, req.cachedFilters)';
+
+    expect(source).toContain(guard);
+    expect(source.indexOf(filterCall)).toBeGreaterThan(source.indexOf(guard));
+    expect(filtering).toContain('const searchIndexFromStatus = (status) => {');
+    expect(filtering).toContain('const STREAMING_SEARCHABLE_TEXT_KEY = \'_fedibird_searchable_text\'');
+    expect(filtering).toContain('return status[STREAMING_SEARCHABLE_TEXT_KEY]');
+    expect(filtering).toContain('const filteredResultsForStatus = (status, cachedFilters, now = new Date()) => {');
+    expect(filtering).toContain('const searchIndex = searchIndexFromStatus(status)');
+  });
+
+  it('imports an edited status when the Web UI receives status.update', () => {
+    expect(statuses).toContain('export const updateStatus = status => dispatch => dispatch(importFetchedStatus(status));');
+    expect(webUiStreaming).toContain('import { updateStatus } from \'./statuses\'');
+    expect(webUiStreaming).toContain('case \'status.update\':');
+    expect(webUiStreaming).toContain('dispatch(updateStatus(JSON.parse(data.payload)));');
   });
 
   it('strips the internal searchable text at the transmit boundary', () => {

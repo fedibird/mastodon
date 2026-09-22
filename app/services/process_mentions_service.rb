@@ -8,10 +8,14 @@ class ProcessMentionsService < BaseService
   # remote users
   # @param [Status] status
   # @param [Circle] circle
-  def call(status, circle = nil)
+  # @param [Boolean] edit Reuse explicit mentions and silence removed ones.
+  #   Circle and limited audiences are not rebuilt during an edit.
+  def call(status, circle = nil, edit: false)
     return unless status.local?
 
-    @status  = status
+    @status = status
+    return process_edit! if edit
+
     mentions = []
 
     status.text = status.text.gsub(Account::MENTION_RE) do |match|
@@ -70,6 +74,13 @@ class ProcessMentionsService < BaseService
     mentions.each { |mention| create_notification(mention) }
   end
 
+  # Enqueue mention notifications and remote Create activities. Edit
+  # processing returns the new rows and lets the caller invoke this only
+  # after the surrounding transaction commits.
+  def deliver_mention_notifications(mentions)
+    Array(mentions).each { |mention| create_notification(mention) }
+  end
+
   private
 
   # Record explicit (non-silent) mentions as interaction signals. A mention
@@ -88,22 +99,79 @@ class ProcessMentionsService < BaseService
     end
   end
 
+  # Explicit mentions already stored are reused. Mentions dropped from the
+  # text become silent instead of being deleted, and circle or limited
+  # silent audiences are left in place. Moderation and notifications run
+  # only for mention rows created by this edit.
+  def process_edit!
+    existing = @status.mentions.includes(:account).to_a
+    current  = []
+    introduced = []
+
+    @status.text = @status.text.to_s.gsub(Account::MENTION_RE) do |match|
+      username, domain = Regexp.last_match(1).split('@')
+
+      domain = if TagManager.instance.local_domain?(domain)
+                 nil
+               else
+                 TagManager.instance.normalize_domain(domain)
+               end
+
+      mentioned_account = Account.find_remote(username, domain)
+
+      if mention_undeliverable?(mentioned_account)
+        begin
+          mentioned_account = resolve_account_service.call(Regexp.last_match(1))
+        rescue Webfinger::Error, HTTP::Error, OpenSSL::SSL::SSLError, Mastodon::UnexpectedResponseError
+          mentioned_account = nil
+        end
+      end
+
+      next match if mention_undeliverable?(mentioned_account) || mentioned_account&.suspended?
+
+      mention = current.find { |item| item.account_id == mentioned_account.id }
+      mention ||= existing.find { |item| item.account_id == mentioned_account.id }
+      mention ||= mentioned_account.mentions.new(status: @status)
+      mention.silent = false
+      current << mention unless current.include?(mention)
+
+      "@#{mentioned_account.acct}"
+    end
+
+    current.each do |mention|
+      if mention.new_record?
+        introduced << mention if mention.save
+      elsif mention.changed?
+        mention.save!
+      end
+    end
+
+    removed = existing.select { |mention| !mention.silent? && !current.include?(mention) }
+    Mention.where(id: removed.map(&:id)).update_all(silent: true) if removed.any?
+
+    @status.save!
+
+    record_moderation_mentions!(introduced)
+    introduced
+  end
+
   def mention_undeliverable?(mentioned_account)
     mentioned_account.nil? || (!mentioned_account.local? && mentioned_account.ostatus?)
   end
 
   def create_notification(mention)
     mentioned_account = mention.account
+    status            = mention.status || @status
 
     if mentioned_account.local? && mentioned_account.group?
       group      = mentioned_account
-      visibility = Status.visibilities.key([Status.visibilities[@status.visibility], Status.visibilities[group.user&.setting_default_privacy]].max)
+      visibility = Status.visibilities.key([Status.visibilities[status.visibility], Status.visibilities[group.user&.setting_default_privacy]].max)
 
-      ReblogService.new.call(group, @status, { visibility: visibility })
+      ReblogService.new.call(group, status, { visibility: visibility })
     elsif mentioned_account.local?
       LocalNotificationWorker.perform_async(mentioned_account.id, mention.id, mention.class.name, 'mention')
     elsif mentioned_account.activitypub?
-      ActivityPub::DeliveryWorker.perform_async(activitypub_json(node_software_name(mentioned_account.inbox_url)), mention.status.account_id, mentioned_account.inbox_url, { 'synchronize_followers' => !mention.status.distributable? })
+      ActivityPub::DeliveryWorker.perform_async(activitypub_json(node_software_name(mentioned_account.inbox_url), status), status.account_id, mentioned_account.inbox_url, { 'synchronize_followers' => !status.distributable? })
     end
   end
 
@@ -111,10 +179,10 @@ class ProcessMentionsService < BaseService
     Node.find_domain(Addressable::URI.parse(inbox_url).normalized_host.to_s.downcase)&.software_name
   end
 
-  def activitypub_json(software)
+  def activitypub_json(software, status = @status)
     @activitypub_json ||= {}
     software = '(general)' if software.blank?
-    @activitypub_json[software] ||= Oj.dump(serialize_payload(ActivityPub::ActivityPresenter.from_status(@status), ActivityPub::ActivitySerializer, signer: @status.account, software: software))
+    @activitypub_json[software] ||= Oj.dump(serialize_payload(ActivityPub::ActivityPresenter.from_status(status), ActivityPub::ActivitySerializer, signer: status.account, software: software))
   end
 
   def resolve_account_service

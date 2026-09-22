@@ -70,6 +70,13 @@ class Poll < ApplicationRecord
     @emojis ||= CustomEmoji.from_text(options.join(' '), account.domain)
   end
 
+  def reset_votes!
+    votes.delete_all if persisted?
+    self.voters_count = 0
+    self.votes_count = 0
+    self.cached_tallies = Array.new(options.size) { 0 }
+  end
+
   class Option < ActiveModelSerializers::Model
     attributes :id, :title, :votes_count, :poll
 

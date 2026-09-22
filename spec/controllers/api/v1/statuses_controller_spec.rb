@@ -129,6 +129,95 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
       end
     end
 
+    describe 'PUT #update' do # rubocop:disable Metrics/BlockLength
+      let(:scopes) { 'write:statuses' }
+      let(:status) { Fabricate(:status, account: user.account, text: 'original', visibility: :unlisted, searchability: :private) }
+
+      before do
+        allow(DistributionWorker).to receive(:perform_async)
+        allow(ActivityPub::StatusUpdateDistributionWorker).to receive(:perform_async)
+        allow(LinkCrawlWorker).to receive(:perform_async)
+      end
+
+      it 'returns the edited status and edited_at without replacing updated_at' do
+        put :update, params: { id: status.id, status: 'edited text', spoiler_text: 'cw', sensitive: true, language: 'en' }
+
+        expect(response).to have_http_status(200)
+        expect(body_as_json[:content]).to include('edited text')
+        expect(body_as_json[:spoiler_text]).to eq 'cw'
+        expect(body_as_json[:sensitive]).to be true
+        expect(body_as_json[:language]).to eq 'en'
+        expect(body_as_json[:edited_at]).to be_present
+        expect(body_as_json).to have_key(:updated_at)
+        expect(body_as_json[:visibility]).to eq 'unlisted'
+      end
+
+      it 'ignores quote, visibility, searchability, and expiry parameters' do
+        quoted = Fabricate(:status, visibility: :public)
+        status.update!(quote_id: quoted.id)
+        expire = StatusExpire.create!(status: status, expires_at: 3.days.from_now.change(usec: 0), action: :delete)
+
+        put :update, params: {
+          id: status.id,
+          status: 'edited text',
+          visibility: 'public',
+          quote_id: Fabricate(:status).id,
+          searchability: 'public',
+          circle_id: 12,
+          expires_in: 60,
+        }
+
+        status.reload
+        expect(response).to have_http_status(200)
+        expect(status.quote_id).to eq quoted.id
+        expect(status.visibility).to eq 'unlisted'
+        expect(status.searchability).to eq 'private'
+        expect(expire.reload.action).to eq 'delete'
+        expect(body_as_json[:quote_id]).to eq quoted.id.to_s
+      end
+
+      it 'returns http not found for another account' do
+        other = Fabricate(:status, text: 'theirs')
+
+        put :update, params: { id: other.id, status: 'nope' }
+
+        expect(response).to have_http_status(404)
+        expect(other.reload.text).to eq 'theirs'
+      end
+
+      it 'returns the same status when the edit is a no-op' do
+        put :update, params: { id: status.id, status: 'original' }
+
+        expect(response).to have_http_status(200)
+        expect(body_as_json[:edited_at]).to be_nil
+        expect(status.reload.edits).to be_empty
+      end
+
+      it 'rejects the edit while posting is disabled' do
+        user.settings.disable_post = true
+
+        put :update, params: { id: status.id, status: 'edited text' }
+
+        expect(response).to have_http_status(403)
+        expect(status.reload.text).to eq 'original'
+        expect(status.edited_at).to be_nil
+        expect(status.edits).to be_empty
+        expect(DistributionWorker).not_to have_received(:perform_async)
+        expect(ActivityPub::StatusUpdateDistributionWorker).not_to have_received(:perform_async)
+      end
+
+      context 'with a read scope' do
+        let(:scopes) { 'read:statuses' }
+
+        it 'returns http forbidden' do
+          put :update, params: { id: status.id, status: 'edited text' }
+
+          expect(response).to have_http_status(403)
+          expect(status.reload.text).to eq 'original'
+        end
+      end
+    end
+
     describe 'DELETE #destroy' do
       let(:scopes) { 'write:statuses' }
       let(:status) { Fabricate(:status, account: user.account) }

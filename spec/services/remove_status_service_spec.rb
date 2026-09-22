@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
-RSpec.describe RemoveStatusService, type: :service do
+RSpec.describe RemoveStatusService, type: :service do # rubocop:disable Metrics/BlockLength
   subject { RemoveStatusService.new }
 
   let!(:alice)  { Fabricate(:account, user: Fabricate(:user)) }
@@ -47,6 +49,21 @@ RSpec.describe RemoveStatusService, type: :service do
     }.from(1).to(0)
   end
 
+  it 'keeps delivering a direct delete to followers and mentioned remote accounts' do
+    mentioned = Fabricate(:account, protocol: :activitypub, username: 'directbob', domain: 'direct.example', inbox_url: 'http://direct.example/inbox')
+    follower = Fabricate(:account, protocol: :activitypub, username: 'directfan', domain: 'fan.example', inbox_url: 'http://fan.example/inbox')
+    follower.follow!(alice)
+    direct = Fabricate(:status, account: alice, visibility: :direct, text: 'secret')
+    direct.mentions.create!(account: mentioned)
+
+    captured = []
+    allow(ActivityPub::DeliveryWorker).to receive(:push_bulk) { |inboxes| captured.concat(Array(inboxes)) }
+
+    subject.call(direct)
+
+    expect(captured).to include('http://direct.example/inbox', 'http://fan.example/inbox')
+  end
+
   context 'when removed status is a reblog of a non-follower' do
     let!(:original_status) { Fabricate(:status, account: bill, text: 'Hello ThisIsASecret', visibility: :public) }
     let!(:status) { ReblogService.new.call(alice, original_status) }
@@ -55,12 +72,12 @@ RSpec.describe RemoveStatusService, type: :service do
       subject.call(status)
       expect(a_request(:post, bill.inbox_url).with(
                body: hash_including({
-                 'type' => 'Undo',
+                                      'type' => 'Undo',
                  'object' => hash_including({
-                   'type' => 'Announce',
+                                              'type' => 'Announce',
                    'object' => ActivityPub::TagManager.instance.uri_for(original_status),
-                 }),
-               })
+                                            }),
+                                    })
              )).to have_been_made.once
     end
   end

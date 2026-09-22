@@ -5,6 +5,12 @@ class PollExpirationNotifyWorker
 
   sidekiq_options lock: :until_executed
 
+  def self.remove_from_scheduled(poll_id)
+    Sidekiq::ScheduledSet.new.scan(name).each do |job|
+      job.delete if job.klass == name && job.args.first == poll_id
+    end
+  end
+
   def perform(poll_id)
     poll = Poll.find(poll_id)
 

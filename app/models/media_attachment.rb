@@ -272,6 +272,11 @@ class MediaAttachment < ApplicationRecord
     audio? || video?
   end
 
+  def significantly_changed?
+    changed_keys = previous_changes.keys
+    changed_keys.include?('description') || changed_keys.include?('file_meta') || changed_keys.any? { |key| key.start_with?('thumbnail_') }
+  end
+
   def to_param
     shortcode.presence || id&.to_s
   end

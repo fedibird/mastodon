@@ -25,7 +25,7 @@ module Admin
     end
 
     def create
-      authorize :status, :update?
+      authorize :status, :moderate?
 
       @form         = Form::StatusBatch.new(form_status_batch_params.merge(current_account: current_account, action: action_from_button))
       flash[:alert] = I18n.t('admin.statuses.failed_to_execute') unless @form.save

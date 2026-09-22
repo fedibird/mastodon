@@ -14,6 +14,7 @@ class ActivityPub::NoteSerializer < ActivityPub::Serializer
   attribute :misskey_quote, key: :_misskey_quote, if: -> { object.quote? }
   attribute :content
   attribute :content_map, if: :language?
+  attribute :updated, if: :edited?
 
   attribute :expiry, if: :has_expiry?
 
@@ -112,6 +113,12 @@ class ActivityPub::NoteSerializer < ActivityPub::Serializer
 
   def published
     object.created_at.iso8601
+  end
+
+  delegate :edited?, to: :object
+
+  def updated
+    object.edited_at.iso8601
   end
 
   def has_expiry?
