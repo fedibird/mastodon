@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe KeywordSubscribe::MatchingText do
+RSpec.describe KeywordSubscribe::MatchingText do # rubocop:disable Metrics/BlockLength
   let(:author) { Fabricate(:account, domain: nil, username: 'author') }
 
   def status_with(text, tags: [])
