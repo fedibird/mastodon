@@ -68,6 +68,7 @@
         %tr
           %th= t('migrations.acct')
           %th= t('migrations.followers_count')
+          %th= t('migrations.workflow')
           %th
       %tbody
         - @migrations.each do |migration|
@@ -79,6 +80,8 @@
                 = migration.acct
 
             %td= number_with_delimiter migration.followers_count
+
+            %td= account_migration_workflow_label(migration)
 
             %td
               %time.time-ago{ datetime: migration.created_at.iso8601, title: l(migration.created_at) }= l(migration.created_at)

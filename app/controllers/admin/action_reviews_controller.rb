@@ -12,6 +12,7 @@ module Admin
 
     def show
       authorize @action_review_request, :show?
+      @account_migration_current_metrics = current_migration_metrics
     end
 
     def approve
@@ -55,8 +56,24 @@ module Admin
         return I18n.t("admin.action_reviews.#{key}")
       end
 
+      if @action_review_request.operation_type == 'account_migration'
+        key = verb == 'approve' ? 'migration_approved_msg' : 'migration_stopped_msg'
+        return I18n.t("admin.action_reviews.#{key}")
+      end
+
       key = verb == 'approve' ? 'approved_msg' : 'stopped_msg'
       I18n.t("admin.action_reviews.#{key}")
+    end
+
+    # Fresh read for a pending migration only. Not written back onto the request.
+    def current_migration_metrics
+      request = @action_review_request
+      return unless request.operation_type == 'account_migration' && request.pending_state?
+
+      migration = request.resource
+      return unless migration.is_a?(AccountMigration) && migration.account.present?
+
+      AccountMigration::ReviewMetricsService.new.call(migration.account, as_of: Time.now.utc)
     end
   end
 end

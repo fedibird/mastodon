@@ -57,6 +57,9 @@
 - if @action_review_request.operation_type == 'invite_creation'
   = render 'invite_creation', request: @action_review_request
 
+- if @action_review_request.operation_type == 'account_migration'
+  = render 'account_migration', request: @action_review_request, current_metrics: @account_migration_current_metrics
+
 - if action_review_decision_controls?(@action_review_request)
   %hr.spacer/
   = form_tag approve_admin_action_review_path(@action_review_request), method: :post do
@@ -64,7 +67,7 @@
       = label_tag :decision_note, t('admin.action_reviews.decision_note')
       = text_area_tag :decision_note, nil, rows: 3
     .actions
-      = button_tag t('admin.action_reviews.approve_and_run'), type: 'submit', class: 'button'
+      = button_tag action_review_approve_label(@action_review_request), type: 'submit', class: 'button'
       = button_tag t('admin.action_reviews.stop'), type: 'submit', class: 'button button--destructive', formaction: reject_admin_action_review_path(@action_review_request), data: { confirm: action_review_stop_confirm(@action_review_request) }
 - elsif action_review_decision_warning?(@action_review_request)
   %p.hint= action_review_decision_warning_text(@action_review_request)

@@ -1,0 +1,14 @@
+- windows = AccountMigration::ReviewMetricsService::WINDOWS.keys
+.table-wrapper
+  %table.table.inline-table
+    %thead
+      %tr
+        %th
+        - windows.each do |window|
+          %th= t("admin.action_reviews.account_migration.windows.#{window}")
+    %tbody
+      - %w(follows unique_follow_targets returned_follows_after_outgoing returned_follow_rate follow_import_batches follow_import_unique_resolved_targets follow_import_returned_follows follow_import_returned_follow_rate qualified_negative_events qualified_unique_negative_responders follow_rejects_received blocks_received reports_received new_targets_after_first_negative_signal follows_after_first_negative_signal contacts_total unique_targets).each do |key|
+        %tr
+          %th= t("admin.action_reviews.account_migration.metrics.#{key}")
+          - windows.each do |window|
+            %td= action_review_migration_metric_value(metrics, window, key)

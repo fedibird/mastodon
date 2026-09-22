@@ -12,11 +12,17 @@ class Settings::MigrationsController < Settings::BaseController
   end
 
   def create
-    @migration = current_account.migrations.build(resource_params)
+    result = AccountMigration::CreateService.new.call(
+      account: current_account,
+      user: current_user,
+      attributes: resource_params
+    )
+    @migration = result.migration
 
-    if @migration.save_with_challenge(current_user)
-      MoveService.new.call(@migration)
+    if result.moved?
       redirect_to settings_migration_path, notice: I18n.t('migrations.moved_msg', acct: current_account.moved_to_account.acct)
+    elsif result.pending_review?
+      redirect_to settings_migration_path, notice: I18n.t('migrations.pending_review')
     else
       render :show
     end
@@ -32,6 +38,7 @@ class Settings::MigrationsController < Settings::BaseController
 
   def set_migrations
     @migrations = current_account.migrations.includes(:target_account).order(id: :desc).reject(&:new_record?)
+    @migration_reviews = AccountMigration::ReviewLookup.for_migrations(@migrations)
   end
 
   def set_cooldown

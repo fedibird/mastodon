@@ -1,0 +1,73 @@
+- migration = request.resource if request.resource.is_a?(AccountMigration)
+- evidence = request.evidence.is_a?(Hash) ? request.evidence : {}
+- metrics = evidence['metrics'].is_a?(Hash) ? evidence['metrics'] : {}
+- source = migration&.account
+- target = migration&.target_account
+
+%h3= t('admin.action_reviews.account_migration.title')
+%p.hint= t('admin.action_reviews.account_migration.caveat')
+
+.table-wrapper
+  %table.table.inline-table
+    %tbody
+      %tr
+        %th= t('admin.action_reviews.account_migration.source_account')
+        %td
+          - if source
+            = link_to source.acct, admin_account_path(source)
+          - else
+            = t('admin.action_reviews.account_unavailable')
+      %tr
+        %th= t('admin.action_reviews.account_migration.target_account')
+        %td
+          - if target
+            = link_to target.acct, admin_account_path(target)
+          - else
+            = evidence['target_acct'].presence || t('admin.action_reviews.account_unavailable')
+      %tr
+        %th= t('admin.action_reviews.account_migration.followers_at_request')
+        %td= evidence['followers_count_at_request']
+      %tr
+        %th= t('admin.action_reviews.account_migration.target_local')
+        %td= t(evidence['target_account_local'] ? 'admin.action_reviews.account_migration.yes' : 'admin.action_reviews.account_migration.no')
+      %tr
+        %th= t('admin.action_reviews.account_migration.source_moved')
+        %td
+          - if source&.moved_to_account
+            = source.moved_to_account.acct
+          - else
+            = t('admin.action_reviews.account_migration.not_moved')
+      %tr
+        %th= t('admin.action_reviews.account_migration.status')
+        %td= action_review_migration_status(request, migration)
+      %tr
+        %th= t('admin.action_reviews.account_migration.followers_now')
+        %td= metrics['followers_count']
+      %tr
+        %th= t('admin.action_reviews.account_migration.following_count')
+        %td= metrics['following_count']
+      %tr
+        %th= t('admin.action_reviews.account_migration.statuses_count')
+        %td= metrics['statuses_count']
+      %tr
+        %th= t('admin.action_reviews.account_migration.account_age')
+        %td= metrics['account_age_seconds']
+      %tr
+        %th= t('admin.action_reviews.account_migration.latest_import')
+        %td= formatted_browser_local_time(metrics.dig('follow_import_context', 'latest_import_at')) || t('admin.action_reviews.none')
+      %tr
+        %th= t('admin.action_reviews.account_migration.import_targets')
+        %td= number_with_delimiter(metrics.dig('follow_import_context', 'target_total').to_i)
+      %tr
+        %th= t('admin.action_reviews.account_migration.import_unresolved')
+        %td= number_with_delimiter(metrics.dig('follow_import_context', 'unresolved_target_total').to_i)
+
+%h4= t('admin.action_reviews.account_migration.request_snapshot')
+= render 'account_migration_metrics', metrics: metrics
+
+- if current_metrics.present?
+  %h4= t('admin.action_reviews.account_migration.current_observation')
+  %p
+    = t('admin.action_reviews.account_migration.generated_at')
+    = formatted_browser_local_time(current_metrics['generated_at'])
+  = render 'account_migration_metrics', metrics: current_metrics
