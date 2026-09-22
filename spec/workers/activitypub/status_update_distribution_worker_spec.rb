@@ -86,29 +86,75 @@ describe ActivityPub::StatusUpdateDistributionWorker do # rubocop:disable Metric
     expect(inboxes).not_to include('http://example.com/inbox')
   end
 
-  it 'omits inboxes that already received a Create for a newly introduced mention' do
-    introduced = Fabricate(:account, protocol: :activitypub, inbox_url: 'http://mentioned.example/users/mentioned/inbox', shared_inbox_url: 'http://mentioned.example/inbox', domain: 'mentioned.example', username: 'mentioned')
-    other = Fabricate(:account, protocol: :activitypub, inbox_url: 'http://other.example/inbox', domain: 'other.example', username: 'otherfan')
+  it 'does not deliver an Update when a new mention is the only reach on that server' do
+    introduced = Fabricate(:account, protocol: :activitypub, inbox_url: 'http://only-mention.example/users/bob/inbox', shared_inbox_url: 'http://only-mention.example/inbox', domain: 'only-mention.example', username: 'bob')
     status.mentions.create!(account: introduced)
-    other.follow!(status.account)
 
-    subject.perform(status.id, 'exclude_inboxes' => [introduced.inbox_url, introduced.shared_inbox_url])
+    subject.perform(status.id, 'exclude_reached_account_ids' => [introduced.id])
 
     inboxes = payloads.map { |row| row[2] }
     expect(inboxes).to include('http://example.com/inbox')
-    expect(inboxes).to include('http://other.example/inbox')
     expect(inboxes).not_to include(introduced.inbox_url)
     expect(inboxes).not_to include(introduced.shared_inbox_url)
   end
 
-  it 'does not delegate an Update to an inbox excluded for this edit' do
-    conversation = Fabricate(:conversation, uri: 'https://parent.example/456', inbox_url: 'https://parent.example/inbox')
-    parent = Fabricate(:status, visibility: :limited, account: Fabricate(:account, protocol: :activitypub, username: 'parent2', domain: 'parent.example', inbox_url: 'https://parent.example/users/inbox'), conversation: conversation)
+  it 'delivers an Update to a shared inbox that an existing follower still uses' do
+    shared = 'http://server-x.example/inbox'
+    introduced = Fabricate(:account, protocol: :activitypub, inbox_url: 'http://server-x.example/users/bob/inbox', shared_inbox_url: shared, domain: 'server-x.example', username: 'bob')
+    follower_on_server = Fabricate(:account, protocol: :activitypub, inbox_url: 'http://server-x.example/users/alice/inbox', shared_inbox_url: shared, domain: 'server-x.example', username: 'alice')
+    status.mentions.create!(account: introduced)
+    follower_on_server.follow!(status.account)
+
+    subject.perform(status.id, 'exclude_reached_account_ids' => [introduced.id])
+
+    delivered = payloads.select { |row| row[2] == shared }
+    expect(delivered).not_to be_empty
+    json = Oj.load(delivered.first.first)
+    expect(json['type']).to eq 'Update'
+    expect(json['object']['id']).to eq ActivityPub::TagManager.instance.uri_for(status)
+    expect(payloads.map { |row| row[2] }).not_to include(introduced.inbox_url)
+  end
+
+  it 'delivers an Update when the new mention account is also an existing follower' do
+    shared = 'http://follower-mention.example/inbox'
+    introduced = Fabricate(:account, protocol: :activitypub, inbox_url: 'http://follower-mention.example/users/bob/inbox', shared_inbox_url: shared, domain: 'follower-mention.example', username: 'bob')
+    status.mentions.create!(account: introduced)
+    introduced.follow!(status.account)
+
+    subject.perform(status.id, 'exclude_reached_account_ids' => [introduced.id])
+
+    expect(payloads.map { |row| row[2] }).to include(shared)
+  end
+
+  it 'delivers an Update to a shared inbox that an existing favouriter still uses' do
+    shared = 'http://favour.example/inbox'
+    introduced = Fabricate(:account, protocol: :activitypub, inbox_url: 'http://favour.example/users/bob/inbox', shared_inbox_url: shared, domain: 'favour.example', username: 'bob')
+    favouriter = Fabricate(:account, protocol: :activitypub, inbox_url: 'http://favour.example/users/carol/inbox', shared_inbox_url: shared, domain: 'favour.example', username: 'carol')
+    status.mentions.create!(account: introduced)
+    Favourite.create!(account: favouriter, status: status)
+
+    subject.perform(status.id, 'exclude_reached_account_ids' => [introduced.id])
+
+    expect(payloads.map { |row| row[2] }).to include(shared)
+    expect(payloads.map { |row| row[2] }).not_to include(introduced.inbox_url)
+  end
+
+  it 'delegates a limited reply Update when the parent inbox matches the new mention shared inbox' do
+    shared = 'https://parent.example/shared-inbox'
+    conversation = Fabricate(:conversation, uri: 'https://parent.example/456', inbox_url: shared)
+    parent_account = Fabricate(:account, protocol: :activitypub, username: 'parent2', domain: 'parent.example', inbox_url: 'https://parent.example/users/parent/inbox', shared_inbox_url: shared)
+    parent = Fabricate(:status, visibility: :limited, account: parent_account, conversation: conversation)
+    introduced = Fabricate(:account, protocol: :activitypub, username: 'bob', domain: 'parent.example', inbox_url: 'https://parent.example/users/bob/inbox', shared_inbox_url: shared)
+    status.mentions.create!(account: introduced)
     status.update!(visibility: :limited, thread: parent, conversation: conversation)
 
-    subject.perform(status.id, 'exclude_inboxes' => ['https://parent.example/inbox'])
+    subject.perform(status.id, 'exclude_reached_account_ids' => [introduced.id])
 
-    expect(ActivityPub::DeliveryWorker).not_to have_received(:perform_async)
+    expect(ActivityPub::DeliveryWorker).to have_received(:perform_async).with(
+      satisfy { |json| Oj.load(json)['type'] == 'Update' },
+      status.account_id,
+      shared
+    )
     expect(ActivityPub::DeliveryWorker).not_to have_received(:push_bulk)
   end
 

@@ -31,22 +31,11 @@ class ActivityPub::StatusUpdateDistributionWorker < ActivityPub::DistributionWor
     false
   end
 
-  def deliver_to_parent!
-    inbox_url = @status.conversation&.inbox_url
-    return if inbox_url.present? && excluded_inboxes.include?(inbox_url)
-
-    super
-  end
-
   def inboxes
-    @inboxes ||= StatusReachFinder.new(@status).inboxes - excluded_inboxes
-  end
-
-  # Inboxes that already received a Create for a remote mention introduced
-  # by this edit. Personal and shared inboxes are both listed so the same
-  # server is not offered the Create and the Update.
-  def excluded_inboxes
-    @excluded_inboxes ||= Array(@options[:exclude_inboxes]).map(&:to_s)
+    @inboxes ||= StatusReachFinder.new(
+      @status,
+      exclude_reached_account_ids: @options[:exclude_reached_account_ids]
+    ).inboxes
   end
 
   def payload(software)
