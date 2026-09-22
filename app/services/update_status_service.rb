@@ -21,16 +21,22 @@ class UpdateStatusService < BaseService
     @account_id                = account_id
     @media_attachments_changed = false
     @poll_changed              = false
+    @poll_votes_invalidated    = false
+    @introduced_mentions       = []
+    @text_changed              = false
+    original_text              = @status.text.to_s
 
     Status.transaction do
       create_previous_edit!
-      update_media_attachments! if @options.key?(:media_ids)
+      update_media_attachments! if @options.key?(:media_ids) || @options.key?(:media_attributes)
       update_poll! if @options.key?(:poll)
       update_immediate_attributes!
       update_metadata!
       create_edit!
+      @text_changed = @status.text.to_s != original_text
     end
 
+    ProcessMentionsService.new.deliver_mention_notifications(@introduced_mentions)
     queue_poll_notifications!
     reset_preview_card!
     broadcast_updates!
@@ -44,8 +50,7 @@ class UpdateStatusService < BaseService
 
   def update_media_attachments!
     previous_media_attachments = @status.ordered_media_attachments.to_a
-    next_media_attachments     = validate_media!
-    added_media_attachments    = next_media_attachments - previous_media_attachments
+    next_media_attachments     = @options.key?(:media_ids) ? validate_media! : previous_media_attachments
 
     Array(@options[:media_attributes]).each do |attributes|
       attrs = media_attribute_hash(attributes)
@@ -56,6 +61,9 @@ class UpdateStatusService < BaseService
       @media_attachments_changed ||= media.significantly_changed?
     end
 
+    return unless @options.key?(:media_ids)
+
+    added_media_attachments = next_media_attachments - previous_media_attachments
     MediaAttachment.where(id: added_media_attachments.map(&:id)).update_all(status_id: @status.id)
 
     @status.ordered_media_attachment_ids = Array(@options[:media_ids]).map(&:to_i) & next_media_attachments.map(&:id)
@@ -107,13 +115,19 @@ class UpdateStatusService < BaseService
       next_options  = poll_attributes.key?(:options) ? Array(poll_attributes[:options]) : poll.options
       next_multiple = poll_attributes.key?(:multiple) ? ActiveModel::Type::Boolean.new.cast(poll_attributes[:multiple]) : poll.multiple
 
-      @poll_changed = true if next_options != poll.options || next_multiple != poll.multiple
+      @poll_votes_invalidated = next_options != poll.options || next_multiple != poll.multiple
+      @poll_changed = true if @poll_votes_invalidated
+
+      if poll_attributes.key?(:hide_totals)
+        next_hide_totals = ActiveModel::Type::Boolean.new.cast(poll_attributes[:hide_totals]) || false
+        @poll_changed = true if next_hide_totals != poll.hide_totals
+        poll.hide_totals = next_hide_totals
+      end
 
       poll.options     = next_options
-      poll.hide_totals = ActiveModel::Type::Boolean.new.cast(poll_attributes[:hide_totals]) || false if poll_attributes.key?(:hide_totals)
       poll.multiple    = next_multiple
       poll.expires_in  = poll_attributes[:expires_in] if poll_attributes.key?(:expires_in)
-      poll.reset_votes! if @poll_changed
+      poll.reset_votes! if @poll_votes_invalidated
       poll.save!
 
       @status.poll_id = poll.id
@@ -179,14 +193,18 @@ class UpdateStatusService < BaseService
   end
 
   def reset_preview_card!
-    return unless @status.text_previously_changed?
+    return unless @text_changed
 
     @status.preview_cards.clear
     LinkCrawlWorker.perform_async(@status.id)
   end
 
   def update_metadata!
-    ProcessMentionsService.new.call(@status, nil, edit: true) unless @status.personal_visibility?
+    @introduced_mentions = if @status.personal_visibility?
+                             []
+                           else
+                             ProcessMentionsService.new.call(@status, nil, edit: true)
+                           end
     ProcessHashtagsService.new.call(@status, [], replace: true)
   end
 
@@ -201,6 +219,8 @@ class UpdateStatusService < BaseService
   end
 
   def queue_poll_notifications!
+    return unless @options.key?(:poll)
+
     poll = @status.preloadable_poll
 
     return unless poll.present? && poll.expires_at.present? && @previous_expires_at != poll.expires_at

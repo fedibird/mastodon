@@ -21,7 +21,17 @@ class ActivityPub::StatusUpdateDistributionWorker < ActivityPub::DistributionWor
   private
 
   def skip_distribution?
-    @status.direct_visibility? || @status.personal_visibility?
+    @status.personal_visibility?
+  end
+
+  # StatusReachFinder already includes public relays. A second relay
+  # pass would deliver the same Update twice.
+  def relayable?
+    false
+  end
+
+  def inboxes
+    @inboxes ||= StatusReachFinder.new(@status).inboxes
   end
 
   def payload(software)

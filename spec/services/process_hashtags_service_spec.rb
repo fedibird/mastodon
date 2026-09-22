@@ -30,4 +30,28 @@ RSpec.describe ProcessHashtagsService, type: :service do
     expect(status.status_expire.expires_at).to be_within(1.second).of(expires_at)
     expect(status.status_expire.action).to eq 'mark'
   end
+
+  it 'does not create an expiry when an edit adds a time-limit hashtag' do
+    status = Fabricate(:status, account: account, text: 'hello #kept')
+    described_class.new.call(status)
+    expect(status.status_expire).to be_nil
+
+    status.update!(text: 'hello #kept #exp1h')
+    described_class.new.call(status, [], replace: true)
+
+    expect(status.reload.tags.pluck(:name)).to include('exp1h')
+    expect(status.status_expire).to be_nil
+  end
+
+  it 'does not change expires_at when an edit swaps the time-limit hashtag' do
+    status = Fabricate(:status, account: account, text: 'hello #exp1h')
+    described_class.new.call(status)
+    expires_at = status.status_expire.expires_at
+
+    status.update!(text: 'hello #exp10m')
+    described_class.new.call(status, [], replace: true)
+
+    expect(status.reload.tags.pluck(:name)).to include('exp10m')
+    expect(status.status_expire.expires_at).to be_within(1.second).of(expires_at)
+  end
 end

@@ -193,6 +193,19 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
         expect(status.reload.edits).to be_empty
       end
 
+      it 'rejects the edit while posting is disabled' do
+        user.settings.disable_post = true
+
+        put :update, params: { id: status.id, status: 'edited text' }
+
+        expect(response).to have_http_status(403)
+        expect(status.reload.text).to eq 'original'
+        expect(status.edited_at).to be_nil
+        expect(status.edits).to be_empty
+        expect(DistributionWorker).not_to have_received(:perform_async)
+        expect(ActivityPub::StatusUpdateDistributionWorker).not_to have_received(:perform_async)
+      end
+
       context 'with a read scope' do
         let(:scopes) { 'read:statuses' }
 

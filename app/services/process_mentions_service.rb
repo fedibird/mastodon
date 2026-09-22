@@ -74,6 +74,13 @@ class ProcessMentionsService < BaseService
     mentions.each { |mention| create_notification(mention) }
   end
 
+  # Enqueue mention notifications and remote Create activities. Edit
+  # processing returns the new rows and lets the caller invoke this only
+  # after the surrounding transaction commits.
+  def deliver_mention_notifications(mentions)
+    Array(mentions).each { |mention| create_notification(mention) }
+  end
+
   private
 
   # Record explicit (non-silent) mentions as interaction signals. A mention
@@ -145,7 +152,7 @@ class ProcessMentionsService < BaseService
     @status.save!
 
     record_moderation_mentions!(introduced)
-    introduced.each { |mention| create_notification(mention) }
+    introduced
   end
 
   def mention_undeliverable?(mentioned_account)
@@ -154,16 +161,17 @@ class ProcessMentionsService < BaseService
 
   def create_notification(mention)
     mentioned_account = mention.account
+    status            = mention.status || @status
 
     if mentioned_account.local? && mentioned_account.group?
       group      = mentioned_account
-      visibility = Status.visibilities.key([Status.visibilities[@status.visibility], Status.visibilities[group.user&.setting_default_privacy]].max)
+      visibility = Status.visibilities.key([Status.visibilities[status.visibility], Status.visibilities[group.user&.setting_default_privacy]].max)
 
-      ReblogService.new.call(group, @status, { visibility: visibility })
+      ReblogService.new.call(group, status, { visibility: visibility })
     elsif mentioned_account.local?
       LocalNotificationWorker.perform_async(mentioned_account.id, mention.id, mention.class.name, 'mention')
     elsif mentioned_account.activitypub?
-      ActivityPub::DeliveryWorker.perform_async(activitypub_json(node_software_name(mentioned_account.inbox_url)), mention.status.account_id, mentioned_account.inbox_url, { 'synchronize_followers' => !mention.status.distributable? })
+      ActivityPub::DeliveryWorker.perform_async(activitypub_json(node_software_name(mentioned_account.inbox_url), status), status.account_id, mentioned_account.inbox_url, { 'synchronize_followers' => !status.distributable? })
     end
   end
 
@@ -171,10 +179,10 @@ class ProcessMentionsService < BaseService
     Node.find_domain(Addressable::URI.parse(inbox_url).normalized_host.to_s.downcase)&.software_name
   end
 
-  def activitypub_json(software)
+  def activitypub_json(software, status = @status)
     @activitypub_json ||= {}
     software = '(general)' if software.blank?
-    @activitypub_json[software] ||= Oj.dump(serialize_payload(ActivityPub::ActivityPresenter.from_status(@status), ActivityPub::ActivitySerializer, signer: @status.account, software: software))
+    @activitypub_json[software] ||= Oj.dump(serialize_payload(ActivityPub::ActivityPresenter.from_status(status), ActivityPub::ActivitySerializer, signer: status.account, software: software))
   end
 
   def resolve_account_service

@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-describe ActivityPub::StatusUpdateDistributionWorker do
+describe ActivityPub::StatusUpdateDistributionWorker do # rubocop:disable Metrics/BlockLength
   subject { described_class.new }
 
   let(:status) { Fabricate(:status, text: 'edited body', visibility: :public) }
@@ -41,11 +41,59 @@ describe ActivityPub::StatusUpdateDistributionWorker do
     expect(ActivityPub::DeliveryWorker).not_to have_received(:push_bulk)
   end
 
-  it 'does not deliver a direct status' do
-    status.update!(visibility: :direct)
+  it 'delivers an Update to a mentioned remote account who does not follow' do
+    mentioned = Fabricate(:account, protocol: :activitypub, inbox_url: 'http://mentioned.example/inbox', domain: 'mentioned.example', username: 'mentioned')
+    status.mentions.create!(account: mentioned)
 
     subject.perform(status.id)
 
+    expect(payloads.map { |row| row[2] }).to include('http://mentioned.example/inbox')
+    json = Oj.load(payloads.find { |row| row[2] == 'http://mentioned.example/inbox' }.first)
+    expect(json['type']).to eq 'Update'
+  end
+
+  it 'delivers an Update to a remote favouriter' do
+    favouriter = Fabricate(:account, protocol: :activitypub, inbox_url: 'http://favouriter.example/inbox', domain: 'favouriter.example', username: 'favouriter')
+    Favourite.create!(account: favouriter, status: status)
+
+    subject.perform(status.id)
+
+    expect(payloads.map { |row| row[2] }).to include('http://favouriter.example/inbox')
+  end
+
+  it 'delivers a direct Update to the existing remote mention and not to an unrelated follower' do
+    mentioned = Fabricate(:account, protocol: :activitypub, inbox_url: 'http://direct-mention.example/inbox', domain: 'direct-mention.example', username: 'directmention')
+    status.update!(visibility: :direct)
+    status.mentions.create!(account: mentioned)
+
+    subject.perform(status.id)
+
+    inboxes = payloads.map { |row| row[2] }
+    expect(inboxes).to include('http://direct-mention.example/inbox')
+    expect(inboxes).not_to include('http://example.com/inbox')
+    expect(Oj.load(payloads.find { |row| row[2] == 'http://direct-mention.example/inbox' }.first)['type']).to eq 'Update'
+  end
+
+  it 'does not deliver a limited status to an unrelated follower' do
+    mentioned = Fabricate(:account, protocol: :activitypub, inbox_url: 'http://limited-mention.example/inbox', domain: 'limited-mention.example', username: 'limitedmention')
+    status.update!(visibility: :limited)
+    status.mentions.create!(account: mentioned, silent: true)
+
+    subject.perform(status.id)
+
+    inboxes = payloads.map { |row| row[2] }
+    expect(inboxes).to include('http://limited-mention.example/inbox')
+    expect(inboxes).not_to include('http://example.com/inbox')
+  end
+
+  it 'delegates a limited reply to the remote parent inbox' do
+    conversation = Fabricate(:conversation, uri: 'https://parent.example/123', inbox_url: 'https://parent.example/inbox')
+    parent = Fabricate(:status, visibility: :limited, account: Fabricate(:account, protocol: :activitypub, username: 'parent', domain: 'parent.example', inbox_url: 'https://parent.example/users/inbox'), conversation: conversation)
+    status.update!(visibility: :limited, thread: parent, conversation: conversation)
+
+    subject.perform(status.id)
+
+    expect(ActivityPub::DeliveryWorker).to have_received(:perform_async).with(anything, status.account_id, 'https://parent.example/inbox')
     expect(ActivityPub::DeliveryWorker).not_to have_received(:push_bulk)
   end
 end

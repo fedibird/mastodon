@@ -64,10 +64,11 @@ class FeedManager
   # @return [Boolean]
   def push_to_home(account, status, update: false)
     return false unless account.user&.signed_in_recently?
-    return false unless add_to_feed(:home, account.id, status, account.user&.aggregates_reblogs?)
 
-    trim(:home, account.id)
-    publish_push_update(account.id, status.id, "timeline:#{account.id}", update) if push_update_required?("timeline:#{account.id}")
+    outcome = insert_into_feed(:home, account.id, status, account.user&.aggregates_reblogs?, update)
+    return false if outcome.nil?
+
+    publish_push_update(account.id, status.id, "timeline:#{account.id}", update && outcome == :present) if push_update_required?("timeline:#{account.id}")
     true
   end
 
@@ -90,10 +91,11 @@ class FeedManager
   def push_to_list(list, status, update: false)
     return false if filter_from_list?(status, list, build_crutches(list.account_id, [status], list))
     return false unless list.account.user&.signed_in_recently?
-    return false unless add_to_feed(:list, list.id, status, list.account.user&.aggregates_reblogs?)
 
-    trim(:list, list.id)
-    publish_push_update(list.account_id, status.id, "timeline:list:#{list.id}", update) if push_update_required?("timeline:list:#{list.id}")
+    outcome = insert_into_feed(:list, list.id, status, list.account.user&.aggregates_reblogs?, update)
+    return false if outcome.nil?
+
+    publish_push_update(list.account_id, status.id, "timeline:list:#{list.id}", update && outcome == :present) if push_update_required?("timeline:list:#{list.id}")
     true
   end
 
@@ -357,6 +359,22 @@ class FeedManager
       # feed.
       redis.del(key(type, timeline_id, "reblogs:#{reblogged_id}"))
     end
+  end
+
+  # An edit fan-out rechecks subscriptions. A feed that already has the
+  # status keeps its rank and receives status.update. A feed that gains
+  # the status for the first time receives a normal update event.
+  def insert_into_feed(type, id, status, aggregate, update)
+    if update && feed_contains?(type, id, status)
+      :present
+    elsif add_to_feed(type, id, status, aggregate)
+      trim(type, id)
+      :inserted
+    end
+  end
+
+  def feed_contains?(type, id, status)
+    !redis.zscore(key(type, id), status.id).nil?
   end
 
   def publish_push_update(account_id, status_id, timeline_id, update)

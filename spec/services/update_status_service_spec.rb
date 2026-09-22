@@ -135,6 +135,116 @@ RSpec.describe UpdateStatusService, type: :service do # rubocop:disable Metrics/
     expect(Poll.find_by(id: poll.id)).to be_nil
   end
 
+  it 'keeps attached media when the edit does not mention media' do
+    media = attach_media(status, 'kept alt')
+
+    subject.call(status, account.id, text: 'edited text')
+
+    expect(status.reload.ordered_media_attachment_ids).to eq [media.id]
+    expect(media.reload.description).to eq 'kept alt'
+  end
+
+  it 'updates alt text from media_attributes without reordering media' do
+    media = attach_media(status, 'old alt')
+
+    subject.call(status, account.id, media_attributes: [{ id: media.id, description: 'new alt' }])
+
+    expect(status.reload.ordered_media_attachment_ids).to eq [media.id]
+    expect(media.reload.description).to eq 'new alt'
+    expect(status.edited_at).to be_present
+  end
+
+  it 'does not change media metadata when media_attributes are omitted' do
+    media = attach_media(status, 'stable alt')
+
+    subject.call(status, account.id, text: 'edited text')
+
+    expect(media.reload.description).to eq 'stable alt'
+  end
+
+  it 'does not reschedule poll expiration for a text-only edit' do
+    expires_at = 2.days.from_now.change(usec: 0)
+    poll = Poll.create!(account: account, status: status, options: %w(One Two), expires_at: expires_at, multiple: false)
+    status.update!(poll_id: poll.id)
+
+    subject.call(status, account.id, text: 'edited text')
+
+    expect(PollExpirationNotifyWorker).not_to have_received(:perform_at)
+    expect(PollExpirationNotifyWorker).not_to have_received(:remove_from_scheduled)
+    expect(poll.reload.options).to eq %w(One Two)
+    expect(poll.expires_at).to be_within(1.second).of(expires_at)
+  end
+
+  it 'accepts a hide_totals change without resetting votes' do
+    poll = Poll.create!(account: account, status: status, options: %w(One Two), expires_at: 2.days.from_now, multiple: false, hide_totals: false)
+    status.update!(poll_id: poll.id)
+    Fabricate(:poll_vote, poll: poll, account: Fabricate(:account, username: 'voter'), choice: 0)
+
+    subject.call(status, account.id, poll: { hide_totals: true })
+
+    expect(poll.reload.hide_totals).to be true
+    expect(poll.votes.count).to eq 1
+    expect(status.reload.edited_at).to be_present
+    expect(DistributionWorker).to have_received(:perform_async).with(status.id, { 'update' => true })
+  end
+
+  it 'sends a Create activity to a remote account mentioned for the first time' do
+    remote = Fabricate(:account, username: 'newremote', protocol: :activitypub, domain: 'example.com', inbox_url: 'http://example.com/new-inbox')
+    payloads = []
+    allow(ActivityPub::DeliveryWorker).to receive(:perform_async) { |*args| payloads << args }
+
+    subject.call(status, account.id, text: "hello @#{remote.acct}")
+
+    expect(payloads.size).to eq 1
+    body = Oj.load(payloads.first.first)
+    expect(body['type']).to eq 'Create'
+    expect(body['object']['id']).to eq ActivityPub::TagManager.instance.uri_for(status)
+    expect(payloads.first[2]).to eq remote.inbox_url
+    expect(ActivityPub::StatusUpdateDistributionWorker).to have_received(:perform_async).with(status.id)
+  end
+
+  it 'does not send a new Create when a silent remote mention becomes explicit' do
+    remote = Fabricate(:account, username: 'silentremote', protocol: :activitypub, domain: 'example.com', inbox_url: 'http://example.com/silent-inbox')
+    mention = status.mentions.create!(account: remote, silent: true)
+    payloads = []
+    allow(ActivityPub::DeliveryWorker).to receive(:perform_async) { |*args| payloads << args }
+
+    subject.call(status, account.id, text: "hello @#{remote.acct}")
+
+    expect(mention.reload.silent).to be false
+    expect(payloads).to be_empty
+    expect(LocalNotificationWorker).not_to have_received(:perform_async)
+  end
+
+  it 'resets preview cards when the text changes' do
+    card = PreviewCard.new(url: 'https://example.com/old-card', title: 'Old', type: :link)
+    card.save!(validate: false)
+    status.preview_cards << card
+
+    subject.call(status, account.id, text: 'see https://example.com/new-page')
+
+    expect(status.preview_cards.reload).to be_empty
+    expect(LinkCrawlWorker).to have_received(:perform_async).with(status.id)
+  end
+
+  it 'does not enqueue mention delivery when a later step rolls the edit back' do
+    remote = Fabricate(:account, username: 'rollbackremote', protocol: :activitypub, domain: 'example.com', inbox_url: 'http://example.com/rollback-inbox')
+    local = Fabricate(:account, username: 'rollbacklocal')
+    hashtags = ProcessHashtagsService.new
+    allow(ProcessHashtagsService).to receive(:new).and_return(hashtags)
+    allow(hashtags).to receive(:call).and_raise(RuntimeError, 'later step failed')
+
+    expect do
+      subject.call(status, account.id, text: "hello @#{local.username} @#{remote.acct}")
+    end.to raise_error(RuntimeError, 'later step failed')
+
+    expect(status.reload.text).to eq 'original text'
+    expect(status.mentions).to be_empty
+    expect(status.edits).to be_empty
+    expect(ActivityPub::DeliveryWorker).not_to have_received(:perform_async)
+    expect(LocalNotificationWorker).not_to have_received(:perform_async)
+  end
+
   it 'does not send ActivityPub for a personal status' do
     status.update!(visibility: :personal)
 
@@ -142,6 +252,14 @@ RSpec.describe UpdateStatusService, type: :service do # rubocop:disable Metrics/
 
     expect(DistributionWorker).to have_received(:perform_async).with(status.id, { 'update' => true })
     expect(ActivityPub::StatusUpdateDistributionWorker).not_to have_received(:perform_async)
+  end
+
+  def attach_media(record, description)
+    media = unprocessed_media(record.account, description)
+    media.update_columns(status_id: record.id)
+    record.update!(ordered_media_attachment_ids: [media.id])
+    record.media_attachments.reset
+    media
   end
 
   def unprocessed_media(owner, description)

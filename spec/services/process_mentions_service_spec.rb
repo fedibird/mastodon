@@ -81,11 +81,17 @@ RSpec.describe ProcessMentionsService, type: :service do # rubocop:disable Metri
     it 'reuses an existing mention, adds a new one, and keeps silent audience mentions' do
       status.update!(text: "Hello @#{remote_user.acct} @#{carol.username}")
 
-      expect { subject.call(status, nil, edit: true) }.to change(ModerationInteractionEvent, :count).by(1)
+      introduced = nil
+      expect { introduced = subject.call(status, nil, edit: true) }.to change(ModerationInteractionEvent, :count).by(1)
 
       expect(remote_user.mentions.where(status: status).count).to eq 1
       expect(carol.mentions.where(status: status, silent: false).count).to eq 1
       expect(status.mentions.find_by(account: silent_account).silent).to be true
+      expect(LocalNotificationWorker).not_to have_received(:perform_async)
+      expect(ActivityPub::DeliveryWorker).not_to have_received(:perform_async)
+
+      subject.deliver_mention_notifications(introduced)
+
       expect(LocalNotificationWorker).to have_received(:perform_async).with(carol.id, carol.mentions.find_by(status: status).id, 'Mention', 'mention')
       expect(ActivityPub::DeliveryWorker).not_to have_received(:perform_async)
     end
@@ -93,15 +99,30 @@ RSpec.describe ProcessMentionsService, type: :service do # rubocop:disable Metri
     it 'silences an explicit mention removed from the text without notifying the survivor again' do
       status.update!(text: "Hello @#{carol.username}")
 
-      subject.call(status, nil, edit: true)
+      introduced = subject.call(status, nil, edit: true)
+      subject.deliver_mention_notifications(introduced)
 
       expect(remote_user.mentions.find_by(status: status).silent).to be true
       expect(LocalNotificationWorker).to have_received(:perform_async).once
     end
 
     it 'does not notify or record moderation when the mentions are unchanged' do
-      expect { subject.call(status, nil, edit: true) }.not_to change(ModerationInteractionEvent, :count)
+      introduced = nil
+      expect { introduced = subject.call(status, nil, edit: true) }.not_to change(ModerationInteractionEvent, :count)
 
+      subject.deliver_mention_notifications(introduced)
+      expect(LocalNotificationWorker).not_to have_received(:perform_async)
+    end
+
+    it 'does not treat a silent mention becoming explicit as a new mention notification' do
+      status.update!(text: "Hello @#{remote_user.acct} @#{silent_account.username}")
+      mention = status.mentions.find_by(account: silent_account)
+
+      introduced = subject.call(status, nil, edit: true)
+      subject.deliver_mention_notifications(introduced)
+
+      expect(mention.reload.silent).to be false
+      expect(introduced.map(&:account_id)).not_to include(silent_account.id)
       expect(LocalNotificationWorker).not_to have_received(:perform_async)
     end
   end
