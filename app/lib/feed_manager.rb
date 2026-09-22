@@ -408,7 +408,7 @@ class FeedManager
         should_filter &&= receiver_id != status.in_reply_to_account_id                                                           # and it's not a reply to me
         should_filter &&= status.account_id != status.in_reply_to_account_id                                                     # and it's not a self-reply
         should_filter &&= !status.tags.any? { |tag| crutches[:following_tag_by][tag.id] }                                        # and It's not follow tag
-        should_filter &&= !KeywordSubscribe.match?(status.searchable_text, account_id: receiver_id, list_id: list_id)            # and It's not subscribe keywords
+        should_filter &&= !KeywordSubscribe.match?(status, account_id: receiver_id, list_id: list_id)                            # and It's not subscribe keywords
         should_filter &&= !crutches[:domain_subscribe][status.account.domain]                                                    # and It's not domain subscribes
         
         return true if should_filter
@@ -417,7 +417,7 @@ class FeedManager
       should_filter   = crutches[:domain_blocking][status.account.domain]
       should_filter &&= !crutches[:following][status.account_id]
       should_filter &&= !crutches[:account_subscribe][status.account_id]
-      should_filter &&= !KeywordSubscribe.match?(status.searchable_text, account_id: receiver_id, as_ignore_block: true, list_id: list_id)
+      should_filter &&= !KeywordSubscribe.match?(status, account_id: receiver_id, as_ignore_block: true, list_id: list_id)
 
       return !!should_filter
     end
@@ -474,7 +474,7 @@ class FeedManager
       should_filter &&= !list.show_followed?
       should_filter &&= !(list.show_list? && ListAccount.where(list_id: list.id, account_id: status.in_reply_to_account_id).exists?)
       should_filter &&= !status.tags.any? { |tag| crutches[:following_tag_by][tag.id] }                                        # and It's not follow tag
-      should_filter &&= !KeywordSubscribe.match?(status.searchable_text, account_id: list.account_id, list_id: list.id)        # and It's not subscribe keywords
+      should_filter &&= !KeywordSubscribe.match?(status, account_id: list.account_id, list_id: list.id)                       # and It's not subscribe keywords
       should_filter &&= !crutches[:domain_subscribe][status.account.domain]                                                    # and It's not domain subscribes
 
       return !!should_filter

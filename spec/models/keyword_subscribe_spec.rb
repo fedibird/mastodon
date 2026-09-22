@@ -159,14 +159,39 @@ RSpec.describe KeywordSubscribe, type: :model do # rubocop:disable Metrics/Block
     end
   end
 
-  describe 'HASHTAG LEAK in the legacy guard' do
-    it 'matches an ASCII keyword after a separator inside a tag' do
-      expect(matches?('bar', '#foo_bar')).to be true
+  # The old guard only refused a keyword written immediately after the hash, so
+  # `bar` matched `#foo_bar` and `京` matched `#東京`. Ordinary keywords now read
+  # the body with hashtag spans removed and reach hashtags only through the
+  # hashtag channel, which the match_hashtags option enables.
+  describe 'hashtag leakage the old guard allowed' do
+    it 'no longer matches an ASCII keyword after a separator inside a tag' do
+      expect(matches?('bar', '#foo_bar')).to be false
     end
 
-    it 'matches a Japanese keyword inside a longer tag' do
-      expect(matches?('京', '#東京')).to be true
-      expect(matches?('東京', '#西東京')).to be true
+    it 'no longer matches a Japanese keyword inside a longer tag' do
+      expect(matches?('京', '#東京')).to be false
+      expect(matches?('東京', '#西東京')).to be false
+    end
+
+    it 'still matches the same words outside a hashtag' do
+      expect(matches?('bar', 'foo_bar')).to be true
+      expect(matches?('京', '東京')).to be true
+      expect(matches?('bar', 'a #foo_bar and bar')).to be true
+    end
+
+    it 'keeps a keyword that spells a hash matching visible hashtag text' do
+      expect(matches?('#foo', 'hello #foo')).to be true
+      expect(matches?('#foo_bar', 'hello #foo_bar')).to be true
+    end
+
+    it 'does not let a removed hashtag act as whitespace inside a keyword' do
+      expect(matches?('foo bar', 'foo #tag bar')).to be false
+      expect(matches?('foo bar', 'foo bar')).to be true
+    end
+
+    it 'leaves a hash that is not a hashtag in the body' do
+      expect(matches?('1', '#1')).to be false
+      expect(matches?('c#', 'C# code')).to be true
     end
   end
 
