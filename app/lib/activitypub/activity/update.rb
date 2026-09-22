@@ -10,9 +10,11 @@ class ActivityPub::Activity::Update < ActivityPub::Activity
 
     if equals_or_includes_any?(@object['type'], SUPPORTED_TYPES)
       update_account
-    elsif equals_or_includes_any?(@object['type'], %w(Question))
-      update_poll
+    elsif equals_or_includes_any?(@object['type'], %w(Note Question))
+      update_status
     end
+  rescue Mastodon::RejectPayload
+    reject_payload!
   end
 
   private
@@ -23,12 +25,12 @@ class ActivityPub::Activity::Update < ActivityPub::Activity
     ActivityPub::ProcessAccountService.new.call(@account.username, @account.domain, @object, signed_with_known_key: true)
   end
 
-  def update_poll
-    return reject_payload! if non_matching_uri_hosts?(@account.uri, @object['id'])
+  def update_status
+    return reject_payload! if non_matching_uri_hosts?(@account.uri, object_uri)
 
     status = Status.find_by(uri: object_uri, account_id: @account.id)
-    return if status.nil? || status.preloadable_poll.nil?
+    return if status.nil?
 
-    ActivityPub::ProcessPollService.new.call(status.preloadable_poll, @object)
+    ActivityPub::ProcessStatusUpdateService.new.call(status, @json, @object, request_id: @options[:request_id])
   end
 end
