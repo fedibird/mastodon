@@ -163,6 +163,23 @@ RSpec.describe FanOutOnWriteService, 'keyword subscribe delivery' do # rubocop:d
     expect(pushes_for(status)).not_to include home_push(status)
   end
 
+  # Status#searchable_text keeps a URL whose normalized form differs from the
+  # written one, so the prepared string masks URL spans out of the body.
+  it 'does not deliver on a URL that Status left in the body when match_urls is off' do
+    subscribe('東京', regexp: true)
+    status = status_with('look https://example.com/東京/page')
+
+    expect(status.searchable_text).to include 'https://example.com/東京/page'
+    expect(pushes_for(status)).not_to include home_push(status)
+  end
+
+  it 'delivers on the normalized URL material when match_urls is on' do
+    subscribe('%E6%9D%B1%E4%BA%AC', match_urls: true)
+    status = status_with('look https://example.com/東京/page')
+
+    expect(pushes_for(status)).to include home_push(status)
+  end
+
   it 'does not deliver a raw regexp subscription matched only by a visible hashtag when match_hashtags is off' do
     subscribe('#fedi\w+', regexp: true)
     status = status_with('hello #fediverse', tags: %w(fediverse))

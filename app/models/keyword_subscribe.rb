@@ -94,14 +94,14 @@ class KeywordSubscribe < ApplicationRecord
     @patterns[[keywords, ignorecase, match_hashtags?, match_urls?]] ||= pattern_builder.call(keywords)
   end
 
-  # The legacy `(?<![#])` guard is dropped by either option: match_hashtags makes
-  # hashtag material matchable on purpose, and match_urls makes `#` ordinary URL
-  # material, such as the fragment in https://example.com/#foo.
+  # An option adds a branch for the segments it introduces into the prepared
+  # string. The body branch stays the legacy pattern either way, so no option
+  # changes how ordinary body text is matched.
   def pattern_builder
     KeywordSubscribe::PatternBuilder.new(
       ignorecase: ignorecase,
-      hashtag_guard: !match_hashtags? && !match_urls?,
-      punctuation_guard: !match_urls?
+      match_hashtags: match_hashtags?,
+      match_urls: match_urls?
     )
   end
 

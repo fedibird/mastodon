@@ -150,17 +150,76 @@ RSpec.describe KeywordSubscribe, '#match? with a status' do # rubocop:disable Me
     end
   end
 
-  describe 'with match_urls only, outside URL material' do
-    # The `/` and `.` guards are dropped from the whole prepared string, not only
-    # from the appended URLs, because one pattern now matches one string. This is
-    # the body side of enabling match_urls.
-    it 'also drops the slash and dot guards on body text' do
-      status = status_with('まとめ/東京の話')
+  # Enabling match_urls adds URL material, and nothing else: the body keeps the
+  # legacy keyword boundaries whichever way the option is set.
+  describe 'body boundaries are independent of match_urls' do
+    def body_results(keyword, text)
+      status = status_with(text)
 
-      expect(subscribe('東京').match?(status)).to be false
-      expect(subscribe('東京', match_urls: true).match?(status)).to be true
+      [[false, false], [true, false], [false, true], [true, true]].map do |match_hashtags, match_urls|
+        subscribe(keyword, match_hashtags: match_hashtags, match_urls: match_urls).match?(status)
+      end
     end
 
+    it 'keeps the slash and dot guards on body text' do
+      expect(body_results('東京', 'まとめ/東京の話')).to eq [false, false, false, false]
+    end
+
+    it 'keeps the legacy dot boundary of a punctuation-edged keyword' do
+      expect(body_results('foo.', 'a foo.bar here')).to eq [true, true, true, true]
+      expect(body_results('c++', 'a c++/page here')).to eq [false, false, false, false]
+    end
+
+    it 'keeps the legacy boundary of a hash that is not a hashtag' do
+      expect(body_results('1', 'issue #1 here')).to eq [false, false, false, false]
+    end
+
+    it 'keeps ordinary alphanumeric body matching' do
+      expect(body_results('bar', 'a foo.bar here')).to eq [true, true, true, true]
+      expect(body_results('bodyword', 'a bodyword here')).to eq [true, true, true, true]
+    end
+  end
+
+  # Status#searchable_text only removes the URLs Status itself discovered, so a
+  # URL whose normalized form differs from the written one survives in the body.
+  # KeywordSubscribe::MatchingText masks URL spans out of the body either way, so
+  # match_urls off means no URL bytes at all, and match_urls on means the
+  # normalized Status#filterable_urls material and nothing else.
+  describe 'URL material is masked out of the body' do
+    let(:status) { status_with('look https://example.com/東京/page') }
+
+    it 'leaves the written URL in Status#searchable_text' do
+      expect(status.searchable_text).to include 'https://example.com/東京/page'
+      expect(status.filterable_urls).to eq ['https://example.com/%E6%9D%B1%E4%BA%AC/page']
+    end
+
+    it 'hides the written URL from a raw regexp while match_urls is off' do
+      expect(subscribe('東京', regexp: true).match?(status)).to be false
+      expect(subscribe('example\.com', regexp: true).match?(status)).to be false
+      expect(subscribe('https://example\.com/\S+', regexp: true).match?(status)).to be false
+    end
+
+    it 'hides the written URL from a generated keyword while match_urls is off' do
+      expect(subscribe('example.com').match?(status)).to be false
+      expect(subscribe('https://example.com/東京/page').match?(status)).to be false
+    end
+
+    it 'adds only the normalized URL material with match_urls on' do
+      expect(subscribe('example.com', match_urls: true).match?(status)).to be true
+      expect(subscribe('%E6%9D%B1%E4%BA%AC', match_urls: true).match?(status)).to be true
+      expect(subscribe('example\.com/%E6%9D%B1%E4%BA%AC', regexp: true, match_urls: true).match?(status)).to be true
+    end
+
+    # The percent-encoded form is all the matcher receives, so a Japanese keyword
+    # still does not reach a Japanese URL path. A follow-up will add a decoded
+    # matching representation; this pins today's behavior.
+    it 'does not match a Japanese keyword against a percent-encoded path' do
+      expect(subscribe('東京', match_urls: true).match?(status)).to be false
+      expect(subscribe('東京', regexp: true, match_urls: true).match?(status)).to be false
+    end
+  end
+
+  describe 'with match_urls only, outside URL material' do
     # A fragment is URL material, so it stays matchable even though visible body
     # hashtags are masked out by match_hashtags being off.
     it 'matches a URL fragment while body hashtags stay masked' do
@@ -176,20 +235,6 @@ RSpec.describe KeywordSubscribe, '#match? with a status' do # rubocop:disable Me
 
       expect(subscribe('fediverse', match_urls: true).match?(status)).to be false
       expect(subscribe('pathword', match_urls: true).match?(status)).to be true
-    end
-
-    # Status#filterable_urls normalizes URLs, so a non-ASCII path arrives
-    # percent-encoded and a Japanese keyword never reaches that URL material. A
-    # follow-up will add a decoded matching form; this pins today's behavior,
-    # including the raw URL text that Status leaves in the body when
-    # normalization changed the URL.
-    it 'sees a non-ASCII URL path in its percent-encoded form' do
-      status = status_with('look https://example.com/東京/page')
-
-      expect(status.filterable_urls).to eq ['https://example.com/%E6%9D%B1%E4%BA%AC/page']
-      expect(subscribe('%E6%9D%B1%E4%BA%AC', match_urls: true).match?(status)).to be true
-      expect(subscribe('東京', match_urls: true).match?('https://example.com/%E6%9D%B1%E4%BA%AC/page')).to be false
-      expect(status.searchable_text).to include 'https://example.com/東京/page'
     end
 
     it 'does not match an associated tag' do
@@ -390,12 +435,28 @@ RSpec.describe KeywordSubscribe, '#match? with a status' do # rubocop:disable Me
       expect(subscribe('foo,東京').keyword_regexp.source).to eq legacy
     end
 
-    it 'drops the hash guard with match_hashtags' do
-      expect(subscribe('foo,東京', match_hashtags: true).keyword_regexp.source).to eq '((?mix:(?<![A-Za-z0-9])foo(?![A-Za-z0-9]))|(?mix:(?<![\/\.])東京(?![\/\.])))'
+    it 'keeps the legacy body branch and adds a hashtag segment branch with match_hashtags' do
+      body    = '(?<![#])((?mix:(?<![A-Za-z0-9])foo(?![A-Za-z0-9]))|(?mix:(?<![\/\.])東京(?![\/\.])))'
+      segment = '\\x01[^\\x00]*?((?mix:(?<![A-Za-z0-9])foo(?![A-Za-z0-9]))|(?mix:(?<![\/\.])東京(?![\/\.])))'
+
+      expect(subscribe('foo,東京', match_hashtags: true).keyword_regexp.source).to eq "#{body}|#{segment}"
     end
 
-    it 'drops the hash and punctuation guards with match_urls' do
-      expect(subscribe('foo,東京', match_urls: true).keyword_regexp.source).to eq '((?mix:(?<![A-Za-z0-9])foo(?![A-Za-z0-9]))|(?mix:東京))'
+    it 'keeps the legacy body branch and adds a URL segment branch without punctuation guards with match_urls' do
+      body    = '(?<![#])((?mix:(?<![A-Za-z0-9])foo(?![A-Za-z0-9]))|(?mix:(?<![\/\.])東京(?![\/\.])))'
+      segment = '\\x02[^\\x00]*?((?mix:(?<![A-Za-z0-9])foo(?![A-Za-z0-9]))|(?mix:東京))'
+
+      expect(subscribe('foo,東京', match_urls: true).keyword_regexp.source).to eq "#{body}|#{segment}"
+    end
+
+    it 'names the segment markers that KeywordSubscribe::MatchingText writes' do
+      separator = Regexp.new(KeywordSubscribe::PatternBuilder::SEPARATOR_PATTERN)
+      hashtag   = Regexp.new(KeywordSubscribe::PatternBuilder::HASHTAG_MARKER_PATTERN)
+      url       = Regexp.new(KeywordSubscribe::PatternBuilder::URL_MARKER_PATTERN)
+
+      expect(separator.match?(KeywordSubscribe::MatchingText::SEPARATOR)).to be true
+      expect(hashtag.match?(KeywordSubscribe::MatchingText::HASHTAG_MARKER)).to be true
+      expect(url.match?(KeywordSubscribe::MatchingText::URL_MARKER)).to be true
     end
 
     it 'keeps the match timeout in every combination' do

@@ -10,12 +10,14 @@ RSpec.describe AddMatchHashtagsAndMatchUrlsToKeywordSubscribes do
   subject(:migration) { described_class.new }
 
   let(:account) { Fabricate(:account) }
-  let!(:regexp_subscribe) { KeywordSubscribe.create!(account: account, name: 'raw', keyword: 'fo+o', regexp: true) }
-  let!(:keyword_subscribe) { KeywordSubscribe.create!(account: account, name: 'plain', keyword: 'foo', regexp: false) }
 
   # The columns already exist in the loaded test schema, so the data transition is
   # exercised by reverting the migration and running it again over existing rows.
-  before do
+  # One example keeps that to a single DDL round trip.
+  it 'opts pre-existing raw regexp rows into both options and leaves keyword rows alone' do
+    regexp_subscribe = KeywordSubscribe.create!(account: account, name: 'raw', keyword: 'fo+o', regexp: true)
+    keyword_subscribe = KeywordSubscribe.create!(account: account, name: 'plain', keyword: 'foo', regexp: false)
+
     migration.suppress_messages do
       migration.migrate(:down)
       KeywordSubscribe.reset_column_information
@@ -23,17 +25,10 @@ RSpec.describe AddMatchHashtagsAndMatchUrlsToKeywordSubscribes do
     end
 
     KeywordSubscribe.reset_column_information
-  end
 
-  it 'opts a pre-existing raw regexp subscription into hashtag matching' do
-    expect(regexp_subscribe.reload.match_hashtags).to be true
-  end
-
-  it 'opts a pre-existing raw regexp subscription into URL matching' do
-    expect(regexp_subscribe.reload.match_urls).to be true
-  end
-
-  it 'leaves a pre-existing keyword subscription on the defaults' do
-    expect(keyword_subscribe.reload).to have_attributes(match_hashtags: false, match_urls: false)
+    aggregate_failures do
+      expect(regexp_subscribe.reload).to have_attributes(match_hashtags: true, match_urls: true)
+      expect(keyword_subscribe.reload).to have_attributes(match_hashtags: false, match_urls: false)
+    end
   end
 end
