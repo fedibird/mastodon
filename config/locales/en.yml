@@ -513,7 +513,7 @@ en:
       hints:
         account_migration: Detectorless operations offer off or always. Saving a policy here does not hold or release account moves until that adapter is connected.
         follow_import: always sends every Follow Import to moderator review before follows or overwrite removals run. off proceeds normally. high, medium, and low record a shadow review signal for calibration and do not hold imports yet.
-        invite_creation: Detectorless operations offer off or always. Saving a policy here does not hold or release invite creation until that adapter is connected.
+        invite_creation: off issues invite codes immediately, as before. always holds every invite until a moderator approves it, and the code stays unusable until then.
         status_import: Future feature. This choice is stored for the framework only and does not enable status import.
       modes:
         always: Always require moderator approval
@@ -526,18 +526,42 @@ en:
         follow_import: Follow import
         invite_creation: Invite creation
         status_import: Status import (future)
-      preface: Follow Import is connected. always holds each import for moderator approval before it runs. off proceeds normally. high, medium, and low run a shadow classifier for calibration and do not hold imports yet. Other operations are not connected.
+      preface: Follow Import and Invite creation are connected. Follow Import always holds each import for moderator approval before it runs. off proceeds normally. high, medium, and low run a shadow classifier for calibration and do not hold imports yet. Invite creation off issues codes immediately. Invite creation always waits for staff approval before the code is usable. Account migration and status import are not connected.
       title: Action review policies
     action_reviews:
       account_unavailable: Account unavailable
       actor: Actor
       approve_and_run: Approve and run
       approved_msg: Follow import approved. It will run.
+      invite_approved_msg: Invite approved. The code can be used until it expires.
+      invite_stopped_msg: Invite stopped. The code stays unusable. The account was not limited or suspended.
+      invite_stop_confirm: Stop this invite? The code will stay unusable. This does not limit or suspend the account.
+      invite_creation:
+        admin_list: Invite list
+        approved: Approved
+        autofollow: Autofollow
+        comment_present: Comment present
+        issuing_account: Issuing account
+        lifetime: Requested lifetime
+        lifetime_seconds:
+          one: "%{count} second"
+          other: "%{count} seconds"
+        max_uses: Requested uses
+        "no": "No"
+        no_expiry: No expiry
+        status: Status
+        stopped: Stopped
+        title: Invite creation
+        unlimited: Unlimited
+        uses: Uses so far
+        waiting: Waiting for review
+        "yes": "Yes"
       decision_failed: This review could not be applied.
       decision_note: Decision note
       empty: No action review requests found.
       evaluator_version: Evaluator version
       evidence: Evidence
+      inconsistent_invite: This invite review does not match an unusable pending invite, so it cannot be approved or stopped here.
       inconsistent_resource: This Follow Import review has no matching import waiting for review, so it cannot be approved or stopped here.
       none: None
       operation: Operation
@@ -868,7 +892,13 @@ en:
         all: All
         available: Available
         expired: Expired
+        review_pending: Waiting for approval
+        review_rejected: Stopped
         title: Filter
+      review_approved: Approved
+      review_link: Review
+      review_stopped: Stopped
+      review_waiting: Waiting for approval
       title: Invites
     ip_blocks:
       add_new: Create rule
@@ -1521,6 +1551,10 @@ en:
       '86400': 1 day
     expires_in_prompt: Never
     generate: Generate invite link
+    pending_review: Invite creation is waiting for moderator approval
+    review:
+      stopped: Stopped
+      waiting: Waiting for approval
     invited_by: 'You were invited by:'
     max_uses:
       one: 1 use

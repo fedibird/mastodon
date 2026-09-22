@@ -2,12 +2,20 @@
 
 require 'rails_helper'
 
-describe Admin::InvitesController do
+describe Admin::InvitesController do # rubocop:disable Metrics/BlockLength
   render_views
 
   let(:user) { Fabricate(:user, admin: true) }
 
+  def stub_webpacker_manifest
+    manifest = Webpacker.instance.manifest
+    resolver = ->(name, **opts) { opts[:with_integrity] ? ["/packs-test/#{name}", nil] : "/packs-test/#{name}" }
+    allow(manifest).to receive(:lookup!, &resolver)
+    allow(manifest).to receive(:lookup, &resolver)
+  end
+
   before do
+    stub_webpacker_manifest
     sign_in user, scope: :user
   end
 
@@ -43,6 +51,68 @@ describe Admin::InvitesController do
     end
   end
 
+  describe 'POST #create with action review' do
+    around do |example|
+      example.run
+    ensure
+      Setting.where(var: 'action_review_policies').delete_all
+      Rails.cache.clear
+    end
+
+    it 'uses the creation service and waits for approval' do
+      Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(
+        value: { 'invite_creation' => 'always' }
+      )
+      Rails.cache.clear
+
+      expect { post :create, params: { invite: { max_uses: '10', expires_in: 1800 } } }.to change { Invite.count }.by(1)
+
+      invite = Invite.last
+      expect(response).to redirect_to admin_invites_path
+      expect(flash[:notice]).to eq I18n.t('invites.pending_review')
+      expect(invite.user).to eq user
+      expect(invite.valid_for_use?).to be false
+
+      get :index
+
+      expect(response.body).to include(I18n.t('invites.review.waiting'))
+      expect(response.body).to include(admin_action_review_path(ActionReviewRequest.last))
+      expect(response.body).not_to include(invite.code)
+      expect(response.body).to include(I18n.t('admin.invites.filter.review_pending'))
+    end
+  end
+
+  describe 'GET #index review filters' do
+    it 'links a pending row to its review and hides a rejected code' do
+      Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(
+        value: { 'invite_creation' => 'always' }
+      )
+      Rails.cache.clear
+      pending = InviteCreation::CreateService.new.call(user: user, attributes: { max_uses: 1, expires_in: 1800 })
+      rejected = InviteCreation::CreateService.new.call(user: user, attributes: { max_uses: 1, expires_in: 1800 })
+      ActionReview::DecisionService.new.call(
+        request: rejected.request,
+        decision: 'reject',
+        reviewer_account: user.account,
+        decision_note: nil
+      )
+
+      get :index, params: { review_pending: '1' }
+
+      expect(assigns(:invites).map(&:id)).to eq [pending.invite.id]
+      expect(response.body).not_to include(pending.invite.code)
+
+      get :index, params: { review_rejected: '1' }
+
+      expect(assigns(:invites).map(&:id)).to eq [rejected.invite.id]
+      expect(response.body).to include(I18n.t('admin.invites.review_stopped'))
+      expect(response.body).not_to include(rejected.invite.code)
+    ensure
+      Setting.where(var: 'action_review_policies').delete_all
+      Rails.cache.clear
+    end
+  end
+
   describe 'POST #deactivate_all' do
     it 'expires all invites, then redirects to admin_invites_path' do
       invites = Fabricate.times(2, :invite, expires_at: nil)
@@ -54,6 +124,24 @@ describe Admin::InvitesController do
       end
 
       expect(response).to redirect_to admin_invites_path
+    end
+
+    it 'leaves a pending review shell unusable' do
+      Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(
+        value: { 'invite_creation' => 'always' }
+      )
+      Rails.cache.clear
+      held = InviteCreation::CreateService.new.call(user: user, attributes: { max_uses: 1, expires_in: 1800 })
+      expires_at = held.invite.expires_at
+
+      post :deactivate_all
+
+      expect(held.invite.reload.expires_at.to_i).to eq expires_at.to_i
+      expect(held.invite.valid_for_use?).to be false
+      expect(held.request.reload.pending_state?).to be true
+    ensure
+      Setting.where(var: 'action_review_policies').delete_all
+      Rails.cache.clear
     end
   end
 end

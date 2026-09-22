@@ -85,8 +85,13 @@ RSpec.describe Admin::ActionReviewSettingsController, type: :controller do # rub
       expect(response.body).to include('always sends every Follow Import')
       expect(response.body).to include('shadow review signal')
       expect(response.body).to include('do not hold imports yet')
+      expect(response.body).to include('code stays unusable until then')
       expect(I18n.t('admin.action_review_settings.preface')).to include('shadow classifier')
+      expect(I18n.t('admin.action_review_settings.preface')).to include('Account migration and status import are not connected')
+      expect(I18n.t('admin.action_review_settings.hints.account_migration')).to include('until that adapter is connected')
+      expect(I18n.t('admin.action_review_settings.hints.status_import')).to include('does not enable status import')
       expect(I18n.t('admin.action_review_settings.hints.follow_import', locale: :ja)).to include('シャドー')
+      expect(I18n.t('admin.action_review_settings.hints.invite_creation', locale: :ja)).to include('承認するまで')
     end
 
     it 'selects effective always when stored detectorless or malformed values would not match the collection' do

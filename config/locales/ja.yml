@@ -498,7 +498,7 @@ ja:
       hints:
         account_migration: 検出器のない操作は「介入しない」か「常にモデレーター承認」のみです。アダプター接続までは引っ越しの実行を止めません。
         follow_import: 「常にモデレーター承認」は、フォローや上書き解除が始まる前に、すべてのフォローインポートを確認待ちにします。「介入しない」はそのまま処理します。「高い要確認シグナルのみ」「中以上」「低以上」は校正用にシャドー分類を記録しますが、インポートはまだ止めません。
-        invite_creation: 検出器のない操作は「介入しない」か「常にモデレーター承認」のみです。アダプター接続までは招待コード発行の実行を止めません。
+        invite_creation: 「介入しない」は、これまでどおり招待コードをすぐに発行します。「常にモデレーター承認」は、スタッフが承認するまでコードを使えません。
         status_import: 将来機能です。ここでの選択は枠組み用に保存されるだけで、投稿データのインポートは有効になりません。
       modes:
         always: 常にモデレーター承認
@@ -511,18 +511,40 @@ ja:
         follow_import: フォローインポート
         invite_creation: 招待コードの発行
         status_import: 投稿データのインポート（将来機能）
-      preface: フォローインポートは接続済みです。「常にモデレーター承認」は実行前にモデレーターの承認を待ちます。「介入しない」はそのまま処理します。「高い要確認シグナルのみ」「中以上」「低以上」は校正用のシャドー分類で、インポートはまだ止めません。それ以外の操作はまだ接続されていません。
+      preface: フォローインポートと招待コードの発行は接続済みです。フォローインポートの「常にモデレーター承認」は実行前に承認を待ちます。「介入しない」はそのまま処理します。「高い要確認シグナルのみ」「中以上」「低以上」は校正用のシャドー分類で、インポートはまだ止めません。招待コードは「介入しない」ですぐに発行し、「常にモデレーター承認」ではスタッフの承認まで使えません。アカウントの引っ越しと投稿データのインポートはまだ接続されていません。
       title: 操作の承認ポリシー
     action_reviews:
       account_unavailable: アカウントなし
       actor: 実行アカウント
       approve_and_run: 承認して実行
       approved_msg: フォローインポートを承認しました。実行を再開します。
+      invite_approved_msg: 招待を承認しました。有効期限までコードを使えます。
+      invite_creation:
+        admin_list: 招待一覧
+        approved: 承認済み
+        autofollow: 自動フォロー
+        comment_present: コメントの有無
+        issuing_account: 発行したアカウント
+        lifetime: 依頼された有効期間
+        lifetime_seconds: "%{count} 秒"
+        max_uses: 依頼された使用回数
+        "no": なし
+        no_expiry: 期限なし
+        status: 状態
+        stopped: 停止
+        title: 招待コードの発行
+        unlimited: 無制限
+        uses: 現在の使用回数
+        waiting: 確認待ち
+        "yes": あり
+      invite_stopped_msg: 招待を停止しました。コードは使えません。アカウントの制限や停止はしていません。
+      invite_stop_confirm: この招待を停止しますか？コードは使えないままです。アカウントの制限や停止はしません。
       decision_failed: この判断を適用できませんでした。
       decision_note: 判断メモ
       empty: 判断待ちの操作はありません。
       evaluator_version: 評価器バージョン
       evidence: 根拠
+      inconsistent_invite: 対応する招待が使えない承認待ちの状態ではないため、ここでは承認または停止できません。
       inconsistent_resource: 対応するフォローインポートが確認待ちではないため、ここでは承認または停止できません。
       none: なし
       operation: 操作
@@ -855,7 +877,13 @@ ja:
         all: すべて
         available: 使用可能
         expired: 期限切れ
+        review_pending: 承認待ち
+        review_rejected: 停止
         title: フィルター
+      review_approved: 承認済み
+      review_link: 判断を開く
+      review_stopped: 停止
+      review_waiting: 承認待ち
       title: 招待
     ip_blocks:
       add_new: ルールを作成
@@ -1481,6 +1509,10 @@ ja:
       '86400': 1 日
     expires_in_prompt: 無期限
     generate: 招待リンクを作成
+    pending_review: 招待コードの発行はモデレーターの承認待ちです
+    review:
+      stopped: 停止
+      waiting: 承認待ち
     invited_by: '次の人に招待されました:'
     max_uses:
       other: "%{count}"

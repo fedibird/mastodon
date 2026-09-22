@@ -12,6 +12,15 @@ module ActionReview
     class FollowImport
       DECISIONS = %w(approve reject).freeze
 
+      def self.actionable?(request)
+        return false unless request.respond_to?(:pending_state?) && request.pending_state?
+
+        resource = request.resource
+        resource.is_a?(::FollowImportBatch) && request.resource_type == 'FollowImportBatch' && resource.review_required_preflight_state?
+      rescue StandardError
+        false
+      end
+
       def call(request:, decision:, reviewer_account:, decision_note: nil)
         verb = decision.to_s
         raise ActionReview::DecisionError, 'unsupported decision' unless DECISIONS.include?(verb)

@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 module ApplicationHelper
+  include InviteCreationHelper
+
   DANGEROUS_SCOPES = %w(
     read
     write

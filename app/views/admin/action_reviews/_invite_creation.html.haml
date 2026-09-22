@@ -1,0 +1,31 @@
+- invite = request.resource
+- evidence = request.evidence || {}
+%h4= t('admin.action_reviews.invite_creation.title')
+.table-wrapper
+  %table.table.inline-table
+    %tbody
+      %tr
+        %th= t('admin.action_reviews.invite_creation.issuing_account')
+        %td= action_review_account_label(request.actor_account)
+      %tr
+        %th= t('admin.action_reviews.invite_creation.max_uses')
+        %td= evidence['requested_max_uses'].nil? ? t('admin.action_reviews.invite_creation.unlimited') : evidence['requested_max_uses']
+      %tr
+        %th= t('admin.action_reviews.invite_creation.lifetime')
+        %td= action_review_invite_lifetime(evidence['requested_expires_in_seconds'])
+      %tr
+        %th= t('admin.action_reviews.invite_creation.autofollow')
+        %td= evidence['autofollow'] ? t('admin.action_reviews.invite_creation.yes') : t('admin.action_reviews.invite_creation.no')
+      %tr
+        %th= t('admin.action_reviews.invite_creation.comment_present')
+        %td= evidence['comment_present'] ? t('admin.action_reviews.invite_creation.yes') : t('admin.action_reviews.invite_creation.no')
+      %tr
+        %th= t('admin.action_reviews.invite_creation.status')
+        %td= action_review_invite_status(request)
+      %tr
+        %th= t('admin.action_reviews.invite_creation.uses')
+        %td= invite.is_a?(Invite) ? invite.uses : t('admin.action_reviews.account_unavailable')
+      - if request.approved_state?
+        %tr
+          %th= t('admin.action_reviews.invite_creation.admin_list')
+          %td= link_to t('admin.invites.title'), admin_invites_path

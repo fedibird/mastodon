@@ -1,9 +1,18 @@
+- review = invite_creation_review(invite)
+- held = review&.pending_state? || review&.rejected_state?
 %tr
   %td
-    .input-copy
-      .input-copy__wrapper
-        %input{ type: :text, maxlength: '999', spellcheck: 'false', readonly: 'true', value: public_invite_url(invite_code: invite.code) }
-      %button{ type: :button }= t('generic.copy')
+    - if held
+      = t(review.pending_state? ? 'invites.review.waiting' : 'invites.review.stopped')
+      - if review.pending_state?
+        = link_to t('admin.invites.review_link'), admin_action_review_path(review)
+    - else
+      .input-copy
+        .input-copy__wrapper
+          %input{ type: :text, maxlength: '999', spellcheck: 'false', readonly: 'true', value: public_invite_url(invite_code: invite.code) }
+        %button{ type: :button }= t('generic.copy')
+      - if review&.approved_state?
+        %span= t('admin.invites.review_approved')
 
   %td
     .name-tag
@@ -15,7 +24,9 @@
     = invite.uses
     = " / #{invite.max_uses}" unless invite.max_uses.nil?
   %td
-    - if !invite.valid_for_use?
+    - if held
+      = t(review.pending_state? ? 'admin.invites.review_waiting' : 'admin.invites.review_stopped')
+    - elsif !invite.valid_for_use?
       = t('invites.expired')
     - elsif invite.expires_at.nil?
       ∞
@@ -24,5 +35,5 @@
         = l invite.expires_at
 
   %td
-    - if invite.valid_for_use? && policy(invite).destroy?
+    - if !held && invite.valid_for_use? && policy(invite).destroy?
       = table_link_to 'times', t('invites.delete'), admin_invite_path(invite), method: :delete

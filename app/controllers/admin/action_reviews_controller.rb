@@ -50,6 +50,11 @@ module Admin
     end
 
     def decision_notice(verb)
+      if @action_review_request.operation_type == 'invite_creation'
+        key = verb == 'approve' ? 'invite_approved_msg' : 'invite_stopped_msg'
+        return I18n.t("admin.action_reviews.#{key}")
+      end
+
       key = verb == 'approve' ? 'approved_msg' : 'stopped_msg'
       I18n.t("admin.action_reviews.#{key}")
     end

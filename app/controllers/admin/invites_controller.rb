@@ -6,19 +6,22 @@ module Admin
       authorize :invite, :index?
 
       @invites = filtered_invites.includes(user: :account).page(params[:page])
-      @invite  = Invite.new
+      @invite_reviews = InviteCreation::ReviewLookup.for_invites(@invites)
+      @invite = Invite.new
     end
 
     def create
       authorize :invite, :create?
 
-      @invite      = Invite.new(resource_params)
-      @invite.user = current_user
-
-      if @invite.save
+      result = InviteCreation::CreateService.new.call(user: current_user, attributes: resource_params)
+      if result.issued?
         redirect_to admin_invites_path
+      elsif result.pending_review?
+        redirect_to admin_invites_path, notice: I18n.t('invites.pending_review')
       else
+        @invite = result.invite
         @invites = Invite.page(params[:page])
+        @invite_reviews = InviteCreation::ReviewLookup.for_invites(@invites)
         render :index
       end
     end
@@ -26,7 +29,7 @@ module Admin
     def destroy
       @invite = Invite.find(params[:id])
       authorize @invite, :destroy?
-      @invite.expire!
+      InviteCreation::ReviewLookup.management_expire!(@invite)
       redirect_to admin_invites_path
     end
 

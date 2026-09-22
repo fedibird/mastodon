@@ -5,9 +5,11 @@
   .filter-subset
     %strong= t('admin.invites.filter.title')
     %ul
-      %li= filter_link_to t('admin.invites.filter.all'), available: nil, expired: nil
-      %li= filter_link_to t('admin.invites.filter.available'), available: 1, expired: nil
-      %li= filter_link_to t('admin.invites.filter.expired'), available: nil, expired: 1
+      %li= filter_link_to t('admin.invites.filter.all'), available: nil, expired: nil, review_pending: nil, review_rejected: nil
+      %li= filter_link_to t('admin.invites.filter.available'), available: 1, expired: nil, review_pending: nil, review_rejected: nil
+      %li= filter_link_to t('admin.invites.filter.expired'), available: nil, expired: 1, review_pending: nil, review_rejected: nil
+      %li= filter_link_to t('admin.invites.filter.review_pending'), available: nil, expired: nil, review_pending: 1, review_rejected: nil
+      %li= filter_link_to t('admin.invites.filter.review_rejected'), available: nil, expired: nil, review_pending: nil, review_rejected: 1
 
 %hr.spacer/
 

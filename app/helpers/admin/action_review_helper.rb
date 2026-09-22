@@ -53,20 +53,54 @@ module Admin::ActionReviewHelper
     t("admin.action_reviews.triggers.#{trigger}", default: trigger.to_s)
   end
 
-  # Pending, adapter-backed Follow Import that is still review_required.
+  # Pending, registered, and actionable through that operation's adapter.
   # Terminal, unsupported, missing, or inconsistent rows get no buttons.
   def action_review_decision_controls?(request)
     return false unless request.pending_state?
-    return false unless ActionReview::AdapterRegistry.registered?(request.operation_type)
 
-    resource = request.resource
-    resource.is_a?(FollowImportBatch) && request.resource_type == 'FollowImportBatch' && resource.review_required_preflight_state?
+    ActionReview::AdapterRegistry.actionable?(request)
   end
 
   def action_review_decision_warning?(request)
     return false unless request.pending_state?
-    return false unless request.operation_type == 'follow_import'
+    return false unless ActionReview::AdapterRegistry.registered?(request.operation_type)
 
     !action_review_decision_controls?(request)
+  end
+
+  def action_review_decision_warning_text(request)
+    if request.operation_type == 'invite_creation'
+      t('admin.action_reviews.inconsistent_invite')
+    else
+      t('admin.action_reviews.inconsistent_resource')
+    end
+  end
+
+  def action_review_stop_confirm(request)
+    if request.operation_type == 'invite_creation'
+      t('admin.action_reviews.invite_stop_confirm')
+    else
+      t('admin.action_reviews.stop_confirm')
+    end
+  end
+
+  def action_review_invite_lifetime(seconds)
+    return t('admin.action_reviews.invite_creation.no_expiry') if seconds.nil?
+    return t("invites.expires_in.#{seconds}") if I18n.exists?("invites.expires_in.#{seconds}")
+
+    t('admin.action_reviews.invite_creation.lifetime_seconds', count: seconds.to_i)
+  end
+
+  def action_review_invite_status(request)
+    case request.state
+    when 'pending'
+      t('admin.action_reviews.invite_creation.waiting')
+    when 'approved'
+      t('admin.action_reviews.invite_creation.approved')
+    when 'rejected'
+      t('admin.action_reviews.invite_creation.stopped')
+    else
+      action_review_state_label(request.state)
+    end
   end
 end

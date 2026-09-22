@@ -349,6 +349,71 @@ RSpec.describe Admin::ActionReviewsController, type: :controller do # rubocop:di
     end
   end
 
+  describe 'invite creation detail' do
+    let(:owner) { Fabricate(:user, admin: true) }
+
+    def held_invite
+      Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(
+        value: { 'invite_creation' => 'always' }
+      )
+      Rails.cache.clear
+      InviteCreation::CreateService.new.call(
+        user: owner,
+        attributes: { max_uses: 10, expires_in: 86_400, autofollow: false, comment: 'secret-comment-text' }
+      )
+    end
+
+    before { sign_in admin, scope: :user }
+
+    after do
+      Setting.where(var: 'action_review_policies').delete_all
+      Rails.cache.clear
+    end
+
+    it 'shows the requested facts and approve/stop without the code' do
+      created = held_invite
+
+      get :show, params: { id: created.request }
+
+      expect(response.body).to include(I18n.t('admin.action_reviews.invite_creation.title'))
+      expect(response.body).to include(I18n.t('admin.action_reviews.invite_creation.waiting'))
+      expect(response.body).to include('10')
+      expect(response.body).to include(I18n.t('invites.expires_in.86400'))
+      expect(response.body).to include(I18n.t('admin.action_reviews.invite_creation.yes'))
+      expect(response.body).to include(I18n.t('admin.action_reviews.approve_and_run'))
+      expect(response.body).to include(I18n.t('admin.action_reviews.stop'))
+      expect(response.body).to include(I18n.t('admin.action_reviews.invite_stop_confirm'))
+      expect(response.body).not_to include(created.invite.code)
+      expect(response.body).not_to include('secret-comment-text')
+    end
+
+    it 'hides controls and the code after the invite is stopped' do
+      created = held_invite
+      ActionReview::DecisionService.new.call(
+        request: created.request,
+        decision: 'reject',
+        reviewer_account: admin.account,
+        decision_note: nil
+      )
+
+      get :show, params: { id: created.request }
+
+      expect(response.body).to include(I18n.t('admin.action_reviews.invite_creation.stopped'))
+      expect(response.body).not_to include(I18n.t('admin.action_reviews.approve_and_run'))
+      expect(response.body).not_to include(created.invite.code)
+    end
+
+    it 'warns when the invite shell is missing' do
+      created = held_invite
+      created.invite.delete
+
+      get :show, params: { id: created.request.reload }
+
+      expect(response.body).to include(I18n.t('admin.action_reviews.inconsistent_invite'))
+      expect(response.body).not_to include(I18n.t('admin.action_reviews.approve_and_run'))
+    end
+  end
+
   describe 'navigation for moderators' do
     it 'shows the queue but not policy settings' do
       sign_in Fabricate(:user, moderator: true), scope: :user

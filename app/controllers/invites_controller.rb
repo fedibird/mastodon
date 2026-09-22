@@ -12,19 +12,22 @@ class InvitesController < ApplicationController
     authorize :invite, :create?
 
     @invites = invites
-    @invite  = Invite.new
+    @invite_reviews = InviteCreation::ReviewLookup.for_invites(@invites)
+    @invite = Invite.new
   end
 
   def create
     authorize :invite, :create?
 
-    @invite      = Invite.new(resource_params)
-    @invite.user = current_user
-
-    if @invite.save
+    result = InviteCreation::CreateService.new.call(user: current_user, attributes: resource_params)
+    if result.issued?
       redirect_to invites_path
+    elsif result.pending_review?
+      redirect_to invites_path, notice: I18n.t('invites.pending_review')
     else
+      @invite = result.invite
       @invites = invites
+      @invite_reviews = InviteCreation::ReviewLookup.for_invites(@invites)
       render :index
     end
   end
@@ -32,7 +35,7 @@ class InvitesController < ApplicationController
   def destroy
     @invite = invites.find(params[:id])
     authorize @invite, :destroy?
-    @invite.expire!
+    InviteCreation::ReviewLookup.management_expire!(@invite)
     redirect_to invites_path
   end
 
