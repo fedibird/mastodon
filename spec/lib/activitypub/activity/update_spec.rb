@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 require 'rails_helper'
 
-RSpec.describe ActivityPub::Activity::Update do
+RSpec.describe ActivityPub::Activity::Update do # rubocop:disable Metrics/BlockLength
   let!(:sender) { Fabricate(:account) }
 
   before do
@@ -44,7 +46,7 @@ RSpec.describe ActivityPub::Activity::Update do
     end
   end
 
-  describe 'remote status updates' do
+  describe 'remote status updates' do # rubocop:disable Metrics/BlockLength
     let(:sender) do
       Fabricate(
         :account,

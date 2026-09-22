@@ -18,6 +18,7 @@ class ActivityPub::ProcessStatusUpdateService < BaseService
   def call(status, activity_json, object_json, request_id: nil)
     raise ArgumentError, 'Status has unsaved changes' if status.changed?
 
+    reset_call_state!
     @activity_json = activity_json
     @json          = object_json
     @status_parser = ActivityPub::Parser::StatusParser.new(@json)
@@ -41,6 +42,18 @@ class ActivityPub::ProcessStatusUpdateService < BaseService
   end
 
   private
+
+  def reset_call_state!
+    @compatible_text = nil
+    @quote_link_hrefs = nil
+    @markdown = nil
+    @rejected_blurhashes = nil
+    @forwarder = nil
+    @significant_changes = nil
+    %i(@incoming_media @fedibird_content @reject_pattern @skip_download).each do |name|
+      remove_instance_variable(name) if instance_variable_defined?(name)
+    end
+  end
 
   def handle_explicit_update!
     raise Mastodon::RejectPayload if explicit_update_rejected?

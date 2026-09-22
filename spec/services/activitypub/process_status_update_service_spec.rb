@@ -97,7 +97,7 @@ RSpec.describe ActivityPub::ProcessStatusUpdateService, type: :service do # rubo
       payload[:source] = { content: 'misskey %{domain}', mediaType: 'text/x.misskeymarkdown' }
       payload[:updated] = '2021-09-09T22:39:25Z'
       refreshed = Oj.load(Oj.dump(payload))
-      subject.call(status.reload, refreshed, refreshed)
+      described_class.new.call(status.reload, refreshed, refreshed)
 
       expect(status.reload.text).to include('misskey')
       expect(status.text).to include(Rails.configuration.x.local_domain)
@@ -120,10 +120,11 @@ RSpec.describe ActivityPub::ProcessStatusUpdateService, type: :service do # rubo
         { type: 'Image', mediaType: 'image/png', url: 'https://example.com/one.png' },
         { type: 'Image', mediaType: 'image/png', url: 'https://example.com/two.png' },
       ]
+      stub_request(:get, 'https://example.com/one.png').to_return(body: attachment_fixture('emojo.png'), headers: { 'Content-Type' => 'image/png' })
 
       subject.call(status, json, json)
 
-      expect(status.reload.text).to include('original-media-link')
+      expect(status.reload.text).to include('class="unhandled-link">[Attached: 2]</a>')
       expect(status.ordered_media_attachments.map(&:remote_url)).to eq %w(https://example.com/one.png)
     ensure
       Setting.attachments_max = previous
@@ -404,6 +405,7 @@ RSpec.describe ActivityPub::ProcessStatusUpdateService, type: :service do # rubo
         { type: 'Image', url: 'javascript:alert(1)' },
         { type: 'Image', mediaType: 'image/png', url: 'https://example.com/ok.png' },
       ]
+      stub_request(:get, 'https://example.com/ok.png').to_return(body: attachment_fixture('emojo.png'), headers: { 'Content-Type' => 'image/png' })
 
       subject.call(status, json, json)
 
@@ -467,8 +469,8 @@ RSpec.describe ActivityPub::ProcessStatusUpdateService, type: :service do # rubo
     it 'strips only the stored quote compatibility link and keeps a different URL' do
       quoted = Fabricate(:status, account: remote_account, uri: 'https://misskey.example/notes/abc', url: 'https://misskey.example/notes/abc')
       other = 'https://other.example/notes/zzz'
-      status.update!(quote_id: quoted.id, text: %(<p>Hello<br><br>RE: <a href="#{quoted.url}">#{quoted.url}</a> #{other}</p>))
-      payload[:content] = %(<p>Hello universe<br><br>RE: <a href="#{quoted.url}">#{quoted.url}</a> <a href="#{other}">#{other}</a></p>)
+      status.update!(quote_id: quoted.id, text: %(<p>Hello <a href="#{other}">#{other}</a><br><br>RE: <a href="#{quoted.url}">#{quoted.url}</a></p>))
+      payload[:content] = %(<p>Hello universe <a href="#{other}">#{other}</a><br><br>RE: <a href="#{quoted.url}">#{quoted.url}</a></p>)
       payload[:_misskey_quote] = quoted.uri
 
       subject.call(status, json, json)
@@ -540,7 +542,7 @@ RSpec.describe ActivityPub::ProcessStatusUpdateService, type: :service do # rubo
           type: 'Emoji',
           name: ':blob:',
           icon: { type: 'Image', url: 'https://example.com/emoji-2.png' },
-          keywords: ['blobcat', 'cat'],
+          keywords: %w(blobcat cat),
           license: 'Apache-2.0',
         },
       ]
@@ -549,7 +551,7 @@ RSpec.describe ActivityPub::ProcessStatusUpdateService, type: :service do # rubo
 
       emoji.reload
       expect(emoji.image_remote_url).to eq 'https://example.com/emoji-2.png'
-      expect(emoji.license).to eq 'Apache-2.0'
+      expect(emoji.license).to eq 'http://www.apache.org/licenses/LICENSE-2.0'
       expect(emoji.aliases).to include('blobcat')
       expect(emoji.org_category).to eq 'cute'
       expect(emoji.misskey_license).to eq 'free'
@@ -596,6 +598,7 @@ RSpec.describe ActivityPub::ProcessStatusUpdateService, type: :service do # rubo
       reply_follower = remote_follower('reader', 'https://reader.example/users/reader/inbox')
       group_follower.follow!(group)
       reply_follower.follow!(parent_author)
+      payload[:updated] = 1.hour.from_now.utc.iso8601
       activity = signed_activity
 
       subject.call(status, activity, json)
@@ -609,6 +612,7 @@ RSpec.describe ActivityPub::ProcessStatusUpdateService, type: :service do # rubo
     it 'forwards a signed edit into a local conversation' do
       conversation = Conversation.create!(uri: nil)
       status.update!(conversation_id: conversation.id, visibility: :public)
+      payload[:updated] = 1.hour.from_now.utc.iso8601
       context_uri = 'https://cb6e6126.example/contexts/1'
       payload[:context] = context_uri
       payload[:to] = [context_uri]
