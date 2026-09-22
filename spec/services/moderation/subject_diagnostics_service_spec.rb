@@ -387,5 +387,39 @@ RSpec.describe Moderation::SubjectDiagnosticsService do
       expect(result['evaluation']).to eq evaluation
     end
   end
+
+  describe 'Follow Reject observation' do
+    it 'embeds the read-only decomposition beside the 24h block' do
+      record_interaction(b, :follow, now - 20.minutes, 'diag-fr-i')
+      record_rejection(b, :follow_reject, now - 19.minutes, 'diag-fr-r')
+
+      result = service.call(actor, now: now)
+      observation = Moderation::FollowRejectObservationService.new.call(actor, now: now)
+      evaluation = Moderation::RiskEvaluationService.new.call(actor, now: now)
+      decision = Moderation::AdaptiveFollowGateDecisionService.new.call(actor, now: now)
+
+      expect(result.dig('negative_signals', 'follow_reject_observation')).to eq observation
+      expect(result.dig('negative_signals', '24h').keys).to_not include('follow_reject_observation', 'latency_buckets')
+      expect(result['evaluation']).to eq evaluation
+      expect(result.dig('follow_gate', 'proposed_friction')).to eq decision['proposed_friction']
+      expect(result.dig('follow_gate', 'matched_rules')).to eq decision['matched_rules']
+    end
+
+    it 'uses an injected follow reject observer without changing evaluation output' do
+      observation = { 'windows' => {}, 'notes' => ['injected'] }
+      observer = instance_double(Moderation::FollowRejectObservationService)
+      expect(observer).to receive(:call).with(actor, now: now).and_return(observation)
+
+      result = described_class.new(follow_reject_observer: observer).call(actor, now: now)
+      evaluation = Moderation::RiskEvaluationService.new.call(actor, now: now)
+      decision = Moderation::AdaptiveFollowGateDecisionService.new.call(actor, now: now)
+
+      expect(result.dig('negative_signals', 'follow_reject_observation')).to eq observation
+      expect(result.dig('negative_signals', '24h').keys).to_not include('follow_reject_observation')
+      expect(result['evaluation']).to eq evaluation
+      expect(result.dig('follow_gate', 'proposed_friction')).to eq decision['proposed_friction']
+      expect(result.dig('follow_gate', 'matched_rules')).to eq decision['matched_rules']
+    end
+  end
 end
 # rubocop:enable Metrics/BlockLength
