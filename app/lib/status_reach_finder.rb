@@ -5,13 +5,13 @@ class StatusReachFinder
   # @param [Boolean] unsafe Keep the historical delete reach, including
   #   followers of direct and limited statuses and interactions that a
   #   non-follower could have created. Status updates leave this false.
-  # @param [Array<Integer>] exclude_reached_account_ids Accounts omitted
-  #   from mention, reply, reblog, favourite, and replier reach. Follower
-  #   inboxes are not filtered by this list.
-  def initialize(status, unsafe: false, exclude_reached_account_ids: [])
+  # @param [Array<Integer>] exclude_mentioned_account_ids Accounts omitted
+  #   from mention reach only. Favourite, reblog, reply, reply-target, and
+  #   follower reach are left in place.
+  def initialize(status, unsafe: false, exclude_mentioned_account_ids: [])
     @status = status
     @unsafe = unsafe
-    @exclude_reached_account_ids = Array(exclude_reached_account_ids).map(&:to_i)
+    @exclude_mentioned_account_ids = Array(exclude_mentioned_account_ids).map(&:to_i)
   end
 
   def inboxes
@@ -27,23 +27,21 @@ class StatusReachFinder
   def reached_account_ids
     # A reblog has no interactions of its own. Delete still needs the
     # original author, who may not follow the booster.
-    ids = if @status.reblog?
-            [reblog_of_account_id].compact
-          else
-            [
-              mentioned_account_ids,
-              replied_to_account_id,
-              reblogs_account_ids,
-              favourites_account_ids,
-              replies_account_ids,
-            ].tap do |arr|
-              arr.flatten!
-              arr.compact!
-              arr.uniq!
-            end
-          end
-
-    ids - @exclude_reached_account_ids
+    if @status.reblog?
+      [reblog_of_account_id].compact
+    else
+      [
+        mentioned_account_ids,
+        replied_to_account_id,
+        reblogs_account_ids,
+        favourites_account_ids,
+        replies_account_ids,
+      ].tap do |arr|
+        arr.flatten!
+        arr.compact!
+        arr.uniq!
+      end
+    end
   end
 
   def replied_to_account_id
@@ -55,7 +53,7 @@ class StatusReachFinder
   end
 
   def mentioned_account_ids
-    @status.mentions.pluck(:account_id)
+    @status.mentions.pluck(:account_id) - @exclude_mentioned_account_ids
   end
 
   # Reblogs, favourites, and replies can exist without the interactor

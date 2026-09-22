@@ -34,7 +34,7 @@ class ActivityPub::StatusUpdateDistributionWorker < ActivityPub::DistributionWor
   def inboxes
     @inboxes ||= StatusReachFinder.new(
       @status,
-      exclude_reached_account_ids: @options[:exclude_reached_account_ids]
+      exclude_mentioned_account_ids: @options[:exclude_mentioned_account_ids]
     ).inboxes
   end
 

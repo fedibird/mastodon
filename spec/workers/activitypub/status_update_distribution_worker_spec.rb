@@ -90,7 +90,7 @@ describe ActivityPub::StatusUpdateDistributionWorker do # rubocop:disable Metric
     introduced = Fabricate(:account, protocol: :activitypub, inbox_url: 'http://only-mention.example/users/bob/inbox', shared_inbox_url: 'http://only-mention.example/inbox', domain: 'only-mention.example', username: 'bob')
     status.mentions.create!(account: introduced)
 
-    subject.perform(status.id, 'exclude_reached_account_ids' => [introduced.id])
+    subject.perform(status.id, 'exclude_mentioned_account_ids' => [introduced.id])
 
     inboxes = payloads.map { |row| row[2] }
     expect(inboxes).to include('http://example.com/inbox')
@@ -105,7 +105,7 @@ describe ActivityPub::StatusUpdateDistributionWorker do # rubocop:disable Metric
     status.mentions.create!(account: introduced)
     follower_on_server.follow!(status.account)
 
-    subject.perform(status.id, 'exclude_reached_account_ids' => [introduced.id])
+    subject.perform(status.id, 'exclude_mentioned_account_ids' => [introduced.id])
 
     delivered = payloads.select { |row| row[2] == shared }
     expect(delivered).not_to be_empty
@@ -121,9 +121,50 @@ describe ActivityPub::StatusUpdateDistributionWorker do # rubocop:disable Metric
     status.mentions.create!(account: introduced)
     introduced.follow!(status.account)
 
-    subject.perform(status.id, 'exclude_reached_account_ids' => [introduced.id])
+    subject.perform(status.id, 'exclude_mentioned_account_ids' => [introduced.id])
 
     expect(payloads.map { |row| row[2] }).to include(shared)
+  end
+
+  it 'delivers an Update when the new mention account is also an existing favouriter' do
+    introduced = Fabricate(:account, protocol: :activitypub, inbox_url: 'http://self-favour.example/users/bob/inbox', shared_inbox_url: 'http://self-favour.example/inbox', domain: 'self-favour.example', username: 'bob')
+    status.mentions.create!(account: introduced)
+    Favourite.create!(account: introduced, status: status)
+
+    subject.perform(status.id, 'exclude_mentioned_account_ids' => [introduced.id])
+
+    expect(payloads.map { |row| row[2] }).to include(introduced.shared_inbox_url)
+  end
+
+  it 'delivers an Update when the new mention account is also an existing reblogger' do
+    introduced = Fabricate(:account, protocol: :activitypub, inbox_url: 'http://self-reblog.example/users/bob/inbox', shared_inbox_url: 'http://self-reblog.example/inbox', domain: 'self-reblog.example', username: 'bob')
+    status.mentions.create!(account: introduced)
+    Fabricate(:status, account: introduced, reblog: status, visibility: :public)
+
+    subject.perform(status.id, 'exclude_mentioned_account_ids' => [introduced.id])
+
+    expect(payloads.map { |row| row[2] }).to include(introduced.shared_inbox_url)
+  end
+
+  it 'delivers an Update when the new mention account is also an existing replier' do
+    introduced = Fabricate(:account, protocol: :activitypub, inbox_url: 'http://self-reply.example/users/bob/inbox', shared_inbox_url: 'http://self-reply.example/inbox', domain: 'self-reply.example', username: 'bob')
+    status.mentions.create!(account: introduced)
+    Fabricate(:status, account: introduced, thread: status, visibility: :public)
+
+    subject.perform(status.id, 'exclude_mentioned_account_ids' => [introduced.id])
+
+    expect(payloads.map { |row| row[2] }).to include(introduced.shared_inbox_url)
+  end
+
+  it 'delivers an Update when the new mention account is the existing reply target' do
+    introduced = Fabricate(:account, protocol: :activitypub, inbox_url: 'http://reply-target.example/users/bob/inbox', domain: 'reply-target.example', username: 'bob')
+    parent = Fabricate(:status, account: introduced, visibility: :public)
+    status.update!(in_reply_to_id: parent.id, in_reply_to_account_id: introduced.id)
+    status.mentions.create!(account: introduced)
+
+    subject.perform(status.id, 'exclude_mentioned_account_ids' => [introduced.id])
+
+    expect(payloads.map { |row| row[2] }).to include(introduced.inbox_url)
   end
 
   it 'delivers an Update to a shared inbox that an existing favouriter still uses' do
@@ -133,7 +174,7 @@ describe ActivityPub::StatusUpdateDistributionWorker do # rubocop:disable Metric
     status.mentions.create!(account: introduced)
     Favourite.create!(account: favouriter, status: status)
 
-    subject.perform(status.id, 'exclude_reached_account_ids' => [introduced.id])
+    subject.perform(status.id, 'exclude_mentioned_account_ids' => [introduced.id])
 
     expect(payloads.map { |row| row[2] }).to include(shared)
     expect(payloads.map { |row| row[2] }).not_to include(introduced.inbox_url)
@@ -148,7 +189,7 @@ describe ActivityPub::StatusUpdateDistributionWorker do # rubocop:disable Metric
     status.mentions.create!(account: introduced)
     status.update!(visibility: :limited, thread: parent, conversation: conversation)
 
-    subject.perform(status.id, 'exclude_reached_account_ids' => [introduced.id])
+    subject.perform(status.id, 'exclude_mentioned_account_ids' => [introduced.id])
 
     expect(ActivityPub::DeliveryWorker).to have_received(:perform_async).with(
       satisfy { |json| Oj.load(json)['type'] == 'Update' },

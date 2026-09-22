@@ -202,7 +202,7 @@ RSpec.describe UpdateStatusService, type: :service do # rubocop:disable Metrics/
     expect(payloads.first[2]).to eq remote.inbox_url
     expect(ActivityPub::StatusUpdateDistributionWorker).to have_received(:perform_async).with(
       status.id,
-      'exclude_reached_account_ids' => [remote.id]
+      'exclude_mentioned_account_ids' => [remote.id]
     )
   end
 
@@ -231,7 +231,7 @@ RSpec.describe UpdateStatusService, type: :service do # rubocop:disable Metrics/
     expect(Oj.load(payloads.first.first)['type']).to eq 'Create'
     expect(ActivityPub::StatusUpdateDistributionWorker).to have_received(:perform_async).with(
       status.id,
-      'exclude_reached_account_ids' => [introduced.id]
+      'exclude_mentioned_account_ids' => [introduced.id]
     )
   end
 

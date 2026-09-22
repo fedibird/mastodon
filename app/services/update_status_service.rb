@@ -221,13 +221,13 @@ class UpdateStatusService < BaseService
     if excluded.empty?
       ActivityPub::StatusUpdateDistributionWorker.perform_async(@status.id)
     else
-      ActivityPub::StatusUpdateDistributionWorker.perform_async(@status.id, 'exclude_reached_account_ids' => excluded)
+      ActivityPub::StatusUpdateDistributionWorker.perform_async(@status.id, 'exclude_mentioned_account_ids' => excluded)
     end
   end
 
   # Remote accounts that received a new mention row. They are omitted from
-  # mention reach for this Update. Follower inboxes stay in place, so an
-  # existing follower who shares their inbox still receives the Update.
+  # mention reach for this Update. Favourite, reblog, reply, reply-target,
+  # and follower reach still include them.
   def introduced_remote_mention_account_ids
     @introduced_mentions.each_with_object([]) do |mention, ids|
       account = mention.account
