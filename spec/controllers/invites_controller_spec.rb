@@ -114,7 +114,7 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
     end
   end
 
-  describe 'GET #index review rows' do
+  describe 'GET #index review rows' do # rubocop:disable Metrics/BlockLength
     let(:user) { Fabricate(:user, moderator: false, admin: true) }
 
     it 'shows a stopped row without the code and leaves an ordinary invite unchanged' do
@@ -136,6 +136,25 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
       expect(response.body).to include(I18n.t('invites.review.stopped'))
       expect(response.body).not_to include(held.invite.code)
       expect(response.body).to include(ordinary.code)
+    ensure
+      Setting.where(var: 'action_review_policies').delete_all
+      Rails.cache.clear
+    end
+
+    it 'hides the code, url, and copy control for a cancelled review' do
+      Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(
+        value: { 'invite_creation' => 'always' }
+      )
+      Rails.cache.clear
+      held = InviteCreation::CreateService.new.call(user: user, attributes: { max_uses: 1, expires_in: 1800 })
+      held.request.update!(state: :cancelled)
+
+      get :index
+
+      expect(response.body).to include(I18n.t('invites.review.stopped'))
+      expect(response.body).not_to include(held.invite.code)
+      expect(response.body).not_to include('input-copy')
+      expect(response.body).not_to include(I18n.t('invites.delete'))
     ensure
       Setting.where(var: 'action_review_policies').delete_all
       Rails.cache.clear
@@ -179,6 +198,31 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
       expect(response).to redirect_to invites_path
       expect(held.invite.reload.valid_for_use?).to be false
       expect(held.request.reload.pending_state?).to be true
+    ensure
+      Setting.where(var: 'action_review_policies').delete_all
+      Rails.cache.clear
+    end
+  end
+
+  describe 'DELETE #destroy cancelled shell' do
+    let(:user) { Fabricate(:user, moderator: false, admin: true) }
+
+    it 'does not move expires_at or make the code usable' do
+      Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(
+        value: { 'invite_creation' => 'always' }
+      )
+      Rails.cache.clear
+      held = InviteCreation::CreateService.new.call(user: user, attributes: { max_uses: 1, expires_in: 1800 })
+      held.request.update!(state: :cancelled)
+      expires_at = held.invite.expires_at
+
+      delete :destroy, params: { id: held.invite.id }
+
+      fresh = held.invite.reload
+      expect(response).to redirect_to invites_path
+      expect(fresh.expires_at.to_i).to eq expires_at.to_i
+      expect(fresh.valid_for_use?).to be false
+      expect(held.request.reload.cancelled_state?).to be true
     ensure
       Setting.where(var: 'action_review_policies').delete_all
       Rails.cache.clear

@@ -1,5 +1,5 @@
 - review = invite_creation_review(invite)
-- held = review&.pending_state? || review&.rejected_state?
+- held = InviteCreation::ReviewLookup.held_review?(review)
 %tr
   %td
     - if held

@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe InviteCreation::ReviewLookup do
+RSpec.describe InviteCreation::ReviewLookup do # rubocop:disable Metrics/BlockLength
   let(:user) { Fabricate(:user, admin: true) }
 
   def shell
@@ -59,5 +59,36 @@ RSpec.describe InviteCreation::ReviewLookup do
     expect(fresh.expires_at.to_i).to eq expires_at.to_i
     expect(fresh.valid_for_use?).to be false
     expect(held.request.reload.pending_state?).to be true
+  end
+
+  it 'treats a cancelled creation review as held and leaves the shell expired' do
+    held = shell
+    expires_at = held.invite.expires_at
+    held.request.update!(state: :cancelled)
+
+    expect(described_class.held_review?(held.request.reload)).to be true
+
+    described_class.management_expire!(held.invite)
+
+    fresh = held.invite.reload
+    expect(fresh.expires_at.to_i).to eq expires_at.to_i
+    expect(fresh.valid_for_use?).to be false
+    expect(held.request.reload.cancelled_state?).to be true
+  end
+
+  it 'still expires an invite whose creation review is approved' do
+    held = shell
+    ActionReview::DecisionService.new.call(
+      request: held.request,
+      decision: 'approve',
+      reviewer_account: user.account,
+      decision_note: nil
+    )
+    expect(described_class.held_review?(held.request.reload)).to be false
+
+    described_class.management_expire!(held.invite)
+
+    expect(held.invite.reload).to be_expired
+    expect(held.request.reload.approved_state?).to be true
   end
 end

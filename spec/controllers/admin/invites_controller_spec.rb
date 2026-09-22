@@ -113,6 +113,27 @@ describe Admin::InvitesController do # rubocop:disable Metrics/BlockLength
     end
   end
 
+  describe 'GET #index cancelled review' do
+    it 'hides the code, url, and copy control' do
+      Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(
+        value: { 'invite_creation' => 'always' }
+      )
+      Rails.cache.clear
+      held = InviteCreation::CreateService.new.call(user: user, attributes: { max_uses: 1, expires_in: 1800 })
+      held.request.update!(state: :cancelled)
+
+      get :index
+
+      expect(response.body).to include(I18n.t('admin.invites.review_stopped'))
+      expect(response.body).not_to include(held.invite.code)
+      expect(response.body).not_to include('input-copy')
+      expect(response.body).not_to include(admin_action_review_path(held.request))
+    ensure
+      Setting.where(var: 'action_review_policies').delete_all
+      Rails.cache.clear
+    end
+  end
+
   describe 'POST #deactivate_all' do
     it 'expires all invites, then redirects to admin_invites_path' do
       invites = Fabricate.times(2, :invite, expires_at: nil)
