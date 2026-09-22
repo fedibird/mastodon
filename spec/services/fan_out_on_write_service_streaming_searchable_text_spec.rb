@@ -94,6 +94,20 @@ RSpec.describe FanOutOnWriteService, type: :service do # rubocop:disable Metrics
       expect(attached).to include(referenced_uri)
     end
 
+    # Node filtering reads this field, so the representation a filter keyword is
+    # written in has to travel with it: the canonical percent-encoded URL and the
+    # human-readable form the link shows.
+    it 'includes both URL representations in the streaming field' do
+      status = Fabricate(:status, account: author, text: 'look https://example.com/%E6%9D%B1%E4%BA%AC/page')
+      json = dumped_payload(status)
+      payload = json['payload'] || json[:payload]
+      attached = payload[FanOutOnWriteService::STREAMING_SEARCHABLE_TEXT_KEY]
+
+      expect(attached).to eq status.proper.filterable_text
+      expect(attached).to include('https://example.com/%E6%9D%B1%E4%BA%AC/page')
+      expect(attached).to include('https://example.com/東京/page')
+    end
+
     it 'does not attach searchable_text to a nested quote object' do
       quoted = Fabricate(:status, account: author, text: 'quoted body')
       status = Fabricate(:status, account: author, text: 'hello quote', quote: quoted)

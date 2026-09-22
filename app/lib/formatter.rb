@@ -12,6 +12,12 @@ class Formatter
   DISALLOWED_BOUNDING_REGEX = /[[:alnum:]:]/.freeze
   NEWLINE_TAGS_RE = %r{(<br />|<br>|</p>)+}
 
+  # A decoded URL is only ever shown to a human or offered to a matcher, so any
+  # Unicode control character in it is noise at best. It is also how the
+  # KeywordSubscribe matching material separates its segments, so a decoded
+  # control character must never reach it.
+  UNDISPLAYABLE_URL_RE = /\p{Cc}/.freeze
+
   def format(status, **options)
     if status.reblog?
       prepend_reblog = status.reblog.account.acct
@@ -177,6 +183,21 @@ class Formatter
 
   def extract_inner_link(status)
     Nokogiri::HTML.parse(format(status), nil, 'utf-8').css('a:not(.mention):not(.unhandled-link)').map { |x| x['href'].presence }.compact.uniq
+  end
+
+  # The human-readable representation of one URL: the form link text shows, and
+  # the form filters and keyword subscriptions match against besides the
+  # canonical one. It is never URL identity, so it must not be used as an href,
+  # stored, or fetched.
+  #
+  # Percent sequences are decoded exactly once, so `%252F` reads as `%2F` rather
+  # than as a slash. A decoded URL that is not valid UTF-8, or that carries a
+  # control character, is refused and the canonical form is returned as is. This
+  # never raises.
+  def display_url(url)
+    canonical = url.to_s
+
+    decode_url_once(canonical) || canonical
   end
 
   def remove_compatible_object_link(html)
@@ -614,13 +635,33 @@ class Formatter
     hashtag_html(entity[:hashtag])
   end
 
+  # Returns nil rather than a decoded URL when the URL cannot be parsed, when
+  # decoding it produces bytes that are not valid UTF-8, or when it produces a
+  # control character.
+  #
+  # Addressable raises InvalidURIError for a URL it cannot parse or reassemble,
+  # and ArgumentError when the given String itself is not valid UTF-8, which is
+  # possible for text that arrived from a remote instance.
+  def decode_url_once(url)
+    decoded = Addressable::URI.unencode(Addressable::URI.parse(url).to_s)
+
+    # Addressable tags its result UTF-8, but the bytes a percent sequence
+    # produces are arbitrary, so the result still has to be checked.
+    decoded = decoded.dup.force_encoding(Encoding::UTF_8) unless decoded.encoding == Encoding::UTF_8
+
+    return if !decoded.valid_encoding? || decoded.match?(UNDISPLAYABLE_URL_RE)
+
+    decoded
+  rescue Addressable::URI::InvalidURIError, ArgumentError
+    nil
+  end
+
   def link_html(url)
-    decoded_url = Addressable::URI.unencode(Addressable::URI.parse(url).to_s)
-    url         = decoded_url if decoded_url.valid_encoding?
-    prefix      = url.match(/\A(https?:\/\/(www\.)?|xmpp:)/).to_s
-    text        = url[prefix.length, 30]
-    suffix      = url[prefix.length + 30..-1]
-    cutoff      = url[prefix.length..-1].length > 30
+    url    = display_url(url)
+    prefix = url.match(/\A(https?:\/\/(www\.)?|xmpp:)/).to_s
+    text   = url[prefix.length, 30]
+    suffix = url[prefix.length + 30..-1]
+    cutoff = url[prefix.length..-1].length > 30
 
     "<span class=\"invisible\">#{encode(prefix)}</span><span class=\"#{cutoff ? 'ellipsis' : ''}\">#{encode(text)}</span><span class=\"invisible\">#{encode(suffix)}</span>"
   end

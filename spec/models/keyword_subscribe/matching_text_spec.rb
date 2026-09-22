@@ -73,11 +73,38 @@ RSpec.describe KeywordSubscribe::MatchingText do # rubocop:disable Metrics/Block
     # URL written in a form that normalizes differently survives there.
     it 'masks a URL that Status left in the body, whichever way match_urls is set' do
       status = status_with('look https://example.com/東京/page')
+      marker = described_class::URL_MARKER
 
       expect(status.searchable_text).to include 'https://example.com/東京/page'
       expect(text_for(status)).not_to include 'example.com'
       expect(text_for(status)).not_to include '東京'
-      expect(segments(text_for(status, match_urls: true)).last).to eq "#{described_class::URL_MARKER}https://example.com/%E6%9D%B1%E4%BA%AC/page"
+      expect(segments(text_for(status, match_urls: true)).last(2)).to eq [
+        "#{marker}https://example.com/%E6%9D%B1%E4%BA%AC/page",
+        "#{marker}https://example.com/東京/page",
+      ]
+    end
+
+    # Status#filterable_urls carries the canonical URL and the human-readable form
+    # Formatter shows as link text, each in its own segment.
+    it 'appends the display form of a percent-encoded URL as its own segment' do
+      status = status_with('look https://example.com/%E6%9D%B1%E4%BA%AC/page')
+      marker = described_class::URL_MARKER
+
+      expect(segments(text_for(status, match_urls: true))).to eq [
+        status.searchable_text,
+        "#{marker}https://example.com/%E6%9D%B1%E4%BA%AC/page",
+        "#{marker}https://example.com/東京/page",
+      ]
+    end
+
+    it 'appends no display segment for a URL whose decoded form would carry a control character' do
+      status = status_with('look https://example.com/%00/page')
+      marker = described_class::URL_MARKER
+
+      expect(segments(text_for(status, match_urls: true))).to eq [
+        status.searchable_text,
+        "#{marker}https://example.com/%00/page",
+      ]
     end
 
     it 'leaves protocol-less text that Mastodon does not treat as a URL' do
