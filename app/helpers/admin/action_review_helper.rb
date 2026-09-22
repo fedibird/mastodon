@@ -69,19 +69,72 @@ module Admin::ActionReviewHelper
   end
 
   def action_review_decision_warning_text(request)
-    if request.operation_type == 'invite_creation'
+    case request.operation_type
+    when 'invite_creation'
       t('admin.action_reviews.inconsistent_invite')
+    when 'account_migration'
+      t('admin.action_reviews.inconsistent_migration')
     else
       t('admin.action_reviews.inconsistent_resource')
     end
   end
 
   def action_review_stop_confirm(request)
-    if request.operation_type == 'invite_creation'
+    case request.operation_type
+    when 'invite_creation'
       t('admin.action_reviews.invite_stop_confirm')
+    when 'account_migration'
+      t('admin.action_reviews.migration_stop_confirm')
     else
       t('admin.action_reviews.stop_confirm')
     end
+  end
+
+  def action_review_approve_label(request)
+    if request.operation_type == 'account_migration'
+      t('admin.action_reviews.approve_migration')
+    else
+      t('admin.action_reviews.approve_and_run')
+    end
+  end
+
+  # Approved, not yet executed, and the move prerequisites no longer hold.
+  # The worker stays fail-closed until they hold again.
+  def action_review_migration_execution_blocked?(request, migration)
+    return false unless request.approved_state?
+    return false if migration&.action_review_executed_at.present?
+    return true if migration.nil?
+
+    !ActionReview::Adapters::AccountMigration.consistent?(request, migration)
+  rescue StandardError
+    true
+  end
+
+  def action_review_migration_status(request, migration)
+    case request.state
+    when 'pending'
+      t('admin.action_reviews.account_migration.waiting')
+    when 'approved'
+      if migration&.action_review_executed_at.present?
+        t('admin.action_reviews.account_migration.executed')
+      else
+        t('admin.action_reviews.account_migration.processing')
+      end
+    when 'rejected'
+      t('admin.action_reviews.account_migration.stopped')
+    when 'cancelled'
+      t('admin.action_reviews.account_migration.cancelled')
+    else
+      action_review_state_label(request.state)
+    end
+  end
+
+  def action_review_migration_metric_value(metrics, window, key)
+    value = metrics&.dig('windows', window, key)
+    return '0' if value.nil?
+    return format('%.2f', value.to_f) if key.end_with?('_rate')
+
+    value
   end
 
   def action_review_invite_lifetime(seconds)

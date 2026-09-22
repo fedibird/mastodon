@@ -57,18 +57,23 @@ class MoveWorker
 
   def copy_account_notes!
     AccountNote.where(target_account: @source_account).find_each do |note|
-      text = I18n.with_locale(note.account.user&.locale || I18n.default_locale) do
-        I18n.t('move_handler.copy_account_note_text', acct: @source_account.acct)
-      end
-
+      text = copied_note_marker(note)
       new_note = AccountNote.find_by(account: note.account, target_account: @target_account)
       if new_note.nil?
         AccountNote.create!(account: note.account, target_account: @target_account, comment: [text, note.comment].join("\n"))
+      elsif new_note.comment.to_s.include?(text)
+        next
       else
         new_note.update!(comment: [text, note.comment, "\n", new_note.comment].join("\n"))
       end
     rescue => e
       @deferred_error = e
+    end
+  end
+
+  def copied_note_marker(note)
+    I18n.with_locale(note.account.user&.locale || I18n.default_locale) do
+      I18n.t('move_handler.copy_account_note_text', acct: @source_account.acct)
     end
   end
 

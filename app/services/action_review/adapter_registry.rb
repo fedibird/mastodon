@@ -9,6 +9,7 @@ module ActionReview
     ADAPTERS = {
       'follow_import' => ActionReview::Adapters::FollowImport,
       'invite_creation' => ActionReview::Adapters::InviteCreation,
+      'account_migration' => ActionReview::Adapters::AccountMigration,
     }.freeze
 
     def self.registered?(operation_type)

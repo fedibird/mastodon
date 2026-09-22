@@ -87,6 +87,10 @@
       every: '5m'
       class: Scheduler::FollowImportActionReviewResumeScheduler
       queue: scheduler
+    account_migration_action_review_execution_scheduler:
+      every: '5m'
+      class: Scheduler::AccountMigrationActionReviewExecutionScheduler
+      queue: scheduler
     # Shadow observation backfill only. 10m avoids stacking on the 5m
     # follow-import jobs. Does not change preflight or execution.
     follow_import_review_signal_shadow_scheduler:

@@ -496,7 +496,7 @@ ja:
       errors:
         unsupported_mode: この操作では使えません
       hints:
-        account_migration: 検出器のない操作は「介入しない」か「常にモデレーター承認」のみです。アダプター接続までは引っ越しの実行を止めません。
+        account_migration: 「介入しない」は、通常の本人確認のあとすぐに引っ越しを実行します。「常にモデレーター承認」は、フォロワーの引き継ぎと Move をスタッフの承認まで待ちます。アカウントの引っ越しは通常の分散SNSの移行機能です。行動の数値は事実の参考であり、自動的な不正判定ではありません。
         follow_import: 「常にモデレーター承認」は、フォローや上書き解除が始まる前に、すべてのフォローインポートを確認待ちにします。「介入しない」はそのまま処理します。「高い要確認シグナルのみ」「中以上」「低以上」は校正用にシャドー分類を記録しますが、インポートはまだ止めません。
         invite_creation: 「介入しない」は、これまでどおり招待コードをすぐに発行します。「常にモデレーター承認」は、スタッフが承認するまでコードを使えません。
         status_import: 将来機能です。ここでの選択は枠組み用に保存されるだけで、投稿データのインポートは有効になりません。
@@ -511,12 +511,13 @@ ja:
         follow_import: フォローインポート
         invite_creation: 招待コードの発行
         status_import: 投稿データのインポート（将来機能）
-      preface: フォローインポートと招待コードの発行は接続済みです。フォローインポートの「常にモデレーター承認」は実行前に承認を待ちます。「介入しない」はそのまま処理します。「高い要確認シグナルのみ」「中以上」「低以上」は校正用のシャドー分類で、インポートはまだ止めません。招待コードは「介入しない」ですぐに発行し、「常にモデレーター承認」ではスタッフの承認まで使えません。アカウントの引っ越しと投稿データのインポートはまだ接続されていません。
+      preface: フォローインポートと招待コードの発行は接続済みです。フォローインポートの「常にモデレーター承認」は実行前に承認を待ちます。「介入しない」はそのまま処理します。「高い要確認シグナルのみ」「中以上」「低以上」は校正用のシャドー分類で、インポートはまだ止めません。招待コードは「介入しない」ですぐに発行し、「常にモデレーター承認」ではスタッフの承認まで使えません。アカウントの引っ越しは接続済みです。「介入しない」は通常の本人確認のあとすぐに実行し、「常にモデレーター承認」はフォロワーの引き継ぎの前にスタッフの承認を待ちます。引っ越しは通常の移行機能です。投稿データのインポートはまだ接続されていません。
       title: 操作の承認ポリシー
     action_reviews:
       account_unavailable: アカウントなし
       actor: 実行アカウント
       approve_and_run: 承認して実行
+      approve_migration: 引っ越しを承認
       approved_msg: フォローインポートを承認しました。実行を再開します。
       invite_approved_msg: 招待を承認しました。有効期限までコードを使えます。
       invite_creation:
@@ -539,12 +540,66 @@ ja:
         "yes": あり
       invite_stopped_msg: 招待を停止しました。コードは使えません。アカウントの制限や停止はしていません。
       invite_stop_confirm: この招待を停止しますか？コードは使えないままです。アカウントの制限や停止はしません。
+      migration_approved_msg: アカウントの引っ越しを承認しました。フォロワーの引き継ぎを実行待ちにしました。
+      migration_stop_confirm: この引っ越し依頼を停止しますか？フォロワーの引き継ぎは始まりません。アカウントの制限や停止はしません。
+      migration_stopped_msg: 引っ越し依頼を停止しました。アカウントの制限や停止はしていません。
+      account_migration:
+        account_age: アカウント経過秒数
+        cancelled: 取消済み
+        caveat: 戻りのフォロー数は時刻の前後関係であり、操作された証拠ではありません。フォローインポートの戻りフォロー数も、同一性や意図を示すものではありません。アカウントの引っ越しは通常の分散SNSの移行機能です。
+        current_observation: 現在の観測
+        executed: 実行済み
+        execution_blocked: 承認済みですが、引っ越しの前提条件が現在満たされていないため実行待ちです
+        followers_at_request: 依頼時に記録したフォロワー数
+        followers_now: 依頼時点のフォロワー数
+        following_count: フォロー数
+        generated_at: 生成時刻
+        import_targets: フォローインポートの対象合計
+        import_unresolved: フォローインポートの未解決数
+        latest_import: 最新のフォローインポート
+        metrics:
+          blocks_received: 受けたブロック
+          contacts_total: 接触数
+          follow_import_batches: フォローインポートのバッチ数
+          follow_import_returned_follow_rate: フォローインポートの戻りフォロー率
+          follow_import_returned_follows: フォローインポート後の戻りフォロー
+          follow_import_unique_resolved_targets: フォローインポートの解決済み対象数
+          follow_rejects_received: 受けたフォロー拒否
+          follows: 送ったフォロー
+          follows_after_first_negative_signal: 最初の適格な否定のあとのフォロー
+          new_targets_after_first_negative_signal: 最初の適格な否定のあとの新しい対象
+          qualified_negative_events: 適格な否定イベント
+          qualified_unique_negative_responders: 適格な否定の応答者
+          reports_received: 受けた通報
+          returned_follow_rate: 戻りフォロー率
+          returned_follows_after_outgoing: 送ったあとに戻ったフォロー
+          unique_follow_targets: 送ったフォローの対象数
+          unique_targets: 接触した対象数
+        "no": いいえ
+        not_moved: 引っ越していない
+        processing: 承認済み、処理中
+        request_snapshot: 依頼時点の記録
+        source_account: 引っ越し元
+        source_moved: 引っ越し先の設定
+        status: 実行状態
+        statuses_count: 投稿数
+        stopped: 停止
+        target_account: 引っ越し先
+        target_local: 引っ越し先はローカル
+        title: アカウントの引っ越し
+        waiting: 承認待ち
+        windows:
+          1h: 1時間
+          24h: 24時間
+          7d: 7日
+        "yes": はい
       decision_failed: この判断を適用できませんでした。
       decision_note: 判断メモ
       empty: 判断待ちの操作はありません。
       evaluator_version: 評価器バージョン
       evidence: 根拠
       inconsistent_invite: 対応する招待が使えない承認待ちの状態ではないため、ここでは承認または停止できません。
+      inconsistent_migration: この引っ越し依頼は、ここで承認または停止できるローカルな引っ越しの状態と一致しません。
       inconsistent_resource: 対応するフォローインポートが確認待ちではないため、ここでは承認または停止できません。
       none: なし
       operation: 操作
@@ -1570,9 +1625,16 @@ ja:
     incoming_migrations: 別のアカウントから引っ越す
     incoming_migrations_html: 別のアカウントからこのアカウントに引っ越すには、まず<a href="%{path}">アカウントエイリアスを作成</a>する必要があります。
     moved_msg: アカウントは %{acct} に引っ越し設定されており、フォロワーは引っ越し先に引き継がれています。
+    pending_review: アカウントの引っ越しはモデレーターの承認待ちです。フォロワーの引き継ぎやリダイレクトはまだ始まっていません。
+    review:
+      moved: 引っ越し済み
+      processing: 承認済み、処理中
+      stopped: 停止
+      waiting: 承認待ち
     not_redirecting: アカウントは現在引っ越し設定されていません。
     on_cooldown: あなたは最近アカウントを引っ越しました。この機能は %{count} 日後に再度利用できるようになります。
     past_migrations: 過去の引っ越し
+    workflow: 状態
     proceed_with_move: フォロワーを引き継ぐ
     redirected_msg: あなたのアカウントは現在 %{acct} にリダイレクトされています。
     redirecting_to: アカウントは %{acct} に引っ越し設定されています。

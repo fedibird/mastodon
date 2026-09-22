@@ -9,8 +9,9 @@
 #  acct              :string           default(""), not null
 #  followers_count   :bigint(8)        default(0), not null
 #  target_account_id :bigint(8)
-#  created_at        :datetime         not null
-#  updated_at        :datetime         not null
+#  created_at                :datetime         not null
+#  updated_at                :datetime         not null
+#  action_review_executed_at :datetime
 #
 
 class AccountMigration < ApplicationRecord
@@ -29,7 +30,29 @@ class AccountMigration < ApplicationRecord
   validate :validate_migration_cooldown
   validate :validate_target_account
 
-  scope :within_cooldown, ->(now = Time.now.utc) { where(arel_table[:created_at].gteq(now - COOLDOWN_PERIOD)) }
+  # A rejected or cancelled creation review is not a completed move.
+  # Only the newest account_migration review can release the cooldown.
+  # Pending, approved, and ordinary rows with no review still count.
+  scope :within_cooldown, lambda { |now = Time.now.utc|
+    where(arel_table[:created_at].gteq(now - COOLDOWN_PERIOD))
+      .where.not(id: AccountMigration.released_review_migration_ids)
+  }
+
+  def self.released_review_migration_ids
+    ActionReviewRequest
+      .where(operation_type: 'account_migration', resource_type: 'AccountMigration', state: [:rejected, :cancelled])
+      .where(<<~SQL.squish)
+        NOT EXISTS (
+          SELECT 1
+          FROM action_review_requests newer
+          WHERE newer.operation_type = action_review_requests.operation_type
+            AND newer.resource_type = action_review_requests.resource_type
+            AND newer.resource_id = action_review_requests.resource_id
+            AND newer.id > action_review_requests.id
+        )
+      SQL
+      .select(:resource_id)
+  end
 
   attr_accessor :current_password, :current_username
 

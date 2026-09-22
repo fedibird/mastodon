@@ -155,7 +155,7 @@ RSpec.describe ActionReview::DecisionService do # rubocop:disable Metrics/BlockL
   it 'has no decision adapter for an unintegrated operation' do
     resource = Fabricate(:account)
     request = ActionReviewRequest.create!(
-      operation_type: 'account_migration',
+      operation_type: 'status_import',
       state: :pending,
       actor_account: resource,
       resource: resource,
@@ -171,7 +171,7 @@ RSpec.describe ActionReview::DecisionService do # rubocop:disable Metrics/BlockL
     expect { decide(request, 'approve') }.to raise_error(ActionReview::AdapterRegistry::UnknownAdapter)
     expect(request.reload.pending_state?).to be true
     expect(ActionReview::AdapterRegistry.registered?('invite_creation')).to be true
-    expect(ActionReview::AdapterRegistry.registered?('account_migration')).to be false
+    expect(ActionReview::AdapterRegistry.registered?('account_migration')).to be true
     expect(ActionReview::AdapterRegistry.registered?('status_import')).to be false
     expect(ActionReview::AdapterRegistry.actionable?(request)).to be false
   end

@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-describe MoveWorker do
+describe MoveWorker do # rubocop:disable Metrics/BlockLength
   let(:local_follower)   { Fabricate(:user, email: 'bob@example.com', account: Fabricate(:account, username: 'bob')).account }
   let(:blocking_account) { Fabricate(:user, email: 'bar@example.com', account: Fabricate(:account, username: 'bar')).account }
   let(:muting_account)   { Fabricate(:user, email: 'foo@example.com', account: Fabricate(:account, username: 'foo')).account }
@@ -65,6 +65,20 @@ describe MoveWorker do
 
       include_examples 'user note handling'
       include_examples 'block and mute handling'
+
+      it 'does not duplicate the migration note when MoveWorker runs twice' do
+        prior = 'new note prior to move'
+        AccountNote.create!(account: account_note.account, target_account: target_account, comment: prior)
+        marker = I18n.t('move_handler.copy_account_note_text', acct: source_account.acct)
+
+        subject.perform(source_account.id, target_account.id)
+        subject.perform(source_account.id, target_account.id)
+
+        comment = AccountNote.find_by(account: account_note.account, target_account: target_account).comment
+        expect(comment.scan(marker).size).to eq 1
+        expect(comment).to include(prior)
+        expect(comment).to include(account_note.comment)
+      end
     end
   end
 
