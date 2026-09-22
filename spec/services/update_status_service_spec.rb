@@ -189,7 +189,7 @@ RSpec.describe UpdateStatusService, type: :service do # rubocop:disable Metrics/
   end
 
   it 'sends a Create activity to a remote account mentioned for the first time' do
-    remote = Fabricate(:account, username: 'newremote', protocol: :activitypub, domain: 'example.com', inbox_url: 'http://example.com/new-inbox')
+    remote = Fabricate(:account, username: 'newremote', protocol: :activitypub, domain: 'example.com', inbox_url: 'http://example.com/new-inbox', shared_inbox_url: 'http://example.com/inbox')
     payloads = []
     allow(ActivityPub::DeliveryWorker).to receive(:perform_async) { |*args| payloads << args }
 
@@ -200,11 +200,43 @@ RSpec.describe UpdateStatusService, type: :service do # rubocop:disable Metrics/
     expect(body['type']).to eq 'Create'
     expect(body['object']['id']).to eq ActivityPub::TagManager.instance.uri_for(status)
     expect(payloads.first[2]).to eq remote.inbox_url
+    expect(ActivityPub::StatusUpdateDistributionWorker).to have_received(:perform_async).with(
+      status.id,
+      'exclude_inboxes' => [remote.inbox_url, remote.shared_inbox_url]
+    )
+  end
+
+  it 'sends Update only to an existing remote mention' do
+    remote = Fabricate(:account, username: 'existingremote', protocol: :activitypub, domain: 'existing.example', inbox_url: 'https://existing.example/users/existing/inbox', shared_inbox_url: 'https://existing.example/inbox')
+    status.mentions.create!(account: remote)
+    payloads = []
+    allow(ActivityPub::DeliveryWorker).to receive(:perform_async) { |*args| payloads << args }
+
+    subject.call(status, account.id, text: "hello again @#{remote.acct}")
+
+    expect(payloads).to be_empty
     expect(ActivityPub::StatusUpdateDistributionWorker).to have_received(:perform_async).with(status.id)
   end
 
+  it 'keeps an existing remote mention on Update when another remote mention is introduced' do
+    existing = Fabricate(:account, username: 'keptremote', protocol: :activitypub, domain: 'kept.example', inbox_url: 'https://kept.example/users/kept/inbox', shared_inbox_url: 'https://kept.example/inbox')
+    introduced = Fabricate(:account, username: 'addedremote', protocol: :activitypub, domain: 'added.example', inbox_url: 'https://added.example/users/added/inbox', shared_inbox_url: 'https://added.example/inbox')
+    status.mentions.create!(account: existing)
+    payloads = []
+    allow(ActivityPub::DeliveryWorker).to receive(:perform_async) { |*args| payloads << args }
+
+    subject.call(status, account.id, text: "hello @#{existing.acct} @#{introduced.acct}")
+
+    expect(payloads.map { |row| row[2] }).to eq [introduced.inbox_url]
+    expect(Oj.load(payloads.first.first)['type']).to eq 'Create'
+    expect(ActivityPub::StatusUpdateDistributionWorker).to have_received(:perform_async).with(
+      status.id,
+      'exclude_inboxes' => [introduced.inbox_url, introduced.shared_inbox_url]
+    )
+  end
+
   it 'does not send a new Create when a silent remote mention becomes explicit' do
-    remote = Fabricate(:account, username: 'silentremote', protocol: :activitypub, domain: 'example.com', inbox_url: 'http://example.com/silent-inbox')
+    remote = Fabricate(:account, username: 'silentremote', protocol: :activitypub, domain: 'example.com', inbox_url: 'http://example.com/silent-inbox', shared_inbox_url: 'http://example.com/shared-inbox')
     mention = status.mentions.create!(account: remote, silent: true)
     payloads = []
     allow(ActivityPub::DeliveryWorker).to receive(:perform_async) { |*args| payloads << args }
@@ -214,6 +246,7 @@ RSpec.describe UpdateStatusService, type: :service do # rubocop:disable Metrics/
     expect(mention.reload.silent).to be false
     expect(payloads).to be_empty
     expect(LocalNotificationWorker).not_to have_received(:perform_async)
+    expect(ActivityPub::StatusUpdateDistributionWorker).to have_received(:perform_async).with(status.id)
   end
 
   it 'resets preview cards when the text changes' do

@@ -1,7 +1,8 @@
 # frozen_string_literal: true
 
 class ActivityPub::StatusUpdateDistributionWorker < ActivityPub::DistributionWorker
-  def perform(status_id)
+  def perform(status_id, options = {})
+    @options = options.is_a?(Hash) ? options.symbolize_keys : {}
     @status  = Status.find(status_id)
     @account = @status.account
 
@@ -30,8 +31,22 @@ class ActivityPub::StatusUpdateDistributionWorker < ActivityPub::DistributionWor
     false
   end
 
+  def deliver_to_parent!
+    inbox_url = @status.conversation&.inbox_url
+    return if inbox_url.present? && excluded_inboxes.include?(inbox_url)
+
+    super
+  end
+
   def inboxes
-    @inboxes ||= StatusReachFinder.new(@status).inboxes
+    @inboxes ||= StatusReachFinder.new(@status).inboxes - excluded_inboxes
+  end
+
+  # Inboxes that already received a Create for a remote mention introduced
+  # by this edit. Personal and shared inboxes are both listed so the same
+  # server is not offered the Create and the Update.
+  def excluded_inboxes
+    @excluded_inboxes ||= Array(@options[:exclude_inboxes]).map(&:to_s)
   end
 
   def payload(software)

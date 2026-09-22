@@ -21,6 +21,7 @@ import {
 } from './announcements';
 import { getLocale } from '../locales';
 import { deleteScheduledStatusSuccess } from './scheduled_statuses';
+import { updateStatus } from './statuses';
 
 const { messages } = getLocale();
 
@@ -77,6 +78,9 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
         switch(data.event) {
         case 'update':
           dispatch(updateTimeline(timelineId, JSON.parse(data.payload), options.accept));
+          break;
+        case 'status.update':
+          dispatch(updateStatus(JSON.parse(data.payload)));
           break;
         case 'delete':
           dispatch(deleteFromTimelines(data.payload));

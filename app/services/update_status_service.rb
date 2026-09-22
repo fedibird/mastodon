@@ -215,7 +215,26 @@ class UpdateStatusService < BaseService
       DistributionWorker.perform_async(@status.id, { 'update' => true })
     end
 
-    ActivityPub::StatusUpdateDistributionWorker.perform_async(@status.id) unless @status.personal_visibility?
+    return if @status.personal_visibility?
+
+    excluded = introduced_remote_mention_inboxes
+    if excluded.empty?
+      ActivityPub::StatusUpdateDistributionWorker.perform_async(@status.id)
+    else
+      ActivityPub::StatusUpdateDistributionWorker.perform_async(@status.id, 'exclude_inboxes' => excluded)
+    end
+  end
+
+  # Create already targets these inboxes. Keep them out of this edit's
+  # Update so a newly mentioned remote account is not offered both.
+  def introduced_remote_mention_inboxes
+    @introduced_mentions.each_with_object([]) do |mention, urls|
+      account = mention.account
+      next unless account&.activitypub?
+
+      urls << account.inbox_url if account.inbox_url.present?
+      urls << account.shared_inbox_url if account.shared_inbox_url.present?
+    end.uniq
   end
 
   def queue_poll_notifications!

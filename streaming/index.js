@@ -638,7 +638,7 @@ const startWorker = (workerId) => {
 
       // Only messages that may require filtering are statuses, since notifications
       // are already personalized and deletes do not matter
-      if (!needsFiltering || event !== 'update') {
+      if (!needsFiltering || (event !== 'update' && event !== 'status.update')) {
         transmit();
         return;
       }

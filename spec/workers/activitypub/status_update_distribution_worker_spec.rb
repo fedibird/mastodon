@@ -86,6 +86,32 @@ describe ActivityPub::StatusUpdateDistributionWorker do # rubocop:disable Metric
     expect(inboxes).not_to include('http://example.com/inbox')
   end
 
+  it 'omits inboxes that already received a Create for a newly introduced mention' do
+    introduced = Fabricate(:account, protocol: :activitypub, inbox_url: 'http://mentioned.example/users/mentioned/inbox', shared_inbox_url: 'http://mentioned.example/inbox', domain: 'mentioned.example', username: 'mentioned')
+    other = Fabricate(:account, protocol: :activitypub, inbox_url: 'http://other.example/inbox', domain: 'other.example', username: 'otherfan')
+    status.mentions.create!(account: introduced)
+    other.follow!(status.account)
+
+    subject.perform(status.id, 'exclude_inboxes' => [introduced.inbox_url, introduced.shared_inbox_url])
+
+    inboxes = payloads.map { |row| row[2] }
+    expect(inboxes).to include('http://example.com/inbox')
+    expect(inboxes).to include('http://other.example/inbox')
+    expect(inboxes).not_to include(introduced.inbox_url)
+    expect(inboxes).not_to include(introduced.shared_inbox_url)
+  end
+
+  it 'does not delegate an Update to an inbox excluded for this edit' do
+    conversation = Fabricate(:conversation, uri: 'https://parent.example/456', inbox_url: 'https://parent.example/inbox')
+    parent = Fabricate(:status, visibility: :limited, account: Fabricate(:account, protocol: :activitypub, username: 'parent2', domain: 'parent.example', inbox_url: 'https://parent.example/users/inbox'), conversation: conversation)
+    status.update!(visibility: :limited, thread: parent, conversation: conversation)
+
+    subject.perform(status.id, 'exclude_inboxes' => ['https://parent.example/inbox'])
+
+    expect(ActivityPub::DeliveryWorker).not_to have_received(:perform_async)
+    expect(ActivityPub::DeliveryWorker).not_to have_received(:push_bulk)
+  end
+
   it 'delegates a limited reply to the remote parent inbox' do
     conversation = Fabricate(:conversation, uri: 'https://parent.example/123', inbox_url: 'https://parent.example/inbox')
     parent = Fabricate(:status, visibility: :limited, account: Fabricate(:account, protocol: :activitypub, username: 'parent', domain: 'parent.example', inbox_url: 'https://parent.example/users/inbox'), conversation: conversation)
