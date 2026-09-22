@@ -2,25 +2,30 @@
 
 # Connects a screening Follow Import batch to Action Review.
 #
-# Signal is always `none` in this phase: `off` and the reserved
-# threshold modes (low/medium/high) release to ready, and `always`
-# holds the batch. This service does not classify recurrence or
-# identity. Approval is an operation approval, not an account verdict.
+# Enforcement signal is always `none`: `off` and the threshold modes
+# (low/medium/high) release to ready, and `always` holds the batch.
+# The shadow classifier may record a calibration observation after this
+# decision returns. That observation is not an enforcement signal, is
+# not stored on the Action Review request, and is not read here.
+# Approval is an operation approval, not an account verdict.
 #
 # screening is evaluated once under the batch row lock. ready,
 # review_required, and stopped are not re-evaluated. The generic
 # PreflightReleaseService still performs screening -> ready and still
-# refuses to release a held batch.
+# refuses to release a held batch. Shadow enqueue happens after the
+# lock so classifier latency and failure cannot change the decision.
 module FollowImport
   class ActionReviewPreflightService
     def call(batch)
-      batch.with_lock do
+      result = batch.with_lock do
         if batch.screening_preflight_state?
           evaluate_screening!(batch)
         else
           FollowImport::PreflightReleaseService.new.call(batch)
         end
       end
+      enqueue_shadow_observation(batch)
+      result
     end
 
     private
@@ -76,6 +81,16 @@ module FollowImport
         released: released,
         transitioned: transitioned
       )
+    end
+
+    # Best-effort. Redis and inline-worker failures are logged by class
+    # only and cannot hold, release, or fail the import.
+    def enqueue_shadow_observation(batch)
+      return unless batch.operational_dispatch_cohort?
+
+      FollowImport::ReviewSignalShadowWorker.perform_async(batch.id)
+    rescue StandardError => e
+      Rails.logger.warn("[FollowImport::ActionReviewPreflightService] shadow enqueue failed for batch #{batch.id}: #{e.class}")
     end
   end
 end

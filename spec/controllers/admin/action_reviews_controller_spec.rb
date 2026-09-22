@@ -137,7 +137,7 @@ RSpec.describe Admin::ActionReviewsController, type: :controller do # rubocop:di
     end
   end
 
-  describe 'GET #show' do
+  describe 'GET #show' do # rubocop:disable Metrics/BlockLength
     before { sign_in admin, scope: :user }
 
     it 'displays the audit snapshot with escaped evidence and local times' do
@@ -159,6 +159,45 @@ RSpec.describe Admin::ActionReviewsController, type: :controller do # rubocop:di
       expect(response.body).to include(request.requested_at.iso8601)
       expect(response.body).not_to include('<script>alert(1)</script>')
       expect(response.body).to include('&lt;script&gt;alert(1)&lt;/script&gt;')
+    end
+
+    it 'does not display a stored follow import shadow signal' do
+      owner = Fabricate(:account)
+      batch = FollowImportBatch.create!(
+        subject: ModerationSubject.for_account!(owner),
+        imported_at: Time.now.utc,
+        mode: :merge,
+        dispatch_cohort: :operational,
+        preflight_state: :review_required,
+        target_count: 1,
+        resolved_target_count: 1,
+        unresolved_target_count: 0,
+        metadata: {
+          'review_signal_shadow_v1' => {
+            'signal_level' => 'high',
+            'classifier_version' => 'follow-import-review-signal-shadow-v1',
+            'marker' => 'shadow-token-zx91',
+          },
+        }
+      )
+      request = fabricate_request(
+        operation_type: 'follow_import',
+        resource: batch,
+        actor_account: owner,
+        signal_level: 'none',
+        evidence: { 'schema_version' => 1, 'batch_id' => batch.id }
+      )
+
+      get :show, params: { id: request }
+
+      expect(response.body).to include(I18n.t('admin.action_reviews.signals.none'))
+      expect(response.body).not_to include('follow-import-review-signal-shadow-v1')
+      expect(response.body).not_to include('shadow-token-zx91')
+
+      get :index
+
+      expect(response.body).not_to include('follow-import-review-signal-shadow-v1')
+      expect(response.body).not_to include('shadow-token-zx91')
     end
 
     it 'tolerates deleted actor, reviewer, and resource' do

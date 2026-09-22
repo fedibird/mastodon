@@ -106,7 +106,7 @@ RSpec.describe FollowImportBatch do # rubocop:disable Metrics/BlockLength
     expect { create_batch(preflight_state: :safe) }.to raise_error(ArgumentError)
   end
 
-  describe 'metadata merges' do
+  describe 'metadata merges' do # rubocop:disable Metrics/BlockLength
     let(:at) { Time.utc(2026, 9, 21, 3, 0, 0) }
 
     def fresh_copies
@@ -157,6 +157,48 @@ RSpec.describe FollowImportBatch do # rubocop:disable Metrics/BlockLength
       expect(fresh.ready_preflight_state?).to be true
       expect(fresh.metadata[described_class::COMPLETED_AT_KEY]).to eq at.iso8601
       expect(fresh.metadata[described_class::REVIEW_RESUME_REQUIRED_AT_KEY]).to eq (at + 60).iso8601
+    end
+
+    it 'keeps the first shadow observation and a later metadata key' do
+      batch = create_batch
+      batch.update!(metadata: { 'review_signal_shadow_v2' => { 'keep' => true } })
+
+      batch.record_review_signal_shadow_v1!('marker' => 'first', 'signal_level' => 'low')
+      batch.record_review_signal_shadow_v1!('marker' => 'second', 'signal_level' => 'high')
+
+      fresh = described_class.find(batch.id)
+      expect(fresh.review_signal_shadow_v1).to eq('marker' => 'first', 'signal_level' => 'low')
+      expect(fresh.metadata['review_signal_shadow_v2']).to eq('keep' => true)
+      expect(fresh.preflight_state).to eq 'ready'
+    end
+
+    it 'keeps completion and resume keys when a stale instance records the shadow observation' do
+      _batch, completion_writer, shadow_writer = fresh_copies
+
+      completion_writer.record_completion!(at)
+      completion_writer.mark_review_resume_completed!(at + 30)
+      shadow_writer.record_review_signal_shadow_v1!('signal_level' => 'low', 'marker' => 'first')
+
+      fresh = described_class.find(shadow_writer.id)
+      expect(fresh.metadata[described_class::COMPLETED_AT_KEY]).to eq at.iso8601
+      expect(fresh.metadata[described_class::REVIEW_RESUME_COMPLETED_AT_KEY]).to eq (at + 30).iso8601
+      expect(fresh.review_signal_shadow_v1['marker']).to eq 'first'
+    end
+
+    it 'keeps the shadow observation when a stale instance records completion and resume' do
+      batch, completion_writer, shadow_writer = fresh_copies
+
+      shadow_writer.record_review_signal_shadow_v1!('signal_level' => 'high', 'marker' => 'kept')
+      completion_writer.record_completion!(at)
+      completion_writer.mark_completion_notified!(at + 10)
+      completion_writer.mark_review_resume_required!(at + 20)
+
+      fresh = described_class.find(batch.id)
+      expect(fresh.review_signal_shadow_v1['marker']).to eq 'kept'
+      expect(fresh.ready_preflight_state?).to be true
+      expect(fresh.metadata[described_class::COMPLETED_AT_KEY]).to eq at.iso8601
+      expect(fresh.metadata[described_class::COMPLETION_NOTIFIED_KEY]).to eq (at + 10).iso8601
+      expect(fresh.metadata[described_class::REVIEW_RESUME_REQUIRED_AT_KEY]).to eq (at + 20).iso8601
     end
 
     it 'keeps resume completion when a stale settled batch records completion' do

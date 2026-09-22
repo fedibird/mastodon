@@ -150,4 +150,115 @@ RSpec.describe FollowImport::ActionReviewPreflightService do # rubocop:disable M
     expect(batch.reload.screening_preflight_state?).to be true
     expect(ActionReviewRequest.count).to eq 0
   end
+
+  def shadow_payload(signal_level)
+    {
+      'schema_version' => 1,
+      'classifier_version' => FollowImport::ReviewSignalClassifier::VERSION,
+      'evaluation_status' => 'ok',
+      'signal_level' => signal_level,
+      'reason_codes' => ["cross_subject_overlap_#{signal_level}"],
+      'features' => { 'marker' => 'shadow-only-token', 'overlap_count' => 231 },
+    }
+  end
+
+  def stub_shadow(signal_level)
+    allow_any_instance_of(FollowImport::ReviewSignalShadowEvaluator).to receive(:call).and_return(shadow_payload(signal_level))
+  end
+
+  %w(high medium low).each do |mode|
+    it "releases screening for policy #{mode} when the shadow classifier would say high" do
+      stub_policies('follow_import' => mode)
+      stub_shadow('high')
+      batch = create_batch
+
+      result = release(batch)
+
+      expect(result.released?).to be true
+      expect(batch.reload.ready_preflight_state?).to be true
+      expect(ActionReviewRequest.count).to eq 0
+      expect(batch.review_signal_shadow_v1['signal_level']).to eq 'high'
+    end
+  end
+
+  it 'holds always with signal none and keeps the shadow payload off the request' do
+    stub_policies('follow_import' => 'always')
+    stub_shadow('high')
+    batch = create_batch
+    expect_any_instance_of(ActionReview::PolicyDecisionService).to receive(:call).with(
+      operation_type: 'follow_import',
+      signal_level: 'none',
+      evaluation_status: 'ok'
+    ).and_call_original
+
+    result = release(batch)
+    request = ActionReviewRequest.last
+
+    expect(result.released?).to be false
+    expect(batch.reload.review_required_preflight_state?).to be true
+    expect(request.signal_level).to eq 'none'
+    expect(request.evidence.keys).to match_array(evidence_keys)
+    expect(request.evidence.to_json).not_to include('shadow-only-token')
+    expect(request.evidence.to_json).not_to include(FollowImport::ReviewSignalClassifier::VERSION)
+    expect(batch.review_signal_shadow_v1['signal_level']).to eq 'high'
+  end
+
+  it 'still releases when the shadow enqueue fails' do
+    stub_policies('follow_import' => 'high')
+    batch = create_batch
+    allow(FollowImport::ReviewSignalShadowWorker).to receive(:perform_async).and_raise(StandardError, 'redis down')
+
+    result = release(batch)
+
+    expect(result.released?).to be true
+    expect(batch.reload.ready_preflight_state?).to be true
+    expect(ActionReviewRequest.count).to eq 0
+    expect(batch.review_signal_shadow_v1_recorded?).to be false
+  end
+
+  it 'still holds always when the shadow enqueue fails' do
+    stub_policies('follow_import' => 'always')
+    batch = create_batch
+    allow(FollowImport::ReviewSignalShadowWorker).to receive(:perform_async).and_raise(StandardError, 'redis down')
+
+    result = release(batch)
+
+    expect(result.released?).to be false
+    expect(batch.reload.review_required_preflight_state?).to be true
+    expect(ActionReviewRequest.last.signal_level).to eq 'none'
+    expect(batch.review_signal_shadow_v1_recorded?).to be false
+  end
+
+  it 'does not classify inside the preflight decision' do
+    stub_policies('follow_import' => 'high')
+    batch = create_batch
+    locked = true
+    allow(batch).to receive(:with_lock).and_wrap_original do |method, *args, &block|
+      locked = true
+      result = method.call(*args, &block)
+      locked = false
+      result
+    end
+    expect(FollowImport::ReviewSignalClassifier).not_to receive(:new)
+    allow(FollowImport::ReviewSignalShadowWorker).to receive(:perform_async) do |batch_id|
+      expect(locked).to be false
+      expect(batch_id).to eq batch.id
+    end
+
+    result = release(batch)
+
+    expect(result.released?).to be true
+    expect(FollowImport::ReviewSignalShadowWorker).to have_received(:perform_async).with(batch.id)
+  end
+
+  it 'does not enqueue a shadow observation for the historical cohort' do
+    stub_policies('follow_import' => 'off')
+    batch = create_batch(dispatch_cohort: :historical)
+    expect(FollowImport::ReviewSignalShadowWorker).not_to receive(:perform_async)
+
+    result = release(batch)
+
+    expect(result.released?).to be true
+    expect(batch.reload.review_signal_shadow_v1_recorded?).to be false
+  end
 end

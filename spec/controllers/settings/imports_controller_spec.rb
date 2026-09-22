@@ -106,7 +106,14 @@ RSpec.describe Settings::ImportsController, type: :controller do
         target_count: 1,
         resolved_target_count: 0,
         unresolved_target_count: 1,
-        metadata: { 'sockpuppet-signal' => 'hidden-evidence' }
+        metadata: {
+          'sockpuppet-signal' => 'hidden-evidence',
+          'review_signal_shadow_v1' => {
+            'signal_level' => 'high',
+            'classifier_version' => 'follow-import-review-signal-shadow-v1',
+            'marker' => 'shadow-token-zx91',
+          },
+        }
       )
       batch.targets.create!(target_key_hash: 'secret-target-hash-xyz', position: 0, state: :pending)
 
@@ -116,6 +123,8 @@ RSpec.describe Settings::ImportsController, type: :controller do
       expect(response.body).not_to include('secret-target-hash-xyz')
       expect(response.body).not_to include('hidden-evidence')
       expect(response.body).not_to include('sockpuppet-signal')
+      expect(response.body).not_to include('follow-import-review-signal-shadow-v1')
+      expect(response.body).not_to include('shadow-token-zx91')
     end
 
     it 'shows a stopped import as stopped with no active waiting count' do

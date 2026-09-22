@@ -87,6 +87,12 @@
       every: '5m'
       class: Scheduler::FollowImportActionReviewResumeScheduler
       queue: scheduler
+    # Shadow observation backfill only. 10m avoids stacking on the 5m
+    # follow-import jobs. Does not change preflight or execution.
+    follow_import_review_signal_shadow_scheduler:
+      every: '10m'
+      class: Scheduler::FollowImportReviewSignalShadowScheduler
+      queue: scheduler
     # Provisional / UNCALIBRATED dispatcher cadence (shadow or GLOBAL).
     # Same ENV + default as FollowImport::ExecutionPolicy:
     # FOLLOW_IMPORT_DISPATCH_INTERVAL, with deprecated alias
