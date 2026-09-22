@@ -6,6 +6,19 @@ class ActivityPub::ProcessStatusUpdateService < BaseService
   include Lockable
   include ActivityPub::ProcessStatusUpdateText
   include ActivityPub::ProcessStatusUpdateEmoji
+  include ActivityPub::ProcessStatusUpdateDistribution
+
+  RECOVERABLE_MEDIA_ERRORS = [
+    Mastodon::UnexpectedResponseError,
+    HTTP::TimeoutError,
+    HTTP::ConnectionError,
+    OpenSSL::SSL::SSLError,
+    Paperclip::Error,
+    Mastodon::HostValidationError,
+    Mastodon::LengthValidationError,
+    Mastodon::DimensionsValidationError,
+    Mastodon::StreamValidationError,
+  ].freeze
 
   # Mastodon v4.2 remote Note/Question ingestion, with Fedibird deviations:
   # text is normalized like ActivityPub::Activity::Create (the v4.2 parsers stay
@@ -14,8 +27,10 @@ class ActivityPub::ProcessStatusUpdateService < BaseService
   # and never truncates an existing larger set; explicit updates are rejected
   # wholesale by Setting.reject_pattern / reject_blurhash; emoji metadata is
   # merged without clearing Fedibird fields; a new explicit local mention is
-  # recorded once. A missing or null attachment does not clear stored media.
-  def call(status, activity_json, object_json, request_id: nil)
+  # recorded once. Mention notifications are created after commit because
+  # Fedibird fan-out does not own them. A missing or null attachment does not
+  # clear stored media.
+  def call(status, activity_json, object_json, request_id: nil, delivery: false)
     raise ArgumentError, 'Status has unsaved changes' if status.changed?
 
     reset_call_state!
@@ -28,6 +43,7 @@ class ActivityPub::ProcessStatusUpdateService < BaseService
     @media_attachments_changed = false
     @poll_changed = false
     @request_id = request_id
+    @delivery = delivery
     @newly_explicit_mentions = []
 
     return @status if !expected_type? || already_updated_more_recently?
@@ -71,6 +87,8 @@ class ActivityPub::ProcessStatusUpdateService < BaseService
       end
 
       record_new_explicit_mentions!
+      notify_new_explicit_mentions!
+      distribute_to_new_local_groups!
       download_media_files!
       queue_poll_notifications!
 
@@ -214,14 +232,10 @@ class ActivityPub::ProcessStatusUpdateService < BaseService
       media_attachment.download_file! if media_attachment.remote_url_previously_changed?
       media_attachment.download_thumbnail! if media_attachment.thumbnail_remote_url_previously_changed?
       media_attachment.save
-    rescue Mastodon::UnexpectedResponseError, HTTP::TimeoutError, HTTP::ConnectionError, OpenSSL::SSL::SSLError
+    rescue *RECOVERABLE_MEDIA_ERRORS
       RedownloadMediaWorker.perform_in(rand(30..600).seconds, media_attachment.id)
     rescue Seahorse::Client::NetworkingError => e
       Rails.logger.warn "Error storing media attachment: #{e}"
-    rescue StandardError => e
-      # A processor failure (for example missing qrtool) must not retry an edit
-      # that has already been committed.
-      Rails.logger.warn "Error processing media attachment: #{e}"
     end
 
     @status.media_attachments.reload if @downloadable_media.present?

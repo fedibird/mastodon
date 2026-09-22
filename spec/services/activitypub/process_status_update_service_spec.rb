@@ -68,6 +68,7 @@ RSpec.describe ActivityPub::ProcessStatusUpdateService, type: :service do # rubo
     allow(ActivityPub::ForwardDistributionWorker).to receive(:perform_async)
     allow(PollExpirationNotifyWorker).to receive(:perform_at)
     allow(PollExpirationNotifyWorker).to receive(:remove_from_scheduled)
+    allow(ActivityPub::GroupDistributionWorker).to receive(:perform_async)
   end
 
   describe '#call' do # rubocop:disable Metrics/BlockLength
@@ -314,6 +315,87 @@ RSpec.describe ActivityPub::ProcessStatusUpdateService, type: :service do # rubo
       expect { subject.call(status.reload, json, json) }.to_not change(ModerationInteractionEvent, :count)
     end
 
+    it 'notifies a new local mention that is included in the update audience' do
+      carol = local_user('carol')
+      mention_payload(carol, content: 'Hello universe', audience: :to)
+
+      subject.call(status, json, json)
+
+      mention = status.mentions.find_by!(account: carol)
+      expect(Notification.where(account: carol, activity_type: 'Mention', activity_id: mention.id).count).to eq 1
+    end
+
+    it 'does not create a second mention notification when the same update is reprocessed' do
+      carol = local_user('carol')
+      mention_payload(carol, content: 'Hello universe', audience: :to)
+      subject.call(status, json, json)
+
+      expect { subject.call(status.reload, json, json) }.to_not change(Notification, :count)
+      expect(Notification.where(account: carol, activity_type: 'Mention').count).to eq 1
+    end
+
+    it 'does not notify a mention that was already explicit' do
+      Fabricate(:user, account: alice)
+      Fabricate(:mention, status: status, account: alice)
+      mention_payload(alice, content: 'Hello universe', audience: :cc)
+
+      expect { subject.call(status, json, json) }.to_not change(Notification, :count)
+    end
+
+    it 'notifies a silent local mention that becomes explicit' do
+      carol = local_user('carol')
+      Fabricate(:mention, status: status, account: carol, silent: true)
+      mention_payload(carol, content: 'Hello universe', audience: :to)
+
+      subject.call(status, json, json)
+
+      mention = status.mentions.find_by!(account: carol)
+      expect(mention.silent).to be false
+      expect(Notification.where(account: carol, activity_type: 'Mention', activity_id: mention.id).count).to eq 1
+    end
+
+    it 'does not notify a local mention that is absent from the update audience' do
+      carol = local_user('carol')
+      mention_payload(carol, content: 'Hello universe')
+
+      subject.call(status, json, json)
+
+      expect(status.mentions.find_by(account: carol)).to be_present
+      expect(Notification.where(account: carol, activity_type: 'Mention')).to be_empty
+    end
+
+    it 'adds a direct status to the mentioned account conversation' do
+      carol = local_user('carol')
+      status.update!(visibility: :direct)
+      mention_payload(carol, content: 'Hello universe', audience: :to)
+
+      subject.call(status, json, json)
+
+      conversation = AccountConversation.find_by!(account: carol, conversation_id: status.conversation_id)
+      expect(conversation.status_ids).to include(status.id)
+      expect(Notification.where(account: carol, activity_type: 'Mention').count).to eq 1
+    end
+
+    it 'enqueues group distribution when an edit first mentions a local group' do
+      group = Fabricate(:account, username: 'localsquad', actor_type: 'Group')
+      remote_follower('member', 'https://member.example/users/member/inbox').follow!(group)
+      mention_payload(group, content: 'Hello universe', audience: :to)
+
+      subject.call(status, json, json, delivery: true)
+
+      expect(ActivityPub::GroupDistributionWorker).to have_received(:perform_async).with(status.id)
+    end
+
+    it 'does not enqueue group distribution for a newly mentioned group outside a live delivery' do
+      group = Fabricate(:account, username: 'localsquad', actor_type: 'Group')
+      remote_follower('member', 'https://member.example/users/member/inbox').follow!(group)
+      mention_payload(group, content: 'Hello universe', audience: :to)
+
+      subject.call(status, json, json)
+
+      expect(ActivityPub::GroupDistributionWorker).to_not have_received(:perform_async)
+    end
+
     context 'when originally without media attachments' do
       let(:payload) do
         {
@@ -336,7 +418,8 @@ RSpec.describe ActivityPub::ProcessStatusUpdateService, type: :service do # rubo
         media = status.reload.ordered_media_attachments.first
 
         expect(media.remote_url).to eq 'https://example.com/foo.png'
-        expect(media.thumbhash).to eq 'thumb-1'
+        expect(media.file_file_name).to be_present
+        expect(media.thumbhash).to be_present
         expect(a_request(:get, 'https://example.com/foo.png')).to have_been_made
         expect(status.edits.reload.last.ordered_media_attachment_ids).to eq [media.id]
       end
@@ -607,6 +690,7 @@ RSpec.describe ActivityPub::ProcessStatusUpdateService, type: :service do # rubo
         include('https://group.example/users/groupfan/inbox', 'https://reader.example/users/reader/inbox'),
         limit: 1_000
       )
+      expect(ActivityPub::GroupDistributionWorker).to_not have_received(:perform_async)
     end
 
     it 'forwards a signed edit into a local conversation' do
@@ -622,6 +706,34 @@ RSpec.describe ActivityPub::ProcessStatusUpdateService, type: :service do # rubo
       subject.call(status, activity, Oj.load(Oj.dump(payload)))
 
       expect(ActivityPub::ForwardDistributionWorker).to have_received(:perform_async).with(conversation.id, Oj.dump(activity))
+    end
+
+    it 'keeps a committed edit and schedules redownload when media processing fails' do
+      allow(RedownloadMediaWorker).to receive(:perform_in)
+      allow_any_instance_of(MediaAttachment).to receive(:download_file!).and_raise(Paperclip::Error, 'processor failed')
+      payload[:content] = 'Hello universe'
+      payload[:attachment] = [{ type: 'Image', mediaType: 'image/png', url: 'https://example.com/fail.png', thumbhash: 'thumb-1' }]
+
+      expect { subject.call(status, json, json) }.to_not raise_error
+
+      status.reload
+      expect(status.text).to eq 'Hello universe'
+      expect(status.edited_at).to be_present
+      expect(status.edits).to_not be_empty
+      expect(status.media_attachments.first.thumbhash).to eq 'thumb-1'
+      expect(RedownloadMediaWorker).to have_received(:perform_in).with(a_kind_of(ActiveSupport::Duration), status.media_attachments.first.id)
+    end
+
+    it 'leaves a committed edit in place when media processing raises an unexpected error' do
+      allow(RedownloadMediaWorker).to receive(:perform_in)
+      allow_any_instance_of(MediaAttachment).to receive(:download_file!).and_raise(NoMethodError, 'unexpected processor bug')
+      payload[:content] = 'Hello universe'
+      payload[:attachment] = [{ type: 'Image', mediaType: 'image/png', url: 'https://example.com/fail.png' }]
+
+      expect { subject.call(status, json, json) }.to raise_error(NoMethodError)
+      expect(status.reload.text).to eq 'Hello universe'
+      expect(status.edits).to_not be_empty
+      expect(RedownloadMediaWorker).to_not have_received(:perform_in)
     end
 
     it 're-evaluates tag follows and keyword subscriptions through the edit fan-out' do
@@ -652,6 +764,16 @@ RSpec.describe ActivityPub::ProcessStatusUpdateService, type: :service do # rubo
       expect(HomeFeed.new(subscriber).get(10).map(&:id)).to include(status.id)
       expect(redis.zscore(FeedManager.instance.key(:list, list.id), status.id)).to_not be_nil
     end
+  end
+
+  def local_user(username)
+    Fabricate(:user, account: Fabricate(:account, username: username)).account
+  end
+
+  def mention_payload(account, content:, audience: nil)
+    payload[:content] = content
+    payload[:tag] = [{ type: 'Mention', href: ActivityPub::TagManager.instance.uri_for(account) }]
+    payload[audience] = [ActivityPub::TagManager.instance.uri_for(account)] if audience
   end
 
   def json_with(overrides)
