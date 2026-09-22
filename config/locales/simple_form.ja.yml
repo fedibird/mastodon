@@ -211,6 +211,8 @@ ja:
         exclude_keyword: カンマで区切って複数の除外するキーワードを並べます（または正規表現で指定します）
         ignore_block: ドメイン全体を非表示にしたまま、キーワードの購読を優先することができます
         keyword: カンマで区切って複数のキーワードを並べます（または正規表現で指定します）
+        match_hashtags: 投稿のハッシュタグも照合します。本文に書かれていないハッシュタグも対象になります
+        match_urls: 投稿に含まれるURLも照合します。参照した投稿の正規URLも対象になります
         media_only: メディアが添付された投稿だけを対象にします
         name: オプションです
       rule:
@@ -489,6 +491,8 @@ ja:
         ignorecase: 大文字と小文字を区別しない
         ignore_block: ユーザーによるドメインブロックを無視する
         keyword: キーワードまたは正規表現
+        match_hashtags: ハッシュタグも対象にする
+        match_urls: URLも対象にする
         media_only: メディアのみ
         list_id: 対象タイムライン
         name: 名称
@@ -498,6 +502,8 @@ ja:
         ignorecase: 大小
         ignore_block: ブロック
         keyword: 設定値
+        match_hashtags: ハッシュタグ
+        match_urls: URL
         media_only: メディア
         name: 名称
         regexp: 種別
