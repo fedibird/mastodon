@@ -549,6 +549,7 @@ ja:
         caveat: 戻りのフォロー数は時刻の前後関係であり、操作された証拠ではありません。フォローインポートの戻りフォロー数も、同一性や意図を示すものではありません。アカウントの引っ越しは通常の分散SNSの移行機能です。
         current_observation: 現在の観測
         executed: 実行済み
+        execution_blocked: 承認済みですが、引っ越しの前提条件が現在満たされていないため実行待ちです
         followers_at_request: 依頼時に記録したフォロワー数
         followers_now: 依頼時点のフォロワー数
         following_count: フォロー数

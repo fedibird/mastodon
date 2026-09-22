@@ -90,6 +90,38 @@ RSpec.describe Admin::ActionReviewsController, type: :controller do # rubocop:di
     expect(created.request.reload.evidence).to eq evidence
   end
 
+  it 'shows processing for an approved migration that can still run' do
+    created = hold
+    post :approve, params: { id: created.request }
+
+    get :show, params: { id: created.request }
+
+    expect(response.body).to include(I18n.t('admin.action_reviews.account_migration.processing'))
+    expect(response.body).not_to include(I18n.t('admin.action_reviews.account_migration.execution_blocked'))
+  end
+
+  it 'warns when an approved migration can no longer run' do
+    created = hold
+    post :approve, params: { id: created.request }
+    created.migration.target_account.update!(also_known_as: [])
+
+    get :show, params: { id: created.request }
+
+    expect(response.body).to include(I18n.t('admin.action_reviews.account_migration.execution_blocked'))
+  end
+
+  it 'does not show the blocked warning after execution' do
+    created = hold
+    post :approve, params: { id: created.request }
+    created.migration.update_columns(action_review_executed_at: Time.now.utc)
+    created.migration.target_account.update!(also_known_as: [])
+
+    get :show, params: { id: created.request }
+
+    expect(response.body).to include(I18n.t('admin.action_reviews.account_migration.executed'))
+    expect(response.body).not_to include(I18n.t('admin.action_reviews.account_migration.execution_blocked'))
+  end
+
   it 'warns when the cached target no longer references the source' do
     created = hold
     created.migration.target_account.update!(also_known_as: [])

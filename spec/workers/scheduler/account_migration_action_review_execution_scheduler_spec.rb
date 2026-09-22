@@ -6,9 +6,11 @@ RSpec.describe Scheduler::AccountMigrationActionReviewExecutionScheduler do
   def approved_migration(executed_at: nil)
     source = Fabricate(:account)
     target = Fabricate(:account, also_known_as: [ActivityPub::TagManager.instance.uri_for(source)])
-    migration = source.migrations.new(acct: target.acct)
+    migration = source.migrations.new(acct: target.acct, target_account: target)
     migration.save!(validate: false)
+    migration.update_column(:target_account_id, target.id)
     migration.update_column(:action_review_executed_at, executed_at) if executed_at
+    migration.reload
     request = ActionReviewRequest.create!(
       operation_type: 'account_migration',
       state: :approved,
@@ -46,5 +48,22 @@ RSpec.describe Scheduler::AccountMigrationActionReviewExecutionScheduler do
     described_class.new.perform
 
     expect(AccountMigration::ActionReviewExecutionWorker).to have_received(:perform_async).once
+  end
+
+  it 'enqueues a newer approved migration ahead of older unfinished rows' do
+    stub_const("#{described_class}::BATCH_LIMIT", 2)
+    oldest_request = nil
+    2.times do
+      migration, request = approved_migration
+      migration.target_account.update!(also_known_as: [])
+      oldest_request ||= request
+    end
+    _migration, newer_request = approved_migration
+    allow(AccountMigration::ActionReviewExecutionWorker).to receive(:perform_async)
+
+    described_class.new.perform
+
+    expect(AccountMigration::ActionReviewExecutionWorker).to have_received(:perform_async).with(newer_request.id)
+    expect(AccountMigration::ActionReviewExecutionWorker).not_to have_received(:perform_async).with(oldest_request.id)
   end
 end

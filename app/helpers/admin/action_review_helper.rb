@@ -98,6 +98,18 @@ module Admin::ActionReviewHelper
     end
   end
 
+  # Approved, not yet executed, and the move prerequisites no longer hold.
+  # The worker stays fail-closed until they hold again.
+  def action_review_migration_execution_blocked?(request, migration)
+    return false unless request.approved_state?
+    return false if migration&.action_review_executed_at.present?
+    return true if migration.nil?
+
+    !ActionReview::Adapters::AccountMigration.consistent?(request, migration)
+  rescue StandardError
+    true
+  end
+
   def action_review_migration_status(request, migration)
     case request.state
     when 'pending'

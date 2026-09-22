@@ -56,7 +56,7 @@ class AccountMigration::ReviewMetricsService
       'followers_count' => counter(account, :followers_count),
       'following_count' => counter(account, :following_count),
       'statuses_count' => counter(account, :statuses_count),
-      'follow_import_context' => import_context(behavior),
+      'follow_import_context' => import_context(subject, as_of),
       'windows' => WINDOWS.keys.index_with { |key| window_payload(account, subject, behavior, key, as_of) },
     }
   end
@@ -77,17 +77,41 @@ class AccountMigration::ReviewMetricsService
     end
   end
 
-  def import_context(behavior)
-    source = behavior['follow_import_context'] || {}
-    IMPORT_CONTEXT_FIELDS.index_with do |field|
-      if field == 'unresolved_target_ratio'
-        source[field].to_f
-      elsif field == 'latest_import_at'
-        source[field]
-      else
-        source[field].to_i
-      end
-    end
+  # Causal at as_of. BehavioralMetricsService totals every batch for the
+  # subject, including imports committed after the migration request.
+  def import_context(subject, as_of)
+    empty = {
+      'batch_count' => 0,
+      'target_total' => 0,
+      'resolved_target_total' => 0,
+      'unresolved_target_total' => 0,
+      'unresolved_target_ratio' => 0.0,
+      'prior_relationship_known_targets' => 0,
+      'latest_import_at' => nil,
+    }
+    return empty if subject.nil?
+
+    batches = FollowImportBatch.where(subject_id: subject.id).where('imported_at <= ?', as_of)
+    return empty if batches.none?
+
+    target_total = batches.sum(:target_count).to_i
+    unresolved_total = batches.sum(:unresolved_target_count).to_i
+    {
+      'batch_count' => batches.count,
+      'target_total' => target_total,
+      'resolved_target_total' => batches.sum(:resolved_target_count).to_i,
+      'unresolved_target_total' => unresolved_total,
+      'unresolved_target_ratio' => ratio(unresolved_total, target_total),
+      'prior_relationship_known_targets' => prior_relationship_known_targets(batches),
+      'latest_import_at' => batches.maximum(:imported_at)&.iso8601,
+    }
+  end
+
+  def prior_relationship_known_targets(batches)
+    FollowImportTarget
+      .where(batch_id: batches.select(:id))
+      .where("prior_relationship_state ->> 'following' = 'true'")
+      .count
   end
 
   def returned_follow_counts(account, subject, window_start, as_of)

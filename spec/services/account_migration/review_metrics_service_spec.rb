@@ -178,9 +178,54 @@ RSpec.describe AccountMigration::ReviewMetricsService do # rubocop:disable Metri
     result = metrics
     expect(result['windows']['1h']['qualified_negative_events']).to eq 4
     expect(result['windows']['1h']['qualified_negative_response_rate']).to eq 0.25
-    expect(result['follow_import_context']['batch_count']).to eq 3
-    expect(result['follow_import_context']['prior_relationship_known_targets']).to eq 5
+    expect(result['follow_import_context']['batch_count']).to eq 0
     expect(result['follow_import_context'].keys).not_to include('subject_id', 'account_id')
+  end
+
+  it 'keeps follow import context at or before as_of' do
+    subject = subject_for(source)
+    past = as_of - 1.hour
+    future = as_of + 1.minute
+    past_batch = FollowImportBatch.create!(
+      subject: subject,
+      imported_at: past,
+      mode: :merge,
+      target_count: 4,
+      resolved_target_count: 3,
+      unresolved_target_count: 1
+    )
+    FollowImportTarget.create!(
+      batch: past_batch,
+      target_subject: subject_for(Fabricate(:account)),
+      position: 0,
+      prior_relationship_state: { 'following' => true }
+    )
+    future_batch = FollowImportBatch.create!(
+      subject: subject,
+      imported_at: future,
+      mode: :merge,
+      target_count: 10,
+      resolved_target_count: 8,
+      unresolved_target_count: 2
+    )
+    2.times do |index|
+      FollowImportTarget.create!(
+        batch: future_batch,
+        target_subject: subject_for(Fabricate(:account)),
+        position: index,
+        prior_relationship_state: { 'following' => true }
+      )
+    end
+
+    context = metrics['follow_import_context']
+    expect(context['batch_count']).to eq 1
+    expect(context['target_total']).to eq 4
+    expect(context['resolved_target_total']).to eq 3
+    expect(context['unresolved_target_total']).to eq 1
+    expect(context['unresolved_target_ratio']).to eq 0.25
+    expect(context['prior_relationship_known_targets']).to eq 1
+    expect(Time.iso8601(context['latest_import_at'])).to be <= as_of
+    expect(Time.iso8601(context['latest_import_at'])).to be_within(1.second).of(past)
   end
 
   it 'does not put raw ids, hashes, or addresses in the payload' do

@@ -566,6 +566,7 @@ en:
         caveat: Returned-follow counts are timing associations, not proof of manipulation. Follow Import follow-back counts do not establish identity or intent. Account migration is a normal Fediverse portability feature.
         current_observation: Current observation
         executed: Executed
+        execution_blocked: Approved but execution is currently blocked because migration prerequisites changed
         followers_at_request: Followers recorded on the migration
         followers_now: Followers at request snapshot
         following_count: Following count

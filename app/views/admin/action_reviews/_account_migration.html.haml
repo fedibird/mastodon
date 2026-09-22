@@ -6,6 +6,8 @@
 
 %h3= t('admin.action_reviews.account_migration.title')
 %p.hint= t('admin.action_reviews.account_migration.caveat')
+- if action_review_migration_execution_blocked?(request, migration)
+  %p.hint= t('admin.action_reviews.account_migration.execution_blocked')
 
 .table-wrapper
   %table.table.inline-table
