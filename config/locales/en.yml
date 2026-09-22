@@ -512,7 +512,7 @@ en:
         unsupported_mode: is not supported for this operation
       hints:
         account_migration: Detectorless operations offer off or always. Saving a policy here does not hold or release account moves until that adapter is connected.
-        follow_import: always sends every Follow Import to moderator review before follows or overwrite removals run. off proceeds normally. high, medium, and low are reserved for automated review-signal integration and currently receive no automatic signal, so they do not hold imports yet.
+        follow_import: always sends every Follow Import to moderator review before follows or overwrite removals run. off proceeds normally. high, medium, and low record a shadow review signal for calibration and do not hold imports yet.
         invite_creation: Detectorless operations offer off or always. Saving a policy here does not hold or release invite creation until that adapter is connected.
         status_import: Future feature. This choice is stored for the framework only and does not enable status import.
       modes:
@@ -526,7 +526,7 @@ en:
         follow_import: Follow import
         invite_creation: Invite creation
         status_import: Status import (future)
-      preface: Follow Import is connected. always holds each import for moderator approval before it runs. off and the reserved high, medium, and low modes currently proceed because there is no automatic review signal yet. Other operations are not connected.
+      preface: Follow Import is connected. always holds each import for moderator approval before it runs. off proceeds normally. high, medium, and low run a shadow classifier for calibration and do not hold imports yet. Other operations are not connected.
       title: Action review policies
     action_reviews:
       account_unavailable: Account unavailable

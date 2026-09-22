@@ -83,7 +83,10 @@ RSpec.describe Admin::ActionReviewSettingsController, type: :controller do # rub
       expect(response.body).to include(I18n.t('admin.action_review_settings.operations.status_import'))
       expect(response.body).to include(I18n.t('admin.action_review_settings.hints.follow_import'))
       expect(response.body).to include('always sends every Follow Import')
+      expect(response.body).to include('shadow review signal')
       expect(response.body).to include('do not hold imports yet')
+      expect(I18n.t('admin.action_review_settings.preface')).to include('shadow classifier')
+      expect(I18n.t('admin.action_review_settings.hints.follow_import', locale: :ja)).to include('シャドー')
     end
 
     it 'selects effective always when stored detectorless or malformed values would not match the collection' do

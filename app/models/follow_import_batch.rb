@@ -80,6 +80,7 @@ class FollowImportBatch < ApplicationRecord
   COMPLETION_NOTIFIED_KEY        = 'completion_notified_at'
   REVIEW_RESUME_REQUIRED_AT_KEY  = 'review_resume_required_at'
   REVIEW_RESUME_COMPLETED_AT_KEY = 'review_resume_completed_at'
+  REVIEW_SIGNAL_SHADOW_V1_KEY    = 'review_signal_shadow_v1'
 
   # Un-notified batches that are eligible for a completion email. Bounded by a
   # completion signal, never by imported_at: PR C can leave targets pending for
@@ -179,6 +180,26 @@ class FollowImportBatch < ApplicationRecord
       return if review_resume_completed?
 
       write_merged_metadata!({ REVIEW_RESUME_COMPLETED_AT_KEY => at.utc.iso8601 })
+    end
+  end
+
+  # First successful shadow observation wins. A stale copy reloads under
+  # the row lock before merging, so completion and resume keys stay put.
+  # v2 must use a different key. This write does not change preflight_state.
+  def review_signal_shadow_v1
+    metadata[REVIEW_SIGNAL_SHADOW_V1_KEY]
+  end
+
+  def review_signal_shadow_v1_recorded?
+    review_signal_shadow_v1.present?
+  end
+
+  def record_review_signal_shadow_v1!(payload)
+    with_lock do
+      reload
+      return if review_signal_shadow_v1_recorded?
+
+      write_merged_metadata!({ REVIEW_SIGNAL_SHADOW_V1_KEY => payload })
     end
   end
 
