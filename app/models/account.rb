@@ -163,7 +163,6 @@ class Account < ApplicationRecord
            :pending?,
            :disabled?,
            :unconfirmed_or_pending?,
-           :role,
            :admin?,
            :moderator?,
            :staff?,
@@ -183,6 +182,7 @@ class Account < ApplicationRecord
            prefix: true,
            allow_nil: true
 
+  delegate :user_role, to: :user, allow_nil: true
   delegate :chosen_languages, to: :user, prefix: false, allow_nil: true
 
   update_index('accounts', :self)

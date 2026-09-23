@@ -24,7 +24,7 @@ class REST::Admin::AccountSerializer < ActiveModel::Serializer
   end
 
   def role
-    object.user_role
+    object.user&.role
   end
 
   def suspended
