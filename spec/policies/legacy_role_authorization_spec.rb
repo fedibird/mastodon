@@ -2,17 +2,41 @@
 
 require 'rails_helper'
 
-RSpec.describe 'legacy Owner and Moderator authorization' do # rubocop:disable Metrics/BlockLength
+RSpec.describe 'Owner and Moderator authorization' do # rubocop:disable Metrics/BlockLength
   before { load Rails.root.join('db', 'seeds', '03_roles.rb') }
 
-  let(:owner) { Fabricate(:user, admin: true, moderator: false) }
-  let(:moderator) { Fabricate(:user, admin: false, moderator: true) }
+  let(:owner) { user_with_role('Owner') }
+  let(:moderator) { user_with_role('Moderator') }
   let(:ordinary) { Fabricate(:user, admin: false, moderator: false) }
   let(:target) { Fabricate(:account) }
 
-  it 'keeps a functional legacy admin on the Owner role with every permission' do
+  it 'leaves an admin boolean on Everyone' do
+    user = Fabricate(:user, admin: true, moderator: false)
+
+    expect(user.role_id).to be_nil
+    expect(user.role).to eq UserRole.everyone
+    expect(user).to be_admin
+    expect(user).not_to be_moderator
+    expect(user.can?(:manage_reports)).to be false
+    expect(user.can?(:view_devops)).to be false
+    expect(AccountPolicy.new(user.account, target).index?).to be false
+  end
+
+  it 'leaves a moderator boolean on Everyone' do
+    user = Fabricate(:user, admin: false, moderator: true)
+
+    expect(user.role_id).to be_nil
+    expect(user.role).to eq UserRole.everyone
+    expect(user).to be_moderator
+    expect(user).not_to be_admin
+    expect(user.can?(:manage_reports)).to be false
+    expect(user.can?(:manage_users)).to be false
+    expect(ReportPolicy.new(user.account, nil).index?).to be false
+  end
+
+  it 'gives a functional Owner every permission' do
     expect(owner.role.name).to eq 'Owner'
-    expect(owner).to be_admin
+    expect(owner).not_to be_admin
     expect(owner).not_to be_moderator
     expect(owner.can?(:view_devops)).to be true
     expect(owner.can?(:manage_settings)).to be true
@@ -22,9 +46,10 @@ RSpec.describe 'legacy Owner and Moderator authorization' do # rubocop:disable M
     expect(DashboardPolicy.new(owner.account, nil).index?).to be true
   end
 
-  it 'keeps a functional legacy moderator on the Moderator permission set' do
+  it 'gives a functional Moderator the Moderator permission set' do
     expect(moderator.role.name).to eq 'Moderator'
-    expect(moderator).to be_moderator
+    expect(moderator).not_to be_admin
+    expect(moderator).not_to be_moderator
     expect(moderator.can?(:manage_reports)).to be true
     expect(moderator.can?(:manage_users)).to be true
     expect(moderator.can?(:view_dashboard)).to be true

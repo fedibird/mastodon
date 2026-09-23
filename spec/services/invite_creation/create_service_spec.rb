@@ -5,7 +5,7 @@ require 'rails_helper'
 RSpec.describe InviteCreation::CreateService do # rubocop:disable Metrics/BlockLength
   subject(:service) { described_class.new }
 
-  let(:user) { Fabricate(:user, admin: true) }
+  let(:user) { user_with_role('Owner') }
 
   def store_policy(mode)
     Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(

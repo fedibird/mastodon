@@ -5,7 +5,7 @@ require 'pundit/rspec'
 
 RSpec.describe ReportPolicy do
   let(:subject) { described_class }
-  let(:admin)   { Fabricate(:user, admin: true).account }
+  let(:admin)   { user_with_role('Owner').account }
   let(:john)    { Fabricate(:user).account }
 
   permissions :update?, :index?, :show? do
@@ -16,7 +16,7 @@ RSpec.describe ReportPolicy do
     end
 
     context 'enabled moderator' do
-      let(:moderator) { Fabricate(:user, moderator: true).account }
+      let(:moderator) { user_with_role('Moderator').account }
 
       it 'permits' do
         expect(subject).to permit(moderator, Report)
@@ -30,7 +30,7 @@ RSpec.describe ReportPolicy do
     end
 
     context 'disabled admin' do
-      let(:disabled_admin) { Fabricate(:user, admin: true, disabled: true).account }
+      let(:disabled_admin) { user_with_role('Owner', disabled: true).account }
 
       it 'denies' do
         expect(subject).to_not permit(disabled_admin, Report)
@@ -38,7 +38,7 @@ RSpec.describe ReportPolicy do
     end
 
     context 'disabled moderator' do
-      let(:disabled_moderator) { Fabricate(:user, moderator: true, disabled: true).account }
+      let(:disabled_moderator) { user_with_role('Moderator', disabled: true).account }
 
       it 'denies' do
         expect(subject).to_not permit(disabled_moderator, Report)

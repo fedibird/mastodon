@@ -3,7 +3,7 @@ require 'rails_helper'
 RSpec.describe Admin::ChangeEmailsController, type: :controller do
   render_views
 
-  let(:admin) { Fabricate(:user, admin: true) }
+  let(:admin) { user_with_role('Owner') }
 
   before do
     sign_in admin

@@ -60,7 +60,7 @@ RSpec.describe FinalizeLegacySettingsOnUserRoles, type: :model do
     expect(UserRole.find_by!(name: 'Moderator').can?(:invite_users)).to be false
     expect(UserRole.find_by!(name: 'Admin').can?(:invite_users)).to be false
     expect(UserRole.find_by!(name: 'Owner').can?(:invite_users)).to be true
-    expect(InvitePolicy.new(Fabricate(:user, admin: true).account, Invite).create?).to be true
+    expect(InvitePolicy.new(user_with_role('Owner').account, Invite).create?).to be true
     expect(InvitePolicy.new(Fabricate(:user, admin: false, moderator: false).account, Invite).create?).to be false
   end
 end

@@ -15,7 +15,7 @@ RSpec.describe Api::V1::ReportsController, type: :controller do
   describe 'POST #create' do
     let(:scopes)  { 'write:reports' }
     let!(:status) { Fabricate(:status) }
-    let!(:admin)  { Fabricate(:user, admin: true) }
+    let!(:admin)  { user_with_role('Owner') }
 
     before do
       allow(AdminMailer).to receive(:new_report).and_return(double('email', deliver_later: nil))

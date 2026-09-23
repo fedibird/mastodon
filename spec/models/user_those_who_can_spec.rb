@@ -3,8 +3,8 @@
 require 'rails_helper'
 
 RSpec.describe User, '.those_who_can' do
-  let!(:owner) { Fabricate(:user, admin: true, moderator: false) }
-  let!(:moderator) { Fabricate(:user, admin: false, moderator: true) }
+  let!(:owner) { user_with_role('Owner') }
+  let!(:moderator) { user_with_role('Moderator') }
   let!(:ordinary) { Fabricate(:user, admin: false, moderator: false) }
 
   it 'matches explicit roles for manage_users and manage_reports, not Everyone' do
@@ -25,7 +25,7 @@ RSpec.describe User, '.those_who_can' do
   end
 
   it 'skips a non-functional role holder when notifying staff about a pending account' do
-    disabled = Fabricate(:user, moderator: true)
+    disabled = user_with_role('Moderator')
     disabled.update_columns(disabled: true)
     pending = Fabricate(:user, approved: false)
     mail = instance_double(ActionMailer::MessageDelivery, deliver_later: true)

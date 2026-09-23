@@ -310,14 +310,14 @@ RSpec.describe NotifyService, type: :service do
     end
 
     it 'keeps the bypass for a legacy moderator who is blocked' do
-      sender = Fabricate(:user, moderator: true).account
+      sender = user_with_role('Moderator').account
       recipient.block!(sender)
 
       expect { notify_direct(sender) }.to change(Notification, :count).by(1)
     end
 
     it 'keeps the bypass for Owner and the default Admin role' do
-      owner = Fabricate(:user, admin: true).account
+      owner = user_with_role('Owner').account
       admin_user = Fabricate(:user, admin: false, moderator: false)
       admin_user.update_columns(role_id: UserRole.find_by!(name: 'Admin').id)
       recipient.block!(owner)
@@ -358,7 +358,7 @@ RSpec.describe NotifyService, type: :service do
 
     it 'lets a moderator bypass must_be_following_dm and refuses view_devops' do
       recipient.user.settings.interactions = recipient.user.settings.interactions.merge('must_be_following_dm' => true)
-      moderator = Fabricate(:user, moderator: true).account
+      moderator = user_with_role('Moderator').account
       devops = user_with_permissions(:view_devops).account
 
       expect { notify_direct(moderator) }.to change(Notification, :count).by(1)

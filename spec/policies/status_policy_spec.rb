@@ -6,7 +6,7 @@ require 'pundit/rspec'
 RSpec.describe StatusPolicy, type: :model do # rubocop:disable Metrics/BlockLength
   subject { described_class }
 
-  let(:admin) { Fabricate(:user, admin: true) }
+  let(:admin) { user_with_role('Owner') }
   let(:alice) { Fabricate(:account, username: 'alice') }
   let(:bob) { Fabricate(:account, username: 'bob') }
   let(:status) { Fabricate(:status, account: alice) }

@@ -4,7 +4,7 @@ RSpec.describe Api::V1::Admin::AccountsController, type: :controller do
   render_views
 
   let(:role)   { 'moderator' }
-  let(:user)   { Fabricate(:user, role: role, account: Fabricate(:account, username: 'alice')) }
+  let(:user)   { user_with_legacy_role_name(role, account: Fabricate(:account, username: 'alice')) }
   let(:scopes) { 'admin:read admin:write' }
   let(:token)  { Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: scopes) }
   let(:account) { Fabricate(:user).account }
@@ -56,8 +56,8 @@ RSpec.describe Api::V1::Admin::AccountsController, type: :controller do
   end
 
   describe 'GET #show role entity' do
-    it 'returns the Owner role entity for a legacy admin account' do
-      owner = Fabricate(:user, admin: true)
+    it 'returns the Owner role entity when role_id is Owner' do
+      owner = user_with_role('Owner')
 
       get :show, params: { id: owner.account.id }
 

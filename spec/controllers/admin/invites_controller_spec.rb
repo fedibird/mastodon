@@ -5,7 +5,7 @@ require 'rails_helper'
 describe Admin::InvitesController do # rubocop:disable Metrics/BlockLength
   render_views
 
-  let(:user) { Fabricate(:user, admin: true) }
+  let(:user) { user_with_role('Owner') }
 
   def stub_webpacker_manifest
     manifest = Webpacker.instance.manifest

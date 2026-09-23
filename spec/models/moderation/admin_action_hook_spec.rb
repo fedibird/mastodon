@@ -3,7 +3,7 @@ require 'rails_helper'
 # Phase 4 / PR 5: a moderator action taken through Admin::AccountAction records
 # a ModerationAction plus an evidence snapshot into the ledger.
 RSpec.describe 'Moderation admin action hook', type: :model do
-  let(:moderator) { Fabricate(:account, user: Fabricate(:user, admin: true)) }
+  let(:moderator) { Fabricate(:account, user: user_with_role('Owner')) }
   let(:target)    { Fabricate(:account, user: Fabricate(:user)) }
 
   def perform(type)

@@ -47,7 +47,7 @@ describe Api::V1::Accounts::CredentialsController do
       end
 
       it 'returns the Moderator role' do
-        authorize_owner(Fabricate(:user, moderator: true))
+        authorize_owner(user_with_role('Moderator'))
 
         get :show
 
@@ -70,8 +70,8 @@ describe Api::V1::Accounts::CredentialsController do
         expect(admin_user).not_to be_moderator
       end
 
-      it 'returns the Owner role for a legacy admin' do
-        authorize_owner(Fabricate(:user, admin: true))
+      it 'returns the Owner role when role_id is Owner' do
+        authorize_owner(user_with_role('Owner'))
 
         get :show
 

@@ -11,11 +11,15 @@ RSpec.describe User, type: :model do
 
   describe '#role' do
     it 'returns Everyone when role_id is nil and ignores legacy booleans' do
-      user = Fabricate(:user, admin: false, moderator: false)
+      user = Fabricate(:user, admin: true, moderator: false)
 
+      expect(user.role_id).to be_nil
       expect(user.role).to eq UserRole.everyone
       expect(user.role).to be_a(UserRole)
       expect(user.role).not_to be_a(String)
+      expect(user).to be_admin
+      expect(user).not_to be_moderator
+      expect(user.can?(:manage_reports)).to be false
 
       user.update!(admin: true, moderator: true)
 
@@ -24,6 +28,11 @@ RSpec.describe User, type: :model do
       expect(user).to be_admin
       expect(user).to be_moderator
       expect(user.can?(:manage_reports)).to be false
+
+      moderator_flag = Fabricate(:user, admin: false, moderator: true)
+      expect(moderator_flag.role_id).to be_nil
+      expect(moderator_flag.role).to eq UserRole.everyone
+      expect(moderator_flag.can?(:manage_reports)).to be false
     end
 
     it 'returns the role_id record for a custom role' do
@@ -40,7 +49,7 @@ RSpec.describe User, type: :model do
 
   describe 'UserRole#users inverse' do
     it 'links role back to the same role record' do
-      user = Fabricate(:user, admin: true)
+      user = user_with_role('Owner')
       loaded = UserRole.includes(:users).find(owner_role.id)
       linked = loaded.users.detect { |record| record.id == user.id }
 
@@ -51,7 +60,7 @@ RSpec.describe User, type: :model do
 
   describe 'admin account serializer' do
     it 'returns the Moderator role entity' do
-      user = Fabricate(:user, moderator: true)
+      user = user_with_role('Moderator')
       expect(REST::Admin::AccountSerializer.new(user.account).role).to eq moderator_role
     end
 

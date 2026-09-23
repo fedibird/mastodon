@@ -5,7 +5,7 @@ require 'pundit/rspec'
 
 RSpec.describe InvitePolicy do
   let(:subject) { described_class }
-  let(:admin)   { Fabricate(:user, admin: true).account }
+  let(:admin)   { user_with_role('Owner').account }
   let(:john)    { Fabricate(:user).account }
 
   def set_everyone_invite(enabled)

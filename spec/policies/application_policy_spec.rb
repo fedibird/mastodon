@@ -4,7 +4,7 @@ require 'rails_helper'
 
 RSpec.describe ApplicationPolicy do
   let(:policy) { described_class.new(user.account, nil) }
-  let(:user) { Fabricate(:user, admin: true, moderator: false) }
+  let(:user) { user_with_role('Owner') }
 
   describe '#role' do
     it 'uses the effective role of a functional owner' do

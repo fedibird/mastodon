@@ -3,17 +3,11 @@
 require 'rails_helper'
 
 RSpec.describe UserRolePolicy do
-  def user_with_role(role)
-    user = Fabricate(:user, admin: false, moderator: false)
-    user.update_columns(role_id: role.id)
-    user
-  end
-
   def policy(actor, record)
     described_class.new(actor.account, record)
   end
 
-  let(:owner) { Fabricate(:user, admin: true) }
+  let(:owner) { user_with_role('Owner') }
   let(:admin_role) { UserRole.find_by!(name: 'Admin') }
   let(:admin_actor) { user_with_role(admin_role) }
   let(:custom) { UserRole.create!(name: 'Policy custom', position: 20, permissions_as_keys: %w(invite_users)) }

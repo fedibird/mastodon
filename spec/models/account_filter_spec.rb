@@ -43,8 +43,8 @@ describe AccountFilter do
     end
 
     it 'selects staff by manage_reports on the effective role' do
-      owner = Fabricate(:user, admin: true)
-      moderator = Fabricate(:user, moderator: true)
+      owner = user_with_role('Owner')
+      moderator = user_with_role('Moderator')
       admin_user = Fabricate(:user, admin: false, moderator: false)
       admin_user.update_columns(role_id: UserRole.find_by!(name: 'Admin').id)
       reporter_role = UserRole.create!(name: 'Reporter', position: 9, permissions_as_keys: %w(manage_reports))
@@ -84,7 +84,7 @@ describe AccountFilter do
       ordinary = Fabricate(:user)
       matched = Fabricate(:user, admin: false, moderator: false)
       matched.update_columns(role_id: custom.id)
-      owner = Fabricate(:user, admin: true)
+      owner = user_with_role('Owner')
 
       everyone_results = described_class.new(role_ids: ['-99']).results
       combined_results = described_class.new(role_ids: ['-99', custom.id.to_s]).results
@@ -124,7 +124,7 @@ describe AccountFilter do
       custom = UserRole.create!(name: 'Filter role', position: 7, permissions_as_keys: %w(invite_users))
       matched = Fabricate(:user, admin: false, moderator: false)
       matched.update_columns(role_id: custom.id)
-      other = Fabricate(:user, admin: true)
+      other = user_with_role('Owner')
 
       results = described_class.new(role_ids: [custom.id.to_s]).results
 

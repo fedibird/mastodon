@@ -12,7 +12,7 @@ describe Admin::ModerationEvidenceSnapshotsController, type: :controller do
   let!(:snapshot_b) { Fabricate(:moderation_evidence_snapshot, subject: subject_b) }
 
   context 'as an admin' do
-    before { sign_in Fabricate(:user, admin: true) }
+    before { sign_in user_with_role('Owner') }
 
     describe 'GET #index' do
       it 'returns 200 and lists all snapshots' do

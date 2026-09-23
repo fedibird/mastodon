@@ -23,7 +23,7 @@ RSpec.describe UserRole, 'default role names' do
   end
 
   it 'allows editing permissions, position, color, and highlighted on Admin' do
-    actor = Fabricate(:user, admin: true)
+    actor = user_with_role('Owner')
     role = described_class.find_by!(name: 'Admin')
     role.current_account = actor.account
     role.position = 90

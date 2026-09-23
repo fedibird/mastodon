@@ -55,7 +55,7 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
     subject { post :create, params: { invite: { max_uses: '10', expires_in: 1800 } } }
 
     context 'when user is an admin' do
-      let(:user) { Fabricate(:user, moderator: false, admin: true) }
+      let(:user) { user_with_role('Owner') }
 
       it 'succeeds to create a invite' do
         expect { subject }.to change { Invite.count }.by(1)
@@ -65,7 +65,7 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
     end
 
     context 'when user is not an admin' do
-      let(:user) { Fabricate(:user, moderator: true, admin: false) }
+      let(:user) { user_with_role('Moderator') }
 
       it 'returns 403' do
         set_everyone_invite(false)
@@ -75,7 +75,7 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
   end
 
   describe 'POST #create with action review' do
-    let(:user) { Fabricate(:user, moderator: false, admin: true) }
+    let(:user) { user_with_role('Owner') }
 
     around do |example|
       example.run
@@ -121,7 +121,7 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
   end
 
   describe 'GET #index review rows' do # rubocop:disable Metrics/BlockLength
-    let(:user) { Fabricate(:user, moderator: false, admin: true) }
+    let(:user) { user_with_role('Owner') }
 
     it 'shows a stopped row without the code and leaves an ordinary invite unchanged' do
       Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(
@@ -190,7 +190,7 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
   end
 
   describe 'DELETE #destroy pending shell' do
-    let(:user) { Fabricate(:user, moderator: false, admin: true) }
+    let(:user) { user_with_role('Owner') }
 
     it 'does not approve the review or make the code usable' do
       Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(
@@ -211,7 +211,7 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
   end
 
   describe 'DELETE #destroy cancelled shell' do
-    let(:user) { Fabricate(:user, moderator: false, admin: true) }
+    let(:user) { user_with_role('Owner') }
 
     it 'does not move expires_at or make the code usable' do
       Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(
@@ -239,7 +239,7 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
     subject { delete :destroy, params: { id: invite.id } }
 
     let!(:invite) { Fabricate(:invite, user: user, expires_at: nil) }
-    let(:user) { Fabricate(:user, moderator: false, admin: true) }
+    let(:user) { user_with_role('Owner') }
 
     it 'expires invite' do
       expect(subject).to redirect_to invites_path

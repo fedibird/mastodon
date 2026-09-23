@@ -3,7 +3,7 @@
 require 'rails_helper'
 
 RSpec.describe InviteFilter do
-  let(:user) { Fabricate(:user, admin: true) }
+  let(:user) { user_with_role('Owner') }
 
   def hold(mode_expires: 1800)
     Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(

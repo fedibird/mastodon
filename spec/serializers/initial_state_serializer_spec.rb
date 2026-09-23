@@ -13,12 +13,6 @@ RSpec.describe InitialStateSerializer do
     )
   end
 
-  def user_with_role(role)
-    user = Fabricate(:user, admin: false, moderator: false)
-    user.update_columns(role_id: role.id)
-    user
-  end
-
   it 'returns the Everyone role and keeps an invite-only user off the staff flag' do
     UserRole.everyone.update!(permissions: UserRole::FLAGS[:invite_users])
     user = Fabricate(:user)
@@ -43,8 +37,8 @@ RSpec.describe InitialStateSerializer do
     expect(json[:meta][:is_staff]).to be true
   end
 
-  it 'returns the Owner role for a legacy admin' do
-    user = Fabricate(:user, admin: true)
+  it 'returns the Owner role when role_id is Owner' do
+    user = user_with_role('Owner')
     json = serialize(user.account)
 
     expect(json[:role][:name]).to eq 'Owner'

@@ -3,8 +3,8 @@
 require 'rails_helper'
 
 RSpec.describe ActionReview::Adapters::InviteCreation do # rubocop:disable Metrics/BlockLength
-  let(:reviewer) { Fabricate(:user, admin: true).account }
-  let(:user) { Fabricate(:user, admin: true) }
+  let(:reviewer) { user_with_role('Owner').account }
+  let(:user) { user_with_role('Owner') }
 
   def store_always
     Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(
@@ -174,7 +174,7 @@ RSpec.describe ActionReview::Adapters::InviteCreation do # rubocop:disable Metri
 
     it 'lets exactly one terminal decision win' do
       created = hold(expires_in: '')
-      other = Fabricate(:user, moderator: true).account
+      other = user_with_role('Moderator').account
       start = Queue.new
       winners = Queue.new
       errors = Queue.new

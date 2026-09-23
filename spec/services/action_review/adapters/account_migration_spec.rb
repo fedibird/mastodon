@@ -4,7 +4,7 @@ require 'rails_helper'
 
 RSpec.describe ActionReview::Adapters::AccountMigration do # rubocop:disable Metrics/BlockLength
   let(:user) { Fabricate(:user, password: '12345678') }
-  let(:reviewer) { Fabricate(:user, admin: true).account }
+  let(:reviewer) { user_with_role('Owner').account }
 
   def store_policy
     Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(
@@ -143,7 +143,7 @@ RSpec.describe ActionReview::Adapters::AccountMigration do # rubocop:disable Met
 
     it 'lets exactly one terminal decision win' do
       created = hold
-      other = Fabricate(:user, moderator: true).account
+      other = user_with_role('Moderator').account
       start = Queue.new
       winners = Queue.new
       errors = Queue.new

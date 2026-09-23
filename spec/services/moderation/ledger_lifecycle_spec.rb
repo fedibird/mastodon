@@ -19,7 +19,7 @@ RSpec.describe 'Moderation ledger composed lifecycle', type: :service do
       alice     = Fabricate(:account, username: 'alice_lifecycle')
       bob       = remote_account('bob_lifecycle', 'bob.example')
       carol     = Fabricate(:account, username: 'carol_lifecycle')
-      moderator = Fabricate(:account, user: Fabricate(:user, admin: true))
+      moderator = Fabricate(:account, user: user_with_role('Owner'))
 
       import = instance_double(Import, id: 9_001)
       2.times do

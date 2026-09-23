@@ -8,7 +8,7 @@ RSpec.describe User, '#assign_user_role!' do
   let(:owner_role) { UserRole.find_by!(name: 'Owner') }
   let(:admin_role) { UserRole.find_by!(name: 'Admin') }
   let(:moderator_role) { UserRole.find_by!(name: 'Moderator') }
-  let(:owner) { Fabricate(:user, admin: true) }
+  let(:owner) { user_with_role('Owner') }
 
   def custom_role(name, position)
     UserRole.create!(name: name, position: position, permissions_as_keys: %w(invite_users))

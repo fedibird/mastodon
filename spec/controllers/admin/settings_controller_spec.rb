@@ -7,7 +7,7 @@ RSpec.describe Admin::SettingsController, type: :controller do
 
   describe 'When signed in as an admin' do
     before do
-      sign_in Fabricate(:user, admin: true), scope: :user
+      sign_in user_with_role('Owner'), scope: :user
     end
 
     describe 'GET #edit' do

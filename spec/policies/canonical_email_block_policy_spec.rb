@@ -5,7 +5,7 @@ require 'pundit/rspec'
 
 RSpec.describe CanonicalEmailBlockPolicy do
   let(:subject) { described_class }
-  let(:admin)   { Fabricate(:user, admin: true).account }
+  let(:admin)   { user_with_role('Owner').account }
   let(:john)    { Fabricate(:user).account }
 
   permissions :index?, :show?, :test?, :create?, :destroy? do

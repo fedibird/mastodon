@@ -5,19 +5,13 @@ require 'rails_helper'
 # Examples cover role CRUD access, elevation, rename, and destroy together.
 # rubocop:disable Metrics/BlockLength
 describe Admin::RolesController do
-  def user_with_role(role)
-    user = Fabricate(:user, admin: false, moderator: false)
-    user.update_columns(role_id: role.id)
-    user
-  end
-
   def sign_in_role(role)
     user = user_with_role(role)
     sign_in user, scope: :user
     user
   end
 
-  let(:owner) { Fabricate(:user, admin: true) }
+  let(:owner) { user_with_role('Owner') }
   let(:admin_role) { UserRole.find_by!(name: 'Admin') }
 
   describe 'access' do

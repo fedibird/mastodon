@@ -6,7 +6,7 @@ describe Admin::TwoFactorAuthenticationsController do
 
   let(:user) { Fabricate(:user) }
   before do
-    sign_in Fabricate(:user, admin: true), scope: :user
+    sign_in user_with_role('Owner'), scope: :user
   end
 
   describe 'DELETE #destroy' do

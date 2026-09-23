@@ -3,7 +3,7 @@ require 'rails_helper'
 describe Admin::ReportedStatusesController do
   render_views
 
-  let(:user) { Fabricate(:user, admin: true) }
+  let(:user) { user_with_role('Owner') }
   let(:report) { Fabricate(:report, status_ids: [status.id]) }
   let(:status) { Fabricate(:status) }
 
