@@ -60,12 +60,16 @@ export default class Upload extends ImmutablePureComponent {
               <div className={classNames('compose-form__upload__actions', { active: true })}>
                 <button className='icon-button' onClick={this.handleUndoClick}><Icon id='times' /> <FormattedMessage id='upload_form.undo' defaultMessage='Delete' /></button>
                 <button className='icon-button' onClick={this.handleFocalPointClick}><Icon id='pencil' /> <FormattedMessage id='upload_form.edit' defaultMessage='Edit' /></button>
-                {this.props.showOrder && <button type='button' className='icon-button' disabled={!this.props.canMoveBackward} onClick={this.handleMoveBackward}><Icon id='arrow-left' /> <FormattedMessage id='upload_form.move_backward' defaultMessage='Move earlier' /></button>}
-                {this.props.showOrder && <button type='button' className='icon-button' disabled={!this.props.canMoveForward} onClick={this.handleMoveForward}><Icon id='arrow-right' /> <FormattedMessage id='upload_form.move_forward' defaultMessage='Move later' /></button>}
               </div>
             </div>
           )}
         </Motion>
+        {this.props.showOrder && (
+          <div className='compose-form__upload-order'>
+            <button type='button' className='icon-button' disabled={!this.props.canMoveBackward} onClick={this.handleMoveBackward}><Icon id='arrow-left' /> <FormattedMessage id='upload_form.move_backward' defaultMessage='Move earlier' /></button>
+            <button type='button' className='icon-button' disabled={!this.props.canMoveForward} onClick={this.handleMoveForward}><Icon id='arrow-right' /> <FormattedMessage id='upload_form.move_forward' defaultMessage='Move later' /></button>
+          </div>
+        )}
       </div>
     );
   }

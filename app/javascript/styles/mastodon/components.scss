@@ -703,6 +703,17 @@ body > [data-popper-placement] {
       width: 100%;
       overflow: hidden;
     }
+
+    .compose-form__upload-order {
+      display: flex;
+      margin-top: 4px;
+
+      .icon-button {
+        flex: 1 1 auto;
+        font-size: 12px;
+        line-height: 16px;
+      }
+    }
   }
 
   .compose-form__buttons-wrapper {
