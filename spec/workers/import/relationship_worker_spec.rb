@@ -136,6 +136,148 @@ describe Import::RelationshipWorker do
     end
   end
 
+  describe 'when a tracked follow is permanently refused' do
+    let(:batch) do
+      FollowImportBatch.create!(subject: Fabricate(:moderation_subject), imported_at: Time.now.utc, mode: :merge,
+                                target_count: 1, resolved_target_count: 0, unresolved_target_count: 0)
+    end
+
+    def queued_target(key)
+      created = batch.targets.create!(target_key_hash: key, destination_domain: 'example.com', position: batch.targets.count)
+      FollowImport::TargetTransitionService.new.mark_queued(created)
+      created
+    end
+
+    def refuse_follow
+      follow_service = instance_double(FollowService)
+      allow(follow_service).to receive(:call).and_raise(Mastodon::NotPermittedError)
+      allow(FollowService).to receive(:new).and_return(follow_service)
+    end
+
+    it 'terminalizes a tracked follow-import target without retrying' do
+      import_target = queued_target('refused-key')
+      refuse_follow
+
+      expect {
+        described_class.new.perform(account.id, 'import_target@example.com', 'follow', { 'follow_import_target_id' => import_target.id })
+      }.not_to raise_error
+
+      import_target.reload
+      expect(import_target.state).to eq 'delivery_failed'
+      expect(import_target.failure_code).to eq 'follow_not_permitted'
+    end
+
+    it 'still raises for an ordinary follow with no follow-import target id' do
+      refuse_follow
+
+      expect {
+        described_class.new.perform(account.id, 'import_target@example.com', 'follow', { 'import_batch_id' => batch.id })
+      }.to raise_error(Mastodon::NotPermittedError)
+    end
+
+    it 'does not overwrite an accepted target' do
+      import_target = queued_target('accepted-refused-key')
+      FollowImport::TargetTransitionService.new.mark_accepted(import_target)
+      refuse_follow
+
+      expect {
+        described_class.new.perform(account.id, 'import_target@example.com', 'follow', { 'follow_import_target_id' => import_target.id })
+      }.not_to raise_error
+
+      expect(import_target.reload.state).to eq 'accepted'
+      expect(import_target.failure_code).to be_nil
+    end
+
+    it 'does not rewrite an existing delivery failure' do
+      import_target = queued_target('failed-refused-key')
+      FollowImport::TargetTransitionService.new.mark_delivery_failed(import_target, failure_code: 'account_unresolved')
+      refuse_follow
+
+      expect {
+        described_class.new.perform(account.id, 'import_target@example.com', 'follow', { 'follow_import_target_id' => import_target.id })
+      }.not_to raise_error
+
+      import_target.reload
+      expect(import_target.state).to eq 'delivery_failed'
+      expect(import_target.failure_code).to eq 'account_unresolved'
+    end
+
+    it 'still raises an unknown follow error so Sidekiq can retry' do
+      import_target = queued_target('transient-key')
+      follow_service = instance_double(FollowService)
+      allow(follow_service).to receive(:call).and_raise(HTTP::TimeoutError)
+      allow(FollowService).to receive(:new).and_return(follow_service)
+
+      expect {
+        described_class.new.perform(account.id, 'import_target@example.com', 'follow', { 'follow_import_target_id' => import_target.id })
+      }.to raise_error(HTTP::TimeoutError)
+
+      expect(import_target.reload.state).to eq 'queued'
+    end
+  end
+
+  describe 'when a tracked follow ends with RecordNotFound' do
+    let(:batch) do
+      FollowImportBatch.create!(subject: Fabricate(:moderation_subject), imported_at: Time.now.utc, mode: :merge,
+                                target_count: 1, resolved_target_count: 0, unresolved_target_count: 0)
+    end
+
+    def queued_target(key)
+      created = batch.targets.create!(target_key_hash: key, destination_domain: 'example.com', position: batch.targets.count)
+      FollowImport::TargetTransitionService.new.mark_queued(created)
+      created
+    end
+
+    it 'terminalizes when the source account is gone' do
+      import_target = queued_target('missing-source-key')
+
+      expect {
+        described_class.new.perform(-1, 'import_target@example.com', 'follow', { 'follow_import_target_id' => import_target.id })
+      }.not_to raise_error
+
+      import_target.reload
+      expect(import_target.state).to eq 'delivery_failed'
+      expect(import_target.failure_code).to eq 'follow_record_not_found'
+    end
+
+    it 'terminalizes when follow processing raises RecordNotFound' do
+      import_target = queued_target('missing-moved-key')
+      follow_service = instance_double(FollowService)
+      allow(follow_service).to receive(:call).and_raise(ActiveRecord::RecordNotFound)
+      allow(FollowService).to receive(:new).and_return(follow_service)
+
+      expect {
+        described_class.new.perform(account.id, 'import_target@example.com', 'follow', { 'follow_import_target_id' => import_target.id })
+      }.not_to raise_error
+
+      import_target.reload
+      expect(import_target.state).to eq 'delivery_failed'
+      expect(import_target.failure_code).to eq 'follow_record_not_found'
+    end
+
+    it 'still swallows RecordNotFound for an ordinary follow' do
+      follow_service = instance_double(FollowService)
+      allow(follow_service).to receive(:call).and_raise(ActiveRecord::RecordNotFound)
+      allow(FollowService).to receive(:new).and_return(follow_service)
+
+      expect {
+        described_class.new.perform(account.id, 'import_target@example.com', 'follow', { 'reblogs' => true })
+      }.not_to raise_error
+    end
+
+    it 'does not overwrite an accepted target' do
+      import_target = queued_target('accepted-missing-key')
+      FollowImport::TargetTransitionService.new.mark_accepted(import_target)
+
+      expect {
+        described_class.new.perform(-1, 'import_target@example.com', 'follow', { 'follow_import_target_id' => import_target.id })
+      }.not_to raise_error
+
+      expect(import_target.reload.state).to eq 'accepted'
+      expect(import_target.failure_code).to be_nil
+    end
+  end
+
   describe 'when retries are exhausted' do
     let(:batch) do
       FollowImportBatch.create!(subject: Fabricate(:moderation_subject), imported_at: Time.now.utc, mode: :merge,
