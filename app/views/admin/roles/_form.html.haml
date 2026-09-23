@@ -18,7 +18,10 @@
     %hr.spacer/
 
     .fields-group
-      = f.input :highlighted, wrapper: :with_label
+      - if @role.legacy_highlighted_locked?
+        = f.input :highlighted, wrapper: :with_label, disabled: true, hint: t('admin.roles.managed_by_server_settings')
+      - else
+        = f.input :highlighted, wrapper: :with_label
 
     %hr.spacer/
 
@@ -31,8 +34,10 @@
 
       - (@role.everyone? ? UserRole::Flags::CATEGORIES.slice(:invites) : UserRole::Flags::CATEGORIES).each do |category, permissions|
         %h4= t(category, scope: 'admin.roles.categories')
+        - if category == :invites && @role.legacy_invite_users_locked?
+          %span.hint= t('admin.roles.managed_by_server_settings')
 
-        = f.input :permissions_as_keys, collection: permissions, wrapper: :with_block_label, include_blank: false, label_method: ->(privilege) { safe_join([t("admin.roles.privileges.#{privilege}"), content_tag(:span, t("admin.roles.privileges.#{privilege}_description"), class: 'hint')]) }, required: false, as: :check_boxes, collection_wrapper_tag: 'ul', item_wrapper_tag: 'li', label: false, hint: false, disabled: permissions.select { |privilege| (UserRole::FLAGS[privilege.to_sym] & current_user.user_role.computed_permissions).zero? }
+        = f.input :permissions_as_keys, collection: permissions, wrapper: :with_block_label, include_blank: false, label_method: ->(privilege) { safe_join([t("admin.roles.privileges.#{privilege}"), content_tag(:span, t("admin.roles.privileges.#{privilege}_description"), class: 'hint')]) }, required: false, as: :check_boxes, collection_wrapper_tag: 'ul', item_wrapper_tag: 'li', label: false, hint: false, disabled: permissions.select { |privilege| @role.legacy_managed_permission?(privilege) || (UserRole::FLAGS[privilege.to_sym] & current_user.user_role.computed_permissions).zero? }
 
     %hr.spacer/
 

@@ -107,14 +107,15 @@ describe Admin::RolesController do
       expect(higher.reload.color).not_to eq '#000000'
     end
 
-    it 'allows own color and highlight, and keeps own permissions and position' do
+    it 'allows own color and keeps own permissions, position, and legacy highlighted' do
       sign_in owner, scope: :user
       role = owner.user_role
+      highlighted = role.highlighted
 
-      patch :update, params: { id: role.id, user_role: { color: '#abcdef', highlighted: '1' } }
+      patch :update, params: { id: role.id, user_role: { color: '#abcdef', highlighted: highlighted ? '0' : '1' } }
       expect(response).to redirect_to(admin_roles_path)
       expect(role.reload.color).to eq '#abcdef'
-      expect(role.highlighted).to be true
+      expect(role.highlighted).to eq highlighted
 
       patch :update, params: { id: role.id, user_role: { permissions_as_keys: %w(manage_reports), position: 10 } }
       expect(role.reload.position).to eq 1000

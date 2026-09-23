@@ -1076,6 +1076,7 @@ en:
       description_html: With <strong>user roles</strong>, you can customize which functions and areas of Mastodon your users can access.
       edit: Edit '%{name}' role
       everyone: Default permissions
+      managed_by_server_settings: This value is currently managed in server settings.
       everyone_full_description_html: This is the <strong>base role</strong> affecting <strong>all users</strong>, even those without an assigned role. All other roles inherit permissions from it.
       permissions_count:
         one: "%{count} permission"

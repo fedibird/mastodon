@@ -100,6 +100,7 @@ class UserRole < ApplicationRecord
   validate :validate_own_role_edition
 
   before_validation :set_position
+  before_validation :preserve_legacy_managed_fields
 
   scope :assignable, -> { where.not(id: -99).order(position: :asc) }
 
@@ -194,6 +195,30 @@ class UserRole < ApplicationRecord
     name
   end
 
+  # Role CRUD calls this. Until legacy invite/badge settings are removed, their
+  # mirrored fields on the default roles are read-only in that UI.
+  def enforce_legacy_managed_fields!
+    @enforce_legacy_managed_fields = true
+  end
+
+  # LegacySettingsSync is the writer for those mirrored fields, including when
+  # a Role CRUD lock is also set on the same instance.
+  def allow_legacy_settings_sync!
+    @legacy_settings_sync = true
+  end
+
+  def legacy_invite_users_locked?
+    persisted? && (everyone? || %w(Moderator Admin).include?(name_in_database))
+  end
+
+  def legacy_highlighted_locked?
+    persisted? && (everyone? || LEGACY_BRIDGE_ROLE_NAMES.include?(name_in_database))
+  end
+
+  def legacy_managed_permission?(privilege)
+    privilege.to_sym == :invite_users && legacy_invite_users_locked?
+  end
+
   private
 
   def in_permissions?(privilege)
@@ -238,5 +263,33 @@ class UserRole < ApplicationRecord
 
   def legacy_bridge_role_name?(value)
     LEGACY_BRIDGE_ROLE_NAMES.include?(value)
+  end
+
+  # Keep the posted value from winning. A disabled checkbox is omitted from the
+  # form POST, and a crafted POST must not change the bit either.
+  def preserve_legacy_managed_fields
+    return if @legacy_settings_sync
+    return unless @enforce_legacy_managed_fields
+    return unless persisted?
+
+    preserve_legacy_invite_users_bit if legacy_invite_users_locked?
+    preserve_legacy_highlighted if legacy_highlighted_locked?
+  end
+
+  def preserve_legacy_invite_users_bit
+    flag = FLAGS[:invite_users]
+    previous = permissions_in_database.to_i & flag
+    current = permissions.to_i
+    return if (current & flag) == previous
+
+    self.permissions = (current & ~flag) | previous
+  end
+
+  def preserve_legacy_highlighted
+    if everyone?
+      self.highlighted = false
+    elsif highlighted != highlighted_in_database
+      self.highlighted = highlighted_in_database
+    end
   end
 end

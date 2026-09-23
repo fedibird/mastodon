@@ -1057,6 +1057,7 @@ ja:
       description_html: "<strong>ユーザーロール</strong>を使うと、ユーザーがアクセスできる機能と管理画面の範囲をカスタマイズできます。"
       edit: "『%{name}』のロールを編集"
       everyone: デフォルトの権限
+      managed_by_server_settings: 現在この値はサーバー設定で管理されています
       everyone_full_description_html: これは、ロールが割り当てられていないユーザーを含む<strong>すべてのユーザー</strong>に影響する<strong>基本ロール</strong>です。ほかのロールはこの権限を引き継ぎます。
       permissions_count:
         other: "%{count}件の権限"

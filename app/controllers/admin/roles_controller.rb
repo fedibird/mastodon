@@ -25,6 +25,7 @@ module Admin
 
       @role = UserRole.new(resource_params)
       @role.current_account = current_account
+      @role.enforce_legacy_managed_fields!
 
       if @role.save
         log_action :create, @role
@@ -38,6 +39,7 @@ module Admin
       authorize @role, :update?
 
       @role.current_account = current_account
+      @role.enforce_legacy_managed_fields!
 
       if @role.update(resource_params)
         log_action :update, @role

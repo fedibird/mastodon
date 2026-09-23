@@ -74,6 +74,7 @@ class UserRole::LegacySettingsSync
     role.assign_attributes(attributes)
     return unless role.changed?
 
+    role.allow_legacy_settings_sync!
     role.instance_variable_set(:@computed_permissions, nil)
     role.save!
   end
