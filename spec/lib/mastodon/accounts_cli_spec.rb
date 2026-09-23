@@ -11,12 +11,12 @@ RSpec.describe Mastodon::AccountsCLI do
   end
 
   def invoke(command, arguments, **options)
-    cli = described_class.new
-    allow(cli).to receive(:say)
-    allow(cli).to receive(:exit) { raise 'accounts CLI exited' }
+    @cli = described_class.new
     stdout = $stdout
-    $stdout = StringIO.new
-    cli.invoke(command, arguments, options)
+    @output = StringIO.new
+    $stdout = @output
+    @cli.invoke(command, arguments, options)
+    @cli
   ensure
     $stdout = stdout
   end
@@ -26,14 +26,13 @@ RSpec.describe Mastodon::AccountsCLI do
   end
 
   describe '#create' do
-    def create_account(role)
-      username = "cli_#{role}"
-      invoke(:create, [username], email: "#{username}@example.com", role: role, skip_sign_in_token: true)
-      Account.find_local(username).user
+    def create_account(username, **options)
+      invoke(:create, [username], email: "#{username}@example.com", skip_sign_in_token: true, **options)
+      Account.find_local(username)&.user
     end
 
-    it 'stores --role user as Everyone without persisting the sentinel id' do
-      user = create_account('user')
+    it 'leaves role_id nil when --role is omitted' do
+      user = create_account('cli_plain')
 
       expect(user.role_id).to be_nil
       expect(user.role_id).not_to eq(-99)
@@ -41,11 +40,10 @@ RSpec.describe Mastodon::AccountsCLI do
       expect(user.admin).to be false
       expect(user.moderator).to be false
       expect(user.can?(:manage_users)).to be false
-      expect(user.errors[:role_id]).to be_empty
     end
 
-    it 'assigns Moderator and its runtime permissions' do
-      user = create_account('moderator')
+    it 'assigns a role by its stored name' do
+      user = create_account('cli_moderator', role: 'Moderator')
 
       expect(user.role_id).to eq(role_named('Moderator').id)
       expect(user.role.name).to eq('Moderator')
@@ -55,19 +53,19 @@ RSpec.describe Mastodon::AccountsCLI do
       expect(user.can?(:manage_settings)).to be false
     end
 
-    it 'assigns Admin without devops permissions' do
-      user = create_account('admin')
+    it 'assigns Admin by name without devops permissions' do
+      user = create_account('cli_admin', role: 'Admin')
 
       expect(user.role_id).to eq(role_named('Admin').id)
       expect(user.role.name).to eq('Admin')
-      expect(user.admin).to be false
-      expect(user.moderator).to be false
       expect(user.can?(:manage_roles)).to be true
       expect(user.can?(:view_devops)).to be false
+      expect(user.admin).to be false
+      expect(user.moderator).to be false
     end
 
-    it 'assigns Owner and administrator permissions without legacy flags' do
-      user = create_account('owner')
+    it 'assigns Owner by name and grants administrator permissions' do
+      user = create_account('cli_owner', role: 'Owner')
 
       expect(user.role_id).to eq(role_named('Owner').id)
       expect(user.role.name).to eq('Owner')
@@ -77,36 +75,44 @@ RSpec.describe Mastodon::AccountsCLI do
       expect(user.can?(:view_devops)).to be true
     end
 
-    it 'fails when the requested default role is missing' do
-      role_named('Owner').destroy!
+    it 'assigns a custom role by name' do
+      custom = UserRole.create!(name: 'Cli custom', position: 40, permissions_as_keys: %w(manage_reports))
+      user = create_account('cli_custom', role: 'Cli custom')
 
-      expect { create_account('owner') }.to raise_error(ActiveRecord::RecordNotFound, 'Failure/Error: required UserRole is missing')
-      expect(Account.find_local('cli_owner')).to be_nil
+      expect(user.role_id).to eq(custom.id)
+      expect(user.role.name).to eq('Cli custom')
+      expect(user.admin).to be false
+      expect(user.moderator).to be false
+      expect(user.can?(:manage_reports)).to be true
+      expect(user.can?(:manage_settings)).to be false
+    end
+
+    it 'fails before saving when the role name does not exist' do
+      expect { create_account('cli_missing', role: 'Not a role') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      expect(@output.string).to include('Cannot find user role with that name')
+      expect(Account.find_local('cli_missing')).to be_nil
     end
   end
 
   describe '#modify' do
-    def modify_role(user, role)
-      invoke(:modify, [user.account.username], role: role)
-      user.reload
-    end
-
-    it 'sets moderator, admin, owner, and Everyone through role_id' do
+    it 'assigns Moderator, Admin, Owner, and a custom role by name' do
       user = Fabricate(:user, admin: false, moderator: false)
+      custom = UserRole.create!(name: 'Modify custom', position: 41, permissions_as_keys: %w(manage_reports))
 
-      modify_role(user, 'moderator')
+      invoke(:modify, [user.account.username], role: 'Moderator')
+      user.reload
       expect(user.role_id).to eq(role_named('Moderator').id)
-      expect(user.role.name).to eq('Moderator')
       expect(user.can?(:manage_reports)).to be true
       expect(user.can?(:manage_settings)).to be false
 
-      modify_role(user, 'admin')
+      invoke(:modify, [user.account.username], role: 'Admin')
+      user.reload
       expect(user.role_id).to eq(role_named('Admin').id)
-      expect(user.role.name).to eq('Admin')
       expect(user.can?(:manage_roles)).to be true
       expect(user.can?(:view_devops)).to be false
 
-      modify_role(user, 'owner')
+      invoke(:modify, [user.account.username], role: 'Owner')
+      user.reload
       expect(user.role_id).to eq(role_named('Owner').id)
       expect(user.role.name).to eq('Owner')
       expect(user.admin).to be false
@@ -114,10 +120,24 @@ RSpec.describe Mastodon::AccountsCLI do
       expect(user.can?(:manage_roles)).to be true
       expect(user.can?(:view_devops)).to be true
 
-      modify_role(user, 'user')
+      invoke(:modify, [user.account.username], role: 'Modify custom')
+      user.reload
+      expect(user.role_id).to eq(custom.id)
+      expect(user.can?(:manage_reports)).to be true
+    end
+
+    it 'clears role_id with --remove-role and leaves legacy flags unchanged' do
+      user = Fabricate(:user, admin: true, moderator: false)
+      user.update_columns(role_id: role_named('Owner').id)
+
+      invoke(:modify, [user.account.username], remove_role: true)
+      user.reload
+
       expect(user.role_id).to be_nil
       expect(user.role_id).not_to eq(-99)
       expect(user.role.everyone?).to be true
+      expect(user.admin).to be true
+      expect(user.moderator).to be false
       expect(user.can?(:manage_users)).to be false
     end
 
@@ -125,21 +145,26 @@ RSpec.describe Mastodon::AccountsCLI do
       user = Fabricate(:user, admin: true, moderator: false)
       user.update_columns(role_id: nil)
 
-      modify_role(user, 'moderator')
+      invoke(:modify, [user.account.username], role: 'Moderator')
+      user.reload
 
       expect(user.role_id).to eq(role_named('Moderator').id)
       expect(user.admin).to be true
       expect(user.moderator).to be false
       expect(user.can?(:manage_reports)).to be true
-      expect(user.errors[:role_id]).to be_empty
     end
 
-    it 'fails when the requested default role is missing' do
-      user = Fabricate(:user, admin: false, moderator: false)
-      role_named('Owner').destroy!
+    it 'fails before saving when the role name does not exist' do
+      user = Fabricate(:user, admin: true, moderator: true)
+      user.update_columns(role_id: role_named('Admin').id)
 
-      expect { modify_role(user, 'owner') }.to raise_error(ActiveRecord::RecordNotFound, 'Failure/Error: required UserRole is missing')
-      expect(user.reload.role_id).to be_nil
+      expect { invoke(:modify, [user.account.username], role: 'Not a role') }.to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      expect(@output.string).to include('Cannot find user role with that name')
+
+      user.reload
+      expect(user.role_id).to eq(role_named('Admin').id)
+      expect(user.admin).to be true
+      expect(user.moderator).to be true
     end
   end
 end

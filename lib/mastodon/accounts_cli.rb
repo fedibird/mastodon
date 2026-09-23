@@ -54,7 +54,7 @@ module Mastodon
 
     option :email, required: true
     option :confirmed, type: :boolean
-    option :role, default: 'user', enum: %w(user moderator admin owner)
+    option :role
     option :skip_sign_in_token, type: :boolean
     option :reattach, type: :boolean
     option :force, type: :boolean
@@ -66,8 +66,8 @@ module Mastodon
       With the --confirmed option, the confirmation e-mail will
       be skipped and the account will be active straight away.
 
-      With the --role option one of "user", "moderator", "admin", or "owner"
-      can be supplied. Defaults to "user"
+      With the --role option, the role can be supplied by name.
+      Omitting it leaves the account as a normal user.
 
       With the --skip-sign-in-token option, you can ensure that
       the user is never asked for an e-mailed security code.
@@ -79,7 +79,19 @@ module Mastodon
       username to the new account anyway.
     LONG_DESC
     def create(username)
-      role_id  = resolve_user_role_id(options[:role])
+      role_id = nil
+
+      if options[:role]
+        role = UserRole.find_by(name: options[:role])
+
+        if role.nil?
+          say('Cannot find user role with that name', :red)
+          exit(1)
+        end
+
+        role_id = role.id
+      end
+
       account  = Account.new(username: username)
       password = SecureRandom.hex
       user     = User.new(
@@ -128,7 +140,8 @@ module Mastodon
       end
     end
 
-    option :role, enum: %w(user moderator admin owner)
+    option :role
+    option :remove_role, type: :boolean
     option :email
     option :confirm, type: :boolean
     option :enable, type: :boolean
@@ -141,8 +154,8 @@ module Mastodon
     long_desc <<-LONG_DESC
       Modify a user account.
 
-      With the --role option, update the user's role to one of "user",
-      "moderator", "admin", or "owner".
+      With the --role option, update the user's role. To remove the user's
+      role, i.e. demote to normal user, use --remove-role.
 
       With the --email option, update the user's e-mail address. With
       the --confirm option, mark the user's e-mail as confirmed.
@@ -171,7 +184,17 @@ module Mastodon
       end
 
       if options[:role]
-        user.role_id = resolve_user_role_id(options[:role])
+        role = UserRole.find_by(name: options[:role])
+
+        if role.nil?
+          say('Cannot find user role with that name', :red)
+          exit(1)
+        end
+
+        user.role_id = role.id
+        user.association(:role).reset
+      elsif options[:remove_role]
+        user.role_id = nil
         user.association(:role).reset
       end
 
@@ -544,23 +567,6 @@ module Mastodon
     end
 
     private
-
-    # CLI assignment writes role_id only. "user" is Everyone, stored as nil
-    # rather than UserRole.everyone.id (-99). Missing default roles raise.
-    def resolve_user_role_id(name)
-      role_name = {
-        'user' => nil,
-        'moderator' => 'Moderator',
-        'admin' => 'Admin',
-        'owner' => 'Owner',
-      }.fetch(name) { raise ArgumentError, 'Failure/Error: required UserRole is missing' }
-
-      return if role_name.nil?
-
-      UserRole.find_by!(name: role_name).id
-    rescue ActiveRecord::RecordNotFound
-      raise ActiveRecord::RecordNotFound, 'Failure/Error: required UserRole is missing'
-    end
 
     def rotate_keys_for_account(account, delay = 0)
       if account.nil?
