@@ -103,11 +103,25 @@ class Api::V1::Admin::AccountsController < Api::BaseController
   end
 
   def filtered_accounts
-    AccountFilter.new(filter_params).results
+    AccountFilter.new(translated_filter_params).results
   end
 
   def filter_params
     params.permit(*FILTER_PARAMS)
+  end
+
+  # staff=true is Mastodon 4.2's manage_reports role set. Drop the staff key so
+  # AccountFilter does not also apply the legacy User.staff boolean scope.
+  # role_ids stays internal: it is not a public filter or pagination parameter.
+  def translated_filter_params
+    translated = filter_params.to_h
+
+    if params[:staff].present?
+      translated.delete('staff')
+      translated['role_ids'] = UserRole.that_can(:manage_reports).map(&:id)
+    end
+
+    translated
   end
 
   def insert_pagination_headers
