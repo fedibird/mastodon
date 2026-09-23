@@ -84,7 +84,8 @@ class AccountFilter
     when 'ip'
       valid_ip?(value) ? accounts_with_users.merge(User.matches_ip(value)) : Account.none
     when 'staff'
-      accounts_with_users.merge(User.staff)
+      # Same manage_reports role set as the v1 and v2 admin account staff filters.
+      role_scope(UserRole.that_can(:manage_reports).map(&:id))
     when 'role_ids'
       role_scope(value)
     when 'invited_by'
