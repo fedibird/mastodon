@@ -165,7 +165,6 @@ class Account < ApplicationRecord
            :unconfirmed_or_pending?,
            :admin?,
            :moderator?,
-           :staff?,
            :locale,
            :noindex?,
            :hide_network?,
@@ -182,7 +181,7 @@ class Account < ApplicationRecord
            prefix: true,
            allow_nil: true
 
-  delegate :user_role, to: :user, allow_nil: true
+  delegate :role, to: :user, allow_nil: true
   delegate :chosen_languages, to: :user, prefix: false, allow_nil: true
 
   update_index('accounts', :self)

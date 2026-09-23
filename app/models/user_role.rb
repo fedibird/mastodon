@@ -82,16 +82,9 @@ class UserRole < ApplicationRecord
     }.freeze
   end
 
-  # Temporary while boolean dual-write, LegacySettingsSync, promote/demote,
-  # and the UserPolicy bridge still look these roles up by name. Drop the
-  # reservation when that legacy layer is removed and restore upstream
-  # rename/delete semantics.
-  LEGACY_BRIDGE_ROLE_NAMES = %w(Owner Admin Moderator).freeze
-
   attr_writer :current_account
 
   validates :name, presence: true, unless: :everyone?
-  validate :validate_legacy_bridge_name
   validates :color, format: { with: /\A#?(?:[A-F0-9]{3}){1,2}\z/i }, unless: -> { color.blank? }
 
   validate :validate_permissions_elevation
@@ -100,12 +93,10 @@ class UserRole < ApplicationRecord
   validate :validate_own_role_edition
 
   before_validation :set_position
-  before_validation :preserve_legacy_managed_fields
 
   scope :assignable, -> { where.not(id: -99).order(position: :asc) }
 
-  # Inverse of User#assigned_role. User#role remains the legacy string API.
-  has_many :users, foreign_key: :role_id, dependent: :nullify, inverse_of: :assigned_role
+  has_many :users, inverse_of: :role, foreign_key: 'role_id', dependent: :nullify
 
   def self.nobody
     @nobody ||= UserRole.new(permissions: Flags::NONE, position: -1)
@@ -195,30 +186,6 @@ class UserRole < ApplicationRecord
     name
   end
 
-  # Role CRUD calls this. Until legacy invite/badge settings are removed, their
-  # mirrored fields on the default roles are read-only in that UI.
-  def enforce_legacy_managed_fields!
-    @enforce_legacy_managed_fields = true
-  end
-
-  # LegacySettingsSync is the writer for those mirrored fields, including when
-  # a Role CRUD lock is also set on the same instance.
-  def allow_legacy_settings_sync!
-    @legacy_settings_sync = true
-  end
-
-  def legacy_invite_users_locked?
-    persisted? && (everyone? || %w(Moderator Admin).include?(name_in_database))
-  end
-
-  def legacy_highlighted_locked?
-    persisted? && (everyone? || LEGACY_BRIDGE_ROLE_NAMES.include?(name_in_database))
-  end
-
-  def legacy_managed_permission?(privilege)
-    privilege.to_sym == :invite_users && legacy_invite_users_locked?
-  end
-
   private
 
   def in_permissions?(privilege)
@@ -232,64 +199,21 @@ class UserRole < ApplicationRecord
   end
 
   def validate_own_role_edition
-    return unless defined?(@current_account) && @current_account.user_role.id == id
+    return unless defined?(@current_account) && @current_account.user.role.id == id
 
     errors.add(:permissions_as_keys, :own_role) if permissions_changed?
     errors.add(:position, :own_role) if position_changed?
   end
 
   def validate_permissions_elevation
-    errors.add(:permissions_as_keys, :elevated) if defined?(@current_account) && @current_account.user_role.computed_permissions & permissions != permissions
+    errors.add(:permissions_as_keys, :elevated) if defined?(@current_account) && @current_account.user.role.computed_permissions & permissions != permissions
   end
 
   def validate_position_elevation
-    errors.add(:position, :elevated) if defined?(@current_account) && @current_account.user_role.position < position
+    errors.add(:position, :elevated) if defined?(@current_account) && @current_account.user.role.position < position
   end
 
   def validate_dangerous_permissions
     errors.add(:permissions_as_keys, :dangerous) if everyone? && Flags::DEFAULT & permissions != permissions
-  end
-
-  def validate_legacy_bridge_name
-    return if name.blank?
-
-    if persisted? && will_save_change_to_name?
-      previous_name = name_in_database
-      errors.add(:name, :reserved) if legacy_bridge_role_name?(previous_name) || legacy_bridge_role_name?(name)
-    elsif new_record? && legacy_bridge_role_name?(name) && self.class.exists?(name: name)
-      errors.add(:name, :reserved)
-    end
-  end
-
-  def legacy_bridge_role_name?(value)
-    LEGACY_BRIDGE_ROLE_NAMES.include?(value)
-  end
-
-  # Keep the posted value from winning. A disabled checkbox is omitted from the
-  # form POST, and a crafted POST must not change the bit either.
-  def preserve_legacy_managed_fields
-    return if @legacy_settings_sync
-    return unless @enforce_legacy_managed_fields
-    return unless persisted?
-
-    preserve_legacy_invite_users_bit if legacy_invite_users_locked?
-    preserve_legacy_highlighted if legacy_highlighted_locked?
-  end
-
-  def preserve_legacy_invite_users_bit
-    flag = FLAGS[:invite_users]
-    previous = permissions_in_database.to_i & flag
-    current = permissions.to_i
-    return if (current & flag) == previous
-
-    self.permissions = (current & ~flag) | previous
-  end
-
-  def preserve_legacy_highlighted
-    if everyone?
-      self.highlighted = false
-    elsif highlighted != highlighted_in_database
-      self.highlighted = highlighted_in_database
-    end
   end
 end

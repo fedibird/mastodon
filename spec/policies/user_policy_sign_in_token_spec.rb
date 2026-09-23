@@ -3,12 +3,6 @@
 require 'rails_helper'
 
 RSpec.describe UserPolicy do
-  def user_with_role(role)
-    user = Fabricate(:user, admin: false, moderator: false)
-    user.update_columns(role_id: role.id)
-    user
-  end
-
   def access_role(position)
     UserRole.create!(name: "Access #{position} #{SecureRandom.hex(2)}", position: position, permissions_as_keys: %w(manage_user_access))
   end
@@ -20,9 +14,9 @@ RSpec.describe UserPolicy do
   end
 
   it 'allows Owner to change Admin, Moderator, and ordinary users' do
-    owner = Fabricate(:user, admin: true, moderator: false)
+    owner = user_with_role('Owner')
     admin = user_with_role(UserRole.find_by!(name: 'Admin'))
-    moderator = Fabricate(:user, admin: false, moderator: true)
+    moderator = user_with_role('Moderator')
     ordinary = Fabricate(:user, admin: false, moderator: false)
 
     expect(allow_token_auth?(owner, admin)).to be true
@@ -32,7 +26,7 @@ RSpec.describe UserPolicy do
 
   it 'allows Admin to change Moderator and ordinary users' do
     admin = user_with_role(UserRole.find_by!(name: 'Admin'))
-    moderator = Fabricate(:user, admin: false, moderator: true)
+    moderator = user_with_role('Moderator')
     ordinary = Fabricate(:user, admin: false, moderator: false)
 
     expect(allow_token_auth?(admin, moderator)).to be true
@@ -41,7 +35,7 @@ RSpec.describe UserPolicy do
 
   it 'refuses to let Admin change Owner' do
     admin = user_with_role(UserRole.find_by!(name: 'Admin'))
-    owner = Fabricate(:user, admin: true, moderator: false)
+    owner = user_with_role('Owner')
 
     expect(allow_token_auth?(admin, owner)).to be false
   end
@@ -61,7 +55,7 @@ RSpec.describe UserPolicy do
   end
 
   it 'refuses a non-functional actor' do
-    owner = Fabricate(:user, admin: true, moderator: false)
+    owner = user_with_role('Owner')
     ordinary = Fabricate(:user, admin: false, moderator: false)
     owner.update_columns(disabled: true)
 

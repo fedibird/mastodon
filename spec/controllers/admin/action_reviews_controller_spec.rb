@@ -5,7 +5,7 @@ require 'rails_helper'
 RSpec.describe Admin::ActionReviewsController, type: :controller do # rubocop:disable Metrics/BlockLength
   render_views
 
-  let(:admin) { Fabricate(:user, admin: true) }
+  let(:admin) { user_with_role('Owner') }
 
   def stub_webpacker_manifest
     manifest = Webpacker.instance.manifest
@@ -42,7 +42,7 @@ RSpec.describe Admin::ActionReviewsController, type: :controller do # rubocop:di
     let!(:review_request) { fabricate_request }
 
     it 'allows a moderator to view index and show' do
-      sign_in Fabricate(:user, moderator: true), scope: :user
+      sign_in user_with_role('Moderator'), scope: :user
 
       get :index
       expect(response).to have_http_status(200)
@@ -302,7 +302,7 @@ RSpec.describe Admin::ActionReviewsController, type: :controller do # rubocop:di
     end
 
     it 'lets staff approve, persists an escaped note, and keeps browser-local reviewed_at' do
-      sign_in Fabricate(:user, moderator: true), scope: :user
+      sign_in user_with_role('Moderator'), scope: :user
       request = held_follow_request
       note = '<script>alert(1)</script>'
 
@@ -350,7 +350,7 @@ RSpec.describe Admin::ActionReviewsController, type: :controller do # rubocop:di
   end
 
   describe 'invite creation detail' do
-    let(:owner) { Fabricate(:user, admin: true) }
+    let(:owner) { user_with_role('Owner') }
 
     def held_invite
       Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(
@@ -416,7 +416,7 @@ RSpec.describe Admin::ActionReviewsController, type: :controller do # rubocop:di
 
   describe 'navigation for moderators' do
     it 'shows the queue but not policy settings' do
-      sign_in Fabricate(:user, moderator: true), scope: :user
+      sign_in user_with_role('Moderator'), scope: :user
 
       get :index
 

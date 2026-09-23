@@ -3,7 +3,7 @@
 require 'rails_helper'
 
 RSpec.describe ActionReview::DecisionService do # rubocop:disable Metrics/BlockLength
-  let(:reviewer) { Fabricate(:user, admin: true).account }
+  let(:reviewer) { user_with_role('Owner').account }
 
   def create_held_batch(preflight_state: :review_required, **attrs)
     account = Fabricate(:account)
@@ -189,7 +189,7 @@ RSpec.describe ActionReview::DecisionService do # rubocop:disable Metrics/BlockL
     it 'lets exactly one terminal decision win' do
       batch = create_held_batch
       request = create_request(batch)
-      other = Fabricate(:user, moderator: true).account
+      other = user_with_role('Moderator').account
       start = Queue.new
       winners = Queue.new
       errors = Queue.new

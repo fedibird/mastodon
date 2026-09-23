@@ -4,14 +4,14 @@ require 'rails_helper'
 
 RSpec.describe Admin::ActionLogsController, type: :controller do
   it 'serves action logs to a functional owner' do
-    sign_in Fabricate(:user, admin: true)
+    sign_in user_with_role('Owner')
     get :index
 
     expect(response).to have_http_status(200)
   end
 
   it 'refuses a disabled owner' do
-    user = Fabricate(:user, admin: true)
+    user = user_with_role('Owner')
     user.update_columns(disabled: true)
     sign_in user
     get :index
@@ -29,14 +29,14 @@ end
 
 RSpec.describe Admin::PendingAccountsController, type: :controller do
   it 'serves the queue to a functional owner' do
-    sign_in Fabricate(:user, admin: true)
+    sign_in user_with_role('Owner')
     get :index
 
     expect(response).to have_http_status(200)
   end
 
   it 'refuses a disabled owner before rendering' do
-    user = Fabricate(:user, admin: true)
+    user = user_with_role('Owner')
     user.update_columns(disabled: true)
     sign_in user
     get :index

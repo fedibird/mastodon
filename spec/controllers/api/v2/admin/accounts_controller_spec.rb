@@ -5,7 +5,7 @@ require 'rails_helper'
 RSpec.describe Api::V2::Admin::AccountsController, type: :controller do # rubocop:disable Metrics/BlockLength
   render_views
 
-  let(:user)   { Fabricate(:user, moderator: true) }
+  let(:user)   { user_with_role('Moderator') }
   let(:scopes) { 'admin:read admin:write' }
   let(:token)  { Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: scopes) }
 
@@ -15,12 +15,6 @@ RSpec.describe Api::V2::Admin::AccountsController, type: :controller do # ruboco
 
   def account_ids
     body_as_json.map { |row| row[:id] }
-  end
-
-  def user_with_role(role)
-    record = Fabricate(:user, admin: false, moderator: false)
-    record.update_columns(role_id: role.id)
-    record
   end
 
   it 'routes the v2 index helper' do
@@ -136,14 +130,14 @@ RSpec.describe Api::V2::Admin::AccountsController, type: :controller do # ruboco
 
   describe 'GET #index permissions and role_ids' do
     it 'returns roles that can manage reports and keeps the role entity' do
-      owner = Fabricate(:user, admin: true)
+      owner = user_with_role('Owner')
       admin_user = user_with_role(UserRole.find_by!(name: 'Admin'))
       reporter = user_with_role(UserRole.create!(name: 'Reporter', position: 4, permissions_as_keys: %w(manage_reports)))
       user_admin = user_with_role(UserRole.create!(name: 'User admin', position: 6, permissions_as_keys: %w(manage_users)))
       devops = user_with_role(UserRole.create!(name: 'Devops', position: 7, permissions_as_keys: %w(view_devops)))
       ordinary = Fabricate(:user)
 
-      expect(User).not_to receive(:staff)
+      expect(User).not_to respond_to(:staff)
       get :index, params: { permissions: 'staff', origin: 'local', status: 'active' }
 
       expect(account_ids).to include(user.account.id.to_s, owner.account.id.to_s, admin_user.account.id.to_s, reporter.account.id.to_s)

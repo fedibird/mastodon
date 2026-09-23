@@ -6,7 +6,7 @@ RSpec.describe Admin::AccountsController, type: :controller do
   before { sign_in current_user, scope: :user }
 
   describe 'GET #index' do
-    let(:current_user) { Fabricate(:user, admin: true) }
+    let(:current_user) { user_with_role('Owner') }
 
     around do |example|
       default_per_page = Account.default_per_page
@@ -66,7 +66,7 @@ RSpec.describe Admin::AccountsController, type: :controller do
   end
 
   describe 'GET #show' do
-    let(:current_user) { Fabricate(:user, admin: true) }
+    let(:current_user) { user_with_role('Owner') }
     let(:account) { Fabricate(:account, username: 'bob') }
 
     it 'returns http success' do
@@ -78,9 +78,9 @@ RSpec.describe Admin::AccountsController, type: :controller do
   describe 'POST #memorialize' do
     subject { post :memorialize, params: { id: account.id } }
 
-    let(:current_user) { Fabricate(:user, admin: current_user_admin) }
+    let(:current_user) { current_user_admin ? user_with_role('Owner') : Fabricate(:user) }
     let(:account) { Fabricate(:account, user: user) }
-    let(:user) { Fabricate(:user, admin: target_user_admin) }
+    let(:user) { target_user_admin ? user_with_role('Owner') : Fabricate(:user) }
 
     context 'when user is admin' do
       let(:current_user_admin) { true }
@@ -130,7 +130,7 @@ RSpec.describe Admin::AccountsController, type: :controller do
   describe 'POST #enable' do
     subject { post :enable, params: { id: account.id } }
 
-    let(:current_user) { Fabricate(:user, admin: admin) }
+    let(:current_user) { admin ? user_with_role('Owner') : Fabricate(:user) }
     let(:account) { Fabricate(:account, user: user) }
     let(:user) { Fabricate(:user, disabled: true) }
 
@@ -156,7 +156,7 @@ RSpec.describe Admin::AccountsController, type: :controller do
   describe 'POST #redownload' do
     subject { post :redownload, params: { id: account.id } }
 
-    let(:current_user) { Fabricate(:user, admin: admin) }
+    let(:current_user) { admin ? user_with_role('Owner') : Fabricate(:user) }
     let(:account) { Fabricate(:account) }
 
     context 'when user is admin' do
@@ -179,7 +179,7 @@ RSpec.describe Admin::AccountsController, type: :controller do
   describe 'POST #remove_avatar' do
     subject { post :remove_avatar, params: { id: account.id } }
 
-    let(:current_user) { Fabricate(:user, admin: admin) }
+    let(:current_user) { admin ? user_with_role('Owner') : Fabricate(:user) }
     let(:account) { Fabricate(:account) }
 
     context 'when user is admin' do

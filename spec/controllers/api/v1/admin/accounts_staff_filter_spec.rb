@@ -5,7 +5,7 @@ require 'rails_helper'
 RSpec.describe Api::V1::Admin::AccountsController, type: :controller do # rubocop:disable Metrics/BlockLength
   render_views
 
-  let(:user)   { Fabricate(:user, moderator: true) }
+  let(:user)   { user_with_role('Moderator') }
   let(:scopes) { 'admin:read admin:write' }
   let(:token)  { Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: scopes) }
 
@@ -17,15 +17,9 @@ RSpec.describe Api::V1::Admin::AccountsController, type: :controller do # ruboco
     body_as_json.map { |row| row[:id] }
   end
 
-  def user_with_role(role, **attributes)
-    record = Fabricate(:user, admin: false, moderator: false, **attributes)
-    record.update_columns(role_id: role.id)
-    record
-  end
-
   describe 'GET #index staff filter' do # rubocop:disable Metrics/BlockLength
-    it 'returns legacy Moderator and Owner accounts and keeps the role entity' do
-      owner = Fabricate(:user, admin: true)
+    it 'returns Moderator and Owner accounts and keeps the role entity' do
+      owner = user_with_role('Owner')
 
       get :index, params: { staff: 'true' }
 
@@ -63,7 +57,7 @@ RSpec.describe Api::V1::Admin::AccountsController, type: :controller do # ruboco
       legacy_moderator.update_columns(role_id: viewer.id)
       reporter = user_with_role(UserRole.create!(name: 'Reporter', position: 4, permissions_as_keys: %w(manage_reports)))
 
-      expect(User).not_to receive(:staff)
+      expect(User).not_to respond_to(:staff)
       get :index, params: { staff: 'true' }
 
       expect(account_ids).not_to include(legacy_moderator.account.id.to_s)
@@ -71,7 +65,7 @@ RSpec.describe Api::V1::Admin::AccountsController, type: :controller do # ruboco
     end
 
     it 'keeps staff=true on the pagination link and omits internal role ids' do
-      Fabricate(:user, admin: true)
+      user_with_role('Owner')
 
       get :index, params: { staff: 'true', limit: 1 }
 
@@ -86,7 +80,7 @@ RSpec.describe Api::V1::Admin::AccountsController, type: :controller do # ruboco
       reporter = user_with_role(UserRole.create!(name: 'Reporter', position: 4, permissions_as_keys: %w(manage_reports)))
       ordinary = Fabricate(:user)
 
-      get :index, params: { role_ids: [reporter.user_role.id] }
+      get :index, params: { role_ids: [reporter.role.id] }
 
       expect(account_ids).to include(reporter.account.id.to_s, ordinary.account.id.to_s)
     end

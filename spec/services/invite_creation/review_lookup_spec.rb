@@ -3,7 +3,7 @@
 require 'rails_helper'
 
 RSpec.describe InviteCreation::ReviewLookup do # rubocop:disable Metrics/BlockLength
-  let(:user) { Fabricate(:user, admin: true) }
+  let(:user) { user_with_role('Owner') }
 
   def shell
     Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(

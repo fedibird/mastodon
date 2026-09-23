@@ -6,10 +6,6 @@ class InvitePolicy < ApplicationPolicy
   end
 
   def create?
-    # Owner can?(:invite_users) stays true via administrator. Fedibird's
-    # disabled setting means nobody, including Owner, may invite.
-    return false if Setting.min_invite_role == 'disabled'
-
     role.can?(:invite_users) && un_silenced?
   end
 

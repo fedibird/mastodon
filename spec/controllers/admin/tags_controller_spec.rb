@@ -6,7 +6,7 @@ RSpec.describe Admin::TagsController, type: :controller do
   render_views
 
   before do
-    sign_in Fabricate(:user, admin: true)
+    sign_in user_with_role('Owner')
   end
 
   describe 'GET #index' do

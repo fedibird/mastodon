@@ -17,10 +17,15 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
     sign_in user
   end
 
-  around do |example|
-    min_invite_role = Setting.min_invite_role
-    example.run
-    Setting.min_invite_role = min_invite_role
+  def set_everyone_invite(enabled)
+    flag = UserRole::FLAGS[:invite_users]
+    everyone = UserRole.everyone
+    permissions = if enabled
+                    everyone.permissions | flag
+                  else
+                    everyone.permissions & ~flag
+                  end
+    everyone.update!(permissions: permissions)
   end
 
   describe 'GET #index' do
@@ -29,18 +34,18 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
     let(:user) { Fabricate(:user, moderator: false, admin: false) }
     let!(:invite) { Fabricate(:invite, user: user) }
 
-    context 'when user is a staff' do
+    context 'when Everyone can invite' do
       it 'renders index page' do
-        Setting.min_invite_role = 'user'
+        set_everyone_invite(true)
         expect(subject).to render_template :index
         expect(assigns(:invites)).to include invite
         expect(assigns(:invites).count).to eq 1
       end
     end
 
-    context 'when user is not a staff' do
+    context 'when the user role cannot invite' do
       it 'returns 403' do
-        Setting.min_invite_role = 'modelator'
+        set_everyone_invite(false)
         expect(subject).to have_http_status 403
       end
     end
@@ -50,7 +55,7 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
     subject { post :create, params: { invite: { max_uses: '10', expires_in: 1800 } } }
 
     context 'when user is an admin' do
-      let(:user) { Fabricate(:user, moderator: false, admin: true) }
+      let(:user) { user_with_role('Owner') }
 
       it 'succeeds to create a invite' do
         expect { subject }.to change { Invite.count }.by(1)
@@ -60,16 +65,17 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
     end
 
     context 'when user is not an admin' do
-      let(:user) { Fabricate(:user, moderator: true, admin: false) }
+      let(:user) { user_with_role('Moderator') }
 
       it 'returns 403' do
+        set_everyone_invite(false)
         expect(subject).to have_http_status 403
       end
     end
   end
 
   describe 'POST #create with action review' do
-    let(:user) { Fabricate(:user, moderator: false, admin: true) }
+    let(:user) { user_with_role('Owner') }
 
     around do |example|
       example.run
@@ -115,7 +121,7 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
   end
 
   describe 'GET #index review rows' do # rubocop:disable Metrics/BlockLength
-    let(:user) { Fabricate(:user, moderator: false, admin: true) }
+    let(:user) { user_with_role('Owner') }
 
     it 'shows a stopped row without the code and leaves an ordinary invite unchanged' do
       Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(
@@ -184,7 +190,7 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
   end
 
   describe 'DELETE #destroy pending shell' do
-    let(:user) { Fabricate(:user, moderator: false, admin: true) }
+    let(:user) { user_with_role('Owner') }
 
     it 'does not approve the review or make the code usable' do
       Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(
@@ -205,7 +211,7 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
   end
 
   describe 'DELETE #destroy cancelled shell' do
-    let(:user) { Fabricate(:user, moderator: false, admin: true) }
+    let(:user) { user_with_role('Owner') }
 
     it 'does not move expires_at or make the code usable' do
       Setting.where(var: 'action_review_policies').first_or_initialize(var: 'action_review_policies').update!(
@@ -233,7 +239,7 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
     subject { delete :destroy, params: { id: invite.id } }
 
     let!(:invite) { Fabricate(:invite, user: user, expires_at: nil) }
-    let(:user) { Fabricate(:user, moderator: false, admin: true) }
+    let(:user) { user_with_role('Owner') }
 
     it 'expires invite' do
       expect(subject).to redirect_to invites_path

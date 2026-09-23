@@ -3,7 +3,7 @@ require 'rails_helper'
 RSpec.describe Admin::AccountModerationNotesController, type: :controller do
   render_views
 
-  let(:user) { Fabricate(:user, admin: true) }
+  let(:user) { user_with_role('Owner') }
   let(:target_account) { Fabricate(:account) }
 
   before do

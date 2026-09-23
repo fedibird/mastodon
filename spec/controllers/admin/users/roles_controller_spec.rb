@@ -5,16 +5,10 @@ require 'rails_helper'
 # Examples cover the assignment matrix in one controller flow.
 # rubocop:disable Metrics/BlockLength
 describe Admin::Users::RolesController do
-  def user_with_role(role)
-    user = Fabricate(:user, admin: false, moderator: false)
-    user.update_columns(role_id: role.id)
-    user
-  end
-
   let(:admin_role) { UserRole.find_by!(name: 'Admin') }
   let(:owner_role) { UserRole.find_by!(name: 'Owner') }
   let(:moderator_role) { UserRole.find_by!(name: 'Moderator') }
-  let(:owner) { Fabricate(:user, admin: true) }
+  let(:owner) { user_with_role('Owner') }
 
   describe 'GET #show' do
     it 'opens the assignment form for a lower user' do
@@ -53,7 +47,7 @@ describe Admin::Users::RolesController do
       patch :update, params: { user_id: moderator_target.id, user: { role_id: moderator_role.id } }
       moderator_target.reload
       expect(moderator_target.role_id).to eq moderator_role.id
-      expect(moderator_target.moderator).to be true
+      expect(moderator_target.moderator).to be false
       expect(moderator_target.admin).to be false
 
       admin_target = Fabricate(:user, admin: false, moderator: false)
@@ -97,7 +91,7 @@ describe Admin::Users::RolesController do
       actor = user_with_role(admin_role)
       sign_in actor, scope: :user
       peer = user_with_role(admin_role)
-      higher = Fabricate(:user, admin: true)
+      higher = user_with_role('Owner')
       custom = UserRole.create!(name: 'Not assigned', position: 3, permissions_as_keys: %w(invite_users))
 
       patch :update, params: { user_id: peer.id, user: { role_id: custom.id } }, format: :json

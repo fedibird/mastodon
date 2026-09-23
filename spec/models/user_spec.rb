@@ -68,14 +68,6 @@ RSpec.describe User, type: :model do
       end
     end
 
-    describe 'admins' do
-      it 'returns an array of users who are admin' do
-        user_1 = Fabricate(:user, admin: false)
-        user_2 = Fabricate(:user, admin: true)
-        expect(User.admins).to match_array([user_2])
-      end
-    end
-
     describe 'confirmed' do
       it 'returns an array of users who are confirmed' do
         user_1 = Fabricate(:user, confirmed_at: nil)
@@ -317,45 +309,33 @@ RSpec.describe User, type: :model do
   end
 
   describe '#role' do
-    it 'returns admin for admin' do
-      user = User.new(admin: true)
-      expect(user.role).to eq 'admin'
+    it 'returns Everyone when role_id is nil' do
+      user = Fabricate(:user, admin: false, moderator: false)
+
+      expect(user.role).to eq UserRole.everyone
+      expect(user.role).to be_a(UserRole)
     end
 
-    it 'returns moderator for moderator' do
-      user = User.new(moderator: true)
-      expect(user.role).to eq 'moderator'
+    it 'returns the assigned custom role' do
+      custom = UserRole.create!(name: 'User spec role', position: 3, permissions_as_keys: %w(invite_users))
+      user = Fabricate(:user, admin: false, moderator: false)
+      user.update!(role_id: custom.id)
+
+      expect(user.role).to eq custom
+      expect(user.role).not_to be_a(String)
     end
 
-    it 'returns user otherwise' do
-      user = User.new
-      expect(user.role).to eq 'user'
-    end
-  end
+    it 'does not change role_id when legacy booleans are saved' do
+      user = Fabricate(:user, admin: false, moderator: false)
+      custom = UserRole.create!(name: 'Sticky spec role', position: 3, permissions_as_keys: %w(invite_users))
+      user.update_columns(role_id: custom.id)
 
-  describe '#role?' do
-    it 'returns false when invalid role requested' do
-      user = User.new(admin: true)
-      expect(user.role?('disabled')).to be false
-    end
+      user.update!(admin: true)
+      expect(user.reload.role_id).to eq custom.id
 
-    it 'returns true when exact role match' do
-      user  = User.new
-      mod   = User.new(moderator: true)
-      admin = User.new(admin: true)
-
-      expect(user.role?('user')).to be true
-      expect(mod.role?('moderator')).to be true
-      expect(admin.role?('admin')).to be true
-    end
-
-    it 'returns true when role higher than needed' do
-      mod   = User.new(moderator: true)
-      admin = User.new(admin: true)
-
-      expect(mod.role?('user')).to be true
-      expect(admin.role?('user')).to be true
-      expect(admin.role?('moderator')).to be true
+      user.update!(admin: false, moderator: true)
+      expect(user.reload.role_id).to eq custom.id
+      expect(user.role).to eq custom
     end
   end
 

@@ -407,7 +407,7 @@ RSpec.describe Auth::RegistrationsController, type: :controller do
 
   describe 'invite creation review codes' do # rubocop:disable Metrics/BlockLength
     let(:owner) do
-      user = Fabricate(:user, admin: true)
+      user = user_with_role('Owner')
       user.update!(approved: true)
       user
     end

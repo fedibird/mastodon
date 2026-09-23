@@ -5,7 +5,7 @@ require 'rails_helper'
 RSpec.describe Admin::ActionReviewsController, type: :controller do # rubocop:disable Metrics/BlockLength
   render_views
 
-  let(:admin) { Fabricate(:user, admin: true) }
+  let(:admin) { user_with_role('Owner') }
   let(:user) { Fabricate(:user, password: '12345678') }
 
   def stub_webpacker_manifest

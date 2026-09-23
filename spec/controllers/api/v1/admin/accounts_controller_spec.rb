@@ -4,7 +4,7 @@ RSpec.describe Api::V1::Admin::AccountsController, type: :controller do
   render_views
 
   let(:role)   { 'moderator' }
-  let(:user)   { Fabricate(:user, role: role, account: Fabricate(:account, username: 'alice')) }
+  let(:user)   { user_with_legacy_role_name(role, account: Fabricate(:account, username: 'alice')) }
   let(:scopes) { 'admin:read admin:write' }
   let(:token)  { Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: scopes) }
   let(:account) { Fabricate(:user).account }
@@ -56,8 +56,8 @@ RSpec.describe Api::V1::Admin::AccountsController, type: :controller do
   end
 
   describe 'GET #show role entity' do
-    it 'returns the Owner role entity for a legacy admin account' do
-      owner = Fabricate(:user, admin: true)
+    it 'returns the Owner role entity when role_id is Owner' do
+      owner = user_with_role('Owner')
 
       get :show, params: { id: owner.account.id }
 
@@ -83,7 +83,7 @@ RSpec.describe Api::V1::Admin::AccountsController, type: :controller do
       expect(role[:name]).to eq 'Helper'
       expect(role[:color]).to eq '#123456'
       expect(role[:highlighted]).to be true
-      expect(role[:permissions]).to eq target.user_role.computed_permissions.to_s
+      expect(role[:permissions]).to eq target.role.computed_permissions.to_s
       expect(body_as_json[:email]).to eq target.email
     end
 
@@ -114,7 +114,7 @@ RSpec.describe Api::V1::Admin::AccountsController, type: :controller do
       everyone = UserRole.everyone
       allow(UserRole).to receive(:everyone).and_return(everyone)
 
-      actor = User.includes(:assigned_role).find(user.id)
+      actor = User.includes(:role).find(user.id)
       allow(User).to receive(:find).and_wrap_original do |method, *args|
         args.first == user.id ? actor : method.call(*args)
       end

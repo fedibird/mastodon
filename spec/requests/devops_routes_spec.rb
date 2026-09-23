@@ -28,11 +28,11 @@ RSpec.describe 'Sidekiq and PgHero authorization' do
   end
 
   it 'allows a functional Owner into Sidekiq' do
-    expect(devops_allowed?(Fabricate(:user, admin: true), '/sidekiq')).to be true
+    expect(devops_allowed?(user_with_role('Owner'), '/sidekiq')).to be true
   end
 
   it 'allows a functional Owner into PgHero' do
-    expect(devops_allowed?(Fabricate(:user, admin: true), '/pghero')).to be true
+    expect(devops_allowed?(user_with_role('Owner'), '/pghero')).to be true
   end
 
   it 'allows a custom role with view_devops' do

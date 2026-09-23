@@ -63,22 +63,15 @@ RSpec.describe BackfillUserRoleIds, type: :model do # rubocop:disable Metrics/Bl
 
       expect(both).to be_admin
       expect(both).to be_moderator
-      expect(both).to be_staff
-      expect(both.role).to eq 'admin'
-      expect(both.role?('admin')).to be true
-      expect(both.role?('moderator')).to be true
+      expect(both.role).to eq UserRole.find_by!(name: 'Owner')
 
       expect(moderator).not_to be_admin
       expect(moderator).to be_moderator
-      expect(moderator).to be_staff
-      expect(moderator.role).to eq 'moderator'
-      expect(moderator.role?('admin')).to be false
-      expect(moderator.role?('moderator')).to be true
+      expect(moderator.role).to eq UserRole.find_by!(name: 'Moderator')
 
-      expect(User.admins).to include(both)
-      expect(User.admins).not_to include(moderator)
-      expect(User.moderators).to include(both, moderator)
-      expect(User.staff).to include(both, moderator)
+      expect(User.where(admin: true)).to include(both)
+      expect(User.where(admin: true)).not_to include(moderator)
+      expect(User.where(moderator: true)).to include(both, moderator)
     end
   end
 end

@@ -6,7 +6,7 @@ RSpec.describe Admin::EmailDomainBlocksController, type: :controller do
   render_views
 
   before do
-    sign_in Fabricate(:user, admin: true), scope: :user
+    sign_in user_with_role('Owner'), scope: :user
   end
 
   describe 'GET #index' do

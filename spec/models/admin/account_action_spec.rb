@@ -5,7 +5,7 @@ RSpec.describe Admin::AccountAction, type: :model do
 
   describe '#save!' do
     subject              { account_action.save! }
-    let(:account)        { Fabricate(:account, user: Fabricate(:user, admin: true)) }
+    let(:account)        { Fabricate(:account, user: user_with_role('Owner')) }
     let(:target_account) { Fabricate(:account, user: Fabricate(:user)) }
     let(:type)           { 'disable' }
 

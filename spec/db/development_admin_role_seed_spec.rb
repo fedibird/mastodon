@@ -16,9 +16,9 @@ RSpec.describe 'development admin role seed' do
     user = User.find_by!(email: "admin@#{domain}")
     owner_id = UserRole.find_by!(name: 'Owner').id
 
-    expect(user).to be_admin
-    expect(user).not_to be_moderator
     expect(user.role_id).to eq owner_id
+    expect(user).not_to be_admin
+    expect(user).not_to be_moderator
     expect(UserRole.where(name: 'Owner').count).to eq 1
     expect(UserRole.where(id: -99).count).to eq 1
 
@@ -26,7 +26,7 @@ RSpec.describe 'development admin role seed' do
     load_development_seed
 
     expect(user.reload.role_id).to eq owner_id
-    expect(user).to be_admin
+    expect(user).not_to be_admin
     expect(user).not_to be_moderator
     expect(UserRole.where(name: %w(Moderator Admin Owner)).count).to eq 3
   end

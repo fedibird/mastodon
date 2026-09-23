@@ -10,7 +10,7 @@ RSpec.describe Api::V1::Admin::TagsController, type: :controller do # rubocop:di
   end
 
   let(:role)   { 'moderator' }
-  let(:user)   { Fabricate(:user, role: role, account: Fabricate(:account, username: 'alice')) }
+  let(:user)   { user_with_legacy_role_name(role, account: Fabricate(:account, username: 'alice')) }
   let(:scopes) { 'admin:read admin:write' }
   let(:token)  { Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: scopes) }
 

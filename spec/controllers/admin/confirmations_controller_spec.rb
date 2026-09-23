@@ -4,7 +4,7 @@ RSpec.describe Admin::ConfirmationsController, type: :controller do
   render_views
 
   before do
-    sign_in Fabricate(:user, admin: true), scope: :user
+    sign_in user_with_role('Owner'), scope: :user
   end
 
   describe 'POST #create' do

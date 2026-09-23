@@ -37,6 +37,7 @@ RSpec.describe UserRole, type: :model do # rubocop:disable Metrics/BlockLength
 
   describe '.everyone' do
     it 'uses the reserved id and the invite_users default' do
+      described_class.where(id: -99).delete_all
       role = described_class.everyone
 
       expect(role.id).to eq(-99)

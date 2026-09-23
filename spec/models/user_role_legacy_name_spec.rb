@@ -2,44 +2,28 @@
 
 require 'rails_helper'
 
-RSpec.describe UserRole, 'legacy bridge names' do
-  it 'rejects renaming Owner, Admin, and Moderator' do
+RSpec.describe UserRole, 'default role names' do
+  it 'allows renaming Owner, Admin, and Moderator' do
     %w(Owner Admin Moderator).each do |name|
       role = described_class.find_by!(name: name)
       role.name = "#{name} renamed"
 
-      expect(role).not_to be_valid
-      expect(role.errors[:name]).to be_present
-      expect(role.reload.name).to eq name
+      expect(role.save).to be true
+      expect(role.reload.name).to eq "#{name} renamed"
     end
   end
 
-  it 'rejects a new custom role that copies a reserved name' do
-    role = described_class.new(name: 'Admin', position: 1)
+  it 'allows a new custom role that reuses a previous default name after a rename' do
+    described_class.find_by!(name: 'Admin').update!(name: 'Administrators')
 
-    expect(role).not_to be_valid
-    expect(role.errors[:name]).to be_present
-  end
-
-  it 'still allows the first seed insert and later permission updates' do
-    described_class.find_by!(name: 'Moderator').destroy!
-
-    role = described_class.create_with(
-      position: 10,
-      permissions_as_keys: %w(manage_reports),
-      highlighted: true
-    ).find_or_create_by(name: 'Moderator')
+    role = described_class.create!(name: 'Admin', position: 1, permissions_as_keys: %w(invite_users))
 
     expect(role).to be_persisted
-    expect(role.errors).to be_empty
-
-    role.permissions_as_keys = %w(manage_reports manage_users)
-    expect(role.save).to be true
-    expect(role.reload.name).to eq 'Moderator'
+    expect(role.name).to eq 'Admin'
   end
 
   it 'allows editing permissions, position, color, and highlighted on Admin' do
-    actor = Fabricate(:user, admin: true)
+    actor = user_with_role('Owner')
     role = described_class.find_by!(name: 'Admin')
     role.current_account = actor.account
     role.position = 90
@@ -52,5 +36,6 @@ RSpec.describe UserRole, 'legacy bridge names' do
     expect(role.position).to eq 90
     expect(role.color).to eq '#123456'
     expect(role.highlighted).to be false
+    expect(role.permissions_as_keys).to match_array(%w(manage_roles manage_users))
   end
 end

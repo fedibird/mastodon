@@ -5,7 +5,7 @@ require 'pundit/rspec'
 
 RSpec.describe DomainBlockPolicy do
   let(:subject) { described_class }
-  let(:admin)   { Fabricate(:user, admin: true).account }
+  let(:admin)   { user_with_role('Owner').account }
   let(:john)    { Fabricate(:user).account }
 
   permissions :index?, :show?, :create?, :update?, :destroy? do
@@ -16,7 +16,7 @@ RSpec.describe DomainBlockPolicy do
     end
 
     context 'moderator' do
-      let(:moderator) { Fabricate(:user, moderator: true).account }
+      let(:moderator) { user_with_role('Moderator').account }
 
       it 'denies' do
         expect(subject).to_not permit(moderator, DomainBlock)
@@ -30,7 +30,7 @@ RSpec.describe DomainBlockPolicy do
     end
 
     context 'disabled admin' do
-      let(:disabled_admin) { Fabricate(:user, admin: true, disabled: true).account }
+      let(:disabled_admin) { user_with_role('Owner', disabled: true).account }
 
       it 'denies' do
         expect(subject).to_not permit(disabled_admin, DomainBlock)

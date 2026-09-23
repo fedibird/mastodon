@@ -20,21 +20,21 @@ describe Admin::BaseController, type: :controller do
 
   it 'renders admin layout as a moderator' do
     routes.draw { get 'success' => 'admin/base#success' }
-    sign_in(Fabricate(:user, moderator: true))
+    sign_in(user_with_role('Moderator'))
     get :success
     expect(response).to render_template layout: 'admin'
   end
 
   it 'renders admin layout as an admin' do
     routes.draw { get 'success' => 'admin/base#success' }
-    sign_in(Fabricate(:user, admin: true))
+    sign_in(user_with_role('Owner'))
     get :success
     expect(response).to render_template layout: 'admin'
   end
 
   it 'redirects a disabled admin away from the admin UI' do
     routes.draw { get 'success' => 'admin/base#success' }
-    user = Fabricate(:user, admin: true)
+    user = user_with_role('Owner')
     user.disable!
     sign_in(user)
     get :success

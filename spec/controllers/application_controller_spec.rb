@@ -203,13 +203,13 @@ describe ApplicationController, type: :controller do
     end
 
     it 'returns a 403 if current user is only a moderator' do
-      sign_in(Fabricate(:user, moderator: true))
+      sign_in(user_with_role('Moderator'))
       get 'sucesss'
       expect(response).to have_http_status(403)
     end
 
     it 'does nothing if current user is admin' do
-      sign_in(Fabricate(:user, admin: true))
+      sign_in(user_with_role('Owner'))
       get 'sucesss'
       expect(response).to have_http_status(200)
     end
@@ -235,13 +235,13 @@ describe ApplicationController, type: :controller do
     end
 
     it 'does nothing if current user is moderator' do
-      sign_in(Fabricate(:user, moderator: true))
+      sign_in(user_with_role('Moderator'))
       get 'sucesss'
       expect(response).to have_http_status(200)
     end
 
     it 'does nothing if current user is admin' do
-      sign_in(Fabricate(:user, admin: true))
+      sign_in(user_with_role('Owner'))
       get 'sucesss'
       expect(response).to have_http_status(200)
     end

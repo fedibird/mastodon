@@ -19,7 +19,7 @@ class ApplicationPolicy
   def role
     return UserRole.nobody unless current_user&.functional?
 
-    current_user.user_role
+    current_user.role
   end
 
   def user_signed_in?

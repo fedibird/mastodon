@@ -8,7 +8,7 @@ describe Admin::ModerationMetricsController, type: :controller do
   let(:subject_record) { Fabricate(:moderation_subject) }
 
   context 'as an admin' do
-    before { sign_in Fabricate(:user, admin: true) }
+    before { sign_in user_with_role('Owner') }
 
     describe 'GET #show' do
       it 'returns 200 and assigns the computed metrics for the subject' do

@@ -5,7 +5,7 @@ require 'rails_helper'
 RSpec.describe Admin::ActionReviewSettingsController, type: :controller do # rubocop:disable Metrics/BlockLength
   render_views
 
-  let(:admin) { Fabricate(:user, admin: true) }
+  let(:admin) { user_with_role('Owner') }
 
   def stub_webpacker_manifest
     manifest = Webpacker.instance.manifest
@@ -50,7 +50,7 @@ RSpec.describe Admin::ActionReviewSettingsController, type: :controller do # rub
     end
 
     it 'forbids a moderator from changing site policy' do
-      sign_in Fabricate(:user, moderator: true), scope: :user
+      sign_in user_with_role('Moderator'), scope: :user
 
       get :edit
       expect(response).to have_http_status(:forbidden)
