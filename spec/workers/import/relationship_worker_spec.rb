@@ -278,6 +278,107 @@ describe Import::RelationshipWorker do
     end
   end
 
+  describe 'when a tracked follow ends with RecordInvalid' do
+    let(:batch) do
+      FollowImportBatch.create!(subject: Fabricate(:moderation_subject), imported_at: Time.now.utc, mode: :merge,
+                                target_count: 1, resolved_target_count: 0, unresolved_target_count: 0)
+    end
+
+    def queued_target(key)
+      created = batch.targets.create!(target_key_hash: key, destination_domain: 'example.com', position: batch.targets.count)
+      FollowImport::TargetTransitionService.new.mark_queued(created)
+      created
+    end
+
+    def invalid_follow
+      follow_service = instance_double(FollowService)
+      allow(follow_service).to receive(:call).and_raise(ActiveRecord::RecordInvalid)
+      allow(FollowService).to receive(:new).and_return(follow_service)
+    end
+
+    it 'terminalizes a tracked target when the follow limit is not exceeded' do
+      import_target = queued_target('invalid-key')
+      invalid_follow
+      allow(FollowLimitValidator).to receive(:limit_for_account).and_return(30_000)
+
+      expect {
+        described_class.new.perform(account.id, 'import_target@example.com', 'follow', { 'follow_import_target_id' => import_target.id })
+      }.not_to raise_error
+
+      import_target.reload
+      expect(import_target.state).to eq 'delivery_failed'
+      expect(import_target.failure_code).to eq 'follow_record_invalid'
+    end
+
+    it 'still swallows RecordInvalid for an ordinary follow' do
+      import_target = queued_target('ordinary-invalid-key')
+      invalid_follow
+      allow(FollowLimitValidator).to receive(:limit_for_account).and_return(30_000)
+
+      expect {
+        described_class.new.perform(account.id, 'import_target@example.com', 'follow', { 'import_batch_id' => batch.id })
+      }.not_to raise_error
+
+      expect(import_target.reload.state).to eq 'queued'
+    end
+
+    it 're-raises when settling the tracked target fails' do
+      import_target = queued_target('invalid-boom-key')
+      invalid_follow
+      allow(FollowLimitValidator).to receive(:limit_for_account).and_return(30_000)
+      transition = instance_double(FollowImport::TargetTransitionService)
+      allow(FollowImport::TargetTransitionService).to receive(:new).and_return(transition)
+      allow(transition).to receive(:mark_delivery_failed).and_raise(StandardError, 'boom')
+
+      expect {
+        described_class.new.perform(account.id, 'import_target@example.com', 'follow', { 'follow_import_target_id' => import_target.id })
+      }.to raise_error(ActiveRecord::RecordInvalid)
+
+      expect(import_target.reload.state).to eq 'queued'
+    end
+
+    it 'does not overwrite an accepted target' do
+      import_target = queued_target('accepted-invalid-key')
+      FollowImport::TargetTransitionService.new.mark_accepted(import_target)
+      invalid_follow
+      allow(FollowLimitValidator).to receive(:limit_for_account).and_return(30_000)
+
+      expect {
+        described_class.new.perform(account.id, 'import_target@example.com', 'follow', { 'follow_import_target_id' => import_target.id })
+      }.not_to raise_error
+
+      expect(import_target.reload.state).to eq 'accepted'
+      expect(import_target.failure_code).to be_nil
+    end
+
+    it 'does not rewrite an existing delivery failure' do
+      import_target = queued_target('failed-invalid-key')
+      FollowImport::TargetTransitionService.new.mark_delivery_failed(import_target, failure_code: 'account_unresolved')
+      invalid_follow
+      allow(FollowLimitValidator).to receive(:limit_for_account).and_return(30_000)
+
+      expect {
+        described_class.new.perform(account.id, 'import_target@example.com', 'follow', { 'follow_import_target_id' => import_target.id })
+      }.not_to raise_error
+
+      import_target.reload
+      expect(import_target.state).to eq 'delivery_failed'
+      expect(import_target.failure_code).to eq 'account_unresolved'
+    end
+
+    it 'still raises when the follow limit is exceeded' do
+      import_target = queued_target('over-limit-key')
+      invalid_follow
+      allow(FollowLimitValidator).to receive(:limit_for_account).and_return(-1)
+
+      expect {
+        described_class.new.perform(account.id, 'import_target@example.com', 'follow', { 'follow_import_target_id' => import_target.id })
+      }.to raise_error(ActiveRecord::RecordInvalid)
+
+      expect(import_target.reload.state).to eq 'queued'
+    end
+  end
+
   describe 'when retries are exhausted' do
     let(:batch) do
       FollowImportBatch.create!(subject: Fabricate(:moderation_subject), imported_at: Time.now.utc, mode: :merge,

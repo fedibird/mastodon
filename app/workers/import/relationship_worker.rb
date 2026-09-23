@@ -55,6 +55,15 @@ class Import::RelationshipWorker
         FollowService.new.call(from_account, target_account, **options.merge(tracking_moved_account: true))
       rescue ActiveRecord::RecordInvalid
         raise if FollowLimitValidator.limit_for_account(from_account) < from_account.following_count
+
+        # Upstream swallows a non-limit RecordInvalid and the job succeeds.
+        # A tracked follow-import target was already claimed as queued, so that
+        # success would strand it: retries-exhausted never runs. Settle it here.
+        # If settling fails, re-raise so that hook can still run. Ordinary jobs
+        # with no follow_import_target_id stay swallowed.
+        if follow_import_target_id(relationship, options).present?
+          raise unless terminalize_tracked_follow_import(relationship, options, 'follow_record_invalid')
+        end
       rescue Mastodon::NotPermittedError
         # Permanent policy refusal after the account resolved (for example a
         # domain new accounts may not follow). Retrying cannot succeed. Only an
