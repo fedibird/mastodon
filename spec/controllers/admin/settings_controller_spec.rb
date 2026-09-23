@@ -20,6 +20,7 @@ RSpec.describe Admin::SettingsController, type: :controller do
 
     describe 'PUT #update' do
       before do
+        load Rails.root.join('db', 'seeds', '03_roles.rb')
         allow_any_instance_of(Form::AdminSettings).to receive(:valid?).and_return(true)
       end
 
