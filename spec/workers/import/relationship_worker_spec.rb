@@ -135,4 +135,107 @@ describe Import::RelationshipWorker do
       expect(follow_service).to have_received(:call)
     end
   end
+
+  describe 'when retries are exhausted' do
+    let(:batch) do
+      FollowImportBatch.create!(subject: Fabricate(:moderation_subject), imported_at: Time.now.utc, mode: :merge,
+                                target_count: 1, resolved_target_count: 0, unresolved_target_count: 0)
+    end
+
+    def queued_target(key)
+      created = batch.targets.create!(target_key_hash: key, destination_domain: 'example.com', position: batch.targets.count)
+      FollowImport::TargetTransitionService.new.mark_queued(created)
+      created
+    end
+
+    def exhaust(target_id, relationship: 'follow')
+      options = target_id.nil? ? {} : { 'follow_import_target_id' => target_id }
+      described_class.sidekiq_retries_exhausted_block.call(
+        'args' => [account.id, 'import_target@example.com', relationship, options]
+      )
+    end
+
+    it 'terminalizes a queued follow-import target' do
+      import_target = queued_target('queued-key')
+
+      exhaust(import_target.id)
+
+      import_target.reload
+      expect(import_target.state).to eq 'delivery_failed'
+      expect(import_target.failure_code).to eq 'relationship_retries_exhausted'
+    end
+
+    it 'does not touch an ordinary follow that has no follow-import target id' do
+      import_target = queued_target('ordinary-key')
+
+      described_class.sidekiq_retries_exhausted_block.call(
+        'args' => [account.id, 'import_target@example.com', 'follow', { 'import_batch_id' => batch.id }]
+      )
+
+      expect(import_target.reload.state).to eq 'queued'
+    end
+
+    it 'does not terminalize a non-follow relationship even when a target id is present' do
+      import_target = queued_target('block-key')
+
+      exhaust(import_target.id, relationship: 'block')
+
+      expect(import_target.reload.state).to eq 'queued'
+    end
+
+    it 'does not raise when the follow-import target does not exist' do
+      expect { exhaust(-1) }.not_to raise_error
+    end
+
+    it 'does not overwrite an accepted target' do
+      import_target = queued_target('accepted-key')
+      FollowImport::TargetTransitionService.new.mark_accepted(import_target)
+
+      exhaust(import_target.id)
+
+      expect(import_target.reload.state).to eq 'accepted'
+      expect(import_target.failure_code).to be_nil
+    end
+
+    it 'does not overwrite a rejected target' do
+      import_target = queued_target('rejected-key')
+      FollowImport::TargetTransitionService.new.mark_rejected(import_target)
+
+      exhaust(import_target.id)
+
+      expect(import_target.reload.state).to eq 'rejected'
+      expect(import_target.failure_code).to be_nil
+    end
+
+    it 'does not rewrite an existing delivery failure' do
+      import_target = queued_target('failed-key')
+      FollowImport::TargetTransitionService.new.mark_delivery_failed(import_target, failure_code: 'account_unresolved')
+
+      exhaust(import_target.id)
+
+      import_target.reload
+      expect(import_target.state).to eq 'delivery_failed'
+      expect(import_target.failure_code).to eq 'account_unresolved'
+    end
+
+    it 'lets the existing transition path record batch completion for the last non-terminal target' do
+      settled = queued_target('settled-key')
+      import_target = queued_target('last-key')
+      FollowImport::TargetTransitionService.new.mark_accepted(settled)
+      expect(batch.reload.completion_recorded?).to be false
+
+      exhaust(import_target.id)
+
+      expect(import_target.reload.state).to eq 'delivery_failed'
+      expect(batch.reload.completion_recorded?).to be true
+    end
+
+    it 'does not raise when terminalization itself fails' do
+      import_target = queued_target('boom-key')
+      allow(FollowImport::TargetTransitionService).to receive(:new).and_raise(StandardError, 'boom')
+
+      expect { exhaust(import_target.id) }.not_to raise_error
+      expect(import_target.reload.state).to eq 'queued'
+    end
+  end
 end

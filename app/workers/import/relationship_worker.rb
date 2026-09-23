@@ -5,6 +5,36 @@ class Import::RelationshipWorker
 
   sidekiq_options queue: 'pull', retry: 8, dead: false
 
+  # Follow-import targets are claimed (queued) before this job runs. If every
+  # retry is used after the remote account resolves — and before ActivityPub
+  # delivery is reached — nothing else terminalizes them, so they stay queued.
+  # Only an explicit follow_import_target_id is settled. Ordinary follow, block,
+  # mute, and import jobs are ignored, and a late hook must not overwrite a
+  # result that is already terminal. Failure-tolerant.
+  sidekiq_retries_exhausted do |msg|
+    args         = msg['args'] || []
+    relationship = args[2]
+    options      = args[3].is_a?(Hash) ? args[3] : {}
+    target_id    = options['follow_import_target_id']
+
+    if relationship == 'follow' && target_id.present?
+      begin
+        ActiveRecord::Base.connection_pool.with_connection do
+          target = FollowImportTarget.find_by(id: target_id)
+
+          if target
+            FollowImport::TargetTransitionService.new.mark_delivery_failed(
+              target,
+              failure_code: 'relationship_retries_exhausted'
+            )
+          end
+        end
+      rescue StandardError => e
+        Rails.logger.warn("[Import::RelationshipWorker] retries-exhausted follow-import terminalization failed: #{e.class}: #{e.message}")
+      end
+    end
+  end
+
   def perform(account_id, target_account_uri, relationship, options)
     from_account   = Account.find(account_id)
     target_domain  = domain(target_account_uri)
