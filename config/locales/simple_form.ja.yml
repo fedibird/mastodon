@@ -224,6 +224,12 @@ ja:
         name: 視認性向上などのためにアルファベット大文字小文字の変更のみ行うことができます
       user:
         chosen_languages: 選択すると、選択した言語の投稿のみが公開タイムラインに表示されるようになります
+      user_role:
+        color: 画面内でロールに使う色です。16進数のRGBで指定します
+        highlighted: このロールを公開表示にします
+        name: バッジとして表示する場合のロール名です
+        permissions_as_keys: このロールのユーザーができることは…
+        position: 数値が大きいロールが優先されます。一部の操作は、より低い優先度のロールにだけ行えます
     labels:
       account:
         fields:
@@ -534,6 +540,12 @@ ja:
         usable: 投稿への使用を許可する
       user:
         time_zone: タイムゾーン
+      user_role:
+        color: バッジの色
+        highlighted: プロフィールにロールをバッジ表示する
+        name: 名前
+        permissions_as_keys: 権限
+        position: 優先度
     'no': いいえ
     recommended: おすすめ
     required:

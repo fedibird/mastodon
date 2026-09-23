@@ -16,6 +16,7 @@ class AccountFilter
     ip
     staff
     order
+    role_ids
   ).freeze
 
   attr_reader :params
@@ -29,7 +30,10 @@ class AccountFilter
     scope = Account.includes(:user).reorder(nil)
 
     params.each do |key, value|
-      scope.merge!(scope_for(key, value.to_s.strip)) if value.present?
+      next if value.blank?
+
+      argument = key.to_s == 'role_ids' ? value : value.to_s.strip
+      scope.merge!(scope_for(key, argument))
     end
 
     scope
@@ -75,6 +79,8 @@ class AccountFilter
       valid_ip?(value) ? accounts_with_users.merge(User.matches_ip(value)) : Account.none
     when 'staff'
       accounts_with_users.merge(User.staff)
+    when 'role_ids'
+      role_scope(value)
     when 'order'
       order_scope(value)
     else
@@ -97,6 +103,10 @@ class AccountFilter
 
   def accounts_with_users
     Account.joins(:user)
+  end
+
+  def role_scope(value)
+    accounts_with_users.merge(User.where(role_id: Array(value).map(&:to_s)))
   end
 
   def valid_ip?(value)

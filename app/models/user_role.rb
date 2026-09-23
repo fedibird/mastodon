@@ -82,9 +82,16 @@ class UserRole < ApplicationRecord
     }.freeze
   end
 
+  # Temporary while boolean dual-write, LegacySettingsSync, promote/demote,
+  # and the UserPolicy bridge still look these roles up by name. Drop the
+  # reservation when that legacy layer is removed and restore upstream
+  # rename/delete semantics.
+  LEGACY_BRIDGE_ROLE_NAMES = %w(Owner Admin Moderator).freeze
+
   attr_writer :current_account
 
   validates :name, presence: true, unless: :everyone?
+  validate :validate_legacy_bridge_name
   validates :color, format: { with: /\A#?(?:[A-F0-9]{3}){1,2}\z/i }, unless: -> { color.blank? }
 
   validate :validate_permissions_elevation
@@ -216,5 +223,20 @@ class UserRole < ApplicationRecord
 
   def validate_dangerous_permissions
     errors.add(:permissions_as_keys, :dangerous) if everyone? && Flags::DEFAULT & permissions != permissions
+  end
+
+  def validate_legacy_bridge_name
+    return if name.blank?
+
+    if persisted? && will_save_change_to_name?
+      previous_name = name_in_database
+      errors.add(:name, :reserved) if legacy_bridge_role_name?(previous_name) || legacy_bridge_role_name?(name)
+    elsif new_record? && legacy_bridge_role_name?(name) && self.class.exists?(name: name)
+      errors.add(:name, :reserved)
+    end
+  end
+
+  def legacy_bridge_role_name?(value)
+    LEGACY_BRIDGE_ROLE_NAMES.include?(value)
   end
 end

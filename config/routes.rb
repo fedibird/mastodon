@@ -289,6 +289,7 @@ Rails.application.routes.draw do
     end
 
     resources :rules
+    resources :roles, except: :show
 
     resources :action_reviews, only: [:index, :show] do
       member do
@@ -337,7 +338,7 @@ Rails.application.routes.draw do
         end
       end
 
-      resource :role, only: [] do
+      resource :role, only: [], controller: 'accounts/roles' do
         member do
           post :promote
           post :demote
@@ -370,6 +371,7 @@ Rails.application.routes.draw do
     end
 
     resources :users, only: [] do
+      resource :role, only: [:show, :update], controller: 'users/roles'
       resource :two_factor_authentication, only: [:destroy]
       resource :sign_in_token_authentication, only: [:create, :destroy]
     end

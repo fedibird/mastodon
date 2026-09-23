@@ -43,6 +43,17 @@ RSpec.describe 'admin navigation parents', type: :helper do
     expect(admin.at_css("a[href='#{helper.admin_dashboard_url}']")).to be_nil
   end
 
+  it 'shows roles for a manage_roles role and keeps the admin parent neutral' do
+    html = navigation_for(user_with_permissions(:manage_roles))
+    admin = item(html, 'admin')
+
+    expect(admin).to be_present
+    expect(admin.element_children.map(&:name)).to include('span')
+    expect(admin.element_children.map(&:name)).not_to include('a')
+    expect(admin.at_css("a[href='#{helper.admin_roles_path}']")).to be_present
+    expect(admin.at_css("a[href='#{helper.admin_dashboard_url}']")).to be_nil
+  end
+
   it 'keeps Sidekiq and PgHero linked for view_devops' do
     html = navigation_for(user_with_permissions(:view_devops))
     admin = item(html, 'admin')

@@ -42,6 +42,18 @@ describe AccountFilter do
       expect(User).to have_received(:matches_email).with('user@example.com')
     end
 
+    it 'filters by role_ids without collapsing an array to a string' do
+      custom = UserRole.create!(name: 'Filter role', position: 7, permissions_as_keys: %w(invite_users))
+      matched = Fabricate(:user, admin: false, moderator: false)
+      matched.update_columns(role_id: custom.id)
+      other = Fabricate(:user, admin: true)
+
+      results = described_class.new(role_ids: [custom.id.to_s]).results
+
+      expect(results).to include(matched.account)
+      expect(results).not_to include(other.account)
+    end
+
     describe 'that call account methods' do
       %i(local remote silenced suspended).each do |option|
         it "delegates the #{option} option" do

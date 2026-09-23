@@ -20,6 +20,10 @@ module UserRoles
     }
 
     before_validation :sync_role_id_from_legacy_booleans, if: :sync_legacy_role_id?
+
+    attr_writer :current_account
+
+    validate :validate_role_elevation
   end
 
   def staff?
@@ -63,7 +67,7 @@ module UserRoles
     end
   end
 
-  # UserPolicy authorizes this. Admin::RolesController is the only application caller.
+  # UserPolicy authorizes this. Admin::Accounts::RolesController is the only application caller.
   def promote!
     if moderator?
       update!(moderator: false, admin: true)
@@ -107,6 +111,26 @@ module UserRoles
     user_role.can?(*permissions)
   end
 
+  # Writes role_id and the legacy booleans in one save. The boolean callback
+  # is suppressed only for this call, because admin=false and moderator=false
+  # otherwise clear role_id and would erase Admin or a custom role.
+  def assign_user_role!(new_role, current_account:)
+    self.current_account = current_account
+    @explicit_user_role_assignment = true
+    apply_explicit_user_role!(new_role)
+
+    if save
+      association(:assigned_role).reset
+      true
+    else
+      restore_attributes
+      association(:assigned_role).reset
+      false
+    end
+  ensure
+    @explicit_user_role_assignment = false
+  end
+
   def administrative?
     functional? && user_role.administrative?
   end
@@ -133,7 +157,41 @@ module UserRoles
   end
 
   def sync_legacy_role_id?
+    return false if @explicit_user_role_assignment
+
     new_record? || will_save_change_to_admin? || will_save_change_to_moderator?
+  end
+
+  def apply_explicit_user_role!(new_role)
+    if new_role.nil? || new_role.everyone?
+      self.role_id = nil
+      self.admin = false
+      self.moderator = false
+    elsif new_role.name == 'Moderator'
+      self.role_id = new_role.id
+      self.admin = false
+      self.moderator = true
+    elsif new_role.name == 'Owner'
+      self.role_id = new_role.id
+      self.admin = true
+      self.moderator = false
+    else
+      self.role_id = new_role.id
+      self.admin = false
+      self.moderator = false
+    end
+  end
+
+  # Runs only during assign_user_role!. A later unrelated save must not treat
+  # the user's current role as an elevation attempt. Equal position is allowed.
+  def validate_role_elevation
+    return unless @explicit_user_role_assignment
+    return if @current_account.nil?
+
+    candidate = role_id.nil? ? UserRole.everyone : UserRole.find_by(id: role_id)
+    return if candidate.nil?
+
+    errors.add(:role_id, :elevated) if candidate.overrides?(@current_account.user_role)
   end
 
   def sync_role_id_from_legacy_booleans
