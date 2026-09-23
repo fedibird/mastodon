@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-# Examples cover role CRUD access, elevation, and reserved names together.
+# Examples cover role CRUD access, elevation, rename, and destroy together.
 # rubocop:disable Metrics/BlockLength
 describe Admin::RolesController do
   def user_with_role(role)
@@ -71,11 +71,11 @@ describe Admin::RolesController do
       end.not_to change(UserRole, :count)
     end
 
-    it 'refuses a new role named Owner, Admin, or Moderator' do
+    it 'allows a new role to reuse a default role name' do
       %w(Owner Admin Moderator).each do |name|
         expect do
           post :create, params: { user_role: { name: name, position: 1, permissions_as_keys: %w(invite_users) } }
-        end.not_to change(UserRole, :count)
+        end.to change(UserRole, :count).by(1)
       end
     end
   end
@@ -107,29 +107,51 @@ describe Admin::RolesController do
       expect(higher.reload.color).not_to eq '#000000'
     end
 
-    it 'allows own color and keeps own permissions, position, and legacy highlighted' do
+    it 'allows own color and highlighted, and keeps own permissions and position' do
       sign_in owner, scope: :user
-      role = owner.user_role
+      role = owner.role
       highlighted = role.highlighted
 
       patch :update, params: { id: role.id, user_role: { color: '#abcdef', highlighted: highlighted ? '0' : '1' } }
       expect(response).to redirect_to(admin_roles_path)
       expect(role.reload.color).to eq '#abcdef'
-      expect(role.highlighted).to eq highlighted
+      expect(role.highlighted).to eq !highlighted
 
       patch :update, params: { id: role.id, user_role: { permissions_as_keys: %w(manage_reports), position: 10 } }
       expect(role.reload.position).to eq 1000
       expect(role.can?(:administrator)).to be true
     end
 
-    it 'refuses renaming Owner, Admin, and Moderator' do
+    it 'allows renaming Owner, Admin, and Moderator' do
       sign_in owner, scope: :user
 
       %w(Owner Admin Moderator).each do |name|
         role = UserRole.find_by!(name: name)
         patch :update, params: { id: role.id, user_role: { name: "#{name} renamed", position: role.position } }
-        expect(role.reload.name).to eq name
+        expect(role.reload.name).to eq "#{name} renamed"
       end
+    end
+
+    it 'lets an owner change highlighted and invite_users on Admin and Moderator' do
+      sign_in owner, scope: :user
+      moderator = UserRole.find_by!(name: 'Moderator')
+      admin = UserRole.find_by!(name: 'Admin')
+
+      patch :update, params: {
+        id: moderator.id,
+        user_role: { highlighted: '0', permissions_as_keys: moderator.permissions_as_keys + ['invite_users'] },
+      }
+      moderator.reload
+      expect(moderator.highlighted).to be false
+      expect(moderator.permissions_as_keys).to include('invite_users')
+
+      patch :update, params: {
+        id: admin.id,
+        user_role: { highlighted: '1', permissions_as_keys: admin.permissions_as_keys + ['invite_users'] },
+      }
+      admin.reload
+      expect(admin.highlighted).to be true
+      expect(admin.permissions_as_keys).to include('invite_users')
     end
   end
 
@@ -146,11 +168,22 @@ describe Admin::RolesController do
       expect(Admin::ActionLog.where(action: 'destroy', target_type: 'UserRole').exists?).to be true
     end
 
-    it 'refuses Everyone, Owner, Admin, Moderator, the actor role, and a peer or higher role' do
+    it 'deletes a lower default role' do
+      sign_in owner, scope: :user
+      moderator = UserRole.find_by!(name: 'Moderator')
+
+      expect do
+        delete :destroy, params: { id: moderator.id }
+      end.to change(UserRole, :count).by(-1)
+
+      expect(response).to redirect_to(admin_roles_path)
+    end
+
+    it 'refuses Everyone, the actor role, and a peer or higher role' do
       sign_in owner, scope: :user
       peer = UserRole.create!(name: 'Owner peer', position: 1000, permissions_as_keys: %w(invite_users))
 
-      [UserRole.everyone, UserRole.find_by!(name: 'Owner'), UserRole.find_by!(name: 'Admin'), UserRole.find_by!(name: 'Moderator'), peer].each do |role|
+      [UserRole.everyone, UserRole.find_by!(name: 'Owner'), peer].each do |role|
         expect do
           delete :destroy, params: { id: role.id }, format: :json
         end.not_to change(UserRole, :count)

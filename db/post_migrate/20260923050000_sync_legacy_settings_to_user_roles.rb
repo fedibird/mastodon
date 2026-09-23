@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 
+require_relative '../legacy_role_setting_sync'
+
 class SyncLegacySettingsToUserRoles < ActiveRecord::Migration[6.1]
   def up
-    # Same implementation the admin form and seeds use, so a one-shot migrate
-    # cannot drift from later dual-writes. Missing default roles raise.
-    UserRole::LegacySettingsSync.call
+    # Same data result as the removed UserRole::LegacySettingsSync service.
+    # Inlined so a fresh migrate does not depend on that application class.
+    LegacyRoleSettingSync.call
   end
 
   def down

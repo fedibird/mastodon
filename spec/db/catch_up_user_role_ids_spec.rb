@@ -40,8 +40,8 @@ RSpec.describe CatchUpUserRoleIds, type: :model do
 
     expect(both).to be_admin
     expect(both).to be_moderator
-    expect(both.role).to eq 'admin'
-    expect(moderator.role).to eq 'moderator'
-    expect(demoted.role).to eq 'user'
+    expect(both.role).to eq owner_role
+    expect(moderator.role).to eq moderator_role
+    expect(demoted.role).to eq UserRole.everyone
   end
 end

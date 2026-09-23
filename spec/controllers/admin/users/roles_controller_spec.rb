@@ -53,7 +53,7 @@ describe Admin::Users::RolesController do
       patch :update, params: { user_id: moderator_target.id, user: { role_id: moderator_role.id } }
       moderator_target.reload
       expect(moderator_target.role_id).to eq moderator_role.id
-      expect(moderator_target.moderator).to be true
+      expect(moderator_target.moderator).to be false
       expect(moderator_target.admin).to be false
 
       admin_target = Fabricate(:user, admin: false, moderator: false)

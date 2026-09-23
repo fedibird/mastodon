@@ -19,7 +19,7 @@ RSpec.describe User, '.those_who_can' do
   end
 
   it 'includes role_id nil users when Everyone has the permission' do
-    UserRole::LegacySettingsSync.call(min_invite_role: 'user', show_staff_badge: true, show_moderator_badge: true)
+    UserRole.everyone.update!(permissions: UserRole::FLAGS[:invite_users])
 
     expect(User.those_who_can(:invite_users)).to include(ordinary, owner)
   end

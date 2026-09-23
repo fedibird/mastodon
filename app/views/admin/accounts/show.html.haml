@@ -110,10 +110,10 @@
           %tr
             %th= t('admin.accounts.role')
             %td
-              - if @account.user_role.nil? || @account.user_role.everyone?
+              - if @account.role.nil? || @account.role.everyone?
                 = t('admin.accounts.change_role.no_role')
               - else
-                = @account.user_role.name
+                = @account.role.name
             %td
               = table_link_to 'pencil', t('admin.accounts.change_role.label'), admin_user_role_path(@account.user) if @account.user && can?(:change_role, @account.user)
 

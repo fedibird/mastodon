@@ -5,14 +5,11 @@ account = Account.find_or_initialize_by(id: -99, actor_type: 'Application', lock
 account.save!
 
 load Rails.root.join('db', 'seeds', '03_roles.rb')
-UserRole::LegacySettingsSync.call
 
 if Rails.env.development?
   admin = Account.where(username: 'admin').first_or_initialize(username: 'admin')
   admin.save(validate: false)
-  user = User.where(email: "admin@#{domain}").first_or_initialize(email: "admin@#{domain}", password: 'mastodonadmin', password_confirmation: 'mastodonadmin', confirmed_at: Time.now.utc, admin: true, account: admin, agreement: true, approved: true)
-  user.admin = true
-  user.moderator = false
+  user = User.where(email: "admin@#{domain}").first_or_initialize(email: "admin@#{domain}", password: 'mastodonadmin', password_confirmation: 'mastodonadmin', confirmed_at: Time.now.utc, account: admin, agreement: true, approved: true)
   user.role_id = UserRole.find_by!(name: 'Owner').id
   user.save!
 end

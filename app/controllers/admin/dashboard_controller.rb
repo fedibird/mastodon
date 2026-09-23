@@ -18,7 +18,7 @@ module Admin
       @single_user_mode      = Rails.configuration.x.single_user_mode
       @registrations_enabled = Setting.registrations_mode != 'none'
       @deletions_enabled     = Setting.open_deletion
-      @invites_enabled       = Setting.min_invite_role == 'user'
+      @invites_enabled       = UserRole.everyone.can?(:invite_users)
       @search_enabled        = Chewy.enabled?
       @version               = Mastodon::Version.to_s
       @database_version      = ActiveRecord::Base.connection.execute('SELECT VERSION()').first['version'].match(/\A(?:PostgreSQL |)([^\s]+).*\z/)[1]

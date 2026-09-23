@@ -20,7 +20,7 @@ class InitialStateSerializer < ActiveModel::Serializer
       repository: Mastodon::Version.repository,
       source_url: Mastodon::Version.source_url,
       version: Mastodon::Version.to_s,
-      invites_enabled: Setting.min_invite_role == 'user',
+      invites_enabled: UserRole.everyone.can?(:invite_users),
       limited_federation_mode: Rails.configuration.x.whitelist_mode,
       mascot: instance_presenter.mascot&.file&.url,
       profile_directory: Setting.profile_directory,
@@ -174,7 +174,7 @@ class InitialStateSerializer < ActiveModel::Serializer
   end
 
   def role
-    object.current_account&.user_role
+    object.current_account&.user&.role
   end
 
   def max_toot_chars

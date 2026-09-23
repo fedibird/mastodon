@@ -86,12 +86,12 @@ class AccountPolicy < ApplicationPolicy
   end
 
   def memorialize?
-    role.can?(:delete_user_data) && role.overrides?(record.user_role) && !record.instance_actor?
+    role.can?(:delete_user_data) && role.overrides?(record.role) && !record.instance_actor?
   end
 
   private
 
   def moderate_account?
-    role.can?(:manage_users, :manage_reports) && role.overrides?(record.user_role)
+    role.can?(:manage_users, :manage_reports) && role.overrides?(record.role)
   end
 end

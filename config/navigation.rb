@@ -47,7 +47,7 @@ SimpleNavigation::Configuration.run do |navigation|
 
     n.item :first_aid, safe_join([fa_icon('medkit fw'), t('first_aid.title')]), first_aid_url, if: -> { current_user.functional? }
 
-    n.item :invites, safe_join([fa_icon('user-plus fw'), t('invites.title')]), invites_path, if: proc { Setting.min_invite_role != 'disabled' && current_user.functional? && current_user.can?(:invite_users) }
+    n.item :invites, safe_join([fa_icon('user-plus fw'), t('invites.title')]), invites_path, if: proc { current_user.functional? && current_user.can?(:invite_users) }
     n.item :development, safe_join([fa_icon('code fw'), t('settings.development')]), settings_applications_url, if: -> { current_user.functional? }
 
     n.item :moderation, safe_join([fa_icon('gavel fw'), t('moderation.title')]), nil, if: proc { role_can?(:view_audit_log, :manage_reports, :manage_users, :manage_invites, :manage_taxonomies, :manage_federation, :manage_blocks) } do |s|

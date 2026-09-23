@@ -143,7 +143,7 @@ RSpec.describe Api::V2::Admin::AccountsController, type: :controller do # ruboco
       devops = user_with_role(UserRole.create!(name: 'Devops', position: 7, permissions_as_keys: %w(view_devops)))
       ordinary = Fabricate(:user)
 
-      expect(User).not_to receive(:staff)
+      expect(User).not_to respond_to(:staff)
       get :index, params: { permissions: 'staff', origin: 'local', status: 'active' }
 
       expect(account_ids).to include(user.account.id.to_s, owner.account.id.to_s, admin_user.account.id.to_s, reporter.account.id.to_s)

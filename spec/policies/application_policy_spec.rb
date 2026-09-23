@@ -8,7 +8,7 @@ RSpec.describe ApplicationPolicy do
 
   describe '#role' do
     it 'uses the effective role of a functional owner' do
-      expect(policy.send(:role)).to eq user.user_role
+      expect(policy.send(:role)).to eq user.role
       expect(policy.send(:role).can?(:administrator)).to be true
     end
 

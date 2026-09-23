@@ -63,7 +63,7 @@ RSpec.describe Api::V1::Admin::AccountsController, type: :controller do # ruboco
       legacy_moderator.update_columns(role_id: viewer.id)
       reporter = user_with_role(UserRole.create!(name: 'Reporter', position: 4, permissions_as_keys: %w(manage_reports)))
 
-      expect(User).not_to receive(:staff)
+      expect(User).not_to respond_to(:staff)
       get :index, params: { staff: 'true' }
 
       expect(account_ids).not_to include(legacy_moderator.account.id.to_s)
@@ -86,7 +86,7 @@ RSpec.describe Api::V1::Admin::AccountsController, type: :controller do # ruboco
       reporter = user_with_role(UserRole.create!(name: 'Reporter', position: 4, permissions_as_keys: %w(manage_reports)))
       ordinary = Fabricate(:user)
 
-      get :index, params: { role_ids: [reporter.user_role.id] }
+      get :index, params: { role_ids: [reporter.role.id] }
 
       expect(account_ids).to include(reporter.account.id.to_s, ordinary.account.id.to_s)
     end

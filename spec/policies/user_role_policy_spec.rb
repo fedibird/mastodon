@@ -51,14 +51,16 @@ RSpec.describe UserRolePolicy do
       expect(policy(owner, custom).destroy?).to be true
     end
 
-    it 'refuses Everyone, Owner, Admin, Moderator, the actor role, and a peer or higher role' do
+    it 'allows a lower default role' do
+      expect(policy(owner, admin_role).destroy?).to be true
+      expect(policy(owner, UserRole.find_by!(name: 'Moderator')).destroy?).to be true
+    end
+
+    it 'refuses Everyone, the actor role, and a peer or higher role' do
       peer = UserRole.create!(name: 'Policy peer delete', position: 1000, permissions_as_keys: %w(invite_users))
 
       expect(policy(owner, UserRole.everyone).destroy?).to be false
-      expect(policy(owner, UserRole.find_by!(name: 'Owner')).destroy?).to be false
-      expect(policy(owner, admin_role).destroy?).to be false
-      expect(policy(owner, UserRole.find_by!(name: 'Moderator')).destroy?).to be false
-      expect(policy(owner, owner.user_role).destroy?).to be false
+      expect(policy(owner, owner.role).destroy?).to be false
       expect(policy(owner, peer).destroy?).to be false
     end
   end

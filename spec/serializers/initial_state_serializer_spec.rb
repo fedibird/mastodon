@@ -37,7 +37,7 @@ RSpec.describe InitialStateSerializer do
 
     expect(json[:role][:id]).to eq role.id.to_s
     expect(json[:role][:name]).to eq 'Reporter'
-    expect(json[:role][:permissions]).to eq user.user_role.computed_permissions.to_s
+    expect(json[:role][:permissions]).to eq user.role.computed_permissions.to_s
     expect(json[:role][:color]).to eq '#abcdef'
     expect(json[:role][:highlighted]).to be true
     expect(json[:meta][:is_staff]).to be true

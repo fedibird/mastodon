@@ -17,10 +17,15 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
     sign_in user
   end
 
-  around do |example|
-    min_invite_role = Setting.min_invite_role
-    example.run
-    Setting.min_invite_role = min_invite_role
+  def set_everyone_invite(enabled)
+    flag = UserRole::FLAGS[:invite_users]
+    everyone = UserRole.everyone
+    permissions = if enabled
+                    everyone.permissions | flag
+                  else
+                    everyone.permissions & ~flag
+                  end
+    everyone.update!(permissions: permissions)
   end
 
   describe 'GET #index' do
@@ -29,18 +34,18 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
     let(:user) { Fabricate(:user, moderator: false, admin: false) }
     let!(:invite) { Fabricate(:invite, user: user) }
 
-    context 'when user is a staff' do
+    context 'when Everyone can invite' do
       it 'renders index page' do
-        Setting.min_invite_role = 'user'
+        set_everyone_invite(true)
         expect(subject).to render_template :index
         expect(assigns(:invites)).to include invite
         expect(assigns(:invites).count).to eq 1
       end
     end
 
-    context 'when user is not a staff' do
+    context 'when the user role cannot invite' do
       it 'returns 403' do
-        Setting.min_invite_role = 'modelator'
+        set_everyone_invite(false)
         expect(subject).to have_http_status 403
       end
     end
@@ -63,6 +68,7 @@ describe InvitesController do # rubocop:disable Metrics/BlockLength
       let(:user) { Fabricate(:user, moderator: true, admin: false) }
 
       it 'returns 403' do
+        set_everyone_invite(false)
         expect(subject).to have_http_status 403
       end
     end

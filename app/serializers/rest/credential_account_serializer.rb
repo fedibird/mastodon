@@ -6,7 +6,7 @@ class REST::CredentialAccountSerializer < REST::AccountSerializer
   has_one :role, serializer: REST::RoleSerializer
 
   def role
-    object.user_role
+    object.user&.role
   end
 
   def source

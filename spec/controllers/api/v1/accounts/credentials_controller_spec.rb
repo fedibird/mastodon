@@ -65,7 +65,9 @@ describe Api::V1::Accounts::CredentialsController do
 
         expect(body_as_json[:role][:name]).to eq 'Admin'
         expect(body_as_json[:role][:id]).to eq admin_role.id.to_s
-        expect(admin_user.role).to eq 'user'
+        expect(admin_user.role).to eq admin_role
+        expect(admin_user).not_to be_admin
+        expect(admin_user).not_to be_moderator
       end
 
       it 'returns the Owner role for a legacy admin' do

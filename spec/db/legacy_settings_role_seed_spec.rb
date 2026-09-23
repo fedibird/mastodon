@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe 'legacy settings role seed' do
+RSpec.describe 'role seed' do
   around do |example|
     previous = {
       min_invite_role: Setting.min_invite_role,
@@ -18,13 +18,15 @@ RSpec.describe 'legacy settings role seed' do
   def load_seed
     allow(Doorkeeper::Application).to receive(:create!)
     allow(Rails.env).to receive(:development?).and_return(false)
+    User.where.not(role_id: nil).update_all(role_id: nil)
+    UserRole.delete_all
     load Rails.root.join('db', 'seeds.rb')
   end
 
-  it 'applies the Fedibird invite and badge defaults and stays idempotent' do
-    Setting.min_invite_role = 'admin'
-    Setting.show_staff_badge = true
-    Setting.show_moderator_badge = true
+  it 'creates Everyone, Moderator, Admin, and Owner without reading legacy settings' do
+    Setting.min_invite_role = 'disabled'
+    Setting.show_staff_badge = false
+    Setting.show_moderator_badge = false
 
     load_seed
     count = UserRole.count
@@ -36,17 +38,16 @@ RSpec.describe 'legacy settings role seed' do
     owner = UserRole.find_by!(name: 'Owner')
     invite = UserRole::FLAGS[:invite_users]
 
-    expect(everyone.permissions & invite).to eq 0
-    expect(everyone.can?(:invite_users)).to be false
+    expect(everyone.permissions).to eq invite
+    expect(everyone.can?(:invite_users)).to be true
     expect(everyone.highlighted).to be false
-    expect(moderator.permissions & invite).to eq 0
-    expect(moderator.can?(:invite_users)).to be false
     expect(moderator.highlighted).to be true
-    expect(admin.permissions & invite).to eq invite
-    expect(admin.can?(:invite_users)).to be true
+    expect(moderator.can?(:invite_users)).to be true
     expect(admin.highlighted).to be true
+    expect(admin.can?(:invite_users)).to be true
     expect(owner.highlighted).to be true
     expect(owner.can?(:invite_users)).to be true
+    expect(owner.permissions_as_keys).to eq %w(administrator)
     expect(UserRole.count).to eq count
     expect(UserRole.where(name: %w(Moderator Admin Owner)).count).to eq 3
   end

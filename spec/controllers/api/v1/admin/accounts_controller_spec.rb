@@ -83,7 +83,7 @@ RSpec.describe Api::V1::Admin::AccountsController, type: :controller do
       expect(role[:name]).to eq 'Helper'
       expect(role[:color]).to eq '#123456'
       expect(role[:highlighted]).to be true
-      expect(role[:permissions]).to eq target.user_role.computed_permissions.to_s
+      expect(role[:permissions]).to eq target.role.computed_permissions.to_s
       expect(body_as_json[:email]).to eq target.email
     end
 
@@ -114,7 +114,7 @@ RSpec.describe Api::V1::Admin::AccountsController, type: :controller do
       everyone = UserRole.everyone
       allow(UserRole).to receive(:everyone).and_return(everyone)
 
-      actor = User.includes(:assigned_role).find(user.id)
+      actor = User.includes(:role).find(user.id)
       allow(User).to receive(:find).and_wrap_original do |method, *args|
         args.first == user.id ? actor : method.call(*args)
       end

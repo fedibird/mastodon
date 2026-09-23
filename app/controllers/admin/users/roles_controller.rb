@@ -40,7 +40,7 @@ module Admin
 
     # Equal positions stay assignable. A higher position is elevation.
     def assignable_roles
-      actor_role = current_user.user_role
+      actor_role = current_user.role
       UserRole.assignable.reject { |candidate| candidate.overrides?(actor_role) }
     end
   end

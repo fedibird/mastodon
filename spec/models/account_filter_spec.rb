@@ -58,7 +58,7 @@ describe AccountFilter do
       user_admin.update_columns(role_id: user_admin_role.id)
       ordinary = Fabricate(:user)
 
-      expect(User).not_to receive(:staff)
+      expect(User).not_to respond_to(:staff)
       results = described_class.new(staff: '1').results
       role_results = described_class.new(role_ids: UserRole.that_can(:manage_reports).map(&:id)).results
 

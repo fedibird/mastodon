@@ -8,12 +8,15 @@ RSpec.describe InvitePolicy do
   let(:admin)   { Fabricate(:user, admin: true).account }
   let(:john)    { Fabricate(:user).account }
 
-  around do |example|
-    previous = Setting.min_invite_role
-    example.run
-  ensure
-    Setting.min_invite_role = previous
-    Rails.cache.clear
+  def set_everyone_invite(enabled)
+    flag = UserRole::FLAGS[:invite_users]
+    everyone = UserRole.everyone
+    permissions = if enabled
+                    everyone.permissions | flag
+                  else
+                    everyone.permissions & ~flag
+                  end
+    everyone.update!(permissions: permissions)
   end
 
   permissions :index?, :deactivate_all? do
@@ -24,25 +27,24 @@ RSpec.describe InvitePolicy do
   end
 
   permissions :create? do
-    it 'denies everyone, including Owner, when invites are disabled' do
-      Setting.min_invite_role = 'disabled'
-      UserRole::LegacySettingsSync.call
+    it 'permits Owner and denies an ordinary user when Everyone cannot invite' do
+      # disabled used to block Owner as well. Owner keeps invite_users through
+      # the administrator flag after that setting stops being a global guard.
+      set_everyone_invite(false)
 
-      expect(subject).to_not permit(admin, Invite)
+      expect(subject).to permit(admin, Invite)
       expect(subject).to_not permit(john, Invite)
     end
 
     it 'permits a functional user when Everyone has invite_users' do
-      Setting.min_invite_role = 'user'
-      UserRole::LegacySettingsSync.call
+      set_everyone_invite(true)
 
       expect(subject).to permit(john, Invite)
       expect(subject).to permit(admin, Invite)
     end
 
     it 'denies a silenced user' do
-      Setting.min_invite_role = 'user'
-      UserRole::LegacySettingsSync.call
+      set_everyone_invite(true)
       john.silence!
 
       expect(subject).to_not permit(john, Invite)
