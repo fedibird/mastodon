@@ -609,6 +609,26 @@ export function changeUploadCompose(id, params) {
   return (dispatch, getState) => {
     dispatch(changeUploadComposeRequest());
 
+    const media = getState().getIn(['compose', 'media_attachments']).find(item => item.get('id') === id);
+
+    // Attached media cannot be updated through the unattached media endpoint.
+    // Keep the description and focus in compose and send them with the status PUT.
+    if (media && media.get('unattached') === false) {
+      const data = media.toJS();
+      const { focus, ...other } = params;
+
+      Object.assign(data, other);
+
+      if (focus) {
+        const [x, y] = focus.split(',');
+        data.meta = { ...(data.meta || {}), focus: { x: parseFloat(x), y: parseFloat(y) } };
+      }
+
+      data.unattached = false;
+      dispatch(changeUploadComposeSuccess(data, true));
+      return;
+    }
+
     api(getState).put(`/api/v1/media/${id}`, params).then(response => {
       dispatch(changeUploadComposeSuccess(response.data));
     }).catch(error => {
@@ -624,10 +644,11 @@ export function changeUploadComposeRequest() {
   };
 };
 
-export function changeUploadComposeSuccess(media) {
+export function changeUploadComposeSuccess(media, attached = false) {
   return {
     type: COMPOSE_UPLOAD_CHANGE_SUCCESS,
     media: media,
+    attached,
     skipLoading: true,
   };
 };

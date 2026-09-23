@@ -54,6 +54,7 @@ describe('COMPOSE_SET_STATUS', () => {
     expect(next.get('sensitive')).toBe(true);
     expect(next.get('language')).toEqual('ja');
     expect(next.getIn(['media_attachments', 0, 'id'])).toEqual('m1');
+    expect(next.getIn(['media_attachments', 0, 'unattached'])).toBe(false);
     expect(next.getIn(['media_attachments', 1, 'id'])).toEqual('m2');
     expect(next.getIn(['poll', 'options']).toJS()).toEqual(['Yes', 'No']);
     expect(next.getIn(['poll', 'multiple'])).toBe(true);

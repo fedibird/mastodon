@@ -203,7 +203,7 @@ const appendMedia = (state, media, file) => {
     if (media.get('type') === 'image') {
       media = media.set('file', file);
     }
-    map.update('media_attachments', list => list.push(media).sortBy(media => media.get('order')));
+    map.update('media_attachments', list => list.push(media.set('unattached', media.get('unattached', true))).sortBy(item => item.get('order')));
     map.set('is_uploading', false);
     map.set('is_processing', false);
     map.set('resetFileKey', Math.floor((Math.random() * 0x10000)));
@@ -673,9 +673,14 @@ export default function compose(state = initialState, action) {
     return state
       .set('is_changing_upload', false)
       .setIn(['media_modal', 'dirty'], false)
+      .set('dirty', action.attached ? true : state.get('dirty'))
       .update('media_attachments', list => list.map(item => {
         if (item.get('id') === action.media.id) {
-          return fromJS(action.media);
+          const next = fromJS(action.media);
+
+          return next
+            .set('unattached', action.attached ? false : item.get('unattached', true))
+            .set('order', item.has('order') ? item.get('order') : next.get('order'));
         }
 
         return item;
@@ -748,7 +753,7 @@ export default function compose(state = initialState, action) {
       map.set('text', action.text);
       map.set('in_reply_to', action.status.get('in_reply_to_id'));
       map.set('privacy', action.status.get('visibility') || state.get('privacy'));
-      map.set('media_attachments', media.map((item, index) => item.set('order', index)));
+      map.set('media_attachments', media.map((item, index) => item.set('order', index).set('unattached', false)));
       map.set('focusDate', new Date());
       map.set('caretPosition', null);
       map.set('idempotencyKey', uuid());

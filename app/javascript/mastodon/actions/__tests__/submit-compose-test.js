@@ -39,7 +39,7 @@ jest.mock('../modal', () => ({
 import api from '../../api';
 import { importFetchedStatus } from '../importer';
 import { updateTimeline } from '../timelines';
-import { submitCompose } from '../compose';
+import { changeUploadCompose, submitCompose } from '../compose';
 
 const dispatchThunk = (thunk, state) => {
   const actions = [];
@@ -175,5 +175,23 @@ describe('submitCompose', () => {
     expect(updateTimeline).not.toHaveBeenCalled();
     expect(actions.map(action => action.type)).toEqual(expect.arrayContaining(['STATUS_IMPORT', 'ALERT_SHOW']));
     expect(actions.map(action => action.type)).not.toEqual(expect.arrayContaining(['TIMELINE_UPDATE']));
+  });
+
+  it('keeps attached media description in compose instead of calling the media API', async () => {
+    const request = jest.fn();
+    const put = jest.fn();
+    api.mockReturnValue({ request, put });
+
+    const state = composeState({ compose: { id: 's9' } })
+      .setIn(['compose', 'media_attachments'], media.map(item => item.set('unattached', false)));
+    const actions = await dispatchThunk(changeUploadCompose('m1', { description: 'ALT-RED-2', focus: '0.10,-0.20' }), state);
+
+    expect(state.getIn(['compose', 'media_attachments', 0, 'unattached'])).toBe(false);
+    expect(put).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+    const success = actions.find(action => action.type === 'COMPOSE_UPLOAD_UPDATE_SUCCESS');
+    expect(success.media.description).toEqual('ALT-RED-2');
+    expect(success.media.meta.focus).toEqual({ x: 0.1, y: -0.2 });
+    expect(success.attached).toBe(true);
   });
 });
