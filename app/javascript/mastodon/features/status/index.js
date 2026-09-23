@@ -35,6 +35,7 @@ import {
   unmuteStatus,
   deleteStatus,
   expireStatus,
+  requestEditStatus,
   hideStatus,
   revealStatus,
 } from '../../actions/statuses';
@@ -309,6 +310,10 @@ class Status extends ImmutablePureComponent {
     } else {
       dispatch(quoteCompose(status, this.context.router.history));
     }
+  }
+
+  handleEditClick = (status, history) => {
+    this.props.dispatch(requestEditStatus(status, history, this.props.intl));
   }
 
   handleDeleteClick = (status, history, withRedraft = false) => {
@@ -686,6 +691,7 @@ class Status extends ImmutablePureComponent {
                   onReblog={this.handleReblogClick}
                   onBookmark={this.handleBookmarkClick}
                   onQuote={this.handleQuoteClick}
+                  onEdit={this.handleEditClick}
                   onDelete={this.handleDeleteClick}
                   onExpire={this.handleExpireClick}
                   onDirect={this.handleDirectClick}

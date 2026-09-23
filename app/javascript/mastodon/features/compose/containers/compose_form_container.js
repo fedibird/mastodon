@@ -9,8 +9,15 @@ import {
   changeComposeSpoilerText,
   insertEmojiCompose,
   uploadCompose,
+  cancelEditCompose,
 } from '../../../actions/compose';
-import { injectIntl } from 'react-intl';
+import { openModal } from '../../../actions/modal';
+import { injectIntl, defineMessages } from 'react-intl';
+
+const messages = defineMessages({
+  cancelEditConfirm: { id: 'confirmations.cancel_edit.confirm', defaultMessage: 'Discard changes' },
+  cancelEditMessage: { id: 'confirmations.cancel_edit.message', defaultMessage: 'Canceling will discard the changes you are currently composing. Are you sure you want to proceed?' },
+});
 
 const mapStateToProps = state => ({
   text: state.getIn(['compose', 'text']),
@@ -24,13 +31,14 @@ const mapStateToProps = state => ({
   isSubmitting: state.getIn(['compose', 'is_submitting']),
   isChangingUpload: state.getIn(['compose', 'is_changing_upload']),
   isUploading: state.getIn(['compose', 'is_uploading']),
-  isCircleUnselected: state.getIn(['compose', 'privacy']) === 'limited' && state.getIn(['compose', 'reply_status', 'visibility']) !== 'limited' && !state.getIn(['compose', 'circle_id']),
+  isCircleUnselected: !state.getIn(['compose', 'id']) && state.getIn(['compose', 'privacy']) === 'limited' && state.getIn(['compose', 'reply_status', 'visibility']) !== 'limited' && !state.getIn(['compose', 'circle_id']),
   showSearch: state.getIn(['search', 'submitted']) && !state.getIn(['search', 'hidden']),
   anyMedia: state.getIn(['compose', 'media_attachments']).size > 0,
   prohibitedVisibilities: state.getIn(['compose', 'prohibited_visibilities']),
   prohibitedWords: state.getIn(['compose', 'prohibited_words']),
   isScheduled: !!state.getIn(['compose', 'scheduled']),
   isScheduledStatusEditting: !!state.getIn(['compose', 'scheduled_status_id']),
+  isEditing: !!state.getIn(['compose', 'id']),
 });
 
 const mapDispatchToProps = (dispatch, { intl }) => ({
@@ -65,6 +73,20 @@ const mapDispatchToProps = (dispatch, { intl }) => ({
 
   onPickEmoji (position, data, needsSpace) {
     dispatch(insertEmojiCompose(position, data, needsSpace));
+  },
+
+  onCancelEdit () {
+    dispatch((_, getState) => {
+      if (getState().getIn(['compose', 'dirty'])) {
+        dispatch(openModal('CONFIRM', {
+          message: intl.formatMessage(messages.cancelEditMessage),
+          confirm: intl.formatMessage(messages.cancelEditConfirm),
+          onConfirm: () => dispatch(cancelEditCompose()),
+        }));
+      } else {
+        dispatch(cancelEditCompose());
+      }
+    });
   },
 
 });

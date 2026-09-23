@@ -1,11 +1,14 @@
 import { connect } from 'react-redux';
 import Upload from '../components/upload';
-import { undoUploadCompose, initMediaEditModal } from '../../../actions/compose';
+import { undoUploadCompose, initMediaEditModal, changeMediaOrder } from '../../../actions/compose';
 import { submitComposeWithCheck } from '../../../actions/compose';
 import { injectIntl } from 'react-intl';
 
-const mapStateToProps = (state, { id }) => ({
+const mapStateToProps = (state, { id, index, size }) => ({
   media: state.getIn(['compose', 'media_attachments']).find(item => item.get('id') === id),
+  showOrder: size > 1,
+  canMoveBackward: index > 0,
+  canMoveForward: index < size - 1,
 });
 
 const mapDispatchToProps = (dispatch, { intl }) => ({
@@ -16,6 +19,14 @@ const mapDispatchToProps = (dispatch, { intl }) => ({
 
   onOpenFocalPoint: id => {
     dispatch(initMediaEditModal(id));
+  },
+
+  onMoveBackward: id => {
+    dispatch(changeMediaOrder(id, -1));
+  },
+
+  onMoveForward: id => {
+    dispatch(changeMediaOrder(id, 1));
   },
 
   onSubmit (router) {

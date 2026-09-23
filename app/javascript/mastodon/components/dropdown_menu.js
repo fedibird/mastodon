@@ -63,7 +63,7 @@ class DropdownMenu extends React.PureComponent {
   }
 
   handleKeyDown = e => {
-    const items = Array.from(this.node.getElementsByTagName('a'));
+    const items = Array.from(this.node.querySelectorAll('.dropdown-menu__item a, .dropdown-menu__item button'));
     const index = items.indexOf(document.activeElement);
     let element = null;
 

@@ -9,10 +9,12 @@ import ImmutablePureComponent from 'react-immutable-pure-component';
 import { me, isStaff, show_bookmark_button, show_quote_button, show_share_button, enableReaction, compactReaction, enableStatusReference, maxReferences, matchVisibilityOfReferences, addReferenceModal, disablePost, disableReactions, disableBlock, disableDomainBlock, disableReport } from '../initial_state';
 import classNames from 'classnames';
 import { openModal } from '../actions/modal';
+import { canEditStatus, editableStatus } from '../utils/status_edit';
 
 import ReactionPickerDropdownContainer from '../containers/reaction_picker_dropdown_container';
 
 const messages = defineMessages({
+  edit: { id: 'status.edit', defaultMessage: 'Edit' },
   expire: { id: 'status.expire', defaultMessage: 'Expire' },
   delete: { id: 'status.delete', defaultMessage: 'Delete' },
   redraft: { id: 'status.redraft', defaultMessage: 'Delete & re-draft' },
@@ -71,6 +73,7 @@ const mapStateToProps = (state, { status }) => ({
   referenceCountLimit: state.getIn(['compose', 'references']).size >= maxReferences,
   selected: state.getIn(['compose', 'references']).has(status.get('id')),
   composePrivacy: state.getIn(['compose', 'privacy']),
+  editing: !!state.getIn(['compose', 'id']),
 });
 
 export default @connect(mapStateToProps)
@@ -96,6 +99,7 @@ class StatusActionBar extends ImmutablePureComponent {
     onReblog: PropTypes.func,
     onQuote: PropTypes.func,
     onDelete: PropTypes.func,
+    onEdit: PropTypes.func,
     onExpire: PropTypes.func,
     onDirect: PropTypes.func,
     onMemberList: PropTypes.func,
@@ -215,6 +219,12 @@ class StatusActionBar extends ImmutablePureComponent {
 
   handleAddFilter = () => {
     this.props.onAddFilter(this.props.status);
+  }
+
+  handleEditClick = () => {
+    if (this.props.onEdit) {
+      this.props.onEdit(editableStatus(this.props.status), this.context.router.history);
+    }
   }
 
   handleDeleteClick = () => {
@@ -350,7 +360,7 @@ class StatusActionBar extends ImmutablePureComponent {
   }
 
   render () {
-    const { status, relationship, intl, withDismiss, scrollKey, expired, referenced, contextReferenced, referenceCountLimit, contextType, emojiReactioned, reactionLimitReached } = this.props;
+    const { status, relationship, intl, withDismiss, scrollKey, expired, referenced, contextReferenced, referenceCountLimit, contextType, emojiReactioned, reactionLimitReached, editing } = this.props;
 
     const anonymousAccess    = !me;
     const publicStatus       = ['public', 'unlisted'].includes(status.get('visibility'));
@@ -435,6 +445,9 @@ class StatusActionBar extends ImmutablePureComponent {
 
     if (writtenByMe) {
       menu.push({ text: intl.formatMessage(messages.expire), action: this.handleExpireClick });
+      if (canEditStatus(status, { me, expired, disablePost, now: typeof intl.now === 'function' ? intl.now() : Date.now() })) {
+        menu.push({ text: intl.formatMessage(messages.edit), action: this.handleEditClick });
+      }
       menu.push({ text: intl.formatMessage(messages.delete), action: this.handleDeleteClick });
       if (!disablePost) {
         menu.push({ text: intl.formatMessage(messages.redraft), action: this.handleRedraftClick });
@@ -510,7 +523,7 @@ class StatusActionBar extends ImmutablePureComponent {
       <IconButton className='status__action-bar-button' title={intl.formatMessage(messages.hide)} icon='eye' onClick={this.handleHideClick} />
     );
 
-    const referenceDisabled = expired || !referenced && referenceCountLimit || ['limited', 'direct', 'personal'].includes(status.get('visibility'));
+    const referenceDisabled = editing || expired || !referenced && referenceCountLimit || ['limited', 'direct', 'personal'].includes(status.get('visibility'));
 
     const reactionsCounter = compactReaction && contextType !== 'thread' && status.get('emoji_reactions_count') > 0 ? status.get('emoji_reactions_count') : undefined;
 

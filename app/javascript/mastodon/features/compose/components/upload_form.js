@@ -19,8 +19,8 @@ export default class UploadForm extends ImmutablePureComponent {
         <UploadProgressContainer />
 
         <div className='compose-form__uploads-wrapper'>
-          {mediaIds.map(id => (
-            <UploadContainer id={id} key={id} />
+          {mediaIds.map((id, index) => (
+            <UploadContainer id={id} key={id} index={index} size={mediaIds.size} />
           ))}
         </div>
 

@@ -48,6 +48,9 @@ import {
   INIT_MEDIA_EDIT_MODAL,
   COMPOSE_CHANGE_MEDIA_DESCRIPTION,
   COMPOSE_CHANGE_MEDIA_FOCUS,
+  COMPOSE_MEDIA_ORDER_CHANGE,
+  COMPOSE_SET_STATUS,
+  COMPOSE_EDIT_CANCEL,
   COMPOSE_DATETIME_FORM_OPEN,
   COMPOSE_DATETIME_FORM_CLOSE,
   COMPOSE_SCHEDULED_CHANGE,
@@ -76,6 +79,8 @@ const initialState = ImmutableMap({
   privacy: null,
   searchability: null,
   circle_id: null,
+  id: null,
+  language: null,
   text: '',
   focusDate: null,
   caretPosition: null,
@@ -161,6 +166,8 @@ const statusToTextMentions = (text, privacy, replyStatus) => {
 
 const clearAll = state => {
   return state.withMutations(map => {
+    map.set('id', null);
+    map.set('language', null);
     map.set('text', '');
     map.set('spoiler', false);
     map.set('spoiler_text', '');
@@ -196,7 +203,7 @@ const appendMedia = (state, media, file) => {
     if (media.get('type') === 'image') {
       media = media.set('file', file);
     }
-    map.update('media_attachments', list => list.push(media).sortBy(media => media.get('order')));
+    map.update('media_attachments', list => list.push(media.set('unattached', media.get('unattached', true))).sortBy(item => item.get('order')));
     map.set('is_uploading', false);
     map.set('is_processing', false);
     map.set('resetFileKey', Math.floor((Math.random() * 0x10000)));
@@ -401,6 +408,7 @@ export default function compose(state = initialState, action) {
       .set('idempotencyKey', uuid())
       .set('dirty', true);
   case COMPOSE_VISIBILITY_CHANGE:
+    if (state.get('id')) return state;
     return state.withMutations(map => {
       const searchability = searchabilityCap(action.value, state.get('searchability'));
 
@@ -412,6 +420,7 @@ export default function compose(state = initialState, action) {
       map.set('circle_id', null);
     });
   case COMPOSE_SEARCHABILITY_CHANGE:
+    if (state.get('id')) return state;
     return state.withMutations(map => {
       map.set('searchability', action.value);
       map.set('idempotencyKey', uuid());
@@ -426,6 +435,7 @@ export default function compose(state = initialState, action) {
       }
     });
   case COMPOSE_CIRCLE_CHANGE:
+    if (state.get('id')) return state;
     return state
       .set('circle_id', action.value)
       .set('idempotencyKey', uuid())
@@ -439,6 +449,14 @@ export default function compose(state = initialState, action) {
     return state.set('is_composing', action.value);
   case COMPOSE_REPLY:
     return state.withMutations(map => {
+      if (state.get('id')) {
+        map.update('media_attachments', list => list.clear());
+        map.set('poll', null);
+      }
+
+      map.set('id', null);
+      map.set('language', null);
+
       const privacy = privacyCap(action.status.get('visibility'), state.get('default_privacy'));
       const searchability = searchabilityCap(action.status.get('visibility'), state.get('default_searchability'));
 
@@ -473,6 +491,14 @@ export default function compose(state = initialState, action) {
     });
   case COMPOSE_QUOTE:
     return state.withMutations(map => {
+      if (state.get('id')) {
+        map.update('media_attachments', list => list.clear());
+        map.set('poll', null);
+      }
+
+      map.set('id', null);
+      map.set('language', null);
+
       const privacy = privacyCap(action.status.get('visibility'), state.get('default_privacy'));
       const searchability = searchabilityCap(action.status.get('visibility'), state.get('default_searchability'));
 
@@ -502,10 +528,16 @@ export default function compose(state = initialState, action) {
         map.set('spoiler_text', '');
       }
     });
+  case COMPOSE_EDIT_CANCEL:
+    return clearAll(state);
   case COMPOSE_REPLY_CANCEL:
   case COMPOSE_QUOTE_CANCEL:
   case COMPOSE_SCHEDULED_EDIT_CANCEL:
   case COMPOSE_RESET:
+    if (state.get('id')) {
+      return clearAll(state);
+    }
+
     return state.withMutations(map => {
       map.set('in_reply_to', null);
       map.set('quote_from', null);
@@ -589,12 +621,26 @@ export default function compose(state = initialState, action) {
       map.set('focusDate', new Date());
       map.set('caretPosition', null);
       map.set('idempotencyKey', uuid());
-      map.set('scheduled_status_id', null);
-      map.set('dirty', false);
+
+      if (state.get('id')) {
+        map.set('dirty', true);
+      } else {
+        map.set('scheduled_status_id', null);
+        map.set('dirty', false);
+      }
     });
   case COMPOSE_DIRECT:
     return state.withMutations(map => {
       map.update('text', text => [text.trim(), `@${action.account.get('acct')} `].filter((str) => str.length !== 0).join(' '));
+      map.set('focusDate', new Date());
+      map.set('caretPosition', null);
+      map.set('idempotencyKey', uuid());
+
+      if (state.get('id')) {
+        map.set('dirty', true);
+        return;
+      }
+
       map.set('privacy', 'direct');
       map.set('searchability', 'direct');
       map.set('circle_id', null);
@@ -627,15 +673,23 @@ export default function compose(state = initialState, action) {
     return state
       .set('is_changing_upload', false)
       .setIn(['media_modal', 'dirty'], false)
+      .set('dirty', action.attached ? true : state.get('dirty'))
       .update('media_attachments', list => list.map(item => {
         if (item.get('id') === action.media.id) {
-          return fromJS(action.media);
+          const next = fromJS(action.media);
+
+          return next
+            .set('unattached', action.attached ? false : item.get('unattached', true))
+            .set('order', item.has('order') ? item.get('order') : next.get('order'));
         }
 
         return item;
       }));
   case REDRAFT:
     return state.withMutations(map => {
+      map.set('id', null);
+      map.set('language', null);
+
       const datetime_form = !!action.status.get('scheduled_at') || !!action.status.get('expires_at') ? true : null;
 
       map.set('text', action.raw_text || unescapeHTML(stripCompatibleText(expandMentions(action.status))));
@@ -691,12 +745,61 @@ export default function compose(state = initialState, action) {
     return state.updateIn(['poll', 'options'], options => options.delete(action.index));
   case COMPOSE_POLL_SETTINGS_CHANGE:
     return state.update('poll', poll => poll.set('expires_in', action.expiresIn).set('multiple', action.isMultiple));
+  case COMPOSE_SET_STATUS:
+    return state.withMutations(map => {
+      const media = action.status.get('media_attachments') || ImmutableList();
+
+      map.set('id', action.status.get('id'));
+      map.set('text', action.text);
+      map.set('in_reply_to', action.status.get('in_reply_to_id'));
+      map.set('privacy', action.status.get('visibility') || state.get('privacy'));
+      map.set('media_attachments', media.map((item, index) => item.set('order', index).set('unattached', false)));
+      map.set('focusDate', new Date());
+      map.set('caretPosition', null);
+      map.set('idempotencyKey', uuid());
+      map.set('sensitive', action.status.get('sensitive'));
+      map.set('language', action.status.get('language') || null);
+      map.set('dirty', false);
+
+      if ((action.spoiler_text || '').length > 0) {
+        map.set('spoiler', true);
+        map.set('spoiler_text', action.spoiler_text);
+      } else {
+        map.set('spoiler', false);
+        map.set('spoiler_text', '');
+      }
+
+      if (action.status.get('poll')) {
+        map.set('poll', ImmutableMap({
+          options: action.status.getIn(['poll', 'options']).map(x => typeof x === 'string' ? x : x.get('title')),
+          multiple: action.status.getIn(['poll', 'multiple']),
+          expires_in: expiresInFromExpiresAt(action.status.getIn(['poll', 'expires_at'])),
+        }));
+      } else {
+        map.set('poll', null);
+      }
+
+      // Circle, quote, references, and schedule/expiration belong to a new post.
+      // They are immutable on an existing status and must not leak in from the previous draft.
+      map.set('quote_from', null);
+      map.set('quote_from_url', null);
+      map.set('references', ImmutableSet());
+      map.set('context_references', ImmutableSet());
+      map.set('scheduled', null);
+      map.set('scheduled_status_id', null);
+      map.set('expires', null);
+      map.set('expires_action', 'mark');
+      map.set('circle_id', null);
+      map.set('ignore_reference_check', false);
+    });
   case COMPOSE_DATETIME_FORM_OPEN:
+    if (state.get('id')) return state;
     return state.withMutations(map => {
       map.set('datetime_form', true);
       map.set('default_expires', null);
     });
   case COMPOSE_DATETIME_FORM_CLOSE:
+    if (state.get('id')) return state;
     return state.withMutations(map => {
       map.set('datetime_form', null);
       map.set('default_expires', null);
@@ -706,16 +809,38 @@ export default function compose(state = initialState, action) {
       map.set('dirty', true);
     });
   case COMPOSE_SCHEDULED_CHANGE:
+    if (state.get('id')) return state;
     return state.set('scheduled', action.value).set('dirty', true);
   case COMPOSE_EXPIRES_CHANGE:
+    if (state.get('id')) return state;
     return state.set('expires', action.value).set('dirty', true);
   case COMPOSE_EXPIRES_ACTION_CHANGE:
+    if (state.get('id')) return state;
     return state.set('expires_action', action.value).set('dirty', true);
+  case COMPOSE_MEDIA_ORDER_CHANGE: {
+    const list = state.get('media_attachments');
+    const index = list.findIndex(item => item.get('id') === action.id);
+    const nextIndex = index + action.direction;
+
+    if (index < 0 || nextIndex < 0 || nextIndex >= list.size) {
+      return state;
+    }
+
+    const reordered = list.delete(index).insert(nextIndex, list.get(index));
+
+    return state
+      .set('media_attachments', reordered.map((item, itemIndex) => item.set('order', itemIndex)))
+      .set('idempotencyKey', uuid())
+      .set('dirty', true);
+  }
   case COMPOSE_REFERENCE_ADD:
+    if (state.get('id')) return state;
     return state.update('references', set => set.add(action.id));
   case COMPOSE_REFERENCE_REMOVE:
+    if (state.get('id')) return state;
     return state.update('references', set => set.delete(action.id));
   case COMPOSE_REFERENCE_RESET:
+    if (state.get('id')) return state;
     return state.update('references', set => set.clear());
   case COMPOSE_REFERENCE_CHECK_IGNORE:
     return state.set('ignore_reference_check', true);

@@ -703,6 +703,17 @@ body > [data-popper-placement] {
       width: 100%;
       overflow: hidden;
     }
+
+    .compose-form__upload-order {
+      display: flex;
+      margin-top: 4px;
+
+      .icon-button {
+        flex: 1 1 auto;
+        font-size: 12px;
+        line-height: 16px;
+      }
+    }
   }
 
   .compose-form__buttons-wrapper {
@@ -799,13 +810,15 @@ body > [data-popper-placement] {
   background: $success-green;
 }
 
-.scheduled-status-warning-indicator {
+.scheduled-status-warning-indicator,
+.edit-indicator {
   color: $inverted-text-color;
   background: $ui-primary-color;
 }
 
 .reply-indicator,
 .quote-indicator,
+.edit-indicator,
 .scheduled-status-warning-indicator {
   border-radius: 4px;
   margin-bottom: 10px;
@@ -824,6 +837,7 @@ body > [data-popper-placement] {
 
 .reply-indicator__cancel,
 .quote-indicator__cancel,
+.edit-indicator__cancel,
 .scheduled-status-warning-indicator__cancel,
 .expires-indicator__cancel {
   float: right;
@@ -832,6 +846,37 @@ body > [data-popper-placement] {
 
 .expires-indicator__cancel {
   margin-top: -4px;
+}
+
+.edit-indicator__content {
+  line-height: 24px;
+}
+
+.dropdown-menu__text-button {
+  background: transparent;
+  border: 0;
+  color: $secondary-text-color;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+
+.edited-timestamp {
+  display: inline;
+}
+
+.compare-history-modal__container {
+  max-height: 80vh;
+  overflow: auto;
+  padding: 15px;
+}
+
+.compare-history-modal__sensitive,
+.compare-history-modal__media,
+.compare-history-modal__poll,
+.compare-history-modal__created {
+  color: $secondary-text-color;
+  font-size: 14px;
 }
 
 .reply-indicator__display-name,
@@ -2304,13 +2349,17 @@ a.account__display-name {
 }
 
 .dropdown-menu__item {
-  a {
+  a,
+  button {
     font-size: 13px;
     line-height: 18px;
     display: block;
+    width: 100%;
     padding: 4px 14px;
     box-sizing: border-box;
+    text-align: left;
     text-decoration: none;
+    border: 0;
     background: $ui-secondary-color;
     color: $inverted-text-color;
     overflow: hidden;

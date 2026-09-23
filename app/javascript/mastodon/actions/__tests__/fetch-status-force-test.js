@@ -24,6 +24,12 @@ jest.mock('../timelines', () => ({
 jest.mock('../compose', () => ({
   ensureComposeIsVisible: jest.fn(),
   getContextReference: jest.fn(),
+  setComposeToStatus: jest.fn((status, text, spoilerText) => ({
+    type: 'COMPOSE_SET_STATUS',
+    status,
+    text,
+    spoiler_text: spoilerText,
+  })),
 }));
 
 import api from '../../api';

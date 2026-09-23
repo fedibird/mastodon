@@ -25,6 +25,7 @@ import {
   CircleAdder,
 } from '../../../features/ui/util/async-components';
 import ReactionModal from './reaction_modal';
+import CompareHistoryModal from './compare_history_modal';
 
 const MODAL_COMPONENTS = {
   'MEDIA': () => Promise.resolve({ default: MediaModal }),
@@ -45,6 +46,7 @@ const MODAL_COMPONENTS = {
   'CIRCLE_ADDER': CircleAdder,
   'CALENDAR': () => Promise.resolve({ default: CalendarModal }),
   'REACTION': () => Promise.resolve({ default: ReactionModal }),
+  'COMPARE_HISTORY': () => Promise.resolve({ default: CompareHistoryModal }),
 };
 
 export default class ModalRoot extends React.PureComponent {
@@ -78,7 +80,7 @@ export default class ModalRoot extends React.PureComponent {
   }
 
   renderLoading = modalId => () => {
-    return ['MEDIA', 'VIDEO', 'BOOST', 'CONFIRM', 'ACTIONS', 'CALENDAR', 'REACTION'].indexOf(modalId) === -1 ? <ModalLoading /> : null;
+    return ['MEDIA', 'VIDEO', 'BOOST', 'CONFIRM', 'ACTIONS', 'CALENDAR', 'REACTION', 'COMPARE_HISTORY'].indexOf(modalId) === -1 ? <ModalLoading /> : null;
   }
 
   renderError = (props) => {

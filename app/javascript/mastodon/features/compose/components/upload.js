@@ -18,6 +18,11 @@ export default class Upload extends ImmutablePureComponent {
     media: ImmutablePropTypes.map.isRequired,
     onUndo: PropTypes.func.isRequired,
     onOpenFocalPoint: PropTypes.func.isRequired,
+    showOrder: PropTypes.bool,
+    canMoveBackward: PropTypes.bool,
+    canMoveForward: PropTypes.bool,
+    onMoveBackward: PropTypes.func,
+    onMoveForward: PropTypes.func,
   };
 
   handleUndoClick = e => {
@@ -28,6 +33,16 @@ export default class Upload extends ImmutablePureComponent {
   handleFocalPointClick = e => {
     e.stopPropagation();
     this.props.onOpenFocalPoint(this.props.media.get('id'));
+  }
+
+  handleMoveBackward = e => {
+    e.stopPropagation();
+    this.props.onMoveBackward(this.props.media.get('id'));
+  }
+
+  handleMoveForward = e => {
+    e.stopPropagation();
+    this.props.onMoveForward(this.props.media.get('id'));
   }
 
   render () {
@@ -49,6 +64,12 @@ export default class Upload extends ImmutablePureComponent {
             </div>
           )}
         </Motion>
+        {this.props.showOrder && (
+          <div className='compose-form__upload-order'>
+            <button type='button' className='icon-button' disabled={!this.props.canMoveBackward} onClick={this.handleMoveBackward}><Icon id='arrow-left' /> <FormattedMessage id='upload_form.move_backward' defaultMessage='Move earlier' /></button>
+            <button type='button' className='icon-button' disabled={!this.props.canMoveForward} onClick={this.handleMoveForward}><Icon id='arrow-right' /> <FormattedMessage id='upload_form.move_forward' defaultMessage='Move later' /></button>
+          </div>
+        )}
       </div>
     );
   }

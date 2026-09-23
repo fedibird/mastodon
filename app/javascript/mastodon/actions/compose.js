@@ -6,13 +6,13 @@ import { search as emojiSearch } from 'mastodon/features/emoji/emoji_mart_search
 import { tagHistory } from 'mastodon/settings';
 import { showAlert, showAlertForError } from './alerts';
 import { useEmoji } from './emojis';
-import { importFetchedAccounts } from './importer';
+import { importFetchedAccounts, importFetchedStatus } from './importer';
 import { updateTimeline } from './timelines';
 import { getHomeVisibilities, getLimitedVisibilities } from 'mastodon/selectors';
 import { openModal } from './modal';
 import { addYears, addMonths, addDays, addHours, addMinutes, addSeconds, millisecondsToSeconds, set, formatISO, format } from 'date-fns';
 import { Set as ImmutableSet } from 'immutable';
-import { postReferenceModal, missingAltTextModal, enableFederatedTimeline, allowPollImage, maxAttachments } from '../initial_state';
+import { postReferenceModal, missingAltTextModal, enableFederatedTimeline, allowPollImage, maxAttachments, disablePost } from '../initial_state';
 import { deleteScheduledStatus } from './scheduled_statuses';
 
 let cancelFetchComposeSuggestionsAccounts, cancelFetchComposeSuggestionsTags;
@@ -81,6 +81,10 @@ export const INIT_MEDIA_EDIT_MODAL = 'INIT_MEDIA_EDIT_MODAL';
 
 export const COMPOSE_CHANGE_MEDIA_DESCRIPTION = 'COMPOSE_CHANGE_MEDIA_DESCRIPTION';
 export const COMPOSE_CHANGE_MEDIA_FOCUS       = 'COMPOSE_CHANGE_MEDIA_FOCUS';
+export const COMPOSE_MEDIA_ORDER_CHANGE       = 'COMPOSE_MEDIA_ORDER_CHANGE';
+
+export const COMPOSE_SET_STATUS = 'COMPOSE_SET_STATUS';
+export const COMPOSE_EDIT_CANCEL = 'COMPOSE_EDIT_CANCEL';
 
 export const COMPOSE_DATETIME_FORM_OPEN    = 'COMPOSE_DATETIME_FORM_OPEN';
 export const COMPOSE_DATETIME_FORM_CLOSE   = 'COMPOSE_DATETIME_FORM_CLOSE';
@@ -103,6 +107,10 @@ const messages = defineMessages({
   missingAltTextMessage:   { id: "confirmations.missing_alt_text.message", defaultMessage: 'Your post contains media without alt text. Adding descriptions helps make your content accessible to more people.' },
   missingAltTextSecondary: { id: "confirmations.missing_alt_text.secondary", defaultMessage: 'Post anyway' },
   missingAltTextConfirm:   { id: "confirmations.missing_alt_text.confirm", defaultMessage: 'Add alt text' },
+  savedTitle: { id: 'compose.saved.title', defaultMessage: 'Saved' },
+  saved: { id: 'compose.saved.body', defaultMessage: 'Post saved.' },
+  cancelEditConfirm: { id: 'confirmations.cancel_edit.confirm', defaultMessage: 'Discard changes' },
+  cancelEditMessage: { id: 'confirmations.cancel_edit.message', defaultMessage: 'Canceling will discard the changes you are currently composing. Are you sure you want to proceed?' },
 });
 
 const COMPOSE_PANEL_BREAKPOINT = 600 + (285 * 1) + (10 * 1);
@@ -122,6 +130,21 @@ export const getContextReference = (getState, status) => {
   const replyStatus = status.get('in_reply_to_id') ? getState().getIn(['statuses', status.get('in_reply_to_id')]) : null;
   return references.concat(getContextReference(getState, replyStatus));
 };
+
+export function setComposeToStatus(status, text, spoilerText) {
+  return {
+    type: COMPOSE_SET_STATUS,
+    status,
+    text,
+    spoiler_text: spoilerText,
+  };
+}
+
+export function cancelEditCompose() {
+  return {
+    type: COMPOSE_EDIT_CANCEL,
+  };
+}
 
 export function changeCompose(text) {
   return {
@@ -247,12 +270,13 @@ export function submitComposeWithCheck(routerHistory, intl) {
     const missingAltTextMediaId = media.find(media => ['image', 'gifv'].includes(media.get('type')) && (media.get('description') ?? '').length === 0)?.get('id');
     const statusReferenceIds = getState().getIn(['compose', 'references']);
     const ignoreStatusReferenceCheck = getState().getIn(['compose', 'ignore_reference_check']);
+    const editing = getState().getIn(['compose', 'id'], null) !== null;
 
     if ((!status || !status.length) && media.size === 0) {
       return;
     }
 
-    if (postReferenceModal && !statusReferenceIds.isEmpty() && !ignoreStatusReferenceCheck) {
+    if (!editing && postReferenceModal && !statusReferenceIds.isEmpty() && !ignoreStatusReferenceCheck) {
       dispatch(openModal('CONFIRM', {
         message: intl.formatMessage(messages.postReferenceMessage),
         confirm: intl.formatMessage(messages.postReferenceConfirm),
@@ -294,36 +318,75 @@ export function submitCompose(routerHistory) {
     const expires_action = getState().getIn(['compose', 'expires_action']);
     const statusReferenceIds = getState().getIn(['compose', 'references']);
     const scheduled_status_id = getState().getIn(['compose', 'scheduled_status_id']);
+    const statusId = getState().getIn(['compose', 'id'], null);
+    const editing = statusId !== null;
 
     if ((!status || !status.length) && media.size === 0) {
       return;
     }
 
+    if (editing && disablePost) {
+      return;
+    }
+
     dispatch(submitComposeRequest());
 
-    api(getState).post('/api/v1/statuses', {
+    const mediaAttributes = editing ? media.map(item => {
+      const focusX = item.getIn(['meta', 'focus', 'x']);
+      const focusY = item.getIn(['meta', 'focus', 'y']);
+      const attributes = {
+        id: item.get('id'),
+        description: item.get('description') || '',
+      };
+
+      if (typeof focusX === 'number' && typeof focusY === 'number') {
+        attributes.focus = `${focusX.toFixed(2)},${focusY.toFixed(2)}`;
+      }
+
+      return attributes;
+    }).toArray() : undefined;
+
+    const poll = getState().getIn(['compose', 'poll'], null);
+    const language = getState().getIn(['compose', 'language'], null);
+    const editData = {
       status,
-      in_reply_to_id: getState().getIn(['compose', 'in_reply_to'], null),
-      media_ids: media.map(item => item.get('id')),
-      sensitive: getState().getIn(['compose', 'sensitive']),
       spoiler_text: getState().getIn(['compose', 'spoiler']) ? getState().getIn(['compose', 'spoiler_text'], '') : '',
-      visibility: getState().getIn(['compose', 'privacy']),
-      circle_id: getState().getIn(['compose', 'circle_id']),
-      poll: getState().getIn(['compose', 'poll'], null),
-      quote_id: getState().getIn(['compose', 'quote_from'], null),
-      scheduled_at: !scheduled_in && scheduled_at ? formatISO(set(scheduled_at, { seconds: 0 })) : null,
-      scheduled_in: scheduled_in,
-      expires_at: !expires_in && expires_at ? formatISO(set(expires_at, { seconds: 59 })) : null,
-      expires_in: expires_in,
-      expires_action: expires_action,
-      status_reference_ids: statusReferenceIds,
-      searchability: getState().getIn(['compose', 'searchability']),
-    }, {
+      sensitive: getState().getIn(['compose', 'sensitive']),
+      media_ids: media.map(item => item.get('id')).toArray(),
+      media_attributes: mediaAttributes,
+      poll: poll ? poll.toJS() : null,
+    };
+
+    if (language) {
+      editData.language = language;
+    }
+
+    api(getState).request({
+      url: editing ? `/api/v1/statuses/${statusId}` : '/api/v1/statuses',
+      method: editing ? 'put' : 'post',
+      data: editing ? editData : {
+        status,
+        in_reply_to_id: getState().getIn(['compose', 'in_reply_to'], null),
+        media_ids: media.map(item => item.get('id')),
+        sensitive: getState().getIn(['compose', 'sensitive']),
+        spoiler_text: getState().getIn(['compose', 'spoiler']) ? getState().getIn(['compose', 'spoiler_text'], '') : '',
+        visibility: getState().getIn(['compose', 'privacy']),
+        circle_id: getState().getIn(['compose', 'circle_id']),
+        poll: poll,
+        quote_id: getState().getIn(['compose', 'quote_from'], null),
+        scheduled_at: !scheduled_in && scheduled_at ? formatISO(set(scheduled_at, { seconds: 0 })) : null,
+        scheduled_in: scheduled_in,
+        expires_at: !expires_in && expires_at ? formatISO(set(expires_at, { seconds: 59 })) : null,
+        expires_in: expires_in,
+        expires_action: expires_action,
+        status_reference_ids: statusReferenceIds,
+        searchability: getState().getIn(['compose', 'searchability']),
+      },
       headers: {
         'Idempotency-Key': getState().getIn(['compose', 'idempotencyKey']),
       },
     }).then(function (response) {
-      if (response.data.scheduled_at !== null && response.data.scheduled_at !== undefined) {
+      if (!editing && response.data.scheduled_at !== null && response.data.scheduled_at !== undefined) {
         dispatch(submitScheduledStatusSuccess({ ...response.data }));
         if (scheduled_status_id) {
           dispatch(deleteScheduledStatus(scheduled_status_id));
@@ -334,12 +397,18 @@ export function submitCompose(routerHistory) {
         routerHistory.goBack();
       }
 
-      if (scheduled_status_id) {
+      if (!editing && scheduled_status_id) {
         dispatch(deleteScheduledStatus(scheduled_status_id));
       }
 
       dispatch(insertIntoTagHistory(response.data.tags, status));
       dispatch(submitComposeSuccess({ ...response.data }));
+
+      if (editing) {
+        dispatch(importFetchedStatus({ ...response.data }));
+        dispatch(showAlert(messages.savedTitle, messages.saved));
+        return;
+      }
 
       // To make the app more responsive, immediately push the status
       // into the columns
@@ -541,6 +610,26 @@ export function changeUploadCompose(id, params) {
   return (dispatch, getState) => {
     dispatch(changeUploadComposeRequest());
 
+    const media = getState().getIn(['compose', 'media_attachments']).find(item => item.get('id') === id);
+
+    // Attached media cannot be updated through the unattached media endpoint.
+    // Keep the description and focus in compose and send them with the status PUT.
+    if (media && media.get('unattached') === false) {
+      const data = media.toJS();
+      const { focus, ...other } = params;
+
+      Object.assign(data, other);
+
+      if (focus) {
+        const [x, y] = focus.split(',');
+        data.meta = { ...(data.meta || {}), focus: { x: parseFloat(x), y: parseFloat(y) } };
+      }
+
+      data.unattached = false;
+      dispatch(changeUploadComposeSuccess(data, true));
+      return;
+    }
+
     api(getState).put(`/api/v1/media/${id}`, params).then(response => {
       dispatch(changeUploadComposeSuccess(response.data));
     }).catch(error => {
@@ -556,10 +645,11 @@ export function changeUploadComposeRequest() {
   };
 };
 
-export function changeUploadComposeSuccess(media) {
+export function changeUploadComposeSuccess(media, attached = false) {
   return {
     type: COMPOSE_UPLOAD_CHANGE_SUCCESS,
     media: media,
+    attached,
     skipLoading: true,
   };
 };
@@ -934,8 +1024,20 @@ export function changeExpiresAction(value) {
   };
 };
 
+export function changeMediaOrder(id, direction) {
+  return {
+    type: COMPOSE_MEDIA_ORDER_CHANGE,
+    id,
+    direction,
+  };
+}
+
 export function addReference(id, change) {
   return (dispatch, getState) => {
+    if (getState().getIn(['compose', 'id'])) {
+      return;
+    }
+
     if (change) {
       const status = getState().getIn(['statuses', id]);
       const visibility = getState().getIn(['compose', 'privacy']);

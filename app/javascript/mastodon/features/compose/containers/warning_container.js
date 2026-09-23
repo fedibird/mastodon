@@ -41,6 +41,7 @@ const mapStateToProps = state => ({
   mutualMessageWarning: state.getIn(['compose', 'privacy']) === 'mutual',
   personalMessageWarning: state.getIn(['compose', 'privacy']) === 'personal',
   isScheduledStatusEditting: !!state.getIn(['compose', 'scheduled_status_id']),
+  isEditing: !!state.getIn(['compose', 'id']),
   attachmentsWarning: !['public', 'unlisted', 'personal'].includes(state.getIn(['compose', 'privacy'])) && state.getIn(['compose', 'media_attachments']).size > 4,
 });
 
@@ -52,8 +53,8 @@ const mapDispatchToProps = dispatch => ({
 
 });
 
-const ScheduledStatusWarningWrapper = ({ isScheduledStatusEditting, onCancel }) => {
-  if (!isScheduledStatusEditting) {
+const ScheduledStatusWarningWrapper = ({ isScheduledStatusEditting, isEditing, onCancel }) => {
+  if (isEditing || !isScheduledStatusEditting) {
     return null;
   }
 
@@ -69,6 +70,7 @@ const ScheduledStatusWarningWrapper = ({ isScheduledStatusEditting, onCancel }) 
 
 ScheduledStatusWarningWrapper.propTypes = {
   isScheduledStatusEditting: PropTypes.bool,
+  isEditing: PropTypes.bool,
   onCancel: PropTypes.func.isRequired,
 };
 
@@ -145,6 +147,7 @@ WarningWrapper.propTypes = {
   mutualMessageWarning: PropTypes.bool,
   personalMessageWarning: PropTypes.bool,
   isScheduledStatusEditting: PropTypes.bool,
+  isEditing: PropTypes.bool,
   onCancel: PropTypes.func.isRequired,
 };
 
