@@ -10,7 +10,7 @@ RSpec.describe Api::V1::Statuses::HistoriesController, type: :controller do # ru
   let(:scopes) { 'read:statuses' }
   let(:status) { Fabricate(:status, account: user.account, text: 'original history', visibility: :public) }
 
-  describe 'GET #show' do
+  describe 'GET #show' do # rubocop:disable Metrics/BlockLength
     context 'with an oauth token' do
       before do
         allow(controller).to receive(:doorkeeper_token) { token }
@@ -24,6 +24,20 @@ RSpec.describe Api::V1::Statuses::HistoriesController, type: :controller do # ru
         expect(body_as_json.first[:content]).to include('original history')
         expect(Time.zone.parse(body_as_json.first[:created_at])).to be_within(1.second).of(status.created_at)
         expect(body_as_json.first[:account][:id]).to eq user.account.id.to_s
+      end
+
+      it 'returns the original and the remote edit' do
+        remote = Fabricate(:account, domain: 'example.com', username: 'remote', uri: 'https://example.com/users/remote')
+        remote_status = Fabricate(:status, account: remote, text: 'remote original', uri: 'https://example.com/users/remote/statuses/1', visibility: :public)
+        object = Oj.load(Oj.dump(id: remote_status.uri, type: 'Note', content: 'remote edit', updated: '2021-09-08T22:39:25Z'))
+        ActivityPub::ProcessStatusUpdateService.new.call(remote_status, object, object)
+
+        get :show, params: { status_id: remote_status.id }
+
+        expect(response).to have_http_status(200)
+        expect(body_as_json.map { |item| item[:content] }.join).to include('remote original')
+        expect(body_as_json.map { |item| item[:content] }.join).to include('remote edit')
+        expect(body_as_json.size).to eq 2
       end
 
       it 'returns stored snapshots from oldest to newest' do
