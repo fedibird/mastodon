@@ -10,7 +10,7 @@ import AutosuggestInput from '../../../components/autosuggest_input';
 import PollButtonContainer from '../containers/poll_button_container';
 import DateTimeButtonContainer from '../containers/datetime_button_container';
 import UploadButtonContainer from '../containers/upload_button_container';
-import { defineMessages, injectIntl } from 'react-intl';
+import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import SpoilerButtonContainer from '../containers/spoiler_button_container';
 import PrivacyDropdownContainer from '../containers/privacy_dropdown_container';
 import SearchabilityDropdownContainer from '../containers/searchability_dropdown_container';
@@ -28,6 +28,7 @@ import { length } from 'stringz';
 import { countableText } from '../util/counter';
 import Icon from 'mastodon/components/icon';
 import { disablePost, maxChars } from '../../../initial_state';
+import IconButton from '../../../components/icon_button';
 
 const allowedAroundShortCode = '><\u0085\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000\u2028\u2029\u0009\u000a\u000b\u000c\u000d';
 
@@ -36,6 +37,9 @@ const messages = defineMessages({
   spoiler_placeholder: { id: 'compose_form.spoiler_placeholder', defaultMessage: 'Write your warning here' },
   publish: { id: 'compose_form.publish', defaultMessage: 'Toot' },
   publishLoud: { id: 'compose_form.publish_loud', defaultMessage: '{publish}!' },
+  saveChanges: { id: 'compose_form.save_changes', defaultMessage: 'Save changes' },
+  editing: { id: 'compose_form.editing', defaultMessage: 'Editing post' },
+  cancelEdit: { id: 'compose_form.cancel_edit', defaultMessage: 'Cancel' },
   update: { id: 'compose_form.update_scheduled_status', defaultMessage: 'Update scheduled post' },
   delete: { id: 'compose_form.delete_scheduled_status', defaultMessage: 'Delete scheduled post' },
   and: { id: 'compose_form.and', defaultMessage: ' + ' },
@@ -66,6 +70,8 @@ class ComposeForm extends ImmutablePureComponent {
     prohibitedWords: ImmutablePropTypes.set,
     isScheduled: PropTypes.bool,
     isScheduledStatusEditting: PropTypes.bool,
+    isEditing: PropTypes.bool,
+    onCancelEdit: PropTypes.func,
     onChange: PropTypes.func.isRequired,
     onSubmit: PropTypes.func.isRequired,
     onClearSuggestions: PropTypes.func.isRequired,
@@ -216,13 +222,15 @@ class ComposeForm extends ImmutablePureComponent {
     const disabled = this.props.isSubmitting;
     let publishText = '';
 
-    if (this.props.privacy !== 'public' && this.props.privacy !== 'unlisted') {
+    if (this.props.isEditing) {
+      publishText = intl.formatMessage(messages.saveChanges);
+    } else if (this.props.privacy !== 'public' && this.props.privacy !== 'unlisted') {
       publishText = <span className='compose-form__publish-private'><Icon id='lock' /> {intl.formatMessage(messages.publish)}</span>;
     } else {
       publishText = this.props.privacy !== 'unlisted' ? intl.formatMessage(messages.publishLoud, { publish: intl.formatMessage(messages.publish) }) : intl.formatMessage(messages.publish);
     }
 
-    if (this.props.isScheduledStatusEditting) {
+    if (!this.props.isEditing && this.props.isScheduledStatusEditting) {
       if (this.props.isScheduled ) {
         publishText = <span className='compose-form__update'>{intl.formatMessage(messages.update)}</span>;
       } else {
@@ -234,8 +242,15 @@ class ComposeForm extends ImmutablePureComponent {
       <div className='compose-form'>
         <WarningContainer />
 
+        {this.props.isEditing && (
+          <div className='edit-indicator'>
+            <div className='edit-indicator__cancel'><IconButton title={intl.formatMessage(messages.cancelEdit)} icon='times' onClick={this.props.onCancelEdit} inverted /></div>
+            <div className='edit-indicator__content translate'><FormattedMessage {...messages.editing} /></div>
+          </div>
+        )}
+
         <ReplyIndicatorContainer />
-        <QuoteIndicatorContainer />
+        {!this.props.isEditing && <QuoteIndicatorContainer />}
 
         <div className={`spoiler-input ${this.props.spoiler ? 'spoiler-input--visible' : ''}`} ref={this.setRef}>
           <AutosuggestInput
@@ -273,8 +288,8 @@ class ComposeForm extends ImmutablePureComponent {
           <div className='compose-form__modifiers'>
             <UploadFormContainer />
             <PollFormContainer />
-            <DateTimeFormContainer />
-            <ExpiresIndicatorContainer />
+            {!this.props.isEditing && <DateTimeFormContainer />}
+            {!this.props.isEditing && <ExpiresIndicatorContainer />}
           </div>
         </AutosuggestTextarea>
 
@@ -282,22 +297,22 @@ class ComposeForm extends ImmutablePureComponent {
           <div className='compose-form__buttons'>
             <UploadButtonContainer />
             <PollButtonContainer />
-            <PrivacyDropdownContainer />
+            <PrivacyDropdownContainer disabled={this.props.isEditing} />
             <SpoilerButtonContainer />
             <EmojiPickerDropdownContainer onPickEmoji={this.handleEmojiPick} />
-            <DateTimeButtonContainer />
-            <SearchabilityDropdownContainer />
+            {!this.props.isEditing && <DateTimeButtonContainer />}
+            {!this.props.isEditing && <SearchabilityDropdownContainer />}
           </div>
           <div className='character-counter__wrapper'><CharacterCounter max={maxChars} text={this.getFulltextForCharacterCounting()} /></div>
         </div>
 
-        <CircleDropdownContainer />
+        {!this.props.isEditing && <CircleDropdownContainer />}
 
         <div className='compose-form__publish'>
           <div className='compose-form__publish-button-wrapper'><Button text={publishText} onClick={this.handleSubmit} disabled={disablePost || !this.canSubmit()} block /></div>
         </div>
 
-        <ReferenceStack />
+        {!this.props.isEditing && <ReferenceStack />}
       </div>
     );
   }

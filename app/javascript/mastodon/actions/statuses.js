@@ -3,7 +3,8 @@ import api from '../api';
 import { deleteFromTimelines, expireFromTimelines } from './timelines';
 import { fetchRelationshipsFromStatus, fetchRelationshipsFromStatuses } from './accounts';
 import { importFetchedStatus, importFetchedStatuses, importFetchedAccount } from './importer';
-import { ensureComposeIsVisible, getContextReference } from './compose';
+import { ensureComposeIsVisible, getContextReference, setComposeToStatus } from './compose';
+import { openModal } from './modal';
 
 export const STATUS_FETCH_REQUEST = 'STATUS_FETCH_REQUEST';
 export const STATUS_FETCH_SUCCESS = 'STATUS_FETCH_SUCCESS';
@@ -46,6 +47,15 @@ export const STATUS_HIDE     = 'STATUS_HIDE';
 export const STATUS_COLLAPSE = 'STATUS_COLLAPSE';
 
 export const REDRAFT = 'REDRAFT';
+
+export const STATUS_FETCH_SOURCE_REQUEST = 'STATUS_FETCH_SOURCE_REQUEST';
+export const STATUS_FETCH_SOURCE_SUCCESS = 'STATUS_FETCH_SOURCE_SUCCESS';
+export const STATUS_FETCH_SOURCE_FAIL    = 'STATUS_FETCH_SOURCE_FAIL';
+
+const messages = {
+  editConfirm: { id: 'confirmations.edit.confirm', defaultMessage: 'Edit' },
+  editMessage: { id: 'confirmations.edit.message', defaultMessage: 'Editing now will overwrite the message you are currently composing. Are you sure you want to proceed?' },
+};
 
 export const updateStatus = status => dispatch => dispatch(importFetchedStatus(status));
 
@@ -222,6 +232,82 @@ export function removeIntersectionStatusId(id) {
       dispatch(removeIntersectionStatus(status));
     }
   }
+}
+
+export function editStatus(id, routerHistory) {
+  return (dispatch, getState) => {
+    let status = getState().getIn(['statuses', id]);
+
+    if (!status) {
+      return;
+    }
+
+    if (status.get('poll')) {
+      status = status.set('poll', getState().getIn(['polls', status.get('poll')]));
+    }
+
+    dispatch(fetchStatusSourceRequest());
+
+    api(getState).get(`/api/v1/statuses/${id}/source`).then(response => {
+      dispatch(fetchStatusSourceSuccess());
+      ensureComposeIsVisible(getState, routerHistory);
+      dispatch(setComposeToStatus(status, response.data.text, response.data.spoiler_text));
+    }).catch(error => {
+      dispatch(fetchStatusSourceFail(error));
+    });
+  };
+}
+
+export function fetchStatusSourceRequest() {
+  return {
+    type: STATUS_FETCH_SOURCE_REQUEST,
+  };
+}
+
+export function fetchStatusSourceSuccess() {
+  return {
+    type: STATUS_FETCH_SOURCE_SUCCESS,
+  };
+}
+
+export function fetchStatusSourceFail(error) {
+  return {
+    type: STATUS_FETCH_SOURCE_FAIL,
+    error,
+  };
+}
+
+const composeHasDraft = compose => {
+  if (!compose) {
+    return false;
+  }
+
+  const references = compose.get('references');
+
+  return compose.get('text', '').trim().length !== 0
+    || compose.get('media_attachments').size > 0
+    || !!compose.get('poll')
+    || !!compose.get('quote_from')
+    || !!(references && !references.isEmpty())
+    || !!compose.get('scheduled')
+    || compose.get('id') !== null;
+};
+
+export function requestEditStatus(status, routerHistory, intl) {
+  return (dispatch, getState) => {
+    const compose = getState().get('compose');
+    const sameStatus = compose.get('id') === status.get('id');
+
+    if (!sameStatus && composeHasDraft(compose)) {
+      dispatch(openModal('CONFIRM', {
+        message: intl.formatMessage(messages.editMessage),
+        confirm: intl.formatMessage(messages.editConfirm),
+        onConfirm: () => dispatch(editStatus(status.get('id'), routerHistory)),
+      }));
+    } else {
+      dispatch(editStatus(status.get('id'), routerHistory));
+    }
+  };
 }
 
 export function redraft(getState, status, replyStatus, raw_text) {

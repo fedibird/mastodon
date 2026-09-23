@@ -10,8 +10,10 @@ import classNames from 'classnames';
 import ReactionPickerDropdownContainer from 'mastodon/containers/reaction_picker_dropdown_container';
 import { openModal } from '../../../actions/modal';
 import { initAddFilter } from '../../../actions/filters';
+import { canEditStatus, editableStatus } from '../../../utils/status_edit';
 
 const messages = defineMessages({
+  edit: { id: 'status.edit', defaultMessage: 'Edit' },
   expire: { id: 'status.expire', defaultMessage: 'Expire' },
   delete: { id: 'status.delete', defaultMessage: 'Delete' },
   redraft: { id: 'status.redraft', defaultMessage: 'Delete & re-draft' },
@@ -66,6 +68,7 @@ const mapStateToProps = (state, { status }) => ({
   referenceCountLimit: state.getIn(['compose', 'references']).size >= maxReferences,
   selected: state.getIn(['compose', 'references']).has(status.get('id')),
   composePrivacy: state.getIn(['compose', 'privacy']),
+  editing: !!state.getIn(['compose', 'id']),
 });
 
 export default @connect(mapStateToProps)
@@ -93,6 +96,7 @@ class ActionBar extends React.PureComponent {
     onAddReference: PropTypes.func,
     onRemoveReference: PropTypes.func,
     onDelete: PropTypes.func.isRequired,
+    onEdit: PropTypes.func,
     onExpire: PropTypes.func.isRequired,
     onDirect: PropTypes.func.isRequired,
     onMemberList: PropTypes.func.isRequired,
@@ -161,6 +165,12 @@ class ActionBar extends React.PureComponent {
 
   handleBookmarkClick = (e) => {
     this.props.onBookmark(this.props.status, e);
+  }
+
+  handleEditClick = () => {
+    if (this.props.onEdit) {
+      this.props.onEdit(editableStatus(this.props.status), this.context.router.history);
+    }
   }
 
   handleDeleteClick = () => {
@@ -299,7 +309,7 @@ class ActionBar extends React.PureComponent {
   }
 
   render () {
-    const { status, relationship, intl, referenced, contextReferenced, referenceCountLimit, emojiReactioned, reactionLimitReached } = this.props;
+    const { status, relationship, intl, referenced, contextReferenced, referenceCountLimit, emojiReactioned, reactionLimitReached, editing } = this.props;
 
     const publicStatus       = ['public', 'unlisted'].includes(status.get('visibility'));
     const pinnableStatus     = ['public', 'unlisted', 'private'].includes(status.get('visibility'));
@@ -383,6 +393,9 @@ class ActionBar extends React.PureComponent {
       }
 
       menu.push({ text: intl.formatMessage(messages.expire), action: this.handleExpireClick });
+      if (canEditStatus(status, { me, expired, disablePost, now: typeof intl.now === 'function' ? intl.now() : Date.now() })) {
+        menu.push({ text: intl.formatMessage(messages.edit), action: this.handleEditClick });
+      }
       menu.push({ text: intl.formatMessage(messages.delete), action: this.handleDeleteClick });
 
       if (!disablePost) {
@@ -452,7 +465,7 @@ class ActionBar extends React.PureComponent {
       reblogTitle = intl.formatMessage(messages.cannot_reblog);
     }
 
-    const referenceDisabled = expired || !referenced && referenceCountLimit || ['limited', 'direct', 'personal'].includes(status.get('visibility'));
+    const referenceDisabled = editing || expired || !referenced && referenceCountLimit || ['limited', 'direct', 'personal'].includes(status.get('visibility'));
 
     const emojiReactionMessage = (() => {
       if (disableReactions) {

@@ -152,6 +152,7 @@ class PrivacyDropdown extends React.PureComponent {
     prohibitedVisibilities: ImmutablePropTypes.set,
     onChange: PropTypes.func.isRequired,
     noDirect: PropTypes.bool,
+    disabled: PropTypes.bool,
     container: PropTypes.func,
     intl: PropTypes.object.isRequired,
   };
@@ -162,6 +163,10 @@ class PrivacyDropdown extends React.PureComponent {
   };
 
   handleToggle = () => {
+    if (this.props.disabled) {
+      return;
+    }
+
     if (this.props.isUserTouching && this.props.isUserTouching()) {
       if (this.state.open) {
         this.props.onModalClose();
@@ -266,6 +271,7 @@ class PrivacyDropdown extends React.PureComponent {
             size={18}
             expanded={open}
             active={open}
+            disabled={this.props.disabled}
             inverted
             onClick={this.handleToggle}
             onMouseDown={this.handleMouseDown}

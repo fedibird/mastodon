@@ -27,6 +27,7 @@ import {
   unmuteStatus,
   deleteStatus,
   expireStatus,
+  requestEditStatus,
   hideStatus,
   revealStatus,
   toggleStatusCollapse,
@@ -192,6 +193,10 @@ const mapDispatchToProps = (dispatch, { intl, contextType }) => ({
       url: status.get('url'),
       onError: error => dispatch(showAlertForError(error)),
     }));
+  },
+
+  onEdit (status, history) {
+    dispatch(requestEditStatus(status, history, intl));
   },
 
   onDelete (status, history, withRedraft = false) {
