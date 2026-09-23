@@ -113,7 +113,8 @@ RSpec.describe User, type: :model do
     it 'reads the assigned role, and Everyone when role_id is nil' do
       user = Fabricate(:user)
       expect(user.user_role).to eq UserRole.everyone
-      expect(user.can?(:invite_users)).to be true
+      # Seeded min_invite_role is admin, so Everyone does not receive invite_users.
+      expect(user.can?(:invite_users)).to be false
       expect(user.can?(:manage_reports)).to be false
 
       user.update!(admin: true)
@@ -135,9 +136,9 @@ RSpec.describe User, type: :model do
   end
 
   describe 'admin account serializer' do
-    it 'keeps the legacy role string' do
+    it 'returns the effective Moderator role instead of the legacy string' do
       user = Fabricate(:user, moderator: true)
-      expect(REST::Admin::AccountSerializer.new(user.account).role).to eq 'moderator'
+      expect(REST::Admin::AccountSerializer.new(user.account).role).to eq UserRole.find_by!(name: 'Moderator')
     end
   end
 end
