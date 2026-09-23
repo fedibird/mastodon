@@ -9,3 +9,5 @@ if Rails.env.development?
   admin.save(validate: false)
   User.where(email: "admin@#{domain}").first_or_initialize(email: "admin@#{domain}", password: 'mastodonadmin', password_confirmation: 'mastodonadmin', confirmed_at: Time.now.utc, admin: true, account: admin, agreement: true, approved: true).save!
 end
+
+load Rails.root.join('db', 'seeds', '03_roles.rb')
