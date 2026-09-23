@@ -1,11 +1,15 @@
 # frozen_string_literal: true
 
 class Api::V1::Admin::AccountActionsController < Api::BaseController
+  include Authorization
+
   before_action -> { doorkeeper_authorize! :'admin:write', :'admin:write:accounts' }
   include ::Admin::PermissionsConcern
   before_action :set_account
 
   def create
+    authorize @account, :show?
+
     account_action                 = Admin::AccountAction.new(resource_params)
     account_action.target_account  = @account
     account_action.current_account = current_account

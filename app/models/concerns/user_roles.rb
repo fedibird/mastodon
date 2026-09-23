@@ -11,6 +11,13 @@ module UserRoles
     scope :admins, -> { where(admin: true) }
     scope :moderators, -> { where(moderator: true) }
     scope :staff, -> { admins.or(moderators) }
+    # role_id nil is Everyone. Include those users when Everyone itself can.
+    scope :those_who_can, lambda { |*privileges|
+      matching_roles = UserRole.that_can(*privileges)
+      relation = where(role_id: matching_roles.map(&:id))
+      relation = relation.or(where(role_id: nil)) if matching_roles.any?(&:everyone?)
+      relation
+    }
 
     before_validation :sync_role_id_from_legacy_booleans, if: :sync_legacy_role_id?
   end
@@ -97,6 +104,10 @@ module UserRoles
 
   def can?(*permissions)
     user_role.can?(*permissions)
+  end
+
+  def administrative?
+    functional? && user_role.administrative?
   end
 
   private

@@ -2,60 +2,72 @@
 
 class UserPolicy < ApplicationPolicy
   def reset_password?
-    staff? && !record.staff?
+    access_user?
   end
 
   def change_email?
-    staff? && !record.staff?
+    access_user?
   end
 
   def disable_2fa?
-    admin? && !record.staff?
+    access_user?
   end
 
   def disable_sign_in_token_auth?
-    staff?
+    role.can?(:manage_user_access)
   end
 
   def enable_sign_in_token_auth?
-    staff?
+    role.can?(:manage_user_access)
   end
 
   def confirm?
-    staff? && !record.confirmed?
+    role.can?(:manage_user_access) && !record.confirmed?
+  end
+
+  # Permission-only check for the already-confirmed resend redirect.
+  # confirm? is false once the user is confirmed, so it cannot guard that path.
+  def resend?
+    role.can?(:manage_user_access)
   end
 
   def enable?
-    staff?
+    role.can?(:manage_users)
   end
 
   def approve?
-    staff? && !record.approved?
+    role.can?(:manage_users) && !record.approved?
   end
 
   def reject?
-    staff? && !record.approved?
+    role.can?(:manage_users) && !record.approved?
   end
 
   def disable?
-    staff? && !record.admin?
+    role.can?(:manage_users) && role.overrides?(record.user_role)
   end
 
+  # Legacy promote/demote still walks the boolean ladder. The actor check is
+  # manage_roles plus role position; the record booleans only describe the tier.
   def promote?
-    admin? && promoteable?
+    role.can?(:manage_roles) && role.overrides?(record.user_role) && promoteable?
   end
 
   def demote?
-    admin? && !record.admin? && demoteable?
+    role.can?(:manage_roles) && role.overrides?(record.user_role) && demoteable?
   end
 
   private
 
+  def access_user?
+    role.can?(:manage_user_access) && role.overrides?(record.user_role)
+  end
+
   def promoteable?
-    record.approved? && (!record.staff? || !record.admin?)
+    record.approved? && !record.admin?
   end
 
   def demoteable?
-    record.staff?
+    record.moderator? && !record.admin?
   end
 end

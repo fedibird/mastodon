@@ -35,9 +35,13 @@ module Admin
       end
     end
 
-    def edit; end
+    def edit
+      authorize @custom_emoji, :update?
+    end
 
     def update
+      authorize @custom_emoji, :update?
+
       return redirect_to admin_custom_emojis_path(filter_params) if params[:go_to_index]
 
       next_id = next_id(@custom_emoji.id)
@@ -52,8 +56,10 @@ module Admin
         render action: :edit
       end
     end
-  
+
     def batch
+      authorize :custom_emoji, :update?
+
       @form = Form::CustomEmojiBatch.new(form_custom_emoji_batch_params.merge(current_account: current_account, action: action_from_button))
       @form.save
     rescue ActionController::ParameterMissing

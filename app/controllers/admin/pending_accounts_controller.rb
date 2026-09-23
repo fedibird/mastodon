@@ -3,6 +3,7 @@
 module Admin
   class PendingAccountsController < BaseController
     before_action :set_accounts, only: :index
+    before_action :authorize_pending_accounts
 
     def index
       @form = Form::AccountBatch.new
@@ -28,6 +29,10 @@ module Admin
     end
 
     private
+
+    def authorize_pending_accounts
+      authorize :account, :index?
+    end
 
     def set_accounts
       @accounts = Account.joins(:user).merge(User.pending.recent).includes(user: :invite_request).page(params[:page])

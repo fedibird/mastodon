@@ -31,7 +31,7 @@ RSpec.describe AccountModerationNotePolicy do
 
     context 'admin' do
       it 'grants to destroy' do
-        expect(subject).to permit(admin, AccountModerationNotePolicy)
+        expect(subject).to permit(admin, account_moderation_note)
       end
     end
 

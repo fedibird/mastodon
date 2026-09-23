@@ -2,90 +2,96 @@
 
 class AccountPolicy < ApplicationPolicy
   def index?
-    staff?
+    role.can?(:manage_users)
   end
 
   def show?
-    staff?
+    role.can?(:manage_users)
   end
 
   def warn?
-    staff? && !record.user&.staff?
+    moderate_account?
   end
 
   def suspend?
-    staff? && !record.user&.staff? && !record.instance_actor?
+    moderate_account? && !record.instance_actor?
   end
 
   def destroy?
-    record.suspended_temporarily? && admin?
+    record.suspended_temporarily? && role.can?(:delete_user_data)
   end
 
   def unsuspend?
-    staff? && record.suspension_origin_local?
+    role.can?(:manage_users) && record.suspension_origin_local?
   end
 
   def sensitive?
-    staff? && !record.user&.staff?
+    moderate_account?
   end
 
   def unsensitive?
-    staff?
+    role.can?(:manage_users)
   end
 
   def silence?
-    staff? && !record.user&.staff?
+    moderate_account?
   end
 
   def unsilence?
-    staff?
+    role.can?(:manage_users)
   end
 
   def redownload?
-    admin?
+    role.can?(:manage_federation)
   end
 
   def remove_avatar?
-    staff?
+    moderate_account?
   end
 
   def remove_header?
-    staff?
+    moderate_account?
   end
 
   def subscribe?
-    admin?
+    role.can?(:manage_federation)
   end
 
   def unsubscribe?
-    admin?
+    role.can?(:manage_federation)
   end
 
   def change_default_priority?
-    admin? && !record.default_priority?
+    role.can?(:manage_users) && !record.default_priority?
   end
 
   def change_high_priority?
-    admin? && !record.high_priority?
+    role.can?(:manage_users) && !record.high_priority?
   end
 
   def change_low_priority?
-    admin? && !record.low_priority?
+    role.can?(:manage_users) && !record.low_priority?
   end
 
   def change_person_type?
-    admin? && !record.person_type?
+    role.can?(:manage_users) && !record.person_type?
   end
 
   def change_service_type?
-    admin? && !record.service_type?
+    role.can?(:manage_users) && !record.service_type?
   end
 
   def change_group_type?
-    admin? && !record.group_type?
+    role.can?(:manage_users) && !record.group_type?
   end
 
   def memorialize?
-    admin? && !record.user&.admin? && !record.instance_actor?
+    role.can?(:delete_user_data) && role.overrides?(record.user_role) && !record.instance_actor?
+  end
+
+  private
+
+  def moderate_account?
+    role.can?(:manage_users, :manage_reports) && role.overrides?(record.user_role)
   end
 end

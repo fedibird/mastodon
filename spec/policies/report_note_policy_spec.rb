@@ -25,7 +25,8 @@ RSpec.describe ReportNotePolicy do
   permissions :destroy? do
     context 'admin?' do
       it 'permit' do
-        expect(subject).to permit(admin, ReportNote)
+        report_note = Fabricate(:report_note, account: john)
+        expect(subject).to permit(admin, report_note)
       end
     end
 

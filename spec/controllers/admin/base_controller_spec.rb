@@ -5,11 +5,12 @@ require 'rails_helper'
 describe Admin::BaseController, type: :controller do
   controller do
     def success
+      authorize :dashboard, :index?
       render 'admin/reports/show'
     end
   end
 
-  it 'requires administrator or moderator' do
+  it 'forbids a user without dashboard permission' do
     routes.draw { get 'success' => 'admin/base#success' }
     sign_in(Fabricate(:user, admin: false, moderator: false))
     get :success

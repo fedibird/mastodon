@@ -9,6 +9,7 @@ module Admin
     layout 'admin'
 
     before_action :set_body_classes
+    after_action :verify_authorized
 
     private
 

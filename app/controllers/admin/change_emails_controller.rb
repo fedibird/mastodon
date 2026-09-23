@@ -37,7 +37,10 @@ module Admin
     end
 
     def require_local_account!
-      redirect_to admin_account_path(@account.id) unless @account.local? && @account.user.present?
+      return if @account.local? && @account.user.present?
+
+      authorize(@account.user || User.new, :change_email?)
+      redirect_to admin_account_path(@account.id)
     end
 
     def resource_params

@@ -129,11 +129,22 @@ module Admin
     end
 
     def require_remote_account!
-      redirect_to admin_account_path(@account.id) if @account.local?
+      return unless @account.local?
+
+      authorize @account, :redownload?
+      redirect_to admin_account_path(@account.id)
     end
 
     def require_local_account!
-      redirect_to admin_account_path(@account.id) unless @account.local? && @account.user.present?
+      return if @account.local? && @account.user.present?
+
+      if action_name == 'memorialize'
+        authorize @account, :memorialize?
+      else
+        authorize :account, :index?
+      end
+
+      redirect_to admin_account_path(@account.id)
     end
 
     def filtered_accounts
