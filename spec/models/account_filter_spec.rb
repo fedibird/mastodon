@@ -56,6 +56,47 @@ describe AccountFilter do
       expect(results).not_to include(custom.account)
     end
 
+    it 'includes users without a role when role_ids contains Everyone' do
+      custom = UserRole.create!(name: 'Filter role', position: 7, permissions_as_keys: %w(invite_users))
+      ordinary = Fabricate(:user)
+      matched = Fabricate(:user, admin: false, moderator: false)
+      matched.update_columns(role_id: custom.id)
+      owner = Fabricate(:user, admin: true)
+
+      everyone_results = described_class.new(role_ids: ['-99']).results
+      combined_results = described_class.new(role_ids: ['-99', custom.id.to_s]).results
+
+      expect(everyone_results).to include(ordinary.account)
+      expect(everyone_results).not_to include(matched.account, owner.account)
+      expect(combined_results).to include(ordinary.account, matched.account)
+      expect(combined_results).not_to include(owner.account)
+    end
+
+    it 'filters by the inviting user' do
+      inviter = Fabricate(:user)
+      invite = Fabricate(:invite, user: inviter)
+      invited = Fabricate(:user, invite: invite)
+      other = Fabricate(:user)
+
+      results = described_class.new(invited_by: inviter.id.to_s).results
+
+      expect(results).to include(invited.account)
+      expect(results).not_to include(other.account, inviter.account)
+    end
+
+    it 'keeps soft silence, hard silence, and alphabetic order' do
+      soft = Fabricate(:account)
+      soft.silence!
+      hard = Fabricate(:account)
+      hard.hard_silence!
+
+      expect(described_class.new(soft_silenced: '1').results).to include(soft)
+      expect(described_class.new(soft_silenced: '1').results).not_to include(hard)
+      expect(described_class.new(hard_silenced: '1').results).to include(hard)
+      expect(described_class.new(hard_silenced: '1').results).not_to include(soft)
+      expect(described_class.new(order: 'alphabetic').results).to include(soft, hard)
+    end
+
     it 'filters by role_ids without collapsing an array to a string' do
       custom = UserRole.create!(name: 'Filter role', position: 7, permissions_as_keys: %w(invite_users))
       matched = Fabricate(:user, admin: false, moderator: false)
