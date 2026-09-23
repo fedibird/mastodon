@@ -24,6 +24,8 @@
   <policy domain="coder" rights="none" pattern="*" />
   <policy domain="coder" rights="read | write" pattern="{PNG,APNG,JPEG,GIF,WEBP,BMP}" />
   <policy domain="coder" rights="write" pattern="{HISTOGRAM,RGB,RGBA,INFO}" />
+  <!-- JPEG XL is an input format only. Read lets ImageMagick decode it; output is WebP, so JXL write stays disabled. -->
+  <policy domain="coder" rights="read" pattern="JXL" />
 
   <!-- HEIC/HEIF/AVIF are temporarily disabled for security reasons. -->
   <policy domain="coder" rights="none" pattern="{HEIC,HEIF,AVIF}" />
