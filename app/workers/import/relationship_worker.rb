@@ -5,6 +5,36 @@ class Import::RelationshipWorker
 
   sidekiq_options queue: 'pull', retry: 8, dead: false
 
+  # Follow-import targets are claimed (queued) before this job runs. If every
+  # retry is used after the remote account resolves — and before ActivityPub
+  # delivery is reached — nothing else terminalizes them, so they stay queued.
+  # Only an explicit follow_import_target_id is settled. Ordinary follow, block,
+  # mute, and import jobs are ignored, and a late hook must not overwrite a
+  # result that is already terminal. Failure-tolerant.
+  sidekiq_retries_exhausted do |msg|
+    args         = msg['args'] || []
+    relationship = args[2]
+    options      = args[3].is_a?(Hash) ? args[3] : {}
+    target_id    = options['follow_import_target_id']
+
+    if relationship == 'follow' && target_id.present?
+      begin
+        ActiveRecord::Base.connection_pool.with_connection do
+          target = FollowImportTarget.find_by(id: target_id)
+
+          if target
+            FollowImport::TargetTransitionService.new.mark_delivery_failed(
+              target,
+              failure_code: 'relationship_retries_exhausted'
+            )
+          end
+        end
+      rescue StandardError => e
+        Rails.logger.warn("[Import::RelationshipWorker] retries-exhausted follow-import terminalization failed: #{e.class}: #{e.message}")
+      end
+    end
+  end
+
   def perform(account_id, target_account_uri, relationship, options)
     from_account   = Account.find(account_id)
     target_domain  = domain(target_account_uri)
@@ -25,6 +55,20 @@ class Import::RelationshipWorker
         FollowService.new.call(from_account, target_account, **options.merge(tracking_moved_account: true))
       rescue ActiveRecord::RecordInvalid
         raise if FollowLimitValidator.limit_for_account(from_account) < from_account.following_count
+
+        # Upstream swallows a non-limit RecordInvalid and the job succeeds.
+        # A tracked follow-import target was already claimed as queued, so that
+        # success would strand it: retries-exhausted never runs. Settle it here.
+        # If settling fails, re-raise so that hook can still run. Ordinary jobs
+        # with no follow_import_target_id stay swallowed.
+        if follow_import_target_id(relationship, options).present?
+          raise unless terminalize_tracked_follow_import(relationship, options, 'follow_record_invalid')
+        end
+      rescue Mastodon::NotPermittedError
+        # Permanent policy refusal after the account resolved (for example a
+        # domain new accounts may not follow). Retrying cannot succeed. Only an
+        # explicit follow-import target is settled; ordinary follows still raise.
+        raise unless terminalize_tracked_follow_import(relationship, options, 'follow_not_permitted')
       end
     when 'unfollow'
       UnfollowService.new.call(from_account, target_account)
@@ -42,6 +86,15 @@ class Import::RelationshipWorker
       UnsubscribeAccountService.new.call(from_account, target_account, **options)
     end
   rescue ActiveRecord::RecordNotFound
+    # Ordinary jobs keep swallowing this so they do not retry a missing record.
+    # A tracked follow-import target would otherwise stay queued: this return is
+    # a success, so the retries-exhausted hook never runs. Source-account loss
+    # and a moved-account hop that no longer exists both land here. If settling
+    # that target fails, re-raise so the retries-exhausted hook can still run.
+    tracked = follow_import_target_id(relationship, options).present?
+    terminalized = terminalize_tracked_follow_import(relationship, options, 'follow_record_not_found')
+    raise if tracked && !terminalized
+
     true
   end
 
@@ -67,6 +120,20 @@ class Import::RelationshipWorker
     return if options.blank?
 
     options['follow_import_target_id'] || options[:follow_import_target_id]
+  end
+
+  def terminalize_tracked_follow_import(relationship, options, failure_code)
+    target_id = follow_import_target_id(relationship, options)
+    return false if target_id.blank?
+
+    target = FollowImportTarget.find_by(id: target_id)
+    return true if target.nil?
+
+    FollowImport::TargetTransitionService.new.mark_delivery_failed(target, failure_code: failure_code)
+    true
+  rescue StandardError => e
+    Rails.logger.warn("[Import::RelationshipWorker] failed to terminalize follow-import target (#{failure_code}): #{e.class}: #{e.message}")
+    false
   end
 
   def mark_follow_import_target_unresolved(relationship, options)
