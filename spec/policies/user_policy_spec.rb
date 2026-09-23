@@ -112,56 +112,14 @@ RSpec.describe UserPolicy do
     end
   end
 
-  permissions :promote? do
-    context 'admin?' do
-      context 'promoteable?' do
-        it 'permits' do
-          expect(subject).to permit(admin, john.user)
-        end
-      end
-
-      context '!promoteable?' do
-        it 'denies' do
-          expect(subject).to_not permit(admin, admin.user)
-        end
-      end
+  permissions :change_role? do
+    it 'permits an actor who outranks the target and can manage roles' do
+      expect(subject).to permit(admin, john.user)
     end
 
-    context '!admin?' do
-      it 'denies' do
-        expect(subject).to_not permit(john, User)
-      end
-    end
-  end
-
-  permissions :demote? do
-    context 'admin?' do
-      context '!record.admin?' do
-        context 'demoteable?' do
-          it 'permits' do
-            john.user.update(moderator: true)
-            expect(subject).to permit(admin, john.user)
-          end
-        end
-
-        context '!demoteable?' do
-          it 'denies' do
-            expect(subject).to_not permit(admin, john.user)
-          end
-        end
-      end
-
-      context 'record.admin?' do
-        it 'denies' do
-          expect(subject).to_not permit(admin, admin.user)
-        end
-      end
-    end
-
-    context '!admin?' do
-      it 'denies' do
-        expect(subject).to_not permit(john, User)
-      end
+    it 'denies a peer and an actor without manage_roles' do
+      expect(subject).to_not permit(admin, admin.user)
+      expect(subject).to_not permit(john, john.user)
     end
   end
 end

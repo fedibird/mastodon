@@ -67,23 +67,6 @@ module UserRoles
     end
   end
 
-  # UserPolicy authorizes this. Admin::Accounts::RolesController is the only application caller.
-  def promote!
-    if moderator?
-      update!(moderator: false, admin: true)
-    elsif !admin?
-      update!(moderator: true)
-    end
-  end
-
-  def demote!
-    if admin?
-      update!(admin: false, moderator: true)
-    elsif moderator?
-      update!(moderator: false)
-    end
-  end
-
   def user_role
     assigned_role || UserRole.everyone
   end

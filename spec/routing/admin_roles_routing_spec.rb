@@ -5,19 +5,19 @@ require 'rails_helper'
 describe 'admin role routes' do
   include Rails.application.routes.url_helpers
 
-  it 'keeps the legacy promote and demote helpers on the accounts roles controller' do
+  it 'does not route legacy account promote and demote' do
     expect(post: '/admin/accounts/1/role/promote').to route_to(
-      controller: 'admin/accounts/roles',
-      action: 'promote',
-      account_id: '1'
+      controller: 'application',
+      action: 'raise_not_found',
+      unmatched_route: 'admin/accounts/1/role/promote'
     )
     expect(post: '/admin/accounts/1/role/demote').to route_to(
-      controller: 'admin/accounts/roles',
-      action: 'demote',
-      account_id: '1'
+      controller: 'application',
+      action: 'raise_not_found',
+      unmatched_route: 'admin/accounts/1/role/demote'
     )
-    expect(promote_admin_account_role_path(1)).to eq '/admin/accounts/1/role/promote'
-    expect(demote_admin_account_role_path(1)).to eq '/admin/accounts/1/role/demote'
+    expect(respond_to?(:promote_admin_account_role_path)).to be false
+    expect(respond_to?(:demote_admin_account_role_path)).to be false
   end
 
   it 'routes role management to Admin::RolesController' do
