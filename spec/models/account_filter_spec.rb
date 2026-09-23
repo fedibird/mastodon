@@ -42,6 +42,20 @@ describe AccountFilter do
       expect(User).to have_received(:matches_email).with('user@example.com')
     end
 
+    it 'keeps the legacy staff filter on moderator and admin booleans' do
+      viewer = UserRole.create!(name: 'Viewer', position: 8, permissions_as_keys: %w(view_devops))
+      legacy_moderator = Fabricate(:user, moderator: true)
+      legacy_moderator.update_columns(role_id: viewer.id)
+      reporter = UserRole.create!(name: 'Reporter', position: 9, permissions_as_keys: %w(manage_reports))
+      custom = Fabricate(:user, admin: false, moderator: false)
+      custom.update_columns(role_id: reporter.id)
+
+      results = described_class.new(staff: '1').results
+
+      expect(results).to include(legacy_moderator.account)
+      expect(results).not_to include(custom.account)
+    end
+
     it 'filters by role_ids without collapsing an array to a string' do
       custom = UserRole.create!(name: 'Filter role', position: 7, permissions_as_keys: %w(invite_users))
       matched = Fabricate(:user, admin: false, moderator: false)
