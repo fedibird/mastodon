@@ -68,6 +68,12 @@ class UserPolicy < ApplicationPolicy
     role.overrides?(record.user_role)
   end
 
+  # Whether the actor may change this user's current role. The destination
+  # role is checked separately so it cannot outrank the actor.
+  def change_role?
+    role.can?(:manage_roles) && role.overrides?(record.user_role)
+  end
+
   private
 
   def access_user?

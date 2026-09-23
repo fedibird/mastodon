@@ -33,7 +33,7 @@ class Admin::ActionLog < ApplicationRecord
     case action
     when :destroy, :create, :expire
       self.recorded_changes = target.attributes
-    when :update, :promote, :demote, :default_priority, :high_priority, :low_priority, :person_type, :service_type, :group_type
+    when :update, :promote, :demote, :change_role, :default_priority, :high_priority, :low_priority, :person_type, :service_type, :group_type
       self.recorded_changes = target.previous_changes
     when :change_email
       self.recorded_changes = ActiveSupport::HashWithIndifferentAccess.new(

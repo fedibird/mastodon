@@ -115,6 +115,11 @@ ja:
         new_email: 新しいメールアドレス
         submit: メールアドレスの変更
         title: "%{username} さんのメールアドレスを変更"
+      change_role:
+        changed_msg: ロールを変更しました!
+        label: ロールを変更
+        no_role: ロールなし
+        title: "%{username}さんのロールを変更"
       change_priorities:
         default: 優先度（通常）へ変更
         high: 優先度（高）へ変更
@@ -391,6 +396,7 @@ ja:
       action_types:
         assigned_to_self_report: 通報の担当者に設定
         change_email_user: ユーザーのメールアドレスを変更
+        change_role_user: ユーザーのロールを変更
         confirm_user: ユーザーの確認
         create_account_warning: 警告を作成
         create_announcement: お知らせを作成
@@ -400,6 +406,7 @@ ja:
         create_email_domain_block: メールドメインブロックを作成
         create_ip_block: IPルールを作成
         create_unavailable_domain: 配送できないドメインを作成
+        create_user_role: ロールを作成
         default_priority_account: アカウントを優先度（通常）に変更
         demote_user: ユーザーを降格
         destroy_announcement: お知らせを削除
@@ -410,6 +417,7 @@ ja:
         destroy_ip_block: IPルールを削除
         destroy_status: 投稿を削除
         destroy_unavailable_domain: 配送できないドメインを削除
+        destroy_user_role: ロールを削除
         disable_2fa_user: 二段階認証を無効化
         disable_custom_emoji: カスタム絵文字を無効化
         disable_user: ユーザーを無効化
@@ -439,9 +447,11 @@ ja:
         update_custom_emoji: カスタム絵文字を更新
         update_domain_block: ドメインブロックを更新
         update_status: 投稿を更新
+        update_user_role: ロールを更新
       actions:
         assigned_to_self_report_html: "%{name} さんが通報 %{target} を自身の担当に割り当てました"
         change_email_user_html: "%{name} さんが %{target} さんのメールアドレスを変更しました"
+        change_role_user_html: "%{name}さんが%{target}さんのロールを変更しました"
         confirm_user_html: "%{name} さんが %{target} さんのメールアドレスを確認済みにしました"
         create_account_warning_html: "%{name} さんが %{target} さんに警告メールを送信しました"
         create_announcement_html: "%{name} さんが新しいお知らせ %{target} を作成しました"
@@ -451,6 +461,7 @@ ja:
         create_email_domain_block_html: "%{name} さんが %{target} をメールドメインブロックに追加しました"
         create_ip_block_html: "%{name} さんが IP %{target} のルールを作成しました"
         create_unavailable_domain_html: "%{name} がドメイン %{target} への配送を停止しました"
+        create_user_role_html: "%{name}さんがロール『%{target}』を作成しました"
         default_priority_account_html: "%{name} さんが %{target} さんを優先度（通常）に変更しました"
         demote_user_html: "%{name} さんが %{target} さんを降格しました"
         destroy_announcement_html: "%{name} さんがお知らせ %{target} を削除しました"
@@ -461,6 +472,7 @@ ja:
         destroy_ip_block_html: "%{name} さんが IP %{target} のルールを削除しました"
         destroy_status_html: "%{name} さんが %{target} さんの投稿を削除しました"
         destroy_unavailable_domain_html: "%{name} がドメイン %{target} への配送を再開しました"
+        destroy_user_role_html: "%{name}さんがロール『%{target}』を削除しました"
         disable_2fa_user_html: "%{name} さんが %{target} さんの二段階認証を無効化しました"
         disable_custom_emoji_html: "%{name} さんがカスタム絵文字 %{target} を無効化しました"
         disable_user_html: "%{name} さんが %{target} さんのログインを無効化しました"
@@ -487,6 +499,7 @@ ja:
         update_custom_emoji_html: "%{name} さんがカスタム絵文字 %{target} を更新しました"
         update_domain_block_html: "%{name} が %{target} のドメインブロックを更新しました"
         update_status_html: "%{name} さんが %{target} さんの投稿を更新しました"
+        update_user_role_html: "%{name}さんがロール『%{target}』を変更しました"
       deleted_status: "(削除済)"
       empty: ログが見つかりませんでした
       filter_by_action: アクションでフィルター
@@ -1030,6 +1043,66 @@ ja:
       unassign: 担当を外す
       unresolved: 未解決
       updated_at: 更新日時
+    roles:
+      add_new: ロールを追加
+      assigned_users:
+        other: "%{count}人"
+      categories:
+        administration: 管理
+        devops: 開発者
+        invites: 招待
+        moderation: モデレーション
+        special: スペシャル
+      delete: 削除
+      description_html: "<strong>ユーザーロール</strong>を使うと、ユーザーがアクセスできる機能と管理画面の範囲をカスタマイズできます。"
+      edit: "『%{name}』のロールを編集"
+      everyone: デフォルトの権限
+      managed_by_server_settings: 現在この値はサーバー設定で管理されています
+      everyone_full_description_html: これは、ロールが割り当てられていないユーザーを含む<strong>すべてのユーザー</strong>に影響する<strong>基本ロール</strong>です。ほかのロールはこの権限を引き継ぎます。
+      permissions_count:
+        other: "%{count}件の権限"
+      privileges:
+        administrator: 管理者
+        administrator_description: この権限を持つユーザーはすべての権限を持ちます
+        delete_user_data: ユーザーデータの削除
+        delete_user_data_description: ほかのユーザーのデータを待ち時間なしで削除できます
+        invite_users: ユーザーを招待
+        invite_users_description: 新しいユーザーをサーバーへ招待できます
+        manage_announcements: お知らせの管理
+        manage_announcements_description: サーバーのお知らせを管理できます
+        manage_appeals: 異議申し立ての管理
+        manage_appeals_description: モデレーション対応への異議申し立てを確認できます
+        manage_blocks: ブロックの管理
+        manage_blocks_description: メールプロバイダーとIPアドレスをブロックできます
+        manage_custom_emojis: カスタム絵文字の管理
+        manage_custom_emojis_description: サーバーのカスタム絵文字を管理できます
+        manage_federation: 連合の管理
+        manage_federation_description: ほかのドメインとの連合を許可・拒否し、配送を制御できます
+        manage_invites: 招待の管理
+        manage_invites_description: 招待リンクの確認と無効化ができます
+        manage_reports: 通報の管理
+        manage_reports_description: 通報を確認し、モデレーション対応を行えます
+        manage_roles: ロールの管理
+        manage_roles_description: 自分より下のロールを管理し、割り当てできます
+        manage_rules: ルールの管理
+        manage_rules_description: サーバーのルールを変更できます
+        manage_settings: 設定の管理
+        manage_settings_description: サイト設定を変更できます
+        manage_taxonomies: 分類の管理
+        manage_taxonomies_description: トレンドの確認とハッシュタグ設定の更新ができます
+        manage_user_access: アクセス権の管理
+        manage_user_access_description: ほかのユーザーの二段階認証を無効化し、メールアドレスの変更とパスワードのリセットができます
+        manage_users: ユーザーの管理
+        manage_users_description: ほかのユーザーの詳細を見て、モデレーション対応を行えます
+        manage_webhooks: Webhookの管理
+        manage_webhooks_description: 管理イベントのWebhookを設定できます
+        view_audit_log: 監査ログの表示
+        view_audit_log_description: サーバー上の管理操作の履歴を見られます
+        view_dashboard: ダッシュボードの表示
+        view_dashboard_description: ダッシュボードと各種の数値を見られます
+        view_devops: 開発者
+        view_devops_description: SidekiqとPgHeroのダッシュボードにアクセスできます
+      title: ロール
     rules:
       add_new: ルールを追加
       delete: 削除
@@ -2238,3 +2311,21 @@ ja:
     not_supported: このブラウザはセキュリティキーに対応していないようです
     otp_required: セキュリティキーを使用するには、まず二段階認証を有効にしてください。
     registered_on: "%{date} に登録"
+  activerecord:
+    errors:
+      models:
+        user:
+          attributes:
+            role_id:
+              elevated: 自分より上位のロールは割り当てできません
+        user_role:
+          attributes:
+            name:
+              reserved: はレガシーのOwner、Admin、Moderator連携が残っている間は予約されています
+            permissions_as_keys:
+              dangerous: は基本ロールには付与できません
+              elevated: に自分の持たない権限は含められません
+              own_role: は自分のロールでは変更できません
+            position:
+              elevated: は自分より高くできません
+              own_role: は自分のロールでは変更できません

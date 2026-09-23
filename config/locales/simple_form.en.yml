@@ -228,6 +228,12 @@ en:
         name: You can only change the casing of the letters, for example, to make it more readable
       user:
         chosen_languages: When checked, only posts in selected languages will be displayed in public timelines
+      user_role:
+        color: Color to be used for the role throughout the UI, as RGB in hex format
+        highlighted: This makes the role publicly visible
+        name: Public name of the role, if role is set to be displayed as a badge
+        permissions_as_keys: Users with this role will have access to...
+        position: Higher role decides conflict resolution in certain situations. Certain actions can only be performed on roles with a lower priority
     labels:
       account:
         fields:
@@ -534,6 +540,12 @@ en:
         usable: Allow posts to use this hashtag
       user:
         time_zone: Time zone
+      user_role:
+        color: Badge color
+        highlighted: Display role as badge on user profiles
+        name: Name
+        permissions_as_keys: Permissions
+        position: Priority
     'no': 'No'
     recommended: Recommended
     required:

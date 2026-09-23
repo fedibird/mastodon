@@ -31,6 +31,8 @@ module Admin::ActionLogsHelper
       link_to truncate(record.text), edit_admin_announcement_path(record.id)
     when 'IpBlock'
       "#{record.ip}/#{record.ip.prefix} (#{I18n.t("simple_form.labels.ip_block.severities.#{record.severity}")})"
+    when 'UserRole'
+      link_to record.name, edit_admin_role_path(record)
     end
   end
 
@@ -52,6 +54,9 @@ module Admin::ActionLogsHelper
       truncate(attributes['text'].is_a?(Array) ? attributes['text'].last : attributes['text'])
     when 'IpBlock'
       "#{attributes['ip']}/#{attributes['ip'].prefix} (#{I18n.t("simple_form.labels.ip_block.severities.#{attributes['severity']}")})"
+    when 'UserRole'
+      name = attributes['name']
+      name.is_a?(Array) ? name.last : name
     end
   end
 end
