@@ -2,18 +2,18 @@
 
 class ActionReviewRequestPolicy < ApplicationPolicy
   def index?
-    staff?
+    role.can?(:manage_reports)
   end
 
   def show?
-    staff?
+    role.can?(:manage_reports)
   end
 
   def approve?
-    staff?
+    role.can?(:manage_reports)
   end
 
   def reject?
-    staff?
+    role.can?(:manage_reports)
   end
 end

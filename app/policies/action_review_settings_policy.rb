@@ -2,10 +2,10 @@
 
 class ActionReviewSettingsPolicy < ApplicationPolicy
   def show?
-    admin?
+    role.can?(:manage_settings)
   end
 
   def update?
-    admin?
+    role.can?(:manage_settings)
   end
 end

@@ -284,4 +284,85 @@ RSpec.describe NotifyService, type: :service do
       end
     end
   end
+
+  describe 'moderation staff direct-message bypass' do
+    let(:recipient) { Fabricate(:user).account }
+
+    before do
+      recipient.user.settings.notification_emails = recipient.user.settings.notification_emails.merge('mention' => false)
+    end
+
+    def user_with_permissions(*permissions)
+      role = UserRole.create!(
+        name: "DM #{permissions.join('-')} #{SecureRandom.hex(3)}",
+        position: 45,
+        permissions_as_keys: permissions.map(&:to_s)
+      )
+      user = Fabricate(:user, admin: false, moderator: false)
+      user.update_columns(role_id: role.id)
+      user
+    end
+
+    def notify_direct(sender)
+      status = Fabricate(:status, account: sender, visibility: :direct)
+      mention = Fabricate(:mention, account: recipient, status: status)
+      described_class.new.call(recipient, :mention, mention)
+    end
+
+    it 'keeps the bypass for a legacy moderator who is blocked' do
+      sender = Fabricate(:user, moderator: true).account
+      recipient.block!(sender)
+
+      expect { notify_direct(sender) }.to change(Notification, :count).by(1)
+    end
+
+    it 'keeps the bypass for Owner and the default Admin role' do
+      owner = Fabricate(:user, admin: true).account
+      admin_user = Fabricate(:user, admin: false, moderator: false)
+      admin_user.update_columns(role_id: UserRole.find_by!(name: 'Admin').id)
+      recipient.block!(owner)
+      recipient.block!(admin_user.account)
+
+      expect { notify_direct(owner) }.to change(Notification, :count).by(1)
+      expect { notify_direct(admin_user.account) }.to change(Notification, :count).by(1)
+    end
+
+    it 'treats a manage_reports role as moderation staff when blocked' do
+      sender = user_with_permissions(:manage_reports).account
+      recipient.block!(sender)
+
+      expect { notify_direct(sender) }.to change(Notification, :count).by(1)
+    end
+
+    it 'does not let view_devops bypass a block' do
+      sender = user_with_permissions(:view_devops).account
+      recipient.block!(sender)
+
+      expect { notify_direct(sender) }.not_to change(Notification, :count)
+    end
+
+    it 'does not let view_dashboard bypass a block' do
+      sender = user_with_permissions(:view_dashboard).account
+      recipient.block!(sender)
+
+      expect { notify_direct(sender) }.not_to change(Notification, :count)
+    end
+
+    it 'does not let a disabled manage_reports user bypass a block' do
+      sender_user = user_with_permissions(:manage_reports)
+      sender_user.update_columns(disabled: true)
+      recipient.block!(sender_user.account)
+
+      expect { notify_direct(sender_user.account) }.not_to change(Notification, :count)
+    end
+
+    it 'lets a moderator bypass must_be_following_dm and refuses view_devops' do
+      recipient.user.settings.interactions = recipient.user.settings.interactions.merge('must_be_following_dm' => true)
+      moderator = Fabricate(:user, moderator: true).account
+      devops = user_with_permissions(:view_devops).account
+
+      expect { notify_direct(moderator) }.to change(Notification, :count).by(1)
+      expect { notify_direct(devops) }.not_to change(Notification, :count)
+    end
+  end
 end

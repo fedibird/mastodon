@@ -57,7 +57,10 @@ module Admin
     end
 
     def require_signatures_enabled!
-      redirect_to admin_relays_path, alert: I18n.t('admin.relays.signatures_not_enabled') if authorized_fetch_mode?
+      return unless authorized_fetch_mode?
+
+      authorize :relay, :update?
+      redirect_to admin_relays_path, alert: I18n.t('admin.relays.signatures_not_enabled')
     end
   end
 end

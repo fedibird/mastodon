@@ -1,0 +1,68 @@
+# frozen_string_literal: true
+
+require 'rails_helper'
+
+RSpec.describe 'legacy Owner and Moderator authorization' do # rubocop:disable Metrics/BlockLength
+  before { load Rails.root.join('db', 'seeds', '03_roles.rb') }
+
+  let(:owner) { Fabricate(:user, admin: true, moderator: false) }
+  let(:moderator) { Fabricate(:user, admin: false, moderator: true) }
+  let(:ordinary) { Fabricate(:user, admin: false, moderator: false) }
+  let(:target) { Fabricate(:account) }
+
+  it 'keeps a functional legacy admin on the Owner role with every permission' do
+    expect(owner.user_role.name).to eq 'Owner'
+    expect(owner).to be_admin
+    expect(owner).not_to be_moderator
+    expect(owner.can?(:view_devops)).to be true
+    expect(owner.can?(:manage_settings)).to be true
+    expect(owner.can?(:manage_reports)).to be true
+    expect(AccountPolicy.new(owner.account, target).show?).to be true
+    expect(SettingsPolicy.new(owner.account, nil).show?).to be true
+    expect(DashboardPolicy.new(owner.account, nil).index?).to be true
+  end
+
+  it 'keeps a functional legacy moderator on the Moderator permission set' do
+    expect(moderator.user_role.name).to eq 'Moderator'
+    expect(moderator).to be_moderator
+    expect(moderator.can?(:manage_reports)).to be true
+    expect(moderator.can?(:manage_users)).to be true
+    expect(moderator.can?(:view_dashboard)).to be true
+    expect(moderator.can?(:view_audit_log)).to be true
+    expect(moderator.can?(:manage_taxonomies)).to be true
+    expect(moderator.can?(:manage_settings)).to be false
+    expect(moderator.can?(:view_devops)).to be false
+    expect(moderator.can?(:manage_federation)).to be false
+    expect(ReportPolicy.new(moderator.account, nil).index?).to be true
+    expect(SettingsPolicy.new(moderator.account, nil).show?).to be false
+    expect(DashboardPolicy.new(moderator.account, nil).index?).to be true
+  end
+
+  it 'does not grant an ordinary user administrative permissions' do
+    expect(ordinary.user_role).to be_everyone
+    expect(ordinary.can?(:manage_reports)).to be false
+    expect(ordinary.can?(:manage_users)).to be false
+    expect(ordinary.administrative?).to be false
+    expect(AccountPolicy.new(ordinary.account, target).index?).to be false
+  end
+
+  it 'compares custom roles by position and refuses peers' do
+    higher = UserRole.create!(name: 'Higher', position: 20, permissions_as_keys: %w(manage_reports))
+    lower = UserRole.create!(name: 'Lower', position: 5, permissions_as_keys: %w(manage_reports))
+    peer = UserRole.create!(name: 'Peer', position: 20, permissions_as_keys: %w(manage_reports))
+    actor = Fabricate(:user)
+    lower_user = Fabricate(:user)
+    peer_user = Fabricate(:user)
+    actor.update_columns(role_id: higher.id, admin: false, moderator: false)
+    lower_user.update_columns(role_id: lower.id, admin: false, moderator: false)
+    peer_user.update_columns(role_id: peer.id, admin: false, moderator: false)
+
+    expect(higher.overrides?(lower)).to be true
+    expect(higher.overrides?(peer)).to be false
+    expect(AccountPolicy.new(actor.account, lower_user.account).warn?).to be true
+    expect(AccountPolicy.new(actor.account, peer_user.account).warn?).to be false
+    expect(UserRole.find_by!(name: 'Owner').overrides?(UserRole.find_by!(name: 'Admin'))).to be true
+    expect(UserRole.find_by!(name: 'Admin').overrides?(UserRole.find_by!(name: 'Moderator'))).to be true
+    expect(UserRole.find_by!(name: 'Moderator').overrides?(UserRole.everyone)).to be true
+  end
+end

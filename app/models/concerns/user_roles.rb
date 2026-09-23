@@ -11,6 +11,13 @@ module UserRoles
     scope :admins, -> { where(admin: true) }
     scope :moderators, -> { where(moderator: true) }
     scope :staff, -> { admins.or(moderators) }
+    # role_id nil is Everyone. Include those users when Everyone itself can.
+    scope :those_who_can, lambda { |*privileges|
+      matching_roles = UserRole.that_can(*privileges)
+      relation = where(role_id: matching_roles.map(&:id))
+      relation = relation.or(where(role_id: nil)) if matching_roles.any?(&:everyone?)
+      relation
+    }
 
     before_validation :sync_role_id_from_legacy_booleans, if: :sync_legacy_role_id?
   end
@@ -56,6 +63,7 @@ module UserRoles
     end
   end
 
+  # UserPolicy authorizes this. Admin::RolesController is the only application caller.
   def promote!
     if moderator?
       update!(moderator: false, admin: true)
@@ -97,6 +105,16 @@ module UserRoles
 
   def can?(*permissions)
     user_role.can?(*permissions)
+  end
+
+  def administrative?
+    functional? && user_role.administrative?
+  end
+
+  # DM and notification bypass for moderation staff. Broader administrative
+  # permissions such as view_devops must not skip block, mute, or DM limits.
+  def moderation_staff?
+    functional? && can?(:manage_users, :manage_reports)
   end
 
   private

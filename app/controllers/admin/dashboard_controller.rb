@@ -6,6 +6,8 @@ module Admin
     include Redisable
 
     def index
+      authorize :dashboard, :index?
+
       @system_checks         = Admin::SystemCheck.perform
       @users_count           = User.count
       @pending_users_count   = User.pending.count

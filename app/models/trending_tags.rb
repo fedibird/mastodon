@@ -66,7 +66,7 @@ class TrendingTags
         end
       end
 
-      users_for_review = User.staff.includes(:account).to_a.select(&:allows_trending_tag_emails?)
+      users_for_review = User.those_who_can(:manage_taxonomies).includes(:account).to_a.select { |user| user.functional? && user.allows_trending_tag_emails? }
 
       # Second pass to notify about previously unreviewed trends
 

@@ -2,10 +2,10 @@
 
 class ModerationEvidenceSnapshotPolicy < ApplicationPolicy
   def index?
-    staff?
+    role.can?(:manage_reports)
   end
 
   def show?
-    staff?
+    role.can?(:manage_reports)
   end
 end

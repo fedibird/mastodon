@@ -109,8 +109,35 @@ class UserRole < ApplicationRecord
     UserRole.create!(id: -99, permissions: Flags::DEFAULT)
   end
 
+  # Permissions that make a user an administrative actor for navigation,
+  # initial state, and staff notification preferences. invite_users is omitted
+  # so a normal user who can invite is not treated as staff.
+  ADMINISTRATIVE_PERMISSIONS = %i(
+    manage_reports
+    manage_users
+    manage_taxonomies
+    manage_federation
+    manage_blocks
+    view_audit_log
+    view_dashboard
+    manage_settings
+    manage_rules
+    manage_announcements
+    manage_custom_emojis
+    manage_webhooks
+    manage_roles
+    manage_invites
+    manage_user_access
+    delete_user_data
+    view_devops
+  ).freeze
+
   def self.that_can(*any_of_privileges)
     all.select { |role| role.can?(*any_of_privileges) }
+  end
+
+  def administrative?
+    self.class::ADMINISTRATIVE_PERMISSIONS.any? { |privilege| can?(privilege) }
   end
 
   def everyone?

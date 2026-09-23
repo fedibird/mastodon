@@ -16,6 +16,8 @@ module Admin
     end
 
     def batch
+      authorize :tag, :review?
+
       @form = Form::TagBatch.new(form_tag_batch_params.merge(current_account: current_account, action: action_from_button))
       @form.save
     rescue ActionController::ParameterMissing
@@ -25,11 +27,15 @@ module Admin
     end
 
     def approve_all
+      authorize :tag, :review?
+
       Form::TagBatch.new(current_account: current_account, tag_ids: Tag.pending_review.pluck(:id), action: 'approve').save
       redirect_to admin_tags_path(filter_params)
     end
 
     def reject_all
+      authorize :tag, :review?
+
       Form::TagBatch.new(current_account: current_account, tag_ids: Tag.pending_review.pluck(:id), action: 'reject').save
       redirect_to admin_tags_path(filter_params)
     end

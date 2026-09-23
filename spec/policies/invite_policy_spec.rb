@@ -8,87 +8,58 @@ RSpec.describe InvitePolicy do
   let(:admin)   { Fabricate(:user, admin: true).account }
   let(:john)    { Fabricate(:user).account }
 
-  permissions :index? do
-    context 'staff?' do
-      it 'permits' do
-        expect(subject).to permit(admin, Invite)
-      end
+  around do |example|
+    previous = Setting.min_invite_role
+    example.run
+  ensure
+    Setting.min_invite_role = previous
+    Rails.cache.clear
+  end
+
+  permissions :index?, :deactivate_all? do
+    it 'permits an owner and denies an ordinary user' do
+      expect(subject).to permit(admin, Invite)
+      expect(subject).to_not permit(john, Invite)
     end
   end
 
   permissions :create? do
-    context 'min_required_role?' do
-      it 'permits' do
-        allow_any_instance_of(described_class).to receive(:min_required_role?) { true }
-        expect(subject).to permit(john, Invite)
-      end
+    it 'denies everyone, including Owner, when invites are disabled' do
+      Setting.min_invite_role = 'disabled'
+      UserRole::LegacySettingsSync.call
+
+      expect(subject).to_not permit(admin, Invite)
+      expect(subject).to_not permit(john, Invite)
     end
 
-    context 'not min_required_role?' do
-      it 'denies' do
-        allow_any_instance_of(described_class).to receive(:min_required_role?) { false }
-        expect(subject).to_not permit(john, Invite)
-      end
-    end
-  end
+    it 'permits a functional user when Everyone has invite_users' do
+      Setting.min_invite_role = 'user'
+      UserRole::LegacySettingsSync.call
 
-  permissions :deactivate_all? do
-    context 'admin?' do
-      it 'permits' do
-        expect(subject).to permit(admin, Invite)
-      end
+      expect(subject).to permit(john, Invite)
+      expect(subject).to permit(admin, Invite)
     end
 
-    context 'not admin?' do
-      it 'denies' do
-        expect(subject).to_not permit(john, Invite)
-      end
+    it 'denies a silenced user' do
+      Setting.min_invite_role = 'user'
+      UserRole::LegacySettingsSync.call
+      john.silence!
+
+      expect(subject).to_not permit(john, Invite)
     end
   end
 
   permissions :destroy? do
-    context 'owner?' do
-      it 'permits' do
-        expect(subject).to permit(john, Fabricate(:invite, user: john.user))
-      end
+    it 'permits the invite owner' do
+      expect(subject).to permit(john, Fabricate(:invite, user: john.user))
     end
 
-    context 'not owner?' do
-      context 'Setting.min_invite_role == "admin"' do
-        before do
-          Setting.min_invite_role = 'admin'
-        end
+    it 'permits a role that can manage invites' do
+      expect(subject).to permit(admin, Fabricate(:invite))
+    end
 
-        context 'admin?' do
-          it 'permits' do
-            expect(subject).to permit(admin, Fabricate(:invite))
-          end
-        end
-
-        context 'not admin?' do
-          it 'denies' do
-            expect(subject).to_not permit(john, Fabricate(:invite))
-          end
-        end
-      end
-
-      context 'Setting.min_invite_role != "admin"' do
-        before do
-          Setting.min_invite_role = 'else'
-        end
-
-        context 'staff?' do
-          it 'permits' do
-            expect(subject).to permit(admin, Fabricate(:invite))
-          end
-        end
-
-        context 'not staff?' do
-          it 'denies' do
-            expect(subject).to_not permit(john, Fabricate(:invite))
-          end
-        end
-      end
+    it 'denies an ordinary user who does not own the invite' do
+      expect(subject).to_not permit(john, Fabricate(:invite))
     end
   end
 end

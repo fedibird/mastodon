@@ -11,7 +11,7 @@ class StatusPolicy < ApplicationPolicy
   delegate :reply?, :expired?, to: :record
 
   def index?
-    staff?
+    role.can?(:manage_reports)
   end
 
   def show?
@@ -42,7 +42,7 @@ class StatusPolicy < ApplicationPolicy
   end
 
   def destroy?
-    staff? || owned?
+    owned? || role.can?(:manage_reports)
   end
 
   alias unreblog? destroy?
@@ -52,7 +52,7 @@ class StatusPolicy < ApplicationPolicy
   end
 
   def moderate?
-    staff?
+    role.can?(:manage_reports)
   end
 
   def show_mentions?

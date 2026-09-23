@@ -22,7 +22,7 @@
       = ff.input :mention, as: :boolean, wrapper: :with_label
       = ff.input :status_reference, as: :boolean, wrapper: :with_label, fedibird_features: true
 
-      - if current_user.staff?
+      - if current_user.administrative?
         = ff.input :report, as: :boolean, wrapper: :with_label
         = ff.input :pending_account, as: :boolean, wrapper: :with_label
         = ff.input :trending_tag, as: :boolean, wrapper: :with_label

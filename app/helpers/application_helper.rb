@@ -16,6 +16,10 @@ module ApplicationHelper
     ku
   ).freeze
 
+  def role_can?(*permissions)
+    current_user&.functional? && current_user&.can?(*permissions)
+  end
+
   def friendly_number_to_human(number, **options)
     # By default, the number of precision digits used by number_to_human
     # is looked up from the locales definition, and rails-i18n comes with

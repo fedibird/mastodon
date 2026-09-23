@@ -8,22 +8,18 @@ class ApplicationPolicy
     @record          = record
   end
 
-  def admin?
-    current_user&.functional? && current_user&.admin?
-  end
-
-  def moderator?
-    current_user&.functional? && current_user&.moderator?
-  end
-
-  def staff?
-    current_user&.functional? && current_user&.staff?
-  end
-
   private
 
   def current_user
     current_account&.user
+  end
+
+  # Permissions are ignored unless the user can actually act. A disabled,
+  # unconfirmed, unapproved, suspended, memorial, or moved user is nobody.
+  def role
+    return UserRole.nobody unless current_user&.functional?
+
+    current_user.user_role
   end
 
   def user_signed_in?
