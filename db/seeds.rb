@@ -5,6 +5,7 @@ account = Account.find_or_initialize_by(id: -99, actor_type: 'Application', lock
 account.save!
 
 load Rails.root.join('db', 'seeds', '03_roles.rb')
+UserRole::LegacySettingsSync.call
 
 if Rails.env.development?
   admin = Account.where(username: 'admin').first_or_initialize(username: 'admin')

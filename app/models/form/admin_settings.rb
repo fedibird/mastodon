@@ -116,6 +116,12 @@ class Form::AdminSettings
         setting.update(value: typecast_value(key, value))
       end
     end
+
+    # Legacy invite and badge settings are still the source of truth. Mirror
+    # them onto the default roles immediately. A missing role raises; do not
+    # report the save as successful when the mirror cannot be written.
+    UserRole::LegacySettingsSync.call
+    true
   end
 
   private
