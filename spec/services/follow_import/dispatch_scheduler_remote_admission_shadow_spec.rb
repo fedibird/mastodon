@@ -117,6 +117,9 @@ RSpec.describe FollowImport::DispatchScheduler, 'remote admission shadow' do # r
     allow(ActivityPub::DeliveryWorker).to receive(:perform_async)
     allow(FollowImport::BatchExecutionWorker).to receive(:perform_async)
     allow(FollowImport::BatchExecutionWorker).to receive(:perform_in)
+    allow_any_instance_of(FollowImport::ImportUnitResolver).to receive(:work_for) do |_resolver, target|
+      { acct: "acct-#{target.id}@remote.test", options: { 'show_reblogs' => true } }
+    end
   end
 
   it 'is a scheduler no-op when dispatch shadow and global are both off' do
