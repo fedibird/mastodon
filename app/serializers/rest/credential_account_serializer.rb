@@ -3,6 +3,12 @@
 class REST::CredentialAccountSerializer < REST::AccountSerializer
   attributes :source
 
+  has_one :role, serializer: REST::RoleSerializer
+
+  def role
+    object.user_role
+  end
+
   def source
     user = object.user
 

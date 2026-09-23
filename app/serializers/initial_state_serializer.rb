@@ -6,6 +6,7 @@ class InitialStateSerializer < ActiveModel::Serializer
              :settings, :max_toot_chars
 
   has_one :push_subscription, serializer: REST::WebPushSubscriptionSerializer
+  has_one :role, serializer: REST::RoleSerializer
 
   def meta # rubocop:disable Metrics/AbcSize
     store = {
@@ -170,6 +171,10 @@ class InitialStateSerializer < ActiveModel::Serializer
     store[:text] = object.text if object.text
 
     store
+  end
+
+  def role
+    object.current_account&.user_role
   end
 
   def max_toot_chars

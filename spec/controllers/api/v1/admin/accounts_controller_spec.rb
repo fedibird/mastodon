@@ -55,6 +55,95 @@ RSpec.describe Api::V1::Admin::AccountsController, type: :controller do
     end
   end
 
+  describe 'GET #show role entity' do
+    it 'returns the Owner role entity for a legacy admin account' do
+      owner = Fabricate(:user, admin: true)
+
+      get :show, params: { id: owner.account.id }
+
+      role = body_as_json[:role]
+      expect(response).to have_http_status(200)
+      expect(role).to be_a(Hash)
+      expect(role[:name]).to eq 'Owner'
+      expect(role[:permissions]).to eq UserRole::Flags::ALL.to_s
+      expect(body_as_json[:email]).to eq owner.email
+      expect(body_as_json).to include(:ip, :invite_request, :silenced, :confirmed)
+      expect(body_as_json[:silenced]).to be false
+    end
+
+    it 'returns a custom role entity' do
+      custom = UserRole.create!(name: 'Helper', position: 5, permissions_as_keys: %w(manage_reports), color: '#123456', highlighted: true)
+      target = Fabricate(:user, admin: false, moderator: false)
+      target.update_columns(role_id: custom.id)
+
+      get :show, params: { id: target.account.id }
+
+      role = body_as_json[:role]
+      expect(role[:id]).to eq custom.id.to_s
+      expect(role[:name]).to eq 'Helper'
+      expect(role[:color]).to eq '#123456'
+      expect(role[:highlighted]).to be true
+      expect(role[:permissions]).to eq target.user_role.computed_permissions.to_s
+      expect(body_as_json[:email]).to eq target.email
+    end
+
+    it 'returns a null role for a remote account' do
+      remote = Fabricate(:account, domain: 'remote.example', username: 'bob')
+
+      get :show, params: { id: remote.id }
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json[:role]).to be_nil
+      expect(body_as_json[:username]).to eq 'bob'
+      expect(body_as_json[:domain]).to eq 'remote.example'
+    end
+
+    it 'returns a null role for a local account without a user' do
+      local = Fabricate(:account, username: 'ghost')
+
+      get :show, params: { id: local.id }
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json[:role]).to be_nil
+      expect(body_as_json[:email]).to be_nil
+    end
+  end
+
+  describe 'GET #index assigned roles' do
+    it 'preloads assigned roles instead of looking each role up by id' do
+      everyone = UserRole.everyone
+      allow(UserRole).to receive(:everyone).and_return(everyone)
+
+      actor = User.includes(:assigned_role).find(user.id)
+      allow(User).to receive(:find).and_wrap_original do |method, *args|
+        args.first == user.id ? actor : method.call(*args)
+      end
+
+      2.times do |index|
+        role = UserRole.create!(name: "Helper #{index}", position: index + 1, permissions_as_keys: %w(manage_reports))
+        record = Fabricate(:user, admin: false, moderator: false)
+        record.update_columns(role_id: role.id)
+      end
+
+      queries = []
+      callback = lambda do |*_args, payload|
+        queries << payload[:sql]
+      end
+
+      ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
+        get :index
+      end
+
+      role_selects = queries.select { |sql| sql.include?('"user_roles"') && sql.match?(/\ASELECT/i) }
+      point_lookups = role_selects.grep(/"user_roles"\."id"\s*=/)
+
+      expect(response).to have_http_status(200)
+      expect(point_lookups).to be_empty
+      expect(role_selects.join("\n")).to include('"user_roles"."id" IN')
+      expect(body_as_json.map { |row| row.dig(:role, :name) }).to include('Helper 0', 'Helper 1', 'Moderator')
+    end
+  end
+
   describe 'POST #approve' do
     before do
       account.user.update(approved: false)
