@@ -141,7 +141,7 @@ class NotifyService < BaseService
 
   def from_staff?
     user = @notification.from_account.user
-    @notification.from_account.local? && user.present? && user.administrative?
+    @notification.from_account.local? && user.present? && user.moderation_staff?
   end
 
   def optional_non_following_and_direct?

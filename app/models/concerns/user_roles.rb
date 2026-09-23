@@ -63,6 +63,7 @@ module UserRoles
     end
   end
 
+  # UserPolicy authorizes this. Admin::RolesController is the only application caller.
   def promote!
     if moderator?
       update!(moderator: false, admin: true)
@@ -108,6 +109,12 @@ module UserRoles
 
   def administrative?
     functional? && user_role.administrative?
+  end
+
+  # DM and notification bypass for moderation staff. Broader administrative
+  # permissions such as view_devops must not skip block, mute, or DM limits.
+  def moderation_staff?
+    functional? && can?(:manage_users, :manage_reports)
   end
 
   private

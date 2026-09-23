@@ -50,7 +50,7 @@ SimpleNavigation::Configuration.run do |navigation|
     n.item :invites, safe_join([fa_icon('user-plus fw'), t('invites.title')]), invites_path, if: proc { Setting.min_invite_role != 'disabled' && current_user.functional? && current_user.can?(:invite_users) }
     n.item :development, safe_join([fa_icon('code fw'), t('settings.development')]), settings_applications_url, if: -> { current_user.functional? }
 
-    n.item :moderation, safe_join([fa_icon('gavel fw'), t('moderation.title')]), admin_reports_url, if: proc { role_can?(:view_audit_log, :manage_reports, :manage_users, :manage_invites, :manage_taxonomies, :manage_federation, :manage_blocks) } do |s|
+    n.item :moderation, safe_join([fa_icon('gavel fw'), t('moderation.title')]), nil, if: proc { role_can?(:view_audit_log, :manage_reports, :manage_users, :manage_invites, :manage_taxonomies, :manage_federation, :manage_blocks) } do |s|
       s.item :action_logs, safe_join([fa_icon('bars fw'), t('admin.action_logs.title')]), admin_action_logs_url, if: -> { role_can?(:view_audit_log) }
       s.item :moderation_evidence_snapshots, safe_join([fa_icon('folder-open fw'), t('admin.moderation_evidence_snapshots.title')]), admin_moderation_evidence_snapshots_url, highlights_on: %r{/admin/moderation_evidence}, if: -> { role_can?(:manage_reports) }
       s.item :action_reviews, safe_join([fa_icon('hourglass-half fw'), action_review_queue_nav_label]), admin_action_reviews_url, highlights_on: %r{/admin/action_reviews(/|\z)}, if: -> { role_can?(:manage_reports) }
@@ -64,7 +64,7 @@ SimpleNavigation::Configuration.run do |navigation|
       s.item :ip_blocks, safe_join([fa_icon('ban fw'), t('admin.ip_blocks.title')]), admin_ip_blocks_url, highlights_on: %r{/admin/ip_blocks}, if: -> { role_can?(:manage_blocks) }
     end
 
-    n.item :admin, safe_join([fa_icon('cogs fw'), t('admin.title')]), admin_dashboard_url, if: proc { role_can?(:view_dashboard, :manage_settings, :manage_rules, :manage_announcements, :manage_custom_emojis, :manage_federation, :manage_blocks, :view_devops) } do |s|
+    n.item :admin, safe_join([fa_icon('cogs fw'), t('admin.title')]), nil, if: proc { role_can?(:view_dashboard, :manage_settings, :manage_rules, :manage_announcements, :manage_custom_emojis, :manage_federation, :manage_blocks, :view_devops) } do |s|
       s.item :dashboard, safe_join([fa_icon('tachometer fw'), t('admin.dashboard.title')]), admin_dashboard_url, if: -> { role_can?(:view_dashboard) }
       s.item :settings, safe_join([fa_icon('cogs fw'), t('admin.settings.title')]), edit_admin_settings_url, if: -> { role_can?(:manage_settings) }, highlights_on: %r{/admin/settings}
       s.item :action_review_settings, safe_join([fa_icon('sliders fw'), t('admin.action_review_settings.title')]), edit_admin_action_review_settings_url, if: -> { role_can?(:manage_settings) }, highlights_on: %r{/admin/action_review_settings}
