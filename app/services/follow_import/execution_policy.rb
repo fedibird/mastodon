@@ -37,6 +37,11 @@
 # AND a valid adaptive profile is compatible with the PR F fixed
 # baseline, GLOBAL ticks may record what adaptive admission would have
 # done. Actual RemoteAdmission decisions are unchanged.
+#
+# remote_admission_shadow_enabled? is a default-off hypothetical
+# evaluator for the shadow planner. It is independent of
+# FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT. GLOBAL ticks ignore it
+# and keep authoritative enforcement semantics.
 module FollowImport
   module ExecutionPolicy
     module_function
@@ -197,6 +202,16 @@ module FollowImport
     # Does not apply to BatchExecutionWorker / GLOBAL=false.
     def remote_admission_enforcement_enabled?
       ENV['FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT'].to_s == 'true'
+    end
+
+    # Hypothetical fixed remote admission for the shadow planner.
+    # Default off. Independent of FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT.
+    # When true AND the scheduler is in dispatch shadow mode AND a valid
+    # RemoteAdmission profile is configured, the shadow planner evaluates
+    # the same RemoteAdmission implementation. It must not claim, enqueue,
+    # or change batch ownership. GLOBAL ticks ignore this flag.
+    def remote_admission_shadow_enabled?
+      ENV['FOLLOW_IMPORT_REMOTE_ADMISSION_SHADOW'].to_s == 'true'
     end
 
     # Shadow-only adaptive remote pacing. Default off. When true, a

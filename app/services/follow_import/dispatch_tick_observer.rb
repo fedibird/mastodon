@@ -113,6 +113,7 @@ module FollowImport
         'local_load_profile_schema_version' => FollowImport::LocalLoadProfile::SCHEMA_VERSION,
         'local_load_controller_schema_version' => FollowImport::LocalLoadGuard::SCHEMA_VERSION,
         'remote_admission_enforcement_enabled' => FollowImport::ExecutionPolicy.remote_admission_enforcement_enabled?,
+        'remote_admission_shadow_enabled' => FollowImport::ExecutionPolicy.remote_admission_shadow_enabled?,
         'remote_admission_profile_schema_version' => FollowImport::RemoteAdmissionProfile::SCHEMA_VERSION,
         'adaptive_remote_shadow_enabled' => FollowImport::ExecutionPolicy.remote_adaptive_shadow_enabled?,
         'adaptive_profile_schema_version' => FollowImport::AdaptiveRemoteProfile::SCHEMA_VERSION,

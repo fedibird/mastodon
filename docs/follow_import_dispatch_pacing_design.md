@@ -857,9 +857,14 @@ version 1) is also required. Merging this PR does not introduce a
 production per-domain number. No numeric value in the repository is a
 calibrated production recommendation.
 
-GLOBAL scheduler only. Legacy `BatchExecutionWorker` and `GLOBAL=false`
-keep PR C / legacy behavior. Shadow ticks must not claim that remote
-admission was evaluated.
+GLOBAL scheduler only for authoritative claims. Legacy
+`BatchExecutionWorker` and ordinary dispatch shadow keep PR C / legacy
+behavior. `FOLLOW_IMPORT_REMOTE_ADMISSION_SHADOW` (default off) may
+hypothetically evaluate the same fixed admission on the shadow planner
+before GLOBAL enforcement. That tick still does not claim.
+`execution_config.remote_admission_mode=shadow` marks it. Ordinary
+shadow ticks (the flag off) must not claim that remote admission was
+evaluated.
 
 Hierarchy:
 
@@ -939,16 +944,22 @@ inputs. A Reject is a follow result, not remote backpressure.
 
 #### Operator rollout
 
-1. Deploy the code with `FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT`
-   false (default).
-2. Configure an explicit `FOLLOW_IMPORT_REMOTE_ADMISSION_PROFILE`.
-   Every number is operator-chosen and uncalibrated.
-3. Allow `DeliveryObserver` to populate domain → origin mappings
+Prefer shadow evaluation on live traffic before GLOBAL enforcement.
+No step below ships a production numeric default.
+
+1. `FOLLOW_IMPORT_DISPATCH_SHADOW=true`,
+   `FOLLOW_IMPORT_REMOTE_ADMISSION_SHADOW=true`, a valid
+   `FOLLOW_IMPORT_REMOTE_ADMISSION_PROFILE`, `GLOBAL=false`,
+   `REMOTE_ADMISSION_ENFORCEMENT=false`.
+2. Let `DeliveryObserver` populate domain → origin mappings
    (warmup works while enforcement is still off, once a valid profile
-   exists).
-4. Inspect tick telemetry and runtime health.
-5. Set `FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT=true`.
-6. Monitor skipped destination/origin/Retry-After/429/unavailable
+   exists). Observe skip reasons, scan budget, and fairness on shadow
+   ticks (`remote_admission_mode=shadow`, `claimed_count=0`).
+3. Calibrate the same profile from that observation.
+4. Set `FOLLOW_IMPORT_DISPATCH_GLOBAL=true` and
+   `FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT=true`. The shadow flag
+   is unnecessary once enforcement is authoritative.
+5. Monitor skipped destination/origin/Retry-After/429/unavailable
    counts, scan-budget exhaustion, planned vs claimed, and queue/load
    telemetry.
 
@@ -1218,6 +1229,9 @@ Feature flags (names illustrative), all default **off**:
   recording)
 - `FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT` (default off; PR F fixed
   admission only, GLOBAL scheduler only)
+- `FOLLOW_IMPORT_REMOTE_ADMISSION_SHADOW` (default off; hypothetical
+  fixed admission on the dispatch-shadow planner; same profile and
+  implementation; does not claim)
 - `FOLLOW_IMPORT_REMOTE_ADMISSION_PROFILE` (explicit versioned JSON;
   no bundled production numbers)
 - `FOLLOW_IMPORT_REMOTE_ADAPTIVE_SHADOW` (default off; PR G shadow
