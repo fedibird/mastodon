@@ -42,18 +42,41 @@ describe AccountFilter do
       expect(User).to have_received(:matches_email).with('user@example.com')
     end
 
-    it 'keeps the legacy staff filter on moderator and admin booleans' do
+    it 'selects staff by manage_reports on the effective role' do
+      owner = Fabricate(:user, admin: true)
+      moderator = Fabricate(:user, moderator: true)
+      admin_user = Fabricate(:user, admin: false, moderator: false)
+      admin_user.update_columns(role_id: UserRole.find_by!(name: 'Admin').id)
+      reporter_role = UserRole.create!(name: 'Reporter', position: 9, permissions_as_keys: %w(manage_reports))
+      reporter = Fabricate(:user, admin: false, moderator: false)
+      reporter.update_columns(role_id: reporter_role.id)
       viewer = UserRole.create!(name: 'Viewer', position: 8, permissions_as_keys: %w(view_devops))
       legacy_moderator = Fabricate(:user, moderator: true)
       legacy_moderator.update_columns(role_id: viewer.id)
-      reporter = UserRole.create!(name: 'Reporter', position: 9, permissions_as_keys: %w(manage_reports))
-      custom = Fabricate(:user, admin: false, moderator: false)
-      custom.update_columns(role_id: reporter.id)
+      user_admin_role = UserRole.create!(name: 'User admin', position: 6, permissions_as_keys: %w(manage_users))
+      user_admin = Fabricate(:user, admin: false, moderator: false)
+      user_admin.update_columns(role_id: user_admin_role.id)
+      ordinary = Fabricate(:user)
+
+      expect(User).not_to receive(:staff)
+      results = described_class.new(staff: '1').results
+      role_results = described_class.new(role_ids: UserRole.that_can(:manage_reports).map(&:id)).results
+
+      expect(results).to include(owner.account, moderator.account, admin_user.account, reporter.account)
+      expect(results).not_to include(legacy_moderator.account, user_admin.account, ordinary.account)
+      expect(results).to match_array(role_results)
+    end
+
+    it 'includes ordinary users when Everyone can manage reports' do
+      everyone = UserRole.everyone
+      everyone.update_columns(permissions: everyone.permissions | UserRole::FLAGS[:manage_reports])
+      ordinary = Fabricate(:user)
 
       results = described_class.new(staff: '1').results
 
-      expect(results).to include(legacy_moderator.account)
-      expect(results).not_to include(custom.account)
+      expect(UserRole.that_can(:manage_reports)).to include(UserRole.everyone)
+      expect(results).to include(ordinary.account)
+      expect(results).to match_array(described_class.new(role_ids: UserRole.that_can(:manage_reports).map(&:id)).results)
     end
 
     it 'includes users without a role when role_ids contains Everyone' do

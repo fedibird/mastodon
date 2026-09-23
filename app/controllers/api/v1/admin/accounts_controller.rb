@@ -110,8 +110,8 @@ class Api::V1::Admin::AccountsController < Api::BaseController
     params.permit(*FILTER_PARAMS)
   end
 
-  # staff=true is Mastodon 4.2's manage_reports role set. Drop the staff key so
-  # AccountFilter does not also apply the legacy User.staff boolean scope.
+  # staff=true is Mastodon 4.2's manage_reports role set. Translate it to
+  # role_ids and drop staff so AccountFilter applies that set once.
   # role_ids stays internal: it is not a public filter or pagination parameter.
   def translated_filter_params
     translated = filter_params.to_h
