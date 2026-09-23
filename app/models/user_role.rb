@@ -96,10 +96,8 @@ class UserRole < ApplicationRecord
 
   scope :assignable, -> { where.not(id: -99).order(position: :asc) }
 
-  # Phase 1 does not add User.belongs_to :role, because User#role= is still the
-  # legacy string API. inverse_of is disabled so this collection does not assign
-  # through that setter.
-  has_many :users, foreign_key: :role_id, dependent: :nullify, inverse_of: false
+  # Inverse of User#assigned_role. User#role remains the legacy string API.
+  has_many :users, foreign_key: :role_id, dependent: :nullify, inverse_of: :assigned_role
 
   def self.nobody
     @nobody ||= UserRole.new(permissions: Flags::NONE, position: -1)
