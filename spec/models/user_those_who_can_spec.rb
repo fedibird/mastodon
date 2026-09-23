@@ -30,6 +30,7 @@ RSpec.describe User, '.those_who_can' do
     pending = Fabricate(:user, approved: false)
     mail = instance_double(ActionMailer::MessageDelivery, deliver_later: true)
 
+    allow(AdminMailer).to receive(:new_pending_account).and_return(mail)
     expect(AdminMailer).to receive(:new_pending_account).with(owner.account, pending).and_return(mail)
     expect(AdminMailer).to receive(:new_pending_account).with(moderator.account, pending).and_return(mail)
     expect(AdminMailer).not_to receive(:new_pending_account).with(disabled.account, pending)
