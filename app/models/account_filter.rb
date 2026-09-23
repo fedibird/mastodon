@@ -17,6 +17,7 @@ class AccountFilter
     staff
     order
     role_ids
+    invited_by
   ).freeze
 
   attr_reader :params
@@ -42,8 +43,13 @@ class AccountFilter
   private
 
   def set_defaults!
-    params['local']  = '1' if params['remote'].blank?
-    params['active'] = '1' if params['suspended'].blank? && params['soft_silenced'].blank? && params['hard_silenced'].blank? && params['pending'].blank?
+    # v2 omits origin/status. These internal flags suppress Fedibird defaults for
+    # that request only and are removed before a scope is built.
+    skip_local_default = params.delete('skip_local_default').present?
+    skip_active_default = params.delete('skip_active_default').present?
+
+    params['local']  = '1' if params['remote'].blank? && !skip_local_default
+    params['active'] = '1' if !skip_active_default && params['suspended'].blank? && params['soft_silenced'].blank? && params['hard_silenced'].blank? && params['pending'].blank?
     params['order']  = 'recent' if params['order'].blank?
   end
 
@@ -81,6 +87,8 @@ class AccountFilter
       accounts_with_users.merge(User.staff)
     when 'role_ids'
       role_scope(value)
+    when 'invited_by'
+      invited_by_scope(value)
     when 'order'
       order_scope(value)
     else
@@ -106,7 +114,22 @@ class AccountFilter
   end
 
   def role_scope(value)
-    accounts_with_users.merge(User.where(role_id: Array(value).map(&:to_s)))
+    role_ids = Array(value).map(&:to_s)
+    include_everyone = role_ids.delete('-99')
+
+    users = if role_ids.empty?
+              include_everyone ? User.where(role_id: nil) : User.none
+            elsif include_everyone
+              User.where(role_id: role_ids).or(User.where(role_id: nil))
+            else
+              User.where(role_id: role_ids)
+            end
+
+    accounts_with_users.merge(users)
+  end
+
+  def invited_by_scope(value)
+    Account.left_joins(user: :invite).merge(Invite.where(user_id: value.to_s))
   end
 
   def valid_ip?(value)

@@ -710,6 +710,10 @@ Rails.application.routes.draw do
         resources :keywords, only: [:show, :update, :destroy]
         resources :statuses, only: [:show, :destroy]
       end
+
+      namespace :admin do
+        resources :accounts, only: [:index]
+      end
     end
 
     namespace :web do
