@@ -13,7 +13,9 @@
 # second shadow allocation.
 #
 # Shadow must not transition targets, enqueue RelationshipWorker, or
-# finalize Imports. Global claims go through DispatchExecutor.
+# finalize Imports. FOLLOW_IMPORT_REMOTE_ADMISSION_SHADOW may pass the
+# same fixed RemoteAdmission into that planner only. It does not claim.
+# Global claims go through DispatchExecutor.
 # A GLOBAL effective budget of 0 skips owner/batch/target discovery
 # and does not write the fairness cursor.
 #
@@ -330,6 +332,7 @@ module FollowImport
         'local_load_profile_schema_version' => FollowImport::LocalLoadProfile::SCHEMA_VERSION,
         'local_load_controller_schema_version' => FollowImport::LocalLoadGuard::SCHEMA_VERSION,
         'remote_admission_enforcement_enabled' => FollowImport::ExecutionPolicy.remote_admission_enforcement_enabled?,
+        'remote_admission_shadow_enabled' => FollowImport::ExecutionPolicy.remote_admission_shadow_enabled?,
         'remote_admission_profile_schema_version' => FollowImport::RemoteAdmissionProfile::SCHEMA_VERSION,
         'adaptive_remote_shadow_enabled' => FollowImport::ExecutionPolicy.remote_adaptive_shadow_enabled?,
         'adaptive_profile_schema_version' => FollowImport::AdaptiveRemoteProfile::SCHEMA_VERSION,
@@ -337,22 +340,24 @@ module FollowImport
     end
 
     def cheap_remote_identity(mode)
-      return {} unless mode == :global
+      shadowing = shadow_remote_evaluation?(mode)
+      return {} unless mode == :global || shadowing
 
-      enabled = FollowImport::ExecutionPolicy.remote_admission_enforcement_enabled?
-      adaptive_on = FollowImport::ExecutionPolicy.remote_adaptive_shadow_enabled?
+      enforced = mode == :global && FollowImport::ExecutionPolicy.remote_admission_enforcement_enabled?
+      adaptive_on = adaptive_identity_enabled?(mode, shadowing)
       facts = {
-        remote_admission_enabled: enabled,
+        remote_admission_enabled: enforced,
         remote_admission_configured: nil,
+        remote_admission_mode: remote_admission_mode_for(enforced, shadowing),
         profile: nil,
         adaptive_remote_shadow_enabled: adaptive_on,
         adaptive_remote_configured: nil,
         adaptive_profile: nil,
       }
-      if enabled || adaptive_on
+      if enforced || shadowing || (mode == :global && adaptive_on)
         profile = FollowImport::RemoteAdmissionProfile.from_env
         facts[:profile] = profile
-        if enabled
+        if enforced || shadowing
           facts[:remote_admission_configured] = profile.configured?
           facts[:remote_profile_version] = profile.version if profile.configured?
           warn_remote_misconfiguration(profile) unless profile.configured?
@@ -360,6 +365,27 @@ module FollowImport
       end
       facts.merge!(cheap_adaptive_identity(facts[:profile], adaptive_on))
       facts
+    end
+
+    # Dispatch shadow only. GLOBAL ignores FOLLOW_IMPORT_REMOTE_ADMISSION_SHADOW
+    # so a hypothetical limiter cannot change authoritative claims.
+    def shadow_remote_evaluation?(mode)
+      mode == :shadow && FollowImport::ExecutionPolicy.remote_admission_shadow_enabled?
+    end
+
+    # Adaptive stays a GLOBAL sidecar, plus the shadow planner when fixed
+    # remote shadow is also on (inner shrink of that hypothetical baseline).
+    def adaptive_identity_enabled?(mode, shadowing)
+      return false unless FollowImport::ExecutionPolicy.remote_adaptive_shadow_enabled?
+
+      mode == :global || shadowing
+    end
+
+    def remote_admission_mode_for(enforced, shadowing)
+      return 'enforced' if enforced
+      return 'shadow' if shadowing
+
+      'disabled'
     end
 
     def cheap_adaptive_identity(fixed_profile, adaptive_on)
@@ -384,17 +410,16 @@ module FollowImport
 
     def remote_admission_context(mode)
       identity = cheap_remote_identity(mode)
-      return identity unless mode == :global
+      return identity unless mode == :global || identity[:remote_admission_mode] == 'shadow'
 
-      # One memoized PR F runtime snapshot per GLOBAL tick. Adaptive
-      # shadow may reuse it for destination → origin mapping even when
-      # fixed enforcement is off. Do not construct RemoteAdmission,
-      # UnavailableDomain, or fixed dest/origin suppression just to
-      # obtain that mapping.
+      # One memoized runtime snapshot per tick. Shadow evaluation and
+      # adaptive shadow may reuse it for destination → origin mapping.
+      # Do not construct RemoteAdmission, UnavailableDomain, or fixed
+      # dest/origin suppression just to obtain that mapping.
       runtime = shared_runtime_snapshot(identity)
 
       admission = nil
-      if identity[:remote_admission_enabled] && identity[:profile]&.configured?
+      if fixed_remote_admission?(identity)
         hosts, hosts_ok = FollowImport::RemoteAdmission.unavailable_hosts
         admission = FollowImport::RemoteAdmission.new(
           profile: identity[:profile],
@@ -411,9 +436,18 @@ module FollowImport
       identity
     end
 
+    # Same RemoteAdmission implementation for authoritative GLOBAL
+    # enforcement and for hypothetical shadow planning. Shadow never
+    # reaches DispatchExecutor.
+    def fixed_remote_admission?(identity)
+      return false unless identity[:profile]&.configured?
+
+      identity[:remote_admission_enabled] || identity[:remote_admission_mode] == 'shadow'
+    end
+
     def shared_runtime_snapshot(identity)
       return unless identity[:profile]&.configured?
-      return unless identity[:remote_admission_enabled] || identity[:adaptive_remote_configured]
+      return unless identity[:remote_admission_enabled] || identity[:remote_admission_mode] == 'shadow' || identity[:adaptive_remote_configured]
 
       FollowImport::RemoteRuntimeState.new(profile: identity[:profile]).snapshot
     rescue StandardError => e
@@ -446,6 +480,7 @@ module FollowImport
       facts = remote.slice(
         :remote_admission_enabled,
         :remote_admission_configured,
+        :remote_admission_mode,
         :remote_profile_version,
         :profile,
         :adaptive_remote_shadow_enabled,
@@ -464,9 +499,13 @@ module FollowImport
     def remote_execution_config(remote)
       config = {}
       profile = remote[:profile]
-      config.merge!(profile.identity) if profile&.configured?
+      if profile
+        config['remote_admission_profile_source'] = profile.source
+        config.merge!(profile.identity) if profile.configured?
+      end
       adaptive = remote[:adaptive_profile]
       config.merge!(adaptive.identity) if adaptive&.configured?
+      config['remote_admission_mode'] = remote[:remote_admission_mode] if remote[:remote_admission_mode]
       config
     end
 

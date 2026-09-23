@@ -285,8 +285,11 @@ Uncalibrated, env-overridable, **not** load-aware:
   GLOBAL tick share the same v2/fallback control law)
 - `FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT` (default off; GLOBAL
   scheduler fixed remote admission only)
+- `FOLLOW_IMPORT_REMOTE_ADMISSION_SHADOW` (default off; hypothetical
+  fixed admission on the dispatch-shadow planner only; does not claim)
 - `FOLLOW_IMPORT_REMOTE_ADMISSION_PROFILE` (explicit versioned JSON;
-  no bundled production defaults)
+  no bundled production defaults; shared by shadow evaluation and
+  later enforcement)
 - `FOLLOW_IMPORT_REMOTE_ADAPTIVE_SHADOW` (default off; PR G shadow
   evaluation only — never changes actual claims)
 - `FOLLOW_IMPORT_REMOTE_ADAPTIVE_PROFILE` (explicit versioned JSON;
@@ -338,8 +341,8 @@ redefine `global_pending_count` / `active_batch_count`.
 | `global_base_budget` | GLOBAL tick unadjusted ceiling; NULL in shadow / unplanned ticks |
 | `effective_global_budget` | GLOBAL budget after LocalLoadEnforcement; NULL in shadow / unplanned ticks |
 | `skipped_stale_count` / `skipped_unrecoverable_count` / `skipped_wrong_owner_count` | GLOBAL claim skips; NULL when claiming was not attempted. `skipped_wrong_owner_count` is the claim-scope skip: the batch is not (`operational` AND `scheduler-owned`). A wrong cohort is counted here; it is not a distinct owner-axis event. |
-| `remote_admission_enabled` | whether the GLOBAL tick considered the remote-admission flag; NULL if not evaluated (shadow / no-op) |
-| `remote_admission_configured` | whether a valid RemoteAdmission profile was present; NULL if not evaluated |
+| `remote_admission_enabled` | authoritative enforcement flag for this tick. `true` only when GLOBAL enforcement is on. `false` when a GLOBAL tick has enforcement off, or when dispatch-shadow remote admission ran hypothetically. NULL when remote admission was not considered (ordinary shadow / no-op). Shadow evaluation does not set this to true. |
+| `remote_admission_configured` | whether a valid RemoteAdmission profile was present; NULL if not evaluated. Shadow evaluation records false for an absent or invalid profile. `execution_config.remote_admission_profile_source` is `unconfigured` or `invalid`. `execution_config.remote_admission_mode` is `disabled`, `shadow`, or `enforced`. `execution_config.remote_admission_shadow_enabled` is the flag snapshot. |
 | `remote_profile_version` | profile schema version when configured; NULL otherwise |
 | `skipped_destination_cap_count` / `skipped_origin_cap_count` | planned candidates skipped by fixed caps; NULL if remote admission was not evaluated; 0 = evaluated and none |
 | `skipped_unavailable_count` | exact UnavailableDomain / DFT host skips |
@@ -356,7 +359,7 @@ redefine `global_pending_count` / `active_batch_count`.
 | `adaptive_runtime_unavailable_count` | shadow reads that fell back because Redis was unavailable |
 | `adaptive_destination_cap_min` / `max` / `adaptive_origin_cap_min` / `max` | identity-free cap aggregates for the tick |
 | `load_snapshot` | Sidekiq load facts, or NULL if capture failed |
-| `execution_config` | execution + shadow-flag snapshot, including `dispatch_shadow_interval` from `FollowImport::ExecutionPolicy` (same ENV/default as `config/sidekiq.yml`) and `lease_strategy` (`durable_row_v1`). I2 adds `backlog_scope_strategy=dispatch_cohort_v1` and tick `schema_version` 10. PR F adds `remote_admission_enforcement_enabled`, `remote_admission_profile_version`, `remote_admission_profile_digest`, `destination_per_tick_cap`, `origin_per_tick_cap`, `max_scan_targets`, `max_scan_windows`. PR G adds `adaptive_remote_shadow_enabled`, `adaptive_profile_schema_version`, `adaptive_profile_digest`. Do not store the raw profile JSON. State-source aggregates (`learned` / `initial` / `stale_reset` / `digest_reset` / `runtime_unavailable`) live in `metadata`. |
+| `execution_config` | execution + shadow-flag snapshot, including `dispatch_shadow_interval` from `FollowImport::ExecutionPolicy` (same ENV/default as `config/sidekiq.yml`) and `lease_strategy` (`durable_row_v1`). I2 adds `backlog_scope_strategy=dispatch_cohort_v1` and tick `schema_version` 10. PR F adds `remote_admission_enforcement_enabled`, `remote_admission_profile_version`, `remote_admission_profile_digest`, `destination_per_tick_cap`, `origin_per_tick_cap`, `max_scan_targets`, `max_scan_windows`. Remote-admission shadow adds `remote_admission_shadow_enabled`, `remote_admission_mode` (`disabled` / `shadow` / `enforced`), and `remote_admission_profile_source` without redefining the PR F columns. PR G adds `adaptive_remote_shadow_enabled`, `adaptive_profile_schema_version`, `adaptive_profile_digest`. Do not store the raw profile JSON. State-source aggregates (`learned` / `initial` / `stale_reset` / `digest_reset` / `runtime_unavailable`) live in `metadata`. |
 | `error_class` | exception class for `shadow_error` |
 | `metadata` | schema version plus non-identifying facts |
 

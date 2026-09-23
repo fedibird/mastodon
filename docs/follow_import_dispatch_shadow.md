@@ -445,6 +445,75 @@ remain PR G/H or later. Retries stay outside the admission budget.
 `FOLLOW_IMPORT_DISPATCH_SHADOW` still never claims. Do not treat a
 shadow tick as remote-admission enforcement.
 
+## Fixed remote admission shadow
+
+Default **off**: `FOLLOW_IMPORT_REMOTE_ADMISSION_SHADOW=false`.
+This flag is independent of `FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT`.
+It does not enable GLOBAL and it does not claim.
+
+The shadow planner evaluates fixed remote admission only when all of
+these are true:
+
+- scheduler mode is dispatch shadow (`GLOBAL=false`, `DISPATCH_SHADOW=true`)
+- `FOLLOW_IMPORT_REMOTE_ADMISSION_SHADOW=true`
+- `FOLLOW_IMPORT_REMOTE_ADMISSION_PROFILE` is present and valid
+
+That evaluation uses the same `FollowImport::RemoteAdmission` class,
+the same profile, the same `unavailable_hosts` snapshot, and the same
+scan bounds as production enforcement. Runtime state is the Redis
+snapshot `DeliveryObserver` already writes when a valid profile exists
+(enforcement may stay off). The shadow tick does not scan raw telemetry
+tables.
+
+The admission object is passed only to the planner. The tick still
+must not transition targets, enqueue `Import::RelationshipWorker`,
+change `dispatch_owner`, destroy `Import` rows, or write a claim
+ledger. `claimed_count` stays 0. The existing fairness cursor write is
+unchanged.
+
+`remote_admission_enabled` stays the enforcement flag. Shadow
+evaluation records it as false. `execution_config.remote_admission_mode`
+is `shadow`, `disabled`, or `enforced`. Skip and scan columns are
+filled only when fixed admission actually ran (`0` means evaluated and
+none). An absent or invalid profile falls back to the ordinary shadow
+plan and records `remote_admission_configured=false` plus
+`remote_admission_profile_source` of `unconfigured` or `invalid`.
+
+GLOBAL ignores the shadow flag. Enforcement off keeps PR C claims even
+if the shadow flag is on. Enforcement on builds one authoritative
+`RemoteAdmission` (`remote_admission_mode=enforced`) and does not run a
+second hypothetical limiter.
+
+`FOLLOW_IMPORT_REMOTE_ADAPTIVE_SHADOW` is a different question: given
+the fixed baseline, how much further would the adaptive controller
+shrink. When both shadow flags are on during dispatch shadow, the
+planner uses the fixed hypothetical baseline and records adaptive
+would-block inside it. Adaptive still cannot change the plan.
+Adaptive compatibility with the fixed profile is unchanged.
+
+### Recommended rollout
+
+No repository number is a production default. Calibrate the profile
+from observation. Do not enable GLOBAL or enforcement in this step.
+
+```text
+Stage 1
+  FOLLOW_IMPORT_DISPATCH_SHADOW=true
+  FOLLOW_IMPORT_REMOTE_ADMISSION_PROFILE=<operator JSON>
+  FOLLOW_IMPORT_REMOTE_ADMISSION_SHADOW=true
+  FOLLOW_IMPORT_DISPATCH_GLOBAL=false
+  FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT=false
+
+Stage 2
+  production observation / export / calibration
+  (skip reasons, scan budget, fairness, mapped origins)
+
+Stage 3
+  FOLLOW_IMPORT_DISPATCH_GLOBAL=true
+  FOLLOW_IMPORT_REMOTE_ADMISSION_ENFORCEMENT=true
+  FOLLOW_IMPORT_REMOTE_ADMISSION_SHADOW is unnecessary
+```
+
 Overwrite-generated UNFOLLOW operations remain an unpaced burst.
 Retries of `Import::RelationshipWorker` / `ActivityPub::DeliveryWorker`
 do not re-enter this scheduler.
