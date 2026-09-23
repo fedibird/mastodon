@@ -1,10 +1,11 @@
 # frozen_string_literal: true
 
 # Mastodon v4.2 notifies mentions from FanOutOnWriteService during an Update.
-# Fedibird fan-out does not, so a significant explicit edit notifies newly
-# explicit local mentions here, after the edit transaction commits.
-# Audience matches ActivityPub::Activity::Create: object to/cc, then activity to/cc.
-# A local group that this edit mentions for the first time is distributed the
+# Fedibird fan-out does not, so a significant explicit edit enqueues
+# LocalNotificationWorker after the edit transaction commits. NotifyService
+# stays off this call stack. Audience matches ActivityPub::Activity::Create:
+# object to/cc, then activity to/cc. Local groups are not sent through that
+# worker; a group this edit mentions for the first time is distributed the
 # way Create does, and only for a live delivery.
 module ActivityPub::ProcessStatusUpdateDistribution
   private
@@ -14,11 +15,15 @@ module ActivityPub::ProcessStatusUpdateDistribution
 
     @newly_explicit_mentions.each do |mention|
       account = mention.account
-      next unless account&.local? && audience_includes?(account)
+      next unless notifiable_mention_account?(account)
       next if mention_notification_exists?(account, mention)
 
-      NotifyService.new.call(account, :mention, mention)
+      LocalNotificationWorker.perform_async(account.id, mention.id, mention.class.name, 'mention')
     end
+  end
+
+  def notifiable_mention_account?(account)
+    account.present? && account.local? && !account.group? && audience_includes?(account)
   end
 
   def mention_notification_exists?(account, mention)

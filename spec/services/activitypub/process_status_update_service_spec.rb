@@ -315,75 +315,121 @@ RSpec.describe ActivityPub::ProcessStatusUpdateService, type: :service do # rubo
       expect { subject.call(status.reload, json, json) }.to_not change(ModerationInteractionEvent, :count)
     end
 
-    it 'notifies a new local mention that is included in the update audience' do
+    it 'enqueues one notification worker job for a new local mention in the update audience' do
       carol = local_user('carol')
       mention_payload(carol, content: 'Hello universe', audience: :to)
+      allow(LocalNotificationWorker).to receive(:perform_async)
 
       subject.call(status, json, json)
 
       mention = status.mentions.find_by!(account: carol)
-      expect(Notification.where(account: carol, activity_type: 'Mention', activity_id: mention.id).count).to eq 1
+      expect(LocalNotificationWorker).to have_received(:perform_async).with(carol.id, mention.id, 'Mention', 'mention').once
     end
 
-    it 'does not create a second mention notification when the same update is reprocessed' do
+    it 'does not enqueue the notification worker again when the same update is reprocessed' do
       carol = local_user('carol')
       mention_payload(carol, content: 'Hello universe', audience: :to)
-      subject.call(status, json, json)
+      allow(LocalNotificationWorker).to receive(:perform_async).and_call_original
 
-      expect { subject.call(status.reload, json, json) }.to_not change(Notification, :count)
-      expect(Notification.where(account: carol, activity_type: 'Mention').count).to eq 1
+      subject.call(status, json, json)
+      mention = status.mentions.find_by!(account: carol)
+      expect(Notification.where(account: carol, activity_type: 'Mention', activity_id: mention.id).count).to eq 1
+
+      subject.call(status.reload, json, json)
+
+      expect(LocalNotificationWorker).to have_received(:perform_async).with(carol.id, mention.id, 'Mention', 'mention').once
     end
 
-    it 'does not notify a mention that was already explicit' do
+    it 'does not enqueue a notification for a mention that was already explicit' do
       Fabricate(:user, account: alice)
       Fabricate(:mention, status: status, account: alice)
       mention_payload(alice, content: 'Hello universe', audience: :cc)
+      allow(LocalNotificationWorker).to receive(:perform_async)
 
-      expect { subject.call(status, json, json) }.to_not change(Notification, :count)
+      subject.call(status, json, json)
+
+      expect(LocalNotificationWorker).to_not have_received(:perform_async)
     end
 
-    it 'notifies a silent local mention that becomes explicit' do
+    it 'enqueues a notification when a silent local mention becomes explicit' do
       carol = local_user('carol')
       Fabricate(:mention, status: status, account: carol, silent: true)
       mention_payload(carol, content: 'Hello universe', audience: :to)
+      allow(LocalNotificationWorker).to receive(:perform_async)
 
       subject.call(status, json, json)
 
       mention = status.mentions.find_by!(account: carol)
       expect(mention.silent).to be false
-      expect(Notification.where(account: carol, activity_type: 'Mention', activity_id: mention.id).count).to eq 1
+      expect(LocalNotificationWorker).to have_received(:perform_async).with(carol.id, mention.id, 'Mention', 'mention').once
     end
 
-    it 'does not notify a local mention that is absent from the update audience' do
+    it 'does not enqueue a notification for a local mention absent from the update audience' do
       carol = local_user('carol')
       mention_payload(carol, content: 'Hello universe')
+      allow(LocalNotificationWorker).to receive(:perform_async)
 
       subject.call(status, json, json)
 
       expect(status.mentions.find_by(account: carol)).to be_present
-      expect(Notification.where(account: carol, activity_type: 'Mention')).to be_empty
+      expect(LocalNotificationWorker).to_not have_received(:perform_async)
     end
 
-    it 'adds a direct status to the mentioned account conversation' do
+    it 'creates a mention notification and direct conversation when the worker runs' do
       carol = local_user('carol')
       status.update!(visibility: :direct)
       mention_payload(carol, content: 'Hello universe', audience: :to)
 
-      subject.call(status, json, json)
+      Sidekiq::Testing.fake! do
+        LocalNotificationWorker.clear
+        subject.call(status, json, json)
+
+        mention = status.mentions.find_by!(account: carol)
+        expect(Notification.where(account: carol, activity_type: 'Mention')).to be_empty
+        expect(LocalNotificationWorker.jobs.map { |job| job['args'] }).to eq [[carol.id, mention.id, 'Mention', 'mention']]
+
+        LocalNotificationWorker.drain
+      end
 
       conversation = AccountConversation.find_by!(account: carol, conversation_id: status.conversation_id)
       expect(conversation.status_ids).to include(status.id)
       expect(Notification.where(account: carol, activity_type: 'Mention').count).to eq 1
     end
 
+    it 'commits the edit and fan-out when mention notification delivery fails in the worker' do
+      carol = local_user('carol')
+      mention_payload(carol, content: 'Hello universe', audience: :to)
+      notify = instance_double(NotifyService)
+      allow(NotifyService).to receive(:new).and_return(notify)
+      allow(notify).to receive(:call).and_raise(RuntimeError, 'push failed')
+
+      Sidekiq::Testing.fake! do
+        LocalNotificationWorker.clear
+        expect { subject.call(status, json, json) }.to_not raise_error
+        expect(NotifyService).to_not have_received(:new)
+
+        status.reload
+        expect(status.text).to eq 'Hello universe'
+        expect(status.edits).to_not be_empty
+        expect(DistributionWorker).to have_received(:perform_async).with(status.id, 'update' => true)
+
+        mention = status.mentions.find_by!(account: carol)
+        expect { LocalNotificationWorker.new.perform(carol.id, mention.id, 'Mention', 'mention') }.to raise_error(RuntimeError, 'push failed')
+      ensure
+        LocalNotificationWorker.clear
+      end
+    end
+
     it 'enqueues group distribution when an edit first mentions a local group' do
       group = Fabricate(:account, username: 'localsquad', actor_type: 'Group')
       remote_follower('member', 'https://member.example/users/member/inbox').follow!(group)
       mention_payload(group, content: 'Hello universe', audience: :to)
+      allow(LocalNotificationWorker).to receive(:perform_async)
 
       subject.call(status, json, json, delivery: true)
 
       expect(ActivityPub::GroupDistributionWorker).to have_received(:perform_async).with(status.id)
+      expect(LocalNotificationWorker).to_not have_received(:perform_async)
     end
 
     it 'does not enqueue group distribution for a newly mentioned group outside a live delivery' do

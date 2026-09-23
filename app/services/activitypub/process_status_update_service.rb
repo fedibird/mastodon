@@ -27,7 +27,7 @@ class ActivityPub::ProcessStatusUpdateService < BaseService
   # and never truncates an existing larger set; explicit updates are rejected
   # wholesale by Setting.reject_pattern / reject_blurhash; emoji metadata is
   # merged without clearing Fedibird fields; a new explicit local mention is
-  # recorded once. Mention notifications are created after commit because
+  # recorded once. Mention notifications are enqueued after commit because
   # Fedibird fan-out does not own them. A missing or null attachment does not
   # clear stored media.
   def call(status, activity_json, object_json, request_id: nil, delivery: false)
