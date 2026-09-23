@@ -40,7 +40,7 @@ RSpec.describe User, type: :model do
       expect(User.staff).not_to include(user)
     end
 
-    it 'syncs role=, promote!, and demote!' do
+    it 'syncs role= onto role_id' do
       user = Fabricate(:user)
       user.role = 'admin'
       user.save!
@@ -49,17 +49,15 @@ RSpec.describe User, type: :model do
       expect(user).to be_admin
       expect(user).not_to be_moderator
 
-      user.demote!
+      user.role = 'moderator'
+      user.save!
       expect(user.reload.role_id).to eq moderator_role.id
       expect(user.role).to eq 'moderator'
 
-      user.demote!
+      user.role = 'user'
+      user.save!
       expect(user.reload.role_id).to be_nil
-
-      user.promote!
-      expect(user.reload.role_id).to eq moderator_role.id
-      user.promote!
-      expect(user.reload.role_id).to eq owner_role.id
+      expect(user.role).to eq 'user'
     end
 
     it 'does not rewrite role_id when an unrelated attribute changes' do

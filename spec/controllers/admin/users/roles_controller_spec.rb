@@ -16,6 +16,19 @@ describe Admin::Users::RolesController do
   let(:moderator_role) { UserRole.find_by!(name: 'Moderator') }
   let(:owner) { Fabricate(:user, admin: true) }
 
+  describe 'GET #show' do
+    it 'opens the assignment form for a lower user' do
+      sign_in owner, scope: :user
+      target = Fabricate(:user, admin: false, moderator: false)
+
+      get :show, params: { user_id: target.id }
+
+      expect(response).to have_http_status(200)
+      expect(assigns(:user)).to eq target
+      expect(assigns(:assignable_roles).map(&:name)).to include('Moderator', 'Admin', 'Owner')
+    end
+  end
+
   describe 'PATCH #update' do
     it 'lets a manage_roles actor assign a lower custom role' do
       sign_in owner, scope: :user

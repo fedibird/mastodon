@@ -338,13 +338,6 @@ Rails.application.routes.draw do
         end
       end
 
-      resource :role, only: [], controller: 'accounts/roles' do
-        member do
-          post :promote
-          post :demote
-        end
-      end
-
       resource :priority, only: [] do
         member do
           post :default
