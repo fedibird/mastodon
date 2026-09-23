@@ -778,6 +778,19 @@ export default function compose(state = initialState, action) {
       } else {
         map.set('poll', null);
       }
+
+      // Circle, quote, references, and schedule/expiration belong to a new post.
+      // They are immutable on an existing status and must not leak in from the previous draft.
+      map.set('quote_from', null);
+      map.set('quote_from_url', null);
+      map.set('references', ImmutableSet());
+      map.set('context_references', ImmutableSet());
+      map.set('scheduled', null);
+      map.set('scheduled_status_id', null);
+      map.set('expires', null);
+      map.set('expires_action', 'mark');
+      map.set('circle_id', null);
+      map.set('ignore_reference_check', false);
     });
   case COMPOSE_DATETIME_FORM_OPEN:
     if (state.get('id')) return state;

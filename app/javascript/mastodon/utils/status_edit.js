@@ -23,6 +23,10 @@ export const isStatusExpired = (status, now) => {
 };
 
 export const canEditStatus = (status, { me, expired = false, disablePost = false, now = Date.now() } = {}) => {
+  if (status && status.get('reblog')) {
+    return false;
+  }
+
   const target = editableStatus(status);
 
   if (!target || disablePost) {

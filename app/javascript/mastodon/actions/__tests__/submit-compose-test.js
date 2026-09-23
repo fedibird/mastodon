@@ -36,10 +36,20 @@ jest.mock('../modal', () => ({
   openModal: jest.fn((type, props) => ({ type: 'MODAL_OPEN', modalType: type, modalProps: props })),
 }));
 
+jest.mock('../../initial_state', () => ({
+  postReferenceModal: true,
+  missingAltTextModal: true,
+  enableFederatedTimeline: true,
+  allowPollImage: false,
+  maxAttachments: 4,
+  disablePost: false,
+}));
+
 import api from '../../api';
 import { importFetchedStatus } from '../importer';
 import { updateTimeline } from '../timelines';
-import { changeUploadCompose, submitCompose } from '../compose';
+import { openModal } from '../modal';
+import { changeUploadCompose, submitCompose, submitComposeWithCheck } from '../compose';
 
 const dispatchThunk = (thunk, state) => {
   const actions = [];
@@ -104,11 +114,16 @@ const statusResponse = {
   account: { id: 'a1' },
 };
 
+const intl = {
+  formatMessage: message => message.defaultMessage || message.id,
+};
+
 describe('submitCompose', () => {
   beforeEach(() => {
     api.mockReset();
     importFetchedStatus.mockClear();
     updateTimeline.mockClear();
+    openModal.mockClear();
   });
 
   it('POSTs a new status with the Fedibird payload', async () => {
@@ -193,5 +208,55 @@ describe('submitCompose', () => {
     expect(success.media.description).toEqual('ALT-RED-2');
     expect(success.media.meta.focus).toEqual({ x: 0.1, y: -0.2 });
     expect(success.attached).toBe(true);
+  });
+
+  it('asks to confirm references on a new post and skips that check while editing', async () => {
+    const request = jest.fn().mockResolvedValue({ data: { ...statusResponse, id: 's9' } });
+    api.mockReturnValue({ request });
+    const router = { location: { pathname: '/home' }, push: jest.fn(), goBack: jest.fn() };
+
+    const draftActions = await dispatchThunk(submitComposeWithCheck(router, intl), composeState());
+
+    expect(openModal).toHaveBeenCalledWith('CONFIRM', expect.objectContaining({
+      message: 'It contains references, do you want to post it?',
+    }));
+    expect(request).not.toHaveBeenCalled();
+    expect(draftActions.map(action => action.modalType)).toEqual(['CONFIRM']);
+
+    openModal.mockClear();
+    const editActions = await dispatchThunk(submitComposeWithCheck(router, intl), composeState({ compose: { id: 's9' } }));
+
+    expect(openModal).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({
+      url: '/api/v1/statuses/s9',
+      method: 'put',
+    }));
+    const data = request.mock.calls[0][0].data;
+    expect(data).not.toHaveProperty('visibility');
+    expect(data).not.toHaveProperty('circle_id');
+    expect(data).not.toHaveProperty('quote_id');
+    expect(data).not.toHaveProperty('status_reference_ids');
+    expect(data).not.toHaveProperty('scheduled_at');
+    expect(data).not.toHaveProperty('expires_at');
+    expect(data).not.toHaveProperty('in_reply_to_id');
+    expect(editActions.map(action => action.type)).toEqual(expect.arrayContaining(['COMPOSE_SUBMIT_REQUEST']));
+  });
+
+  it('still asks about missing alt text while editing', async () => {
+    const request = jest.fn();
+    api.mockReturnValue({ request });
+
+    const state = composeState({ compose: { id: 's9' } })
+      .setIn(['compose', 'media_attachments'], ImmutableList([
+        fromJS({ id: 'm1', type: 'image', description: '' }),
+      ]))
+      .setIn(['compose', 'references'], ImmutableSet(['ref-1']));
+
+    await dispatchThunk(submitComposeWithCheck({ location: { pathname: '/home' } }, intl), state);
+
+    expect(openModal).toHaveBeenCalledWith('CONFIRM', expect.objectContaining({
+      title: 'Add alt text?',
+    }));
+    expect(request).not.toHaveBeenCalled();
   });
 });

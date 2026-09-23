@@ -19,6 +19,7 @@ describe('COMPOSE_SET_STATUS', () => {
     .set('expires', '2026-02-01 00:00')
     .set('expires_action', 'delete')
     .set('scheduled_status_id', 'sched-1')
+    .set('ignore_reference_check', true)
     .set('prohibited_visibilities', ImmutableSet(['direct']))
     .set('prohibited_words', ImmutableSet(['nope']));
 
@@ -62,24 +63,25 @@ describe('COMPOSE_SET_STATUS', () => {
     expect(next.get('privacy')).toEqual('private');
   });
 
-  it('does not clear Fedibird-only compose fields', () => {
+  it('keeps account policy fields and drops the previous draft structure', () => {
     const next = compose(base, action);
 
     expect(next.get('searchability')).toEqual('private');
-    expect(next.get('circle_id')).toEqual('circle-1');
-    expect(next.get('quote_from')).toEqual('quoted-1');
-    expect(next.get('quote_from_url')).toEqual('https://example.test/quoted');
-    expect(next.get('references').includes('ref-1')).toBe(true);
-    expect(next.get('context_references').includes('ctx-1')).toBe(true);
-    expect(next.get('scheduled')).toEqual('2026-01-01 00:00');
-    expect(next.get('expires')).toEqual('2026-02-01 00:00');
-    expect(next.get('expires_action')).toEqual('delete');
-    expect(next.get('scheduled_status_id')).toEqual('sched-1');
     expect(next.get('prohibited_visibilities').includes('direct')).toBe(true);
     expect(next.get('prohibited_words').includes('nope')).toBe(true);
+    expect(next.get('circle_id')).toBeNull();
+    expect(next.get('quote_from')).toBeNull();
+    expect(next.get('quote_from_url')).toBeNull();
+    expect(next.get('references').isEmpty()).toBe(true);
+    expect(next.get('context_references').isEmpty()).toBe(true);
+    expect(next.get('scheduled')).toBeNull();
+    expect(next.get('expires')).toBeNull();
+    expect(next.get('expires_action')).toEqual('mark');
+    expect(next.get('scheduled_status_id')).toBeNull();
+    expect(next.get('ignore_reference_check')).toBe(false);
   });
 
-  it('does not copy quote or references from the status being edited', () => {
+  it('does not copy quote, references, or circle from the status being edited', () => {
     const next = compose(base, {
       ...action,
       status: action.status.merge(fromJS({
@@ -87,13 +89,17 @@ describe('COMPOSE_SET_STATUS', () => {
         status_reference_ids: ['other-ref'],
         searchability: 'public',
         circle_id: 'other-circle',
+        visibility: 'limited',
       })),
     });
 
-    expect(next.get('quote_from')).toEqual('quoted-1');
+    expect(next.get('quote_from')).toBeNull();
+    expect(next.get('quote_from_url')).toBeNull();
+    expect(next.get('references').isEmpty()).toBe(true);
     expect(next.get('references').includes('other-ref')).toBe(false);
     expect(next.get('searchability')).toEqual('private');
-    expect(next.get('circle_id')).toEqual('circle-1');
+    expect(next.get('circle_id')).toBeNull();
+    expect(next.get('privacy')).toEqual('limited');
   });
 
   it('clears editing state on cancel', () => {

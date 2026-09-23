@@ -270,12 +270,13 @@ export function submitComposeWithCheck(routerHistory, intl) {
     const missingAltTextMediaId = media.find(media => ['image', 'gifv'].includes(media.get('type')) && (media.get('description') ?? '').length === 0)?.get('id');
     const statusReferenceIds = getState().getIn(['compose', 'references']);
     const ignoreStatusReferenceCheck = getState().getIn(['compose', 'ignore_reference_check']);
+    const editing = getState().getIn(['compose', 'id'], null) !== null;
 
     if ((!status || !status.length) && media.size === 0) {
       return;
     }
 
-    if (postReferenceModal && !statusReferenceIds.isEmpty() && !ignoreStatusReferenceCheck) {
+    if (!editing && postReferenceModal && !statusReferenceIds.isEmpty() && !ignoreStatusReferenceCheck) {
       dispatch(openModal('CONFIRM', {
         message: intl.formatMessage(messages.postReferenceMessage),
         confirm: intl.formatMessage(messages.postReferenceConfirm),

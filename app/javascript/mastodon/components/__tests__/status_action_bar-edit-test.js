@@ -160,4 +160,20 @@ describe('StatusActionBar edit menu', () => {
 
     expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
   });
+
+  it('does not show Edit on a boost of your own status', () => {
+    renderBar(buildStatus({
+      id: 'boost-1',
+      reblog: {
+        id: 'original',
+        account: { id: 'me', acct: 'alice', username: 'alice', url: 'https://example.test/alice' },
+        visibility: 'public',
+        emoji_reactions: [],
+        expires_at: null,
+      },
+    }));
+
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
+  });
 });

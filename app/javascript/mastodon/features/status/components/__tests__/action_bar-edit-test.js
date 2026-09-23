@@ -138,4 +138,20 @@ describe('detailed status ActionBar edit menu', () => {
     renderBar(buildStatus({ expires_at: '2000-01-01T00:00:00.000Z' }));
     expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
   });
+
+  it('hides Edit on a boost of your own status', () => {
+    renderBar(buildStatus({
+      id: 'boost-1',
+      reblog: {
+        id: 'original',
+        account: { id: 'me', acct: 'alice', username: 'alice', url: 'https://example.test/alice' },
+        visibility: 'public',
+        emoji_reactions: [],
+        expires_at: null,
+      },
+    }));
+
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
+  });
 });
