@@ -3,10 +3,11 @@
 require 'rails_helper'
 
 RSpec.describe 'Trends tags API' do
-  let(:tags) { Fabricate.times(3, :tag) }
+  let(:tags) { Fabricate.times(3, :tag, trendable: true) }
 
   before do
-    allow(TrendingTags).to receive(:get).and_return(tags)
+    Setting.trends = true
+    tags.each_with_index { |tag, index| redis.zadd('trending_tags:allowed', index + 1, tag.id) }
   end
 
   describe 'GET /api/v1/trends/tags' do
@@ -17,12 +18,11 @@ RSpec.describe 'Trends tags API' do
       expect(body_as_json).to be_an(Array)
     end
 
-    it 'passes an explicit limit to TrendingTags' do
-      expect(TrendingTags).to receive(:get).with(3).and_return(tags)
-
-      get '/api/v1/trends/tags', params: { limit: 3 }
+    it 'honours an explicit limit' do
+      get '/api/v1/trends/tags', params: { limit: 1 }
 
       expect(response).to have_http_status(200)
+      expect(body_as_json.size).to eq 1
     end
   end
 

@@ -73,6 +73,14 @@ class Api::BaseController < ApplicationController
     response.headers['Link'] = LinkHeader.new(links) unless links.empty?
   end
 
+  def cache_if_unauthenticated!
+    return if user_signed_in?
+
+    expires_in 15.minutes, public: true
+    response.cache_control[:extras]&.delete('no-store')
+    response.headers['Cache-Control'] = 'max-age=900, public'
+  end
+
   def limit_param(default_limit)
     return default_limit unless params[:limit]
 

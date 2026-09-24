@@ -102,6 +102,7 @@ class Status < ApplicationRecord
 
   has_one :notification, as: :activity, dependent: :destroy
   has_one :status_stat, inverse_of: :status
+  has_one :trend, class_name: 'StatusTrend', inverse_of: :status, dependent: :destroy
   has_one :poll, inverse_of: :status, dependent: :destroy
   has_one :status_expire, inverse_of: :status
 
@@ -217,6 +218,22 @@ class Status < ApplicationRecord
     else
       preloaded.mentioned_account_ids[id] || []
     end
+  end
+
+  def trendable?
+    if attributes['trendable'].nil?
+      account.trendable?
+    else
+      attributes['trendable']
+    end
+  end
+
+  def requires_review?
+    attributes['trendable'].nil? && account.requires_review?
+  end
+
+  def requires_review_notification?
+    attributes['trendable'].nil? && account.requires_review_notification?
   end
 
   def public_reblogged_by_account_id(preloaded = nil)

@@ -68,8 +68,10 @@ class PreviewCard < ApplicationRecord
   update_index('statuses') { statuses }
 
   enum type: [:link, :photo, :video, :rich]
+  enum link_type: { unknown: 0, article: 1 }, _prefix: :link
 
   has_and_belongs_to_many :statuses
+  has_one :trend, class_name: 'PreviewCardTrend', inverse_of: :preview_card, dependent: :destroy
 
   has_attached_file :image, styles: IMAGE_STYLES, convert_options: GLOBAL_CONVERT_OPTIONS
   validates :url, presence: true, uniqueness: true
@@ -80,6 +82,32 @@ class PreviewCard < ApplicationRecord
   scope :cached, -> { where.not(image_file_name: [nil, '']) }
 
   before_save :extract_dimensions, if: :link?
+
+  def appropriate_for_trends?
+    link? && link_article? && title.present? && description.present? && image.present? && provider_name.present?
+  end
+
+  def domain
+    Addressable::URI.parse(url).normalized_host
+  end
+
+  def provider
+    @provider ||= PreviewCardProvider.matching_domain(domain)
+  end
+
+  attr_writer :provider
+
+  def trendable?
+    if attributes['trendable'].nil?
+      provider&.trendable?
+    else
+      attributes['trendable']
+    end
+  end
+
+  def history
+    @history ||= Trends::History.new('links', id)
+  end
 
   def local?
     false

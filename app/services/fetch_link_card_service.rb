@@ -3,6 +3,7 @@
 class FetchLinkCardService < BaseService
   include Redisable
   include Lockable
+  include LanguagesHelper
 
   URL_PATTERN = %r{
     (#{Twitter::TwitterText::Regex[:valid_url_preceding_chars]})                                                                #   $1 preceeding chars
@@ -62,7 +63,10 @@ class FetchLinkCardService < BaseService
       process_url if @card.nil? || @card.updated_at <= 2.weeks.ago || @card.missing_image?
     end
 
-    attach_card if @card&.persisted?
+    if @card&.persisted?
+      attach_card
+      Trends.links.register(@status)
+    end
   rescue HTTP::Error, OpenSSL::SSL::SSLError, Addressable::URI::InvalidURIError, Mastodon::HostValidationError, Mastodon::LengthValidationError => e
     Rails.logger.debug "Error fetching link #{@url}: #{e}"
     nil
@@ -180,6 +184,7 @@ class FetchLinkCardService < BaseService
       return false
     end
 
+    assign_trend_metadata
     @card.save_with_optional_image!
   end
 
@@ -214,7 +219,14 @@ class FetchLinkCardService < BaseService
 
     return if @card.title.blank? && @card.html.blank?
 
+    @card.provider_name = meta_property(page, 'og:site_name').presence || @card.provider_name
+    @card.language = valid_locale_or_nil(page.at_css('html')&.[]('lang'))
+    assign_trend_metadata
     @card.save_with_optional_image!
+  end
+
+  def assign_trend_metadata
+    @card.link_type = :article if @card.link? && @card.title.present? && @card.description.present?
   end
 
   def meta_property(page, property)

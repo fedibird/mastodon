@@ -7,7 +7,10 @@ RSpec.describe Api::V1::Trends::TagsController, type: :controller do
 
   describe 'GET #index' do
     before do
-      allow(TrendingTags).to receive(:get).and_return(Fabricate.times(3, :tag))
+      Setting.trends = true
+      Fabricate.times(3, :tag, trendable: true).each_with_index do |tag, index|
+        redis.zadd('trending_tags:allowed', index + 1, tag.id)
+      end
     end
 
     it 'returns http success' do

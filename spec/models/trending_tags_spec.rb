@@ -36,15 +36,15 @@ RSpec.describe TrendingTags do
     end
 
     it 'calculates and re-calculates scores' do
-      expect(described_class.get(10, filtered: false)).to eq [tag1, tag3]
+      expect(described_class.get(10, filtered: false)).to eq [tag1]
     end
 
     it 'omits hashtags below threshold' do
       expect(described_class.get(10, filtered: false)).to_not include(tag2)
     end
 
-    it 'decays scores' do
-      expect(redis.zscore('trending_tags', tag3.id)).to be < 0.9
+    it 'drops a cooled-down score below the decay threshold' do
+      expect(redis.zscore('trending_tags:all', tag3.id)).to be_nil
     end
   end
 
@@ -56,7 +56,7 @@ RSpec.describe TrendingTags do
     end
 
     it 'returns true if the hashtag is within limit' do
-      redis.zadd('trending_tags', 11, tag.id)
+      redis.zadd('trending_tags:allowed', 11, tag.id)
       expect(described_class.trending?(tag)).to be true
     end
 

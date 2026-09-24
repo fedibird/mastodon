@@ -40,6 +40,7 @@ class ActivityPub::Activity::Announce < ActivityPub::Activity
       tag.use!(@account)
     end
 
+    Trends.register!(@status)
     distribute(@status)
     expire_queue_action
   end

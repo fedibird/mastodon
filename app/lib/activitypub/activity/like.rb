@@ -23,6 +23,7 @@ class ActivityPub::Activity::Like < ActivityPub::Activity
 
     if favourite.nil?
       favourite = @original_status.favourites.create!(account: @account)
+      Trends.statuses.register(@original_status)
       NotifyService.new.call(@original_status.account, :favourite, favourite) if @original_status.account.local?
     end
 
