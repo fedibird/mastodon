@@ -18,17 +18,30 @@ class WebfingerSerializer < ActiveModel::Serializer
   end
 
   def links
-    if object.instance_actor?
-      [
-        { rel: 'http://webfinger.net/rel/profile-page', type: 'text/html', href: about_more_url(instance_actor: true) },
-        { rel: 'self', type: 'application/activity+json', href: instance_actor_url },
-      ]
-    else
-      [
-        { rel: 'http://webfinger.net/rel/profile-page', type: 'text/html', href: short_account_url(object) },
-        { rel: 'self', type: 'application/activity+json', href: account_url(object) },
-        { rel: 'http://ostatus.org/schema/1.0/subscribe', template: "#{authorize_interaction_url}?uri={uri}" },
-      ]
+    [
+      { rel: 'http://webfinger.net/rel/profile-page', type: 'text/html', href: profile_page_href },
+      { rel: 'self', type: 'application/activity+json', href: self_href },
+      { rel: 'http://ostatus.org/schema/1.0/subscribe', template: "#{authorize_interaction_url}?uri={uri}" },
+    ].tap do |links|
+      links << { rel: 'http://webfinger.net/rel/avatar', type: object.avatar.content_type, href: full_asset_url(object.avatar_original_url) } if show_avatar?
     end
+  end
+
+  private
+
+  def show_avatar?
+    media_present = object.avatar.present? && object.avatar.content_type.present?
+    # whitelist_mode is Fedibird's LIMITED_FEDERATION_MODE / WHITELIST_MODE flag.
+    allowed_by_config = ENV['DISALLOW_UNAUTHENTICATED_API_ACCESS'] != 'true' && !Rails.configuration.x.whitelist_mode
+
+    media_present && allowed_by_config
+  end
+
+  def profile_page_href
+    object.instance_actor? ? about_more_url(instance_actor: true) : short_account_url(object)
+  end
+
+  def self_href
+    object.instance_actor? ? instance_actor_url : account_url(object)
   end
 end

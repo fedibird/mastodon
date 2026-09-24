@@ -30,7 +30,9 @@ describe WellKnown::NodeInfoController, type: :controller do
       expect(json[:version]).to eq '2.0'
       expect(json[:usage]).to be_a Hash
       expect(json[:software]).to be_a Hash
+      expect(json[:software][:name]).to eq 'fedibird'
       expect(json[:protocols]).to be_an Array
+      expect(json[:services]).to eq(outbound: [], inbound: [])
     end
   end
 end

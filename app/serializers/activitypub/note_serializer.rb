@@ -150,7 +150,7 @@ class ActivityPub::NoteSerializer < ActivityPub::Serializer
   end
 
   def sensitive
-    object.account.sensitized? || object.sensitive && object.with_media?
+    object.account.sensitized? || object.sensitive
   end
 
   def virtual_attachments

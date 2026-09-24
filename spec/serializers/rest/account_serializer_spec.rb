@@ -36,6 +36,42 @@ RSpec.describe REST::AccountSerializer do
       user.settings['noindex'] = true
       expect(json[:noindex]).to be true
     end
+
+    it 'returns a highlighted custom role and hides one that is not highlighted' do
+      shown = UserRole.create!(name: 'Visible helper', permissions_as_keys: %w(manage_reports), highlighted: true, color: '#336699')
+      hidden = UserRole.create!(name: 'Quiet helper', permissions_as_keys: %w(manage_reports), highlighted: false)
+      user.update_columns(role_id: shown.id)
+
+      expect(json[:roles]).to eq [{ id: shown.id.to_s, name: 'Visible helper', color: '#336699' }]
+
+      user.update_columns(role_id: hidden.id)
+      hidden_json = JSON.parse(ActiveModelSerializers::SerializableResource.new(account.reload, serializer: described_class).to_json, symbolize_names: true)
+      expect(hidden_json[:roles]).to eq []
+    end
+
+    it 'uses the same highlighted rule for Owner, Admin, and Moderator' do
+      load Rails.root.join('db', 'seeds', '03_roles.rb')
+
+      %w(Owner Admin Moderator).each do |name|
+        role = UserRole.find_by!(name: name)
+        role.update!(highlighted: false)
+        user.update_columns(role_id: role.id)
+        hidden_json = JSON.parse(ActiveModelSerializers::SerializableResource.new(account.reload, serializer: described_class).to_json, symbolize_names: true)
+        expect(hidden_json[:roles]).to eq []
+
+        role.update!(highlighted: true, color: '#abcdef')
+        shown_json = JSON.parse(ActiveModelSerializers::SerializableResource.new(account.reload, serializer: described_class).to_json, symbolize_names: true)
+        expect(shown_json[:roles]).to eq [{ id: role.id.to_s, name: name, color: '#abcdef' }]
+      end
+    end
+
+    it 'returns an empty roles array for a suspended local account' do
+      role = UserRole.create!(name: 'Visible helper', permissions_as_keys: %w(manage_reports), highlighted: true)
+      user.update_columns(role_id: role.id)
+      account.suspend!
+
+      expect(json[:roles]).to eq []
+    end
   end
 
   describe 'remote account' do
@@ -45,6 +81,7 @@ RSpec.describe REST::AccountSerializer do
       expect(json[:uri]).to eq(account.uri)
       expect(json[:uri]).to eq('https://remote.example/users/alice')
       expect(json).not_to have_key(:noindex)
+      expect(json).not_to have_key(:roles)
     end
   end
 
