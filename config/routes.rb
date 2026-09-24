@@ -755,6 +755,7 @@ Rails.application.routes.draw do
 
         post :measures, to: 'measures#create'
         post :dimensions, to: 'dimensions#create'
+        post :retention, to: 'retention#create'
       end
     end
 
