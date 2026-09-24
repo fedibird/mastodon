@@ -15,6 +15,11 @@ RSpec.describe FetchLinkCardService do
     Nokogiri::HTML(html)
   end
 
+  def stub_image_download
+    allow(card).to receive(:image_remote_url=) { |url| card.define_singleton_method(:image_remote_url) { url } }
+    allow(card).to receive(:image) { instance_double(Paperclip::Attachment, present?: card.image_remote_url.present?) }
+  end
+
   it 'keeps a normal titled page unknown' do
     page = page_for('<html lang="ja"><head><title>会社概要</title><meta name="description" content="会社について"></head></html>')
 
@@ -47,6 +52,60 @@ RSpec.describe FetchLinkCardService do
     expect(card.link_type).to eq 'article'
     expect(card.language).to eq 'fr'
     expect(card.published_at).to eq Time.utc(2024, 6, 1)
+  end
+
+  it 'becomes trend-eligible from a NewsArticle that has no Open Graph tags' do
+    subject.instance_variable_set(:@url, 'https://news.example/story')
+    stub_image_download
+    page = page_for(<<~HTML)
+      <html>
+        <head><title>ニュース記事</title></head>
+        <script type="application/ld+json">
+          {
+            "@type": "NewsArticle",
+            "headline": "ニュース記事",
+            "description": "本文概要",
+            "image": "https://news.example/cover.jpg",
+            "publisher": { "name": "Example News" },
+            "inLanguage": "ja",
+            "datePublished": "2024-07-01T00:00:00Z"
+          }
+        </script>
+      </html>
+    HTML
+
+    subject.send(:apply_preview_card_details, page)
+
+    expect(card.link_type).to eq 'article'
+    expect(card.title).to eq 'ニュース記事'
+    expect(card.description).to eq '本文概要'
+    expect(card.provider_name).to eq 'Example News'
+    expect(card.image_remote_url).to eq 'https://news.example/cover.jpg'
+    expect(card.language).to eq 'ja'
+    expect(card.published_at).to eq Time.utc(2024, 7, 1)
+    expect(card).to be_appropriate_for_trends
+  end
+
+  it 'uses the JSON-LD publisher when og:site_name is missing' do
+    subject.instance_variable_set(:@url, 'https://news.example/story')
+    stub_image_download
+    page = page_for(<<~HTML)
+      <html>
+        <head>
+          <title>ニュース記事</title>
+          <meta name="description" content="本文概要">
+          <meta property="og:image" content="https://news.example/cover.jpg">
+        </head>
+        <script type="application/ld+json">
+          {"@type":"NewsArticle","publisher":{"name":"Example News"}}
+        </script>
+      </html>
+    HTML
+
+    subject.send(:apply_preview_card_details, page)
+
+    expect(card.provider_name).to eq 'Example News'
+    expect(card).to be_appropriate_for_trends
   end
 
   it 'clears article when a previously classified card is no longer an article' do

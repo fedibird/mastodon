@@ -213,15 +213,29 @@ class FetchLinkCardService < BaseService
       @card.type = :link
     end
 
-    @card.title            = meta_property(page, 'og:title').presence || page.at_xpath('//title')&.content || ''
-    @card.description      = meta_property(page, 'og:description').presence || meta_property(page, 'description') || ''
-    @card.image_remote_url = (Addressable::URI.parse(@url) + meta_property(page, 'og:image')).to_s if meta_property(page, 'og:image')
+    apply_preview_card_details(page)
 
     return if @card.title.blank? && @card.html.blank?
 
-    @card.provider_name = meta_property(page, 'og:site_name').presence || @card.provider_name
-    assign_trend_metadata(page)
     @card.save_with_optional_image!
+  end
+
+  # JSON-LD NewsArticle wins over Open Graph, matching Mastodon v4.2.13
+  # LinkDetailsExtractor. Image falls back to JSON-LD when og:image is absent
+  # so a NewsArticle can still satisfy appropriate_for_trends?.
+  def apply_preview_card_details(page)
+    data = structured_data(page)
+
+    @card.title = decode_text(data['headline'].presence || meta_property(page, 'og:title').presence || page.at_xpath('//title')&.content)
+    @card.description = decode_text(data['description'].presence || meta_property(page, 'og:description').presence || meta_property(page, 'description'))
+
+    image_url = meta_property(page, 'og:image').presence || structured_image(data)
+    @card.image_remote_url = (Addressable::URI.parse(@url) + image_url).to_s if image_url.present? && @url.present?
+
+    provider_name = decode_text(structured_publisher_name(data).presence || meta_property(page, 'og:site_name').presence)
+    @card.provider_name = provider_name if provider_name.present?
+
+    assign_trend_metadata(page)
   end
 
   def assign_trend_metadata(page = trend_page)
@@ -267,6 +281,26 @@ class FetchLinkCardService < BaseService
 
   def structured_date_published(page)
     structured_data(page)['datePublished']
+  end
+
+  def structured_publisher_name(data)
+    publisher = data['publisher']
+    publisher = publisher.first if publisher.is_a?(Array)
+    publisher.is_a?(Hash) ? publisher['name'] : nil
+  end
+
+  def structured_image(data)
+    image = data['image']
+    image = image.first if image.is_a?(Array)
+    return image['url'] if image.is_a?(Hash)
+
+    image
+  end
+
+  def decode_text(value)
+    return '' if value.blank?
+
+    HTMLEntities.new.decode(value.to_s)
   end
 
   def meta_property(page, property)
