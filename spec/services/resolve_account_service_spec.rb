@@ -39,6 +39,13 @@ RSpec.describe ResolveAccountService, type: :service do
           subject.call('foo@ap.example.com', skip_webfinger: true)
           expect(a_request(:get, 'https://ap.example.com/.well-known/webfinger?resource=acct:foo@ap.example.com')).to_not have_been_made
         end
+
+        it 'normalizes surrounding spaces and a leading @' do
+          alice = Fabricate(:account, username: 'alice', domain: 'example.com')
+
+          expect(subject.call(' @alice@example.com ', skip_webfinger: true)).to eq alice
+          expect(a_request(:get, 'https://example.com/.well-known/webfinger?resource=acct:alice@example.com')).to_not have_been_made
+        end
       end
     end
 
