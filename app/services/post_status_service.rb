@@ -3,6 +3,15 @@
 class PostStatusService < BaseService
   include Redisable
 
+  class UnexpectedMentionsError < StandardError
+    attr_reader :accounts
+
+    def initialize(message, accounts)
+      super(message)
+      @accounts = accounts
+    end
+  end
+
   MIN_SCHEDULE_OFFSET = 5.minutes.freeze
   MIN_EXPIRE_OFFSET   = 40.seconds.freeze # The original intention is 60 seconds, but we have a margin of 20 seconds.
 
@@ -24,6 +33,7 @@ class PostStatusService < BaseService
   # @option [Doorkeeper::Application] :application
   # @option [String] :idempotency Optional idempotency key
   # @option [Boolean] :with_rate_limit
+  # @option [Enumerable] :allowed_mentions Optional array of expected mentioned account IDs, raises `UnexpectedMentionsError` if unexpected accounts end up in mentions
   # @option [String] :searchability
   # @option [Boolean] :notify Optional notification of completion of schedule post
   # @return [Status]
@@ -138,6 +148,8 @@ class PostStatusService < BaseService
   end
 
   def process_status!
+    safeguard_mentions_before_save!
+
     # The following transaction block is needed to wrap the UPDATEs to
     # the media attachments when the status is created
 
@@ -149,6 +161,24 @@ class PostStatusService < BaseService
     ProcessHashtagsService.new.call(@status)
     ProcessStatusReferenceService.new.call(@status, status_reference_ids: (@options[:status_reference_ids] || []) + [@quote_id], urls: @options[:status_reference_urls])
     ProcessMentionsService.new.call(@status, @circle) unless @status.personal_visibility?
+  end
+
+  def safeguard_mentions_before_save!
+    return if @options[:allowed_mentions].nil?
+
+    preview = @account.statuses.new(status_attributes)
+    ProcessMentionsService.new.call(preview, @circle, save_records: false) unless preview.personal_visibility?
+    safeguard_mentions!(preview)
+  end
+
+  def safeguard_mentions!(status)
+    return if @options[:allowed_mentions].nil?
+
+    expected_account_ids = @options[:allowed_mentions].map(&:to_i)
+    unexpected_accounts = status.mentions.filter_map(&:account).uniq.reject { |account| expected_account_ids.include?(account.id) }
+    return if unexpected_accounts.empty?
+
+    raise UnexpectedMentionsError.new('Post would be sent to unexpected accounts', unexpected_accounts)
   end
 
   def schedule_status!

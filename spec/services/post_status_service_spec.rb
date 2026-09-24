@@ -13,6 +13,119 @@ RSpec.describe PostStatusService, type: :service do
     expect(status.text).to eq text
   end
 
+  it 'creates mentions when no allow-list is given' do
+    account = Fabricate(:account)
+    alice = Fabricate(:account, username: 'alice')
+    bob = Fabricate(:account, username: 'bob')
+
+    status = subject.call(account, text: '@alice hello @bob')
+
+    expect(status).to be_persisted
+    expect(status.mentions.map(&:account)).to contain_exactly(alice, bob)
+  end
+
+  it 'accepts an explicit mention that is on the allow-list' do
+    account = Fabricate(:account)
+    alice = Fabricate(:account, username: 'alice')
+
+    status = subject.call(account, text: '@alice hello', allowed_mentions: [alice.id])
+
+    expect(status).to be_persisted
+    expect(status.mentions.map(&:account)).to contain_exactly(alice)
+  end
+
+  it 'rejects an unexpected mention without saving the status' do
+    account = Fabricate(:account)
+    alice = Fabricate(:account, username: 'alice')
+    bob = Fabricate(:account, username: 'bob')
+    allow(DistributionWorker).to receive(:perform_async)
+
+    expect do
+      subject.call(account, text: '@alice hello @bob', allowed_mentions: [alice.id])
+    end.to raise_error(an_instance_of(PostStatusService::UnexpectedMentionsError).and(having_attributes(accounts: [bob])))
+
+    expect(Status.where(text: '@alice hello @bob')).to be_empty
+    expect(Mention.where(account: [alice, bob])).to be_empty
+    expect(DistributionWorker).not_to have_received(:perform_async)
+  end
+
+  it 'rejects every mention when the allow-list is explicitly empty' do
+    account = Fabricate(:account)
+    alice = Fabricate(:account, username: 'alice')
+
+    expect do
+      subject.call(account, text: '@alice hello', allowed_mentions: [])
+    end.to raise_error(PostStatusService::UnexpectedMentionsError)
+
+    expect(Status.where(text: '@alice hello')).to be_empty
+    expect(Mention.where(account: alice)).to be_empty
+  end
+
+  it 'allows a circle post with an empty allow-list when the text has no mentions' do
+    account = Fabricate(:account)
+    circle = Fabricate(:circle, account: account)
+    member = Fabricate(:account)
+    member.follow!(account)
+    circle.accounts << member
+
+    status = subject.call(account, text: 'こんにちは', circle: circle, allowed_mentions: [])
+
+    expect(status).to be_persisted
+    expect(status.mentions.map(&:account)).to include(member)
+  end
+
+  it 'allows a limited reply with an empty allow-list when the text has no mentions' do
+    account = Fabricate(:account)
+    parent_account = Fabricate(:account)
+    parent = Fabricate(:status, account: parent_account, visibility: :limited)
+    audience = Fabricate(:account)
+    parent.mentions.create!(account: audience, silent: true)
+
+    status = subject.call(account, text: 'hello', thread: parent, visibility: :limited, allowed_mentions: [])
+
+    expect(status).to be_persisted
+    expect(status.mentions.map(&:account_id)).to include(audience.id, parent_account.id)
+  end
+
+  it 'does not treat circle members as unexpected text mentions' do
+    account = Fabricate(:account)
+    alice = Fabricate(:account, username: 'circle_alice')
+    member = Fabricate(:account)
+    member.follow!(account)
+    circle = Fabricate(:circle, account: account)
+    circle.accounts << member
+
+    status = subject.call(account, text: '@circle_alice hello', circle: circle, allowed_mentions: [alice.id])
+
+    expect(status).to be_persisted
+    expect(status.mentions.map(&:account)).to include(alice, member)
+  end
+
+  it 'does not persist mentions or notifications while previewing' do
+    account = Fabricate(:account)
+    alice = Fabricate(:account, username: 'preview_alice')
+    status = account.statuses.new(text: '@preview_alice hello', visibility: :public)
+    allow(LocalNotificationWorker).to receive(:perform_async)
+
+    expect do
+      ProcessMentionsService.new.call(status, nil, save_records: false)
+    end.not_to change { [Mention.count, ModerationInteractionEvent.count] }
+
+    expect(status.mentions.map(&:account)).to contain_exactly(alice)
+    expect(status.mentions).to all(be_new_record)
+    expect(LocalNotificationWorker).not_to have_received(:perform_async)
+  end
+
+  it 'accepts duplicate mentions of an allowed account once' do
+    account = Fabricate(:account)
+    alice = Fabricate(:account, username: 'alice')
+
+    status = subject.call(account, text: '@alice @alice hey @alice', allowed_mentions: [alice.id])
+
+    expect(status).to be_persisted
+    expect(status.mentions.map(&:account)).to contain_exactly(alice)
+  end
+
   it 'creates a new response status' do
     in_reply_to_status = Fabricate(:status)
     account = Fabricate(:account)
@@ -68,13 +181,18 @@ RSpec.describe PostStatusService, type: :service do
     expect(status.params['text']).to eq 'Hi future!'
     expect(media.reload.status).to be_nil
     expect(Status.where(text: 'Hi future!').exists?).to be_falsey
+  end
 
-  it 'does not change statuses count' do
+  it 'does not persist a scheduled reply or change its counters' do
     account = Fabricate(:account)
     future = Time.now.utc + 2.hours
     previous_status = Fabricate(:status, account: account)
 
-    expect { subject.call(account, text: 'Hi future!', scheduled_at: future, thread: previous_status) }.not_to change { [account.statuses_count, previous_status.replies_count] }
+    expect do
+      subject.call(account, text: 'Hi future!', scheduled_at: future, thread: previous_status)
+    end.not_to change { [account.reload.statuses_count, previous_status.reload.replies_count] }
+
+    expect(Status.where(text: 'Hi future!')).to be_empty
   end
 
   it 'returns existing status when used twice with idempotency key' do
@@ -198,12 +316,13 @@ RSpec.describe PostStatusService, type: :service do
   end
 
   it 'crawls links' do
-    allow(LinkCrawlWorker).to receive(:perform_async)
+    worker = instance_double(LinkCrawlWorker, perform: true)
+    allow(LinkCrawlWorker).to receive(:new).and_return(worker)
     account = Fabricate(:account)
 
     status = subject.call(account, text: "test status update")
 
-    expect(LinkCrawlWorker).to have_received(:perform_async).with(status.id)
+    expect(worker).to have_received(:perform).with(status.id)
   end
 
   it 'attaches the given media to the created status' do

@@ -35,6 +35,16 @@ RSpec.describe Status, type: :model do
     end
   end
 
+  describe '#decrement_counter_caches' do
+    it 'does not change counters when an unsaved status is destroyed' do
+      account = Fabricate(:account)
+      parent = Fabricate(:status, account: account)
+      unsaved = account.statuses.build(text: 'draft', thread: parent, visibility: :public)
+
+      expect { unsaved.destroy }.not_to change { [account.reload.statuses_count, parent.reload.replies_count] }
+    end
+  end
+
   describe '#reply?' do
     it 'returns true if the status references another' do
       subject.thread = other

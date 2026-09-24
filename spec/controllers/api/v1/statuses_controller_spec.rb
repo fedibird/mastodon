@@ -97,6 +97,50 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
         end
       end
 
+      context 'with an allowed mention' do
+        let!(:alice) { Fabricate(:account, username: 'mentioned_alice') }
+
+        before do
+          post :create, params: { status: '@mentioned_alice hello', allowed_mentions: [alice.id] }
+        end
+
+        it 'returns http success' do
+          expect(response).to have_http_status(200)
+        end
+      end
+
+      context 'without an allow-list' do
+        let!(:alice) { Fabricate(:account, username: 'mentioned_alice') }
+        let!(:bob)   { Fabricate(:account, username: 'mentioned_bob') }
+
+        before do
+          post :create, params: { status: '@mentioned_alice hello @mentioned_bob' }
+        end
+
+        it 'returns http success' do
+          expect(response).to have_http_status(200)
+        end
+      end
+
+      context 'with a safeguard' do
+        let!(:alice) { Fabricate(:account, username: 'mentioned_alice') }
+        let!(:bob)   { Fabricate(:account, username: 'mentioned_bob') }
+
+        before do
+          post :create, params: { status: '@mentioned_alice hm, @mentioned_bob is really annoying lately', allowed_mentions: [alice.id] }
+        end
+
+        it 'returns http unprocessable entity' do
+          expect(response).to have_http_status(422)
+          expect(response.media_type).to eq 'application/json'
+        end
+
+        it 'returns the unexpected account' do
+          expect(body_as_json[:error]).to eq 'Post would be sent to unexpected accounts'
+          expect(body_as_json[:unexpected_accounts].map { |a| a.slice(:id, :acct) }).to eq [{ id: bob.id.to_s, acct: bob.acct }]
+        end
+      end
+
       context 'with missing parameters' do
         before do
           post :create, params: {}

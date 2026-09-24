@@ -872,7 +872,7 @@ class Status < ApplicationRecord
   end
 
   def decrement_counter_caches
-    return if uncount_visibility?
+    return if uncount_visibility? || new_record?
 
     account&.decrement_count!(:statuses_count)
     reblog&.decrement_count!(:reblogs_count) if reblog?

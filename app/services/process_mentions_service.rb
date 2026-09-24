@@ -10,11 +10,12 @@ class ProcessMentionsService < BaseService
   # @param [Circle] circle
   # @param [Boolean] edit Reuse explicit mentions and silence removed ones.
   #   Circle and limited audiences are not rebuilt during an edit.
-  def call(status, circle = nil, edit: false)
+  def call(status, circle = nil, edit: false, save_records: true)
     return unless status.local?
 
     @status = status
     return process_edit! if edit
+    return preview_explicit_mentions! unless save_records
 
     mentions = []
 
@@ -40,6 +41,7 @@ class ProcessMentionsService < BaseService
       end
 
       next match if mention_undeliverable?(mentioned_account) || mentioned_account&.suspended?
+      next "@#{mentioned_account.acct}" if mentions.any? { |item| item.account_id == mentioned_account.id }
 
       mention = mentioned_account.mentions.new(status: status)
       mentions << mention if mention.save
@@ -153,6 +155,43 @@ class ProcessMentionsService < BaseService
 
     record_moderation_mentions!(introduced)
     introduced
+  end
+
+  # Resolve only mentions written in the status text. Circle members and a
+  # limited thread's silent audience are delivery state, not text mentions.
+  def preview_explicit_mentions!
+    mentions = []
+
+    @status.text = @status.text.gsub(Account::MENTION_RE) do |match|
+      username, domain = Regexp.last_match(1).split('@')
+
+      domain = begin
+        if TagManager.instance.local_domain?(domain)
+          nil
+        else
+          TagManager.instance.normalize_domain(domain)
+        end
+      end
+
+      mentioned_account = Account.find_remote(username, domain)
+
+      if mention_undeliverable?(mentioned_account)
+        begin
+          mentioned_account = resolve_account_service.call(Regexp.last_match(1))
+        rescue Webfinger::Error, HTTP::Error, OpenSSL::SSL::SSLError, Mastodon::UnexpectedResponseError
+          mentioned_account = nil
+        end
+      end
+
+      next match if mention_undeliverable?(mentioned_account) || mentioned_account&.suspended?
+      next "@#{mentioned_account.acct}" if mentions.any? { |mention| mention.account_id == mentioned_account.id }
+
+      mentions << @status.mentions.new(account: mentioned_account)
+
+      "@#{mentioned_account.acct}"
+    end
+
+    mentions
   end
 
   def mention_undeliverable?(mentioned_account)
