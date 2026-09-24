@@ -25,7 +25,8 @@
       - if current_user.administrative?
         = ff.input :report, as: :boolean, wrapper: :with_label
         = ff.input :pending_account, as: :boolean, wrapper: :with_label
-        = ff.input :trending_tag, as: :boolean, wrapper: :with_label
+      - if current_user.can?(:manage_taxonomies)
+        = ff.input :trends, as: :boolean, wrapper: :with_label, label: I18n.t('simple_form.labels.notification_emails.trending_tag')
 
   .fields-group
     = f.simple_fields_for :notification_emails, hash_to_object(current_user.settings.notification_emails) do |ff|

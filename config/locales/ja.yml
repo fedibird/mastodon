@@ -1334,9 +1334,17 @@ ja:
       body: "%{reporter} が %{target} を通報しました"
       body_remote: "%{domain} の誰かが %{target} を通報しました"
       subject: "%{instance} の新しい通報 (#%{id})"
-    new_trending_tag:
-      body: 'ハッシュタグ #%{name} が本日のトレンドになっていますが、審査がまだ行われていないためトレンドタグには表示されていません。一度許可すれば次回からこの操作は不要です。'
-      subject: "%{instance} で新しいハッシュタグ (#%{name}) が審査待ちです"
+    new_trends:
+      body: 以下の項目は、公開する前に審査が必要です。
+      new_trending_links:
+        title: トレンドリンク
+      new_trending_statuses:
+        title: トレンド投稿
+      new_trending_tags:
+        no_approved_tags: 承認されたトレンドハッシュタグはありません。
+        requirements: 'これらの候補はいずれも %{rank} 位の承認済みトレンドハッシュタグのスコアを上回ります。現在 #%{lowest_tag_name} のスコアは %{lowest_tag_score} です。'
+        title: トレンドハッシュタグ
+      subject: "%{instance}で新しいトレンドが審査待ちです"
   aliases:
     add_new: エイリアスを作成
     created_msg: エイリアスを作成しました。これで以前のアカウントから引っ越しを開始できます。
