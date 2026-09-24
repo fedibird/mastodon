@@ -82,11 +82,17 @@ class Api::V1::StatusesController < Api::BaseController
                                          quote_id: status_params[:quote_id].presence,
                                          status_reference_ids: (Array(status_params[:status_reference_ids]).uniq.map(&:to_i)),
                                          status_reference_urls: status_params[:status_reference_urls] || [],
-                                         searchability: status_params[:searchability]
+                                         searchability: status_params[:searchability],
+                                         allowed_mentions: status_params[:allowed_mentions]
     )
-                                         
 
     render json: @status, serializer: @status.is_a?(ScheduledStatus) ? REST::ScheduledStatusSerializer : REST::StatusSerializer
+  rescue PostStatusService::UnexpectedMentionsError => e
+    unexpected_accounts = ActiveModel::Serializer::CollectionSerializer.new(
+      e.accounts,
+      serializer: REST::AccountSerializer
+    )
+    render json: { error: e.message, unexpected_accounts: unexpected_accounts }, status: 422
   end
 
   def update
@@ -218,6 +224,7 @@ class Api::V1::StatusesController < Api::BaseController
       :expires_action,
       :with_reference,
       :searchability,
+      allowed_mentions: [],
       media_ids: [],
       poll: [
         :multiple,

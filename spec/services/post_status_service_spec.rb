@@ -13,6 +13,64 @@ RSpec.describe PostStatusService, type: :service do
     expect(status.text).to eq text
   end
 
+  it 'creates mentions when no allow-list is given' do
+    account = Fabricate(:account)
+    alice = Fabricate(:account, username: 'alice')
+    bob = Fabricate(:account, username: 'bob')
+
+    status = subject.call(account, text: '@alice hello @bob')
+
+    expect(status).to be_persisted
+    expect(status.mentions.map(&:account)).to contain_exactly(alice, bob)
+  end
+
+  it 'accepts an explicit mention that is on the allow-list' do
+    account = Fabricate(:account)
+    alice = Fabricate(:account, username: 'alice')
+
+    status = subject.call(account, text: '@alice hello', allowed_mentions: [alice.id])
+
+    expect(status).to be_persisted
+    expect(status.mentions.map(&:account)).to contain_exactly(alice)
+  end
+
+  it 'rejects an unexpected mention without saving the status' do
+    account = Fabricate(:account)
+    alice = Fabricate(:account, username: 'alice')
+    bob = Fabricate(:account, username: 'bob')
+    allow(DistributionWorker).to receive(:perform_async)
+
+    expect do
+      subject.call(account, text: '@alice hello @bob', allowed_mentions: [alice.id])
+    end.to raise_error(an_instance_of(PostStatusService::UnexpectedMentionsError).and(having_attributes(accounts: [bob])))
+
+    expect(Status.where(text: '@alice hello @bob')).to be_empty
+    expect(Mention.where(account: [alice, bob])).to be_empty
+    expect(DistributionWorker).not_to have_received(:perform_async)
+  end
+
+  it 'rejects every mention when the allow-list is explicitly empty' do
+    account = Fabricate(:account)
+    alice = Fabricate(:account, username: 'alice')
+
+    expect do
+      subject.call(account, text: '@alice hello', allowed_mentions: [])
+    end.to raise_error(PostStatusService::UnexpectedMentionsError)
+
+    expect(Status.where(text: '@alice hello')).to be_empty
+    expect(Mention.where(account: alice)).to be_empty
+  end
+
+  it 'accepts duplicate mentions of an allowed account once' do
+    account = Fabricate(:account)
+    alice = Fabricate(:account, username: 'alice')
+
+    status = subject.call(account, text: '@alice @alice hey @alice', allowed_mentions: [alice.id])
+
+    expect(status).to be_persisted
+    expect(status.mentions.map(&:account)).to contain_exactly(alice)
+  end
+
   it 'creates a new response status' do
     in_reply_to_status = Fabricate(:status)
     account = Fabricate(:account)
@@ -68,6 +126,7 @@ RSpec.describe PostStatusService, type: :service do
     expect(status.params['text']).to eq 'Hi future!'
     expect(media.reload.status).to be_nil
     expect(Status.where(text: 'Hi future!').exists?).to be_falsey
+  end
 
   it 'does not change statuses count' do
     account = Fabricate(:account)
