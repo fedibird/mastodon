@@ -522,6 +522,8 @@ Rails.application.routes.draw do
       resources :trends,          only: [:index]
       namespace :trends do
         resources :tags, only: [:index]
+        resources :links, only: [:index]
+        resources :statuses, only: [:index]
       end
       resources :filters,         only: [:index, :create, :show, :update, :destroy]
       resources :endorsements,    only: [:index]

@@ -1,15 +1,13 @@
 # frozen_string_literal: true
 
-class Api::V1::TrendsController < Api::BaseController
-  before_action :set_tags
-
-  def index
-    render json: @tags, each_serializer: REST::TagSerializer
-  end
-
+class Api::V1::TrendsController < Api::V1::Trends::TagsController
   private
 
-  def set_tags
-    @tags = TrendingTags.get(limit_param(TrendingTags::LIMIT))
+  def next_path
+    api_v1_trends_url pagination_params(offset: offset_param + limit_param(DEFAULT_TAGS_LIMIT)) if records_continue?
+  end
+
+  def prev_path
+    api_v1_trends_url pagination_params(offset: offset_param - limit_param(DEFAULT_TAGS_LIMIT)) if offset_param > limit_param(DEFAULT_TAGS_LIMIT)
   end
 end

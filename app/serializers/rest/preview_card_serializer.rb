@@ -3,10 +3,10 @@
 class REST::PreviewCardSerializer < ActiveModel::Serializer
   include RoutingHelper
 
-  attributes :url, :title, :description, :type,
+  attributes :url, :title, :description, :language, :type,
              :author_name, :author_url, :provider_name,
              :provider_url, :html, :width, :height,
-             :image, :embed_url, :blurhash, :thumbhash
+             :image, :image_description, :embed_url, :blurhash, :thumbhash, :published_at
 
   attribute :status_id, if: :status_id
   attribute :account_id, if: :account_id

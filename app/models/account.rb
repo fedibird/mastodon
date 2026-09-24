@@ -307,6 +307,18 @@ class Account < ApplicationRecord
     silenced_at.present?
   end
 
+  def trendable?
+    boolean_with_default('trendable', Setting.trendable_by_default)
+  end
+
+  def requires_review?
+    reviewed_at.nil?
+  end
+
+  def requires_review_notification?
+    requires_review? && requested_review_at.nil?
+  end
+
   def silence!(date = Time.now.utc)
     update!(silenced_at: date, silence_mode: :soft)
   end

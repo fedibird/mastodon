@@ -3,6 +3,7 @@
 class FetchLinkCardService < BaseService
   include Redisable
   include Lockable
+  include LanguagesHelper
 
   URL_PATTERN = %r{
     (#{Twitter::TwitterText::Regex[:valid_url_preceding_chars]})                                                                #   $1 preceeding chars
@@ -29,6 +30,17 @@ class FetchLinkCardService < BaseService
     'www.youtube.com' => {:endpoint=>"https://www.youtube.com/oembed?format=json&url={url}", :format=>:json},
     'youtu.be'        => {:endpoint=>"https://www.youtube.com/oembed?format=json&url={url}", :format=>:json},
   }
+
+  # Publications wrap JSON-LD in commented-out CDATA. Strip that before Oj.load.
+  CDATA_JUNK_PATTERN = %r{^\s*(
+    (/\*\s*<!\[CDATA\[\s*\*/)
+    |
+    (//\s*<!\[CDATA\[)
+    |
+    (/\*\s*\]\]>\s*\*/)
+    |
+    (//\s*\]\]>)
+  )\s*$}x
 
   def link_type(status)
     @status = status
@@ -62,7 +74,10 @@ class FetchLinkCardService < BaseService
       process_url if @card.nil? || @card.updated_at <= 2.weeks.ago || @card.missing_image?
     end
 
-    attach_card if @card&.persisted?
+    if @card&.persisted?
+      attach_card
+      Trends.links.register(@status)
+    end
   rescue HTTP::Error, OpenSSL::SSL::SSLError, Addressable::URI::InvalidURIError, Mastodon::HostValidationError, Mastodon::LengthValidationError => e
     Rails.logger.debug "Error fetching link #{@url}: #{e}"
     nil
@@ -208,13 +223,81 @@ class FetchLinkCardService < BaseService
       @card.type = :link
     end
 
-    @card.title            = meta_property(page, 'og:title').presence || page.at_xpath('//title')&.content || ''
-    @card.description      = meta_property(page, 'og:description').presence || meta_property(page, 'description') || ''
-    @card.image_remote_url = (Addressable::URI.parse(@url) + meta_property(page, 'og:image')).to_s if meta_property(page, 'og:image')
+    apply_preview_card_details(page)
 
     return if @card.title.blank? && @card.html.blank?
 
     @card.save_with_optional_image!
+  end
+
+  # Title, description, and provider follow v4.2.13: JSON-LD, then Open Graph.
+  # The preview image stays og:image only.
+  def apply_preview_card_details(page)
+    data = structured_data(page)
+
+    @card.title = decode_text(data['headline'].presence || meta_property(page, 'og:title').presence || page.at_xpath('//title')&.content)
+    @card.description = decode_text(data['description'].presence || meta_property(page, 'og:description').presence || meta_property(page, 'description'))
+
+    image_url = meta_property(page, 'og:image').presence
+    @card.image_remote_url = (Addressable::URI.parse(@url) + image_url).to_s if image_url.present? && @url.present?
+
+    @card.provider_name = decode_text(structured_publisher_name(data).presence || meta_property(page, 'og:site_name').presence)
+
+    assign_trend_metadata(page)
+  end
+
+  def assign_trend_metadata(page)
+    @card.link_type = article_page?(page) ? :article : :unknown
+    return if page.nil?
+
+    @card.language = valid_locale_or_nil(structured_language(page) || meta_property(page, 'og:locale') || page.at_css('html')&.[]('lang'))
+    @card.image_description = meta_property(page, 'og:image:alt').to_s
+    @card.published_at = structured_date_published(page).presence || meta_property(page, 'article:published_time').presence
+  end
+
+  def article_page?(page)
+    return false unless @card.link? && page
+
+    structured_type(page) == 'NewsArticle' || meta_property(page, 'og:type') == 'article'
+  end
+
+  def structured_data(page)
+    page.xpath('//script[@type="application/ld+json"]').filter_map do |element|
+      json_ld = element.content.to_s.gsub(CDATA_JUNK_PATTERN, '')
+      next if json_ld.blank?
+
+      json = Oj.load(json_ld)
+      items = json.is_a?(Array) ? json : [json]
+      items.find { |obj| obj.is_a?(Hash) && %w(NewsArticle WebPage).include?(obj['@type']) }
+    rescue Oj::ParseError, EncodingError
+      nil
+    end.compact.first || {}
+  end
+
+  def structured_type(page)
+    structured_data(page)['@type']
+  end
+
+  def structured_language(page)
+    lang = structured_data(page)['inLanguage']
+    lang = lang.first if lang.is_a?(Array)
+    lang.is_a?(Hash) ? (lang['alternateName'] || lang['name']) : lang
+  end
+
+  def structured_date_published(page)
+    structured_data(page)['datePublished']
+  end
+
+  def structured_publisher_name(data)
+    publisher = data['publisher']
+    publisher = publisher.first if publisher.is_a?(Array)
+    publisher.is_a?(Hash) ? publisher['name'] : nil
+  end
+
+  def decode_text(value)
+    return '' if value.blank?
+
+    HTMLEntities.new.decode(value.to_s)
   end
 
   def meta_property(page, property)

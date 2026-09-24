@@ -53,6 +53,7 @@ class ReblogService < BaseService
     create_notification(reblog)
     bump_potential_friendship(account, reblog)
     record_use(account, reblog)
+    Trends.register!(reblog)
 
     reblog
   end

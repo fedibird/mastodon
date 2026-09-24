@@ -104,12 +104,20 @@ class Tag < ApplicationRecord
     requested_review_at.present?
   end
 
+  def requires_review_notification?
+    requires_review? && !requested_review?
+  end
+
   def use!(account, status: nil, at_time: Time.now.utc)
-    TrendingTags.record_use!(self, account, status: status, at_time: at_time)
+    return unless usable? && !account.silenced?
+
+    Trends.tags.add(self, account.id, at_time)
+    update(last_status_at: at_time) if status.present? && (last_status_at.nil? || (last_status_at < at_time && last_status_at < 12.hours.ago))
   end
 
   def trending?
-    TrendingTags.trending?(self)
+    rank = Trends.tags.rank(id)
+    rank.present? && rank < TrendingTags::LIMIT * 2
   end
 
   def history
