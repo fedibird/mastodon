@@ -63,6 +63,22 @@ describe StatusesController do
       end
     end
 
+    context 'when a reblog points at a remote original' do
+      let(:original_account) { Fabricate(:account, domain: 'remote.example', username: 'alice') }
+      let(:original_url) { 'https://remote.example/users/alice/statuses/1' }
+      let(:original_status) { Fabricate(:status, account: original_account, uri: original_url, url: original_url) }
+      let(:status) { Fabricate(:status, account: account, reblog: original_status) }
+
+      it 'redirects to the external original URL' do
+        expect do
+          get :show, params: { account_username: status.account.username, id: status.id }
+        end.not_to raise_error
+
+        expect(response).to be_redirect
+        expect(response.location).to eq original_url
+      end
+    end
+
     context 'when status is public' do
       before do
         get :show, params: { account_username: status.account.username, id: status.id, format: format }
