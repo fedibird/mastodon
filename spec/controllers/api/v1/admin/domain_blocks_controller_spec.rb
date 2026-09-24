@@ -96,11 +96,13 @@ RSpec.describe Api::V1::Admin::DomainBlocksController, type: :controller do
         expect(body_as_json.first[:id]).to be_a(String)
         expect(body_as_json.first).to include(
           domain: newer_block.domain,
+          digest: Digest::SHA256.hexdigest(newer_block.domain),
           severity: 'suspend',
           reject_media: false,
           reject_reports: false,
           obfuscate: false
         )
+        expect(body_as_json.second[:digest]).to eq(older_block.domain_digest)
         expect(body_as_json.first).to have_key(:created_at)
         expect(body_as_json.first).to have_key(:private_comment)
         expect(body_as_json.first).to have_key(:public_comment)
@@ -142,6 +144,7 @@ RSpec.describe Api::V1::Admin::DomainBlocksController, type: :controller do
       expect(body_as_json).to include(
         id: domain_block.id.to_s,
         domain: 'blocked.example',
+        digest: Digest::SHA256.hexdigest('blocked.example'),
         severity: 'silence',
         reject_media: true,
         reject_reports: false,
@@ -188,6 +191,7 @@ RSpec.describe Api::V1::Admin::DomainBlocksController, type: :controller do
       expect { post :create, params: params, format: :json }.to change(DomainBlock, :count).by(1).and change(Admin::ActionLog, :count).by(1)
       expect(response).to have_http_status(200)
       expect(body_as_json[:domain]).to eq('foo.bar.com')
+      expect(body_as_json[:digest]).to eq(Digest::SHA256.hexdigest('foo.bar.com'))
       expect(body_as_json[:severity]).to eq('silence')
       expect(body_as_json[:id]).to be_a(String)
       expect(Admin::ActionLog.last.action).to eq(:create)
@@ -252,6 +256,7 @@ RSpec.describe Api::V1::Admin::DomainBlocksController, type: :controller do
         expect(body_as_json[:error]).to be_present
         expect(body_as_json[:existing_domain_block][:id]).to eq(existing.id.to_s)
         expect(body_as_json[:existing_domain_block][:domain]).to eq('foo.bar.com')
+        expect(body_as_json[:existing_domain_block][:digest]).to eq(Digest::SHA256.hexdigest('foo.bar.com'))
       end
     end
 
