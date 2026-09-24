@@ -21,44 +21,78 @@ RSpec.describe 'admin navigation parents', type: :helper do
     Nokogiri::HTML.fragment(html).at_css("li##{id}")
   end
 
-  it 'keeps the moderation parent neutral for a manage_users role' do
+  def parent_link(node)
+    node.element_children.find { |child| child.name == 'a' }
+  end
+
+  it 'links the moderation parent to reports when only manage_reports is granted' do
+    html = navigation_for(user_with_permissions(:manage_reports))
+    moderation = item(html, 'moderation')
+
+    expect(moderation).to be_present
+    expect(parent_link(moderation)['href']).to eq helper.admin_reports_url
+    expect(moderation.at_css("a[href='#{helper.admin_reports_url}']")).to be_present
+    expect(moderation.at_css("a[href='#{helper.admin_accounts_url}']")).to be_nil
+    expect(moderation.at_css("a[href='#{helper.admin_action_logs_url}']")).to be_nil
+  end
+
+  it 'links the moderation parent to accounts when only manage_users is granted' do
     html = navigation_for(user_with_permissions(:manage_users))
     moderation = item(html, 'moderation')
 
     expect(moderation).to be_present
-    expect(moderation.element_children.map(&:name)).to include('span')
-    expect(moderation.element_children.map(&:name)).not_to include('a')
+    expect(parent_link(moderation)['href']).to eq helper.admin_accounts_url
     expect(moderation.at_css("a[href='#{helper.admin_accounts_url}']")).to be_present
     expect(moderation.at_css("a[href='#{helper.admin_reports_url}']")).to be_nil
   end
 
-  it 'keeps the admin parent neutral for a manage_settings role' do
+  it 'links the moderation parent to action logs when only view_audit_log is granted' do
+    html = navigation_for(user_with_permissions(:view_audit_log))
+    moderation = item(html, 'moderation')
+
+    expect(moderation).to be_present
+    expect(parent_link(moderation)['href']).to eq helper.admin_action_logs_url
+    expect(moderation.at_css("a[href='#{helper.admin_action_logs_url}']")).to be_present
+    expect(moderation.at_css("a[href='#{helper.admin_reports_url}']")).to be_nil
+    expect(moderation.at_css("a[href='#{helper.admin_accounts_url}']")).to be_nil
+  end
+
+  it 'links the admin parent to the dashboard when only view_dashboard is granted' do
+    html = navigation_for(user_with_permissions(:view_dashboard))
+    admin = item(html, 'admin')
+
+    expect(admin).to be_present
+    expect(parent_link(admin)['href']).to eq helper.admin_dashboard_url
+    expect(admin.at_css("a[href='#{helper.admin_dashboard_url}']")).to be_present
+    expect(admin.at_css("a[href='#{helper.edit_admin_settings_url}']")).to be_nil
+    expect(admin.at_css("a[href='#{helper.admin_roles_path}']")).to be_nil
+  end
+
+  it 'links the admin parent to settings when only manage_settings is granted' do
     html = navigation_for(user_with_permissions(:manage_settings))
     admin = item(html, 'admin')
 
     expect(admin).to be_present
-    expect(admin.element_children.map(&:name)).to include('span')
-    expect(admin.element_children.map(&:name)).not_to include('a')
+    expect(parent_link(admin)['href']).to eq helper.edit_admin_settings_url
     expect(admin.at_css("a[href='#{helper.edit_admin_settings_url}']")).to be_present
     expect(admin.at_css("a[href='#{helper.admin_dashboard_url}']")).to be_nil
   end
 
-  it 'shows roles for a manage_roles role and keeps the admin parent neutral' do
+  it 'links the admin parent to roles when only manage_roles is granted' do
     html = navigation_for(user_with_permissions(:manage_roles))
     admin = item(html, 'admin')
 
     expect(admin).to be_present
-    expect(admin.element_children.map(&:name)).to include('span')
-    expect(admin.element_children.map(&:name)).not_to include('a')
+    expect(parent_link(admin)['href']).to eq helper.admin_roles_path
     expect(admin.at_css("a[href='#{helper.admin_roles_path}']")).to be_present
     expect(admin.at_css("a[href='#{helper.admin_dashboard_url}']")).to be_nil
   end
 
-  it 'keeps Sidekiq and PgHero linked for view_devops' do
+  it 'keeps Sidekiq and PgHero linked for view_devops and points the parent at Sidekiq' do
     html = navigation_for(user_with_permissions(:view_devops))
     admin = item(html, 'admin')
 
-    expect(admin.element_children.map(&:name)).not_to include('a')
+    expect(parent_link(admin)['href']).to eq helper.sidekiq_url
     expect(admin.at_css("a[href='#{helper.sidekiq_url}']")).to be_present
     expect(admin.at_css("a[href='#{helper.pghero_url}']")).to be_present
   end
