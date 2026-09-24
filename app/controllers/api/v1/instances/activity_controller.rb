@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
 class Api::V1::Instances::ActivityController < Api::BaseController
-  include Redisable
-
   before_action :require_enabled_api!
 
   skip_before_action :set_cache_headers
