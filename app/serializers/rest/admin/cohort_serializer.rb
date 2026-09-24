@@ -7,13 +7,13 @@ class REST::Admin::CohortSerializer < ActiveModel::Serializer
     attributes :date, :rate, :value
 
     def date
-      object.date.to_date.iso8601
+      object.date.iso8601
     end
   end
 
   has_many :data, serializer: CohortDataSerializer
 
   def period
-    object.period.to_date.iso8601
+    object.period.iso8601
   end
 end

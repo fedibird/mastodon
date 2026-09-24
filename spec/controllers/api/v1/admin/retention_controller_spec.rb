@@ -22,22 +22,24 @@ describe Api::V1::Admin::RetentionController do
 
       expect(response).to have_http_status(200)
       body = body_as_json
-      expect(body.map { |row| row[:period] }).to eq %w(2026-09-01 2026-09-02 2026-09-03)
+      expect(body.map { |row| row[:period] }).to eq %w(2026-09-01T00:00:00+00:00 2026-09-02T00:00:00+00:00 2026-09-03T00:00:00+00:00)
       expect(body).to all(include(frequency: 'day'))
+      body.each { |row| expect { DateTime.rfc3339(row[:period]) }.not_to raise_error }
 
       september_first = body[0][:data]
       expect(september_first).to eq [
-        { date: '2026-09-01', rate: 1.0, value: '2' },
-        { date: '2026-09-02', rate: 0.5, value: '1' },
-        { date: '2026-09-03', rate: 0.5, value: '1' },
+        { date: '2026-09-01T00:00:00+00:00', rate: 1.0, value: '2' },
+        { date: '2026-09-02T00:00:00+00:00', rate: 0.5, value: '1' },
+        { date: '2026-09-03T00:00:00+00:00', rate: 0.5, value: '1' },
       ]
       expect(body[1][:data]).to eq [
-        { date: '2026-09-02', rate: 1.0, value: '1' },
-        { date: '2026-09-03', rate: 1.0, value: '1' },
+        { date: '2026-09-02T00:00:00+00:00', rate: 1.0, value: '1' },
+        { date: '2026-09-03T00:00:00+00:00', rate: 1.0, value: '1' },
       ]
       expect(body[2][:data]).to eq [
-        { date: '2026-09-03', rate: 0.0, value: '0' },
+        { date: '2026-09-03T00:00:00+00:00', rate: 0.0, value: '0' },
       ]
+      body.flat_map { |row| row[:data] }.each { |point| expect { DateTime.rfc3339(point[:date]) }.not_to raise_error }
       expect(september_first.first[:value]).to be_a(String)
       expect(september_first.first[:rate]).to be_a(Float)
     end
