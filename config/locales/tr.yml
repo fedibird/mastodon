@@ -372,6 +372,7 @@ tr:
       feature_timeline_preview: Zaman çizelgesi önizlemesi
       features: Özellikler
       hidden_service: Gizli servislere sahip federasyon
+      media_storage: Medya deposu
       open_reports: raporları aç
       pending_tags: inceleme için bekleyen hashtag'ler
       pending_users: inceleme için bekleyen kullanıcılar
@@ -383,6 +384,7 @@ tr:
       title: Kontrol Paneli
       total_users: toplam kullanıcı
       trends: Gündemler
+      website: Web sitesi
       week_interactions: bu haftaki etkileşimler
       week_users_active: bu hafta aktif
       week_users_new: bu hafta kullanıcılar

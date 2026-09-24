@@ -281,6 +281,7 @@ sk:
       feature_timeline_preview: Náhľad časovej osi
       features: Vymoženosti
       hidden_service: Federácia so skrytými službami
+      media_storage: Úložisko médií
       open_reports: otvorené hlásenia
       pending_tags: haštagy čakajúce na posúdenie
       pending_users: užívatelia čakajúci na posúdenie
@@ -292,6 +293,7 @@ sk:
       title: Spravovacie rozhranie
       total_users: užívateľov celkovo
       trends: Trendy
+      website: Webová stránka
       week_interactions: Tohto-týždňové interakcie
       week_users_active: aktívni tento týždeň
       week_users_new: užívateľov počas tohto týždňa

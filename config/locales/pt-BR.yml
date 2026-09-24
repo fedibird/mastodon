@@ -329,6 +329,7 @@ pt-BR:
       feature_timeline_preview: Prévia da linha
       features: Funcionalidades
       hidden_service: Federação com serviços onion
+      media_storage: Armazenamento de mídia
       open_reports: Denúncias em aberto
       pending_tags: hashtags pendentes
       pending_users: usuários pendentes
@@ -340,6 +341,7 @@ pt-BR:
       title: Painel de controle
       total_users: usuários no total
       trends: Em alta
+      website: Site
       week_interactions: interações essa semana
       week_users_active: ativos essa semana
       week_users_new: usuários essa semana

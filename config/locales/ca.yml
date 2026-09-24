@@ -372,6 +372,7 @@ ca:
       feature_timeline_preview: Vista prèvia de línia de temps
       features: Característiques
       hidden_service: Federació amb serveis ocults
+      media_storage: Mèdia
       open_reports: informes oberts
       pending_tags: etiquetes pendents de revisar
       pending_users: usuaris pendents de revisar
@@ -383,6 +384,7 @@ ca:
       title: Panell
       total_users: usuaris en total
       trends: Tendències
+      website: Lloc web
       week_interactions: interaccions d'aquesta setmana
       week_users_active: usuaris actius aquesta setmana
       week_users_new: nous usuaris aquest setmana

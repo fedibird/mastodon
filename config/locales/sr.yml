@@ -192,6 +192,7 @@ sr:
       feature_relay: Федеративни релеј
       features: Карактеристике
       hidden_service: Федерација са скривеним услугама
+      media_storage: Мултимедијално складиште
       open_reports: отворене пријаве
       recent_users: Недавни корисници
       search: Потпуна претрага текста
@@ -201,6 +202,7 @@ sr:
       title: Командна табла
       total_users: укупан број корисника
       trends: Трендови
+      website: Вебсајт
       week_interactions: интеракције ове недеље
       week_users_active: активно ове недеље
       week_users_new: корисника ове недеље

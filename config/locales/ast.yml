@@ -94,9 +94,11 @@ ast:
       feature_registrations: Rexistros
       features: Carauterístiques
       hidden_service: Federación con servicios anubríos
+      media_storage: Almacenamientu multimedia
       recent_users: Usuarios de recién
       total_users: usuarios en total
       trends: Tendencies
+      website: Sitiu web
       week_interactions: interaiciones d'esta selmana
       week_users_new: usuarios d'esta selmana
     domain_blocks:

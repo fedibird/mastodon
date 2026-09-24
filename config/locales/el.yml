@@ -325,6 +325,7 @@ el:
       feature_timeline_preview: Προεπισκόπιση ροής
       features: Λειτουργίες
       hidden_service: Ομοσπονδία με κρυμμένες υπηρεσίες
+      media_storage: Χώρος πολυμέσων
       open_reports: ανοιχτές καταγγελίες
       pending_tags: ετικέτες προς έγκριση
       pending_users: χρήστες προς έγκριση
@@ -336,6 +337,7 @@ el:
       title: Ταμπλό
       total_users: χρήστες συνολικά
       trends: Τάσεις
+      website: Ιστοσελίδα
       week_interactions: αλληλεπιδράσεις αυτή την εβδομάδα
       week_users_active: ενεργοί αυτή την εβδομάδα
       week_users_new: χρήστες αυτή την εβδομάδα

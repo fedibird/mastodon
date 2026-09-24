@@ -372,6 +372,7 @@ da:
       feature_timeline_preview: Tidslinjeforhåndsvisning
       features: Funktioner
       hidden_service: Federering med skjulte tjenester
+      media_storage: Medielagerplads
       open_reports: åbne anmeldelser
       pending_tags: hastags afventende revidering
       pending_users: brugere afventende revidering
@@ -383,6 +384,7 @@ da:
       title: Betjeningspanel
       total_users: brugere i alt
       trends: Tendenser
+      website: Websted
       week_interactions: interaktioner denne uge
       week_users_active: aktive denne uge
       week_users_new: brugere denne uge

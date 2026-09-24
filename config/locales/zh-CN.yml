@@ -366,6 +366,7 @@ zh-CN:
       feature_timeline_preview: 时间轴预览
       features: 功能
       hidden_service: 匿名服务连通性
+      media_storage: 媒体存储
       open_reports: 待处理举报数
       pending_tags: 等待审核的标签
       pending_users: 等待审核的用户
@@ -377,6 +378,7 @@ zh-CN:
       title: 信息面板
       total_users: 总用户数
       trends: 趋势
+      website: 网页端
       week_interactions: 本周互动数
       week_users_active: 本周活跃用户数
       week_users_new: 本周新用户数

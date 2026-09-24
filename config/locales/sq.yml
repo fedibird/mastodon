@@ -370,6 +370,7 @@ sq:
       feature_timeline_preview: Paraparje rrjedhjeje kohore
       features: Veçori
       hidden_service: Federim me shërbime të fshehura
+      media_storage: Depozitë media
       open_reports: raportime të hapur
       pending_tags: hashtag-ë në pritje të shqyrtimit
       pending_users: përdorues në pritje për rishikim
@@ -381,6 +382,7 @@ sq:
       title: Pult
       total_users: përdorues gjithsej
       trends: Tendenca
+      website: Sajt
       week_interactions: ndërveprime këtë javë
       week_users_active: aktivë këtë javë
       week_users_new: përdorues këtë javë

@@ -378,6 +378,7 @@ uk:
       feature_timeline_preview: Передпоказ стрічки
       features: Можливості
       hidden_service: Федерація з прихованими сервісами
+      media_storage: Медіасховище
       open_reports: відкриті скарги
       pending_tags: хештеги, що очікують на перегляд
       pending_users: користувачі, що очікують на перегляд
@@ -389,6 +390,7 @@ uk:
       title: Приборна панель
       total_users: користувачів загалом
       trends: Тренди
+      website: Вебсайт
       week_interactions: дій за цей тиждень
       week_users_active: активно протягом тижня
       week_users_new: користувачів цього тижня

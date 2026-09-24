@@ -372,6 +372,7 @@ is:
       feature_timeline_preview: Forskoðun tímalínu
       features: Eiginleikar
       hidden_service: Skýjasamband með faldar þjónustur
+      media_storage: Geymsla myndefnis
       open_reports: opnar kærur
       pending_tags: myllumerki bíða eftir yfirferð
       pending_users: notendur bíða eftir yfirferð
@@ -383,6 +384,7 @@ is:
       title: Stjórnborð
       total_users: notendur alls
       trends: Tilhneiging
+      website: Vefsvæði
       week_interactions: aðgerðir í þessari viku
       week_users_active: virkir í þessari viku
       week_users_new: notendur þessari viku

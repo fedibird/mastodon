@@ -319,6 +319,7 @@ ku:
       feature_timeline_preview: پێش نیشاندانی نووسراوەکان
       features: تایبەتمەندیەکان
       hidden_service: پەیوەندی نێوان ڕاژە یان خزمەتگوزاری نێننی
+      media_storage: Bîrdanaka medyayê
       open_reports: ڕاپۆرتەکان بکەوە
       pending_tags: هاشتاگی چاوەڕوانی پێداچوونەوە دەکات
       pending_users: بەکارهێنەران چاوەڕێی پێداچوونەوەن
@@ -330,6 +331,7 @@ ku:
       title: داشبۆرد
       total_users: ژمارەی بەکارهێنەران
       trends: تاگە بەرچاوکراوەکان
+      website: Malpera tevnê
       week_interactions: چالاکیەکانی ئەم هەفتەیە
       week_users_active: چالاکی ئەم هەفتەیە
       week_users_new: بەکارهێنەرانی ئەم هەفتەیە

@@ -291,6 +291,7 @@ sv:
       feature_timeline_preview: Förhandsgranskning av tidslinje
       features: Funktioner
       hidden_service: Sammanslutning med gömda tjänster
+      media_storage: Medialagring
       open_reports: öppna rapporter
       pending_tags: hashtags som inväntar granskning
       pending_users: användare som inväntar granskning
@@ -302,6 +303,7 @@ sv:
       title: Kontrollpanel
       total_users: totalt antal användare
       trends: Trender
+      website: Hemsida
       week_interactions: kommunikation denna vecka / interaktioner denna vecka
       week_users_active: aktiv(a) denna vecka
       week_users_new: användare denna vecka

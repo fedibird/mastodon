@@ -372,6 +372,7 @@ co:
       feature_timeline_preview: Vista di a linea pubblica
       features: Funziunalità
       hidden_service: Federazione cù servizii piattati
+      media_storage: Spaziu di i media
       open_reports: signalamenti aperti
       pending_tags: hashtag in attesa di verificazione
       pending_users: utilizatori in attesa di rivista
@@ -383,6 +384,7 @@ co:
       title: Quatru di strumenti
       total_users: utilizatori in tutale
       trends: Tindenze
+      website: Situ web
       week_interactions: interazzione sta settimana
       week_users_active: attivi sta settimana
       week_users_new: utilizatori sta settimana

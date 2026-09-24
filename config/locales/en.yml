@@ -835,6 +835,7 @@ en:
       feature_timeline_preview: Timeline preview
       features: Features
       hidden_service: Federation with hidden services
+      media_storage: Media storage
       open_reports: open reports
       pending_tags: hashtags waiting for review
       pending_users: users waiting for review
@@ -846,6 +847,7 @@ en:
       title: Dashboard
       total_users: users in total
       trends: Trends
+      website: Website
       week_interactions: interactions this week
       week_users_active: active this week
       week_users_new: users this week

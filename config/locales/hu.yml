@@ -374,6 +374,7 @@ hu:
       feature_timeline_preview: Idővonal betekintő
       features: Funkciók
       hidden_service: Föderáció rejtett szolgáltatásokkal
+      media_storage: Médiatároló
       open_reports: nyitott bejelentések
       pending_tags: hashtag engedélyezésre vár
       pending_users: felhasználó engedélyezésre vár
@@ -385,6 +386,7 @@ hu:
       title: Műszerfal
       total_users: felhasználó összesen
       trends: Trendek
+      website: Weboldal
       week_interactions: interakció ezen a héten
       week_users_active: aktív ezen a héten
       week_users_new: felhasználó ezen a héten

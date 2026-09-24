@@ -287,6 +287,7 @@
       feature_timeline_preview: Tidslinje-forhåndsvisning
       features: Egenskaper
       hidden_service: Føderering med skjulte tjenester
+      media_storage: Medialagring
       open_reports: åpne rapporter
       pending_tags: emneknagger som venter gjennomgang
       pending_users: brukere som venter gjennomgang
@@ -298,6 +299,7 @@
       title: Kontrollpanel
       total_users: brukere totalt
       trends: Trender
+      website: Nettside
       week_interactions: samhandlinger denne uken
       week_users_active: aktiv denne uken
       week_users_new: brukere denne uken

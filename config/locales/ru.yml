@@ -380,6 +380,7 @@ ru:
       feature_timeline_preview: Предпросмотр ленты
       features: Возможности
       hidden_service: Федерация со скрытыми сервисами
+      media_storage: Медиа файлы
       open_reports: открытых жалоб
       pending_tags: хэштеги, ожидающие проверки
       pending_users: пользователи, ожидающие проверки
@@ -391,6 +392,7 @@ ru:
       title: Панель управления
       total_users: всего пользователей
       trends: Актуальное
+      website: Веб-сайт
       week_interactions: взаимодействий на этой неделе
       week_users_active: активно на этой неделе
       week_users_new: пользователей на этой неделе

@@ -380,6 +380,7 @@ gd:
       feature_timeline_preview: Ro-shealladh air an loidhne-ama
       features: Gleusan
       hidden_service: Co-nasgadh le seirbheisean falaichte
+      media_storage: Stòras mheadhanan
       open_reports: gearanan fosgailte
       pending_tags: tagaichean hais a’ feitheamh air lèirmheas
       pending_users: cleachdaichean a’ feitheamh air lèirmheas
@@ -391,6 +392,7 @@ gd:
       title: Deas-bhòrd
       total_users: cleachdaichean iomlan
       trends: Treandaichean
+      website: Làrach-lìn
       week_interactions: eadar-ghnìomhan an t-seachdain seo
       week_users_active: gnìomhach an t-seachdain seo
       week_users_new: cleachdaichean an t-seachdain seo

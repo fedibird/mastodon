@@ -89,9 +89,11 @@ si:
       upload: උඩුගත කරන්න
     dashboard:
       features: විශේෂාංග
+      media_storage: මාධ්‍ය ආචයනය
       open_reports: වාර්තා විවෘත කරන්න
       software: මෘදුකාංගය
       title: උපකරණ පුවරුව
+      website: අඩවිය
     domain_blocks:
       domain: වසම
       new:

@@ -221,6 +221,7 @@ sl:
       feature_timeline_preview: Predogled časovnice
       features: Zmožnosti
       hidden_service: Federacija s skritimi storitvami
+      media_storage: Shramba za medije
       open_reports: odprte prijave
       recent_users: Nedavni uporabniki
       search: Iskanje po celotnem besedilu
@@ -230,6 +231,7 @@ sl:
       title: Nadzorna plošča
       total_users: skupaj uporabnikov
       trends: Trendi
+      website: Spletišče
       week_interactions: interakcije ta teden
       week_users_active: aktivni ta teden
       week_users_new: uporabniki ta teden
