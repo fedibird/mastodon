@@ -2206,6 +2206,10 @@ ja:
       month: "%Y年 %b"
       time: "%H:%M"
       with_time_zone: "%Y年%m月%d日 %H:%M %Z"
+  translation:
+    errors:
+      quota_exceeded: このサーバーは翻訳サービスの利用制限に達しました。
+      too_many_requests: 大量のリクエストのため、翻訳サービスの利用が一時的に制限されています。
   two_factor_authentication:
     add: 追加
     disable: 無効化
