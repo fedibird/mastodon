@@ -33,10 +33,19 @@ describe Api::Web::PushSubscriptionsController do
           poll: true,
           status: false,
           emoji_reaction: false,
-          status_reference: false,
+          status_reference: true,
+          scheduled_status: false,
+          followed: true,
+          update: true,
+          'admin.sign_up': false,
+          'admin.report': true,
         }
       }
     }
+  end
+
+  let(:stored_alert_types) do
+    %w(follow follow_request favourite reblog mention poll status emoji_reaction status_reference scheduled_status followed update admin.sign_up admin.report)
   end
 
   describe 'POST #create' do
@@ -54,6 +63,9 @@ describe Api::Web::PushSubscriptionsController do
       expect(push_subscription['endpoint']).to eq(create_payload[:subscription][:endpoint])
       expect(push_subscription['key_p256dh']).to eq(create_payload[:subscription][:keys][:p256dh])
       expect(push_subscription['key_auth']).to eq(create_payload[:subscription][:keys][:auth])
+      %w(update admin.sign_up admin.report emoji_reaction status_reference scheduled_status followed).each do |type|
+        expect(push_subscription.data['alerts']).to have_key(type)
+      end
     end
 
     context 'with initial data' do
@@ -68,7 +80,7 @@ describe Api::Web::PushSubscriptionsController do
 
         expect(push_subscription.data['policy']).to eq 'all'
 
-        %w(follow follow_request favourite reblog mention poll status emoji_reaction status_reference).each do |type|
+        stored_alert_types.each do |type|
           expect(push_subscription.data['alerts'][type]).to eq(alerts_payload[:data][:alerts][type.to_sym].to_s)
         end
       end
@@ -91,7 +103,7 @@ describe Api::Web::PushSubscriptionsController do
 
       expect(push_subscription.data['policy']).to eq 'all'
 
-      %w(follow follow_request favourite reblog mention poll status emoji_reaction status_reference).each do |type|
+      stored_alert_types.each do |type|
         expect(push_subscription.data['alerts'][type]).to eq(alerts_payload[:data][:alerts][type.to_sym].to_s)
       end
     end
