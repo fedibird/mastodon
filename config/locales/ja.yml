@@ -1194,15 +1194,9 @@ ja:
       show_known_fediverse_at_about_page:
         desc_html: チェックを外すと、ランディングページからリンクされた公開タイムラインにローカルの公開投稿のみ表示します。
         title: 公開タイムラインに連合先のコンテンツも表示する
-      show_moderator_badge:
-        desc_html: ユーザーページにモデレーターのバッジを表示します
-        title: モデレーターバッジを表示する
       show_only_media_at_about_page:
         desc_html: チェックすると、ランディングページからリンクされた公開タイムラインにメディア付き公開投稿のみ表示します。
         title: 公開タイムラインにメディアのみ表示
-      show_staff_badge:
-        desc_html: ユーザーページにスタッフのバッジを表示します
-        title: スタッフバッジを表示する
       show_without_bot_at_about_page:
         desc_html: チェックすると、ランディングページからリンクされた公開タイムラインからBotによる公開投稿を除外します。
         title: 公開タイムラインからBotを除外

@@ -658,9 +658,6 @@ gd:
       show_known_fediverse_at_about_page:
         desc_html: Nuair a bhios seo à comas, cha sheall an loidhne-ama phoblach a thèid a cheangal rithe on duilleag-landaidh ach susbaint ionadail
         title: Gabh a-staigh susbaint cho-naisgte air duilleag na loidhne-ama poblaich gun ùghdarrachadh
-      show_staff_badge:
-        desc_html: Seall bràist sgioba air duilleag cleachdaiche
-        title: Seall bràist sgioba
       site_description:
         desc_html: Earrann tuairisgeil air an API. Mìnich dè tha sònraichte mun fhrithealaiche Mastodon seo agus rud sa bith eile a tha cudromach. ’S urrainn dhut tagaichean HTML a chleachdadh agus <code>&lt;a&gt;</code> ’s <code>&lt;em&gt;</code> gu sònraichte.
         title: Tuairisgeul an fhrithealaiche

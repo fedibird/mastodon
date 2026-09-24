@@ -658,9 +658,6 @@ pl:
       show_known_fediverse_at_about_page:
         desc_html: Jeśli włączone, podgląd instancji będzie wyświetlał wpisy z całego Fediwersum. W innym przypadku, będą wyświetlane tylko lokalne wpisy.
         title: Pokazuj wszystkie znane wpisy na podglądzie instancji
-      show_staff_badge:
-        desc_html: Pokazuj odznakę uprawnień na stronie profilu użytkownika
-        title: Pokazuj odznakę administracji
       site_description:
         desc_html: Akapit wprowadzający, widoczny na stronie głównej. Opisz, co czyni tę instancję wyjątkową. Możesz korzystać ze znaczników HTML, w szczególności <code>&lt;a&gt;</code> i <code>&lt;em&gt;</code>.
         title: Opis serwera

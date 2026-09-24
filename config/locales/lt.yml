@@ -336,9 +336,6 @@ lt:
       show_known_fediverse_at_about_page:
         desc_html: Kai įjungta, rodys įrašus iš visos žinomos fedi-visatos. Kitokiu atvėju, rodys tik lokalius įrašus.
         title: Rodyti žinoma fedi-visatos laiko juosta peržiūroje
-      show_staff_badge:
-        desc_html: Rodyti personalo ženklelį vartotojo puslapyje
-        title: Rodyti personalo ženklelį
       site_description:
         desc_html: Introdukcinis paragrafas pagrindiniame puslapyje. Apibūdink, kas padaro šį Mastodon serverį išskirtiniu ir visa kita, kas svarbu. Nebijok naudoti HTML žymes, pavyzdžiui <code> &lt; a &gt;</code> bei <code>&lt;em&gt;</code>.
         title: Serverio apibūdinimas

@@ -637,9 +637,6 @@ co:
       show_known_fediverse_at_about_page:
         desc_html: Quandu ghjè selezziunatu, statuti di tuttu l’istanze cunnisciute saranu affissati indè a vista di e linee. Altrimente soli i statuti lucali saranu mustrati
         title: Vedde tuttu u fediverse cunnisciutu nant’a vista di e linee
-      show_staff_badge:
-        desc_html: Mustrerà un badge Squadra nant’à un prufile d’utilizatore
-        title: Mustrà un badge staff
       site_description:
         desc_html: Paragrafu di prisentazione nant’a pagina d’accolta. Parlate di cio chì rende stu servore speziale, o d'altre cose impurtante. Pudete fà usu di marchi HTML, in particulare <code>&lt;a&gt;</code> è <code>&lt;em&gt;</code>.
         title: Discrizzione di u servore

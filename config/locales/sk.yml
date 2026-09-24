@@ -496,9 +496,6 @@ sk:
       show_known_fediverse_at_about_page:
         desc_html: Ak je zapnuté, bude v ukážke osi možné nahliadnúť príspevky z celého známeho fediversa. Inak budú ukázané iba príspevky z miestnej osi.
         title: Ukáž celé známe fediverse na náhľade osi
-      show_staff_badge:
-        desc_html: Ukáž moderátorsky odznak na užívateľovom profile
-        title: Ukáž značku moderátora
       site_description:
         desc_html: Oboznamujúci paragraf na hlavnej stránke a pri meta tagoch. Opíš, čo robí tento Mastodon server špecifickým, a ďalej hocičo iné, čo považuješ za dôležité. Môžeš použiť HTML kód, hlavne <code>&lt;a&gt;</code> a <code>&lt;em&gt;</code>.
         title: Popis servera

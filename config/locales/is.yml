@@ -640,9 +640,6 @@ is:
       show_known_fediverse_at_about_page:
         desc_html: Þegar þetta er óvirkt, takmarkast opinbera tímalínan sem tengt er í af upphafssíðunni við að birta einungis staðvært efni (af sama vefþjóni)
         title: Hafa með efni úr skýjasambandi á síðu fyrir óauðkennda opinbera tímalínu
-      show_staff_badge:
-        desc_html: Sýna starfsmannamerki á síðu notandans
-        title: Sýna starfsmannamerki
       site_description:
         desc_html: Kynningarmálsgrein í API. Lýstu því hvað það er sem geri þennan Mastodon-þjón sérstakan, auk annarra mikilvægra upplýsinga. Þú getur notað HTML-einindi, sér í lagi <code>&lt;a&gt;</code> og <code>&lt;em&gt;</code>.
         title: Lýsing á vefþjóni

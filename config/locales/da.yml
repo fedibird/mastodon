@@ -640,9 +640,6 @@ da:
       show_known_fediverse_at_about_page:
         desc_html: Når deaktiveret, begrænses den offentlige tidslinje linket fra indgangssiden til kun at vise lokalt indhold
         title: Medtag federeret indhold på ikke-godkendt, offentlig tidslinjeside
-      show_staff_badge:
-        desc_html: Vis et personaleemblem på en brugerside
-        title: Vis personaleemblem
       site_description:
         desc_html: Introduktionsafsnit på API'en. Beskriv, hvad der gør denne Mastodonserver speciel samt alt andet vigtigt. HTML tags kan bruges, især <code>&lt;a&gt;</code> og <code>&lt;em&gt;</code>.
         title: Serverbeskrivelse

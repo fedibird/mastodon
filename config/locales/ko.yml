@@ -633,9 +633,6 @@ ko:
       show_known_fediverse_at_about_page:
         desc_html: 활성화 되면 프리뷰 페이지에서 페디버스의 모든 툿을 표시합니다. 비활성화시 로컬에 있는 툿만 표시 됩니다.
         title: 타임라인 프리뷰에 알려진 페디버스 표시하기
-      show_staff_badge:
-        desc_html: 유저 페이지에 스태프 배지를 표시합니다
-        title: 스태프 배지 표시
       site_description:
         desc_html: API의 소개문에 사용 됩니다.이 마스토돈 서버의 특별한 점 등을 설명하세요. HTML 태그, 주로 <code>&lt;a&gt;</code>, <code>&lt;em&gt;</code> 같은 것을 사용 가능합니다.
         title: 서버 설명

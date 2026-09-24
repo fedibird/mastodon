@@ -629,9 +629,6 @@ zh-CN:
       show_known_fediverse_at_about_page:
         desc_html: 如果开启，就会在时间轴预览显示其他站点嘟文，否则就只会只显示本站嘟文。
         title: 在时间轴预览中显示其他站点嘟文
-      show_staff_badge:
-        desc_html: 在个人资料页上显示管理人员标志
-        title: 显示管理人员标志
       site_description:
         desc_html: 首页上的介绍文字。 描述一下本 Mastodon 实例的特殊之处以及其他重要信息。可以使用 HTML 标签，包括 <code>&lt;a&gt;</code> 和 <code>&lt;em&gt;</code> 。
         title: 本站简介

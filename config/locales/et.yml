@@ -507,9 +507,6 @@ et:
       show_known_fediverse_at_about_page:
         desc_html: Kui lubatud, näitab kõiki teatud fediversumi tuututusi. Vastasel juhul näidatakse ainult kohalike tuututusi.
         title: Näita teatud fediversumit ajajoone eelvaates
-      show_staff_badge:
-        desc_html: Näita personalimärki kasutaja profiilil
-        title: Näita personalimärki
       site_description:
         desc_html: Sissejuhatuslik lõik API kohta. Kirjelda, mis teeb selle Mastodoni serveri eriliseks ja ka muud tähtsat. Te saate kasutada HTMLi silte, peamiselt <code>&lt;a&gt;</code> ja <code>&lt;em&gt;</code>.
         title: Serveri kirjeldus

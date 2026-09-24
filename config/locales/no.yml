@@ -508,9 +508,6 @@
           none: Ingen kan melde seg inn
           open: Hvem som helst kan melde seg inn
         title: Registreringsmodus
-      show_staff_badge:
-        desc_html: Vis personalemerke på brukersiden
-        title: Vis personalemerke
       site_description:
         desc_html: Vises som et avsnitt på forsiden og brukes som en meta-tagg. Du kan bruke HTML-tagger, spesielt <code>&lt;a&gt;</code> og <code>&lt;em&gt;</code>.
         title: Nettstedsbeskrivelse

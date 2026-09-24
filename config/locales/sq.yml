@@ -636,9 +636,6 @@ sq:
       show_known_fediverse_at_about_page:
         desc_html: Kur përdoret, do të shfaqë mesazhe prej krejt fediversit të njohur, si paraparje. Përndryshe do të shfaqë vetëm mesazhe vendore
         title: Përfshi lëndë të federuar në faqe rrjedhe publike kohore të pamirëfilltësuar
-      show_staff_badge:
-        desc_html: Shfaq një stemë stafi në faqen e një përdoruesi
-        title: Shfaq stemë stafi
       site_description:
         desc_html: Paragraf hyrës te faqja ballore. Përshkruani ç’e bën special këtë shërbyes Mastodon dhe çfarëdo gjëje tjetër të rëndësishme. Mund të përdorni etiketa HTML, veçanërisht <code>&lt;a&gt;</code> dhe <code>&lt;em&gt;</code>.
         title: Përshkrim shërbyesi

@@ -25,6 +25,32 @@ RSpec.describe AccountsHelper, type: :helper do
     end
   end
 
+  describe '#account_badge' do
+    def account_for(role)
+      user = Fabricate(:user, admin: false, moderator: false)
+      user.update_columns(role_id: role.id)
+      user.account
+    end
+
+    it 'hides Admin, Moderator, Owner, and a custom role when highlighted is false' do
+      load Rails.root.join('db', 'seeds', '03_roles.rb')
+      %w(Admin Moderator Owner).each do |name|
+        role = UserRole.find_by!(name: name)
+        role.update!(highlighted: false)
+        expect(helper.account_badge(account_for(role))).to be_nil
+      end
+
+      custom = UserRole.create!(name: 'Quiet helper', permissions_as_keys: %w(manage_reports), highlighted: false)
+      expect(helper.account_badge(account_for(custom))).to be_nil
+    end
+
+    it 'shows a highlighted custom role and still shows it only from highlighted' do
+      custom = UserRole.create!(name: 'Visible helper', permissions_as_keys: %w(manage_reports), highlighted: true)
+
+      expect(helper.account_badge(account_for(custom))).to include('Visible helper')
+    end
+  end
+
   describe '#acct' do
     it 'is fully qualified for embedded local accounts' do
       allow(Rails.configuration.x).to receive(:local_domain).and_return('local_domain')

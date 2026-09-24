@@ -640,9 +640,6 @@ tr:
       show_known_fediverse_at_about_page:
         desc_html: Değiştirildiğinde, bilinen bütün fediverse'lerden gönderileri ön izlemede gösterir. Diğer türlü sadece yerel gönderileri gösterecektir.
         title: Zaman çizelgesi ön izlemesinde bilinen fediverse'i göster
-      show_staff_badge:
-        desc_html: Kullanıcının sayfasında bir personel rozeti göster
-        title: Personel rozeti göster
       site_description:
         desc_html: Ana sayfada paragraf olarak görüntülenecek bilgidir.<br>Özellikle <code>&lt;a&gt;</code> ve <code>&lt;em&gt;</code> olmak suretiyle HTML etiketlerini kullanabilirsiniz.
         title: Site açıklaması

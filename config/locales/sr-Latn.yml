@@ -197,9 +197,6 @@ sr-Latn:
         min_invite_role:
           disabled: Niko
           title: Samo preko pozivnice
-      show_staff_badge:
-        desc_html: Prikaži bedž osoblja na korisničkoj strani
-        title: Prikaži bedž osoblja
       site_description:
         desc_html: Uvodni pasus na naslovnoj strani i u meta HTML tagovima. Možete koristiti HTML tagove, konkretno <code>&lt;a&gt;</code> i <code>&lt;em&gt;</code>.
         title: Opis instance

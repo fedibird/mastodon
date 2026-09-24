@@ -640,9 +640,6 @@ es-MX:
       show_known_fediverse_at_about_page:
         desc_html: Cuando esté activado, se mostrarán toots de todo el fediverso conocido en la vista previa. En otro caso, se mostrarán solamente toots locales.
         title: Mostrar fediverso conocido en la vista previa de la historia
-      show_staff_badge:
-        desc_html: Mostrar un parche de staff en la página de un usuario
-        title: Mostrar parche de staff
       site_description:
         desc_html: Párrafo introductorio en la portada y en meta tags. Puedes usar tags HTML, en particular <code>&lt;a&gt;</code> y <code>&lt;em&gt;</code>.
         title: Descripción de instancia

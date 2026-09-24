@@ -449,9 +449,6 @@ kk:
       show_known_fediverse_at_about_page:
         desc_html: When toggled, it will show toots from all the known fediverse on preview. Otherwise it will only show жергілікті toots.
         title: Show known fediverse on timeline превью
-      show_staff_badge:
-        desc_html: Show a staff badge on a user бет
-        title: Көрсет staff badge
       site_description:
         desc_html: Introductory paragraph on the басты бет. Describe what makes this Mastodon server special and anything else important. You can use HTML tags, in particular <code>&lt;a&gt;</code> and <code>&lt;em&gt;</code>.
         title: Сервер туралы

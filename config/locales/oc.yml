@@ -516,9 +516,6 @@ oc:
       show_known_fediverse_at_about_page:
         desc_html: Un còp activat mostrarà los tuts de totes los fediverse dins l’apercebut. Autrament mostrarà pas que los tuts locals.
         title: Mostrar los fediverse coneguts dins l’apercebut del flux
-      show_staff_badge:
-        desc_html: Mostrar lo badge Personal sus la pagina de perfil
-        title: Mostrar lo badge personal
       site_description:
         desc_html: Paragraf d’introduccion sus la pagina d’acuèlh. Explicatz çò que fa diferent aqueste servidor Mastodon e tot çò qu’es important de dire. Podètz utilizare de balises HTML, en particular <code>&lt;a&gt;</code> e<code>&lt;em&gt;</code>.
         title: Descripcion del servidor
