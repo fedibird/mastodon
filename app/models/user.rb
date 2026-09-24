@@ -112,7 +112,7 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
   scope :inactive, -> { where(arel_table[:current_sign_in_at].lt(ACTIVE_DURATION.ago)) }
   scope :active, -> { confirmed.where(arel_table[:current_sign_in_at].gteq(ACTIVE_DURATION.ago)).joins(:account).where(accounts: { suspended_at: nil }) }
   scope :matches_email, ->(value) { where(arel_table[:email].matches("#{value}%")) }
-  scope :matches_ip, ->(value) { left_joins(:session_activations).where('users.current_sign_in_ip <<= ?', value).or(left_joins(:session_activations).where('users.sign_up_ip <<= ?', value)).or(left_joins(:session_activations).where('users.last_sign_in_ip <<= ?', value)).or(left_joins(:session_activations).where('session_activations.ip <<= ?', value)) }
+  scope :matches_ip, ->(value) { left_joins(:ips).where('user_ips.ip <<= ?', value).group('users.id') }
   scope :emailable, -> { confirmed.enabled.joins(:account).merge(Account.without_suspended.where(moved_to_account_id: nil)) }
 
   before_validation :sanitize_languages
@@ -127,6 +127,7 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
   attribute :otp_secret
 
   has_many :session_activations, dependent: :destroy
+  has_many :ips, class_name: 'UserIp', inverse_of: :user
 
   delegate :auto_play_avatar, :auto_play_emoji, :auto_play_header, :auto_play_media, :default_sensitive,
            :follow_modal, :unfollow_modal, :subscribe_modal, :unsubscribe_modal, :follow_tag_modal, :unfollow_tag_modal, :boost_modal, :delete_modal,

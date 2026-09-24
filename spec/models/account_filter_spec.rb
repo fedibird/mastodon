@@ -132,6 +132,32 @@ describe AccountFilter do
       expect(results).not_to include(other.account)
     end
 
+    it 'matches sign-up, session, and successful login IPs without duplicating accounts' do
+      signup = Fabricate(:user)
+      signup.update_columns(sign_up_ip: '192.0.2.15')
+      session_user = Fabricate(:user)
+      SessionActivation.activate(session_id: SecureRandom.hex(16), user: session_user, ip: '192.0.2.40')
+      SessionActivation.activate(session_id: SecureRandom.hex(16), user: session_user, ip: '192.0.2.41')
+      login_user = Fabricate(:user)
+      LoginActivity.create!(user: login_user, authentication_method: 'password', success: true, ip: '192.0.2.80')
+      failed = Fabricate(:user)
+      LoginActivity.create!(user: failed, authentication_method: 'password', success: false, ip: '192.0.2.90')
+      outsider = Fabricate(:user)
+      outsider.update_columns(sign_up_ip: '198.51.100.9')
+
+      results = described_class.new(ip: '192.0.2.0/24').results.to_a
+
+      expect(results).to include(signup.account, session_user.account, login_user.account)
+      expect(results).not_to include(failed.account, outsider.account)
+      expect(results.count { |account| account.id == session_user.account_id }).to eq 1
+    end
+
+    it 'returns no accounts for an invalid IP' do
+      Fabricate(:user).update_columns(sign_up_ip: '192.0.2.15')
+
+      expect(described_class.new(ip: 'not-an-ip').results).to be_empty
+    end
+
     describe 'that call account methods' do
       %i(local remote silenced suspended).each do |option|
         it "delegates the #{option} option" do

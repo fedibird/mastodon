@@ -55,6 +55,43 @@ RSpec.describe Api::V1::Admin::AccountsController, type: :controller do
     end
   end
 
+  describe 'GET #show ips and sensitized' do
+    it 'returns aggregated IPs and a false sensitized flag' do
+      target = Fabricate(:user)
+      target.update_columns(sign_up_ip: '192.0.2.10', created_at: Time.utc(2026, 9, 1, 8, 0, 0))
+      SessionActivation.activate(session_id: SecureRandom.hex(16), user: target, ip: '192.0.2.20')
+
+      get :show, params: { id: target.account.id }
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json[:sensitized]).to be false
+      expect(body_as_json[:ips].map { |row| row[:ip] }).to contain_exactly('192.0.2.10', '192.0.2.20')
+      expect(body_as_json[:ips]).to all(include(:ip, :used_at))
+      body_as_json[:ips].each { |row| expect { DateTime.rfc3339(row[:used_at]) }.not_to raise_error }
+      expect(body_as_json[:ip]).to eq(body_as_json[:ips].first[:ip])
+    end
+
+    it 'returns sensitized true after the account is sensitized' do
+      target = Fabricate(:user)
+      target.account.sensitize!
+
+      get :show, params: { id: target.account.id }
+
+      expect(body_as_json[:sensitized]).to be true
+    end
+
+    it 'returns no IPs for a remote account' do
+      remote = Fabricate(:account, domain: 'example.com', username: 'remote')
+
+      get :show, params: { id: remote.id }
+
+      expect(body_as_json[:role]).to be_nil
+      expect(body_as_json[:ips]).to be_blank
+      expect(body_as_json[:ip]).to be_nil
+      expect(body_as_json[:sensitized]).to be false
+    end
+  end
+
   describe 'GET #show role entity' do
     it 'returns the Owner role entity when role_id is Owner' do
       owner = user_with_role('Owner')
@@ -141,6 +178,30 @@ RSpec.describe Api::V1::Admin::AccountsController, type: :controller do
       expect(point_lookups).to be_empty
       expect(role_selects.join("\n")).to include('"user_roles"."id" IN')
       expect(body_as_json.map { |row| row.dig(:role, :name) }).to include('Helper 0', 'Helper 1', 'Moderator')
+    end
+
+    it 'preloads user IPs instead of querying each account' do
+      2.times do |index|
+        record = Fabricate(:user)
+        record.update_columns(sign_up_ip: "192.0.2.#{index + 10}")
+      end
+
+      queries = []
+      callback = lambda do |*_args, payload|
+        queries << payload[:sql]
+      end
+
+      ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
+        get :index
+      end
+
+      ip_selects = queries.select { |sql| sql.include?('"user_ips"') && sql.match?(/\ASELECT/i) }
+      point_lookups = ip_selects.grep(/"user_ips"\."user_id"\s*=/)
+
+      expect(response).to have_http_status(200)
+      expect(ip_selects).not_to be_empty
+      expect(point_lookups).to be_empty
+      expect(ip_selects.join("\n")).to match(/"user_ips"\."user_id" IN/)
     end
   end
 
