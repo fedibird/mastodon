@@ -44,7 +44,7 @@ class TranslateStatusService < BaseService
 
   def source_texts
     texts = {}
-    texts[:content] = wrap_emoji_shortcodes(status_content_format(@status)) if @status.content.present?
+    texts[:content] = wrap_emoji_shortcodes(status_content_format(@status), @status.proper.emojis) if @status.content.present?
     texts[:spoiler_text] = wrap_emoji_shortcodes(html_escape(@status.spoiler_text)) if @status.spoiler_text.present?
 
     @status.preloadable_poll&.loaded_options&.each do |option|
@@ -102,11 +102,11 @@ class TranslateStatusService < BaseService
 
   # Walk text nodes only. A whole-string gsub would rewrite :shortcode: inside
   # href and other attributes and break the HTML Formatter already produced.
-  def wrap_emoji_shortcodes(html)
+  def wrap_emoji_shortcodes(html, emojis = @status.emojis)
     html = html.to_s
-    return html if @status.emojis.empty?
+    return html if emojis.empty?
 
-    shortcodes = @status.emojis.each_with_object({}) { |emoji, map| map[emoji.shortcode] = true }
+    shortcodes = emojis.each_with_object({}) { |emoji, map| map[emoji.shortcode] = true }
     tree = Nokogiri::HTML.fragment(html)
     tree.xpath('./text()|.//text()[not(ancestor[@class="invisible"])]').to_a.each do |node|
       i = -1

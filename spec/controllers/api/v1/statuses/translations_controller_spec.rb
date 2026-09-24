@@ -87,5 +87,14 @@ RSpec.describe Api::V1::Statuses::TranslationsController, type: :controller do
 
       expect(response).to have_http_status(401)
     end
+
+    it 'rejects an application-only token' do
+      app_token = Fabricate(:accessible_access_token, resource_owner_id: nil, scopes: 'read:statuses')
+      allow(controller).to receive(:doorkeeper_token).and_return(app_token)
+
+      post :create, params: { status_id: status.id }
+
+      expect(response).to have_http_status(422)
+    end
   end
 end

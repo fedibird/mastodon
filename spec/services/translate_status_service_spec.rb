@@ -58,13 +58,18 @@ RSpec.describe TranslateStatusService do
     expect(fragment.css('span[translate="no"]').map(&:text)).to include(':blob:')
   end
 
-  it 'translates a reblog from the boosted status content' do
-    original = Fabricate(:status, text: 'Original hello', language: 'en', visibility: :public)
-    reblog = Fabricate(:status, reblog: original, text: '', visibility: :public, language: 'en')
+  it 'translates a reblog from the boosted status content and protects its emoji' do
+    original = Fabricate(:status, text: 'Original :blob:', language: 'en', visibility: :public)
+    reblog = Fabricate(:status, reblog: original, text: '', visibility: :public)
 
     described_class.new.call(reblog, 'ja')
 
-    expect(backend).to have_received(:translate).with(array_including(a_string_including('Original hello')), 'en', 'ja')
+    expect(reblog.language).to be_nil
+    expect(backend).to have_received(:translate).with(
+      array_including(a_string_including('Original').and(a_string_including('<span translate="no">:blob:</span>'))),
+      nil,
+      'ja'
+    )
   end
 
   it 'refuses a non-distributable status' do
