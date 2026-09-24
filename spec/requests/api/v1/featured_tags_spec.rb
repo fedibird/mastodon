@@ -40,7 +40,9 @@ RSpec.describe 'FeaturedTags' do
     end
 
     context 'when the requesting user has no featured tag' do
-      before { Fabricate.times(3, :featured_tag) }
+      before do
+        3.times { |index| FeaturedTag.create!(account: Fabricate(:account), name: "other#{index}") }
+      end
 
       it 'returns an empty body' do
         get '/api/v1/featured_tags', headers: headers
@@ -52,7 +54,9 @@ RSpec.describe 'FeaturedTags' do
     end
 
     context 'when the requesting user has featured tags' do
-      let!(:user_featured_tags) { Fabricate.times(5, :featured_tag, account: user.account) }
+      let!(:user_featured_tags) do
+        Array.new(5) { |index| FeaturedTag.create!(account: user.account, name: "usertag#{index}") }
+      end
 
       it 'returns only the featured tags belonging to the requesting user' do
         get '/api/v1/featured_tags', headers: headers
@@ -85,7 +89,7 @@ RSpec.describe 'FeaturedTags' do
     it 'creates a new featured tag for the requesting user' do
       post '/api/v1/featured_tags', headers: headers, params: params
 
-      featured_tag = FeaturedTag.find_by(name: params[:name], account: user.account)
+      featured_tag = FeaturedTag.by_name(params[:name]).find_by(account: user.account)
 
       expect(featured_tag).to be_present
     end
@@ -188,7 +192,7 @@ RSpec.describe 'FeaturedTags' do
     end
 
     context 'when deleting a featured tag of another user' do
-      let!(:other_user_featured_tag) { Fabricate(:featured_tag) }
+      let!(:other_user_featured_tag) { FeaturedTag.create!(account: Fabricate(:account), name: 'othertag') }
       let(:id) { other_user_featured_tag.id }
 
       it 'returns http not found' do
