@@ -752,6 +752,8 @@ Rails.application.routes.draw do
             end
           end
         end
+
+        post :measures, to: 'measures#create'
       end
     end
 
