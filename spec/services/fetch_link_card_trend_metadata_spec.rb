@@ -149,6 +149,45 @@ RSpec.describe FetchLinkCardService do
     expect(card).to be_appropriate_for_trends
   end
 
+  it 'clears a stale provider_name when the page no longer names a publisher' do
+    subject.instance_variable_set(:@url, 'https://news.example/story')
+    stub_image_download
+    card.provider_name = 'Old Publisher'
+    page = page_for(<<~HTML)
+      <html>
+        <head>
+          <meta property="og:image" content="https://news.example/cover.jpg">
+        </head>
+        <script type="application/ld+json">
+          {"@type":"NewsArticle","headline":"ニュース記事","description":"本文概要"}
+        </script>
+      </html>
+    HTML
+
+    subject.send(:apply_preview_card_details, page)
+
+    expect(card.provider_name).to eq ''
+    expect(card).not_to be_appropriate_for_trends
+  end
+
+  it 'reads JSON-LD wrapped in commented CDATA' do
+    page = page_for(<<~HTML)
+      <html>
+        <script type="application/ld+json">
+          /* <![CDATA[ */
+          {"@type":"NewsArticle","headline":"CDATA記事","inLanguage":"de"}
+          /* ]]> */
+        </script>
+      </html>
+    HTML
+
+    subject.send(:apply_preview_card_details, page)
+
+    expect(card.link_type).to eq 'article'
+    expect(card.title).to eq 'CDATA記事'
+    expect(card.language).to eq 'de'
+  end
+
   it 'clears article when a previously classified card is no longer an article' do
     card.link_type = :article
     page = page_for('<html><head><meta property="og:type" content="website"></head></html>')

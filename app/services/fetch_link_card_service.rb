@@ -31,6 +31,17 @@ class FetchLinkCardService < BaseService
     'youtu.be'        => {:endpoint=>"https://www.youtube.com/oembed?format=json&url={url}", :format=>:json},
   }
 
+  # Publications wrap JSON-LD in commented-out CDATA. Strip that before Oj.load.
+  CDATA_JUNK_PATTERN = %r{^\s*(
+    (/\*\s*<!\[CDATA\[\s*\*/)
+    |
+    (//\s*<!\[CDATA\[)
+    |
+    (/\*\s*\]\]>\s*\*/)
+    |
+    (//\s*\]\]>)
+  )\s*$}x
+
   def link_type(status)
     @status = status
     urls = parse_urls
@@ -230,8 +241,7 @@ class FetchLinkCardService < BaseService
     image_url = meta_property(page, 'og:image').presence
     @card.image_remote_url = (Addressable::URI.parse(@url) + image_url).to_s if image_url.present? && @url.present?
 
-    provider_name = decode_text(structured_publisher_name(data).presence || meta_property(page, 'og:site_name').presence)
-    @card.provider_name = provider_name if provider_name.present?
+    @card.provider_name = decode_text(structured_publisher_name(data).presence || meta_property(page, 'og:site_name').presence)
 
     assign_trend_metadata(page)
   end
@@ -253,7 +263,10 @@ class FetchLinkCardService < BaseService
 
   def structured_data(page)
     page.xpath('//script[@type="application/ld+json"]').filter_map do |element|
-      json = Oj.load(element.content.to_s)
+      json_ld = element.content.to_s.gsub(CDATA_JUNK_PATTERN, '')
+      next if json_ld.blank?
+
+      json = Oj.load(json_ld)
       items = json.is_a?(Array) ? json : [json]
       items.find { |obj| obj.is_a?(Hash) && %w(NewsArticle WebPage).include?(obj['@type']) }
     rescue Oj::ParseError, EncodingError
