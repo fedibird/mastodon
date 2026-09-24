@@ -76,6 +76,10 @@ export function updateNotifications(notification, intlMessages, intlLocale) {
         dispatch(importFetchedStatus(notification.status));
       }
 
+      if (notification.report && notification.report.target_account) {
+        dispatch(importFetchedAccount(notification.report.target_account));
+      }
+
       dispatch({
         type: NOTIFICATIONS_UPDATE,
         notification,
@@ -108,7 +112,7 @@ export function updateNotifications(notification, intlMessages, intlLocale) {
 
 const excludeTypesFromSettings = state => state.getIn(['settings', 'notifications', 'shows']).filter(enabled => !enabled).keySeq().toJS();
 
-const allTypes = ImmutableList(['follow', 'follow_request', 'favourite', 'reblog', 'mention', 'poll', enableReaction ? 'emoji_reaction' : null, enableStatusReference ? 'status_reference' : null, 'followed'].filter(x => !!x))
+const allTypes = ImmutableList(['follow', 'follow_request', 'favourite', 'reblog', 'mention', 'poll', enableReaction ? 'emoji_reaction' : null, enableStatusReference ? 'status_reference' : null, 'followed', 'update', 'admin.sign_up', 'admin.report'].filter(x => !!x))
 
 const excludeTypesFromFilter = filter => {
   return allTypes.filterNot(item => item === filter).toJS();
@@ -153,6 +157,7 @@ export function expandNotifications({ maxId } = {}, done = noOp) {
       const next = getLinks(response).refs.find(link => link.rel === 'next');
 
       dispatch(importFetchedAccounts(response.data.map(item => item.account)));
+      dispatch(importFetchedAccounts(response.data.map(item => item.report && item.report.target_account).filter(account => !!account)));
       dispatch(importFetchedStatuses(response.data.map(item => item.status).filter(status => !!status)));
 
       dispatch(expandNotificationsSuccess(response.data, next ? next.uri : null, isLoadingMore, isLoadingRecent, isLoadingRecent && preferPendingItems));

@@ -188,8 +188,17 @@ class NotifyService < BaseService
     blocked ||= optional_non_following_and_direct?               # Options
     blocked ||= optional_non_following_newcommer_and_direct?     # Options
     blocked ||= conversation_muted?
-    blocked ||= send("blocked_#{@notification.type}?")           # Type-dependent filters
+    blocked ||= blocked_by_type?
     blocked
+  end
+
+  def blocked_by_type?
+    case @notification.type
+    when :update, :'admin.sign_up', :'admin.report'
+      false
+    else
+      send("blocked_#{@notification.type}?")
+    end
   end
 
   def conversation_muted?
@@ -232,6 +241,8 @@ class NotifyService < BaseService
   end
 
   def email_enabled?
+    return false if %i(update admin.sign_up admin.report).include?(@notification.type)
+
     @recipient.user.settings.notification_emails[@notification.type.to_s]
   end
 end

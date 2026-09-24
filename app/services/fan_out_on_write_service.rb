@@ -17,6 +17,8 @@ class FanOutOnWriteService < BaseService
 
     @feedInsertWorker = status.account.high_priority? ? ::PriorityFeedInsertWorker : FeedInsertWorker
 
+    notify_about_update!(status) if update?
+
     deliver_to_self(status) if status.account.local? && !(status.direct_visibility? && status.account.user.setting_hide_direct_from_timeline)
 
     if status.personal_visibility?
@@ -74,6 +76,18 @@ class FanOutOnWriteService < BaseService
 
   def update?
     @update
+  end
+
+  def notify_about_update!(status)
+    status.reblogged_by_accounts
+          .merge(Account.local)
+          .select(:id)
+          .reorder(nil)
+          .find_in_batches do |accounts|
+      LocalNotificationWorker.push_bulk(accounts) do |account|
+        [account.id, status.id, 'Status', 'update']
+      end
+    end
   end
 
   def feed_insert_args(*args)

@@ -43,16 +43,21 @@ class Notification < ApplicationRecord
     emoji_reaction
     status_reference
     scheduled_status
+    update
+    admin.sign_up
+    admin.report
   ).freeze
 
   TARGET_STATUS_INCLUDES_BY_TYPE = {
     status: :status,
+    update: :status,
     reblog: [status: :reblog],
     mention: [mention: :status],
     favourite: [favourite: :status],
     poll: [poll: :status],
     emoji_reaction: [emoji_reaction: :status],
     status_reference: [status_reference: :status],
+    :'admin.report' => [report: :target_account],
   }.freeze
 
   belongs_to :account, optional: true
@@ -67,6 +72,7 @@ class Notification < ApplicationRecord
   belongs_to :poll,             foreign_key: 'activity_id', optional: true
   belongs_to :emoji_reaction,   foreign_key: 'activity_id', optional: true
   belongs_to :status_reference, foreign_key: 'activity_id', optional: true
+  belongs_to :report,           foreign_key: 'activity_id', optional: true
 
   validates :type, inclusion: { in: TYPES }
   validates :activity_id, uniqueness: { scope: [:account_id, :type] }, if: -> { type.to_sym == :status }
@@ -79,7 +85,7 @@ class Notification < ApplicationRecord
 
   def target_status
     case type
-    when :status
+    when :status, :update
       status
     when :reblog
       status&.reblog
@@ -151,7 +157,7 @@ class Notification < ApplicationRecord
         cached_status = cached_statuses_by_id[notification.target_status.id]
 
         case notification.type
-        when :status
+        when :status, :update
           notification.status = cached_status
         when :reblog
           notification.status.reblog = cached_status
@@ -183,12 +189,14 @@ class Notification < ApplicationRecord
     return unless new_record?
   
     case type
-    when :status, :reblog, :follow, :favourite, :follow_request, :poll, :emoji_reaction, :scheduled_status
+    when :status, :update, :reblog, :follow, :favourite, :follow_request, :poll, :emoji_reaction, :scheduled_status, :'admin.report'
       self.from_account_id = activity&.account_id
     when :followed
       self.from_account_id = activity&.target_account_id
     when :mention, :status_reference
       self.from_account_id = activity&.status&.account_id
+    when :'admin.sign_up'
+      self.from_account_id = activity&.id
     end
   end
 end

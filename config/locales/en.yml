@@ -1778,6 +1778,11 @@ en:
     carry_mutes_over_text: This user moved from %{acct}, which you had muted.
     copy_account_note_text: 'This user moved from %{acct}, here were your previous notes about them:'
   notification_mailer:
+    admin:
+      report:
+        subject: "%{name} reported a post"
+      sign_up:
+        subject: "%{name} signed up"
     digest:
       action: View all notifications
       body: Here is a brief summary of the messages you missed since your last visit on %{since}
@@ -1823,6 +1828,8 @@ en:
       title: New boost
     status:
       subject: "%{name} just posted"
+    update:
+      subject: "%{name} edited a post"
     status_reference:
       body: 'Your post was referenced by %{name}:'
       subject: "%{name} referenced your post"

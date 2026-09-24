@@ -12,6 +12,12 @@ class LocalNotificationWorker
       activity = activity_class_name.constantize.find(activity_id)
     end
 
+    # Edits replace the previous update notification for the same status.
+    # Other types keep their existing duplicate behavior.
+    if type == 'update'
+      Notification.where(account: receiver, activity: activity, type: 'update').in_batches.delete_all
+    end
+
     NotifyService.new.call(receiver, type || activity_class_name.underscore, activity)
   rescue ActiveRecord::RecordNotFound
     true
