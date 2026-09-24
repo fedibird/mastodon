@@ -1270,6 +1270,55 @@ ja:
       unique_uses_today: 本日 %{count} 人が投稿に使用
       unreviewed: 未審査
       updated_msg: ハッシュタグ設定が更新されました
+    trends:
+      allow: 許可
+      approved: 承認
+      disallow: 拒否
+      links:
+        allow: リンクの許可
+        allow_provider: 発行者の承認
+        description_html: これらは、多くのユーザーに共有されているリンクです。あなたのユーザーが世の中の動きを知るのに役立ちます。あなたが公開者を承認するまで、リンクは一般に表示されません。また、個別のリンクの許可・拒否も可能です。
+        disallow: リンクの拒否
+        disallow_provider: 発行者の拒否
+        no_link_selected: 何も選択されていないため、変更されていません
+        publishers:
+          no_publisher_selected: 何も選択されていないため、変更されていません
+        shared_by_over_week:
+          other: 週間%{count}人に共有されました
+        title: トレンドリンク
+        usage_comparison: 今日は%{today}回、昨日は%{yesterday}回共有されました
+      not_allowed_to_trend: 未許可のトレンド
+      only_allowed: 許可済み
+      pending_review: 保留中
+      preview_card_providers:
+        allowed: この発行者からのリンクを許可
+        description_html: これらは、よく共有されるリンク元のドメインです。リンク先のドメインが承認されない限り、リンクは公開されません。承認（または拒否）はサブドメインにも及びます。
+        rejected: この発行者からのリンクを拒否
+        title: 発行者
+      rejected: 拒否
+      statuses:
+        allow: 掲載を許可
+        allow_account: 投稿者を許可
+        description_html: これらは、このサーバーが知っている、たくさんシェアされ、お気に入り登録されている投稿です。新しいユーザーや久しぶりにアクセスするユーザーがフォローする人を探すのに役立ちます。あなたが投稿者を承認し、投稿者が許可するまで、表示されることはありません。また、個別の投稿を許可または拒否することもできます。
+        disallow: 掲載を拒否
+        disallow_account: 投稿者を拒否
+        no_status_selected: 何も選択されていないため、変更されていません
+        not_discoverable: 投稿者は発見可能であることに同意していません
+        shared_by:
+          other: "%{friendly_count}回の共有、お気に入り"
+        title: トレンド投稿
+      tags:
+        current_score: 現在のスコア %{score}
+        description_html: これらは、多くの投稿に使用されているハッシュタグです。あなたのユーザーが、人々が今一番話題にしていることを知るのに役立ちます。あなたが承認するまで、ハッシュタグは一般に表示されません。
+        no_tag_selected: 何も選択されていないため、変更されていません
+        peaked_on_and_decaying: "%{date}以降、しばらく使われていません"
+        title: トレンドタグ
+        trending_rank: '人気: %{rank}位'
+        usage_comparison: 今日は%{today}回、昨日は%{yesterday}回使用されました。
+        used_by_over_week:
+          other: 週間%{count}人に使用されました
+      title: トレンド
+      trending: トレンド
     title: 管理
     warning_presets:
       add_new: 追加
