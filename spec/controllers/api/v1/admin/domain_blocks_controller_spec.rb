@@ -248,10 +248,14 @@ RSpec.describe Api::V1::Admin::DomainBlocksController, type: :controller do
     end
 
     context 'when the domain is already blocked' do
-      let!(:existing) { Fabricate(:domain_block, domain: 'foo.bar.com', severity: :suspend) }
+      let!(:existing) { Fabricate(:domain_block, domain: 'foo.bar.com', severity: :silence) }
 
       it 'returns 422 with the existing domain block and does not duplicate' do
-        expect { post :create, params: params, format: :json }.to_not change(DomainBlock, :count)
+        expect(DomainBlockWorker).not_to receive(:perform_async)
+        expect { post :create, params: { domain: 'foo.bar.com', severity: 'suspend' }, format: :json }
+          .to_not change(DomainBlock, :count)
+        expect { post :create, params: { domain: 'foo.bar.com', severity: 'suspend' }, format: :json }
+          .to_not change(Admin::ActionLog, :count)
         expect(response).to have_http_status(422)
         expect(body_as_json[:error]).to be_present
         expect(body_as_json[:existing_domain_block][:id]).to eq(existing.id.to_s)
@@ -260,14 +264,37 @@ RSpec.describe Api::V1::Admin::DomainBlocksController, type: :controller do
       end
     end
 
-    context 'when a parent-domain rule already exists' do
+    context 'when a looser parent-domain rule already exists' do
       let!(:existing) { Fabricate(:domain_block, domain: 'bar.com', severity: :silence) }
 
-      it 'returns 422 with the parent domain block' do
-        expect { post :create, params: { domain: 'foo.bar.com' }, format: :json }.to_not change(DomainBlock, :count)
+      it 'creates the stricter subdomain block' do
+        expect(DomainBlockWorker).to receive(:perform_async).once
+        expect { post :create, params: { domain: 'foo.bar.com', severity: 'suspend' }, format: :json }
+          .to change(DomainBlock, :count).by(1)
+          .and change(Admin::ActionLog, :count).by(1)
+
+        expect(response).to have_http_status(200)
+        expect(body_as_json[:domain]).to eq('foo.bar.com')
+        expect(body_as_json[:severity]).to eq('suspend')
+        expect(DomainBlock.find_by(domain: 'foo.bar.com')).to be_suspend
+        expect(Admin::ActionLog.last.action).to eq(:create)
+        expect(existing.reload.domain).to eq('bar.com')
+      end
+    end
+
+    context 'when a stricter parent-domain rule already exists' do
+      let!(:existing) { Fabricate(:domain_block, domain: 'bar.com', severity: :suspend) }
+
+      it 'returns 422 with the parent domain block and does not enqueue work' do
+        expect(DomainBlockWorker).not_to receive(:perform_async)
+        expect { post :create, params: { domain: 'foo.bar.com', severity: 'silence' }, format: :json }
+          .to_not change(DomainBlock, :count)
+        expect { post :create, params: { domain: 'foo.bar.com', severity: 'silence' }, format: :json }
+          .to_not change(Admin::ActionLog, :count)
         expect(response).to have_http_status(422)
         expect(body_as_json[:existing_domain_block][:id]).to eq(existing.id.to_s)
         expect(body_as_json[:existing_domain_block][:domain]).to eq('bar.com')
+        expect(body_as_json[:existing_domain_block][:digest]).to eq(existing.domain_digest)
       end
     end
   end
