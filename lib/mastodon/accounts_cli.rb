@@ -549,6 +549,47 @@ module Mastodon
       end
     end
 
+    option :reassign_to_admin, type: :boolean
+    desc 'legacy_admin_roles', 'Count legacy admins still on Owner, Admin, or no role'
+    long_desc <<-LONG_DESC
+      Counts users whose legacy admin flag is still true and whose current
+      role is Owner, Admin, or unset. Custom roles are not included.
+
+      No role_id is changed unless --reassign-to-admin is given. That flag
+      moves only the Owner and unset rows in this count to Admin. It does
+      not move Admin back to Owner.
+
+      The legacy admin flag is not updated when a role is chosen in the
+      admin UI or with tootctl accounts modify --role, and that choice is
+      not reliably recorded. --reassign-to-admin can therefore remove the
+      Owner role, including administrator and DevOps permissions, from an
+      account that was left as Owner on purpose.
+    LONG_DESC
+    def legacy_admin_roles
+      load Rails.root.join('db', 'seeds', '03_roles.rb')
+
+      owner_role = UserRole.find_by!(name: 'Owner')
+      admin_role = UserRole.find_by!(name: 'Admin')
+      candidates = User.where(admin: true, role_id: [nil, admin_role.id, owner_role.id])
+      owner_count = candidates.where(role_id: owner_role.id).count
+      admin_count = candidates.where(role_id: admin_role.id).count
+      unset_count = candidates.where(role_id: nil).count
+
+      say("Owner: #{owner_count}")
+      say("Admin: #{admin_count}")
+      say("unset: #{unset_count}")
+      say('Custom roles on historical admins are not listed and will not be changed.')
+
+      unless options[:reassign_to_admin]
+        say('No roles were changed. Pass --reassign-to-admin to move the Owner and unset counts to Admin.')
+        say('That overwrites an explicit Owner assignment when the legacy admin flag is still true.')
+        return
+      end
+
+      User.where(admin: true, role_id: [nil, owner_role.id]).in_batches.update_all(role_id: admin_role.id)
+      say("Moved #{owner_count + unset_count} accounts to Admin", :green)
+    end
+
     desc 'retry_follow_request ACCT', 'Retry follow request'
     long_desc <<-LONG_DESC
       Retry follow request.

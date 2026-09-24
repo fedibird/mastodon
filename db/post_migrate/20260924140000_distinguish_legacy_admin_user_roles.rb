@@ -1,29 +1,24 @@
 # frozen_string_literal: true
 
-# Corrects the Owner assignment that earlier backfills gave every legacy
-# admin. FEDIBIRD_HOSTED is read only while this migration runs:
-# "true" assigns Admin, anything else (including unset) assigns Owner.
-# Changing the variable afterwards does not rewrite role_id.
+# Ensures the default Owner, Admin, and Moderator roles exist.
+#
+# It does not rewrite users.role_id. After the earlier backfills, role_id is
+# the runtime source of truth and the legacy admin/moderator booleans stay as
+# history. The admin UI and tootctl change only role_id, and admin action logs
+# are not a reliable record: tootctl does not write one, and logs can be
+# removed. A row with admin=true and role Owner or Admin can therefore be
+# either the old backfill or a later explicit choice. Rewriting it from
+# FEDIBIRD_HOSTED would raise or drop permissions without a way to tell those
+# cases apart.
+#
+# Hosted deployments that still want legacy admins moved from Owner to Admin
+# run `tootctl accounts legacy_admin_roles` and, after reading the counts,
+# pass --reassign-to-admin. That command can overwrite an explicit Owner.
 class DistinguishLegacyAdminUserRoles < ActiveRecord::Migration[6.1]
   disable_ddl_transaction!
 
-  class User < ApplicationRecord
-    self.table_name = 'users'
-  end
-
   def up
     load Rails.root.join('db', 'seeds', '03_roles.rb')
-
-    owner_role     = ::UserRole.find_by!(name: 'Owner')
-    admin_role     = ::UserRole.find_by!(name: 'Admin')
-    moderator_role = ::UserRole.find_by!(name: 'Moderator')
-    legacy_admin_role = ENV['FEDIBIRD_HOSTED'] == 'true' ? admin_role : owner_role
-
-    # Earlier backfills wrote Owner or left role_id nil. Admin is included so a
-    # hosted run can be applied again without missing rows it already moved.
-    # Any other role_id is an explicit assignment and is left alone.
-    User.where(admin: true, role_id: [nil, admin_role.id, owner_role.id]).in_batches.update_all(role_id: legacy_admin_role.id)
-    User.where(admin: false, moderator: true, role_id: [nil, moderator_role.id]).in_batches.update_all(role_id: moderator_role.id)
   end
 
   def down
