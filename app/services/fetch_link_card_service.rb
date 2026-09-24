@@ -220,13 +220,53 @@ class FetchLinkCardService < BaseService
     return if @card.title.blank? && @card.html.blank?
 
     @card.provider_name = meta_property(page, 'og:site_name').presence || @card.provider_name
-    @card.language = valid_locale_or_nil(page.at_css('html')&.[]('lang'))
-    assign_trend_metadata
+    assign_trend_metadata(page)
     @card.save_with_optional_image!
   end
 
-  def assign_trend_metadata
-    @card.link_type = :article if @card.link? && @card.title.present? && @card.description.present?
+  def assign_trend_metadata(page = trend_page)
+    @card.link_type = article_page?(page) ? :article : :unknown
+    return if page.nil?
+
+    @card.language = valid_locale_or_nil(structured_language(page) || meta_property(page, 'og:locale') || page.at_css('html')&.[]('lang'))
+    @card.image_description = meta_property(page, 'og:image:alt').to_s
+    @card.published_at = structured_date_published(page).presence || meta_property(page, 'article:published_time').presence
+  end
+
+  def article_page?(page)
+    return false unless @card.link? && page
+
+    structured_type(page) == 'NewsArticle' || meta_property(page, 'og:type') == 'article'
+  end
+
+  def trend_page
+    return if !defined?(@html) || @html.blank?
+
+    Nokogiri::HTML(@html)
+  end
+
+  def structured_data(page)
+    page.xpath('//script[@type="application/ld+json"]').filter_map do |element|
+      json = Oj.load(element.content.to_s)
+      items = json.is_a?(Array) ? json : [json]
+      items.find { |obj| obj.is_a?(Hash) && %w(NewsArticle WebPage).include?(obj['@type']) }
+    rescue Oj::ParseError, EncodingError
+      nil
+    end.compact.first || {}
+  end
+
+  def structured_type(page)
+    structured_data(page)['@type']
+  end
+
+  def structured_language(page)
+    lang = structured_data(page)['inLanguage']
+    lang = lang.first if lang.is_a?(Array)
+    lang.is_a?(Hash) ? (lang['alternateName'] || lang['name']) : lang
+  end
+
+  def structured_date_published(page)
+    structured_data(page)['datePublished']
   end
 
   def meta_property(page, property)

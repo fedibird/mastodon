@@ -21,15 +21,12 @@ class TrendingTags
     end
 
     def notify_unreviewed!
-      tag_ids = redis.zrevrange("#{KEY}:allowed", 0, -1)
-      tags = Tag.where(id: tag_ids)
+      tags = Trends.tags.request_review
+      return if tags.empty?
+
       users_for_review = User.those_who_can(:manage_taxonomies).includes(:account).to_a.select { |user| user.functional? && user.allows_trending_tag_emails? }
 
       tags.each do |tag|
-        current_rank = redis.zrevrank("#{KEY}:allowed", tag.id)
-        next unless !tag.trendable? && current_rank.present? && current_rank <= REVIEW_THRESHOLD && tag.requires_review_notification?
-
-        tag.touch(:requested_review_at)
         users_for_review.each do |user|
           AdminMailer.new_trending_tag(user.account, tag).deliver_later!
         end

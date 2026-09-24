@@ -105,6 +105,18 @@ class PreviewCard < ApplicationRecord
     end
   end
 
+  def requires_review?
+    attributes['trendable'].nil? && (provider.nil? || provider.requires_review?)
+  end
+
+  def requires_review_notification?
+    attributes['trendable'].nil? && (provider.nil? || provider.requires_review_notification?)
+  end
+
+  def decaying?
+    max_score_at && max_score_at >= Trends.links.options[:max_score_cooldown].ago && max_score_at < 1.day.ago
+  end
+
   def history
     @history ||= Trends::History.new('links', id)
   end

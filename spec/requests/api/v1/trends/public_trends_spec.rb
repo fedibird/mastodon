@@ -51,7 +51,7 @@ RSpec.describe 'Public trends API' do
 
   describe 'GET /api/v1/trends/links' do
     let(:card) do
-      Fabricate(:preview_card, trendable: true, language: 'en', link_type: :article, title: 'Hello', description: 'World', provider_name: 'Example')
+      Fabricate(:preview_card, trendable: true, language: 'en', link_type: :article, title: 'Hello', description: 'World', provider_name: 'Example', image_description: 'A photo', published_at: Time.utc(2024, 1, 2, 3, 4, 5))
     end
 
     before do
@@ -63,6 +63,9 @@ RSpec.describe 'Public trends API' do
 
       expect(response).to have_http_status(200)
       expect(body_as_json.first[:url]).to eq card.url
+      expect(body_as_json.first[:language]).to eq 'en'
+      expect(body_as_json.first[:image_description]).to eq 'A photo'
+      expect(body_as_json.first[:published_at]).to eq '2024-01-02T03:04:05.000Z'
       expect(body_as_json.first[:history]).to be_an(Array)
       expect(response.headers['Cache-Control']).to include('public')
     end
