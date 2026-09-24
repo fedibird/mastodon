@@ -6,6 +6,8 @@ import {
   TRENDS_STATUSES_EXPAND_SUCCESS,
   TRENDS_STATUSES_EXPAND_FAIL,
 } from '../../actions/trends';
+import { ACCOUNT_BLOCK_SUCCESS, ACCOUNT_MUTE_SUCCESS } from '../../actions/accounts';
+import { fromJS } from 'immutable';
 import statusLists from '../status_lists';
 
 describe('status_lists trending', () => {
@@ -50,5 +52,27 @@ describe('status_lists trending', () => {
     const failed = statusLists(requested, { type });
 
     expect(failed.getIn(['trending', 'isLoading'])).toBe(false);
+  });
+
+  it.each([
+    ['block', ACCOUNT_BLOCK_SUCCESS],
+    ['mute', ACCOUNT_MUTE_SUCCESS],
+  ])('removes only the affected account after a %s', (label, type) => {
+    const loaded = statusLists(undefined, {
+      type: TRENDS_STATUSES_FETCH_SUCCESS,
+      statuses: [{ id: 'status-a' }, { id: 'status-b' }],
+      next: null,
+    });
+
+    const updated = statusLists(loaded, {
+      type,
+      relationship: { id: 'account-a' },
+      statuses: fromJS({
+        'status-a': { account: 'account-a' },
+        'status-b': { account: 'account-b' },
+      }),
+    });
+
+    expect(updated.getIn(['trending', 'items']).toJS()).toEqual(['status-b']);
   });
 });

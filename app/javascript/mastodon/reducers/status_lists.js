@@ -26,6 +26,10 @@ import {
   PINNED_STATUSES_FETCH_SUCCESS,
 } from '../actions/pin_statuses';
 import {
+  ACCOUNT_BLOCK_SUCCESS,
+  ACCOUNT_MUTE_SUCCESS,
+} from '../actions/accounts';
+import {
   TRENDS_STATUSES_FETCH_REQUEST,
   TRENDS_STATUSES_FETCH_SUCCESS,
   TRENDS_STATUSES_FETCH_FAIL,
@@ -167,6 +171,13 @@ export default function statusLists(state = initialState, action) {
     return prependOneToList(state, 'pins', action.status);
   case UNPIN_SUCCESS:
     return removeOneFromList(state, 'pins', action.status);
+  case ACCOUNT_BLOCK_SUCCESS:
+  case ACCOUNT_MUTE_SUCCESS:
+    return state.updateIn(
+      ['trending', 'items'],
+      ImmutableList(),
+      list => list.filterNot(statusId => action.statuses.getIn([statusId, 'account']) === action.relationship.id),
+    );
   default:
     return state;
   }
