@@ -98,7 +98,7 @@ class REST::InstanceSerializer < ActiveModel::Serializer
       },
 
       translation: {
-        enabled: false,
+        enabled: TranslationService.configured?,
       },
 
       emoji_reactions: {

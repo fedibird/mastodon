@@ -30,4 +30,8 @@ module Localized
   def request_locale
     http_accept_language.language_region_compatible_from(I18n.available_locales)
   end
+
+  def content_locale
+    @content_locale ||= I18n.locale.to_s.split(/[_-]/).first
+  end
 end
