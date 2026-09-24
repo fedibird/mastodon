@@ -25,6 +25,7 @@ class InitialStateSerializer < ActiveModel::Serializer
       mascot: instance_presenter.mascot&.file&.url,
       profile_directory: Setting.profile_directory,
       server_directory: Setting.server_directory,
+      trends_enabled: Setting.trends,
       trends: Setting.trends,
       allow_poll_image: Setting.allow_poll_image,
       pins_max: [StatusPinValidator::LIMIT, Setting.pins_max].min,
@@ -54,6 +55,7 @@ class InitialStateSerializer < ActiveModel::Serializer
       store[:use_pending_items]                     = object.current_account.user.setting_use_pending_items
       store[:is_staff]                              = object.current_account.user.administrative?
       store[:trends]                                = Setting.trends && object.current_account.user.setting_trends
+      store[:show_trends]                           = Setting.trends && object.current_account.user.setting_trends
       store[:crop_images]                           = object.current_account.user.setting_crop_images
       store[:confirm_domain_block]                  = object.current_account.user.setting_confirm_domain_block
       store[:show_follow_button_on_timeline]        = object.current_account.user.setting_show_follow_button_on_timeline

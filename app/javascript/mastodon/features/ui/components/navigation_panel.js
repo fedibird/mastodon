@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink, withRouter } from 'react-router-dom';
 import { FormattedMessage } from 'react-intl';
 import Icon from 'mastodon/components/icon';
-import { profile_directory, showTrends, enableLimitedTimeline, enableFederatedTimeline, enableLocalTimeline, enablePersonalTimeline } from 'mastodon/initial_state';
+import { profile_directory, trendsEnabled, showTrends, enableLimitedTimeline, enableFederatedTimeline, enableLocalTimeline, enablePersonalTimeline } from 'mastodon/initial_state';
 import NotificationsCounterIcon from './notifications_counter_icon';
 import FollowRequestsNavLink from './follow_requests_nav_link';
 import ScheduledStatusesNavLink from './scheduled_statuses_nav_link';
@@ -32,6 +32,7 @@ const NavigationPanel = () => (
     <NavLink className='column-link column-link--transparent' to='/group_directory'><Icon className='column-link__icon' id='address-book-o' fixedWidth /><FormattedMessage id='getting_started.group_directory' defaultMessage='Group directory' /></NavLink>
     {profile_directory && <NavLink className='column-link column-link--transparent' to='/directory'><Icon className='column-link__icon' id='address-book-o' fixedWidth /><FormattedMessage id='getting_started.directory' defaultMessage='Profile directory' /></NavLink>}
     <NavLink className='column-link column-link--transparent' to='/suggestions'><Icon className='column-link__icon' id='user-plus' fixedWidth /><FormattedMessage id='navigation_bar.suggestions' defaultMessage='Suggestions' /></NavLink>
+    {trendsEnabled && <NavLink className='column-link column-link--transparent' to='/explore'><Icon className='column-link__icon' id='hashtag' fixedWidth /><FormattedMessage id='explore.title' defaultMessage='Explore' /></NavLink>}
     <NavLink className='column-link column-link--transparent' to='/trends'><Icon className='column-link__icon' id='line-chart' fixedWidth /><FormattedMessage id='navigation_bar.trends' defaultMessage='Trends' /></NavLink>
 
     <ListPanel />

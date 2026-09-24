@@ -7,7 +7,7 @@ import { connect } from 'react-redux';
 import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import ImmutablePureComponent from 'react-immutable-pure-component';
-import { me, profile_directory, showTrends, enableLimitedTimeline, enablePersonalTimeline, enableFederatedTimeline, enableLocalTimeline, enableEmptyColumn, defaultColumnWidth } from '../../initial_state';
+import { me, profile_directory, trendsEnabled, showTrends, enableLimitedTimeline, enablePersonalTimeline, enableFederatedTimeline, enableLocalTimeline, enableEmptyColumn, defaultColumnWidth } from '../../initial_state';
 import { fetchFollowRequests } from 'mastodon/actions/accounts';
 import { fetchFavouriteDomains } from 'mastodon/actions/favourite_domains';
 import { fetchFavouriteTags } from 'mastodon/actions/favourite_tags';
@@ -50,6 +50,7 @@ const messages = defineMessages({
   group_directory: { id: 'getting_started.group_directory', defaultMessage: 'Group directory' },
   profile_directory: { id: 'getting_started.directory', defaultMessage: 'Profile directory' },
   suggestions: { id: 'navigation_bar.suggestions', defaultMessage: 'Suggestions' },
+  explore: { id: 'explore.title', defaultMessage: 'Explore' },
   trends: { id: 'navigation_bar.trends', defaultMessage: 'Trends' },
   information_acct: { id: 'navigation_bar.information_acct', defaultMessage: 'Fedibird info' },
   hashtag_fedibird: { id: 'navigation_bar.hashtag_fedibird', defaultMessage: 'fedibird' },
@@ -173,10 +174,23 @@ class GettingStarted extends ImmutablePureComponent {
 
       navItems.push(
         <ColumnLink key='suggestions' icon='user-plus' text={intl.formatMessage(messages.suggestions)} to='/suggestions' />,
+      );
+
+      height += 48;
+
+      if (trendsEnabled) {
+        navItems.push(
+          <ColumnLink key='explore' icon='hashtag' text={intl.formatMessage(messages.explore)} to='/explore' />,
+        );
+
+        height += 48;
+      }
+
+      navItems.push(
         <ColumnLink key='trends' icon='line-chart' text={intl.formatMessage(messages.trends)} to='/trends' />,
       );
 
-      height += 48*2;
+      height += 48;
 
       navItems.push(
         <ColumnLink key='information_acct' icon='info-circle' text={intl.formatMessage(messages.information_acct)} to='/accounts/2' />,
@@ -207,10 +221,23 @@ class GettingStarted extends ImmutablePureComponent {
 
       navItems.push(
         <ColumnLink key='suggestions' icon='user-plus' text={intl.formatMessage(messages.suggestions)} to='/suggestions' />,
+      );
+
+      height += 48;
+
+      if (trendsEnabled) {
+        navItems.push(
+          <ColumnLink key='explore' icon='hashtag' text={intl.formatMessage(messages.explore)} to='/explore' />,
+        );
+
+        height += 48;
+      }
+
+      navItems.push(
         <ColumnLink key='trends' icon='line-chart' text={intl.formatMessage(messages.trends)} to='/trends' />,
       );
 
-      height += 48*2;
+      height += 48;
 
       navItems.push(
         <ColumnLink key='information_acct' icon='info-circle' text={intl.formatMessage(messages.information_acct)} to='/accounts/2' />,
