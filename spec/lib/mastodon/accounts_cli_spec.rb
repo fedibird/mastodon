@@ -167,5 +167,49 @@ RSpec.describe Mastodon::AccountsCLI do
       expect(user.moderator).to be true
     end
   end
+
+  describe '#legacy_admin_roles' do
+    it 'reports candidates and does not reverse an explicit Admin or Owner choice' do
+      explicit_admin = Fabricate(:user, admin: true, moderator: false)
+      explicit_owner = Fabricate(:user, admin: true, moderator: false)
+      custom_role = UserRole.create!(name: 'Kept', permissions_as_keys: %w(manage_reports))
+      custom = Fabricate(:user, admin: true, moderator: false)
+      explicit_admin.update_columns(role_id: role_named('Admin').id)
+      explicit_owner.update_columns(role_id: role_named('Owner').id)
+      custom.update_columns(role_id: custom_role.id)
+      owner_count = User.where(admin: true, role_id: role_named('Owner').id).count
+      admin_count = User.where(admin: true, role_id: role_named('Admin').id).count
+
+      invoke(:legacy_admin_roles, [])
+
+      expect(explicit_admin.reload.role_id).to eq role_named('Admin').id
+      expect(explicit_owner.reload.role_id).to eq role_named('Owner').id
+      expect(custom.reload.role_id).to eq custom_role.id
+      expect(@output.string).to include('No roles were changed')
+      expect(@output.string).to include("Owner: #{owner_count}")
+      expect(@output.string).to include("Admin: #{admin_count}")
+    end
+
+    it 'moves only Owner and unset legacy admins to Admin when opted in' do
+      owner = Fabricate(:user, admin: true, moderator: false)
+      unset = Fabricate(:user, admin: true, moderator: false)
+      explicit_admin = Fabricate(:user, admin: true, moderator: false)
+      custom_role = UserRole.create!(name: 'Kept opt-in', permissions_as_keys: %w(manage_reports))
+      custom = Fabricate(:user, admin: true, moderator: false)
+      owner.update_columns(role_id: role_named('Owner').id, updated_at: 2.days.ago)
+      unset.update_columns(role_id: nil)
+      explicit_admin.update_columns(role_id: role_named('Admin').id)
+      custom.update_columns(role_id: custom_role.id)
+      stamped = owner.reload.updated_at
+
+      invoke(:legacy_admin_roles, [], reassign_to_admin: true)
+
+      expect(owner.reload.role_id).to eq role_named('Admin').id
+      expect(owner.updated_at).to be_within(1.second).of(stamped)
+      expect(unset.reload.role_id).to eq role_named('Admin').id
+      expect(explicit_admin.reload.role_id).to eq role_named('Admin').id
+      expect(custom.reload.role_id).to eq custom_role.id
+    end
+  end
 end
 # rubocop:enable Metrics/BlockLength
