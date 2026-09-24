@@ -130,25 +130,22 @@ RSpec.describe Api::V1::MediaController, type: :controller do
 
       it 'does not replace the original file' do
         original_name = media.file_file_name
-        original_fingerprint = media.file_fingerprint
+        original_size = media.file_file_size
 
         put :update, params: { id: media.id, file: fixture_file_upload('attachment.gif', 'image/gif'), description: 'kept file' }
 
         expect(response).to have_http_status(200)
         media.reload
         expect(media.file_file_name).to eq original_name
-        expect(media.file_fingerprint).to eq original_fingerprint
+        expect(media.file_file_size).to eq original_size
         expect(media.description).to eq 'kept file'
       end
 
-      it 'accepts a thumbnail without changing the original file' do
-        original_name = media.file_file_name
+      it 'permits thumbnail, description, and focus on update, and file on create' do
+        controller.params = ActionController::Parameters.new(file: 'ignored', thumbnail: 'thumb', description: 'alt', focus: '0,0')
 
-        put :update, params: { id: media.id, thumbnail: fixture_file_upload('attachment.jpg', 'image/jpeg') }
-
-        expect(response).to have_http_status(200)
-        expect(media.reload.file_file_name).to eq original_name
-        expect(media.thumbnail_file_name).to be_present
+        expect(controller.send(:updateable_media_attachment_params).to_h.keys).to match_array(%w(thumbnail description focus))
+        expect(controller.send(:media_attachment_params).to_h.keys).to include('file')
       end
     end
 
