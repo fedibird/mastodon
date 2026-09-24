@@ -43,6 +43,30 @@ RSpec.describe TranslateStatusService do
     expect(backend).to have_received(:translate).with(array_including(a_string_including('<span translate="no">:blob:</span>')), 'en', 'ja')
   end
 
+  it 'wraps a body shortcode without rewriting the same shortcode inside an href' do
+    linked = Fabricate(:status, account: account, text: 'See https://example.com/x/:blob:/y and :blob:', language: 'en', visibility: :public)
+
+    described_class.new.call(linked, 'ja')
+
+    html = nil
+    expect(backend).to have_received(:translate) do |texts, _source, _target|
+      html = texts.first
+    end
+    fragment = Nokogiri::HTML.fragment(html)
+    expect(fragment.at_css('a')['href']).to eq 'https://example.com/x/:blob:/y'
+    expect(fragment.at_css('a')['href']).not_to include('<span')
+    expect(fragment.css('span[translate="no"]').map(&:text)).to include(':blob:')
+  end
+
+  it 'translates a reblog from the boosted status content' do
+    original = Fabricate(:status, text: 'Original hello', language: 'en', visibility: :public)
+    reblog = Fabricate(:status, reblog: original, text: '', visibility: :public, language: 'en')
+
+    described_class.new.call(reblog, 'ja')
+
+    expect(backend).to have_received(:translate).with(array_including(a_string_including('Original hello')), 'en', 'ja')
+  end
+
   it 'refuses a non-distributable status' do
     status.update!(visibility: :direct)
 

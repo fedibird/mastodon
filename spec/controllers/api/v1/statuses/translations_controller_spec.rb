@@ -46,7 +46,15 @@ RSpec.describe Api::V1::Statuses::TranslationsController, type: :controller do
       expect(response).to have_http_status(404)
     end
 
-    it 'returns 404 when translation is not configured' do
+    it 'returns 403 when no translation provider is configured' do
+      allow(TranslationService).to receive(:configured?).and_return(false)
+
+      post :create, params: { status_id: status.id }
+
+      expect(response).to have_http_status(403)
+    end
+
+    it 'returns 404 when NotConfiguredError is raised after configuration' do
       allow(TranslateStatusService).to receive_message_chain(:new, :call).and_raise(TranslationService::NotConfiguredError)
 
       post :create, params: { status_id: status.id }

@@ -44,7 +44,7 @@ class TranslateStatusService < BaseService
 
   def source_texts
     texts = {}
-    texts[:content] = wrap_emoji_shortcodes(status_content_format(@status)) if @status.text.present?
+    texts[:content] = wrap_emoji_shortcodes(status_content_format(@status)) if @status.content.present?
     texts[:spoiler_text] = wrap_emoji_shortcodes(html_escape(@status.spoiler_text)) if @status.spoiler_text.present?
 
     @status.preloadable_poll&.loaded_options&.each do |option|
@@ -58,10 +58,10 @@ class TranslateStatusService < BaseService
     texts
   end
 
-  # Fedibird renders status HTML through Formatter. Keep that path instead of
-  # replacing it with Mastodon's HtmlAwareFormatter.
+  # Match REST::StatusSerializer#content so translation source HTML uses the
+  # same redirect-target handling as the status the client already sees.
   def status_content_format(status)
-    Formatter.instance.format(status)
+    Formatter.instance.format(status, rest: true)
   end
 
   def build_status_translation(translations)
@@ -100,12 +100,51 @@ class TranslateStatusService < BaseService
     status_translation
   end
 
-  def wrap_emoji_shortcodes(text)
-    html = text.to_s
-    @status.emojis.each do |emoji|
-      html = html.gsub(":#{emoji.shortcode}:", %(<span translate="no">:#{emoji.shortcode}:</span>))
+  # Walk text nodes only. A whole-string gsub would rewrite :shortcode: inside
+  # href and other attributes and break the HTML Formatter already produced.
+  def wrap_emoji_shortcodes(html)
+    html = html.to_s
+    return html if @status.emojis.empty?
+
+    shortcodes = @status.emojis.each_with_object({}) { |emoji, map| map[emoji.shortcode] = true }
+    tree = Nokogiri::HTML.fragment(html)
+    tree.xpath('./text()|.//text()[not(ancestor[@class="invisible"])]').to_a.each do |node|
+      i = -1
+      inside_shortname = false
+      shortname_start_index = -1
+      last_index = 0
+      text = node.content
+      result = Nokogiri::XML::NodeSet.new(tree.document)
+
+      while i + 1 < text.size
+        i += 1
+
+        if inside_shortname && text[i] == ':'
+          inside_shortname = false
+          shortcode = text[shortname_start_index + 1..i - 1]
+          char_after = text[i + 1]
+
+          next unless (char_after.nil? || !Formatter::DISALLOWED_BOUNDING_REGEX.match?(char_after)) && shortcodes[shortcode]
+
+          result << Nokogiri::XML::Text.new(text[last_index..shortname_start_index - 1], tree.document) if shortname_start_index.positive?
+
+          span = Nokogiri::XML::Node.new('span', tree.document)
+          span['translate'] = 'no'
+          span.content = ":#{shortcode}:"
+          result << span
+
+          last_index = i + 1
+        elsif text[i] == ':' && (i.zero? || !Formatter::DISALLOWED_BOUNDING_REGEX.match?(text[i - 1]))
+          inside_shortname = true
+          shortname_start_index = i
+        end
+      end
+
+      result << Nokogiri::XML::Text.new(text[last_index..-1], tree.document)
+      node.replace(result)
     end
-    html
+
+    tree.to_html
   end
 
   def unwrap_emoji_shortcodes(html)
