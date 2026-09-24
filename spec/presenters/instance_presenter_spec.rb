@@ -102,7 +102,7 @@ RSpec.describe InstancePresenter do
   describe '#source_url' do
     context 'with the GITHUB_REPOSITORY env variable set' do
       around do |example|
-        ClimateControl.modify GITHUB_REPOSITORY: 'other/repo' do
+        ClimateControl.modify GITHUB_REPOSITORY: 'other/repo', SOURCE_BASE_URL: nil, SOURCE_TAG: nil do
           example.run
         end
       end
@@ -114,13 +114,13 @@ RSpec.describe InstancePresenter do
 
     context 'without the GITHUB_REPOSITORY env variable set' do
       around do |example|
-        ClimateControl.modify GITHUB_REPOSITORY: nil do
+        ClimateControl.modify GITHUB_REPOSITORY: nil, SOURCE_BASE_URL: nil, SOURCE_TAG: nil do
           example.run
         end
       end
 
-      it 'defaults to the core mastodon repo URL' do
-        expect(instance_presenter.source_url).to eq('https://github.com/mastodon/mastodon')
+      it 'defaults to the Fedibird repository URL' do
+        expect(instance_presenter.source_url).to eq('https://github.com/fedibird/mastodon')
       end
     end
   end
