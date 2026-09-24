@@ -640,9 +640,6 @@ es-AR:
       show_known_fediverse_at_about_page:
         desc_html: Cuando está deshabilitado, restringe la línea temporal pública enlazada desde la página de inicio para mostrar sólo contenido local
         title: Incluir contenido federado en la página de línea temporal pública no autenticada
-      show_staff_badge:
-        desc_html: Mostrar una insignia de administración en la página de un usuario
-        title: Mostrar insignia de administración
       site_description:
         desc_html: Párrafo introductorio en la API. Describe qué hace especial a este servidor de Mastodon y todo lo demás que sea importante. Podés usar etiquetas HTML, en particular <code>&lt;a&gt;</code> y <code>&lt;em&gt;</code>.
         title: Descripción del servidor

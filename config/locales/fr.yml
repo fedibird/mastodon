@@ -640,9 +640,6 @@ fr:
       show_known_fediverse_at_about_page:
         desc_html: Lorsque désactivée, restreint le fil public accessible via la page d’accueil de l’instance pour ne montrer que le contenu local
         title: Inclure le contenu fédéré sur la page de fil public sans authentification
-      show_staff_badge:
-        desc_html: Montrer un badge de responsable sur une page utilisateur·rice
-        title: Montrer un badge de responsable
       site_description:
         desc_html: Paragraphe introductif sur la page d’accueil. Décrivez ce qui rend spécifique ce serveur Mastodon et toute autre chose importante. Vous pouvez utiliser des balises HTML, en particulier <code>&lt;a&gt;</code> et <code>&lt;em&gt;</code>.
         title: Description du serveur

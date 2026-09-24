@@ -570,9 +570,6 @@ pt-BR:
       show_known_fediverse_at_about_page:
         desc_html: Quando ativado, mostra toots globais na prévia da linha, se não, mostra somente toots locais
         title: Mostrar toots globais na prévia da linha
-      show_staff_badge:
-        desc_html: Mostrar uma insígnia de Equipe na página de usuário
-        title: Mostrar insígnia de equipe
       site_description:
         desc_html: Parágrafo introdutório na página inicial. Descreva o que faz esse servidor especial, e qualquer outra coisa de importante. Você pode usar tags HTML, em especial <code>&lt;a&gt;</code> e <code>&lt;em&gt;</code>.
         title: Descrição da instância

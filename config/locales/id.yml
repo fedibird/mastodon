@@ -629,9 +629,6 @@ id:
       show_known_fediverse_at_about_page:
         desc_html: Ketika dimatikan, batasi linimasa publik yang ditautkan dari halaman landas untuk menampilkan konten lokal saja
         title: Masukkan konten gabungan di halaman linimasa publik tanpa autentifikasi
-      show_staff_badge:
-        desc_html: Tampilkan lencana staf pada halaman pengguna
-        title: Tampilkan lencana staf
       site_description:
         desc_html: Ditampilkan sebagai sebuah paragraf di halaman depan dan digunakan sebagai tag meta.<br>Anda bisa menggunakan tag HTML, khususnya <code>&lt;a&gt;</code> dan <code>&lt;em&gt;</code>.
         title: Deskripsi situs

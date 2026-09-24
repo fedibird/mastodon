@@ -399,9 +399,6 @@ fi:
       show_known_fediverse_at_about_page:
         desc_html: Kun tämä on valittu, esikatselussa näytetään tuuttaukset kaikkialta tunnetusta fediversumista. Muutoin näytetään vain paikalliset tuuttaukset.
         title: Näytä aikajanan esikatselussa koko tunnettu fediversumi
-      show_staff_badge:
-        desc_html: Näytä käyttäjäsivulla henkilöstömerkki
-        title: Näytä henkilöstömerkki
       site_description:
         desc_html: Esittelykappale etusivulla ja metatunnisteissa. HTML-tagit käytössä, tärkeimmät ovat <code>&lt;a&gt;</code> ja <code>&lt;em&gt;</code>.
         title: Instanssin kuvaus

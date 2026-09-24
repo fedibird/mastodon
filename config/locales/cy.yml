@@ -536,9 +536,6 @@ cy:
       show_known_fediverse_at_about_page:
         desc_html: Wedi'i ddewis, bydd yn dangos rhagolwg o dŵtiau o'r holl ffedysawd. Fel arall bydd ond yn dangos tŵtiau lleol.
         title: Dangos ffedysawd hysbys ar ragolwg y ffrwd
-      show_staff_badge:
-        desc_html: Dangos bathodyn staff ar dudalen defnyddiwr
-        title: Dangos bathodyn staff
       site_description:
         desc_html: Paragraff agoriadol ar y dudalen flaen. Disgrifiwch yr hyn sy'n arbennig am y gweinydd Mastodon hwn ac unrhywbeth arall o bwys. Mae modd defnyddio tagiau HTML <code>&lt;a&gt;</code> a <code>&lt;em&gt;</code>.
         title: Disgrifiad achos

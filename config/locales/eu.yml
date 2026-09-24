@@ -638,9 +638,6 @@ eu:
       show_known_fediverse_at_about_page:
         desc_html: Txandakatzean, fedibertso ezagun osoko tootak bistaratuko ditu aurrebistan. Bestela, toot lokalak besterik ez ditu erakutsiko
         title: Erakutsi fedibertsu ezagun osoko denbora-lerroa aurrebistan
-      show_staff_badge:
-        desc_html: Erakutsi langile banda erabiltzailearen orrian
-        title: Erakutsi langile banda
       site_description:
         desc_html: Azaleko orrian agertuko den sarrera paragrafoa. Azaldu zerk egiten duen berezi Mastodon zerbitzari hau eta garrantzizko beste edozer. HTML etiketak erabili ditzakezu, zehazki <code>&lt;a&gt;</code> eta <code>&lt;em&gt;</code>.
         title: Zerbitzariaren deskripzioa

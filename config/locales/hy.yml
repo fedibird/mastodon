@@ -495,9 +495,6 @@ hy:
           none: Ոչ ոք չի կարող գրանցուել
           open: Բոլորը կարող են գրանցուել
         title: Գրանցումային ռեժիմ
-      show_staff_badge:
-        desc_html: Ցուցադրել անձնակազմի անդամի նշանը օգտատիրոջ էջում
-        title: Ցուցադրել անձնակազմի անդամի նշանը
       site_description:
         title: Կայքի նկարագրութիւն
       site_short_description:

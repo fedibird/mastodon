@@ -642,9 +642,6 @@ hu:
       show_known_fediverse_at_about_page:
         desc_html: Ha le van tiltva, a nyilvános, főoldalról elérhető idővonalon csak helyi tartalmak jelennek meg
         title: Mutassuk az általunk ismert föderációt az idővonal előnézetben
-      show_staff_badge:
-        desc_html: Stáb-jelvény megjelenítése a felhasználó oldalán
-        title: Stáb-jelvény megjelenítése
       site_description:
         desc_html: Rövid bemutatkozás a főoldalon és a meta fejlécekben. Írd le, mi teszi ezt a szervert különlegessé! Használhatod a <code>&lt;a&gt;</code> és <code>&lt;em&gt;</code> HTML tageket.
         title: A szerver bemutatása

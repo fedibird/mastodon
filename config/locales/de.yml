@@ -640,9 +640,6 @@ de:
       show_known_fediverse_at_about_page:
         desc_html: Wenn aktiviert, wird es alle Beiträge aus dem bereits bekannten Teil des Fediversums auf der Startseite anzeigen. Andernfalls werden lokale Beitrage des Servers angezeigt.
         title: Zeige eine öffentliche Zeitleiste auf der Einstiegsseite
-      show_staff_badge:
-        desc_html: Zeige Mitarbeiter-Badge auf Benutzerseite
-        title: Zeige Mitarbeiter-Badge
       site_description:
         desc_html: Einleitungsabschnitt auf der Frontseite. Beschreibe, was diesen Mastodon-Server ausmacht. Du kannst HTML-Tags benutzen, insbesondere <code>&lt;a&gt;</code> und <code>&lt;em&gt;</code>.
         title: Beschreibung des Servers

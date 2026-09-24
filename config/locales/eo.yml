@@ -574,9 +574,6 @@ eo:
       show_known_fediverse_at_about_page:
         desc_html: Kiam ŝaltita, ĝi montros mesaĝojn de la tuta konata fediverse antaŭvide. Aliokaze, ĝi montros nur lokajn mesaĝojn.
         title: Montri konatan fediverse en tempolinia antaŭvido
-      show_staff_badge:
-        desc_html: Montri teaman insignon en paĝo de uzanto
-        title: Montri teaman insignon
       site_description:
         desc_html: Enkonduka alineo en la ĉefpaĝo. Priskribu la unikaĵojn de ĉi tiu nodo de Mastodon, kaj ĉiujn aliajn gravaĵojn. Vi povas uzi HTML-etikedojn, kiel <code>&lt;a&gt;</code> kaj <code>&lt;em&gt;</code>.
         title: Priskribo de la servilo

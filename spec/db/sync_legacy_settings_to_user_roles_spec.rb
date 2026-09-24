@@ -5,15 +5,17 @@ require Rails.root.join('db', 'post_migrate', '20260923050000_sync_legacy_settin
 
 RSpec.describe SyncLegacySettingsToUserRoles, type: :model do # rubocop:disable Metrics/BlockLength
   around do |example|
-    previous = {
-      min_invite_role: Setting.min_invite_role,
-      show_staff_badge: Setting.show_staff_badge,
-      show_moderator_badge: Setting.show_moderator_badge,
-    }
+    previous = Setting.min_invite_role
     example.run
   ensure
-    previous.each { |key, value| Setting.public_send("#{key}=", value) }
+    Setting.min_invite_role = previous
+    Setting.where(var: %w(show_staff_badge show_moderator_badge)).delete_all
     Rails.cache.clear
+  end
+
+  def write_badge_setting(var, value)
+    Setting.where(var: var, thing_type: nil, thing_id: nil).delete_all
+    Setting.insert!({ var: var, value: YAML.dump(value), thing_type: nil, thing_id: nil, created_at: Time.current, updated_at: Time.current })
   end
 
   before { load Rails.root.join('db', 'seeds', '03_roles.rb') }
@@ -25,8 +27,8 @@ RSpec.describe SyncLegacySettingsToUserRoles, type: :model do # rubocop:disable 
 
   it 'copies the prepared legacy settings onto the default roles and can run twice' do
     Setting.min_invite_role = 'user'
-    Setting.show_staff_badge = false
-    Setting.show_moderator_badge = true
+    write_badge_setting('show_staff_badge', false)
+    write_badge_setting('show_moderator_badge', true)
     UserRole.find_by!(id: -99).update!(permissions: 0, highlighted: true)
     UserRole.find_by!(name: 'Moderator').update!(permissions: UserRole::FLAGS[:manage_reports], highlighted: false)
     UserRole.find_by!(name: 'Admin').update!(permissions: UserRole::FLAGS[:manage_reports] | UserRole::FLAGS[:invite_users], highlighted: true)
@@ -58,8 +60,8 @@ RSpec.describe SyncLegacySettingsToUserRoles, type: :model do # rubocop:disable 
 
   it 'does not restore role state on the way down' do
     Setting.min_invite_role = 'disabled'
-    Setting.show_staff_badge = false
-    Setting.show_moderator_badge = false
+    write_badge_setting('show_staff_badge', false)
+    write_badge_setting('show_moderator_badge', false)
     described_class.new.up
 
     highlighted = UserRole.find_by!(name: 'Admin').highlighted

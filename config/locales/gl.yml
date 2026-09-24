@@ -640,9 +640,6 @@ gl:
       show_known_fediverse_at_about_page:
         desc_html: Si activado, mostraralle os toots de todo o fediverso coñecido nunha vista previa. Si non só mostrará os toots locais.
         title: Incluír contido federado na páxina da cronoloxía pública sen autenticación
-      show_staff_badge:
-        desc_html: Mostrar unha insignia de membresía nunha páxina de usuaria
-        title: Mostrar insigna de membresía
       site_description:
         desc_html: Parágrafo de presentación na páxina principal. Describe o que fai especial a este servidor Mastodon e calquera outra ouca importante. Pode utilizar cancelos HTML, en particular <code>&lt;a&gt;</code> e <code>&lt;em&gt;</code>.
         title: Descrición do servidor

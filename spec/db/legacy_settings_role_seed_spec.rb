@@ -4,15 +4,17 @@ require 'rails_helper'
 
 RSpec.describe 'role seed' do
   around do |example|
-    previous = {
-      min_invite_role: Setting.min_invite_role,
-      show_staff_badge: Setting.show_staff_badge,
-      show_moderator_badge: Setting.show_moderator_badge,
-    }
+    previous = Setting.min_invite_role
     example.run
   ensure
-    previous.each { |key, value| Setting.public_send("#{key}=", value) }
+    Setting.min_invite_role = previous
+    Setting.where(var: %w(show_staff_badge show_moderator_badge)).delete_all
     Rails.cache.clear
+  end
+
+  def write_badge_setting(var, value)
+    Setting.where(var: var, thing_type: nil, thing_id: nil).delete_all
+    Setting.insert!({ var: var, value: YAML.dump(value), thing_type: nil, thing_id: nil, created_at: Time.current, updated_at: Time.current })
   end
 
   def load_seed
@@ -25,8 +27,8 @@ RSpec.describe 'role seed' do
 
   it 'creates Everyone, Moderator, Admin, and Owner without reading legacy settings' do
     Setting.min_invite_role = 'disabled'
-    Setting.show_staff_badge = false
-    Setting.show_moderator_badge = false
+    write_badge_setting('show_staff_badge', false)
+    write_badge_setting('show_moderator_badge', false)
 
     load_seed
     count = UserRole.count

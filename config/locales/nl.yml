@@ -638,9 +638,6 @@ nl:
       show_known_fediverse_at_about_page:
         desc_html: Wanneer ingeschakeld wordt de globale tijdlijn op de voorpagina getoond en wanneer uitgeschakeld de lokale tijdlijn
         title: De globale tijdlijn op de openbare tijdlijnpagina tonen
-      show_staff_badge:
-        desc_html: Medewerkersbadge op profielpagina tonen
-        title: Medewerkersbadge tonen
       site_description:
         desc_html: Introductie-alinea voor de API. Beschrijf wat er speciaal is aan deze server en andere zaken die van belang zijn. Je kan HTML gebruiken, zoals <code>&lt;a&gt;</code> en <code>&lt;em&gt;</code>.
         title: Omschrijving Mastodonserver (API)

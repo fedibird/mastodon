@@ -1211,15 +1211,9 @@ en:
       show_known_fediverse_at_about_page:
         desc_html: When disabled, restricts the public timeline linked from the landing page to showing only local content
         title: Include federated content on unauthenticated public timeline page
-      show_moderator_badge:
-        desc_html: Show a moderator badge on a user page
-        title: Show moderator badge
       show_only_media_at_about_page:
         desc_html: When enabled, restricts the public timeline linked from the landing page to showing only the public post with the media
         title: 公開タイムラインにメディアのみ表示
-      show_staff_badge:
-        desc_html: Show a staff badge on a user page
-        title: Show staff badge
       show_without_bot_at_about_page:
         desc_html: When enabled, restricts the public timeline linked from the landing page to showing only the public post without by bot
         title: 公開タイムラインからBotを除外
