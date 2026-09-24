@@ -659,7 +659,7 @@ Rails.application.routes.draw do
         resource :subscription, only: [:create, :show, :update, :destroy]
       end
 
-      namespace :admin do
+      namespace :admin do # rubocop:disable Metrics/BlockLength
         resources :accounts, only: [:index, :show, :destroy] do
           member do
             post :enable
@@ -692,6 +692,38 @@ Rails.application.routes.draw do
         end
         resources :ip_blocks, only: [:index, :show, :create, :update, :destroy]
         resources :tags, only: [:index, :show, :update]
+
+        namespace :trends do
+          resources :tags, only: [:index] do
+            member do
+              post :approve
+              post :reject
+            end
+          end
+
+          resources :links, only: [:index] do
+            member do
+              post :approve
+              post :reject
+            end
+          end
+
+          resources :statuses, only: [:index] do
+            member do
+              post :approve
+              post :reject
+            end
+          end
+
+          namespace :links do
+            resources :preview_card_providers, only: [:index], path: :publishers do
+              member do
+                post :approve
+                post :reject
+              end
+            end
+          end
+        end
       end
     end
 
