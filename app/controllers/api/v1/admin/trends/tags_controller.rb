@@ -1,0 +1,53 @@
+# frozen_string_literal: true
+
+class Api::V1::Admin::Trends::TagsController < Api::V1::Trends::TagsController
+  include Authorization
+  include ::Admin::PermissionsConcern
+
+  before_action -> { doorkeeper_authorize! :'admin:read' }, only: :index
+  before_action -> { doorkeeper_authorize! :'admin:write' }, except: :index
+
+  after_action :verify_authorized, except: :index
+
+  def index
+    if can_manage_taxonomies?
+      render json: @tags, each_serializer: REST::Admin::TagSerializer
+    else
+      super
+    end
+  end
+
+  def approve
+    authorize :tag, :review?
+
+    tag = Tag.find(params[:id])
+    tag.update(trendable: true, reviewed_at: Time.now.utc)
+    render json: tag, serializer: REST::Admin::TagSerializer
+  end
+
+  def reject
+    authorize :tag, :review?
+
+    tag = Tag.find(params[:id])
+    tag.update(trendable: false, reviewed_at: Time.now.utc)
+    render json: tag, serializer: REST::Admin::TagSerializer
+  end
+
+  private
+
+  def enabled?
+    super || can_manage_taxonomies?
+  end
+
+  def can_manage_taxonomies?
+    current_user&.functional? && current_user.can?(:manage_taxonomies)
+  end
+
+  def tags_from_trends
+    if can_manage_taxonomies?
+      Trends.tags.query
+    else
+      super
+    end
+  end
+end
