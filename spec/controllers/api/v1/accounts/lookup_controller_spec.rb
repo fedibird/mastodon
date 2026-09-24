@@ -7,7 +7,7 @@ describe Api::V1::Accounts::LookupController do
 
   let(:user)    { Fabricate(:user) }
   let(:token)   { Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: 'read:accounts') }
-  let(:account) { Fabricate(:account, username: 'alice') }
+  let!(:account) { Fabricate(:account, username: 'alice') }
 
   before do
     allow(controller).to receive(:doorkeeper_token) { token }
