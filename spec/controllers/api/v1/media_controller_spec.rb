@@ -115,7 +115,40 @@ RSpec.describe Api::V1::MediaController, type: :controller do
 
       it 'updates the description' do
         put :update, params: { id: media.id, description: 'Lorem ipsum!!!' }
+
+        expect(response).to have_http_status(200)
         expect(media.reload.description).to eq 'Lorem ipsum!!!'
+      end
+
+      it 'updates the focus' do
+        put :update, params: { id: media.id, focus: '0.5,-0.25' }
+
+        expect(response).to have_http_status(200)
+        expect(media.reload.file.meta.dig('focus', 'x')).to eq 0.5
+        expect(media.file.meta.dig('focus', 'y')).to eq(-0.25)
+      end
+
+      it 'does not replace the original file' do
+        original_name = media.file_file_name
+        original_fingerprint = media.file_fingerprint
+
+        put :update, params: { id: media.id, file: fixture_file_upload('attachment.gif', 'image/gif'), description: 'kept file' }
+
+        expect(response).to have_http_status(200)
+        media.reload
+        expect(media.file_file_name).to eq original_name
+        expect(media.file_fingerprint).to eq original_fingerprint
+        expect(media.description).to eq 'kept file'
+      end
+
+      it 'accepts a thumbnail without changing the original file' do
+        original_name = media.file_file_name
+
+        put :update, params: { id: media.id, thumbnail: fixture_file_upload('attachment.jpg', 'image/jpeg') }
+
+        expect(response).to have_http_status(200)
+        expect(media.reload.file_file_name).to eq original_name
+        expect(media.thumbnail_file_name).to be_present
       end
     end
 
