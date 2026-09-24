@@ -26,17 +26,22 @@ describe REST::Admin::ReportSerializer do
 
     json = nil
     ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') do
-      json = JSON.parse(described_class.new(report).to_json)
+      json = described_class.new(report, scope: Fabricate(:user), scope_name: :current_user).as_json.deep_stringify_keys
     end
 
     serialized = json['statuses']
     expect(serialized.map { |row| row['id'] }).to match_array(statuses.map { |status| status.id.to_s })
     expect(serialized).to all(include('media_attachments' => be_present, 'mentions' => be_present))
 
-    association_selects = queries.select { |sql| sql.match?(/\ASELECT/i) && sql.match?(/"(status_stats|media_attachments|mentions)"/) }
+    association_selects = queries.select do |sql|
+      sql.match?(/\ASELECT/i) &&
+        sql.match?(/"(status_stats|media_attachments|mentions)"/) &&
+        !sql.include?('COUNT(')
+    end
     point_lookups = association_selects.grep(/"status_id"\s*=/)
 
     expect(association_selects).not_to be_empty
+    expect(association_selects.join("\n")).to match(/"status_id" IN/)
     expect(point_lookups).to be_empty
   end
 end
