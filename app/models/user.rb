@@ -308,8 +308,8 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
     settings.notification_emails['pending_account']
   end
 
-  def allows_trending_tag_emails?
-    settings.notification_emails['trending_tag']
+  def allows_trends_review_emails?
+    settings.notification_emails['trends']
   end
 
   def noindex?

@@ -9,6 +9,5 @@ class Scheduler::Trends::RefreshScheduler
     return unless Setting.trends
 
     Trends.refresh!
-    TrendingTags.notify_unreviewed!
   end
 end

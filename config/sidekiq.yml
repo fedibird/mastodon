@@ -23,6 +23,10 @@
       every: '5m'
       class: Scheduler::Trends::RefreshScheduler
       queue: scheduler
+    trends_review_notifications_scheduler:
+      every: '6h'
+      class: Scheduler::Trends::ReviewNotificationsScheduler
+      queue: scheduler
     media_cleanup_scheduler:
       cron: '<%= Random.rand(0..59) %> <%= Random.rand(3..5) %> * * *'
       class: Scheduler::MediaCleanupScheduler

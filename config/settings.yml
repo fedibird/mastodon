@@ -101,7 +101,7 @@ defaults: &defaults
     digest: true
     report: true
     pending_account: true
-    trending_tag: true
+    trends: true
     followed: false
   interactions:
     must_be_dm_to_send_email: false

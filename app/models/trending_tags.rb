@@ -17,20 +17,6 @@ class TrendingTags
 
     def update!(at_time = Time.now.utc)
       Trends.tags.refresh(at_time)
-      notify_unreviewed!
-    end
-
-    def notify_unreviewed!
-      tags = Trends.tags.request_review
-      return if tags.empty?
-
-      users_for_review = User.those_who_can(:manage_taxonomies).includes(:account).to_a.select { |user| user.functional? && user.allows_trending_tag_emails? }
-
-      tags.each do |tag|
-        users_for_review.each do |user|
-          AdminMailer.new_trending_tag(user.account, tag).deliver_later!
-        end
-      end
     end
 
     def get(limit, filtered: true)
