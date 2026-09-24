@@ -77,7 +77,7 @@ export const fetchTrendingLinksFail = error => ({
 
 export const fetchTrendingStatuses = () => (dispatch, getState) => {
   if (getState().getIn(['status_lists', 'trending', 'isLoading'])) {
-    return;
+    return null;
   }
 
   dispatch(fetchTrendingStatusesRequest());
@@ -112,7 +112,7 @@ export const expandTrendingStatuses = () => (dispatch, getState) => {
   const url = getState().getIn(['status_lists', 'trending', 'next'], null);
 
   if (url === null || getState().getIn(['status_lists', 'trending', 'isLoading'])) {
-    return;
+    return null;
   }
 
   dispatch(expandTrendingStatusesRequest());

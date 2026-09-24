@@ -1,7 +1,6 @@
 import React, { PureComponent } from 'react';
 import PropTypes from 'prop-types';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
-import { Helmet } from 'react-helmet';
 import { NavLink, Switch, Route } from 'react-router-dom';
 
 import Column from 'mastodon/components/column';
@@ -32,6 +31,8 @@ class Explore extends PureComponent {
     this.column = c;
   };
 
+  isPostsActive = (match, location) => ['/explore', '/explore/posts'].includes(location.pathname);
+
   render () {
     const { intl, multiColumn } = this.props;
 
@@ -46,7 +47,7 @@ class Explore extends PureComponent {
         />
 
         <div className='account__section-headline'>
-          <NavLink exact to='/explore' isActive={(match, location) => ['/explore', '/explore/posts'].includes(location.pathname)}>
+          <NavLink exact to='/explore' isActive={this.isPostsActive}>
             <FormattedMessage tagName='div' id='explore.trending_statuses' defaultMessage='Posts' />
           </NavLink>
 
@@ -72,9 +73,6 @@ class Explore extends PureComponent {
           </Route>
         </Switch>
 
-        <Helmet>
-          <title>{intl.formatMessage(messages.title)}</title>
-        </Helmet>
       </Column>
     );
   }
