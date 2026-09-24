@@ -62,7 +62,9 @@ class InstancePresenter < ActiveModelSerializers::Model
   end
 
   def active_user_count(weeks = 4)
-    Rails.cache.fetch("active_user_count/#{weeks}") { redis.pfcount(*(0...weeks).map { |i| "activity:logins:#{i.weeks.ago.utc.to_date.cweek}" }) }
+    Rails.cache.fetch("active_user_count/#{weeks}") do
+      ActivityTracker.new('activity:logins', :unique).sum(weeks.weeks.ago)
+    end
   end
 
   def status_count
