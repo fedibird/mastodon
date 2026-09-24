@@ -4,6 +4,9 @@ module WellKnown
   class NodeInfoController < ActionController::Base
     include CacheConcern
 
+    # Prevent active_model_serializers from calling current_user and reissuing a session.
+    serialization_scope nil
+
     before_action { response.headers['Vary'] = 'Accept' }
 
     def index

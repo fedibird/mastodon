@@ -13,20 +13,41 @@ RSpec.describe REST::ReportSerializer do
     )
   end
 
-  let(:report) { Fabricate(:report) }
+  let(:status) { Fabricate(:status) }
+  let(:rule) { Fabricate(:rule, deleted_at: nil, priority: 0) }
+  let(:report) do
+    Fabricate(
+      :report,
+      target_account: status.account,
+      status_ids: [status.id],
+      category: :violation,
+      comment: 'reasons',
+      forwarded: false,
+      rule_ids: [rule.id]
+    )
+  end
 
-  it 'returns action_taken as false for an unresolved report' do
+  it 'returns the Mastodon 4.2 report shape with string ids' do
+    expect(json[:id]).to eq report.id.to_s
+    expect(json[:id]).to be_a(String)
     expect(json[:action_taken]).to eq false
+    expect(json[:action_taken_at]).to be_nil
+    expect(json[:category]).to eq 'violation'
+    expect(json[:comment]).to eq 'reasons'
+    expect(json[:forwarded]).to eq false
+    expect(json).to have_key(:created_at)
+    expect(json[:status_ids]).to eq [status.id.to_s]
+    expect(json[:status_ids]).to all(be_a(String))
+    expect(json[:rule_ids]).to eq [rule.id.to_s]
+    expect(json[:rule_ids]).to all(be_a(String))
+    expect(json[:target_account][:id]).to eq status.account.id.to_s
   end
 
   it 'returns action_taken as true for a resolved report' do
     report.resolve!(Fabricate(:account))
 
     expect(json[:action_taken]).to eq true
-  end
-
-  it 'does not expose action_taken_at' do
-    expect(json).to_not have_key(:action_taken_at)
+    expect(json[:action_taken_at]).to be_present
   end
 end
 

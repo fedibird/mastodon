@@ -31,6 +31,22 @@ RSpec.describe Api::V1::ReportsController, type: :controller do
         expect(response).to have_http_status(200)
       end
 
+      it 'returns the Mastodon 4.2 report response' do
+        body = body_as_json
+        report = status.account.targeted_reports.last
+
+        expect(body[:id]).to eq report.id.to_s
+        expect(body[:action_taken]).to eq false
+        expect(body).to have_key(:action_taken_at)
+        expect(body[:category]).to eq 'other'
+        expect(body[:comment]).to eq 'reasons'
+        expect(body).to have_key(:forwarded)
+        expect(body).to have_key(:created_at)
+        expect(body[:status_ids]).to eq [status.id.to_s]
+        expect(body[:rule_ids]).to be_nil
+        expect(body[:target_account][:id]).to eq status.account.id.to_s
+      end
+
       it 'defaults to the other category without rule ids' do
         report = status.account.targeted_reports.last
 
