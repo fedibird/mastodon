@@ -307,6 +307,7 @@ cy:
       feature_timeline_preview: Rhagolwg o'r ffrwd
       features: Nodweddion
       hidden_service: Ffederasiwn a gwasanaethau cudd
+      media_storage: Storfa cyfryngau
       open_reports: adroddiadau agored
       pending_tags: hashnodau yn aros am adolygiad
       pending_users: defnyddwyr yn aros am adolygiad
@@ -318,6 +319,7 @@ cy:
       title: Dangosfwrdd
       total_users: cyfanswm defnyddwyr
       trends: Tueddiadau
+      website: Gwefan
       week_interactions: ymadweithiau yr wythnos hon
       week_users_active: gweithredol yr wythnos hon
       week_users_new: defnyddwyr yr wythnos hon

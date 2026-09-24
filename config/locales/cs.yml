@@ -380,6 +380,7 @@ cs:
       feature_timeline_preview: Náhled časové osy
       features: Vlastnosti
       hidden_service: Federace se skrytými službami
+      media_storage: Úložiště médií
       open_reports: otevřená hlášení
       pending_tags: hashtagy čekající na posouzení
       pending_users: uživatelé čekající na posouzení
@@ -391,6 +392,7 @@ cs:
       title: Přehled
       total_users: uživatelů celkem
       trends: Populární hashtagy
+      website: Webová stránka
       week_interactions: interakcí tento týden
       week_users_active: aktivních tento týden
       week_users_new: uživatelů tento týden

@@ -372,6 +372,7 @@ de:
       feature_timeline_preview: Zeitleistenvorschau
       features: Funktionen
       hidden_service: Föderation mit versteckten Diensten
+      media_storage: Medien
       open_reports: Ausstehende Meldungen
       pending_tags: Hashtags, die auf eine Überprüfung warten
       pending_users: Benutzer, die auf eine Überprüfung warten
@@ -383,6 +384,7 @@ de:
       title: Übersicht
       total_users: Benutzer insgesamt
       trends: Trends
+      website: Website
       week_interactions: Interaktionen diese Woche
       week_users_active: Aktiv diese Woche
       week_users_new: Benutzer diese Woche

@@ -368,6 +368,7 @@ ko:
       feature_timeline_preview: 타임라인 미리보기
       features: 기능
       hidden_service: 히든 서비스와의 연합
+      media_storage: 미디어 저장소
       open_reports: 미해결 신고
       pending_tags: 심사를 기다리는 해시태그
       pending_users: 심사를 기다리는 유저
@@ -379,6 +380,7 @@ ko:
       title: 대시보드
       total_users: 총 유저 수
       trends: 트렌드
+      website: 웹사이트
       week_interactions: 이번 주의 상호작용
       week_users_active: 이번 주의 활성 사용자
       week_users_new: 이번 주의 신규 유저

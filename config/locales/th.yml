@@ -346,6 +346,7 @@ th:
       feature_timeline_preview: ตัวอย่างเส้นเวลา
       features: คุณลักษณะ
       hidden_service: การติดต่อกับภายนอกกับบริการที่ซ่อนอยู่
+      media_storage: ที่เก็บข้อมูลสื่อ
       open_reports: รายงานที่เปิด
       pending_tags: แฮชแท็กที่กำลังรอการตรวจทาน
       pending_users: ผู้ใช้ที่กำลังรอการตรวจทาน
@@ -357,6 +358,7 @@ th:
       title: แดชบอร์ด
       total_users: ผู้ใช้ทั้งหมด
       trends: แนวโน้ม
+      website: เว็บไซต์
       week_interactions: การโต้ตอบในสัปดาห์นี้
       week_users_active: ใช้งานอยู่ในสัปดาห์นี้
       week_users_new: ผู้ใช้ในสัปดาห์นี้

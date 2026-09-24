@@ -292,6 +292,7 @@ et:
       feature_timeline_preview: Ajajoone eelvaade
       features: Omadused
       hidden_service: Föderatsioon peidetud teenustega
+      media_storage: Meedia hoidla
       open_reports: ava teavitused
       pending_tags: sildid ootamas ülevaadet
       pending_users: kasutajad ootamas ülevaadet
@@ -303,6 +304,7 @@ et:
       title: Töölaud
       total_users: kokku kasutajaid
       trends: Trendid
+      website: Veebileht
       week_interactions: interaktsioone see nädal
       week_users_active: aktiivne see nädal
       week_users_new: kasutajaid see nädal

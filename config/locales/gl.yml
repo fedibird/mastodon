@@ -372,6 +372,7 @@ gl:
       feature_timeline_preview: Vista previa da cronoloxía
       features: Funcións
       hidden_service: Federación con servizos agochados
+      media_storage: Almacenaxe multimedia
       open_reports: denuncias abertas
       pending_tags: cancelos agardando revisión
       pending_users: usuarias agardando revisión
@@ -383,6 +384,7 @@ gl:
       title: Taboleiro
       total_users: usuarias en total
       trends: Tendencias
+      website: Sitio web
       week_interactions: interaccións desta semana
       week_users_active: activos desta semana
       week_users_new: usuarias esta semana

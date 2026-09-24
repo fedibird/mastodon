@@ -372,6 +372,7 @@ fr:
       feature_timeline_preview: Aperçu du fil public
       features: Fonctionnalités
       hidden_service: Fédération avec des services cachés
+      media_storage: Stockage des médias
       open_reports: signalements non résolus
       pending_tags: hashtags en attente d’approbation
       pending_users: utilisateur·rice·s en attente d’approbation
@@ -383,6 +384,7 @@ fr:
       title: Tableau de bord
       total_users: utilisateur·rice·s au total
       trends: Tendances
+      website: Site Web
       week_interactions: interactions cette semaine
       week_users_active: actif·ve·s cette semaine
       week_users_new: utilisateur·rice·s cette semaine

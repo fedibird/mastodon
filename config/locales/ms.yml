@@ -271,6 +271,7 @@ ms:
       feature_relay: Geganti persekutuan
       features: Ciri-ciri
       hidden_service: Persekutuan dengan perkhidmatan tersembunyi
+      media_storage: Penyimpanan media
       open_reports: laporan belum selesai
       recent_users: Pengguna terbaru
       search: Carian teks penuh
@@ -280,6 +281,7 @@ ms:
       title: Papan pemuka
       total_users: pengguna keseluruhannya
       trends: Trend
+      website: Laman web
       week_interactions: interaksi minggu ini
       week_users_active: aktif minggu ini
       week_users_new: pengguna minggu ini

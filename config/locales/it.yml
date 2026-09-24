@@ -372,6 +372,7 @@ it:
       feature_timeline_preview: Anteprima timeline
       features: Funzionalità
       hidden_service: Federazione con servizi nascosti
+      media_storage: Archiviazione media
       open_reports: apri report
       pending_tags: hashtag in attesa di essere esaminati
       pending_users: utenti in attesa di essere esaminati
@@ -383,6 +384,7 @@ it:
       title: Cruscotto
       total_users: utenti totali
       trends: Tendenze
+      website: Sito web
       week_interactions: interazioni per questa settimana
       week_users_active: attivi questa settimana
       week_users_new: utenti questa settimana

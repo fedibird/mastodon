@@ -372,6 +372,7 @@ pt-PT:
       feature_timeline_preview: Pré-visualização da cronologia
       features: Componentes
       hidden_service: Federação com serviços escondidos
+      media_storage: Armazenamento de media
       open_reports: relatórios abertos
       pending_tags: hashtags a aguardar revisão
       pending_users: utilizadores a aguardar revisão
@@ -383,6 +384,7 @@ pt-PT:
       title: Painel de controlo
       total_users: total de utilizadores
       trends: Tendências
+      website: Página na teia
       week_interactions: interacções desta semana
       week_users_active: activo esta semana
       week_users_new: utilizadores nesta semana

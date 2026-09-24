@@ -290,6 +290,7 @@ oc:
       feature_timeline_preview: Apercebut del flux d’actualitats
       features: Foncionalitats
       hidden_service: Federacion amb servicis amagats
+      media_storage: Emmagazinatge dels mèdias
       open_reports: Senhalaments dobèrts
       pending_tags: etiquetas en espèra de validacion
       pending_users: utilizaires en espèra de validacion
@@ -301,6 +302,7 @@ oc:
       title: Tablèu de bòrd
       total_users: total dels utilizaires
       trends: Tendéncias
+      website: Site web
       week_interactions: interaccions aquesta setmana
       week_users_active: actius aquesta setmana
       week_users_new: utilizaires aquesta setmana

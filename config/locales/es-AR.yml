@@ -372,6 +372,7 @@ es-AR:
       feature_timeline_preview: Previsualización de la línea temporal
       features: Funciones
       hidden_service: Federación con servicios ocultos
+      media_storage: Almacenamiento de medios
       open_reports: denuncias abiertas
       pending_tags: etiquetas esperando revisión
       pending_users: usuarios esperando revisión
@@ -383,6 +384,7 @@ es-AR:
       title: Panel
       total_users: usuarios en total
       trends: Tendencias
+      website: Sitio web
       week_interactions: interacciones esta semana
       week_users_active: activos esta semana
       week_users_new: usuarios esta semana

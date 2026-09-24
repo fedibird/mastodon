@@ -249,6 +249,7 @@ fi:
       feature_registrations: Rekisteröitymiset
       feature_timeline_preview: Aikajanan esikatselu
       features: Ominaisuudet
+      media_storage: Median tallennustila
       recent_users: Viimeaikaiset käyttäjät
       search: Haku koko tekstistä
       software: Ohjelmisto
@@ -256,6 +257,7 @@ fi:
       title: Hallintapaneeli
       total_users: käyttäjiä yhteensä
       trends: Trendit
+      website: Sivusto
       week_users_active: aktiivinen tällä viikolla
       week_users_new: käyttäjiä tällä viikolla
     domain_blocks:

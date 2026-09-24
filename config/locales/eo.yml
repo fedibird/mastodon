@@ -335,6 +335,7 @@ eo:
       feature_timeline_preview: Templinio antaŭvidi
       features: Funkcioj
       hidden_service: Federacio kun kaŝitaj servoj
+      media_storage: Konservo de plurmedioj
       open_reports: nesolvitaj signaloj
       pending_tags: kradvortoj atendantaj revizion
       pending_users: uzantoj atendantaj revizion
@@ -346,6 +347,7 @@ eo:
       title: Kontrolpanelo
       total_users: uzantoj sume
       trends: Furoraĵoj
+      website: Retejo
       week_interactions: interagoj tiusemajne
       week_users_active: aktivaj tiusemajne
       week_users_new: uzantoj tiusemajne

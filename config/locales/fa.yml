@@ -347,6 +347,7 @@ fa:
       feature_timeline_preview: پیش‌نمایش نوشته‌ها
       features: ویژگی‌ها
       hidden_service: ارتباط میان‌سروری با سرویس‌های نهفته
+      media_storage: ذخیره‌ساز رسانه
       open_reports: گزارش‌های باز
       pending_tags: برچسب‌های منتظر بازبینی
       pending_users: کاربران منتظر بازبینی
@@ -358,6 +359,7 @@ fa:
       title: ابزارهای مدیریت
       total_users: شمار کاربران
       trends: برچسب‌های پرکاربرد
+      website: پایگاه وب
       week_interactions: فعالیت‌ها در این هفته
       week_users_active: کاربران فعال هفتهٔ اخیر
       week_users_new: کاربران هفتهٔ اخیر

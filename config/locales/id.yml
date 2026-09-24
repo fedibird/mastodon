@@ -366,6 +366,7 @@ id:
       feature_timeline_preview: Pratinjau linimasa
       features: Fitur
       hidden_service: Federasi dengan layanan tersembunyi
+      media_storage: Penyimpanan media
       open_reports: buka laporan
       pending_tags: tagar menunggu ditinjau
       pending_users: pengguna menunggu ditinjau
@@ -377,6 +378,7 @@ id:
       title: Dasbor
       total_users: total pengguna
       trends: Tren
+      website: Situs web
       week_interactions: interaksi minggu ini
       week_users_active: aktif minggu ini
       week_users_new: pengguna minggu ini

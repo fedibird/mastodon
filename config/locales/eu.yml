@@ -370,6 +370,7 @@ eu:
       feature_timeline_preview: Denbora-lerroaren aurrebista
       features: Ezaugarriak
       hidden_service: Federazioa ezkutuko zerbitzuekin
+      media_storage: Multimedia biltegiratzea
       open_reports: salaketa irekiak
       pending_tags: berrikusketaren zain dauden etiketak
       pending_users: berrikusketaren zain dauden erabiltzaileak
@@ -381,6 +382,7 @@ eu:
       title: Kontrol panela
       total_users: erabiltzaile guztira
       trends: Joerak
+      website: Webgunea
       week_interactions: interakzio aste honetan
       week_users_active: aktibo aste honetan
       week_users_new: erabiltzaile aste honetan

@@ -380,6 +380,7 @@ pl:
       feature_timeline_preview: Podgląd osi czasu
       features: Możliwości
       hidden_service: Federowanie z ukrytymi usługami
+      media_storage: Przechowywanie mediów
       open_reports: otwarte zgłoszenia
       pending_tags: hasztagi oczekujące na sprawdzenie
       pending_users: użytkownicy oczekujący na sprawdzenie
@@ -391,6 +392,7 @@ pl:
       title: Panel administracyjny
       total_users: łącznie użytkowników
       trends: Na czasie
+      website: Strona
       week_interactions: interakcje w tym tygodniu
       week_users_active: aktywni w tym tygodniu
       week_users_new: rejestracje w tym tygodniu

@@ -319,6 +319,7 @@ zh-TW:
       feature_timeline_preview: 時間軸預覽
       features: 功能
       hidden_service: 與隱密服務互連
+      media_storage: 媒體儲存空間
       open_reports: 待處理檢舉數
       pending_tags: 等待審核的主題標籤
       pending_users: 等待審核的使用者
@@ -330,6 +331,7 @@ zh-TW:
       title: 儀表板
       total_users: 總使用者數
       trends: 趨勢
+      website: 網站
       week_interactions: 本週互動次數
       week_users_active: 本週活躍使用者數
       week_users_new: 本週新使用者數

@@ -291,6 +291,7 @@ nn:
       feature_timeline_preview: Førehandsvisning av tidsline
       features: Eigenskapar
       hidden_service: Føderering med skjulte tjenester
+      media_storage: Medielagring
       open_reports: opne rapportar
       pending_tags: emneknaggar som ventar på gjennomgang
       pending_users: brukarar som ventar på gjennomgang
@@ -302,6 +303,7 @@ nn:
       title: Dashbord
       total_users: brukarar til saman
       trends: Populært
+      website: Nettside
       week_interactions: samhandlingar denne veka
       week_users_active: aktive denne veka
       week_users_new: brukarar denne veka

@@ -366,6 +366,7 @@ vi:
       feature_timeline_preview: Xem trước bảng tin
       features: Tính năng
       hidden_service: Liên kết với các dịch vụ ẩn
+      media_storage: Media
       open_reports: báo cáo
       pending_tags: hashtag chờ duyệt
       pending_users: người dùng chờ duyệt
@@ -377,6 +378,7 @@ vi:
       title: Thống kê
       total_users: tổng số người dùng
       trends: Xu hướng
+      website: Website
       week_interactions: tương tác trong tuần này
       week_users_active: hoạt động trong tuần này
       week_users_new: đăng ký mới trong tuần

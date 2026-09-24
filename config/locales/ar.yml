@@ -352,6 +352,7 @@ ar:
       feature_timeline_preview: معاينة الخيط الزمني
       features: الميّزات
       hidden_service: الفيديرالية مع الخدمات الخفية
+      media_storage: تخزين الوسائط
       open_reports: شكاوي مفتوحة
       pending_tags: وسوم في انتظار المراجعة
       pending_users: مستخدمين في انتظار مراجعة
@@ -363,6 +364,7 @@ ar:
       title: لوح المراقبة
       total_users: إجمالي المستخدِمين
       trends: المتداوَلة
+      website: موقع الويب
       week_interactions: تفاعُلات هذا الأسبوع
       week_users_active: نشطاء هذا الأسبوع
       week_users_new: مستخدِمين هذا الأسبوع

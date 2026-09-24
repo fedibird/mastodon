@@ -372,6 +372,7 @@ es-MX:
       feature_timeline_preview: Vista previa de la línea de tiempo
       features: Características
       hidden_service: Federación con servicios ocultos
+      media_storage: Almacenamiento
       open_reports: informes abiertos
       pending_tags: hashtags esperando revisión
       pending_users: usuarios esperando por revisión
@@ -383,6 +384,7 @@ es-MX:
       title: Tablero
       total_users: usuarios en total
       trends: Tendencias
+      website: Sitio web
       week_interactions: interacciones esta semana
       week_users_active: activo esta semana
       week_users_new: usuarios esta semana
