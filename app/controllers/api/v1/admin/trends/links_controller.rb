@@ -10,7 +10,7 @@ class Api::V1::Admin::Trends::LinksController < Api::V1::Trends::LinksController
   after_action :verify_authorized, except: :index
 
   def index
-    if current_user&.can?(:manage_taxonomies)
+    if can_manage_taxonomies?
       render json: @links, each_serializer: REST::Admin::Trends::LinkSerializer
     else
       super
@@ -36,11 +36,15 @@ class Api::V1::Admin::Trends::LinksController < Api::V1::Trends::LinksController
   private
 
   def enabled?
-    super || current_user&.can?(:manage_taxonomies)
+    super || can_manage_taxonomies?
+  end
+
+  def can_manage_taxonomies?
+    current_user&.functional? && current_user.can?(:manage_taxonomies)
   end
 
   def links_from_trends
-    if current_user&.can?(:manage_taxonomies)
+    if can_manage_taxonomies?
       Trends.links.query
     else
       super

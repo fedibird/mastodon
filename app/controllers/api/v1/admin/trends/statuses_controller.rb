@@ -10,7 +10,7 @@ class Api::V1::Admin::Trends::StatusesController < Api::V1::Trends::StatusesCont
   after_action :verify_authorized, except: :index
 
   def index
-    if current_user&.can?(:manage_taxonomies)
+    if can_manage_taxonomies?
       render json: @statuses, each_serializer: REST::Admin::Trends::StatusSerializer
     else
       super
@@ -36,11 +36,15 @@ class Api::V1::Admin::Trends::StatusesController < Api::V1::Trends::StatusesCont
   private
 
   def enabled?
-    super || current_user&.can?(:manage_taxonomies)
+    super || can_manage_taxonomies?
+  end
+
+  def can_manage_taxonomies?
+    current_user&.functional? && current_user.can?(:manage_taxonomies)
   end
 
   def statuses_from_trends
-    if current_user&.can?(:manage_taxonomies)
+    if can_manage_taxonomies?
       Trends.statuses.query
     else
       super

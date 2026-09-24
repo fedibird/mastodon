@@ -87,6 +87,17 @@ RSpec.describe 'Admin Trends API' do # rubocop:disable Metrics/BlockLength
 
       expect(response).to have_http_status(401)
     end
+
+    it 'falls back to the public allowed set when the taxonomist is disabled' do
+      headers
+      taxonomist.update!(disabled: true)
+
+      get '/api/v1/admin/trends/tags', headers: headers
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json.map { |tag| tag[:name] }).to eq %w(visible)
+      expect(body_as_json.first).not_to have_key(:requires_review)
+    end
   end
 
   describe 'POST /api/v1/admin/trends/tags/:id/approve and reject' do
@@ -188,6 +199,17 @@ RSpec.describe 'Admin Trends API' do # rubocop:disable Metrics/BlockLength
 
       expect(response).to have_http_status(403)
     end
+
+    it 'falls back to allowed public links when the taxonomist is disabled' do
+      headers
+      taxonomist.update!(disabled: true)
+
+      get '/api/v1/admin/trends/links', headers: headers
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json.map { |link| link[:title] }).to eq %w(Allowed)
+      expect(body_as_json.first).not_to have_key(:requires_review)
+    end
   end
 
   describe 'POST /api/v1/admin/trends/links/:id/approve and reject' do
@@ -274,6 +296,17 @@ RSpec.describe 'Admin Trends API' do # rubocop:disable Metrics/BlockLength
       get '/api/v1/admin/trends/statuses', headers: auth_headers(token_for(taxonomist, 'read:statuses'))
 
       expect(response).to have_http_status(403)
+    end
+
+    it 'falls back to allowed public statuses when the taxonomist is disabled' do
+      headers
+      taxonomist.update!(disabled: true)
+
+      get '/api/v1/admin/trends/statuses', headers: headers
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json.map { |status| status[:id] }).to eq [allowed_status.id.to_s]
+      expect(body_as_json.first).not_to have_key(:requires_review)
     end
   end
 

@@ -10,7 +10,7 @@ class Api::V1::Admin::Trends::TagsController < Api::V1::Trends::TagsController
   after_action :verify_authorized, except: :index
 
   def index
-    if current_user&.can?(:manage_taxonomies)
+    if can_manage_taxonomies?
       render json: @tags, each_serializer: REST::Admin::TagSerializer
     else
       super
@@ -36,11 +36,15 @@ class Api::V1::Admin::Trends::TagsController < Api::V1::Trends::TagsController
   private
 
   def enabled?
-    super || current_user&.can?(:manage_taxonomies)
+    super || can_manage_taxonomies?
+  end
+
+  def can_manage_taxonomies?
+    current_user&.functional? && current_user.can?(:manage_taxonomies)
   end
 
   def tags_from_trends
-    if current_user&.can?(:manage_taxonomies)
+    if can_manage_taxonomies?
       Trends.tags.query
     else
       super
