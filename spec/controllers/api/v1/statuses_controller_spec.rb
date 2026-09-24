@@ -98,10 +98,10 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
       end
 
       context 'with an allowed mention' do
-        let!(:alice) { Fabricate(:account, username: 'alice') }
+        let!(:alice) { Fabricate(:account, username: 'mentioned_alice') }
 
         before do
-          post :create, params: { status: '@alice hello', allowed_mentions: [alice.id] }
+          post :create, params: { status: '@mentioned_alice hello', allowed_mentions: [alice.id] }
         end
 
         it 'returns http success' do
@@ -110,11 +110,11 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
       end
 
       context 'without an allow-list' do
-        let!(:alice) { Fabricate(:account, username: 'alice') }
-        let!(:bob)   { Fabricate(:account, username: 'bob') }
+        let!(:alice) { Fabricate(:account, username: 'mentioned_alice') }
+        let!(:bob)   { Fabricate(:account, username: 'mentioned_bob') }
 
         before do
-          post :create, params: { status: '@alice hello @bob' }
+          post :create, params: { status: '@mentioned_alice hello @mentioned_bob' }
         end
 
         it 'returns http success' do
@@ -123,11 +123,11 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
       end
 
       context 'with a safeguard' do
-        let!(:alice) { Fabricate(:account, username: 'alice') }
-        let!(:bob)   { Fabricate(:account, username: 'bob') }
+        let!(:alice) { Fabricate(:account, username: 'mentioned_alice') }
+        let!(:bob)   { Fabricate(:account, username: 'mentioned_bob') }
 
         before do
-          post :create, params: { status: '@alice hm, @bob is really annoying lately', allowed_mentions: [alice.id] }
+          post :create, params: { status: '@mentioned_alice hm, @mentioned_bob is really annoying lately', allowed_mentions: [alice.id] }
         end
 
         it 'returns http unprocessable entity' do
