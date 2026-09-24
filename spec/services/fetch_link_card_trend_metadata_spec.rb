@@ -16,8 +16,11 @@ RSpec.describe FetchLinkCardService do
   end
 
   def stub_image_download
+    card.define_singleton_method(:image_remote_url) { nil }
     allow(card).to receive(:image_remote_url=) { |url| card.define_singleton_method(:image_remote_url) { url } }
-    allow(card).to receive(:image) { instance_double(Paperclip::Attachment, present?: card.image_remote_url.present?) }
+    allow(card).to receive(:image) do
+      instance_double(Paperclip::Attachment, present?: card.image_remote_url.present?)
+    end
   end
 
   it 'keeps a normal titled page unknown' do
@@ -54,18 +57,20 @@ RSpec.describe FetchLinkCardService do
     expect(card.published_at).to eq Time.utc(2024, 6, 1)
   end
 
-  it 'becomes trend-eligible from a NewsArticle that has no Open Graph tags' do
+  it 'becomes trend-eligible from JSON-LD metadata plus og:image' do
     subject.instance_variable_set(:@url, 'https://news.example/story')
     stub_image_download
     page = page_for(<<~HTML)
       <html>
-        <head><title>ニュース記事</title></head>
+        <head>
+          <meta property="og:image" content="https://news.example/cover.jpg">
+        </head>
         <script type="application/ld+json">
           {
             "@type": "NewsArticle",
             "headline": "ニュース記事",
             "description": "本文概要",
-            "image": "https://news.example/cover.jpg",
+            "image": "https://news.example/jsonld-only.jpg",
             "publisher": { "name": "Example News" },
             "inLanguage": "ja",
             "datePublished": "2024-07-01T00:00:00Z"
@@ -84,6 +89,42 @@ RSpec.describe FetchLinkCardService do
     expect(card.language).to eq 'ja'
     expect(card.published_at).to eq Time.utc(2024, 7, 1)
     expect(card).to be_appropriate_for_trends
+  end
+
+  it 'does not use a JSON-LD image when og:image is absent' do
+    subject.instance_variable_set(:@url, 'https://news.example/story')
+    stub_image_download
+    page = page_for(<<~HTML)
+      <html>
+        <script type="application/ld+json">
+          {
+            "@type": "NewsArticle",
+            "headline": "ニュース記事",
+            "description": "本文概要",
+            "image": "https://news.example/jsonld-only.jpg",
+            "publisher": { "name": "Example News" }
+          }
+        </script>
+      </html>
+    HTML
+
+    subject.send(:apply_preview_card_details, page)
+
+    expect(card.image_remote_url).to be_nil
+    expect(card).not_to be_appropriate_for_trends
+  end
+
+  it 'does not classify a card when oEmbed succeeds' do
+    subject.instance_variable_set(:@url, 'https://news.example/story')
+    subject.instance_variable_set(:@html, '<html><head><meta property="og:type" content="article"></head></html>')
+    embed_service = instance_double(FetchOEmbedService, endpoint_url: 'https://news.example/oembed')
+    allow(embed_service).to receive(:call).and_return(type: 'link', title: 'Embed', provider_name: 'Example')
+    allow(FetchOEmbedService).to receive(:new).and_return(embed_service)
+    allow(card).to receive(:save_with_optional_image!)
+
+    expect(subject.send(:attempt_oembed)).not_to eq false
+    expect(card.link_type).to be_nil
+    expect(card.title).to eq 'Embed'
   end
 
   it 'uses the JSON-LD publisher when og:site_name is missing' do

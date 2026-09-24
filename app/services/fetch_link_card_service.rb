@@ -184,7 +184,6 @@ class FetchLinkCardService < BaseService
       return false
     end
 
-    assign_trend_metadata
     @card.save_with_optional_image!
   end
 
@@ -220,16 +219,15 @@ class FetchLinkCardService < BaseService
     @card.save_with_optional_image!
   end
 
-  # JSON-LD NewsArticle wins over Open Graph, matching Mastodon v4.2.13
-  # LinkDetailsExtractor. Image falls back to JSON-LD when og:image is absent
-  # so a NewsArticle can still satisfy appropriate_for_trends?.
+  # Title, description, and provider follow v4.2.13: JSON-LD, then Open Graph.
+  # The preview image stays og:image only.
   def apply_preview_card_details(page)
     data = structured_data(page)
 
     @card.title = decode_text(data['headline'].presence || meta_property(page, 'og:title').presence || page.at_xpath('//title')&.content)
     @card.description = decode_text(data['description'].presence || meta_property(page, 'og:description').presence || meta_property(page, 'description'))
 
-    image_url = meta_property(page, 'og:image').presence || structured_image(data)
+    image_url = meta_property(page, 'og:image').presence
     @card.image_remote_url = (Addressable::URI.parse(@url) + image_url).to_s if image_url.present? && @url.present?
 
     provider_name = decode_text(structured_publisher_name(data).presence || meta_property(page, 'og:site_name').presence)
@@ -238,7 +236,7 @@ class FetchLinkCardService < BaseService
     assign_trend_metadata(page)
   end
 
-  def assign_trend_metadata(page = trend_page)
+  def assign_trend_metadata(page)
     @card.link_type = article_page?(page) ? :article : :unknown
     return if page.nil?
 
@@ -251,12 +249,6 @@ class FetchLinkCardService < BaseService
     return false unless @card.link? && page
 
     structured_type(page) == 'NewsArticle' || meta_property(page, 'og:type') == 'article'
-  end
-
-  def trend_page
-    return if !defined?(@html) || @html.blank?
-
-    Nokogiri::HTML(@html)
   end
 
   def structured_data(page)
@@ -287,14 +279,6 @@ class FetchLinkCardService < BaseService
     publisher = data['publisher']
     publisher = publisher.first if publisher.is_a?(Array)
     publisher.is_a?(Hash) ? publisher['name'] : nil
-  end
-
-  def structured_image(data)
-    image = data['image']
-    image = image.first if image.is_a?(Array)
-    return image['url'] if image.is_a?(Hash)
-
-    image
   end
 
   def decode_text(value)
