@@ -102,7 +102,7 @@ RSpec.describe 'Deleting profile images' do
     end
 
     context 'when provided picture value is invalid' do
-      subject { delete '/api/v1/profile/invalid', headers: headers }
+      subject { delete '/api/v1/profile/invalid', headers: headers, as: :json }
 
       before { attach_avatar_and_header! }
 
