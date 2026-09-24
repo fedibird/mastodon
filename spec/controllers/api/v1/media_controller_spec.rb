@@ -115,7 +115,37 @@ RSpec.describe Api::V1::MediaController, type: :controller do
 
       it 'updates the description' do
         put :update, params: { id: media.id, description: 'Lorem ipsum!!!' }
+
+        expect(response).to have_http_status(200)
         expect(media.reload.description).to eq 'Lorem ipsum!!!'
+      end
+
+      it 'updates the focus' do
+        put :update, params: { id: media.id, focus: '0.5,-0.25' }
+
+        expect(response).to have_http_status(200)
+        expect(media.reload.file.meta.dig('focus', 'x')).to eq 0.5
+        expect(media.file.meta.dig('focus', 'y')).to eq(-0.25)
+      end
+
+      it 'does not replace the original file' do
+        original_name = media.file_file_name
+        original_size = media.file_file_size
+
+        put :update, params: { id: media.id, file: fixture_file_upload('attachment.gif', 'image/gif'), description: 'kept file' }
+
+        expect(response).to have_http_status(200)
+        media.reload
+        expect(media.file_file_name).to eq original_name
+        expect(media.file_file_size).to eq original_size
+        expect(media.description).to eq 'kept file'
+      end
+
+      it 'permits thumbnail, description, and focus on update, and file on create' do
+        controller.params = ActionController::Parameters.new(file: 'ignored', thumbnail: 'thumb', description: 'alt', focus: '0,0')
+
+        expect(controller.send(:updateable_media_attachment_params).to_h.keys).to match_array(%w(thumbnail description focus))
+        expect(controller.send(:media_attachment_params).to_h.keys).to include('file')
       end
     end
 
