@@ -183,14 +183,15 @@ RSpec.describe PostStatusService, type: :service do
     expect(Status.where(text: 'Hi future!').exists?).to be_falsey
   end
 
-  it 'does not persist a scheduled reply or increment its counters' do
+  it 'does not persist a scheduled reply or change its counters' do
     account = Fabricate(:account)
     future = Time.now.utc + 2.hours
     previous_status = Fabricate(:status, account: account)
 
-    expect { subject.call(account, text: 'Hi future!', scheduled_at: future, thread: previous_status) }
-      .to change { account.statuses_count }.from(1).to(0)
-    expect(previous_status.replies_count).to eq 0
+    expect do
+      subject.call(account, text: 'Hi future!', scheduled_at: future, thread: previous_status)
+    end.not_to change { [account.reload.statuses_count, previous_status.reload.replies_count] }
+
     expect(Status.where(text: 'Hi future!')).to be_empty
   end
 
