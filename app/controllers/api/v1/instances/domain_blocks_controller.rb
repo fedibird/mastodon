@@ -3,10 +3,18 @@
 class Api::V1::Instances::DomainBlocksController < Api::BaseController
   skip_before_action :require_authenticated_user!, unless: :whitelist_mode?
 
+  vary_by '', if: -> { Setting.show_domain_blocks == 'all' }
+
   before_action :require_enabled_api!
   before_action :set_domain_blocks
 
   def index
+    if Setting.show_domain_blocks == 'all'
+      cache_even_if_authenticated!
+    else
+      cache_if_unauthenticated!
+    end
+
     render json: @domain_blocks,
            each_serializer: REST::DomainBlockSerializer,
            with_comment: show_rationale?

@@ -44,9 +44,4 @@ class Api::V1::Peers::SearchController < Api::BaseController
   rescue Addressable::URI::InvalidURIError
     @domains = []
   end
-
-  # Same cache window as Mastodon 4.2 ApiCachingConcern, using Fedibird's whitelist mode.
-  def cache_even_if_authenticated!
-    expires_in(5.minutes, public: true, stale_while_revalidate: 30.seconds, stale_if_error: 1.day) unless whitelist_mode?
-  end
 end

@@ -9,6 +9,7 @@ class Api::V1::Instances::PrivacyPoliciesController < Api::BaseController
   vary_by ''
 
   def show
+    cache_even_if_authenticated!
     render json: @privacy_policy, serializer: REST::PrivacyPolicySerializer
   end
 

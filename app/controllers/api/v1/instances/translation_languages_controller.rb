@@ -22,10 +22,4 @@ class Api::V1::Instances::TranslationLanguagesController < Api::BaseController
       @languages = {}
     end
   end
-
-  # Fedibird has no shared ApiCachingConcern. Keep the existing one-day public cache,
-  # and skip it in whitelist mode the same way other public API caches do.
-  def cache_even_if_authenticated!
-    expires_in(1.day, public: true) unless whitelist_mode?
-  end
 end
