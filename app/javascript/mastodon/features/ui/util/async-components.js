@@ -230,6 +230,10 @@ export function Trends () {
   return import(/* webpackChunkName: "features/trends" */'../../trends');
 }
 
+export function Explore () {
+  return import(/* webpackChunkName: "features/explore" */'../../explore');
+}
+
 export function Suggestions () {
   return import(/* webpackChunkName: "features/suggestions" */'../../suggestions');
 }

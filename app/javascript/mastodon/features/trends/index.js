@@ -2,7 +2,7 @@ import React from 'react';
 import { connect } from 'react-redux';
 import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
-import { fetchTrends } from '../../actions/trends';
+import { fetchTrendingHashtags } from '../../actions/trends';
 import Column from '../ui/components/column';
 import ColumnHeader from '../../components/column_header';
 import ColumnSubheading from '../ui/components/column_subheading';
@@ -29,8 +29,8 @@ const mapStateToProps = (state, { columnId }) => {
   const columnWidth = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'trends', 'columnWidth']);
 
   return {
-    trends: state.getIn(['trends', 'items']),
-    isLoading: state.getIn(['trends', 'isLoading'], true),
+    trends: state.getIn(['trends', 'tags', 'items']),
+    isLoading: state.getIn(['trends', 'tags', 'isLoading'], true),
     columnWidth: columnWidth ?? defaultColumnWidth,
   };
 };
@@ -67,7 +67,7 @@ class Trends extends ImmutablePureComponent {
   fetchTrends = () => {
     const { dispatch } = this.props;
 
-    dispatch(fetchTrends());
+    dispatch(fetchTrendingHashtags());
   }
 
   handlePin = () => {

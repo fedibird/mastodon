@@ -25,6 +25,14 @@ import {
 import {
   PINNED_STATUSES_FETCH_SUCCESS,
 } from '../actions/pin_statuses';
+import {
+  TRENDS_STATUSES_FETCH_REQUEST,
+  TRENDS_STATUSES_FETCH_SUCCESS,
+  TRENDS_STATUSES_FETCH_FAIL,
+  TRENDS_STATUSES_EXPAND_REQUEST,
+  TRENDS_STATUSES_EXPAND_SUCCESS,
+  TRENDS_STATUSES_EXPAND_FAIL,
+} from '../actions/trends';
 import { Map as ImmutableMap, List as ImmutableList } from 'immutable';
 import {
   FAVOURITE_SUCCESS,
@@ -54,6 +62,11 @@ const initialState = ImmutableMap({
     items: ImmutableList(),
   }),
   pins: ImmutableMap({
+    next: null,
+    loaded: false,
+    items: ImmutableList(),
+  }),
+  trending: ImmutableMap({
     next: null,
     loaded: false,
     items: ImmutableList(),
@@ -129,6 +142,16 @@ export default function statusLists(state = initialState, action) {
     return normalizeList(state, 'emoji_reactions', action.statuses, action.next);
   case EMOJI_REACTIONED_STATUSES_EXPAND_SUCCESS:
     return appendToList(state, 'emoji_reactions', action.statuses, action.next);
+  case TRENDS_STATUSES_FETCH_REQUEST:
+  case TRENDS_STATUSES_EXPAND_REQUEST:
+    return state.setIn(['trending', 'isLoading'], true);
+  case TRENDS_STATUSES_FETCH_FAIL:
+  case TRENDS_STATUSES_EXPAND_FAIL:
+    return state.setIn(['trending', 'isLoading'], false);
+  case TRENDS_STATUSES_FETCH_SUCCESS:
+    return normalizeList(state, 'trending', action.statuses, action.next);
+  case TRENDS_STATUSES_EXPAND_SUCCESS:
+    return appendToList(state, 'trending', action.statuses, action.next);
   case FAVOURITE_SUCCESS:
     return prependOneToList(state, 'favourites', action.status);
   case UNFAVOURITE_SUCCESS:

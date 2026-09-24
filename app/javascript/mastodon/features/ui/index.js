@@ -68,6 +68,7 @@ import {
   Directory,
   FollowRecommendations,
   Trends,
+  Explore,
   Suggestions,
   EmptyColumn,
   ScheduledStatuses,
@@ -209,6 +210,7 @@ class SwitchingColumnsArea extends React.PureComponent {
           <WrappedRoute path='/search' component={Search} content={children} />
           <WrappedRoute path='/group_directory' component={GroupDirectory} content={children} />
           <WrappedRoute path='/directory' component={Directory} content={children} />
+          <WrappedRoute path='/explore' component={Explore} content={children} />
           <WrappedRoute path='/trends' component={Trends} content={children} />
           <WrappedRoute path='/suggestions' component={Suggestions} content={children} />
 

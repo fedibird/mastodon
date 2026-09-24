@@ -53,4 +53,31 @@ RSpec.describe InitialStateSerializer do
     expect(json[:role]).to be_nil
     expect(json[:meta]).not_to have_key(:is_staff)
   end
+
+  it 'exposes the server trends capability while retaining the legacy key' do
+    previous_trends_setting = Setting.trends
+    Setting.trends = true
+
+    json = serialize(nil)
+
+    expect(json[:meta][:trends_enabled]).to be true
+    expect(json[:meta][:trends]).to be true
+    expect(json[:meta]).not_to have_key(:show_trends)
+  ensure
+    Setting.trends = previous_trends_setting
+  end
+
+  it 'exposes the account trends preference under new and legacy keys' do
+    previous_trends_setting = Setting.trends
+    Setting.trends = true
+    user = Fabricate(:user)
+
+    json = serialize(user.account)
+
+    expect(json[:meta][:trends_enabled]).to be true
+    expect(json[:meta][:show_trends]).to eq user.setting_trends
+    expect(json[:meta][:trends]).to eq json[:meta][:show_trends]
+  ensure
+    Setting.trends = previous_trends_setting
+  end
 end
