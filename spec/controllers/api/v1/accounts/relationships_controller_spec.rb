@@ -185,5 +185,36 @@ describe Api::V1::Accounts::RelationshipsController do
         expect(body_as_json.first[:languages]).to eq ['ja']
       end
     end
+
+    context 'with suspended accounts' do
+      let(:carol) { Fabricate(:account, username: 'carol') }
+
+      it 'returns an empty list for a suspended account that is followed' do
+        user.account.follow!(simon)
+        simon.suspend!
+
+        get :index, params: { id: [simon.id] }
+
+        expect(response).to have_http_status(200)
+        expect(body_as_json).to eq []
+      end
+
+      it 'returns only active accounts in the requested order' do
+        lewis.suspend!
+
+        get :index, params: { id: [simon.id, lewis.id, carol.id] }
+
+        expect(response).to have_http_status(200)
+        expect(body_as_json.map { |row| row[:id] }).to eq [simon.id.to_s, carol.id.to_s]
+        expect(body_as_json.first[:following]).to be true
+        expect(body_as_json.first[:languages]).to be_nil
+      end
+
+      it 'returns each active id once' do
+        get :index, params: { id: [simon.id, simon.id, lewis.id] }
+
+        expect(body_as_json.map { |row| row[:id] }).to eq [simon.id.to_s, lewis.id.to_s]
+      end
+    end
   end
 end
