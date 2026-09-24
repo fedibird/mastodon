@@ -61,6 +61,61 @@ RSpec.describe PostStatusService, type: :service do
     expect(Mention.where(account: alice)).to be_empty
   end
 
+  it 'allows a circle post with an empty allow-list when the text has no mentions' do
+    account = Fabricate(:account)
+    circle = Fabricate(:circle, account: account)
+    member = Fabricate(:account)
+    member.follow!(account)
+    circle.accounts << member
+
+    status = subject.call(account, text: 'こんにちは', circle: circle, allowed_mentions: [])
+
+    expect(status).to be_persisted
+    expect(status.mentions.map(&:account)).to include(member)
+  end
+
+  it 'allows a limited reply with an empty allow-list when the text has no mentions' do
+    account = Fabricate(:account)
+    parent_account = Fabricate(:account)
+    parent = Fabricate(:status, account: parent_account, visibility: :limited)
+    audience = Fabricate(:account)
+    parent.mentions.create!(account: audience, silent: true)
+
+    status = subject.call(account, text: 'hello', thread: parent, visibility: :limited, allowed_mentions: [])
+
+    expect(status).to be_persisted
+    expect(status.mentions.map(&:account_id)).to include(audience.id, parent_account.id)
+  end
+
+  it 'does not treat circle members as unexpected text mentions' do
+    account = Fabricate(:account)
+    alice = Fabricate(:account, username: 'circle_alice')
+    member = Fabricate(:account)
+    member.follow!(account)
+    circle = Fabricate(:circle, account: account)
+    circle.accounts << member
+
+    status = subject.call(account, text: '@circle_alice hello', circle: circle, allowed_mentions: [alice.id])
+
+    expect(status).to be_persisted
+    expect(status.mentions.map(&:account)).to include(alice, member)
+  end
+
+  it 'does not persist mentions or notifications while previewing' do
+    account = Fabricate(:account)
+    alice = Fabricate(:account, username: 'preview_alice')
+    status = account.statuses.new(text: '@preview_alice hello', visibility: :public)
+    allow(LocalNotificationWorker).to receive(:perform_async)
+
+    expect do
+      ProcessMentionsService.new.call(status, nil, save_records: false)
+    end.not_to change { [Mention.count, ModerationInteractionEvent.count] }
+
+    expect(status.mentions.map(&:account)).to contain_exactly(alice)
+    expect(status.mentions).to all(be_new_record)
+    expect(LocalNotificationWorker).not_to have_received(:perform_async)
+  end
+
   it 'accepts duplicate mentions of an allowed account once' do
     account = Fabricate(:account)
     alice = Fabricate(:account, username: 'alice')
@@ -128,12 +183,15 @@ RSpec.describe PostStatusService, type: :service do
     expect(Status.where(text: 'Hi future!').exists?).to be_falsey
   end
 
-  it 'does not change statuses count' do
+  it 'does not persist a scheduled reply or increment its counters' do
     account = Fabricate(:account)
     future = Time.now.utc + 2.hours
     previous_status = Fabricate(:status, account: account)
 
-    expect { subject.call(account, text: 'Hi future!', scheduled_at: future, thread: previous_status) }.not_to change { [account.statuses_count, previous_status.replies_count] }
+    expect { subject.call(account, text: 'Hi future!', scheduled_at: future, thread: previous_status) }
+      .to change { account.statuses_count }.from(1).to(0)
+    expect(previous_status.replies_count).to eq 0
+    expect(Status.where(text: 'Hi future!')).to be_empty
   end
 
   it 'returns existing status when used twice with idempotency key' do
@@ -257,12 +315,13 @@ RSpec.describe PostStatusService, type: :service do
   end
 
   it 'crawls links' do
-    allow(LinkCrawlWorker).to receive(:perform_async)
+    worker = instance_double(LinkCrawlWorker, perform: true)
+    allow(LinkCrawlWorker).to receive(:new).and_return(worker)
     account = Fabricate(:account)
 
     status = subject.call(account, text: "test status update")
 
-    expect(LinkCrawlWorker).to have_received(:perform_async).with(status.id)
+    expect(worker).to have_received(:perform).with(status.id)
   end
 
   it 'attaches the given media to the created status' do

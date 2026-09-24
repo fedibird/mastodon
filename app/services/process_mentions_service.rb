@@ -15,7 +15,7 @@ class ProcessMentionsService < BaseService
 
     @status = status
     return process_edit! if edit
-    return preview_mentions!(circle) unless save_records
+    return preview_explicit_mentions! unless save_records
 
     mentions = []
 
@@ -157,9 +157,9 @@ class ProcessMentionsService < BaseService
     introduced
   end
 
-  # Build the same explicit, circle, and limited mentions without saving the
-  # status, mention rows, moderation events, or notifications.
-  def preview_mentions!(circle)
+  # Resolve only mentions written in the status text. Circle members and a
+  # limited thread's silent audience are delivery state, not text mentions.
+  def preview_explicit_mentions!
     mentions = []
 
     @status.text = @status.text.gsub(Account::MENTION_RE) do |match|
@@ -189,22 +189,6 @@ class ProcessMentionsService < BaseService
       mentions << @status.mentions.new(account: mentioned_account)
 
       "@#{mentioned_account.acct}"
-    end
-
-    mentioned_account_ids = mentions.map(&:account_id)
-
-    if circle.present?
-      (circle.class.name == 'Account' ? circle.mutuals : circle.accounts).find_each do |target_account|
-        mentions << @status.mentions.new(silent: true, account: target_account) unless mentioned_account_ids.include?(target_account.id)
-      end
-    elsif @status.limited_visibility? && @status.thread&.limited_visibility?
-      @status.thread.mentions.includes(:account).find_each do |mention|
-        mentions << @status.mentions.new(silent: true, account: mention.account) unless @status.account_id == mention.account_id || mentioned_account_ids.include?(mention.account.id)
-      end
-
-      unless @status.account_id == @status.thread.account_id || mentioned_account_ids.include?(@status.thread.account_id)
-        mentions << @status.mentions.new(silent: true, account: @status.thread.account)
-      end
     end
 
     mentions
