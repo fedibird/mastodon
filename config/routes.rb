@@ -534,6 +534,11 @@ Rails.application.routes.draw do
 
       namespace :emails do
         resources :confirmations, only: [:create]
+        get :check_confirmation, to: 'confirmations#check'
+      end
+
+      namespace :peers do
+        get :search, to: 'search#index'
       end
 
       resource :instance, only: [:show] do

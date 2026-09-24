@@ -17,7 +17,7 @@ module Mastodon
     ].freeze
 
     option :concurrency, type: :numeric, default: 2, aliases: [:c], desc: 'Workload will be split between this number of threads'
-    option :only, type: :array, enum: %w(accounts tags statuses), desc: 'Only process these indices'
+    option :only, type: :array, enum: %w(instances accounts tags statuses), desc: 'Only process these indices'
     option :min, type: :string
     option :max, type: :string
     option :verbose, type: :boolean, default: false, aliases: [:v]
@@ -42,9 +42,13 @@ module Mastodon
         if options[:only]
           options[:only].map { |str| "#{str.camelize}Index".constantize }
         else
-          INDICES
+          [InstancesIndex, *INDICES]
         end
       end
+
+      # Instance's primary key is domain and it has no id or created_at.
+      # The generic importer below filters and logs by id, so instances use a separate path.
+      id_indices = indices - [InstancesIndex]
 
       progress = ProgressBar.create(total: nil, format: '%t%c/%u |%b%i| %e (%r docs/s)', autofinish: false)
 
@@ -66,9 +70,15 @@ module Mastodon
 
       progress.title = 'Estimating workload '
 
-      # Estimate the amount of data that has to be imported first
-      indices.each do |index|
+      # Estimate the amount of data that has to be imported first.
+      # --min/--max are id bounds and do not apply to InstancesIndex.
+      id_indices.each do |index|
         progress.total = (progress.total || 0) + index.adapter.default_scope.where(id: options[:min]..options[:max]).count
+      end
+
+      if indices.include?(InstancesIndex)
+        progress.total = (progress.total || 0) + InstancesIndex.adapter.default_scope.count
+        import_instances_index(progress, pool, added, removed)
       end
 
       # Now import all the actual data. Mind that unlike chewy:sync, we don't
@@ -76,7 +86,7 @@ module Mastodon
       # find out which to add and which to remove from the index. Because with
       # potentially millions of rows, the memory footprint of such a calculation
       # is uneconomical. So we only ever add.
-      indices.each do |index|
+      id_indices.each do |index|
         progress.title = "Importing #{index} "
         batch_size     = 1000
         slice_size     = (batch_size / options[:concurrency]).ceil
@@ -149,6 +159,58 @@ module Mastodon
       progress.stop
 
       say("Indexed #{added.value} records, de-indexed #{removed.value}", :green, true)
+    end
+
+    private
+
+    def import_instances_index(progress, pool, added, removed)
+      index      = InstancesIndex
+      batch_size = 1000
+      slice_size = (batch_size / options[:concurrency]).ceil
+
+      progress.title = "Importing #{index} "
+
+      index.adapter.default_scope.reorder(nil).find_in_batches(batch_size: batch_size) do |batch|
+        futures = []
+
+        batch.each_slice(slice_size) do |records|
+          futures << Concurrent::Future.execute(executor: pool) do
+            begin
+              if !progress.total.nil? && progress.progress + records.size > progress.total
+                progress.total = nil
+              end
+
+              grouped_records = nil
+              bulk_body       = nil
+              index_count     = 0
+              delete_count    = 0
+
+              ActiveRecord::Base.connection_pool.with_connection do
+                grouped_records = index.adapter.send(:grouped_objects, records)
+                grouped_records = {to_index: grouped_records[:index] || [], delete: grouped_records[:delete] || []} unless grouped_records.has_key?(:to_index) && grouped_records.has_key?(:delete)
+                bulk_body       = Chewy::Index::Import::BulkBuilder.new(index, **grouped_records).bulk_body
+              end
+
+              index_count  = grouped_records[:to_index].size if grouped_records.key?(:to_index)
+              delete_count = grouped_records[:delete].size   if grouped_records.key?(:delete)
+
+              Chewy::Index::Import::BulkRequest.new(index).perform(bulk_body)
+              progress.log "#{records.first.domain} - #{records.last.domain} done." if options[:verbose]
+
+              progress.progress += records.size
+
+              added.increment(index_count)
+              removed.increment(delete_count)
+
+              sleep 1
+            rescue => e
+              progress.log pastel.red("Error importing #{index}: #{e} #{records.first.domain} - #{records.last.domain}")
+            end
+          end
+        end
+
+        futures.map(&:value)
+      end
     end
   end
 end
