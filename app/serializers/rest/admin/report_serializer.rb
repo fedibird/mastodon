@@ -15,4 +15,8 @@ class REST::Admin::ReportSerializer < ActiveModel::Serializer
   def id
     object.id.to_s
   end
+
+  def statuses
+    object.statuses.with_includes
+  end
 end
