@@ -102,14 +102,14 @@ RSpec.describe 'Deleting profile images' do
     end
 
     context 'when provided picture value is invalid' do
-      subject { delete '/api/v1/profile/invalid', headers: headers }
+      subject { delete '/api/v1/profile/invalid', headers: headers, as: :json }
 
       before { attach_avatar_and_header! }
 
-      it 'returns http bad request' do
+      it 'returns http not found' do
         subject
 
-        expect(response).to have_http_status(400)
+        expect(response).to have_http_status(404)
       end
 
       it 'does not change avatar or header' do
@@ -147,6 +147,11 @@ RSpec.describe 'Deleting profile images' do
 
         expect(response).to have_http_status(401)
       end
+    end
+
+    it 'routes avatar and header deletes to the split controllers' do
+      expect(Rails.application.routes.recognize_path('/api/v1/profile/avatar', method: :delete)).to include(controller: 'api/v1/profile/avatars', action: 'destroy')
+      expect(Rails.application.routes.recognize_path('/api/v1/profile/header', method: :delete)).to include(controller: 'api/v1/profile/headers', action: 'destroy')
     end
   end
 end
