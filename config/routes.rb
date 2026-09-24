@@ -392,6 +392,34 @@ Rails.application.routes.draw do
       end
     end
 
+    namespace :trends do
+      resources :links, only: [:index] do
+        collection do
+          post :batch
+        end
+      end
+
+      resources :tags, only: [:index] do
+        collection do
+          post :batch
+        end
+      end
+
+      resources :statuses, only: [:index] do
+        collection do
+          post :batch
+        end
+      end
+
+      namespace :links do
+        resources :preview_card_providers, only: [:index], path: :publishers do
+          collection do
+            post :batch
+          end
+        end
+      end
+    end
+
     resources :push_subscription_blocks, except: [:show] do
       member do
         post :enable

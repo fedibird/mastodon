@@ -85,6 +85,10 @@ class AccountPolicy < ApplicationPolicy
     role.can?(:manage_users) && !record.group_type?
   end
 
+  def review?
+    role.can?(:manage_taxonomies)
+  end
+
   def memorialize?
     role.can?(:delete_user_data) && role.overrides?(record.role) && !record.instance_actor?
   end

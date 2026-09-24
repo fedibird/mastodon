@@ -64,6 +64,12 @@ SimpleNavigation::Configuration.run do |navigation|
       s.item :ip_blocks, safe_join([fa_icon('ban fw'), t('admin.ip_blocks.title')]), admin_ip_blocks_url, highlights_on: %r{/admin/ip_blocks}, if: -> { role_can?(:manage_blocks) }
     end
 
+    n.item :trends, safe_join([fa_icon('line-chart fw'), t('admin.trends.title')]), admin_trends_statuses_path, if: -> { role_can?(:manage_taxonomies) } do |s|
+      s.item :trends_statuses, safe_join([fa_icon('comments fw'), t('admin.trends.statuses.title')]), admin_trends_statuses_path, highlights_on: %r{/admin/trends/statuses}
+      s.item :trends_tags, safe_join([fa_icon('hashtag fw'), t('admin.trends.tags.title')]), admin_trends_tags_path, highlights_on: %r{/admin/trends/tags}
+      s.item :trends_links, safe_join([fa_icon('link fw'), t('admin.trends.links.title')]), admin_trends_links_path, highlights_on: %r{/admin/trends/links}
+    end
+
     n.item :admin, safe_join([fa_icon('cogs fw'), t('admin.title')]), nil, if: proc { role_can?(:view_dashboard, :manage_settings, :manage_rules, :manage_announcements, :manage_custom_emojis, :manage_federation, :manage_blocks, :view_devops, :manage_roles) } do |s|
       s.item :dashboard, safe_join([fa_icon('tachometer fw'), t('admin.dashboard.title')]), admin_dashboard_url, if: -> { role_can?(:view_dashboard) }
       s.item :settings, safe_join([fa_icon('cogs fw'), t('admin.settings.title')]), edit_admin_settings_url, if: -> { role_can?(:manage_settings) }, highlights_on: %r{/admin/settings}
