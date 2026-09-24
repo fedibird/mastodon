@@ -1722,6 +1722,11 @@ ja:
     carry_mutes_over_text: このユーザーは、あなたがミュートしていた %{acct} から引っ越しました。
     copy_account_note_text: このユーザーは %{acct} から引っ越しました。これは以前のメモです。
   notification_mailer:
+    admin:
+      report:
+        subject: "%{name} さんが通報しました"
+      sign_up:
+        subject: "%{name} さんが登録しました"
     digest:
       action: 全ての通知を表示
       body: '最後のログイン（%{since}）からの出来事:'
@@ -1765,6 +1770,8 @@ ja:
       title: 新たなブースト
     status:
       subject: "%{name} さんが投稿しました"
+    update:
+      subject: "%{name} さんが投稿を編集しました"
     status_reference:
       body: "%{name} さんに参照された、あなたの投稿があります:"
       subject: "%{name} さんに参照されました"

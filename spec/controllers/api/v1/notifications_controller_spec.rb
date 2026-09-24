@@ -337,5 +337,41 @@ RSpec.describe Api::V1::NotificationsController, type: :controller do
         expect(body_as_json).to eq []
       end
     end
+
+    describe 'with Mastodon 4.2 notification types' do
+      let(:status) { Fabricate(:status, account: other.account, text: 'edited') }
+      let(:signup) { Fabricate(:account, username: 'newbie') }
+      let(:report) { Fabricate(:report, account: other.account, target_account: third.account) }
+
+      before do
+        Fabricate(:notification, account: user.account, activity: status, type: :update, from_account: other.account)
+        Fabricate(:notification, account: user.account, activity: signup, type: :'admin.sign_up', from_account: signup)
+        Fabricate(:notification, account: user.account, activity: report, type: :'admin.report', from_account: other.account)
+      end
+
+      it 'returns update, admin.sign_up, and admin.report' do
+        get :index, params: { types: %w(update admin.sign_up admin.report) }
+
+        expect(response).to have_http_status(200)
+        types = body_as_json.map { |item| item[:type] }
+        expect(types).to contain_exactly('update', 'admin.sign_up', 'admin.report')
+
+        update_json = body_as_json.find { |item| item[:type] == 'update' }
+        expect(update_json[:status][:id]).to eq status.id.to_s
+
+        signup_json = body_as_json.find { |item| item[:type] == 'admin.sign_up' }
+        expect(signup_json[:account][:id]).to eq signup.id.to_s
+
+        report_json = body_as_json.find { |item| item[:type] == 'admin.report' }
+        expect(report_json[:report][:id]).to eq report.id.to_s
+        expect(report_json[:report][:target_account][:id]).to eq third.account.id.to_s
+      end
+
+      it 'excludes a requested type' do
+        get :index, params: { types: %w(update admin.sign_up admin.report), exclude_types: %w(update) }
+
+        expect(body_as_json.map { |item| item[:type] }).to contain_exactly('admin.sign_up', 'admin.report')
+      end
+    end
   end
 end

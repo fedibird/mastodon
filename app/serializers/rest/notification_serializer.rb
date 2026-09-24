@@ -10,13 +10,14 @@ class REST::NotificationSerializer < ActiveModel::Serializer
   attribute :target_status, key: :status, if: :status_type?
   belongs_to :emoji_reaction, if: :emoji_reaction?
   attribute :reblog_visibility, if: :reblog?
+  belongs_to :report, if: :report_type?, serializer: REST::ReportSerializer
 
   def id
     object.id.to_s
   end
 
   def status_type?
-    [:favourite, :reblog, :status, :mention, :poll, :emoji_reaction, :status_reference, :scheduled_status].include?(object.type) && object.target_status.present?
+    [:favourite, :reblog, :status, :update, :mention, :poll, :emoji_reaction, :status_reference, :scheduled_status].include?(object.type) && object.target_status.present?
   end
 
   def follow_type?
@@ -29,6 +30,10 @@ class REST::NotificationSerializer < ActiveModel::Serializer
 
   def emoji_reaction?
     object.type == :emoji_reaction
+  end
+
+  def report_type?
+    object.type == :'admin.report'
   end
 
   def filtered?

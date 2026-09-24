@@ -28,7 +28,7 @@ import {
 } from '../actions/app';
 import { DOMAIN_BLOCK_SUCCESS } from 'mastodon/actions/domain_blocks';
 import { TIMELINE_DELETE, TIMELINE_EXPIRE, TIMELINE_DISCONNECT } from '../actions/timelines';
-import { Map as ImmutableMap, List as ImmutableList } from 'immutable';
+import { Map as ImmutableMap, List as ImmutableList, fromJS } from 'immutable';
 import compareId from '../compare_id';
 
 const initialState = ImmutableMap({
@@ -53,6 +53,7 @@ const notificationToMap = notification => ImmutableMap({
   target_account: notification.target_account ? notification.target_account.id : null,
   created_at: notification.created_at,
   status: notification.status ? notification.status.id : null,
+  report: notification.report ? fromJS(notification.report) : null,
   emoji_reaction: ImmutableMap(notification.emoji_reaction),
   reblogVisibility: notification.reblog_visibility,
 });
