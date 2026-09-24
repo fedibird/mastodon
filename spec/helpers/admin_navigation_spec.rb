@@ -25,12 +25,12 @@ RSpec.describe 'admin navigation parents', type: :helper do
     node.element_children.find { |child| child.name == 'a' }
   end
 
-  it 'links the moderation parent to reports when only manage_reports is granted' do
+  it 'links the moderation parent to the first manage_reports child' do
     html = navigation_for(user_with_permissions(:manage_reports))
     moderation = item(html, 'moderation')
 
     expect(moderation).to be_present
-    expect(parent_link(moderation)['href']).to eq helper.admin_reports_url
+    expect(parent_link(moderation)['href']).to eq helper.admin_moderation_evidence_snapshots_url
     expect(moderation.at_css("a[href='#{helper.admin_reports_url}']")).to be_present
     expect(moderation.at_css("a[href='#{helper.admin_accounts_url}']")).to be_nil
     expect(moderation.at_css("a[href='#{helper.admin_action_logs_url}']")).to be_nil
