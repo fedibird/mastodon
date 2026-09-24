@@ -42,6 +42,31 @@ RSpec.describe InstancePresenter do
     end
   end
 
+  describe '#active_user_count' do
+    before do
+      Rails.cache.delete('active_user_count/4')
+    end
+
+    it 'counts daily unique logins' do
+      travel_to Time.utc(2026, 9, 21, 12, 0, 0) do
+        tracker = ActivityTracker.new('activity:logins', :unique)
+        tracker.add(1, Time.utc(2026, 9, 20, 9, 0, 0))
+        tracker.add(2, Time.utc(2026, 9, 19, 9, 0, 0))
+        tracker.add(1, Time.utc(2026, 9, 19, 10, 0, 0))
+
+        expect(instance_presenter.active_user_count).to eq 2
+      end
+    end
+
+    it 'counts a legacy weekly login key' do
+      travel_to Time.utc(2026, 9, 21, 12, 0, 0) do
+        redis.pfadd("activity:logins:#{Date.new(2026, 9, 20).cweek}", 9)
+
+        expect(instance_presenter.active_user_count).to eq 1
+      end
+    end
+  end
+
   describe '#status_count' do
     it 'returns the number of local statuses' do
       Rails.cache.write 'local_status_count', 234

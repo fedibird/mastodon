@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
 class Api::V1::Instances::ActivityController < Api::BaseController
-  include Redisable
-
   before_action :require_enabled_api!
 
   skip_before_action :set_cache_headers
@@ -16,22 +14,21 @@ class Api::V1::Instances::ActivityController < Api::BaseController
   private
 
   def activity
-    weeks = []
+    statuses_tracker      = ActivityTracker.new('activity:statuses:local', :basic)
+    logins_tracker        = ActivityTracker.new('activity:logins', :unique)
+    registrations_tracker = ActivityTracker.new('activity:accounts:local', :basic)
 
-    12.times do |i|
-      day     = i.weeks.ago.to_date
-      week_id = day.cweek
-      week    = Date.commercial(day.cwyear, week_id)
+    (0...12).map do |i|
+      start_of_week = i.weeks.ago
+      end_of_week   = start_of_week + 6.days
 
-      weeks << {
-        week: week.to_time.to_i.to_s,
-        statuses: redis.get("activity:statuses:local:#{week_id}") || '0',
-        logins: redis.pfcount("activity:logins:#{week_id}").to_s,
-        registrations: redis.get("activity:accounts:local:#{week_id}") || '0',
+      {
+        week: start_of_week.to_i.to_s,
+        statuses: statuses_tracker.sum(start_of_week, end_of_week).to_s,
+        logins: logins_tracker.sum(start_of_week, end_of_week).to_s,
+        registrations: registrations_tracker.sum(start_of_week, end_of_week).to_s,
       }
     end
-
-    weeks
   end
 
   def require_enabled_api!
