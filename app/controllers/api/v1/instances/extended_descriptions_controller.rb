@@ -9,6 +9,7 @@ class Api::V1::Instances::ExtendedDescriptionsController < Api::BaseController
   vary_by ''
 
   def show
+    cache_even_if_authenticated!
     render json: @extended_description, serializer: REST::ExtendedDescriptionSerializer
   end
 

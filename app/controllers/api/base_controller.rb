@@ -5,6 +5,9 @@ class Api::BaseController < ApplicationController
   DEFAULT_ACCOUNTS_LIMIT = 40
 
   include RateLimitHeaders
+  include ApiCachingConcern
+
+  vary_by 'Authorization'
 
   skip_before_action :store_current_location
   skip_before_action :require_functional!, unless: :whitelist_mode?
@@ -71,14 +74,6 @@ class Api::BaseController < ApplicationController
     links << [next_path, [%w(rel next)]] if next_path
     links << [prev_path, [%w(rel prev)]] if prev_path
     response.headers['Link'] = LinkHeader.new(links) unless links.empty?
-  end
-
-  def cache_if_unauthenticated!
-    return if user_signed_in?
-
-    expires_in 15.minutes, public: true
-    response.cache_control[:extras]&.delete('no-store')
-    response.headers['Cache-Control'] = 'max-age=900, public'
   end
 
   def limit_param(default_limit)

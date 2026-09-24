@@ -21,6 +21,7 @@ class Api::V1::AccountsController < Api::BaseController
   end
 
   def show
+    cache_if_unauthenticated!
     render json: @account, serializer: REST::AccountSerializer
   end
 

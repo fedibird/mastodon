@@ -9,6 +9,7 @@ class Api::V1::Instances::LanguagesController < Api::BaseController
   vary_by ''
 
   def show
+    cache_even_if_authenticated!
     render json: @languages, each_serializer: REST::LanguageSerializer
   end
 

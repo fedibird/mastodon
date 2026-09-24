@@ -6,6 +6,7 @@ class Api::V1::Timelines::PublicController < Api::BaseController
   after_action :insert_pagination_headers, unless: -> { @statuses.empty? }
 
   def show
+    cache_if_unauthenticated!
     @statuses = load_statuses
 
     if compact?

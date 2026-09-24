@@ -30,6 +30,7 @@ class Api::V1::StatusesController < Api::BaseController
   end
 
   def show
+    cache_if_unauthenticated!
     @status = cache_collection([@status], Status).first
     render json: @status, serializer: REST::StatusSerializer
   end
@@ -40,6 +41,7 @@ class Api::V1::StatusesController < Api::BaseController
   end
 
   def context
+    cache_if_unauthenticated!
     ancestors_results   = @status.in_reply_to_id.nil? ? [] : @status.ancestors(CONTEXT_LIMIT, current_account&.id)
     descendants_results = @status.descendants(CONTEXT_LIMIT, current_account&.id)
     references_results  = @status.thread_references(CONTEXT_LIMIT, current_account&.id)
