@@ -12,13 +12,11 @@ jest.mock('react-intl', () => {
   };
 });
 
-const mockEmojiPickerAsync = jest.fn(() => Promise.resolve({
-  Picker: () => null,
-  Emoji: () => null,
-}));
-
 jest.mock('mastodon/features/ui/util/async-components', () => ({
-  EmojiPicker: mockEmojiPickerAsync,
+  EmojiPicker: jest.fn(() => Promise.resolve({
+    Picker: () => null,
+    Emoji: () => null,
+  })),
 }));
 
 jest.mock('mastodon/initial_state', () => ({
