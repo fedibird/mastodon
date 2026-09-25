@@ -35,9 +35,9 @@ class Oauth::AuthorizedApplicationsController < Doorkeeper::AuthorizedApplicatio
                            .select('DISTINCT ON (application_id) application_id, last_used_at')
                            .where(resource_owner_id: current_resource_owner.id)
                            .where.not(last_used_at: nil)
-                           .order(application_id: :desc, last_used_at: :desc)
-                           .pluck(:application_id, :last_used_at)
-                           .to_h
+                         .order(application_id: :desc, last_used_at: :desc)
+                         .map { |token| [token.application_id, token.last_used_at] }
+                         .to_h
   end
 
   def store_current_location

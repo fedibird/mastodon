@@ -5,6 +5,8 @@ require 'rails_helper'
 describe Oauth::AuthorizedApplicationsController do
   render_views
 
+  before { stub_webpacker_manifest }
+
   describe 'GET #index' do
     subject do
       get :index
@@ -160,5 +162,12 @@ describe Oauth::AuthorizedApplicationsController do
     it 'sends a session kill payload to the streaming server' do
       expect(redis_pipeline_stub).to have_received(:publish).with("timeline:access_token:#{access_token.id}", '{"event":"kill"}')
     end
+  end
+
+  def stub_webpacker_manifest
+    manifest = Webpacker.instance.manifest
+    resolver = ->(name, **opts) { opts[:with_integrity] ? ["/packs-test/#{name}", nil] : "/packs-test/#{name}" }
+    allow(manifest).to receive(:lookup!, &resolver)
+    allow(manifest).to receive(:lookup, &resolver)
   end
 end
