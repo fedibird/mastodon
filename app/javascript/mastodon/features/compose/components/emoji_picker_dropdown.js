@@ -351,7 +351,7 @@ class EmojiPickerDropdown extends React.PureComponent {
     e.stopPropagation();
     e.preventDefault();
     this.props.onClose(this.state.id);
-}
+  }
 
   handleClick = (e) => {
     if (!this.state.loading && (!e.key || e.key === 'Enter')) {
@@ -445,7 +445,8 @@ class EmojiPickerDropdown extends React.PureComponent {
             })}
           </div>
         ) : (
-          <div ref={this.setTargetRef}
+          <div
+            ref={this.setTargetRef}
             className='emoji-button'
             title={title}
             aria-label={title}

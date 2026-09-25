@@ -1,7 +1,16 @@
 import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { Map as ImmutableMap } from 'immutable';
-import { IntlProvider } from 'react-intl';
+
+jest.mock('react-intl', () => {
+  const intl = { formatMessage: () => 'Insert emoji' };
+
+  return {
+    defineMessages: messages => messages,
+    FormattedMessage: () => null,
+    injectIntl: Component => props => <Component {...props} intl={intl} />,
+  };
+});
 
 const mockEmojiPickerAsync = jest.fn(() => Promise.resolve({
   Picker: () => null,
@@ -21,23 +30,24 @@ jest.mock('react-overlays/Overlay', () => () => null);
 
 import EmojiPickerDropdown from '../emoji_picker_dropdown';
 
+const noop = () => {};
+
 const Picker = () => {
   const [openDropdownId, setOpenDropdownId] = React.useState(null);
+  const handleClose = React.useCallback(() => setOpenDropdownId(null), []);
 
   return (
-    <IntlProvider locale='en'>
-      <EmojiPickerDropdown
-        pickersEmoji={ImmutableMap()}
-        openDropdownId={openDropdownId}
-        onOpen={setOpenDropdownId}
-        onClose={() => setOpenDropdownId(null)}
-        onPickEmoji={jest.fn()}
-        skinTone={1}
-        onSkinTone={jest.fn()}
-        frequentlyUsedEmojis={[]}
-        button={<button type='button'>Insert emoji</button>}
-      />
-    </IntlProvider>
+    <EmojiPickerDropdown
+      pickersEmoji={ImmutableMap()}
+      openDropdownId={openDropdownId}
+      onOpen={setOpenDropdownId}
+      onClose={handleClose}
+      onPickEmoji={noop}
+      skinTone={1}
+      onSkinTone={noop}
+      frequentlyUsedEmojis={[]}
+      button={<button type='button'>Insert emoji</button>}
+    />
   );
 };
 
