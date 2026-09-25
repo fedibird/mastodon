@@ -13,11 +13,13 @@ import MediaModal from 'mastodon/features/ui/components/media_modal';
 import Video from 'mastodon/features/video';
 import Card from 'mastodon/features/status/components/card';
 import Audio from 'mastodon/features/audio';
+import PublicStatusHistory from 'mastodon/components/public_status_history';
+import StatusHistoryRevision from 'mastodon/components/status_history_revision';
 
 const { localeData, messages } = getLocale();
 addLocaleData(localeData);
 
-const MEDIA_COMPONENTS = { MediaGallery, Video, Card, Poll, Hashtag, Audio };
+const MEDIA_COMPONENTS = { MediaGallery, Video, Card, Poll, Hashtag, Audio, StatusHistory: PublicStatusHistory };
 
 export default class MediaContainer extends PureComponent {
 
@@ -32,13 +34,19 @@ export default class MediaContainer extends PureComponent {
     time: null,
     backgroundColor: null,
     options: null,
+    historyRevision: null,
+    historyLanguage: null,
   };
 
-  handleOpenMedia = (media, index) => {
+  lockScroll = () => {
     document.body.classList.add('with-modals--active');
     document.documentElement.style.marginRight = `${getScrollbarWidth()}px`;
+  }
 
-    this.setState({ media, index });
+  handleOpenMedia = (media, index) => {
+    this.lockScroll();
+
+    this.setState({ media, index, historyRevision: null, historyLanguage: null });
   }
 
   handleOpenVideo = (options) => {
@@ -46,10 +54,21 @@ export default class MediaContainer extends PureComponent {
     const { media } = JSON.parse(components[options.componetIndex].getAttribute('data-props'));
     const mediaList = fromJS(media);
 
-    document.body.classList.add('with-modals--active');
-    document.documentElement.style.marginRight = `${getScrollbarWidth()}px`;
+    this.lockScroll();
 
-    this.setState({ media: mediaList, options });
+    this.setState({ media: mediaList, options, historyRevision: null, historyLanguage: null });
+  }
+
+  handleOpenHistoryRevision = (revision, language) => {
+    this.lockScroll();
+
+    this.setState({
+      media: null,
+      index: null,
+      options: null,
+      historyRevision: revision,
+      historyLanguage: language,
+    });
   }
 
   handleCloseMedia = () => {
@@ -62,6 +81,8 @@ export default class MediaContainer extends PureComponent {
       time: null,
       backgroundColor: null,
       options: null,
+      historyRevision: null,
+      historyLanguage: null,
     });
   }
 
@@ -92,6 +113,9 @@ export default class MediaContainer extends PureComponent {
               } : {
                 onOpenMedia: this.handleOpenMedia,
               }),
+              ...(componentName === 'StatusHistory' ? {
+                onOpenRevision: this.handleOpenHistoryRevision,
+              } : {}),
             });
 
             return ReactDOM.createPortal(
@@ -110,6 +134,14 @@ export default class MediaContainer extends PureComponent {
                 volume={this.state.options?.defaultVolume}
                 onClose={this.handleCloseMedia}
                 onChangeBackgroundColor={this.setBackgroundColor}
+              />
+            )}
+            {!this.state.media && this.state.historyRevision && (
+              <StatusHistoryRevision
+                revision={this.state.historyRevision}
+                account={this.state.historyRevision.get('account')}
+                language={this.state.historyLanguage}
+                onClose={this.handleCloseMedia}
               />
             )}
           </ModalRoot>

@@ -50,9 +50,14 @@
 
   .detailed-status__meta
     %data.dt-published{ value: status.created_at.to_time.iso8601 }
+    - if status.edited?
+      %data.dt-updated{ value: status.edited_at.to_time.iso8601 }
 
     = link_to ActivityPub::TagManager.instance.url_for(status), class: 'detailed-status__datetime u-url u-uid', target: stream_link_target, rel: 'noopener noreferrer' do
       %time.formatted{ datetime: status.created_at.iso8601, title: l(status.created_at) }= l(status.created_at)
+    - if status.edited?
+      ·
+      %span{ data: { component: 'StatusHistory', props: { statusId: status.id.to_s, editedAt: status.edited_at.iso8601, historyUrl: history_short_account_status_path(status.account, status), language: status.language }.to_json } }
     ·
     %span.detailed-status__visibility-icon
       = visibility_icon status
