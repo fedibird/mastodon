@@ -856,6 +856,21 @@ body > [data-popper-placement] {
   display: inline;
 }
 
+.inline-account {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: top;
+
+  .account__avatar {
+    margin-inline-end: 5px;
+    border-radius: 50%;
+  }
+
+  strong {
+    font-weight: 600;
+  }
+}
+
 .compare-history-modal__container {
   max-height: 80vh;
   overflow: auto;

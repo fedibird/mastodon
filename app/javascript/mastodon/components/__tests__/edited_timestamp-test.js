@@ -19,14 +19,23 @@ jest.mock('react-intl', () => {
   return {
     injectIntl: Component => props => <Component {...props} intl={intl} />,
     defineMessages: messages => messages,
-    FormattedMessage: ({ defaultMessage, values }) => intl.formatMessage({ defaultMessage }, values),
+    FormattedMessage: ({ defaultMessage, values }) => {
+      if (!values) return defaultMessage;
+
+      return defaultMessage.split(/\{(\w+)\}/).map((part, index) => (
+        index % 2 === 1 ? <React.Fragment key={part}>{values[part]}</React.Fragment> : part
+      ));
+    },
   };
 });
 
-jest.mock('../dropdown_menu', () => ({ children, renderHeader, items }) => (
+jest.mock('../dropdown_menu', () => ({ children, renderHeader, renderItem, items }) => (
   <div>
     {children}
     <div data-testid='history-header'>{renderHeader(items)}</div>
+    <ul>
+      {items.map((item, index) => renderItem(item, index, { onClick () {}, onKeyPress () {} }))}
+    </ul>
   </div>
 ));
 
@@ -41,7 +50,14 @@ const renderTimestamp = (timestamp, historyItems = ImmutableList()) => {
     history: {
       s1: { loading: false, items: historyItems },
     },
-    accounts: {},
+    accounts: {
+      a1: {
+        id: 'a1',
+        username: 'alice',
+        avatar: 'https://example.com/alice.png',
+        avatar_static: 'https://example.com/alice.png',
+      },
+    },
   }));
 
   return render(
@@ -60,6 +76,16 @@ describe('EditedTimestamp', () => {
 
     expect(screen.getByRole('button', { name: /Edited/ })).toBeInTheDocument();
     expect(screen.getByTestId('history-header')).toHaveTextContent('Edited');
+    expect(screen.getAllByText('alice').length).toBeGreaterThan(0);
+  });
+
+  it('renders a history item when the editor account is missing', () => {
+    renderTimestamp('2026-01-02T00:00:00.000Z', fromJS([
+      { created_at: '2026-01-01T00:00:00.000Z', original: true, account: null },
+    ]));
+
+    expect(screen.getByRole('button', { name: /Edited/ })).toBeInTheDocument();
+    expect(screen.getByText(/created/)).toBeInTheDocument();
   });
 
   it('renders nothing when edited_at is absent', () => {
