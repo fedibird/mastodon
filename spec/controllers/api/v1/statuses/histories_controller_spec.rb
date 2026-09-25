@@ -53,6 +53,22 @@ RSpec.describe Api::V1::Statuses::HistoriesController, type: :controller do # ru
         expect(body_as_json.last[:content]).to include('edited history')
       end
 
+      it 'serializes a local media attachment from the historical snapshot' do
+        media = Fabricate(:media_attachment, account: user.account, status: status, description: 'before edit', type: :image)
+        status.snapshot!(at_time: status.created_at, rate_limit: false)
+        media.update!(description: 'after edit')
+
+        get :show, params: { status_id: status.id }
+
+        expect(response).to have_http_status(200)
+        media_json = body_as_json.first[:media_attachments].first
+        expect(media_json[:id]).to eq media.id.to_s
+        expect(media_json[:text_url]).to eq Rails.application.routes.url_helpers.medium_url(media, ActionMailer::Base.default_url_options)
+        expect(media_json[:text_url]).to end_with("/media/#{media.to_param}")
+        expect(media_json[:description]).to eq 'before edit'
+        expect(media_json).to include(:blurhash, :thumbhash, :preview_url, :url)
+      end
+
       it 'renders a snapshot whose editor account was removed' do
         status.snapshot!(at_time: status.created_at, rate_limit: false)
         status.edits.last.update!(account: nil)

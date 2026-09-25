@@ -23,6 +23,7 @@ class StatusEdit < ApplicationRecord
   class PreservedMediaAttachment < ActiveModelSerializers::Model
     attributes :media_attachment, :description
 
+    delegate :id, :to_param, to: :media_attachment
     delegate_missing_to :media_attachment
   end
 
