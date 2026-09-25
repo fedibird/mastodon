@@ -284,7 +284,7 @@ class EmojiPickerMenu extends React.PureComponent {
           i18n={this.getI18n()}
           onClick={this.handleClick}
           include={categoriesSort}
-          recent={frequentlyUsedEmojis}
+          recent={frequentlyUsedEmojis && frequentlyUsedEmojis.length > 0 ? frequentlyUsedEmojis : undefined}
           skin={skinTone}
           showPreview={false}
           showSkinTones={false}
@@ -328,6 +328,10 @@ class EmojiPickerDropdown extends React.PureComponent {
     id: `custom_emoji:${id++}`,
   };
 
+  componentDidMount() {
+    this.mounted = true;
+  }
+
   onShowDropdown = ({ target, type }) => {
     if (!EmojiPicker) {
       this.setState({ loading: true });
@@ -336,9 +340,13 @@ class EmojiPickerDropdown extends React.PureComponent {
         EmojiPicker = EmojiMart.Picker;
         Emoji = EmojiMart.Emoji;
 
-        this.setState({ loading: false });
+        if (this.mounted) {
+          this.setState({ loading: false });
+        }
       }).catch(() => {
-        this.setState({ loading: false });
+        if (this.mounted) {
+          this.setState({ loading: false });
+        }
       });
     }
 
@@ -348,8 +356,11 @@ class EmojiPickerDropdown extends React.PureComponent {
   }
 
   onHideDropdown = (e) => {
-    e.stopPropagation();
-    e.preventDefault();
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+
     this.props.onClose(this.state.id);
   }
 
@@ -419,6 +430,8 @@ class EmojiPickerDropdown extends React.PureComponent {
   }
 
   componentWillUnmount = () => {
+    this.mounted = false;
+
     if (this.state.id === this.props.openDropdownId) {
       this.onHideDropdown();
     }
