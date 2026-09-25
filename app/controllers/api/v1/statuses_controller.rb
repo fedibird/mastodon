@@ -138,7 +138,7 @@ class Api::V1::StatusesController < Api::BaseController
 
   def set_updated_statuses
     updated_status_ids = ActiveRecord::Base.connection.select_values(ActiveRecord::Base.sanitize_sql_array([
-      "select s.id from statuses s join json_to_recordset(:json) u(id bigint, updated_at timestamp without time zone) on s.id = u.id left join status_stats st on s.id = st.status_id where date_trunc('milliseconds', coalesce(st.updated_at, s.updated_at)) > date_trunc('milliseconds', u.updated_at)",
+      "select s.id from statuses s join json_to_recordset(:json) u(id bigint, updated_at timestamp without time zone) on s.id = u.id left join status_stats st on s.id = st.status_id where date_trunc('milliseconds', greatest(coalesce(st.updated_at, s.updated_at), s.updated_at)) > date_trunc('milliseconds', u.updated_at)",
       json: Oj.dump(id_and_updated_at_pairs)]));
     @statuses = updated_status_ids.present? ? Status.permitted_statuses_from_ids(updated_status_ids, current_account&.id) : Status.none
   end

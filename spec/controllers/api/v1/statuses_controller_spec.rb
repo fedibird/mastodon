@@ -278,6 +278,44 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
         expect(Status.find_by(id: status.id)).to be nil
       end
     end
+
+    describe 'GET #updated' do
+      let(:scopes) { 'read:statuses' }
+      let(:status) { Fabricate(:status, account: user.account, visibility: :public) }
+      let(:client_time) { 1.hour.ago.change(usec: 0) }
+
+      def updated_ids
+        get :updated, params: { d: [{ id: status.id, updated_at: client_time.iso8601(3) }] }
+        body_as_json.map { |item| item[:id] }
+      end
+
+      it 'includes a status edited after its stat timestamp' do
+        StatusStat.create!(status: status, created_at: 2.hours.ago, updated_at: 2.hours.ago)
+        status.update_columns(updated_at: Time.current)
+
+        expect(updated_ids).to include(status.id.to_s)
+      end
+
+      it 'includes a status whose stat changed after the status row' do
+        status.update_columns(updated_at: 2.hours.ago)
+        StatusStat.create!(status: status, created_at: 2.hours.ago, updated_at: Time.current)
+
+        expect(updated_ids).to include(status.id.to_s)
+      end
+
+      it 'omits a status when both timestamps are older than the client' do
+        status.update_columns(updated_at: 2.hours.ago)
+        StatusStat.create!(status: status, created_at: 2.hours.ago, updated_at: 2.hours.ago)
+
+        expect(updated_ids).not_to include(status.id.to_s)
+      end
+
+      it 'uses the status timestamp when no status stat exists' do
+        status.update_columns(updated_at: Time.current)
+
+        expect(updated_ids).to include(status.id.to_s)
+      end
+    end
   end
 
   context 'without an oauth token' do
