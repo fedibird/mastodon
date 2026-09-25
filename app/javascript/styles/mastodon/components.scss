@@ -852,15 +852,6 @@ body > [data-popper-placement] {
   line-height: 24px;
 }
 
-.dropdown-menu__text-button {
-  background: transparent;
-  border: 0;
-  color: $secondary-text-color;
-  cursor: pointer;
-  font: inherit;
-  padding: 0;
-}
-
 .edited-timestamp {
   display: inline;
 }
@@ -2264,22 +2255,6 @@ a.account__display-name {
   }
 }
 
-.dropdown {
-  display: inline-block;
-}
-
-.dropdown__content {
-  display: none;
-  position: absolute;
-}
-
-.dropdown-menu__separator {
-  border-bottom: 1px solid darken($ui-secondary-color, 8%);
-  margin: 5px 7px 6px;
-  height: 0;
-}
-
-.dropdown-menu,
 .emoji-picker-dropdown__menu {
   background: $ui-secondary-color;
   padding: 4px 0;
@@ -2308,7 +2283,8 @@ a.account__display-name {
   }
 }
 
-.dropdown-menu__arrow {
+.dropdown-animation:not(.dropdown-menu) > .dropdown-menu__arrow,
+.dropdown-menu.account-popup > .dropdown-menu__arrow {
   position: absolute;
 
   &::before {
@@ -2322,6 +2298,7 @@ a.account__display-name {
 
   &.top {
     bottom: -5px;
+
     &::before {
       transform: rotate(180deg);
     }
@@ -2348,88 +2325,116 @@ a.account__display-name {
   }
 }
 
+.dropdown-menu__separator {
+  border-bottom: 1px solid var(--dropdown-border-color);
+  margin: 5px 0;
+  height: 0;
+}
+
+.dropdown-menu {
+  background: var(--dropdown-background-color);
+  border: 1px solid var(--dropdown-border-color);
+  padding: 4px;
+  border-radius: 4px;
+  box-shadow: var(--dropdown-shadow);
+  z-index: 9999;
+
+  &__text-button {
+    display: inline;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    margin: 0;
+    padding: 0;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+
+    &:focus-visible {
+      outline: 1px dotted;
+    }
+  }
+
+  &__container {
+    &__header {
+      border-bottom: 1px solid var(--dropdown-border-color);
+      padding: 10px 14px;
+      padding-bottom: 14px;
+      margin-bottom: 4px;
+      font-size: 13px;
+      line-height: 18px;
+      color: $darker-text-color;
+    }
+
+    &__list {
+      list-style: none;
+
+      &--scrollable {
+        max-height: 300px;
+        overflow-y: scroll;
+      }
+    }
+
+    &--loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 30px 45px;
+    }
+  }
+
+  &.left {
+    transform-origin: 100% 50%;
+  }
+
+  &.top {
+    transform-origin: 50% 100%;
+  }
+
+  &.bottom {
+    transform-origin: 50% 0;
+  }
+
+  &.right {
+    transform-origin: 0 50%;
+  }
+}
+
 .dropdown-menu__item {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  display: block;
+
+  &--dangerous {
+    color: $error-value-color;
+  }
+
   a,
   button {
-    font-size: 13px;
-    line-height: 18px;
+    font: inherit;
     display: block;
     width: 100%;
-    padding: 4px 14px;
-    box-sizing: border-box;
-    text-align: left;
-    text-decoration: none;
+    padding: 10px 14px;
     border: 0;
-    background: $ui-secondary-color;
-    color: $inverted-text-color;
+    margin: 0;
+    background: transparent;
+    box-sizing: border-box;
+    text-decoration: none;
+    color: inherit;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    text-align: inherit;
+    border-radius: 4px;
 
     &:focus,
     &:hover,
     &:active {
-      background: $ui-highlight-color;
-      color: $secondary-text-color;
+      background: var(--dropdown-border-color);
       outline: 0;
     }
   }
-}
-
-.dropdown--active .dropdown__content {
-  display: block;
-  line-height: 18px;
-  max-width: 311px;
-  right: 0;
-  text-align: left;
-  z-index: 9999;
-
-  & > ul {
-    list-style: none;
-    background: $ui-secondary-color;
-    padding: 4px 0;
-    border-radius: 4px;
-    box-shadow: 0 0 15px rgba($base-shadow-color, 0.4);
-    min-width: 140px;
-    position: relative;
-  }
-
-  &.dropdown__right {
-    right: 0;
-  }
-
-  &.dropdown__left {
-    & > ul {
-      left: -98px;
-    }
-  }
-
-  & > ul > li > a {
-    font-size: 13px;
-    line-height: 18px;
-    display: block;
-    padding: 4px 14px;
-    box-sizing: border-box;
-    text-decoration: none;
-    background: $ui-secondary-color;
-    color: $inverted-text-color;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-
-    &:focus {
-      outline: 0;
-    }
-
-    &:hover {
-      background: $ui-highlight-color;
-      color: $secondary-text-color;
-    }
-  }
-}
-
-.dropdown__icon {
-  vertical-align: middle;
 }
 
 .layout-multiple-columns .columns-area__panels__pane {
