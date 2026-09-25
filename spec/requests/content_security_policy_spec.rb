@@ -35,12 +35,12 @@ RSpec.describe 'form-action Content-Security-Policy' do
 
   describe 'GET /oauth/authorize' do
     let(:user) { Fabricate(:user) }
-    let(:app) { Doorkeeper::Application.create!(name: 'test', redirect_uri: 'http://localhost/', scopes: 'read') }
+    let(:oauth_app) { Doorkeeper::Application.create!(name: 'test', redirect_uri: 'http://localhost/', scopes: 'read') }
 
     before { sign_in user, scope: :user }
 
     it 'disables only the form-action directive' do
-      get '/oauth/authorize', params: { client_id: app.uid, response_type: 'code', redirect_uri: 'http://localhost/', scope: 'read' }
+      get '/oauth/authorize', params: { client_id: oauth_app.uid, response_type: 'code', redirect_uri: 'http://localhost/', scope: 'read' }
 
       expect(response).to have_http_status(200)
       expect(directives.none? { |directive| directive.start_with?('form-action ') }).to be true
