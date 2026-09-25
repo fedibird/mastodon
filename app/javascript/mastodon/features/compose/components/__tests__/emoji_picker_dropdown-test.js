@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Map as ImmutableMap } from 'immutable';
 
 jest.mock('react-intl', () => {
@@ -63,14 +63,10 @@ describe('EmojiPickerDropdown with a native button trigger', () => {
     expect(wrapper).not.toHaveAttribute('tabindex');
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
 
-    await act(async () => {
-      fireEvent.click(trigger);
-      await Promise.resolve();
-    });
-
-    expect(trigger).toHaveAttribute('aria-expanded', 'true');
-
     fireEvent.click(trigger);
-    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Insert emoji' })).toHaveAttribute('aria-expanded', 'true'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Insert emoji' }));
+    expect(screen.getByRole('button', { name: 'Insert emoji' })).toHaveAttribute('aria-expanded', 'false');
   });
 });
