@@ -74,7 +74,7 @@ class REST::StatusSerializer < ActiveModel::Serializer
   end
 
   def updated_at
-    object.status_stat_updated_at || object.updated_at
+    [object.updated_at, object.status_stat_updated_at].compact.max
   end
 
   def processing
