@@ -1677,6 +1677,9 @@ body > [data-popper-placement] {
 
   &.dropdown-menu {
     background: $white;
+    border: 0;
+    padding: 4px 0;
+    box-shadow: 2px 4px 15px rgba($base-shadow-color, 0.4);
   }
 
   &__wapper {
