@@ -51,6 +51,20 @@ describe Api::V1::Admin::RetentionController do
       expect(body_as_json.first[:frequency]).to eq 'day'
     end
 
+    it 'returns invalid date for a malformed start_at' do
+      post :create, params: { start_at: 'not-a-date', end_at: '2026-09-01', frequency: 'day' }
+
+      expect(response).to have_http_status(422)
+      expect(body_as_json).to eq(error: 'Invalid date supplied')
+    end
+
+    it 'returns invalid date for a malformed end_at' do
+      post :create, params: { start_at: '2026-09-01', end_at: 'not-a-date', frequency: 'day' }
+
+      expect(response).to have_http_status(422)
+      expect(body_as_json).to eq(error: 'Invalid date supplied')
+    end
+
     it 'returns http forbidden without admin:read' do
       allow(controller).to receive(:doorkeeper_token) { Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: 'read') }
 

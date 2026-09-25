@@ -38,6 +38,17 @@ describe Api::V1::Admin::DimensionsController do
       expect(body[1][:data].first[:key]).to eq 'remote.example'
     end
 
+    it 'returns invalid date for a malformed end_at' do
+      post :create, params: {
+        keys: %w(languages),
+        start_at: '2026-09-19',
+        end_at: 'not-a-date',
+      }
+
+      expect(response).to have_http_status(422)
+      expect(body_as_json).to eq(error: 'Invalid date supplied')
+    end
+
     it 'returns http forbidden without admin:read' do
       allow(controller).to receive(:doorkeeper_token) { Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: 'read') }
 
