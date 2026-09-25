@@ -99,7 +99,7 @@ export const decorateEmojiPickerField = field => {
     wrapper.classList.add('emoji-picker-input--textarea');
   }
 
-  const host = document.createElement('span');
+  const host = document.createElement('div');
   host.className = 'emoji-picker-input__button-host';
 
   field.parentNode.insertBefore(wrapper, field);

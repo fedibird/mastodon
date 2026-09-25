@@ -78,6 +78,7 @@ describe('form emoji picker', () => {
 
     expect(document.querySelectorAll('.emoji-picker-input')).toHaveLength(2);
     expect(document.querySelectorAll('.emoji-picker-input__button-host')).toHaveLength(2);
+    expect(document.querySelector('.emoji-picker-input__button-host').tagName).toBe('DIV');
     expect(document.querySelector('#plain').parentElement).not.toHaveClass('emoji-picker-input');
     expect(document.querySelector('#note').parentElement).toHaveClass('emoji-picker-input--textarea');
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
