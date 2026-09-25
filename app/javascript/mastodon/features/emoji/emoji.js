@@ -23,8 +23,6 @@ const emojiFilename = (filename) => {
   return borderedEmoji.includes(filename) ? (filename + '_border') : filename;
 };
 
-const domParser = new DOMParser();
-
 const emojifyTextNode = (node, customEmojis, domain) => {
   const VS15 = 0xFE0E;
   const VS16 = 0xFE0F;
@@ -52,11 +50,11 @@ const emojifyTextNode = (node, customEmojis, domain) => {
     if (i === str.length) {
       break;
     }
-    
+
     let rend, replacement = '';
     if (str[i] === ':') {
       rend = str.indexOf(':', i + 1) + 1;
-        
+
       // no matching ending ':', skip
       if (!rend) {
         i++;
@@ -165,6 +163,11 @@ const emojify = (str, customEmojis = {}, domain = '') => {
 };
 
 export default emojify;
+
+export const buildCustomEmojiMap = customEmojis => customEmojis.reduce((map, emoji) => {
+  map[`:${emoji.get('shortcode')}:`] = emoji.toJS();
+  return map;
+}, {});
 
 export const buildCustomEmojis = (customEmojis) => {
   const emojis = [];

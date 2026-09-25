@@ -3,7 +3,8 @@
     = f.input :title,
               as: :string,
               hint: false,
-              wrapper: :with_label
+              wrapper: :with_label,
+              input_html: { data: { emoji_picker: true } }
   .fields-row__column.fields-row__column-6.fields-group
     = f.input :expires_in,
               collection: CustomFilter::EXPIRATION_DURATIONS.map(&:to_i),

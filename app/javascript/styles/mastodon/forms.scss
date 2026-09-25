@@ -5,6 +5,40 @@ code {
   font-weight: 400;
 }
 
+.emoji-picker-input {
+  position: relative;
+
+  > input,
+  > textarea {
+    padding-inline-end: 48px;
+  }
+
+  &__button-host {
+    position: absolute;
+    inset-inline-end: 8px;
+    top: 50%;
+    z-index: 2;
+    transform: translateY(-50%);
+
+    .icon-button {
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      color: $darker-text-color;
+
+      &:hover,
+      &:focus {
+        color: $primary-text-color;
+      }
+    }
+  }
+
+  &--textarea &__button-host {
+    top: 8px;
+    transform: none;
+  }
+}
+
 .form-container {
   max-width: 400px;
   padding: 20px;

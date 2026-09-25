@@ -87,6 +87,21 @@ function main() {
       }, datetime, now, now.getFullYear(), content.getAttribute('datetime').includes('T'));
     });
 
+    const emojiPickerFields = document.querySelectorAll('input[type="text"][data-emoji-picker], input[type="search"][data-emoji-picker], textarea[data-emoji-picker]');
+    const customEmojiTextNodes = document.querySelectorAll('[data-custom-emoji-text]');
+
+    if (emojiPickerFields.length > 0 || customEmojiTextNodes.length > 0) {
+      import(/* webpackChunkName: "form_emoji_picker" */ '../mastodon/features/emoji/form_emoji_picker')
+        .then(({ initializeFormEmojiPickers }) => {
+          initializeFormEmojiPickers({
+            fields: Array.from(emojiPickerFields),
+            textNodes: Array.from(customEmojiTextNodes),
+            locale,
+          });
+        })
+        .catch(console.error);
+    }
+
     const reactComponents = document.querySelectorAll('[data-component]');
 
     if (reactComponents.length > 0) {

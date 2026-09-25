@@ -1,6 +1,6 @@
 .filters-list__item{ class: [filter.expired? && 'expired'] }
   = link_to edit_filter_path(filter), class: 'filters-list__item__title' do
-    = filter.title
+    %span{ data: { custom_emoji_text: true } }= filter.title
 
     - if filter.expires?
       .expiration{ title: t('filters.index.expires_on', date: l(filter.expires_at)) }
