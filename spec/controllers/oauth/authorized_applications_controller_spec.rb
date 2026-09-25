@@ -5,6 +5,8 @@ require 'rails_helper'
 describe Oauth::AuthorizedApplicationsController do
   render_views
 
+  before { stub_webpacker_manifest }
+
   describe 'GET #index' do
     subject do
       get :index
@@ -18,8 +20,10 @@ describe Oauth::AuthorizedApplicationsController do
     end
 
     context 'when signed in' do
+      let(:user) { Fabricate(:user) }
+
       before do
-        sign_in Fabricate(:user), scope: :user
+        sign_in user, scope: :user
       end
 
       it 'returns http success' do
@@ -27,7 +31,97 @@ describe Oauth::AuthorizedApplicationsController do
         expect(response).to have_http_status(200)
       end
 
+      it 'does not store the page in a shared cache' do
+        subject
+        expect(response.headers['Cache-Control']).to include('private', 'no-store')
+      end
+
       include_examples 'stores location for user'
+
+      it 'uses the latest token for the current user' do
+        application = Fabricate(:application, name: 'Latest App', scopes: 'read:accounts write:accounts')
+        older = 3.days.ago
+        newer = 1.day.ago
+        Fabricate(:accessible_access_token, application: application, resource_owner_id: user.id, last_used_at: older)
+        Fabricate(:accessible_access_token, application: application, resource_owner_id: user.id, last_used_at: newer)
+
+        subject
+
+        expect(assigns(:last_used_at_by_app)[application.id]).to be_within(1.second).of(newer)
+        expect(response.body).to include('Accounts', 'Read and write access', 'Last used on')
+      end
+
+      it 'ignores another user token for the same application' do
+        application = Fabricate(:application, name: 'Private App', scopes: 'read')
+        own_used_at = 2.days.ago
+        Fabricate(:accessible_access_token, application: application, resource_owner_id: user.id, last_used_at: own_used_at)
+        Fabricate(:accessible_access_token, application: application, resource_owner_id: Fabricate(:user).id, last_used_at: 1.hour.ago)
+
+        subject
+
+        expect(assigns(:last_used_at_by_app)[application.id]).to be_within(1.second).of(own_used_at)
+      end
+
+      it 'shows never used when the token has no last use' do
+        application = Fabricate(:application, name: 'Unused App', scopes: 'read')
+        Fabricate(:accessible_access_token, application: application, resource_owner_id: user.id, last_used_at: nil)
+
+        subject
+
+        expect(assigns(:last_used_at_by_app)).not_to have_key(application.id)
+        expect(response.body).to include('Never used')
+      end
+
+      it 'renders an underscored admin scope' do
+        application = Fabricate(:application, name: 'Domain Blocks App', scopes: 'admin:read:domain_blocks')
+        Fabricate(:accessible_access_token, application: application, resource_owner_id: user.id)
+
+        subject
+
+        expect(response).to have_http_status(200)
+        expect(response.body).to include('Domain Blocks App')
+      end
+
+      it 'shows a revoke link for a normal application' do
+        application = Fabricate(:application, name: 'Revocable App', scopes: 'read', website: 'https://app.example')
+        Fabricate(:accessible_access_token, application: application, resource_owner_id: user.id)
+
+        subject
+
+        expect(response.body).to include('Revoke', 'Revocable App')
+        expect(response.body).to include('https://app.example')
+      end
+
+      it 'hides revoke for a superapp and shows the internal badge' do
+        application = Fabricate(:application, name: 'Internal App', scopes: 'read', superapp: true)
+        Fabricate(:accessible_access_token, application: application, resource_owner_id: user.id)
+
+        subject
+
+        expect(response.body).to include('Internal')
+        expect(response.body).not_to include('Revoke')
+      end
+
+      it 'hides revoke when the account is suspended' do
+        user.account.suspend!
+        application = Fabricate(:application, name: 'Suspended App', scopes: 'read')
+        Fabricate(:accessible_access_token, application: application, resource_owner_id: user.id)
+
+        subject
+
+        expect(response).to have_http_status(200)
+        expect(response.body).not_to include('Revoke')
+      end
+
+      it 'renders the Japanese never-used and grouped scope labels' do
+        user.update!(locale: 'ja')
+        application = Fabricate(:application, name: '日本語アプリ', scopes: 'read:accounts write:accounts')
+        Fabricate(:accessible_access_token, application: application, resource_owner_id: user.id)
+
+        subject
+
+        expect(response.body).to include('使用されていない', 'アカウント', '読み取りおよび書き込みアクセス')
+      end
     end
 
     context 'when not signed in' do
@@ -68,5 +162,12 @@ describe Oauth::AuthorizedApplicationsController do
     it 'sends a session kill payload to the streaming server' do
       expect(redis_pipeline_stub).to have_received(:publish).with("timeline:access_token:#{access_token.id}", '{"event":"kill"}')
     end
+  end
+
+  def stub_webpacker_manifest
+    manifest = Webpacker.instance.manifest
+    resolver = ->(name, **opts) { opts[:with_integrity] ? ["/packs-test/#{name}", nil] : "/packs-test/#{name}" }
+    allow(manifest).to receive(:lookup!, &resolver)
+    allow(manifest).to receive(:lookup, &resolver)
   end
 end

@@ -71,10 +71,12 @@ en:
       confirmations:
         revoke: Are you sure?
       index:
-        application: Application
-        created_at: Authorized
-        date_format: "%Y-%m-%d %H:%M:%S"
-        scopes: Scopes
+        authorized_at: Authorized on %{date}
+        description_html: These are applications that can access your account using the API. If there are applications you do not recognize here, or an application is misbehaving, you can revoke its access.
+        last_used_at: Last used on %{date}
+        never_used: Never used
+        scopes: Permissions
+        superapp: Internal
         title: Your authorized applications
     errors:
       messages:
@@ -110,6 +112,33 @@ en:
       authorized_applications:
         destroy:
           notice: Application revoked.
+    grouped_scopes:
+      access:
+        read: Read-only access
+        read/write: Read and write access
+        write: Write-only access
+      title:
+        accounts: Accounts
+        admin/accounts: Administration of accounts
+        admin/all: All administrative functions
+        admin/reports: Administration of reports
+        all: Full access to your Mastodon account
+        blocks: Blocks
+        bookmarks: Bookmarks
+        conversations: Conversations
+        crypto: End-to-end encryption
+        favourites: Favorites
+        filters: Filters
+        follow: Follows, Mutes and Blocks
+        follows: Follows
+        lists: Lists
+        media: Media attachments
+        mutes: Mutes
+        notifications: Notifications
+        push: Push notifications
+        reports: Reports
+        search: Search
+        statuses: Posts
     layouts:
       admin:
         nav:
