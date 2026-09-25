@@ -1,5 +1,13 @@
 import { fromJS } from 'immutable';
 
+jest.mock('../../actions/statuses', () => ({
+  STATUS_MUTE_SUCCESS: 'STATUS_MUTE_SUCCESS',
+  STATUS_UNMUTE_SUCCESS: 'STATUS_UNMUTE_SUCCESS',
+  STATUS_REVEAL: 'STATUS_REVEAL',
+  STATUS_HIDE: 'STATUS_HIDE',
+  STATUS_COLLAPSE: 'STATUS_COLLAPSE',
+}));
+
 import { UNBOOKMARK_FAIL, UNBOOKMARK_REQUEST } from '../../actions/interactions';
 import statuses from '../statuses';
 
