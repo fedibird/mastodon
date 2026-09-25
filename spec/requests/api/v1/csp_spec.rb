@@ -28,9 +28,11 @@ RSpec.describe 'Content-Security-Policy' do
     end
   end
 
-  describe 'GET /api/v1/instance' do
+  describe 'GET /api/v1/accounts/lookup' do
+    let!(:account) { Fabricate(:account, username: 'alice') }
+
     it 'uses the minimal API policy on a real endpoint' do
-      get '/api/v1/instance'
+      get '/api/v1/accounts/lookup', params: { acct: 'alice' }
 
       policy = response.headers['Content-Security-Policy'].to_s
 
