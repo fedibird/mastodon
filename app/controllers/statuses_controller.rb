@@ -18,7 +18,8 @@ class StatusesController < ApplicationController
   before_action :set_body_classes
 
   skip_around_action :set_locale, if: -> { request.format == :json }
-  skip_before_action :require_functional!, only: [:show, :references, :embed], unless: :whitelist_mode?
+  skip_before_action :require_functional!, only: [:show, :references, :embed, :history], unless: :whitelist_mode?
+  skip_before_action :store_current_location, only: :history
 
   content_security_policy only: :embed do |p|
     p.frame_ancestors(false)
@@ -58,6 +59,12 @@ class StatusesController < ApplicationController
     render_with_cache json: ActivityPub::ActivityPresenter.from_status(@status), content_type: 'application/activity+json', serializer: ActivityPub::ActivitySerializer, adapter: ActivityPub::Adapter
   end
 
+  def history
+    expires_in 10.seconds, public: true if current_account.nil?
+
+    render json: status_edits, each_serializer: REST::StatusEditSerializer
+  end
+
   def embed
     return not_found if @status.hidden? || @status.reblog?
 
@@ -68,6 +75,10 @@ class StatusesController < ApplicationController
   end
 
   private
+
+  def status_edits
+    @status.edits.includes(:account, status: [:account]).to_a.presence || [@status.build_snapshot(at_time: @status.edited_at || @status.created_at)]
+  end
 
   def set_body_classes
     @body_classes = 'with-modals'

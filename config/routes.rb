@@ -125,6 +125,7 @@ Rails.application.routes.draw do
     get '/@:account_username/following', to: 'following_accounts#index', as: :short_account_following_index
     get '/@:account_username/followers', to: 'follower_accounts#index', as: :short_account_followers_index
     get '/@:account_username/:id', to: 'statuses#show', as: :short_account_status
+    get '/@:account_username/:id/history', to: 'statuses#history', as: :history_short_account_status
     get '/@:account_username/:id/embed', to: 'statuses#embed', as: :embed_short_account_status
     get '/@:account_username/:id/references', to: 'statuses#references', as: :references_short_account_status
   end
