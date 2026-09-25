@@ -9,6 +9,7 @@ import { fetchHistory } from '../../actions/history';
 import { openDropdownMenu, closeDropdownMenu } from '../../actions/dropdown_menu';
 import DropdownMenu from '../dropdown_menu';
 import Icon from '../icon';
+import InlineAccount from '../inline_account';
 import RelativeTimestamp from '../relative_timestamp';
 
 const mapStateToProps = (state, { statusId }) => ({
@@ -66,10 +67,13 @@ class EditedTimestamp extends React.PureComponent {
 
   renderItem = (item, index, { onClick, onKeyPress }) => {
     const formattedDate = <RelativeTimestamp timestamp={item.get('created_at')} short={false} />;
+    const formattedName = item.get('account')
+      ? <InlineAccount accountId={item.get('account')} />
+      : '';
     const label = item.get('original') ? (
-      <FormattedMessage id='status.history.created' defaultMessage='{name} created {date}' values={{ name: '', date: formattedDate }} />
+      <FormattedMessage id='status.history.created' defaultMessage='{name} created {date}' values={{ name: formattedName, date: formattedDate }} />
     ) : (
-      <FormattedMessage id='status.history.edited' defaultMessage='{name} edited {date}' values={{ name: '', date: formattedDate }} />
+      <FormattedMessage id='status.history.edited' defaultMessage='{name} edited {date}' values={{ name: formattedName, date: formattedDate }} />
     );
 
     return (
