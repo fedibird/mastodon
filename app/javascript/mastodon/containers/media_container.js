@@ -125,7 +125,7 @@ export default class MediaContainer extends PureComponent {
           })}
 
           <ModalRoot backgroundColor={this.state.backgroundColor} onClose={this.handleCloseMedia}>
-            {this.state.media && (
+            {this.state.media ? (
               <MediaModal
                 media={this.state.media}
                 index={this.state.index || 0}
@@ -135,15 +135,14 @@ export default class MediaContainer extends PureComponent {
                 onClose={this.handleCloseMedia}
                 onChangeBackgroundColor={this.setBackgroundColor}
               />
-            )}
-            {!this.state.media && this.state.historyRevision && (
+            ) : this.state.historyRevision ? (
               <StatusHistoryRevision
                 revision={this.state.historyRevision}
                 account={this.state.historyRevision.get('account')}
                 language={this.state.historyLanguage}
                 onClose={this.handleCloseMedia}
               />
-            )}
+            ) : null}
           </ModalRoot>
         </Fragment>
       </IntlProvider>
