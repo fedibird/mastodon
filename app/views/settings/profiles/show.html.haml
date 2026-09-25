@@ -9,8 +9,8 @@
 
   .fields-row
     .fields-row__column.fields-group.fields-row__column-6
-      = f.input :display_name, wrapper: :with_label, input_html: { maxlength: 500, data: { default: @account.username } }, hint: false
-      = f.input :note, wrapper: :with_label, input_html: { maxlength: 500 }, hint: false
+      = f.input :display_name, wrapper: :with_label, input_html: { maxlength: 500, data: { default: @account.username, emoji_picker: true } }, hint: false
+      = f.input :note, wrapper: :with_label, input_html: { maxlength: 500, data: { emoji_picker: true } }, hint: false
 
   .fields-row
     .fields-row__column.fields-row__column-6
@@ -24,7 +24,7 @@
   %hr.spacer/
 
   .fields-group
-    = f.input :followed_message, wrapper: :with_label, :as => :text, input_html: { maxlength: 500 }, hint: t('simple_form.hints.defaults.followed_message'), fedibird_features: true
+    = f.input :followed_message, wrapper: :with_label, :as => :text, input_html: { maxlength: 500, data: { emoji_picker: true } }, hint: t('simple_form.hints.defaults.followed_message'), fedibird_features: true
 
   .fields-group
     = f.input :locked, as: :boolean, wrapper: :with_label, hint: t('simple_form.hints.defaults.locked')
@@ -46,8 +46,8 @@
 
         = f.simple_fields_for :fields do |fields_f|
           .row
-            = fields_f.input :name, placeholder: t('simple_form.labels.account.fields.name'), input_html: { maxlength: 255 }
-            = fields_f.input :value, placeholder: t('simple_form.labels.account.fields.value'), input_html: { maxlength: 255 }
+            = fields_f.input :name, placeholder: t('simple_form.labels.account.fields.name'), input_html: { maxlength: 255, data: { emoji_picker: true } }
+            = fields_f.input :value, placeholder: t('simple_form.labels.account.fields.value'), input_html: { maxlength: 255, data: { emoji_picker: true } }
 
     .fields-row__column.fields-group.fields-row__column-6
       %h6= t('verification.verification')
