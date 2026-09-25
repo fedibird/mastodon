@@ -43,9 +43,10 @@ jest.mock('mastodon/components/public_status_history', () => {
     <button type='button' onClick={() => onOpenRevision(require('immutable').fromJS({ content: '<p>edited</p>', account: null }), 'en')}>Open history</button>
   );
 });
-jest.mock('mastodon/components/modal_root', () => ({ children }) => <div>{children}</div>);
 
 import MediaContainer from '../media_container';
+
+const overlay = () => document.querySelector('.modal-root__overlay');
 
 const mount = () => {
   const mediaNode = document.createElement('div');
@@ -66,19 +67,24 @@ const mount = () => {
 };
 
 describe('MediaContainer', () => {
-  it('opens the media modal and the history revision without replacing each other permanently', () => {
+  it('keeps the modal overlay closed until a media or history revision is open', () => {
     mount();
+    expect(overlay()).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Open media' }));
+    expect(overlay()).not.toBeNull();
     expect(screen.getByText('Media modal')).toBeInTheDocument();
-    expect(document.body.classList.contains('with-modals--active')).toBe(true);
+
+    fireEvent.click(overlay());
+    expect(overlay()).toBeNull();
+    expect(screen.queryByText('Media modal')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Open history' }));
-    expect(screen.queryByText('Media modal')).not.toBeInTheDocument();
+    expect(overlay()).not.toBeNull();
     expect(screen.getByText('History revision <p>edited</p>')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open video' }));
-    expect(screen.queryByText('History revision <p>edited</p>')).not.toBeInTheDocument();
-    expect(screen.getByText('Media modal')).toBeInTheDocument();
+    fireEvent.click(overlay());
+    expect(overlay()).toBeNull();
+    expect(screen.queryByText(/History revision/)).not.toBeInTheDocument();
   });
 });
