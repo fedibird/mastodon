@@ -16,21 +16,16 @@ RSpec.describe Settings::ProfilesController, type: :controller do
 
     it 'adds the static emoji picker only to emoji-capable profile fields' do
       get :show
-
       document = Nokogiri::HTML(response.body)
-      picker_fields = %w(account_display_name account_note account_followed_message).map { |id| document.at_css("##{id}") }
-      field_names = document.css('input[name^="account[fields_attributes]"][name$="[name]"]')
-      field_values = document.css('input[name^="account[fields_attributes]"][name$="[value]"]')
+      picked = %w(account_display_name account_note account_followed_message).map { |id| document.at_css("##{id}") }
+      pairs = document.css('input[name^="account[fields_attributes]"][name$="[name]"], input[name^="account[fields_attributes]"][name$="[value]"]')
 
-      expect(picker_fields).to all(satisfy { |field| field['data-emoji-picker'] == 'true' })
-      expect(field_names.size).to eq(Account::DEFAULT_FIELDS_SIZE)
-      expect(field_values.size).to eq(Account::DEFAULT_FIELDS_SIZE)
-      expect(field_names + field_values).to all(satisfy { |field| field['data-emoji-picker'] == 'true' })
-      expect(document.at_css('#account_display_name')['maxlength']).to eq('500')
-      expect(document.at_css('#account_display_name')['data-default']).to eq(@user.account.username)
+      expect(picked + pairs).to all(satisfy { |field| field['data-emoji-picker'] == 'true' })
+      expect(pairs.size).to eq(Account::DEFAULT_FIELDS_SIZE * 2)
+      expect(document.at_css('#account_display_name').values_at('maxlength', 'data-default')).to eq(['500', @user.account.username])
       expect(document.at_css('#account_note')['maxlength']).to eq('500')
       expect(document.at_css('#account_followed_message')['maxlength']).to eq('500')
-      expect(field_names + field_values).to all(satisfy { |field| field['maxlength'] == '255' })
+      expect(pairs).to all(satisfy { |field| field['maxlength'] == '255' })
       expect(document.at_css('#account_location')['data-emoji-picker']).to be_nil
     end
   end
@@ -49,24 +44,9 @@ RSpec.describe Settings::ProfilesController, type: :controller do
     it 'stores emoji shortcodes as plain profile text' do
       allow(ActivityPub::UpdateDistributionWorker).to receive(:perform_async)
       account = @user.account
-
-      put :update, params: {
-        account: {
-          display_name: 'Fedibird :fedibird:',
-          note: 'Hello :fedibird:',
-          followed_message: 'Thanks :fedibird:',
-          fields_attributes: {
-            '0' => { name: 'Work :fedibird:', value: 'https://example.test :fedibird:' },
-          },
-        },
-      }
-
+      put :update, params: { account: { display_name: 'Fedibird :fedibird:', note: 'Hello :fedibird:', followed_message: 'Thanks :fedibird:', fields_attributes: { '0' => { name: 'Work :fedibird:', value: 'https://example.test :fedibird:' } } } }
       account.reload
-      expect(account.display_name).to eq('Fedibird :fedibird:')
-      expect(account.note).to eq('Hello :fedibird:')
-      expect(account.followed_message).to eq('Thanks :fedibird:')
-      expect(account.fields.first.name).to eq('Work :fedibird:')
-      expect(account.fields.first.value).to eq('https://example.test :fedibird:')
+      expect([account.display_name, account.note, account.followed_message, account.fields.first.name, account.fields.first.value]).to eq(['Fedibird :fedibird:', 'Hello :fedibird:', 'Thanks :fedibird:', 'Work :fedibird:', 'https://example.test :fedibird:'])
     end
   end
 
