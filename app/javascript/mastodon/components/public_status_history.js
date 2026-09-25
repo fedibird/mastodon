@@ -2,6 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { FormattedMessage, injectIntl } from 'react-intl';
 import { fromJS, List as ImmutableList } from 'immutable';
+import { normalizeAccount } from 'mastodon/actions/importer/normalizer';
 import DropdownMenu from 'mastodon/components/dropdown_menu';
 import Icon from 'mastodon/components/icon';
 import Avatar from 'mastodon/components/avatar';
@@ -64,6 +65,7 @@ class PublicStatusHistory extends React.PureComponent {
       const revisions = Array.isArray(data) ? data : [];
       const items = revisions.map((item, index) => ({
         ...item,
+        account: item.account ? normalizeAccount(item.account) : null,
         original: index === 0,
       })).reverse();
 

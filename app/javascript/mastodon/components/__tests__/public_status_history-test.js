@@ -49,12 +49,24 @@ jest.mock('mastodon/components/avatar', () => () => <span data-testid='avatar' /
 jest.mock('mastodon/components/icon', () => () => <span data-testid='caret' />);
 
 import PublicStatusHistory from '../public_status_history';
+import StatusHistoryRevision from '../status_history_revision';
 
 const revisions = [
   {
     content: '<p>original</p>',
     created_at: '2026-01-01T00:00:00.000Z',
-    account: { id: 'a1', username: 'alice', avatar: 'https://example.test/a.png', avatar_static: 'https://example.test/a.png' },
+    account: {
+      id: 'a1',
+      username: 'alice',
+      acct: 'alice',
+      display_name: 'Alice',
+      note: '',
+      followed_message: '',
+      url: 'https://example.test/@alice',
+      emojis: [],
+      avatar: 'https://example.test/a.png',
+      avatar_static: 'https://example.test/a.png',
+    },
   },
   {
     content: '<p>edited</p>',
@@ -108,6 +120,51 @@ describe('PublicStatusHistory', () => {
 
     fireEvent.click(screen.getByTestId('open-history'));
     expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('normalizes the editor display name before opening the revision', async () => {
+    global.fetch = jest.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve([
+        {
+          content: '<p>original</p>',
+          created_at: '2026-01-01T00:00:00.000Z',
+          account: {
+            id: 'a1',
+            username: 'alice',
+            acct: 'alice',
+            display_name: 'Alice :emoji:',
+            note: '',
+            followed_message: '',
+            url: 'https://example.test/@alice',
+            emojis: [],
+            avatar: 'https://example.test/a.png',
+            avatar_static: 'https://example.test/a.png',
+          },
+        },
+      ]),
+    }));
+
+    const onOpenRevision = jest.fn();
+    renderHistory(onOpenRevision);
+    fireEvent.click(screen.getByTestId('open-history'));
+
+    await waitFor(() => expect(screen.getByText(/created/)).toBeInTheDocument());
+    fireEvent.click(screen.getByText(/created/));
+
+    const account = onOpenRevision.mock.calls[0][0].get('account');
+    expect(account.get('display_name_html')).toContain('Alice');
+
+    render(
+      <StatusHistoryRevision
+        revision={onOpenRevision.mock.calls[0][0]}
+        account={account}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(screen.getByText('Alice :emoji:')).toBeInTheDocument();
+    expect(screen.getByText('@alice')).toBeInTheDocument();
   });
 
   it('renders a revision whose editor account is missing', async () => {
