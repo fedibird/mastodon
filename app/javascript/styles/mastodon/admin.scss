@@ -870,6 +870,28 @@ a.name-tag,
   text-align: center;
 }
 
+.information-badge {
+  display: inline-block;
+  padding: 4px 6px;
+  cursor: default;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 12px;
+  font-weight: 500;
+  color: $ui-secondary-color;
+  background-color: rgba($ui-secondary-color, 0.1);
+  border: 1px solid rgba($ui-secondary-color, 0.5);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+
+  &.superapp {
+    color: $success-green;
+    background-color: rgba($success-green, 0.1);
+    border-color: rgba($success-green, 0.5);
+  }
+}
+
 .applications-list__item,
 .filters-list__item {
   padding: 15px 0;
@@ -915,6 +937,10 @@ a.name-tag,
       display: flex;
       justify-content: space-between;
       align-items: center;
+    }
+
+    &__permissions {
+      margin-top: 10px;
     }
 
     &:last-child {
