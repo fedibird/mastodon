@@ -5,6 +5,8 @@ require 'rails_helper'
 RSpec.describe Oauth::AuthorizationsController, type: :controller do
   render_views
 
+  before { stub_webpacker_manifest }
+
   let(:app) { Doorkeeper::Application.create!(name: 'test', redirect_uri: 'http://localhost/', scopes: 'read') }
 
   describe 'GET #new' do
@@ -33,7 +35,42 @@ RSpec.describe Oauth::AuthorizationsController, type: :controller do
 
       it 'gives options to authorize and deny' do
         subject
-        expect(response.body).to match(/Authorize/)
+        expect(response.body).to include('Authorize', 'Deny', 'Review permissions')
+      end
+
+      it 'does not store the prompt in a shared cache' do
+        subject
+        expect(response.headers['Cache-Control']).to include('private', 'no-store')
+      end
+
+      it 'warns that the named application is third-party' do
+        subject
+        expect(response.body).to include('test', 'would like permission to access your account', 'If you do not trust it')
+      end
+
+      it 'groups read and write account scopes' do
+        app.update!(scopes: 'read write read:accounts write:accounts')
+        get :new, params: { client_id: app.uid, response_type: 'code', redirect_uri: 'http://localhost/', scope: 'read:accounts write:accounts' }
+
+        expect(response).to have_http_status(200)
+        expect(response.body).to include('Accounts', 'Read and write access')
+        expect(response.body).not_to include('see accounts information', 'modify your profile')
+      end
+
+      it 'keeps authorize and deny forms with the OAuth hidden fields' do
+        subject
+        expect(response.body).to include('method="post"', 'name="_method" value="delete"')
+        %w(client_id redirect_uri state response_type scope).each do |field|
+          expect(response.body).to include(%(name="#{field}"))
+        end
+      end
+
+      it 'renders the Japanese permission review' do
+        user.update!(locale: 'ja')
+        app.update!(scopes: 'read write read:accounts write:accounts')
+        get :new, params: { client_id: app.uid, response_type: 'code', redirect_uri: 'http://localhost/', scope: 'read:accounts write:accounts' }
+
+        expect(response.body).to include('アクセス許可を確認', 'アカウント', '読み取りおよび書き込みアクセス')
       end
 
       include_examples 'stores location for user'
@@ -69,5 +106,12 @@ RSpec.describe Oauth::AuthorizationsController, type: :controller do
 
       include_examples 'stores location for user'
     end
+  end
+
+  def stub_webpacker_manifest
+    manifest = Webpacker.instance.manifest
+    resolver = ->(name, **opts) { opts[:with_integrity] ? ["/packs-test/#{name}", nil] : "/packs-test/#{name}" }
+    allow(manifest).to receive(:lookup!, &resolver)
+    allow(manifest).to receive(:lookup, &resolver)
   end
 end
