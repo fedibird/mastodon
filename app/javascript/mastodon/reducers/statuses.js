@@ -6,6 +6,8 @@ import {
   UNFAVOURITE_SUCCESS,
   BOOKMARK_REQUEST,
   BOOKMARK_FAIL,
+  UNBOOKMARK_REQUEST,
+  UNBOOKMARK_FAIL,
   EMOJI_REACTION_REQUEST,
   EMOJI_REACTION_FAIL,
   UN_EMOJI_REACTION_REQUEST,
@@ -82,6 +84,10 @@ export default function statuses(state = initialState, action) {
     return state.get(action.status.get('id')) === undefined ? state : state.setIn([action.status.get('id'), 'bookmarked'], true);
   case BOOKMARK_FAIL:
     return state.get(action.status.get('id')) === undefined ? state : state.setIn([action.status.get('id'), 'bookmarked'], false);
+  case UNBOOKMARK_REQUEST:
+    return state.get(action.status.get('id')) === undefined ? state : state.setIn([action.status.get('id'), 'bookmarked'], false);
+  case UNBOOKMARK_FAIL:
+    return state.get(action.status.get('id')) === undefined ? state : state.setIn([action.status.get('id'), 'bookmarked'], true);
   case EMOJI_REACTION_UPDATE:
     return state.get(action.emojiReaction.status_id) === undefined ? state : updateEmojiReactionCount(state, action.emojiReaction);
   case EMOJI_REACTION_REQUEST:
