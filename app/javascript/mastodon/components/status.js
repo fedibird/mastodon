@@ -7,7 +7,6 @@ import AvatarOverlay from './avatar_overlay';
 import AvatarComposite from './avatar_composite';
 import AbsoluteTimestamp from './absolute_timestamp';
 import RelativeTimestamp from './relative_timestamp';
-import EditedTimestamp from './edited_timestamp';
 import DisplayName from './display_name';
 import StatusContent from './status_content';
 import StatusActionBar from './status_action_bar';
@@ -104,6 +103,7 @@ const messages = defineMessages({
   mark_ancestor: { id: 'thread_mark.ancestor', defaultMessage: 'Has reference' },
   mark_descendant: { id: 'thread_mark.descendant', defaultMessage: 'Has reply' },
   mark_both: { id: 'thread_mark.both', defaultMessage: 'Has reference and reply' },
+  edited: { id: 'status.edited', defaultMessage: 'Edited {date}' },
 });
 
 const dateFormatOptions = {
@@ -863,8 +863,16 @@ class Status extends ImmutablePureComponent {
               <a href={status.get('url')} className='status__relative-time' target='_blank' rel='noopener noreferrer'>
                 {threadMark}
                 {disableRelativeTime ? <AbsoluteTimestamp timestamp={status.get('created_at')} /> : <RelativeTimestamp timestamp={status.get('created_at')} /> }
+                {status.get('edited_at') && (
+                  <abbr
+                    title={intl.formatMessage(messages.edited, {
+                      date: intl.formatDate(status.get('edited_at'), dateFormatOptions),
+                    })}
+                  >
+                    {' *'}
+                  </abbr>
+                )}
               </a>
-              <EditedTimestamp statusId={status.get('id')} timestamp={status.get('edited_at')} />
               <span className='status__visibility-icon'>{visibilityLink}</span>
 
               <a onClick={this.handleAccountClick} data-id={status.getIn(['account', 'id'])} data-group={status.getIn(['account', 'group'])} href={status.getIn(['account', 'url'])} title={status.getIn(['account', 'acct'])} className='status__display-name' target='_blank' rel='noopener noreferrer'>
