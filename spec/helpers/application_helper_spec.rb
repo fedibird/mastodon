@@ -129,6 +129,28 @@ describe ApplicationHelper do
     end
   end
 
+  describe 'grouped_scopes' do
+    it 'merges read and write access for the same term' do
+      scopes = helper.grouped_scopes(%w(read:accounts write:accounts))
+
+      expect(scopes.map(&:key)).to eq %w(accounts)
+      expect(scopes.first.access).to eq 'read/write'
+    end
+
+    it 'merges admin domain block scopes that contain underscores' do
+      scopes = helper.grouped_scopes(%w(admin:read:domain_blocks admin:write:domain_blocks))
+
+      expect(scopes.map(&:key)).to eq %w(admin/domain_blocks)
+      expect(scopes.first.access).to eq 'read/write'
+    end
+
+    it 'does not merge different terms' do
+      scopes = helper.grouped_scopes(%w(read:accounts read:follows))
+
+      expect(scopes.map(&:key)).to eq %w(accounts follows)
+    end
+  end
+
   describe 'title' do
     around do |example|
       site_title = Setting.site_title
