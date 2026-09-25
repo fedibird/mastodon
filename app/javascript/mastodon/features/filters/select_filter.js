@@ -6,8 +6,10 @@ import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import { connect } from 'react-redux';
 
 import classNames from 'classnames';
+import ImmutablePropTypes from 'react-immutable-proptypes';
 
 import Icon from 'mastodon/components/icon';
+import CustomEmojiText from 'mastodon/components/custom_emoji_text';
 import { toServerSideType } from 'mastodon/utils/filters';
 
 const messages = defineMessages({
@@ -16,6 +18,7 @@ const messages = defineMessages({
 });
 
 const mapStateToProps = (state, { contextType }) => ({
+  customEmojis: state.get('custom_emojis'),
   filters: Array.from(state.get('filters').values()).map((filter) => [
     filter.get('id'),
     filter.get('title'),
@@ -31,6 +34,7 @@ class SelectFilter extends PureComponent {
     onSelectFilter: PropTypes.func.isRequired,
     onNewFilter: PropTypes.func.isRequired,
     filters: PropTypes.array,
+    customEmojis: ImmutablePropTypes.list.isRequired,
     intl: PropTypes.object.isRequired,
   };
 
@@ -82,7 +86,7 @@ class SelectFilter extends PureComponent {
         onClick={this.handleItemClick}
         onKeyDown={this.handleKeyDown}
       >
-        {filter[1]}
+        <CustomEmojiText text={filter[1]} customEmojis={this.props.customEmojis} />
         {warning}
       </button>
     );

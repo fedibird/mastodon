@@ -7,10 +7,12 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import { connect } from 'react-redux';
 
 import Button from 'mastodon/components/button';
+import CustomEmojiText from 'mastodon/components/custom_emoji_text';
 import { toServerSideType } from 'mastodon/utils/filters';
 
 const mapStateToProps = (state, { filterId }) => ({
   filter: state.getIn(['filters', filterId]),
+  customEmojis: state.get('custom_emojis'),
 });
 
 class AddedToFilter extends PureComponent {
@@ -19,6 +21,7 @@ class AddedToFilter extends PureComponent {
     onClose: PropTypes.func.isRequired,
     contextType: PropTypes.string,
     filter: ImmutablePropTypes.map,
+    customEmojis: ImmutablePropTypes.list.isRequired,
     dispatch: PropTypes.func.isRequired,
   };
 
@@ -27,7 +30,7 @@ class AddedToFilter extends PureComponent {
   }
 
   render () {
-    const { filter, contextType } = this.props;
+    const { filter, contextType, customEmojis } = this.props;
 
     if (!filter) {
       return null;
@@ -73,7 +76,7 @@ class AddedToFilter extends PureComponent {
           <FormattedMessage
             id='filter_modal.added.subtitle'
             defaultMessage='This post has been added to the “{title}” filter category.'
-            values={{ title: filter.get('title') }}
+            values={{ title: <CustomEmojiText text={filter.get('title')} customEmojis={customEmojis} /> }}
           />
         </p>
 

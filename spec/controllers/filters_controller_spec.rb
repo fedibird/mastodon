@@ -14,6 +14,13 @@ RSpec.describe FiltersController do
   end
 
   describe 'GET #edit' do
+    it 'marks the title input for the reusable emoji picker' do
+      get :edit, params: { id: filter }
+
+      expect(response).to have_http_status(200)
+      expect(response.body).to include('data-emoji-picker="true"')
+    end
+
     it 'hides the individual posts section when none are attached' do
       get :edit, params: { id: filter }
 
@@ -57,6 +64,18 @@ RSpec.describe FiltersController do
         expect(response.body).to include('フィルターを確認または投稿を削除')
         expect(response.body).not_to include('translation missing')
       end
+    end
+  end
+
+  describe 'GET #index' do
+    it 'keeps the raw title as fallback inside a custom emoji marker' do
+      filter.update!(title: 'Work :fedibird:')
+
+      get :index
+
+      expect(response).to have_http_status(200)
+      expect(response.body).to include('data-custom-emoji-text')
+      expect(response.body).to include('Work :fedibird:')
     end
   end
 

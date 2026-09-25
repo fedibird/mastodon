@@ -351,7 +351,7 @@ class EmojiPickerDropdown extends React.PureComponent {
     e.stopPropagation();
     e.preventDefault();
     this.props.onClose(this.state.id);
-}
+  }
 
   handleClick = (e) => {
     if (!this.state.loading && (!e.key || e.key === 'Enter')) {
@@ -365,6 +365,28 @@ class EmojiPickerDropdown extends React.PureComponent {
 
   handleMouseDown = () => {
     this.activeElement = document.activeElement;
+  }
+
+  handleCustomButtonClick = (e) => {
+    const { button } = this.props;
+
+    if (button.props.onClick) {
+      button.props.onClick(e);
+    }
+
+    if (!e.defaultPrevented) {
+      this.handleClick(e);
+    }
+  }
+
+  handleCustomButtonMouseDown = (e) => {
+    this.handleMouseDown();
+
+    const { button } = this.props;
+
+    if (button.props.onMouseDown) {
+      button.props.onMouseDown(e);
+    }
   }
 
   handleButtonKeyDown = (e) => {
@@ -407,31 +429,46 @@ class EmojiPickerDropdown extends React.PureComponent {
     const title = intl.formatMessage(messages.emoji);
     const { loading, placement } = this.state;
     const open = this.state.id === openDropdownId;
+    const nativeButton = React.isValidElement(button) && button.type === 'button';
 
     return (
       <div className='emoji-picker-dropdown'>
-        <div ref={this.setTargetRef}
-          className='emoji-button'
-          title={title}
-          aria-label={title}
-          aria-expanded={open}
-          role='button'
-          onClick={button ? this.handleClick : null}
-          tabIndex={0}
-        >
-          {button || <IconButton
-            className='privacy-dropdown__value-icon'
-            icon='smile-o'
-            title={intl.formatMessage(messages.emoji)}
-            expanded={open}
-            inverted
-            style={{ height: null, lineHeight: '27px' }}
-            onClick={this.handleClick}
-            onMouseDown={this.handleMouseDown}
-            onKeyDown={this.handleButtonKeyDown}
-            onKeyPress={this.handleKeyPress}
-          />}
-        </div>
+        {nativeButton ? (
+          <div className='emoji-button'>
+            {React.cloneElement(button, {
+              ref: this.setTargetRef,
+              title: button.props.title || title,
+              'aria-label': button.props['aria-label'] || title,
+              'aria-expanded': open,
+              onClick: this.handleCustomButtonClick,
+              onMouseDown: this.handleCustomButtonMouseDown,
+            })}
+          </div>
+        ) : (
+          <div
+            ref={this.setTargetRef}
+            className='emoji-button'
+            title={title}
+            aria-label={title}
+            aria-expanded={open}
+            role='button'
+            onClick={button ? this.handleClick : null}
+            tabIndex={0}
+          >
+            {button || <IconButton
+              className='privacy-dropdown__value-icon'
+              icon='smile-o'
+              title={intl.formatMessage(messages.emoji)}
+              expanded={open}
+              inverted
+              style={{ height: null, lineHeight: '27px' }}
+              onClick={this.handleClick}
+              onMouseDown={this.handleMouseDown}
+              onKeyDown={this.handleButtonKeyDown}
+              onKeyPress={this.handleKeyPress}
+            />}
+          </div>
+        )}
 
         <Overlay show={open && !loading} offset={[5, 15]} placement={placement} target={this.findTarget} popperConfig={{ strategy: 'fixed' }}>
           {({ props, arrowProps, placement }) => (
