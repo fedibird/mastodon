@@ -54,6 +54,17 @@ RSpec.describe InitialStateSerializer do
     expect(json[:meta]).not_to have_key(:is_staff)
   end
 
+  it 'exposes the status page URL without a current account' do
+    previous = Setting.status_page_url
+    Setting.status_page_url = 'https://status.example.com'
+
+    json = serialize(nil)
+
+    expect(json[:meta][:status_page_url]).to eq 'https://status.example.com'
+  ensure
+    Setting.status_page_url = previous
+  end
+
   it 'exposes the server trends capability while retaining the legacy key' do
     previous_trends_setting = Setting.trends
     Setting.trends = true

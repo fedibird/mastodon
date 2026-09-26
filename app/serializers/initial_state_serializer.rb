@@ -20,6 +20,7 @@ class InitialStateSerializer < ActiveModel::Serializer
       repository: Mastodon::Version.repository,
       source_url: Mastodon::Version.source_url,
       version: Mastodon::Version.to_s,
+      status_page_url: Setting.status_page_url,
       invites_enabled: UserRole.everyone.can?(:invite_users),
       limited_federation_mode: Rails.configuration.x.whitelist_mode,
       mascot: instance_presenter.mascot&.file&.url,

@@ -21,6 +21,17 @@ RSpec.describe Api::V2::InstancesController, type: :controller do
 
       expect(JSON.parse(response.body)['fedibird_capabilities']).to include('filter_v2')
     end
+
+    it 'returns the configured status page URL' do
+      previous = Setting.status_page_url
+      Setting.status_page_url = 'https://status.example.com'
+
+      get :show
+
+      expect(JSON.parse(response.body).dig('configuration', 'urls', 'status')).to eq 'https://status.example.com'
+    ensure
+      Setting.status_page_url = previous
+    end
   end
 
   def stub_webpacker_manifest

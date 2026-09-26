@@ -30,6 +30,7 @@ export const limitedFederationMode = getMeta('limited_federation_mode');
 export const repository = getMeta('repository');
 export const source_url = getMeta('source_url');
 export const version = getMeta('version');
+export const statusPageUrl = getMeta('status_page_url');
 export const mascot = getMeta('mascot');
 export const profile_directory = getMeta('profile_directory');
 export const server_directory = getMeta('server_directory');
