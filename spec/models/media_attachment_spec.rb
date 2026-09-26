@@ -241,4 +241,79 @@ RSpec.describe MediaAttachment, type: :model do
       expect(media.valid?).to be true
     end
   end
+
+  describe '#delay_processing?' do
+    let(:media) { MediaAttachment.new }
+
+    it 'is false for images even when the v2 delay flag is set' do
+      media.type = :image
+      media.delay_processing = true
+
+      expect(media.delay_processing?).to be false
+    end
+
+    it 'is true for video when the v2 delay flag is set' do
+      media.type = :video
+      media.delay_processing = true
+
+      expect(media.delay_processing?).to be true
+    end
+
+    it 'is true for audio when the v2 delay flag is set' do
+      media.type = :audio
+      media.delay_processing = true
+
+      expect(media.delay_processing?).to be true
+    end
+
+    it 'is true for gifv when the v2 delay flag is set' do
+      media.type = :gifv
+      media.delay_processing = true
+
+      expect(media.delay_processing?).to be true
+    end
+
+    it 'is false when the delay flag is false, regardless of type' do
+      %i(image video audio gifv).each do |type|
+        media.type = type
+        media.delay_processing = false
+
+        expect(media.delay_processing?).to be false
+      end
+    end
+
+    it 'is falsey when the delay flag is unset, regardless of type' do
+      %i(image video audio gifv).each do |type|
+        media.type = type
+        media.delay_processing = nil
+
+        expect(media.delay_processing?).to be_falsey
+      end
+    end
+  end
+
+  describe '#delay_processing_for_attachment?' do
+    let(:media) { MediaAttachment.new(delay_processing: true) }
+
+    it 'does not delay image file processing' do
+      media.type = :image
+
+      expect(media.delay_processing_for_attachment?(:file)).to be false
+    end
+
+    it 'delays the video file and still processes the thumbnail immediately' do
+      media.type = :video
+
+      expect(media.delay_processing_for_attachment?(:file)).to be true
+      expect(media.delay_processing_for_attachment?(:thumbnail)).to be false
+    end
+
+    it 'does not delay any attachment when the delay flag is false' do
+      media.type = :video
+      media.delay_processing = false
+
+      expect(media.delay_processing_for_attachment?(:file)).to be false
+      expect(media.delay_processing_for_attachment?(:thumbnail)).to be false
+    end
+  end
 end
