@@ -28,8 +28,12 @@ RSpec.describe Settings::ProfilesController, type: :controller do
       expect(pairs.size).to eq(Account::DEFAULT_FIELDS_SIZE * 2)
       display_name = document.at_css('#account_display_name')
       expect([display_name['maxlength'], display_name['data-default']]).to eq(['500', @user.account.username])
-      expect(document.at_css('#account_note')['maxlength']).to eq('500')
+      note = document.at_css('#account_note')
+      expect(note['maxlength']).to eq('500')
+      expect(note['rows']).to eq('8')
+      expect(note['data-emoji-picker']).to eq('true')
       expect(document.at_css('#account_followed_message')['maxlength']).to eq('500')
+      expect(document.at_css('#account_followed_message')['rows']).not_to eq('8')
       expect(pairs).to all(satisfy { |field| field['maxlength'] == '255' })
       expect(document.at_css('#account_location')['data-emoji-picker']).to be_nil
     end

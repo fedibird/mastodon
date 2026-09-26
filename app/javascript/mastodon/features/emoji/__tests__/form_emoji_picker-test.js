@@ -250,9 +250,63 @@ describe('form emoji picker', () => {
 
     initializeFormEmojiPickers();
 
-    const preview = document.querySelector('.emoji-picker-preview');
+    const field = document.querySelector('#field');
+    const fieldWrap = field.parentElement.parentElement;
+    const preview = fieldWrap.querySelector('.emoji-picker-preview');
+    expect(fieldWrap).not.toHaveClass('emoji-picker-field--has-preview');
     expect(preview).toBeEmptyDOMElement();
     expect(preview.textContent).toBe('');
+  });
+
+  it('marks the wrapper when the field starts with a previewable value', async () => {
+    document.body.innerHTML = '<input id="field" type="text" data-emoji-picker="true" value="Hello :fedibird:">';
+
+    initializeFormEmojiPickers();
+
+    const field = document.querySelector('#field');
+    const fieldWrap = field.parentElement.parentElement;
+    const preview = fieldWrap.querySelector('.emoji-picker-preview');
+
+    expect(field.parentElement).toHaveClass('emoji-picker-input');
+    expect(field.parentElement.nextElementSibling).toBe(preview);
+    expect(fieldWrap).toHaveClass('emoji-picker-field--has-preview');
+    await waitFor(() => expect(preview.querySelector('img.custom-emoji')).toHaveAttribute('alt', ':fedibird:'));
+    expect(preview).not.toBeEmptyDOMElement();
+  });
+
+  it('toggles the attached preview class when the field gains and loses text', () => {
+    document.body.innerHTML = '<input id="field" type="text" data-emoji-picker="true" value="">';
+
+    initializeFormEmojiPickers();
+
+    const field = document.querySelector('#field');
+    const fieldWrap = field.parentElement.parentElement;
+    const preview = fieldWrap.querySelector('.emoji-picker-preview');
+
+    field.value = 'Hello';
+    fireEvent.input(field);
+
+    expect(fieldWrap).toHaveClass('emoji-picker-field--has-preview');
+    expect(preview).toHaveTextContent('Hello');
+
+    field.value = '';
+    fireEvent.input(field);
+
+    expect(fieldWrap).not.toHaveClass('emoji-picker-field--has-preview');
+    expect(preview).toBeEmptyDOMElement();
+  });
+
+  it('keeps a whitespace-only value as preview content', () => {
+    document.body.innerHTML = '<input id="field" type="text" data-emoji-picker="true" value=" ">';
+
+    initializeFormEmojiPickers();
+
+    const field = document.querySelector('#field');
+    const fieldWrap = field.parentElement.parentElement;
+
+    expect(field.value).toBe(' ');
+    expect(fieldWrap).toHaveClass('emoji-picker-field--has-preview');
+    expect(fieldWrap.querySelector('.emoji-picker-preview')).not.toBeEmptyDOMElement();
   });
 
   it('removes the input listener when the picker unmounts', () => {

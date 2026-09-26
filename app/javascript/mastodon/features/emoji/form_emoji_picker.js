@@ -127,13 +127,28 @@ class FormEmojiPickerField extends React.PureComponent {
 
   componentDidMount () {
     this.props.field.addEventListener('input', this.handleInput);
+    this.syncPreviewState();
   }
 
   componentWillUnmount () {
     this.props.field.removeEventListener('input', this.handleInput);
   }
 
+  syncPreviewState = () => {
+    const fieldWrap = this.props.field.parentElement && this.props.field.parentElement.parentElement;
+
+    if (!fieldWrap) {
+      return;
+    }
+
+    fieldWrap.classList.toggle(
+      'emoji-picker-field--has-preview',
+      this.props.field.value.length > 0,
+    );
+  };
+
   handleInput = () => {
+    this.syncPreviewState();
     this.setState({ value: this.props.field.value });
   };
 
