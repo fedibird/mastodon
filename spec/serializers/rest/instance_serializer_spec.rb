@@ -6,8 +6,17 @@ RSpec.describe REST::InstanceSerializer do
   let(:serialization) { serialized_record_json(record, described_class) }
   let(:record) { InstancePresenter.new }
 
+  def serialized_record_json(record, serializer)
+    manifest = Webpacker.instance.manifest
+    resolver = ->(name, **opts) { opts[:with_integrity] ? ["/packs-test/#{name}", nil] : "/packs-test/#{name}" }
+    allow(manifest).to receive(:lookup!, &resolver)
+    allow(manifest).to receive(:lookup, &resolver)
+
+    JSON.parse(ActiveModelSerializers::SerializableResource.new(record, serializer: serializer).to_json)
+  end
+
   def instance_json
-    JSON.parse(ActiveModelSerializers::SerializableResource.new(InstancePresenter.new, serializer: described_class).to_json)
+    serialized_record_json(InstancePresenter.new, described_class)
   end
 
   describe 'usage' do

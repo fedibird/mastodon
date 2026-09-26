@@ -8,6 +8,7 @@ RSpec.describe Admin::SettingsController, type: :controller do
   describe 'When signed in as an admin' do
     before do
       sign_in user_with_role('Owner'), scope: :user
+      stub_webpacker_manifest
     end
 
     describe 'GET #edit' do
@@ -15,6 +16,13 @@ RSpec.describe Admin::SettingsController, type: :controller do
         get :edit
 
         expect(response).to have_http_status(200)
+      end
+
+      it 'renders the status page URL field' do
+        get :edit
+
+        expect(response.body).to include('form_admin_settings_status_page_url')
+        expect(response.body).to include('Status page URL')
       end
     end
 
@@ -78,5 +86,12 @@ RSpec.describe Admin::SettingsController, type: :controller do
         end
       end
     end
+  end
+
+  def stub_webpacker_manifest
+    manifest = Webpacker.instance.manifest
+    resolver = ->(name, **opts) { opts[:with_integrity] ? ["/packs-test/#{name}", nil] : "/packs-test/#{name}" }
+    allow(manifest).to receive(:lookup!, &resolver)
+    allow(manifest).to receive(:lookup, &resolver)
   end
 end
