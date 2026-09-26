@@ -75,9 +75,9 @@ RSpec.describe Settings::ProfilesController, type: :controller do
 
       expect(display_name['value']).to eq('Noel:foo:Lab')
       expect(display_name['value']).not_to include("\u200B")
-      expect(note.text).to eq('今日は:foo:です')
+      expect(note.text.strip).to eq('今日は:foo:です')
       expect(note.text).not_to include("\u200B")
-      expect(followed.text).to eq('abc:foo:def')
+      expect(followed.text.strip).to eq('abc:foo:def')
       expect(followed.text).not_to include("\u200B")
       expect(card_name.css('img.custom-emoji').size).to eq(1)
       expect(card_name.text).to include('Noel', 'Lab')

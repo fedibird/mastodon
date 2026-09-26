@@ -387,9 +387,10 @@ RSpec.describe Formatter do
           let(:text) { 'abc:coolcat:def' }
 
           it 'converts the shortcode to an image without a zero-width space' do
-            expect(subject.scan('alt=":coolcat:"').size).to eq(1)
-            expect(subject).to include('abc', 'def')
-            expect(subject).not_to include(':coolcat:')
+            fragment = Nokogiri::HTML.fragment(subject)
+
+            expect(fragment.css('img.custom-emoji').size).to eq(1)
+            expect(fragment.text).to eq('abcdef')
             expect(subject).not_to include("\u200B")
           end
         end
@@ -446,9 +447,10 @@ RSpec.describe Formatter do
           let(:text) { '<p>今日は:coolcat:です</p>' }
 
           it 'converts the shortcode to an image without a zero-width space' do
-            expect(subject.scan('alt=":coolcat:"').size).to eq(1)
-            expect(subject).to include('今日は', 'です')
-            expect(subject).not_to include(':coolcat:')
+            fragment = Nokogiri::HTML.fragment(subject)
+
+            expect(fragment.css('img.custom-emoji').size).to eq(1)
+            expect(fragment.text).to eq('今日はです')
             expect(subject).not_to include("\u200B")
           end
         end

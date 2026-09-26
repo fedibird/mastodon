@@ -181,13 +181,15 @@ RSpec.describe 'adjacent custom emoji boundaries' do
     it 'renders an image without a zero-width space' do
       html = Formatter.instance.format(status, custom_emojify: true)
       name = Formatter.instance.format_display_name(account, custom_emojify: true)
+      content = Nokogiri::HTML.fragment(html)
+      name_fragment = Nokogiri::HTML.fragment(name)
 
-      expect(html).to include('alt=":foo:"')
-      expect(html).to include('今日は', 'です')
+      expect(content.css('img.custom-emoji').size).to eq(1)
+      expect(content.at_css('img')['alt']).to eq(':foo:')
+      expect(content.text).to eq('今日はです')
       expect(html).not_to include("\u200B")
-      expect(html).not_to include(':foo:')
-      expect(name).to include('alt=":foo:"')
-      expect(name).to include('Noel', 'Lab')
+      expect(name_fragment.css('img.custom-emoji').size).to eq(1)
+      expect(name_fragment.text).to eq('NoelLab')
       expect(name).not_to include("\u200B")
     end
 
