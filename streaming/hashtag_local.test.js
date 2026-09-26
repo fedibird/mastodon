@@ -230,6 +230,8 @@ describe('hashtag:local streaming compatibility', () => {
       await waitFor(() => local.text().includes(':)'), 3000, 'policy SSE hello');
 
       const script = [
+        'ActiveRecord::Base.logger = Logger.new(nil)',
+        'Rails.logger.level = Logger::ERROR',
         'suffix = SecureRandom.hex(4)',
         'local_account = Account.create!(username: "hl#{suffix}")',
         'remote_account = Account.create!(username: "hr#{suffix}", domain: "remote.example")',
@@ -242,10 +244,13 @@ describe('hashtag:local streaming compatibility', () => {
         '  FanOutOnWriteService.new.call(remote_status)',
         '  puts "FANOUT_OK"',
         'ensure',
-        '  local_status.destroy',
-        '  remote_status.destroy',
-        '  local_account.destroy',
-        '  remote_account.destroy',
+        '  [local_status, remote_status, local_account, remote_account].compact.each do |record|',
+        '    begin',
+        '      record.destroy',
+        '    rescue StandardError',
+        '      nil',
+        '    end',
+        '  end',
         'end',
       ].join('; ');
 
@@ -265,8 +270,8 @@ describe('hashtag:local streaming compatibility', () => {
         child.on('close', code => resolve({ code, output }));
       });
 
-      assert.equal(result.code, 0, result.output);
-      assert.match(result.output, /FANOUT_OK/);
+      assert.match(result.output, /FANOUT_OK/, result.output.slice(-1500));
+      assert.equal(result.code, 0, result.output.slice(-1500));
       await new Promise(resolve => setTimeout(resolve, 500));
 
       assert.equal(local.text().includes('policytest'), false);
