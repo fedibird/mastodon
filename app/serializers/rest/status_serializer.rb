@@ -200,6 +200,14 @@ class REST::StatusSerializer < ActiveModel::Serializer
     ActivityPub::TagManager.instance.url_for(object)
   end
 
+  def reblogs_count
+    relationships&.attributes_map&.dig(object.id, :reblogs_count) || object.reblogs_count
+  end
+
+  def favourites_count
+    relationships&.attributes_map&.dig(object.id, :favourites_count) || object.favourites_count
+  end
+
   def favourited
     if instance_options && instance_options[:relationships]
       instance_options[:relationships].favourites_map[object.id] || false
@@ -378,6 +386,12 @@ class REST::StatusSerializer < ActiveModel::Serializer
       'Mona for iPad',
       'Mona for iPhone',
     ].include? instance_options[:application_name]
+  end
+
+  private
+
+  def relationships
+    instance_options && instance_options[:relationships]
   end
 
 end
