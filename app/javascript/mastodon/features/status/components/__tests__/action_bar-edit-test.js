@@ -144,6 +144,14 @@ describe('detailed status ActionBar edit menu', () => {
     expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
   });
 
+  it('shows Embed for a signed-in viewer of a remote public status', () => {
+    renderBar(buildStatus({
+      account: { id: 'other', acct: 'bob@example.com', username: 'bob', url: 'https://example.com/bob' },
+    }));
+
+    expect(screen.getByRole('button', { name: 'Embed' })).toBeInTheDocument();
+  });
+
   it('hides Edit on a boost of your own status', () => {
     renderBar(buildStatus({
       id: 'boost-1',

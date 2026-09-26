@@ -139,6 +139,14 @@ describe('StatusActionBar edit menu', () => {
     expect(screen.getByRole('button', { name: 'Delete & re-draft' })).toBeInTheDocument();
   });
 
+  it('shows Embed for a signed-in viewer of a remote public status', () => {
+    renderBar(buildStatus({
+      account: { id: 'other', acct: 'bob@example.com', username: 'bob', url: 'https://example.com/bob' },
+    }));
+
+    expect(screen.getByRole('button', { name: 'Embed' })).toBeInTheDocument();
+  });
+
   it('does not show Edit on someone else\'s status', () => {
     renderBar(buildStatus({ account: { id: 'other', acct: 'bob', username: 'bob', url: 'https://example.test/bob' } }));
 
