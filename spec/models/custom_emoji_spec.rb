@@ -74,6 +74,51 @@ RSpec.describe CustomEmoji, type: :model do
         is_expected.to include(emojo)
       end
     end
+
+    context 'with adjacent shortcodes' do
+      let!(:foo) { Fabricate(:custom_emoji, shortcode: 'foo') }
+      let!(:bar) { Fabricate(:custom_emoji, shortcode: 'bar') }
+      let(:text) { ':foo::bar:' }
+
+      it 'recognizes each shortcode' do
+        expect(described_class.from_text(text, nil).map(&:shortcode)).to contain_exactly('foo', 'bar')
+      end
+    end
+  end
+
+  describe '.with_compatible_boundaries' do
+    let(:foo) { Fabricate(:custom_emoji, shortcode: 'foo') }
+    let(:bar) { Fabricate(:custom_emoji, shortcode: 'bar') }
+    let(:baz) { Fabricate(:custom_emoji, shortcode: 'baz') }
+
+    # Colon is intentionally accepted as an emoji boundary. Do not assert that
+    # an IPv6 segment which is itself a colon-delimited custom emoji shortcode
+    # stays literal; that misreading is an accepted Fedibird tradeoff.
+
+    it 'separates two adjacent recognized shortcodes with one zero-width space' do
+      converted = described_class.with_compatible_boundaries(':foo::bar:', [foo, bar])
+
+      expect(converted).to eq(":foo:\u200B:bar:")
+      expect(described_class.with_compatible_boundaries(converted, [foo, bar])).to eq(converted)
+    end
+
+    it 'separates three adjacent recognized shortcodes' do
+      expect(described_class.with_compatible_boundaries(':foo::bar::baz:', [foo, bar, baz])).to eq(":foo:\u200B:bar:\u200B:baz:")
+    end
+
+    it 'fills only the boundary that is not already separated' do
+      expect(described_class.with_compatible_boundaries(":foo:\u200B:bar::baz:", [foo, bar, baz])).to eq(":foo:\u200B:bar:\u200B:baz:")
+    end
+
+    it 'keeps multibyte text around the inserted boundary' do
+      expect(described_class.with_compatible_boundaries('あ:foo::bar:', [foo, bar])).to eq("あ:foo:\u200B:bar:")
+    end
+
+    it 'does not rewrite colon sequences that are not a pair of recognized shortcodes' do
+      expect(described_class.with_compatible_boundaries('2001:db8::1234', [foo, bar])).to eq('2001:db8::1234')
+      expect(described_class.with_compatible_boundaries('foo::bar', [foo, bar])).to eq('foo::bar')
+      expect(described_class.with_compatible_boundaries(':foo::nope:', [foo, bar])).to eq(':foo::nope:')
+    end
   end
 
   describe 'pre_validation' do

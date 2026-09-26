@@ -181,11 +181,23 @@ class REST::StatusSerializer < ActiveModel::Serializer
   end
 
   def content
-    @content ||= Formatter.instance.format(object, rest: true)
+    @content ||= Formatter.instance.format(object, rest: true, emoji_compatibility: true)
   end
 
   def nyaize_content
-    @nyaize_content ||= Formatter.instance.format(object, rest: true, nyaize: object.account.cat?)
+    @nyaize_content ||= Formatter.instance.format(object, rest: true, nyaize: object.account.cat?, emoji_compatibility: true)
+  end
+
+  # Display responses separate adjacent custom emoji. Redraft uses
+  # source_requested and must keep the stored canonical text.
+  def spoiler_text
+    return object.spoiler_text if source_requested?
+
+    CustomEmoji.with_compatible_boundaries(object.spoiler_text, object.emojis)
+  end
+
+  def text
+    object.text
   end
 
   def url

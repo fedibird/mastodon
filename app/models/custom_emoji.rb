@@ -50,9 +50,19 @@ class CustomEmoji < ApplicationRecord
 
   SHORTCODE_RE_FRAGMENT = '[a-zA-Z0-9_]+'
 
-  SCAN_RE = /(?<=[^[:alnum:]:]|\n|^)
+  # U+200B ZERO WIDTH SPACE. Display transports insert this between adjacent
+  # recognized custom emoji. Stored text and edit-source responses stay canonical.
+  COMPATIBLE_BOUNDARY = "\u200B"
+
+  # Colon is intentionally accepted as an emoji boundary.
+  #
+  # Fedibird intentionally allows : as a custom emoji boundary for compatibility
+  # with adjacent emoji syntax used by Misskey and similar software. This trades
+  # off the extremely rare case where an IPv6 segment happens to match an
+  # available custom emoji shortcode.
+  SCAN_RE = /(?<=[^[:alnum:]]|\n|^)
     :(#{SHORTCODE_RE_FRAGMENT}):
-    (?=[^[:alnum:]:]|$)/x
+    (?=[^[:alnum:]]|$)/x
 
   ALIAS_KEYS = {
     'alterneteName'    => 'alternate_name',
@@ -305,6 +315,26 @@ class CustomEmoji < ApplicationRecord
       EntityCache.instance.emoji(shortcodes, domain)
     end
 
+    # Rewrite only boundaries where both sides are recognized custom emoji.
+    # `:foo::bar:` becomes `:foo:\u200B:bar:`. `2001:db8::1234` and `foo::bar`
+    # are left alone, and an existing U+200B is not doubled.
+    def with_compatible_boundaries(text, emojis)
+      return text if text.blank? || emojis.blank?
+      return text unless text.include?('::')
+
+      shortcodes = recognized_shortcodes(emojis)
+      return text if shortcodes.empty?
+
+      insert_at = adjacent_shortcode_boundaries(text, shortcodes)
+      return text if insert_at.empty?
+
+      result = text.dup
+      insert_at.reverse_each do |byte_index|
+        result.insert(result.byteslice(0, byte_index).length, COMPATIBLE_BOUNDARY)
+      end
+      result
+    end
+
     def search(searchtext, type = :include)
       prefix = %i(end_with include).include?(type) ? '%' : ''
       suffix = %i(start_with include).include?(type) ? '%' : ''
@@ -313,6 +343,30 @@ class CustomEmoji < ApplicationRecord
     end
 
     private
+
+    def recognized_shortcodes(emojis)
+      emojis.each_with_object({}) do |emoji, map|
+        shortcode = emoji.respond_to?(:shortcode) ? emoji.shortcode : emoji.to_s
+        map[shortcode] = true if shortcode.present?
+      end
+    end
+
+    # MatchData offsets are bytes. Adjacency is compared in bytes so a ZWSP
+    # already sitting between two shortcodes is not treated as a new boundary.
+    def adjacent_shortcode_boundaries(text, shortcodes)
+      spans = []
+
+      text.scan(SCAN_RE) do
+        shortcode = Regexp.last_match(1)
+        next unless shortcodes[shortcode]
+
+        spans << [Regexp.last_match.begin(0), Regexp.last_match.end(0)]
+      end
+
+      spans.each_cons(2).filter_map do |(_, left_end), (right_begin, _)|
+        left_end if left_end == right_begin
+      end
+    end
 
     def file_styles(file)
       styles = {

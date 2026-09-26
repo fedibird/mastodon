@@ -69,7 +69,9 @@ class StatusEdit < ApplicationRecord
   def emojis
     return @emojis if defined?(@emojis)
 
-    @emojis = CustomEmoji.from_text([spoiler_text, text].join(' '), status.account.domain)
+    parts = [spoiler_text, text]
+    parts.concat(poll_options) if poll_options.present?
+    @emojis = CustomEmoji.from_text(parts.join(' '), status.account.domain)
   end
 
   def ordered_media_attachments

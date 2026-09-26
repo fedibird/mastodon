@@ -61,7 +61,7 @@ class TranslateStatusService < BaseService
   # Match REST::StatusSerializer#content so translation source HTML uses the
   # same redirect-target handling as the status the client already sees.
   def status_content_format(status)
-    Formatter.instance.format(status, rest: true)
+    Formatter.instance.format(status, rest: true, emoji_compatibility: true)
   end
 
   def build_status_translation(translations)
@@ -82,12 +82,12 @@ class TranslateStatusService < BaseService
       when :content
         node = unwrap_emoji_shortcodes(translation.text)
         Sanitize.node!(node, Sanitize::Config::MASTODON_STRICT)
-        status_translation.content = node.to_html
+        status_translation.content = Formatter.instance.apply_emoji_compatibility(node.to_html, @status.proper.emojis)
       when :spoiler_text
-        status_translation.spoiler_text = unwrap_emoji_shortcodes(translation.text).content
+        status_translation.spoiler_text = CustomEmoji.with_compatible_boundaries(unwrap_emoji_shortcodes(translation.text).content, @status.emojis)
       when Poll::Option
         status_translation.poll_options << Translation::Option.new(
-          title: unwrap_emoji_shortcodes(translation.text).content
+          title: CustomEmoji.with_compatible_boundaries(unwrap_emoji_shortcodes(translation.text).content, @status.emojis)
         )
       when MediaAttachment
         status_translation.media_attachments << Translation::MediaAttachment.new(

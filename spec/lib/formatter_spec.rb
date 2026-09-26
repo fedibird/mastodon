@@ -377,8 +377,9 @@ RSpec.describe Formatter do
         context 'given a post with concatenated emoji shortcodes' do
           let(:text) { ':coolcat::coolcat:' }
 
-          it 'does not touch the shortcodes' do
-            is_expected.to match(/:coolcat::coolcat:/)
+          it 'converts each adjacent shortcode to an image' do
+            expect(subject.scan('alt=":coolcat:"').size).to eq(2)
+            expect(subject).not_to include(':coolcat::coolcat:')
           end
         end
 
@@ -424,8 +425,9 @@ RSpec.describe Formatter do
         context 'given a post with concatenated emoji' do
           let(:text) { '<p>:coolcat::coolcat:</p>' }
 
-          it 'does not touch the shortcodes' do
-            is_expected.to match(/<p>:coolcat::coolcat:<\/p>/)
+          it 'converts each adjacent shortcode to an image' do
+            expect(subject.scan('alt=":coolcat:"').size).to eq(2)
+            expect(subject).not_to include(':coolcat::coolcat:')
           end
         end
 
@@ -547,8 +549,9 @@ RSpec.describe Formatter do
         context 'given a post with concatenated emoji shortcodes' do
           let(:text) { ':coolcat::coolcat:' }
 
-          it 'does not touch the shortcodes' do
-            is_expected.to match(/:coolcat::coolcat:/)
+          it 'converts each adjacent shortcode to an image' do
+            expect(subject.scan('alt=":coolcat:"').size).to eq(2)
+            expect(subject).not_to include(':coolcat::coolcat:')
           end
         end
 
@@ -598,8 +601,9 @@ RSpec.describe Formatter do
         context 'given a post with concatenated emoji shortcodes' do
           let(:text) { '<p>:coolcat::coolcat:</p>' }
 
-          it 'does not touch the shortcodes' do
-            is_expected.to match(/<p>:coolcat::coolcat:<\/p>/)
+          it 'converts each adjacent shortcode to an image' do
+            expect(subject.scan('alt=":coolcat:"').size).to eq(2)
+            expect(subject).not_to include(':coolcat::coolcat:')
           end
         end
 

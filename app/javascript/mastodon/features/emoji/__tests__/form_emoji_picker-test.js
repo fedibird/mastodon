@@ -159,6 +159,43 @@ describe('form emoji picker', () => {
     expect(screen.getByRole('button', { name: 'Insert emoji' })).toBeInTheDocument();
   });
 
+  it('previews adjacent custom emoji and leaves the canonical shortcodes in the field', async () => {
+    global.fetch = jest.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve([
+        ...emojiResponse,
+        {
+          shortcode: 'foo',
+          url: 'https://example.test/foo.gif',
+          static_url: 'https://example.test/foo.png',
+          visible_in_picker: true,
+          category: 'Fedibird',
+          aliases: [],
+        },
+        {
+          shortcode: 'bar',
+          url: 'https://example.test/bar.gif',
+          static_url: 'https://example.test/bar.png',
+          visible_in_picker: true,
+          category: 'Fedibird',
+          aliases: [],
+        },
+      ]),
+    }));
+    document.body.innerHTML = '<input id="field" type="text" data-emoji-picker="true" value=":foo::bar:">';
+
+    initializeFormEmojiPickers();
+
+    const field = document.querySelector('#field');
+    const preview = field.parentElement.parentElement.querySelector('.emoji-picker-preview');
+
+    await waitFor(() => expect(preview.querySelectorAll('img.custom-emoji')).toHaveLength(2));
+    expect(preview.querySelectorAll('img.custom-emoji')[0]).toHaveAttribute('data-shortcode', 'foo');
+    expect(preview.querySelectorAll('img.custom-emoji')[1]).toHaveAttribute('data-shortcode', 'bar');
+    expect(field.value).toBe(':foo::bar:');
+    expect(field.value).not.toContain('\u200B');
+  });
+
   it('previews custom emoji below the plain-text field and updates on input', async () => {
     document.body.innerHTML = '<input id="field" type="text" data-emoji-picker="true" value="Work :fedibird:">';
 

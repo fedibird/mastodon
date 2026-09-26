@@ -11,10 +11,16 @@ class REST::StatusEditSerializer < ActiveModel::Serializer
   attribute :poll, if: -> { object.poll_options.present? }
 
   def content
-    Formatter.instance.format(object.formatting_status, rest: true)
+    Formatter.instance.format(object.formatting_status, rest: true, emoji_compatibility: true)
+  end
+
+  def spoiler_text
+    CustomEmoji.with_compatible_boundaries(object.spoiler_text, object.emojis)
   end
 
   def poll
-    { options: object.poll_options.map { |title| { title: title } } }
+    {
+      options: object.poll_options.map { |title| { title: CustomEmoji.with_compatible_boundaries(title, object.emojis) } },
+    }
   end
 end

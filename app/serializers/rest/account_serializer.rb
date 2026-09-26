@@ -46,8 +46,12 @@ class REST::AccountSerializer < ActiveModel::Serializer
   class FieldSerializer < ActiveModel::Serializer
     attributes :name, :value, :verified_at
 
+    def name
+      CustomEmoji.with_compatible_boundaries(object.name, object.account.emojis)
+    end
+
     def value
-      Formatter.instance.format_field(object.account, object.value, rest: true)
+      Formatter.instance.format_field(object.account, object.value, rest: true, emoji_compatibility: true)
     end
   end
 
@@ -66,11 +70,11 @@ class REST::AccountSerializer < ActiveModel::Serializer
   end
 
   def note
-    object.suspended? ? '' : Formatter.instance.simplified_format(object, rest: true)
+    object.suspended? ? '' : Formatter.instance.simplified_format(object, rest: true, emoji_compatibility: true)
   end
 
   def followed_message
-    object.suspended? ? '' : Formatter.instance.format_message(object, object.followed_message, rest: true)
+    object.suspended? ? '' : Formatter.instance.format_message(object, object.followed_message, rest: true, emoji_compatibility: true)
   end
 
   def url
@@ -154,7 +158,9 @@ class REST::AccountSerializer < ActiveModel::Serializer
   end
 
   def display_name
-    object.suspended? ? '' : object.display_name
+    return '' if object.suspended?
+
+    CustomEmoji.with_compatible_boundaries(object.display_name, object.emojis)
   end
 
   def locked

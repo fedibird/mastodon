@@ -9,7 +9,13 @@ class Formatter
   include ActionView::Helpers::TextHelper
   include StatusesHelper
 
-  DISALLOWED_BOUNDING_REGEX = /[[:alnum:]:]/.freeze
+  # Colon is intentionally accepted as an emoji boundary.
+  #
+  # Fedibird intentionally allows : as a custom emoji boundary for compatibility
+  # with adjacent emoji syntax used by Misskey and similar software. This trades
+  # off the extremely rare case where an IPv6 segment happens to match an
+  # available custom emoji shortcode.
+  DISALLOWED_BOUNDING_REGEX = /[[:alnum:]]/.freeze
   NEWLINE_TAGS_RE = %r{(<br />|<br>|</p>)+}
 
   # A decoded URL is only ever shown to a human or offered to a matcher, so any
@@ -45,6 +51,7 @@ class Formatter
       html = apply_reference_link(html, status)
       html = encode_custom_emojis(html, status.emojis, options[:autoplay]) if options[:custom_emojify]
       html = nyaize_html(html) if options[:nyaize]
+      html = apply_emoji_compatibility(html, status.emojis) if options[:emoji_compatibility]
       return html.html_safe # rubocop:disable Rails/OutputSafety
     end
 
@@ -61,6 +68,7 @@ class Formatter
     html = add_compatible_reference_link(html, status) if status.references.exists?
     html = nyaize_html(html) if options[:nyaize]
     html = html.delete("\n")
+    html = apply_emoji_compatibility(html, status.emojis) if options[:emoji_compatibility]
 
     html.html_safe # rubocop:disable Rails/OutputSafety
   end
@@ -95,12 +103,14 @@ class Formatter
   def simplified_format(account, **options)
     html = account.local? ? linkify(account.note, **options) : apply_inner_link(reformat(account.note), **options)
     html = encode_custom_emojis(html, account.emojis, options[:autoplay]) if options[:custom_emojify]
+    html = apply_emoji_compatibility(html, account.emojis) if options[:emoji_compatibility]
     html.html_safe # rubocop:disable Rails/OutputSafety
   end
 
   def format_message(account, message, **options)
     html = linkify(message, **options)
     html = encode_custom_emojis(html, account.emojis, options[:autoplay]) if options[:custom_emojify]
+    html = apply_emoji_compatibility(html, account.emojis) if options[:emoji_compatibility]
     html.html_safe # rubocop:disable Rails/OutputSafety
   end
 
@@ -129,7 +139,29 @@ class Formatter
   def format_field(account, str, **options)
     html = account.local? ? encode_and_link_urls(str, **options.merge(me: true, with_domain: true)) : apply_inner_link(reformat(str), **options)
     html = encode_custom_emojis(html, account.emojis, options[:autoplay]) if options[:custom_emojify]
+    html = apply_emoji_compatibility(html, account.emojis) if options[:emoji_compatibility]
     html.html_safe # rubocop:disable Rails/OutputSafety
+  end
+
+  # custom_emojify replaces shortcodes with images for Fedibird's own HTML.
+  # emoji_compatibility leaves the shortcodes in place and only separates
+  # adjacent recognized ones (`:foo::bar:` => `:foo:\u200B:bar:`) so other
+  # clients can emojify them. Edit/source responses must not request this.
+  def apply_emoji_compatibility(html, emojis)
+    return html if html.blank? || emojis.blank? || !html.include?('::')
+
+    tree = Nokogiri::HTML.fragment(html)
+    changed = false
+
+    tree.xpath('./text()|.//text()[not(ancestor[@class="invisible"])]').each do |node|
+      converted = CustomEmoji.with_compatible_boundaries(node.content, emojis)
+      next if converted == node.content
+
+      node.content = converted
+      changed = true
+    end
+
+    changed ? tree.to_html : html
   end
 
   def format_summary(emoji)
