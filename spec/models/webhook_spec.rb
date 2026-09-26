@@ -22,6 +22,24 @@ RSpec.describe Webhook do
       expect(record.errors[:url]).to be_present
     end
 
+    it 'shows the generic URL message without a missing translation' do
+      I18n.with_locale(:en) do
+        record = described_class.new(url: 'not a url', events: ['status.created'], secret: 'a' * 12)
+        record.validate
+
+        expect(record.errors.full_messages.join).not_to include('translation missing')
+        expect(record.errors[:url].join).to include(I18n.t('applications.invalid_url'))
+      end
+
+      I18n.with_locale(:ja) do
+        record = described_class.new(url: 'not a url', events: ['status.created'], secret: 'a' * 12)
+        record.validate
+
+        expect(record.errors.full_messages.join).not_to include('translation missing')
+        expect(record.errors[:url].join).to include(I18n.t('applications.invalid_url'))
+      end
+    end
+
     it 'rejects empty events' do
       record = described_class.new(url: 'https://example.com/hook', events: [], secret: 'a' * 12)
 
@@ -71,6 +89,29 @@ RSpec.describe Webhook do
 
       expect(record).to_not be_valid
       expect(record.errors.added?(:events, :invalid_permissions)).to be true
+    end
+
+    it 'translates invalid_permissions in English and Japanese' do
+      role = UserRole.create!(name: 'Webhook locale', position: 41, permissions_as_keys: ['manage_webhooks'])
+      user = user_with_role(role)
+
+      I18n.with_locale(:en) do
+        record = described_class.new(url: 'https://example.com/hook', events: ['account.created'])
+        record.current_account = user.account
+        record.validate
+
+        expect(record.errors.full_messages.join).not_to include('translation missing')
+        expect(record.errors.full_messages.join).to include("cannot include events you don't have the rights to")
+      end
+
+      I18n.with_locale(:ja) do
+        record = described_class.new(url: 'https://example.com/hook', events: ['account.created'])
+        record.current_account = user.account
+        record.validate
+
+        expect(record.errors.full_messages.join).not_to include('translation missing')
+        expect(record.errors.full_messages.join).to include('あなたが権利を持っていないイベントを含めることはできません')
+      end
     end
 
     it 'accepts events the current account can view' do

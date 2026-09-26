@@ -21,6 +21,10 @@ en:
             username:
               invalid: must contain only letters, numbers and underscores
               reserved: is reserved
+        admin/webhook:
+          attributes:
+            url:
+              invalid: is not a valid URL
         status:
           attributes:
             reblog:
@@ -30,3 +34,7 @@ en:
             email:
               blocked: uses a disallowed e-mail provider
               unreachable: does not seem to exist
+        webhook:
+          attributes:
+            events:
+              invalid_permissions: cannot include events you don't have the rights to
