@@ -36,7 +36,7 @@ RSpec.describe REST::InstanceSerializer do
       expect(serialization.deep_symbolize_keys)
         .to include(
           configuration: include(
-            accounts: include(max_pinned_statuses: StatusPinValidator::PIN_LIMIT)
+            accounts: include(max_pinned_statuses: [StatusPinValidator::LIMIT, Setting.pins_max].min)
           )
         )
     end
