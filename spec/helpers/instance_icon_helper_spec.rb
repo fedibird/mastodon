@@ -30,4 +30,12 @@ RSpec.describe InstanceHelper, type: :helper do
       expect(helper.use_mask_icon?).to be true
     end
   end
+
+  describe 'default_favicon_path' do
+    it 'returns the standard Fedibird png favicons' do
+      expect(helper.default_favicon_path(16)).to eq '/icons/favicon-16x16.png'
+      expect(helper.default_favicon_path(32)).to eq '/icons/favicon-32x32.png'
+      expect(helper.default_favicon_path(48)).to eq '/icons/favicon-48x48.png'
+    end
+  end
 end
