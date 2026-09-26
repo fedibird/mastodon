@@ -1205,14 +1205,14 @@ const startWorker = (workerId) => {
 
       break;
     case 'hashtag:local':
-      // Fedibird intentionally does not publish to this channel.
-      // The subscription is accepted so Mastodon 4.2 clients can connect,
-      // and the feed stays empty.
+      // Fedibird does not subscribe to timeline:hashtag:<tag>:local.
+      // This sink is never published to, so the compatible stream stays empty
+      // even if a later change publishes the upstream local channel.
       if (!params.tag || params.tag.length === 0) {
         reject('No tag for stream provided');
       } else {
         resolve({
-          channelIds: [`timeline:hashtag:${params.tag.toLowerCase()}:local`],
+          channelIds: [`timeline:fedibird:empty:hashtag:local:${params.tag.toLowerCase()}`],
           options: { needsFiltering: true, notificationOnly: false },
         });
       }

@@ -161,10 +161,11 @@ describe('hashtag:local streaming compatibility', () => {
       await publish('timeline:hashtag:test', JSON.stringify({ event: 'delete', payload: 'shared-marker' }));
       await publish('timeline:hashtag:test:local', JSON.stringify({ event: 'delete', payload: 'local-marker' }));
 
-      await waitFor(() => local.text().includes('local-marker'), 3000, 'local channel delivery');
       await waitFor(() => shared.text().includes('shared-marker'), 3000, 'shared channel delivery');
+      await new Promise(resolve => setTimeout(resolve, 400));
 
       assert.equal(local.text().includes('shared-marker'), false);
+      assert.equal(local.text().includes('local-marker'), false);
       assert.equal(shared.text().includes('local-marker'), false);
     } finally {
       local.close();
@@ -189,7 +190,13 @@ describe('hashtag:local streaming compatibility', () => {
       await new Promise(resolve => setTimeout(resolve, 300));
       assert.equal(socket.messages.some(message => message.includes('error')), false);
 
-      await publish('timeline:hashtag:test:local', JSON.stringify({ event: 'delete', payload: 'named-marker' }));
+      await publish('timeline:hashtag:test', JSON.stringify({ event: 'delete', payload: 'shared-marker' }));
+      await publish('timeline:hashtag:test:local', JSON.stringify({ event: 'delete', payload: 'canonical-local-marker' }));
+      await new Promise(resolve => setTimeout(resolve, 400));
+      assert.equal(socket.messages.some(message => message.includes('shared-marker')), false);
+      assert.equal(socket.messages.some(message => message.includes('canonical-local-marker')), false);
+
+      await publish('timeline:fedibird:empty:hashtag:local:test', JSON.stringify({ event: 'delete', payload: 'named-marker' }));
       await waitFor(() => socket.messages.some(message => message.includes('named-marker')), 3000, 'websocket event');
 
       const event = JSON.parse(socket.messages.find(message => message.includes('named-marker')));
@@ -200,7 +207,7 @@ describe('hashtag:local streaming compatibility', () => {
       assert.equal(socket.messages.some(message => message.includes('error')), false);
 
       const before = socket.messages.length;
-      await publish('timeline:hashtag:test:local', JSON.stringify({ event: 'delete', payload: 'after-unsubscribe' }));
+      await publish('timeline:fedibird:empty:hashtag:local:test', JSON.stringify({ event: 'delete', payload: 'after-unsubscribe' }));
       await new Promise(resolve => setTimeout(resolve, 400));
       assert.equal(socket.messages.slice(before).some(message => message.includes('after-unsubscribe')), false);
     } finally {
