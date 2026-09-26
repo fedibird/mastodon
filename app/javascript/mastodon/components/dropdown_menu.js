@@ -308,7 +308,33 @@ class Dropdown extends React.PureComponent {
           {button}
         </span>
 
-        <Overlay show={open} offset={[5, 5]} placement={'bottom'} flip target={this.findTarget} popperConfig={{ strategy: 'fixed' }}>
+        <Overlay
+          show={open}
+          offset={[5, 5]}
+          placement='bottom'
+          flip
+          target={this.findTarget}
+          popperConfig={{
+            strategy: 'fixed',
+            modifiers: [
+              {
+                name: 'preventOverflow',
+                options: {
+                  boundary: 'viewport',
+                  altAxis: true,
+                  padding: 8,
+                },
+              },
+              {
+                name: 'flip',
+                options: {
+                  boundary: 'viewport',
+                  padding: 8,
+                },
+              },
+            ],
+          }}
+        >
           {({ props, arrowProps, placement }) => (
             <div {...props}>
               <div className={`dropdown-animation dropdown-menu ${placement}`}>
