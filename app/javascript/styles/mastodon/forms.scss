@@ -336,6 +336,16 @@ code {
     }
   }
 
+  .profile-fields {
+    .row {
+      margin-bottom: 15px;
+
+      &:last-child {
+        margin-bottom: 0;
+      }
+    }
+  }
+
   .fields-row {
     display: flex;
     margin: 0 -10px;
