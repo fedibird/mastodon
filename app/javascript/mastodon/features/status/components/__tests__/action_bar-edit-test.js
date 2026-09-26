@@ -12,7 +12,7 @@ jest.mock('../../../../initial_state', () => ({
   isStaff: false,
   show_quote_button: false,
   show_share_button: false,
-  enableReaction: false,
+  enableReaction: true,
   enableStatusReference: false,
   maxReferences: 5,
   matchVisibilityOfReferences: false,
@@ -45,10 +45,15 @@ jest.mock('react-intl', () => {
   };
 });
 
-jest.mock('../../../../containers/dropdown_menu_container', () => ({ items }) => (
-  <div>
-    {(items || []).filter(Boolean).map((item, index) => (
+jest.mock('../../../../containers/dropdown_menu_container', () => ({ items, scrollable }) => (
+  <div
+    data-testid='more-menu'
+    data-scrollable={scrollable ? 'true' : 'false'}
+  >
+    {(items || []).map((item, index) => item ? (
       <button key={index} type='button'>{item.text}</button>
+    ) : (
+      <hr key={index} data-testid='menu-separator' />
     ))}
   </div>
 ));
@@ -153,5 +158,38 @@ describe('detailed status ActionBar edit menu', () => {
 
     expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
+  });
+
+  it('scrolls the menu and places own-status management before reaction lists', () => {
+    renderBar(buildStatus({
+      reblogs_count: 2,
+      favourites_count: 3,
+      emoji_reactions: [{ name: '👍', count: 1 }],
+    }));
+
+    expect(screen.getByTestId('more-menu')).toHaveAttribute('data-scrollable', 'true');
+
+    const labels = screen.getAllByRole('button').map(button => button.textContent);
+    const indexOf = label => labels.indexOf(label);
+
+    expect(indexOf('Copy link to status')).toBeLessThan(indexOf('Embed'));
+    expect(indexOf('Embed')).toBeLessThan(indexOf('Edit'));
+    expect(indexOf('Edit')).toBeLessThan(indexOf('Delete & re-draft'));
+    expect(indexOf('Delete & re-draft')).toBeLessThan(indexOf('Delete'));
+    expect(indexOf('Delete')).toBeLessThan(indexOf('Expire'));
+    expect(indexOf('Expire')).toBeLessThan(indexOf('Show boosted users'));
+    expect(indexOf('Show boosted users')).toBeLessThan(indexOf('Show favourited users'));
+    expect(indexOf('Show favourited users')).toBeLessThan(indexOf('Show emoji reactioned users'));
+
+    const menu = screen.getByTestId('more-menu');
+    const entries = Array.from(menu.children);
+    expect(menu.firstElementChild).toHaveTextContent('Copy link to status');
+    expect(menu.lastElementChild.tagName).not.toBe('HR');
+    entries.forEach((child, index) => {
+      if (child.tagName === 'HR') {
+        expect(entries[index - 1].tagName).not.toBe('HR');
+        expect(entries[index + 1].tagName).not.toBe('HR');
+      }
+    });
   });
 });

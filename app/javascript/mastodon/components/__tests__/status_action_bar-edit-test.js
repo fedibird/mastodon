@@ -43,10 +43,15 @@ jest.mock('react-intl', () => {
   };
 });
 
-jest.mock('../../containers/dropdown_menu_container', () => ({ items }) => (
-  <div data-testid='more-menu'>
-    {(items || []).filter(Boolean).map((item, index) => (
+jest.mock('../../containers/dropdown_menu_container', () => ({ items, scrollable }) => (
+  <div
+    data-testid='more-menu'
+    data-scrollable={scrollable ? 'true' : 'false'}
+  >
+    {(items || []).map((item, index) => item ? (
       <button key={index} type='button' onClick={item.action}>{item.text}</button>
+    ) : (
+      <hr key={index} data-testid='menu-separator' />
     ))}
   </div>
 ));
@@ -175,5 +180,53 @@ describe('StatusActionBar edit menu', () => {
 
     expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
+  });
+
+  it('scrolls the menu and places own-status management before reaction lists', () => {
+    renderBar(buildStatus({
+      reblogs_count: 2,
+      favourites_count: 3,
+      emoji_reactions: [{ name: '👍', count: 1 }],
+    }));
+
+    expect(screen.getByTestId('more-menu')).toHaveAttribute('data-scrollable', 'true');
+
+    const labels = screen.getAllByRole('button').map(button => button.textContent);
+    const indexOf = label => labels.indexOf(label);
+
+    expect(indexOf('Expand this status')).toBeLessThan(indexOf('Copy link to status'));
+    expect(indexOf('Copy link to status')).toBeLessThan(indexOf('Embed'));
+    expect(indexOf('Embed')).toBeLessThan(indexOf('Edit'));
+    expect(indexOf('Edit')).toBeLessThan(indexOf('Delete & re-draft'));
+    expect(indexOf('Delete & re-draft')).toBeLessThan(indexOf('Delete'));
+    expect(indexOf('Delete')).toBeLessThan(indexOf('Expire'));
+    expect(indexOf('Expire')).toBeLessThan(indexOf('Show boosted users'));
+    expect(indexOf('Show boosted users')).toBeLessThan(indexOf('Show favourited users'));
+    expect(indexOf('Show favourited users')).toBeLessThan(indexOf('Show emoji reactioned users'));
+
+    const menu = screen.getByTestId('more-menu');
+    const entries = Array.from(menu.children);
+    expect(menu.firstElementChild).toHaveTextContent('Expand this status');
+    expect(menu.lastElementChild.tagName).not.toBe('HR');
+    entries.forEach((child, index) => {
+      if (child.tagName === 'HR') {
+        expect(entries[index - 1].tagName).not.toBe('HR');
+        expect(entries[index + 1].tagName).not.toBe('HR');
+      }
+    });
+  });
+
+  it('keeps another account menu in its existing order and still scrolls', () => {
+    renderBar(buildStatus({
+      account: { id: 'other', acct: 'bob', username: 'bob', url: 'https://example.test/bob' },
+    }));
+
+    expect(screen.getByTestId('more-menu')).toHaveAttribute('data-scrollable', 'true');
+
+    const labels = screen.getAllByRole('button').map(button => button.textContent);
+    expect(labels.indexOf('Mention @bob')).toBeLessThan(labels.indexOf('Mute @bob'));
+    expect(labels.indexOf('Mute @bob')).toBeLessThan(labels.indexOf('Block @bob'));
+    expect(labels.indexOf('Block @bob')).toBeLessThan(labels.indexOf('Report @bob'));
+    expect(labels.indexOf('Edit')).toBe(-1);
   });
 });
