@@ -12,7 +12,7 @@ class REST::InstanceSerializer < ActiveModel::Serializer
 
   attributes :domain, :title, :version, :source_url, :description,
              :usage, :thumbnail, :icon, :languages, :configuration,
-             :registrations, :api_versions,
+             :registrations,
              :feature_quote, :fedibird_capabilities
 
   has_one :contact, serializer: ContactSerializer
@@ -128,10 +128,6 @@ class REST::InstanceSerializer < ActiveModel::Serializer
       message: registrations_enabled? ? nil : registrations_message,
       url: ENV.fetch('SSO_ACCOUNT_SIGN_UP', nil),
     }
-  end
-
-  def api_versions
-    Mastodon::Version.api_versions
   end
 
   private

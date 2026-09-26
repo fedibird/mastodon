@@ -25,6 +25,12 @@ RSpec.describe Api::V1::InstancesController, type: :controller do
 
       expect(JSON.parse(response.body)['fedibird_capabilities']).to include('filter_v2')
     end
+
+    it 'advertises Mastodon 4.2.13 compatibility' do
+      get :show
+
+      expect(JSON.parse(response.body)['version']).to eq '4.2.13'
+    end
   end
 
   def stub_webpacker_manifest

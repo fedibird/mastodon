@@ -22,6 +22,16 @@ RSpec.describe Api::V2::InstancesController, type: :controller do
       expect(JSON.parse(response.body)['fedibird_capabilities']).to include('filter_v2')
     end
 
+    it 'advertises Mastodon 4.2.13 without api_versions' do
+      get :show
+
+      body = JSON.parse(response.body)
+
+      expect(body['version']).to eq '4.2.13'
+      expect(body).not_to have_key('api_versions')
+      expect(body['fedibird_capabilities']).to include('filter_v2')
+    end
+
     it 'returns the configured status page URL' do
       previous = Setting.status_page_url
       Setting.status_page_url = 'https://status.example.com'
