@@ -2310,7 +2310,6 @@ a.account__display-name {
     display: block;
     width: 14px;
     height: 5px;
-    background-color: $ui-secondary-color;
     mask-image: url("data:image/svg+xml;utf8,<svg width='14' height='5' xmlns='http://www.w3.org/2000/svg'><path d='M7 0L0 5h14L7 0z' fill='white'/></svg>");
   }
 
@@ -2341,6 +2340,14 @@ a.account__display-name {
       transform: rotate(90deg);
     }
   }
+}
+
+.dropdown-animation:not(.dropdown-menu) > .dropdown-menu__arrow::before {
+  background-color: $ui-secondary-color;
+}
+
+.dropdown-menu.account-popup > .dropdown-menu__arrow::before {
+  background-color: $white;
 }
 
 .dropdown-menu__separator {
