@@ -68,6 +68,24 @@ const messages = defineMessages({
   filter: { id: 'status.filter', defaultMessage: 'Filter this post' },
 });
 
+const compactMenuSeparators = items => {
+  const menu = [];
+
+  items.forEach(item => {
+    if (item === null && (menu.length === 0 || menu[menu.length - 1] === null)) {
+      return;
+    }
+
+    menu.push(item);
+  });
+
+  if (menu[menu.length - 1] === null) {
+    menu.pop();
+  }
+
+  return menu;
+};
+
 const mapStateToProps = (state, { status }) => ({
   relationship: state.getIn(['relationships', status.getIn(['account', 'id'])]),
   referenceCountLimit: state.getIn(['compose', 'references']).size >= maxReferences,
@@ -389,6 +407,27 @@ class StatusActionBar extends ImmutablePureComponent {
       }
     }
 
+    if (writtenByMe) {
+      const management = [];
+
+      if (canEditStatus(status, { me, expired, disablePost, now: typeof intl.now === 'function' ? intl.now() : Date.now() })) {
+        management.push({ text: intl.formatMessage(messages.edit), action: this.handleEditClick });
+      }
+
+      if (!disablePost) {
+        management.push({ text: intl.formatMessage(messages.redraft), action: this.handleRedraftClick });
+      }
+
+      management.push({ text: intl.formatMessage(messages.delete), action: this.handleDeleteClick });
+      management.push({ text: intl.formatMessage(messages.expire), action: this.handleExpireClick });
+
+      if (menu.length > 0 && management.length > 0) {
+        menu.push(null);
+      }
+
+      menu.push(...management);
+    }
+
     if (reblogsCount > 0 || favouritesCount > 0 || !status.get('emoji_reactions').isEmpty()) {
       menu.push(null);
     }
@@ -444,14 +483,7 @@ class StatusActionBar extends ImmutablePureComponent {
     }
 
     if (writtenByMe) {
-      menu.push({ text: intl.formatMessage(messages.expire), action: this.handleExpireClick });
-      if (canEditStatus(status, { me, expired, disablePost, now: typeof intl.now === 'function' ? intl.now() : Date.now() })) {
-        menu.push({ text: intl.formatMessage(messages.edit), action: this.handleEditClick });
-      }
-      menu.push({ text: intl.formatMessage(messages.delete), action: this.handleDeleteClick });
-      if (!disablePost) {
-        menu.push({ text: intl.formatMessage(messages.redraft), action: this.handleRedraftClick });
-      }
+      menu = compactMenuSeparators(menu);
     } else {
       if (!disablePost) {
         menu.push({ text: intl.formatMessage(messages.mention, { name: account.get('username') }), action: this.handleMentionClick });
@@ -575,6 +607,7 @@ class StatusActionBar extends ImmutablePureComponent {
             disabled={anonymousAccess}
             status={status}
             items={menu}
+            scrollable
             icon='ellipsis-h'
             size={18}
             direction='right'

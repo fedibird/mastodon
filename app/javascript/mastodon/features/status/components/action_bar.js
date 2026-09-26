@@ -63,6 +63,24 @@ const messages = defineMessages({
   filter: { id: 'status.filter', defaultMessage: 'Filter this post' },
 });
 
+const compactMenuSeparators = items => {
+  const menu = [];
+
+  items.forEach(item => {
+    if (item === null && (menu.length === 0 || menu[menu.length - 1] === null)) {
+      return;
+    }
+
+    menu.push(item);
+  });
+
+  if (menu[menu.length - 1] === null) {
+    menu.pop();
+  }
+
+  return menu;
+};
+
 const mapStateToProps = (state, { status }) => ({
   relationship: state.getIn(['relationships', status.getIn(['account', 'id'])]),
   referenceCountLimit: state.getIn(['compose', 'references']).size >= maxReferences,
@@ -344,6 +362,27 @@ class ActionBar extends React.PureComponent {
       }
     }
 
+    if (writtenByMe) {
+      const management = [];
+
+      if (canEditStatus(status, { me, expired, disablePost, now: typeof intl.now === 'function' ? intl.now() : Date.now() })) {
+        management.push({ text: intl.formatMessage(messages.edit), action: this.handleEditClick });
+      }
+
+      if (!disablePost) {
+        management.push({ text: intl.formatMessage(messages.redraft), action: this.handleRedraftClick });
+      }
+
+      management.push({ text: intl.formatMessage(messages.delete), action: this.handleDeleteClick });
+      management.push({ text: intl.formatMessage(messages.expire), action: this.handleExpireClick });
+
+      if (menu.length > 0 && management.length > 0) {
+        menu.push(null);
+      }
+
+      menu.push(...management);
+    }
+
     if (showReblogCount || showFavouritCount || showEmojiReactionCount || showStatusReferredByCount) {
       menu.push(null);
     }
@@ -392,15 +431,7 @@ class ActionBar extends React.PureComponent {
         menu.push(null);
       }
 
-      menu.push({ text: intl.formatMessage(messages.expire), action: this.handleExpireClick });
-      if (canEditStatus(status, { me, expired, disablePost, now: typeof intl.now === 'function' ? intl.now() : Date.now() })) {
-        menu.push({ text: intl.formatMessage(messages.edit), action: this.handleEditClick });
-      }
-      menu.push({ text: intl.formatMessage(messages.delete), action: this.handleDeleteClick });
-
-      if (!disablePost) {
-        menu.push({ text: intl.formatMessage(messages.redraft), action: this.handleRedraftClick });
-      }
+      menu = compactMenuSeparators(menu);
     } else {
       if (!disablePost) {
         menu.push({ text: intl.formatMessage(messages.mention, { name: status.getIn(['account', 'username']) }), action: this.handleMentionClick });
@@ -506,7 +537,7 @@ class ActionBar extends React.PureComponent {
         </div>}
 
         <div className='detailed-status__action-bar-dropdown'>
-          <DropdownMenuContainer size={18} icon='ellipsis-h' status={status} items={menu} direction='left' title={intl.formatMessage(messages.more)} />
+          <DropdownMenuContainer scrollable size={18} icon='ellipsis-h' status={status} items={menu} direction='left' title={intl.formatMessage(messages.more)} />
         </div>
       </div>
     );
