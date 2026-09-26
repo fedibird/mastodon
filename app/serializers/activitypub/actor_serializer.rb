@@ -9,14 +9,14 @@ class ActivityPub::ActorSerializer < ActivityPub::Serializer
                      :moved_to, :property_value, :identity_proof,
                      :discoverable, :olm, :suspended, :other_setting,
                      :vcard, :'_misskey_followedMessage',
-                     :indexable,
+                     :indexable, :memorial,
                      :searchable_by
 
   attributes :id, :type, :following, :followers,
              :inbox, :outbox, :featured, :featured_tags,
              :preferred_username, :name, :summary,
              :url, :manually_approves_followers,
-             :discoverable, :indexable, :published,
+             :discoverable, :indexable, :published, :memorial,
              :searchable_by
 
   has_one :public_key, serializer: ActivityPub::PublicKeySerializer

@@ -381,6 +381,14 @@ RSpec.describe AccountsController, type: :controller do
           expect(json).to include(:id, :type, :preferredUsername, :inbox, :publicKey, :name, :summary)
         end
 
+        it 'includes memorial false and the toot:memorial context' do
+          json = body_as_json
+          extension = Array(json[:'@context']).find { |item| item.is_a?(Hash) }
+
+          expect(json[:memorial]).to be false
+          expect(extension[:memorial]).to eq 'toot:memorial'
+        end
+
         context 'in authorized fetch mode' do
           let(:authorized_fetch_mode) { true }
 
@@ -463,6 +471,22 @@ RSpec.describe AccountsController, type: :controller do
             expect(json).to include(:id, :type, :preferredUsername, :inbox, :publicKey, :name, :summary)
           end
         end
+      end
+    end
+
+    context 'when the account is memorialized' do
+      before do
+        account.memorialize!
+        get :show, params: { username: account.username, format: 'json' }
+      end
+
+      it 'returns application/activity+json' do
+        expect(response).to have_http_status(200)
+        expect(response.media_type).to eq 'application/activity+json'
+      end
+
+      it 'includes memorial true' do
+        expect(body_as_json[:memorial]).to be true
       end
     end
 

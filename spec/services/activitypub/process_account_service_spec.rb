@@ -127,6 +127,59 @@ RSpec.describe ActivityPub::ProcessAccountService, type: :service do
     end
   end
 
+  context 'with a memorial flag' do
+    let(:payload) do
+      {
+        id: 'https://foo.test',
+        type: 'Actor',
+        inbox: 'https://foo.test/inbox',
+        memorial: memorial,
+      }.with_indifferent_access
+    end
+
+    context 'when memorial is true' do
+      let(:memorial) { true }
+
+      it 'stores the remote account as memorial' do
+        account = Fabricate(:account, username: 'alice', domain: 'example.com', memorial: false)
+
+        subject.call('alice', 'example.com', payload)
+
+        expect(account.reload).to be_memorial
+      end
+    end
+
+    context 'when memorial is false' do
+      let(:memorial) { false }
+
+      it 'clears a previously memorial remote account' do
+        account = Fabricate(:account, username: 'alice', domain: 'example.com', memorial: true)
+
+        subject.call('alice', 'example.com', payload)
+
+        expect(account.reload).not_to be_memorial
+      end
+    end
+
+    context 'when memorial is missing' do
+      let(:payload) do
+        {
+          id: 'https://foo.test',
+          type: 'Actor',
+          inbox: 'https://foo.test/inbox',
+        }.with_indifferent_access
+      end
+
+      it 'clears a previously memorial remote account' do
+        account = Fabricate(:account, username: 'alice', domain: 'example.com', memorial: true)
+
+        subject.call('alice', 'example.com', payload)
+
+        expect(account.reload).not_to be_memorial
+      end
+    end
+  end
+
   context 'when account is not suspended' do
     let!(:account) { Fabricate(:account, username: 'alice', domain: 'example.com') }
 
