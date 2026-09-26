@@ -3699,6 +3699,17 @@ a.account__display-name {
       padding: 10px;
       font-weight: 500;
       border-bottom: 1px solid lighten($ui-base-color, 8%);
+
+      a {
+        color: inherit;
+        text-decoration: none;
+
+        &:hover,
+        &:focus,
+        &:active {
+          text-decoration: underline;
+        }
+      }
     }
 
     @media screen and (max-height: 810px) {
