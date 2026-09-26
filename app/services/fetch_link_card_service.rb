@@ -235,8 +235,8 @@ class FetchLinkCardService < BaseService
   def apply_preview_card_details(page)
     data = structured_data(page)
 
-    @card.title = decode_text(data['headline'].presence || meta_property(page, 'og:title').presence || page.at_xpath('//title')&.content)
-    @card.description = decode_text(data['description'].presence || meta_property(page, 'og:description').presence || meta_property(page, 'description'))
+    @card.title = decode_text(structured_text(data['headline']).presence || meta_property(page, 'og:title').presence || page.at_xpath('//title')&.content)
+    @card.description = decode_text(structured_text(data['description']).presence || meta_property(page, 'og:description').presence || meta_property(page, 'description'))
 
     image_url = meta_property(page, 'og:image').presence
     @card.image_remote_url = (Addressable::URI.parse(@url) + image_url).to_s if image_url.present? && @url.present?
@@ -292,6 +292,10 @@ class FetchLinkCardService < BaseService
     publisher = data['publisher']
     publisher = publisher.first if publisher.is_a?(Array)
     publisher.is_a?(Hash) ? publisher['name'] : nil
+  end
+
+  def structured_text(value)
+    value.is_a?(Hash) && value['@value'] && value['@language'] ? value['@value'] : value
   end
 
   def decode_text(value)
