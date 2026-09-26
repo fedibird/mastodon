@@ -43,6 +43,18 @@
     .fields-row__column.fields-row__column-6.fields-group
       = f.input :mascot, as: :file, wrapper: :with_block_label, label: t('admin.settings.mascot.title'), hint: site_upload_delete_hint(t('admin.settings.mascot.desc_html'), :mascot)
 
+  .fields-row
+    .fields-row__column.fields-row__column-6.fields-group
+      = f.input :favicon, as: :file, wrapper: :with_block_label, label: t('admin.settings.favicon.title'), hint: site_upload_delete_hint(t('admin.settings.favicon.desc_html'), :favicon), input_html: { accept: 'image/jpeg,image/png,image/gif,image/webp' }
+      - if (favicon = SiteUpload.find_by(var: 'favicon'))
+        %p= image_tag favicon.file.url('48'), alt: '', size: '48x48'
+
+  .fields-row
+    .fields-row__column.fields-row__column-6.fields-group
+      = f.input :app_icon, as: :file, wrapper: :with_block_label, label: t('admin.settings.app_icon.title'), hint: site_upload_delete_hint(t('admin.settings.app_icon.desc_html'), :app_icon), input_html: { accept: 'image/jpeg,image/png,image/gif,image/webp' }
+      - if (app_icon = SiteUpload.find_by(var: 'app_icon'))
+        %p= image_tag app_icon.file.url('48'), alt: '', size: '48x48'
+
   %hr.spacer/
 
   .fields-group

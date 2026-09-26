@@ -75,10 +75,10 @@ describe ApplicationHelper do
     end
   end
 
-  describe 'favicon_path' do
+  describe 'default_favicon_path' do
     it 'returns /favicon.ico on production enviromnent' do
       expect(Rails.env).to receive(:production?).and_return(true)
-      expect(helper.favicon_path).to eq '/favicon.ico'
+      expect(helper.default_favicon_path).to eq '/favicon.ico'
     end
   end
 

@@ -1,6 +1,27 @@
 # frozen_string_literal: true
 
 module InstanceHelper
+  def instance_presenter
+    @instance_presenter ||= InstancePresenter.new
+  end
+
+  def favicon_path(size = '48')
+    instance_presenter.favicon&.file&.url(size.to_s)
+  end
+
+  def app_icon_path(size = '48')
+    instance_presenter.app_icon&.file&.url(size.to_s)
+  end
+
+  def use_mask_icon?
+    instance_presenter.app_icon.blank?
+  end
+
+  def default_favicon_path
+    env_suffix = Rails.env.production? ? '' : '-dev'
+    "/favicon#{env_suffix}.ico"
+  end
+
   def site_title
     Setting.site_title
   end
