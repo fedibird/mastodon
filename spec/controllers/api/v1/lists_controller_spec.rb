@@ -16,6 +16,12 @@ RSpec.describe Api::V1::ListsController, type: :controller do
       get :index
       expect(response).to have_http_status(200)
     end
+
+    it 'exposes exclusive as false while keeping favourite' do
+      get :index
+
+      expect(body_as_json).to all(include(exclusive: false, favourite: false))
+    end
   end
 
   describe 'GET #show' do
@@ -24,6 +30,13 @@ RSpec.describe Api::V1::ListsController, type: :controller do
     it 'returns http success' do
       get :show, params: { id: list.id }
       expect(response).to have_http_status(200)
+    end
+
+    it 'exposes exclusive as false' do
+      get :show, params: { id: list.id }
+
+      expect(body_as_json[:exclusive]).to be false
+      expect(body_as_json[:favourite]).to be false
     end
   end
 
@@ -42,6 +55,14 @@ RSpec.describe Api::V1::ListsController, type: :controller do
       expect(List.where(account: user.account).count).to eq 2
       expect(List.last.title).to eq 'Foo bar'
     end
+
+    it 'ignores an exclusive flag and returns false' do
+      post :create, params: { title: 'Foo', exclusive: true }
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json[:title]).to eq('Foo')
+      expect(body_as_json[:exclusive]).to be false
+    end
   end
 
   describe 'PUT #update' do
@@ -57,6 +78,17 @@ RSpec.describe Api::V1::ListsController, type: :controller do
 
     it 'updates the list' do
       expect(list.reload.title).to eq 'Updated title'
+    end
+
+    it 'ignores an exclusive flag and still updates the list' do
+      put :update, params: { id: list.id, title: 'Kept title', replies_policy: 'followed', exclusive: true }
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json[:exclusive]).to be false
+      expect(body_as_json[:title]).to eq('Kept title')
+      expect(body_as_json[:replies_policy]).to eq('followed')
+      expect(list.reload.title).to eq('Kept title')
+      expect(list.reload.replies_policy).to eq('followed')
     end
   end
 
