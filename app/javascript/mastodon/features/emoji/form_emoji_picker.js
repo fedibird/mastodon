@@ -7,6 +7,7 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import escapeTextContentForBrowser from 'escape-html';
 
 import Icon from 'mastodon/components/icon';
+import CustomEmojiText from 'mastodon/components/custom_emoji_text';
 import EmojiPickerDropdown from 'mastodon/features/compose/components/emoji_picker_dropdown';
 import emojify, {
   buildCustomEmojiMap,
@@ -92,6 +93,9 @@ export const decorateEmojiPickerField = field => {
     return field.parentElement.querySelector('.emoji-picker-input__button-host');
   }
 
+  const fieldWrap = document.createElement('div');
+  fieldWrap.className = 'emoji-picker-field';
+
   const wrapper = document.createElement('div');
   wrapper.className = 'emoji-picker-input';
 
@@ -102,15 +106,36 @@ export const decorateEmojiPickerField = field => {
   const host = document.createElement('div');
   host.className = 'emoji-picker-input__button-host';
 
-  field.parentNode.insertBefore(wrapper, field);
+  const preview = document.createElement('div');
+  preview.className = 'emoji-picker-preview';
+
+  field.parentNode.insertBefore(fieldWrap, field);
+  fieldWrap.appendChild(wrapper);
   wrapper.appendChild(field);
   wrapper.appendChild(host);
+  fieldWrap.appendChild(preview);
   field.dataset.emojiPickerMounted = 'true';
 
   return host;
 };
 
 class FormEmojiPickerField extends React.PureComponent {
+
+  state = {
+    value: this.props.field.value,
+  };
+
+  componentDidMount () {
+    this.props.field.addEventListener('input', this.handleInput);
+  }
+
+  componentWillUnmount () {
+    this.props.field.removeEventListener('input', this.handleInput);
+  }
+
+  handleInput = () => {
+    this.setState({ value: this.props.field.value });
+  };
 
   handleOpen = id => {
     this.props.onOpen(this.props.field, id);
@@ -125,34 +150,44 @@ class FormEmojiPickerField extends React.PureComponent {
   };
 
   render () {
-    const { field, index, intl, openDropdownId, pickerData, onClose, skinTone, onSkinTone } = this.props;
+    const { field, index, intl, openDropdownId, pickerData, customEmojis, onClose, skinTone, onSkinTone } = this.props;
     const host = decorateEmojiPickerField(field);
+    const preview = field.parentElement.parentElement.querySelector('.emoji-picker-preview');
     const label = intl.formatMessage(messages.emoji);
+    const { value } = this.state;
 
-    return ReactDOM.createPortal(
-      <EmojiPickerDropdown
-        key={`form-emoji-picker-${index}`}
-        pickersEmoji={pickerData}
-        openDropdownId={openDropdownId}
-        onOpen={this.handleOpen}
-        onClose={onClose}
-        onPickEmoji={this.handlePick}
-        skinTone={skinTone}
-        onSkinTone={onSkinTone}
-        frequentlyUsedEmojis={[]}
-        button={(
-          <button
-            type='button'
-            className='icon-button'
-            title={label}
-            aria-label={label}
-            onMouseDown={this.handleMouseDown}
-          >
-            <Icon id='smile-o' fixedWidth aria-hidden='true' />
-          </button>
+    return (
+      <React.Fragment>
+        {ReactDOM.createPortal(
+          <EmojiPickerDropdown
+            key={`form-emoji-picker-${index}`}
+            pickersEmoji={pickerData}
+            openDropdownId={openDropdownId}
+            onOpen={this.handleOpen}
+            onClose={onClose}
+            onPickEmoji={this.handlePick}
+            skinTone={skinTone}
+            onSkinTone={onSkinTone}
+            frequentlyUsedEmojis={[]}
+            button={(
+              <button
+                type='button'
+                className='icon-button'
+                title={label}
+                aria-label={label}
+                onMouseDown={this.handleMouseDown}
+              >
+                <Icon id='smile-o' fixedWidth aria-hidden='true' />
+              </button>
+            )}
+          />,
+          host,
         )}
-      />,
-      host,
+        {value && preview && ReactDOM.createPortal(
+          <CustomEmojiText text={value} customEmojis={customEmojis} />,
+          preview,
+        )}
+      </React.Fragment>
     );
   }
 
@@ -164,6 +199,7 @@ FormEmojiPickerField.propTypes = {
   intl: PropTypes.object.isRequired,
   openDropdownId: PropTypes.string,
   pickerData: ImmutablePropTypes.map.isRequired,
+  customEmojis: ImmutablePropTypes.list.isRequired,
   skinTone: PropTypes.number.isRequired,
   onOpen: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
@@ -178,12 +214,14 @@ class FormEmojiPickerManager extends React.PureComponent {
     openDropdownId: null,
     skinTone: 1,
     pickerData: emptyEmojiData.picker,
+    customEmojis: emptyEmojiData.all,
   };
 
   selections = new WeakMap();
 
   componentDidMount () {
     const { fields, textNodes } = this.props;
+    this.mounted = true;
 
     fields.forEach(field => {
       const saveSelection = () => this.saveSelection(field);
@@ -195,10 +233,22 @@ class FormEmojiPickerManager extends React.PureComponent {
 
     getCustomEmojiData().then(({ all, picker }) => {
       renderCustomEmojiText(textNodes, all);
-      this.setState({ pickerData: picker });
+
+      if (!this.mounted) {
+        return;
+      }
+
+      this.setState({
+        pickerData: picker,
+        customEmojis: all,
+      });
     }).catch(() => {
       // The field and Unicode picker remain usable if custom emoji loading fails.
     });
+  }
+
+  componentWillUnmount () {
+    this.mounted = false;
   }
 
   saveSelection = field => {
@@ -235,6 +285,7 @@ class FormEmojiPickerManager extends React.PureComponent {
       index={index}
       intl={this.props.intl}
       pickerData={this.state.pickerData}
+      customEmojis={this.state.customEmojis}
       openDropdownId={this.state.openDropdownId}
       onOpen={this.handleOpen}
       onClose={this.handleClose}

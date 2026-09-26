@@ -29,6 +29,23 @@ RSpec.describe Settings::ProfilesController, type: :controller do
       expect(pairs).to all(satisfy { |field| field['maxlength'] == '255' })
       expect(document.at_css('#account_location')['data-emoji-picker']).to be_nil
     end
+
+    it 'gives profile fields and verification their own full-width sections' do
+      get :show
+      document = Nokogiri::HTML(response.body)
+      fields = document.at_css('.profile-fields')
+      verification = document.at_css('.profile-verification')
+
+      expect(fields).to be_present
+      expect(verification).to be_present
+      expect(fields['class']).not_to include('fields-row__column-6')
+      expect(verification['class']).not_to include('fields-row__column-6')
+      expect(fields.at_css('.row input[name$="[name]"]')).to be_present
+      expect(fields.at_css('.row input[name$="[value]"]')).to be_present
+      expect(verification.at_css('.input-copy input')).to be_present
+      expect(fields.ancestors.none? { |node| node['class'].to_s.split.include?('fields-row') }).to be true
+      expect(verification.ancestors.none? { |node| node['class'].to_s.split.include?('fields-row') }).to be true
+    end
   end
 
   describe 'PUT #update' do

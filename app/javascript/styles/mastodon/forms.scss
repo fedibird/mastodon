@@ -10,7 +10,7 @@ code {
 
   > input,
   > textarea {
-    padding-inline-end: 48px;
+    padding-inline-end: 52px;
   }
 
   &__button-host {
@@ -36,6 +36,27 @@ code {
   &--textarea &__button-host {
     top: 8px;
     transform: none;
+  }
+}
+
+.emoji-picker-preview {
+  margin-top: 6px;
+  min-height: 20px;
+  color: $primary-text-color;
+  font-size: 14px;
+  line-height: 20px;
+  word-break: break-word;
+  white-space: pre-wrap;
+
+  .emojione,
+  .custom-emoji {
+    width: 20px;
+    height: 20px;
+    vertical-align: middle;
+  }
+
+  &:empty {
+    display: none;
   }
 }
 
@@ -459,6 +480,13 @@ code {
     &:focus {
       border-color: $highlight-text-color;
       background: darken($ui-base-color, 8%);
+    }
+  }
+
+  .emoji-picker-input {
+    > input,
+    > textarea {
+      padding-inline-end: 52px;
     }
   }
 
