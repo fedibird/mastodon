@@ -27,7 +27,7 @@ describe Api::V1::Push::SubscriptionsController do
   let(:alerts_payload) do
     {
       data: {
-        policy: 'all',
+        policy: 'followed',
 
         alerts: {
           follow: true,
@@ -63,6 +63,20 @@ describe Api::V1::Push::SubscriptionsController do
       post :create, params: create_payload
       expect(Web::PushSubscription.where(endpoint: create_payload[:subscription][:endpoint]).count).to eq 1
     end
+
+    it 'returns all as the default policy' do
+      expect(body_as_json.with_indifferent_access).to include(
+        endpoint: create_payload[:subscription][:endpoint],
+        alerts: {},
+        policy: 'all'
+      )
+    end
+
+    it 'returns all as the default policy on show' do
+      get :show
+
+      expect(body_as_json[:policy]).to eq('all')
+    end
   end
 
   describe 'PUT #update' do
@@ -74,11 +88,19 @@ describe Api::V1::Push::SubscriptionsController do
     it 'changes alert settings' do
       push_subscription = Web::PushSubscription.find_by(endpoint: create_payload[:subscription][:endpoint])
 
-      expect(push_subscription.data['policy']).to eq(alerts_payload[:data][:policy])
+      expect(push_subscription.data['policy']).to eq('followed')
 
       %w(follow follow_request favourite reblog mention poll status emoji_reaction status_reference).each do |type|
         expect(push_subscription.data['alerts'][type]).to eq(alerts_payload[:data][:alerts][type.to_sym].to_s)
       end
+    end
+
+    it 'returns the updated policy and alerts' do
+      expect(body_as_json.with_indifferent_access).to include(
+        endpoint: create_payload[:subscription][:endpoint],
+        alerts: alerts_payload[:data][:alerts],
+        policy: 'followed'
+      )
     end
   end
 
