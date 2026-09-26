@@ -50,19 +50,19 @@ class CustomEmoji < ApplicationRecord
 
   SHORTCODE_RE_FRAGMENT = '[a-zA-Z0-9_]+'
 
-  # U+200B ZERO WIDTH SPACE. Display transports insert this between adjacent
-  # recognized custom emoji. Stored text and edit-source responses stay canonical.
+  # U+200B ZERO WIDTH SPACE. Display transports insert this beside a
+  # recognized custom emoji when the neighboring character is non-whitespace.
+  # Stored text and edit-source responses stay canonical.
   COMPATIBLE_BOUNDARY = "\u200B"
 
-  # Colon is intentionally accepted as an emoji boundary.
+  # Fedibird intentionally recognizes a known :shortcode: regardless of
+  # surrounding characters. This supports compact custom emoji syntax used by
+  # Misskey and similar software.
   #
-  # Fedibird intentionally allows : as a custom emoji boundary for compatibility
-  # with adjacent emoji syntax used by Misskey and similar software. This trades
-  # off the extremely rare case where an IPv6 segment happens to match an
-  # available custom emoji shortcode.
-  SCAN_RE = /(?<=[^[:alnum:]]|\n|^)
-    :(#{SHORTCODE_RE_FRAGMENT}):
-    (?=[^[:alnum:]]|$)/x
+  # This can cause an existing custom emoji shortcode to be recognized inside
+  # otherwise ordinary colon-delimited text (including rare IPv6-like cases).
+  # Fedibird intentionally accepts that tradeoff.
+  SCAN_RE = /:(#{SHORTCODE_RE_FRAGMENT}):/
 
   ALIAS_KEYS = {
     'alterneteName'    => 'alternate_name',
@@ -315,21 +315,22 @@ class CustomEmoji < ApplicationRecord
       EntityCache.instance.emoji(shortcodes, domain)
     end
 
-    # Rewrite only boundaries where both sides are recognized custom emoji.
-    # `:foo::bar:` becomes `:foo:\u200B:bar:`. `2001:db8::1234` and `foo::bar`
-    # are left alone, and an existing U+200B is not doubled.
+    # Insert U+200B before or after a recognized :shortcode: when that side
+    # touches a non-whitespace character. Adjacent shortcodes share one
+    # boundary (`:foo::bar:` => `:foo:\u200B:bar:`). Unknown shortcodes and an
+    # existing U+200B are left alone. The result is idempotent.
     def with_compatible_boundaries(text, emojis)
       return text if text.blank? || emojis.blank?
-      return text unless text.include?('::')
+      return text unless text.include?(':')
 
       shortcodes = recognized_shortcodes(emojis)
       return text if shortcodes.empty?
 
-      insert_at = adjacent_shortcode_boundaries(text, shortcodes)
+      insert_at = compatible_boundary_positions(text, shortcodes)
       return text if insert_at.empty?
 
       result = text.dup
-      insert_at.reverse_each { |index| result.insert(index, COMPATIBLE_BOUNDARY) }
+      insert_at.to_a.sort.reverse_each { |index| result.insert(index, COMPATIBLE_BOUNDARY) }
       result
     end
 
@@ -350,20 +351,28 @@ class CustomEmoji < ApplicationRecord
     end
 
     # Match offsets are character indexes, the same space String#insert uses.
-    # An existing U+200B sits between the two spans, so it is not a new boundary.
-    def adjacent_shortcode_boundaries(text, shortcodes)
-      spans = []
+    def compatible_boundary_positions(text, shortcodes)
+      positions = Set.new
 
       text.scan(SCAN_RE) do
         shortcode = Regexp.last_match(1)
         next unless shortcodes[shortcode]
 
-        spans << [Regexp.last_match.begin(0), Regexp.last_match.end(0)]
+        start_pos = Regexp.last_match.begin(0)
+        end_pos = Regexp.last_match.end(0)
+        before = start_pos.zero? ? nil : text[start_pos - 1]
+        after = end_pos >= text.length ? nil : text[end_pos]
+
+        positions << start_pos if needs_compatible_boundary?(before)
+        positions << end_pos if needs_compatible_boundary?(after)
       end
 
-      spans.each_cons(2).filter_map do |(_, left_end), (right_begin, _)|
-        left_end if left_end == right_begin
-      end
+      positions
+    end
+
+    # U+200B is an existing compatible separator, not ordinary whitespace.
+    def needs_compatible_boundary?(char)
+      !char.nil? && char != COMPATIBLE_BOUNDARY && !char.match?(/[[:space:]]/)
     end
 
     def file_styles(file)

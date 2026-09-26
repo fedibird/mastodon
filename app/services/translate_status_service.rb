@@ -122,9 +122,10 @@ class TranslateStatusService < BaseService
         if inside_shortname && text[i] == ':'
           inside_shortname = false
           shortcode = text[shortname_start_index + 1..i - 1]
-          char_after = text[i + 1]
 
-          next unless (char_after.nil? || !Formatter::DISALLOWED_BOUNDING_REGEX.match?(char_after)) && shortcodes[shortcode]
+          # Same recognition rule as CustomEmoji::SCAN_RE: a known shortcode
+          # is wrapped even when it touches letters, Japanese, or punctuation.
+          next unless shortcodes[shortcode]
 
           result << Nokogiri::XML::Text.new(text[last_index..shortname_start_index - 1], tree.document) if shortname_start_index.positive?
 
@@ -134,7 +135,7 @@ class TranslateStatusService < BaseService
           result << span
 
           last_index = i + 1
-        elsif text[i] == ':' && (i.zero? || !Formatter::DISALLOWED_BOUNDING_REGEX.match?(text[i - 1]))
+        elsif text[i] == ':'
           inside_shortname = true
           shortname_start_index = i
         end

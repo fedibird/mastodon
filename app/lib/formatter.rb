@@ -9,13 +9,6 @@ class Formatter
   include ActionView::Helpers::TextHelper
   include StatusesHelper
 
-  # Colon is intentionally accepted as an emoji boundary.
-  #
-  # Fedibird intentionally allows : as a custom emoji boundary for compatibility
-  # with adjacent emoji syntax used by Misskey and similar software. This trades
-  # off the extremely rare case where an IPv6 segment happens to match an
-  # available custom emoji shortcode.
-  DISALLOWED_BOUNDING_REGEX = /[[:alnum:]]/.freeze
   NEWLINE_TAGS_RE = %r{(<br />|<br>|</p>)+}
 
   # A decoded URL is only ever shown to a human or offered to a matcher, so any
@@ -143,12 +136,14 @@ class Formatter
     html.html_safe # rubocop:disable Rails/OutputSafety
   end
 
-  # custom_emojify replaces shortcodes with images for Fedibird's own HTML.
-  # emoji_compatibility leaves the shortcodes in place and only separates
-  # adjacent recognized ones (`:foo::bar:` => `:foo:\u200B:bar:`) so other
-  # clients can emojify them. Edit/source responses must not request this.
+  # custom_emojify replaces shortcodes with images for Fedibird's own HTML
+  # and does not insert U+200B. emoji_compatibility leaves the shortcodes in
+  # place and inserts U+200B where a recognized shortcode touches
+  # non-whitespace text, so Mastodon-compatible consumers can still recognize
+  # it. Edit/source responses must not request this. Only text nodes are
+  # rewritten; href, src, and other attributes stay canonical.
   def apply_emoji_compatibility(html, emojis)
-    return html if html.blank? || emojis.blank? || !html.include?('::')
+    return html if html.blank? || emojis.blank? || !html.include?(':')
 
     tree = Nokogiri::HTML.fragment(html)
     changed = false
@@ -307,6 +302,9 @@ class Formatter
     end
   end
 
+  # Known :shortcode: values are replaced regardless of the surrounding
+  # characters. See CustomEmoji::SCAN_RE. Fedibird's own HTML does not insert
+  # U+200B; the image replaces the shortcode directly.
   # rubocop:disable Metrics/BlockNesting
   def encode_custom_emojis(html, emojis, animate = false)
     return html if emojis.empty?
@@ -328,9 +326,8 @@ class Formatter
         if inside_shortname && text[i] == ':'
           inside_shortname = false
           shortcode = text[shortname_start_index + 1..i - 1]
-          char_after = text[i + 1]
 
-          next unless (char_after.nil? || !DISALLOWED_BOUNDING_REGEX.match?(char_after)) && (emoji = emoji_map[shortcode])
+          next unless (emoji = emoji_map[shortcode])
 
           original_url, static_url = emoji
 
@@ -345,7 +342,7 @@ class Formatter
           )
 
           last_index = i + 1
-        elsif text[i] == ':' && (i.zero? || !DISALLOWED_BOUNDING_REGEX.match?(text[i - 1]))
+        elsif text[i] == ':'
           inside_shortname = true
           shortname_start_index = i
         end

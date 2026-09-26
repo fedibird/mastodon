@@ -58,6 +58,32 @@ RSpec.describe Settings::ProfilesController, type: :controller do
       expect(document.css('.card .p-name img.custom-emoji').size).to eq(2)
     end
 
+    it 'keeps a shortcode beside other text canonical in edit fields and renders it in the card' do
+      Fabricate(:custom_emoji, shortcode: 'foo')
+      @user.account.update!(
+        display_name: 'Noel:foo:Lab',
+        note: '今日は:foo:です',
+        followed_message: 'abc:foo:def'
+      )
+
+      get :show
+      document = Nokogiri::HTML(response.body)
+      display_name = document.at_css('#account_display_name')
+      note = document.at_css('#account_note')
+      followed = document.at_css('#account_followed_message')
+      card_name = document.at_css('.card .p-name')
+
+      expect(display_name['value']).to eq('Noel:foo:Lab')
+      expect(display_name['value']).not_to include("\u200B")
+      expect(note.text.strip).to eq('今日は:foo:です')
+      expect(note.text).not_to include("\u200B")
+      expect(followed.text.strip).to eq('abc:foo:def')
+      expect(followed.text).not_to include("\u200B")
+      expect(card_name.css('img.custom-emoji').size).to eq(1)
+      expect(card_name.text).to include('Noel', 'Lab')
+      expect(card_name.inner_html).not_to include("\u200B")
+    end
+
     it 'gives profile fields and verification their own full-width sections' do
       get :show
       document = Nokogiri::HTML(response.body)

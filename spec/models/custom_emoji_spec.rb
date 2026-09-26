@@ -75,13 +75,25 @@ RSpec.describe CustomEmoji, type: :model do
       end
     end
 
-    context 'with adjacent shortcodes' do
+    context 'with a shortcode beside other characters' do
       let!(:foo) { Fabricate(:custom_emoji, shortcode: 'foo') }
       let!(:bar) { Fabricate(:custom_emoji, shortcode: 'bar') }
-      let(:text) { ':foo::bar:' }
 
-      it 'recognizes each shortcode' do
-        expect(described_class.from_text(text, nil).map(&:shortcode)).to contain_exactly('foo', 'bar')
+      [
+        ':foo:',
+        'abc:foo:',
+        ':foo:def',
+        'abc:foo:def',
+        '日本語:foo:です',
+        '(:foo:)',
+      ].each do |sample|
+        it "recognizes foo in #{sample}" do
+          expect(described_class.from_text(sample, nil).map(&:shortcode)).to include('foo')
+        end
+      end
+
+      it 'recognizes each adjacent shortcode' do
+        expect(described_class.from_text(':foo::bar:', nil).map(&:shortcode)).to contain_exactly('foo', 'bar')
       end
     end
   end
@@ -90,34 +102,60 @@ RSpec.describe CustomEmoji, type: :model do
     let(:foo) { Fabricate(:custom_emoji, shortcode: 'foo') }
     let(:bar) { Fabricate(:custom_emoji, shortcode: 'bar') }
     let(:baz) { Fabricate(:custom_emoji, shortcode: 'baz') }
+    let(:emojis) { [foo, bar, baz] }
 
-    # Colon is intentionally accepted as an emoji boundary. Do not assert that
-    # an IPv6 segment which is itself a colon-delimited custom emoji shortcode
-    # stays literal; that misreading is an accepted Fedibird tradeoff.
+    # Fedibird recognizes a known :shortcode: regardless of surrounding
+    # characters, including rare IPv6-like text. Do not assert that an IPv6
+    # segment which is itself a colon-delimited custom emoji shortcode stays
+    # literal; that misreading is an accepted tradeoff. Sequences that are not
+    # a recognized shortcode stay unchanged.
 
-    it 'separates two adjacent recognized shortcodes with one zero-width space' do
-      converted = described_class.with_compatible_boundaries(':foo::bar:', [foo, bar])
+    it 'isolates a recognized shortcode from non-whitespace text and is idempotent' do
+      {
+        ':foo:' => ':foo:',
+        ' :foo:' => ' :foo:',
+        ':foo: ' => ':foo: ',
+        'abc:foo:' => "abc\u200B:foo:",
+        ':foo:def' => ":foo:\u200Bdef",
+        'abc:foo:def' => "abc\u200B:foo:\u200Bdef",
+        '日本語:foo:' => "日本語\u200B:foo:",
+        ':foo:です' => ":foo:\u200Bです",
+        '今日は:foo:です' => "今日は\u200B:foo:\u200Bです",
+        '(:foo:)' => "(\u200B:foo:\u200B)",
+        '「:foo:」' => "「\u200B:foo:\u200B」",
+        ':foo::bar:' => ":foo:\u200B:bar:",
+        ':foo::bar::baz:' => ":foo:\u200B:bar:\u200B:baz:",
+        'abc:foo::bar:def' => "abc\u200B:foo:\u200B:bar:\u200Bdef",
+        '。:foo::bar:' => "。\u200B:foo:\u200B:bar:",
+      }.each do |input, expected|
+        converted = described_class.with_compatible_boundaries(input, emojis)
 
-      expect(converted).to eq(":foo:\u200B:bar:")
-      expect(described_class.with_compatible_boundaries(converted, [foo, bar])).to eq(converted)
+        expect(converted).to eq(expected)
+        expect(described_class.with_compatible_boundaries(converted, emojis)).to eq(converted)
+      end
     end
 
-    it 'separates three adjacent recognized shortcodes' do
-      expect(described_class.with_compatible_boundaries(':foo::bar::baz:', [foo, bar, baz])).to eq(":foo:\u200B:bar:\u200B:baz:")
+    it 'does not add a boundary beside whitespace, including tab, newline, and nbsp' do
+      expect(described_class.with_compatible_boundaries("\t:foo:\n", emojis)).to eq("\t:foo:\n")
+      expect(described_class.with_compatible_boundaries(":foo:\r", emojis)).to eq(":foo:\r")
+      expect(described_class.with_compatible_boundaries('  :foo:  ', emojis)).to eq('  :foo:  ')
+      expect(described_class.with_compatible_boundaries("\u00A0:foo:\u00A0", emojis)).to eq("\u00A0:foo:\u00A0")
     end
 
-    it 'fills only the boundary that is not already separated' do
-      expect(described_class.with_compatible_boundaries(":foo:\u200B:bar::baz:", [foo, bar, baz])).to eq(":foo:\u200B:bar:\u200B:baz:")
+    it 'does not double an existing zero-width space and fills only the open side' do
+      already = "abc\u200B:foo:\u200Bdef"
+
+      expect(described_class.with_compatible_boundaries(already, emojis)).to eq(already)
+      expect(described_class.with_compatible_boundaries("abc\u200B:foo:def", emojis)).to eq("abc\u200B:foo:\u200Bdef")
+      expect(described_class.with_compatible_boundaries(":foo:\u200Bdef", emojis)).to eq(":foo:\u200Bdef")
+      expect(described_class.with_compatible_boundaries(":foo:\u200B:bar::baz:", emojis)).to eq(":foo:\u200B:bar:\u200B:baz:")
     end
 
-    it 'keeps multibyte text around the inserted boundary' do
-      expect(described_class.with_compatible_boundaries('。:foo::bar:', [foo, bar])).to eq("。:foo:\u200B:bar:")
-    end
-
-    it 'does not rewrite colon sequences that are not a pair of recognized shortcodes' do
-      expect(described_class.with_compatible_boundaries('2001:db8::1234', [foo, bar])).to eq('2001:db8::1234')
-      expect(described_class.with_compatible_boundaries('foo::bar', [foo, bar])).to eq('foo::bar')
-      expect(described_class.with_compatible_boundaries(':foo::nope:', [foo, bar])).to eq(':foo::nope:')
+    it 'does not rewrite text that is not a recognized shortcode' do
+      expect(described_class.with_compatible_boundaries('abc:not_an_emoji:def', emojis)).to eq('abc:not_an_emoji:def')
+      expect(described_class.with_compatible_boundaries('2001:db8::1234', emojis)).to eq('2001:db8::1234')
+      expect(described_class.with_compatible_boundaries('foo::bar', emojis)).to eq('foo::bar')
+      expect(described_class.with_compatible_boundaries(':foo::nope:', emojis)).to eq(":foo:\u200B:nope:")
     end
   end
 

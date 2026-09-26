@@ -61,9 +61,9 @@ const emojifyTextNode = (node, customEmojis, domain) => {
         continue;
       }
 
-      // Adjacent shortcodes (`:foo::bar:`) are two custom emoji. Keep the
-      // field value canonical: do not insert U+200B. Display transports add
-      // that boundary; the composer and profile editor keep the stored text.
+      // Custom emoji shortcodes may be adjacent to other text or other shortcodes.
+      // Keep the editable value canonical; display transports add U+200B where
+      // Mastodon-compatible consumers need an explicit boundary.
       const shortcode = str.slice(i, rend);
       const custom_emoji = customEmojis[shortcode];
 
