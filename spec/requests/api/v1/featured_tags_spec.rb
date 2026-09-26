@@ -66,6 +66,19 @@ RSpec.describe 'FeaturedTags' do
 
         expect(body.pluck(:id)).to match_array(expected_ids)
       end
+
+      it 'returns statuses_count as a string and last_status_at as a date' do
+        featured_tag = user_featured_tags.first
+        featured_tag.update_columns(statuses_count: 12, last_status_at: Time.utc(2026, 9, 27, 12, 34, 56))
+
+        get '/api/v1/featured_tags', headers: headers
+
+        json = body_as_json.find { |item| item[:id] == featured_tag.id.to_s }
+
+        expect(json[:statuses_count]).to eq('12')
+        expect(json[:statuses_count]).to be_a(String)
+        expect(json[:last_status_at]).to eq('2026-09-27')
+      end
     end
   end
 
