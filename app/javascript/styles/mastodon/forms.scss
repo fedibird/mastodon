@@ -40,9 +40,13 @@ code {
 }
 
 .emoji-picker-preview {
-  margin-top: 6px;
   min-height: 20px;
+  margin-top: -1px;
+  padding: 8px 10px;
   color: $primary-text-color;
+  background: darken($ui-base-color, 8%);
+  border: 1px solid darken($ui-base-color, 14%);
+  border-radius: 0 0 4px 4px;
   font-size: 14px;
   line-height: 20px;
   word-break: break-word;
@@ -487,6 +491,14 @@ code {
     > input,
     > textarea {
       padding-inline-end: 52px;
+    }
+  }
+
+  .emoji-picker-field--has-preview {
+    .emoji-picker-input > input,
+    .emoji-picker-input > textarea {
+      border-end-start-radius: 0;
+      border-end-end-radius: 0;
     }
   }
 
