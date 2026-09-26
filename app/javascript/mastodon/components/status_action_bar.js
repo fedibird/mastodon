@@ -402,7 +402,7 @@ class StatusActionBar extends ImmutablePureComponent {
     if (publicStatus && !expired) {
       menu.push({ text: intl.formatMessage(messages.copy), action: this.handleCopy });
 
-      if (!domain) {
+      if (me || !domain) {
         menu.push({ text: intl.formatMessage(messages.embed), action: this.handleEmbed });
       }
     }

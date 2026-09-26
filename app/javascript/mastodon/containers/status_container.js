@@ -190,7 +190,7 @@ const mapDispatchToProps = (dispatch, { intl, contextType }) => ({
 
   onEmbed (status) {
     dispatch(openModal('EMBED', {
-      url: status.get('url'),
+      id: status.get('id'),
       onError: error => dispatch(showAlertForError(error)),
     }));
   },

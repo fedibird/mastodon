@@ -428,7 +428,7 @@ class Status extends ImmutablePureComponent {
   }
 
   handleEmbed = (status) => {
-    this.props.dispatch(openModal('EMBED', { url: status.get('url') }));
+    this.props.dispatch(openModal('EMBED', { id: status.get('id') }));
   }
 
   handleUnmuteClick = account => {
