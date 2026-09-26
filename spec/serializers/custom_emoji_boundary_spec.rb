@@ -14,16 +14,16 @@ RSpec.describe 'adjacent custom emoji boundaries' do
   let!(:account) do
     user.account.tap do |record|
       record.update!(
-        display_name: canonical,
-        note: canonical,
-        followed_message: canonical,
-        fields: [{ 'name' => canonical, 'value' => "see #{canonical}" }]
+        display_name: canonical.dup,
+        note: canonical.dup,
+        followed_message: canonical.dup,
+        fields: [{ 'name' => canonical.dup, 'value' => "see #{canonical}" }]
       )
     end
   end
   let!(:status) do
-    record = Fabricate(:status, account: account, text: canonical, spoiler_text: canonical)
-    poll = Fabricate(:poll, account: account, status: record, options: [canonical, 'plain'])
+    record = Fabricate(:status, account: account, text: canonical.dup, spoiler_text: canonical.dup)
+    poll = Fabricate(:poll, account: account, status: record, options: [canonical.dup, 'plain'])
     record.update!(poll_id: poll.id)
     record.reload
   end
@@ -80,7 +80,7 @@ RSpec.describe 'adjacent custom emoji boundaries' do
   end
 
   it 'separates recognized shortcodes in text nodes without rewriting other colon sequences' do
-    plain = Fabricate(:status, account: account, text: "2001:db8::1234 foo::bar #{canonical}")
+    plain = Fabricate(:status, account: account, text: "2001:db8::1234 foo::bar #{canonical}".dup)
     html = Formatter.instance.format(plain, emoji_compatibility: true)
 
     expect(html).to include('2001:db8::1234')
@@ -92,9 +92,9 @@ RSpec.describe 'adjacent custom emoji boundaries' do
 
   it 'returns compatible shortcodes from display REST and canonical text from edit source' do
     account_json = rest_json(account, REST::AccountSerializer, scope: user, scope_name: :current_user)
-    status_json = rest_json(status, REST::StatusSerializer)
+    status_json = rest_json(status, REST::StatusSerializer, scope: user, scope_name: :current_user)
     source_json = rest_json(status, REST::StatusSourceSerializer)
-    redraft_json = rest_json(status, REST::StatusSerializer, source_requested: true)
+    redraft_json = rest_json(status, REST::StatusSerializer, source_requested: true, scope: user, scope_name: :current_user)
 
     expect(account_json[:display_name]).to eq(compatible)
     expect(account_json[:note]).to include(compatible)
@@ -133,7 +133,7 @@ RSpec.describe 'adjacent custom emoji boundaries' do
   end
 
   it 'returns compatible shortcodes from status edit history' do
-    edit = StatusEdit.new(status: status, account: account, text: canonical, spoiler_text: canonical, poll_options: [canonical])
+    edit = StatusEdit.new(status: status, account: account, text: canonical.dup, spoiler_text: canonical.dup, poll_options: [canonical.dup])
     json = rest_json(edit, REST::StatusEditSerializer)
 
     expect(json[:content]).to include(compatible)

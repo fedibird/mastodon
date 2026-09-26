@@ -196,10 +196,6 @@ class REST::StatusSerializer < ActiveModel::Serializer
     CustomEmoji.with_compatible_boundaries(object.spoiler_text, object.emojis)
   end
 
-  def text
-    object.text
-  end
-
   def url
     ActivityPub::TagManager.instance.url_for(object)
   end

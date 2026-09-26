@@ -111,7 +111,7 @@ RSpec.describe CustomEmoji, type: :model do
     end
 
     it 'keeps multibyte text around the inserted boundary' do
-      expect(described_class.with_compatible_boundaries('あ:foo::bar:', [foo, bar])).to eq("あ:foo:\u200B:bar:")
+      expect(described_class.with_compatible_boundaries('。:foo::bar:', [foo, bar])).to eq("。:foo:\u200B:bar:")
     end
 
     it 'does not rewrite colon sequences that are not a pair of recognized shortcodes' do

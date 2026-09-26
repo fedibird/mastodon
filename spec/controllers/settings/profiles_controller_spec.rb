@@ -6,6 +6,10 @@ RSpec.describe Settings::ProfilesController, type: :controller do
   before do
     @user = Fabricate(:user)
     sign_in @user, scope: :user
+    # The admin layout asks Webpacker for packs that are not built in every test run.
+    allow_any_instance_of(ActionView::Base).to receive(:javascript_pack_tag).and_return('')
+    allow_any_instance_of(ActionView::Base).to receive(:stylesheet_pack_tag).and_return('')
+    allow_any_instance_of(ActionView::Base).to receive(:image_pack_tag).and_return('')
   end
 
   describe "GET #show" do

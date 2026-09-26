@@ -329,9 +329,7 @@ class CustomEmoji < ApplicationRecord
       return text if insert_at.empty?
 
       result = text.dup
-      insert_at.reverse_each do |byte_index|
-        result.insert(result.byteslice(0, byte_index).length, COMPATIBLE_BOUNDARY)
-      end
+      insert_at.reverse_each { |index| result.insert(index, COMPATIBLE_BOUNDARY) }
       result
     end
 
@@ -351,8 +349,8 @@ class CustomEmoji < ApplicationRecord
       end
     end
 
-    # MatchData offsets are bytes. Adjacency is compared in bytes so a ZWSP
-    # already sitting between two shortcodes is not treated as a new boundary.
+    # Match offsets are character indexes, the same space String#insert uses.
+    # An existing U+200B sits between the two spans, so it is not a new boundary.
     def adjacent_shortcode_boundaries(text, shortcodes)
       spans = []
 

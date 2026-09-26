@@ -161,7 +161,9 @@ class Formatter
       changed = true
     end
 
-    changed ? tree.to_html : html
+    # HTMLEntities leaves an all-ASCII string tagged US-ASCII, and Nokogiri then
+    # serializes U+200B as &#8203;. Force UTF-8 so the raw character is returned.
+    changed ? tree.to_html(encoding: 'UTF-8') : html
   end
 
   def format_summary(emoji)
