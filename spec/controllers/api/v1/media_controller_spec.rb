@@ -100,6 +100,31 @@ RSpec.describe Api::V1::MediaController, type: :controller do
     end
   end
 
+  describe 'GET #show' do
+    context 'when attached to a scheduled status' do
+      let(:scheduled_status) { Fabricate(:scheduled_status, account: user.account) }
+      let(:media) { Fabricate(:media_attachment, status: nil, account: user.account, scheduled_status: scheduled_status) }
+
+      it 'returns the media attachment' do
+        get :show, params: { id: media.id }
+
+        expect(response).to have_http_status(200)
+        expect(body_as_json[:id]).to eq media.id.to_s
+      end
+    end
+
+    context 'when attached to somebody else\'s scheduled status' do
+      let(:other) { Fabricate(:account) }
+      let(:media) { Fabricate(:media_attachment, status: nil, account: other, scheduled_status: Fabricate(:scheduled_status, account: other)) }
+
+      it 'returns http not found' do
+        get :show, params: { id: media.id }
+
+        expect(response).to have_http_status(:not_found)
+      end
+    end
+  end
+
   describe 'PUT #update' do
     context 'when somebody else\'s' do
       let(:media) { Fabricate(:media_attachment, status: nil) }
@@ -155,6 +180,41 @@ RSpec.describe Api::V1::MediaController, type: :controller do
       it 'returns http not found' do
         put :update, params: { id: media.id, description: 'Lorem ipsum!!!' }
         expect(response).to have_http_status(:not_found)
+      end
+    end
+
+    context 'when attached to a scheduled status' do
+      let(:scheduled_status) { Fabricate(:scheduled_status, account: user.account) }
+      let(:media) { Fabricate(:media_attachment, status: nil, account: user.account, scheduled_status: scheduled_status) }
+
+      it 'updates the description without detaching the scheduled status' do
+        put :update, params: { id: media.id, description: 'updated alt text' }
+
+        expect(response).to have_http_status(200)
+        media.reload
+        expect(media.description).to eq 'updated alt text'
+        expect(media.scheduled_status_id).to eq scheduled_status.id
+        expect(media.status_id).to be_nil
+      end
+
+      it 'updates the focus' do
+        put :update, params: { id: media.id, focus: '0.5,-0.25' }
+
+        expect(response).to have_http_status(200)
+        expect(media.reload.file.meta.dig('focus', 'x')).to eq 0.5
+        expect(media.file.meta.dig('focus', 'y')).to eq(-0.25)
+      end
+    end
+
+    context 'when attached to somebody else\'s scheduled status' do
+      let(:other) { Fabricate(:account) }
+      let(:media) { Fabricate(:media_attachment, status: nil, account: other, scheduled_status: Fabricate(:scheduled_status, account: other)) }
+
+      it 'returns http not found' do
+        put :update, params: { id: media.id, description: 'updated alt text' }
+
+        expect(response).to have_http_status(:not_found)
+        expect(media.reload.description).not_to eq 'updated alt text'
       end
     end
   end
