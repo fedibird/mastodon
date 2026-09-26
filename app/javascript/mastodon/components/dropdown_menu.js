@@ -282,6 +282,28 @@ class Dropdown extends React.PureComponent {
     } = this.props;
 
     const open = this.state.id === openDropdownId;
+    const popperConfig = scrollable ? {
+      strategy: 'fixed',
+      modifiers: [
+        {
+          name: 'preventOverflow',
+          options: {
+            boundary: 'viewport',
+            altAxis: true,
+            padding: 8,
+          },
+        },
+        {
+          name: 'flip',
+          options: {
+            boundary: 'viewport',
+            padding: 8,
+          },
+        },
+      ],
+    } : {
+      strategy: 'fixed',
+    };
 
     const button = children ? React.cloneElement(React.Children.only(children), {
         onClick: this.handleClick,
@@ -308,33 +330,7 @@ class Dropdown extends React.PureComponent {
           {button}
         </span>
 
-        <Overlay
-          show={open}
-          offset={[5, 5]}
-          placement='bottom'
-          flip
-          target={this.findTarget}
-          popperConfig={{
-            strategy: 'fixed',
-            modifiers: [
-              {
-                name: 'preventOverflow',
-                options: {
-                  boundary: 'viewport',
-                  altAxis: true,
-                  padding: 8,
-                },
-              },
-              {
-                name: 'flip',
-                options: {
-                  boundary: 'viewport',
-                  padding: 8,
-                },
-              },
-            ],
-          }}
-        >
+        <Overlay show={open} offset={[5, 5]} placement='bottom' flip target={this.findTarget} popperConfig={popperConfig}>
           {({ props, arrowProps, placement }) => (
             <div {...props}>
               <div className={`dropdown-animation dropdown-menu ${placement}`}>
