@@ -91,6 +91,25 @@ RSpec.describe FetchLinkCardService do
     expect(card).to be_appropriate_for_trends
   end
 
+  it 'reads language-tagged JSON-LD headline and description values' do
+    page = page_for(<<~HTML)
+      <html>
+        <script type="application/ld+json">
+          {
+            "@type": "NewsArticle",
+            "headline": { "@value": "日本語のニュースタイトル", "@language": "ja" },
+            "description": { "@value": "日本語の記事概要", "@language": "ja" }
+          }
+        </script>
+      </html>
+    HTML
+
+    subject.send(:apply_preview_card_details, page)
+
+    expect(card.title).to eq '日本語のニュースタイトル'
+    expect(card.description).to eq '日本語の記事概要'
+  end
+
   it 'does not use a JSON-LD image when og:image is absent' do
     subject.instance_variable_set(:@url, 'https://news.example/story')
     stub_image_download
