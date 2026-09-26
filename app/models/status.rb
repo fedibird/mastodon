@@ -615,6 +615,9 @@ class Status < ApplicationRecord
   after_create_commit :set_status_expire, if: -> { expires_at.present? }
   after_update :update_status_expire, if: -> { expires_at.present? }
 
+  after_create_commit :trigger_create_webhooks
+  after_update_commit :trigger_update_webhooks
+
   around_create Mastodon::Snowflake::Callbacks
 
   before_validation :prepare_contents, on: :create, if: :local?
@@ -888,5 +891,13 @@ class Status < ApplicationRecord
     inbox_owners.each do |inbox_owner|
       AccountConversation.remove_status(inbox_owner, self)
     end
+  end
+
+  def trigger_create_webhooks
+    TriggerWebhookWorker.perform_async('status.created', 'Status', id) if local?
+  end
+
+  def trigger_update_webhooks
+    TriggerWebhookWorker.perform_async('status.updated', 'Status', id) if local?
   end
 end

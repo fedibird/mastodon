@@ -1334,6 +1334,25 @@ ja:
       edit_preset: プリセット警告文を編集
       empty: まだプリセット警告文が作成されていません。
       title: プリセット警告文を管理
+    webhooks:
+      add_new: エンドポイントを追加
+      delete: 削除
+      description_html: <strong>Webhook</strong> により、Mastodon は選択されたイベントの<strong>リアルタイム通知</strong>をアプリケーションにプッシュします。これにより、アプリケーションは<strong>自動的に処理を行うことができます</strong>。
+      disable: 無効化
+      disabled: 無効
+      edit: エンドポイントを編集
+      empty: まだWebhookエンドポイントが設定されていません。
+      enable: 有効化
+      enabled: アクティブ
+      enabled_events:
+        other: "%{count}件の有効なイベント"
+      events: イベント
+      new: 新しいwebhook
+      rotate_secret: シークレットをローテートする
+      secret: シークレットに署名
+      status: 投稿
+      title: Webhooks
+      webhook: Webhook
   admin_mailer:
     new_pending_account:
       body: 新しいアカウントの詳細は以下の通りです。この申請を承認または却下することができます。

@@ -738,6 +738,7 @@ class Account < ApplicationRecord
   before_validation :prepare_contents, if: :local?
   before_validation :prepare_username, on: :create
   before_destroy :clean_feed_manager
+  after_update_commit :trigger_update_webhooks
 
   private
 
@@ -787,5 +788,9 @@ class Account < ApplicationRecord
     return unless local?
 
     CanonicalEmailBlock.where(reference_account: self).delete_all
+  end
+
+  def trigger_update_webhooks
+    TriggerWebhookWorker.perform_async('account.updated', 'Account', id) if local?
   end
 end

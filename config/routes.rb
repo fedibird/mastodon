@@ -281,6 +281,17 @@ Rails.application.routes.draw do
       end
     end
 
+    resources :webhooks do
+      member do
+        post :enable
+        post :disable
+      end
+
+      resource :secret, only: [], controller: 'webhooks/secrets' do
+        post :rotate
+      end
+    end
+
     resources :instances, only: [:index, :show], constraints: { id: /[^\/]+/ } do
       member do
         post :clear_delivery_errors

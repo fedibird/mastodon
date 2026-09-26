@@ -120,6 +120,7 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
   before_validation :sanitize_locale
   before_create :set_approved
   after_commit :send_pending_devise_notifications
+  after_create_commit :trigger_webhooks
 
   # This avoids a deprecation warning from Rails 5.1
   # It seems possible that a future release of devise-two-factor will
@@ -197,6 +198,7 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
 
   def confirm
     new_user      = !confirmed?
+    ready_before  = confirmed? && approved?
     self.approved = true if open_registrations? && !sign_up_from_ip_requires_approval?
 
     super
@@ -206,16 +208,20 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
     elsif new_user
       notify_staff_about_pending_account! if invite_request&.text.present?
     end
+
+    trigger_account_approved_webhook unless ready_before
   end
 
   def confirm!
     new_user      = !confirmed?
+    ready_before  = confirmed? && approved?
     self.approved = true if open_registrations?
 
     skip_confirmation!
     save!
 
     prepare_new_user! if new_user && approved?
+    trigger_account_approved_webhook unless ready_before
   end
 
   def update_sign_in!(request, new_sign_in: false)
@@ -265,6 +271,7 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
 
     update!(approved: true)
     prepare_new_user!
+    trigger_account_approved_webhook
   end
 
   def otp_enabled?
@@ -568,6 +575,19 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
     ActivityTracker.increment('activity:accounts:local')
     ActivityTracker.record('activity:logins', id)
     UserMailer.welcome(self).deliver_later
+  end
+
+  # Fedibird calls prepare_new_user! from approve! even when the user is still
+  # unconfirmed, and confirm can call it again. account.approved means the
+  # account is both approved and confirmed, and it is emitted only once.
+  def trigger_account_approved_webhook
+    return unless confirmed? && approved?
+
+    TriggerWebhookWorker.perform_async('account.approved', 'Account', account_id)
+  end
+
+  def trigger_webhooks
+    TriggerWebhookWorker.perform_async('account.created', 'Account', account_id)
   end
 
   def prepare_returning_user!

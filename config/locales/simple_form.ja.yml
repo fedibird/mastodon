@@ -230,6 +230,10 @@ ja:
         name: バッジとして表示する場合のロール名です
         permissions_as_keys: このロールのユーザーができることは…
         position: 数値が大きいロールが優先されます。一部の操作は、より低い優先度のロールにだけ行えます
+      webhook:
+        events: 送信するイベントを選択
+        template: 変数補完を使用して、独自のJSONペイロードを構成できます。デフォルトのJSONを使用する場合は空白のままにします。
+        url: イベントの送信先
     labels:
       account:
         fields:
@@ -546,6 +550,10 @@ ja:
         name: 名前
         permissions_as_keys: 権限
         position: 優先度
+      webhook:
+        events: 有効なイベント
+        template: ペイロードテンプレート
+        url: エンドポイントURL
     'no': いいえ
     recommended: おすすめ
     required:

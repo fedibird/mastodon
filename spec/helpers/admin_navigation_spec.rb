@@ -88,6 +88,16 @@ RSpec.describe 'admin navigation parents', type: :helper do
     expect(admin.at_css("a[href='#{helper.admin_dashboard_url}']")).to be_nil
   end
 
+  it 'links the admin parent to webhooks when only manage_webhooks is granted' do
+    html = navigation_for(user_with_permissions(:manage_webhooks))
+    admin = item(html, 'admin')
+
+    expect(admin).to be_present
+    expect(parent_link(admin)['href']).to eq helper.admin_webhooks_path
+    expect(admin.at_css("a[href='#{helper.admin_webhooks_path}']")).to be_present
+    expect(admin.at_css("a[href='#{helper.admin_dashboard_url}']")).to be_nil
+  end
+
   it 'keeps Sidekiq and PgHero linked for view_devops and points the parent at Sidekiq' do
     html = navigation_for(user_with_permissions(:view_devops))
     admin = item(html, 'admin')

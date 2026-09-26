@@ -21,6 +21,10 @@ ja:
             username:
               invalid: アルファベット・数字・アンダーバーの組み合わせで入力してください
               reserved: は予約されています
+        admin/webhook:
+          attributes:
+            url:
+              invalid: は無効なURLです
         status:
           attributes:
             reblog:
@@ -30,3 +34,7 @@ ja:
             email:
               blocked: は禁止されているプロバイダメールを使用します
               unreachable: 存在しないようです
+        webhook:
+          attributes:
+            events:
+              invalid_permissions: あなたが権利を持っていないイベントを含めることはできません
