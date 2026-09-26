@@ -19,13 +19,22 @@ class Api::V1::Statuses::FavouritesController < Api::BaseController
 
     if fav
       @status = fav.status
+      count = [@status.favourites_count - 1, 0].max
       UnfavouriteWorker.perform_async(current_account.id, @status.id)
     else
       @status = Status.include_expired.find(params[:status_id])
       authorize @status, :show?
+      count = @status.favourites_count
     end
 
-    render json: @status, serializer: REST::StatusSerializer, relationships: StatusRelationshipsPresenter.new([@status], current_account.id, favourites_map: { @status.id => false })
+    relationships = StatusRelationshipsPresenter.new(
+      [@status],
+      current_account.id,
+      favourites_map: { @status.id => false },
+      attributes_map: { @status.id => { favourites_count: count } }
+    )
+
+    render json: @status, serializer: REST::StatusSerializer, relationships: relationships
   rescue Mastodon::NotPermittedError
     not_found
   end

@@ -119,5 +119,63 @@ describe Api::V1::Statuses::FavouritesController do
         end
       end
     end
+
+    describe 'POST #destroy before UnfavouriteWorker runs' do
+      let(:status) { Fabricate(:status, account: user.account) }
+
+      it 'returns the decremented count while the favourite row is still present' do
+        FavouriteService.new.call(user.account, status)
+
+        Sidekiq::Testing.fake! do
+          UnfavouriteWorker.jobs.clear
+          post :destroy, params: { status_id: status.id }
+
+          expect(response).to have_http_status(200)
+          expect(UnfavouriteWorker.jobs.map { |job| job['args'] }).to eq [[user.account.id, status.id]]
+          expect(status.reload.favourites_count).to eq 1
+          expect(user.account.favourited?(status)).to be true
+
+          hash_body = body_as_json
+          expect(hash_body[:favourites_count]).to eq 0
+          expect(hash_body[:favourited]).to be false
+
+          UnfavouriteWorker.drain
+        end
+
+        expect(status.reload.favourites_count).to eq 0
+        expect(user.account.favourited?(status)).to be false
+      end
+
+      it 'decrements by one when other favourites remain' do
+        FavouriteService.new.call(Fabricate(:account), status)
+        FavouriteService.new.call(user.account, status)
+        expect(status.reload.favourites_count).to eq 2
+
+        Sidekiq::Testing.fake! do
+          post :destroy, params: { status_id: status.id }
+
+          expect(response).to have_http_status(200)
+          expect(status.reload.favourites_count).to eq 2
+          expect(body_as_json[:favourites_count]).to eq 1
+          expect(body_as_json[:favourited]).to be false
+        end
+      end
+
+      it 'keeps the current count when the status is not favourited' do
+        FavouriteService.new.call(Fabricate(:account), status)
+        expect(status.reload.favourites_count).to eq 1
+
+        Sidekiq::Testing.fake! do
+          UnfavouriteWorker.jobs.clear
+          post :destroy, params: { status_id: status.id }
+
+          expect(response).to have_http_status(200)
+          expect(UnfavouriteWorker.jobs).to be_empty
+          expect(status.reload.favourites_count).to eq 1
+          expect(body_as_json[:favourites_count]).to eq 1
+          expect(body_as_json[:favourited]).to be false
+        end
+      end
+    end
   end
 end

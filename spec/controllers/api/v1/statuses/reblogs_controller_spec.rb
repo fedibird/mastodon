@@ -124,5 +124,63 @@ describe Api::V1::Statuses::ReblogsController do
         end
       end
     end
+
+    describe 'POST #destroy before RemovalWorker runs' do
+      let(:status) { Fabricate(:status, account: user.account) }
+
+      it 'returns the decremented count while the reblog row is only discarded' do
+        ReblogService.new.call(user.account, status)
+
+        Sidekiq::Testing.fake! do
+          RemovalWorker.jobs.clear
+          post :destroy, params: { status_id: status.id }
+
+          expect(response).to have_http_status(200)
+          expect(RemovalWorker.jobs.size).to eq 1
+          expect(status.reload.reblogs_count).to eq 1
+
+          hash_body = body_as_json
+          expect(hash_body[:id]).to eq status.id.to_s
+          expect(hash_body[:reblogs_count]).to eq 0
+          expect(hash_body[:reblogged]).to be false
+
+          RemovalWorker.drain
+        end
+
+        expect(status.reload.reblogs_count).to eq 0
+        expect(user.account.reblogged?(status)).to be false
+      end
+
+      it 'decrements by one when other reblogs remain' do
+        ReblogService.new.call(Fabricate(:account), status)
+        ReblogService.new.call(user.account, status)
+        expect(status.reload.reblogs_count).to eq 2
+
+        Sidekiq::Testing.fake! do
+          post :destroy, params: { status_id: status.id }
+
+          expect(response).to have_http_status(200)
+          expect(status.reload.reblogs_count).to eq 2
+          expect(body_as_json[:reblogs_count]).to eq 1
+          expect(body_as_json[:reblogged]).to be false
+        end
+      end
+
+      it 'keeps the current count when the status is not reblogged' do
+        ReblogService.new.call(Fabricate(:account), status)
+        expect(status.reload.reblogs_count).to eq 1
+
+        Sidekiq::Testing.fake! do
+          RemovalWorker.jobs.clear
+          post :destroy, params: { status_id: status.id }
+
+          expect(response).to have_http_status(200)
+          expect(RemovalWorker.jobs).to be_empty
+          expect(status.reload.reblogs_count).to eq 1
+          expect(body_as_json[:reblogs_count]).to eq 1
+          expect(body_as_json[:reblogged]).to be false
+        end
+      end
+    end
   end
 end

@@ -2,7 +2,7 @@
 
 class StatusRelationshipsPresenter
   attr_reader :reblogs_map, :favourites_map, :mutes_map, :pins_map,
-              :bookmarks_map, :filters_map, :emoji_reactions_map
+              :bookmarks_map, :filters_map, :emoji_reactions_map, :attributes_map
 
   def initialize(statuses, current_account_id = nil, **options)
     if current_account_id.nil?
@@ -38,6 +38,8 @@ class StatusRelationshipsPresenter
       @mutes_map           = mapping(result['mutes'],           options[:mutes_map])
       @pins_map            = mapping(result['pins'],            options[:pins_map])
     end
+
+    @attributes_map = options[:attributes_map] || {}
   end
 
   private
