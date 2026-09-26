@@ -32,5 +32,9 @@ class REST::PollSerializer < ActiveModel::Serializer
 
   class OptionSerializer < ActiveModel::Serializer
     attributes :title, :votes_count
+
+    def title
+      CustomEmoji.with_compatible_boundaries(object.title, object.poll.emojis)
+    end
   end
 end

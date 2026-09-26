@@ -6,6 +6,10 @@ RSpec.describe Settings::ProfilesController, type: :controller do
   before do
     @user = Fabricate(:user)
     sign_in @user, scope: :user
+    # The admin layout asks Webpacker for packs that are not built in every test run.
+    allow_any_instance_of(ActionView::Base).to receive(:javascript_pack_tag).and_return('')
+    allow_any_instance_of(ActionView::Base).to receive(:stylesheet_pack_tag).and_return('')
+    allow_any_instance_of(ActionView::Base).to receive(:image_pack_tag).and_return('')
   end
 
   describe "GET #show" do
@@ -28,6 +32,26 @@ RSpec.describe Settings::ProfilesController, type: :controller do
       expect(document.at_css('#account_followed_message')['maxlength']).to eq('500')
       expect(pairs).to all(satisfy { |field| field['maxlength'] == '255' })
       expect(document.at_css('#account_location')['data-emoji-picker']).to be_nil
+    end
+
+    it 'keeps canonical adjacent emoji in edit fields and previews them as images' do
+      Fabricate(:custom_emoji, shortcode: 'foo')
+      Fabricate(:custom_emoji, shortcode: 'bar')
+      @user.account.update!(
+        display_name: 'Name :foo::bar:',
+        fields: [{ 'name' => ':foo::bar:', 'value' => 'text' }]
+      )
+
+      get :show
+      document = Nokogiri::HTML(response.body)
+      display_name = document.at_css('#account_display_name')
+      field_name = document.at_css('input[name^="account[fields_attributes]"][name$="[name]"]')
+
+      expect(display_name['value']).to eq('Name :foo::bar:')
+      expect(display_name['value']).not_to include("\u200B")
+      expect(field_name['value']).to eq(':foo::bar:')
+      expect(field_name['value']).not_to include("\u200B")
+      expect(document.css('.card .p-name img.custom-emoji').size).to eq(2)
     end
 
     it 'gives profile fields and verification their own full-width sections' do

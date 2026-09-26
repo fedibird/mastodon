@@ -112,11 +112,13 @@ class ActivityPub::ActorSerializer < ActivityPub::Serializer
   end
 
   def name
-    object.suspended? ? '' : object.display_name
+    return '' if object.suspended?
+
+    CustomEmoji.with_compatible_boundaries(object.display_name, object.emojis)
   end
 
   def summary
-    object.suspended? ? '' : Formatter.instance.simplified_format(object)
+    object.suspended? ? '' : Formatter.instance.simplified_format(object, emoji_compatibility: true)
   end
 
   def icon
@@ -192,7 +194,7 @@ class ActivityPub::ActorSerializer < ActivityPub::Serializer
   end
 
   def followed_message
-    object.followed_message
+    CustomEmoji.with_compatible_boundaries(object.followed_message, object.emojis)
   end
 
   def virtual_other_settings
@@ -235,8 +237,12 @@ class ActivityPub::ActorSerializer < ActivityPub::Serializer
       'PropertyValue'
     end
 
+    def name
+      CustomEmoji.with_compatible_boundaries(object.name, object.account.emojis)
+    end
+
     def value
-      Formatter.instance.format_field(object.account, object.value)
+      Formatter.instance.format_field(object.account, object.value, emoji_compatibility: true)
     end
   end
 

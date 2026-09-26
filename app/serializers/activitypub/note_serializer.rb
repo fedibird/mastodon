@@ -44,14 +44,19 @@ class ActivityPub::NoteSerializer < ActivityPub::Serializer
   end
 
   def summary
-    object.spoiler_text.presence unless unsupport_cw? && object.spoiler_text.present?
+    return if unsupport_cw? && object.spoiler_text.present?
+
+    text = object.spoiler_text.presence
+    return if text.nil?
+
+    CustomEmoji.with_compatible_boundaries(text, object.emojis)
   end
 
   def content
     if unsupport_cw? && object.spoiler_text.present?
-      Formatter.instance.format_bridgy_fed(object.spoiler_text.presence, url)
+      Formatter.instance.format_bridgy_fed(CustomEmoji.with_compatible_boundaries(object.spoiler_text, object.emojis), url)
     else
-      Formatter.instance.format(object)
+      Formatter.instance.format(object, emoji_compatibility: true)
     end
   end
 
@@ -366,7 +371,7 @@ class ActivityPub::NoteSerializer < ActivityPub::Serializer
     end
 
     def name
-      object.title
+      CustomEmoji.with_compatible_boundaries(object.title, object.poll.emojis)
     end
 
     def replies
