@@ -49,9 +49,7 @@ const messages = defineMessages({
   menu: { id: 'getting_started.heading', defaultMessage: 'Getting started' },
   group_directory: { id: 'getting_started.group_directory', defaultMessage: 'Group directory' },
   profile_directory: { id: 'getting_started.directory', defaultMessage: 'Profile directory' },
-  suggestions: { id: 'navigation_bar.suggestions', defaultMessage: 'Suggestions' },
   explore: { id: 'explore.title', defaultMessage: 'Explore' },
-  trends: { id: 'navigation_bar.trends', defaultMessage: 'Trends' },
   information_acct: { id: 'navigation_bar.information_acct', defaultMessage: 'Fedibird info' },
   hashtag_fedibird: { id: 'navigation_bar.hashtag_fedibird', defaultMessage: 'fedibird' },
   lists_subheading: { id: 'column_subheading.favourite_lists', defaultMessage: 'Favourite Lists' },
@@ -172,12 +170,6 @@ class GettingStarted extends ImmutablePureComponent {
         height += 48;
       }
 
-      navItems.push(
-        <ColumnLink key='suggestions' icon='user-plus' text={intl.formatMessage(messages.suggestions)} to='/suggestions' />,
-      );
-
-      height += 48;
-
       if (trendsEnabled) {
         navItems.push(
           <ColumnLink key='explore' icon='hashtag' text={intl.formatMessage(messages.explore)} to='/explore' />,
@@ -185,12 +177,6 @@ class GettingStarted extends ImmutablePureComponent {
 
         height += 48;
       }
-
-      navItems.push(
-        <ColumnLink key='trends' icon='line-chart' text={intl.formatMessage(messages.trends)} to='/trends' />,
-      );
-
-      height += 48;
 
       navItems.push(
         <ColumnLink key='information_acct' icon='info-circle' text={intl.formatMessage(messages.information_acct)} to='/accounts/2' />,
@@ -219,12 +205,6 @@ class GettingStarted extends ImmutablePureComponent {
         height += 48;
       }
 
-      navItems.push(
-        <ColumnLink key='suggestions' icon='user-plus' text={intl.formatMessage(messages.suggestions)} to='/suggestions' />,
-      );
-
-      height += 48;
-
       if (trendsEnabled) {
         navItems.push(
           <ColumnLink key='explore' icon='hashtag' text={intl.formatMessage(messages.explore)} to='/explore' />,
@@ -232,12 +212,6 @@ class GettingStarted extends ImmutablePureComponent {
 
         height += 48;
       }
-
-      navItems.push(
-        <ColumnLink key='trends' icon='line-chart' text={intl.formatMessage(messages.trends)} to='/trends' />,
-      );
-
-      height += 48;
 
       navItems.push(
         <ColumnLink key='information_acct' icon='info-circle' text={intl.formatMessage(messages.information_acct)} to='/accounts/2' />,
