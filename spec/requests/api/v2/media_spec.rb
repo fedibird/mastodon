@@ -45,7 +45,10 @@ RSpec.describe 'Media API', paperclip_processing: true do
 
         expect(response).to have_http_status(202)
         expect(media).to be_present
-        expect(media.type).to eq 'video'
+        # This WebM has no audio stream, so the existing transcoder stores it as gifv.
+        # gifv is still a larger media format and stays queued.
+        expect(media.type).to eq 'gifv'
+        expect(media.larger_media_format?).to be true
         expect(media.processing_queued?).to be true
         expect(media.not_processed?).to be true
         expect(PostProcessMediaWorker).to have_received(:perform_async).with(media.id)

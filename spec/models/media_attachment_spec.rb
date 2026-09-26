@@ -273,12 +273,21 @@ RSpec.describe MediaAttachment, type: :model do
       expect(media.delay_processing?).to be true
     end
 
-    it 'is false when the delay flag is unset, regardless of type' do
+    it 'is false when the delay flag is false, regardless of type' do
+      %i(image video audio gifv).each do |type|
+        media.type = type
+        media.delay_processing = false
+
+        expect(media.delay_processing?).to be false
+      end
+    end
+
+    it 'is falsey when the delay flag is unset, regardless of type' do
       %i(image video audio gifv).each do |type|
         media.type = type
         media.delay_processing = nil
 
-        expect(media.delay_processing?).to be false
+        expect(media.delay_processing?).to be_falsey
       end
     end
   end
