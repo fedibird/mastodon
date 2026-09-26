@@ -17,9 +17,8 @@ module InstanceHelper
     instance_presenter.app_icon.blank?
   end
 
-  def default_favicon_path
-    env_suffix = Rails.env.production? ? '' : '-dev'
-    "/favicon#{env_suffix}.ico"
+  def default_favicon_path(size)
+    "/icons/favicon-#{size}x#{size}.png"
   end
 
   def site_title

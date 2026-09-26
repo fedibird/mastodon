@@ -11,11 +11,8 @@
     - if storage_host?
       %link{ rel: 'dns-prefetch', href: storage_host }/
 
-    - if instance_presenter.favicon.present?
-      - SiteUpload::FAVICON_SIZES.each do |size|
-        %link{ rel: 'icon', sizes: "#{size}x#{size}", href: favicon_path(size), type: 'image/png' }/
-    - else
-      %link{ rel: 'icon', href: default_favicon_path, type: 'image/x-icon' }/
+    - SiteUpload::FAVICON_SIZES.each do |size|
+      %link{ rel: 'icon', sizes: "#{size}x#{size}", href: favicon_path(size) || default_favicon_path(size), type: 'image/png' }/
 
     - if instance_presenter.app_icon.present?
       - SiteUpload::APPLE_ICON_SIZES.each do |size|
