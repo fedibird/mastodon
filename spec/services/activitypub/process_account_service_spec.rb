@@ -141,9 +141,11 @@ RSpec.describe ActivityPub::ProcessAccountService, type: :service do
       let(:memorial) { true }
 
       it 'stores the remote account as memorial' do
-        account = subject.call('alice', 'example.com', payload)
+        account = Fabricate(:account, username: 'alice', domain: 'example.com', memorial: false)
 
-        expect(account).to be_memorial
+        subject.call('alice', 'example.com', payload)
+
+        expect(account.reload).to be_memorial
       end
     end
 
