@@ -2,7 +2,38 @@
 
 require 'rails_helper'
 
+module MastodonVersionEnv
+  def with_version_env(prerelease, metadata)
+    original_prerelease = ENV.fetch('MASTODON_VERSION_PRERELEASE', nil)
+    original_metadata = ENV.fetch('MASTODON_VERSION_METADATA', nil)
+    assign_env('MASTODON_VERSION_PRERELEASE', prerelease)
+    assign_env('MASTODON_VERSION_METADATA', metadata)
+    described_class.instance_variable_set(:@gem_version, nil)
+
+    yield
+  ensure
+    restore_env('MASTODON_VERSION_PRERELEASE', original_prerelease)
+    restore_env('MASTODON_VERSION_METADATA', original_metadata)
+    described_class.instance_variable_set(:@gem_version, nil)
+    described_class.instance_variable_set(:@user_agent, nil)
+  end
+
+  def assign_env(key, value)
+    if value.nil?
+      ENV.delete(key)
+    else
+      ENV[key] = value
+    end
+  end
+
+  def restore_env(key, value)
+    assign_env(key, value)
+  end
+end
+
 describe Mastodon::Version do
+  include MastodonVersionEnv
+
   describe '.to_s' do
     it 'advertises Mastodon 4.2.13' do
       with_version_env(nil, nil) do
@@ -57,39 +88,6 @@ describe Mastodon::Version do
       restore_env('GITHUB_REPOSITORY', original_repository)
       restore_env('SOURCE_BASE_URL', original_source_base_url)
       restore_env('SOURCE_TAG', original_source_tag)
-    end
-  end
-
-  def with_version_env(prerelease, metadata)
-    original_prerelease = ENV.fetch('MASTODON_VERSION_PRERELEASE', nil)
-    original_metadata = ENV.fetch('MASTODON_VERSION_METADATA', nil)
-
-    if prerelease.nil?
-      ENV.delete('MASTODON_VERSION_PRERELEASE')
-    else
-      ENV['MASTODON_VERSION_PRERELEASE'] = prerelease
-    end
-
-    if metadata.nil?
-      ENV.delete('MASTODON_VERSION_METADATA')
-    else
-      ENV['MASTODON_VERSION_METADATA'] = metadata
-    end
-
-    described_class.instance_variable_set(:@gem_version, nil)
-    yield
-  ensure
-    restore_env('MASTODON_VERSION_PRERELEASE', original_prerelease)
-    restore_env('MASTODON_VERSION_METADATA', original_metadata)
-    described_class.instance_variable_set(:@gem_version, nil)
-    described_class.instance_variable_set(:@user_agent, nil)
-  end
-
-  def restore_env(key, value)
-    if value.nil?
-      ENV.delete(key)
-    else
-      ENV[key] = value
     end
   end
 end
