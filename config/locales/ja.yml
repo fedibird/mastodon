@@ -1218,6 +1218,12 @@ ja:
         desc_html: 独自のプライバシーポリシーや利用規約、その他の法的根拠を記述できます。HTMLタグが使えます
         title: カスタム利用規約
       site_title: サーバーの名前
+      app_icon:
+        desc_html: ホーム画面とPWAのアイコンに使用します。正方形の画像をアップロードしてください。1024×1024px推奨です。PNG、JPEG、GIF、WebPを受け付けます。
+        title: アプリアイコン
+      favicon:
+        desc_html: ブラウザのタブに表示します。正方形の画像をアップロードしてください。48×48px以上を推奨します。PNG、JPEG、GIF、WebPを受け付けます。
+        title: ファビコン
       thumbnail:
         desc_html: OpenGraphとAPIによるプレビューに使用されます。サイズは1200×630px推奨です
         title: サーバーのサムネイル

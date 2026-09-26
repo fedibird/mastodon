@@ -2,6 +2,7 @@
 
 class ManifestSerializer < ActiveModel::Serializer
   include RoutingHelper
+  include InstanceHelper
   include ActionView::Helpers::TextHelper
 
   attributes :name, :short_name, :description,
@@ -22,13 +23,25 @@ class ManifestSerializer < ActiveModel::Serializer
   end
 
   def icons
-    [
-      {
-        src: '/android-chrome-192x192.png',
-        sizes: '192x192',
-        type: 'image/png',
-      },
-    ]
+    if instance_presenter.app_icon.present?
+      SiteUpload::ANDROID_ICON_SIZES.map do |size|
+        {
+          src: absolute_icon_url(app_icon_path(size)),
+          sizes: "#{size}x#{size}",
+          type: 'image/png',
+          purpose: 'any maskable',
+        }
+      end
+    else
+      [
+        {
+          src: absolute_icon_url('/android-chrome-192x192.png'),
+          sizes: '192x192',
+          type: 'image/png',
+          purpose: 'any maskable',
+        },
+      ]
+    end
   end
 
   def theme_color
@@ -63,6 +76,12 @@ class ManifestSerializer < ActiveModel::Serializer
         url: 'url',
       },
     }
+  end
+
+  def absolute_icon_url(src)
+    return if src.blank?
+
+    URI.join(root_url, src).to_s
   end
 
   def shortcuts

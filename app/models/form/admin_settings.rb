@@ -29,6 +29,8 @@ class Form::AdminSettings
     server_directory
     thumbnail
     mascot
+    favicon
+    app_icon
     trends
     trendable_by_default
     show_domain_blocks
@@ -73,6 +75,8 @@ class Form::AdminSettings
   UPLOAD_KEYS = %i(
     thumbnail
     mascot
+    favicon
+    app_icon
   ).freeze
 
   attr_accessor(*KEYS)

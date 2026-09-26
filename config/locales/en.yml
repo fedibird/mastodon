@@ -1235,6 +1235,12 @@ en:
         desc_html: You can write your own privacy policy, terms of service or other legalese. You can use HTML tags
         title: Custom terms of service
       site_title: Server name
+      app_icon:
+        desc_html: Used for home-screen and PWA icons. Upload a square image; 1024x1024px is recommended. PNG, JPEG, GIF, and WebP are accepted.
+        title: App icon
+      favicon:
+        desc_html: Shown in browser tabs. Upload a square image; 48x48px or larger is recommended. PNG, JPEG, GIF, and WebP are accepted.
+        title: Favicon
       thumbnail:
         desc_html: Used for previews via OpenGraph and API. 1200x630px recommended
         title: Server thumbnail

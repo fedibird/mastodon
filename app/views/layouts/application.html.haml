@@ -11,11 +11,21 @@
     - if storage_host?
       %link{ rel: 'dns-prefetch', href: storage_host }/
 
-    %link{ rel: 'icon', href: favicon_path, type: 'image/x-icon' }/
-    %link{ rel: 'apple-touch-icon', sizes: '180x180', href: '/apple-touch-icon.png' }/
-    %link{ rel: 'mask-icon', href: '/mask-icon.svg', color: '#2B90D9' }/
+    - if instance_presenter.favicon.present?
+      - SiteUpload::FAVICON_SIZES.each do |size|
+        %link{ rel: 'icon', sizes: "#{size}x#{size}", href: favicon_path(size), type: 'image/png' }/
+    - else
+      %link{ rel: 'icon', href: default_favicon_path, type: 'image/x-icon' }/
+
+    - if instance_presenter.app_icon.present?
+      - SiteUpload::APPLE_ICON_SIZES.each do |size|
+        %link{ rel: 'apple-touch-icon', sizes: "#{size}x#{size}", href: app_icon_path(size) }/
+    - else
+      %link{ rel: 'apple-touch-icon', sizes: '180x180', href: '/apple-touch-icon.png' }/
+
+    - if use_mask_icon?
+      %link{ rel: 'mask-icon', href: '/mask-icon.svg', color: '#2B90D9' }/
     %link{ rel: 'manifest', href: '/manifest.json' }/
-    %meta{ name: 'msapplication-config', content: '/browserconfig.xml' }/
     %meta{ name: 'theme-color', content: '#282c37' }/
     %meta{ name: 'apple-mobile-web-app-capable', content: 'yes' }/
 
