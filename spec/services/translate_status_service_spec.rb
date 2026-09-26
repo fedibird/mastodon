@@ -43,6 +43,33 @@ RSpec.describe TranslateStatusService do
     expect(backend).to have_received(:translate).with(array_including(a_string_including('<span translate="no">:blob:</span>')), 'en', 'ja')
   end
 
+  it 'wraps a shortcode that touches Japanese text before translation' do
+    adjacent = Fabricate(:status, account: account, text: 'Hello', spoiler_text: '今日は:blob:です', language: 'en', visibility: :public)
+
+    described_class.new.call(adjacent, 'ja')
+
+    expect(backend).to have_received(:translate).with(
+      array_including(a_string_including('今日は<span translate="no">:blob:</span>です')),
+      'en',
+      'ja'
+    )
+  end
+
+  it 'reapplies compatible boundaries when a translation returns a bare shortcode' do
+    adjacent = Fabricate(:status, account: account, text: '今日は:blob:です', spoiler_text: 'CW:blob:test', language: 'en', visibility: :public)
+    allow(backend).to receive(:translate) do |_texts, _source, _target|
+      [
+        TranslationService::Translation.new(text: '今日は:blob:です', detected_source_language: 'en', provider: 'DeepL.com'),
+        TranslationService::Translation.new(text: 'CW:blob:test', detected_source_language: 'en', provider: 'DeepL.com'),
+      ]
+    end
+
+    translation = described_class.new.call(adjacent, 'ja')
+
+    expect(translation.content).to include("今日は\u200B:blob:\u200Bです")
+    expect(translation.spoiler_text).to eq("CW\u200B:blob:\u200Btest")
+  end
+
   it 'wraps a body shortcode without rewriting the same shortcode inside an href' do
     linked = Fabricate(:status, account: account, text: 'See https://example.com/x/:blob:/y and :blob:', language: 'en', visibility: :public)
 

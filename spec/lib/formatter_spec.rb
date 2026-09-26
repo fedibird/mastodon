@@ -383,6 +383,17 @@ RSpec.describe Formatter do
           end
         end
 
+        context 'given a shortcode touching non-whitespace text' do
+          let(:text) { 'abc:coolcat:def' }
+
+          it 'converts the shortcode to an image without a zero-width space' do
+            expect(subject.scan('alt=":coolcat:"').size).to eq(1)
+            expect(subject).to include('abc', 'def')
+            expect(subject).not_to include(':coolcat:')
+            expect(subject).not_to include("\u200B")
+          end
+        end
+
         context 'given a post with an emoji shortcode at the end' do
           let(:text) { 'Beep boop :coolcat:' }
 
@@ -428,6 +439,17 @@ RSpec.describe Formatter do
           it 'converts each adjacent shortcode to an image' do
             expect(subject.scan('alt=":coolcat:"').size).to eq(2)
             expect(subject).not_to include(':coolcat::coolcat:')
+          end
+        end
+
+        context 'given a shortcode touching non-whitespace text' do
+          let(:text) { '<p>今日は:coolcat:です</p>' }
+
+          it 'converts the shortcode to an image without a zero-width space' do
+            expect(subject.scan('alt=":coolcat:"').size).to eq(1)
+            expect(subject).to include('今日は', 'です')
+            expect(subject).not_to include(':coolcat:')
+            expect(subject).not_to include("\u200B")
           end
         end
 

@@ -196,6 +196,64 @@ describe('form emoji picker', () => {
     expect(field.value).not.toContain('\u200B');
   });
 
+  it('previews a shortcode beside ASCII text and keeps the field canonical', async () => {
+    global.fetch = jest.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve([
+        ...emojiResponse,
+        {
+          shortcode: 'foo',
+          url: 'https://example.test/foo.gif',
+          static_url: 'https://example.test/foo.png',
+          visible_in_picker: true,
+          category: 'Fedibird',
+          aliases: [],
+        },
+      ]),
+    }));
+    document.body.innerHTML = '<input id="field" type="text" data-emoji-picker="true" value="abc:foo:def">';
+
+    initializeFormEmojiPickers();
+
+    const field = document.querySelector('#field');
+    const preview = field.parentElement.parentElement.querySelector('.emoji-picker-preview');
+
+    await waitFor(() => expect(preview.querySelector('img.custom-emoji')).toHaveAttribute('data-shortcode', 'foo'));
+    expect(preview).toHaveTextContent('abcdef');
+    expect(preview.textContent).not.toContain('\u200B');
+    expect(field.value).toBe('abc:foo:def');
+    expect(field.value).not.toContain('\u200B');
+  });
+
+  it('previews a shortcode beside Japanese text and keeps the field canonical', async () => {
+    global.fetch = jest.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve([
+        ...emojiResponse,
+        {
+          shortcode: 'foo',
+          url: 'https://example.test/foo.gif',
+          static_url: 'https://example.test/foo.png',
+          visible_in_picker: true,
+          category: 'Fedibird',
+          aliases: [],
+        },
+      ]),
+    }));
+    document.body.innerHTML = '<input id="field" type="text" data-emoji-picker="true" value="日本語:foo:です">';
+
+    initializeFormEmojiPickers();
+
+    const field = document.querySelector('#field');
+    const preview = field.parentElement.parentElement.querySelector('.emoji-picker-preview');
+
+    await waitFor(() => expect(preview.querySelector('img.custom-emoji')).toHaveAttribute('data-shortcode', 'foo'));
+    expect(preview).toHaveTextContent('日本語です');
+    expect(preview.textContent).not.toContain('\u200B');
+    expect(field.value).toBe('日本語:foo:です');
+    expect(field.value).not.toContain('\u200B');
+  });
+
   it('previews custom emoji below the plain-text field and updates on input', async () => {
     document.body.innerHTML = '<input id="field" type="text" data-emoji-picker="true" value="Work :fedibird:">';
 
