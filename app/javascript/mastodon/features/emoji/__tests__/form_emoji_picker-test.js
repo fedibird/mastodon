@@ -1,5 +1,6 @@
 /* eslint-disable react/prop-types, react/jsx-no-bind */
 
+import ReactDOM from 'react-dom';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 
 jest.mock('react-intl', () => {
@@ -76,9 +77,13 @@ describe('form emoji picker', () => {
     initializeFormEmojiPickers();
     initializeFormEmojiPickers();
 
+    expect(document.querySelectorAll('.emoji-picker-field')).toHaveLength(2);
     expect(document.querySelectorAll('.emoji-picker-input')).toHaveLength(2);
+    expect(document.querySelectorAll('.emoji-picker-preview')).toHaveLength(2);
     expect(document.querySelectorAll('.emoji-picker-input__button-host')).toHaveLength(2);
     expect(document.querySelector('.emoji-picker-input__button-host').tagName).toBe('DIV');
+    expect(document.querySelector('#first').parentElement).toHaveClass('emoji-picker-input');
+    expect(document.querySelector('#first').parentElement.parentElement).toHaveClass('emoji-picker-field');
     expect(document.querySelector('#plain').parentElement).not.toHaveClass('emoji-picker-input');
     expect(document.querySelector('#note').parentElement).toHaveClass('emoji-picker-input--textarea');
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
@@ -120,6 +125,15 @@ describe('form emoji picker', () => {
     expect(first.selectionEnd).toBe(13);
     expect(document.activeElement).toBe(first);
     expect(inputListener).toHaveBeenCalledTimes(1);
+
+    const secondPreview = second.parentElement.parentElement.querySelector('.emoji-picker-preview');
+    expect(secondPreview.querySelector('img.emojione')).toHaveAttribute('alt', '😀');
+    expect(second.value).toBe('two😀');
+
+    await waitFor(() => {
+      const firstPreview = first.parentElement.parentElement.querySelector('.emoji-picker-preview');
+      expect(firstPreview.querySelector('img.custom-emoji')).toHaveAttribute('alt', ':fedibird:');
+    });
   });
 
   it('does not insert a value that would exceed maxlength', () => {
@@ -142,6 +156,93 @@ describe('form emoji picker', () => {
 
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
     expect(field.value).toBe('still editable');
+    expect(screen.getByRole('button', { name: 'Insert emoji' })).toBeInTheDocument();
+  });
+
+  it('previews custom emoji below the plain-text field and updates on input', async () => {
+    document.body.innerHTML = '<input id="field" type="text" data-emoji-picker="true" value="Work :fedibird:">';
+
+    initializeFormEmojiPickers();
+
+    const field = document.querySelector('#field');
+    const preview = field.parentElement.parentElement.querySelector('.emoji-picker-preview');
+    expect(preview).not.toBeNull();
+    expect(field.value).toBe('Work :fedibird:');
+
+    await waitFor(() => expect(preview.querySelector('img.custom-emoji')).toHaveAttribute('alt', ':fedibird:'));
+    expect(preview).toHaveTextContent('Work');
+    expect(field.value).toBe('Work :fedibird:');
+  });
+
+  it('updates the preview when the field value changes', async () => {
+    document.body.innerHTML = '<input id="field" type="text" data-emoji-picker="true" value="Hello">';
+
+    initializeFormEmojiPickers();
+
+    const field = document.querySelector('#field');
+    const preview = field.parentElement.parentElement.querySelector('.emoji-picker-preview');
+    expect(preview).toHaveTextContent('Hello');
+
+    field.value = 'Hello :fedibird:';
+    fireEvent.input(field);
+
+    await waitFor(() => expect(preview.querySelector('img.custom-emoji')).toHaveAttribute('alt', ':fedibird:'));
+    expect(preview).toHaveTextContent('Hello');
+    expect(field.value).toBe('Hello :fedibird:');
+  });
+
+  it('escapes html in the preview and still renders the custom emoji', async () => {
+    const field = document.createElement('input');
+    field.type = 'text';
+    field.dataset.emojiPicker = 'true';
+    field.value = '<script>alert(1)</script> :fedibird:';
+    document.body.appendChild(field);
+
+    initializeFormEmojiPickers();
+
+    const preview = field.parentElement.parentElement.querySelector('.emoji-picker-preview');
+
+    await waitFor(() => expect(preview.querySelector('img.custom-emoji')).toHaveAttribute('alt', ':fedibird:'));
+    expect(preview.querySelector('script')).toBeNull();
+    expect(preview).toHaveTextContent('<script>alert(1)</script>');
+    expect(field.value).toBe('<script>alert(1)</script> :fedibird:');
+  });
+
+  it('does not show preview content for an empty field', () => {
+    document.body.innerHTML = '<input id="field" type="text" data-emoji-picker="true" value="">';
+
+    initializeFormEmojiPickers();
+
+    const preview = document.querySelector('.emoji-picker-preview');
+    expect(preview).toBeEmptyDOMElement();
+    expect(preview.textContent).toBe('');
+  });
+
+  it('removes the input listener when the picker unmounts', () => {
+    document.body.innerHTML = '<input id="field" type="text" data-emoji-picker="true" value="Hello">';
+    const field = document.querySelector('#field');
+    const removeEventListener = jest.spyOn(field, 'removeEventListener');
+    const root = initializeFormEmojiPickers();
+
+    ReactDOM.unmountComponentAtNode(root);
+
+    expect(removeEventListener).toHaveBeenCalledWith('input', expect.any(Function));
+  });
+
+  it('keeps shortcodes literal in the preview when custom emoji loading fails', async () => {
+    global.fetch = jest.fn(() => Promise.reject(new Error('offline')));
+    document.body.innerHTML = '<input id="field" type="text" data-emoji-picker="true" value="Hello 😀 :fedibird:">';
+
+    initializeFormEmojiPickers();
+
+    const field = document.querySelector('#field');
+    const preview = field.parentElement.parentElement.querySelector('.emoji-picker-preview');
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    expect(field.value).toBe('Hello 😀 :fedibird:');
+    expect(preview.querySelector('img.custom-emoji')).toBeNull();
+    expect(preview.querySelector('img.emojione')).toHaveAttribute('alt', '😀');
+    expect(preview).toHaveTextContent(':fedibird:');
     expect(screen.getByRole('button', { name: 'Insert emoji' })).toBeInTheDocument();
   });
 
