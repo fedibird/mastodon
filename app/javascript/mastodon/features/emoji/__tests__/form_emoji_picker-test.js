@@ -406,4 +406,91 @@ describe('form emoji picker', () => {
     expect(marker.querySelector('img.custom-emoji')).toHaveAttribute('alt', ':fedibird:');
     expect(marker.querySelector('script')).toBeNull();
   });
+
+  const fooEmojiResponse = () => ([
+    ...emojiResponse,
+    {
+      shortcode: 'foo',
+      url: 'https://example.test/foo.gif',
+      static_url: 'https://example.test/foo.png',
+      visible_in_picker: true,
+      category: 'Fedibird',
+      aliases: [],
+    },
+  ]);
+
+  const mountDisplayNameCard = (value) => {
+    global.fetch = jest.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(fooEmojiResponse()),
+    }));
+    document.body.innerHTML = `
+      <input id="account_display_name" type="text" data-emoji-picker="true" data-default="alice" value="${value}">
+      <div class="card"><div class="display-name"><bdi><strong class="emojify p-name">saved name</strong></bdi></div></div>
+    `;
+    initializeFormEmojiPickers();
+
+    return {
+      field: document.querySelector('#account_display_name'),
+      name: document.querySelector('.card .display-name strong'),
+    };
+  };
+
+  it('renders a custom emoji in the profile card display name and keeps the field canonical', async () => {
+    const { field, name } = mountDisplayNameCard(':foo:開発用');
+    const preview = field.parentElement.parentElement.querySelector('.emoji-picker-preview');
+
+    await waitFor(() => expect(name.querySelector('img.custom-emoji')).toHaveAttribute('data-shortcode', 'foo'));
+    expect(name.textContent).toBe('開発用');
+    expect(name.textContent).not.toContain(':foo:');
+    expect(name.textContent).not.toContain('\u200B');
+    expect(preview.querySelector('img.custom-emoji')).toHaveAttribute('data-shortcode', 'foo');
+    expect(preview).toHaveTextContent('開発用');
+    expect(field.value).toBe(':foo:開発用');
+    expect(field.value).not.toContain('\u200B');
+  });
+
+  it('renders an ASCII-adjacent shortcode in the profile card display name', async () => {
+    const { field, name } = mountDisplayNameCard('abc:foo:def');
+
+    await waitFor(() => expect(name.querySelector('img.custom-emoji')).toHaveAttribute('data-shortcode', 'foo'));
+    expect(name.textContent).toBe('abcdef');
+    expect(name.textContent).not.toContain(':foo:');
+    expect(field.value).toBe('abc:foo:def');
+    expect(field.value).not.toContain('\u200B');
+  });
+
+  it('renders a Japanese-adjacent shortcode in the profile card display name', async () => {
+    const { field, name } = mountDisplayNameCard('日本語:foo:です');
+
+    await waitFor(() => expect(name.querySelector('img.custom-emoji')).toHaveAttribute('data-shortcode', 'foo'));
+    expect(name.textContent).toBe('日本語です');
+    expect(field.value).toBe('日本語:foo:です');
+    expect(field.value).not.toContain('\u200B');
+  });
+
+  it('escapes html in the profile card display name and still renders the custom emoji', async () => {
+    const { field, name } = mountDisplayNameCard('');
+    field.value = '<script>alert(1)</script>:foo:';
+    fireEvent.input(field);
+
+    await waitFor(() => expect(name.querySelector('img.custom-emoji')).toHaveAttribute('data-shortcode', 'foo'));
+    expect(name.querySelector('script')).toBeNull();
+    expect(name.textContent).toContain('<script>alert(1)</script>');
+    expect(field.value).toBe('<script>alert(1)</script>:foo:');
+    expect(field.value).not.toContain('\u200B');
+  });
+
+  it('updates the profile card display name as the field changes', async () => {
+    const { field, name } = mountDisplayNameCard('Hello');
+
+    await waitFor(() => expect(name.textContent).toBe('Hello'));
+    field.value = 'abc:foo:def';
+    fireEvent.input(field);
+
+    await waitFor(() => expect(name.textContent).toBe('abcdef'));
+    expect(name.querySelectorAll('img.custom-emoji')).toHaveLength(1);
+    expect(field.value).toBe('abc:foo:def');
+    expect(field.value).not.toContain('\u200B');
+  });
 });

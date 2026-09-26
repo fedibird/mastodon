@@ -53,6 +53,20 @@ function main() {
     };
   };
 
+  // Unicode-only until the form emoji picker chunk replaces this with the
+  // shared renderer, which also applies the fetched custom emoji map.
+  let renderProfileCardDisplayName = (name, value, fallback) => {
+    if (!name) {
+      return;
+    }
+
+    if (value) {
+      name.innerHTML = emojify(escapeTextContentForBrowser(value));
+    } else {
+      name.textContent = fallback || '';
+    }
+  };
+
   ready(() => {
     const locale = document.documentElement.lang;
 
@@ -92,7 +106,8 @@ function main() {
 
     if (emojiPickerFields.length > 0 || customEmojiTextNodes.length > 0) {
       import(/* webpackChunkName: "form_emoji_picker" */ '../mastodon/features/emoji/form_emoji_picker')
-        .then(({ initializeFormEmojiPickers }) => {
+        .then(({ initializeFormEmojiPickers, renderProfileCardDisplayName: renderCardName }) => {
+          renderProfileCardDisplayName = renderCardName;
           initializeFormEmojiPickers({
             fields: Array.from(emojiPickerFields),
             textNodes: Array.from(customEmojiTextNodes),
@@ -202,14 +217,11 @@ function main() {
   });
 
   delegate(document, '#account_display_name', 'input', ({ target }) => {
-    const name = document.querySelector('.card .display-name strong');
-    if (name) {
-      if (target.value) {
-        name.innerHTML = emojify(escapeTextContentForBrowser(target.value));
-      } else {
-        name.textContent = target.dataset.default;
-      }
-    }
+    renderProfileCardDisplayName(
+      document.querySelector('.card .display-name strong'),
+      target.value,
+      target.dataset.default,
+    );
   });
 
   delegate(document, '#account_avatar', 'change', ({ target }) => {

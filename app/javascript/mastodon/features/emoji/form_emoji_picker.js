@@ -30,6 +30,8 @@ const emptyEmojiData = {
   }),
 };
 
+let cachedCustomEmojis = emptyEmojiData.all;
+
 const getCustomEmojiData = () => {
   if (!customEmojiPromise) {
     customEmojiPromise = fetch('/api/v1/custom_emojis', {
@@ -45,6 +47,8 @@ const getCustomEmojiData = () => {
       const all = fromJS(Array.isArray(data) ? data : []);
       const visible = all.filter(emoji => emoji.get('visible_in_picker'));
 
+      cachedCustomEmojis = all;
+
       return {
         all,
         picker: ImmutableMap({
@@ -56,6 +60,25 @@ const getCustomEmojiData = () => {
   }
 
   return customEmojiPromise;
+};
+
+// Live profile-card display name. The editable value stays canonical; only
+// this rendered node is emojified, using the same escaped emojify path as
+// the field preview.
+export const renderProfileCardDisplayName = (name, value, fallback = '') => {
+  if (!name) {
+    return;
+  }
+
+  if (value) {
+    name.innerHTML = emojify(
+      escapeTextContentForBrowser(value),
+      buildCustomEmojiMap(cachedCustomEmojis),
+    );
+    return;
+  }
+
+  name.textContent = fallback;
 };
 
 export const insertEmojiAtSelection = (field, emoji, selection) => {
@@ -130,6 +153,12 @@ class FormEmojiPickerField extends React.PureComponent {
     this.syncPreviewState();
   }
 
+  componentDidUpdate (prevProps, prevState) {
+    if (prevState.value !== this.state.value || prevProps.customEmojis !== this.props.customEmojis) {
+      this.syncCardDisplayName();
+    }
+  }
+
   componentWillUnmount () {
     this.props.field.removeEventListener('input', this.handleInput);
   }
@@ -150,6 +179,16 @@ class FormEmojiPickerField extends React.PureComponent {
   handleInput = () => {
     this.syncPreviewState();
     this.setState({ value: this.props.field.value });
+  };
+
+  syncCardDisplayName = () => {
+    if (this.props.field.id !== 'account_display_name') {
+      return;
+    }
+
+    const name = document.querySelector('.card .display-name strong');
+
+    renderProfileCardDisplayName(name, this.props.field.value, this.props.field.dataset.default);
   };
 
   handleOpen = id => {
@@ -360,4 +399,5 @@ export const initializeFormEmojiPickers = ({
 
 export const resetCustomEmojiPromiseForTests = () => {
   customEmojiPromise = undefined;
+  cachedCustomEmojis = emptyEmojiData.all;
 };
