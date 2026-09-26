@@ -8,7 +8,7 @@ require 'rails_helper'
 RSpec.describe FanOutOnWriteService, type: :service do
   describe 'local hashtag streaming policy' do
     def published_channels_for(status)
-      ProcessHashtagsService.new.call(status)
+      ProcessHashtagsService.new.call(status) if status.local? && status.tags.empty?
 
       service = described_class.new
       published = []
@@ -38,6 +38,8 @@ RSpec.describe FanOutOnWriteService, type: :service do
     it 'does not publish a local-only hashtag channel for a remote post' do
       author = Fabricate(:account, domain: 'remote.example', username: 'remoteuser')
       status = Fabricate(:status, account: author, text: 'Hello #test', visibility: :public)
+      # Remote text is not scanned for hashtags. ActivityPub supplies the names.
+      ProcessHashtagsService.new.call(status, ['test'])
       channels = published_channels_for(status)
 
       expect(channels).to include('timeline:hashtag:test')

@@ -14,15 +14,36 @@ let publisher;
 
 const waitFor = (predicate, timeoutMs, label) => new Promise((resolve, reject) => {
   const started = Date.now();
+  let pending = false;
+
   const timer = setInterval(() => {
-    if (predicate()) {
-      clearInterval(timer);
-      resolve();
-    } else if (Date.now() - started > timeoutMs) {
-      clearInterval(timer);
-      reject(new Error(`${label} timed out\n${serverLog}`));
+    if (pending) {
+      return;
     }
-  }, 25);
+
+    pending = true;
+    Promise.resolve()
+      .then(predicate)
+      .then(ok => {
+        pending = false;
+
+        if (ok) {
+          clearInterval(timer);
+          resolve();
+        } else if (Date.now() - started > timeoutMs) {
+          clearInterval(timer);
+          reject(new Error(`${label} timed out\n${serverLog}`));
+        }
+      })
+      .catch(error => {
+        pending = false;
+
+        if (Date.now() - started > timeoutMs) {
+          clearInterval(timer);
+          reject(new Error(`${label} timed out: ${error}\n${serverLog}`));
+        }
+      });
+  }, 50);
 });
 
 const openSse = (path) => new Promise((resolve, reject) => {
@@ -100,7 +121,15 @@ describe('hashtag:local streaming compatibility', () => {
       serverLog += chunk.toString();
     });
 
-    await waitFor(() => serverLog.includes(`127.0.0.1:${PORT}`), 15000, 'streaming server startup');
+    await waitFor(async () => {
+      try {
+        const health = await readHttp('/api/v1/streaming/health');
+        return health.status === 200;
+      } catch (error) {
+        serverLog += `${error}\n`;
+        return false;
+      }
+    }, 15000, 'streaming server startup');
 
     publisher = redis.createClient({ host: '127.0.0.1', port: 6379 });
     await waitFor(() => publisher.connected, 5000, 'redis publisher');
@@ -208,7 +237,7 @@ describe('hashtag:local streaming compatibility', () => {
         'remote_status = Status.create!(account: remote_account, text: "remote #{suffix} #policytest", visibility: :public, uri: "https://remote.example/users/hr#{suffix}/statuses/1")',
         'begin',
         '  ProcessHashtagsService.new.call(local_status)',
-        '  ProcessHashtagsService.new.call(remote_status)',
+        '  ProcessHashtagsService.new.call(remote_status, ["policytest"])',
         '  FanOutOnWriteService.new.call(local_status)',
         '  FanOutOnWriteService.new.call(remote_status)',
         '  puts "FANOUT_OK"',
