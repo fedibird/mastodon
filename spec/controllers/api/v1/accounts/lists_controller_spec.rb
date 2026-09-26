@@ -19,5 +19,11 @@ describe Api::V1::Accounts::ListsController do
       get :index, params: { account_id: account.id }
       expect(response).to have_http_status(200)
     end
+
+    it 'exposes exclusive as false' do
+      get :index, params: { account_id: account.id }
+
+      expect(body_as_json.first[:exclusive]).to be false
+    end
   end
 end
