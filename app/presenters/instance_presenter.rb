@@ -38,7 +38,7 @@ class InstancePresenter < ActiveModelSerializers::Model
   end
 
   def status_page_url
-    ''
+    Setting.status_page_url
   end
 
   def domain

@@ -1235,6 +1235,9 @@ en:
         desc_html: You can write your own privacy policy, terms of service or other legalese. You can use HTML tags
         title: Custom terms of service
       site_title: Server name
+      status_page_url:
+        title: Status page URL
+        desc_html: URL of a page where people can see the status of this server during an outage
       app_icon:
         desc_html: Used for home-screen and PWA icons. Upload a square image; 1024x1024px is recommended. PNG, JPEG, GIF, and WebP are accepted.
         title: App icon

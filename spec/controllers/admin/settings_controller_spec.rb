@@ -66,6 +66,16 @@ RSpec.describe Admin::SettingsController, type: :controller do
           expect(response).to redirect_to(edit_admin_settings_path)
           expect(Setting.site_title).to eq 'New title'
         end
+
+        it 'saves the status page URL' do
+          previous = Setting.status_page_url
+          patch :update, params: { form_admin_settings: { status_page_url: 'https://status.example.com' } }
+
+          expect(response).to redirect_to(edit_admin_settings_path)
+          expect(Setting.status_page_url).to eq 'https://status.example.com'
+        ensure
+          Setting.status_page_url = previous
+        end
       end
     end
   end
