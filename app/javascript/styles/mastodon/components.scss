@@ -5670,7 +5670,9 @@ a.status-card.compact:hover {
   &__media,
   &__poll,
   &__created {
-    color: $secondary-text-color;
+    // $secondary-text-color matches the light modal fill, so these
+    // markers disappear. Use the muted inverted-surface text instead.
+    color: $lighter-text-color;
     font-size: 14px;
   }
 }
