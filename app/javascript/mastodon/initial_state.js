@@ -10,6 +10,7 @@ export const autoPlayHeader = getMeta('auto_play_header');
 export const autoPlayMedia = getMeta('auto_play_media');
 export const displayMedia = getMeta('display_media');
 export const translationPreferredMode = getMeta('translation_preferred_mode') === 'bilingual' ? 'bilingual' : 'translated';
+export const translationPrivateContentAllowed = getMeta('translation_private_content_allowed') === true;
 export const expandSpoilers = getMeta('expand_spoilers');
 export const followModal = getMeta('follow_modal');
 export const unfollowModal = getMeta('unfollow_modal');

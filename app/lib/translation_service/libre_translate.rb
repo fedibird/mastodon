@@ -8,6 +8,11 @@ class TranslationService::LibreTranslate < TranslationService
     @api_key  = api_key
   end
 
+  # Exact "true" only. This does not apply when DeepL is the selected provider.
+  def private_content_allowed?
+    ENV['LIBRE_TRANSLATE_ALLOW_PRIVATE'] == 'true'
+  end
+
   def translate(texts, source_language, target_language)
     body = Oj.dump(q: texts, source: source_language.presence || 'auto', target: target_language, format: 'html', api_key: @api_key)
     request(:post, '/translate', body: body) do |res|

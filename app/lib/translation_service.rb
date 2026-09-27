@@ -21,6 +21,13 @@ class TranslationService
     ENV['DEEPL_API_KEY'].present? || ENV['LIBRE_TRANSLATE_ENDPOINT'].present?
   end
 
+  # Uses the same provider selection as `.configured`. DeepL stays false.
+  def self.private_content_allowed?
+    configured.private_content_allowed?
+  rescue NotConfiguredError
+    false
+  end
+
   def self.timeout
     raw = ENV['TRANSLATION_TIMEOUT']
     return if raw.blank?
@@ -42,5 +49,9 @@ class TranslationService
 
   def translate(_text, _source_language, _target_language)
     raise NotImplementedError
+  end
+
+  def private_content_allowed?
+    false
   end
 end

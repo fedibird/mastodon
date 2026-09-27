@@ -25,6 +25,7 @@ RSpec.describe TranslateStatusService do
     allow(TranslationService).to receive(:configured?).and_return(true)
     allow(TranslationService).to receive(:configured).and_return(backend)
     allow(backend).to receive(:languages).and_return('en' => ['ja'], nil => ['ja'])
+    allow(backend).to receive(:private_content_allowed?).and_return(false)
     allow(backend).to receive(:translate) do |texts, _source, _target|
       texts.map do |text|
         TranslationService::Translation.new(text: "JA #{text}", detected_source_language: 'en', provider: 'DeepL.com')
@@ -117,6 +118,22 @@ RSpec.describe TranslateStatusService do
 
     expect { described_class.new.call(status, 'ja') }.to raise_error(Mastodon::NotPermittedError)
     expect(backend).not_to have_received(:translate)
+  end
+
+  it 'allows public and unlisted statuses and rejects every other visibility' do
+    expect(Status.visibilities.keys).to match_array(%w(public unlisted private direct limited mutual personal))
+
+    Status.visibilities.each_key do |visibility|
+      example = Fabricate(:status, account: account, text: "Hello #{visibility}", language: 'en', visibility: visibility)
+
+      if example.distributable?
+        expect(described_class.new.call(example, 'ja').content).to include('JA')
+      else
+        expect { described_class.new.call(example, 'ja') }.to raise_error(Mastodon::NotPermittedError)
+      end
+    end
+
+    expect(backend).to have_received(:translate).twice
   end
 
   it 'refuses an unsupported language pair' do
@@ -227,6 +244,108 @@ RSpec.describe TranslateStatusService do
     expect(link['class'].to_s).not_to include('hashtag')
     expect(link.ancestors.none? { |node| node.element? && node['translate'] == 'no' }).to be true
     expect(fragment.css('span[translate="no"]')).to be_empty
+  end
+
+  describe 'provider trust' do
+    let(:translate_calls) { [] }
+
+    before do
+      allow(TranslationService).to receive(:configured?).and_call_original
+      allow(TranslationService).to receive(:configured).and_wrap_original do |original, *args|
+        selected = original.call(*args)
+        allow(selected).to receive(:languages).and_return('en' => ['ja'], nil => ['ja'])
+        allow(selected).to receive(:translate) do |texts, _source, _target|
+          translate_calls << selected
+          texts.map do |text|
+            TranslationService::Translation.new(text: "JA #{text}", detected_source_language: 'en', provider: selected.class.name)
+          end
+        end
+        selected
+      end
+    end
+
+    def with_translation_env(env)
+      ClimateControl.modify({
+        DEEPL_API_KEY: nil,
+        DEEPL_PLAN: nil,
+        LIBRE_TRANSLATE_ENDPOINT: nil,
+        LIBRE_TRANSLATE_API_KEY: nil,
+        LIBRE_TRANSLATE_ALLOW_PRIVATE: nil,
+      }.merge(env)) do
+        Rails.cache.clear
+        translate_calls.clear
+        yield
+      end
+    end
+
+    def call_status(visibility, target = 'ja')
+      example = Fabricate(:status, account: account, text: "Hello #{visibility} #{target}", language: 'en', visibility: visibility)
+      described_class.new.call(example, target)
+    end
+
+    it 'rejects non-distributable statuses for an untrusted LibreTranslate endpoint' do
+      [nil, '', 'false'].each do |flag|
+        with_translation_env(LIBRE_TRANSLATE_ENDPOINT: 'http://127.0.0.1:5000', LIBRE_TRANSLATE_ALLOW_PRIVATE: flag) do
+          expect(TranslationService.configured).to be_a(TranslationService::LibreTranslate)
+          expect(call_status(:public).content).to include('JA')
+          expect(call_status(:unlisted).content).to include('JA')
+          %w(private direct limited mutual personal).each do |visibility|
+            expect { call_status(visibility) }.to raise_error(Mastodon::NotPermittedError)
+          end
+          expect(translate_calls.size).to eq 2
+        end
+      end
+    end
+
+    it 'translates every visibility through trusted LibreTranslate and still rejects an unsupported language' do
+      with_translation_env(LIBRE_TRANSLATE_ENDPOINT: 'http://127.0.0.1:5000', LIBRE_TRANSLATE_ALLOW_PRIVATE: 'true') do
+        expect(TranslationService.configured).to be_a(TranslationService::LibreTranslate)
+        expect(TranslationService.private_content_allowed?).to be true
+
+        %w(public unlisted private direct limited mutual personal).each do |visibility|
+          expect(call_status(visibility).content).to include('JA')
+        end
+
+        expect { call_status(:private, 'de') }.to raise_error(Mastodon::NotPermittedError)
+        expect(translate_calls.size).to eq Status.visibilities.size
+      end
+    end
+
+    it 'keeps the existing cache for a trusted private translation' do
+      with_translation_env(LIBRE_TRANSLATE_ENDPOINT: 'http://127.0.0.1:5000', LIBRE_TRANSLATE_ALLOW_PRIVATE: 'true') do
+        hidden = Fabricate(:status, account: account, text: 'Hello', language: 'en', visibility: :direct)
+
+        described_class.new.call(hidden, 'ja')
+        described_class.new.call(hidden, 'ja')
+
+        expect(translate_calls.size).to eq 1
+      end
+    end
+
+    it 'rejects non-distributable statuses when DeepL is selected, even if the flag is true' do
+      with_translation_env(DEEPL_API_KEY: 'deepl-secret', LIBRE_TRANSLATE_ALLOW_PRIVATE: 'true') do
+        expect(TranslationService.configured).to be_a(TranslationService::DeepL)
+        expect(TranslationService.private_content_allowed?).to be false
+        expect(call_status(:public).content).to include('JA')
+        %w(private direct limited mutual personal).each do |visibility|
+          expect { call_status(visibility) }.to raise_error(Mastodon::NotPermittedError)
+        end
+        expect(translate_calls.size).to eq 1
+      end
+    end
+
+    it 'selects DeepL and rejects private content when both providers and the flag are set' do
+      with_translation_env(DEEPL_API_KEY: 'deepl-secret', LIBRE_TRANSLATE_ENDPOINT: 'http://127.0.0.1:5000', LIBRE_TRANSLATE_ALLOW_PRIVATE: 'true') do
+        expect(TranslationService.configured).to be_a(TranslationService::DeepL)
+        expect(TranslationService.private_content_allowed?).to be false
+        expect(call_status(:public).content).to include('JA')
+        expect(call_status(:unlisted).content).to include('JA')
+        %w(private direct).each do |visibility|
+          expect { call_status(visibility) }.to raise_error(Mastodon::NotPermittedError)
+        end
+        expect(translate_calls.map(&:class).uniq).to eq [TranslationService::DeepL]
+      end
+    end
   end
 
   it 'protects a hashtag already present in remote content' do

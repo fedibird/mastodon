@@ -8,7 +8,7 @@ import classnames from 'classnames';
 import PollContainer from 'mastodon/containers/poll_container';
 import Icon from 'mastodon/components/icon';
 import BilingualContent from 'mastodon/components/bilingual_content';
-import { autoPlayEmoji, disableReactions, languages as preloadedLanguages, me, translationPreferredMode } from 'mastodon/initial_state';
+import { autoPlayEmoji, disableReactions, languages as preloadedLanguages, me, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
 import { preferredTranslationMode, statusTranslationView } from 'mastodon/utils/translation_view';
 
 const messages = defineMessages({
@@ -23,6 +23,15 @@ const messages = defineMessages({
   translationModes: { id: 'status.translation_modes', defaultMessage: 'Translation display' },
   translationLanguages: { id: 'status.translation_languages', defaultMessage: '{source} → {target} · {provider}' },
 });
+
+const statusTranslationEligible = (status, { loggedIn, contentLocale, targetLanguages, privateContentAllowed }) => {
+  const visibilityAllowsTranslation = ['public', 'unlisted'].includes(status.get('visibility')) || privateContentAllowed;
+
+  return loggedIn &&
+    visibilityAllowsTranslation &&
+    (status.get('search_index') || '').trim().length > 0 &&
+    targetLanguages?.includes(contentLocale);
+};
 
 const languageLabel = code => {
   if (!code) {
@@ -453,7 +462,12 @@ class StatusContent extends React.PureComponent {
     const renderShowPoll = !!status.get('poll');
     const contentLocale = (intl.locale || '').replace(/[_-].*/, '');
     const targetLanguages = this.props.languages?.get(status.get('language') || 'und');
-    const renderTranslate = this.props.onTranslate && !!me && ['public', 'unlisted'].includes(status.get('visibility')) && (status.get('search_index') || '').trim().length > 0 && targetLanguages?.includes(contentLocale);
+    const renderTranslate = this.props.onTranslate && statusTranslationEligible(status, {
+      loggedIn: !!me,
+      contentLocale,
+      targetLanguages,
+      privateContentAllowed: translationPrivateContentAllowed,
+    });
 
     const translationView = statusTranslationView(status);
     const viewMode = translationView.mode;
