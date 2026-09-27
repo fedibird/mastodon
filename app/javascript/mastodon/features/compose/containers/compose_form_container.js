@@ -39,6 +39,7 @@ const mapStateToProps = state => ({
   isScheduled: !!state.getIn(['compose', 'scheduled']),
   isScheduledStatusEditting: !!state.getIn(['compose', 'scheduled_status_id']),
   isEditing: !!state.getIn(['compose', 'id']),
+  lang: state.getIn(['compose', 'language']),
 });
 
 const mapDispatchToProps = (dispatch, { intl }) => ({

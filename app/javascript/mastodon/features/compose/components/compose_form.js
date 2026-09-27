@@ -18,6 +18,7 @@ import CircleDropdownContainer from '../containers/circle_dropdown_container';
 import DateTimeFormContainer from '../containers/datetime_form_container';
 import ExpiresIndicatorContainer from '../containers/expires_indicator_container';
 import EmojiPickerDropdownContainer from '../containers/emoji_picker_dropdown_container';
+import LanguageDropdownContainer from '../containers/language_dropdown_container';
 import PollFormContainer from '../containers/poll_form_container';
 import UploadFormContainer from '../containers/upload_form_container';
 import WarningContainer from '../containers/warning_container';
@@ -71,6 +72,7 @@ class ComposeForm extends ImmutablePureComponent {
     isScheduled: PropTypes.bool,
     isScheduledStatusEditting: PropTypes.bool,
     isEditing: PropTypes.bool,
+    lang: PropTypes.string,
     onCancelEdit: PropTypes.func,
     onChange: PropTypes.func.isRequired,
     onSubmit: PropTypes.func.isRequired,
@@ -267,6 +269,7 @@ class ComposeForm extends ImmutablePureComponent {
             searchTokens={[':']}
             id='cw-spoiler-input'
             className='spoiler-input__input'
+            lang={this.props.lang}
           />
         </div>
 
@@ -284,6 +287,7 @@ class ComposeForm extends ImmutablePureComponent {
           onSuggestionSelected={this.onSuggestionSelected}
           onPaste={onPaste}
           autoFocus={!showSearch && !isMobile(window.innerWidth)}
+          lang={this.props.lang}
         >
           <div className='compose-form__modifiers'>
             <UploadFormContainer />
@@ -299,6 +303,7 @@ class ComposeForm extends ImmutablePureComponent {
             <PollButtonContainer />
             <PrivacyDropdownContainer disabled={this.props.isEditing} />
             <SpoilerButtonContainer />
+            <LanguageDropdownContainer />
             <EmojiPickerDropdownContainer onPickEmoji={this.handleEmojiPick} />
             {!this.props.isEditing && <DateTimeButtonContainer />}
             {!this.props.isEditing && <SearchabilityDropdownContainer />}

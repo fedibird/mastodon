@@ -59,6 +59,7 @@ jest.mock('../circle_dropdown_container', () => () => null);
 jest.mock('../datetime_form_container', () => () => null);
 jest.mock('../expires_indicator_container', () => () => null);
 jest.mock('../emoji_picker_dropdown_container', () => () => null);
+jest.mock('../language_dropdown_container', () => () => null);
 jest.mock('../poll_form_container', () => () => null);
 jest.mock('../upload_form_container', () => () => null);
 jest.mock('../warning_container', () => () => null);

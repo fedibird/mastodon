@@ -59,6 +59,7 @@ export const COMPOSE_SENSITIVITY_CHANGE   = 'COMPOSE_SENSITIVITY_CHANGE';
 export const COMPOSE_SPOILERNESS_CHANGE   = 'COMPOSE_SPOILERNESS_CHANGE';
 export const COMPOSE_SPOILER_TEXT_CHANGE  = 'COMPOSE_SPOILER_TEXT_CHANGE';
 export const COMPOSE_VISIBILITY_CHANGE    = 'COMPOSE_VISIBILITY_CHANGE';
+export const COMPOSE_LANGUAGE_CHANGE      = 'COMPOSE_LANGUAGE_CHANGE';
 export const COMPOSE_SEARCHABILITY_CHANGE = 'COMPOSE_SEARCHABILITY_CHANGE';
 export const COMPOSE_CIRCLE_CHANGE        = 'COMPOSE_CIRCLE_CHANGE';
 export const COMPOSE_LISTABILITY_CHANGE   = 'COMPOSE_LISTABILITY_CHANGE';
@@ -381,6 +382,7 @@ export function submitCompose(routerHistory) {
         expires_action: expires_action,
         status_reference_ids: statusReferenceIds,
         searchability: getState().getIn(['compose', 'searchability']),
+        language,
       },
       headers: {
         'Idempotency-Key': getState().getIn(['compose', 'idempotencyKey']),
@@ -905,6 +907,13 @@ export function changeComposeSpoilerText(text) {
   return {
     type: COMPOSE_SPOILER_TEXT_CHANGE,
     text,
+  };
+};
+
+export function changeComposeLanguage(language) {
+  return {
+    type: COMPOSE_LANGUAGE_CHANGE,
+    language,
   };
 };
 

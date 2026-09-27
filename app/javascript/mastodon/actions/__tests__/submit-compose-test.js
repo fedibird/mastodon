@@ -143,8 +143,27 @@ describe('submitCompose', () => {
     expect(data.status_reference_ids.toJS()).toEqual(['ref-1']);
     expect(data.searchability).toEqual('public');
     expect(data.in_reply_to_id).toEqual('reply-1');
+    expect(data.language).toEqual('ja');
     expect(updateTimeline).toHaveBeenCalled();
     expect(importFetchedStatus).not.toHaveBeenCalled();
+  });
+
+  it('sends the selected language with a scheduled post', async () => {
+    const request = jest.fn().mockResolvedValue({ data: { ...statusResponse, scheduled_at: '2099-01-01T00:00:00.000Z' } });
+    api.mockReturnValue({ request });
+
+    await dispatchThunk(
+      submitCompose({ location: { pathname: '/home' }, push: jest.fn(), goBack: jest.fn() }),
+      composeState({ compose: { scheduled: '2099-01-01 00:00', language: 'en' } }),
+    );
+
+    const data = request.mock.calls[0][0].data;
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({
+      url: '/api/v1/statuses',
+      method: 'post',
+    }));
+    expect(data.language).toEqual('en');
+    expect(data.scheduled_at).toEqual(expect.any(String));
   });
 
   it('PUTs an edit with only the update contract and does not insert a timeline duplicate', async () => {
