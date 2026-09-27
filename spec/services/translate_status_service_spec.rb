@@ -564,6 +564,33 @@ RSpec.describe TranslateStatusService do
       expect(result.css('[translate]')).to be_empty
     end
 
+    it 'wraps only the recorded hashtag when an anchor also contains other text' do
+      remote = remote_status('<p><a href="https://example.com/article">Hello #Fedibird world</a></p>')
+      remote.tags << Fabricate(:tag, name: 'Fedibird')
+
+      translation = described_class.new.call(remote, 'ja')
+      fragment = Nokogiri::HTML.fragment(sent_html)
+      anchor = fragment.at_css('a')
+      protected_tag = anchor.at_css('span[translate="no"]')
+
+      expect(anchor['translate']).to be_nil
+      expect(anchor['href']).to eq 'https://example.com/article'
+      expect(protected_tag.text).to eq '#Fedibird'
+      expect(anchor.text).to include('Hello')
+      expect(anchor.text).to include('world')
+
+      result = Nokogiri::HTML.fragment(translation.content)
+      result_anchor = result.at_css('a')
+
+      expect(result_anchor.text).to include('こんにちは')
+      expect(result_anchor.text).to include('#Fedibird')
+      expect(result_anchor.text).to include('world')
+      expect(result_anchor['href']).to eq 'https://example.com/article'
+      expect(result_anchor['translate']).to be_nil
+      expect(translation.content).not_to include('フェディバード')
+      expect(result.css('[translate]')).to be_empty
+    end
+
     it 'protects a hashtag after Formatter replaces rel="tag"' do
       remote = remote_status('<p>Hello <a rel="tag" href="https://remote.test/tags/Fedibird">#Fedibird</a></p>')
       remote.tags << Fabricate(:tag, name: 'Fedibird')

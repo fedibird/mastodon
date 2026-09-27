@@ -237,10 +237,20 @@ class TranslateStatusService < BaseService
     nodes
   end
 
+  # Mark the anchor itself only when its visible text is one recorded hashtag,
+  # with nothing but whitespace around it. Mixed text stays translatable, and
+  # wrap_metadata_hashtags then protects the token alone.
   def metadata_hashtag_anchor?(anchor)
-    return false if normalized_status_tags.empty? || !anchor.text.include?('#')
+    return false if normalized_status_tags.empty?
 
-    Extractor.extract_hashtags_with_indices(anchor.text).any? { |tag| metadata_hashtag?(tag[:hashtag]) }
+    text = anchor.text
+    return false unless text.include?('#')
+
+    matches = Extractor.extract_hashtags_with_indices(text)
+    return false unless matches.one? && metadata_hashtag?(matches.first[:hashtag])
+
+    start_index, end_index = matches.first[:indices]
+    text[0...start_index].strip.empty? && text[end_index..-1].to_s.strip.empty?
   end
 
   def metadata_hashtag?(name)
