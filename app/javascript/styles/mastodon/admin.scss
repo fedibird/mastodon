@@ -1101,6 +1101,7 @@ a.name-tag,
     align-items: center;
 
     a.table-action-link {
+      box-sizing: border-box;
       display: inline-flex;
       align-items: center;
       min-height: 44px;
