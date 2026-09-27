@@ -87,6 +87,36 @@ RSpec.describe Api::V1::Statuses::TranslationsController, type: :controller do
         expect(response).to have_http_status(200)
         expect(backend).to have_received(:translate).twice
       end
+
+      it 'returns 404 for a limited status unless the user is a mention recipient' do
+        hidden = Fabricate(:status, visibility: :limited, text: 'Secret limited', language: 'en')
+        hidden.mentions.create!(account: Fabricate(:account), silent: true)
+        visible = Fabricate(:status, visibility: :limited, text: 'Hello limited', language: 'en')
+        visible.mentions.create!(account: user.account, silent: true)
+
+        post :create, params: { status_id: hidden.id }
+        expect(response).to have_http_status(404)
+        expect(backend).not_to have_received(:translate)
+
+        post :create, params: { status_id: visible.id }
+        expect(response).to have_http_status(200)
+        expect(body_as_json[:provider]).to eq 'LibreTranslate'
+        expect(backend).to have_received(:translate).once
+      end
+
+      it 'translates a personal status for its owner and returns 404 for anyone else' do
+        hidden = Fabricate(:status, visibility: :personal, text: 'Secret personal', language: 'en')
+        owned = Fabricate(:status, account: user.account, visibility: :personal, text: 'Hello personal', language: 'en')
+
+        post :create, params: { status_id: hidden.id }
+        expect(response).to have_http_status(404)
+        expect(backend).not_to have_received(:translate)
+
+        post :create, params: { status_id: owned.id }
+        expect(response).to have_http_status(200)
+        expect(body_as_json[:provider]).to eq 'LibreTranslate'
+        expect(backend).to have_received(:translate).once
+      end
     end
 
     it 'does not let a request parameter or the LibreTranslate flag send an owned private status to DeepL' do
