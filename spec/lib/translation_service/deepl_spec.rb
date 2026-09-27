@@ -2,10 +2,24 @@
 
 require 'rails_helper'
 
-def stub_deepl_timeout_request(url)
+def assert_deepl_translation_timeouts(url)
+  body = Oj.dump(translations: [{ text: 'Hello', detected_source_language: 'JA' }])
+
+  ClimateControl.modify(TRANSLATION_TIMEOUT: nil) do
+    expect(Request).to receive(:new).with(:post, url, hash_excluding(:timeout_options)).and_wrap_original do |method, *args, **kwargs|
+      request = method.call(*args, **kwargs)
+      timeouts = request.instance_variable_get(:@options)[:timeout_options]
+      expect(timeouts[:read_timeout]).to eq 10
+      expect(timeouts[:read_deadline]).to eq 30
+      request
+    end
+    stub_request(:post, url).to_return(status: 200, body: body)
+    yield
+  end
+
   ClimateControl.modify(TRANSLATION_TIMEOUT: '30') do
     expect(Request).to receive(:new).with(:post, url, hash_including(timeout_options: { read_timeout: 30, read_deadline: 30 })).and_call_original
-    stub_request(:post, url).to_return(status: 200, body: Oj.dump(translations: [{ text: 'Hello', detected_source_language: 'JA' }]))
+    stub_request(:post, url).to_return(status: 200, body: body)
     yield
   end
 end
@@ -32,8 +46,8 @@ RSpec.describe TranslationService::DeepL do
       }
     end
 
-    it 'passes the translation timeout to Request' do
-      stub_deepl_timeout_request("#{base}/v2/translate") { subject.translate(['こんにちは'], 'ja', 'en') }
+    it 'passes a translation timeout only when TRANSLATION_TIMEOUT is set' do
+      assert_deepl_translation_timeouts("#{base}/v2/translate") { subject.translate(['こんにちは'], 'ja', 'en') }
     end
 
     it 'uses the paid API host when the plan is not free' do

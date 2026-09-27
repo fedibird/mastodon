@@ -39,10 +39,10 @@ RSpec.describe TranslationService do
   end
 
   describe '.timeout' do
-    it 'uses the normal HTTP read timeout when unset' do
+    it 'does not override HTTP timeouts when unset' do
       ClimateControl.modify(TRANSLATION_TIMEOUT: nil) do
-        expect(described_class.timeout).to eq 10
-        expect(described_class.timeout_options).to eq(read_timeout: 10, read_deadline: 10)
+        expect(described_class.timeout).to be_nil
+        expect(described_class.timeout_options).to be_nil
       end
     end
 
@@ -53,10 +53,11 @@ RSpec.describe TranslationService do
       end
     end
 
-    it 'falls back to the default for blank, non-numeric, zero, and negative values' do
+    it 'ignores blank, non-numeric, zero, and negative values' do
       ['', 'abc', '0', '-1'].each do |value|
         ClimateControl.modify(TRANSLATION_TIMEOUT: value) do
-          expect(described_class.timeout).to eq 10
+          expect(described_class.timeout).to be_nil
+          expect(described_class.timeout_options).to be_nil
         end
       end
     end
