@@ -4,7 +4,7 @@ require 'rails_helper'
 
 RSpec.describe TranslationService do
   around do |example|
-    ClimateControl.modify(DEEPL_API_KEY: nil, DEEPL_PLAN: nil, LIBRE_TRANSLATE_ENDPOINT: nil, LIBRE_TRANSLATE_API_KEY: nil) do
+    ClimateControl.modify(DEEPL_API_KEY: nil, DEEPL_PLAN: nil, LIBRE_TRANSLATE_ENDPOINT: nil, LIBRE_TRANSLATE_API_KEY: nil, LIBRE_TRANSLATE_ALLOW_PRIVATE: nil) do
       example.run
     end
   end
@@ -35,6 +35,54 @@ RSpec.describe TranslationService do
 
     it 'raises when configured is called without a provider' do
       expect { described_class.configured }.to raise_error(TranslationService::NotConfiguredError)
+    end
+  end
+
+  describe '.private_content_allowed?' do
+    it 'is false when no provider is configured' do
+      expect(described_class.private_content_allowed?).to be false
+    end
+
+    it 'is false for LibreTranslate unless the flag is exactly true' do
+      [nil, '', 'false', 'abc', 'TRUE', 'True', '1', 'yes', 'on'].each do |flag|
+        ClimateControl.modify(LIBRE_TRANSLATE_ENDPOINT: 'http://127.0.0.1:5000', LIBRE_TRANSLATE_ALLOW_PRIVATE: flag) do
+          backend = described_class.configured
+
+          expect(backend).to be_a(TranslationService::LibreTranslate)
+          expect(backend.private_content_allowed?).to be false
+          expect(described_class.private_content_allowed?).to be false
+        end
+      end
+    end
+
+    it 'is true when LibreTranslate is selected and the flag is exactly true' do
+      ClimateControl.modify(LIBRE_TRANSLATE_ENDPOINT: 'http://127.0.0.1:5000', LIBRE_TRANSLATE_ALLOW_PRIVATE: 'true') do
+        backend = described_class.configured
+
+        expect(backend).to be_a(TranslationService::LibreTranslate)
+        expect(backend.private_content_allowed?).to be true
+        expect(described_class.private_content_allowed?).to be true
+      end
+    end
+
+    it 'is false for DeepL even when the LibreTranslate flag is true' do
+      ClimateControl.modify(DEEPL_API_KEY: 'deepl-secret', LIBRE_TRANSLATE_ALLOW_PRIVATE: 'true') do
+        backend = described_class.configured
+
+        expect(backend).to be_a(TranslationService::DeepL)
+        expect(backend.private_content_allowed?).to be false
+        expect(described_class.private_content_allowed?).to be false
+        expect(TranslationService::DeepL.new('free', 'deepl-secret').private_content_allowed?).to be false
+      end
+    end
+
+    it 'keeps DeepL selected and refuses private content when both providers are configured' do
+      ClimateControl.modify(DEEPL_API_KEY: 'deepl-secret', LIBRE_TRANSLATE_ENDPOINT: 'http://127.0.0.1:5000', LIBRE_TRANSLATE_ALLOW_PRIVATE: 'true') do
+        backend = described_class.configured
+
+        expect(backend).to be_a(TranslationService::DeepL)
+        expect(described_class.private_content_allowed?).to be false
+      end
     end
   end
 

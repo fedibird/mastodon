@@ -10,11 +10,14 @@ jest.mock('mastodon/initial_state', () => ({
   me: '1',
   autoPlayEmoji: false,
   disableReactions: false,
+  translationPrivateContentAllowed: false,
   languages: [
     ['en', 'English', 'English'],
     ['ja', 'Japanese', '日本語'],
   ],
 }));
+
+const initialState = jest.requireMock('mastodon/initial_state');
 
 jest.mock('react-intl', () => {
   const React = require('react');
@@ -77,7 +80,14 @@ const renderStatus = (status, props = {}) => render(
   </Provider>,
 );
 
+const NON_PUBLIC_VISIBILITIES = ['private', 'direct', 'limited', 'mutual', 'personal'];
+
 describe('StatusContent translation', () => {
+  beforeEach(() => {
+    initialState.me = '1';
+    initialState.translationPrivateContentAllowed = false;
+  });
+
   it('shows Translate for a public post whose language can be translated', () => {
     renderStatus(buildStatus());
 
@@ -116,14 +126,57 @@ describe('StatusContent translation', () => {
     );
     expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
 
-    ['limited', 'mutual', 'personal', 'private', 'direct'].forEach(visibility => {
+    NON_PUBLIC_VISIBILITIES.forEach(visibility => {
       rerender(
         <Provider store={store}>
           <StatusContent status={buildStatus({ visibility })} onTranslate={jest.fn()} onClick={jest.fn()} />
         </Provider>,
       );
       expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Bilingual' })).toBeNull();
     });
+  });
+
+  it('shows Translate and Bilingual for every visibility when private content is allowed', () => {
+    initialState.translationPrivateContentAllowed = true;
+
+    ['public', 'unlisted', ...NON_PUBLIC_VISIBILITIES].forEach(visibility => {
+      const { unmount } = renderStatus(buildStatus({ visibility }));
+
+      expect(screen.getByRole('button', { name: 'Translate' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Bilingual' })).toBeTruthy();
+      unmount();
+    });
+  });
+
+  it('keeps language, content, and login checks when private content is allowed', () => {
+    initialState.translationPrivateContentAllowed = true;
+    const { rerender } = renderStatus(buildStatus({ visibility: 'direct', language: 'fr' }));
+    expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Bilingual' })).toBeNull();
+
+    rerender(
+      <Provider store={store}>
+        <StatusContent status={buildStatus({ visibility: 'direct', search_index: '   ' })} onTranslate={jest.fn()} onClick={jest.fn()} />
+      </Provider>,
+    );
+    expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+
+    initialState.me = null;
+    rerender(
+      <Provider store={store}>
+        <StatusContent status={buildStatus({ visibility: 'direct' })} onTranslate={jest.fn()} onClick={jest.fn()} />
+      </Provider>,
+    );
+    expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Bilingual' })).toBeNull();
+
+    rerender(
+      <Provider store={store}>
+        <StatusContent status={buildStatus({ visibility: 'public' })} onTranslate={jest.fn()} onClick={jest.fn()} />
+      </Provider>,
+    );
+    expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
   });
 
   it('renders translated content and CW, then offers Show original', () => {

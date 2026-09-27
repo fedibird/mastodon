@@ -87,6 +87,32 @@ RSpec.describe InitialStateSerializer do
     Setting.trends = previous_trends_setting
   end
 
+  it 'exposes private translation only for a signed-in session whose selected provider allows it' do
+    user = Fabricate(:user)
+    clear_provider = {
+      DEEPL_API_KEY: nil,
+      DEEPL_PLAN: nil,
+      LIBRE_TRANSLATE_ENDPOINT: nil,
+      LIBRE_TRANSLATE_API_KEY: nil,
+      LIBRE_TRANSLATE_ALLOW_PRIVATE: nil,
+    }
+
+    ClimateControl.modify(clear_provider) do
+      expect(serialize(user.account)[:meta][:translation_private_content_allowed]).to be false
+      expect(serialize(nil)[:meta]).not_to have_key(:translation_private_content_allowed)
+    end
+
+    ClimateControl.modify(clear_provider.merge(LIBRE_TRANSLATE_ENDPOINT: 'http://127.0.0.1:5000', LIBRE_TRANSLATE_ALLOW_PRIVATE: 'true')) do
+      expect(serialize(user.account)[:meta][:translation_private_content_allowed]).to be true
+      expect(serialize(nil)[:meta]).not_to have_key(:translation_private_content_allowed)
+    end
+
+    ClimateControl.modify(clear_provider.merge(DEEPL_API_KEY: 'deepl-secret', LIBRE_TRANSLATE_ENDPOINT: 'http://127.0.0.1:5000', LIBRE_TRANSLATE_ALLOW_PRIVATE: 'true')) do
+      expect(TranslationService.configured).to be_a(TranslationService::DeepL)
+      expect(serialize(user.account)[:meta][:translation_private_content_allowed]).to be false
+    end
+  end
+
   it 'exposes the translation display preference and defaults to translated' do
     user = Fabricate(:user)
     json = serialize(user.account)

@@ -29,7 +29,8 @@ class TranslateStatusService < BaseService
   end
 
   def permitted?
-    return false unless @status.distributable? && TranslationService.configured?
+    return false unless TranslationService.configured?
+    return false unless @status.distributable? || translation_backend.private_content_allowed?
 
     languages[@status.language]&.include?(@target_language)
   end

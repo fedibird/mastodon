@@ -46,6 +46,98 @@ RSpec.describe Api::V1::Statuses::TranslationsController, type: :controller do
       expect(response).to have_http_status(404)
     end
 
+    context 'when the selected provider allows private content' do
+      let(:backend) { instance_double(TranslationService::LibreTranslate) }
+
+      before do
+        allow(TranslationService).to receive(:configured?).and_return(true)
+        allow(TranslationService).to receive(:configured).and_return(backend)
+        allow(backend).to receive(:private_content_allowed?).and_return(true)
+        allow(backend).to receive(:languages).and_return('en' => ['ja'], nil => ['ja'])
+        allow(backend).to receive(:translate) do |texts, _source, _target|
+          texts.map do |text|
+            TranslationService::Translation.new(text: "JA #{text}", detected_source_language: 'en', provider: 'LibreTranslate')
+          end
+        end
+        Rails.cache.clear
+      end
+
+      it 'returns 404 for private and direct statuses the user cannot see' do
+        private_status = Fabricate(:status, visibility: :private, text: 'Secret', language: 'en')
+        direct_status = Fabricate(:status, visibility: :direct, text: 'Secret', language: 'en')
+
+        post :create, params: { status_id: private_status.id }
+        expect(response).to have_http_status(404)
+
+        post :create, params: { status_id: direct_status.id }
+        expect(response).to have_http_status(404)
+        expect(backend).not_to have_received(:translate)
+      end
+
+      it 'translates private and direct statuses the user is allowed to view' do
+        owned_private = Fabricate(:status, account: user.account, visibility: :private, text: 'Hello private', language: 'en')
+        mentioned_direct = Fabricate(:status, visibility: :direct, text: 'Hello direct', language: 'en')
+        Fabricate(:mention, account: user.account, status: mentioned_direct)
+
+        post :create, params: { status_id: owned_private.id }
+        expect(response).to have_http_status(200)
+        expect(body_as_json[:provider]).to eq 'LibreTranslate'
+
+        post :create, params: { status_id: mentioned_direct.id }
+        expect(response).to have_http_status(200)
+        expect(backend).to have_received(:translate).twice
+      end
+
+      it 'returns 404 for a limited status unless the user is a mention recipient' do
+        hidden = Fabricate(:status, visibility: :limited, text: 'Secret limited', language: 'en')
+        hidden.mentions.create!(account: Fabricate(:account), silent: true)
+        visible = Fabricate(:status, visibility: :limited, text: 'Hello limited', language: 'en')
+        visible.mentions.create!(account: user.account, silent: true)
+
+        post :create, params: { status_id: hidden.id }
+        expect(response).to have_http_status(404)
+        expect(backend).not_to have_received(:translate)
+
+        post :create, params: { status_id: visible.id }
+        expect(response).to have_http_status(200)
+        expect(body_as_json[:provider]).to eq 'LibreTranslate'
+        expect(backend).to have_received(:translate).once
+      end
+
+      it 'translates a personal status for its owner and returns 404 for anyone else' do
+        hidden = Fabricate(:status, visibility: :personal, text: 'Secret personal', language: 'en')
+        owned = Fabricate(:status, account: user.account, visibility: :personal, text: 'Hello personal', language: 'en')
+
+        post :create, params: { status_id: hidden.id }
+        expect(response).to have_http_status(404)
+        expect(backend).not_to have_received(:translate)
+
+        post :create, params: { status_id: owned.id }
+        expect(response).to have_http_status(200)
+        expect(body_as_json[:provider]).to eq 'LibreTranslate'
+        expect(backend).to have_received(:translate).once
+      end
+    end
+
+    it 'does not let a request parameter or the LibreTranslate flag send an owned private status to DeepL' do
+      backend = TranslationService::DeepL.new('free', 'deepl-secret')
+      allow(TranslationService).to receive(:configured?).and_return(true)
+      allow(TranslationService).to receive(:configured).and_return(backend)
+      allow(backend).to receive(:languages).and_return('en' => ['ja'], nil => ['ja'])
+      allow(backend).to receive(:translate)
+      Rails.cache.clear
+
+      owned = Fabricate(:status, account: user.account, visibility: :private, text: 'Hello', language: 'en')
+
+      ClimateControl.modify(LIBRE_TRANSLATE_ALLOW_PRIVATE: 'true') do
+        post :create, params: { status_id: owned.id, allow_private: 'true', trusted: 'true' }
+      end
+
+      expect(response).to have_http_status(403)
+      expect(backend).not_to have_received(:translate)
+      expect(backend.private_content_allowed?).to be false
+    end
+
     it 'returns 403 when no translation provider is configured' do
       allow(TranslationService).to receive(:configured?).and_return(false)
 
