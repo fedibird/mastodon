@@ -44,7 +44,10 @@ class TranslateStatusService < BaseService
 
   def source_texts
     texts = {}
-    texts[:content] = wrap_emoji_shortcodes(status_content_format(@status), @status.proper.emojis) if @status.content.present?
+    if @status.content.present?
+      html = wrap_emoji_shortcodes(status_content_format(@status), @status.proper.emojis)
+      texts[:content] = protect_hashtags(html)
+    end
     texts[:spoiler_text] = wrap_emoji_shortcodes(html_escape(@status.spoiler_text)) if @status.spoiler_text.present?
 
     @status.preloadable_poll&.loaded_options&.each do |option|
@@ -80,14 +83,14 @@ class TranslateStatusService < BaseService
 
       case source
       when :content
-        node = unwrap_emoji_shortcodes(translation.text)
+        node = unwrap_translation_protection(translation.text)
         Sanitize.node!(node, Sanitize::Config::MASTODON_STRICT)
         status_translation.content = Formatter.instance.apply_emoji_compatibility(node.to_html, @status.proper.emojis)
       when :spoiler_text
-        status_translation.spoiler_text = CustomEmoji.with_compatible_boundaries(unwrap_emoji_shortcodes(translation.text).content, @status.emojis)
+        status_translation.spoiler_text = CustomEmoji.with_compatible_boundaries(unwrap_translation_protection(translation.text).content, @status.emojis)
       when Poll::Option
         status_translation.poll_options << Translation::Option.new(
-          title: CustomEmoji.with_compatible_boundaries(unwrap_emoji_shortcodes(translation.text).content, @status.emojis)
+          title: CustomEmoji.with_compatible_boundaries(unwrap_translation_protection(translation.text).content, @status.emojis)
         )
       when MediaAttachment
         status_translation.media_attachments << Translation::MediaAttachment.new(
@@ -148,7 +151,26 @@ class TranslateStatusService < BaseService
     tree.to_html
   end
 
-  def unwrap_emoji_shortcodes(html)
+  # Formatter already decided which anchors are hashtags. Wrap those links only
+  # in the HTML sent to the provider, and leave the anchor attributes alone.
+  def protect_hashtags(html)
+    fragment = Nokogiri::HTML.fragment(html.to_s)
+    wrapped = false
+
+    fragment.css('a.hashtag').to_a.each do |hashtag|
+      next if hashtag.ancestors.any? { |node| node.element? && node['translate'] == 'no' }
+
+      wrapper = Nokogiri::XML::Node.new('span', fragment.document)
+      wrapper['translate'] = 'no'
+      hashtag.replace(wrapper)
+      wrapper.add_child(hashtag)
+      wrapped = true
+    end
+
+    wrapped ? fragment.to_html : html
+  end
+
+  def unwrap_translation_protection(html)
     fragment = Nokogiri::HTML.fragment(html)
     fragment.css('span[translate="no"]').each do |element|
       element.remove_attribute('translate')
