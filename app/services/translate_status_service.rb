@@ -47,7 +47,7 @@ class TranslateStatusService < BaseService
     texts = {}
     if @status.content.present?
       html = wrap_emoji_shortcodes(status_content_format(@status), @status.proper.emojis)
-      texts[:content] = protect_hashtags(html)
+      texts[:content] = protect_hashtags(protect_mentions(html))
     end
     texts[:spoiler_text] = wrap_emoji_shortcodes(html_escape(@status.spoiler_text)) if @status.spoiler_text.present?
 
@@ -152,21 +152,50 @@ class TranslateStatusService < BaseService
     tree.to_html
   end
 
-  # Formatter already decided which anchors are hashtags. Mark those anchors
-  # only in the HTML sent to the provider. Sanitize drops translate later.
-  def protect_hashtags(html)
+  # User mentions are identifiers. Hashtags share the mention class, so only
+  # h-card wrappers and anchors that are not hashtags are marked here.
+  # Sanitize drops translate later.
+  def protect_mentions(html)
     fragment = Nokogiri::HTML.fragment(html.to_s)
     changed = false
 
-    fragment.css('a.hashtag').to_a.each do |hashtag|
-      next if hashtag['translate'] == 'no'
-      next if hashtag.ancestors.any? { |node| node.element? && node['translate'] == 'no' }
+    fragment.css('span.h-card, a.mention').to_a.each do |element|
+      next if hashtag_anchor?(element)
+      next if translation_protected?(element)
 
-      hashtag['translate'] = 'no'
+      element['translate'] = 'no'
       changed = true
     end
 
     changed ? fragment.to_html : html
+  end
+
+  # Formatter already decided which anchors are hashtags. Mark those anchors
+  # only in the HTML sent to the provider. Sanitize drops translate later.
+  def protect_hashtags(html)
+    mark_translation_protected(html, 'a.hashtag')
+  end
+
+  def mark_translation_protected(html, selector)
+    fragment = Nokogiri::HTML.fragment(html.to_s)
+    changed = false
+
+    fragment.css(selector).to_a.each do |element|
+      next if translation_protected?(element)
+
+      element['translate'] = 'no'
+      changed = true
+    end
+
+    changed ? fragment.to_html : html
+  end
+
+  def hashtag_anchor?(element)
+    element.name == 'a' && element['class'].to_s.split.include?('hashtag')
+  end
+
+  def translation_protected?(element)
+    element['translate'] == 'no' || element.ancestors.any? { |node| node.element? && node['translate'] == 'no' }
   end
 
   def unwrap_translation_protection(html)
