@@ -165,6 +165,23 @@ describe('PublicStatusHistory', () => {
 
     expect(screen.getByText('Alice :emoji:')).toBeInTheDocument();
     expect(screen.getByText('@alice')).toBeInTheDocument();
+    expect(document.querySelector('.modal-root__modal.compare-history-modal')).not.toBeNull();
+    expect(document.querySelector('.compare-history-modal .report-modal__target')).not.toBeNull();
+    expect(document.querySelector('.compare-history-modal__container')).not.toBeNull();
+  });
+
+  it('keeps the modal box classes when there is no revision', () => {
+    render(
+      <StatusHistoryRevision
+        revision={null}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(document.querySelector('.modal-root__modal.compare-history-modal')).not.toBeNull();
+    expect(document.querySelector('.compare-history-modal .report-modal__target')).not.toBeNull();
+    expect(document.querySelector('.compare-history-modal__container')).toBeNull();
+    expect(screen.getByText('No edit history')).toBeInTheDocument();
   });
 
   it('renders a revision whose editor account is missing', async () => {
