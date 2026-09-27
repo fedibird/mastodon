@@ -35,6 +35,20 @@ RSpec.describe 'Admin trends web UI', type: :controller do # rubocop:disable Met
 
     before { redis.zadd('trending_tags:all', 3, tag.id) }
 
+    it 'loads the admin javascript pack once from the layout' do
+      sign_in taxonomist, scope: :user
+      allow_any_instance_of(ActionView::Base).to receive(:javascript_pack_tag) do |_view, name, **options|
+        "<!-- pack:#{name}:async=#{options[:async]} -->".html_safe
+      end
+
+      get :index
+
+      expect(response).to have_http_status(200)
+      expect(response.body).to include('<!-- pack:public:async= -->')
+      expect(response.body.scan('<!-- pack:admin:async=true -->').size).to eq(1)
+      expect(response.body).to include('id="batch_checkbox_all"')
+    end
+
     it 'renders trending tags for a manage_taxonomies role' do
       sign_in taxonomist, scope: :user
 
