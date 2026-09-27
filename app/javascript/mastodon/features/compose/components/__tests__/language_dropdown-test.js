@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 
 jest.mock('react-intl', () => {
@@ -65,7 +65,27 @@ describe('LanguageDropdown', () => {
     fireEvent.click(english);
 
     expect(onChange).toHaveBeenCalledWith('en');
-    expect(onClose).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledWith('en');
+    expect(onChange.mock.invocationCallOrder[0]).toBeLessThan(onClose.mock.invocationCallOrder[0]);
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  it('returns focus to the language button after Escape', async () => {
+    renderDropdown();
+    const button = screen.getByRole('button', { name: 'Change language' });
+
+    button.focus();
+    fireEvent.click(button);
+
+    const search = screen.getByPlaceholderText('Search languages...');
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(search);
+    });
+
+    fireEvent.keyDown(search, { key: 'Escape' });
+
+    expect(document.activeElement).toBe(button);
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 

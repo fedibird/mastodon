@@ -107,8 +107,8 @@ class LanguageDropdownMenu extends React.PureComponent {
 
     e.preventDefault();
 
-    this.props.onClose();
     this.props.onChange(value);
+    this.props.onClose(value);
   };
 
   handleKeyDown = e => {
@@ -174,8 +174,10 @@ class LanguageDropdownMenu extends React.PureComponent {
       element = this.listNode.firstChild;
 
       if (element) {
-        onChange(element.getAttribute('data-index'));
-        onClose();
+        const nextLanguage = element.getAttribute('data-index');
+
+        onChange(nextLanguage);
+        onClose(nextLanguage);
       }
       break;
     case 'Escape':
@@ -250,12 +252,14 @@ class LanguageDropdown extends React.PureComponent {
   handleToggle = () => {
     if (this.state.open && this.activeElement) {
       this.activeElement.focus({ preventScroll: true });
+    } else if (!this.state.open) {
+      this.activeElement = document.activeElement;
     }
 
     this.setState({ open: !this.state.open });
   };
 
-  handleClose = () => {
+  handleClose = (language) => {
     const { value, onClose } = this.props;
 
     if (this.state.open && this.activeElement) {
@@ -265,7 +269,7 @@ class LanguageDropdown extends React.PureComponent {
     this.setState({ open: false });
 
     if (onClose) {
-      onClose(value);
+      onClose(language || value);
     }
   };
 
