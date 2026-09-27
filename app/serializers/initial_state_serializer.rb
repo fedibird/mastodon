@@ -3,7 +3,7 @@
 class InitialStateSerializer < ActiveModel::Serializer
   attributes :meta, :compose, :search, :accounts, :lists,
              :media_attachments, :status_references, :emoji_reactions,
-             :settings, :max_toot_chars
+             :settings, :max_toot_chars, :languages
 
   has_one :push_subscription, serializer: REST::WebPushSubscriptionSerializer
   has_one :role, serializer: REST::RoleSerializer
@@ -216,6 +216,10 @@ class InitialStateSerializer < ActiveModel::Serializer
 
   def emoji_reactions
     { max_reactions_per_account: [EmojiReactionValidator::MAX_PER_ACCOUNT, Setting.reaction_max_per_account].max }
+  end
+
+  def languages
+    LanguagesHelper::SUPPORTED_LOCALES.map { |(key, value)| [key, value[0], value[1]] }
   end
 
   private

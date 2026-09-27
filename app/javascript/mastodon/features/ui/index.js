@@ -18,6 +18,7 @@ import { expandNotifications } from '../../actions/notifications';
 import { clearHeight } from '../../actions/height_cache';
 import { focusApp, unfocusApp, changeLayout } from 'mastodon/actions/app';
 import { synchronouslySubmitMarkers, submitMarkers, fetchMarkers } from 'mastodon/actions/markers';
+import { fetchServerTranslationLanguages } from '../../actions/server';
 import { getHomeVisibilities } from 'mastodon/selectors';
 import { WrappedSwitch, WrappedRoute } from './util/react_router_helpers';
 import UploadArea from './components/upload_area';
@@ -424,6 +425,10 @@ class UI extends React.PureComponent {
     dispatch(fetchMarkers());
     dispatch(expandHomeTimeline({ visibilities }));
     dispatch(expandNotifications());
+
+    if (me) {
+      dispatch(fetchServerTranslationLanguages());
+    }
 
     this._checkPolling(false, this.props.pollingStatuses);
 

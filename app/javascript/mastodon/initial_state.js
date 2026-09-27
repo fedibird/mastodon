@@ -114,6 +114,7 @@ export const enableStatusPolling = getMeta('enable_status_polling');
 export const enableStatusPollingIntersection = getMeta('enable_status_polling_intersection');
 export const disableAutoFocusToEmojiSearch = getMeta('disable_auto_focus_to_emoji_search');
 
+export const languages = initialState?.languages;
 export const maxChars = initialState?.max_toot_chars ?? 500;
 export const maxFrequentlyUsedEmojis = Number(getMeta('max_frequently_used_emojis')) ?? 16;
 export const maxPins = Number(getMeta('pins_max')) ?? 5;

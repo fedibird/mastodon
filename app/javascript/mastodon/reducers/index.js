@@ -49,6 +49,7 @@ import picture_in_picture from './picture_in_picture';
 import favourite_domains from './favourite_domains';
 import favourite_tags from './favourite_tags';
 import tags from './tags';
+import server from './server';
 
 const reducers = {
   announcements,
@@ -101,6 +102,7 @@ const reducers = {
   favourite_domains,
   favourite_tags,
   tags,
+  server,
 };
 
 export default combineReducers(reducers);

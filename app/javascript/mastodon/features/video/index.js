@@ -103,6 +103,7 @@ class Video extends React.PureComponent {
     frameRate: PropTypes.string,
     src: PropTypes.string.isRequired,
     alt: PropTypes.string,
+    lang: PropTypes.string,
     width: PropTypes.number,
     height: PropTypes.number,
     sensitive: PropTypes.bool,
@@ -602,6 +603,7 @@ class Video extends React.PureComponent {
           tabIndex='0'
           aria-label={alt}
           title={alt}
+          lang={this.props.lang}
           width={width}
           height={height}
           volume={volume}

@@ -30,6 +30,7 @@ class Poll extends ImmutablePureComponent {
     disabled: PropTypes.bool,
     refresh: PropTypes.func,
     onVote: PropTypes.func,
+    lang: PropTypes.string,
   };
 
   state = {
@@ -115,17 +116,18 @@ class Poll extends ImmutablePureComponent {
   };
 
   renderOption (option, optionIndex, showResults) {
-    const { poll, disabled, intl } = this.props;
+    const { poll, disabled, intl, lang } = this.props;
     const pollVotesCount  = poll.get('voters_count') || poll.get('votes_count');
     const percent         = pollVotesCount === 0 ? 0 : (option.get('votes_count') / pollVotesCount) * 100;
     const leading         = poll.get('options').filterNot(other => other.get('title') === option.get('title')).every(other => option.get('votes_count') >= other.get('votes_count'));
     const active          = !!this.state.selected[`${optionIndex}`];
     const voted           = option.get('voted') || (poll.get('own_votes') && poll.get('own_votes').includes(optionIndex));
 
-    let titleEmojified = option.get('title_emojified');
+    const title = option.getIn(['translation', 'title']) || option.get('title');
+    let titleEmojified = option.getIn(['translation', 'titleHtml']) || option.get('title_emojified');
     if (!titleEmojified) {
       const emojiMap = makeEmojiMap(poll);
-      titleEmojified = emojify(escapeTextContentForBrowser(option.get('title')), emojiMap);
+      titleEmojified = emojify(escapeTextContentForBrowser(title), emojiMap);
     }
 
     return (
@@ -147,7 +149,8 @@ class Poll extends ImmutablePureComponent {
               role={poll.get('multiple') ? 'checkbox' : 'radio'}
               onKeyPress={this.handleOptionKeyPress}
               aria-checked={active}
-              aria-label={option.get('title')}
+              aria-label={title}
+              lang={lang}
               data-index={optionIndex}
             />
           )}
@@ -157,6 +160,7 @@ class Poll extends ImmutablePureComponent {
 
           <span
             className='poll__option__text translate'
+            lang={lang}
             dangerouslySetInnerHTML={{ __html: titleEmojified }}
           />
 

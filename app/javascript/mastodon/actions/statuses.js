@@ -46,6 +46,11 @@ export const STATUS_REVEAL   = 'STATUS_REVEAL';
 export const STATUS_HIDE     = 'STATUS_HIDE';
 export const STATUS_COLLAPSE = 'STATUS_COLLAPSE';
 
+export const STATUS_TRANSLATE_REQUEST = 'STATUS_TRANSLATE_REQUEST';
+export const STATUS_TRANSLATE_SUCCESS = 'STATUS_TRANSLATE_SUCCESS';
+export const STATUS_TRANSLATE_FAIL    = 'STATUS_TRANSLATE_FAIL';
+export const STATUS_TRANSLATE_UNDO    = 'STATUS_TRANSLATE_UNDO';
+
 export const REDRAFT = 'REDRAFT';
 
 export const STATUS_FETCH_SOURCE_REQUEST = 'STATUS_FETCH_SOURCE_REQUEST';
@@ -550,3 +555,42 @@ export function toggleStatusCollapse(id, isCollapsed) {
     isCollapsed,
   };
 }
+
+export const translateStatus = id => (dispatch, getState) => {
+  dispatch(translateStatusRequest(id));
+
+  api(getState).post(`/api/v1/statuses/${id}/translate`).then(response => {
+    const state = getState();
+    const status = state.getIn(['statuses', id]);
+    const acct = status ? state.getIn(['accounts', status.get('account'), 'acct'], '') : '';
+    const domain = acct.split('@')[1] || '';
+
+    dispatch(translateStatusSuccess(id, response.data, domain));
+  }).catch(error => {
+    dispatch(translateStatusFail(id, error));
+  });
+};
+
+export const translateStatusRequest = id => ({
+  type: STATUS_TRANSLATE_REQUEST,
+  id,
+});
+
+export const translateStatusSuccess = (id, translation, domain) => ({
+  type: STATUS_TRANSLATE_SUCCESS,
+  id,
+  translation,
+  domain,
+});
+
+export const translateStatusFail = (id, error) => ({
+  type: STATUS_TRANSLATE_FAIL,
+  id,
+  error,
+});
+
+export const undoStatusTranslation = (id, pollId) => ({
+  type: STATUS_TRANSLATE_UNDO,
+  id,
+  pollId,
+});

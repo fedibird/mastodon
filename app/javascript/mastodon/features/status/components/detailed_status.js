@@ -13,6 +13,8 @@ import Card from './card';
 import ImmutablePureComponent from 'react-immutable-pure-component';
 import Video from '../../video';
 import Audio from '../../audio';
+
+const translatedDescription = attachment => attachment.getIn(['translation', 'description']) || attachment.get('description');
 import scheduleIdleTask from '../../ui/util/schedule_idle_task';
 import classNames from 'classnames';
 import Icon from 'mastodon/components/icon';
@@ -81,6 +83,7 @@ class DetailedStatus extends ImmutablePureComponent {
     onOpenVideo: PropTypes.func.isRequired,
     onOpenMediaQuote: PropTypes.func.isRequired,
     onOpenVideoQuote: PropTypes.func.isRequired,
+    onTranslate: PropTypes.func,
     onToggleHidden: PropTypes.func.isRequired,
     measureHeight: PropTypes.bool,
     onHeightChange: PropTypes.func,
@@ -120,12 +123,49 @@ class DetailedStatus extends ImmutablePureComponent {
     e.stopPropagation();
   }
 
+  handleTranslate = () => {
+    const { onTranslate, status } = this.props;
+
+    if (!onTranslate) {
+      return;
+    }
+
+    const proper = status.get('reblog') && typeof status.get('reblog') === 'object' ? status.get('reblog') : status;
+    onTranslate(proper);
+  }
+
+  handleQuoteTranslate = () => {
+    const { onTranslate, status } = this.props;
+    const displayed = status && status.get('reblog') && typeof status.get('reblog') === 'object' ? status.get('reblog') : status;
+    const quote = displayed && displayed.get('quote');
+
+    if (onTranslate && quote && quote.get('translation')) {
+      onTranslate(quote);
+    }
+  }
+
+  handleOpenMedia = (media, index) => {
+    const status = this.props.status;
+    const lang = status.getIn(['translation', 'language']) || status.get('language');
+    this.props.onOpenMedia(media, index, lang);
+  }
+
+  handleOpenMediaQuote = (media, index) => {
+    const quote = this.props.status.get('quote');
+    const lang = quote.getIn(['translation', 'language']) || quote.get('language');
+    this.props.onOpenMediaQuote(media, index, lang);
+  }
+
   handleOpenVideo = (options) => {
-    this.props.onOpenVideo(this.props.status.getIn(['media_attachments', 0]), options);
+    const status = this.props.status;
+    const lang = status.getIn(['translation', 'language']) || status.get('language');
+    this.props.onOpenVideo(status.getIn(['media_attachments', 0]), options, lang);
   }
 
   handleOpenVideoQuote = (options) => {
-    this.props.onOpenVideoQuote(this.props.status.getIn(['quote', 'media_attachments', 0]), options);
+    const quote = this.props.status.get('quote');
+    const lang = quote.getIn(['translation', 'language']) || quote.get('language');
+    this.props.onOpenVideoQuote(quote.getIn(['media_attachments', 0]), options, lang);
   }
 
   handleExpandedToggle = () => {
@@ -213,6 +253,7 @@ class DetailedStatus extends ImmutablePureComponent {
     let quote = null;
     if (status.get('quote', null) !== null) {
       let quote_status = status.get('quote');
+      const quoteLanguage = quote_status.getIn(['translation', 'language']) || quote_status.get('language');
 
       let quote_media = null;
       if (quote_status.get('media_attachments').size > 0) {
@@ -223,7 +264,8 @@ class DetailedStatus extends ImmutablePureComponent {
           quote_media = (
             <Audio
               src={attachment.get('url')}
-              alt={attachment.get('description')}
+              alt={translatedDescription(attachment)}
+              lang={quoteLanguage}
               duration={attachment.getIn(['meta', 'original', 'duration'], 0)}
               poster={attachment.get('preview_url') || quote_status.getIn(['account', 'avatar_static'])}
               backgroundColor={attachment.getIn(['meta', 'colors', 'background'])}
@@ -242,7 +284,8 @@ class DetailedStatus extends ImmutablePureComponent {
               thumbhash={attachment.get('thumbhash')}
               blurhash={attachment.get('blurhash')}
               src={attachment.get('url')}
-              alt={attachment.get('description')}
+              alt={translatedDescription(attachment)}
+              lang={quoteLanguage}
               width={300}
               height={150}
               inline
@@ -259,8 +302,9 @@ class DetailedStatus extends ImmutablePureComponent {
               standalone
               sensitive={quote_status.get('sensitive')}
               media={quote_status.get('media_attachments')}
+              lang={quoteLanguage}
               height={300}
-              onOpenMedia={this.props.onOpenMediaQuote}
+              onOpenMedia={this.handleOpenMediaQuote}
               visible={this.props.showQuoteMedia}
               onToggleVisibility={this.props.onToggleQuoteMediaVisibility}
               quote
@@ -286,7 +330,7 @@ class DetailedStatus extends ImmutablePureComponent {
                 <DisplayName account={quote_status.get('account')} localDomain={this.props.domain} />
               </a>
             </div>
-            <StatusContent status={quote_status} onClick={this.handleQuoteClick} expanded={!quote_status.get('hidden')} onExpandedToggle={this.handleExpandedQuoteToggle} quote />
+            <StatusContent status={quote_status} onClick={this.handleQuoteClick} expanded={!quote_status.get('hidden')} onExpandedToggle={this.handleExpandedQuoteToggle} onTranslate={quote_status.get('translation') && this.props.onTranslate ? this.handleQuoteTranslate : undefined} quote />
             {!(quote_status.get('hidden') && quote_status.get('spoiler_text').length > 0) && <>
               {quote_media}
             </>}
@@ -303,6 +347,8 @@ class DetailedStatus extends ImmutablePureComponent {
       );
     }
 
+    const language = status.getIn(['translation', 'language']) || status.get('language');
+
     if (pictureInPicture.get('inUse')) {
       media = <PictureInPicturePlaceholder />;
     } else if (status.get('media_attachments').size > 0) {
@@ -312,7 +358,8 @@ class DetailedStatus extends ImmutablePureComponent {
         media = (
           <Audio
             src={attachment.get('url')}
-            alt={attachment.get('description')}
+            alt={translatedDescription(attachment)}
+            lang={language}
             duration={attachment.getIn(['meta', 'original', 'duration'], 0)}
             poster={attachment.get('preview_url') || status.getIn(['account', 'avatar_static'])}
             backgroundColor={attachment.getIn(['meta', 'colors', 'background'])}
@@ -331,7 +378,8 @@ class DetailedStatus extends ImmutablePureComponent {
             thumbhash={attachment.get('thumbhash')}
             blurhash={attachment.get('blurhash')}
             src={attachment.get('url')}
-            alt={attachment.get('description')}
+            alt={translatedDescription(attachment)}
+            lang={language}
             width={300}
             height={150}
             inline
@@ -347,8 +395,9 @@ class DetailedStatus extends ImmutablePureComponent {
             standalone
             sensitive={status.get('sensitive')}
             media={status.get('media_attachments')}
+            lang={language}
             height={300}
-            onOpenMedia={this.props.onOpenMedia}
+            onOpenMedia={this.handleOpenMedia}
             visible={this.props.showMedia}
             onToggleVisibility={this.props.onToggleMediaVisibility}
           />
@@ -475,7 +524,7 @@ class DetailedStatus extends ImmutablePureComponent {
             <DisplayName account={status.get('account')} localDomain={this.props.domain} />
           </a>
 
-          <StatusContent status={status} expanded={!status.get('hidden')} onExpandedToggle={this.handleExpandedToggle} />
+          <StatusContent status={status} expanded={!status.get('hidden')} onExpandedToggle={this.handleExpandedToggle} onTranslate={this.props.onTranslate && this.handleTranslate} />
 
           {!(status.get('hidden') && status.get('spoiler_text').length > 0) && <>
             {quote}

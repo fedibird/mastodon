@@ -38,6 +38,8 @@ import {
   requestEditStatus,
   hideStatus,
   revealStatus,
+  translateStatus,
+  undoStatusTranslation,
 } from '../../actions/statuses';
 import {
   unblockAccount,
@@ -356,20 +358,30 @@ class Status extends ImmutablePureComponent {
     this.props.dispatch(mentionCompose(account, router));
   }
 
-  handleOpenMedia = (media, index) => {
-    this.props.dispatch(openModal('MEDIA', { statusId: this.props.status.get('id'), media, index }));
+  handleOpenMedia = (media, index, lang) => {
+    this.props.dispatch(openModal('MEDIA', { statusId: this.props.status.get('id'), media, index, lang }));
   }
 
-  handleOpenVideo = (media, options) => {
-    this.props.dispatch(openModal('VIDEO', { statusId: this.props.status.get('id'), media, options }));
+  handleOpenVideo = (media, options, lang) => {
+    this.props.dispatch(openModal('VIDEO', { statusId: this.props.status.get('id'), media, options, lang }));
   }
 
-  handleOpenMediaQuote = (media, index) => {
-    this.props.dispatch(openModal('MEDIA', { statusId: this.props.status.getIn(['quote', 'id']), media, index }));
+  handleOpenMediaQuote = (media, index, lang) => {
+    this.props.dispatch(openModal('MEDIA', { statusId: this.props.status.getIn(['quote', 'id']), media, index, lang }));
   }
 
-  handleOpenVideoQuote = (media, options) => {
-    this.props.dispatch(openModal('VIDEO', { statusId: this.props.status.getIn(['quote', 'id']), media, options }));
+  handleOpenVideoQuote = (media, options, lang) => {
+    this.props.dispatch(openModal('VIDEO', { statusId: this.props.status.getIn(['quote', 'id']), media, options, lang }));
+  }
+
+  handleTranslate = status => {
+    const { dispatch } = this.props;
+
+    if (status.get('translation')) {
+      dispatch(undoStatusTranslation(status.get('id'), status.get('poll')));
+    } else {
+      dispatch(translateStatus(status.get('id')));
+    }
   }
 
   handleHotkeyOpenMedia = e => {
@@ -378,10 +390,12 @@ class Status extends ImmutablePureComponent {
     e.preventDefault();
 
     if (status.get('media_attachments').size > 0) {
+      const lang = status.getIn(['translation', 'language']) || status.get('language');
+
       if (status.getIn(['media_attachments', 0, 'type']) === 'video') {
-        this.handleOpenVideo(status.getIn(['media_attachments', 0]), { startTime: 0 });
+        this.handleOpenVideo(status.getIn(['media_attachments', 0]), { startTime: 0 }, lang);
       } else {
-        this.handleOpenMedia(status.get('media_attachments'), 0);
+        this.handleOpenMedia(status.get('media_attachments'), 0, lang);
       }
     }
   }
@@ -669,6 +683,7 @@ class Status extends ImmutablePureComponent {
                   onOpenVideoQuote={this.handleOpenVideoQuote}
                   onOpenMediaQuote={this.handleOpenMediaQuote}
                   onToggleHidden={this.handleToggleHidden}
+                  onTranslate={this.handleTranslate}
                   domain={domain}
                   showMedia={this.state.showMedia}
                   onToggleMediaVisibility={this.handleToggleMediaVisibility}

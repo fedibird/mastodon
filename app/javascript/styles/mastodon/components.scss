@@ -1097,6 +1097,37 @@ body > [data-popper-placement] {
   }
 }
 
+.status__content__translate-button {
+  display: block;
+  font-size: 15px;
+  line-height: 22px;
+  color: $ui-highlight-color;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  padding-top: 16px;
+  text-decoration: none;
+
+  &:hover,
+  &:active {
+    text-decoration: underline;
+  }
+}
+
+.translate-button {
+  margin-top: 16px;
+  font-size: 15px;
+  line-height: 22px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: $dark-text-color;
+}
+
+.translate-button__meta {
+  min-width: 0;
+}
+
 .status__content__spoiler-link {
   display: inline-block;
   border-radius: 2px;

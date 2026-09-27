@@ -2,11 +2,12 @@ import React from 'react';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import PropTypes from 'prop-types';
 import { injectIntl, defineMessages, FormattedMessage } from 'react-intl';
+import { connect } from 'react-redux';
 import Permalink from './permalink';
 import classnames from 'classnames';
 import PollContainer from 'mastodon/containers/poll_container';
 import Icon from 'mastodon/components/icon';
-import { autoPlayEmoji, disableReactions } from 'mastodon/initial_state';
+import { autoPlayEmoji, disableReactions, languages as preloadedLanguages, me } from 'mastodon/initial_state';
 
 const messages = defineMessages({
   linkToAcct: { id: 'status.link_to_acct', defaultMessage: 'Link to @{acct}' },
@@ -16,6 +17,47 @@ const messages = defineMessages({
 });
 
 const MAX_HEIGHT = 642; // 20px * 32 (+ 2px padding at the top)
+
+class TranslateButton extends React.PureComponent {
+
+  static propTypes = {
+    translation: ImmutablePropTypes.map,
+    onClick: PropTypes.func,
+  };
+
+  render () {
+    const { translation, onClick } = this.props;
+
+    if (translation) {
+      const language     = (preloadedLanguages || []).find(lang => lang[0] === translation.get('detected_source_language'));
+      const languageName = language ? language[2] : translation.get('detected_source_language');
+      const provider     = translation.get('provider');
+
+      return (
+        <div className='translate-button'>
+          <div className='translate-button__meta'>
+            <FormattedMessage id='status.translated_from_with' defaultMessage='Translated from {lang} using {provider}' values={{ lang: languageName, provider }} />
+          </div>
+
+          <button className='link-button' onClick={onClick}>
+            <FormattedMessage id='status.show_original' defaultMessage='Show original' />
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <button className='status__content__translate-button' onClick={onClick}>
+        <FormattedMessage id='status.translate' defaultMessage='Translate' />
+      </button>
+    );
+  }
+
+}
+
+const mapStateToProps = state => ({
+  languages: state.getIn(['server', 'translationLanguages', 'items']),
+});
 
 class StatusContent extends React.PureComponent {
 
@@ -29,9 +71,11 @@ class StatusContent extends React.PureComponent {
     showThread: PropTypes.bool,
     onExpandedToggle: PropTypes.func,
     onClick: PropTypes.func,
+    onTranslate: PropTypes.func,
     collapsable: PropTypes.bool,
     onCollapsedToggle: PropTypes.func,
     quote: PropTypes.bool,
+    languages: ImmutablePropTypes.map,
     intl: PropTypes.object.isRequired,
   };
 
@@ -266,6 +310,10 @@ class StatusContent extends React.PureComponent {
     this.startXY = null;
   }
 
+  handleTranslate = () => {
+    this.props.onTranslate();
+  }
+
   handleSpoilerClick = (e) => {
     e.preventDefault();
 
@@ -282,7 +330,7 @@ class StatusContent extends React.PureComponent {
   }
 
   render () {
-    const { status, quote } = this.props;
+    const { status, quote, intl } = this.props;
 
     const hidden = this.props.onExpandedToggle ? !this.props.expanded : this.state.hidden;
     const renderReadMore = this.props.onClick && status.get('collapsed');
@@ -290,10 +338,13 @@ class StatusContent extends React.PureComponent {
       status.get('in_reply_to_id') && status.get('in_reply_to_account_id') === status.getIn(['account', 'id'])
     );
     const renderShowPoll = !!status.get('poll');
+    const contentLocale = (intl.locale || '').replace(/[_-].*/, '');
+    const targetLanguages = this.props.languages?.get(status.get('language') || 'und');
+    const renderTranslate = this.props.onTranslate && !!me && ['public', 'unlisted'].includes(status.get('visibility')) && (status.get('search_index') || '').trim().length > 0 && targetLanguages?.includes(contentLocale);
 
-    const content = { __html: status.get('contentHtml') };
-    const spoilerContent = { __html: status.get('spoilerHtml') };
-    const language = status.get('language');
+    const content = { __html: status.getIn(['translation', 'contentHtml']) || status.get('contentHtml') };
+    const spoilerContent = { __html: status.getIn(['translation', 'spoilerHtml']) || status.get('spoilerHtml') };
+    const language = status.getIn(['translation', 'language']) || status.get('language');
     const classNames = classnames('status__content', {
       'status__content--with-action': this.props.onClick && this.context.router,
       'status__content--with-spoiler': status.get('spoiler_text').length > 0,
@@ -319,7 +370,11 @@ class StatusContent extends React.PureComponent {
     );
 
     const pollContainer = (
-      <PollContainer pollId={status.get('poll')} disabled={disableReactions} />
+      <PollContainer pollId={status.get('poll')} lang={language} disabled={disableReactions} />
+    );
+
+    const translateButton = renderTranslate && (
+      <TranslateButton onClick={this.handleTranslate} translation={status.get('translation')} />
     );
 
     if (status.get('spoiler_text').length > 0) {
@@ -340,7 +395,7 @@ class StatusContent extends React.PureComponent {
       return (
         <div className={classNames} ref={this.setRef} tabIndex='0' onMouseDown={this.handleMouseDown} onMouseUp={this.handleMouseUp} onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave}>
           <p style={{ marginBottom: hidden && status.get('mentions').isEmpty() ? '0px' : null }}>
-            <span dangerouslySetInnerHTML={spoilerContent} className='translate' />
+            <span dangerouslySetInnerHTML={spoilerContent} lang={language} className='translate' />
             {' '}
             <button tabIndex='0' className={`status__content__spoiler-link ${hidden ? 'status__content__spoiler-link--show-more' : 'status__content__spoiler-link--show-less'}`} onClick={this.handleSpoilerClick}>{toggleText}</button>
           </p>
@@ -352,6 +407,7 @@ class StatusContent extends React.PureComponent {
           {!hidden && renderShowPoll && quote ? showPollButton : pollContainer}
 
           {renderViewThread && showThreadButton}
+          {translateButton}
         </div>
       );
     } else if (this.props.onClick) {
@@ -362,6 +418,7 @@ class StatusContent extends React.PureComponent {
           {renderShowPoll && quote ? showPollButton : pollContainer}
 
           {renderViewThread && showThreadButton}
+          {translateButton}
         </div>,
       ];
 
@@ -378,6 +435,7 @@ class StatusContent extends React.PureComponent {
           {renderShowPoll && quote ? showPollButton : pollContainer}
 
           {renderViewThread && showThreadButton}
+          {translateButton}
         </div>
       );
     }
@@ -385,4 +443,4 @@ class StatusContent extends React.PureComponent {
 
 }
 
-export default injectIntl(StatusContent);
+export default injectIntl(connect(mapStateToProps)(StatusContent));

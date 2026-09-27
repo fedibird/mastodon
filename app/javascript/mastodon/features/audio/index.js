@@ -26,6 +26,7 @@ class Audio extends React.PureComponent {
   static propTypes = {
     src: PropTypes.string.isRequired,
     alt: PropTypes.string,
+    lang: PropTypes.string,
     poster: PropTypes.string,
     duration: PropTypes.number,
     width: PropTypes.number,
@@ -462,6 +463,7 @@ class Audio extends React.PureComponent {
           onKeyDown={this.handleAudioKeyDown}
           title={alt}
           aria-label={alt}
+          lang={this.props.lang}
         />
 
         <img

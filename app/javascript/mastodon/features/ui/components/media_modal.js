@@ -13,6 +13,7 @@ import GIFV from 'mastodon/components/gifv';
 import { disableSwiping } from 'mastodon/initial_state';
 import Footer from 'mastodon/features/picture_in_picture/components/footer';
 import { getAverageFromBlurhash } from 'mastodon/blurhash';
+import { connect } from 'react-redux';
 
 const messages = defineMessages({
   close: { id: 'lightbox.close', defaultMessage: 'Close' },
@@ -20,12 +21,22 @@ const messages = defineMessages({
   next: { id: 'lightbox.next', defaultMessage: 'Next' },
 });
 
-export default @injectIntl
+const mapStateToProps = (state, props) => {
+  const status = props.statusId ? state.getIn(['statuses', props.statusId]) : null;
+
+  return {
+    lang: props.lang || (status ? (status.getIn(['translation', 'language']) || status.get('language')) : undefined),
+  };
+};
+
+export default @connect(mapStateToProps)
+@injectIntl
 class MediaModal extends ImmutablePureComponent {
 
   static propTypes = {
     media: ImmutablePropTypes.list.isRequired,
     statusId: PropTypes.string,
+    lang: PropTypes.string,
     index: PropTypes.number.isRequired,
     onClose: PropTypes.func.isRequired,
     intl: PropTypes.object.isRequired,
@@ -144,9 +155,12 @@ class MediaModal extends ImmutablePureComponent {
     const leftNav  = media.size > 1 && <button tabIndex='0' className='media-modal__nav media-modal__nav--left' onClick={this.handlePrevClick} aria-label={intl.formatMessage(messages.previous)}><Icon id='chevron-left' fixedWidth /></button>;
     const rightNav = media.size > 1 && <button tabIndex='0' className='media-modal__nav  media-modal__nav--right' onClick={this.handleNextClick} aria-label={intl.formatMessage(messages.next)}><Icon id='chevron-right' fixedWidth /></button>;
 
+    const { lang } = this.props;
+
     const content = media.map((image) => {
       const width  = image.getIn(['meta', 'original', 'width']) || null;
       const height = image.getIn(['meta', 'original', 'height']) || null;
+      const description = image.getIn(['translation', 'description']) || image.get('description');
 
       if (image.get('type') === 'image') {
         return (
@@ -155,7 +169,8 @@ class MediaModal extends ImmutablePureComponent {
             src={image.get('url')}
             width={width}
             height={height}
-            alt={image.get('description')}
+            alt={description}
+            lang={lang}
             key={image.get('url')}
             onClick={this.toggleNavigation}
             zoomButtonHidden={this.state.zoomButtonHidden}
@@ -178,7 +193,8 @@ class MediaModal extends ImmutablePureComponent {
             volume={volume || 1}
             onCloseVideo={onClose}
             detailed
-            alt={image.get('description')}
+            alt={description}
+            lang={lang}
             key={image.get('url')}
           />
         );
@@ -189,7 +205,8 @@ class MediaModal extends ImmutablePureComponent {
             width={width}
             height={height}
             key={image.get('preview_url')}
-            alt={image.get('description')}
+            alt={description}
+            lang={lang}
             onClick={this.toggleNavigation}
           />
         );
