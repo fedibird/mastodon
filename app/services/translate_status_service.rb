@@ -214,8 +214,6 @@ class TranslateStatusService < BaseService
   end
 
   def metadata_hashtag_nodes(text, document)
-    return unless text.include?('#')
-
     matches = Extractor.extract_hashtags_with_indices(text).select { |tag| metadata_hashtag?(tag[:hashtag]) }
     return if matches.empty?
 
@@ -244,8 +242,6 @@ class TranslateStatusService < BaseService
     return false if normalized_status_tags.empty?
 
     text = anchor.text
-    return false unless text.include?('#')
-
     matches = Extractor.extract_hashtags_with_indices(text)
     return false unless matches.one? && metadata_hashtag?(matches.first[:hashtag])
 

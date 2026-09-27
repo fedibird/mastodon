@@ -59,6 +59,13 @@ describe Extractor do
       expect(extracted).to eq [ { hashtag: 'hashtag', indices: [ 0, 8 ] } ]
     end
 
+    it 'extracts a hashtag introduced by a fullwidth hash sign' do
+      text = '＃Ｓｙｎｔｈｗａｖｅ'
+      extracted = Extractor.extract_hashtags_with_indices(text)
+
+      expect(extracted).to eq [{ hashtag: 'Ｓｙｎｔｈｗａｖｅ', indices: [0, text.length] }]
+    end
+
     it 'yields hashtags if a block is given' do
       text = '#hashtag'
       Extractor.extract_hashtags_with_indices(text) do |hashtag, start_position, end_position|

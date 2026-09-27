@@ -719,6 +719,21 @@ RSpec.describe TranslateStatusService do
       expect(Nokogiri::HTML.fragment(translation.content).css('[translate]')).to be_empty
     end
 
+    it 'protects a recorded hashtag written with a fullwidth hash sign' do
+      remote = remote_status('<p>Hello ＃Ｓｙｎｔｈｗａｖｅ</p>')
+      remote.tags << Fabricate(:tag, name: 'synthwave')
+
+      translation = described_class.new.call(remote, 'ja')
+      fragment = Nokogiri::HTML.fragment(sent_html)
+      protected_tag = fragment.at_css('span[translate="no"]')
+
+      expect(protected_tag.text).to eq '＃Ｓｙｎｔｈｗａｖｅ'
+      expect(translation.content).to include('こんにちは')
+      expect(translation.content).to include('＃Ｓｙｎｔｈｗａｖｅ')
+      expect(translation.content).not_to include('シンセ')
+      expect(Nokogiri::HTML.fragment(translation.content).css('[translate]')).to be_empty
+    end
+
     it 'does not rewrite a hashtag that only appears inside a URL' do
       remote = remote_status('<p>Hello <a href="https://example.com/wiki/Page#Fedibird">example</a> #Fedibird</p>')
       remote.tags << Fabricate(:tag, name: 'Fedibird')
