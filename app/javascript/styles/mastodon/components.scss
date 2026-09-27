@@ -7329,6 +7329,25 @@ a.status-card.compact:hover {
   }
 }
 
+.account__section-headline.explore__section-headline {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  a {
+    flex: 1 0 auto;
+    width: auto;
+    min-width: max-content;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+}
+
 .filter-form {
   background: $ui-base-color;
 

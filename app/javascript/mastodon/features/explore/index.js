@@ -46,7 +46,7 @@ class Explore extends PureComponent {
           showBackButton
         />
 
-        <div className='account__section-headline'>
+        <div className='account__section-headline explore__section-headline'>
           <NavLink exact to='/explore' isActive={this.isPostsActive}>
             <FormattedMessage tagName='div' id='explore.trending_statuses' defaultMessage='Posts' />
           </NavLink>
