@@ -40,7 +40,7 @@ module Extractor
   end
 
   def extract_hashtags_with_indices(text, **)
-    return [] unless /#/.match?(text)
+    return [] unless /[#＃]/.match?(text)
 
     tags = []
     text.scan(Tag::HASHTAG_RE) do |hash_text, _|

@@ -34,6 +34,10 @@ RSpec.describe Tag, type: :model do
       expect(subject.match('﻿this is #ａｅｓｔｈｅｔｉｃ').to_s).to eq ' #ａｅｓｔｈｅｔｉｃ'
     end
 
+    it 'matches a fullwidth hash sign' do
+      expect(subject.match('hello ＃Ｓｙｎｔｈｗａｖｅ').to_s).to eq ' ＃Ｓｙｎｔｈｗａｖｅ'
+    end
+
     it 'matches digits at the start' do
       expect(subject.match('hello #3d').to_s).to eq ' #3d'
     end
