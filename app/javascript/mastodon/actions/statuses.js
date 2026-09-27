@@ -569,20 +569,25 @@ export const translateStatus = (id, mode = 'translated') => (dispatch, getState)
   const status = getState().getIn(['statuses', id]);
 
   if (status && status.get('translationPending')) {
-    return;
+    return Promise.resolve();
   }
 
   if (status && status.get('translation')) {
     dispatch(setStatusTranslationMode(id, requestedMode));
-    return;
+    return Promise.resolve();
   }
 
   const translationRequestId = nextTranslationRequestId();
   const pollId = status ? status.get('poll') : null;
+  const translationRequestIsCurrent = () => getState().getIn(['statuses', id, 'translationRequestId']) === translationRequestId;
 
   dispatch(translateStatusRequest(id, requestedMode, translationRequestId, pollId));
 
-  api(getState).post(`/api/v1/statuses/${id}/translate`).then(response => {
+  return api(getState).post(`/api/v1/statuses/${id}/translate`).then(response => {
+    if (!translationRequestIsCurrent()) {
+      return;
+    }
+
     const state = getState();
     const current = state.getIn(['statuses', id]);
     const acct = current ? state.getIn(['accounts', current.get('account'), 'acct'], '') : '';
@@ -590,6 +595,11 @@ export const translateStatus = (id, mode = 'translated') => (dispatch, getState)
 
     dispatch(translateStatusSuccess(id, response.data, domain, requestedMode, translationRequestId));
   }).catch(error => {
+    if (!translationRequestIsCurrent()) {
+      dispatch(translateStatusFail(id, error, translationRequestId, pollId, true));
+      return;
+    }
+
     dispatch(translateStatusFail(id, error, translationRequestId, pollId));
   });
 };
@@ -611,12 +621,13 @@ export const translateStatusSuccess = (id, translation, domain, mode, translatio
   translationRequestId,
 });
 
-export const translateStatusFail = (id, error, translationRequestId, pollId) => ({
+export const translateStatusFail = (id, error, translationRequestId, pollId, skipAlert) => ({
   type: STATUS_TRANSLATE_FAIL,
   id,
   error,
   translationRequestId,
   pollId,
+  ...(skipAlert ? { skipAlert: true } : {}),
 });
 
 export const undoStatusTranslation = (id, pollId) => ({
