@@ -16,10 +16,13 @@ const makeMapStateToProps = () => {
     const status         = getStatus(state, { id: props.statusId });
     const id             = status ? getProper(status).get('id') : null;
 
+    const proper = status ? getProper(status) : null;
+
     return {
       referenced: state.getIn(['compose', 'references']).has(id),
       contextReferenced: state.getIn(['compose', 'context_references']).has(id),
       accountStaticAvatar: state.getIn(['accounts', state.getIn(['statuses', props.statusId, 'account']), 'avatar_static']),
+      lang: props.lang || (proper ? (proper.getIn(['translation', 'language']) || proper.get('language')) : undefined),
     };
   };
 
@@ -32,6 +35,7 @@ class AudioModal extends ImmutablePureComponent {
   static propTypes = {
     media: ImmutablePropTypes.map.isRequired,
     statusId: PropTypes.string.isRequired,
+    lang: PropTypes.string,
     accountStaticAvatar: PropTypes.string.isRequired,
     options: PropTypes.shape({
       autoPlay: PropTypes.bool,
@@ -49,15 +53,17 @@ class AudioModal extends ImmutablePureComponent {
   }
 
   render () {
-    const { media, accountStaticAvatar, statusId, onClose } = this.props;
+    const { media, accountStaticAvatar, statusId, onClose, lang } = this.props;
     const options = this.props.options || {};
+    const description = media.getIn(['translation', 'description']) || media.get('description');
 
     return (
       <div className='modal-root__modal audio-modal'>
         <div className='audio-modal__container'>
           <Audio
             src={media.get('url')}
-            alt={media.get('description')}
+            alt={description}
+            lang={lang}
             duration={media.getIn(['meta', 'original', 'duration'], 0)}
             height={150}
             poster={media.get('preview_url') || accountStaticAvatar}

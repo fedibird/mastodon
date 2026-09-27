@@ -417,6 +417,8 @@
   "status.show_more": "Show more",
   "status.show_more_all": "Show more for all",
   "status.show_thread": "Show thread",
+  "status.translate": "පරිවර්තනය",
+  "status.translated_from_with": "{provider} මගින් {lang} භාෂාවෙන් පරිවර්තනය කර ඇත",
   "status.uncached_media_warning": "Not available",
   "status.unmute_conversation": "Unmute conversation",
   "status.unpin": "Unpin from profile",

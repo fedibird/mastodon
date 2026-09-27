@@ -5,13 +5,23 @@ import Video from 'mastodon/features/video';
 import ImmutablePureComponent from 'react-immutable-pure-component';
 import Footer from 'mastodon/features/picture_in_picture/components/footer';
 import { getAverageFromBlurhash } from 'mastodon/blurhash';
+import { connect } from 'react-redux';
 
-export default
+const mapStateToProps = (state, props) => {
+  const status = props.statusId ? state.getIn(['statuses', props.statusId]) : null;
+
+  return {
+    lang: props.lang || (status ? (status.getIn(['translation', 'language']) || status.get('language')) : undefined),
+  };
+};
+
+export default @connect(mapStateToProps)
 class VideoModal extends ImmutablePureComponent {
 
   static propTypes = {
     media: ImmutablePropTypes.map.isRequired,
     statusId: PropTypes.string,
+    lang: PropTypes.string,
     options: PropTypes.shape({
       startTime: PropTypes.number,
       autoPlay: PropTypes.bool,
@@ -32,8 +42,9 @@ class VideoModal extends ImmutablePureComponent {
   }
 
   render () {
-    const { media, statusId, onClose } = this.props;
+    const { media, statusId, onClose, lang } = this.props;
     const options = this.props.options || {};
+    const description = media.getIn(['translation', 'description']) || media.get('description');
 
     return (
       <div className='modal-root__modal video-modal'>
@@ -49,7 +60,8 @@ class VideoModal extends ImmutablePureComponent {
             volume={options.defaultVolume}
             onCloseVideo={onClose}
             detailed
-            alt={media.get('description')}
+            alt={description}
+            lang={lang}
           />
         </div>
 

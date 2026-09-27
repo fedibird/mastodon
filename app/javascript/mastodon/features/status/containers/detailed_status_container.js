@@ -23,6 +23,8 @@ import {
   expireStatus,
   hideStatus,
   revealStatus,
+  translateStatus,
+  undoStatusTranslation,
 } from '../../../actions/statuses';
 import { initMuteModal } from '../../../actions/mutes';
 import { initBlockModal } from '../../../actions/blocks';
@@ -145,20 +147,28 @@ const mapDispatchToProps = (dispatch, { intl }) => ({
     dispatch(mentionCompose(account, router));
   },
 
-  onOpenMedia (media, index) {
-    dispatch(openModal('MEDIA', { media, index }));
+  onOpenMedia (media, index, lang) {
+    dispatch(openModal('MEDIA', { media, index, lang }));
   },
 
-  onOpenVideo (media, options) {
-    dispatch(openModal('VIDEO', { media, options }));
+  onOpenVideo (media, options, lang) {
+    dispatch(openModal('VIDEO', { media, options, lang }));
   },
 
-  onOpenMediaQuote (media, index) {
-    dispatch(openModal('MEDIA', { media, index }));
+  onOpenMediaQuote (media, index, lang) {
+    dispatch(openModal('MEDIA', { media, index, lang }));
   },
 
-  onOpenVideoQuote (media, options) {
-    dispatch(openModal('VIDEO', { media, options }));
+  onOpenVideoQuote (media, options, lang) {
+    dispatch(openModal('VIDEO', { media, options, lang }));
+  },
+
+  onTranslate (status) {
+    if (status.get('translation')) {
+      dispatch(undoStatusTranslation(status.get('id'), status.get('poll')));
+    } else {
+      dispatch(translateStatus(status.get('id')));
+    }
   },
 
   onBlock (status) {

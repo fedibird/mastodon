@@ -417,6 +417,7 @@
   "status.show_more": "और दिखाएँ",
   "status.show_more_all": "Show more for all",
   "status.show_thread": "Show thread",
+  "status.translated_from_with": "{provider} का उपयोग करते हुये {lang} से अनुवादित किया गया",
   "status.uncached_media_warning": "अनुपलब्ध",
   "status.unmute_conversation": "Unmute conversation",
   "status.unpin": "Unpin from profile",

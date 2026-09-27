@@ -13,6 +13,15 @@ RSpec.describe InitialStateSerializer do
     )
   end
 
+  it 'includes language display names for the WebUI' do
+    json = serialize(Fabricate(:user).account)
+    english = json[:languages].find { |language| language[0] == 'en' }
+    japanese = json[:languages].find { |language| language[0] == 'ja' }
+
+    expect(english).to eq %w(en English English)
+    expect(japanese).to eq %w(ja Japanese 日本語)
+  end
+
   it 'returns the Everyone role and keeps an invite-only user off the staff flag' do
     UserRole.everyone.update!(permissions: UserRole::FLAGS[:invite_users])
     user = Fabricate(:user)

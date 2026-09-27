@@ -8,6 +8,7 @@ export default class ImageLoader extends React.PureComponent {
 
   static propTypes = {
     alt: PropTypes.string,
+    lang: PropTypes.string,
     src: PropTypes.string.isRequired,
     previewSrc: PropTypes.string,
     width: PropTypes.number,
@@ -150,6 +151,7 @@ export default class ImageLoader extends React.PureComponent {
         ) : (
           <ZoomableImage
             alt={alt}
+            lang={this.props.lang}
             src={src}
             onClick={onClick}
             width={width}

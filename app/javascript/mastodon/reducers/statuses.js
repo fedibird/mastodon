@@ -23,9 +23,12 @@ import {
   STATUS_REVEAL,
   STATUS_HIDE,
   STATUS_COLLAPSE,
+  STATUS_TRANSLATE_SUCCESS,
+  STATUS_TRANSLATE_UNDO,
 } from '../actions/statuses';
 import { TIMELINE_DELETE } from '../actions/timelines';
 import { STATUS_IMPORT, STATUSES_IMPORT } from '../actions/importer';
+import { normalizeStatusTranslation } from '../actions/importer/normalizer';
 import { me } from '../initial_state';
 import { Map as ImmutableMap, List, fromJS } from 'immutable';
 
@@ -68,6 +71,44 @@ const updateEmojiReactionCount = (state, emojiReaction) => updateEmojiReaction(s
 const addEmojiReaction = (state, id, name, domain, url, static_url) => updateEmojiReaction(state, id, name, domain, url, static_url, x => x.update('count', y => y + 1).update('account_ids', z => z.push(me)));
 
 const removeEmojiReaction = (state, id, name, domain, url, static_url) => updateEmojiReaction(state, id, name, domain, url, static_url, x => x.update('count', y => y - 1).update('account_ids', z => z.filter(id => id !== me)));
+
+const statusTranslateSuccess = (state, id, translation, domain) => {
+  if (!state.get(id)) {
+    return state;
+  }
+
+  return state.withMutations(map => {
+    map.setIn([id, 'translation'], fromJS(normalizeStatusTranslation(translation, map.get(id), domain)));
+
+    const list = map.getIn([id, 'media_attachments']);
+
+    if (translation.media_attachments && list) {
+      translation.media_attachments.forEach(item => {
+        const index = list.findIndex(i => i.get('id') === item.id);
+
+        if (index > -1) {
+          map.setIn([id, 'media_attachments', index, 'translation'], fromJS({ description: item.description }));
+        }
+      });
+    }
+  });
+};
+
+const statusTranslateUndo = (state, id) => {
+  if (!state.get(id)) {
+    return state;
+  }
+
+  return state.withMutations(map => {
+    map.deleteIn([id, 'translation']);
+
+    const media = map.getIn([id, 'media_attachments']);
+
+    if (media) {
+      media.forEach((_item, index) => map.deleteIn([id, 'media_attachments', index, 'translation']));
+    }
+  });
+};
 
 const initialState = ImmutableMap();
 
@@ -139,6 +180,10 @@ export default function statuses(state = initialState, action) {
     return state.setIn([action.id, 'collapsed'], action.isCollapsed);
   case TIMELINE_DELETE:
     return deleteStatus(state, action.id, action.references, action.quotes);
+  case STATUS_TRANSLATE_SUCCESS:
+    return statusTranslateSuccess(state, action.id, action.translation, action.domain);
+  case STATUS_TRANSLATE_UNDO:
+    return statusTranslateUndo(state, action.id);
   default:
     return state;
   }

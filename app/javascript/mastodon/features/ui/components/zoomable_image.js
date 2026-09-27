@@ -96,6 +96,7 @@ class ZoomableImage extends React.PureComponent {
 
   static propTypes = {
     alt: PropTypes.string,
+    lang: PropTypes.string,
     src: PropTypes.string.isRequired,
     width: PropTypes.number,
     height: PropTypes.number,
@@ -431,6 +432,7 @@ class ZoomableImage extends React.PureComponent {
             ref={this.setImageRef}
             alt={alt}
             title={alt}
+            lang={this.props.lang}
             src={src}
             width={width}
             height={height}
