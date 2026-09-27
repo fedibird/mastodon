@@ -1,12 +1,17 @@
 # frozen_string_literal: true
 
 class Admin::Trends::LinksController < Admin::BaseController
+  include TrendsReviewQueue
+
   def index
     authorize :preview_card, :review?
+    return if ensure_default_review_status!
 
     @locales       = PreviewCardTrend.pluck('distinct language')
     @preview_cards = filtered_preview_cards.page(params[:page])
-    @form          = Trends::PreviewCardBatch.new
+    @pending_count = PreviewCard.pending_trend_count
+    PreviewCard.assign_providers!(@preview_cards)
+    @form = Trends::PreviewCardBatch.new
   end
 
   def batch

@@ -43,6 +43,7 @@ class Status < ApplicationRecord
   include RateLimitable
   include Redisable
   include StatusSnapshotConcern
+  include StatusTrendReview
 
   extend OrderAsSpecified
 

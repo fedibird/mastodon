@@ -1,0 +1,7 @@
+.filter-subset
+  %strong= t('admin.trends.review.title')
+  %ul
+    %li= filter_link_to t('admin.trends.review.pending_count', count: pending_count), status: 'pending_review'
+    %li= filter_link_to t('admin.trends.review.approved'), status: 'approved'
+    %li= filter_link_to t('admin.trends.review.rejected'), status: 'rejected'
+    %li= filter_link_to t('admin.trends.review.all'), status: 'all'

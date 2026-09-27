@@ -3,14 +3,10 @@
     = f.check_box :preview_card_provider_ids, { multiple: true, include_hidden: false }, preview_card_provider.id
 
   .batch-table__row__content.pending-account
-    .pending-account__header
-      %strong= preview_card_provider.domain
+    .trend-review-summary
+      .trend-review-summary__title
+        %strong= preview_card_provider.domain
+        = trend_review_badge(preview_card_provider)
 
-      %br/
-
-      - if preview_card_provider.requires_review?
-        = t('admin.trends.pending_review')
-      - elsif preview_card_provider.trendable?
-        = t('admin.trends.preview_card_providers.allowed')
-      - else
-        = t('admin.trends.preview_card_providers.rejected')
+      .trend-review-meta
+        %span= t('admin.trends.preview_card_providers.trend_candidates', count: @trend_candidate_counts[preview_card_provider.id].to_i)

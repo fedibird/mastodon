@@ -30,6 +30,7 @@
 
 class PreviewCard < ApplicationRecord
   include Attachmentable
+  include PreviewCardTrendReview
 
   IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].freeze
   LIMIT = 2.megabytes
@@ -92,8 +93,28 @@ class PreviewCard < ApplicationRecord
   end
 
   def provider
-    @provider ||= PreviewCardProvider.matching_domain(domain)
+    return @provider if defined?(@provider)
+
+    @provider = PreviewCardProvider.matching_domain(domain)
   end
+
+  def self.assign_providers!(cards)
+    cards = Array(cards)
+    return if cards.empty?
+
+    suffixes = cards.flat_map { |card| domain_suffixes(card.domain) }.uniq
+    by_domain = PreviewCardProvider.where(domain: suffixes).index_by(&:domain)
+
+    cards.each do |card|
+      card.provider = domain_suffixes(card.domain).filter_map { |domain| by_domain[domain] }.max_by { |provider| provider.domain.length }
+    end
+  end
+
+  def self.domain_suffixes(domain)
+    parts = domain.to_s.split('.')
+    parts.each_index.map { |index| parts[index..-1].join('.') }
+  end
+  private_class_method :domain_suffixes
 
   attr_writer :provider
 

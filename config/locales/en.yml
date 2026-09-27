@@ -1312,8 +1312,8 @@ en:
         allow: Allow link
         allow_provider: Allow publisher
         description_html: These are links that are currently being shared a lot by accounts that your server sees posts from. It can help your users find out what's going on in the world. No links are displayed publicly until you approve the publisher. You can also allow or reject individual links.
-        disallow: Disallow link
-        disallow_provider: Disallow publisher
+        disallow: Reject link
+        disallow_provider: Reject publisher
         no_link_selected: No links were changed as none were selected
         publishers:
           no_publisher_selected: No publishers were changed as none were selected
@@ -1323,20 +1323,46 @@ en:
         title: Trending links
         usage_comparison: Shared %{today} times today, compared to %{yesterday} yesterday
       not_allowed_to_trend: Not allowed to trend
+      listed_only: Listed only
       only_allowed: Only allowed
       pending_review: Pending review
+      publication: Current listing
+      review:
+        all: All
+        approved: Approved
+        candidate_rank: Candidate rank %{rank}
+        candidate_score: Score %{score}
+        decision:
+          account_approved: 'Author: approved'
+          account_pending: 'Author: not reviewed'
+          account_rejected: 'Author: rejected'
+          approved: Approved
+          individual_approved: 'Individual: approved'
+          individual_rejected: 'Individual: rejected'
+          pending: Pending review
+          provider_approved: 'Publisher: approved'
+          provider_pending: 'Publisher: not reviewed'
+          provider_rejected: 'Publisher: rejected'
+          rejected: Rejected
+          with_source: '%{decision} (%{source})'
+        pending_count: Pending review (%{count})
+        rejected: Rejected
+        title: Review state
       preview_card_providers:
         allowed: Links from this publisher can trend
         description_html: These are domains from which links are often shared on your server. Links will not trend publicly unless the domain of the link is approved. Your approval (or rejection) extends to subdomains.
         rejected: Links from this publisher won't trend
         title: Publishers
+        trend_candidates:
+          one: 1 current trend candidate
+          other: "%{count} current trend candidates"
       rejected: Rejected
       statuses:
         allow: Allow post
         allow_account: Allow author
         description_html: These are posts that your server knows about that are currently being shared and favorited a lot at the moment. It can help your new and returning users to find more people to follow. No posts are displayed publicly until you approve the author, and the author allows their account to be suggested to others. You can also allow or reject individual posts.
-        disallow: Disallow post
-        disallow_account: Disallow author
+        disallow: Reject post
+        disallow_account: Reject author
         no_status_selected: No trending posts were changed as none were selected
         not_discoverable: Author has not opted-in to being discoverable
         shared_by:

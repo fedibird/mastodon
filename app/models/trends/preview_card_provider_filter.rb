@@ -15,9 +15,10 @@ class Trends::PreviewCardProviderFilter
     scope = PreviewCardProvider.unscoped
 
     params.each do |key, value|
-      next if key.to_s == 'page'
+      next if key.to_s == 'page' || value.blank?
+      next if key.to_s == 'status' && value.to_s == 'all'
 
-      scope.merge!(scope_for(key, value.to_s.strip)) if value.present?
+      scope.merge!(scope_for(key, value.to_s.strip))
     end
 
     scope.order(domain: :asc)
@@ -37,9 +38,9 @@ class Trends::PreviewCardProviderFilter
   def status_scope(value)
     case value.to_s
     when 'approved'
-      PreviewCardProvider.trendable
+      PreviewCardProvider.reviewed.merge(PreviewCardProvider.trendable)
     when 'rejected'
-      PreviewCardProvider.not_trendable
+      PreviewCardProvider.reviewed.where(trendable: [false, nil])
     when 'pending_review'
       PreviewCardProvider.pending_review
     else

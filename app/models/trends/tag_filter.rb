@@ -20,9 +20,10 @@ class Trends::TagFilter
             end
 
     params.each do |key, value|
-      next if key.to_s == 'page'
+      next if key.to_s == 'page' || value.blank?
+      next if key.to_s == 'status' && value.to_s == 'all'
 
-      scope.merge!(scope_for(key, value.to_s.strip)) if value.present?
+      scope.merge!(scope_for(key, value.to_s.strip))
     end
 
     scope
@@ -46,13 +47,23 @@ class Trends::TagFilter
   def status_scope(value)
     case value.to_s
     when 'approved'
-      Tag.trendable
+      Tag.reviewed.merge(Tag.trendable)
     when 'rejected'
-      Tag.not_trendable
+      reviewed_and_not_trendable
     when 'pending_review'
       Tag.pending_review
     else
       raise "Unknown status: #{value}"
+    end
+  end
+
+  # Reviewed rows only. A nil trendable follows Setting.trendable_by_default,
+  # matching Tag#trendable? and the review badge.
+  def reviewed_and_not_trendable
+    if Setting.trendable_by_default
+      Tag.reviewed.merge(Tag.not_trendable)
+    else
+      Tag.reviewed.where(trendable: [false, nil])
     end
   end
 end

@@ -2,32 +2,26 @@
   %label.batch-table__row__select.batch-table__row__select--aligned.batch-checkbox
     = f.check_box :status_ids, { multiple: true, include_hidden: false }, status.id
 
-  .batch-table__row__content.pending-account__header
-    .one-liner
-      = admin_account_link_to status.account
+  .batch-table__row__content
+    .trend-review-summary
+      .trend-review-summary__title
+        = trend_review_badge(status)
+        = link_to ActivityPub::TagManager.instance.url_for(status), target: '_blank', class: 'emojify trend-review-summary__preview', rel: 'noopener noreferrer' do
+          = truncate(status.proper.spoiler_text.presence || status.proper.text.to_s, length: 80)
 
-      = link_to ActivityPub::TagManager.instance.url_for(status), target: '_blank', class: 'emojify', rel: 'noopener noreferrer' do
-        = truncate(status.proper.spoiler_text.presence || status.proper.text.to_s, length: 80)
+          - status.ordered_media_attachments.each do |media_attachment|
+            %abbr{ title: media_attachment.description }
+              = fa_icon 'link'
+              = media_attachment.file_file_name
 
-        - status.ordered_media_attachments.each do |media_attachment|
-          %abbr{ title: media_attachment.description }
-            = fa_icon 'link'
-            = media_attachment.file_file_name
-
-    = t('admin.trends.statuses.shared_by', count: status.reblogs_count + status.favourites_count, friendly_count: friendly_number_to_human(status.reblogs_count + status.favourites_count))
-
-    - if status.account.domain.present?
-      ·
-      = status.account.domain
-    - if status.language.present?
-      ·
-      = standard_locale_name(status.language)
-    - if status.trendable? && !status.account.discoverable?
-      ·
-      = t('admin.trends.statuses.not_discoverable')
-    - if status.trend.allowed?
-      ·
-      %abbr{ title: t('admin.trends.tags.current_score', score: status.trend.score) }= t('admin.trends.tags.trending_rank', rank: status.trend.rank)
-    - elsif status.requires_review?
-      ·
-      = t('admin.trends.pending_review')
+      .trend-review-meta
+        = trend_candidate_stats(rank: status.trend.rank, score: status.trend.score)
+        %span= admin_account_link_to status.account
+        %span= status.account.domain.presence || Rails.configuration.x.local_domain
+        - if status.language.present?
+          %span= standard_locale_name(status.language)
+        %span= t('admin.trends.statuses.shared_by', count: status.reblogs_count + status.favourites_count, friendly_count: friendly_number_to_human(status.reblogs_count + status.favourites_count))
+        %span
+          %time.time-ago{ datetime: status.created_at.iso8601, title: l(status.created_at) }= l(status.created_at)
+        - if status.trendable? && !status.account.discoverable?
+          %span= t('admin.trends.statuses.not_discoverable')

@@ -36,6 +36,10 @@ class Trends::Base
     redis.zscore([key_prefix, 'all', locale].compact.join(':'), id) || 0
   end
 
+  def recorded_score(id, locale: nil)
+    redis.zscore([key_prefix, 'all', locale].compact.join(':'), id)
+  end
+
   def rank(id, locale: nil)
     redis.zrevrank([key_prefix, 'allowed', locale].compact.join(':'), id)
   end
