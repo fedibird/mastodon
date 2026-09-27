@@ -1806,6 +1806,8 @@ en:
       expires_at: Expires
       uses: Uses
     title: Invite people
+  keyword_subscribe:
+    home: Home
   keyword_subscribes:
     add_new: Add
     disabled: Disabled
@@ -1823,6 +1825,9 @@ en:
     ignore_block: Ignore
     index:
       delete: Delete
+      exclude: Exclude
+      ignore_block: Ignore blocks
+      include: Include
       title: Keyword subscribe
     new:
       title: Add new keyword subscribe

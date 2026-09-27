@@ -1,54 +1,61 @@
-%tr
-  %td.nowrap= keyword_subscribe.name
-  %td.nowrap
-    - if keyword_subscribe.regexp
-      = t 'keyword_subscribes.regexp.enabled'
-    - else
-      = t 'keyword_subscribes.regexp.disabled'
-  %td
-    .include-keyword
-      = keyword_subscribe.keyword
-    .exclude-keyword
-      = keyword_subscribe.exclude_keyword
-  %td.nowrap
-    - if keyword_subscribe.ignorecase
-      = t 'keyword_subscribes.ignorecase.enabled'
-    - else
-      = t 'keyword_subscribes.ignorecase.disabled'
-  %td.nowrap
-    - if keyword_subscribe.ignore_block
-      = t 'keyword_subscribes.ignore_block'
-  %td.nowrap.symbol
-    - if keyword_subscribe.media_only
-      = fa_icon('check')
-  %td.nowrap.symbol
-    - if keyword_subscribe.match_hashtags
-      %span.positive-hint= fa_icon('check')
-    - else
-      %span.negative-hint= fa_icon('times')
-  %td.nowrap.symbol
-    - if keyword_subscribe.match_urls
-      %span.positive-hint= fa_icon('check')
-    - else
-      %span.negative-hint= fa_icon('times')
-  %td.nowrap
-    - if keyword_subscribe.list_id
-      = fa_icon 'list-ul'
-      = keyword_subscribe.list&.title
-    - else
-      = fa_icon 'home'
-      = t 'keyword_subscribe.home'
-  %td.nowrap
-    - if !keyword_subscribe.disabled
-      %span.positive-hint
-        = fa_icon('check')
-        = ' '
-        = t 'keyword_subscribes.enabled'
-    - else
-      %span.negative-hint
-        = fa_icon('times')
-        = ' '
-        = t 'keyword_subscribes.disabled'
-  %td.nowrap
-    = table_link_to 'pencil', t('keyword_subscribes.edit.title'), edit_settings_keyword_subscribe_path(keyword_subscribe)
-    = table_link_to 'times', t('keyword_subscribes.index.delete'), settings_keyword_subscribe_path(keyword_subscribe), method: :delete
+%article.keyword-subscription
+  .keyword-subscription__header
+    %h3.keyword-subscription__title= keyword_subscribe.name
+    .keyword-subscription__status
+      - if keyword_subscribe.disabled
+        %span.negative-hint
+          = fa_icon('times', 'aria-hidden': 'true')
+          = t('keyword_subscribes.disabled')
+      - else
+        %span.positive-hint
+          = fa_icon('check', 'aria-hidden': 'true')
+          = t('keyword_subscribes.enabled')
+    .keyword-subscription__actions
+      = table_link_to 'pencil', t('keyword_subscribes.edit.title'), edit_settings_keyword_subscribe_path(keyword_subscribe)
+      = table_link_to 'times', t('keyword_subscribes.index.delete'), settings_keyword_subscribe_path(keyword_subscribe), method: :delete
+  .keyword-subscription__criteria
+    .keyword-subscription__field
+      %span.keyword-subscription__label= t('keyword_subscribes.index.include')
+      %span.keyword-subscription__value= keyword_subscribe.keyword
+    - if keyword_subscribe.exclude_keyword.present?
+      .keyword-subscription__field
+        %span.keyword-subscription__label= t('keyword_subscribes.index.exclude')
+        %span.keyword-subscription__value.exclude-keyword= keyword_subscribe.exclude_keyword
+  .keyword-subscription__footer
+    .keyword-subscription__destination
+      - if keyword_subscribe.list_id
+        = fa_icon 'list-ul', 'aria-hidden': 'true'
+        = keyword_subscribe.list&.title
+      - else
+        = fa_icon 'home', 'aria-hidden': 'true'
+        = t('keyword_subscribe.home')
+    %ul.keyword-subscription__badges
+      %li.keyword-subscription__badge
+        = keyword_subscribe.regexp ? t('keyword_subscribes.regexp.enabled') : t('keyword_subscribes.regexp.disabled')
+      %li.keyword-subscription__badge
+        = "#{t('simple_form.labels.keyword_subscribes.ignorecase')}: #{keyword_subscribe.ignorecase ? t('keyword_subscribes.ignorecase.enabled') : t('keyword_subscribes.ignorecase.disabled')}"
+      - if keyword_subscribe.ignore_block
+        %li.keyword-subscription__badge= t('keyword_subscribes.index.ignore_block')
+      - if keyword_subscribe.media_only
+        %li.keyword-subscription__badge= t('simple_form.labels.keyword_subscribe.media_only')
+      %li.keyword-subscription__badge
+        %span.keyword-subscription__badge-mark{ 'aria-hidden': 'true' } #
+        = t('simple_form.labels.keyword_subscribes.match_hashtags')
+        - if keyword_subscribe.match_hashtags
+          %span.positive-hint
+            = fa_icon('check', 'aria-hidden': 'true')
+            %span.invisible= t('keyword_subscribes.enabled')
+        - else
+          %span.negative-hint
+            = fa_icon('times', 'aria-hidden': 'true')
+            %span.invisible= t('keyword_subscribes.disabled')
+      %li.keyword-subscription__badge
+        = t('simple_form.labels.keyword_subscribes.match_urls')
+        - if keyword_subscribe.match_urls
+          %span.positive-hint
+            = fa_icon('check', 'aria-hidden': 'true')
+            %span.invisible= t('keyword_subscribes.enabled')
+        - else
+          %span.negative-hint
+            = fa_icon('times', 'aria-hidden': 'true')
+            %span.invisible= t('keyword_subscribes.disabled')

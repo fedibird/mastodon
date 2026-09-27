@@ -12,39 +12,33 @@ RSpec.describe Settings::KeywordSubscribesController, type: :controller do # rub
     stub_webpacker_manifest
   end
 
-  # Column order in the index table: name, type, string, case, block, media,
-  # hashtags, URLs, timeline, state, actions.
-  def hashtag_column
-    6
-  end
-
-  def url_column
-    7
-  end
-
   def create_subscription(**options)
     KeywordSubscribe.create!({ account: user.account, name: 'subscription', keyword: 'foo' }.merge(options))
   end
 
   describe 'GET #index' do
-    it 'heads the hashtag and URL columns and keeps the row aligned with them' do
-      create_subscription(match_hashtags: true, match_urls: false)
+    it 'renders each subscription as a card with its match settings and actions' do
+      subscription = create_subscription(name: 'cats', keyword: 'neko', exclude_keyword: 'bot', match_hashtags: true, match_urls: false)
 
       get :index
 
       expect(response).to have_http_status(200)
-      expect(response.body).to include I18n.t('simple_form.labels.keyword_subscribes.match_hashtags')
-      expect(response.body).to include I18n.t('simple_form.labels.keyword_subscribes.match_urls')
 
-      table = Nokogiri::HTML(response.body).css('table.table').first
-      headers = table.css('thead th')
-      cells = table.css('tbody tr').first.css('td')
+      doc = Nokogiri::HTML(response.body)
+      card = doc.at_css('.keyword-subscription')
 
-      expect(cells.size).to eq headers.size
-      expect(headers[hashtag_column].text.strip).to eq I18n.t('simple_form.labels.keyword_subscribes.match_hashtags')
-      expect(headers[url_column].text.strip).to eq I18n.t('simple_form.labels.keyword_subscribes.match_urls')
-      expect(cells[hashtag_column].css('.positive-hint').size).to eq 1
-      expect(cells[url_column].css('.negative-hint').size).to eq 1
+      expect(doc.css('table.table')).to be_empty
+      expect(card.at_css('.keyword-subscription__title').text).to include('cats')
+      expect(card.text).to include('neko')
+      expect(card.text).to include('bot')
+      expect(card.text).to include(I18n.t('keyword_subscribes.index.include'))
+      expect(card.text).to include(I18n.t('keyword_subscribes.index.exclude'))
+      expect(card.at_css('.keyword-subscription__destination').text).to include(I18n.t('keyword_subscribe.home'))
+      expect(card.at_css('.keyword-subscription__status').text).to include(I18n.t('keyword_subscribes.enabled'))
+      expect(card.at_css("a[href='#{edit_settings_keyword_subscribe_path(subscription)}']")).to be_present
+      expect(card.at_css("a[href='#{settings_keyword_subscribe_path(subscription)}']")['data-method']).to eq('delete')
+      expect(card.css('.keyword-subscription__badge .positive-hint').size).to eq 1
+      expect(card.css('.keyword-subscription__badge .negative-hint').size).to eq 1
     end
   end
 
