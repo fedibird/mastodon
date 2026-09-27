@@ -41,7 +41,7 @@ class TranslationService::DeepL < TranslationService
   end
 
   def request(verb, path, **options)
-    req = Request.new(verb, "#{base_url}#{path}", **options)
+    req = Request.new(verb, "#{base_url}#{path}", timeout_options: self.class.timeout_options, **options)
     req.add_headers(Authorization: "DeepL-Auth-Key #{@api_key}")
     req.perform do |res|
       case res.code

@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 class TranslationService
+  DEFAULT_TIMEOUT = Request::TIMEOUT[:read_timeout]
+
   class Error < StandardError; end
   class NotConfiguredError < Error; end
   class TooManyRequestsError < Error; end
@@ -19,6 +21,21 @@ class TranslationService
 
   def self.configured?
     ENV['DEEPL_API_KEY'].present? || ENV['LIBRE_TRANSLATE_ENDPOINT'].present?
+  end
+
+  def self.timeout
+    raw = ENV['TRANSLATION_TIMEOUT']
+    return DEFAULT_TIMEOUT if raw.blank?
+
+    seconds = Integer(raw, exception: false)
+    return DEFAULT_TIMEOUT unless seconds&.positive?
+
+    seconds
+  end
+
+  def self.timeout_options
+    seconds = timeout
+    { read_timeout: seconds, read_deadline: seconds }
   end
 
   def languages

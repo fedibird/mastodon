@@ -19,6 +19,23 @@ RSpec.describe TranslationService::LibreTranslate do
       expect(result.first.provider).to eq 'LibreTranslate'
     end
 
+    it 'passes the translation timeout to Request and keeps local requests allowed' do
+      ClimateControl.modify(TRANSLATION_TIMEOUT: '30') do
+        expect(Request).to receive(:new).with(
+          :post,
+          'http://translate.local/translate',
+          hash_including(allow_local: true, timeout_options: { read_timeout: 30, read_deadline: 30 })
+        ).and_call_original
+
+        stub_request(:post, 'http://translate.local/translate').to_return(
+          status: 200,
+          body: Oj.dump(translatedText: ['Hello'], detectedLanguage: [{ language: 'ja' }])
+        )
+
+        subject.translate(['こんにちは'], 'de', 'ja')
+      end
+    end
+
     it 'raises on rate limit, quota, unexpected status, and malformed JSON' do
       stub_request(:post, 'http://translate.local/translate').to_return(status: 429)
       expect { subject.translate(['a'], 'ja', 'en') }.to raise_error(TranslationService::TooManyRequestsError)

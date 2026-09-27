@@ -6,6 +6,24 @@ require 'securerandom'
 describe Request do
   subject { Request.new(:get, 'http://example.com') }
 
+  describe 'timeout options' do
+    it 'uses the default timeouts when none are given' do
+      expect(subject.instance_variable_get(:@options)[:timeout_options]).to eq described_class::TIMEOUT
+    end
+
+    it 'overrides only the given read timeouts' do
+      request = described_class.new(:get, 'http://example.com', timeout_options: { read_timeout: 30, read_deadline: 30 })
+      timeouts = request.instance_variable_get(:@options)[:timeout_options]
+
+      expect(timeouts[:read_timeout]).to eq 30
+      expect(timeouts[:read_deadline]).to eq 30
+      expect(timeouts[:connect_timeout]).to eq described_class::TIMEOUT[:connect_timeout]
+      expect(timeouts[:write_timeout]).to eq described_class::TIMEOUT[:write_timeout]
+      expect(described_class::TIMEOUT[:read_timeout]).to eq 10
+      expect(described_class::TIMEOUT[:read_deadline]).to eq 30
+    end
+  end
+
   describe '#headers' do
     it 'returns user agent' do
       expect(subject.headers['User-Agent']).to be_present

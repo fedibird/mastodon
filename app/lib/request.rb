@@ -75,6 +75,7 @@ class Request
     @url         = Addressable::URI.parse(url).normalize
     @http_client = options.delete(:http_client)
     @allow_local = options.delete(:allow_local)
+    timeout_options = TIMEOUT.merge(options.delete(:timeout_options) || {})
     @options     = {
       follow: {
         max_hops: 3,
@@ -83,7 +84,7 @@ class Request
     }.merge(options).merge(
       socket_class: use_proxy? || @allow_local ? ProxySocket : Socket,
       timeout_class: PerOperationWithDeadline,
-      timeout_options: TIMEOUT
+      timeout_options: timeout_options
     )
     @options     = @options.merge(proxy_url)        if use_proxy?
     @options     = @options.merge(second_proxy_url) if use_second_proxy?

@@ -28,7 +28,7 @@ class TranslationService::LibreTranslate < TranslationService
   private
 
   def request(verb, path, **options)
-    req = Request.new(verb, "#{@base_url}#{path}", allow_local: true, **options)
+    req = Request.new(verb, "#{@base_url}#{path}", allow_local: true, timeout_options: self.class.timeout_options, **options)
     req.add_headers('Content-Type': 'application/json')
     req.perform do |res|
       case res.code

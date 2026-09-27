@@ -2,6 +2,14 @@
 
 require 'rails_helper'
 
+def stub_deepl_timeout_request(url)
+  ClimateControl.modify(TRANSLATION_TIMEOUT: '30') do
+    expect(Request).to receive(:new).with(:post, url, hash_including(timeout_options: { read_timeout: 30, read_deadline: 30 })).and_call_original
+    stub_request(:post, url).to_return(status: 200, body: Oj.dump(translations: [{ text: 'Hello', detected_source_language: 'JA' }]))
+    yield
+  end
+end
+
 RSpec.describe TranslationService::DeepL do
   subject { described_class.new('free', 'deepl-secret') }
 
@@ -22,6 +30,10 @@ RSpec.describe TranslationService::DeepL do
       expect(WebMock).to have_requested(:post, "#{base}/v2/translate").with { |request|
         request.body.include?('tag_handling=html') && !request.body.include?('deepl-secret')
       }
+    end
+
+    it 'passes the translation timeout to Request' do
+      stub_deepl_timeout_request("#{base}/v2/translate") { subject.translate(['こんにちは'], 'ja', 'en') }
     end
 
     it 'uses the paid API host when the plan is not free' do
