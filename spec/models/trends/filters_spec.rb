@@ -3,7 +3,7 @@
 require 'rails_helper'
 
 RSpec.describe 'Trends review filters' do # rubocop:disable Metrics/BlockLength
-  describe Trends::TagFilter do
+  describe Trends::TagFilter do # rubocop:disable Metrics/BlockLength
     let!(:pending) { Fabricate(:tag, name: 'pendingtag', trendable: nil, reviewed_at: nil, requested_review_at: Time.now.utc) }
     let!(:approved) { Fabricate(:tag, name: 'approvedtag', trendable: true, reviewed_at: Time.now.utc) }
     let!(:rejected) { Fabricate(:tag, name: 'rejectedtag', trendable: false, reviewed_at: Time.now.utc) }
@@ -23,6 +23,43 @@ RSpec.describe 'Trends review filters' do # rubocop:disable Metrics/BlockLength
     it 'limits approved and rejected tags to the trending set' do
       expect(described_class.new(status: 'approved').results.pluck(:id)).to eq [approved.id]
       expect(described_class.new(status: 'rejected').results.pluck(:id)).to eq [rejected.id]
+    end
+
+    it 'classifies tags the same way as the review badge and keeps the sets disjoint' do
+      original = Setting.trendable_by_default
+      unreviewed_allowed = Fabricate(:tag, name: 'unreviewedallowed', trendable: true, reviewed_at: nil, requested_review_at: Time.now.utc)
+      unreviewed_blocked = Fabricate(:tag, name: 'unreviewedblocked', trendable: false, reviewed_at: nil, requested_review_at: Time.now.utc)
+      inherited = Fabricate(:tag, name: 'inheritedtag', trendable: nil, reviewed_at: Time.now.utc)
+      redis.zadd('trending_tags:all', 3, unreviewed_allowed.id)
+      redis.zadd('trending_tags:all', 2, unreviewed_blocked.id)
+      redis.zadd('trending_tags:all', 1, inherited.id)
+
+      Setting.trendable_by_default = false
+      expect(inherited.requires_review?).to be false
+      expect(inherited.trendable?).to be false
+      expect(described_class.new(status: 'approved').results.pluck(:id)).to include(approved.id)
+      expect(described_class.new(status: 'approved').results.pluck(:id)).not_to include(unreviewed_allowed.id, inherited.id, pending.id)
+      expect(described_class.new(status: 'rejected').results.pluck(:id)).to include(rejected.id, inherited.id)
+      expect(described_class.new(status: 'rejected').results.pluck(:id)).not_to include(unreviewed_blocked.id, pending.id)
+      expect(described_class.new(status: 'pending_review').results.pluck(:id)).to include(pending.id, unreviewed_allowed.id, unreviewed_blocked.id)
+      expect(described_class.new(status: 'pending_review').results.pluck(:id)).not_to include(inherited.id)
+
+      Setting.trendable_by_default = true
+      expect(inherited.trendable?).to be true
+      expect(described_class.new(status: 'approved').results.pluck(:id)).to include(approved.id, inherited.id)
+      expect(described_class.new(status: 'rejected').results.pluck(:id)).not_to include(inherited.id)
+      expect(described_class.new(status: 'rejected').results.pluck(:id)).to include(rejected.id)
+
+      pending_ids = described_class.new(status: 'pending_review').results.pluck(:id)
+      approved_ids = described_class.new(status: 'approved').results.pluck(:id)
+      rejected_ids = described_class.new(status: 'rejected').results.pluck(:id)
+      expect(pending_ids & approved_ids).to be_empty
+      expect(pending_ids & rejected_ids).to be_empty
+      expect(approved_ids & rejected_ids).to be_empty
+    ensure
+      Setting.trendable_by_default = original
+      extra_ids = [unreviewed_allowed, unreviewed_blocked, inherited].filter_map { |tag| tag&.id }
+      extra_ids.each { |id| redis.zrem('trending_tags:all', id) }
     end
 
     it 'treats an explicit all status as the trending set' do
@@ -158,6 +195,28 @@ RSpec.describe 'Trends review filters' do # rubocop:disable Metrics/BlockLength
 
     it 'rejects an unknown status' do
       expect { described_class.new(status: 'nope').results.to_a }.to raise_error(Mastodon::InvalidParameterError, 'Unknown status: nope')
+    end
+
+    it 'classifies providers the same way as the review badge and keeps the sets disjoint' do
+      unreviewed_allowed = PreviewCardProvider.create!(domain: 'open.example', trendable: true, reviewed_at: nil)
+      unreviewed_blocked = PreviewCardProvider.create!(domain: 'closed.example', trendable: false, reviewed_at: nil)
+      inherited = PreviewCardProvider.create!(domain: 'unset.example', trendable: nil, reviewed_at: Time.now.utc)
+
+      expect(inherited.requires_review?).to be false
+      expect(inherited.trendable?).to be false
+      expect(described_class.new(status: 'approved').results.map(&:domain)).to eq %w(approved.example)
+      expect(described_class.new(status: 'approved').results.map(&:domain)).not_to include(unreviewed_allowed.domain, inherited.domain)
+      expect(described_class.new(status: 'rejected').results.map(&:domain)).to contain_exactly('rejected.example', inherited.domain)
+      expect(described_class.new(status: 'rejected').results.map(&:domain)).not_to include(unreviewed_blocked.domain)
+      expect(described_class.new(status: 'pending_review').results.map(&:domain)).to include(pending.domain, unreviewed_allowed.domain, unreviewed_blocked.domain)
+      expect(described_class.new(status: 'pending_review').results.map(&:domain)).not_to include('unset.example', 'approved.example', 'rejected.example')
+
+      pending_ids = described_class.new(status: 'pending_review').results.pluck(:id)
+      approved_ids = described_class.new(status: 'approved').results.pluck(:id)
+      rejected_ids = described_class.new(status: 'rejected').results.pluck(:id)
+      expect(pending_ids & approved_ids).to be_empty
+      expect(pending_ids & rejected_ids).to be_empty
+      expect(approved_ids & rejected_ids).to be_empty
     end
   end
 end

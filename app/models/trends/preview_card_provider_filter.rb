@@ -38,9 +38,9 @@ class Trends::PreviewCardProviderFilter
   def status_scope(value)
     case value.to_s
     when 'approved'
-      PreviewCardProvider.trendable
+      PreviewCardProvider.reviewed.merge(PreviewCardProvider.trendable)
     when 'rejected'
-      PreviewCardProvider.not_trendable
+      PreviewCardProvider.reviewed.where(trendable: [false, nil])
     when 'pending_review'
       PreviewCardProvider.pending_review
     else

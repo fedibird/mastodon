@@ -47,13 +47,23 @@ class Trends::TagFilter
   def status_scope(value)
     case value.to_s
     when 'approved'
-      Tag.trendable
+      Tag.reviewed.merge(Tag.trendable)
     when 'rejected'
-      Tag.not_trendable
+      reviewed_and_not_trendable
     when 'pending_review'
       Tag.pending_review
     else
       raise "Unknown status: #{value}"
+    end
+  end
+
+  # Reviewed rows only. A nil trendable follows Setting.trendable_by_default,
+  # matching Tag#trendable? and the review badge.
+  def reviewed_and_not_trendable
+    if Setting.trendable_by_default
+      Tag.reviewed.merge(Tag.not_trendable)
+    else
+      Tag.reviewed.where(trendable: [false, nil])
     end
   end
 end
