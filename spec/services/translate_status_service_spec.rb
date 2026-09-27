@@ -8,7 +8,7 @@ def translation_respecting_no_translate(texts)
     fragment.xpath('.//text()').each do |node|
       next if node.ancestors.any? { |ancestor| ancestor.element? && ancestor['translate'] == 'no' }
 
-      node.content = node.content.gsub('Hello', 'こんにちは').gsub('Fedibird', 'フェディバード')
+      node.content = node.content.gsub('Hello', 'こんにちは').gsub('Fedibird', 'フェディバード').gsub('alice', 'アリス').gsub('bob', 'ボブ')
     end
 
     TranslationService::Translation.new(text: fragment.to_html, detected_source_language: 'en', provider: 'DeepL.com')
@@ -207,7 +207,12 @@ RSpec.describe TranslateStatusService do
     fragment = Nokogiri::HTML.fragment(sent)
     hashtag = fragment.at_css('a.hashtag')
 
+    mention = fragment.at_css('span.h-card a.mention')
+
     expect(fragment.at_css('span.h-card')['translate']).to eq 'no'
+    expect(mention['translate']).not_to eq 'no'
+    expect(mention['class']).not_to include('hashtag')
+    expect(mention.text).to include('bob')
     expect(fragment.css('span[translate="no"]').map(&:text)).to include(':blob:')
     expect(hashtag['translate']).to eq 'no'
     expect(hashtag['class']).to include('mention')
@@ -222,6 +227,9 @@ RSpec.describe TranslateStatusService do
 
     expect(result.at_css('span.h-card')).to be_present
     expect(result.at_css('span.h-card')['translate']).to be_nil
+    expect(result.at_css('span.h-card a.mention').text).to include('bob')
+    expect(translation.content).to include('こんにちは')
+    expect(translation.content).not_to include('ボブ')
     expect(restored.text).to eq '#Fedibird'
     expect(restored['translate']).to be_nil
     expect(restored['class']).to include('hashtag')
@@ -371,7 +379,142 @@ RSpec.describe TranslateStatusService do
     restored = result.at_css('a.hashtag')
     expect(restored.text).to include('Fedibird')
     expect(restored['translate']).to be_nil
-    expect(result.css('span[translate="no"]')).to be_empty
+    expect(restored['class']).to include('mention')
+    expect(restored.parent['translate']).not_to eq 'no'
+    expect(result.css('[translate]')).to be_empty
     expect(translation.content).not_to include('フェディバード')
+  end
+
+  it 'protects a local mention and leaves the surrounding text translatable' do
+    bob = Fabricate(:account, username: 'bob')
+    mentioned = Fabricate(:status, account: account, text: 'Hello @bob', language: 'en', visibility: :public)
+    Fabricate(:mention, account: bob, status: mentioned)
+    allow(backend).to receive(:translate) { |texts, _source, _target| translation_respecting_no_translate(texts) }
+
+    translation = described_class.new.call(mentioned, 'ja')
+
+    sent = nil
+    expect(backend).to have_received(:translate) { |texts, _source, _target| sent = texts.first }
+    fragment = Nokogiri::HTML.fragment(sent)
+    card = fragment.at_css('span.h-card')
+    mention = card.at_css('a.mention')
+
+    expect(card['translate']).to eq 'no'
+    expect(mention['translate']).not_to eq 'no'
+    expect(mention['class']).to include('mention')
+    expect(mention['class']).not_to include('hashtag')
+    expect(mention['data-account-id']).to eq bob.id.to_s
+    expect(mention.text).to include('bob')
+    expect(fragment.at_xpath('.//text()[contains(., "Hello")]').ancestors.none? { |node| node.element? && node['translate'] == 'no' }).to be true
+
+    result = Nokogiri::HTML.fragment(translation.content)
+    restored = result.at_css('a.mention')
+
+    expect(translation.content).to include('こんにちは')
+    expect(restored.text).to include('bob')
+    expect(translation.content).not_to include('ボブ')
+    expect(restored['href']).to eq mention['href']
+    expect(restored['class']).to include('mention')
+    expect(result.at_css('span.h-card')).to be_present
+    expect(result.css('[translate]')).to be_empty
+  end
+
+  it 'protects a remote h-card mention that was stored without translate="no"' do
+    remote_account = Fabricate(:account, domain: 'remote.test', username: 'carol')
+    remote_html = '<p>Hello <span class="h-card"><a href="https://remote.test/@alice" class="u-url mention">@<span>alice</span></a></span></p>'
+    remote = Fabricate(:status, account: remote_account, text: remote_html, local: false, language: 'en', visibility: :public)
+    allow(backend).to receive(:translate) { |texts, _source, _target| translation_respecting_no_translate(texts) }
+
+    translation = described_class.new.call(remote, 'ja')
+
+    sent = nil
+    expect(backend).to have_received(:translate) { |texts, _source, _target| sent = texts.first }
+    fragment = Nokogiri::HTML.fragment(sent)
+    card = fragment.at_css('span.h-card')
+    mention = card.at_css('a.mention')
+
+    expect(remote.local?).to be false
+    expect(remote_html).not_to include('translate')
+    expect(card['translate']).to eq 'no'
+    expect(mention['translate']).not_to eq 'no'
+    expect(mention['href']).to eq 'https://remote.test/@alice'
+    expect(mention.text).to include('alice')
+
+    result = Nokogiri::HTML.fragment(translation.content)
+    restored = result.at_css('a.mention')
+
+    expect(translation.content).to include('こんにちは')
+    expect(restored.text).to include('alice')
+    expect(translation.content).not_to include('アリス')
+    expect(restored['href']).to eq 'https://remote.test/@alice'
+    expect(restored['class']).to include('mention')
+    expect(result.at_css('span.h-card')).to be_present
+    expect(result.at_css('span.h-card')['class']).to include('h-card')
+    expect(result.css('[translate]')).to be_empty
+  end
+
+  it 'protects a remote mention anchor that has no h-card wrapper' do
+    remote_account = Fabricate(:account, domain: 'remote.test', username: 'carol')
+    remote_html = '<p>Hello <a href="https://remote.test/@alice" class="mention">@alice</a></p>'
+    remote = Fabricate(:status, account: remote_account, text: remote_html, local: false, language: 'en', visibility: :public)
+    allow(backend).to receive(:translate) { |texts, _source, _target| translation_respecting_no_translate(texts) }
+
+    translation = described_class.new.call(remote, 'ja')
+
+    sent = nil
+    expect(backend).to have_received(:translate) { |texts, _source, _target| sent = texts.first }
+    fragment = Nokogiri::HTML.fragment(sent)
+    mention = fragment.at_css('a.mention')
+
+    expect(fragment.at_css('span.h-card')).to be_nil
+    expect(mention['translate']).to eq 'no'
+    expect(mention['class']).not_to include('hashtag')
+    expect(mention['href']).to eq 'https://remote.test/@alice'
+    expect(mention.text).to include('alice')
+
+    result = Nokogiri::HTML.fragment(translation.content)
+    restored = result.at_css('a.mention')
+
+    expect(translation.content).to include('こんにちは')
+    expect(restored.text).to include('alice')
+    expect(translation.content).not_to include('アリス')
+    expect(restored['href']).to eq 'https://remote.test/@alice'
+    expect(restored['class']).to include('mention')
+    expect(restored['translate']).to be_nil
+    expect(result.css('[translate]')).to be_empty
+  end
+
+  it 'protects a mention and a hashtag without treating the hashtag as a user mention' do
+    bob = Fabricate(:account, username: 'bob')
+    mixed = Fabricate(:status, account: account, text: 'Hello @bob #Fedibird', language: 'en', visibility: :public)
+    Fabricate(:mention, account: bob, status: mixed)
+    allow(backend).to receive(:translate) { |texts, _source, _target| translation_respecting_no_translate(texts) }
+
+    translation = described_class.new.call(mixed, 'ja')
+
+    sent = nil
+    expect(backend).to have_received(:translate) { |texts, _source, _target| sent = texts.first }
+    fragment = Nokogiri::HTML.fragment(sent)
+    card = fragment.at_css('span.h-card')
+    mention = card.at_css('a.mention')
+    hashtag = fragment.at_css('a.hashtag')
+
+    expect(card['translate']).to eq 'no'
+    expect(mention['translate']).not_to eq 'no'
+    expect(mention['class']).not_to include('hashtag')
+    expect(hashtag['translate']).to eq 'no'
+    expect(hashtag['class']).to include('mention')
+    expect(hashtag['class']).to include('hashtag')
+    expect(hashtag.parent['translate']).not_to eq 'no'
+    expect(card.css('a.hashtag')).to be_empty
+
+    result = Nokogiri::HTML.fragment(translation.content)
+
+    expect(translation.content).to include('こんにちは')
+    expect(result.at_css('span.h-card a.mention').text).to include('bob')
+    expect(result.at_css('a.hashtag').text).to include('Fedibird')
+    expect(translation.content).not_to include('ボブ')
+    expect(translation.content).not_to include('フェディバード')
+    expect(result.css('[translate]')).to be_empty
   end
 end
