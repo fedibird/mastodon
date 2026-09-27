@@ -39,8 +39,9 @@ import {
   hideStatus,
   revealStatus,
   translateStatus,
-  undoStatusTranslation,
+  setStatusTranslationMode,
 } from '../../actions/statuses';
+import { statusTranslationView } from 'mastodon/utils/translation_view';
 import {
   unblockAccount,
   unmuteAccount,
@@ -374,13 +375,13 @@ class Status extends ImmutablePureComponent {
     this.props.dispatch(openModal('VIDEO', { statusId: this.props.status.getIn(['quote', 'id']), media, options, lang }));
   }
 
-  handleTranslate = status => {
+  handleTranslate = (status, mode) => {
     const { dispatch } = this.props;
 
-    if (status.get('translation')) {
-      dispatch(undoStatusTranslation(status.get('id'), status.get('poll')));
+    if (mode === 'original') {
+      dispatch(setStatusTranslationMode(status.get('id'), 'original'));
     } else {
-      dispatch(translateStatus(status.get('id')));
+      dispatch(translateStatus(status.get('id'), mode));
     }
   }
 
@@ -390,7 +391,7 @@ class Status extends ImmutablePureComponent {
     e.preventDefault();
 
     if (status.get('media_attachments').size > 0) {
-      const lang = status.getIn(['translation', 'language']) || status.get('language');
+      const lang = statusTranslationView(status).mediaLang;
 
       if (status.getIn(['media_attachments', 0, 'type']) === 'video') {
         this.handleOpenVideo(status.getIn(['media_attachments', 0]), { startTime: 0 }, lang);

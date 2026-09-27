@@ -28,7 +28,9 @@ jest.mock('react-intl', () => {
 
 jest.mock('mastodon/components/blurhash', () => () => null);
 jest.mock('mastodon/components/thumbhash', () => () => null);
-jest.mock('mastodon/components/alt_text_badge', () => ({ description }) => <span>{description}</span>);
+jest.mock('mastodon/components/alt_text_badge', () => ({ description, mode, originalDescription, translatedDescription, sourceLang, targetLang }) => (
+  <span data-mode={mode || ''} data-original={originalDescription || ''} data-translated={translatedDescription || ''} data-source-lang={sourceLang || ''} data-target-lang={targetLang || ''}>{description}</span>
+));
 
 import MediaGallery from '../media_gallery';
 
@@ -47,7 +49,7 @@ const attachment = (translation) => fromJS({
   },
 });
 
-const renderGallery = (media) => render(
+const renderGallery = (media, props = {}) => render(
   <MediaGallery
     media={fromJS([media])}
     height={110}
@@ -55,6 +57,7 @@ const renderGallery = (media) => render(
     defaultWidth={300}
     onOpenMedia={jest.fn()}
     lang='ja'
+    {...props}
   />,
 );
 
@@ -72,5 +75,40 @@ describe('MediaGallery translated descriptions', () => {
     const { container } = renderGallery(attachment(undefined));
 
     expect(container.querySelector('img').getAttribute('alt')).toBe('a cat');
+  });
+
+  it('follows the explicit view mode for alt text and the badge', () => {
+    const media = attachment({ description: 'ねこ' });
+
+    const original = renderGallery(media, { translationMode: 'original', sourceLang: 'en', targetLang: 'ja' });
+    expect(original.container.querySelector('img').getAttribute('alt')).toBe('a cat');
+    expect(original.container.querySelector('img').getAttribute('lang')).toBe('en');
+    expect(original.container.querySelector('[data-mode="original"]').getAttribute('data-original')).toBe('a cat');
+
+    original.unmount();
+    const translated = renderGallery(media, { translationMode: 'translated', sourceLang: 'en', targetLang: 'ja' });
+    expect(translated.container.querySelector('img').getAttribute('alt')).toBe('ねこ');
+    expect(translated.container.querySelector('img').getAttribute('lang')).toBe('ja');
+
+    translated.unmount();
+    const bilingual = renderGallery(media, { translationMode: 'bilingual', sourceLang: 'en', targetLang: 'ja' });
+    const badge = bilingual.container.querySelector('[data-mode="bilingual"]');
+    expect(bilingual.container.querySelector('img').getAttribute('alt')).toBe('ねこ');
+    expect(bilingual.container.querySelector('img').getAttribute('lang')).toBe('ja');
+    expect(badge.getAttribute('data-original')).toBe('a cat');
+    expect(badge.getAttribute('data-translated')).toBe('ねこ');
+    expect(badge.getAttribute('data-source-lang')).toBe('en');
+    expect(badge.getAttribute('data-target-lang')).toBe('ja');
+  });
+
+  it('falls back to the original alt text when the translated description is empty', () => {
+    const { container } = renderGallery(attachment({ description: '' }), {
+      translationMode: 'bilingual',
+      sourceLang: 'en',
+      targetLang: 'ja',
+    });
+
+    expect(container.querySelector('img').getAttribute('alt')).toBe('a cat');
+    expect(container.querySelector('img').getAttribute('lang')).toBe('en');
   });
 });

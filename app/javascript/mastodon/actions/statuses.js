@@ -50,6 +50,7 @@ export const STATUS_TRANSLATE_REQUEST = 'STATUS_TRANSLATE_REQUEST';
 export const STATUS_TRANSLATE_SUCCESS = 'STATUS_TRANSLATE_SUCCESS';
 export const STATUS_TRANSLATE_FAIL    = 'STATUS_TRANSLATE_FAIL';
 export const STATUS_TRANSLATE_UNDO    = 'STATUS_TRANSLATE_UNDO';
+export const STATUS_TRANSLATE_SET_MODE = 'STATUS_TRANSLATE_SET_MODE';
 
 export const REDRAFT = 'REDRAFT';
 
@@ -556,41 +557,87 @@ export function toggleStatusCollapse(id, isCollapsed) {
   };
 }
 
-export const translateStatus = id => (dispatch, getState) => {
-  dispatch(translateStatusRequest(id));
+let translationRequestSerial = 0;
 
-  api(getState).post(`/api/v1/statuses/${id}/translate`).then(response => {
+const nextTranslationRequestId = () => {
+  translationRequestSerial += 1;
+  return `translation-${translationRequestSerial}`;
+};
+
+export const translateStatus = (id, mode = 'translated') => (dispatch, getState) => {
+  const requestedMode = mode === 'bilingual' ? 'bilingual' : 'translated';
+  const status = getState().getIn(['statuses', id]);
+
+  if (status && status.get('translationPending')) {
+    return Promise.resolve();
+  }
+
+  if (status && status.get('translation')) {
+    dispatch(setStatusTranslationMode(id, requestedMode));
+    return Promise.resolve();
+  }
+
+  const translationRequestId = nextTranslationRequestId();
+  const pollId = status ? status.get('poll') : null;
+  const translationRequestIsCurrent = () => getState().getIn(['statuses', id, 'translationRequestId']) === translationRequestId;
+
+  dispatch(translateStatusRequest(id, requestedMode, translationRequestId, pollId));
+
+  return api(getState).post(`/api/v1/statuses/${id}/translate`).then(response => {
+    if (!translationRequestIsCurrent()) {
+      return;
+    }
+
     const state = getState();
-    const status = state.getIn(['statuses', id]);
-    const acct = status ? state.getIn(['accounts', status.get('account'), 'acct'], '') : '';
+    const current = state.getIn(['statuses', id]);
+    const acct = current ? state.getIn(['accounts', current.get('account'), 'acct'], '') : '';
     const domain = acct.split('@')[1] || '';
 
-    dispatch(translateStatusSuccess(id, response.data, domain));
+    dispatch(translateStatusSuccess(id, response.data, domain, requestedMode, translationRequestId));
   }).catch(error => {
-    dispatch(translateStatusFail(id, error));
+    if (!translationRequestIsCurrent()) {
+      dispatch(translateStatusFail(id, error, translationRequestId, pollId, true));
+      return;
+    }
+
+    dispatch(translateStatusFail(id, error, translationRequestId, pollId));
   });
 };
 
-export const translateStatusRequest = id => ({
+export const translateStatusRequest = (id, mode, translationRequestId, pollId) => ({
   type: STATUS_TRANSLATE_REQUEST,
   id,
+  mode,
+  translationRequestId,
+  pollId,
 });
 
-export const translateStatusSuccess = (id, translation, domain) => ({
+export const translateStatusSuccess = (id, translation, domain, mode, translationRequestId) => ({
   type: STATUS_TRANSLATE_SUCCESS,
   id,
   translation,
   domain,
+  mode,
+  translationRequestId,
 });
 
-export const translateStatusFail = (id, error) => ({
+export const translateStatusFail = (id, error, translationRequestId, pollId, skipAlert) => ({
   type: STATUS_TRANSLATE_FAIL,
   id,
   error,
+  translationRequestId,
+  pollId,
+  ...(skipAlert ? { skipAlert: true } : {}),
 });
 
 export const undoStatusTranslation = (id, pollId) => ({
   type: STATUS_TRANSLATE_UNDO,
   id,
   pollId,
+});
+
+export const setStatusTranslationMode = (id, mode) => ({
+  type: STATUS_TRANSLATE_SET_MODE,
+  id,
+  mode,
 });

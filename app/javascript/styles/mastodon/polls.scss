@@ -238,6 +238,10 @@
       width: calc(100% - (23px + 6px));
       margin-right: 6px;
     }
+
+    .poll__option__translation {
+      display: block;
+    }
   }
 
   select {

@@ -87,6 +87,22 @@ RSpec.describe InitialStateSerializer do
     Setting.trends = previous_trends_setting
   end
 
+  it 'exposes the translation display preference and defaults to translated' do
+    user = Fabricate(:user)
+    json = serialize(user.account)
+
+    expect(user.setting_translation_preferred_mode).to eq 'translated'
+    expect(json[:meta][:translation_preferred_mode]).to eq 'translated'
+
+    user.settings.translation_preferred_mode = 'bilingual'
+    user.save!
+    expect(serialize(user.account)[:meta][:translation_preferred_mode]).to eq 'bilingual'
+
+    user.settings.translation_preferred_mode = 'nope'
+    user.save!
+    expect(serialize(user.account)[:meta][:translation_preferred_mode]).to eq 'translated'
+  end
+
   it 'exposes the account trends preference under new and legacy keys' do
     previous_trends_setting = Setting.trends
     Setting.trends = true

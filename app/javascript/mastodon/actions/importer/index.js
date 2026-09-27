@@ -124,7 +124,22 @@ export function importFetchedStatuses(statuses) {
         processStatus(status.quote);
       }
 
-      pushUnique(normalStatuses, normalizeStatus(status, getState().getIn(['statuses', status.id]), (typeof status.account === 'object' ? status.account.acct : getState().getIn(['accounts', status.account, 'acct']))?.split('@')[1] ?? ''));
+      const previousStatus = getState().getIn(['statuses', status.id]);
+      const previousPoll = status.poll && status.poll.id ? getState().getIn(['polls', status.poll.id]) : null;
+      const domain = (typeof status.account === 'object' ? status.account.acct : getState().getIn(['accounts', status.account, 'acct']))?.split('@')[1] ?? '';
+      const normalizedStatus = normalizeStatus(status, previousStatus, domain, previousPoll);
+
+      // A status-level source change invalidates the in-flight translation,
+      // including poll options whose titles did not change.
+      if (status.poll && status.poll.id && !normalizedStatus.translationRequestId) {
+        const importedPoll = polls.find(item => item.id === status.poll.id);
+
+        if (importedPoll) {
+          delete importedPoll.translationRequestId;
+        }
+      }
+
+      pushUnique(normalStatuses, normalizedStatus);
     }
 
     statuses.forEach(processStatus);

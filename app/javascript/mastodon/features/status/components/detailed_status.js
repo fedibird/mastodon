@@ -14,7 +14,7 @@ import ImmutablePureComponent from 'react-immutable-pure-component';
 import Video from '../../video';
 import Audio from '../../audio';
 
-const translatedDescription = attachment => attachment.getIn(['translation', 'description']) || attachment.get('description');
+import { attachmentAccessibility, galleryTranslationProps, statusTranslationView } from 'mastodon/utils/translation_view';
 import scheduleIdleTask from '../../ui/util/schedule_idle_task';
 import classNames from 'classnames';
 import Icon from 'mastodon/components/icon';
@@ -123,49 +123,59 @@ class DetailedStatus extends ImmutablePureComponent {
     e.stopPropagation();
   }
 
-  handleTranslate = () => {
-    const { onTranslate, status } = this.props;
+  _properStatus () {
+    const { status } = this.props;
 
-    if (!onTranslate) {
+    if (status && status.get('reblog') && typeof status.get('reblog') === 'object') {
+      return status.get('reblog');
+    }
+
+    return status;
+  }
+
+  handleTranslate = (mode) => {
+    const { onTranslate } = this.props;
+    const proper = this._properStatus();
+
+    if (!onTranslate || !proper) {
       return;
     }
 
-    const proper = status.get('reblog') && typeof status.get('reblog') === 'object' ? status.get('reblog') : status;
-    onTranslate(proper);
+    onTranslate(proper, mode);
   }
 
-  handleQuoteTranslate = () => {
-    const { onTranslate, status } = this.props;
-    const displayed = status && status.get('reblog') && typeof status.get('reblog') === 'object' ? status.get('reblog') : status;
+  handleQuoteTranslate = (mode) => {
+    const { onTranslate } = this.props;
+    const displayed = this._properStatus();
     const quote = displayed && displayed.get('quote');
 
     if (onTranslate && quote && quote.get('translation')) {
-      onTranslate(quote);
+      onTranslate(quote, mode);
     }
   }
 
   handleOpenMedia = (media, index) => {
-    const status = this.props.status;
-    const lang = status.getIn(['translation', 'language']) || status.get('language');
-    this.props.onOpenMedia(media, index, lang);
+    const status = this._properStatus();
+    const lang = statusTranslationView(status).mediaLang;
+    this.props.onOpenMedia(media, index, lang, status.get('id'));
   }
 
   handleOpenMediaQuote = (media, index) => {
-    const quote = this.props.status.get('quote');
-    const lang = quote.getIn(['translation', 'language']) || quote.get('language');
-    this.props.onOpenMediaQuote(media, index, lang);
+    const quote = this._properStatus().get('quote');
+    const lang = statusTranslationView(quote).mediaLang;
+    this.props.onOpenMediaQuote(media, index, lang, quote.get('id'));
   }
 
   handleOpenVideo = (options) => {
-    const status = this.props.status;
-    const lang = status.getIn(['translation', 'language']) || status.get('language');
-    this.props.onOpenVideo(status.getIn(['media_attachments', 0]), options, lang);
+    const status = this._properStatus();
+    const lang = statusTranslationView(status).mediaLang;
+    this.props.onOpenVideo(status.getIn(['media_attachments', 0]), options, lang, status.get('id'));
   }
 
   handleOpenVideoQuote = (options) => {
-    const quote = this.props.status.get('quote');
-    const lang = quote.getIn(['translation', 'language']) || quote.get('language');
-    this.props.onOpenVideoQuote(quote.getIn(['media_attachments', 0]), options, lang);
+    const quote = this._properStatus().get('quote');
+    const lang = statusTranslationView(quote).mediaLang;
+    this.props.onOpenVideoQuote(quote.getIn(['media_attachments', 0]), options, lang, quote.get('id'));
   }
 
   handleExpandedToggle = () => {
@@ -253,7 +263,8 @@ class DetailedStatus extends ImmutablePureComponent {
     let quote = null;
     if (status.get('quote', null) !== null) {
       let quote_status = status.get('quote');
-      const quoteLanguage = quote_status.getIn(['translation', 'language']) || quote_status.get('language');
+      const quoteView = statusTranslationView(quote_status);
+      const quoteDescribed = attachment => attachmentAccessibility(attachment, quoteView);
 
       let quote_media = null;
       if (quote_status.get('media_attachments').size > 0) {
@@ -264,8 +275,8 @@ class DetailedStatus extends ImmutablePureComponent {
           quote_media = (
             <Audio
               src={attachment.get('url')}
-              alt={translatedDescription(attachment)}
-              lang={quoteLanguage}
+              alt={quoteDescribed(attachment).text}
+              lang={quoteDescribed(attachment).lang}
               duration={attachment.getIn(['meta', 'original', 'duration'], 0)}
               poster={attachment.get('preview_url') || quote_status.getIn(['account', 'avatar_static'])}
               backgroundColor={attachment.getIn(['meta', 'colors', 'background'])}
@@ -284,8 +295,8 @@ class DetailedStatus extends ImmutablePureComponent {
               thumbhash={attachment.get('thumbhash')}
               blurhash={attachment.get('blurhash')}
               src={attachment.get('url')}
-              alt={translatedDescription(attachment)}
-              lang={quoteLanguage}
+              alt={quoteDescribed(attachment).text}
+              lang={quoteDescribed(attachment).lang}
               width={300}
               height={150}
               inline
@@ -302,7 +313,7 @@ class DetailedStatus extends ImmutablePureComponent {
               standalone
               sensitive={quote_status.get('sensitive')}
               media={quote_status.get('media_attachments')}
-              lang={quoteLanguage}
+              {...galleryTranslationProps(quoteView)}
               height={300}
               onOpenMedia={this.handleOpenMediaQuote}
               visible={this.props.showQuoteMedia}
@@ -347,7 +358,8 @@ class DetailedStatus extends ImmutablePureComponent {
       );
     }
 
-    const language = status.getIn(['translation', 'language']) || status.get('language');
+    const translationView = statusTranslationView(status);
+    const described = attachment => attachmentAccessibility(attachment, translationView);
 
     if (pictureInPicture.get('inUse')) {
       media = <PictureInPicturePlaceholder />;
@@ -358,8 +370,8 @@ class DetailedStatus extends ImmutablePureComponent {
         media = (
           <Audio
             src={attachment.get('url')}
-            alt={translatedDescription(attachment)}
-            lang={language}
+            alt={described(attachment).text}
+            lang={described(attachment).lang}
             duration={attachment.getIn(['meta', 'original', 'duration'], 0)}
             poster={attachment.get('preview_url') || status.getIn(['account', 'avatar_static'])}
             backgroundColor={attachment.getIn(['meta', 'colors', 'background'])}
@@ -378,8 +390,8 @@ class DetailedStatus extends ImmutablePureComponent {
             thumbhash={attachment.get('thumbhash')}
             blurhash={attachment.get('blurhash')}
             src={attachment.get('url')}
-            alt={translatedDescription(attachment)}
-            lang={language}
+            alt={described(attachment).text}
+            lang={described(attachment).lang}
             width={300}
             height={150}
             inline
@@ -395,7 +407,7 @@ class DetailedStatus extends ImmutablePureComponent {
             standalone
             sensitive={status.get('sensitive')}
             media={status.get('media_attachments')}
-            lang={language}
+            {...galleryTranslationProps(translationView)}
             height={300}
             onOpenMedia={this.handleOpenMedia}
             visible={this.props.showMedia}

@@ -9,6 +9,7 @@ import classNames from 'classnames';
 import { autoPlayMedia, cropImages, displayMedia, useBlurhash, useLowResolutionThumbnails, maxAttachments } from '../initial_state';
 import { debounce } from 'lodash';
 import AltTextBadge from 'mastodon/components/alt_text_badge';
+import { attachmentAccessibility } from 'mastodon/utils/translation_view';
 import Blurhash from 'mastodon/components/blurhash';
 import Thumbhash from 'mastodon/components/thumbhash';
 
@@ -21,6 +22,9 @@ class Item extends React.PureComponent {
   static propTypes = {
     attachment: ImmutablePropTypes.map.isRequired,
     lang: PropTypes.string,
+    translationMode: PropTypes.string,
+    sourceLang: PropTypes.string,
+    targetLang: PropTypes.string,
     standalone: PropTypes.bool,
     index: PropTypes.number.isRequired,
     size: PropTypes.number.isRequired,
@@ -138,10 +142,26 @@ class Item extends React.PureComponent {
       }
     }
 
-    const description = attachment.getIn(['translation', 'description']) || attachment.get('description');
+    const accessible = attachmentAccessibility(attachment, {
+      mode: this.props.translationMode || (attachment.getIn(['translation', 'description']) ? 'translated' : 'original'),
+      sourceLang: this.props.sourceLang || this.props.lang || '',
+      targetLang: this.props.targetLang || '',
+    });
+    const description = accessible.text;
+    const descriptionLang = accessible.lang || this.props.lang;
 
     if (description?.length > 0) {
-      badges.push(<AltTextBadge key='alt' description={description} />);
+      badges.push(
+        <AltTextBadge
+          key='alt'
+          description={description}
+          originalDescription={accessible.original}
+          translatedDescription={accessible.translated}
+          sourceLang={this.props.sourceLang || this.props.lang}
+          targetLang={this.props.targetLang}
+          mode={this.props.translationMode || (accessible.translated ? 'translated' : 'original')}
+        />,
+      );
     }
 
     let thumbnail = '';
@@ -149,7 +169,7 @@ class Item extends React.PureComponent {
     if (attachment.get('type') === 'unknown') {
       return (
         <div className={classNames('media-gallery__item', { standalone })} key={attachment.get('id')} style={{ left: left, top: top, right: right, bottom: bottom, width: `${width}%`, height: size > 4 ? `calc(${height}% - 4px)` : `${height}%` }}>
-          <a className='media-gallery__item-thumbnail' href={attachment.get('remote_url') || attachment.get('url')} style={{ cursor: 'pointer' }} title={description} lang={this.props.lang} target='_blank' rel='noopener noreferrer'>
+          <a className='media-gallery__item-thumbnail' href={attachment.get('remote_url') || attachment.get('url')} style={{ cursor: 'pointer' }} title={description} lang={descriptionLang} target='_blank' rel='noopener noreferrer'>
             {attachment.get('thumbhash') ?
               <Thumbhash
                 hash={attachment.get('thumbhash')}
@@ -198,7 +218,7 @@ class Item extends React.PureComponent {
             sizes={sizes}
             alt={description}
             title={description}
-            lang={this.props.lang}
+            lang={descriptionLang}
             style={{ objectPosition: `${x}% ${y}%` }}
             onLoad={this.handleImageLoad}
           />
@@ -219,7 +239,7 @@ class Item extends React.PureComponent {
             className='media-gallery__item-gifv-thumbnail'
             aria-label={description}
             title={description}
-            lang={this.props.lang}
+            lang={descriptionLang}
             role='application'
             src={attachment.get('url')}
             onClick={this.handleClick}
@@ -274,6 +294,9 @@ class MediaGallery extends React.PureComponent {
     standalone: PropTypes.bool,
     media: ImmutablePropTypes.list.isRequired,
     lang: PropTypes.string,
+    translationMode: PropTypes.string,
+    sourceLang: PropTypes.string,
+    targetLang: PropTypes.string,
     size: PropTypes.object,
     height: PropTypes.number.isRequired,
     onOpenMedia: PropTypes.func.isRequired,
@@ -390,9 +413,9 @@ class MediaGallery extends React.PureComponent {
     }
 
     if (standalone && this.isFullSizeEligible()) {
-      children = <Item standalone autoplay={autoplay} onClick={this.handleClick} attachment={media.get(0)} lang={this.props.lang} displayWidth={width} visible={visible} />;
+      children = <Item standalone autoplay={autoplay} onClick={this.handleClick} attachment={media.get(0)} lang={this.props.lang} translationMode={this.props.translationMode} sourceLang={this.props.sourceLang} targetLang={this.props.targetLang} displayWidth={width} visible={visible} />;
     } else {
-      children = media.take(maxAttachments).map((attachment, i) => <Item key={attachment.get('id')} autoplay={autoplay} onClick={this.handleClick} attachment={attachment} lang={this.props.lang} index={i} size={size} displayWidth={width} visible={visible || uncached} />);
+      children = media.take(maxAttachments).map((attachment, i) => <Item key={attachment.get('id')} autoplay={autoplay} onClick={this.handleClick} attachment={attachment} lang={this.props.lang} translationMode={this.props.translationMode} sourceLang={this.props.sourceLang} targetLang={this.props.targetLang} index={i} size={size} displayWidth={width} visible={visible || uncached} />);
     }
 
     if (uncached) {

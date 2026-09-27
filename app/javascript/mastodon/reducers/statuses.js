@@ -25,6 +25,9 @@ import {
   STATUS_COLLAPSE,
   STATUS_TRANSLATE_SUCCESS,
   STATUS_TRANSLATE_UNDO,
+  STATUS_TRANSLATE_REQUEST,
+  STATUS_TRANSLATE_FAIL,
+  STATUS_TRANSLATE_SET_MODE,
 } from '../actions/statuses';
 import { TIMELINE_DELETE } from '../actions/timelines';
 import { STATUS_IMPORT, STATUSES_IMPORT } from '../actions/importer';
@@ -72,13 +75,36 @@ const addEmojiReaction = (state, id, name, domain, url, static_url) => updateEmo
 
 const removeEmojiReaction = (state, id, name, domain, url, static_url) => updateEmojiReaction(state, id, name, domain, url, static_url, x => x.update('count', y => y - 1).update('account_ids', z => z.filter(id => id !== me)));
 
-const statusTranslateSuccess = (state, id, translation, domain) => {
+const statusTranslationMode = mode => (mode === 'bilingual' || mode === 'original') ? mode : 'translated';
+
+const statusTranslateRequest = (state, id, requestId) => {
   if (!state.get(id)) {
     return state;
   }
 
   return state.withMutations(map => {
+    map.setIn([id, 'translationPending'], true);
+
+    if (requestId) {
+      map.setIn([id, 'translationRequestId'], requestId);
+    }
+  });
+};
+
+const translationRequestCurrent = (status, requestId) => status.get('translationRequestId') === requestId;
+
+const statusTranslateSuccess = (state, id, translation, domain, mode, requestId) => {
+  const status = state.get(id);
+
+  if (!status || !translationRequestCurrent(status, requestId)) {
+    return state;
+  }
+
+  return state.withMutations(map => {
     map.setIn([id, 'translation'], fromJS(normalizeStatusTranslation(translation, map.get(id), domain)));
+    map.setIn([id, 'translationPending'], false);
+    map.deleteIn([id, 'translationRequestId']);
+    map.setIn([id, 'translationMode'], statusTranslationMode(mode));
 
     const list = map.getIn([id, 'media_attachments']);
 
@@ -94,6 +120,27 @@ const statusTranslateSuccess = (state, id, translation, domain) => {
   });
 };
 
+const statusTranslateFail = (state, id, requestId) => {
+  const status = state.get(id);
+
+  if (!status || !translationRequestCurrent(status, requestId)) {
+    return state;
+  }
+
+  return state.withMutations(map => {
+    map.setIn([id, 'translationPending'], false);
+    map.deleteIn([id, 'translationRequestId']);
+  });
+};
+
+const statusTranslateSetMode = (state, id, mode) => {
+  if (!state.get(id) || !['original', 'translated', 'bilingual'].includes(mode)) {
+    return state;
+  }
+
+  return state.setIn([id, 'translationMode'], mode);
+};
+
 const statusTranslateUndo = (state, id) => {
   if (!state.get(id)) {
     return state;
@@ -101,6 +148,9 @@ const statusTranslateUndo = (state, id) => {
 
   return state.withMutations(map => {
     map.deleteIn([id, 'translation']);
+    map.deleteIn([id, 'translationMode']);
+    map.deleteIn([id, 'translationRequestId']);
+    map.setIn([id, 'translationPending'], false);
 
     const media = map.getIn([id, 'media_attachments']);
 
@@ -180,8 +230,14 @@ export default function statuses(state = initialState, action) {
     return state.setIn([action.id, 'collapsed'], action.isCollapsed);
   case TIMELINE_DELETE:
     return deleteStatus(state, action.id, action.references, action.quotes);
+  case STATUS_TRANSLATE_REQUEST:
+    return statusTranslateRequest(state, action.id, action.translationRequestId);
   case STATUS_TRANSLATE_SUCCESS:
-    return statusTranslateSuccess(state, action.id, action.translation, action.domain);
+    return statusTranslateSuccess(state, action.id, action.translation, action.domain, action.mode, action.translationRequestId);
+  case STATUS_TRANSLATE_FAIL:
+    return statusTranslateFail(state, action.id, action.translationRequestId);
+  case STATUS_TRANSLATE_SET_MODE:
+    return statusTranslateSetMode(state, action.id, action.mode);
   case STATUS_TRANSLATE_UNDO:
     return statusTranslateUndo(state, action.id);
   default:

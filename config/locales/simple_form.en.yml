@@ -91,6 +91,7 @@ en:
         setting_display_media_default: Hide media marked as sensitive
         setting_display_media_hide_all: Always hide media
         setting_display_media_show_all: Always show media
+        setting_translation_preferred_mode: Both actions stay available. This chooses which one is placed first.
         setting_emoji_size_in_mix_html: Mixed emojis and links
         setting_emoji_size_in_multi_html: Multiple lined emojis
         setting_emoji_size_in_other_html: emoji in text
@@ -349,6 +350,9 @@ en:
         setting_display_media_default: Default
         setting_display_media_hide_all: Hide all
         setting_display_media_show_all: Show all
+        setting_translation_preferred_mode: Preferred translation view
+        setting_translation_preferred_mode_bilingual: Bilingual
+        setting_translation_preferred_mode_translated: Translation
         setting_emoji_scale: Scaling factor for emoji
         setting_emoji_size_in_mix: Mix
         setting_emoji_size_in_multi: Multi

@@ -125,6 +125,11 @@
     = f.input :setting_delete_scheduled_status_modal, as: :boolean, wrapper: :with_label, fedibird_features: true
     = f.input :setting_missing_alt_text_modal, as: :boolean, wrapper: :with_label
 
+  %h4= t 'appearance.translation'
+
+  .fields-group
+    = f.input :setting_translation_preferred_mode, collection: %w(translated bilingual), label_method: lambda { |item| t("simple_form.labels.defaults.setting_translation_preferred_mode_#{item}") }, hint: true, as: :radio_buttons, collection_wrapper_tag: 'ul', item_wrapper_tag: 'li', wrapper: :with_floating_label
+
   %h4= t 'appearance.sensitive_content'
 
   .fields-group

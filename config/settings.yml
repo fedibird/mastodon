@@ -32,6 +32,7 @@ defaults: &defaults
   auto_play_header: false
   auto_play_media: false
   display_media: 'default'
+  translation_preferred_mode: 'translated'
   expand_spoilers: false
   preview_sensitive_media: false
   reduce_motion: false
