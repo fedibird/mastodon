@@ -166,6 +166,7 @@ class InitialStateSerializer < ActiveModel::Serializer
       store[:default_privacy]         = object.visibility || object.current_account.user.setting_default_privacy
       store[:default_searchability]   = object.current_account.searchability
       store[:default_sensitive]       = object.current_account.user.setting_default_sensitive
+      store[:default_language]        = object.current_account.user.preferred_posting_language
       store[:default_expires_in]      = object.current_account.user.setting_default_expires_in
       store[:default_expires_action]  = object.current_account.user.setting_default_expires_action
       store[:prohibited_visibilities] = object.current_account.user.setting_prohibited_visibilities.filter(&:present?)

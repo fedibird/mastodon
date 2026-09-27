@@ -35,6 +35,7 @@ class Option extends React.PureComponent {
     onClearSuggestions: PropTypes.func.isRequired,
     onFetchSuggestions: PropTypes.func.isRequired,
     onSuggestionSelected: PropTypes.func.isRequired,
+    lang: PropTypes.string,
     intl: PropTypes.object.isRequired,
   };
 
@@ -98,6 +99,7 @@ class Option extends React.PureComponent {
             onSuggestionSelected={this.onSuggestionSelected}
             searchTokens={[':']}
             autoFocus={autoFocus}
+            lang={this.props.lang}
           />
         </label>
 

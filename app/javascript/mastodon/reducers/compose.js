@@ -31,6 +31,7 @@ import {
   COMPOSE_SPOILERNESS_CHANGE,
   COMPOSE_SPOILER_TEXT_CHANGE,
   COMPOSE_VISIBILITY_CHANGE,
+  COMPOSE_LANGUAGE_CHANGE,
   COMPOSE_SEARCHABILITY_CHANGE,
   COMPOSE_CIRCLE_CHANGE,
   COMPOSE_COMPOSING_CHANGE,
@@ -105,6 +106,7 @@ const initialState = ImmutableMap({
   suggestions: ImmutableList(),
   default_privacy: 'public',
   default_sensitive: false,
+  default_language: null,
   default_searchability: 'private',
   resetFileKey: Math.floor((Math.random() * 0x10000)),
   idempotencyKey: null,
@@ -167,7 +169,7 @@ const statusToTextMentions = (text, privacy, replyStatus) => {
 const clearAll = state => {
   return state.withMutations(map => {
     map.set('id', null);
-    map.set('language', null);
+    map.set('language', state.get('default_language'));
     map.set('text', '');
     map.set('spoiler', false);
     map.set('spoiler_text', '');
@@ -455,7 +457,12 @@ export default function compose(state = initialState, action) {
       }
 
       map.set('id', null);
-      map.set('language', null);
+
+      if (action.status.get('language') && !action.status.has('translation')) {
+        map.set('language', action.status.get('language'));
+      } else {
+        map.set('language', state.get('default_language'));
+      }
 
       const privacy = privacyCap(action.status.get('visibility'), state.get('default_privacy'));
       const searchability = searchabilityCap(action.status.get('visibility'), state.get('default_searchability'));
@@ -497,7 +504,7 @@ export default function compose(state = initialState, action) {
       }
 
       map.set('id', null);
-      map.set('language', null);
+      map.set('language', state.get('default_language'));
 
       const privacy = privacyCap(action.status.get('visibility'), state.get('default_privacy'));
       const searchability = searchabilityCap(action.status.get('visibility'), state.get('default_searchability'));
@@ -548,6 +555,7 @@ export default function compose(state = initialState, action) {
       map.set('spoiler_text', '');
       map.set('privacy', state.get('default_privacy'));
       map.set('searchability', state.get('default_searchability'));
+      map.set('language', state.get('default_language'));
       map.set('circle_id', null);
       map.set('poll', null);
       map.set('idempotencyKey', uuid());
@@ -688,7 +696,7 @@ export default function compose(state = initialState, action) {
   case REDRAFT:
     return state.withMutations(map => {
       map.set('id', null);
-      map.set('language', null);
+      map.set('language', action.status.get('language') || state.get('default_language'));
 
       const datetime_form = !!action.status.get('scheduled_at') || !!action.status.get('expires_at') ? true : null;
 
@@ -745,6 +753,11 @@ export default function compose(state = initialState, action) {
     return state.updateIn(['poll', 'options'], options => options.delete(action.index));
   case COMPOSE_POLL_SETTINGS_CHANGE:
     return state.update('poll', poll => poll.set('expires_in', action.expiresIn).set('multiple', action.isMultiple));
+  case COMPOSE_LANGUAGE_CHANGE:
+    return state
+      .set('language', action.language)
+      .set('idempotencyKey', uuid())
+      .set('dirty', true);
   case COMPOSE_SET_STATUS:
     return state.withMutations(map => {
       const media = action.status.get('media_attachments') || ImmutableList();

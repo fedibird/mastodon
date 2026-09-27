@@ -439,7 +439,8 @@
         border-radius: 50%;
         box-shadow: none;
 
-        .icon-button { color: $icon-button-active-color }
+        .icon-button,
+        .text-icon-button { color: $icon-button-active-color }
     }
 
     &__dropdown {
@@ -493,6 +494,24 @@
 
                 strong { color: $menu-text-color }
             }
+        }
+    }
+}
+
+.language-dropdown__dropdown {
+    @include shadow-8dp;
+    background: $menu-bg-color;
+    border-radius: $dialog-radius;
+    color: $ui-text-color;
+
+    .language-dropdown__dropdown__results__item {
+        color: $icon-color;
+
+        &.active,
+        &:hover,
+        &:focus {
+            background: $icon-bg-hover-color;
+            color: $icon-button-active-color;
         }
     }
 }

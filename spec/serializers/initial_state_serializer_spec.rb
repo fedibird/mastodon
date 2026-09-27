@@ -22,6 +22,15 @@ RSpec.describe InitialStateSerializer do
     expect(japanese).to eq %w(ja Japanese 日本語)
   end
 
+  it 'uses the preferred posting language as the compose default' do
+    user = Fabricate(:user, locale: 'en')
+    user.settings[:default_language] = 'ja'
+    json = serialize(user.account)
+
+    expect(json[:compose][:default_language]).to eq user.preferred_posting_language
+    expect(json[:compose][:default_language]).to eq 'ja'
+  end
+
   it 'returns the Everyone role and keeps an invite-only user off the staff flag' do
     UserRole.everyone.update!(permissions: UserRole::FLAGS[:invite_users])
     user = Fabricate(:user)
