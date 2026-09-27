@@ -20,9 +20,10 @@ class Trends::TagFilter
             end
 
     params.each do |key, value|
-      next if key.to_s == 'page'
+      next if key.to_s == 'page' || value.blank?
+      next if key.to_s == 'status' && value.to_s == 'all'
 
-      scope.merge!(scope_for(key, value.to_s.strip)) if value.present?
+      scope.merge!(scope_for(key, value.to_s.strip))
     end
 
     scope

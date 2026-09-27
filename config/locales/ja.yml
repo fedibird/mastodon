@@ -1286,11 +1286,11 @@ ja:
       approved: 承認
       disallow: 拒否
       links:
-        allow: リンクの許可
-        allow_provider: 発行者の承認
+        allow: リンクを許可
+        allow_provider: 発行者を許可
         description_html: これらは、多くのユーザーに共有されているリンクです。あなたのユーザーが世の中の動きを知るのに役立ちます。あなたが公開者を承認するまで、リンクは一般に表示されません。また、個別のリンクの許可・拒否も可能です。
-        disallow: リンクの拒否
-        disallow_provider: 発行者の拒否
+        disallow: リンクを拒否
+        disallow_provider: 発行者を拒否
         no_link_selected: 何も選択されていないため、変更されていません
         publishers:
           no_publisher_selected: 何も選択されていないため、変更されていません
@@ -1299,19 +1299,43 @@ ja:
         title: トレンドリンク
         usage_comparison: 今日は%{today}回、昨日は%{yesterday}回共有されました
       not_allowed_to_trend: 未許可のトレンド
+      listed_only: 掲載対象のみ
       only_allowed: 許可済み
       pending_review: 保留中
+      publication: 現在の掲載
+      review:
+        all: すべて
+        approved: 承認済み
+        candidate_rank: 候補順位 %{rank}
+        candidate_score: スコア %{score}
+        decision:
+          account_approved: '投稿者: 承認'
+          account_pending: '投稿者: 未審査'
+          account_rejected: '投稿者: 拒否'
+          approved: 承認済み
+          individual_approved: '個別: 承認'
+          individual_rejected: '個別: 拒否'
+          pending: 審査待ち
+          provider_approved: '発行者: 承認'
+          provider_pending: '発行者: 未審査'
+          provider_rejected: '発行者: 拒否'
+          rejected: 拒否済み
+          with_source: '%{decision}（%{source}）'
+        pending_count: 審査待ち (%{count})
+        rejected: 拒否済み
+        title: 審査状態
       preview_card_providers:
         allowed: この発行者からのリンクを許可
         description_html: これらは、よく共有されるリンク元のドメインです。リンク先のドメインが承認されない限り、リンクは公開されません。承認（または拒否）はサブドメインにも及びます。
         rejected: この発行者からのリンクを拒否
         title: 発行者
+        trend_candidates: 現在の候補 %{count}件
       rejected: 拒否
       statuses:
-        allow: 掲載を許可
+        allow: 投稿を許可
         allow_account: 投稿者を許可
         description_html: これらは、このサーバーが知っている、たくさんシェアされ、お気に入り登録されている投稿です。新しいユーザーや久しぶりにアクセスするユーザーがフォローする人を探すのに役立ちます。あなたが投稿者を承認し、投稿者が許可するまで、表示されることはありません。また、個別の投稿を許可または拒否することもできます。
-        disallow: 掲載を拒否
+        disallow: 投稿を拒否
         disallow_account: 投稿者を拒否
         no_status_selected: 何も選択されていないため、変更されていません
         not_discoverable: 投稿者は発見可能であることに同意していません

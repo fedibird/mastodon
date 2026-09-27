@@ -892,6 +892,67 @@ a.name-tag,
   }
 }
 
+.trend-review-badge {
+  margin-right: 6px;
+  vertical-align: middle;
+
+  &--approved {
+    color: $success-green;
+    background-color: rgba($success-green, 0.1);
+    border-color: rgba($success-green, 0.5);
+  }
+
+  &--rejected {
+    color: $warning-red;
+    background-color: rgba($warning-red, 0.12);
+    border-color: rgba($warning-red, 0.55);
+  }
+}
+
+.trend-review-summary {
+  min-width: 0;
+
+  &__title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  &__preview {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.trend-review-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 6px;
+  color: $darker-text-color;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.batch-table--review {
+  .batch-table__toolbar {
+    height: auto;
+    min-height: 47px;
+    flex-wrap: wrap;
+  }
+
+  .batch-table__toolbar__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 2px 4px;
+  }
+}
+
 .applications-list__item,
 .filters-list__item {
   padding: 15px 0;

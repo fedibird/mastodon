@@ -1,10 +1,14 @@
 # frozen_string_literal: true
 
 class Admin::Trends::TagsController < Admin::BaseController
+  include TrendsReviewQueue
+
   def index
     authorize :tag, :review?
+    return if ensure_default_review_status!
 
     @tags = filtered_tags.page(params[:page])
+    @pending_count = Tag.pending_review.count
     @form = Trends::TagBatch.new
   end
 

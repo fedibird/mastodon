@@ -1,12 +1,16 @@
 # frozen_string_literal: true
 
 class Admin::Trends::StatusesController < Admin::BaseController
+  include TrendsReviewQueue
+
   def index
     authorize [:admin, :status], :review?
+    return if ensure_default_review_status!
 
-    @locales  = StatusTrend.pluck('distinct language')
-    @statuses = filtered_statuses.page(params[:page])
-    @form     = Trends::StatusBatch.new
+    @locales       = StatusTrend.pluck('distinct language')
+    @statuses      = filtered_statuses.page(params[:page])
+    @pending_count = Status.pending_trend_count
+    @form          = Trends::StatusBatch.new
   end
 
   def batch

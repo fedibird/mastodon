@@ -4,6 +4,7 @@ class Trends::StatusFilter
   KEYS = %i(
     trending
     locale
+    status
   ).freeze
 
   IGNORED_PARAMS = %w(page).freeze
@@ -18,9 +19,10 @@ class Trends::StatusFilter
     scope = initial_scope
 
     params.each do |key, value|
-      next if IGNORED_PARAMS.include?(key.to_s)
+      next if IGNORED_PARAMS.include?(key.to_s) || value.blank?
 
-      scope.merge!(scope_for(key, value.to_s.strip)) if value.present?
+      filtered = scope_for(key, value.to_s.strip)
+      scope.merge!(filtered) if filtered
     end
 
     scope
@@ -41,8 +43,25 @@ class Trends::StatusFilter
       trending_scope(value)
     when 'locale'
       StatusTrend.where(language: value)
+    when 'status'
+      review_scope(value)
     else
       raise Mastodon::InvalidParameterError, "Unknown filter: #{key}"
+    end
+  end
+
+  def review_scope(value)
+    case value
+    when 'pending_review'
+      Status.review_pending
+    when 'approved'
+      Status.review_approved
+    when 'rejected'
+      Status.review_rejected
+    when 'all'
+      nil
+    else
+      raise Mastodon::InvalidParameterError, "Unknown status: #{value}"
     end
   end
 

@@ -1,10 +1,15 @@
 # frozen_string_literal: true
 
 class Admin::Trends::Links::PreviewCardProvidersController < Admin::BaseController
+  include TrendsReviewQueue
+
   def index
     authorize :preview_card_provider, :review?
+    return if ensure_default_review_status!
 
     @preview_card_providers = filtered_preview_card_providers.page(params[:page])
+    @pending_count = PreviewCardProvider.pending_review.count
+    @trend_candidate_counts = PreviewCard.trend_candidate_counts_for(@preview_card_providers)
     @form = Trends::PreviewCardProviderBatch.new
   end
 

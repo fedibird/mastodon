@@ -10,15 +10,16 @@
     = hidden_field_tag key, params[key] if params[key].present?
 
   .filters
+    = render 'admin/trends/review_state_filter', pending_count: @pending_count
     .filter-subset.filter-subset--with-select
       %strong= t('admin.follow_recommendations.language')
       .input.select.optional
         = select_tag :locale, options_for_select(@locales.map { |key| [standard_locale_name(key), key] }, params[:locale]), include_blank: true
     .filter-subset
-      %strong= t('admin.trends.trending')
+      %strong= t('admin.trends.publication')
       %ul
         %li= filter_link_to t('generic.all'), trending: nil
-        %li= filter_link_to t('admin.trends.only_allowed'), trending: 'allowed'
+        %li= filter_link_to t('admin.trends.listed_only'), trending: 'allowed'
     .back-link
       = link_to admin_trends_links_preview_card_providers_path do
         = t('admin.trends.preview_card_providers.title')
@@ -30,7 +31,7 @@
   - Trends::PreviewCardFilter::KEYS.each do |key|
     = hidden_field_tag key, params[key] if params[key].present?
 
-  .batch-table
+  .batch-table.batch-table--review
     .batch-table__toolbar
       %label.batch-table__toolbar__select.batch-checkbox-all
         = check_box_tag :batch_checkbox_all, nil, false
