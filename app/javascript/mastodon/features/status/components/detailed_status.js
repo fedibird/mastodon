@@ -134,6 +134,16 @@ class DetailedStatus extends ImmutablePureComponent {
     onTranslate(proper);
   }
 
+  handleQuoteTranslate = () => {
+    const { onTranslate, status } = this.props;
+    const displayed = status && status.get('reblog') && typeof status.get('reblog') === 'object' ? status.get('reblog') : status;
+    const quote = displayed && displayed.get('quote');
+
+    if (onTranslate && quote && quote.get('translation')) {
+      onTranslate(quote);
+    }
+  }
+
   handleOpenMedia = (media, index) => {
     const status = this.props.status;
     const lang = status.getIn(['translation', 'language']) || status.get('language');
@@ -320,7 +330,7 @@ class DetailedStatus extends ImmutablePureComponent {
                 <DisplayName account={quote_status.get('account')} localDomain={this.props.domain} />
               </a>
             </div>
-            <StatusContent status={quote_status} onClick={this.handleQuoteClick} expanded={!quote_status.get('hidden')} onExpandedToggle={this.handleExpandedQuoteToggle} quote />
+            <StatusContent status={quote_status} onClick={this.handleQuoteClick} expanded={!quote_status.get('hidden')} onExpandedToggle={this.handleExpandedQuoteToggle} onTranslate={quote_status.get('translation') && this.props.onTranslate ? this.handleQuoteTranslate : undefined} quote />
             {!(quote_status.get('hidden') && quote_status.get('spoiler_text').length > 0) && <>
               {quote_media}
             </>}

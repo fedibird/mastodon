@@ -153,8 +153,11 @@ export function normalizeStatus(status, normalOldStatus, domain) {
       normalStatus.spoiler_text = '';
     }
 
-    const spoilerText    = normalStatus.spoiler_text || '';
-    const searchContent  = ([spoilerText, status.content].concat((status.poll && status.poll.options) ? status.poll.options.map(option => option.title) : [])).join('\n\n').replace(/<br\s*\/?>/g, '\n').replace(/<\/p><p>/g, '\n\n');
+    const spoilerText   = normalStatus.spoiler_text || '';
+    // A CW-only post is shown as body text, but the API content is still empty.
+    // Index that displayed text so translation (and screen readers) see it.
+    const indexedContent = (!status.content && normalStatus.content) ? normalStatus.content : status.content;
+    const searchContent  = ([spoilerText, indexedContent].concat((status.poll && status.poll.options) ? status.poll.options.map(option => option.title) : [])).join('\n\n').replace(/<br\s*\/?>/g, '\n').replace(/<\/p><p>/g, '\n\n');
     const emojiMap       = makeEmojiMap(normalStatus);
 
     const docContentElem = domParser.parseFromString(searchContent, 'text/html').documentElement;
@@ -195,14 +198,24 @@ export function normalizeStatus(status, normalOldStatus, domain) {
 export function normalizeStatusTranslation(translation, status, domain = '') {
   const emojis = status.get('emojis');
   const emojiMap = makeEmojiMap({ emojis: emojis ? emojis.toJS() : [] });
+  let content = translation.content;
+  let spoilerText = translation.spoiler_text;
+
+  // Fedibird already moves a CW-only spoiler into the status body. The
+  // translation API still returns that text as spoiler_text with an empty
+  // content, so mirror the same display shape here.
+  if (!(status.get('spoiler_text') || '') && spoilerText && !content) {
+    content = spoilerText;
+    spoilerText = '';
+  }
 
   return {
     detected_source_language: translation.detected_source_language,
     language: translation.language,
     provider: translation.provider,
-    contentHtml: applyEmojiPresentation(emojify(translation.content, emojiMap, domain)),
-    spoilerHtml: emojify(escapeTextContentForBrowser(translation.spoiler_text), emojiMap, domain),
-    spoiler_text: translation.spoiler_text,
+    contentHtml: applyEmojiPresentation(emojify(content, emojiMap, domain)),
+    spoilerHtml: emojify(escapeTextContentForBrowser(spoilerText), emojiMap, domain),
+    spoiler_text: spoilerText,
   };
 }
 

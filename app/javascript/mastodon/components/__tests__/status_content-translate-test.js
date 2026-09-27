@@ -44,6 +44,7 @@ jest.mock('mastodon/containers/poll_container', () => () => null);
 jest.mock('../permalink', () => ({ children }) => <span>{children}</span>);
 jest.mock('mastodon/components/icon', () => () => null);
 
+import { normalizeStatus, normalizeStatusTranslation } from '../../actions/importer/normalizer';
 import StatusContent from '../status_content';
 
 const store = createStore(() => fromJS({
@@ -114,6 +115,15 @@ describe('StatusContent translation', () => {
       </Provider>,
     );
     expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+
+    ['limited', 'mutual', 'personal', 'private', 'direct'].forEach(visibility => {
+      rerender(
+        <Provider store={store}>
+          <StatusContent status={buildStatus({ visibility })} onTranslate={jest.fn()} onClick={jest.fn()} />
+        </Provider>,
+      );
+      expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+    });
   });
 
   it('renders translated content and CW, then offers Show original', () => {
@@ -141,5 +151,81 @@ describe('StatusContent translation', () => {
     expect(screen.getByText('Translated from English using DeepL')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Show original' }));
     expect(onTranslate).toHaveBeenCalled();
+  });
+
+  it('shows a CW-only translation as the body and restores the original text', () => {
+    const normalized = fromJS(normalizeStatus({
+      id: 's1',
+      account: { id: 'a1', acct: 'alice' },
+      content: '',
+      spoiler_text: 'secret warning',
+      emojis: [],
+      media_attachments: [],
+      mentions: [],
+      visibility: 'public',
+      sensitive: false,
+      language: 'en',
+      url: 'https://example.test/1',
+      uri: 'https://example.test/1',
+      updated_at: '2020-01-01T00:00:00.000Z',
+      quote: null,
+    }, null, ''));
+
+    expect(normalized.get('spoiler_text')).toBe('');
+    expect(normalized.get('content')).toBe('secret warning');
+    expect(normalized.get('search_index')).toContain('secret warning');
+
+    const translation = normalizeStatusTranslation({
+      content: '',
+      spoiler_text: '秘密の警告',
+      detected_source_language: 'en',
+      language: 'ja',
+      provider: 'DeepL',
+    }, normalized, '');
+
+    expect(translation.spoiler_text).toBe('');
+    expect(translation.contentHtml).toContain('秘密の警告');
+
+    const onTranslate = jest.fn();
+    const { container, rerender } = render(
+      <Provider store={store}>
+        <StatusContent status={normalized.set('translation', fromJS(translation))} onTranslate={onTranslate} />
+      </Provider>,
+    );
+
+    const translatedBody = container.querySelector('.status__content__text').textContent;
+    expect(translatedBody).toContain('秘密の警告');
+    expect(translatedBody.trim()).not.toBe('');
+    fireEvent.click(screen.getByRole('button', { name: 'Show original' }));
+    expect(onTranslate).toHaveBeenCalled();
+
+    rerender(
+      <Provider store={store}>
+        <StatusContent status={normalized} onTranslate={onTranslate} />
+      </Provider>,
+    );
+
+    expect(container.querySelector('.status__content__text').textContent).toContain('secret warning');
+    expect(screen.queryByText('秘密の警告')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Translate' })).toBeTruthy();
+  });
+
+  it('keeps a content warning and body as separate translated fields', () => {
+    const status = fromJS({
+      spoiler_text: 'cw',
+      content: '<p>Hello</p>',
+      emojis: [],
+    });
+    const translation = normalizeStatusTranslation({
+      content: '<p>こんにちは</p>',
+      spoiler_text: '警告',
+      detected_source_language: 'en',
+      language: 'ja',
+      provider: 'DeepL',
+    }, status, '');
+
+    expect(translation.spoiler_text).toBe('警告');
+    expect(translation.contentHtml).toContain('こんにちは');
+    expect(translation.spoilerHtml).toContain('警告');
   });
 });
