@@ -82,10 +82,12 @@ describe('translateStatus', () => {
       STATUS_TRANSLATE_REQUEST,
       STATUS_TRANSLATE_SUCCESS,
     ]);
+    expect(actions[0].translationRequestId).toEqual(expect.any(String));
     expect(actions[1]).toMatchObject({
       id: 's1',
       translation,
       domain: 'remote.example',
+      translationRequestId: actions[0].translationRequestId,
     });
   });
 
@@ -100,6 +102,7 @@ describe('translateStatus', () => {
       STATUS_TRANSLATE_FAIL,
     ]);
     expect(actions[1].error).toBe(error);
+    expect(actions[1].translationRequestId).toBe(actions[0].translationRequestId);
   });
 
   it('stores the requested bilingual mode and does not post again once translated', async () => {
@@ -112,7 +115,12 @@ describe('translateStatus', () => {
     expect(post).toHaveBeenCalledTimes(1);
     expect(post).toHaveBeenCalledWith('/api/v1/statuses/s1/translate');
     expect(actions[0]).toMatchObject({ type: STATUS_TRANSLATE_REQUEST, id: 's1', mode: 'bilingual' });
-    expect(actions[1]).toMatchObject({ type: STATUS_TRANSLATE_SUCCESS, mode: 'bilingual', translation });
+    expect(actions[1]).toMatchObject({
+      type: STATUS_TRANSLATE_SUCCESS,
+      mode: 'bilingual',
+      translation,
+      translationRequestId: actions[0].translationRequestId,
+    });
 
     const translated = state.setIn(['statuses', 's1', 'translation'], translation);
     post.mockClear();

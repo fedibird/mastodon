@@ -179,17 +179,37 @@ const pollSourcesMatch = (oldStatus, incomingStatus, previousPoll) => {
   return previousTitles.every((title, index) => title === incomingTitles[index]);
 };
 
+// Match the CW-only rewrite in normalizeStatus. A stored status already has
+// the spoiler moved into content, while a fresh payload still has an empty
+// body and the text in spoiler_text. Compare those as the same source.
+const canonicalTranslationSource = (content, spoilerText) => {
+  const body = content || '';
+  const spoiler = spoilerText || '';
+
+  if (spoiler && !body) {
+    return { content: spoiler, spoilerText: '' };
+  }
+
+  return { content: body, spoilerText: spoiler };
+};
+
 // A stored status translation covers the body, CW, media descriptions, and
 // poll options from one response. Keep it only while every one of those
 // sources is unchanged, so an edited ALT or poll can be translated again.
-const translationSourcesMatch = (oldStatus, incomingStatus, previousPoll) => (
-  !!oldStatus &&
-  oldStatus.get('content') === incomingStatus.content &&
-  (oldStatus.get('spoiler_text') || '') === (incomingStatus.spoiler_text || '') &&
-  (oldStatus.get('language') || '') === (incomingStatus.language || '') &&
-  mediaSignature(oldStatus.get('media_attachments')) === mediaSignature(incomingStatus.media_attachments) &&
-  pollSourcesMatch(oldStatus, incomingStatus, previousPoll)
-);
+const translationSourcesMatch = (oldStatus, incomingStatus, previousPoll) => {
+  if (!oldStatus) {
+    return false;
+  }
+
+  const oldSource = canonicalTranslationSource(oldStatus.get('content'), oldStatus.get('spoiler_text'));
+  const incomingSource = canonicalTranslationSource(incomingStatus.content, incomingStatus.spoiler_text);
+
+  return oldSource.content === incomingSource.content &&
+    oldSource.spoilerText === incomingSource.spoilerText &&
+    (oldStatus.get('language') || '') === (incomingStatus.language || '') &&
+    mediaSignature(oldStatus.get('media_attachments')) === mediaSignature(incomingStatus.media_attachments) &&
+    pollSourcesMatch(oldStatus, incomingStatus, previousPoll);
+};
 
 const copyTranslationState = (normalStatus, normalOldStatus) => {
   if (normalOldStatus.get('translation')) {
@@ -202,6 +222,10 @@ const copyTranslationState = (normalStatus, normalOldStatus) => {
 
   if (normalOldStatus.get('translationPending')) {
     normalStatus.translationPending = true;
+
+    if (normalOldStatus.get('translationRequestId')) {
+      normalStatus.translationRequestId = normalOldStatus.get('translationRequestId');
+    }
   }
 };
 
@@ -331,6 +355,17 @@ export function normalizeStatusTranslation(translation, status, domain = '') {
   };
 }
 
+const pollRequestStillCurrent = (poll, normalOldPoll) => {
+  const requestId = normalOldPoll && normalOldPoll.get('translationRequestId');
+  const oldOptions = normalOldPoll && normalOldPoll.get('options');
+
+  if (!requestId || !oldOptions || !poll.options || oldOptions.size !== poll.options.length) {
+    return false;
+  }
+
+  return poll.options.every((option, index) => oldOptions.getIn([index, 'title']) === option.title);
+};
+
 export function normalizePoll(poll, normalOldPoll) {
   const normalPoll = { ...poll };
   const emojiMap = makeEmojiMap(normalPoll);
@@ -352,6 +387,10 @@ export function normalizePoll(poll, normalOldPoll) {
 
     return normalOption;
   });
+
+  if (pollRequestStillCurrent(poll, normalOldPoll)) {
+    normalPoll.translationRequestId = normalOldPoll.get('translationRequestId');
+  }
 
   return normalPoll;
 }

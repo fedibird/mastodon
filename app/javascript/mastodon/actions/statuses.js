@@ -557,6 +557,13 @@ export function toggleStatusCollapse(id, isCollapsed) {
   };
 }
 
+let translationRequestSerial = 0;
+
+const nextTranslationRequestId = () => {
+  translationRequestSerial += 1;
+  return `translation-${translationRequestSerial}`;
+};
+
 export const translateStatus = (id, mode = 'translated') => (dispatch, getState) => {
   const requestedMode = mode === 'bilingual' ? 'bilingual' : 'translated';
   const status = getState().getIn(['statuses', id]);
@@ -570,7 +577,10 @@ export const translateStatus = (id, mode = 'translated') => (dispatch, getState)
     return;
   }
 
-  dispatch(translateStatusRequest(id, requestedMode));
+  const translationRequestId = nextTranslationRequestId();
+  const pollId = status ? status.get('poll') : null;
+
+  dispatch(translateStatusRequest(id, requestedMode, translationRequestId, pollId));
 
   api(getState).post(`/api/v1/statuses/${id}/translate`).then(response => {
     const state = getState();
@@ -578,30 +588,35 @@ export const translateStatus = (id, mode = 'translated') => (dispatch, getState)
     const acct = current ? state.getIn(['accounts', current.get('account'), 'acct'], '') : '';
     const domain = acct.split('@')[1] || '';
 
-    dispatch(translateStatusSuccess(id, response.data, domain, requestedMode));
+    dispatch(translateStatusSuccess(id, response.data, domain, requestedMode, translationRequestId));
   }).catch(error => {
-    dispatch(translateStatusFail(id, error));
+    dispatch(translateStatusFail(id, error, translationRequestId, pollId));
   });
 };
 
-export const translateStatusRequest = (id, mode) => ({
+export const translateStatusRequest = (id, mode, translationRequestId, pollId) => ({
   type: STATUS_TRANSLATE_REQUEST,
   id,
   mode,
+  translationRequestId,
+  pollId,
 });
 
-export const translateStatusSuccess = (id, translation, domain, mode) => ({
+export const translateStatusSuccess = (id, translation, domain, mode, translationRequestId) => ({
   type: STATUS_TRANSLATE_SUCCESS,
   id,
   translation,
   domain,
   mode,
+  translationRequestId,
 });
 
-export const translateStatusFail = (id, error) => ({
+export const translateStatusFail = (id, error, translationRequestId, pollId) => ({
   type: STATUS_TRANSLATE_FAIL,
   id,
   error,
+  translationRequestId,
+  pollId,
 });
 
 export const undoStatusTranslation = (id, pollId) => ({

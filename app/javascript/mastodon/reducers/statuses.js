@@ -77,22 +77,33 @@ const removeEmojiReaction = (state, id, name, domain, url, static_url) => update
 
 const statusTranslationMode = mode => (mode === 'bilingual' || mode === 'original') ? mode : 'translated';
 
-const statusTranslateRequest = (state, id) => {
+const statusTranslateRequest = (state, id, requestId) => {
   if (!state.get(id)) {
     return state;
   }
 
-  return state.setIn([id, 'translationPending'], true);
+  return state.withMutations(map => {
+    map.setIn([id, 'translationPending'], true);
+
+    if (requestId) {
+      map.setIn([id, 'translationRequestId'], requestId);
+    }
+  });
 };
 
-const statusTranslateSuccess = (state, id, translation, domain, mode) => {
-  if (!state.get(id)) {
+const translationRequestCurrent = (status, requestId) => status.get('translationRequestId') === requestId;
+
+const statusTranslateSuccess = (state, id, translation, domain, mode, requestId) => {
+  const status = state.get(id);
+
+  if (!status || !translationRequestCurrent(status, requestId)) {
     return state;
   }
 
   return state.withMutations(map => {
     map.setIn([id, 'translation'], fromJS(normalizeStatusTranslation(translation, map.get(id), domain)));
     map.setIn([id, 'translationPending'], false);
+    map.deleteIn([id, 'translationRequestId']);
     map.setIn([id, 'translationMode'], statusTranslationMode(mode));
 
     const list = map.getIn([id, 'media_attachments']);
@@ -109,12 +120,17 @@ const statusTranslateSuccess = (state, id, translation, domain, mode) => {
   });
 };
 
-const statusTranslateFail = (state, id) => {
-  if (!state.get(id)) {
+const statusTranslateFail = (state, id, requestId) => {
+  const status = state.get(id);
+
+  if (!status || !translationRequestCurrent(status, requestId)) {
     return state;
   }
 
-  return state.setIn([id, 'translationPending'], false);
+  return state.withMutations(map => {
+    map.setIn([id, 'translationPending'], false);
+    map.deleteIn([id, 'translationRequestId']);
+  });
 };
 
 const statusTranslateSetMode = (state, id, mode) => {
@@ -133,6 +149,7 @@ const statusTranslateUndo = (state, id) => {
   return state.withMutations(map => {
     map.deleteIn([id, 'translation']);
     map.deleteIn([id, 'translationMode']);
+    map.deleteIn([id, 'translationRequestId']);
     map.setIn([id, 'translationPending'], false);
 
     const media = map.getIn([id, 'media_attachments']);
@@ -214,11 +231,11 @@ export default function statuses(state = initialState, action) {
   case TIMELINE_DELETE:
     return deleteStatus(state, action.id, action.references, action.quotes);
   case STATUS_TRANSLATE_REQUEST:
-    return statusTranslateRequest(state, action.id);
+    return statusTranslateRequest(state, action.id, action.translationRequestId);
   case STATUS_TRANSLATE_SUCCESS:
-    return statusTranslateSuccess(state, action.id, action.translation, action.domain, action.mode);
+    return statusTranslateSuccess(state, action.id, action.translation, action.domain, action.mode, action.translationRequestId);
   case STATUS_TRANSLATE_FAIL:
-    return statusTranslateFail(state, action.id);
+    return statusTranslateFail(state, action.id, action.translationRequestId);
   case STATUS_TRANSLATE_SET_MODE:
     return statusTranslateSetMode(state, action.id, action.mode);
   case STATUS_TRANSLATE_UNDO:

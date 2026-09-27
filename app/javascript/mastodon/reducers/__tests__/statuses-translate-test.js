@@ -97,15 +97,18 @@ describe('statuses translation reducer', () => {
       type: STATUS_TRANSLATE_REQUEST,
       id: 's1',
       mode: 'bilingual',
+      translationRequestId: 'req-mode',
     });
 
     expect(requested.getIn(['s1', 'translationPending'])).toBe(true);
+    expect(requested.getIn(['s1', 'translationRequestId'])).toBe('req-mode');
     expect(requested.getIn(['s1', 'content'])).toBe(baseStatus.get('content'));
 
     const translated = reducer(requested, {
       type: STATUS_TRANSLATE_SUCCESS,
       id: 's1',
       mode: 'bilingual',
+      translationRequestId: 'req-mode',
       translation: {
         content: '<p>こんにちは</p>',
         spoiler_text: '',
@@ -119,6 +122,7 @@ describe('statuses translation reducer', () => {
     });
 
     expect(translated.getIn(['s1', 'translationPending'])).toBe(false);
+    expect(translated.getIn(['s1', 'translationRequestId'])).toBeUndefined();
     expect(translated.getIn(['s1', 'translationMode'])).toBe('bilingual');
     expect(translated.getIn(['s1', 'translation', 'contentHtml'])).toContain('こんにちは');
     expect(translated.getIn(['s1', 'media_attachments', 1, 'translation', 'description'])).toBe('いち');
@@ -126,10 +130,87 @@ describe('statuses translation reducer', () => {
     const failed = reducer(requested, {
       type: STATUS_TRANSLATE_FAIL,
       id: 's1',
+      translationRequestId: 'req-mode',
     });
 
     expect(failed.getIn(['s1', 'translationPending'])).toBe(false);
+    expect(failed.getIn(['s1', 'translationRequestId'])).toBeUndefined();
     expect(failed.getIn(['s1', 'translation'])).toBeUndefined();
+  });
+
+  it('ignores a stale translation response after the request id changes', () => {
+    const requested = reducer(fromJS({ s1: baseStatus }), {
+      type: STATUS_TRANSLATE_REQUEST,
+      id: 's1',
+      translationRequestId: 'req-a',
+    });
+
+    const cleared = requested.deleteIn(['s1', 'translationPending']).deleteIn(['s1', 'translationRequestId']);
+    const staleTranslation = {
+      content: '<p>古い</p>',
+      spoiler_text: '',
+      detected_source_language: 'en',
+      language: 'ja',
+      provider: 'DeepL',
+      media_attachments: [],
+    };
+
+    const stale = reducer(cleared, {
+      type: STATUS_TRANSLATE_SUCCESS,
+      id: 's1',
+      mode: 'translated',
+      translationRequestId: 'req-a',
+      translation: staleTranslation,
+    });
+
+    expect(stale.getIn(['s1', 'translation'])).toBeUndefined();
+
+    const requestedAgain = reducer(cleared, {
+      type: STATUS_TRANSLATE_REQUEST,
+      id: 's1',
+      translationRequestId: 'req-b',
+    });
+
+    const ignored = reducer(requestedAgain, {
+      type: STATUS_TRANSLATE_SUCCESS,
+      id: 's1',
+      mode: 'translated',
+      translationRequestId: 'req-a',
+      translation: staleTranslation,
+    });
+
+    expect(ignored.getIn(['s1', 'translation'])).toBeUndefined();
+    expect(ignored.getIn(['s1', 'translationPending'])).toBe(true);
+    expect(ignored.getIn(['s1', 'translationRequestId'])).toBe('req-b');
+
+    const ignoredFailure = reducer(requestedAgain, {
+      type: STATUS_TRANSLATE_FAIL,
+      id: 's1',
+      translationRequestId: 'req-a',
+    });
+
+    expect(ignoredFailure.getIn(['s1', 'translationPending'])).toBe(true);
+    expect(ignoredFailure.getIn(['s1', 'translationRequestId'])).toBe('req-b');
+
+    const saved = reducer(requestedAgain, {
+      type: STATUS_TRANSLATE_SUCCESS,
+      id: 's1',
+      mode: 'bilingual',
+      translationRequestId: 'req-b',
+      translation: {
+        content: '<p>新しい</p>',
+        spoiler_text: '',
+        detected_source_language: 'en',
+        language: 'ja',
+        provider: 'DeepL',
+        media_attachments: [],
+      },
+    });
+
+    expect(saved.getIn(['s1', 'translation', 'contentHtml'])).toContain('新しい');
+    expect(saved.getIn(['s1', 'translationMode'])).toBe('bilingual');
+    expect(saved.getIn(['s1', 'translationPending'])).toBe(false);
+    expect(saved.getIn(['s1', 'translationRequestId'])).toBeUndefined();
   });
 
   it('changes display mode without deleting translation, media, or poll data', () => {

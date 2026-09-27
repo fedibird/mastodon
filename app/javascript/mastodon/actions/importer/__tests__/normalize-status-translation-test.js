@@ -1,5 +1,6 @@
 import { fromJS } from 'immutable';
 
+import { importFetchedStatuses, POLLS_IMPORT, STATUSES_IMPORT } from '../index';
 import { normalizeStatus } from '../normalizer';
 
 const buildStatus = (overrides = {}) => ({
@@ -194,5 +195,186 @@ describe('normalizeStatus translation retention', () => {
     expect(next.translation).toBeUndefined();
     expect(next.translationMode).toBeUndefined();
     expect(next.media_attachments.getIn([0, 'translation', 'description'])).toBe('ねこ');
+  });
+
+  it('keeps a pending translation request when a status-stat refresh does not change sources', () => {
+    const pending = previous.set('translationPending', true).set('translationRequestId', 'req-a');
+    const next = normalizeStatus(buildStatus({
+      updated_at: '2020-01-02T00:00:00.000Z',
+      poll: incomingPoll,
+      media_attachments: [
+        { id: 'm1', type: 'image', description: 'cat', url: 'https://example.test/cat.jpg', remote_url: 'https://example.test/cat.jpg' },
+        { id: 'm2', type: 'image', description: 'tree', url: 'https://example.test/tree.jpg', remote_url: 'https://example.test/tree.jpg' },
+      ],
+    }), pending, '', previousPoll);
+
+    expect(next.translation.get('contentHtml')).toBe('<p>こんにちは</p>');
+    expect(next.translationMode).toBe('bilingual');
+    expect(next.translationPending).toBe(true);
+    expect(next.translationRequestId).toBe('req-a');
+  });
+
+  it('drops a pending translation request when the source changes', () => {
+    const pending = previous.set('translationPending', true).set('translationRequestId', 'req-a');
+    const next = normalizeStatus(buildStatus({
+      content: '<p>Hello again</p>',
+      updated_at: '2020-01-02T00:00:00.000Z',
+      poll: incomingPoll,
+      media_attachments: [
+        { id: 'm1', type: 'image', description: 'cat', url: 'https://example.test/cat.jpg', remote_url: 'https://example.test/cat.jpg' },
+        { id: 'm2', type: 'image', description: 'tree', url: 'https://example.test/tree.jpg', remote_url: 'https://example.test/tree.jpg' },
+      ],
+    }), pending, '', previousPoll);
+
+    expect(next.translation).toBeUndefined();
+    expect(next.translationMode).toBeUndefined();
+    expect(next.translationPending).toBeUndefined();
+    expect(next.translationRequestId).toBeUndefined();
+  });
+});
+
+describe('normalizeStatus CW-only translation retention', () => {
+  const stored = fromJS({
+    id: 's1',
+    content: 'secret warning',
+    spoiler_text: '',
+    updated_at: '2020-01-01T00:00:00.000Z',
+    language: 'en',
+    poll: null,
+    translation: { contentHtml: '<p>秘密</p>', language: 'ja' },
+    translationMode: 'translated',
+    translationPending: true,
+    translationRequestId: 'req-a',
+    media_attachments: [],
+  });
+
+  it('keeps the translation when a status-stat refresh only bumps updated_at on a CW-only post', () => {
+    const next = normalizeStatus(buildStatus({
+      content: '',
+      spoiler_text: 'secret warning',
+      updated_at: '2020-01-02T00:00:00.000Z',
+      language: 'en',
+      poll: null,
+      media_attachments: [],
+    }), stored, '', null);
+
+    expect(next.content).toBe('secret warning');
+    expect(next.spoiler_text).toBe('');
+    expect(next.translation.get('contentHtml')).toBe('<p>秘密</p>');
+    expect(next.translationMode).toBe('translated');
+    expect(next.translationPending).toBe(true);
+    expect(next.translationRequestId).toBe('req-a');
+  });
+
+  it('drops the translation when the CW-only warning changes', () => {
+    const next = normalizeStatus(buildStatus({
+      content: '',
+      spoiler_text: 'other warning',
+      updated_at: '2020-01-02T00:00:00.000Z',
+      language: 'en',
+      poll: null,
+      media_attachments: [],
+    }), stored, '', null);
+
+    expect(next.translation).toBeUndefined();
+    expect(next.translationMode).toBeUndefined();
+    expect(next.translationPending).toBeUndefined();
+    expect(next.translationRequestId).toBeUndefined();
+    expect(next.content).toBe('other warning');
+    expect(next.spoiler_text).toBe('');
+  });
+});
+
+describe('importFetchedStatuses translation request retention', () => {
+  const account = {
+    id: 'a1',
+    username: 'alice',
+    acct: 'alice',
+    display_name: 'Alice',
+    note: '',
+    followed_message: '',
+    emojis: [],
+    fields: [],
+    url: 'https://example.test/@alice',
+    uri: 'https://example.test/users/alice',
+  };
+
+  const media = [
+    { id: 'm1', type: 'image', description: 'cat', url: 'https://example.test/cat.jpg', remote_url: 'https://example.test/cat.jpg' },
+    { id: 'm2', type: 'image', description: 'tree', url: 'https://example.test/tree.jpg', remote_url: 'https://example.test/tree.jpg' },
+  ];
+
+  const dispatchImport = (status, storedStatus, storedPoll) => {
+    const actions = [];
+    const getState = () => fromJS({
+      statuses: { s1: storedStatus },
+      polls: { p1: storedPoll },
+      accounts: {},
+    });
+    const dispatch = (action) => {
+      if (typeof action === 'function') {
+        action(dispatch, getState);
+      } else {
+        actions.push(action);
+      }
+    };
+
+    importFetchedStatuses([status])(dispatch, getState);
+
+    return {
+      status: actions.find(action => action.type === STATUSES_IMPORT).statuses[0],
+      poll: actions.find(action => action.type === POLLS_IMPORT).polls[0],
+    };
+  };
+
+  const storedStatus = fromJS({
+    id: 's1',
+    content: '<p>Hello</p>',
+    spoiler_text: 'cw',
+    updated_at: '2020-01-01T00:00:00.000Z',
+    language: 'en',
+    poll: 'p1',
+    translation: { contentHtml: '<p>こんにちは</p>', language: 'ja' },
+    translationMode: 'bilingual',
+    translationPending: true,
+    translationRequestId: 'req-a',
+    media_attachments: [
+      { id: 'm1', description: 'cat', translation: { description: 'ねこ' } },
+      { id: 'm2', description: 'tree', translation: { description: '木' } },
+    ],
+  });
+
+  const storedPoll = fromJS({
+    id: 'p1',
+    emojis: [],
+    options: [{ title: 'Yes' }, { title: 'No' }],
+    translationRequestId: 'req-a',
+  });
+
+  it('keeps the poll translation request when a status-stat refresh does not change sources', () => {
+    const imported = dispatchImport(buildStatus({
+      account,
+      updated_at: '2020-01-02T00:00:00.000Z',
+      poll: { id: 'p1', emojis: [], own_votes: [], options: [{ title: 'Yes' }, { title: 'No' }] },
+      media_attachments: media,
+    }), storedStatus, storedPoll);
+
+    expect(imported.status.translationRequestId).toBe('req-a');
+    expect(imported.status.translationPending).toBe(true);
+    expect(imported.poll.translationRequestId).toBe('req-a');
+  });
+
+  it('drops the poll translation request when the status source changes', () => {
+    const imported = dispatchImport(buildStatus({
+      account,
+      content: '<p>Hello again</p>',
+      updated_at: '2020-01-02T00:00:00.000Z',
+      poll: { id: 'p1', emojis: [], own_votes: [], options: [{ title: 'Yes' }, { title: 'No' }] },
+      media_attachments: media,
+    }), storedStatus, storedPoll);
+
+    expect(imported.status.translation).toBeUndefined();
+    expect(imported.status.translationRequestId).toBeUndefined();
+    expect(imported.poll.translationRequestId).toBeUndefined();
   });
 });
