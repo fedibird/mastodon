@@ -124,7 +124,11 @@ export function importFetchedStatuses(statuses) {
         processStatus(status.quote);
       }
 
-      pushUnique(normalStatuses, normalizeStatus(status, getState().getIn(['statuses', status.id]), (typeof status.account === 'object' ? status.account.acct : getState().getIn(['accounts', status.account, 'acct']))?.split('@')[1] ?? ''));
+      const previousStatus = getState().getIn(['statuses', status.id]);
+      const previousPoll = status.poll && status.poll.id ? getState().getIn(['polls', status.poll.id]) : null;
+      const domain = (typeof status.account === 'object' ? status.account.acct : getState().getIn(['accounts', status.account, 'acct']))?.split('@')[1] ?? '';
+
+      pushUnique(normalStatuses, normalizeStatus(status, previousStatus, domain, previousPoll));
     }
 
     statuses.forEach(processStatus);

@@ -93,6 +93,118 @@ const applyEmojiPresentation = (html) => {
   return flagment.innerHTML;
 };
 
+const mediaSignature = (media) => {
+  if (!media || typeof media.forEach !== 'function') {
+    return '';
+  }
+
+  const entries = [];
+
+  media.forEach(item => {
+    if (!item) {
+      return;
+    }
+
+    const id = item.get ? item.get('id') : item.id;
+    const description = item.get ? item.get('description') : item.description;
+    entries.push(`${id}\u0000${description || ''}`);
+  });
+
+  entries.sort();
+  return entries.join('\n');
+};
+
+const pollId = (poll) => {
+  if (poll === null || poll === undefined || poll === '') {
+    return '';
+  }
+
+  if (typeof poll === 'string' || typeof poll === 'number') {
+    return String(poll);
+  }
+
+  const id = poll.get ? poll.get('id') : poll.id;
+  return (id === null || id === undefined) ? '' : String(id);
+};
+
+const pollOptionTitles = (poll) => {
+  if (!poll || typeof poll === 'string' || typeof poll === 'number') {
+    return null;
+  }
+
+  const options = poll.get ? poll.get('options') : poll.options;
+
+  if (!options || typeof options.forEach !== 'function') {
+    return [];
+  }
+
+  const titles = [];
+
+  options.forEach(option => {
+    if (typeof option === 'string') {
+      titles.push(option);
+    } else if (option && option.get) {
+      titles.push(option.get('title') || '');
+    } else {
+      titles.push((option && option.title) || '');
+    }
+  });
+
+  return titles;
+};
+
+const pollSourcesMatch = (oldStatus, incomingStatus, previousPoll) => {
+  const incomingId = pollId(incomingStatus.poll);
+  const storedId = pollId(oldStatus.get('poll'));
+
+  if (incomingId !== storedId) {
+    return false;
+  }
+
+  if (!incomingId) {
+    return true;
+  }
+
+  if (!previousPoll) {
+    return false;
+  }
+
+  const previousTitles = pollOptionTitles(previousPoll);
+  const incomingTitles = pollOptionTitles(incomingStatus.poll);
+
+  if (!previousTitles || !incomingTitles || previousTitles.length !== incomingTitles.length) {
+    return false;
+  }
+
+  return previousTitles.every((title, index) => title === incomingTitles[index]);
+};
+
+// A stored status translation covers the body, CW, media descriptions, and
+// poll options from one response. Keep it only while every one of those
+// sources is unchanged, so an edited ALT or poll can be translated again.
+const translationSourcesMatch = (oldStatus, incomingStatus, previousPoll) => (
+  !!oldStatus &&
+  oldStatus.get('content') === incomingStatus.content &&
+  (oldStatus.get('spoiler_text') || '') === (incomingStatus.spoiler_text || '') &&
+  (oldStatus.get('language') || '') === (incomingStatus.language || '') &&
+  mediaSignature(oldStatus.get('media_attachments')) === mediaSignature(incomingStatus.media_attachments) &&
+  pollSourcesMatch(oldStatus, incomingStatus, previousPoll)
+);
+
+const copyTranslationState = (normalStatus, normalOldStatus) => {
+  if (normalOldStatus.get('translation')) {
+    normalStatus.translation = normalOldStatus.get('translation');
+
+    if (normalOldStatus.get('translationMode')) {
+      normalStatus.translationMode = normalOldStatus.get('translationMode');
+    }
+  }
+
+  if (normalOldStatus.get('translationPending')) {
+    normalStatus.translationPending = true;
+  }
+};
+
 const preserveMediaTranslations = (mediaAttachments, normalOldStatus) => {
   const previousMedia = normalOldStatus && normalOldStatus.get('media_attachments');
 
@@ -111,7 +223,7 @@ const preserveMediaTranslations = (mediaAttachments, normalOldStatus) => {
   });
 };
 
-export function normalizeStatus(status, normalOldStatus, domain) {
+export function normalizeStatus(status, normalOldStatus, domain, previousPoll) {
   const normalStatus   = { ...status };
 
   if (typeof status.account === 'object') {
@@ -142,16 +254,8 @@ export function normalizeStatus(status, normalOldStatus, domain) {
     normalStatus.visibility = normalOldStatus.get('visibility');
     normalStatus.media_attachments = normalOldStatus.get('media_attachments');
 
-    if (normalOldStatus.get('translation')) {
-      normalStatus.translation = normalOldStatus.get('translation');
-
-      if (normalOldStatus.get('translationMode')) {
-        normalStatus.translationMode = normalOldStatus.get('translationMode');
-      }
-    }
-
-    if (normalOldStatus.get('translationPending')) {
-      normalStatus.translationPending = true;
+    if (pollSourcesMatch(normalOldStatus, status, previousPoll)) {
+      copyTranslationState(normalStatus, normalOldStatus);
     }
   } else {
     // If the status has a CW but no contents, treat the CW as if it were the
@@ -184,16 +288,8 @@ export function normalizeStatus(status, normalOldStatus, domain) {
     normalStatus.quote             = null;
     normalStatus.media_attachments = preserveMediaTranslations(status.media_attachments, normalOldStatus);
 
-    if (normalOldStatus && normalOldStatus.get('content') === status.content && (normalOldStatus.get('spoiler_text') || '') === (status.spoiler_text || '') && normalOldStatus.get('translation')) {
-      normalStatus.translation = normalOldStatus.get('translation');
-
-      if (normalOldStatus.get('translationMode')) {
-        normalStatus.translationMode = normalOldStatus.get('translationMode');
-      }
-
-      if (normalOldStatus.get('translationPending')) {
-        normalStatus.translationPending = true;
-      }
+    if (normalOldStatus && translationSourcesMatch(normalOldStatus, status, previousPoll)) {
+      copyTranslationState(normalStatus, normalOldStatus);
     }
 
     if (normalStatus.url && !(normalStatus.url.startsWith('http://') || normalStatus.url.startsWith('https://'))) {
