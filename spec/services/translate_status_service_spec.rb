@@ -155,21 +155,23 @@ RSpec.describe TranslateStatusService do
 
     fragment = Nokogiri::HTML.fragment(sent)
     hashtag = fragment.at_css('a.hashtag')
-    protection = hashtag.ancestors.find { |node| node.element? && node['translate'] == 'no' }
 
+    expect(hashtag['translate']).to eq 'no'
     expect(hashtag.text).to eq '#Fedibird'
+    expect(hashtag['class']).to include('hashtag')
+    expect(hashtag['rel']).to include('tag')
     expect(hashtag['href'].downcase).to include('fedibird')
     expect(hashtag['href']).not_to include('<')
-    expect(protection.name).to eq 'span'
-    expect(protection['class']).to be_nil
+    expect(hashtag.parent['translate']).not_to eq 'no'
 
     result = Nokogiri::HTML.fragment(translation.content)
     restored = result.at_css('a.hashtag')
 
     expect(translation.content).to include('こんにちは')
     expect(restored.text).to eq '#Fedibird'
+    expect(restored['translate']).to be_nil
+    expect(restored['class']).to include('hashtag')
     expect(restored['href'].downcase).to include('fedibird')
-    expect(restored.parent.name).to eq 'p'
     expect(result.css('span[translate="no"]')).to be_empty
     expect(translation.content).not_to include('フェディバード')
     expect(translation.spoiler_text).to include('フェディバード')
@@ -187,21 +189,25 @@ RSpec.describe TranslateStatusService do
     expect(backend).to have_received(:translate) { |texts, _source, _target| sent = texts.first }
     fragment = Nokogiri::HTML.fragment(sent)
     hashtag = fragment.at_css('a.hashtag')
-    protection = hashtag.ancestors.find { |node| node.element? && node['translate'] == 'no' }
 
     expect(fragment.at_css('span.h-card')['translate']).to eq 'no'
     expect(fragment.css('span[translate="no"]').map(&:text)).to include(':blob:')
-    expect(protection.name).to eq 'span'
-    expect(protection['class']).to be_nil
+    expect(hashtag['translate']).to eq 'no'
+    expect(hashtag['class']).to include('mention')
+    expect(hashtag['class']).to include('hashtag')
+    expect(hashtag['rel']).to include('tag')
     expect(hashtag.text).to eq '#Fedibird'
     expect(hashtag['href']).not_to include('<span')
+    expect(hashtag.parent['translate']).not_to eq 'no'
 
     result = Nokogiri::HTML.fragment(translation.content)
+    restored = result.at_css('a.hashtag')
 
     expect(result.at_css('span.h-card')).to be_present
     expect(result.at_css('span.h-card')['translate']).to be_nil
-    expect(result.at_css('a.hashtag').text).to eq '#Fedibird'
-    expect(result.at_css('a.hashtag').parent.name).to eq 'p'
+    expect(restored.text).to eq '#Fedibird'
+    expect(restored['translate']).to be_nil
+    expect(restored['class']).to include('hashtag')
     expect(translation.content).to include(':blob:')
     expect(result.css('span[translate="no"]')).to be_empty
   end
@@ -217,6 +223,7 @@ RSpec.describe TranslateStatusService do
     link = fragment.css('a').find { |anchor| anchor['href']&.include?('https://example.com/') }
 
     expect(link).to be_present
+    expect(link['translate']).not_to eq 'no'
     expect(link['class'].to_s).not_to include('hashtag')
     expect(link.ancestors.none? { |node| node.element? && node['translate'] == 'no' }).to be true
     expect(fragment.css('span[translate="no"]')).to be_empty
@@ -236,11 +243,15 @@ RSpec.describe TranslateStatusService do
     hashtag = fragment.at_css('a.hashtag')
 
     expect(remote.local?).to be false
+    expect(hashtag['translate']).to eq 'no'
+    expect(hashtag['class']).to include('hashtag')
     expect(hashtag.text).to include('Fedibird')
-    expect(hashtag.ancestors.any? { |node| node.element? && node['translate'] == 'no' }).to be true
+    expect(hashtag['href']).to include('https://remote.test/tags/Fedibird')
 
     result = Nokogiri::HTML.fragment(translation.content)
-    expect(result.at_css('a.hashtag').text).to include('Fedibird')
+    restored = result.at_css('a.hashtag')
+    expect(restored.text).to include('Fedibird')
+    expect(restored['translate']).to be_nil
     expect(result.css('span[translate="no"]')).to be_empty
     expect(translation.content).not_to include('フェディバード')
   end

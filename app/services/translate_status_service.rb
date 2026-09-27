@@ -151,23 +151,21 @@ class TranslateStatusService < BaseService
     tree.to_html
   end
 
-  # Formatter already decided which anchors are hashtags. Wrap those links only
-  # in the HTML sent to the provider, and leave the anchor attributes alone.
+  # Formatter already decided which anchors are hashtags. Mark those anchors
+  # only in the HTML sent to the provider. Sanitize drops translate later.
   def protect_hashtags(html)
     fragment = Nokogiri::HTML.fragment(html.to_s)
-    wrapped = false
+    changed = false
 
     fragment.css('a.hashtag').to_a.each do |hashtag|
+      next if hashtag['translate'] == 'no'
       next if hashtag.ancestors.any? { |node| node.element? && node['translate'] == 'no' }
 
-      wrapper = Nokogiri::XML::Node.new('span', fragment.document)
-      wrapper['translate'] = 'no'
-      hashtag.replace(wrapper)
-      wrapper.add_child(hashtag)
-      wrapped = true
+      hashtag['translate'] = 'no'
+      changed = true
     end
 
-    wrapped ? fragment.to_html : html
+    changed ? fragment.to_html : html
   end
 
   def unwrap_translation_protection(html)
