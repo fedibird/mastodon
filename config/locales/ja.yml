@@ -1755,6 +1755,8 @@ ja:
       expires_at: 有効期限
       uses: 使用
     title: 新規ユーザーの招待
+  keyword_subscribe:
+    home: ホーム
   keyword_subscribes:
     add_new: 追加
     disabled: 無効
@@ -1772,6 +1774,9 @@ ja:
     ignore_block: 無視
     index:
       delete: 削除
+      exclude: 除外
+      ignore_block: ブロック無視
+      include: 含む
       title: キーワードの購読
     new:
       title: 新規キーワード購読を追加

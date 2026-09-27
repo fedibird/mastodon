@@ -1045,6 +1045,180 @@ a.name-tag,
   color: $error-value-color;
 }
 
+.keyword-subscriptions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+  margin-bottom: 20px;
+}
+
+.keyword-subscription {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  padding: 10px 12px;
+  background: $ui-base-color;
+  border: 1px solid lighten($ui-base-color, 8%);
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+
+  &__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+    min-width: 0;
+  }
+
+  &__title {
+    flex: 1 1 8em;
+    min-width: 0;
+    margin: 0;
+    color: $primary-text-color;
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  &__status {
+    flex: 0 0 auto;
+    margin-left: auto;
+    white-space: nowrap;
+
+    .fa {
+      margin-right: 4px;
+    }
+  }
+
+  &__actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+
+    a.table-action-link {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+      margin-right: 0;
+      padding: 8px 10px;
+
+      &:first-child {
+        padding-left: 10px;
+      }
+    }
+  }
+
+  &__criteria {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    margin-top: 8px;
+  }
+
+  &__field {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 2px 12px;
+    align-items: baseline;
+    min-width: 0;
+
+    @media screen and (max-width: $no-columns-breakpoint) {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  &__label {
+    color: $darker-text-color;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+
+  &__value {
+    min-width: 0;
+    color: $secondary-text-color;
+    font-size: 14px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  &__footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    min-width: 0;
+    margin-top: 8px;
+  }
+
+  &__destination {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    max-width: 100%;
+    color: $secondary-text-color;
+    font-weight: 500;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+
+    .fa {
+      flex: 0 0 auto;
+    }
+  }
+
+  &__badges {
+    display: flex;
+    flex: 1 1 12em;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  &__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    min-width: 0;
+    padding: 2px 8px;
+    background: lighten($ui-base-color, 6%);
+    border: 1px solid lighten($ui-base-color, 12%);
+    border-radius: 4px;
+    color: $secondary-text-color;
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+
+    .fa {
+      margin-right: 0;
+    }
+  }
+
+  &__badge-mark {
+    font-weight: 700;
+  }
+}
+
+.admin-wrapper .content .keyword-subscription__title {
+  margin-bottom: 0;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
 .license {
   color: $classic-primary-color;
 }
