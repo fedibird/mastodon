@@ -37,4 +37,29 @@ RSpec.describe TranslationService do
       expect { described_class.configured }.to raise_error(TranslationService::NotConfiguredError)
     end
   end
+
+  describe '.timeout' do
+    it 'does not override HTTP timeouts when unset' do
+      ClimateControl.modify(TRANSLATION_TIMEOUT: nil) do
+        expect(described_class.timeout).to be_nil
+        expect(described_class.timeout_options).to be_nil
+      end
+    end
+
+    it 'reads a positive integer from TRANSLATION_TIMEOUT' do
+      ClimateControl.modify(TRANSLATION_TIMEOUT: '30') do
+        expect(described_class.timeout).to eq 30
+        expect(described_class.timeout_options).to eq(read_timeout: 30, read_deadline: 30)
+      end
+    end
+
+    it 'ignores blank, non-numeric, zero, and negative values' do
+      ['', 'abc', '0', '-1'].each do |value|
+        ClimateControl.modify(TRANSLATION_TIMEOUT: value) do
+          expect(described_class.timeout).to be_nil
+          expect(described_class.timeout_options).to be_nil
+        end
+      end
+    end
+  end
 end

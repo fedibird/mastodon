@@ -2,6 +2,30 @@
 
 require 'rails_helper'
 
+def assert_libre_translate_timeouts
+  url = 'http://translate.local/translate'
+  body = Oj.dump(translatedText: ['Hello'], detectedLanguage: [{ language: 'ja' }])
+
+  ClimateControl.modify(TRANSLATION_TIMEOUT: nil) do
+    expect(Request).to receive(:new).with(:post, url, hash_excluding(:timeout_options)).and_wrap_original do |method, *args, **kwargs|
+      expect(kwargs[:allow_local]).to be true
+      request = method.call(*args, **kwargs)
+      timeouts = request.instance_variable_get(:@options)[:timeout_options]
+      expect(timeouts[:read_timeout]).to eq 10
+      expect(timeouts[:read_deadline]).to eq 30
+      request
+    end
+    stub_request(:post, url).to_return(status: 200, body: body)
+    yield
+  end
+
+  ClimateControl.modify(TRANSLATION_TIMEOUT: '30') do
+    expect(Request).to receive(:new).with(:post, url, hash_including(allow_local: true, timeout_options: { read_timeout: 30, read_deadline: 30 })).and_call_original
+    stub_request(:post, url).to_return(status: 200, body: body)
+    yield
+  end
+end
+
 RSpec.describe TranslationService::LibreTranslate do
   subject { described_class.new('http://translate.local', 'optional-key') }
 
@@ -17,6 +41,10 @@ RSpec.describe TranslationService::LibreTranslate do
       expect(result.first.text).to eq 'Hello'
       expect(result.first.detected_source_language).to eq 'ja'
       expect(result.first.provider).to eq 'LibreTranslate'
+    end
+
+    it 'passes a translation timeout only when TRANSLATION_TIMEOUT is set' do
+      assert_libre_translate_timeouts { subject.translate(['こんにちは'], 'de', 'ja') }
     end
 
     it 'raises on rate limit, quota, unexpected status, and malformed JSON' do

@@ -21,6 +21,21 @@ class TranslationService
     ENV['DEEPL_API_KEY'].present? || ENV['LIBRE_TRANSLATE_ENDPOINT'].present?
   end
 
+  def self.timeout
+    raw = ENV['TRANSLATION_TIMEOUT']
+    return if raw.blank?
+
+    seconds = Integer(raw, exception: false)
+    seconds if seconds&.positive?
+  end
+
+  def self.timeout_options
+    seconds = timeout
+    return if seconds.nil?
+
+    { read_timeout: seconds, read_deadline: seconds }
+  end
+
   def languages
     {}
   end
