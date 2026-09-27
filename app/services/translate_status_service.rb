@@ -170,32 +170,99 @@ class TranslateStatusService < BaseService
     changed ? fragment.to_html : html
   end
 
-  # Formatter already decided which anchors are hashtags. Mark those anchors
-  # only in the HTML sent to the provider. Sanitize drops translate later.
+  # a.hashtag is always protected. Other representations are protected only
+  # when they match a tag already saved on the status. rel="tag" is not used:
+  # Formatter's strict sanitize replaces it before this method runs.
   def protect_hashtags(html)
-    mark_translation_protected(html, 'a.hashtag')
+    fragment = Nokogiri::HTML.fragment(html.to_s)
+    changed = protect_hashtag_anchors(fragment)
+    changed = true if wrap_metadata_hashtags(fragment)
+
+    changed ? fragment.to_html : html
   end
 
-  def mark_translation_protected(html, selector)
-    fragment = Nokogiri::HTML.fragment(html.to_s)
+  def protect_hashtag_anchors(fragment)
     changed = false
 
-    fragment.css(selector).to_a.each do |element|
-      next if translation_protected?(element)
+    fragment.css('a').to_a.each do |anchor|
+      next if translation_protected?(anchor)
+      next unless hashtag_anchor?(anchor) || metadata_hashtag_anchor?(anchor)
 
-      element['translate'] = 'no'
+      anchor['translate'] = 'no'
       changed = true
     end
 
-    changed ? fragment.to_html : html
+    changed
+  end
+
+  def wrap_metadata_hashtags(fragment)
+    return false if normalized_status_tags.empty?
+
+    changed = false
+
+    fragment.xpath('./text()|.//text()').to_a.each do |node|
+      next if translation_protected?(node)
+
+      replacement = metadata_hashtag_nodes(node.content, fragment.document)
+      next if replacement.nil?
+
+      node.replace(replacement)
+      changed = true
+    end
+
+    changed
+  end
+
+  def metadata_hashtag_nodes(text, document)
+    return unless text.include?('#')
+
+    matches = Extractor.extract_hashtags_with_indices(text).select { |tag| metadata_hashtag?(tag[:hashtag]) }
+    return if matches.empty?
+
+    nodes = Nokogiri::XML::NodeSet.new(document)
+    cursor = 0
+
+    matches.each do |tag|
+      start_index, end_index = tag[:indices]
+      nodes << Nokogiri::XML::Text.new(text[cursor...start_index], document) if start_index > cursor
+
+      span = Nokogiri::XML::Node.new('span', document)
+      span['translate'] = 'no'
+      span.content = text[start_index...end_index]
+      nodes << span
+      cursor = end_index
+    end
+
+    nodes << Nokogiri::XML::Text.new(text[cursor..-1], document) if cursor < text.length
+    nodes
+  end
+
+  def metadata_hashtag_anchor?(anchor)
+    return false if normalized_status_tags.empty? || !anchor.text.include?('#')
+
+    Extractor.extract_hashtags_with_indices(anchor.text).any? { |tag| metadata_hashtag?(tag[:hashtag]) }
+  end
+
+  def metadata_hashtag?(name)
+    normalized_status_tags.include?(hashtag_normalizer.normalize(name))
+  end
+
+  def normalized_status_tags
+    @normalized_status_tags ||= @status.proper.tags.map { |tag| hashtag_normalizer.normalize(tag.name) }
+  end
+
+  def hashtag_normalizer
+    @hashtag_normalizer ||= HashtagNormalizer.new
   end
 
   def hashtag_anchor?(element)
     element.name == 'a' && element['class'].to_s.split.include?('hashtag')
   end
 
-  def translation_protected?(element)
-    element['translate'] == 'no' || element.ancestors.any? { |node| node.element? && node['translate'] == 'no' }
+  def translation_protected?(node)
+    return true if node.element? && node['translate'] == 'no'
+
+    node.ancestors.any? { |ancestor| ancestor.element? && ancestor['translate'] == 'no' }
   end
 
   def unwrap_translation_protection(html)
