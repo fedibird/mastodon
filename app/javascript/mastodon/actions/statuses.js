@@ -50,6 +50,7 @@ export const STATUS_TRANSLATE_REQUEST = 'STATUS_TRANSLATE_REQUEST';
 export const STATUS_TRANSLATE_SUCCESS = 'STATUS_TRANSLATE_SUCCESS';
 export const STATUS_TRANSLATE_FAIL    = 'STATUS_TRANSLATE_FAIL';
 export const STATUS_TRANSLATE_UNDO    = 'STATUS_TRANSLATE_UNDO';
+export const STATUS_TRANSLATE_SET_MODE = 'STATUS_TRANSLATE_SET_MODE';
 
 export const REDRAFT = 'REDRAFT';
 
@@ -556,31 +557,45 @@ export function toggleStatusCollapse(id, isCollapsed) {
   };
 }
 
-export const translateStatus = id => (dispatch, getState) => {
-  dispatch(translateStatusRequest(id));
+export const translateStatus = (id, mode = 'translated') => (dispatch, getState) => {
+  const requestedMode = mode === 'bilingual' ? 'bilingual' : 'translated';
+  const status = getState().getIn(['statuses', id]);
+
+  if (status && status.get('translationPending')) {
+    return;
+  }
+
+  if (status && status.get('translation')) {
+    dispatch(setStatusTranslationMode(id, requestedMode));
+    return;
+  }
+
+  dispatch(translateStatusRequest(id, requestedMode));
 
   api(getState).post(`/api/v1/statuses/${id}/translate`).then(response => {
     const state = getState();
-    const status = state.getIn(['statuses', id]);
-    const acct = status ? state.getIn(['accounts', status.get('account'), 'acct'], '') : '';
+    const current = state.getIn(['statuses', id]);
+    const acct = current ? state.getIn(['accounts', current.get('account'), 'acct'], '') : '';
     const domain = acct.split('@')[1] || '';
 
-    dispatch(translateStatusSuccess(id, response.data, domain));
+    dispatch(translateStatusSuccess(id, response.data, domain, requestedMode));
   }).catch(error => {
     dispatch(translateStatusFail(id, error));
   });
 };
 
-export const translateStatusRequest = id => ({
+export const translateStatusRequest = (id, mode) => ({
   type: STATUS_TRANSLATE_REQUEST,
   id,
+  mode,
 });
 
-export const translateStatusSuccess = (id, translation, domain) => ({
+export const translateStatusSuccess = (id, translation, domain, mode) => ({
   type: STATUS_TRANSLATE_SUCCESS,
   id,
   translation,
   domain,
+  mode,
 });
 
 export const translateStatusFail = (id, error) => ({
@@ -593,4 +608,10 @@ export const undoStatusTranslation = (id, pollId) => ({
   type: STATUS_TRANSLATE_UNDO,
   id,
   pollId,
+});
+
+export const setStatusTranslationMode = (id, mode) => ({
+  type: STATUS_TRANSLATE_SET_MODE,
+  id,
+  mode,
 });

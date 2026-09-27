@@ -2,6 +2,16 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { FormattedMessage } from 'react-intl';
 import Overlay from 'react-overlays/Overlay';
+import { languages as preloadedLanguages } from 'mastodon/initial_state';
+
+const languageLabel = code => {
+  if (!code) {
+    return '';
+  }
+
+  const language = (preloadedLanguages || []).find(lang => lang[0] === code);
+  return language ? language[2] : code;
+};
 
 const offset = [0, 4];
 const popperConfig = { strategy: 'fixed' };
@@ -10,6 +20,11 @@ class AltTextBadge extends React.PureComponent {
 
   static propTypes = {
     description: PropTypes.string,
+    originalDescription: PropTypes.string,
+    translatedDescription: PropTypes.string,
+    sourceLang: PropTypes.string,
+    targetLang: PropTypes.string,
+    mode: PropTypes.oneOf(['original', 'translated', 'bilingual']),
   };
 
   state = {
@@ -73,8 +88,19 @@ class AltTextBadge extends React.PureComponent {
   }
 
   render () {
-    const { description } = this.props;
     const { open } = this.state;
+    const original = this.props.originalDescription ?? this.props.description ?? '';
+    const translated = this.props.translatedDescription || '';
+    const mode = this.props.mode || (translated ? 'translated' : 'original');
+    const sourceLang = this.props.sourceLang || '';
+    const targetLang = this.props.targetLang || '';
+    const showBilingual = mode === 'bilingual' && original && translated;
+    const showTranslated = mode !== 'original' && translated;
+    const shown = showTranslated ? translated : original;
+    const shownLang = showTranslated ? (targetLang || sourceLang) : sourceLang;
+    const languageMeta = translated && sourceLang && targetLang
+      ? `${languageLabel(sourceLang)} → ${languageLabel(targetLang)}`
+      : '';
 
     return (
       <>
@@ -111,7 +137,17 @@ class AltTextBadge extends React.PureComponent {
                     defaultMessage='Alt text'
                   />
                 </h4>
-                <p>{description}</p>
+                {languageMeta && (
+                  <p className='media-gallery__alt__meta'>{languageMeta}</p>
+                )}
+                {showBilingual ? (
+                  <React.Fragment>
+                    <p className='status-translation-pair__source' lang={sourceLang} dir='auto'>{original}</p>
+                    <p className='status-translation-pair__target' lang={targetLang} dir='auto'>{translated}</p>
+                  </React.Fragment>
+                ) : (
+                  <p lang={shownLang || undefined} dir='auto'>{shown}</p>
+                )}
               </div>
             </div>
           )}

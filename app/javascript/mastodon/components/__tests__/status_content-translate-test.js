@@ -148,9 +148,11 @@ describe('StatusContent translation', () => {
 
     expect(container.querySelector('.status__content__text').innerHTML).toContain('こんにちは');
     expect(container.querySelector('.translate').innerHTML).toContain('秘密');
-    expect(screen.getByText('Translated from English using DeepL')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Show original' }));
-    expect(onTranslate).toHaveBeenCalled();
+    expect(screen.getByText('English → 日本語 · DeepL')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Translated', pressed: true })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Original' }));
+    expect(onTranslate).toHaveBeenCalledWith('original');
+    expect(container.querySelector('.status__content__text').innerHTML).toContain('こんにちは');
   });
 
   it('shows a CW-only translation as the body and restores the original text', () => {
@@ -196,8 +198,8 @@ describe('StatusContent translation', () => {
     const translatedBody = container.querySelector('.status__content__text').textContent;
     expect(translatedBody).toContain('秘密の警告');
     expect(translatedBody.trim()).not.toBe('');
-    fireEvent.click(screen.getByRole('button', { name: 'Show original' }));
-    expect(onTranslate).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Original' }));
+    expect(onTranslate).toHaveBeenCalledWith('original');
 
     rerender(
       <Provider store={store}>
@@ -227,5 +229,157 @@ describe('StatusContent translation', () => {
     expect(translation.spoiler_text).toBe('警告');
     expect(translation.contentHtml).toContain('こんにちは');
     expect(translation.spoilerHtml).toContain('警告');
+  });
+
+  it('shows Translate and Bilingual, with the preferred action first', () => {
+    const { container, rerender } = renderStatus(buildStatus());
+    let buttons = container.querySelectorAll('.status__content__translate-button');
+
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0].textContent).toBe('Translate');
+    expect(buttons[0].className).toContain('status__content__translate-button--primary');
+    expect(buttons[1].textContent).toBe('Bilingual');
+    expect(buttons[1].className).toContain('status__content__translate-button--secondary');
+
+    const onTranslate = jest.fn();
+    rerender(
+      <Provider store={store}>
+        <StatusContent status={buildStatus()} onTranslate={onTranslate} onClick={jest.fn()} translationPreferredMode='bilingual' />
+      </Provider>,
+    );
+
+    buttons = container.querySelectorAll('.status__content__translate-button');
+    expect(buttons[0].textContent).toBe('Bilingual');
+    expect(buttons[0].className).toContain('status__content__translate-button--primary');
+    expect(buttons[1].textContent).toBe('Translate');
+    fireEvent.click(buttons[0]);
+    fireEvent.click(buttons[1]);
+    expect(onTranslate).toHaveBeenNthCalledWith(1, 'bilingual');
+    expect(onTranslate).toHaveBeenNthCalledWith(2, 'translated');
+  });
+
+  it('switches loaded translations without asking the component to fetch again', () => {
+    const onTranslate = jest.fn();
+    const status = buildStatus({
+      translationMode: 'translated',
+      translation: {
+        contentHtml: '<p>こんにちは</p>',
+        spoilerHtml: '',
+        language: 'ja',
+        detected_source_language: 'en',
+        provider: 'LibreTranslate',
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <StatusContent status={status} onTranslate={onTranslate} onClick={jest.fn()} />
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bilingual' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Translated' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Original' }));
+
+    expect(onTranslate.mock.calls.map(call => call[0])).toEqual(['bilingual', 'translated', 'original']);
+  });
+
+  it('pairs matching paragraphs and marks source and target languages', () => {
+    const status = buildStatus({
+      language: 'de',
+      contentHtml: '<p>Eins</p><p>Zwei</p><p>Drei</p>',
+      translationMode: 'bilingual',
+      translation: {
+        contentHtml: '<p>一</p><p>二</p><p>三</p>',
+        spoilerHtml: '',
+        language: 'ja',
+        detected_source_language: 'de',
+        provider: 'DeepL',
+      },
+    });
+    const { container } = renderStatus(status);
+    const pairs = container.querySelectorAll('.status-translation-pair');
+
+    expect(pairs).toHaveLength(3);
+    expect(pairs[0].querySelector('.status-translation-pair__source p').getAttribute('lang')).toBe('de');
+    expect(pairs[0].querySelector('.status-translation-pair__target p').getAttribute('lang')).toBe('ja');
+    expect(pairs[0].querySelector('.status-translation-pair__source').className).toContain('status-translation-pair__source');
+    expect(pairs[1].querySelector('.status-translation-pair__target').textContent).toBe('二');
+    expect(pairs[2].querySelector('.status-translation-pair__source').textContent).toBe('Drei');
+  });
+
+  it('falls back to one pair when block structure does not match', () => {
+    const status = buildStatus({
+      language: 'de',
+      contentHtml: '<p>Eins</p><p>Zwei</p>',
+      translationMode: 'bilingual',
+      translation: {
+        contentHtml: '<p>一</p><blockquote><p>二</p></blockquote>',
+        spoilerHtml: '',
+        language: 'ja',
+        detected_source_language: 'de',
+        provider: 'DeepL',
+      },
+    });
+    const { container } = renderStatus(status);
+    const pairs = container.querySelectorAll('.status-translation-pair');
+    const source = pairs[0].querySelector('.status-translation-pair__source');
+    const target = pairs[0].querySelector('.status-translation-pair__target');
+
+    expect(pairs).toHaveLength(1);
+    expect(source.textContent).toContain('Eins');
+    expect(source.textContent).toContain('Zwei');
+    expect(target.textContent).toContain('一');
+    expect(target.textContent).toContain('二');
+    expect(source.querySelector('[lang="de"]')).toBeTruthy();
+    expect(source.querySelector('p').getAttribute('lang')).toBe('de');
+    expect(target.querySelector('p').getAttribute('lang')).toBe('ja');
+    expect(target.querySelector('blockquote').getAttribute('lang')).toBe('ja');
+  });
+
+  it('omits a translated block whose visible text matches the source', () => {
+    const status = buildStatus({
+      contentHtml: '<p>Hello</p><p>#tag</p>',
+      translationMode: 'bilingual',
+      translation: {
+        contentHtml: '<p>こんにちは</p><p>#tag</p>',
+        spoilerHtml: '',
+        language: 'ja',
+        detected_source_language: 'en',
+        provider: 'DeepL',
+      },
+    });
+    const { container } = renderStatus(status);
+    const pairs = container.querySelectorAll('.status-translation-pair');
+
+    expect(pairs[0].querySelector('.status-translation-pair__target').textContent).toBe('こんにちは');
+    expect(pairs[1].querySelector('.status-translation-pair__source').textContent).toBe('#tag');
+    expect(pairs[1].querySelector('.status-translation-pair__target')).toBeNull();
+  });
+
+  it('shows the source and target content warnings together with one toggle', () => {
+    const status = buildStatus({
+      spoiler_text: 'secret',
+      spoilerHtml: 'secret',
+      contentHtml: '<p>Hello</p>',
+      translationMode: 'bilingual',
+      translation: {
+        contentHtml: '<p>こんにちは</p>',
+        spoilerHtml: '秘密',
+        spoiler_text: '秘密',
+        language: 'ja',
+        detected_source_language: 'en',
+        provider: 'DeepL',
+      },
+    });
+    const { container } = renderStatus(status);
+    const spoiler = container.querySelector('.status__content p');
+
+    expect(spoiler.querySelector('.status-translation-pair__source').textContent).toBe('secret');
+    expect(spoiler.querySelector('.status-translation-pair__source').getAttribute('lang')).toBe('en');
+    expect(spoiler.querySelector('.status-translation-pair__target').textContent).toBe('秘密');
+    expect(spoiler.querySelector('.status-translation-pair__target').getAttribute('lang')).toBe('ja');
+    expect(screen.getAllByRole('button', { name: 'Show more' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: 'Show less' })).toBeNull();
   });
 });

@@ -31,6 +31,9 @@ class Poll extends ImmutablePureComponent {
     refresh: PropTypes.func,
     onVote: PropTypes.func,
     lang: PropTypes.string,
+    sourceLang: PropTypes.string,
+    targetLang: PropTypes.string,
+    translationMode: PropTypes.oneOf(['original', 'translated', 'bilingual']),
   };
 
   state = {
@@ -123,12 +126,21 @@ class Poll extends ImmutablePureComponent {
     const active          = !!this.state.selected[`${optionIndex}`];
     const voted           = option.get('voted') || (poll.get('own_votes') && poll.get('own_votes').includes(optionIndex));
 
-    const title = option.getIn(['translation', 'title']) || option.get('title');
-    let titleEmojified = option.getIn(['translation', 'titleHtml']) || option.get('title_emojified');
+    const { sourceLang, targetLang, translationMode } = this.props;
+    const translatedTitle = option.getIn(['translation', 'title']) || '';
+    const translatedHtml = option.getIn(['translation', 'titleHtml']);
+    const mode = translationMode || (option.get('translation') ? 'translated' : 'original');
+    const showTranslation = mode === 'translated' && (translatedHtml || translatedTitle);
+    const showBilingual = mode === 'bilingual' && (translatedHtml || translatedTitle);
+    const title = showTranslation ? (translatedTitle || option.get('title')) : option.get('title');
+    let titleEmojified = showTranslation ? (translatedHtml || option.get('title_emojified')) : option.get('title_emojified');
     if (!titleEmojified) {
       const emojiMap = makeEmojiMap(poll);
       titleEmojified = emojify(escapeTextContentForBrowser(title), emojiMap);
     }
+    const optionLang = showTranslation ? (targetLang || lang) : (sourceLang || lang);
+    const sourceId = `poll-${poll.get('id')}-${optionIndex}-source`;
+    const targetId = `poll-${poll.get('id')}-${optionIndex}-target`;
 
     return (
       <li key={option.get('title')}>
@@ -149,8 +161,9 @@ class Poll extends ImmutablePureComponent {
               role={poll.get('multiple') ? 'checkbox' : 'radio'}
               onKeyPress={this.handleOptionKeyPress}
               aria-checked={active}
-              aria-label={title}
-              lang={lang}
+              aria-label={showBilingual ? undefined : title}
+              aria-labelledby={showBilingual ? `${sourceId} ${targetId}` : undefined}
+              lang={optionLang}
               data-index={optionIndex}
             />
           )}
@@ -158,11 +171,31 @@ class Poll extends ImmutablePureComponent {
             {Math.round(percent)}%
           </span>}
 
-          <span
-            className='poll__option__text translate'
-            lang={lang}
-            dangerouslySetInnerHTML={{ __html: titleEmojified }}
-          />
+          {showBilingual ? (
+            <React.Fragment>
+              <span
+                id={sourceId}
+                className='poll__option__text translate status-translation-pair__source'
+                lang={sourceLang || lang}
+                dir='auto'
+                dangerouslySetInnerHTML={{ __html: option.get('title_emojified') || emojify(escapeTextContentForBrowser(option.get('title')), makeEmojiMap(poll)) }}
+              />
+              <span
+                id={targetId}
+                className='poll__option__text poll__option__translation status-translation-pair__target'
+                lang={targetLang || lang}
+                dir='auto'
+                dangerouslySetInnerHTML={{ __html: translatedHtml || emojify(escapeTextContentForBrowser(translatedTitle), makeEmojiMap(poll)) }}
+              />
+            </React.Fragment>
+          ) : (
+            <span
+              className='poll__option__text translate'
+              lang={optionLang}
+              dir='auto'
+              dangerouslySetInnerHTML={{ __html: titleEmojified }}
+            />
+          )}
 
           {!!voted && <span className='poll__voted'>
             <Icon id='check' className='poll__voted__mark' title={intl.formatMessage(messages.voted)} />

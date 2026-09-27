@@ -7,49 +7,116 @@ import Permalink from './permalink';
 import classnames from 'classnames';
 import PollContainer from 'mastodon/containers/poll_container';
 import Icon from 'mastodon/components/icon';
-import { autoPlayEmoji, disableReactions, languages as preloadedLanguages, me } from 'mastodon/initial_state';
+import BilingualContent from 'mastodon/components/bilingual_content';
+import { autoPlayEmoji, disableReactions, languages as preloadedLanguages, me, translationPreferredMode } from 'mastodon/initial_state';
+import { preferredTranslationMode, statusTranslationView } from 'mastodon/utils/translation_view';
 
 const messages = defineMessages({
   linkToAcct: { id: 'status.link_to_acct', defaultMessage: 'Link to @{acct}' },
   linkToCustomEmojiInLocal: { id: 'status.link_to_custom_emoji_in_local', defaultMessage: 'Link to :@{shortcode}:' },
   linkToCustomEmojiInRemote: { id: 'status.link_to_custom_emoji_in_remote', defaultMessage: 'Link to :@{shortcode}: in @{domain}' },
   postByAcct: { id: 'status.post_by_acct', defaultMessage: 'Post by @{acct}' },
+  translate: { id: 'status.translate', defaultMessage: 'Translate' },
+  bilingual: { id: 'status.bilingual', defaultMessage: 'Bilingual' },
+  original: { id: 'status.original', defaultMessage: 'Original' },
+  translated: { id: 'status.translated', defaultMessage: 'Translated' },
+  translationModes: { id: 'status.translation_modes', defaultMessage: 'Translation display' },
+  translationLanguages: { id: 'status.translation_languages', defaultMessage: '{source} → {target} · {provider}' },
 });
+
+const languageLabel = code => {
+  if (!code) {
+    return '';
+  }
+
+  const language = (preloadedLanguages || []).find(lang => lang[0] === code);
+  return language ? language[2] : code;
+};
 
 const MAX_HEIGHT = 642; // 20px * 32 (+ 2px padding at the top)
 
-class TranslateButton extends React.PureComponent {
+class TranslationControls extends React.PureComponent {
 
   static propTypes = {
     translation: ImmutablePropTypes.map,
-    onClick: PropTypes.func,
+    mode: PropTypes.string,
+    pending: PropTypes.bool,
+    preferredMode: PropTypes.string,
+    sourceLang: PropTypes.string,
+    targetLang: PropTypes.string,
+    onSelect: PropTypes.func,
+    intl: PropTypes.object.isRequired,
   };
 
+  handleClick = (event) => {
+    const mode = event.currentTarget.getAttribute('data-mode');
+
+    if (this.props.onSelect) {
+      this.props.onSelect(mode);
+    }
+  }
+
+  renderModeButton = (mode, label, pressed) => (
+    <button
+      key={mode}
+      type='button'
+      data-mode={mode}
+      className={classnames('status__translation-controls__mode', {
+        active: pressed,
+      })}
+      aria-pressed={pressed}
+      disabled={this.props.pending}
+      onClick={this.handleClick}
+    >
+      {label}
+    </button>
+  );
+
   render () {
-    const { translation, onClick } = this.props;
+    const { translation, mode, pending, preferredMode, sourceLang, targetLang, intl } = this.props;
 
     if (translation) {
-      const language     = (preloadedLanguages || []).find(lang => lang[0] === translation.get('detected_source_language'));
-      const languageName = language ? language[2] : translation.get('detected_source_language');
-      const provider     = translation.get('provider');
+      const sourceName = languageLabel(sourceLang);
+      const targetName = languageLabel(targetLang);
+      const provider = translation.get('provider');
 
       return (
-        <div className='translate-button'>
-          <div className='translate-button__meta'>
-            <FormattedMessage id='status.translated_from_with' defaultMessage='Translated from {lang} using {provider}' values={{ lang: languageName, provider }} />
+        <div className='status__translation-controls status__translation-controls--loaded'>
+          <div className='status__translation-controls__meta'>
+            <FormattedMessage id='status.translation_languages' defaultMessage='{source} → {target} · {provider}' values={{ source: sourceName, target: targetName, provider }} />
           </div>
-
-          <button className='link-button' onClick={onClick}>
-            <FormattedMessage id='status.show_original' defaultMessage='Show original' />
-          </button>
+          <div className='status__translation-controls__modes' role='group' aria-label={intl.formatMessage(messages.translationModes)}>
+            {this.renderModeButton('original', intl.formatMessage(messages.original), mode === 'original')}
+            <span className='status__translation-controls__separator' aria-hidden='true'>|</span>
+            {this.renderModeButton('translated', intl.formatMessage(messages.translated), mode === 'translated')}
+            <span className='status__translation-controls__separator' aria-hidden='true'>|</span>
+            {this.renderModeButton('bilingual', intl.formatMessage(messages.bilingual), mode === 'bilingual')}
+          </div>
         </div>
       );
     }
 
+    const preferred = preferredTranslationMode(preferredMode);
+    const actions = preferred === 'bilingual' ? ['bilingual', 'translated'] : ['translated', 'bilingual'];
+
     return (
-      <button className='status__content__translate-button' onClick={onClick}>
-        <FormattedMessage id='status.translate' defaultMessage='Translate' />
-      </button>
+      <div className='status__translation-controls'>
+        {actions.map(action => (
+          <button
+            key={action}
+            type='button'
+            data-mode={action}
+            className={classnames('status__content__translate-button', {
+              'status__content__translate-button--primary': action === preferred,
+              'status__content__translate-button--secondary': action !== preferred,
+            })}
+            disabled={pending}
+            onClick={this.handleClick}
+          >
+            {action === 'bilingual' ? intl.formatMessage(messages.bilingual) : intl.formatMessage(messages.translate)}
+          </button>
+        ))}
+      </div>
     );
   }
 
@@ -72,6 +139,7 @@ class StatusContent extends React.PureComponent {
     onExpandedToggle: PropTypes.func,
     onClick: PropTypes.func,
     onTranslate: PropTypes.func,
+    translationPreferredMode: PropTypes.string,
     collapsable: PropTypes.bool,
     onCollapsedToggle: PropTypes.func,
     quote: PropTypes.bool,
@@ -310,8 +378,53 @@ class StatusContent extends React.PureComponent {
     this.startXY = null;
   }
 
-  handleTranslate = () => {
-    this.props.onTranslate();
+  handleTranslate = (mode) => {
+    this.props.onTranslate(mode);
+  }
+
+  renderMainText (viewMode, sourceHtml, targetHtml, sourceLang, targetLang, visible = true) {
+    const textClass = classnames('status__content__text', {
+      'status__content__text--visible': visible,
+      'translate': viewMode !== 'bilingual',
+    });
+
+    if (viewMode === 'bilingual') {
+      return (
+        <BilingualContent
+          className={textClass}
+          sourceHtml={sourceHtml}
+          targetHtml={targetHtml}
+          sourceLang={sourceLang}
+          targetLang={targetLang}
+        />
+      );
+    }
+
+    const showTranslation = viewMode === 'translated' && targetHtml;
+    const html = showTranslation ? targetHtml : sourceHtml;
+    const lang = showTranslation ? (targetLang || sourceLang) : sourceLang;
+
+    return (
+      <div className={textClass} lang={lang} dangerouslySetInnerHTML={{ __html: html }} />
+    );
+  }
+
+  renderSpoilerText (viewMode, sourceHtml, targetHtml, sourceLang, targetLang) {
+    if (viewMode === 'bilingual' && targetHtml) {
+      return (
+        <React.Fragment>
+          <span className='status-translation-pair__source translate' lang={sourceLang} dir='auto' dangerouslySetInnerHTML={{ __html: sourceHtml }} />
+          {' '}
+          <span className='status-translation-pair__target' lang={targetLang} dir='auto' dangerouslySetInnerHTML={{ __html: targetHtml }} />
+        </React.Fragment>
+      );
+    }
+
+    const showTranslation = viewMode === 'translated' && targetHtml;
+    const html = showTranslation ? targetHtml : sourceHtml;
+    const lang = showTranslation ? (targetLang || sourceLang) : sourceLang;
+
+    return <span dangerouslySetInnerHTML={{ __html: html }} lang={lang} className='translate' />;
   }
 
   handleSpoilerClick = (e) => {
@@ -342,9 +455,16 @@ class StatusContent extends React.PureComponent {
     const targetLanguages = this.props.languages?.get(status.get('language') || 'und');
     const renderTranslate = this.props.onTranslate && !!me && ['public', 'unlisted'].includes(status.get('visibility')) && (status.get('search_index') || '').trim().length > 0 && targetLanguages?.includes(contentLocale);
 
-    const content = { __html: status.getIn(['translation', 'contentHtml']) || status.get('contentHtml') };
-    const spoilerContent = { __html: status.getIn(['translation', 'spoilerHtml']) || status.get('spoilerHtml') };
-    const language = status.getIn(['translation', 'language']) || status.get('language');
+    const translationView = statusTranslationView(status);
+    const viewMode = translationView.mode;
+    const sourceLang = translationView.sourceLang || status.get('language');
+    const targetLang = translationView.targetLang;
+    const sourceHtml = status.get('contentHtml');
+    const targetHtml = status.getIn(['translation', 'contentHtml']);
+    const sourceSpoilerHtml = status.get('spoilerHtml');
+    const targetSpoilerHtml = status.getIn(['translation', 'spoilerHtml']);
+    const language = viewMode === 'original' ? sourceLang : (targetLang || sourceLang);
+    const preferredMode = this.props.translationPreferredMode || translationPreferredMode;
     const classNames = classnames('status__content', {
       'status__content--with-action': this.props.onClick && this.context.router,
       'status__content--with-spoiler': status.get('spoiler_text').length > 0,
@@ -370,11 +490,23 @@ class StatusContent extends React.PureComponent {
     );
 
     const pollContainer = (
-      <PollContainer pollId={status.get('poll')} lang={language} disabled={disableReactions} />
+      <PollContainer pollId={status.get('poll')} lang={language} sourceLang={sourceLang} targetLang={targetLang} translationMode={viewMode} disabled={disableReactions} />
     );
 
+    const mainText = this.renderMainText(viewMode, sourceHtml, targetHtml, sourceLang, targetLang, status.get('spoiler_text').length > 0 ? !hidden : true);
+    const spoilerText = this.renderSpoilerText(viewMode, sourceSpoilerHtml, targetSpoilerHtml, sourceLang, targetLang);
+
     const translateButton = renderTranslate && (
-      <TranslateButton onClick={this.handleTranslate} translation={status.get('translation')} />
+      <TranslationControls
+        translation={status.get('translation')}
+        mode={viewMode}
+        pending={translationView.pending}
+        preferredMode={preferredMode}
+        sourceLang={sourceLang}
+        targetLang={targetLang}
+        onSelect={this.handleTranslate}
+        intl={intl}
+      />
     );
 
     if (status.get('spoiler_text').length > 0) {
@@ -395,14 +527,14 @@ class StatusContent extends React.PureComponent {
       return (
         <div className={classNames} ref={this.setRef} tabIndex='0' onMouseDown={this.handleMouseDown} onMouseUp={this.handleMouseUp} onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave}>
           <p style={{ marginBottom: hidden && status.get('mentions').isEmpty() ? '0px' : null }}>
-            <span dangerouslySetInnerHTML={spoilerContent} lang={language} className='translate' />
+            {spoilerText}
             {' '}
             <button tabIndex='0' className={`status__content__spoiler-link ${hidden ? 'status__content__spoiler-link--show-more' : 'status__content__spoiler-link--show-less'}`} onClick={this.handleSpoilerClick}>{toggleText}</button>
           </p>
 
           {mentionsPlaceholder}
 
-          <div tabIndex={!hidden ? 0 : null} className={`status__content__text ${!hidden ? 'status__content__text--visible' : ''} translate`} lang={language} dangerouslySetInnerHTML={content} />
+          {React.cloneElement(mainText, { tabIndex: !hidden ? 0 : null })}
 
           {!hidden && renderShowPoll && quote ? showPollButton : pollContainer}
 
@@ -413,7 +545,7 @@ class StatusContent extends React.PureComponent {
     } else if (this.props.onClick) {
       const output = [
         <div className={classNames} ref={this.setRef} tabIndex='0' onMouseDown={this.handleMouseDown} onMouseUp={this.handleMouseUp} key='status-content' onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave}>
-          <div className='status__content__text status__content__text--visible translate' lang={language} dangerouslySetInnerHTML={content} />
+          {mainText}
 
           {renderShowPoll && quote ? showPollButton : pollContainer}
 
@@ -430,7 +562,7 @@ class StatusContent extends React.PureComponent {
     } else {
       return (
         <div className={classNames} ref={this.setRef} tabIndex='0' onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave}>
-          <div className='status__content__text status__content__text--visible translate' lang={language} dangerouslySetInnerHTML={content} />
+          {mainText}
 
           {renderShowPoll && quote ? showPollButton : pollContainer}
 

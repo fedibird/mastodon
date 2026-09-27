@@ -141,6 +141,7 @@ class UserSettingsDecorator
     default_language
     theme
     display_media
+    translation_preferred_mode
     new_features_policy
     theme_instance_ticker
     content_font_size
@@ -176,12 +177,19 @@ class UserSettingsDecorator
     end
 
     STRING_KEYS.each do |key|
-      user.settings[key] = settings["setting_#{key}"] if change?("setting_#{key}")
+      next unless change?("setting_#{key}")
+
+      value = settings["setting_#{key}"]
+      user.settings[key] = key == 'translation_preferred_mode' ? normalize_translation_preferred_mode(value) : value
     end
 
     BOOLEAN_KEYS.each do |key|
       user.settings[key] = boolean_cast_setting "setting_#{key}" if change?("setting_#{key}")
     end
+  end
+
+  def normalize_translation_preferred_mode(value)
+    value == 'bilingual' ? 'bilingual' : 'translated'
   end
 
   def boolean_cast_setting(key)

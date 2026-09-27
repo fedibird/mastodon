@@ -7,6 +7,7 @@ import ImmutablePureComponent from 'react-immutable-pure-component';
 import Footer from 'mastodon/features/picture_in_picture/components/footer';
 import { addReference, removeReference } from 'mastodon/actions/compose';
 import { makeGetStatus } from 'mastodon/selectors';
+import { attachmentAccessibility, statusTranslationView } from 'mastodon/utils/translation_view';
 
 const makeMapStateToProps = () => {
   const getStatus = makeGetStatus();
@@ -17,12 +18,14 @@ const makeMapStateToProps = () => {
     const id             = status ? getProper(status).get('id') : null;
 
     const proper = status ? getProper(status) : null;
+    const translationView = proper ? statusTranslationView(proper) : null;
 
     return {
       referenced: state.getIn(['compose', 'references']).has(id),
       contextReferenced: state.getIn(['compose', 'context_references']).has(id),
       accountStaticAvatar: state.getIn(['accounts', state.getIn(['statuses', props.statusId, 'account']), 'avatar_static']),
-      lang: props.lang || (proper ? (proper.getIn(['translation', 'language']) || proper.get('language')) : undefined),
+      translationView,
+      lang: translationView ? translationView.mediaLang : props.lang,
     };
   };
 
@@ -36,6 +39,7 @@ class AudioModal extends ImmutablePureComponent {
     media: ImmutablePropTypes.map.isRequired,
     statusId: PropTypes.string.isRequired,
     lang: PropTypes.string,
+    translationView: PropTypes.object,
     accountStaticAvatar: PropTypes.string.isRequired,
     options: PropTypes.shape({
       autoPlay: PropTypes.bool,
@@ -53,9 +57,15 @@ class AudioModal extends ImmutablePureComponent {
   }
 
   render () {
-    const { media, accountStaticAvatar, statusId, onClose, lang } = this.props;
+    const { media, accountStaticAvatar, statusId, onClose, translationView } = this.props;
     const options = this.props.options || {};
-    const description = media.getIn(['translation', 'description']) || media.get('description');
+    const accessible = attachmentAccessibility(media, translationView || {
+      mode: media.getIn(['translation', 'description']) ? 'translated' : 'original',
+      sourceLang: this.props.lang || '',
+      targetLang: this.props.lang || '',
+    });
+    const description = accessible.text;
+    const lang = accessible.lang || this.props.lang;
 
     return (
       <div className='modal-root__modal audio-modal'>

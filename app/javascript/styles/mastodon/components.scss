@@ -1098,20 +1098,113 @@ body > [data-popper-placement] {
 }
 
 .status__content__translate-button {
-  display: block;
+  display: inline;
   font-size: 15px;
   line-height: 22px;
   color: $ui-highlight-color;
   border: 0;
   background: transparent;
   padding: 0;
-  padding-top: 16px;
   text-decoration: none;
 
   &:hover,
-  &:active {
+  &:active,
+  &:focus {
     text-decoration: underline;
   }
+
+  &:focus-visible {
+    outline: 2px solid $ui-highlight-color;
+    outline-offset: 2px;
+  }
+
+  &--primary {
+    font-weight: 700;
+  }
+
+  &--secondary {
+    color: lighten($ui-highlight-color, 8%);
+    font-weight: 500;
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.55;
+  }
+}
+
+.status__translation-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-top: 16px;
+  font-size: 15px;
+  line-height: 22px;
+  color: $dark-text-color;
+}
+
+.status__translation-controls__meta {
+  min-width: 0;
+}
+
+.status__translation-controls__modes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+}
+
+.status__translation-controls__separator {
+  color: $dark-text-color;
+}
+
+.status__translation-controls__mode {
+  border: 0;
+  background: transparent;
+  color: $dark-text-color;
+  padding: 0;
+  font-size: inherit;
+  line-height: inherit;
+  cursor: pointer;
+
+  &[aria-pressed='true'] {
+    color: $ui-highlight-color;
+    font-weight: 700;
+  }
+
+  &:hover,
+  &:active,
+  &:focus {
+    text-decoration: underline;
+  }
+
+  &:focus-visible {
+    outline: 2px solid $ui-highlight-color;
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.55;
+  }
+}
+
+.status-translation-pair + .status-translation-pair {
+  margin-top: 0.75em;
+}
+
+.status-translation-pair__target {
+  margin-top: 4px;
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid rgba($ui-highlight-color, 0.35);
+  color: $dark-text-color;
+  font-size: 0.92em;
+  line-height: 1.45;
+}
+
+.quote-status .status__translation-controls {
+  margin-top: 8px;
 }
 
 .translate-button {
@@ -6355,7 +6448,8 @@ a.status-card.compact:hover {
   max-width: 22em;
   max-height: 30em;
   overflow-y: auto;
-  word-break: break-all;
+  word-break: normal;
+  overflow-wrap: anywhere;
   h4 {
     font-size: 15px;
     line-height: 20px;
@@ -6368,6 +6462,22 @@ a.status-card.compact:hover {
     line-height: 20px;
     color: rgba($white, 0.85);
     white-space: pre-line;
+  }
+
+  .media-gallery__alt__meta {
+    font-size: 12px;
+    line-height: 16px;
+    color: rgba($white, 0.7);
+    margin-bottom: 8px;
+  }
+
+  .status-translation-pair__source {
+    color: $white;
+  }
+
+  .status-translation-pair__target {
+    color: rgba($white, 0.75);
+    border-inline-start-color: rgba($white, 0.45);
   }
 }
 

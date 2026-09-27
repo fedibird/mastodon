@@ -32,7 +32,7 @@ import {
   revealStatus,
   toggleStatusCollapse,
   translateStatus,
-  undoStatusTranslation,
+  setStatusTranslationMode,
 } from '../actions/statuses';
 import {
   followAccount,
@@ -245,11 +245,11 @@ const mapDispatchToProps = (dispatch, { intl, contextType }) => ({
     dispatch(openModal('VIDEO', { statusId, media, options, lang }));
   },
 
-  onTranslate (status) {
-    if (status.get('translation')) {
-      dispatch(undoStatusTranslation(status.get('id'), status.get('poll')));
+  onTranslate (status, mode) {
+    if (mode === 'original') {
+      dispatch(setStatusTranslationMode(status.get('id'), 'original'));
     } else {
-      dispatch(translateStatus(status.get('id')));
+      dispatch(translateStatus(status.get('id'), mode));
     }
   },
 

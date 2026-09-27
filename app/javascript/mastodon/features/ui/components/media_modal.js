@@ -14,6 +14,7 @@ import { disableSwiping } from 'mastodon/initial_state';
 import Footer from 'mastodon/features/picture_in_picture/components/footer';
 import { getAverageFromBlurhash } from 'mastodon/blurhash';
 import { connect } from 'react-redux';
+import { attachmentAccessibility, statusTranslationView } from 'mastodon/utils/translation_view';
 
 const messages = defineMessages({
   close: { id: 'lightbox.close', defaultMessage: 'Close' },
@@ -24,8 +25,11 @@ const messages = defineMessages({
 const mapStateToProps = (state, props) => {
   const status = props.statusId ? state.getIn(['statuses', props.statusId]) : null;
 
+  const translationView = status ? statusTranslationView(status) : null;
+
   return {
-    lang: props.lang || (status ? (status.getIn(['translation', 'language']) || status.get('language')) : undefined),
+    translationView,
+    lang: translationView ? translationView.mediaLang : props.lang,
   };
 };
 
@@ -37,6 +41,12 @@ class MediaModal extends ImmutablePureComponent {
     media: ImmutablePropTypes.list.isRequired,
     statusId: PropTypes.string,
     lang: PropTypes.string,
+    translationView: PropTypes.shape({
+      mode: PropTypes.string,
+      sourceLang: PropTypes.string,
+      targetLang: PropTypes.string,
+      mediaLang: PropTypes.string,
+    }),
     index: PropTypes.number.isRequired,
     onClose: PropTypes.func.isRequired,
     intl: PropTypes.object.isRequired,
@@ -155,12 +165,18 @@ class MediaModal extends ImmutablePureComponent {
     const leftNav  = media.size > 1 && <button tabIndex='0' className='media-modal__nav media-modal__nav--left' onClick={this.handlePrevClick} aria-label={intl.formatMessage(messages.previous)}><Icon id='chevron-left' fixedWidth /></button>;
     const rightNav = media.size > 1 && <button tabIndex='0' className='media-modal__nav  media-modal__nav--right' onClick={this.handleNextClick} aria-label={intl.formatMessage(messages.next)}><Icon id='chevron-right' fixedWidth /></button>;
 
-    const { lang } = this.props;
+    const { translationView } = this.props;
 
     const content = media.map((image) => {
       const width  = image.getIn(['meta', 'original', 'width']) || null;
       const height = image.getIn(['meta', 'original', 'height']) || null;
-      const description = image.getIn(['translation', 'description']) || image.get('description');
+      const accessible = attachmentAccessibility(image, translationView || {
+        mode: image.getIn(['translation', 'description']) ? 'translated' : 'original',
+        sourceLang: this.props.lang || '',
+        targetLang: this.props.lang || '',
+      });
+      const description = accessible.text;
+      const lang = accessible.lang || this.props.lang;
 
       if (image.get('type') === 'image') {
         return (

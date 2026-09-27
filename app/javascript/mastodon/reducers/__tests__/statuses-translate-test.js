@@ -8,12 +8,18 @@ jest.mock('../../actions/statuses', () => ({
   STATUS_COLLAPSE: 'STATUS_COLLAPSE',
   STATUS_TRANSLATE_SUCCESS: 'STATUS_TRANSLATE_SUCCESS',
   STATUS_TRANSLATE_UNDO: 'STATUS_TRANSLATE_UNDO',
+  STATUS_TRANSLATE_REQUEST: 'STATUS_TRANSLATE_REQUEST',
+  STATUS_TRANSLATE_FAIL: 'STATUS_TRANSLATE_FAIL',
+  STATUS_TRANSLATE_SET_MODE: 'STATUS_TRANSLATE_SET_MODE',
 }));
 
 import reducer from '../statuses';
 
 const STATUS_TRANSLATE_SUCCESS = 'STATUS_TRANSLATE_SUCCESS';
 const STATUS_TRANSLATE_UNDO = 'STATUS_TRANSLATE_UNDO';
+const STATUS_TRANSLATE_REQUEST = 'STATUS_TRANSLATE_REQUEST';
+const STATUS_TRANSLATE_FAIL = 'STATUS_TRANSLATE_FAIL';
+const STATUS_TRANSLATE_SET_MODE = 'STATUS_TRANSLATE_SET_MODE';
 
 const baseStatus = fromJS({
   id: 's1',
@@ -84,5 +90,86 @@ describe('statuses translation reducer', () => {
     expect(state.getIn(['s1', 'media_attachments', 0, 'translation'])).toBeUndefined();
     expect(state.getIn(['s1', 'media_attachments', 1, 'translation'])).toBeUndefined();
     expect(state.getIn(['s1', 'media_attachments', 1, 'description'])).toBe('first');
+  });
+
+  it('keeps the requested mode after success and tracks pending', () => {
+    const requested = reducer(fromJS({ s1: baseStatus }), {
+      type: STATUS_TRANSLATE_REQUEST,
+      id: 's1',
+      mode: 'bilingual',
+    });
+
+    expect(requested.getIn(['s1', 'translationPending'])).toBe(true);
+    expect(requested.getIn(['s1', 'content'])).toBe(baseStatus.get('content'));
+
+    const translated = reducer(requested, {
+      type: STATUS_TRANSLATE_SUCCESS,
+      id: 's1',
+      mode: 'bilingual',
+      translation: {
+        content: '<p>こんにちは</p>',
+        spoiler_text: '',
+        detected_source_language: 'en',
+        language: 'ja',
+        provider: 'LibreTranslate',
+        media_attachments: [
+          { id: 'm1', description: 'いち' },
+        ],
+      },
+    });
+
+    expect(translated.getIn(['s1', 'translationPending'])).toBe(false);
+    expect(translated.getIn(['s1', 'translationMode'])).toBe('bilingual');
+    expect(translated.getIn(['s1', 'translation', 'contentHtml'])).toContain('こんにちは');
+    expect(translated.getIn(['s1', 'media_attachments', 1, 'translation', 'description'])).toBe('いち');
+
+    const failed = reducer(requested, {
+      type: STATUS_TRANSLATE_FAIL,
+      id: 's1',
+    });
+
+    expect(failed.getIn(['s1', 'translationPending'])).toBe(false);
+    expect(failed.getIn(['s1', 'translation'])).toBeUndefined();
+  });
+
+  it('changes display mode without deleting translation, media, or poll data', () => {
+    const translated = reducer(fromJS({ s1: baseStatus.set('poll', 'p1') }), {
+      type: STATUS_TRANSLATE_SUCCESS,
+      id: 's1',
+      mode: 'translated',
+      translation: {
+        content: '<p>こんにちは</p>',
+        spoiler_text: '',
+        detected_source_language: 'en',
+        language: 'ja',
+        provider: 'DeepL',
+        media_attachments: [
+          { id: 'm1', description: 'いち' },
+          { id: 'm2', description: 'に' },
+        ],
+      },
+    });
+
+    const original = reducer(translated, {
+      type: STATUS_TRANSLATE_SET_MODE,
+      id: 's1',
+      mode: 'original',
+    });
+
+    expect(original.getIn(['s1', 'translationMode'])).toBe('original');
+    expect(original.getIn(['s1', 'translation', 'contentHtml'])).toContain('こんにちは');
+    expect(original.getIn(['s1', 'media_attachments', 0, 'translation', 'description'])).toBe('に');
+    expect(original.getIn(['s1', 'media_attachments', 1, 'translation', 'description'])).toBe('いち');
+    expect(original.getIn(['s1', 'poll'])).toBe('p1');
+
+    const bilingual = reducer(original, {
+      type: STATUS_TRANSLATE_SET_MODE,
+      id: 's1',
+      mode: 'bilingual',
+    });
+
+    expect(bilingual.getIn(['s1', 'translationMode'])).toBe('bilingual');
+    expect(bilingual.getIn(['s1', 'translation', 'provider'])).toBe('DeepL');
+    expect(bilingual.getIn(['s1', 'media_attachments', 1, 'translation', 'description'])).toBe('いち');
   });
 });

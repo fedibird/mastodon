@@ -39,6 +39,7 @@ import {
   STATUS_TRANSLATE_SUCCESS,
   STATUS_TRANSLATE_FAIL,
   STATUS_TRANSLATE_UNDO,
+  STATUS_TRANSLATE_SET_MODE,
 } from '../statuses';
 
 const dispatchThunk = (thunk, state) => {
@@ -99,6 +100,41 @@ describe('translateStatus', () => {
       STATUS_TRANSLATE_FAIL,
     ]);
     expect(actions[1].error).toBe(error);
+  });
+
+  it('stores the requested bilingual mode and does not post again once translated', async () => {
+    const translation = { content: '<p>こんにちは</p>', provider: 'LibreTranslate', language: 'ja' };
+    const post = jest.fn(() => Promise.resolve({ data: translation }));
+    api.mockReturnValue({ post });
+
+    const actions = await dispatchThunk(translateStatus('s1', 'bilingual'), state);
+
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post).toHaveBeenCalledWith('/api/v1/statuses/s1/translate');
+    expect(actions[0]).toMatchObject({ type: STATUS_TRANSLATE_REQUEST, id: 's1', mode: 'bilingual' });
+    expect(actions[1]).toMatchObject({ type: STATUS_TRANSLATE_SUCCESS, mode: 'bilingual', translation });
+
+    const translated = state.setIn(['statuses', 's1', 'translation'], translation);
+    post.mockClear();
+    const switched = await dispatchThunk(translateStatus('s1', 'translated'), translated);
+
+    expect(post).not.toHaveBeenCalled();
+    expect(switched).toEqual([{
+      type: STATUS_TRANSLATE_SET_MODE,
+      id: 's1',
+      mode: 'translated',
+    }]);
+  });
+
+  it('does not send a second request while a translation is pending', async () => {
+    const post = jest.fn(() => Promise.resolve({ data: {} }));
+    api.mockReturnValue({ post });
+
+    const pending = state.setIn(['statuses', 's1', 'translationPending'], true);
+    const actions = await dispatchThunk(translateStatus('s1', 'bilingual'), pending);
+
+    expect(post).not.toHaveBeenCalled();
+    expect(actions).toEqual([]);
   });
 });
 

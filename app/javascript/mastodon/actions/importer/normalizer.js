@@ -144,6 +144,14 @@ export function normalizeStatus(status, normalOldStatus, domain) {
 
     if (normalOldStatus.get('translation')) {
       normalStatus.translation = normalOldStatus.get('translation');
+
+      if (normalOldStatus.get('translationMode')) {
+        normalStatus.translationMode = normalOldStatus.get('translationMode');
+      }
+    }
+
+    if (normalOldStatus.get('translationPending')) {
+      normalStatus.translationPending = true;
     }
   } else {
     // If the status has a CW but no contents, treat the CW as if it were the
@@ -178,6 +186,14 @@ export function normalizeStatus(status, normalOldStatus, domain) {
 
     if (normalOldStatus && normalOldStatus.get('content') === status.content && (normalOldStatus.get('spoiler_text') || '') === (status.spoiler_text || '') && normalOldStatus.get('translation')) {
       normalStatus.translation = normalOldStatus.get('translation');
+
+      if (normalOldStatus.get('translationMode')) {
+        normalStatus.translationMode = normalOldStatus.get('translationMode');
+      }
+
+      if (normalOldStatus.get('translationPending')) {
+        normalStatus.translationPending = true;
+      }
     }
 
     if (normalStatus.url && !(normalStatus.url.startsWith('http://') || normalStatus.url.startsWith('https://'))) {

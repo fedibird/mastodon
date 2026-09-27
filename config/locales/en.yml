@@ -1452,6 +1452,7 @@ en:
     sensitive_content: Sensitive content
     themes: Themes
     toot_layout: Post layout
+    translation: Translation
   application_mailer:
     notification_preferences: Change e-mail preferences
     salutation: "%{name},"

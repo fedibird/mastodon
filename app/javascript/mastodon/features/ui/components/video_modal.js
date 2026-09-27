@@ -6,12 +6,16 @@ import ImmutablePureComponent from 'react-immutable-pure-component';
 import Footer from 'mastodon/features/picture_in_picture/components/footer';
 import { getAverageFromBlurhash } from 'mastodon/blurhash';
 import { connect } from 'react-redux';
+import { attachmentAccessibility, statusTranslationView } from 'mastodon/utils/translation_view';
 
 const mapStateToProps = (state, props) => {
   const status = props.statusId ? state.getIn(['statuses', props.statusId]) : null;
 
+  const translationView = status ? statusTranslationView(status) : null;
+
   return {
-    lang: props.lang || (status ? (status.getIn(['translation', 'language']) || status.get('language')) : undefined),
+    translationView,
+    lang: translationView ? translationView.mediaLang : props.lang,
   };
 };
 
@@ -22,6 +26,7 @@ class VideoModal extends ImmutablePureComponent {
     media: ImmutablePropTypes.map.isRequired,
     statusId: PropTypes.string,
     lang: PropTypes.string,
+    translationView: PropTypes.object,
     options: PropTypes.shape({
       startTime: PropTypes.number,
       autoPlay: PropTypes.bool,
@@ -42,9 +47,15 @@ class VideoModal extends ImmutablePureComponent {
   }
 
   render () {
-    const { media, statusId, onClose, lang } = this.props;
+    const { media, statusId, onClose, translationView } = this.props;
     const options = this.props.options || {};
-    const description = media.getIn(['translation', 'description']) || media.get('description');
+    const accessible = attachmentAccessibility(media, translationView || {
+      mode: media.getIn(['translation', 'description']) ? 'translated' : 'original',
+      sourceLang: this.props.lang || '',
+      targetLang: this.props.lang || '',
+    });
+    const description = accessible.text;
+    const lang = accessible.lang || this.props.lang;
 
     return (
       <div className='modal-root__modal video-modal'>

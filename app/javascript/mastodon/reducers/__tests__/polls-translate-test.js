@@ -48,6 +48,31 @@ describe('polls translation reducer', () => {
     expect(undone.getIn(['p1', 'options', 1, 'translation'])).toBeUndefined();
     expect(undone.getIn(['p1', 'options', 0, 'title'])).toBe('Yes');
   });
+
+  it('keeps option translations when only the status display mode changes', () => {
+    const translated = reducer(fromJS({ p1: poll }), {
+      type: STATUS_TRANSLATE_SUCCESS,
+      translation: {
+        poll: {
+          id: 'p1',
+          options: [
+            { title: 'はい' },
+            { title: 'いいえ' },
+          ],
+        },
+      },
+    });
+
+    const next = reducer(translated, {
+      type: 'STATUS_TRANSLATE_SET_MODE',
+      id: 's1',
+      mode: 'original',
+    });
+
+    expect(next.getIn(['p1', 'options', 0, 'translation', 'title'])).toBe('はい');
+    expect(next.getIn(['p1', 'options', 1, 'translation', 'title'])).toBe('いいえ');
+    expect(next.getIn(['p1', 'options', 0, 'title'])).toBe('Yes');
+  });
 });
 
 describe('normalizePoll translation retention', () => {

@@ -205,10 +205,26 @@ describe.each([
     expect(screen.getByText('引用こんにちは')).toBeTruthy();
     expect(screen.queryByText('Hello quote')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Show original' }));
+    expect(screen.getByRole('button', { name: 'Translated', pressed: true })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Original' }));
 
     expect(onTranslate).toHaveBeenCalledTimes(1);
     expect(onTranslate.mock.calls[0][0].get('id')).toBe('q1');
     expect(onTranslate.mock.calls[0][0].get('poll')).toBe('p1');
+    expect(onTranslate.mock.calls[0][1]).toBe('original');
+  });
+
+  it('keeps quote translation data available while showing bilingual controls', () => {
+    renderStatus(parentStatus({
+      ...translation,
+      contentHtml: '<p>引用こんにちは</p>',
+    }).setIn(['quote', 'translationMode'], 'bilingual'), jest.fn());
+
+    expect(screen.getByText('Hello quote')).toBeTruthy();
+    expect(screen.getByText('引用こんにちは')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Bilingual', pressed: true })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Original' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Translated' })).toBeTruthy();
+    expect(document.querySelector('.quote-status .status__translation-controls')).toBeTruthy();
   });
 });
