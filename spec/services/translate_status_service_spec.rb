@@ -2,6 +2,19 @@
 
 require 'rails_helper'
 
+def translation_respecting_no_translate(texts)
+  texts.map do |text|
+    fragment = Nokogiri::HTML.fragment(text)
+    fragment.xpath('.//text()').each do |node|
+      next if node.ancestors.any? { |ancestor| ancestor.element? && ancestor['translate'] == 'no' }
+
+      node.content = node.content.gsub('Hello', 'こんにちは').gsub('Fedibird', 'フェディバード')
+    end
+
+    TranslationService::Translation.new(text: fragment.to_html, detected_source_language: 'en', provider: 'DeepL.com')
+  end
+end
+
 RSpec.describe TranslateStatusService do
   let(:account) { Fabricate(:account) }
   let(:status) { Fabricate(:status, account: account, text: 'Hello :blob: <script>alert(1)</script>', spoiler_text: 'Secret', language: 'en', visibility: :public) }
@@ -124,5 +137,122 @@ RSpec.describe TranslateStatusService do
     described_class.new.call(status, 'ja')
 
     expect(backend).to have_received(:translate).twice
+  end
+
+  it 'protects formatted hashtags and keeps the tag after translation' do
+    tagged = Fabricate(:status, account: account, text: 'Hello #Fedibird', spoiler_text: 'CW #Fedibird', language: 'en', visibility: :public)
+    allow(backend).to receive(:translate) { |texts, _source, _target| translation_respecting_no_translate(texts) }
+
+    translation = described_class.new.call(tagged, 'ja')
+
+    sent = nil
+    expect(backend).to have_received(:translate) do |texts, _source, _target|
+      sent = texts.first
+      spoiler = Nokogiri::HTML.fragment(texts[1])
+      expect(spoiler.css('a')).to be_empty
+      expect(spoiler.text).to include('#Fedibird')
+    end
+
+    fragment = Nokogiri::HTML.fragment(sent)
+    hashtag = fragment.at_css('a.hashtag')
+
+    expect(hashtag['translate']).to eq 'no'
+    expect(hashtag.text).to eq '#Fedibird'
+    expect(hashtag['class']).to include('hashtag')
+    expect(hashtag['rel']).to include('tag')
+    expect(hashtag['href'].downcase).to include('fedibird')
+    expect(hashtag['href']).not_to include('<')
+    expect(hashtag.parent['translate']).not_to eq 'no'
+
+    result = Nokogiri::HTML.fragment(translation.content)
+    restored = result.at_css('a.hashtag')
+
+    expect(translation.content).to include('こんにちは')
+    expect(restored.text).to eq '#Fedibird'
+    expect(restored['translate']).to be_nil
+    expect(restored['class']).to include('hashtag')
+    expect(restored['href'].downcase).to include('fedibird')
+    expect(result.css('span[translate="no"]')).to be_empty
+    expect(translation.content).not_to include('フェディバード')
+    expect(translation.spoiler_text).to include('フェディバード')
+  end
+
+  it 'protects hashtags alongside custom emoji and mentions' do
+    bob = Fabricate(:account, username: 'bob')
+    mixed = Fabricate(:status, account: account, text: 'Hello @bob :blob: #Fedibird', language: 'en', visibility: :public)
+    Fabricate(:mention, account: bob, status: mixed)
+    allow(backend).to receive(:translate) { |texts, _source, _target| translation_respecting_no_translate(texts) }
+
+    translation = described_class.new.call(mixed, 'ja')
+
+    sent = nil
+    expect(backend).to have_received(:translate) { |texts, _source, _target| sent = texts.first }
+    fragment = Nokogiri::HTML.fragment(sent)
+    hashtag = fragment.at_css('a.hashtag')
+
+    expect(fragment.at_css('span.h-card')['translate']).to eq 'no'
+    expect(fragment.css('span[translate="no"]').map(&:text)).to include(':blob:')
+    expect(hashtag['translate']).to eq 'no'
+    expect(hashtag['class']).to include('mention')
+    expect(hashtag['class']).to include('hashtag')
+    expect(hashtag['rel']).to include('tag')
+    expect(hashtag.text).to eq '#Fedibird'
+    expect(hashtag['href']).not_to include('<span')
+    expect(hashtag.parent['translate']).not_to eq 'no'
+
+    result = Nokogiri::HTML.fragment(translation.content)
+    restored = result.at_css('a.hashtag')
+
+    expect(result.at_css('span.h-card')).to be_present
+    expect(result.at_css('span.h-card')['translate']).to be_nil
+    expect(restored.text).to eq '#Fedibird'
+    expect(restored['translate']).to be_nil
+    expect(restored['class']).to include('hashtag')
+    expect(translation.content).to include(':blob:')
+    expect(result.css('span[translate="no"]')).to be_empty
+  end
+
+  it 'does not protect ordinary links' do
+    linked = Fabricate(:status, account: account, text: 'Visit https://example.com/ today', language: 'en', visibility: :public)
+
+    described_class.new.call(linked, 'ja')
+
+    sent = nil
+    expect(backend).to have_received(:translate) { |texts, _source, _target| sent = texts.first }
+    fragment = Nokogiri::HTML.fragment(sent)
+    link = fragment.css('a').find { |anchor| anchor['href']&.include?('https://example.com/') }
+
+    expect(link).to be_present
+    expect(link['translate']).not_to eq 'no'
+    expect(link['class'].to_s).not_to include('hashtag')
+    expect(link.ancestors.none? { |node| node.element? && node['translate'] == 'no' }).to be true
+    expect(fragment.css('span[translate="no"]')).to be_empty
+  end
+
+  it 'protects a hashtag already present in remote content' do
+    remote_account = Fabricate(:account, domain: 'remote.test', username: 'carol')
+    remote_html = '<p>Hello <a href="https://remote.test/tags/Fedibird" class="mention hashtag" rel="tag">#<span>Fedibird</span></a></p>'
+    remote = Fabricate(:status, account: remote_account, text: remote_html, local: false, language: 'en', visibility: :public)
+    allow(backend).to receive(:translate) { |texts, _source, _target| translation_respecting_no_translate(texts) }
+
+    translation = described_class.new.call(remote, 'ja')
+
+    sent = nil
+    expect(backend).to have_received(:translate) { |texts, _source, _target| sent = texts.first }
+    fragment = Nokogiri::HTML.fragment(sent)
+    hashtag = fragment.at_css('a.hashtag')
+
+    expect(remote.local?).to be false
+    expect(hashtag['translate']).to eq 'no'
+    expect(hashtag['class']).to include('hashtag')
+    expect(hashtag.text).to include('Fedibird')
+    expect(hashtag['href']).to include('https://remote.test/tags/Fedibird')
+
+    result = Nokogiri::HTML.fragment(translation.content)
+    restored = result.at_css('a.hashtag')
+    expect(restored.text).to include('Fedibird')
+    expect(restored['translate']).to be_nil
+    expect(result.css('span[translate="no"]')).to be_empty
+    expect(translation.content).not_to include('フェディバード')
   end
 end
