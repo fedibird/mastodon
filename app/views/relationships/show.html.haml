@@ -12,9 +12,6 @@
   - else
     = t('settings.relationships')
 
-- content_for :header_tags do
-  = javascript_pack_tag 'admin', async: true, crossorigin: 'anonymous'
-
 .filters.wide
   - unless hide_followers || hide_following
     .filter-subset

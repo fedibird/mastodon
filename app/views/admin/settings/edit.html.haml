@@ -1,7 +1,4 @@
 - content_for :header_tags do
-  = javascript_pack_tag 'admin', async: true, crossorigin: 'anonymous'
-
-- content_for :header_tags do
   - Themes.instance.names.each do |theme|
     = stylesheet_pack_tag theme, media: 'all', crossorigin: 'anonymous', 'data-theme-preview': theme, rel: 'preload', as: 'style'
 
