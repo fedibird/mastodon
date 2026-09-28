@@ -18,6 +18,7 @@ const messages = defineMessages({
   targetLanguage: { id: 'status.translation_target_language', defaultMessage: 'Target language, {language}' },
   unspecified: { id: 'status.translation_unspecified', defaultMessage: 'Unspecified' },
   customPairUnavailable: { id: 'status.translation_custom_pair_unavailable', defaultMessage: 'This language pair cannot be translated yet.' },
+  detectedSource: { id: 'status.translation_detected_source', defaultMessage: 'Detected {language}' },
 });
 
 const languageName = (code, intl) => {
@@ -136,8 +137,7 @@ export default class TranslationBar extends React.PureComponent {
     preferredMode: PropTypes.string,
     viewerSource: PropTypes.string,
     viewerTarget: PropTypes.string,
-    displaySource: PropTypes.string,
-    displayTarget: PropTypes.string,
+    detectedSource: PropTypes.string,
     showResult: PropTypes.bool,
     translationEligible: PropTypes.bool,
     canRequest: PropTypes.bool,
@@ -196,8 +196,7 @@ export default class TranslationBar extends React.PureComponent {
       preferredMode,
       viewerSource,
       viewerTarget,
-      displaySource,
-      displayTarget,
+      detectedSource,
       showResult,
       translationEligible,
       canRequest,
@@ -207,16 +206,17 @@ export default class TranslationBar extends React.PureComponent {
       intl,
     } = this.props;
 
-    const sourceLabel = languageName(displaySource, intl);
-    const targetLabel = languageName(displayTarget, intl);
+    const sourceLabel = languageName(viewerSource, intl);
+    const targetLabel = languageName(viewerTarget, intl);
     const knownLanguages = preloadedLanguages || [];
     const sourceLanguages = [unspecifiedLanguage(intl), ...knownLanguages.filter(lang => lang[0] !== 'und')];
     const descriptionId = `translation-pair-${status ? status.get('id') : 'status'}`;
-    const customPair = !!canRequest && !!translationEligible && !pairMatchesLegacy;
-    const showActions = !!canRequest && !!translationEligible;
+    const customPair = !!canRequest && !pairMatchesLegacy;
+    const showActions = customPair || (!!canRequest && !!pairMatchesLegacy && !!translationEligible);
     const preferred = preferredTranslationMode(preferredMode);
     const requestActions = preferred === 'bilingual' ? ['bilingual', 'translated'] : ['translated', 'bilingual'];
     const provider = showResult ? translation?.get('provider') : null;
+    const detectedName = showResult && detectedSource ? languageName(detectedSource, intl) : '';
 
     return (
       <div className='status__translation-bar status__translation-controls'>
@@ -238,6 +238,11 @@ export default class TranslationBar extends React.PureComponent {
             onChange={onChangeTarget}
             intl={intl}
           />
+          {detectedName && (
+            <span className='status__translation-bar__detected'>
+              {intl.formatMessage(messages.detectedSource, { language: detectedName })}
+            </span>
+          )}
           {provider && <span className='status__translation-bar__provider'>· {provider}</span>}
         </div>
 

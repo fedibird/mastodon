@@ -755,6 +755,7 @@
   "status.translation_target_language": "翻訳先の言語、{language}",
   "status.translation_unspecified": "未指定",
   "status.translation_custom_pair_unavailable": "この言語の組み合わせはまだ翻訳できません。",
+  "status.translation_detected_source": "検出: {language}",
   "status.translation_modes": "翻訳の表示",
   "status.translated_from_with": "{provider}を使って{lang}から翻訳",
   "status.uncached_media_warning": "利用できません",

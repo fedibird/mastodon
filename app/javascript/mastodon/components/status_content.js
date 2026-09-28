@@ -515,8 +515,7 @@ class StatusContent extends React.PureComponent {
         preferredMode={preferredMode}
         viewerSource={viewerPair.source}
         viewerTarget={viewerPair.target}
-        displaySource={showResult ? (sourceLang || viewerPair.source) : viewerPair.source}
-        displayTarget={showResult ? (targetLang || viewerPair.target) : viewerPair.target}
+        detectedSource={showResult ? (status.getIn(['translation', 'detected_source_language']) || '') : ''}
         showResult={showResult}
         translationEligible={translationEligible}
         canRequest={!!this.props.onTranslate}

@@ -1182,7 +1182,8 @@ body > [data-popper-placement] {
 }
 
 .status__translation-bar__arrow,
-.status__translation-bar__provider {
+.status__translation-bar__provider,
+.status__translation-bar__detected {
   color: $dark-text-color;
 }
 
