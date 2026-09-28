@@ -345,7 +345,7 @@ export function normalizeStatusTranslation(translation, status, domain = '') {
     spoilerText = '';
   }
 
-  return {
+  const normalized = {
     detected_source_language: translation.detected_source_language,
     language: translation.language,
     provider: translation.provider,
@@ -353,6 +353,16 @@ export function normalizeStatusTranslation(translation, status, domain = '') {
     spoilerHtml: emojify(escapeTextContentForBrowser(spoilerText), emojiMap, domain),
     spoiler_text: spoilerText,
   };
+
+  if (typeof translation.requested_source_language === 'string') {
+    normalized.requested_source_language = translation.requested_source_language;
+  }
+
+  if (typeof translation.requested_target_language === 'string') {
+    normalized.requested_target_language = translation.requested_target_language;
+  }
+
+  return normalized;
 }
 
 const pollRequestStillCurrent = (poll, normalOldPoll) => {

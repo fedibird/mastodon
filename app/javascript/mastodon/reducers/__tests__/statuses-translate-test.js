@@ -21,6 +21,7 @@ const STATUS_TRANSLATE_UNDO = 'STATUS_TRANSLATE_UNDO';
 const STATUS_TRANSLATE_REQUEST = 'STATUS_TRANSLATE_REQUEST';
 const STATUS_TRANSLATE_FAIL = 'STATUS_TRANSLATE_FAIL';
 const STATUS_TRANSLATE_SET_MODE = 'STATUS_TRANSLATE_SET_MODE';
+const STATUS_TRANSLATION_ASSUMPTION = 'STATUS_TRANSLATION_ASSUMPTION';
 
 const baseStatus = fromJS({
   id: 's1',
@@ -253,5 +254,73 @@ describe('statuses translation reducer', () => {
     expect(bilingual.getIn(['s1', 'translationMode'])).toBe('bilingual');
     expect(bilingual.getIn(['s1', 'translation', 'provider'])).toBe('DeepL');
     expect(bilingual.getIn(['s1', 'media_attachments', 1, 'translation', 'description'])).toBe('いち');
+  });
+
+  it('keeps the requested language pair on the translation and ignores a stale pair', () => {
+    const requested = reducer(fromJS({ s1: baseStatus.set('language', 'ja').set('poll', 'p1') }), {
+      type: STATUS_TRANSLATE_REQUEST,
+      id: 's1',
+      translationRequestId: 'req-a',
+    });
+
+    const changed = reducer(requested, {
+      type: STATUS_TRANSLATION_ASSUMPTION,
+      id: 's1',
+      source: 'en',
+      target: 'ja',
+    });
+
+    expect(changed.getIn(['s1', 'language'])).toBe('ja');
+    expect(changed.getIn(['s1', 'translationPending'])).toBe(false);
+    expect(changed.getIn(['s1', 'translationRequestId'])).toBeUndefined();
+    expect(changed.getIn(['s1', 'poll'])).toBe('p1');
+
+    const stale = reducer(changed, {
+      type: STATUS_TRANSLATE_SUCCESS,
+      id: 's1',
+      mode: 'translated',
+      translationRequestId: 'req-a',
+      translation: {
+        content: '<p>古い</p>',
+        spoiler_text: '',
+        detected_source_language: 'ja',
+        language: 'en',
+        provider: 'DeepL',
+        requested_source_language: 'ja',
+        requested_target_language: 'en',
+        media_attachments: [{ id: 'm1', description: '古い' }],
+      },
+    });
+
+    expect(stale.getIn(['s1', 'translation'])).toBeUndefined();
+    expect(stale.getIn(['s1', 'media_attachments', 1, 'translation'])).toBeUndefined();
+    expect(stale.getIn(['s1', 'translationMode'])).toBeUndefined();
+
+    const current = reducer(changed, {
+      type: STATUS_TRANSLATE_REQUEST,
+      id: 's1',
+      translationRequestId: 'req-b',
+    });
+    const saved = reducer(current, {
+      type: STATUS_TRANSLATE_SUCCESS,
+      id: 's1',
+      mode: 'translated',
+      translationRequestId: 'req-b',
+      translation: {
+        content: '<p>こんにちは</p>',
+        spoiler_text: '',
+        detected_source_language: 'en',
+        language: 'ja',
+        provider: 'DeepL',
+        requested_source_language: 'en',
+        requested_target_language: 'ja',
+        media_attachments: [],
+      },
+    });
+
+    expect(saved.getIn(['s1', 'translation', 'requested_source_language'])).toBe('en');
+    expect(saved.getIn(['s1', 'translation', 'requested_target_language'])).toBe('ja');
+    expect(saved.getIn(['s1', 'translation', 'detected_source_language'])).toBe('en');
+    expect(saved.getIn(['s1', 'language'])).toBe('ja');
   });
 });

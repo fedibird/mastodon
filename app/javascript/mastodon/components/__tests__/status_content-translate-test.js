@@ -102,6 +102,12 @@ const renderStatus = (status, props = {}, languages) => render(
 
 const NON_PUBLIC_VISIBILITIES = ['private', 'direct', 'limited', 'mutual', 'personal'];
 
+const expectUnsupportedPair = () => {
+  expect(screen.getByRole('button', { name: 'Translate' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Bilingual' })).toBeDisabled();
+  expect(screen.getByText('This language pair is not supported.')).toBeTruthy();
+};
+
 const interactiveReducer = (state = fromJS({
   server: {
     translationLanguages: {
@@ -140,7 +146,7 @@ describe('StatusContent translation', () => {
   it('does not collapse a non-region source subtag into the primary language', () => {
     renderStatus(buildStatus({ language: 'zh-YUE', contentHtml: '<p>你好</p>', search_index: '你好' }));
 
-    expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+    expectUnsupportedPair();
   });
 
   describe('Chinese script provider languages', () => {
@@ -180,7 +186,7 @@ describe('StatusContent translation', () => {
     it('does not show Translate for zh-YUE when only Chinese script tags are available', () => {
       renderStatus(chineseStatus('zh-YUE'), {}, CHINESE_SCRIPT_LANGUAGES);
 
-      expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+      expectUnsupportedPair();
     });
 
     it('prefers an exact zh key over und auto detection', () => {
@@ -201,7 +207,7 @@ describe('StatusContent translation', () => {
         und: ['ja'],
       });
 
-      expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+      expectUnsupportedPair();
     });
 
     it('does not use und for bare zh when no Chinese script tag exists', () => {
@@ -210,13 +216,13 @@ describe('StatusContent translation', () => {
         und: ['ja'],
       });
 
-      expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+      expectUnsupportedPair();
     });
 
     it('does not use und for an unsupported language', () => {
       renderStatus(chineseStatus('ko'), {}, CHINESE_SCRIPT_LANGUAGES);
 
-      expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+      expectUnsupportedPair();
     });
 
     it('does not show Translate for zh-CN when zh-Hans is missing', () => {
@@ -225,7 +231,7 @@ describe('StatusContent translation', () => {
         und: ['ja'],
       });
 
-      expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+      expectUnsupportedPair();
     });
   });
 
@@ -260,7 +266,7 @@ describe('StatusContent translation', () => {
         <StatusContent status={buildStatus({ language: 'fr' })} onTranslate={jest.fn()} onClick={jest.fn()} />
       </Provider>,
     );
-    expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+    expectUnsupportedPair();
 
     NON_PUBLIC_VISIBILITIES.forEach(visibility => {
       rerender(
@@ -288,8 +294,7 @@ describe('StatusContent translation', () => {
   it('keeps language, content, and login checks when private content is allowed', () => {
     initialState.translationPrivateContentAllowed = true;
     const { rerender } = renderStatus(buildStatus({ visibility: 'direct', language: 'fr' }));
-    expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Bilingual' })).toBeNull();
+    expectUnsupportedPair();
 
     rerender(
       <Provider store={store}>
@@ -575,6 +580,50 @@ describe('StatusContent translation', () => {
     expect(screen.queryByRole('button', { name: 'Show less' })).toBeNull();
   });
 
+  it('keeps the language bar without an unsupported notice before languages load', () => {
+    const emptyStore = createStore(() => fromJS({
+      server: {
+        translationLanguages: {},
+      },
+    }));
+
+    render(
+      <Provider store={emptyStore}>
+        <StatusContent status={buildStatus()} onTranslate={jest.fn()} onClick={jest.fn()} />
+      </Provider>,
+    );
+
+    expect(document.querySelector('.status__translation-bar')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Source language, English' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Target language, 日本語' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Bilingual' })).toBeNull();
+    expect(screen.queryByText('This language pair is not supported.')).toBeNull();
+  });
+
+  it('uses the requested pair for content language and keeps detection as metadata', () => {
+    const { container } = renderStatus(buildStatus({
+      language: 'fr',
+      contentHtml: '<p>Hello</p>',
+      translationMode: 'bilingual',
+      translation: {
+        contentHtml: '<p>こんにちは</p>',
+        spoilerHtml: '',
+        language: 'de',
+        detected_source_language: 'en',
+        requested_source_language: 'fr',
+        requested_target_language: 'ja',
+        provider: 'DeepL',
+      },
+    }));
+    const pair = container.querySelector('.status-translation-pair');
+
+    expect(pair.querySelector('.status-translation-pair__source p').getAttribute('lang')).toBe('fr');
+    expect(pair.querySelector('.status-translation-pair__target p').getAttribute('lang')).toBe('ja');
+    expect(screen.getByRole('button', { name: 'Source language, Français' })).toBeTruthy();
+    expect(screen.getByText('Detected English')).toBeTruthy();
+  });
+
   it('hides the translation bar when the setting is off', () => {
     initialState.showTranslationBar = false;
     renderStatus(buildStatus());
@@ -620,7 +669,7 @@ describe('StatusContent translation', () => {
     expect(screen.queryByRole('listbox')).toBeNull();
   });
 
-  it('keeps status.language unchanged and does not request a custom pair', () => {
+  it('requests a supported viewer pair without changing status.language', () => {
     const onTranslate = jest.fn();
     const status = buildStatus();
     const store = createStore(interactiveReducer, fromJS({
@@ -643,11 +692,11 @@ describe('StatusContent translation', () => {
     fireEvent.click(screen.getByRole('option', { name: /French/ }));
 
     const translate = screen.getByRole('button', { name: 'Translate' });
-    expect(translate).toBeDisabled();
-    expect(screen.getByText('This language pair cannot be translated yet.')).toBeTruthy();
+    expect(translate).toBeEnabled();
+    expect(screen.queryByText('This language pair is not supported.')).toBeNull();
     fireEvent.click(translate);
 
-    expect(onTranslate).not.toHaveBeenCalled();
+    expect(onTranslate).toHaveBeenCalledWith('translated');
     expect(status.get('language')).toBe('en');
     expect(store.getState().getIn(['statuses', 's1', 'language'])).toBe('en');
     expect(store.getState().getIn(['translation_assumptions', 's1', 'source'])).toBe('fr');
@@ -677,7 +726,7 @@ describe('StatusContent translation', () => {
       translation_assumptions: {},
     }).setIn(['statuses', 's1'], status));
 
-    const { container } = render(
+    const { container, rerender } = render(
       <Provider store={store}>
         <StatusContent status={status} onTranslate={onTranslate} onClick={jest.fn()} />
       </Provider>,
@@ -695,7 +744,20 @@ describe('StatusContent translation', () => {
     expect(store.getState().getIn(['statuses', 's1', 'language'])).toBe('en');
     expect(store.getState().getIn(['statuses', 's1', 'translationMode'])).toBe('original');
     expect(store.getState().getIn(['statuses', 's1', 'translation', 'provider'])).toBe('DeepL');
-    expect(screen.getByRole('button', { name: 'Translate' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Translate' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Source language, Français' }));
+    fireEvent.click(screen.getByRole('option', { name: /English/ }));
+    rerender(
+      <Provider store={store}>
+        <StatusContent status={store.getState().getIn(['statuses', 's1'])} onTranslate={onTranslate} onClick={jest.fn()} />
+      </Provider>,
+    );
+
+    expect(screen.getByRole('button', { name: 'Original', pressed: true })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Translated', pressed: false })).toBeTruthy();
+    expect(screen.getByText('· DeepL')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
   });
 
   it('keeps the source selector on Unspecified when detection says English', () => {
@@ -742,7 +804,7 @@ describe('StatusContent translation', () => {
     expect(screen.getByText('· LibreTranslate')).toBeTruthy();
   });
 
-  it('shows a disabled custom pair when the declared language cannot be translated', () => {
+  it('lets the viewer correct a declared language and request that pair', () => {
     const onTranslate = jest.fn();
     const status = buildStatus({ language: 'ja', contentHtml: '<p>Hello</p>', search_index: 'Hello' });
     const store = createStore(interactiveReducer, fromJS({
@@ -761,21 +823,135 @@ describe('StatusContent translation', () => {
       </Provider>,
     );
 
-    expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+    expectUnsupportedPair();
 
     fireEvent.click(screen.getByRole('button', { name: 'Source language, 日本語' }));
     fireEvent.click(screen.getByRole('option', { name: /English/ }));
 
     const translate = screen.getByRole('button', { name: 'Translate' });
-    expect(translate).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Bilingual' })).toBeDisabled();
-    expect(screen.getByText('This language pair cannot be translated yet.')).toBeTruthy();
+    expect(translate).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Bilingual' })).toBeEnabled();
+    expect(screen.queryByText('This language pair is not supported.')).toBeNull();
     fireEvent.click(translate);
 
-    expect(onTranslate).not.toHaveBeenCalled();
+    expect(onTranslate).toHaveBeenCalledWith('translated');
     expect(status.get('language')).toBe('ja');
+    expect(store.getState().getIn(['statuses', 's1', 'language'])).toBe('ja');
     expect(store.getState().getIn(['translation_assumptions', 's1', 'source'])).toBe('en');
     expect(store.getState().getIn(['translation_assumptions', 's1', 'target'])).toBe('ja');
+  });
+
+  it('builds source and target choices from provider languages, including provider-only codes', () => {
+    const status = buildStatus({ language: 'ja' });
+    const store = createStore(interactiveReducer, fromJS({
+      server: {
+        translationLanguages: {
+          items: {
+            en: ['ja', 'de'],
+            'zh-Hans': ['ja'],
+            'zh-Hant': ['en'],
+            und: ['ja'],
+          },
+        },
+      },
+      statuses: {},
+      translation_assumptions: {},
+    }).setIn(['statuses', 's1'], status));
+
+    render(
+      <Provider store={store}>
+        <StatusContent status={status} onTranslate={jest.fn()} onClick={jest.fn()} />
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Source language, 日本語' }));
+
+    expect(screen.getByRole('option', { name: /Unspecified/ })).toBeTruthy();
+    expect(screen.getByRole('option', { name: /English/ })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'zh-Hans (zh-Hans)' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'zh-Hant (zh-Hant)' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: /日本語/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('option', { name: /French/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole('option', { name: /English/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Target language, 日本語' }));
+
+    expect(screen.getByRole('option', { name: /日本語/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('option', { name: 'de (de)' })).toBeTruthy();
+    expect(screen.queryByRole('option', { name: /English/ })).toBeNull();
+  });
+
+  it('keeps the current target visible when the selected source does not support it', () => {
+    const onTranslate = jest.fn();
+    const status = buildStatus();
+    const store = createStore(interactiveReducer, fromJS({
+      server: {
+        translationLanguages: {
+          items: { en: ['ja'], fr: ['de'], und: ['ja'] },
+        },
+      },
+      statuses: {},
+      translation_assumptions: {},
+    }).setIn(['statuses', 's1'], status));
+
+    render(
+      <Provider store={store}>
+        <StatusContent status={status} onTranslate={onTranslate} onClick={jest.fn()} />
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Source language, English' }));
+    fireEvent.click(screen.getByRole('option', { name: /French/ }));
+
+    expect(screen.getByRole('button', { name: 'Target language, 日本語' })).toBeTruthy();
+    expect(store.getState().getIn(['translation_assumptions', 's1', 'target'])).toBe('ja');
+    expectUnsupportedPair();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Target language, 日本語' }));
+    expect(screen.getByRole('option', { name: /日本語/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('option', { name: 'de (de)' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Translate' }));
+
+    expect(onTranslate).not.toHaveBeenCalled();
+  });
+
+  it('reuses a translation only when its stored request pair matches the viewer pair', () => {
+    const matching = buildStatus({
+      translationMode: 'translated',
+      translation: {
+        contentHtml: '<p>こんにちは</p>',
+        spoilerHtml: '',
+        language: 'ja',
+        detected_source_language: 'fr',
+        requested_source_language: 'en',
+        requested_target_language: 'ja',
+        provider: 'DeepL',
+      },
+    });
+    const { unmount, container } = renderStatus(matching);
+
+    expect(container.querySelector('.status__content__text').innerHTML).toContain('こんにちは');
+    expect(screen.getByText('Detected Français')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Source language, English' })).toBeTruthy();
+    unmount();
+
+    const different = buildStatus({
+      translationMode: 'translated',
+      translation: {
+        contentHtml: '<p>Bonjour</p>',
+        spoilerHtml: '',
+        language: 'fr',
+        detected_source_language: 'en',
+        requested_source_language: 'en',
+        requested_target_language: 'fr',
+        provider: 'DeepL',
+      },
+    });
+    const second = renderStatus(different);
+
+    expect(second.container.querySelector('.status__content__text').innerHTML).toContain('Hello');
+    expect(screen.queryByText('· DeepL')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Translate' })).toBeEnabled();
   });
 
   it('wraps the translation bar instead of overlapping status content', () => {

@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { fromJS } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
@@ -193,20 +193,23 @@ describe.each([
 ])('%s embedded quote translation', (_label, renderStatus) => {
   it('does not offer Translate when the quote has no translation', () => {
     renderStatus(parentStatus(null), jest.fn());
+    const quote = within(document.querySelector('.quote-status'));
 
     expect(screen.getByText('Hello quote')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Show original' })).toBeNull();
+    expect(quote.queryByRole('button', { name: 'Translate' })).toBeNull();
+    expect(quote.queryByRole('button', { name: 'Show original' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Translate' })).toBeDisabled();
   });
 
   it('shows the translated quote and undoes that quote status', () => {
     const onTranslate = jest.fn();
     renderStatus(parentStatus(translation), onTranslate);
+    const quote = within(document.querySelector('.quote-status'));
 
     expect(screen.getByText('引用こんにちは')).toBeTruthy();
     expect(screen.queryByText('Hello quote')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Translated', pressed: true })).toBeTruthy();
+    expect(quote.queryByRole('button', { name: 'Translate' })).toBeNull();
+    expect(quote.getByRole('button', { name: 'Translated', pressed: true })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Original' }));
 
     expect(onTranslate).toHaveBeenCalledTimes(1);

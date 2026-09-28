@@ -165,6 +165,15 @@ RSpec.describe TranslateStatusService do
     { 'zh-Hans' => ['ja'], 'zh-Hant' => ['ja'], nil => ['ja'] }
   end
 
+  def translation_cache_keys
+    keys = []
+    allow(Rails.cache).to receive(:fetch).and_wrap_original do |method, key, *args, &block|
+      keys << key if key.is_a?(String) && key.start_with?('v3:translations/')
+      method.call(key, *args, &block)
+    end
+    keys
+  end
+
   it 'uses provider auto detection for bare zh when only Chinese script tags are available' do
     chinese = Fabricate(:status, account: account, text: '你好', language: 'zh', visibility: :public)
     allow(backend).to receive(:languages).and_return(chinese_script_languages)
@@ -286,6 +295,73 @@ RSpec.describe TranslateStatusService do
     described_class.new.call(status, 'ja')
 
     expect(backend).to have_received(:translate).twice
+  end
+
+  it 'keys the cache by the effective provider source, target, and content hash' do
+    allow(backend).to receive(:languages).and_return('en' => %w(ja de), 'fr' => ['ja'], nil => ['ja'])
+    keys = translation_cache_keys
+
+    described_class.new.call(status, 'ja')
+    described_class.new.call(status, 'ja', source_language: 'en', explicit_source: true)
+    described_class.new.call(status, 'de')
+    described_class.new.call(status, 'ja', source_language: 'fr', explicit_source: true)
+
+    expect(keys.grep(%r{\Av3:translations/en/ja/}).uniq.size).to eq 1
+    expect(keys).to include(a_string_matching(%r{\Av3:translations/en/de/}))
+    expect(keys).to include(a_string_matching(%r{\Av3:translations/fr/ja/}))
+    expect(backend).to have_received(:translate).exactly(3).times
+    expect(status.reload.language).to eq 'en'
+  end
+
+  it 'uses a stable auto token so a nil source does not collide with another source' do
+    detected = Fabricate(:status, account: account, text: 'Hello :blob: <script>alert(1)</script>', spoiler_text: 'Secret', language: nil, visibility: :public)
+    keys = translation_cache_keys
+
+    described_class.new.call(detected, 'ja')
+    described_class.new.call(detected, 'ja', source_language: 'und', explicit_source: true)
+    described_class.new.call(detected, 'ja', source_language: 'en', explicit_source: true)
+
+    expect(keys.grep(%r{\Av3:translations/auto/ja/}).uniq.size).to eq 1
+    expect(keys).to include(a_string_matching(%r{\Av3:translations/en/ja/}))
+    expect(keys).not_to include(a_string_matching(%r{\Av3:translations//}))
+    expect(backend).to have_received(:translate).with(anything, nil, 'ja').once
+    expect(backend).to have_received(:translate).with(anything, 'en', 'ja').once
+    expect(detected.reload.language).to be_nil
+  end
+
+  it 'resolves an explicit source with the same Chinese rules and sends und as auto detection' do
+    allow(backend).to receive(:languages).and_return(chinese_script_languages)
+
+    described_class.new.call(status, 'ja', source_language: 'zh-CN', explicit_source: true)
+    described_class.new.call(status, 'ja', source_language: 'zh-Hans', explicit_source: true)
+    described_class.new.call(status, 'ja', source_language: 'UND', explicit_source: true)
+
+    expect(backend).to have_received(:translate).with(anything, 'zh-Hans', 'ja').once
+    expect(backend).to have_received(:translate).with(anything, nil, 'ja').once
+    expect(status.reload.language).to eq 'en'
+  end
+
+  it 'rejects an explicit unsupported pair without treating it as an authorization failure' do
+    expect { described_class.new.call(status, 'de', explicit_target: true) }.to raise_error(Mastodon::ValidationError)
+    expect { described_class.new.call(status, 'ja', source_language: 'fr', explicit_source: true) }.to raise_error(Mastodon::ValidationError)
+    expect { described_class.new.call(status, 'ja', source_language: 'und', explicit_source: true) }.not_to raise_error
+    allow(backend).to receive(:languages).and_return('en' => ['ja'])
+    Rails.cache.clear
+
+    expect { described_class.new.call(status, 'ja', source_language: 'und', explicit_source: true) }.to raise_error(Mastodon::ValidationError)
+    expect(backend).to have_received(:translate).once
+  end
+
+  it 'still refuses private content and a missing provider when the pair is explicit' do
+    status.update!(visibility: :direct)
+
+    expect { described_class.new.call(status, 'ja', source_language: 'en', explicit_source: true, explicit_target: true) }.to raise_error(Mastodon::NotPermittedError)
+
+    status.update!(visibility: :public)
+    allow(TranslationService).to receive(:configured?).and_return(false)
+
+    expect { described_class.new.call(status, 'ja', source_language: 'en', explicit_source: true) }.to raise_error(Mastodon::NotPermittedError)
+    expect(backend).not_to have_received(:translate)
   end
 
   it 'protects formatted hashtags and keeps the tag after translation' do

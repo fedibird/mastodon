@@ -13,15 +13,22 @@ class TranslateStatusService < BaseService
 
   include ERB::Util
 
-  def call(status, target_language)
+  # source_language / explicit_* are optional. Omitting them keeps the
+  # Mastodon v4.2.13 path: source from Status.language, target from the caller.
+  # nil is a valid explicit source (provider auto-detection), so omission is a flag.
+  def call(status, target_language, source_language: nil, explicit_source: false, explicit_target: false)
     @status = status
     @source_texts = source_texts
     @target_language = target_language
+    @explicit_source = explicit_source
+    @explicit_target = explicit_target
+    @requested_source_language = source_language
 
-    raise Mastodon::NotPermittedError unless permitted?
+    ensure_permitted!
 
-    status_translation = Rails.cache.fetch("v2:translations/#{@status.language}/#{@target_language}/#{content_hash}", expires_in: CACHE_TTL) do
-      translations = translation_backend.translate(@source_texts.values, source_language, @target_language)
+    provider_source = self.source_language
+    status_translation = Rails.cache.fetch(translation_cache_key, expires_in: CACHE_TTL) do
+      translations = translation_backend.translate(@source_texts.values, provider_source, @target_language)
       build_status_translation(translations)
     end
 
@@ -36,11 +43,25 @@ class TranslateStatusService < BaseService
     @translation_backend ||= TranslationService.configured
   end
 
-  def permitted?
-    return false unless TranslationService.configured?
-    return false unless @status.distributable? || translation_backend.private_content_allowed?
+  def ensure_permitted!
+    raise Mastodon::NotPermittedError unless TranslationService.configured?
+    raise Mastodon::NotPermittedError unless @status.distributable? || translation_backend.private_content_allowed?
+    return if languages[source_language]&.include?(@target_language)
 
-    languages[source_language]&.include?(@target_language)
+    if @explicit_source || @explicit_target
+      raise Mastodon::ValidationError, I18n.t('translation.errors.unsupported_language_pair')
+    end
+
+    raise Mastodon::NotPermittedError
+  end
+
+  def translation_cache_key
+    "v3:translations/#{cache_source_token}/#{@target_language}/#{content_hash}"
+  end
+
+  # A nil provider source means auto-detection. Keep it distinct from every language code.
+  def cache_source_token
+    source_language.nil? ? 'auto' : source_language
   end
 
   # nil is a successful resolution: it asks the provider to auto-detect.
@@ -48,11 +69,24 @@ class TranslateStatusService < BaseService
   def source_language
     return @source_language if instance_variable_defined?(:@source_language)
 
-    @source_language = resolved_source_language
+    @source_language = @explicit_source ? resolve_explicit_source(@requested_source_language) : resolved_source_language
   end
 
   def resolved_source_language
-    language = @status.language
+    resolve_language_tag(@status.language)
+  end
+
+  def resolve_explicit_source(language)
+    return nil if undetermined_language?(language) && languages.key?(nil)
+
+    resolve_language_tag(language)
+  end
+
+  def undetermined_language?(language)
+    normalized_language_tag(language) == 'und'
+  end
+
+  def resolve_language_tag(language)
     return language if languages.key?(language)
 
     normalized = normalized_language_tag(language)

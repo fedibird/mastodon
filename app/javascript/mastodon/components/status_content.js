@@ -11,7 +11,8 @@ import BilingualContent from 'mastodon/components/bilingual_content';
 import TranslationBar from 'mastodon/components/translation_bar';
 import { setStatusTranslationAssumption } from 'mastodon/actions/statuses';
 import { autoPlayEmoji, disableReactions, me, showTranslationBar, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
-import { legacyTranslationPair, normalizedContentLocale, sameLanguagePair, statusTranslationView, viewerTranslationPair } from 'mastodon/utils/translation_view';
+import { translationCapability } from 'mastodon/utils/translation_languages';
+import { sameLanguagePair, statusTranslationView, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
 
 const messages = defineMessages({
   linkToAcct: { id: 'status.link_to_acct', defaultMessage: 'Link to @{acct}' },
@@ -19,69 +20,6 @@ const messages = defineMessages({
   linkToCustomEmojiInRemote: { id: 'status.link_to_custom_emoji_in_remote', defaultMessage: 'Link to :@{shortcode}: in @{domain}' },
   postByAcct: { id: 'status.post_by_acct', defaultMessage: 'Post by @{acct}' },
 });
-
-const CHINESE_REGIONAL_SCRIPTS = {
-  'zh-cn': 'zh-Hans',
-  'zh-sg': 'zh-Hans',
-  'zh-tw': 'zh-Hant',
-  'zh-hk': 'zh-Hant',
-  'zh-mo': 'zh-Hant',
-};
-
-const CHINESE_SCRIPT_TAGS = ['zh-Hans', 'zh-Hant'];
-
-const normalizedLanguageTag = language => language.replace(/_/g, '-').toLowerCase();
-
-const providerChineseScript = (normalized, translationLanguages) => (
-  CHINESE_SCRIPT_TAGS.find(tag => tag.toLowerCase() === normalized && translationLanguages?.has(tag))
-);
-
-const bareChineseSourceLanguage = (language, translationLanguages) => {
-  if (translationLanguages?.has('zh')) {
-    return 'zh';
-  }
-
-  const chineseAvailable = CHINESE_SCRIPT_TAGS.some(tag => translationLanguages?.has(tag));
-  if (chineseAvailable && translationLanguages?.has('und')) {
-    return 'und';
-  }
-
-  return language;
-};
-
-const translationSourceLanguage = (language, translationLanguages) => {
-  if (!language || translationLanguages?.has(language)) {
-    return language;
-  }
-
-  const normalized = normalizedLanguageTag(language);
-
-  if (normalized === 'zh') {
-    return bareChineseSourceLanguage(language, translationLanguages);
-  }
-
-  const script = providerChineseScript(normalized, translationLanguages) || CHINESE_REGIONAL_SCRIPTS[normalized];
-  if (script && translationLanguages?.has(script)) {
-    return script;
-  }
-
-  const match = language.match(/^([A-Za-z]{2,3})[-_]([A-Za-z]{2}|\d{3})$/);
-  if (!match) {
-    return language;
-  }
-
-  const primary = match[1].toLowerCase();
-  return translationLanguages?.has(primary) ? primary : language;
-};
-
-const statusTranslationEligible = (status, { loggedIn, contentLocale, targetLanguages, privateContentAllowed }) => {
-  const visibilityAllowsTranslation = ['public', 'unlisted'].includes(status.get('visibility')) || privateContentAllowed;
-
-  return loggedIn &&
-    visibilityAllowsTranslation &&
-    (status.get('search_index') || '').trim().length > 0 &&
-    targetLanguages?.includes(contentLocale);
-};
 
 const MAX_HEIGHT = 642; // 20px * 32 (+ 2px padding at the top)
 
@@ -352,14 +290,19 @@ class StatusContent extends React.PureComponent {
 
   viewerPair = () => viewerTranslationPair(this.props.status, this.props.translationAssumption, this.props.intl.locale);
 
-  legacyPair = () => legacyTranslationPair(this.props.status, this.props.intl.locale);
+  currentCapability = () => translationCapability(this.props.status, this.viewerPair(), this.props.languages, {
+    loggedIn: !!me,
+    privateContentAllowed: translationPrivateContentAllowed,
+  });
 
   handleTranslate = (mode) => {
     if (!this.props.onTranslate) {
       return;
     }
 
-    if (mode !== 'original' && !sameLanguagePair(this.viewerPair(), this.legacyPair())) {
+    const matchesRequest = sameLanguagePair(this.viewerPair(), translationRequestPair(this.props.status, this.props.intl.locale));
+
+    if (mode !== 'original' && !matchesRequest && !this.currentCapability().pairSupported) {
       return;
     }
 
@@ -451,23 +394,15 @@ class StatusContent extends React.PureComponent {
       status.get('in_reply_to_id') && status.get('in_reply_to_account_id') === status.getIn(['account', 'id'])
     );
     const renderShowPoll = !!status.get('poll');
-    const contentLocale = normalizedContentLocale(intl.locale);
-    const legacyPair = this.legacyPair();
     const viewerPair = this.viewerPair();
-    const pairMatchesLegacy = sameLanguagePair(viewerPair, legacyPair);
-    const sourceLanguage = translationSourceLanguage(status.get('language') || 'und', this.props.languages);
-    const targetLanguages = this.props.languages?.get(sourceLanguage);
-    const translationEligible = statusTranslationEligible(status, {
-      loggedIn: !!me,
-      contentLocale,
-      targetLanguages,
-      privateContentAllowed: translationPrivateContentAllowed,
-    });
-    const showResult = !!status.get('translation') && pairMatchesLegacy;
+    const requestPair = translationRequestPair(status, intl.locale);
+    const pairMatchesRequest = sameLanguagePair(viewerPair, requestPair);
+    const capability = this.currentCapability();
+    const showResult = !!status.get('translation') && pairMatchesRequest;
 
     const translationView = statusTranslationView(status);
-    const viewMode = pairMatchesLegacy ? translationView.mode : 'original';
-    const sourceLang = translationView.sourceLang || status.get('language');
+    const viewMode = pairMatchesRequest ? translationView.mode : 'original';
+    const sourceLang = pairMatchesRequest ? (translationView.sourceLang || status.get('language') || '') : (status.get('language') || '');
     const targetLang = translationView.targetLang;
     const sourceHtml = status.get('contentHtml');
     const targetHtml = status.getIn(['translation', 'contentHtml']);
@@ -517,9 +452,11 @@ class StatusContent extends React.PureComponent {
         viewerTarget={viewerPair.target}
         detectedSource={showResult ? (status.getIn(['translation', 'detected_source_language']) || '') : ''}
         showResult={showResult}
-        translationEligible={translationEligible}
+        translationLanguages={this.props.languages}
+        pairSupported={capability.pairSupported}
+        languagesKnown={capability.languagesKnown}
+        statusTranslatable={capability.allowsRequest}
         canRequest={!!this.props.onTranslate}
-        pairMatchesLegacy={pairMatchesLegacy}
         onSelect={this.handleTranslate}
         onChangeSource={this.handleSourceLanguage}
         onChangeTarget={this.handleTargetLanguage}

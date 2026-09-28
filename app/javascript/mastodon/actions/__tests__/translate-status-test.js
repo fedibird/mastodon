@@ -31,9 +31,15 @@ jest.mock('../modal', () => ({
   openModal: jest.fn(),
 }));
 
+jest.mock('../../initial_state', () => ({
+  locale: 'ja',
+}));
+
 import api from '../../api';
+import statusesReducer from '../../reducers/statuses';
 import {
   translateStatus,
+  setStatusTranslationAssumption,
   undoStatusTranslation,
   STATUS_TRANSLATE_REQUEST,
   STATUS_TRANSLATE_SUCCESS,
@@ -98,7 +104,10 @@ describe('translateStatus', () => {
     await store.run(translateStatus('s1'));
     const { actions } = store;
 
-    expect(post).toHaveBeenCalledWith('/api/v1/statuses/s1/translate');
+    expect(post).toHaveBeenCalledWith('/api/v1/statuses/s1/translate', {
+      source_language: 'und',
+      target_language: 'ja',
+    });
     expect(actions.map(action => action.type)).toEqual([
       STATUS_TRANSLATE_REQUEST,
       STATUS_TRANSLATE_SUCCESS,
@@ -139,7 +148,10 @@ describe('translateStatus', () => {
     const { actions } = store;
 
     expect(post).toHaveBeenCalledTimes(1);
-    expect(post).toHaveBeenCalledWith('/api/v1/statuses/s1/translate');
+    expect(post).toHaveBeenCalledWith('/api/v1/statuses/s1/translate', {
+      source_language: 'und',
+      target_language: 'ja',
+    });
     expect(actions[0]).toMatchObject({ type: STATUS_TRANSLATE_REQUEST, id: 's1', mode: 'bilingual' });
     expect(actions[1]).toMatchObject({
       type: STATUS_TRANSLATE_SUCCESS,
@@ -254,7 +266,11 @@ describe('translateStatus', () => {
       expect.objectContaining({
         translationRequestId: requestB,
         mode: 'bilingual',
-        translation: { content: '<p>新しい</p>' },
+        translation: expect.objectContaining({
+          content: '<p>新しい</p>',
+          requested_source_language: 'und',
+          requested_target_language: 'ja',
+        }),
       }),
     ]);
   });
@@ -294,6 +310,88 @@ describe('translateStatus', () => {
         translationRequestId: requestB,
         error: expect.any(Error),
       }),
+    ]);
+  });
+
+  it('requests again when the viewer pair differs from the stored request pair', async () => {
+    const post = jest.fn(() => Promise.resolve({ data: { content: '<p>再翻訳</p>', language: 'ja' } }));
+    api.mockReturnValue({ post });
+
+    const translated = state.setIn(['statuses', 's1', 'language'], 'en').setIn(['statuses', 's1', 'translation'], fromJS({
+      content: '<p>こんにちは</p>',
+      language: 'ja',
+      requested_source_language: 'en',
+      requested_target_language: 'ja',
+    }));
+    const samePair = createDispatch(translated);
+    await samePair.run(translateStatus('s1', 'bilingual'));
+
+    expect(post).not.toHaveBeenCalled();
+    expect(samePair.actions).toEqual([{
+      type: STATUS_TRANSLATE_SET_MODE,
+      id: 's1',
+      mode: 'bilingual',
+    }]);
+
+    const differentPair = createDispatch(translated.setIn(['translation_assumptions', 's1'], fromJS({
+      source: 'fr',
+      target: 'ja',
+    })));
+    await differentPair.run(translateStatus('s1', 'translated'));
+
+    expect(post).toHaveBeenCalledWith('/api/v1/statuses/s1/translate', {
+      source_language: 'fr',
+      target_language: 'ja',
+    });
+    expect(differentPair.actions[1].translation).toMatchObject({
+      content: '<p>再翻訳</p>',
+      requested_source_language: 'fr',
+      requested_target_language: 'ja',
+    });
+  });
+
+  it('drops an in-flight request when the viewer pair changes so only the new pair is stored', async () => {
+    const deferreds = [];
+    const post = jest.fn(() => new Promise((resolve, reject) => {
+      deferreds.push({ resolve, reject });
+    }));
+    api.mockReturnValue({ post });
+
+    const initial = state.setIn(['statuses', 's1', 'language'], 'en').setIn(['statuses', 's1', 'poll'], 'p1');
+    const store = createDispatch(initial);
+    const first = store.run(translateStatus('s1'));
+    const requestA = store.actions[0].translationRequestId;
+
+    const cleared = statusesReducer(store.getState().get('statuses'), setStatusTranslationAssumption('s1', 'fr', 'ja'));
+    expect(cleared.getIn(['s1', 'translationPending'])).toBe(false);
+    expect(cleared.getIn(['s1', 'translationRequestId'])).toBeUndefined();
+    expect(cleared.getIn(['s1', 'language'])).toBe('en');
+
+    store.setState(store.getState()
+      .set('statuses', cleared)
+      .setIn(['translation_assumptions', 's1'], fromJS({ source: 'fr', target: 'ja' })));
+
+    const second = store.run(translateStatus('s1'));
+    const requestB = store.actions[1].translationRequestId;
+
+    expect(requestB).not.toBe(requestA);
+    expect(post).toHaveBeenLastCalledWith('/api/v1/statuses/s1/translate', {
+      source_language: 'fr',
+      target_language: 'ja',
+    });
+
+    deferreds[0].resolve({ data: { content: '<p>古い</p>', poll: { id: 'p1', options: [{ title: '古い' }] }, media_attachments: [{ id: 'm1', description: '古い' }] } });
+    await first;
+
+    expect(store.actions.filter(action => action.type === STATUS_TRANSLATE_SUCCESS)).toEqual([]);
+    expect(store.actions.filter(action => action.type === STATUS_TRANSLATE_FAIL)).toEqual([]);
+
+    deferreds[1].reject(new Error('nope'));
+    await second;
+
+    expect(store.actions.filter(action => action.type === STATUS_TRANSLATE_FAIL && action.skipAlert)).toEqual([]);
+    expect(store.actions.filter(action => action.type === STATUS_TRANSLATE_FAIL && !action.skipAlert)).toEqual([
+      expect.objectContaining({ translationRequestId: requestB }),
     ]);
   });
 });
