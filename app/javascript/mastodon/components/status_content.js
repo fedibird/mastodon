@@ -402,21 +402,8 @@ class StatusContent extends React.PureComponent {
 
     const translationView = statusTranslationView(status);
     const viewMode = pairMatchesRequest ? translationView.mode : 'original';
-    let sourceLang = pairMatchesRequest ? (translationView.sourceLang || status.get('language')) : (status.get('language') || '');
-    let targetLang = translationView.targetLang;
-
-    if (showResult) {
-      const requestedSource = status.getIn(['translation', 'requested_source_language']);
-      const requestedTarget = status.getIn(['translation', 'requested_target_language']);
-
-      if (typeof requestedSource === 'string' && requestedSource !== '') {
-        sourceLang = requestedSource;
-      }
-
-      if (typeof requestedTarget === 'string' && requestedTarget !== '') {
-        targetLang = requestedTarget;
-      }
-    }
+    const sourceLang = pairMatchesRequest ? (translationView.sourceLang || status.get('language') || '') : (status.get('language') || '');
+    const targetLang = translationView.targetLang;
     const sourceHtml = status.get('contentHtml');
     const targetHtml = status.getIn(['translation', 'contentHtml']);
     const sourceSpoilerHtml = status.get('spoilerHtml');
@@ -467,6 +454,7 @@ class StatusContent extends React.PureComponent {
         showResult={showResult}
         translationLanguages={this.props.languages}
         pairSupported={capability.pairSupported}
+        languagesKnown={capability.languagesKnown}
         statusTranslatable={capability.allowsRequest}
         canRequest={!!this.props.onTranslate}
         onSelect={this.handleTranslate}

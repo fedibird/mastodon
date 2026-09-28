@@ -129,6 +129,7 @@ export default class TranslationBar extends React.PureComponent {
     showResult: PropTypes.bool,
     translationLanguages: ImmutablePropTypes.map,
     pairSupported: PropTypes.bool,
+    languagesKnown: PropTypes.bool,
     statusTranslatable: PropTypes.bool,
     canRequest: PropTypes.bool,
     onSelect: PropTypes.func,
@@ -189,6 +190,7 @@ export default class TranslationBar extends React.PureComponent {
       showResult,
       translationLanguages,
       pairSupported,
+      languagesKnown,
       statusTranslatable,
       canRequest,
       onChangeSource,
@@ -202,7 +204,7 @@ export default class TranslationBar extends React.PureComponent {
     const sourceLanguages = sourceLanguageOptions(translationLanguages, viewerSource, preloadedLanguages, unspecifiedName);
     const targetLanguages = targetLanguageOptions(translationLanguages, viewerSource, viewerTarget, preloadedLanguages, unspecifiedName);
     const descriptionId = `translation-pair-${status ? status.get('id') : 'status'}`;
-    const showActions = !!canRequest && !!statusTranslatable && !showResult;
+    const showActions = !!canRequest && !!statusTranslatable && !!languagesKnown && !showResult;
     const unsupportedPair = showActions && !pairSupported;
     const preferred = preferredTranslationMode(preferredMode);
     const requestActions = preferred === 'bilingual' ? ['bilingual', 'translated'] : ['translated', 'bilingual'];

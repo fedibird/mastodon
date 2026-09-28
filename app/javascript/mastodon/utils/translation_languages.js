@@ -133,15 +133,18 @@ export const translationCapability = (status, viewerPair, translationLanguages, 
     visibilityAllowsTranslation &&
     (status.get('search_index') || '').trim().length > 0;
 
-  if (!allowsRequest) {
-    return { allowsRequest: false, pairSupported: false };
+  const languagesKnown = !!(translationLanguages && typeof translationLanguages.get === 'function');
+
+  if (!allowsRequest || !languagesKnown) {
+    return { allowsRequest, languagesKnown, pairSupported: false };
   }
 
   const resolved = translationSourceLanguage(viewerPair.source, translationLanguages);
-  const targets = translationLanguages?.get(resolved);
+  const targets = translationLanguages.get(resolved);
 
   return {
     allowsRequest: true,
+    languagesKnown: true,
     pairSupported: !!targets?.includes(viewerPair.target),
   };
 };

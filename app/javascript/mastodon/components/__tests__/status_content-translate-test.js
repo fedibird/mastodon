@@ -580,6 +580,50 @@ describe('StatusContent translation', () => {
     expect(screen.queryByRole('button', { name: 'Show less' })).toBeNull();
   });
 
+  it('keeps the language bar without an unsupported notice before languages load', () => {
+    const emptyStore = createStore(() => fromJS({
+      server: {
+        translationLanguages: {},
+      },
+    }));
+
+    render(
+      <Provider store={emptyStore}>
+        <StatusContent status={buildStatus()} onTranslate={jest.fn()} onClick={jest.fn()} />
+      </Provider>,
+    );
+
+    expect(document.querySelector('.status__translation-bar')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Source language, English' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Target language, 日本語' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Bilingual' })).toBeNull();
+    expect(screen.queryByText('This language pair is not supported.')).toBeNull();
+  });
+
+  it('uses the requested pair for content language and keeps detection as metadata', () => {
+    const { container } = renderStatus(buildStatus({
+      language: 'fr',
+      contentHtml: '<p>Hello</p>',
+      translationMode: 'bilingual',
+      translation: {
+        contentHtml: '<p>こんにちは</p>',
+        spoilerHtml: '',
+        language: 'de',
+        detected_source_language: 'en',
+        requested_source_language: 'fr',
+        requested_target_language: 'ja',
+        provider: 'DeepL',
+      },
+    }));
+    const pair = container.querySelector('.status-translation-pair');
+
+    expect(pair.querySelector('.status-translation-pair__source p').getAttribute('lang')).toBe('fr');
+    expect(pair.querySelector('.status-translation-pair__target p').getAttribute('lang')).toBe('ja');
+    expect(screen.getByRole('button', { name: 'Source language, Français' })).toBeTruthy();
+    expect(screen.getByText('Detected English')).toBeTruthy();
+  });
+
   it('hides the translation bar when the setting is off', () => {
     initialState.showTranslationBar = false;
     renderStatus(buildStatus());

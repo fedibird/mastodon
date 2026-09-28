@@ -57,11 +57,21 @@ export function normalizeRequestedMode(mode) {
   return mode === TRANSLATION_MODE_BILINGUAL ? TRANSLATION_MODE_BILINGUAL : TRANSLATION_MODE_TRANSLATED;
 }
 
+const requestedLanguage = (translation, key) => {
+  const value = translation && translation.get(key);
+  return typeof value === 'string' && value !== '' ? value : '';
+};
+
 export function statusTranslationView(status) {
   const translation = status && status.get('translation');
   const detected = translation && translation.get('detected_source_language');
-  const sourceLang = (typeof detected === 'string' && detected.trim()) ? detected.trim() : ((status && status.get('language')) || '');
-  const targetLang = (translation && translation.get('language')) || '';
+  const requestedSource = requestedLanguage(translation, 'requested_source_language');
+  const requestedTarget = requestedLanguage(translation, 'requested_target_language');
+  const hasRequestPair = requestedSource !== '' && requestedTarget !== '';
+  const legacySource = (typeof detected === 'string' && detected.trim()) ? detected.trim() : ((status && status.get('language')) || '');
+  const legacyTarget = (translation && translation.get('language')) || '';
+  const sourceLang = hasRequestPair ? requestedSource : legacySource;
+  const targetLang = hasRequestPair ? requestedTarget : legacyTarget;
   let mode = TRANSLATION_MODE_ORIGINAL;
 
   if (translation) {
