@@ -41,6 +41,19 @@ class Api::V1::Statuses::TranslationsController < Api::BaseController
   end
 
   def set_translation
-    @translation = TranslateStatusService.new.call(@status, content_locale)
+    explicit_source = params[:source_language].present?
+    explicit_target = params[:target_language].present?
+
+    @translation = if explicit_source || explicit_target
+                     TranslateStatusService.new.call(
+                       @status,
+                       explicit_target ? params[:target_language] : content_locale,
+                       source_language: params[:source_language],
+                       explicit_source: explicit_source,
+                       explicit_target: explicit_target
+                     )
+                   else
+                     TranslateStatusService.new.call(@status, content_locale)
+                   end
   end
 end

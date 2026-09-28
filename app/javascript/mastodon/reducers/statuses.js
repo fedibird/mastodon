@@ -143,11 +143,18 @@ const statusTranslateSetMode = (state, id, mode) => {
 };
 
 const statusTranslationAssumption = (state, id) => {
-  if (!state.getIn([id, 'translation'])) {
+  if (!state.get(id)) {
     return state;
   }
 
-  return state.setIn([id, 'translationMode'], 'original');
+  return state.withMutations(map => {
+    map.setIn([id, 'translationPending'], false);
+    map.deleteIn([id, 'translationRequestId']);
+
+    if (map.getIn([id, 'translation'])) {
+      map.setIn([id, 'translationMode'], 'original');
+    }
+  });
 };
 
 const statusTranslateUndo = (state, id) => {

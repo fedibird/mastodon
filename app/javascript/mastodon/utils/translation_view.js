@@ -36,6 +36,23 @@ export function sameLanguagePair(left, right) {
   return !!left && !!right && left.source === right.source && left.target === right.target;
 }
 
+export function translationRequestPair(status, locale) {
+  const translation = status && status.get('translation');
+
+  if (!translation || typeof translation.get !== 'function') {
+    return null;
+  }
+
+  const source = translation.get('requested_source_language');
+  const target = translation.get('requested_target_language');
+
+  if (typeof source === 'string' && source !== '' && typeof target === 'string' && target !== '') {
+    return { source, target };
+  }
+
+  return legacyTranslationPair(status, locale);
+}
+
 export function normalizeRequestedMode(mode) {
   return mode === TRANSLATION_MODE_BILINGUAL ? TRANSLATION_MODE_BILINGUAL : TRANSLATION_MODE_TRANSLATED;
 }

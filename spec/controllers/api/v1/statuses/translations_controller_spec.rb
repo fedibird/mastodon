@@ -180,6 +180,79 @@ RSpec.describe Api::V1::Statuses::TranslationsController, type: :controller do
       expect(response).to have_http_status(401)
     end
 
+    it 'keeps the legacy call when source and target are omitted' do
+      service = instance_double(TranslateStatusService, call: Translation.new(status: status, content: 'x', language: 'ja', provider: 'DeepL.com'))
+      allow(TranslateStatusService).to receive(:new).and_return(service)
+
+      post :create, params: { status_id: status.id }
+
+      expect(response).to have_http_status(200)
+      expect(service).to have_received(:call).with(status, 'ja')
+    end
+
+    it 'passes one or both explicit languages and leaves the other on the legacy path' do
+      service = instance_double(TranslateStatusService, call: Translation.new(status: status, content: 'x', language: 'de', provider: 'DeepL.com'))
+      allow(TranslateStatusService).to receive(:new).and_return(service)
+
+      post :create, params: { status_id: status.id, source_language: 'en', target_language: 'de' }
+      expect(service).to have_received(:call).with(status, 'de', source_language: 'en', explicit_source: true, explicit_target: true)
+
+      post :create, params: { status_id: status.id, target_language: 'de' }
+      expect(service).to have_received(:call).with(status, 'de', source_language: nil, explicit_source: false, explicit_target: true)
+
+      post :create, params: { status_id: status.id, source_language: 'zh-Hans' }
+      expect(service).to have_received(:call).with(status, 'ja', source_language: 'zh-Hans', explicit_source: true, explicit_target: false)
+    end
+
+    context 'with an explicit language pair' do
+      let(:backend) { instance_double(TranslationService::DeepL) }
+
+      before do
+        allow(TranslationService).to receive(:configured?).and_return(true)
+        allow(TranslationService).to receive(:configured).and_return(backend)
+        allow(backend).to receive(:private_content_allowed?).and_return(false)
+        allow(backend).to receive(:languages).and_return('en' => ['ja'], 'zh-Hans' => ['ja'], 'zh-Hant' => ['ja'], nil => ['ja'])
+        allow(backend).to receive(:translate) do |texts, source, _target|
+          texts.map do |text|
+            TranslationService::Translation.new(text: "JA #{text}", detected_source_language: source || 'en', provider: 'DeepL.com')
+          end
+        end
+        Rails.cache.clear
+      end
+
+      it 'translates und as provider auto detection and keeps exact Chinese script tags' do
+        post :create, params: { status_id: status.id, source_language: 'und', target_language: 'ja' }
+        expect(response).to have_http_status(200)
+        expect(backend).to have_received(:translate).with(anything, nil, 'ja')
+
+        post :create, params: { status_id: status.id, source_language: 'zh-Hant', target_language: 'ja' }
+        expect(response).to have_http_status(200)
+        expect(backend).to have_received(:translate).with(anything, 'zh-Hant', 'ja')
+        expect(status.reload.language).to eq 'en'
+      end
+
+      it 'returns 422 for an unsupported explicit pair' do
+        post :create, params: { status_id: status.id, source_language: 'fr', target_language: 'de' }
+
+        expect(response).to have_http_status(422)
+        expect(body_as_json[:error]).to eq 'This language pair is not supported by the translation service.'
+        expect(backend).not_to have_received(:translate)
+      end
+
+      it 'keeps hidden and private statuses unauthorized when languages are explicit' do
+        hidden = Fabricate(:status, visibility: :direct, text: 'Secret', language: 'en')
+        owned = Fabricate(:status, account: user.account, visibility: :private, text: 'Hello', language: 'en')
+
+        post :create, params: { status_id: hidden.id, source_language: 'en', target_language: 'ja' }
+        expect(response).to have_http_status(404)
+
+        post :create, params: { status_id: owned.id, source_language: 'en', target_language: 'ja' }
+        expect(response).to have_http_status(403)
+        expect(body_as_json[:error]).to eq 'This action is not allowed'
+        expect(backend).not_to have_received(:translate)
+      end
+    end
+
     it 'rejects an application-only token' do
       app_token = Fabricate(:accessible_access_token, resource_owner_id: nil, scopes: 'read:statuses')
       allow(controller).to receive(:doorkeeper_token).and_return(app_token)

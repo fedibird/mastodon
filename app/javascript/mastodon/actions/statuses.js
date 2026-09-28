@@ -1,4 +1,6 @@
 import api from '../api';
+import { locale as interfaceLocale } from '../initial_state';
+import { legacyTranslationPair, sameLanguagePair, viewerTranslationPair } from '../utils/translation_view';
 
 import { deleteFromTimelines, expireFromTimelines } from './timelines';
 import { fetchRelationshipsFromStatus, fetchRelationshipsFromStatuses } from './accounts';
@@ -565,15 +567,42 @@ const nextTranslationRequestId = () => {
   return `translation-${translationRequestSerial}`;
 };
 
+const translationValue = (translation, key) => {
+  if (!translation) {
+    return undefined;
+  }
+
+  if (typeof translation.get === 'function') {
+    return translation.get(key);
+  }
+
+  return translation[key];
+};
+
+const attachedTranslationPair = (status) => {
+  const translation = status.get('translation');
+  const source = translationValue(translation, 'requested_source_language');
+  const target = translationValue(translation, 'requested_target_language');
+
+  if (typeof source === 'string' && source !== '' && typeof target === 'string' && target !== '') {
+    return { source, target };
+  }
+
+  return legacyTranslationPair(status, interfaceLocale);
+};
+
 export const translateStatus = (id, mode = 'translated') => (dispatch, getState) => {
   const requestedMode = mode === 'bilingual' ? 'bilingual' : 'translated';
-  const status = getState().getIn(['statuses', id]);
+  const state = getState();
+  const status = state.getIn(['statuses', id]);
 
   if (status && status.get('translationPending')) {
     return Promise.resolve();
   }
 
-  if (status && status.get('translation')) {
+  const viewerPair = viewerTranslationPair(status, state.getIn(['translation_assumptions', id]), interfaceLocale);
+
+  if (status && status.get('translation') && sameLanguagePair(viewerPair, attachedTranslationPair(status))) {
     dispatch(setStatusTranslationMode(id, requestedMode));
     return Promise.resolve();
   }
@@ -584,17 +613,25 @@ export const translateStatus = (id, mode = 'translated') => (dispatch, getState)
 
   dispatch(translateStatusRequest(id, requestedMode, translationRequestId, pollId));
 
-  return api(getState).post(`/api/v1/statuses/${id}/translate`).then(response => {
+  return api(getState).post(`/api/v1/statuses/${id}/translate`, {
+    source_language: viewerPair.source,
+    target_language: viewerPair.target,
+  }).then(response => {
     if (!translationRequestIsCurrent()) {
       return;
     }
 
-    const state = getState();
-    const current = state.getIn(['statuses', id]);
-    const acct = current ? state.getIn(['accounts', current.get('account'), 'acct'], '') : '';
+    const currentState = getState();
+    const current = currentState.getIn(['statuses', id]);
+    const acct = current ? currentState.getIn(['accounts', current.get('account'), 'acct'], '') : '';
     const domain = acct.split('@')[1] || '';
+    const translation = {
+      ...response.data,
+      requested_source_language: viewerPair.source,
+      requested_target_language: viewerPair.target,
+    };
 
-    dispatch(translateStatusSuccess(id, response.data, domain, requestedMode, translationRequestId));
+    dispatch(translateStatusSuccess(id, translation, domain, requestedMode, translationRequestId));
   }).catch(error => {
     if (!translationRequestIsCurrent()) {
       dispatch(translateStatusFail(id, error, translationRequestId, pollId, true));

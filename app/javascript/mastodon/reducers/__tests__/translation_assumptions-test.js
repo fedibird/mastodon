@@ -51,6 +51,8 @@ describe('translation language-pair assumptions', () => {
     expect(next.getIn(['s1', 'language'])).toBe('en');
     expect(next.getIn(['s1', 'translationMode'])).toBe('original');
     expect(next.getIn(['s1', 'translation', 'provider'])).toBe('DeepL');
+    expect(next.getIn(['s1', 'translationPending'])).toBe(false);
+    expect(next.getIn(['s1', 'translationRequestId'])).toBeUndefined();
   });
 
   it('keeps the pair when the status is reimported and drops it when the status is removed', () => {

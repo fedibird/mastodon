@@ -754,7 +754,7 @@
   "status.translation_source_language": "Source language, {language}",
   "status.translation_target_language": "Target language, {language}",
   "status.translation_unspecified": "Unspecified",
-  "status.translation_custom_pair_unavailable": "This language pair cannot be translated yet.",
+  "status.translation_unsupported_pair": "This language pair is not supported.",
   "status.translation_detected_source": "Detected {language}",
   "status.translation_modes": "Translation display",
   "status.translated_from_with": "Translated from {lang} using {provider}",
