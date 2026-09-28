@@ -38,12 +38,15 @@ class TranslateStatusService < BaseService
   def source_language
     @source_language ||= begin
       language = @status.language
-      next language if languages.key?(language)
 
-      primary, region = language.to_s.split(/[-_]/, 2)
-      regional = region&.match?(/\A(?:[A-Za-z]{2}|\d{3})\z/)
+      if languages.key?(language)
+        language
+      else
+        primary, region = language.to_s.split(/[-_]/, 2)
+        regional = region&.match?(/\A(?:[A-Za-z]{2}|\d{3})\z/)
 
-      regional && languages.key?(primary) ? primary : language
+        regional && languages.key?(primary) ? primary : language
+      end
     end
   end
 
