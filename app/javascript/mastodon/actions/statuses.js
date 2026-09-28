@@ -51,6 +51,7 @@ export const STATUS_TRANSLATE_SUCCESS = 'STATUS_TRANSLATE_SUCCESS';
 export const STATUS_TRANSLATE_FAIL    = 'STATUS_TRANSLATE_FAIL';
 export const STATUS_TRANSLATE_UNDO    = 'STATUS_TRANSLATE_UNDO';
 export const STATUS_TRANSLATE_SET_MODE = 'STATUS_TRANSLATE_SET_MODE';
+export const STATUS_TRANSLATION_ASSUMPTION = 'STATUS_TRANSLATION_ASSUMPTION';
 
 export const REDRAFT = 'REDRAFT';
 
@@ -640,4 +641,11 @@ export const setStatusTranslationMode = (id, mode) => ({
   type: STATUS_TRANSLATE_SET_MODE,
   id,
   mode,
+});
+
+export const setStatusTranslationAssumption = (id, source, target) => ({
+  type: STATUS_TRANSLATION_ASSUMPTION,
+  id,
+  source,
+  target,
 });

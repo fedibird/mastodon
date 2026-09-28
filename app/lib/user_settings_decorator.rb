@@ -134,6 +134,7 @@ class UserSettingsDecorator
     enable_status_polling
     enable_status_polling_intersection
     disable_auto_focus_to_emoji_search
+    show_translation_bar
   ).freeze
 
   STRING_KEYS = %w(

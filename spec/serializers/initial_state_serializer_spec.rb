@@ -122,6 +122,35 @@ RSpec.describe InitialStateSerializer do
     end
   end
 
+  it 'follows the new-feature policy for the translation bar until the user saves a choice' do
+    user = Fabricate(:user)
+
+    expect(user.settings.show_translation_bar).to be_nil
+    expect(user.setting_new_features_policy).to eq 'default'
+    expect(user.setting_show_translation_bar).to be true
+    expect(serialize(user.account)[:meta][:show_translation_bar]).to be true
+
+    user.settings.new_features_policy = 'tester'
+    user.save!
+    expect(serialize(user.account)[:meta][:show_translation_bar]).to be true
+
+    user.settings.new_features_policy = 'conservative'
+    user.save!
+    expect(user.settings.show_translation_bar).to be_nil
+    expect(serialize(user.account)[:meta][:show_translation_bar]).to be false
+
+    user.settings.show_translation_bar = true
+    user.save!
+    expect(serialize(user.account)[:meta][:show_translation_bar]).to be true
+
+    user.settings.new_features_policy = 'default'
+    user.settings.show_translation_bar = false
+    user.save!
+    expect(user.settings.show_translation_bar).to be false
+    expect(serialize(user.account)[:meta][:show_translation_bar]).to be false
+    expect(serialize(nil)[:meta]).not_to have_key(:show_translation_bar)
+  end
+
   it 'exposes the translation display preference and defaults to translated' do
     user = Fabricate(:user)
     json = serialize(user.account)

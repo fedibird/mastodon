@@ -8,20 +8,16 @@ import classnames from 'classnames';
 import PollContainer from 'mastodon/containers/poll_container';
 import Icon from 'mastodon/components/icon';
 import BilingualContent from 'mastodon/components/bilingual_content';
-import { autoPlayEmoji, disableReactions, languages as preloadedLanguages, me, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
-import { preferredTranslationMode, statusTranslationView } from 'mastodon/utils/translation_view';
+import TranslationBar from 'mastodon/components/translation_bar';
+import { setStatusTranslationAssumption } from 'mastodon/actions/statuses';
+import { autoPlayEmoji, disableReactions, me, showTranslationBar, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
+import { legacyTranslationPair, normalizedContentLocale, sameLanguagePair, statusTranslationView, viewerTranslationPair } from 'mastodon/utils/translation_view';
 
 const messages = defineMessages({
   linkToAcct: { id: 'status.link_to_acct', defaultMessage: 'Link to @{acct}' },
   linkToCustomEmojiInLocal: { id: 'status.link_to_custom_emoji_in_local', defaultMessage: 'Link to :@{shortcode}:' },
   linkToCustomEmojiInRemote: { id: 'status.link_to_custom_emoji_in_remote', defaultMessage: 'Link to :@{shortcode}: in @{domain}' },
   postByAcct: { id: 'status.post_by_acct', defaultMessage: 'Post by @{acct}' },
-  translate: { id: 'status.translate', defaultMessage: 'Translate' },
-  bilingual: { id: 'status.bilingual', defaultMessage: 'Bilingual' },
-  original: { id: 'status.original', defaultMessage: 'Original' },
-  translated: { id: 'status.translated', defaultMessage: 'Translated' },
-  translationModes: { id: 'status.translation_modes', defaultMessage: 'Translation display' },
-  translationLanguages: { id: 'status.translation_languages', defaultMessage: '{source} → {target} · {provider}' },
 });
 
 const CHINESE_REGIONAL_SCRIPTS = {
@@ -87,106 +83,17 @@ const statusTranslationEligible = (status, { loggedIn, contentLocale, targetLang
     targetLanguages?.includes(contentLocale);
 };
 
-const languageLabel = code => {
-  if (!code) {
-    return '';
-  }
-
-  const language = (preloadedLanguages || []).find(lang => lang[0] === code);
-  return language ? language[2] : code;
-};
-
 const MAX_HEIGHT = 642; // 20px * 32 (+ 2px padding at the top)
 
-class TranslationControls extends React.PureComponent {
-
-  static propTypes = {
-    translation: ImmutablePropTypes.map,
-    mode: PropTypes.string,
-    pending: PropTypes.bool,
-    preferredMode: PropTypes.string,
-    sourceLang: PropTypes.string,
-    targetLang: PropTypes.string,
-    onSelect: PropTypes.func,
-    intl: PropTypes.object.isRequired,
-  };
-
-  handleClick = (event) => {
-    const mode = event.currentTarget.getAttribute('data-mode');
-
-    if (this.props.onSelect) {
-      this.props.onSelect(mode);
-    }
-  }
-
-  renderModeButton = (mode, label, pressed) => (
-    <button
-      key={mode}
-      type='button'
-      data-mode={mode}
-      className={classnames('status__translation-controls__mode', {
-        active: pressed,
-      })}
-      aria-pressed={pressed}
-      disabled={this.props.pending}
-      onClick={this.handleClick}
-    >
-      {label}
-    </button>
-  );
-
-  render () {
-    const { translation, mode, pending, preferredMode, sourceLang, targetLang, intl } = this.props;
-
-    if (translation) {
-      const sourceName = languageLabel(sourceLang);
-      const targetName = languageLabel(targetLang);
-      const provider = translation.get('provider');
-
-      return (
-        <div className='status__translation-controls status__translation-controls--loaded'>
-          <div className='status__translation-controls__meta'>
-            <FormattedMessage id='status.translation_languages' defaultMessage='{source} → {target} · {provider}' values={{ source: sourceName, target: targetName, provider }} />
-          </div>
-          <div className='status__translation-controls__modes' role='group' aria-label={intl.formatMessage(messages.translationModes)}>
-            {this.renderModeButton('original', intl.formatMessage(messages.original), mode === 'original')}
-            <span className='status__translation-controls__separator' aria-hidden='true'>|</span>
-            {this.renderModeButton('translated', intl.formatMessage(messages.translated), mode === 'translated')}
-            <span className='status__translation-controls__separator' aria-hidden='true'>|</span>
-            {this.renderModeButton('bilingual', intl.formatMessage(messages.bilingual), mode === 'bilingual')}
-          </div>
-        </div>
-      );
-    }
-
-    const preferred = preferredTranslationMode(preferredMode);
-    const actions = preferred === 'bilingual' ? ['bilingual', 'translated'] : ['translated', 'bilingual'];
-
-    return (
-      <div className='status__translation-controls'>
-        {actions.map(action => (
-          <button
-            key={action}
-            type='button'
-            data-mode={action}
-            className={classnames('status__content__translate-button', {
-              'status__content__translate-button--primary': action === preferred,
-              'status__content__translate-button--secondary': action !== preferred,
-            })}
-            disabled={pending}
-            onClick={this.handleClick}
-          >
-            {action === 'bilingual' ? intl.formatMessage(messages.bilingual) : intl.formatMessage(messages.translate)}
-          </button>
-        ))}
-      </div>
-    );
-  }
-
-}
-
-const mapStateToProps = state => ({
+const mapStateToProps = (state, ownProps) => ({
   languages: state.getIn(['server', 'translationLanguages', 'items']),
+  translationAssumption: state.getIn(['translation_assumptions', ownProps.status.get('id')]),
+});
+
+const mapDispatchToProps = dispatch => ({
+  onTranslationAssumption(id, source, target) {
+    dispatch(setStatusTranslationAssumption(id, source, target));
+  },
 });
 
 class StatusContent extends React.PureComponent {
@@ -207,6 +114,8 @@ class StatusContent extends React.PureComponent {
     onCollapsedToggle: PropTypes.func,
     quote: PropTypes.bool,
     languages: ImmutablePropTypes.map,
+    translationAssumption: ImmutablePropTypes.map,
+    onTranslationAssumption: PropTypes.func,
     intl: PropTypes.object.isRequired,
   };
 
@@ -441,8 +350,36 @@ class StatusContent extends React.PureComponent {
     this.startXY = null;
   }
 
+  viewerPair = () => viewerTranslationPair(this.props.status, this.props.translationAssumption, this.props.intl.locale);
+
+  legacyPair = () => legacyTranslationPair(this.props.status, this.props.intl.locale);
+
   handleTranslate = (mode) => {
+    if (!this.props.onTranslate) {
+      return;
+    }
+
+    if (mode !== 'original' && !sameLanguagePair(this.viewerPair(), this.legacyPair())) {
+      return;
+    }
+
     this.props.onTranslate(mode);
+  }
+
+  handleSourceLanguage = (source) => {
+    const pair = this.viewerPair();
+
+    if (this.props.onTranslationAssumption && source !== pair.source) {
+      this.props.onTranslationAssumption(this.props.status.get('id'), source, pair.target);
+    }
+  }
+
+  handleTargetLanguage = (target) => {
+    const pair = this.viewerPair();
+
+    if (this.props.onTranslationAssumption && target !== pair.target) {
+      this.props.onTranslationAssumption(this.props.status.get('id'), pair.source, target);
+    }
   }
 
   renderMainText (viewMode, sourceHtml, targetHtml, sourceLang, targetLang, visible = true) {
@@ -514,18 +451,22 @@ class StatusContent extends React.PureComponent {
       status.get('in_reply_to_id') && status.get('in_reply_to_account_id') === status.getIn(['account', 'id'])
     );
     const renderShowPoll = !!status.get('poll');
-    const contentLocale = (intl.locale || '').replace(/[_-].*/, '');
+    const contentLocale = normalizedContentLocale(intl.locale);
+    const legacyPair = this.legacyPair();
+    const viewerPair = this.viewerPair();
+    const pairMatchesLegacy = sameLanguagePair(viewerPair, legacyPair);
     const sourceLanguage = translationSourceLanguage(status.get('language') || 'und', this.props.languages);
     const targetLanguages = this.props.languages?.get(sourceLanguage);
-    const renderTranslate = this.props.onTranslate && statusTranslationEligible(status, {
+    const translationEligible = statusTranslationEligible(status, {
       loggedIn: !!me,
       contentLocale,
       targetLanguages,
       privateContentAllowed: translationPrivateContentAllowed,
     });
+    const showResult = !!status.get('translation') && pairMatchesLegacy;
 
     const translationView = statusTranslationView(status);
-    const viewMode = translationView.mode;
+    const viewMode = pairMatchesLegacy ? translationView.mode : 'original';
     const sourceLang = translationView.sourceLang || status.get('language');
     const targetLang = translationView.targetLang;
     const sourceHtml = status.get('contentHtml');
@@ -565,15 +506,23 @@ class StatusContent extends React.PureComponent {
     const mainText = this.renderMainText(viewMode, sourceHtml, targetHtml, sourceLang, targetLang, status.get('spoiler_text').length > 0 ? !hidden : true);
     const spoilerText = this.renderSpoilerText(viewMode, sourceSpoilerHtml, targetSpoilerHtml, sourceLang, targetLang);
 
-    const translateButton = renderTranslate && (
-      <TranslationControls
+    const translateButton = showTranslationBar && (
+      <TranslationBar
+        status={status}
         translation={status.get('translation')}
         mode={viewMode}
         pending={translationView.pending}
         preferredMode={preferredMode}
-        sourceLang={sourceLang}
-        targetLang={targetLang}
+        viewerSource={viewerPair.source}
+        viewerTarget={viewerPair.target}
+        detectedSource={showResult ? (status.getIn(['translation', 'detected_source_language']) || '') : ''}
+        showResult={showResult}
+        translationEligible={translationEligible}
+        canRequest={!!this.props.onTranslate}
+        pairMatchesLegacy={pairMatchesLegacy}
         onSelect={this.handleTranslate}
+        onChangeSource={this.handleSourceLanguage}
+        onChangeTarget={this.handleTargetLanguage}
         intl={intl}
       />
     );
@@ -644,4 +593,4 @@ class StatusContent extends React.PureComponent {
 
 }
 
-export default injectIntl(connect(mapStateToProps)(StatusContent));
+export default injectIntl(connect(mapStateToProps, mapDispatchToProps)(StatusContent));

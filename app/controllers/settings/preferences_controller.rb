@@ -55,6 +55,8 @@ class Settings::PreferencesController < Settings::BaseController
       :setting_auto_play_header,
       :setting_auto_play_media,
       :setting_display_media,
+      :setting_translation_preferred_mode,
+      :setting_show_translation_bar,
       :setting_expand_spoilers,
       :setting_reduce_motion,
       :setting_disable_swiping,
