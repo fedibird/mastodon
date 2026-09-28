@@ -161,6 +161,113 @@ RSpec.describe TranslateStatusService do
     expect(backend).not_to have_received(:translate)
   end
 
+  def chinese_script_languages
+    { 'zh-Hans' => ['ja'], 'zh-Hant' => ['ja'], nil => ['ja'] }
+  end
+
+  it 'uses provider auto detection for bare zh when only Chinese script tags are available' do
+    chinese = Fabricate(:status, account: account, text: '你好', language: 'zh', visibility: :public)
+    allow(backend).to receive(:languages).and_return(chinese_script_languages)
+
+    described_class.new.call(chinese, 'ja')
+
+    expect(backend).to have_received(:translate).with(anything, nil, 'ja')
+  end
+
+  it 'maps zh-CN to zh-Hans when the provider exposes that script tag' do
+    regional = Fabricate(:status, account: account, text: '你好', language: 'zh-CN', visibility: :public)
+    allow(backend).to receive(:languages).and_return(chinese_script_languages.merge('zh' => ['ja']))
+
+    described_class.new.call(regional, 'ja')
+
+    expect(backend).to have_received(:translate).with(anything, 'zh-Hans', 'ja')
+  end
+
+  it 'maps zh-TW to zh-Hant when the provider exposes that script tag' do
+    regional = Fabricate(:status, account: account, text: '你好', language: 'zh-TW', visibility: :public)
+    allow(backend).to receive(:languages).and_return(chinese_script_languages.merge('zh' => ['ja']))
+
+    described_class.new.call(regional, 'ja')
+
+    expect(backend).to have_received(:translate).with(anything, 'zh-Hant', 'ja')
+  end
+
+  it 'maps the other Chinese region tags onto the matching script tag' do
+    received_sources = []
+    allow(backend).to receive(:languages).and_return(chinese_script_languages)
+    allow(backend).to receive(:translate) do |texts, source, _target|
+      received_sources << source
+      texts.map { |text| TranslationService::Translation.new(text: "JA #{text}", detected_source_language: 'zh', provider: 'LibreTranslate') }
+    end
+
+    mappings = {
+      'zh-SG' => 'zh-Hans',
+      'zh-HK' => 'zh-Hant',
+      'zh-MO' => 'zh-Hant',
+      'zh-cn' => 'zh-Hans',
+      'zh_TW' => 'zh-Hant',
+      'zh-hans' => 'zh-Hans',
+      'ZH-HANT' => 'zh-Hant',
+    }
+
+    mappings.each_key do |status_language|
+      regional = Fabricate(:status, account: account, text: "你好 #{status_language}", language: status_language, visibility: :public)
+      described_class.new.call(regional, 'ja')
+    end
+
+    expect(received_sources).to eq mappings.values
+  end
+
+  it 'keeps an exact zh provider key instead of auto detection' do
+    chinese = Fabricate(:status, account: account, text: '你好', language: 'zh', visibility: :public)
+    allow(backend).to receive(:languages).and_return(chinese_script_languages.merge('zh' => ['ja']))
+
+    described_class.new.call(chinese, 'ja')
+
+    expect(backend).to have_received(:translate).with(anything, 'zh', 'ja')
+  end
+
+  it 'does not collapse zh-YUE into a Chinese script tag or auto detection' do
+    cantonese = Fabricate(:status, account: account, text: '你好', language: 'zh-YUE', visibility: :public)
+    allow(backend).to receive(:languages).and_return(chinese_script_languages)
+
+    expect { described_class.new.call(cantonese, 'ja') }.to raise_error(Mastodon::NotPermittedError)
+    expect(backend).not_to have_received(:translate)
+  end
+
+  it 'does not auto-detect bare zh when the provider has no Chinese script tags' do
+    chinese = Fabricate(:status, account: account, text: '你好', language: 'zh', visibility: :public)
+    allow(backend).to receive(:languages).and_return('en' => ['ja'], nil => ['ja'])
+
+    expect { described_class.new.call(chinese, 'ja') }.to raise_error(Mastodon::NotPermittedError)
+    expect(backend).not_to have_received(:translate)
+  end
+
+  it 'does not force a Chinese region alias or auto detection when the script tag is missing' do
+    regional = Fabricate(:status, account: account, text: '你好', language: 'zh-CN', visibility: :public)
+    allow(backend).to receive(:languages).and_return('zh-Hant' => ['ja'], nil => ['ja'])
+
+    expect { described_class.new.call(regional, 'ja') }.to raise_error(Mastodon::NotPermittedError)
+    expect(backend).not_to have_received(:translate)
+  end
+
+  it 'memoizes a nil source language so auto detection is not resolved again' do
+    chinese = Fabricate(:status, account: account, text: '你好', language: 'zh', visibility: :public)
+    allow(backend).to receive(:languages).and_return(chinese_script_languages)
+    service = described_class.new
+    service.instance_variable_set(:@status, chinese)
+    resolutions = 0
+    allow(service).to receive(:resolved_source_language).and_wrap_original do |method, *args|
+      resolutions += 1
+      method.call(*args)
+    end
+
+    2.times { expect(service.send(:source_language)).to be_nil }
+
+    expect(resolutions).to eq 1
+    expect(service.instance_variable_defined?(:@source_language)).to be true
+  end
+
   it 'refuses an unsupported language pair' do
     expect { described_class.new.call(status, 'de') }.to raise_error(Mastodon::NotPermittedError)
     expect(backend).not_to have_received(:translate)

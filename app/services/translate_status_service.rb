@@ -2,6 +2,14 @@
 
 class TranslateStatusService < BaseService
   CACHE_TTL = 1.day.freeze
+  CHINESE_REGIONAL_SCRIPTS = {
+    'zh-cn' => 'zh-Hans',
+    'zh-sg' => 'zh-Hans',
+    'zh-tw' => 'zh-Hant',
+    'zh-hk' => 'zh-Hant',
+    'zh-mo' => 'zh-Hant',
+  }.freeze
+  CHINESE_SCRIPT_TAGS = %w(zh-Hans zh-Hant).freeze
 
   include ERB::Util
 
@@ -35,19 +43,51 @@ class TranslateStatusService < BaseService
     languages[source_language]&.include?(@target_language)
   end
 
+  # nil is a successful resolution: it asks the provider to auto-detect.
+  # ||= would treat that nil as unresolved and evaluate this again.
   def source_language
-    @source_language ||= begin
-      language = @status.language
+    return @source_language if instance_variable_defined?(:@source_language)
 
-      if languages.key?(language)
-        language
-      else
-        primary, region = language.to_s.split(/[-_]/, 2)
-        regional = region&.match?(/\A(?:[A-Za-z]{2}|\d{3})\z/)
+    @source_language = resolved_source_language
+  end
 
-        regional && languages.key?(primary) ? primary : language
-      end
-    end
+  def resolved_source_language
+    language = @status.language
+    return language if languages.key?(language)
+
+    normalized = normalized_language_tag(language)
+    return resolved_bare_chinese(language) if normalized == 'zh'
+
+    script = provider_chinese_script(normalized) || CHINESE_REGIONAL_SCRIPTS[normalized]
+    return script if script && languages.key?(script)
+
+    regional_primary_language(language)
+  end
+
+  def resolved_bare_chinese(language)
+    return 'zh' if languages.key?('zh')
+    return nil if chinese_auto_detection_available?
+
+    language
+  end
+
+  def chinese_auto_detection_available?
+    languages.key?(nil) && CHINESE_SCRIPT_TAGS.any? { |tag| languages.key?(tag) }
+  end
+
+  def provider_chinese_script(normalized)
+    CHINESE_SCRIPT_TAGS.find { |tag| tag.downcase == normalized }
+  end
+
+  def normalized_language_tag(language)
+    language.to_s.tr('_', '-').downcase
+  end
+
+  def regional_primary_language(language)
+    primary, region = language.to_s.split(/[-_]/, 2)
+    regional = region&.match?(/\A(?:[A-Za-z]{2}|\d{3})\z/)
+
+    regional && languages.key?(primary) ? primary : language
   end
 
   def languages
