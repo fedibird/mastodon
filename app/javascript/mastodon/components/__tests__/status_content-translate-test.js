@@ -55,6 +55,7 @@ const store = createStore(() => fromJS({
     translationLanguages: {
       items: {
         en: ['ja'],
+        zh: ['ja'],
         und: ['ja'],
       },
     },
@@ -93,6 +94,19 @@ describe('StatusContent translation', () => {
 
     expect(screen.getByRole('button', { name: 'Translate' })).toBeTruthy();
   });
+
+  it('falls back from a regional source language to the provider primary language', () => {
+    renderStatus(buildStatus({ language: 'zh-CN', contentHtml: '<p>你好</p>', search_index: '你好' }));
+
+    expect(screen.getByRole('button', { name: 'Translate' })).toBeTruthy();
+  });
+
+  it('does not collapse a non-region source subtag into the primary language', () => {
+    renderStatus(buildStatus({ language: 'zh-YUE', contentHtml: '<p>你好</p>', search_index: '你好' }));
+
+    expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+  });
+
 
   it('shows Translate for unlisted posts and hides it for private, direct, empty, and unsupported posts', () => {
     const { rerender } = renderStatus(buildStatus({ visibility: 'unlisted' }));

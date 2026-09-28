@@ -144,6 +144,23 @@ RSpec.describe TranslateStatusService do
     expect(backend).to have_received(:translate).twice
   end
 
+  it 'falls back from a regional source language to the provider primary language' do
+    regional = Fabricate(:status, account: account, text: '你好', language: 'zh-CN', visibility: :public)
+    allow(backend).to receive(:languages).and_return('en' => ['ja'], 'zh' => ['ja'], nil => ['ja'])
+
+    described_class.new.call(regional, 'ja')
+
+    expect(backend).to have_received(:translate).with(anything, 'zh', 'ja')
+  end
+
+  it 'does not collapse a non-region source subtag into the primary language' do
+    cantonese = Fabricate(:status, account: account, text: '你好', language: 'zh-YUE', visibility: :public)
+    allow(backend).to receive(:languages).and_return('en' => ['ja'], 'zh' => ['ja'], nil => ['ja'])
+
+    expect { described_class.new.call(cantonese, 'ja') }.to raise_error(Mastodon::NotPermittedError)
+    expect(backend).not_to have_received(:translate)
+  end
+
   it 'refuses an unsupported language pair' do
     expect { described_class.new.call(status, 'de') }.to raise_error(Mastodon::NotPermittedError)
     expect(backend).not_to have_received(:translate)
