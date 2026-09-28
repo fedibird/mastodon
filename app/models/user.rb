@@ -303,6 +303,15 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
     valid_locale_cascade(setting_default_language, locale, I18n.locale)
   end
 
+  # A saved true/false overrides new_features_policy. nil means the user has not chosen,
+  # so a static false default must not be used for this setting.
+  def setting_show_translation_bar
+    stored = settings.show_translation_bar
+    return ActiveModel::Type::Boolean.new.cast(stored) unless stored.nil?
+
+    setting_new_features_policy.to_s != 'conservative'
+  end
+
   def allows_digest_emails?
     settings.notification_emails['digest']
   end

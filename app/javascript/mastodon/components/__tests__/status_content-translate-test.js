@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { fromJS } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
@@ -11,11 +11,17 @@ jest.mock('mastodon/initial_state', () => ({
   autoPlayEmoji: false,
   disableReactions: false,
   translationPrivateContentAllowed: false,
+  showTranslationBar: true,
   languages: [
     ['en', 'English', 'English'],
     ['ja', 'Japanese', '日本語'],
+    ['fr', 'French', 'Français'],
   ],
 }));
+
+jest.mock('react-overlays/Overlay', () => {
+  return ({ show, children }) => (show ? children({ props: { style: {} }, placement: 'bottom' }) : null);
+});
 
 const initialState = jest.requireMock('mastodon/initial_state');
 
@@ -47,7 +53,12 @@ jest.mock('mastodon/containers/poll_container', () => () => null);
 jest.mock('../permalink', () => ({ children }) => <span>{children}</span>);
 jest.mock('mastodon/components/icon', () => () => null);
 
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
+
 import { normalizeStatus, normalizeStatusTranslation } from '../../actions/importer/normalizer';
+import statusesReducer from '../../reducers/statuses';
+import translationAssumptions from '../../reducers/translation_assumptions';
 import StatusContent from '../status_content';
 
 const createTranslationStore = items => createStore(() => fromJS({
@@ -91,10 +102,27 @@ const renderStatus = (status, props = {}, languages) => render(
 
 const NON_PUBLIC_VISIBILITIES = ['private', 'direct', 'limited', 'mutual', 'personal'];
 
+const interactiveReducer = (state = fromJS({
+  server: {
+    translationLanguages: {
+      items: {
+        en: ['ja'],
+        fr: ['ja'],
+        und: ['ja'],
+      },
+    },
+  },
+  statuses: {},
+  translation_assumptions: {},
+}), action) => state
+  .set('statuses', statusesReducer(state.get('statuses'), action))
+  .set('translation_assumptions', translationAssumptions(state.get('translation_assumptions'), action));
+
 describe('StatusContent translation', () => {
   beforeEach(() => {
     initialState.me = '1';
     initialState.translationPrivateContentAllowed = false;
+    initialState.showTranslationBar = true;
   });
 
   it('shows Translate for a public post whose language can be translated', () => {
@@ -309,7 +337,9 @@ describe('StatusContent translation', () => {
 
     expect(container.querySelector('.status__content__text').innerHTML).toContain('こんにちは');
     expect(container.querySelector('.translate').innerHTML).toContain('秘密');
-    expect(screen.getByText('English → 日本語 · DeepL')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Source language, English' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Target language, 日本語' })).toBeTruthy();
+    expect(screen.getByText('· DeepL')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Translated', pressed: true })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Original' }));
     expect(onTranslate).toHaveBeenCalledWith('original');
@@ -542,5 +572,138 @@ describe('StatusContent translation', () => {
     expect(spoiler.querySelector('.status-translation-pair__target').getAttribute('lang')).toBe('ja');
     expect(screen.getAllByRole('button', { name: 'Show more' })).toHaveLength(1);
     expect(screen.queryByRole('button', { name: 'Show less' })).toBeNull();
+  });
+
+  it('hides the translation bar when the setting is off', () => {
+    initialState.showTranslationBar = false;
+    renderStatus(buildStatus());
+
+    expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Source language/ })).toBeNull();
+    expect(document.querySelector('.status__translation-bar')).toBeNull();
+  });
+
+  it('shows the status language and the UI language before translation', () => {
+    renderStatus(buildStatus());
+
+    expect(screen.getByRole('button', { name: 'Source language, English' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Target language, 日本語' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Translate' })).toBeTruthy();
+  });
+
+  it('shows Unspecified for a missing status language and opens the source picker', () => {
+    renderStatus(buildStatus({ language: null }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Source language, Unspecified' }));
+
+    expect(screen.getByRole('listbox')).toBeTruthy();
+    expect(screen.getByRole('option', { name: /Unspecified/ })).toBeTruthy();
+  });
+
+  it('returns focus to the language button after closing the picker', async () => {
+    renderStatus(buildStatus());
+    const button = screen.getByRole('button', { name: 'Source language, English' });
+
+    button.focus();
+    fireEvent.click(button);
+
+    const search = screen.getByPlaceholderText('Search languages...');
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(search);
+    });
+
+    fireEvent.keyDown(search, { key: 'Escape' });
+
+    expect(document.activeElement).toBe(button);
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('keeps status.language unchanged and does not request a custom pair', () => {
+    const onTranslate = jest.fn();
+    const status = buildStatus();
+    const store = createStore(interactiveReducer, fromJS({
+      server: {
+        translationLanguages: {
+          items: { en: ['ja'], fr: ['ja'], und: ['ja'] },
+        },
+      },
+      statuses: {},
+      translation_assumptions: {},
+    }).setIn(['statuses', 's1'], status));
+
+    const { container } = render(
+      <Provider store={store}>
+        <StatusContent status={status} onTranslate={onTranslate} onClick={jest.fn()} />
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Source language, English' }));
+    fireEvent.click(screen.getByRole('option', { name: /French/ }));
+
+    const translate = screen.getByRole('button', { name: 'Translate' });
+    expect(translate).toBeDisabled();
+    expect(screen.getByText('This language pair cannot be translated yet.')).toBeTruthy();
+    fireEvent.click(translate);
+
+    expect(onTranslate).not.toHaveBeenCalled();
+    expect(status.get('language')).toBe('en');
+    expect(store.getState().getIn(['statuses', 's1', 'language'])).toBe('en');
+    expect(store.getState().getIn(['translation_assumptions', 's1', 'source'])).toBe('fr');
+    expect(store.getState().getIn(['translation_assumptions', 's1', 'target'])).toBe('ja');
+    expect(container.querySelector('.status__content__text').textContent).toContain('Hello');
+  });
+
+  it('returns a loaded translation to the original text when the viewer pair changes', () => {
+    const onTranslate = jest.fn();
+    const status = buildStatus({
+      translationMode: 'translated',
+      translation: {
+        contentHtml: '<p>こんにちは</p>',
+        spoilerHtml: '',
+        language: 'ja',
+        detected_source_language: 'en',
+        provider: 'DeepL',
+      },
+    });
+    const store = createStore(interactiveReducer, fromJS({
+      server: {
+        translationLanguages: {
+          items: { en: ['ja'], fr: ['ja'], und: ['ja'] },
+        },
+      },
+      statuses: {},
+      translation_assumptions: {},
+    }).setIn(['statuses', 's1'], status));
+
+    const { container } = render(
+      <Provider store={store}>
+        <StatusContent status={status} onTranslate={onTranslate} onClick={jest.fn()} />
+      </Provider>,
+    );
+
+    expect(container.querySelector('.status__content__text').innerHTML).toContain('こんにちは');
+    expect(screen.getByText('· DeepL')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Source language, English' }));
+    fireEvent.click(screen.getByRole('option', { name: /French/ }));
+
+    expect(onTranslate).not.toHaveBeenCalled();
+    expect(container.querySelector('.status__content__text').innerHTML).toContain('Hello');
+    expect(screen.queryByText('· DeepL')).toBeNull();
+    expect(store.getState().getIn(['statuses', 's1', 'language'])).toBe('en');
+    expect(store.getState().getIn(['statuses', 's1', 'translationMode'])).toBe('original');
+    expect(store.getState().getIn(['statuses', 's1', 'translation', 'provider'])).toBe('DeepL');
+    expect(screen.getByRole('button', { name: 'Translate' })).toBeDisabled();
+  });
+
+  it('wraps the translation bar instead of overlapping status content', () => {
+    const css = readFileSync(resolve('app/javascript/styles/mastodon/components.scss'), 'utf8');
+    const block = css.match(/\.status__translation-bar \{[^}]+\}/)[0];
+
+    expect(block).toContain('display: flex');
+    expect(block).toContain('flex-wrap: wrap');
+    expect(block).not.toContain('position: absolute');
+    expect(block).not.toContain('position: fixed');
   });
 });

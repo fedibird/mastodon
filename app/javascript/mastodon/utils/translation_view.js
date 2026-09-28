@@ -12,6 +12,30 @@ export function preferredTranslationMode(value) {
   return value === TRANSLATION_MODE_BILINGUAL ? TRANSLATION_MODE_BILINGUAL : TRANSLATION_MODE_TRANSLATED;
 }
 
+export function normalizedContentLocale(locale) {
+  return (locale || '').replace(/[_-].*/, '');
+}
+
+export function legacyTranslationPair(status, locale) {
+  return {
+    source: (status && status.get('language')) || 'und',
+    target: normalizedContentLocale(locale),
+  };
+}
+
+export function viewerTranslationPair(status, assumption, locale) {
+  const legacy = legacyTranslationPair(status, locale);
+
+  return {
+    source: (assumption && assumption.get('source')) || legacy.source,
+    target: (assumption && assumption.get('target')) || legacy.target,
+  };
+}
+
+export function sameLanguagePair(left, right) {
+  return !!left && !!right && left.source === right.source && left.target === right.target;
+}
+
 export function normalizeRequestedMode(mode) {
   return mode === TRANSLATION_MODE_BILINGUAL ? TRANSLATION_MODE_BILINGUAL : TRANSLATION_MODE_TRANSLATED;
 }

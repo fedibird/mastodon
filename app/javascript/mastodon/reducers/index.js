@@ -10,6 +10,7 @@ import domain_lists from './domain_lists';
 import accounts from './accounts';
 import accounts_counters from './accounts_counters';
 import statuses from './statuses';
+import translation_assumptions from './translation_assumptions';
 import scheduled_statuses from './scheduled_statuses';
 import processing_statuses from './processing_statuses';
 import intersection_statuses from './intersection_statuses';
@@ -65,6 +66,7 @@ const reducers = {
   accounts,
   accounts_counters,
   statuses,
+  translation_assumptions,
   scheduled_statuses,
   processing_statuses,
   intersection_statuses,

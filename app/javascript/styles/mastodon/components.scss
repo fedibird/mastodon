@@ -1136,6 +1136,64 @@ body > [data-popper-placement] {
   }
 }
 
+.status__translation-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  column-gap: 12px;
+  row-gap: 4px;
+  margin-block-start: 16px;
+  max-width: 100%;
+  font-size: 15px;
+  line-height: 22px;
+  color: $dark-text-color;
+}
+
+.status__translation-bar__languages,
+.status__translation-bar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 6px;
+  row-gap: 2px;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+.status__translation-bar__language {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font: inherit;
+  line-height: inherit;
+  cursor: pointer;
+
+  &:hover,
+  &:focus {
+    text-decoration: underline;
+  }
+
+  &:focus-visible {
+    outline: 2px solid $ui-highlight-color;
+    outline-offset: 2px;
+  }
+}
+
+.status__translation-bar__arrow,
+.status__translation-bar__provider {
+  color: $dark-text-color;
+}
+
+.status__translation-bar__note {
+  flex-basis: 100%;
+  margin: 0;
+  color: $dark-text-color;
+  font-size: 13px;
+  line-height: 18px;
+}
+
 .status__translation-controls {
   display: flex;
   flex-wrap: wrap;
@@ -1206,8 +1264,10 @@ body > [data-popper-placement] {
   line-height: 1.45;
 }
 
-.quote-status .status__translation-controls {
+.quote-status .status__translation-controls,
+.quote-status .status__translation-bar {
   margin-top: 8px;
+  margin-block-start: 8px;
 }
 
 .translate-button {

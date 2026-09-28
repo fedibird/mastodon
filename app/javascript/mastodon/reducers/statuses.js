@@ -28,6 +28,7 @@ import {
   STATUS_TRANSLATE_REQUEST,
   STATUS_TRANSLATE_FAIL,
   STATUS_TRANSLATE_SET_MODE,
+  STATUS_TRANSLATION_ASSUMPTION,
 } from '../actions/statuses';
 import { TIMELINE_DELETE } from '../actions/timelines';
 import { STATUS_IMPORT, STATUSES_IMPORT } from '../actions/importer';
@@ -141,6 +142,14 @@ const statusTranslateSetMode = (state, id, mode) => {
   return state.setIn([id, 'translationMode'], mode);
 };
 
+const statusTranslationAssumption = (state, id) => {
+  if (!state.getIn([id, 'translation'])) {
+    return state;
+  }
+
+  return state.setIn([id, 'translationMode'], 'original');
+};
+
 const statusTranslateUndo = (state, id) => {
   if (!state.get(id)) {
     return state;
@@ -240,6 +249,8 @@ export default function statuses(state = initialState, action) {
     return statusTranslateSetMode(state, action.id, action.mode);
   case STATUS_TRANSLATE_UNDO:
     return statusTranslateUndo(state, action.id);
+  case STATUS_TRANSLATION_ASSUMPTION:
+    return statusTranslationAssumption(state, action.id);
   default:
     return state;
   }

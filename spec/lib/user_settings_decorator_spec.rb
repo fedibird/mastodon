@@ -133,6 +133,19 @@ describe UserSettingsDecorator do
       expect(user.settings['system_font_ui']).to eq false
     end
 
+    it 'saves an explicit translation bar choice separately from the policy default' do
+      user.settings.new_features_policy = 'conservative'
+      user.save!
+
+      settings.update({ 'setting_show_translation_bar' => '1' })
+      expect(user.settings.show_translation_bar).to be true
+      expect(user.setting_show_translation_bar).to be true
+
+      settings.update({ 'setting_show_translation_bar' => '0' })
+      expect(user.settings.show_translation_bar).to be false
+      expect(user.setting_show_translation_bar).to be false
+    end
+
     it 'decoerces setting values before applying' do
       values = {
         'setting_delete_modal' => 'false',
