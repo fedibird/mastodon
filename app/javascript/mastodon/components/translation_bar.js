@@ -216,7 +216,9 @@ export default class TranslationBar extends React.PureComponent {
     const preferred = preferredTranslationMode(preferredMode);
     const requestActions = preferred === 'bilingual' ? ['bilingual', 'translated'] : ['translated', 'bilingual'];
     const provider = showResult ? translation?.get('provider') : null;
-    const detectedName = showResult && detectedSource ? languageName(detectedSource, intl) : '';
+    const detectedCode = (detectedSource || '').trim();
+    const detectedDiffers = showResult && detectedCode !== '' && detectedCode !== viewerSource;
+    const detectedName = detectedDiffers ? languageName(detectedCode, intl) : '';
 
     return (
       <div className='status__translation-bar status__translation-controls'>

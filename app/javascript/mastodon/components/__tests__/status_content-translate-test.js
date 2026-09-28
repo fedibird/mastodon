@@ -339,7 +339,7 @@ describe('StatusContent translation', () => {
     expect(container.querySelector('.translate').innerHTML).toContain('秘密');
     expect(screen.getByRole('button', { name: 'Source language, English' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Target language, 日本語' })).toBeTruthy();
-    expect(screen.getByText('Detected English')).toBeTruthy();
+    expect(screen.queryByText('Detected English')).toBeNull();
     expect(screen.getByText('· DeepL')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Translated', pressed: true })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Original' }));
