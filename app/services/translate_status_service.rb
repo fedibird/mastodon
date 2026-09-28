@@ -13,7 +13,7 @@ class TranslateStatusService < BaseService
     raise Mastodon::NotPermittedError unless permitted?
 
     status_translation = Rails.cache.fetch("v2:translations/#{@status.language}/#{@target_language}/#{content_hash}", expires_in: CACHE_TTL) do
-      translations = translation_backend.translate(@source_texts.values, @status.language, @target_language)
+      translations = translation_backend.translate(@source_texts.values, source_language, @target_language)
       build_status_translation(translations)
     end
 
@@ -32,7 +32,19 @@ class TranslateStatusService < BaseService
     return false unless TranslationService.configured?
     return false unless @status.distributable? || translation_backend.private_content_allowed?
 
-    languages[@status.language]&.include?(@target_language)
+    languages[source_language]&.include?(@target_language)
+  end
+
+  def source_language
+    @source_language ||= begin
+      language = @status.language
+      next language if languages.key?(language)
+
+      primary, region = language.to_s.split(/[-_]/, 2)
+      regional = region&.match?(/\A(?:[A-Za-z]{2}|\d{3})\z/)
+
+      regional && languages.key?(primary) ? primary : language
+    end
   end
 
   def languages
