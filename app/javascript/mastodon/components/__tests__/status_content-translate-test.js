@@ -50,17 +50,25 @@ jest.mock('mastodon/components/icon', () => () => null);
 import { normalizeStatus, normalizeStatusTranslation } from '../../actions/importer/normalizer';
 import StatusContent from '../status_content';
 
-const store = createStore(() => fromJS({
+const createTranslationStore = items => createStore(() => fromJS({
   server: {
     translationLanguages: {
-      items: {
-        en: ['ja'],
-        zh: ['ja'],
-        und: ['ja'],
-      },
+      items,
     },
   },
 }));
+
+const store = createTranslationStore({
+  en: ['ja'],
+  zh: ['ja'],
+  und: ['ja'],
+});
+
+const CHINESE_SCRIPT_LANGUAGES = {
+  'zh-Hans': ['ja'],
+  'zh-Hant': ['ja'],
+  und: ['ja'],
+};
 
 const buildStatus = (overrides = {}) => fromJS({
   id: 's1',
@@ -75,8 +83,8 @@ const buildStatus = (overrides = {}) => fromJS({
   ...overrides,
 });
 
-const renderStatus = (status, props = {}) => render(
-  <Provider store={store}>
+const renderStatus = (status, props = {}, languages) => render(
+  <Provider store={languages ? createTranslationStore(languages) : store}>
     <StatusContent status={status} onTranslate={jest.fn()} onClick={jest.fn()} {...props} />
   </Provider>,
 );
@@ -105,6 +113,92 @@ describe('StatusContent translation', () => {
     renderStatus(buildStatus({ language: 'zh-YUE', contentHtml: '<p>你好</p>', search_index: '你好' }));
 
     expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+  });
+
+  describe('Chinese script provider languages', () => {
+    const chineseStatus = language => buildStatus({
+      language,
+      contentHtml: '<p>你好</p>',
+      search_index: '你好',
+    });
+
+    it('shows Translate for bare zh by using the und auto-detection capability', () => {
+      renderStatus(chineseStatus('zh'), {}, CHINESE_SCRIPT_LANGUAGES);
+
+      expect(screen.getByRole('button', { name: 'Translate' })).toBeTruthy();
+    });
+
+    it('shows Translate for zh-CN by using zh-Hans', () => {
+      renderStatus(chineseStatus('zh-CN'), {}, CHINESE_SCRIPT_LANGUAGES);
+
+      expect(screen.getByRole('button', { name: 'Translate' })).toBeTruthy();
+    });
+
+    it('shows Translate for zh-TW by using zh-Hant', () => {
+      renderStatus(chineseStatus('zh-TW'), {}, CHINESE_SCRIPT_LANGUAGES);
+
+      expect(screen.getByRole('button', { name: 'Translate' })).toBeTruthy();
+    });
+
+    it('shows Translate for the other Chinese region tags', () => {
+      ['zh-SG', 'zh-HK', 'zh-MO', 'zh-cn', 'zh_TW', 'zh-hans', 'ZH-HANT'].forEach(language => {
+        const { unmount } = renderStatus(chineseStatus(language), {}, CHINESE_SCRIPT_LANGUAGES);
+
+        expect(screen.getByRole('button', { name: 'Translate' })).toBeTruthy();
+        unmount();
+      });
+    });
+
+    it('does not show Translate for zh-YUE when only Chinese script tags are available', () => {
+      renderStatus(chineseStatus('zh-YUE'), {}, CHINESE_SCRIPT_LANGUAGES);
+
+      expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+    });
+
+    it('prefers an exact zh key over und auto detection', () => {
+      const { unmount } = renderStatus(chineseStatus('zh'), {}, {
+        zh: ['ja'],
+        'zh-Hans': ['ja'],
+        'zh-Hant': ['ja'],
+        und: ['ko'],
+      });
+
+      expect(screen.getByRole('button', { name: 'Translate' })).toBeTruthy();
+      unmount();
+
+      renderStatus(chineseStatus('zh'), {}, {
+        zh: ['ko'],
+        'zh-Hans': ['ja'],
+        'zh-Hant': ['ja'],
+        und: ['ja'],
+      });
+
+      expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+    });
+
+    it('does not use und for bare zh when no Chinese script tag exists', () => {
+      renderStatus(chineseStatus('zh'), {}, {
+        en: ['ja'],
+        und: ['ja'],
+      });
+
+      expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+    });
+
+    it('does not use und for an unsupported language', () => {
+      renderStatus(chineseStatus('ko'), {}, CHINESE_SCRIPT_LANGUAGES);
+
+      expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+    });
+
+    it('does not show Translate for zh-CN when zh-Hans is missing', () => {
+      renderStatus(chineseStatus('zh-CN'), {}, {
+        'zh-Hant': ['ja'],
+        und: ['ja'],
+      });
+
+      expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+    });
   });
 
 

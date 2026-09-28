@@ -24,9 +24,49 @@ const messages = defineMessages({
   translationLanguages: { id: 'status.translation_languages', defaultMessage: '{source} → {target} · {provider}' },
 });
 
+const CHINESE_REGIONAL_SCRIPTS = {
+  'zh-cn': 'zh-Hans',
+  'zh-sg': 'zh-Hans',
+  'zh-tw': 'zh-Hant',
+  'zh-hk': 'zh-Hant',
+  'zh-mo': 'zh-Hant',
+};
+
+const CHINESE_SCRIPT_TAGS = ['zh-Hans', 'zh-Hant'];
+
+const normalizedLanguageTag = language => language.replace(/_/g, '-').toLowerCase();
+
+const providerChineseScript = (normalized, translationLanguages) => (
+  CHINESE_SCRIPT_TAGS.find(tag => tag.toLowerCase() === normalized && translationLanguages?.has(tag))
+);
+
+const bareChineseSourceLanguage = (language, translationLanguages) => {
+  if (translationLanguages?.has('zh')) {
+    return 'zh';
+  }
+
+  const chineseAvailable = CHINESE_SCRIPT_TAGS.some(tag => translationLanguages?.has(tag));
+  if (chineseAvailable && translationLanguages?.has('und')) {
+    return 'und';
+  }
+
+  return language;
+};
+
 const translationSourceLanguage = (language, translationLanguages) => {
   if (!language || translationLanguages?.has(language)) {
     return language;
+  }
+
+  const normalized = normalizedLanguageTag(language);
+
+  if (normalized === 'zh') {
+    return bareChineseSourceLanguage(language, translationLanguages);
+  }
+
+  const script = providerChineseScript(normalized, translationLanguages) || CHINESE_REGIONAL_SCRIPTS[normalized];
+  if (script && translationLanguages?.has(script)) {
+    return script;
   }
 
   const match = language.match(/^([A-Za-z]{2,3})[-_]([A-Za-z]{2}|\d{3})$/);
