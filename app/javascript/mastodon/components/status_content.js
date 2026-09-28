@@ -24,6 +24,20 @@ const messages = defineMessages({
   translationLanguages: { id: 'status.translation_languages', defaultMessage: '{source} → {target} · {provider}' },
 });
 
+const translationSourceLanguage = (language, translationLanguages) => {
+  if (!language || translationLanguages?.has(language)) {
+    return language;
+  }
+
+  const match = language.match(/^([A-Za-z]{2,3})[-_]([A-Za-z]{2}|\d{3})$/);
+  if (!match) {
+    return language;
+  }
+
+  const primary = match[1].toLowerCase();
+  return translationLanguages?.has(primary) ? primary : language;
+};
+
 const statusTranslationEligible = (status, { loggedIn, contentLocale, targetLanguages, privateContentAllowed }) => {
   const visibilityAllowsTranslation = ['public', 'unlisted'].includes(status.get('visibility')) || privateContentAllowed;
 
@@ -461,7 +475,8 @@ class StatusContent extends React.PureComponent {
     );
     const renderShowPoll = !!status.get('poll');
     const contentLocale = (intl.locale || '').replace(/[_-].*/, '');
-    const targetLanguages = this.props.languages?.get(status.get('language') || 'und');
+    const sourceLanguage = translationSourceLanguage(status.get('language') || 'und', this.props.languages);
+    const targetLanguages = this.props.languages?.get(sourceLanguage);
     const renderTranslate = this.props.onTranslate && statusTranslationEligible(status, {
       loggedIn: !!me,
       contentLocale,
