@@ -2,6 +2,7 @@ import api from '../api';
 import { locale as interfaceLocale } from '../initial_state';
 import { legacyTranslationPair, sameLanguagePair, viewerTranslationPair } from '../utils/translation_view';
 
+import { changeSetting } from './settings';
 import { deleteFromTimelines, expireFromTimelines } from './timelines';
 import { fetchRelationshipsFromStatus, fetchRelationshipsFromStatuses } from './accounts';
 import { importFetchedStatus, importFetchedStatuses, importFetchedAccount } from './importer';
@@ -54,6 +55,7 @@ export const STATUS_TRANSLATE_FAIL    = 'STATUS_TRANSLATE_FAIL';
 export const STATUS_TRANSLATE_UNDO    = 'STATUS_TRANSLATE_UNDO';
 export const STATUS_TRANSLATE_SET_MODE = 'STATUS_TRANSLATE_SET_MODE';
 export const STATUS_TRANSLATION_ASSUMPTION = 'STATUS_TRANSLATION_ASSUMPTION';
+export const STATUS_TRANSLATION_TARGET = 'STATUS_TRANSLATION_TARGET';
 
 export const REDRAFT = 'REDRAFT';
 
@@ -600,7 +602,8 @@ export const translateStatus = (id, mode = 'translated') => (dispatch, getState)
     return Promise.resolve();
   }
 
-  const viewerPair = viewerTranslationPair(status, state.getIn(['translation_assumptions', id]), interfaceLocale);
+  const savedTarget = state.getIn(['settings', 'translation', 'targetLanguage']);
+  const viewerPair = viewerTranslationPair(status, state.getIn(['translation_assumptions', id]), interfaceLocale, savedTarget);
 
   if (status && status.get('translation') && sameLanguagePair(viewerPair, attachedTranslationPair(status))) {
     dispatch(setStatusTranslationMode(id, requestedMode));
@@ -680,9 +683,27 @@ export const setStatusTranslationMode = (id, mode) => ({
   mode,
 });
 
-export const setStatusTranslationAssumption = (id, source, target) => ({
+export const setStatusTranslationAssumption = (id, source) => ({
   type: STATUS_TRANSLATION_ASSUMPTION,
   id,
   source,
-  target,
 });
+
+export function setTranslationTargetLanguage(target) {
+  return (dispatch, getState) => {
+    if (typeof target !== 'string' || target === '') {
+      return;
+    }
+
+    if (getState().getIn(['settings', 'translation', 'targetLanguage']) === target) {
+      return;
+    }
+
+    dispatch({
+      type: STATUS_TRANSLATION_TARGET,
+      target,
+    });
+
+    dispatch(changeSetting(['translation', 'targetLanguage'], target));
+  };
+}

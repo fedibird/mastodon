@@ -9,7 +9,7 @@ import PollContainer from 'mastodon/containers/poll_container';
 import Icon from 'mastodon/components/icon';
 import BilingualContent from 'mastodon/components/bilingual_content';
 import TranslationBar from 'mastodon/components/translation_bar';
-import { setStatusTranslationAssumption } from 'mastodon/actions/statuses';
+import { setStatusTranslationAssumption, setTranslationTargetLanguage } from 'mastodon/actions/statuses';
 import { autoPlayEmoji, disableReactions, me, showTranslationBar, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
 import { translationCapability } from 'mastodon/utils/translation_languages';
 import { sameLanguagePair, statusTranslationView, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
@@ -26,11 +26,16 @@ const MAX_HEIGHT = 642; // 20px * 32 (+ 2px padding at the top)
 const mapStateToProps = (state, ownProps) => ({
   languages: state.getIn(['server', 'translationLanguages', 'items']),
   translationAssumption: state.getIn(['translation_assumptions', ownProps.status.get('id')]),
+  translationTarget: state.getIn(['settings', 'translation', 'targetLanguage']),
 });
 
 const mapDispatchToProps = dispatch => ({
-  onTranslationAssumption(id, source, target) {
-    dispatch(setStatusTranslationAssumption(id, source, target));
+  onTranslationAssumption(id, source) {
+    dispatch(setStatusTranslationAssumption(id, source));
+  },
+
+  onTranslationTarget(target) {
+    dispatch(setTranslationTargetLanguage(target));
   },
 });
 
@@ -52,8 +57,10 @@ class StatusContent extends React.PureComponent {
     onCollapsedToggle: PropTypes.func,
     quote: PropTypes.bool,
     languages: ImmutablePropTypes.map,
-    translationAssumption: ImmutablePropTypes.map,
+    translationAssumption: PropTypes.oneOfType([PropTypes.string, ImmutablePropTypes.map]),
+    translationTarget: PropTypes.string,
     onTranslationAssumption: PropTypes.func,
+    onTranslationTarget: PropTypes.func,
     intl: PropTypes.object.isRequired,
   };
 
@@ -288,7 +295,7 @@ class StatusContent extends React.PureComponent {
     this.startXY = null;
   }
 
-  viewerPair = () => viewerTranslationPair(this.props.status, this.props.translationAssumption, this.props.intl.locale);
+  viewerPair = () => viewerTranslationPair(this.props.status, this.props.translationAssumption, this.props.intl.locale, this.props.translationTarget);
 
   currentCapability = () => translationCapability(this.props.status, this.viewerPair(), this.props.languages, {
     loggedIn: !!me,
@@ -310,18 +317,14 @@ class StatusContent extends React.PureComponent {
   }
 
   handleSourceLanguage = (source) => {
-    const pair = this.viewerPair();
-
-    if (this.props.onTranslationAssumption && source !== pair.source) {
-      this.props.onTranslationAssumption(this.props.status.get('id'), source, pair.target);
+    if (this.props.onTranslationAssumption && source !== this.viewerPair().source) {
+      this.props.onTranslationAssumption(this.props.status.get('id'), source);
     }
   }
 
   handleTargetLanguage = (target) => {
-    const pair = this.viewerPair();
-
-    if (this.props.onTranslationAssumption && target !== pair.target) {
-      this.props.onTranslationAssumption(this.props.status.get('id'), pair.source, target);
+    if (this.props.onTranslationTarget && target !== this.viewerPair().target) {
+      this.props.onTranslationTarget(target);
     }
   }
 

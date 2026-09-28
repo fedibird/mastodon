@@ -12,6 +12,7 @@ jest.mock('../../actions/statuses', () => ({
   STATUS_TRANSLATE_FAIL: 'STATUS_TRANSLATE_FAIL',
   STATUS_TRANSLATE_SET_MODE: 'STATUS_TRANSLATE_SET_MODE',
   STATUS_TRANSLATION_ASSUMPTION: 'STATUS_TRANSLATION_ASSUMPTION',
+  STATUS_TRANSLATION_TARGET: 'STATUS_TRANSLATION_TARGET',
 }));
 
 import reducer from '../statuses';
@@ -22,6 +23,7 @@ const STATUS_TRANSLATE_REQUEST = 'STATUS_TRANSLATE_REQUEST';
 const STATUS_TRANSLATE_FAIL = 'STATUS_TRANSLATE_FAIL';
 const STATUS_TRANSLATE_SET_MODE = 'STATUS_TRANSLATE_SET_MODE';
 const STATUS_TRANSLATION_ASSUMPTION = 'STATUS_TRANSLATION_ASSUMPTION';
+const STATUS_TRANSLATION_TARGET = 'STATUS_TRANSLATION_TARGET';
 
 const baseStatus = fromJS({
   id: 's1',
@@ -322,5 +324,81 @@ describe('statuses translation reducer', () => {
     expect(saved.getIn(['s1', 'translation', 'requested_target_language'])).toBe('ja');
     expect(saved.getIn(['s1', 'translation', 'detected_source_language'])).toBe('en');
     expect(saved.getIn(['s1', 'language'])).toBe('ja');
+  });
+
+  it('clears every in-flight request and returns loaded translations to original when the viewer target changes', () => {
+    const state = fromJS({
+      s1: {
+        id: 's1',
+        language: 'en',
+        translationPending: true,
+        translationRequestId: 'req-a',
+        translationMode: 'translated',
+        poll: 'p1',
+        translation: {
+          content: '<p>こんにちは</p>',
+          provider: 'DeepL',
+          requested_source_language: 'en',
+          requested_target_language: 'ja',
+        },
+        media_attachments: [
+          { id: 'm1', description: 'first', translation: { description: 'いち' } },
+        ],
+      },
+      s2: {
+        id: 's2',
+        language: 'fr',
+        translationPending: true,
+        translationRequestId: 'req-b',
+        poll: 'p2',
+      },
+    });
+
+    const next = reducer(state, {
+      type: STATUS_TRANSLATION_TARGET,
+      target: 'de',
+    });
+
+    expect(next.getIn(['s1', 'translationPending'])).toBe(false);
+    expect(next.getIn(['s1', 'translationRequestId'])).toBeUndefined();
+    expect(next.getIn(['s1', 'translationMode'])).toBe('original');
+    expect(next.getIn(['s1', 'language'])).toBe('en');
+    expect(next.getIn(['s1', 'poll'])).toBe('p1');
+    expect(next.getIn(['s1', 'translation', 'provider'])).toBe('DeepL');
+    expect(next.getIn(['s1', 'translation', 'requested_target_language'])).toBe('ja');
+    expect(next.getIn(['s1', 'media_attachments', 0, 'description'])).toBe('first');
+    expect(next.getIn(['s1', 'media_attachments', 0, 'translation', 'description'])).toBe('いち');
+    expect(next.getIn(['s2', 'translationPending'])).toBe(false);
+    expect(next.getIn(['s2', 'translationRequestId'])).toBeUndefined();
+    expect(next.getIn(['s2', 'translation'])).toBeUndefined();
+    expect(next.getIn(['s2', 'translationMode'])).toBeUndefined();
+    expect(next.getIn(['s2', 'language'])).toBe('fr');
+    expect(next.getIn(['s2', 'poll'])).toBe('p2');
+
+    const staleSuccess = reducer(next, {
+      type: STATUS_TRANSLATE_SUCCESS,
+      id: 's1',
+      mode: 'translated',
+      translationRequestId: 'req-a',
+      translation: {
+        content: '<p>古い</p>',
+        language: 'de',
+        provider: 'Other',
+        requested_source_language: 'en',
+        requested_target_language: 'de',
+      },
+    });
+    const staleFailure = reducer(next, {
+      type: STATUS_TRANSLATE_FAIL,
+      id: 's2',
+      translationRequestId: 'req-b',
+    });
+
+    expect(staleSuccess.getIn(['s1', 'translation', 'provider'])).toBe('DeepL');
+    expect(staleSuccess.getIn(['s1', 'translationMode'])).toBe('original');
+    expect(staleSuccess.getIn(['s1', 'language'])).toBe('en');
+    expect(staleFailure.getIn(['s2', 'language'])).toBe('fr');
+    expect(staleFailure.getIn(['s2', 'poll'])).toBe('p2');
+    expect(staleFailure.getIn(['s2', 'translationRequestId'])).toBeUndefined();
   });
 });

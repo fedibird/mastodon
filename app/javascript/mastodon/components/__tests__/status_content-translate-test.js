@@ -699,8 +699,8 @@ describe('StatusContent translation', () => {
     expect(onTranslate).toHaveBeenCalledWith('translated');
     expect(status.get('language')).toBe('en');
     expect(store.getState().getIn(['statuses', 's1', 'language'])).toBe('en');
-    expect(store.getState().getIn(['translation_assumptions', 's1', 'source'])).toBe('fr');
-    expect(store.getState().getIn(['translation_assumptions', 's1', 'target'])).toBe('ja');
+    expect(store.getState().getIn(['translation_assumptions', 's1'])).toBe('fr');
+    expect(store.getState().getIn(['translation_assumptions', 's1', 'target'])).toBeUndefined();
     expect(container.querySelector('.status__content__text').textContent).toContain('Hello');
   });
 
@@ -837,8 +837,8 @@ describe('StatusContent translation', () => {
     expect(onTranslate).toHaveBeenCalledWith('translated');
     expect(status.get('language')).toBe('ja');
     expect(store.getState().getIn(['statuses', 's1', 'language'])).toBe('ja');
-    expect(store.getState().getIn(['translation_assumptions', 's1', 'source'])).toBe('en');
-    expect(store.getState().getIn(['translation_assumptions', 's1', 'target'])).toBe('ja');
+    expect(store.getState().getIn(['translation_assumptions', 's1'])).toBe('en');
+    expect(store.getState().getIn(['translation_assumptions', 's1', 'target'])).toBeUndefined();
   });
 
   it('builds source and target choices from provider languages, including provider-only codes', () => {
@@ -904,7 +904,8 @@ describe('StatusContent translation', () => {
     fireEvent.click(screen.getByRole('option', { name: /French/ }));
 
     expect(screen.getByRole('button', { name: 'Target language, 日本語' })).toBeTruthy();
-    expect(store.getState().getIn(['translation_assumptions', 's1', 'target'])).toBe('ja');
+    expect(store.getState().getIn(['translation_assumptions', 's1'])).toBe('fr');
+    expect(store.getState().getIn(['translation_assumptions', 's1', 'target'])).toBeUndefined();
     expectUnsupportedPair();
 
     fireEvent.click(screen.getByRole('button', { name: 'Target language, 日本語' }));
