@@ -22,7 +22,7 @@ import EmojiReactionsBar from 'mastodon/components/emoji_reactions_bar';
 import PictureInPicturePlaceholder from 'mastodon/components/picture_in_picture_placeholder';
 import { displayMedia, enableReaction, compactReaction, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy } from 'mastodon/initial_state';
 import { List as ImmutableList } from 'immutable';
-import { attachmentAccessibility, galleryTranslationProps, statusTranslationView } from 'mastodon/utils/translation_view';
+import { attachmentAccessibility, galleryTranslationProps, statusTranslationView, TRANSLATION_MODE_BILINGUAL, TRANSLATION_MODE_ORIGINAL, TRANSLATION_MODE_TRANSLATED } from 'mastodon/utils/translation_view';
 
 const domParser = new DOMParser();
 
@@ -53,17 +53,59 @@ const mapStateToProps = (state, props) => {
   };
 };
 
+const plainHtmlText = (html) => {
+  const text = domParser.parseFromString(html || '', 'text/html').documentElement.textContent || '';
+
+  return text.trim() ? text : '';
+};
+
+const presentText = (value) => {
+  const text = value || '';
+
+  return text.trim() ? text : '';
+};
+
+const bilingualText = (source, translated) => {
+  if (source && translated) {
+    return `${source} → ${translated}`;
+  }
+
+  return source || translated;
+};
+
+const screenReaderStatusText = (status) => {
+  const mode = statusTranslationView(status).mode;
+  const sourceSpoiler = status.get('spoiler_text') || '';
+  const translatedSpoiler = presentText(status.getIn(['translation', 'spoiler_text']));
+  const sourceBody = (status.get('search_index') || '').slice(sourceSpoiler.length);
+  const translatedBody = plainHtmlText(status.getIn(['translation', 'contentHtml']));
+  const hiddenSpoiler = mode === TRANSLATION_MODE_ORIGINAL ? sourceSpoiler : (sourceSpoiler || translatedSpoiler);
+
+  const read = (source, translated) => {
+    if (mode === TRANSLATION_MODE_TRANSLATED) {
+      return translated || source;
+    }
+
+    if (mode === TRANSLATION_MODE_BILINGUAL) {
+      return bilingualText(source, translated);
+    }
+
+    return source;
+  };
+
+  if (status.get('hidden') && hiddenSpoiler) {
+    return read(sourceSpoiler, translatedSpoiler);
+  }
+
+  return read(sourceBody, translatedBody);
+};
+
 export const textForScreenReader = (intl, status, rebloggedByText = false) => {
   const displayName = status.getIn(['account', 'display_name']);
-  const translation = status.get('translation');
-  const spoilerText = translation ? (translation.get('spoiler_text') || '') : status.get('spoiler_text');
-  const body = translation
-    ? domParser.parseFromString(translation.get('contentHtml') || '', 'text/html').documentElement.textContent
-    : status.get('search_index').slice(status.get('spoiler_text').length);
 
   const values = [
     displayName.length === 0 ? status.getIn(['account', 'acct']).split('@')[0] : displayName,
-    spoilerText && status.get('hidden') ? spoilerText : body,
+    screenReaderStatusText(status),
     intl.formatDate(status.get('created_at'), { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' }),
     status.getIn(['account', 'acct']),
   ];
