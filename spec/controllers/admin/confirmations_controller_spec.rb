@@ -17,6 +17,23 @@ RSpec.describe Admin::ConfirmationsController, type: :controller do
       expect(user.reload).to be_confirmed
     end
 
+    it 'keeps an approval-only signup pending' do
+      registrations_mode = Setting.registrations_mode
+      Setting.registrations_mode = 'open'
+      allow_any_instance_of(User).to receive(:send_devise_notification)
+      Fabricate(:email_domain_block, domain: 'example.com', allow_with_approval: true)
+      account = Fabricate(:account)
+      user = Fabricate(:user, confirmed_at: nil, email: 'pending@example.com', account: account)
+
+      post :create, params: { account_id: account.id }
+
+      expect(response).to redirect_to(admin_accounts_path)
+      expect(user.reload).to be_confirmed
+      expect(user.reload.approved).to be false
+    ensure
+      Setting.registrations_mode = registrations_mode
+    end
+
     it 'raises an error when there is no account' do
       post :create, params: { account_id: 'fake' }
 

@@ -88,6 +88,24 @@ RSpec.describe AppSignUpService, type: :service do # rubocop:disable Metrics/Blo
       Setting.registrations_mode = registrations_mode
     end
 
+    it 'creates an unapproved user when an MX hostname requires approval' do
+      registrations_mode = Setting.registrations_mode
+      Setting.registrations_mode = 'open'
+      allow(User).to receive(:skip_mx_check?).and_return(false)
+      stub_signup_mx('email.com', 'mail.provider.example')
+      Fabricate(:email_domain_block, domain: 'mail.provider.example', allow_with_approval: true)
+
+      access_token = subject.call(app, remote_ip, good_params)
+      user = User.find_by(id: access_token.resource_owner_id)
+
+      expect(access_token).to_not be_nil
+      expect(user).to_not be_nil
+      expect(user.confirmed?).to be false
+      expect(user.approved).to be false
+    ensure
+      Setting.registrations_mode = registrations_mode
+    end
+
     it 'rejects sign-up when the email domain is blocked' do
       Fabricate(:email_domain_block, domain: 'email.com', allow_with_approval: false)
 
@@ -113,6 +131,17 @@ RSpec.describe AppSignUpService, type: :service do # rubocop:disable Metrics/Blo
       expect(access_token).to_not be_nil
       expect(User.find_by(id: access_token.resource_owner_id)).to_not be_nil
     end
+  end
+
+  def stub_signup_mx(domain, mx_host, ip: '203.0.113.20')
+    resolver = double
+    allow(resolver).to receive(:timeouts=).and_return(nil)
+    allow(Resolv::DNS).to receive(:open).and_yield(resolver)
+    allow(resolver).to receive(:getresources).with(domain, Resolv::DNS::Resource::IN::MX).and_return([double(exchange: mx_host)])
+    allow(resolver).to receive(:getresources).with(domain, Resolv::DNS::Resource::IN::A).and_return([double(address: ip)])
+    allow(resolver).to receive(:getresources).with(domain, Resolv::DNS::Resource::IN::AAAA).and_return([])
+    allow(resolver).to receive(:getresources).with(mx_host, Resolv::DNS::Resource::IN::A).and_return([double(address: ip)])
+    allow(resolver).to receive(:getresources).with(mx_host, Resolv::DNS::Resource::IN::AAAA).and_return([])
   end
 
   def stub_webpacker_manifest

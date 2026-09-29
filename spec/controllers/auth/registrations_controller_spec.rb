@@ -378,6 +378,54 @@ RSpec.describe Auth::RegistrationsController, type: :controller do
       end
     end
 
+    context 'when an MX hostname requires approval' do
+      around do |example|
+        registrations_mode = Setting.registrations_mode
+        example.run
+        Setting.registrations_mode = registrations_mode
+      end
+
+      before do
+        allow(User).to receive(:skip_mx_check?).and_return(false)
+        stub_signup_mx('example.com', 'mail.provider.example')
+        Fabricate(:email_domain_block, domain: 'mail.provider.example', allow_with_approval: true)
+      end
+
+      it 'creates an unapproved user when the visible domain is not blocked' do
+        Setting.registrations_mode = 'open'
+        post :create, params: { user: { account_attributes: { username: 'test' }, email: 'test@example.com', password: '12345678', password_confirmation: '12345678', agreement: 'true' } }
+
+        user = User.find_by(email: 'test@example.com')
+        expect(user).to_not be_nil
+        expect(user.approved).to eq(false)
+        expect(response).to redirect_to auth_setup_path
+      end
+    end
+
+    context 'when only a resolved IP is an approval-only block' do
+      around do |example|
+        registrations_mode = Setting.registrations_mode
+        example.run
+        Setting.registrations_mode = registrations_mode
+      end
+
+      before do
+        allow(User).to receive(:skip_mx_check?).and_return(false)
+        stub_signup_mx('example.com', 'mail.provider.example', ip: '203.0.113.10')
+        Fabricate(:email_domain_block, domain: '203.0.113.10', allow_with_approval: true)
+      end
+
+      it 'creates an approved user' do
+        Setting.registrations_mode = 'open'
+        post :create, params: { user: { account_attributes: { username: 'test' }, email: 'test@example.com', password: '12345678', password_confirmation: '12345678', agreement: 'true' } }
+
+        user = User.find_by(email: 'test@example.com')
+        expect(user).to_not be_nil
+        expect(user.approved).to eq(true)
+        expect(response).to redirect_to auth_setup_path
+      end
+    end
+
     context 'when the email domain is blocked' do
       around do |example|
         registrations_mode = Setting.registrations_mode
@@ -592,6 +640,17 @@ RSpec.describe Auth::RegistrationsController, type: :controller do
     it 'does not delete user' do
       expect(User.find(user.id)).to_not be_nil
     end
+  end
+
+  def stub_signup_mx(domain, mx_host, ip: '203.0.113.20')
+    resolver = double
+    allow(resolver).to receive(:timeouts=).and_return(nil)
+    allow(Resolv::DNS).to receive(:open).and_yield(resolver)
+    allow(resolver).to receive(:getresources).with(domain, Resolv::DNS::Resource::IN::MX).and_return([double(exchange: mx_host)])
+    allow(resolver).to receive(:getresources).with(domain, Resolv::DNS::Resource::IN::A).and_return([double(address: ip)])
+    allow(resolver).to receive(:getresources).with(domain, Resolv::DNS::Resource::IN::AAAA).and_return([])
+    allow(resolver).to receive(:getresources).with(mx_host, Resolv::DNS::Resource::IN::A).and_return([double(address: ip)])
+    allow(resolver).to receive(:getresources).with(mx_host, Resolv::DNS::Resource::IN::AAAA).and_return([])
   end
 
   def stub_webpacker_manifest
