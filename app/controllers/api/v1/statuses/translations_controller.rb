@@ -50,10 +50,11 @@ class Api::V1::Statuses::TranslationsController < Api::BaseController
                        explicit_target ? params[:target_language] : content_locale,
                        source_language: params[:source_language],
                        explicit_source: explicit_source,
-                       explicit_target: explicit_target
+                       explicit_target: explicit_target,
+                       user: current_user
                      )
                    else
-                     TranslateStatusService.new.call(@status, content_locale)
+                     TranslateStatusService.new.call(@status, content_locale, user: current_user)
                    end
   end
 end

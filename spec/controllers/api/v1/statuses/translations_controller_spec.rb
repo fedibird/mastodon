@@ -187,7 +187,7 @@ RSpec.describe Api::V1::Statuses::TranslationsController, type: :controller do
       post :create, params: { status_id: status.id }
 
       expect(response).to have_http_status(200)
-      expect(service).to have_received(:call).with(status, 'ja')
+      expect(service).to have_received(:call).with(status, 'ja', user: user)
     end
 
     it 'passes one or both explicit languages and leaves the other on the legacy path' do
@@ -195,13 +195,13 @@ RSpec.describe Api::V1::Statuses::TranslationsController, type: :controller do
       allow(TranslateStatusService).to receive(:new).and_return(service)
 
       post :create, params: { status_id: status.id, source_language: 'en', target_language: 'de' }
-      expect(service).to have_received(:call).with(status, 'de', source_language: 'en', explicit_source: true, explicit_target: true)
+      expect(service).to have_received(:call).with(status, 'de', source_language: 'en', explicit_source: true, explicit_target: true, user: user)
 
       post :create, params: { status_id: status.id, target_language: 'de' }
-      expect(service).to have_received(:call).with(status, 'de', source_language: nil, explicit_source: false, explicit_target: true)
+      expect(service).to have_received(:call).with(status, 'de', source_language: nil, explicit_source: false, explicit_target: true, user: user)
 
       post :create, params: { status_id: status.id, source_language: 'zh-Hans' }
-      expect(service).to have_received(:call).with(status, 'ja', source_language: 'zh-Hans', explicit_source: true, explicit_target: false)
+      expect(service).to have_received(:call).with(status, 'ja', source_language: 'zh-Hans', explicit_source: true, explicit_target: false, user: user)
     end
 
     context 'with an explicit language pair' do
@@ -250,6 +250,34 @@ RSpec.describe Api::V1::Statuses::TranslationsController, type: :controller do
         expect(response).to have_http_status(403)
         expect(body_as_json[:error]).to eq 'This action is not allowed'
         expect(backend).not_to have_received(:translate)
+      end
+    end
+
+    it 'translates with the authenticated user credential and not another user credential' do
+      other = Fabricate(:user)
+      own_key = "m2-controller-#{SecureRandom.hex(6)}"
+      other_key = "m2-other-controller-#{SecureRandom.hex(6)}:fx"
+      with_vault_keyring do
+        store_vault_credential(owner: user, secret: own_key)
+        store_vault_credential(owner: other, secret: other_key)
+        stub_request(:get, %r{https://api\.deepl\.com/v2/languages}).to_return(status: 200, body: Oj.dump([{ 'language' => 'EN' }, { 'language' => 'JA' }]))
+        stub_request(:get, %r{https://api-free\.deepl\.com/v2/languages}).to_return(status: 200, body: Oj.dump([{ 'language' => 'EN' }]))
+        stub_request(:post, 'https://api.deepl.com/v2/translate').to_return(
+          status: 200,
+          body: Oj.dump(translations: [{ text: '<p>こんにちは</p>', detected_source_language: 'EN' }])
+        )
+        Rails.cache.clear
+
+        post :create, params: { status_id: status.id }
+
+        expect(response).to have_http_status(200)
+        expect(body_as_json[:content]).to include('こんにちは')
+        expect(WebMock).to have_requested(:post, 'https://api.deepl.com/v2/translate').with { |request|
+          request.headers['Authorization'].to_s.include?(own_key) && !request.body.to_s.include?(own_key)
+        }
+        expect(WebMock).not_to have_requested(:any, /deepl\.com/).with { |request|
+          request.headers['Authorization'].to_s.include?(other_key)
+        }
       end
     end
 

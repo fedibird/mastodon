@@ -43,6 +43,10 @@ class TranslationService::DeepL < TranslationService
   def request(verb, path, **options)
     timeouts = self.class.timeout_options
     options[:timeout_options] = timeouts if timeouts
+    # Free and Pro hosts are fixed. Do not follow redirects. http.rb would
+    # copy Authorization onto the next request, and 307/308 would also
+    # resubmit the body, including to another host.
+    options[:follow] = false
     req = Request.new(verb, "#{base_url}#{path}", **options)
     req.add_headers(Authorization: "DeepL-Auth-Key #{@api_key}")
     req.perform do |res|

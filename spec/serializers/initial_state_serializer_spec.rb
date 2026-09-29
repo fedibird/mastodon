@@ -122,6 +122,34 @@ RSpec.describe InitialStateSerializer do
     end
   end
 
+  it 'uses the viewer provider for private translation and omits it for anonymous sessions' do
+    user = Fabricate(:user)
+    other = Fabricate(:user)
+    clear_provider = {
+      DEEPL_API_KEY: nil,
+      DEEPL_PLAN: nil,
+      LIBRE_TRANSLATE_ENDPOINT: nil,
+      LIBRE_TRANSLATE_API_KEY: nil,
+      LIBRE_TRANSLATE_ALLOW_PRIVATE: nil,
+    }
+
+    with_vault_keyring do
+      store_vault_credential(owner: user, secret: 'm2-initial-state-key')
+
+      ClimateControl.modify(clear_provider.merge(LIBRE_TRANSLATE_ENDPOINT: 'http://127.0.0.1:5000', LIBRE_TRANSLATE_ALLOW_PRIVATE: 'true')) do
+        signed_in = serialize(user.account)
+        other_session = serialize(other.account)
+        anonymous = serialize(nil)
+
+        expect(signed_in[:meta][:translation_private_content_allowed]).to be false
+        expect(other_session[:meta][:translation_private_content_allowed]).to be true
+        expect(anonymous[:meta]).not_to have_key(:translation_private_content_allowed)
+        expect(anonymous.to_json).not_to include('m2-initial-state-key')
+        expect(signed_in.to_json).not_to include('m2-initial-state-key')
+      end
+    end
+  end
+
   it 'derives translation bar visibility from the new-feature policy only while unset' do
     user = Fabricate(:user)
 
