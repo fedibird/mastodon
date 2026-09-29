@@ -902,6 +902,7 @@ en:
       view: View domain block
     email_domain_blocks:
       add_new: Add new
+      allow_registrations_with_approval: Allow registrations with approval
       created_msg: Successfully blocked e-mail domain
       delete: Delete
       destroyed_msg: Successfully unblocked e-mail domain

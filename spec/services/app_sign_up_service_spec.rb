@@ -72,6 +72,29 @@ RSpec.describe AppSignUpService, type: :service do # rubocop:disable Metrics/Blo
       expect(User.find_by(email: good_params[:email])).to be_nil
     end
 
+    it 'creates an unapproved user when the email domain requires approval' do
+      registrations_mode = Setting.registrations_mode
+      Setting.registrations_mode = 'open'
+      Fabricate(:email_domain_block, domain: 'email.com', allow_with_approval: true)
+
+      access_token = subject.call(app, remote_ip, good_params)
+      user = User.find_by(id: access_token.resource_owner_id)
+
+      expect(access_token).to_not be_nil
+      expect(user).to_not be_nil
+      expect(user.confirmed?).to be false
+      expect(user.approved).to be false
+    ensure
+      Setting.registrations_mode = registrations_mode
+    end
+
+    it 'rejects sign-up when the email domain is blocked' do
+      Fabricate(:email_domain_block, domain: 'email.com', allow_with_approval: false)
+
+      expect { subject.call(app, remote_ip, good_params) }.to raise_error(ActiveRecord::RecordInvalid)
+      expect(User.find_by(email: good_params[:email])).to be_nil
+    end
+
     it 'creates a user when the IP requires approval rather than blocking sign-up' do
       Fabricate(:ip_block, ip: remote_ip, severity: :sign_up_requires_approval)
 

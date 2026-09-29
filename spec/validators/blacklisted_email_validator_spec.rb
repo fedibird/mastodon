@@ -72,6 +72,16 @@ RSpec.describe BlacklistedEmailValidator, type: :validator do
       expect(block.history.get(now).uses).to eq 0
     end
 
+    it 'does not treat an approval-only domain as blocked' do
+      block = Fabricate(:email_domain_block, domain: 'example.com', allow_with_approval: true)
+      user  = double(email: 'alice@example.com', sign_up_ip: '192.0.2.1', errors: errors, valid_invitation?: false)
+
+      described_class.new.validate(user)
+
+      expect(errors).not_to have_received(:add).with(:email, :blocked)
+      expect(block.history.get(now).uses).to eq 0
+    end
+
     it 'keeps invitation bypass semantics' do
       block = Fabricate(:email_domain_block, domain: 'example.com')
       user  = double(email: 'alice@example.com', sign_up_ip: '192.0.2.1', errors: errors, valid_invitation?: true)

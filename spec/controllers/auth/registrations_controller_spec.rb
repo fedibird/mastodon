@@ -176,6 +176,7 @@ RSpec.describe Auth::RegistrationsController, type: :controller do
         user = User.find_by(email: 'test@example.com')
         expect(user).to_not be_nil
         expect(user.locale).to eq(accept_language)
+        expect(user.approved).to eq(true)
       end
     end
 
@@ -344,6 +345,87 @@ RSpec.describe Auth::RegistrationsController, type: :controller do
       it 'does not create a user' do
         subject
         expect(User.find_by(email: 'test@example.com')).to be_nil
+      end
+    end
+
+    context 'when the email domain requires approval' do
+      around do |example|
+        registrations_mode = Setting.registrations_mode
+        example.run
+        Setting.registrations_mode = registrations_mode
+      end
+
+      subject do
+        Setting.registrations_mode = 'open'
+        request.env['REMOTE_ADDR'] = '192.0.2.40'
+        post :create, params: { user: { account_attributes: { username: 'test' }, email: 'test@example.com', password: '12345678', password_confirmation: '12345678', agreement: 'true' } }
+      end
+
+      let!(:approval_block) { Fabricate(:email_domain_block, domain: 'example.com', allow_with_approval: true) }
+      let!(:unrelated_block) { Fabricate(:email_domain_block, domain: 'other.example', allow_with_approval: false) }
+
+      it 'creates an unapproved user and continues setup' do
+        subject
+        expect(User.find_by(email: 'test@example.com')).to_not be_nil
+        expect(User.find_by(email: 'test@example.com').approved).to eq(false)
+        expect(response).to redirect_to auth_setup_path
+      end
+
+      it 'records history on the approval-only block' do
+        subject
+        expect(approval_block.history.get(Time.now.utc).uses).to be >= 1
+        expect(unrelated_block.history.get(Time.now.utc).uses).to eq 0
+      end
+    end
+
+    context 'when the email domain is blocked' do
+      around do |example|
+        registrations_mode = Setting.registrations_mode
+        example.run
+        Setting.registrations_mode = registrations_mode
+      end
+
+      subject do
+        Setting.registrations_mode = 'open'
+        post :create, params: { user: { account_attributes: { username: 'test' }, email: 'test@example.com', password: '12345678', password_confirmation: '12345678', agreement: 'true' } }
+      end
+
+      before do
+        Fabricate(:email_domain_block, domain: 'example.com', allow_with_approval: false)
+      end
+
+      it 'does not create a user' do
+        subject
+        expect(User.find_by(email: 'test@example.com')).to be_nil
+        expect(response).not_to redirect_to(auth_setup_path)
+        expect(response.body).to include(I18n.t('activerecord.errors.models.user.attributes.email.blocked'))
+      end
+    end
+
+    context 'when a valid invite is present but the email domain requires approval' do
+      around do |example|
+        registrations_mode = Setting.registrations_mode
+        example.run
+        Setting.registrations_mode = registrations_mode
+      end
+
+      subject do
+        Setting.registrations_mode = 'open'
+        post :create, params: { user: { account_attributes: { username: 'test' }, email: 'test@example.com', password: '12345678', password_confirmation: '12345678', invite_code: invite.code, agreement: 'true' } }
+      end
+
+      let(:invite) { Fabricate(:invite) }
+
+      before do
+        Fabricate(:email_domain_block, domain: 'example.com', allow_with_approval: true)
+      end
+
+      it 'creates an unapproved user' do
+        subject
+        user = User.find_by(email: 'test@example.com')
+        expect(user).to_not be_nil
+        expect(user.approved).to eq(false)
+        expect(response).to redirect_to auth_setup_path
       end
     end
 

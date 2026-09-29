@@ -20,16 +20,24 @@ RSpec.describe REST::Admin::EmailDomainBlockSerializer do
     travel_to(now) { example.run }
   end
 
-  it 'serializes exactly the Mastodon 4.2 admin email domain block fields' do
-    expect(json.keys).to contain_exactly(:id, :domain, :created_at, :history)
+  it 'serializes exactly the admin email domain block fields' do
+    expect(json.keys).to contain_exactly(:id, :domain, :created_at, :history, :allow_with_approval)
     expect(json[:id]).to eq email_domain_block.id.to_s
     expect(json[:id]).to be_a(String)
     expect(json[:domain]).to eq 'example.com'
     expect(json[:created_at]).to be_present
+    expect(json[:allow_with_approval]).to be false
     expect(json).not_to have_key(:parent_id)
     expect(json).not_to have_key(:updated_at)
     expect(json).not_to have_key(:with_dns_records)
     expect(json).not_to have_key(:children)
+  end
+
+  it 'serializes allow_with_approval when the block requires approval' do
+    email_domain_block.update!(allow_with_approval: true)
+
+    expect(json[:allow_with_approval]).to be true
+    expect(json.keys).to contain_exactly(:id, :domain, :created_at, :history, :allow_with_approval)
   end
 
   it 'serializes seven history days with string counts' do

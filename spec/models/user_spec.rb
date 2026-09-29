@@ -399,6 +399,28 @@ RSpec.describe User, type: :model do
     end
   end
 
+  describe '#confirm with an approval-only email domain' do
+    around do |example|
+      registrations_mode = Setting.registrations_mode
+      Setting.registrations_mode = 'open'
+      example.run
+      Setting.registrations_mode = registrations_mode
+    end
+
+    it 'does not auto-approve when the user confirms' do
+      allow_any_instance_of(User).to receive(:send_devise_notification)
+      Fabricate(:email_domain_block, domain: 'example.com', allow_with_approval: true)
+      user = Fabricate(:user, email: 'confirm-approval@example.com', confirmed_at: nil, approved: false)
+
+      expect(user.approved).to be false
+
+      user.confirm
+
+      expect(user.reload.approved).to be false
+      expect(user).to be_confirmed
+    end
+  end
+
   describe '#enable!' do
     subject(:user) { Fabricate(:user, disabled: true) }
 
