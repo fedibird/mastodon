@@ -32,7 +32,11 @@ def translation_dropping_unprotected_urls(texts)
 
     fragment.css('a').each do |anchor|
       next if anchor['translate'] == 'no' || anchor.ancestors.any? { |ancestor| ancestor.element? && ancestor['translate'] == 'no' }
-      next unless anchor.text.strip.match?(%r{\Ahttps?://\S+\z}i)
+
+      label = anchor.text.gsub("\u200B", '').strip
+      href = anchor['href'].to_s
+      display = Formatter.instance.display_url(href).to_s.gsub("\u200B", '').strip
+      next unless label.match?(%r{\Ahttps?://\S+\z}i) || (label.match?(%r{\Ahttps?://}i) && label == display)
 
       anchor.xpath('.//text()').each { |node| node.content = '' }
     end
@@ -43,16 +47,18 @@ def translation_dropping_unprotected_urls(texts)
       content = node.content
       next if content.strip.empty?
 
-      node.content = if content.strip.match?(%r{\Ahttps?://\S+\z}i)
+      node.content = if content.gsub("\u200B", '').strip.match?(%r{\Ahttps?://\S+\z}i)
                        ''
                      else
                        content
+                         .gsub(%r{https?://\S+}i, '')
                          .gsub('本文', '翻訳')
                          .gsub('Hello', 'こんにちは')
                          .gsub('Read this', 'これを読む')
                          .gsub('please', 'どうぞ')
                          .gsub('公式サイト', '公式サイト訳')
                          .gsub('Read documentation', 'ドキュメントを読む')
+                         .gsub('world', '世界')
                      end
     end
 
@@ -1294,6 +1300,97 @@ RSpec.describe TranslateStatusService do
       expect(translation.content).not_to include('onclick')
       expect(translation.content).not_to include('onerror')
       expect(translation.content).not_to include('<img')
+      expect(result.css('[translate]')).to be_empty
+    end
+
+    it 'keeps a redirect-target URL that REST formatting leaves as plain text' do
+      short_url = 'https://bit.ly/fedibird-url'
+      post = Fabricate(:status, account: account, text: "本文\n\n#{short_url}\n\n本文", language: 'en', visibility: :public)
+      formatted = Nokogiri::HTML.fragment(Formatter.instance.format(post, rest: true, emoji_compatibility: true))
+
+      expect(FetchLinkCardService.redirect_target_host?('bit.ly')).to be true
+      expect(formatted.css('a')).to be_empty
+      expect(formatted.css('p')[1].text).to eq short_url
+
+      translation = described_class.new.call(post, 'ja')
+      fragment = Nokogiri::HTML.fragment(sent_html)
+      protected = fragment.css('p')[1].at_css('span[translate="no"]')
+
+      expect(fragment.css('a')).to be_empty
+      expect(protected.text).to eq short_url
+      expect(fragment.css('p')[0].css('[translate]')).to be_empty
+      expect(fragment.css('p')[2].css('[translate]')).to be_empty
+
+      result = Nokogiri::HTML.fragment(translation.content)
+      expect(result.css('p').map(&:text)).to eq ['翻訳', short_url, '翻訳']
+      expect(result.css('a')).to be_empty
+      expect(result.css('span')).to be_empty
+      expect(result.css('[translate]')).to be_empty
+    end
+
+    it 'keeps a naked URL text node from remote HTML' do
+      naked = 'https://example.com/naked'
+      remote = remote_status("<p>#{naked}</p>")
+
+      translation = described_class.new.call(remote, 'ja')
+      fragment = Nokogiri::HTML.fragment(sent_html)
+      protected = fragment.at_css('span[translate="no"]')
+
+      expect(fragment.css('a')).to be_empty
+      expect(protected.text).to eq naked
+      expect(protected.parent.name).to eq 'p'
+
+      result = Nokogiri::HTML.fragment(translation.content)
+      expect(result.text).to eq naked
+      expect(result.css('a')).to be_empty
+      expect(result.css('span')).to be_empty
+      expect(result.css('[translate]')).to be_empty
+    end
+
+    it 'protects only the naked URL token when it sits in prose' do
+      naked = 'https://example.com/naked'
+      remote = remote_status("<p>Hello #{naked} world</p>")
+
+      translation = described_class.new.call(remote, 'ja')
+      fragment = Nokogiri::HTML.fragment(sent_html)
+      protected = fragment.at_css('span[translate="no"]')
+
+      expect(fragment.css('a')).to be_empty
+      expect(protected.text).to eq naked
+      expect(fragment.text).to include('Hello')
+      expect(fragment.text).to include('world')
+      expect(fragment.at_xpath('.//text()[contains(., "Hello")]').ancestors.none? { |node| node.element? && node['translate'] == 'no' }).to be true
+      expect(fragment.at_xpath('.//text()[contains(., "world")]').ancestors.none? { |node| node.element? && node['translate'] == 'no' }).to be true
+
+      result = Nokogiri::HTML.fragment(translation.content)
+      expect(result.text).to include('こんにちは')
+      expect(result.text).to include(naked)
+      expect(result.text).to include('世界')
+      expect(result.css('span')).to be_empty
+      expect(result.css('[translate]')).to be_empty
+    end
+
+    it 'protects a formatter URL label whose decoded text contains a space' do
+      encoded = 'https://example.com/a%20b'
+      post = Fabricate(:status, account: account, text: encoded, language: 'en', visibility: :public)
+
+      translation = described_class.new.call(post, 'ja')
+      fragment = Nokogiri::HTML.fragment(sent_html)
+      anchor = fragment.at_css('a')
+      display = Formatter.instance.display_url(anchor['href'])
+
+      expect(anchor['translate']).to eq 'no'
+      expect(anchor['href']).to include('%20')
+      expect(anchor['href']).not_to include(' ')
+      expect(display).to include(' ')
+      expect(anchor.text.gsub("\u200B", '').strip).to eq display.gsub("\u200B", '').strip
+      expect(anchor.element_children.map { |child| child['translate'] }).to all(be_nil)
+
+      result = Nokogiri::HTML.fragment(translation.content)
+      result_anchor = result.at_css('a')
+      expect(result_anchor['href']).to eq anchor['href']
+      expect(result_anchor.text).to include(' ')
+      expect(result_anchor.text).to include('example.com/a')
       expect(result.css('[translate]')).to be_empty
     end
   end
