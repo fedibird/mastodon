@@ -2143,7 +2143,7 @@ en:
     storage_unavailable: Credential storage is not available on this server.
     title: External services
     updated_at: 'Updated:'
-    visibility: Personal DeepL currently translates public and unlisted posts only.
+    visibility: Personal DeepL currently translates public and unlisted posts, and your own personal-only posts.
   settings:
     account: Account
     account_settings: Account settings

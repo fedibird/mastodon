@@ -308,6 +308,7 @@ class StatusContent extends React.PureComponent {
   currentCapability = () => translationCapability(this.props.status, this.viewerPair(), this.props.languages, {
     loggedIn: !!me,
     privateContentAllowed: translationPrivateContentAllowed,
+    viewerAccountId: me,
   });
 
   handleTranslate = (mode) => {

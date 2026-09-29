@@ -167,8 +167,32 @@ export const targetLanguageOptions = (translationLanguages, source, currentTarge
   return codes.map(code => languageOption(code, preloadedLanguages, unspecifiedName));
 };
 
-export const translationCapability = (status, viewerPair, translationLanguages, { loggedIn, privateContentAllowed }) => {
-  const visibilityAllowsTranslation = ['public', 'unlisted'].includes(status.get('visibility')) || privateContentAllowed;
+// Provider-wide private content stays a separate flag. A personal status is
+// an extra allowance only when this viewer wrote the wrapper and the proper
+// status whose text would be sent to the provider.
+export const selfAuthoredPersonalStatus = (status, viewerAccountId) => {
+  if (viewerAccountId === null || viewerAccountId === undefined || viewerAccountId === '') {
+    return false;
+  }
+
+  if (status?.get('visibility') !== 'personal') {
+    return false;
+  }
+
+  const wrapperAccountId = status.getIn(['account', 'id']);
+  const reblog = status.get('reblog');
+  const properAccountId = reblog && typeof reblog.getIn === 'function'
+    ? reblog.getIn(['account', 'id'])
+    : wrapperAccountId;
+
+  return String(wrapperAccountId) === String(viewerAccountId) &&
+    String(properAccountId) === String(viewerAccountId);
+};
+
+export const translationCapability = (status, viewerPair, translationLanguages, { loggedIn, privateContentAllowed, viewerAccountId }) => {
+  const visibilityAllowsTranslation = ['public', 'unlisted'].includes(status.get('visibility')) ||
+    privateContentAllowed ||
+    selfAuthoredPersonalStatus(status, viewerAccountId);
   const allowsRequest = !!loggedIn &&
     visibilityAllowsTranslation &&
     (status.get('search_index') || '').trim().length > 0;

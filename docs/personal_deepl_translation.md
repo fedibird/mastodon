@@ -64,7 +64,7 @@ Instance providers keep the existing shared keys.
 
 ## Privacy
 
-Personal DeepL reports `private_content_allowed? == false`. Public and unlisted statuses can be translated. Private, direct, limited, mutual, and personal statuses cannot. A viewer with personal DeepL does not fall back to a private-capable LibreTranslate endpoint for those statuses.
+Personal DeepL reports `private_content_allowed? == false`. Public and unlisted statuses can be translated. A personal status can be translated only when the authenticated viewer authored both the status and `status.proper`, the content that is actually sent. Private, direct, limited, and mutual statuses cannot. A viewer with personal DeepL does not fall back to a private-capable LibreTranslate endpoint for those statuses.
 
 ## In-flight requests
 
