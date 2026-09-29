@@ -73,6 +73,10 @@ class TranslateStatusService < BaseService
   end
 
   def resolved_source_language
+    # A status declared as und is still "language unknown", so the legacy path
+    # may use provider auto-detection. Bare zh must not.
+    return nil if undetermined_language?(@status.language) && languages.key?(nil)
+
     resolve_language_tag(@status.language)
   end
 
@@ -90,23 +94,14 @@ class TranslateStatusService < BaseService
     return language if languages.key?(language)
 
     normalized = normalized_language_tag(language)
-    return resolved_bare_chinese(language) if normalized == 'zh'
+    # Bare zh is Chinese with an unspecified script. Do not broaden it to
+    # provider-wide auto-detection, and do not guess Hans or Hant.
+    return 'zh' if normalized == 'zh'
 
     script = provider_chinese_script(normalized) || CHINESE_REGIONAL_SCRIPTS[normalized]
     return script if script && languages.key?(script)
 
     regional_primary_language(language)
-  end
-
-  def resolved_bare_chinese(language)
-    return 'zh' if languages.key?('zh')
-    return nil if chinese_auto_detection_available?
-
-    language
-  end
-
-  def chinese_auto_detection_available?
-    languages.key?(nil) && CHINESE_SCRIPT_TAGS.any? { |tag| languages.key?(tag) }
   end
 
   def provider_chinese_script(normalized)
