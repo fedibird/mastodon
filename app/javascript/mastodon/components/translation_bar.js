@@ -5,8 +5,8 @@ import { defineMessages } from 'react-intl';
 import classnames from 'classnames';
 import Overlay from 'react-overlays/Overlay';
 import { languages as preloadedLanguages } from 'mastodon/initial_state';
-import { languageOption, sourceLanguageOptions, targetLanguageOptions } from 'mastodon/utils/translation_languages';
-import { preferredTranslationMode } from 'mastodon/utils/translation_view';
+import { languageOption, sameTranslationLanguage, sourceLanguageOptions, targetLanguageOptions } from 'mastodon/utils/translation_languages';
+import { normalizedContentLocale, preferredTranslationMode } from 'mastodon/utils/translation_view';
 import LanguageDropdownMenu from 'mastodon/components/language_dropdown_menu';
 
 const messages = defineMessages({
@@ -152,7 +152,7 @@ export default class TranslationBar extends React.PureComponent {
     </button>
   );
 
-  renderActionButton = (action, label, preferred, disabled, descriptionId) => (
+  renderActionButton = (action, label, preferred, disabled, described, descriptionId) => (
     <button
       key={action}
       type='button'
@@ -162,8 +162,8 @@ export default class TranslationBar extends React.PureComponent {
         'status__content__translate-button--secondary': action !== preferred,
       })}
       disabled={disabled || this.props.pending}
-      title={disabled ? this.props.intl.formatMessage(messages.unsupportedPair) : undefined}
-      aria-describedby={disabled ? descriptionId : undefined}
+      title={described ? this.props.intl.formatMessage(messages.unsupportedPair) : undefined}
+      aria-describedby={described ? descriptionId : undefined}
       onClick={this.handleSelect}
     >
       {label}
@@ -201,11 +201,14 @@ export default class TranslationBar extends React.PureComponent {
     const unspecifiedName = intl.formatMessage(messages.unspecified);
     const sourceLabel = languageName(viewerSource, intl);
     const targetLabel = languageName(viewerTarget, intl);
+    const defaultTarget = normalizedContentLocale(intl.locale);
     const sourceLanguages = sourceLanguageOptions(translationLanguages, viewerSource, preloadedLanguages, unspecifiedName);
-    const targetLanguages = targetLanguageOptions(translationLanguages, viewerSource, viewerTarget, preloadedLanguages, unspecifiedName);
+    const targetLanguages = targetLanguageOptions(translationLanguages, viewerSource, viewerTarget, preloadedLanguages, unspecifiedName, defaultTarget);
     const descriptionId = `translation-pair-${status ? status.get('id') : 'status'}`;
     const showActions = !!canRequest && !!statusTranslatable && !!languagesKnown && !showResult;
-    const unsupportedPair = showActions && !pairSupported;
+    const pairUnsupported = showActions && !pairSupported;
+    const sameLanguage = sameTranslationLanguage(viewerSource, viewerTarget, translationLanguages);
+    const showUnsupportedPairMessage = pairUnsupported && !sameLanguage;
     const preferred = preferredTranslationMode(preferredMode);
     const requestActions = preferred === 'bilingual' ? ['bilingual', 'translated'] : ['translated', 'bilingual'];
     const provider = showResult ? translation?.get('provider') : null;
@@ -257,13 +260,14 @@ export default class TranslationBar extends React.PureComponent {
               action,
               action === 'bilingual' ? intl.formatMessage(messages.bilingual) : intl.formatMessage(messages.translate),
               preferred,
-              unsupportedPair,
+              pairUnsupported,
+              showUnsupportedPairMessage,
               descriptionId,
             ))}
           </div>
         )}
 
-        {unsupportedPair && (
+        {showUnsupportedPairMessage && (
           <p className='status__translation-bar__note' id={descriptionId}>
             {intl.formatMessage(messages.unsupportedPair)}
           </p>
