@@ -35,17 +35,26 @@ jest.mock('../../initial_state', () => ({
   locale: 'ja',
 }));
 
+jest.mock('react-intl', () => ({
+  defineMessages: messages => messages,
+}));
+
 import api from '../../api';
+import settingsReducer from '../../reducers/settings';
 import statusesReducer from '../../reducers/statuses';
+import translationAssumptionsReducer from '../../reducers/translation_assumptions';
+import { viewerTranslationPair } from '../../utils/translation_view';
 import {
   translateStatus,
   setStatusTranslationAssumption,
+  setTranslationTargetLanguage,
   undoStatusTranslation,
   STATUS_TRANSLATE_REQUEST,
   STATUS_TRANSLATE_SUCCESS,
   STATUS_TRANSLATE_FAIL,
   STATUS_TRANSLATE_UNDO,
   STATUS_TRANSLATE_SET_MODE,
+  STATUS_TRANSLATION_TARGET,
 } from '../statuses';
 
 const createDispatch = (initialState) => {
@@ -333,10 +342,7 @@ describe('translateStatus', () => {
       mode: 'bilingual',
     }]);
 
-    const differentPair = createDispatch(translated.setIn(['translation_assumptions', 's1'], fromJS({
-      source: 'fr',
-      target: 'ja',
-    })));
+    const differentPair = createDispatch(translated.setIn(['translation_assumptions', 's1'], 'fr'));
     await differentPair.run(translateStatus('s1', 'translated'));
 
     expect(post).toHaveBeenCalledWith('/api/v1/statuses/s1/translate', {
@@ -362,14 +368,14 @@ describe('translateStatus', () => {
     const first = store.run(translateStatus('s1'));
     const requestA = store.actions[0].translationRequestId;
 
-    const cleared = statusesReducer(store.getState().get('statuses'), setStatusTranslationAssumption('s1', 'fr', 'ja'));
+    const cleared = statusesReducer(store.getState().get('statuses'), setStatusTranslationAssumption('s1', 'fr'));
     expect(cleared.getIn(['s1', 'translationPending'])).toBe(false);
     expect(cleared.getIn(['s1', 'translationRequestId'])).toBeUndefined();
     expect(cleared.getIn(['s1', 'language'])).toBe('en');
 
     store.setState(store.getState()
       .set('statuses', cleared)
-      .setIn(['translation_assumptions', 's1'], fromJS({ source: 'fr', target: 'ja' })));
+      .setIn(['translation_assumptions', 's1'], 'fr'));
 
     const second = store.run(translateStatus('s1'));
     const requestB = store.actions[1].translationRequestId;
@@ -393,6 +399,248 @@ describe('translateStatus', () => {
     expect(store.actions.filter(action => action.type === STATUS_TRANSLATE_FAIL && !action.skipAlert)).toEqual([
       expect.objectContaining({ translationRequestId: requestB }),
     ]);
+  });
+});
+
+const applyTranslationState = (state, action) => {
+  if (!action || typeof action.type !== 'string') {
+    return state;
+  }
+
+  return state
+    .set('statuses', statusesReducer(state.get('statuses'), action))
+    .set('settings', settingsReducer(state.get('settings'), action))
+    .set('translation_assumptions', translationAssumptionsReducer(state.get('translation_assumptions'), action));
+};
+
+const createIntegratedDispatch = (initialState) => {
+  let state = initialState;
+  const actions = [];
+  const dispatch = (action) => {
+    if (typeof action === 'function') {
+      return action(dispatch, () => state);
+    }
+
+    actions.push(action);
+    state = applyTranslationState(state, action);
+    return action;
+  };
+
+  return {
+    actions,
+    dispatch,
+    getState: () => state,
+    run: (thunk) => Promise.resolve(thunk(dispatch, () => state)),
+  };
+};
+
+const settingsState = () => settingsReducer(undefined, { type: '@@INIT' });
+
+const flushMicrotasks = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
+
+describe('viewer translation target preference', () => {
+  const base = () => fromJS({
+    statuses: {
+      s1: { id: 's1', account: 'a1', language: 'en' },
+      s2: { id: 's2', account: 'a1', language: 'fr' },
+    },
+    accounts: {
+      a1: { acct: 'alice@remote.example' },
+    },
+    translation_assumptions: {
+      s1: 'en',
+      s2: 'fr',
+    },
+  }).set('settings', settingsState());
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.runOnlyPendingTimers();
+    jest.useRealTimers();
+  });
+
+  it('uses the normalized UI locale when no target is saved and the saved target when one is', async () => {
+    expect(viewerTranslationPair(fromJS({ language: 'en' }), undefined, 'ja-JP', undefined)).toEqual({
+      source: 'en',
+      target: 'ja',
+    });
+    expect(viewerTranslationPair(fromJS({ language: null }), 'fr', 'en-US', '')).toEqual({
+      source: 'fr',
+      target: 'en',
+    });
+    expect(viewerTranslationPair(fromJS({}), fromJS({ source: 'de', target: 'es' }), 'ja-JP', undefined)).toEqual({
+      source: 'de',
+      target: 'ja',
+    });
+
+    const post = jest.fn(() => Promise.resolve({ data: { content: '<p>Hallo</p>', language: 'de' } }));
+    const put = jest.fn(() => Promise.resolve({}));
+    api.mockReturnValue({ post, put });
+
+    const unset = createIntegratedDispatch(base());
+    await unset.run(translateStatus('s1'));
+
+    expect(post).toHaveBeenCalledWith('/api/v1/statuses/s1/translate', {
+      source_language: 'en',
+      target_language: 'ja',
+    });
+
+    post.mockClear();
+    const saved = createIntegratedDispatch(base().setIn(['settings', 'translation', 'targetLanguage'], 'de'));
+    await saved.run(translateStatus('s1'));
+
+    expect(post).toHaveBeenCalledWith('/api/v1/statuses/s1/translate', {
+      source_language: 'en',
+      target_language: 'de',
+    });
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('saves the viewer target, keeps source assumptions, and ignores a stale target stored on an assumption', async () => {
+    const post = jest.fn(() => Promise.resolve({ data: { content: '<p>Hallo</p>', language: 'de' } }));
+    const put = jest.fn(() => Promise.resolve({}));
+    api.mockReturnValue({ post, put });
+
+    const store = createIntegratedDispatch(base().setIn(['translation_assumptions', 's1'], fromJS({
+      source: 'fr',
+      target: 'ja',
+    })));
+    store.dispatch(setTranslationTargetLanguage('de'));
+    await flushMicrotasks();
+
+    expect(store.actions[0]).toEqual({ type: STATUS_TRANSLATION_TARGET, target: 'de' });
+    expect(store.getState().getIn(['settings', 'translation', 'targetLanguage'])).toBe('de');
+    expect(store.getState().getIn(['translation_assumptions', 's1', 'source'])).toBe('fr');
+    expect(store.getState().getIn(['statuses', 's1', 'language'])).toBe('en');
+    expect(store.getState().getIn(['statuses', 's2', 'language'])).toBe('fr');
+    expect(put).toHaveBeenCalledWith('/api/web/settings', {
+      data: expect.objectContaining({
+        translation: { targetLanguage: 'de' },
+      }),
+    });
+
+    await store.run(translateStatus('s1'));
+    await store.run(translateStatus('s2'));
+
+    expect(post).toHaveBeenNthCalledWith(1, '/api/v1/statuses/s1/translate', {
+      source_language: 'fr',
+      target_language: 'de',
+    });
+    expect(post).toHaveBeenNthCalledWith(2, '/api/v1/statuses/s2/translate', {
+      source_language: 'fr',
+      target_language: 'de',
+    });
+  });
+
+  it('drops in-flight requests for the previous target and ignores their late success and failure', async () => {
+    const deferreds = [];
+    const post = jest.fn(() => new Promise((resolve, reject) => {
+      deferreds.push({ resolve, reject });
+    }));
+    const put = jest.fn(() => Promise.resolve({}));
+    api.mockReturnValue({ post, put });
+
+    const store = createIntegratedDispatch(base()
+      .setIn(['statuses', 's1', 'poll'], 'p1')
+      .setIn(['statuses', 's1', 'media_attachments'], fromJS([{ id: 'm1', description: 'first' }]))
+      .setIn(['statuses', 's2', 'poll'], 'p2'));
+    const first = store.run(translateStatus('s1'));
+    const second = store.run(translateStatus('s2'));
+    const requestA = store.actions[0].translationRequestId;
+    const requestB = store.actions[1].translationRequestId;
+
+    store.dispatch(setTranslationTargetLanguage('de'));
+    await flushMicrotasks();
+
+    expect(store.getState().getIn(['statuses', 's1', 'translationPending'])).toBe(false);
+    expect(store.getState().getIn(['statuses', 's1', 'translationRequestId'])).toBeUndefined();
+    expect(store.getState().getIn(['statuses', 's2', 'translationPending'])).toBe(false);
+    expect(store.getState().getIn(['statuses', 's2', 'translationRequestId'])).toBeUndefined();
+    expect(store.getState().getIn(['statuses', 's1', 'language'])).toBe('en');
+    expect(store.getState().getIn(['statuses', 's1', 'poll'])).toBe('p1');
+    expect(store.getState().getIn(['statuses', 's1', 'media_attachments', 0, 'description'])).toBe('first');
+    expect(store.getState().getIn(['translation_assumptions', 's1'])).toBe('en');
+    expect(store.getState().getIn(['translation_assumptions', 's2'])).toBe('fr');
+
+    const next = store.run(translateStatus('s1'));
+    expect(store.getState().getIn(['statuses', 's1', 'translationPending'])).toBe(true);
+    expect(post).toHaveBeenLastCalledWith('/api/v1/statuses/s1/translate', {
+      source_language: 'en',
+      target_language: 'de',
+    });
+
+    deferreds[0].resolve({
+      data: {
+        content: '<p>古い</p>',
+        language: 'ja',
+        poll: { id: 'p1', options: [{ title: '古い' }] },
+        media_attachments: [{ id: 'm1', description: '古い' }],
+      },
+    });
+    deferreds[1].reject(new Error('old target failed'));
+    await first;
+    await second;
+
+    expect(store.actions.filter(action => action.type === STATUS_TRANSLATE_SUCCESS && action.translationRequestId === requestA)).toEqual([]);
+    expect(store.actions.filter(action => action.type === STATUS_TRANSLATE_FAIL && action.translationRequestId === requestB)).toEqual([
+      expect.objectContaining({ skipAlert: true, translationRequestId: requestB }),
+    ]);
+    expect(store.actions.filter(action => action.type === STATUS_TRANSLATE_FAIL && !action.skipAlert)).toEqual([]);
+    expect(store.getState().getIn(['statuses', 's1', 'translation'])).toBeUndefined();
+    expect(store.getState().getIn(['statuses', 's1', 'media_attachments', 0, 'description'])).toBe('first');
+    expect(store.getState().getIn(['statuses', 's1', 'media_attachments', 0, 'translation'])).toBeUndefined();
+    expect(store.getState().getIn(['statuses', 's1', 'translationPending'])).toBe(true);
+    expect(store.getState().getIn(['statuses', 's2', 'language'])).toBe('fr');
+
+    deferreds[2].resolve({ data: { content: '<p>Hallo</p>', language: 'de' } });
+    await next;
+
+    expect(store.getState().getIn(['statuses', 's1', 'translation', 'requested_source_language'])).toBe('en');
+    expect(store.getState().getIn(['statuses', 's1', 'translation', 'requested_target_language'])).toBe('de');
+    expect(store.getState().getIn(['statuses', 's1', 'language'])).toBe('en');
+  });
+
+  it('reuses an attached translation without HTTP when the target returns to that request pair', async () => {
+    const post = jest.fn(() => Promise.resolve({ data: { content: '<p>Hallo</p>', language: 'de' } }));
+    const put = jest.fn(() => Promise.resolve({}));
+    api.mockReturnValue({ post, put });
+
+    const translated = base()
+      .setIn(['statuses', 's1', 'translation'], fromJS({
+        content: '<p>こんにちは</p>',
+        language: 'ja',
+        requested_source_language: 'en',
+        requested_target_language: 'ja',
+      }))
+      .setIn(['statuses', 's1', 'translationMode'], 'translated');
+    const store = createIntegratedDispatch(translated);
+
+    store.dispatch(setTranslationTargetLanguage('de'));
+    await flushMicrotasks();
+
+    expect(store.getState().getIn(['statuses', 's1', 'translationMode'])).toBe('original');
+    expect(store.getState().getIn(['statuses', 's1', 'translation', 'content'])).toBe('<p>こんにちは</p>');
+    expect(store.getState().getIn(['statuses', 's1', 'translation', 'requested_target_language'])).toBe('ja');
+    expect(store.getState().getIn(['statuses', 's1', 'language'])).toBe('en');
+
+    store.dispatch(setTranslationTargetLanguage('ja'));
+    await flushMicrotasks();
+    post.mockClear();
+    await store.run(translateStatus('s1', 'translated'));
+
+    expect(post).not.toHaveBeenCalled();
+    expect(store.actions.filter(action => action.type === STATUS_TRANSLATE_SET_MODE)).toEqual([
+      { type: STATUS_TRANSLATE_SET_MODE, id: 's1', mode: 'translated' },
+    ]);
+    expect(store.getState().getIn(['statuses', 's1', 'translationMode'])).toBe('translated');
+    expect(store.getState().getIn(['statuses', 's1', 'translation', 'requested_target_language'])).toBe('ja');
+    expect(store.getState().getIn(['statuses', 's1', 'translation', 'content'])).toBe('<p>こんにちは</p>');
   });
 });
 

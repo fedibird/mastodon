@@ -29,6 +29,7 @@ import {
   STATUS_TRANSLATE_FAIL,
   STATUS_TRANSLATE_SET_MODE,
   STATUS_TRANSLATION_ASSUMPTION,
+  STATUS_TRANSLATION_TARGET,
 } from '../actions/statuses';
 import { TIMELINE_DELETE } from '../actions/timelines';
 import { STATUS_IMPORT, STATUSES_IMPORT } from '../actions/importer';
@@ -157,6 +158,21 @@ const statusTranslationAssumption = (state, id) => {
   });
 };
 
+const invalidateTranslationTarget = (state) => state.withMutations(map => {
+  map.forEach((status, id) => {
+    if (!status || typeof status.get !== 'function') {
+      return;
+    }
+
+    map.setIn([id, 'translationPending'], false);
+    map.deleteIn([id, 'translationRequestId']);
+
+    if (status.get('translation')) {
+      map.setIn([id, 'translationMode'], 'original');
+    }
+  });
+});
+
 const statusTranslateUndo = (state, id) => {
   if (!state.get(id)) {
     return state;
@@ -258,6 +274,8 @@ export default function statuses(state = initialState, action) {
     return statusTranslateUndo(state, action.id);
   case STATUS_TRANSLATION_ASSUMPTION:
     return statusTranslationAssumption(state, action.id);
+  case STATUS_TRANSLATION_TARGET:
+    return invalidateTranslationTarget(state);
   default:
     return state;
   }

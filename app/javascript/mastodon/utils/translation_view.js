@@ -23,12 +23,26 @@ export function legacyTranslationPair(status, locale) {
   };
 }
 
-export function viewerTranslationPair(status, assumption, locale) {
+export function viewerSourceAssumption(assumption) {
+  if (typeof assumption === 'string' && assumption !== '') {
+    return assumption;
+  }
+
+  if (assumption && typeof assumption.get === 'function') {
+    const source = assumption.get('source');
+    return typeof source === 'string' && source !== '' ? source : '';
+  }
+
+  return '';
+}
+
+export function viewerTranslationPair(status, assumption, locale, savedTarget) {
   const legacy = legacyTranslationPair(status, locale);
+  const target = typeof savedTarget === 'string' && savedTarget !== '' ? savedTarget : legacy.target;
 
   return {
-    source: (assumption && assumption.get('source')) || legacy.source,
-    target: (assumption && assumption.get('target')) || legacy.target,
+    source: viewerSourceAssumption(assumption) || legacy.source,
+    target,
   };
 }
 

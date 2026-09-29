@@ -12,6 +12,7 @@ jest.mock('../../actions/statuses', () => ({
   STATUS_TRANSLATE_FAIL: 'STATUS_TRANSLATE_FAIL',
   STATUS_TRANSLATE_SET_MODE: 'STATUS_TRANSLATE_SET_MODE',
   STATUS_TRANSLATION_ASSUMPTION: 'STATUS_TRANSLATION_ASSUMPTION',
+  STATUS_TRANSLATION_TARGET: 'STATUS_TRANSLATION_TARGET',
 }));
 
 import { STATUS_IMPORT } from '../../actions/importer';
@@ -22,7 +23,7 @@ import translationAssumptions from '../translation_assumptions';
 const STATUS_TRANSLATION_ASSUMPTION = 'STATUS_TRANSLATION_ASSUMPTION';
 
 describe('translation language-pair assumptions', () => {
-  it('stores a viewer pair without changing the status language', () => {
+  it('stores only the source and leaves the status language unchanged', () => {
     const state = fromJS({
       s1: {
         id: 's1',
@@ -45,8 +46,9 @@ describe('translation language-pair assumptions', () => {
       target: 'de',
     });
 
-    expect(assumptions.getIn(['s1', 'source'])).toBe('fr');
-    expect(assumptions.getIn(['s1', 'target'])).toBe('de');
+    expect(assumptions.get('s1')).toBe('fr');
+    expect(assumptions.getIn(['s1', 'source'])).toBeUndefined();
+    expect(assumptions.getIn(['s1', 'target'])).toBeUndefined();
     expect(assumptions.has('s2')).toBe(false);
     expect(next.getIn(['s1', 'language'])).toBe('en');
     expect(next.getIn(['s1', 'translationMode'])).toBe('original');
@@ -55,24 +57,51 @@ describe('translation language-pair assumptions', () => {
     expect(next.getIn(['s1', 'translationRequestId'])).toBeUndefined();
   });
 
-  it('keeps the pair when the status is reimported and drops it when the status is removed', () => {
+  it('keeps each source across reimport and drops only the removed status', () => {
     const stored = translationAssumptions(undefined, {
       type: STATUS_TRANSLATION_ASSUMPTION,
       id: 's1',
       source: 'zh',
       target: 'ja',
     });
-    const reimported = translationAssumptions(stored, {
+    const withOther = translationAssumptions(stored, {
+      type: STATUS_TRANSLATION_ASSUMPTION,
+      id: 's2',
+      source: 'de',
+    });
+    const reimported = translationAssumptions(withOther, {
       type: STATUS_IMPORT,
       status: { id: 's1', language: 'en' },
     });
     const removed = translationAssumptions(reimported, {
       type: TIMELINE_DELETE,
       id: 's1',
+      references: [],
+    });
+
+    expect(reimported.get('s1')).toBe('zh');
+    expect(reimported.get('s2')).toBe('de');
+    expect(removed.has('s1')).toBe(false);
+    expect(removed.get('s2')).toBe('de');
+  });
+
+  it('also drops assumptions for referenced statuses', () => {
+    const stored = translationAssumptions(translationAssumptions(undefined, {
+      type: STATUS_TRANSLATION_ASSUMPTION,
+      id: 's1',
+      source: 'zh',
+    }), {
+      type: STATUS_TRANSLATION_ASSUMPTION,
+      id: 's2',
+      source: 'de',
+    });
+    const removed = translationAssumptions(stored, {
+      type: TIMELINE_DELETE,
+      id: 's1',
       references: ['s2'],
     });
 
-    expect(reimported.getIn(['s1', 'source'])).toBe('zh');
     expect(removed.has('s1')).toBe(false);
+    expect(removed.has('s2')).toBe(false);
   });
 });
