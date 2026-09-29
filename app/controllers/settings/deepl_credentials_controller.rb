@@ -14,6 +14,8 @@ class Settings::DeepLCredentialsController < Settings::BaseController
     redirect_to settings_external_credentials_path, alert: I18n.t('external_credentials.storage_unavailable'), status: :see_other
   rescue DeepLCredentialSettings::Ambiguous
     redirect_to settings_external_credentials_path, alert: I18n.t('external_credentials.ambiguous'), status: :see_other
+  rescue DeepLCredentialSettings::SaveFailed
+    redirect_to settings_external_credentials_path, alert: I18n.t('external_credentials.save_failed'), status: :see_other
   end
 
   def destroy

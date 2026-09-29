@@ -105,7 +105,7 @@ RSpec.describe DeepLCredentialSettings, type: :service do
 
     it 'rejects blank, control characters, overlong, and non-string keys without echoing them' do
       with_vault_keyring do
-        ['', '   ', "line\nbreak", "line\rbreak", "null\u0000byte", "delete\u007F", 'a' * 513, ['array-key'], { api_key: 'hash' }].each do |bad|
+        ['', '   ', "line\nbreak", "line\rbreak", "#{api_key}\n", "#{api_key}\r\n", "null\u0000byte", "delete\u007F", 'a' * 513, ['array-key'], { api_key: 'hash' }].each do |bad|
           expect { settings.save!(bad) }.to raise_error(described_class::InvalidKey) { |error|
             expect(error.message).not_to include('line')
             expect(error.message).not_to include('array-key')
@@ -114,6 +114,32 @@ RSpec.describe DeepLCredentialSettings, type: :service do
         end
         expect(deepl_rows).to be_empty
         expect { settings.save!('a' * 512) }.not_to raise_error
+      end
+    end
+
+    it 'turns a persistence failure into SaveFailed without keeping the key in the error' do
+      with_vault_keyring do
+        allow(UserCredentialVault).to receive(:store!).and_raise(ActiveRecord::RecordNotSaved.new("could not save #{api_key}"))
+
+        expect { settings.save!(api_key) }.to raise_error(described_class::SaveFailed) { |error|
+          expect(error.message).not_to include(api_key)
+          expect(error.cause).to be_nil
+        }
+        expect(deepl_rows).to be_empty
+      end
+    end
+
+    it 'turns a replace lifecycle failure into SaveFailed without keeping the key in the error' do
+      with_vault_keyring do
+        store_vault_credential(owner: user, secret: 'old-personal-deepl-key')
+        allow(UserCredentialVault).to receive(:replace!).and_raise(ActiveRecord::RecordNotFound.new("missing #{api_key}"))
+
+        expect { settings.save!(api_key) }.to raise_error(described_class::SaveFailed) { |error|
+          expect(error.message).not_to include(api_key)
+          expect(error.cause).to be_nil
+        }
+        expect(deepl_rows.size).to eq(1)
+        expect(probe_vault(owner: user, credential: deepl_rows.first)[:result]).to eq('old-personal-deepl-key')
       end
     end
   end

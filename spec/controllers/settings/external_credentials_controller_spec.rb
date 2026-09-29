@@ -44,6 +44,9 @@ describe Settings::ExternalCredentialsController do
         expect(field['autocapitalize']).to eq('none')
         expect(response.body).to include(I18n.t('external_credentials.save'))
         expect(response.body).to include('Saving does not contact DeepL')
+        expect(response.body).to include('used ahead of this server')
+        expect(response.body).to include('does not silently switch')
+        expect(response.body).to include('vault encryption keys can decrypt')
       end
     end
 
@@ -84,6 +87,9 @@ describe Settings::ExternalCredentialsController do
       expect(response.body).to include('保存時にはDeepLへの接続確認を行いません。')
       expect(response.body).to include('現在、個人DeepLでは公開・未収載の投稿だけを翻訳します。')
       expect(response.body).to include('個人APIキーを削除すると、利用可能な場合はサーバー側の翻訳サービスに戻ります。')
+      expect(response.body).to include('このサーバーの翻訳サービスより優先して使われます。')
+      expect(response.body).to include('サーバー側の翻訳サービスへ自動的には切り替えません。')
+      expect(response.body).to include('データベースと保管用の暗号鍵の両方を読めるサーバー管理者は、このAPIキーを復号できます。')
     end
 
     it 'shows metadata and delete without a save form when several credentials exist' do

@@ -13,6 +13,7 @@ class DeepLCredentialSettings
   class InvalidKey < Error; end
   class Ambiguous < Error; end
   class Unavailable < Error; end
+  class SaveFailed < Error; end
 
   MAX_API_KEY_LENGTH = 512
   PROVIDER = 'deepl'
@@ -32,6 +33,10 @@ class DeepLCredentialSettings
     @user = user
   end
 
+  # Row disappearance, an ownership or classification mismatch, and a
+  # persistence failure are expected races. They become SaveFailed with no
+  # cause, so the settings redirect does not echo the submitted key.
+  # InvalidKey, Unavailable, Ambiguous, and ConfigurationError stay distinct.
   def save!(raw_key)
     key = normalize!(raw_key)
     raise Unavailable unless UserCredentialVault.available?
@@ -39,6 +44,8 @@ class DeepLCredentialSettings
     @user.with_lock do
       persist!(key, self.class.scope_for(@user).lock.order(:id).to_a)
     end
+  rescue UserCredentialVault::AccessError, ActiveRecord::ActiveRecordError
+    raise SaveFailed, cause: nil
   end
 
   def delete!(id)
@@ -85,12 +92,15 @@ class DeepLCredentialSettings
     )
   end
 
+  # A control character anywhere in the submitted value, including a trailing
+  # CR or LF, is rejected. Leading and trailing whitespace is removed only
+  # after that check.
   def normalize!(raw_key)
     raise InvalidKey unless raw_key.is_a?(String)
+    raise InvalidKey if raw_key.match?(UserExternalCredential::CONTROL_CHARACTERS)
 
     key = raw_key.strip
     raise InvalidKey if key.blank?
-    raise InvalidKey if key.match?(UserExternalCredential::CONTROL_CHARACTERS)
     raise InvalidKey if key.bytesize > MAX_API_KEY_LENGTH
 
     key

@@ -111,6 +111,52 @@ describe Settings::DeepLCredentialsController do
       end
     end
 
+    it 'redirects a persistence failure without echoing the secret or showing success' do
+      with_vault_keyring do
+        allow(UserCredentialVault).to receive(:store!).and_raise(ActiveRecord::RecordNotSaved.new("could not save #{api_key}"))
+
+        post :create, params: { api_key: api_key }, session: challenge
+
+        expect(response).to redirect_to(settings_external_credentials_path)
+        expect(flash[:notice]).to be_nil
+        expect(flash[:alert]).to eq(I18n.t('external_credentials.save_failed'))
+        expect(flash[:alert]).not_to include(api_key)
+        expect(response.location).not_to include(api_key)
+        expect(response.body).not_to include(api_key)
+        expect(user.external_credentials).to be_empty
+
+        @controller = Settings::ExternalCredentialsController.new
+        get :show, session: challenge
+        field = Nokogiri::HTML(response.body).at_css('input[name="api_key"]')
+        expect(field['value'].to_s).to eq('')
+        expect(response.body).not_to include(api_key)
+      end
+    end
+
+    it 'redirects a replace lifecycle failure without echoing the secret or showing success' do
+      with_vault_keyring do
+        store_vault_credential(owner: user, secret: 'old-personal-deepl-key')
+        allow(UserCredentialVault).to receive(:replace!).and_raise(UserCredentialVault::OwnerMismatch.new("owner mismatch #{api_key}"))
+
+        post :create, params: { api_key: api_key }, session: challenge
+
+        expect(response).to redirect_to(settings_external_credentials_path)
+        expect(flash[:notice]).to be_nil
+        expect(flash[:alert]).to eq(I18n.t('external_credentials.save_failed'))
+        expect(flash[:alert]).not_to include(api_key)
+        expect(response.location).not_to include(api_key)
+        expect(response.body).not_to include(api_key)
+        expect(user.external_credentials.count).to eq(1)
+
+        @controller = Settings::ExternalCredentialsController.new
+        get :show, session: challenge
+        field = Nokogiri::HTML(response.body).at_css('input[name="api_key"]')
+        expect(field['value'].to_s).to eq('')
+        expect(response.body).not_to include(api_key)
+        expect(response.body).not_to include('old-personal-deepl-key')
+      end
+    end
+
     it 'redirects a validation failure without echoing the secret' do
       secret = "zzsecretkeyzz\nmore"
       with_vault_keyring do
