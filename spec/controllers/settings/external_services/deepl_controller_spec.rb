@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-describe Settings::ExternalCredentialsController do
+describe Settings::ExternalServices::DeepLController do
   render_views
 
   let(:user) { Fabricate(:user, password: '123456789') }
@@ -26,7 +26,7 @@ describe Settings::ExternalCredentialsController do
 
       field = Nokogiri::HTML(response.body).at_css('input[name="form_challenge[return_to]"]')
       expect(response).to have_http_status(200)
-      expect(field['value']).to eq(settings_external_credentials_path)
+      expect(field['value']).to eq(settings_external_services_deepl_path)
       expect(response.body).not_to include(api_key)
       expect(response.body).not_to include('name="api_key"')
     end
@@ -47,6 +47,8 @@ describe Settings::ExternalCredentialsController do
         expect(response.body).to include('used ahead of this server')
         expect(response.body).to include('does not silently switch')
         expect(response.body).to include('vault encryption keys can decrypt')
+        expect(response.body).to include('external-service-notes')
+        expect(response.body).to include('aria-hidden="true"')
       end
     end
 
@@ -60,13 +62,16 @@ describe Settings::ExternalCredentialsController do
 
         field = key_field(response.body)
         expect(field['value'].to_s).to eq('')
-        expect(response.body).to include(I18n.t('external_credentials.configured'))
+        expect(response.body).to include(I18n.t('external_services.status.connected'))
         expect(response.body).to include(I18n.t('external_credentials.replace'))
         expect(response.body).to include(I18n.t('external_credentials.last_used'))
+        expect(response.body).not_to include('verified')
+        expect(response.body).not_to include('Verified')
         expect(response.body).not_to include(secret)
         expect(response.body).not_to include('Q7z9')
         expect(response.body).not_to include(row.encrypted_payload)
         expect(response.body).not_to include(row.binding_id)
+        expect(response.body).not_to include(row.encryption_key_id)
         expect(response.body).not_to include('credkey')
       end
     end
@@ -78,8 +83,8 @@ describe Settings::ExternalCredentialsController do
         get :show, session: challenge
       end
 
-      expect(response.body).to include('外部サービス')
-      expect(response.body).to include('個人のDeepL APIキー')
+      expect(response.body).to include('個人のDeepLについて')
+      expect(response.body).to include('自分のDeepL APIキーを使って投稿を翻訳します。')
       expect(response.body).to include('このAPIキーは暗号化して保存され、あなた自身の翻訳リクエストにのみ使用されます。')
       expect(response.body).to include('サーバーは翻訳実行時にAPIキーを復号します。エンドツーエンド暗号化ではありません。')
       expect(response.body).to include('DeepLの利用料金・利用上限はあなた自身の契約に従います。')
@@ -90,6 +95,8 @@ describe Settings::ExternalCredentialsController do
       expect(response.body).to include('このサーバーの翻訳サービスより優先して使われます。')
       expect(response.body).to include('サーバー側の翻訳サービスへ自動的には切り替えません。')
       expect(response.body).to include('データベースと保管用の暗号鍵の両方を読めるサーバー管理者は、このAPIキーを復号できます。')
+      expect(response.body).not_to include('確認済み')
+      expect(response.body).not_to include('検証済み')
     end
 
     it 'shows metadata and delete without a save form when several credentials exist' do
@@ -102,10 +109,11 @@ describe Settings::ExternalCredentialsController do
 
         expect(response.body).to include(I18n.t('external_credentials.ambiguous'))
         expect(response.body).to include(I18n.t('external_credentials.revoked'))
+        expect(response.body).to include(I18n.t('external_services.status.warning'))
         expect(key_field(response.body)).to be_nil
         expect(response.body).not_to include(rows.first.binding_id)
         expect(response.body).not_to include(rows.second.encrypted_payload)
-        expect(response.body.scan('deepl_credential').size).to be >= 2
+        expect(response.body.scan('external_services/deepl/credentials/').size).to be >= 2
       end
     end
 
@@ -117,6 +125,7 @@ describe Settings::ExternalCredentialsController do
       expect(response).to have_http_status(200)
       expect(response.body).to include(I18n.t('external_credentials.storage_unavailable'))
       expect(response.body).not_to include('user external credential keyring')
+      expect(response.body).not_to include('USER_EXTERNAL_CREDENTIAL')
       expect(key_field(response.body)).to be_nil
     end
 
@@ -130,8 +139,8 @@ describe Settings::ExternalCredentialsController do
       expect(response).to have_http_status(200)
       expect(response.body).to include(I18n.t('external_credentials.storage_unavailable'))
       expect(response.body).not_to include('user external credential keyring')
-      expect(response.body).to include(I18n.t('external_credentials.configured'))
-      expect(response.body).to include(settings_deepl_credential_path(row))
+      expect(response.body).to include(I18n.t('external_services.status.unavailable'))
+      expect(response.body).to include(settings_external_services_deepl_credential_record_path(row))
       expect(key_field(response.body)).to be_nil
       expect(response.body).not_to include(api_key)
     end

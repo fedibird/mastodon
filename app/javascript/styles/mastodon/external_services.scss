@@ -1,0 +1,198 @@
+// Settings hub for external service connections. These cards are not the
+// WebUI timeline cards. Colors come from the active settings theme.
+.external-services {
+  margin-bottom: 20px;
+}
+
+.external-service-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+
+  h3 {
+    margin: 0;
+  }
+
+  p {
+    margin: 4px 0 0;
+  }
+}
+
+.external-service-header__text {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.external-services__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.external-service-card {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-areas:
+    'icon status'
+    'icon content'
+    'icon manage';
+  column-gap: 12px;
+  row-gap: 4px;
+  height: auto;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid rgba($primary-text-color, 0.28);
+  border-radius: 8px;
+  background: transparent;
+  color: $primary-text-color;
+
+  &:hover,
+  &:focus-within {
+    border-color: $highlight-text-color;
+  }
+}
+
+.external-service-card__icon {
+  grid-area: icon;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: rgba($primary-text-color, 0.08);
+
+  img {
+    display: block;
+    width: 44px;
+    height: 44px;
+  }
+}
+
+.external-service-card__content {
+  grid-area: content;
+  min-width: 0;
+}
+
+.external-service-card__title {
+  margin: 0;
+  color: $primary-text-color;
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.external-service-card__subtitle,
+.external-service-card__activity {
+  margin: 2px 0 0;
+  color: $darker-text-color;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.external-service-card__status {
+  grid-area: status;
+  justify-self: end;
+  margin: 0;
+}
+
+.external-service-card__badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid rgba($primary-text-color, 0.35);
+  border-radius: 999px;
+  color: $primary-text-color;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.external-service-card__badge--connected {
+  border-color: $valid-value-color;
+}
+
+.external-service-card__badge--warning {
+  border-color: $passive-text-color;
+}
+
+.external-service-card__badge--unavailable {
+  border-color: $error-value-color;
+}
+
+.external-service-card__manage,
+.external-services__add,
+.external-services__back {
+  color: $highlight-text-color;
+  text-decoration: underline;
+
+  &:hover,
+  &:focus {
+    color: $primary-text-color;
+  }
+
+  &:focus {
+    outline: 2px solid $highlight-text-color;
+    outline-offset: 2px;
+  }
+}
+
+.external-service-card__manage {
+  grid-area: manage;
+  justify-self: end;
+  font-weight: 700;
+}
+
+.external-service-notes {
+  margin: 0 0 20px;
+
+  h4 {
+    margin-bottom: 8px;
+  }
+
+  dt {
+    margin-top: 10px;
+    color: $primary-text-color;
+    font-weight: 700;
+  }
+
+  dd {
+    margin: 2px 0 0;
+    color: $darker-text-color;
+  }
+
+  ul {
+    margin: 0;
+    padding-inline-start: 1.2em;
+  }
+
+  li + li {
+    margin-top: 4px;
+  }
+}
+
+.external-service-summary {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 16px;
+  margin: 12px 0;
+
+  dt {
+    margin: 0;
+    color: $darker-text-color;
+    font-weight: 700;
+  }
+
+  dd {
+    margin: 0;
+    color: $primary-text-color;
+  }
+}
+
+.external-service-record {
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba($primary-text-color, 0.15);
+}

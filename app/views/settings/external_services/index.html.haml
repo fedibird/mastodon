@@ -1,0 +1,30 @@
+- content_for :page_title do
+  = t('external_services.title')
+
+.external-services
+  .external-service-header
+    %h3= t('external_services.title')
+    = link_to new_settings_external_service_path, class: 'button external-services__add' do
+      = t('external_services.add_service')
+
+  - if @connections.empty?
+    %p.hint= t('external_services.empty')
+  - else
+    .external-services__grid
+      - @connections.each do |connection|
+        %article.external-service-card
+          = render 'icon', icon: connection.icon
+          .external-service-card__content
+            %h4.external-service-card__title= connection.title
+            %p.external-service-card__subtitle= connection.subtitle
+            %p.external-service-card__activity
+              - if connection.last_used_at
+                = t('external_credentials.last_used')
+                %time{ datetime: connection.last_used_at.iso8601 }= l(connection.last_used_at)
+              - else
+                = t('external_credentials.never_used')
+          %p.external-service-card__status
+            %span{ class: "external-service-card__badge external-service-card__badge--#{connection.status}" }= connection.status_label
+          = link_to connection.manage_path, class: 'external-service-card__manage', aria: { label: t('external_services.manage_service', service: connection.title) } do
+            = t('external_services.manage')
+            %span{ aria: { hidden: 'true' } } →

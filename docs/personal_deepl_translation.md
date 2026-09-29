@@ -1,6 +1,6 @@
 # Personal DeepL translation
 
-This is the viewer-scoped DeepL provider. It is encryption-at-rest plus an application check, not end-to-end encryption. The server can decrypt a credential when it translates for that owner. Users enter that key on the HTML settings page `/settings/external_credentials`. There is no credential REST API.
+This is the viewer-scoped DeepL provider. It is encryption-at-rest plus an application check, not end-to-end encryption. The server can decrypt a credential when it translates for that owner. Users enter that key on the HTML settings page `/settings/external_services/deepl`. The hub is `/settings/external_services`. See `docs/external_services.md`. There is no credential REST API.
 
 ## Provider precedence
 

@@ -1,18 +1,17 @@
 # frozen_string_literal: true
 
-class Settings::ExternalCredentialsController < Settings::BaseController
+class Settings::ExternalServices::DeepLController < Settings::BaseController
   include ChallengableConcern
 
   before_action :require_page_challenge!
 
   def show
-    @credentials = DeepLCredentialSettings.scope_for(current_user).order(:id).to_a
-    @vault_available = UserCredentialVault.available?
+    @page = ExternalServices::DeepL.page_for(current_user)
   end
 
   private
 
-  # Challenge the clean settings path. request.url is not used, so a query
+  # Challenge the clean DeepL path. request.url is not used, so a query
   # string cannot be copied into the challenge form.
   def require_page_challenge!
     return if skip_challenge?
@@ -22,7 +21,7 @@ class Settings::ExternalCredentialsController < Settings::BaseController
       return
     end
 
-    @challenge = Form::Challenge.new(return_to: settings_external_credentials_path)
+    @challenge = Form::Challenge.new(return_to: settings_external_services_deepl_path)
     render_challenge
   end
 end

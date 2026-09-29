@@ -18,8 +18,8 @@ describe Settings::Preferences::AppearanceController do
 
       get :show
 
-      expect(response.body).to include(I18n.t('external_credentials.appearance_link_html', path: settings_external_credentials_path))
-      expect(response.body).to include(settings_external_credentials_path)
+      expect(response.body).to include(I18n.t('external_credentials.appearance_link_html', path: settings_external_services_deepl_path))
+      expect(response.body).to include(settings_external_services_deepl_path)
     end
 
     it 'links the Japanese appearance hint to 外部サービス' do
@@ -30,7 +30,7 @@ describe Settings::Preferences::AppearanceController do
 
       expect(response.body).to include('個人のDeepL APIキーは')
       expect(response.body).to include('外部サービス')
-      expect(response.body).to include(settings_external_credentials_path)
+      expect(response.body).to include(settings_external_services_deepl_path)
     end
   end
 end

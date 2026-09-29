@@ -1,0 +1,97 @@
+- content_for :page_title do
+  = t('external_services.providers.deepl.name')
+
+.external-services
+  %p
+    = link_to settings_external_services_path, class: 'external-services__back' do
+      = t('external_services.back')
+
+  .external-service-header
+    = render 'settings/external_services/icon', icon: ExternalServices::DeepL.icon
+    .external-service-header__text
+      %h3= t('external_services.providers.deepl.name')
+      %p= t('external_services.providers.deepl.description')
+
+  %section.external-service-notes
+    %h4= t('external_services.about')
+    %dl
+      %dt= t('external_services.use')
+      %dd= t('external_credentials.precedence')
+      %dt= t('external_services.content')
+      %dd= t('external_credentials.visibility')
+      %dt= t('external_services.storage')
+      %dd
+        %ul
+          %li= t('external_credentials.encrypted')
+          %li= t('external_credentials.not_e2ee')
+          %li= t('external_credentials.operator_decrypt')
+          %li= t('external_credentials.cannot_reveal')
+      %dt= t('external_services.contract')
+      %dd= t('external_credentials.billing')
+      %dt= t('external_services.save_delete')
+      %dd
+        %ul
+          %li= t('external_credentials.no_connection_test')
+          %li= t('external_credentials.delete_fallback')
+
+  - unless @page.vault_available
+    %p.warning-hint= t('external_credentials.storage_unavailable')
+
+  - if @page.many?
+    %p.warning-hint= t('external_credentials.ambiguous')
+    %p.external-service-card__status
+      %span{ class: "external-service-card__badge external-service-card__badge--#{@page.status}" }= @page.status_label
+
+  - if @page.records.one?
+    - record = @page.records.first
+    %dl.external-service-summary
+      %dt= t('external_services.status_label')
+      %dd= @page.status_label
+      %dt= t('external_credentials.last_used')
+      %dd
+        - if record.last_used_at
+          %time{ datetime: record.last_used_at.iso8601 }= l(record.last_used_at)
+        - else
+          = t('external_services.never')
+      %dt= t('external_credentials.created_at')
+      %dd
+        %time{ datetime: record.created_at.iso8601 }= l(record.created_at)
+      %dt= t('external_credentials.updated_at')
+      %dd
+        %time{ datetime: record.updated_at.iso8601 }= l(record.updated_at)
+    - if record.revoked?
+      %p= t('external_credentials.revoked')
+    - if record.expired?
+      %p= t('external_credentials.expired')
+    = button_to t('external_credentials.delete'), settings_external_services_deepl_credential_record_path(record.id), method: :delete, class: 'button negative'
+
+  - @page.records.each do |record|
+    - next unless @page.many?
+    .external-service-record
+      %dl.external-service-summary
+        %dt= t('external_credentials.created_at')
+        %dd
+          %time{ datetime: record.created_at.iso8601 }= l(record.created_at)
+        %dt= t('external_credentials.updated_at')
+        %dd
+          %time{ datetime: record.updated_at.iso8601 }= l(record.updated_at)
+        %dt= t('external_credentials.last_used')
+        %dd
+          - if record.last_used_at
+            %time{ datetime: record.last_used_at.iso8601 }= l(record.last_used_at)
+          - else
+            = t('external_services.never')
+      - if record.revoked?
+        %p= t('external_credentials.revoked')
+      - if record.expired?
+        %p= t('external_credentials.expired')
+      = button_to t('external_credentials.delete'), settings_external_services_deepl_credential_record_path(record.id), method: :delete, class: 'button negative'
+
+  - if @page.show_form?
+    %h4= @page.records.one? ? t('external_credentials.replace') : t('external_credentials.save')
+    = form_with url: settings_external_services_deepl_credential_path, method: :post, local: true do
+      .fields-group
+        = label_tag :api_key, t('external_credentials.api_key_label')
+        = password_field_tag :api_key, nil, autocomplete: 'new-password', spellcheck: false, autocapitalize: 'none'
+      .actions
+        = submit_tag(@page.records.one? ? t('external_credentials.replace') : t('external_credentials.save'), class: 'button')
