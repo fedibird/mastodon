@@ -115,7 +115,14 @@ export const sourceLanguageOptions = (translationLanguages, currentSource, prelo
   return codes.map(code => languageOption(code, preloadedLanguages, unspecifiedName));
 };
 
-export const targetLanguageOptions = (translationLanguages, source, currentTarget, preloadedLanguages, unspecifiedName) => {
+export const sameTranslationLanguage = (source, target, translationLanguages) => {
+  const resolvedSource = translationSourceLanguage(source, translationLanguages);
+  const resolvedTarget = translationSourceLanguage(target, translationLanguages);
+
+  return !!resolvedSource && !!resolvedTarget && resolvedSource === resolvedTarget;
+};
+
+export const targetLanguageOptions = (translationLanguages, source, currentTarget, preloadedLanguages, unspecifiedName, defaultTarget) => {
   const resolved = translationSourceLanguage(source, translationLanguages);
   const codes = [];
   const seen = new Set();
@@ -123,6 +130,7 @@ export const targetLanguageOptions = (translationLanguages, source, currentTarge
 
   targets?.forEach(code => addCode(codes, seen, code));
   addCode(codes, seen, currentTarget);
+  addCode(codes, seen, defaultTarget);
 
   return codes.map(code => languageOption(code, preloadedLanguages, unspecifiedName));
 };

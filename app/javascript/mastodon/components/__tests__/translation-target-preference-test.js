@@ -11,6 +11,32 @@ jest.mock('mastodon/api', () => ({
   default: jest.fn(),
 }));
 
+// The settings saver debounces across the whole file. Invoke it immediately so
+// each target change records its own /api/web/settings call.
+jest.mock('lodash', () => {
+  const actual = jest.requireActual('lodash');
+  const debounce = (fn) => {
+    const wrapped = (...args) => fn(...args);
+    wrapped.cancel = () => {};
+    wrapped.flush = () => {};
+    return wrapped;
+  };
+
+  return new Proxy(actual, {
+    get(target, prop, receiver) {
+      if (prop === 'debounce') {
+        return debounce;
+      }
+
+      const value = Reflect.get(target, prop, receiver);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+    apply(target, thisArg, args) {
+      return Reflect.apply(target, thisArg, args);
+    },
+  });
+});
+
 jest.mock('mastodon/initial_state', () => ({
   me: '1',
   autoPlayEmoji: false,
@@ -109,6 +135,35 @@ const createInteractiveStore = (statuses, { languages = LANGUAGES, target } = {}
   }).set('settings', settings));
 
   return createStore(reducer, state, applyMiddleware(thunk));
+};
+
+const optionCodes = () => screen.getAllByRole('option').map(option => option.getAttribute('data-index')).sort();
+
+const expectSameLanguageActions = () => {
+  const translate = screen.getByRole('button', { name: 'Translate' });
+  const bilingual = screen.getByRole('button', { name: 'Bilingual' });
+
+  expect(translate).toBeDisabled();
+  expect(bilingual).toBeDisabled();
+  expect(screen.queryByText('This language pair is not supported.')).toBeNull();
+  expect(translate).not.toHaveAttribute('title');
+  expect(bilingual).not.toHaveAttribute('title');
+  expect(translate).not.toHaveAttribute('aria-describedby');
+  expect(bilingual).not.toHaveAttribute('aria-describedby');
+};
+
+const expectUnsupportedWarning = (id) => {
+  const translate = screen.getByRole('button', { name: 'Translate' });
+  const bilingual = screen.getByRole('button', { name: 'Bilingual' });
+  const note = screen.getByText('This language pair is not supported.');
+
+  expect(translate).toBeDisabled();
+  expect(bilingual).toBeDisabled();
+  expect(note).toHaveAttribute('id', `translation-pair-${id}`);
+  expect(translate).toHaveAttribute('title', 'This language pair is not supported.');
+  expect(bilingual).toHaveAttribute('title', 'This language pair is not supported.');
+  expect(translate).toHaveAttribute('aria-describedby', `translation-pair-${id}`);
+  expect(bilingual).toHaveAttribute('aria-describedby', `translation-pair-${id}`);
 };
 
 const renderStatuses = (store, statuses, props = {}) => render(
@@ -328,5 +383,137 @@ describe('viewer-wide translation target', () => {
     expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
     expect(screen.queryByText('This language pair is not supported.')).toBeNull();
     expect(store.getState().getIn(['settings', 'translation', 'targetLanguage'])).toBe('de');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Target language, Deutsch' }));
+
+    expect(optionCodes()).toEqual(['de', 'ja']);
+    expect(screen.getByRole('option', { name: /Deutsch/ })).toBeTruthy();
+    expect(screen.getByRole('option', { name: /日本語/ })).toBeTruthy();
+  });
+
+  it('keeps the UI default target available beside provider targets and the current target', () => {
+    const statusA = buildStatus('a', 'ja', { contentHtml: '<p>こんにちは</p>', search_index: 'こんにちは' });
+    const statusB = buildStatus('b', 'en', { contentHtml: '<p>Hello</p>', search_index: 'Hello' });
+    const store = createInteractiveStore({ a: statusA, b: statusB }, {
+      languages: { ja: ['en'], en: ['ja'], und: ['ja'] },
+      target: 'en',
+    });
+
+    renderStatuses(store, { a: statusA, b: statusB });
+    const bar = id => within(screen.getByTestId(`status-${id}`));
+
+    expect(bar('a').getByRole('button', { name: 'Target language, English' })).toBeTruthy();
+    expect(bar('b').getByRole('button', { name: 'Target language, English' })).toBeTruthy();
+    expect(store.getState().getIn(['settings', 'translation', 'targetLanguage'])).toBe('en');
+
+    fireEvent.click(bar('a').getByRole('button', { name: 'Target language, English' }));
+
+    expect(optionCodes()).toEqual(['en', 'ja']);
+    expect(screen.getAllByRole('option', { name: /English/ })).toHaveLength(1);
+    expect(screen.getAllByRole('option', { name: /日本語/ })).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole('option', { name: /日本語/ }));
+
+    expect(bar('a').getByRole('button', { name: 'Target language, 日本語' })).toBeTruthy();
+    expect(bar('b').getByRole('button', { name: 'Target language, 日本語' })).toBeTruthy();
+    expect(store.getState().getIn(['settings', 'translation', 'targetLanguage'])).toBe('ja');
+    expect(store.getState().get('translation_assumptions').isEmpty()).toBe(true);
+    expect(store.getState().getIn(['statuses', 'a', 'language'])).toBe('ja');
+    expect(store.getState().getIn(['statuses', 'b', 'language'])).toBe('en');
+    expect(put).toHaveBeenCalledWith('/api/web/settings', {
+      data: expect.objectContaining({
+        translation: { targetLanguage: 'ja' },
+      }),
+    });
+    expect(bar('a').getByRole('button', { name: 'Translate' })).toBeDisabled();
+    expect(bar('a').queryByText('This language pair is not supported.')).toBeNull();
+    expect(bar('b').getByRole('button', { name: 'Translate' })).toBeEnabled();
+  });
+
+  it('dedupes provider, current, and default targets', () => {
+    const status = buildStatus('s1', 'ja', { contentHtml: '<p>こんにちは</p>', search_index: 'こんにちは' });
+    const store = createInteractiveStore({ s1: status }, {
+      languages: { ja: ['ja', 'en', 'ja'], und: ['ja'] },
+      target: 'en',
+    });
+
+    renderStatuses(store, { s1: status });
+    fireEvent.click(screen.getByRole('button', { name: 'Target language, English' }));
+
+    expect(optionCodes().sort()).toEqual(['en', 'ja']);
+    expect(screen.getAllByRole('option')).toHaveLength(2);
+  });
+
+  it('keeps an unsupported current target as well as the default target', () => {
+    const status = buildStatus('s1', 'ja', { contentHtml: '<p>こんにちは</p>', search_index: 'こんにちは' });
+    const store = createInteractiveStore({ s1: status }, {
+      languages: { ja: ['en'], und: ['en'] },
+      target: 'de',
+    });
+
+    renderStatuses(store, { s1: status });
+
+    expect(screen.getByRole('button', { name: 'Target language, Deutsch' })).toBeTruthy();
+    expectUnsupportedWarning('s1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Target language, Deutsch' }));
+
+    expect(optionCodes().sort()).toEqual(['de', 'en', 'ja']);
+    expect(screen.getByRole('option', { name: /Deutsch/ })).toHaveAttribute('aria-selected', 'true');
+    expect(store.getState().getIn(['settings', 'translation', 'targetLanguage'])).toBe('de');
+  });
+
+  it('disables same-language actions without an unsupported warning', () => {
+    const status = buildStatus('s1', 'ja', { contentHtml: '<p>こんにちは</p>', search_index: 'こんにちは' });
+    const store = createInteractiveStore({ s1: status }, {
+      languages: { ja: ['en'], und: ['en'] },
+    });
+
+    renderStatuses(store, { s1: status });
+
+    expect(screen.getByRole('button', { name: 'Target language, 日本語' })).toBeTruthy();
+    expect(store.getState().getIn(['settings', 'translation', 'targetLanguage'])).toBeUndefined();
+    expectSameLanguageActions();
+  });
+
+  it('still warns for a real unsupported pair between different languages', () => {
+    const status = buildStatus('s1', 'fr', { contentHtml: '<p>Bonjour</p>', search_index: 'Bonjour' });
+    const store = createInteractiveStore({ s1: status }, {
+      languages: { fr: ['ja'], und: ['ja'] },
+      target: 'de',
+    });
+
+    renderStatuses(store, { s1: status });
+
+    expectUnsupportedWarning('s1');
+    expect(screen.getByRole('button', { name: 'Target language, Deutsch' })).toBeTruthy();
+  });
+
+  it('treats an effective regional source as the same language as its provider primary code', () => {
+    const status = buildStatus('s1', 'en-US', { contentHtml: '<p>Hello</p>', search_index: 'Hello' });
+    const store = createInteractiveStore({ s1: status }, {
+      languages: { en: ['ja'], und: ['ja'] },
+      target: 'en',
+    });
+
+    renderStatuses(store, { s1: status });
+
+    expect(screen.getByRole('button', { name: 'Source language, en-US' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Target language, English' })).toBeTruthy();
+    expectSameLanguageActions();
+  });
+
+  it('does not treat distinct Chinese scripts as the same language', () => {
+    const status = buildStatus('s1', 'zh-Hans', { contentHtml: '<p>你好</p>', search_index: '你好' });
+    const store = createInteractiveStore({ s1: status }, {
+      languages: { 'zh-Hans': ['ja'], 'zh-Hant': ['en'], und: ['ja'] },
+      target: 'zh-Hant',
+    });
+
+    renderStatuses(store, { s1: status });
+
+    expect(screen.getByRole('button', { name: 'Source language, zh-Hans' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Target language, zh-Hant' })).toBeTruthy();
+    expectUnsupportedWarning('s1');
   });
 });

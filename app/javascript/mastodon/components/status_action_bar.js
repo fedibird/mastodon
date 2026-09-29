@@ -6,9 +6,10 @@ import IconButton from './icon_button';
 import DropdownMenuContainer from '../containers/dropdown_menu_container';
 import { defineMessages, injectIntl } from 'react-intl';
 import ImmutablePureComponent from 'react-immutable-pure-component';
-import { me, isStaff, show_bookmark_button, show_quote_button, show_share_button, enableReaction, compactReaction, enableStatusReference, maxReferences, matchVisibilityOfReferences, addReferenceModal, disablePost, disableReactions, disableBlock, disableDomainBlock, disableReport } from '../initial_state';
+import { me, isStaff, show_bookmark_button, show_quote_button, show_share_button, enableReaction, compactReaction, enableStatusReference, maxReferences, matchVisibilityOfReferences, addReferenceModal, disablePost, disableReactions, disableBlock, disableDomainBlock, disableReport, showTranslationBar } from '../initial_state';
 import classNames from 'classnames';
 import { openModal } from '../actions/modal';
+import { revealStatusTranslationBar } from '../actions/translation_bar';
 import { canEditStatus, editableStatus } from '../utils/status_edit';
 
 import ReactionPickerDropdownContainer from '../containers/reaction_picker_dropdown_container';
@@ -66,6 +67,7 @@ const messages = defineMessages({
   visibilityKeep: { id: 'visibility.keep', defaultMessage: 'Keep' },
   hide: { id: 'status.hide', defaultMessage: 'Hide post' },
   filter: { id: 'status.filter', defaultMessage: 'Filter this post' },
+  showTranslationBar: { id: 'status.show_translation_bar', defaultMessage: 'Show Translation Bar' },
 });
 
 const compactMenuSeparators = items => {
@@ -86,12 +88,19 @@ const compactMenuSeparators = items => {
   return menu;
 };
 
+const translationBarRevealed = (state, status) => {
+  const overrides = state.get('translation_bar_overrides');
+
+  return !!(overrides && typeof overrides.has === 'function' && overrides.has(status.get('id')));
+};
+
 const mapStateToProps = (state, { status }) => ({
   relationship: state.getIn(['relationships', status.getIn(['account', 'id'])]),
   referenceCountLimit: state.getIn(['compose', 'references']).size >= maxReferences,
   selected: state.getIn(['compose', 'references']).has(status.get('id')),
   composePrivacy: state.getIn(['compose', 'privacy']),
   editing: !!state.getIn(['compose', 'id']),
+  translationBarRevealed: translationBarRevealed(state, status),
 });
 
 export default @connect(mapStateToProps)
@@ -144,6 +153,8 @@ class StatusActionBar extends ImmutablePureComponent {
     removeEmojiReaction: PropTypes.func,
     emojiReactioned: PropTypes.bool,
     reactionLimitReached: PropTypes.bool,
+    translationBarRevealed: PropTypes.bool,
+    dispatch: PropTypes.func,
   };
 
   static defaultProps = {
@@ -159,6 +170,7 @@ class StatusActionBar extends ImmutablePureComponent {
     'referenced',
     'contextReferenced',
     'referenceCountLimit',
+    'translationBarRevealed',
   ]
 
   handleReplyClick = () => {
@@ -377,6 +389,10 @@ class StatusActionBar extends ImmutablePureComponent {
     removeEmojiReaction(status);
   }
 
+  handleShowTranslationBar = () => {
+    this.props.dispatch(revealStatusTranslationBar(this.props.status.get('id')));
+  }
+
   render () {
     const { status, relationship, intl, withDismiss, scrollKey, expired, referenced, contextReferenced, referenceCountLimit, contextType, emojiReactioned, reactionLimitReached, editing } = this.props;
 
@@ -405,6 +421,10 @@ class StatusActionBar extends ImmutablePureComponent {
       if (me || !domain) {
         menu.push({ text: intl.formatMessage(messages.embed), action: this.handleEmbed });
       }
+    }
+
+    if (showTranslationBar === false && !this.props.translationBarRevealed) {
+      menu.push({ text: intl.formatMessage(messages.showTranslationBar), action: this.handleShowTranslationBar });
     }
 
     if (writtenByMe) {

@@ -23,10 +23,17 @@ const messages = defineMessages({
 
 const MAX_HEIGHT = 642; // 20px * 32 (+ 2px padding at the top)
 
+const translationBarRevealed = (state, status) => {
+  const overrides = state.get('translation_bar_overrides');
+
+  return !!(overrides && typeof overrides.has === 'function' && overrides.has(status.get('id')));
+};
+
 const mapStateToProps = (state, ownProps) => ({
   languages: state.getIn(['server', 'translationLanguages', 'items']),
   translationAssumption: state.getIn(['translation_assumptions', ownProps.status.get('id')]),
   translationTarget: state.getIn(['settings', 'translation', 'targetLanguage']),
+  translationBarRevealed: translationBarRevealed(state, ownProps.status),
 });
 
 const mapDispatchToProps = dispatch => ({
@@ -59,6 +66,7 @@ class StatusContent extends React.PureComponent {
     languages: ImmutablePropTypes.map,
     translationAssumption: PropTypes.oneOfType([PropTypes.string, ImmutablePropTypes.map]),
     translationTarget: PropTypes.string,
+    translationBarRevealed: PropTypes.bool,
     onTranslationAssumption: PropTypes.func,
     onTranslationTarget: PropTypes.func,
     intl: PropTypes.object.isRequired,
@@ -444,7 +452,7 @@ class StatusContent extends React.PureComponent {
     const mainText = this.renderMainText(viewMode, sourceHtml, targetHtml, sourceLang, targetLang, status.get('spoiler_text').length > 0 ? !hidden : true);
     const spoilerText = this.renderSpoilerText(viewMode, sourceSpoilerHtml, targetSpoilerHtml, sourceLang, targetLang);
 
-    const translateButton = showTranslationBar && (
+    const translateButton = (showTranslationBar || this.props.translationBarRevealed) && (
       <TranslationBar
         status={status}
         translation={status.get('translation')}

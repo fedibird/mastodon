@@ -823,16 +823,20 @@ describe('StatusContent translation', () => {
       </Provider>,
     );
 
-    expectUnsupportedPair();
+    const translate = screen.getByRole('button', { name: 'Translate' });
+    expect(translate).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Bilingual' })).toBeDisabled();
+    expect(screen.queryByText('This language pair is not supported.')).toBeNull();
+    expect(translate).not.toHaveAttribute('title');
+    expect(translate).not.toHaveAttribute('aria-describedby');
 
     fireEvent.click(screen.getByRole('button', { name: 'Source language, 日本語' }));
     fireEvent.click(screen.getByRole('option', { name: /English/ }));
 
-    const translate = screen.getByRole('button', { name: 'Translate' });
-    expect(translate).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Translate' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Bilingual' })).toBeEnabled();
     expect(screen.queryByText('This language pair is not supported.')).toBeNull();
-    fireEvent.click(translate);
+    fireEvent.click(screen.getByRole('button', { name: 'Translate' }));
 
     expect(onTranslate).toHaveBeenCalledWith('translated');
     expect(status.get('language')).toBe('ja');
