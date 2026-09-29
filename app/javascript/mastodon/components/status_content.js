@@ -11,7 +11,7 @@ import BilingualContent from 'mastodon/components/bilingual_content';
 import TranslationBar from 'mastodon/components/translation_bar';
 import { setStatusTranslationAssumption, setTranslationTargetLanguage } from 'mastodon/actions/statuses';
 import { autoPlayEmoji, disableReactions, me, translationBarVisibility, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
-import { translationCapability } from 'mastodon/utils/translation_languages';
+import { translationCapability, translationRequestStatus } from 'mastodon/utils/translation_languages';
 import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
 
 const messages = defineMessages({
@@ -29,12 +29,18 @@ const translationBarRevealed = (state, status) => {
   return !!(overrides && typeof overrides.has === 'function' && overrides.has(status.get('id')));
 };
 
-const mapStateToProps = (state, ownProps) => ({
-  languages: state.getIn(['server', 'translationLanguages', 'items']),
-  translationAssumption: state.getIn(['translation_assumptions', ownProps.status.get('id')]),
-  translationTarget: state.getIn(['settings', 'translation', 'targetLanguage']),
-  translationBarRevealed: translationBarRevealed(state, ownProps.status),
-});
+const translationStateStatus = (status, wrapper) => translationRequestStatus(wrapper || status) || status;
+
+const mapStateToProps = (state, ownProps) => {
+  const subject = translationStateStatus(ownProps.status, ownProps.translationWrapper);
+
+  return {
+    languages: state.getIn(['server', 'translationLanguages', 'items']),
+    translationAssumption: state.getIn(['translation_assumptions', subject.get('id')]),
+    translationTarget: state.getIn(['settings', 'translation', 'targetLanguage']),
+    translationBarRevealed: translationBarRevealed(state, subject),
+  };
+};
 
 const mapDispatchToProps = dispatch => ({
   onTranslationAssumption(id, source) {
@@ -59,6 +65,7 @@ class StatusContent extends React.PureComponent {
     onExpandedToggle: PropTypes.func,
     onClick: PropTypes.func,
     onTranslate: PropTypes.func,
+    translationWrapper: ImmutablePropTypes.map,
     translationPreferredMode: PropTypes.string,
     collapsable: PropTypes.bool,
     onCollapsedToggle: PropTypes.func,
@@ -303,12 +310,33 @@ class StatusContent extends React.PureComponent {
     this.startXY = null;
   }
 
+  translationSubject = () => translationStateStatus(this.props.status, this.props.translationWrapper);
+
+  // Content stays on the displayed status. A personal boost stores its
+  // translation on the wrapper, which is the id the API authorized.
+  translationViewStatus = () => {
+    const displayed = this.props.status;
+    const subject = this.translationSubject();
+
+    if (!subject || subject.get('id') === displayed.get('id')) {
+      return displayed;
+    }
+
+    return displayed.withMutations(map => {
+      map.set('translation', subject.get('translation'));
+      map.set('translationPending', subject.get('translationPending'));
+      map.set('translationMode', subject.get('translationMode'));
+      map.set('translationRequestId', subject.get('translationRequestId'));
+    });
+  };
+
   viewerPair = () => viewerTranslationPair(this.props.status, this.props.translationAssumption, this.props.intl.locale, this.props.translationTarget);
 
   currentCapability = () => translationCapability(this.props.status, this.viewerPair(), this.props.languages, {
     loggedIn: !!me,
     privateContentAllowed: translationPrivateContentAllowed,
     viewerAccountId: me,
+    wrapper: this.props.translationWrapper,
   });
 
   handleTranslate = (mode) => {
@@ -316,7 +344,7 @@ class StatusContent extends React.PureComponent {
       return;
     }
 
-    const matchesRequest = sameLanguagePair(this.viewerPair(), translationRequestPair(this.props.status, this.props.intl.locale));
+    const matchesRequest = sameLanguagePair(this.viewerPair(), translationRequestPair(this.translationViewStatus(), this.props.intl.locale));
 
     if (mode !== 'original' && !matchesRequest && !this.currentCapability().pairSupported) {
       return;
@@ -327,7 +355,7 @@ class StatusContent extends React.PureComponent {
 
   handleSourceLanguage = (source) => {
     if (this.props.onTranslationAssumption && source !== this.viewerPair().source) {
-      this.props.onTranslationAssumption(this.props.status.get('id'), source);
+      this.props.onTranslationAssumption(this.translationSubject().get('id'), source);
     }
   }
 
@@ -406,20 +434,21 @@ class StatusContent extends React.PureComponent {
       status.get('in_reply_to_id') && status.get('in_reply_to_account_id') === status.getIn(['account', 'id'])
     );
     const renderShowPoll = !!status.get('poll');
+    const translated = this.translationViewStatus();
     const viewerPair = this.viewerPair();
-    const requestPair = translationRequestPair(status, intl.locale);
+    const requestPair = translationRequestPair(translated, intl.locale);
     const pairMatchesRequest = sameLanguagePair(viewerPair, requestPair);
     const capability = this.currentCapability();
-    const showResult = !!status.get('translation') && pairMatchesRequest;
+    const showResult = !!translated.get('translation') && pairMatchesRequest;
 
-    const translationView = statusTranslationView(status);
+    const translationView = statusTranslationView(translated);
     const viewMode = pairMatchesRequest ? translationView.mode : 'original';
     const sourceLang = pairMatchesRequest ? (translationView.sourceLang || status.get('language') || '') : (status.get('language') || '');
     const targetLang = translationView.targetLang;
     const sourceHtml = status.get('contentHtml');
-    const targetHtml = status.getIn(['translation', 'contentHtml']);
+    const targetHtml = translated.getIn(['translation', 'contentHtml']);
     const sourceSpoilerHtml = status.get('spoilerHtml');
-    const targetSpoilerHtml = status.getIn(['translation', 'spoilerHtml']);
+    const targetSpoilerHtml = translated.getIn(['translation', 'spoilerHtml']);
     const language = viewMode === 'original' ? sourceLang : (targetLang || sourceLang);
     const preferredMode = this.props.translationPreferredMode || translationPreferredMode;
     const classNames = classnames('status__content', {
@@ -461,14 +490,14 @@ class StatusContent extends React.PureComponent {
       translationLanguages: this.props.languages,
     }) && (
       <TranslationBar
-        status={status}
-        translation={status.get('translation')}
+        status={translated}
+        translation={translated.get('translation')}
         mode={viewMode}
         pending={translationView.pending}
         preferredMode={preferredMode}
         viewerSource={viewerPair.source}
         viewerTarget={viewerPair.target}
-        detectedSource={showResult ? (status.getIn(['translation', 'detected_source_language']) || '') : ''}
+        detectedSource={showResult ? (translated.getIn(['translation', 'detected_source_language']) || '') : ''}
         showResult={showResult}
         translationLanguages={this.props.languages}
         pairSupported={capability.pairSupported}

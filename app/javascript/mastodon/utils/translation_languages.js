@@ -170,6 +170,36 @@ export const targetLanguageOptions = (translationLanguages, source, currentTarge
 // Provider-wide private content stays a separate flag. A personal status is
 // an extra allowance only when this viewer wrote the wrapper and the proper
 // status whose text would be sent to the provider.
+const reblogRecord = (status) => {
+  const reblog = status && typeof status.get === 'function' ? status.get('reblog') : null;
+
+  return reblog && typeof reblog.get === 'function' ? reblog : null;
+};
+
+// A personal boost is authorized as the wrapper. Any other boost keeps the
+// existing request, which is the boosted status.
+export const translationRequestStatus = (status) => {
+  const reblog = reblogRecord(status);
+
+  if (!reblog) {
+    return status;
+  }
+
+  if (status.get('visibility') === 'personal') {
+    return status;
+  }
+
+  return reblog;
+};
+
+const personalReblogWrapper = (wrapper) => {
+  if (!wrapper || wrapper.get('visibility') !== 'personal' || !reblogRecord(wrapper)) {
+    return null;
+  }
+
+  return wrapper;
+};
+
 export const selfAuthoredPersonalStatus = (status, viewerAccountId) => {
   if (viewerAccountId === null || viewerAccountId === undefined || viewerAccountId === '') {
     return false;
@@ -189,10 +219,15 @@ export const selfAuthoredPersonalStatus = (status, viewerAccountId) => {
     String(properAccountId) === String(viewerAccountId);
 };
 
-export const translationCapability = (status, viewerPair, translationLanguages, { loggedIn, privateContentAllowed, viewerAccountId }) => {
-  const visibilityAllowsTranslation = ['public', 'unlisted'].includes(status.get('visibility')) ||
-    privateContentAllowed ||
-    selfAuthoredPersonalStatus(status, viewerAccountId);
+export const translationCapability = (status, viewerPair, translationLanguages, { loggedIn, privateContentAllowed, viewerAccountId, wrapper }) => {
+  // After Status flattens a boost, `status` is the proper post. A personal
+  // wrapper must not inherit that post's public/unlisted permission.
+  const personalWrapper = personalReblogWrapper(wrapper);
+  const visibilityAllowsTranslation = personalWrapper
+    ? selfAuthoredPersonalStatus(personalWrapper, viewerAccountId)
+    : (['public', 'unlisted'].includes(status.get('visibility')) ||
+      privateContentAllowed ||
+      selfAuthoredPersonalStatus(status, viewerAccountId));
   const allowsRequest = !!loggedIn &&
     visibilityAllowsTranslation &&
     (status.get('search_index') || '').trim().length > 0;

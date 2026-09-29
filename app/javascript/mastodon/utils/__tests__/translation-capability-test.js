@@ -1,6 +1,6 @@
 import { fromJS } from 'immutable';
 
-import { selfAuthoredPersonalStatus, translationCapability } from '../translation_languages';
+import { selfAuthoredPersonalStatus, translationCapability, translationRequestStatus } from '../translation_languages';
 
 const languages = fromJS({
   en: ['ja'],
@@ -61,6 +61,47 @@ describe('translationCapability personal visibility', () => {
       privateContentAllowed: false,
       viewerAccountId: '1',
     }).pairSupported).toBe(false);
+  });
+
+  it('does not treat a flattened public boost as translatable when its personal wrapper is someone else', () => {
+    const proper = status({
+      id: 'proper',
+      visibility: 'public',
+      account: { id: '9' },
+      search_index: 'Hello',
+    });
+    const wrapper = status({
+      id: 'wrap',
+      visibility: 'personal',
+      account: { id: '1' },
+      search_index: '',
+      reblog: proper.toJS(),
+    });
+
+    expect(translationRequestStatus(wrapper).get('id')).toBe('wrap');
+    expect(capability(proper, { wrapper }).allowsRequest).toBe(false);
+  });
+
+  it('allows a flattened personal boost only when the viewer wrote the boosted status and requests the wrapper', () => {
+    const proper = status({
+      id: 'proper',
+      visibility: 'private',
+      account: { id: '1' },
+      search_index: 'Hello',
+    });
+    const wrapper = status({
+      id: 'wrap',
+      visibility: 'personal',
+      account: { id: '1' },
+      search_index: '',
+      reblog: proper.toJS(),
+    });
+
+    expect(capability(proper, { wrapper }).allowsRequest).toBe(true);
+    expect(translationRequestStatus(status({
+      visibility: 'public',
+      reblog: proper.toJS(),
+    })).get('id')).toBe('proper');
   });
 
   it('still allows every visibility when the provider allows private content', () => {

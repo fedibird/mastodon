@@ -23,6 +23,7 @@ import PictureInPicturePlaceholder from 'mastodon/components/picture_in_picture_
 import { displayMedia, enableReaction, compactReaction, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy } from 'mastodon/initial_state';
 import { List as ImmutableList } from 'immutable';
 import { attachmentAccessibility, galleryTranslationProps, statusTranslationView, TRANSLATION_MODE_BILINGUAL, TRANSLATION_MODE_ORIGINAL, TRANSLATION_MODE_TRANSLATED } from 'mastodon/utils/translation_view';
+import { translationRequestStatus } from 'mastodon/utils/translation_languages';
 
 const domParser = new DOMParser();
 
@@ -414,7 +415,13 @@ class Status extends ImmutablePureComponent {
   }
 
   handleTranslate = (mode) => {
-    this.props.onTranslate(this._properStatus(), mode);
+    const requestStatus = translationRequestStatus(this.props.status);
+
+    if (!this.props.onTranslate || !requestStatus) {
+      return;
+    }
+
+    this.props.onTranslate(requestStatus, mode);
   }
 
   handleQuoteTranslate = (mode) => {
@@ -966,7 +973,7 @@ class Status extends ImmutablePureComponent {
               </a>
             </div>
 
-            <StatusContent status={status} onClick={this.handleClick} expanded={!status.get('hidden')} showThread={showThread} onExpandedToggle={this.handleExpandedToggle} collapsable onCollapsedToggle={this.handleCollapsedToggle} onTranslate={this.props.onTranslate && this.handleTranslate} />
+            <StatusContent status={status} translationWrapper={this.props.status} onClick={this.handleClick} expanded={!status.get('hidden')} showThread={showThread} onExpandedToggle={this.handleExpandedToggle} collapsable onCollapsedToggle={this.handleCollapsedToggle} onTranslate={this.props.onTranslate && this.handleTranslate} />
 
             {!(status.get('hidden') && status.get('spoiler_text').length > 0) && <>
               {quote}

@@ -104,6 +104,31 @@ describe('translateStatus', () => {
     api.mockReset();
   });
 
+  it('requests a personal boost by wrapper id and uses the boosted status language', async () => {
+    const translation = { content: '<p>こんにちは</p>', provider: 'DeepL', language: 'ja' };
+    const post = jest.fn(() => Promise.resolve({ data: translation }));
+    api.mockReturnValue({ post });
+
+    const store = createDispatch(fromJS({
+      statuses: {
+        wrap: { id: 'wrap', visibility: 'personal', reblog: 'orig', account: 'me' },
+        orig: { id: 'orig', visibility: 'private', language: 'en', account: 'me', poll: 'poll-1' },
+      },
+      accounts: {
+        me: { acct: 'me' },
+      },
+    }));
+
+    await store.run(translateStatus('wrap'));
+
+    expect(post).toHaveBeenCalledWith('/api/v1/statuses/wrap/translate', {
+      source_language: 'en',
+      target_language: 'ja',
+    });
+    expect(store.actions[0].id).toBe('wrap');
+    expect(store.actions[0].pollId).toBe('poll-1');
+  });
+
   it('posts to the status translate endpoint and stores the response', async () => {
     const translation = { content: '<p>こんにちは</p>', provider: 'DeepL', language: 'ja' };
     const post = jest.fn(() => Promise.resolve({ data: translation }));

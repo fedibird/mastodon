@@ -15,6 +15,7 @@ import Video from '../../video';
 import Audio from '../../audio';
 
 import { attachmentAccessibility, galleryTranslationProps, statusTranslationView } from 'mastodon/utils/translation_view';
+import { translationRequestStatus } from 'mastodon/utils/translation_languages';
 import scheduleIdleTask from '../../ui/util/schedule_idle_task';
 import classNames from 'classnames';
 import Icon from 'mastodon/components/icon';
@@ -134,14 +135,14 @@ class DetailedStatus extends ImmutablePureComponent {
   }
 
   handleTranslate = (mode) => {
-    const { onTranslate } = this.props;
-    const proper = this._properStatus();
+    const { onTranslate, status } = this.props;
+    const requestStatus = translationRequestStatus(status);
 
-    if (!onTranslate || !proper) {
+    if (!onTranslate || !requestStatus) {
       return;
     }
 
-    onTranslate(proper, mode);
+    onTranslate(requestStatus, mode);
   }
 
   handleQuoteTranslate = (mode) => {
@@ -536,7 +537,7 @@ class DetailedStatus extends ImmutablePureComponent {
             <DisplayName account={status.get('account')} localDomain={this.props.domain} />
           </a>
 
-          <StatusContent status={status} expanded={!status.get('hidden')} onExpandedToggle={this.handleExpandedToggle} onTranslate={this.props.onTranslate && this.handleTranslate} />
+          <StatusContent status={status} translationWrapper={this.props.status} expanded={!status.get('hidden')} onExpandedToggle={this.handleExpandedToggle} onTranslate={this.props.onTranslate && this.handleTranslate} />
 
           {!(status.get('hidden') && status.get('spoiler_text').length > 0) && <>
             {quote}

@@ -603,7 +603,10 @@ export const translateStatus = (id, mode = 'translated') => (dispatch, getState)
   }
 
   const savedTarget = state.getIn(['settings', 'translation', 'targetLanguage']);
-  const viewerPair = viewerTranslationPair(status, state.getIn(['translation_assumptions', id]), interfaceLocale, savedTarget);
+  // A personal boost is requested by wrapper id. Its text and language live on the boosted status.
+  const reblogId = status && status.get('reblog');
+  const contentStatus = (typeof reblogId === 'string' || typeof reblogId === 'number') ? (state.getIn(['statuses', reblogId]) || status) : status;
+  const viewerPair = viewerTranslationPair(contentStatus, state.getIn(['translation_assumptions', id]), interfaceLocale, savedTarget);
 
   if (status && status.get('translation') && sameLanguagePair(viewerPair, attachedTranslationPair(status))) {
     dispatch(setStatusTranslationMode(id, requestedMode));
@@ -611,7 +614,7 @@ export const translateStatus = (id, mode = 'translated') => (dispatch, getState)
   }
 
   const translationRequestId = nextTranslationRequestId();
-  const pollId = status ? status.get('poll') : null;
+  const pollId = contentStatus ? contentStatus.get('poll') : null;
   const translationRequestIsCurrent = () => getState().getIn(['statuses', id, 'translationRequestId']) === translationRequestId;
 
   dispatch(translateStatusRequest(id, requestedMode, translationRequestId, pollId));
