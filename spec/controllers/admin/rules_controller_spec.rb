@@ -22,6 +22,15 @@ describe Admin::RulesController do
       expect(response.body).to include('Optional. Provide more details about the rule')
       expect(response.body).not_to include('translation missing')
     end
+
+    it 'shows the hint in the list instead of repeating the rule text' do
+      Rule.create!(text: 'Be kind to everyone on this server', hint: 'No insults')
+
+      get :index
+
+      expect(response.body).to include('No insults')
+      expect(response.body).not_to include('Be kind to everyone on this server')
+    end
   end
 
   describe 'GET #edit' do
