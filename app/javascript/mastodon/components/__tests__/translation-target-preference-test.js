@@ -512,8 +512,8 @@ describe('viewer-wide translation target', () => {
 
     renderStatuses(store, { s1: status });
 
-    expect(screen.getByRole('button', { name: 'Source language, zh-Hans' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Target language, zh-Hant' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Source language, 简体中文' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Target language, 繁體中文' })).toBeTruthy();
     expectUnsupportedWarning('s1');
   });
 });

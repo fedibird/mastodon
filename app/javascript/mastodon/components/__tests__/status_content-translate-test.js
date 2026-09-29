@@ -56,6 +56,7 @@ jest.mock('mastodon/components/icon', () => () => null);
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
+import { STATUS_IMPORT } from '../../actions/importer';
 import { normalizeStatus, normalizeStatusTranslation } from '../../actions/importer/normalizer';
 import statusesReducer from '../../reducers/statuses';
 import translationAssumptions from '../../reducers/translation_assumptions';
@@ -106,6 +107,7 @@ const expectUnsupportedPair = () => {
   expect(screen.getByRole('button', { name: 'Translate' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Bilingual' })).toBeDisabled();
   expect(screen.getByText('This language pair is not supported.')).toBeTruthy();
+  expect(screen.queryByText('Choose Simplified Chinese or Traditional Chinese as the source language.')).toBeNull();
 };
 
 const interactiveReducer = (state = fromJS({
@@ -156,10 +158,14 @@ describe('StatusContent translation', () => {
       search_index: '你好',
     });
 
-    it('shows Translate for bare zh by using the und auto-detection capability', () => {
+    it('keeps bare zh unresolved instead of using und auto-detection', () => {
       renderStatus(chineseStatus('zh'), {}, CHINESE_SCRIPT_LANGUAGES);
 
-      expect(screen.getByRole('button', { name: 'Translate' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Source language, zh' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Translate' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Bilingual' })).toBeDisabled();
+      expect(screen.getByText('Choose Simplified Chinese or Traditional Chinese as the source language.')).toBeTruthy();
+      expect(screen.queryByText('This language pair is not supported.')).toBeNull();
     });
 
     it('shows Translate for zh-CN by using zh-Hans', () => {
@@ -232,6 +238,133 @@ describe('StatusContent translation', () => {
       });
 
       expectUnsupportedPair();
+    });
+  });
+
+  describe('bare zh source choice', () => {
+    const chineseLanguages = {
+      en: ['ja', 'zh-Hans'],
+      'zh-Hans': ['ja', 'en'],
+      'zh-Hant': ['ja', 'en'],
+      und: ['ja', 'en'],
+    };
+
+    const renderInteractive = () => {
+      const status = buildStatus({ language: 'zh', contentHtml: '<p>你好</p>', search_index: '你好' });
+      const interactive = createStore(interactiveReducer, fromJS({
+        server: { translationLanguages: { items: chineseLanguages } },
+        statuses: { s1: status },
+        translation_assumptions: {},
+      }));
+
+      render(
+        <Provider store={interactive}>
+          <StatusContent status={status} onTranslate={jest.fn()} onClick={jest.fn()} />
+        </Provider>,
+      );
+
+      return { status, interactive };
+    };
+
+    const optionCodes = () => screen.getAllByRole('option').map(option => option.getAttribute('data-index'));
+
+    const searchFor = (query) => {
+      fireEvent.change(screen.getByPlaceholderText('Search languages...'), { target: { value: query } });
+    };
+
+    it('asks for a Chinese script, then translates from the chosen script without changing status.language', () => {
+      const { status, interactive } = renderInteractive();
+
+      expect(screen.getByRole('button', { name: 'Source language, zh' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Translate' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Bilingual' })).toBeDisabled();
+      expect(screen.getByText('Choose Simplified Chinese or Traditional Chinese as the source language.')).toBeTruthy();
+      expect(screen.queryByText('This language pair is not supported.')).toBeNull();
+      expect(screen.getByRole('button', { name: 'Translate' })).toHaveAttribute('title', 'Choose Simplified Chinese or Traditional Chinese as the source language.');
+      expect(screen.getByRole('button', { name: 'Translate' })).toHaveAttribute('aria-describedby', 'translation-pair-s1');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Source language, zh' }));
+
+      expect(optionCodes().slice(0, 3)).toEqual(['zh', 'zh-Hans', 'zh-Hant']);
+      expect(screen.getByRole('option', { name: '简体中文 (Chinese (Simplified))' })).toBeTruthy();
+      expect(screen.getByRole('option', { name: '繁體中文 (Chinese (Traditional))' })).toBeTruthy();
+
+      ['zh-Hans', 'zh-Hant', 'Simplified', 'Traditional', '简体中文', '繁體中文', 'Chinese'].forEach(query => {
+        searchFor(query);
+        expect(screen.getAllByRole('option').length).toBeGreaterThan(0);
+        expect(optionCodes().some(code => code === 'zh-Hans' || code === 'zh-Hant')).toBe(true);
+      });
+
+      searchFor('Simplified');
+      fireEvent.click(screen.getByRole('option', { name: /简体中文/ }));
+
+      expect(screen.getByRole('button', { name: 'Source language, 简体中文' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Translate' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Bilingual' })).toBeEnabled();
+      expect(screen.queryByText('Choose Simplified Chinese or Traditional Chinese as the source language.')).toBeNull();
+      expect(screen.queryByText('This language pair is not supported.')).toBeNull();
+      expect(interactive.getState().getIn(['translation_assumptions', 's1'])).toBe('zh-Hans');
+      expect(interactive.getState().getIn(['statuses', 's1', 'language'])).toBe('zh');
+      expect(status.get('language')).toBe('zh');
+
+      interactive.dispatch({
+        type: STATUS_IMPORT,
+        status: { id: 's1', language: 'zh', contentHtml: '<p>你好</p>', search_index: '你好', visibility: 'public' },
+      });
+
+      expect(interactive.getState().getIn(['translation_assumptions', 's1'])).toBe('zh-Hans');
+      expect(interactive.getState().getIn(['statuses', 's1', 'language'])).toBe('zh');
+      expect(screen.getByRole('button', { name: 'Source language, 简体中文' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Translate' })).toBeEnabled();
+    });
+
+    it('enables translation after Traditional Chinese is chosen', () => {
+      const { status, interactive } = renderInteractive();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Source language, zh' }));
+      fireEvent.click(screen.getByRole('option', { name: /繁體中文/ }));
+
+      expect(screen.getByRole('button', { name: 'Source language, 繁體中文' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Translate' })).toBeEnabled();
+      expect(interactive.getState().getIn(['translation_assumptions', 's1'])).toBe('zh-Hant');
+      expect(status.get('language')).toBe('zh');
+      expect(screen.queryByText('Choose Simplified Chinese or Traditional Chinese as the source language.')).toBeNull();
+    });
+
+    it('uses provider auto detection only when und is chosen explicitly', () => {
+      const { status, interactive } = renderInteractive();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Source language, zh' }));
+      fireEvent.click(screen.getByRole('option', { name: /Unspecified/ }));
+
+      expect(screen.getByRole('button', { name: 'Source language, Unspecified' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Translate' })).toBeEnabled();
+      expect(interactive.getState().getIn(['translation_assumptions', 's1'])).toBe('und');
+      expect(status.get('language')).toBe('zh');
+      expect(screen.queryByText('Choose Simplified Chinese or Traditional Chinese as the source language.')).toBeNull();
+      expect(screen.queryByText('This language pair is not supported.')).toBeNull();
+    });
+
+    it('translates bare zh normally when the provider has generic zh', () => {
+      renderStatus(buildStatus({ language: 'zh', contentHtml: '<p>你好</p>', search_index: '你好' }), {}, {
+        zh: ['ja', 'en'],
+        'zh-Hans': ['ja'],
+        'zh-Hant': ['ja'],
+        und: ['ja'],
+      });
+
+      expect(screen.getByRole('button', { name: 'Translate' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Bilingual' })).toBeEnabled();
+      expect(screen.queryByText('Choose Simplified Chinese or Traditional Chinese as the source language.')).toBeNull();
+      expect(screen.queryByText('This language pair is not supported.')).toBeNull();
+    });
+
+    it('shows Simplified Chinese in the target picker', () => {
+      renderStatus(buildStatus(), {}, { en: ['ja', 'zh-Hans'], und: ['ja'] });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Target language, 日本語' }));
+
+      expect(screen.getByRole('option', { name: '简体中文 (Chinese (Simplified))' })).toBeTruthy();
     });
   });
 
@@ -872,8 +1005,8 @@ describe('StatusContent translation', () => {
 
     expect(screen.getByRole('option', { name: /Unspecified/ })).toBeTruthy();
     expect(screen.getByRole('option', { name: /English/ })).toBeTruthy();
-    expect(screen.getByRole('option', { name: 'zh-Hans (zh-Hans)' })).toBeTruthy();
-    expect(screen.getByRole('option', { name: 'zh-Hant (zh-Hant)' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: '简体中文 (Chinese (Simplified))' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: '繁體中文 (Chinese (Traditional))' })).toBeTruthy();
     expect(screen.getByRole('option', { name: /日本語/ })).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByRole('option', { name: /French/ })).toBeNull();
 

@@ -14,21 +14,17 @@ const providerChineseScript = (normalized, translationLanguages) => (
   CHINESE_SCRIPT_TAGS.find(tag => tag.toLowerCase() === normalized && translationLanguages?.has(tag))
 );
 
-const bareChineseSourceLanguage = (language, translationLanguages) => {
-  if (translationLanguages?.has('zh')) {
-    return 'zh';
-  }
-
-  const chineseAvailable = CHINESE_SCRIPT_TAGS.some(tag => translationLanguages?.has(tag));
-  if (chineseAvailable && translationLanguages?.has('und')) {
-    return 'und';
-  }
-
-  return language;
+// Provider script codes are not in Mastodon's locale list. Keep the aliases
+// local to Translation Bar options.
+const PROVIDER_LANGUAGE_ALIASES = {
+  'zh-Hans': ['zh-Hans', 'Chinese (Simplified)', '简体中文'],
+  'zh-Hant': ['zh-Hant', 'Chinese (Traditional)', '繁體中文'],
 };
 
 // Same source resolution as TranslateStatusService. The public languages map
-// exposes provider auto-detection as "und" rather than a nil key.
+// exposes provider auto-detection as "und" rather than a nil key. Bare zh is
+// Chinese with an unspecified script: never rewrite it to und, and never guess
+// zh-Hans or zh-Hant.
 export const translationSourceLanguage = (language, translationLanguages) => {
   if (!language || translationLanguages?.has(language)) {
     return language;
@@ -37,7 +33,7 @@ export const translationSourceLanguage = (language, translationLanguages) => {
   const normalized = normalizedLanguageTag(language);
 
   if (normalized === 'zh') {
-    return bareChineseSourceLanguage(language, translationLanguages);
+    return 'zh';
   }
 
   const script = providerChineseScript(normalized, translationLanguages) || CHINESE_REGIONAL_SCRIPTS[normalized];
@@ -60,7 +56,24 @@ export const languageOption = (code, preloadedLanguages, unspecifiedName) => {
   }
 
   const known = (preloadedLanguages || []).find(lang => lang[0] === code);
-  return known || [code, code, code];
+  return known || PROVIDER_LANGUAGE_ALIASES[code] || [code, code, code];
+};
+
+export const needsChineseScriptChoice = (source, translationLanguages) => {
+  if (normalizedLanguageTag(source) !== 'zh' || !translationLanguages || typeof translationLanguages.has !== 'function') {
+    return false;
+  }
+
+  if (translationLanguages.has('zh')) {
+    return false;
+  }
+
+  const resolved = translationSourceLanguage(source, translationLanguages);
+  if (translationLanguages.has(resolved)) {
+    return false;
+  }
+
+  return CHINESE_SCRIPT_TAGS.some(tag => translationLanguages.has(tag));
 };
 
 const addCode = (codes, seen, code) => {
@@ -112,7 +125,26 @@ export const sourceLanguageOptions = (translationLanguages, currentSource, prelo
   addCode(codes, seen, currentSource || 'und');
   codes.sort(byKnownLanguage(preloadedLanguages));
 
-  return codes.map(code => languageOption(code, preloadedLanguages, unspecifiedName));
+  return placeChineseScriptsBesideBareZh(codes, currentSource).map(code => languageOption(code, preloadedLanguages, unspecifiedName));
+};
+
+// The unfiltered dropdown pins the current value first and otherwise keeps
+// this order. Putting the script tags immediately after bare zh keeps them
+// next to the current Chinese option instead of at the end of unknown codes.
+const placeChineseScriptsBesideBareZh = (codes, currentSource) => {
+  if (normalizedLanguageTag(currentSource) !== 'zh') {
+    return codes;
+  }
+
+  const bare = codes.find(code => normalizedLanguageTag(code) === 'zh');
+  const scripts = CHINESE_SCRIPT_TAGS.filter(code => codes.includes(code));
+
+  if (!bare || scripts.length === 0) {
+    return codes;
+  }
+
+  const rest = codes.filter(code => code !== bare && !scripts.includes(code));
+  return [bare, ...scripts, ...rest];
 };
 
 export const sameTranslationLanguage = (source, target, translationLanguages) => {

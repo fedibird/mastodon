@@ -174,13 +174,14 @@ RSpec.describe TranslateStatusService do
     keys
   end
 
-  it 'uses provider auto detection for bare zh when only Chinese script tags are available' do
+  it 'does not use provider auto detection for bare zh when only Chinese script tags are available' do
     chinese = Fabricate(:status, account: account, text: '你好', language: 'zh', visibility: :public)
     allow(backend).to receive(:languages).and_return(chinese_script_languages)
+    keys = translation_cache_keys
 
-    described_class.new.call(chinese, 'ja')
-
-    expect(backend).to have_received(:translate).with(anything, nil, 'ja')
+    expect { described_class.new.call(chinese, 'ja') }.to raise_error(Mastodon::NotPermittedError)
+    expect(backend).not_to have_received(:translate)
+    expect(keys).not_to include(a_string_matching(%r{v3:translations/auto/}))
   end
 
   it 'maps zh-CN to zh-Hans when the provider exposes that script tag' do
@@ -260,11 +261,66 @@ RSpec.describe TranslateStatusService do
     expect(backend).not_to have_received(:translate)
   end
 
-  it 'memoizes a nil source language so auto detection is not resolved again' do
+  it 'rejects an explicit bare zh source instead of treating it as auto detection' do
+    allow(backend).to receive(:languages).and_return(chinese_script_languages)
+
+    expect { described_class.new.call(status, 'ja', source_language: 'zh', explicit_source: true) }.to raise_error(Mastodon::ValidationError)
+    expect(backend).not_to have_received(:translate)
+    expect(status.reload.language).to eq 'en'
+  end
+
+  it 'keeps explicit und as provider auto detection' do
+    allow(backend).to receive(:languages).and_return(chinese_script_languages)
+
+    described_class.new.call(status, 'ja', source_language: 'und', explicit_source: true)
+
+    expect(backend).to have_received(:translate).with(anything, nil, 'ja')
+    expect(status.reload.language).to eq 'en'
+  end
+
+  it 'uses provider auto detection for a status declared as und' do
+    detected = Fabricate(:status, account: account, text: '你好', language: 'und', visibility: :public)
+    allow(backend).to receive(:languages).and_return('en' => ['ja'], nil => ['ja'])
+
+    described_class.new.call(detected, 'ja')
+
+    expect(backend).to have_received(:translate).with(anything, nil, 'ja')
+    expect(detected.reload.language).to eq 'und'
+  end
+
+  it 'does not guess zh-Hans when that is the only Chinese script tag' do
     chinese = Fabricate(:status, account: account, text: '你好', language: 'zh', visibility: :public)
+    allow(backend).to receive(:languages).and_return('zh-Hans' => ['ja'], nil => ['ja'])
+
+    expect { described_class.new.call(chinese, 'ja') }.to raise_error(Mastodon::NotPermittedError)
+    expect { described_class.new.call(chinese, 'ja', source_language: 'zh', explicit_source: true) }.to raise_error(Mastodon::ValidationError)
+    expect(backend).not_to have_received(:translate)
+  end
+
+  it 'does not let bare zh share the auto cache token with und or a Chinese script' do
+    allow(backend).to receive(:languages).and_return(chinese_script_languages.merge('zh' => ['ja']))
+    keys = translation_cache_keys
+    chinese = Fabricate(:status, account: account, text: '你好', language: 'zh', visibility: :public)
+    simplified = Fabricate(:status, account: account, text: '你好简体', language: 'zh-Hans', visibility: :public)
+
+    described_class.new.call(chinese, 'ja')
+    described_class.new.call(simplified, 'ja')
+    described_class.new.call(chinese, 'ja', source_language: 'und', explicit_source: true)
+    described_class.new.call(chinese, 'ja', source_language: 'zh-Hant', explicit_source: true)
+
+    expect(keys).to include(a_string_matching(%r{\Av3:translations/zh/ja/}))
+    expect(keys).to include(a_string_matching(%r{\Av3:translations/zh-Hans/ja/}))
+    expect(keys).to include(a_string_matching(%r{\Av3:translations/zh-Hant/ja/}))
+    expect(keys).to include(a_string_matching(%r{\Av3:translations/auto/ja/}))
+    expect(keys.grep(%r{\Av3:translations/(?:zh|zh-Hans|zh-Hant|auto)/ja/}).uniq.size).to eq 4
+    expect(backend).to have_received(:translate).exactly(4).times
+  end
+
+  it 'memoizes a nil source language so auto detection is not resolved again' do
+    detected = Fabricate(:status, account: account, text: '你好', language: 'und', visibility: :public)
     allow(backend).to receive(:languages).and_return(chinese_script_languages)
     service = described_class.new
-    service.instance_variable_set(:@status, chinese)
+    service.instance_variable_set(:@status, detected)
     resolutions = 0
     allow(service).to receive(:resolved_source_language).and_wrap_original do |method, *args|
       resolutions += 1

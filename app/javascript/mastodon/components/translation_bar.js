@@ -5,7 +5,7 @@ import { defineMessages } from 'react-intl';
 import classnames from 'classnames';
 import Overlay from 'react-overlays/Overlay';
 import { languages as preloadedLanguages } from 'mastodon/initial_state';
-import { languageOption, sameTranslationLanguage, sourceLanguageOptions, targetLanguageOptions } from 'mastodon/utils/translation_languages';
+import { languageOption, needsChineseScriptChoice, sameTranslationLanguage, sourceLanguageOptions, targetLanguageOptions } from 'mastodon/utils/translation_languages';
 import { normalizedContentLocale, preferredTranslationMode } from 'mastodon/utils/translation_view';
 import LanguageDropdownMenu from 'mastodon/components/language_dropdown_menu';
 
@@ -19,6 +19,7 @@ const messages = defineMessages({
   targetLanguage: { id: 'status.translation_target_language', defaultMessage: 'Target language, {language}' },
   unspecified: { id: 'status.translation_unspecified', defaultMessage: 'Unspecified' },
   unsupportedPair: { id: 'status.translation_unsupported_pair', defaultMessage: 'This language pair is not supported.' },
+  chooseChineseScript: { id: 'status.translation_choose_chinese_script', defaultMessage: 'Choose Simplified Chinese or Traditional Chinese as the source language.' },
   detectedSource: { id: 'status.translation_detected_source', defaultMessage: 'Detected {language}' },
 });
 
@@ -152,7 +153,7 @@ export default class TranslationBar extends React.PureComponent {
     </button>
   );
 
-  renderActionButton = (action, label, preferred, disabled, described, descriptionId) => (
+  renderActionButton = (action, label, preferred, disabled, description, descriptionId) => (
     <button
       key={action}
       type='button'
@@ -162,8 +163,8 @@ export default class TranslationBar extends React.PureComponent {
         'status__content__translate-button--secondary': action !== preferred,
       })}
       disabled={disabled || this.props.pending}
-      title={described ? this.props.intl.formatMessage(messages.unsupportedPair) : undefined}
-      aria-describedby={described ? descriptionId : undefined}
+      title={description || undefined}
+      aria-describedby={description ? descriptionId : undefined}
       onClick={this.handleSelect}
     >
       {label}
@@ -208,7 +209,15 @@ export default class TranslationBar extends React.PureComponent {
     const showActions = !!canRequest && !!statusTranslatable && !!languagesKnown && !showResult;
     const pairUnsupported = showActions && !pairSupported;
     const sameLanguage = sameTranslationLanguage(viewerSource, viewerTarget, translationLanguages);
-    const showUnsupportedPairMessage = pairUnsupported && !sameLanguage;
+    const showChineseScriptGuidance = pairUnsupported && needsChineseScriptChoice(viewerSource, translationLanguages);
+    const showUnsupportedPairMessage = pairUnsupported && !sameLanguage && !showChineseScriptGuidance;
+    let actionDescription = null;
+
+    if (showChineseScriptGuidance) {
+      actionDescription = intl.formatMessage(messages.chooseChineseScript);
+    } else if (showUnsupportedPairMessage) {
+      actionDescription = intl.formatMessage(messages.unsupportedPair);
+    }
     const preferred = preferredTranslationMode(preferredMode);
     const requestActions = preferred === 'bilingual' ? ['bilingual', 'translated'] : ['translated', 'bilingual'];
     const provider = showResult ? translation?.get('provider') : null;
@@ -261,15 +270,15 @@ export default class TranslationBar extends React.PureComponent {
               action === 'bilingual' ? intl.formatMessage(messages.bilingual) : intl.formatMessage(messages.translate),
               preferred,
               pairUnsupported,
-              showUnsupportedPairMessage,
+              actionDescription,
               descriptionId,
             ))}
           </div>
         )}
 
-        {showUnsupportedPairMessage && (
+        {(showUnsupportedPairMessage || showChineseScriptGuidance) && (
           <p className='status__translation-bar__note' id={descriptionId}>
-            {intl.formatMessage(messages.unsupportedPair)}
+            {actionDescription}
           </p>
         )}
       </div>
