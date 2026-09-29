@@ -167,7 +167,7 @@ class TranslateStatusService < BaseService
     texts = {}
     if @status.content.present?
       html = wrap_emoji_shortcodes(status_content_format(@status), @status.proper.emojis)
-      texts[:content] = protect_hashtags(protect_mentions(html))
+      texts[:content] = protect_urls(protect_hashtags(protect_mentions(html)))
     end
     texts[:spoiler_text] = wrap_emoji_shortcodes(html_escape(@status.spoiler_text)) if @status.spoiler_text.present?
 
@@ -383,6 +383,110 @@ class TranslateStatusService < BaseService
 
   def hashtag_anchor?(element)
     element.name == 'a' && element['class'].to_s.split.include?('hashtag')
+  end
+
+  # A provider can drop a URL-only block, so Translated mode loses a line that
+  # Original and Bilingual still show. Protect an anchor when its own visible
+  # text is the URL, and protect the same http(s) tokens when they are plain
+  # text. REST formatting leaves redirect-target hosts such as bit.ly as text
+  # rather than an anchor. Human-readable labels stay translatable.
+  def protect_urls(html)
+    fragment = Nokogiri::HTML.fragment(html.to_s)
+    changed = protect_url_anchors(fragment)
+    changed = true if wrap_plain_url_text(fragment)
+
+    changed ? fragment.to_html : html
+  end
+
+  def protect_url_anchors(fragment)
+    changed = false
+
+    fragment.css('a').to_a.each do |anchor|
+      next if translation_protected?(anchor)
+      next unless url_text_anchor?(anchor)
+
+      anchor['translate'] = 'no'
+      changed = true
+    end
+
+    changed
+  end
+
+  # Mastodon splits a formatted URL across invisible and ellipsis spans.
+  # anchor.text joins them. display_url may decode %20 into a space, so the
+  # label is compared with that display form instead of rejecting whitespace.
+  def url_text_anchor?(anchor)
+    visible = normalized_url_label(anchor.text)
+    return false if visible.empty?
+    return true if absolute_http_url?(visible)
+
+    href = anchor['href'].to_s
+    return false unless absolute_http_url?(href)
+
+    visible == normalized_url_label(Formatter.instance.display_url(href))
+  end
+
+  # Same shape as wrap_metadata_hashtags. Tokens inside an anchor, mention, or
+  # hashtag that is already translate="no" are left alone. unwrap removes the
+  # artificial span after the provider returns, so plain-text URLs stay text.
+  def wrap_plain_url_text(fragment)
+    changed = false
+
+    fragment.xpath('./text()|.//text()').to_a.each do |node|
+      next if translation_protected?(node)
+
+      replacement = plain_url_nodes(node.content, fragment.document)
+      next if replacement.nil?
+
+      node.replace(replacement)
+      changed = true
+    end
+
+    changed
+  end
+
+  def plain_url_nodes(text, document)
+    matches = Extractor.extract_urls_with_indices(text, extract_url_without_protocol: false).select do |entity|
+      start_index, end_index = entity[:indices]
+      absolute_http_url?(text[start_index...end_index])
+    end
+    return if matches.empty?
+
+    nodes = Nokogiri::XML::NodeSet.new(document)
+    cursor = 0
+
+    matches.each do |entity|
+      start_index, end_index = entity[:indices]
+      next if start_index < cursor
+
+      nodes << Nokogiri::XML::Text.new(text[cursor...start_index], document) if start_index > cursor
+
+      span = Nokogiri::XML::Node.new('span', document)
+      span['translate'] = 'no'
+      span.content = text[start_index...end_index]
+      nodes << span
+      cursor = end_index
+    end
+
+    nodes << Nokogiri::XML::Text.new(text[cursor..-1], document) if cursor < text.length
+    nodes
+  end
+
+  def normalized_url_label(text)
+    text.to_s.gsub("\u200B", '').strip
+  end
+
+  def absolute_http_url?(text)
+    # Formatter inserts U+200B beside a recognized shortcode inside the visible
+    # URL span. That boundary is not part of the URL the spans reconstruct.
+    candidate = normalized_url_label(text)
+    return false if candidate.empty? || candidate.match?(/\s/)
+    return false unless candidate.match?(%r{\Ahttps?://}i)
+
+    uri = Addressable::URI.parse(candidate)
+    %w(http https).include?(uri.scheme&.downcase) && uri.host.present?
+  rescue Addressable::URI::InvalidURIError, ArgumentError
+    false
   end
 
   def translation_protected?(node)

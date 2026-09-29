@@ -118,11 +118,15 @@ const buildStatus = (id, language, overrides = {}) => fromJS({
   ...overrides,
 });
 
-const createInteractiveStore = (statuses, { languages = LANGUAGES, target } = {}) => {
+const createInteractiveStore = (statuses, { languages = LANGUAGES, target, targetUsage } = {}) => {
   let settings = settingsReducer(undefined, { type: '@@INIT' });
 
   if (target) {
     settings = settings.setIn(['translation', 'targetLanguage'], target);
+  }
+
+  if (targetUsage) {
+    settings = settings.setIn(['translation', 'targetLanguageUsage'], fromJS(targetUsage));
   }
 
   const state = Object.entries(statuses).reduce((next, [id, status]) => (
@@ -139,6 +143,8 @@ const createInteractiveStore = (statuses, { languages = LANGUAGES, target } = {}
 };
 
 const optionCodes = () => screen.getAllByRole('option').map(option => option.getAttribute('data-index')).sort();
+
+const optionOrder = () => screen.getAllByRole('option').map(option => option.getAttribute('data-index'));
 
 const expectSameLanguageActions = () => {
   const translate = screen.getByRole('button', { name: 'Translate' });
@@ -252,7 +258,7 @@ describe('viewer-wide translation target', () => {
     expect(store.getState().getIn(['statuses', 'b', 'language'])).toBe('ja');
     expect(put).toHaveBeenCalledWith('/api/web/settings', {
       data: expect.objectContaining({
-        translation: { targetLanguage: 'de' },
+        translation: expect.objectContaining({ targetLanguage: 'de' }),
       }),
     });
 
@@ -423,7 +429,7 @@ describe('viewer-wide translation target', () => {
     expect(store.getState().getIn(['statuses', 'b', 'language'])).toBe('en');
     expect(put).toHaveBeenCalledWith('/api/web/settings', {
       data: expect.objectContaining({
-        translation: { targetLanguage: 'ja' },
+        translation: expect.objectContaining({ targetLanguage: 'ja' }),
       }),
     });
     expect(bar('a').getByRole('button', { name: 'Translate' })).toBeDisabled();
@@ -516,5 +522,149 @@ describe('viewer-wide translation target', () => {
     expect(screen.getByRole('button', { name: 'Source language, 简体中文' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Target language, 繁體中文' })).toBeTruthy();
     expectUnsupportedWarning('s1');
+  });
+
+  it('puts the UI language first even when the current target is something else', () => {
+    const status = buildStatus('s1', 'en', { contentHtml: '<p>Hello</p>', search_index: 'Hello' });
+    const store = createInteractiveStore({ s1: status }, {
+      languages: { en: ['de', 'ja', 'fr'], und: ['ja'] },
+      target: 'de',
+    });
+
+    renderStatuses(store, { s1: status });
+    fireEvent.click(screen.getByRole('button', { name: 'Target language, Deutsch' }));
+
+    expect(optionOrder()[0]).toBe('ja');
+    expect(optionOrder().indexOf('de')).toBeGreaterThan(0);
+    expect(optionOrder()).toContain('de');
+  });
+
+  it('orders previous translation targets by use after the UI language', () => {
+    const status = buildStatus('s1', 'en', { contentHtml: '<p>Hello</p>', search_index: 'Hello' });
+    const store = createInteractiveStore({ s1: status }, {
+      languages: { en: ['en', 'fr', 'de', 'ja'], und: ['ja'] },
+      target: 'de',
+      targetUsage: { fr: 5, de: 3, en: 1 },
+    });
+
+    renderStatuses(store, { s1: status });
+    fireEvent.click(screen.getByRole('button', { name: 'Target language, Deutsch' }));
+
+    expect(optionOrder()).toEqual(['ja', 'fr', 'de', 'en']);
+  });
+
+  it('keeps equal target counts in provider order', () => {
+    const status = buildStatus('s1', 'en', { contentHtml: '<p>Hello</p>', search_index: 'Hello' });
+    const store = createInteractiveStore({ s1: status }, {
+      languages: { en: ['de', 'fr', 'en'], und: ['ja'] },
+      target: 'en',
+      targetUsage: { fr: 2, de: 2 },
+    });
+
+    renderStatuses(store, { s1: status });
+    fireEvent.click(screen.getByRole('button', { name: 'Target language, English' }));
+
+    expect(optionOrder()).toEqual(['ja', 'de', 'fr', 'en']);
+  });
+
+  it('saves the chosen target and increments only that target counter', () => {
+    const status = buildStatus('s1', 'en', { contentHtml: '<p>Hello</p>', search_index: 'Hello' });
+    const store = createInteractiveStore({ s1: status }, {
+      languages: { en: ['ja', 'de', 'fr'], und: ['ja'] },
+    });
+
+    renderStatuses(store, { s1: status });
+    fireEvent.click(screen.getByRole('button', { name: 'Target language, 日本語' }));
+    fireEvent.click(screen.getByRole('option', { name: /Deutsch/ }));
+
+    expect(store.getState().getIn(['settings', 'translation', 'targetLanguage'])).toBe('de');
+    expect(store.getState().getIn(['settings', 'translation', 'targetLanguageUsage', 'de'])).toBe(1);
+    expect(store.getState().get('frequentlyUsedLanguages')).toBeUndefined();
+
+    const payload = put.mock.calls[put.mock.calls.length - 1][1].data;
+    expect(payload.translation.targetLanguage).toBe('de');
+    expect(payload.translation.targetLanguageUsage).toEqual({ de: 1 });
+    expect(payload.frequentlyUsedLanguages).toBeUndefined();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Target language, Deutsch' }));
+    fireEvent.click(screen.getByRole('option', { name: /Deutsch/ }));
+
+    expect(store.getState().getIn(['settings', 'translation', 'targetLanguageUsage', 'de'])).toBe(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Target language, Deutsch' }));
+    fireEvent.click(screen.getByRole('option', { name: /Français/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Target language, Français' }));
+    fireEvent.click(screen.getByRole('option', { name: /Deutsch/ }));
+
+    expect(store.getState().getIn(['settings', 'translation', 'targetLanguage'])).toBe('de');
+    expect(store.getState().getIn(['settings', 'translation', 'targetLanguageUsage', 'de'])).toBe(2);
+    expect(store.getState().getIn(['settings', 'translation', 'targetLanguageUsage', 'fr'])).toBe(1);
+    expect(store.getState().get('frequentlyUsedLanguages')).toBeUndefined();
+  });
+
+  it('does not count opening, closing, or a source-language change', () => {
+    const status = buildStatus('s1', 'en', { contentHtml: '<p>Hello</p>', search_index: 'Hello' });
+    const store = createInteractiveStore({ s1: status });
+    const { container } = renderStatuses(store, { s1: status });
+    const usage = () => store.getState().getIn(['settings', 'translation', 'targetLanguageUsage']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Target language, 日本語' }));
+    fireEvent.keyDown(screen.getByPlaceholderText('Search languages...'), { key: 'Escape' });
+
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(usage()).toBeUndefined();
+    expect(store.getState().getIn(['settings', 'translation', 'targetLanguage'])).toBeUndefined();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Target language, 日本語' }));
+    fireEvent.click(container.querySelector('.status__content__text'));
+
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(usage()).toBeUndefined();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Source language, English' }));
+    expect(optionOrder()[0]).toBe('en');
+    fireEvent.click(screen.getByRole('option', { name: /Français/ }));
+
+    expect(screen.getByRole('button', { name: 'Source language, Français' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Target language, 日本語' })).toBeTruthy();
+    expect(usage()).toBeUndefined();
+    expect(store.getState().getIn(['settings', 'translation', 'targetLanguage'])).toBeUndefined();
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('keeps an unsupported saved target below the UI language and lists the UI language once', () => {
+    const status = buildStatus('s1', 'en', { contentHtml: '<p>Hello</p>', search_index: 'Hello' });
+    const store = createInteractiveStore({ s1: status }, {
+      languages: { en: ['ja', 'fr'], und: ['ja'] },
+      target: 'de',
+      targetUsage: { ja: 4, de: 2 },
+    });
+
+    renderStatuses(store, { s1: status });
+    fireEvent.click(screen.getByRole('button', { name: 'Target language, Deutsch' }));
+
+    expect(optionOrder()).toEqual(['ja', 'de', 'fr']);
+    expect(screen.getAllByRole('option', { name: /日本語/ })).toHaveLength(1);
+    expect(screen.getByRole('option', { name: /Deutsch/ })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('searches target languages by the query instead of pinning the UI language', () => {
+    const status = buildStatus('s1', 'en', { contentHtml: '<p>Hello</p>', search_index: 'Hello' });
+    const store = createInteractiveStore({ s1: status }, {
+      languages: { en: ['fr', 'de', 'en', 'ja'], und: ['ja'] },
+      target: 'de',
+      targetUsage: { fr: 5, de: 3, en: 1 },
+    });
+
+    renderStatuses(store, { s1: status });
+    fireEvent.click(screen.getByRole('button', { name: 'Target language, Deutsch' }));
+    fireEvent.change(screen.getByPlaceholderText('Search languages...'), { target: { value: 'eng' } });
+
+    expect(optionOrder()).toEqual(['en']);
+
+    fireEvent.change(screen.getByPlaceholderText('Search languages...'), { target: { value: 'e' } });
+
+    expect(optionOrder()[0]).not.toBe('ja');
+    expect(optionOrder()).toEqual(['fr', 'de', 'en', 'ja']);
   });
 });

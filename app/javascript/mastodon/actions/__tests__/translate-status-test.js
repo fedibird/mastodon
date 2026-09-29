@@ -793,7 +793,7 @@ describe('viewer translation target preference', () => {
     expect(store.getState().getIn(['statuses', 's2', 'language'])).toBe('fr');
     expect(put).toHaveBeenCalledWith('/api/web/settings', {
       data: expect.objectContaining({
-        translation: { targetLanguage: 'de' },
+        translation: expect.objectContaining({ targetLanguage: 'de' }),
       }),
     });
 

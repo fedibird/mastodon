@@ -167,6 +167,28 @@ export const targetLanguageOptions = (translationLanguages, source, currentTarge
   return codes.map(code => languageOption(code, preloadedLanguages, unspecifiedName));
 };
 
+// Translation-target choices only. Equal counts keep the order of `languages`,
+// which is the provider/preloaded target list. Compose post languages use
+// settings.frequentlyUsedLanguages and never this counter.
+export const translationTargetUsageOrder = (usage, languages) => {
+  if (!usage || typeof usage.get !== 'function') {
+    return [];
+  }
+
+  const seen = new Set();
+
+  return (languages || []).map(language => language[0]).filter(code => {
+    if (!code || seen.has(code)) {
+      return false;
+    }
+
+    seen.add(code);
+    const count = usage.get(code);
+
+    return typeof count === 'number' && count > 0;
+  }).sort((left, right) => usage.get(right) - usage.get(left));
+};
+
 // Provider-wide private content stays a separate flag. A personal status is
 // an extra allowance only when this viewer wrote the wrapper and the proper
 // status whose text would be sent to the provider.

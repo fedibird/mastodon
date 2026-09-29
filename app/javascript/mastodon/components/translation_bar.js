@@ -5,7 +5,7 @@ import { defineMessages } from 'react-intl';
 import classnames from 'classnames';
 import Overlay from 'react-overlays/Overlay';
 import { languages as preloadedLanguages } from 'mastodon/initial_state';
-import { languageOption, needsChineseScriptChoice, sameTranslationLanguage, sourceLanguageOptions, targetLanguageOptions } from 'mastodon/utils/translation_languages';
+import { languageOption, needsChineseScriptChoice, sameTranslationLanguage, sourceLanguageOptions, targetLanguageOptions, translationTargetUsageOrder } from 'mastodon/utils/translation_languages';
 import { normalizedContentLocale, preTranslationRequestModes } from 'mastodon/utils/translation_view';
 import LanguageDropdownMenu from 'mastodon/components/language_dropdown_menu';
 
@@ -52,8 +52,17 @@ class LanguageSelector extends React.PureComponent {
     label: PropTypes.string.isRequired,
     ariaLabel: PropTypes.string.isRequired,
     languages: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.string)).isRequired,
+    frequentlyUsedLanguages: PropTypes.arrayOf(PropTypes.string),
+    pinnedLanguages: PropTypes.arrayOf(PropTypes.string),
+    currentValueFirst: PropTypes.bool,
     onChange: PropTypes.func.isRequired,
     intl: PropTypes.object.isRequired,
+  };
+
+  static defaultProps = {
+    frequentlyUsedLanguages: [],
+    pinnedLanguages: [],
+    currentValueFirst: true,
   };
 
   state = {
@@ -96,7 +105,7 @@ class LanguageSelector extends React.PureComponent {
   };
 
   render () {
-    const { value, label, ariaLabel, languages, intl } = this.props;
+    const { value, label, ariaLabel, languages, frequentlyUsedLanguages, pinnedLanguages, currentValueFirst, intl } = this.props;
     const { open, placement } = this.state;
 
     return (
@@ -121,7 +130,9 @@ class LanguageSelector extends React.PureComponent {
                 <LanguageDropdownMenu
                   value={value}
                   languages={languages}
-                  frequentlyUsedLanguages={[]}
+                  frequentlyUsedLanguages={frequentlyUsedLanguages}
+                  pinnedLanguages={pinnedLanguages}
+                  currentValueFirst={currentValueFirst}
                   onClose={this.handleClose}
                   onChange={this.handleChange}
                   intl={intl}
@@ -149,6 +160,7 @@ export default class TranslationBar extends React.PureComponent {
     detectedSource: PropTypes.string,
     showResult: PropTypes.bool,
     translationLanguages: ImmutablePropTypes.map,
+    targetLanguageUsage: ImmutablePropTypes.map,
     pairSupported: PropTypes.bool,
     languagesKnown: PropTypes.bool,
     statusTranslatable: PropTypes.bool,
@@ -210,6 +222,7 @@ export default class TranslationBar extends React.PureComponent {
       detectedSource,
       showResult,
       translationLanguages,
+      targetLanguageUsage,
       pairSupported,
       languagesKnown,
       statusTranslatable,
@@ -225,6 +238,7 @@ export default class TranslationBar extends React.PureComponent {
     const defaultTarget = normalizedContentLocale(intl.locale);
     const sourceLanguages = sourceLanguageOptions(translationLanguages, viewerSource, preloadedLanguages, unspecifiedName);
     const targetLanguages = targetLanguageOptions(translationLanguages, viewerSource, viewerTarget, preloadedLanguages, unspecifiedName, defaultTarget);
+    const targetUsageOrder = translationTargetUsageOrder(targetLanguageUsage, targetLanguages);
     const descriptionId = `translation-pair-${status ? status.get('id') : 'status'}`;
     const showActions = !!canRequest && !!statusTranslatable && !!languagesKnown && !showResult;
     const pairUnsupported = showActions && !pairSupported;
@@ -262,6 +276,9 @@ export default class TranslationBar extends React.PureComponent {
             label={targetLabel}
             ariaLabel={intl.formatMessage(messages.targetLanguage, { language: targetLabel })}
             languages={targetLanguages}
+            frequentlyUsedLanguages={targetUsageOrder}
+            pinnedLanguages={defaultTarget ? [defaultTarget] : []}
+            currentValueFirst={false}
             onChange={onChangeTarget}
             intl={intl}
           />
