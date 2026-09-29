@@ -2,7 +2,7 @@ import api from '../api';
 import { locale as interfaceLocale } from '../initial_state';
 import { legacyTranslationPair, sameLanguagePair, viewerTranslationPair } from '../utils/translation_view';
 
-import { changeSetting } from './settings';
+import { SETTING_CHANGE, saveSettings } from './settings';
 import { deleteFromTimelines, expireFromTimelines } from './timelines';
 import { fetchRelationshipsFromStatus, fetchRelationshipsFromStatuses } from './accounts';
 import { importFetchedStatus, importFetchedStatuses, importFetchedAccount } from './importer';
@@ -728,11 +728,26 @@ export function setTranslationTargetLanguage(target) {
       return;
     }
 
+    const usage = getState().getIn(['settings', 'translation', 'targetLanguageUsage', target], 0);
+    const nextUsage = typeof usage === 'number' && Number.isFinite(usage) ? usage + 1 : 1;
+
     dispatch({
       type: STATUS_TRANSLATION_TARGET,
       target,
     });
 
-    dispatch(changeSetting(['translation', 'targetLanguage'], target));
+    dispatch({
+      type: SETTING_CHANGE,
+      path: ['translation', 'targetLanguage'],
+      value: target,
+    });
+
+    dispatch({
+      type: SETTING_CHANGE,
+      path: ['translation', 'targetLanguageUsage', target],
+      value: nextUsage,
+    });
+
+    dispatch(saveSettings());
   };
 }

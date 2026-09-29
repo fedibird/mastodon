@@ -22,6 +22,8 @@ export default class LanguageDropdownMenu extends React.PureComponent {
   static propTypes = {
     value: PropTypes.string,
     frequentlyUsedLanguages: PropTypes.arrayOf(PropTypes.string).isRequired,
+    pinnedLanguages: PropTypes.arrayOf(PropTypes.string),
+    currentValueFirst: PropTypes.bool,
     onClose: PropTypes.func.isRequired,
     onChange: PropTypes.func.isRequired,
     languages: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.string)),
@@ -30,6 +32,8 @@ export default class LanguageDropdownMenu extends React.PureComponent {
 
   static defaultProps = {
     languages: preloadedLanguages,
+    pinnedLanguages: [],
+    currentValueFirst: true,
   };
 
   state = {
@@ -75,22 +79,33 @@ export default class LanguageDropdownMenu extends React.PureComponent {
   };
 
   search () {
-    const { languages, value, frequentlyUsedLanguages } = this.props;
+    const { languages, value, frequentlyUsedLanguages, pinnedLanguages, currentValueFirst } = this.props;
     const { searchValue } = this.state;
     const list = languages || [];
 
+    // An empty query keeps the compose order unless a caller opts into pins
+    // or leaves the current value in place. A query keeps search relevance.
     if (searchValue === '') {
-      return [...list].sort((a, b) => {
-        if (a[0] === value) {
-          return -1;
-        } else if (b[0] === value) {
-          return 1;
+      const rank = new Map();
+      const assign = (code) => {
+        if (code && !rank.has(code)) {
+          rank.set(code, rank.size);
         }
+      };
 
-        const indexOfA = frequentlyUsedLanguages.indexOf(a[0]);
-        const indexOfB = frequentlyUsedLanguages.indexOf(b[0]);
+      pinnedLanguages.forEach(assign);
 
-        return ((indexOfA > -1 ? indexOfA : Infinity) - (indexOfB > -1 ? indexOfB : Infinity));
+      if (currentValueFirst) {
+        assign(value);
+      }
+
+      frequentlyUsedLanguages.forEach(assign);
+
+      return [...list].sort((a, b) => {
+        const rankA = rank.has(a[0]) ? rank.get(a[0]) : Infinity;
+        const rankB = rank.has(b[0]) ? rank.get(b[0]) : Infinity;
+
+        return rankA - rankB;
       });
     }
 

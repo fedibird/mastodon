@@ -19,7 +19,14 @@ jest.mock('react-overlays/Overlay', () => {
   return ({ show, children }) => (show ? children({ props: { style: {} }, placement: 'bottom' }) : null);
 });
 
+import { fromJS } from 'immutable';
+import { Provider } from 'react-redux';
+import { createStore } from 'redux';
+
+import LanguageDropdownMenu from 'mastodon/components/language_dropdown_menu';
+
 import LanguageDropdown from '../language_dropdown';
+import LanguageDropdownContainer from '../../containers/language_dropdown_container';
 
 const languages = [
   ['en', 'English', 'English'],
@@ -55,6 +62,7 @@ describe('LanguageDropdown', () => {
     fireEvent.click(button);
 
     expect(screen.getByRole('listbox')).toBeInTheDocument();
+    expect(screen.getAllByRole('option').map(option => option.getAttribute('data-index'))).toEqual(['ja', 'fr', 'en']);
     expect(screen.getAllByRole('option')[0]).toHaveAttribute('aria-selected', 'true');
 
     fireEvent.change(screen.getByPlaceholderText('Search languages...'), { target: { value: 'eng' } });
@@ -96,5 +104,73 @@ describe('LanguageDropdown', () => {
     fireEvent.keyDown(screen.getByPlaceholderText('Search languages...'), { key: 'Escape' });
 
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  it('keeps compose order when translation target counts would rank another language first', () => {
+    const composeLanguages = [
+      ['en', 'English', 'English'],
+      ['ja', 'Japanese', '日本語'],
+      ['fr', 'French', 'Français'],
+      ['de', 'German', 'Deutsch'],
+    ];
+    const store = createStore(() => fromJS({
+      compose: { language: 'ja' },
+      settings: {
+        frequentlyUsedLanguages: { fr: 2, en: 1 },
+        translation: { targetLanguageUsage: { de: 9, en: 8 } },
+      },
+    }));
+
+    render(
+      <Provider store={store}>
+        <LanguageDropdownContainer languages={composeLanguages} />
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change language' }));
+
+    expect(screen.getAllByRole('option').map(option => option.getAttribute('data-index'))).toEqual(['ja', 'fr', 'en', 'de']);
+  });
+});
+
+describe('LanguageDropdownMenu ordering', () => {
+  const menuLanguages = [
+    ['en', 'English', 'English'],
+    ['ja', 'Japanese', '日本語'],
+    ['fr', 'French', 'Français'],
+    ['de', 'German', 'Deutsch'],
+  ];
+
+  const renderMenu = (props = {}) => render(
+    <LanguageDropdownMenu
+      value='de'
+      languages={menuLanguages}
+      frequentlyUsedLanguages={['fr', 'en']}
+      onClose={jest.fn()}
+      onChange={jest.fn()}
+      intl={{ formatMessage: ({ defaultMessage }) => defaultMessage }}
+      {...props}
+    />,
+  );
+
+  const codes = () => screen.getAllByRole('option').map(option => option.getAttribute('data-index'));
+
+  it('puts the current language before frequently used languages by default', () => {
+    renderMenu();
+
+    expect(codes()).toEqual(['de', 'fr', 'en', 'ja']);
+  });
+
+  it('pins languages without moving the current value when asked', () => {
+    renderMenu({ pinnedLanguages: ['ja'], currentValueFirst: false });
+
+    expect(codes()).toEqual(['ja', 'fr', 'en', 'de']);
+  });
+
+  it('keeps search relevance ahead of a pinned language', () => {
+    renderMenu({ pinnedLanguages: ['ja'], currentValueFirst: false });
+    fireEvent.change(screen.getByPlaceholderText('Search languages...'), { target: { value: 'eng' } });
+
+    expect(codes()).toEqual(['en']);
   });
 });

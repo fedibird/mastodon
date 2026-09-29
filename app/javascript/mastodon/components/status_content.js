@@ -38,6 +38,7 @@ const mapStateToProps = (state, ownProps) => {
     languages: state.getIn(['server', 'translationLanguages', 'items']),
     translationAssumption: state.getIn(['translation_assumptions', subject.get('id')]),
     translationTarget: state.getIn(['settings', 'translation', 'targetLanguage']),
+    translationTargetUsage: state.getIn(['settings', 'translation', 'targetLanguageUsage']),
     translationBarRevealed: translationBarRevealed(state, subject),
   };
 };
@@ -73,6 +74,7 @@ class StatusContent extends React.PureComponent {
     languages: ImmutablePropTypes.map,
     translationAssumption: PropTypes.oneOfType([PropTypes.string, ImmutablePropTypes.map]),
     translationTarget: PropTypes.string,
+    translationTargetUsage: ImmutablePropTypes.map,
     translationBarRevealed: PropTypes.bool,
     onTranslationAssumption: PropTypes.func,
     onTranslationTarget: PropTypes.func,
@@ -486,6 +488,7 @@ class StatusContent extends React.PureComponent {
         detectedSource={showResult ? (translated.getIn(['translation', 'detected_source_language']) || '') : ''}
         showResult={showResult}
         translationLanguages={this.props.languages}
+        targetLanguageUsage={this.props.translationTargetUsage}
         pairSupported={capability.pairSupported}
         languagesKnown={capability.languagesKnown}
         statusTranslatable={capability.allowsRequest}
