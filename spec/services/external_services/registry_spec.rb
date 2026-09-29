@@ -37,7 +37,7 @@ describe ExternalServices::Registry do
       end
 
       def self.catalog_entry_for(_user)
-        ExternalServices::CatalogEntry.new(provider_key: 'example', title: 'Example', description: 'Example service', icon: 'external_services/deepl.svg', action: :add, path: '/example')
+        ExternalServices::CatalogEntry.new(provider_key: 'example', title: 'Example', description: 'Example service', icon: 'external_services/deepl.svg', configured: false, action: :add, path: '/example')
       end
     end
     hidden = Class.new do
@@ -87,6 +87,41 @@ describe ExternalServices::Registry do
       expect(card.status).to eq(:warning)
       expect(card.status_label).not_to match(/verified/i)
     end
+  end
+
+  it 'does not treat a missing DeepL row as configured when the vault is unavailable' do
+    with_vault_keyring(primary: '', keys: '') do
+      entry = ExternalServices::DeepL.catalog_entry_for(user)
+
+      expect(entry.configured?).to be false
+      expect(entry.status).to eq(:unavailable)
+      expect(entry.action).to eq(:add)
+    end
+  end
+
+  it 'keeps an existing DeepL row configured when its status is warning or unavailable' do
+    with_vault_keyring do
+      Array.new(2) { store_vault_credential(owner: user, secret: "dup-#{SecureRandom.hex(8)}") }
+      warning = ExternalServices::DeepL.catalog_entry_for(user)
+
+      expect(warning.configured?).to be true
+      expect(warning.status).to eq(:warning)
+      expect(warning.action).to eq(:manage)
+    end
+
+    with_vault_keyring(primary: '', keys: '') do
+      unavailable = ExternalServices::DeepL.catalog_entry_for(user)
+
+      expect(unavailable.configured?).to be true
+      expect(unavailable.status).to eq(:unavailable)
+      expect(unavailable.action).to eq(:manage)
+    end
+  end
+
+  it 'rejects a catalog action outside add and manage' do
+    expect do
+      ExternalServices::CatalogEntry.new(provider_key: 'example', title: 'Example', description: 'Example service', icon: 'external_services/deepl.svg', configured: false, action: :create, path: '/example')
+    end.to raise_error(ArgumentError, 'unknown catalog action')
   end
 
   it 'marks an existing DeepL connection unavailable without the vault keyring' do

@@ -147,6 +147,16 @@ The catalog lists only providers implemented in this version. Disabled placehold
 
 DeepL is the only catalog entry. If a DeepL connection already exists, including a duplicate or repair state, the entry links to Manage. It does not post a second generic create. If nothing is configured, Add opens the DeepL page, which owns the key form.
 
+A catalog entry keeps connection existence separate from presentation status.
+
+```text
+configured?   a connection already exists
+status        connected, warning, unavailable, or absent
+action        add or manage
+```
+
+`configured?` is not derived from `status`. No DeepL row and an unavailable vault is `configured: false`, `status: :unavailable`, `action: :add`. An existing row stays `configured: true` when its status is warning or unavailable.
+
 ## Provider management pages
 
 Each provider has its own page and its own mutation routes. The URL names the service, not the vault table.

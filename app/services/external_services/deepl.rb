@@ -103,6 +103,7 @@ module ExternalServices
           title: display_name,
           description: description,
           icon: icon,
+          configured: !connection.nil?,
           status: status,
           status_label: status && status_label(status),
           action: connection ? :manage : :add,
