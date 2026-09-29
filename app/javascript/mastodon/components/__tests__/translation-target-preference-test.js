@@ -42,7 +42,8 @@ jest.mock('mastodon/initial_state', () => ({
   autoPlayEmoji: false,
   disableReactions: false,
   translationPrivateContentAllowed: false,
-  showTranslationBar: true,
+  translationBarVisibility: 'always',
+  translationPreferredMode: 'both',
   languages: [
     ['en', 'English', 'English'],
     ['ja', 'Japanese', '日本語'],

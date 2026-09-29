@@ -90,8 +90,8 @@ class InitialStateSerializer < ActiveModel::Serializer
       store[:delete_scheduled_status_modal]         = object.current_account.user.setting_delete_scheduled_status_modal
       store[:enable_empty_column]                   = object.current_account.user.setting_enable_empty_column
       store[:content_font_size]                     = object.current_account.user.setting_content_font_size
-      store[:translation_preferred_mode]            = object.current_account.user.setting_translation_preferred_mode == 'bilingual' ? 'bilingual' : 'translated'
-      store[:show_translation_bar]                  = object.current_account.user.setting_show_translation_bar
+      store[:translation_preferred_mode]            = object.current_account.user.setting_translation_preferred_mode
+      store[:translation_bar_visibility]            = object.current_account.user.setting_show_translation_bar
       store[:translation_private_content_allowed] = TranslationService.private_content_allowed?
       store[:info_font_size]                        = object.current_account.user.setting_info_font_size
       store[:content_emoji_reaction_size]           = object.current_account.user.setting_content_emoji_reaction_size

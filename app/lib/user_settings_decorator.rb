@@ -134,7 +134,6 @@ class UserSettingsDecorator
     enable_status_polling
     enable_status_polling_intersection
     disable_auto_focus_to_emoji_search
-    show_translation_bar
   ).freeze
 
   STRING_KEYS = %w(
@@ -143,6 +142,7 @@ class UserSettingsDecorator
     theme
     display_media
     translation_preferred_mode
+    show_translation_bar
     new_features_policy
     theme_instance_ticker
     content_font_size
@@ -181,7 +181,7 @@ class UserSettingsDecorator
       next unless change?("setting_#{key}")
 
       value = settings["setting_#{key}"]
-      user.settings[key] = key == 'translation_preferred_mode' ? normalize_translation_preferred_mode(value) : value
+      user.settings[key] = normalize_string_setting(key, value)
     end
 
     BOOLEAN_KEYS.each do |key|
@@ -189,8 +189,15 @@ class UserSettingsDecorator
     end
   end
 
-  def normalize_translation_preferred_mode(value)
-    value == 'bilingual' ? 'bilingual' : 'translated'
+  def normalize_string_setting(key, value)
+    case key
+    when 'translation_preferred_mode'
+      TranslationPreferences.normalize_preferred_mode(value)
+    when 'show_translation_bar'
+      TranslationPreferences.normalize_visibility(value, user.setting_new_features_policy)
+    else
+      value
+    end
   end
 
   def boolean_cast_setting(key)

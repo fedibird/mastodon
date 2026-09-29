@@ -122,33 +122,60 @@ RSpec.describe InitialStateSerializer do
     end
   end
 
-  it 'follows the new-feature policy for the translation bar until the user saves a choice' do
+  it 'derives translation bar visibility from the new-feature policy only while unset' do
     user = Fabricate(:user)
 
     expect(user.settings.show_translation_bar).to be_nil
     expect(user.setting_new_features_policy).to eq 'default'
-    expect(user.setting_show_translation_bar).to be true
-    expect(serialize(user.account)[:meta][:show_translation_bar]).to be true
+    expect(user.setting_show_translation_bar).to eq 'target'
+    expect(serialize(user.account)[:meta][:translation_bar_visibility]).to eq 'target'
+    expect(serialize(user.account)[:meta]).not_to have_key(:show_translation_bar)
 
     user.settings.new_features_policy = 'tester'
     user.save!
-    expect(serialize(user.account)[:meta][:show_translation_bar]).to be true
+    expect(user.settings.show_translation_bar).to be_nil
+    expect(serialize(user.account)[:meta][:translation_bar_visibility]).to eq 'always'
 
     user.settings.new_features_policy = 'conservative'
     user.save!
     expect(user.settings.show_translation_bar).to be_nil
-    expect(serialize(user.account)[:meta][:show_translation_bar]).to be false
+    expect(serialize(user.account)[:meta][:translation_bar_visibility]).to eq 'never'
+    expect(serialize(nil)[:meta]).not_to have_key(:translation_bar_visibility)
+    expect(serialize(nil)[:meta]).not_to have_key(:show_translation_bar)
+  end
+
+  it 'keeps an explicit translation bar choice ahead of a later policy change' do
+    user = Fabricate(:user)
 
     user.settings.show_translation_bar = true
+    user.settings.new_features_policy = 'conservative'
     user.save!
-    expect(serialize(user.account)[:meta][:show_translation_bar]).to be true
+    expect(user.settings.show_translation_bar).to be true
+    expect(user.setting_show_translation_bar).to eq 'always'
+    expect(serialize(user.account)[:meta][:translation_bar_visibility]).to eq 'always'
 
-    user.settings.new_features_policy = 'default'
     user.settings.show_translation_bar = false
+    user.settings.new_features_policy = 'tester'
     user.save!
     expect(user.settings.show_translation_bar).to be false
-    expect(serialize(user.account)[:meta][:show_translation_bar]).to be false
-    expect(serialize(nil)[:meta]).not_to have_key(:show_translation_bar)
+    expect(serialize(user.account)[:meta][:translation_bar_visibility]).to eq 'never'
+
+    user.settings.show_translation_bar = 'target'
+    user.settings.new_features_policy = 'conservative'
+    user.save!
+    expect(user.settings.show_translation_bar).to eq 'target'
+    expect(serialize(user.account)[:meta][:translation_bar_visibility]).to eq 'target'
+  end
+
+  it 'does not send an unknown translation bar visibility to the WebUI' do
+    user = Fabricate(:user)
+    user.settings.show_translation_bar = 'nope'
+    user.settings.new_features_policy = 'default'
+    user.save!
+
+    expect(user.settings.show_translation_bar).to eq 'nope'
+    expect(user.setting_show_translation_bar).to eq 'target'
+    expect(serialize(user.account)[:meta][:translation_bar_visibility]).to eq 'target'
   end
 
   it 'exposes the translation display preference and defaults to translated' do
@@ -162,8 +189,14 @@ RSpec.describe InitialStateSerializer do
     user.save!
     expect(serialize(user.account)[:meta][:translation_preferred_mode]).to eq 'bilingual'
 
+    user.settings.translation_preferred_mode = 'both'
+    user.save!
+    expect(user.setting_translation_preferred_mode).to eq 'both'
+    expect(serialize(user.account)[:meta][:translation_preferred_mode]).to eq 'both'
+
     user.settings.translation_preferred_mode = 'nope'
     user.save!
+    expect(user.setting_translation_preferred_mode).to eq 'translated'
     expect(serialize(user.account)[:meta][:translation_preferred_mode]).to eq 'translated'
   end
 

@@ -87,8 +87,8 @@ ja:
         setting_display_media_default: 閲覧注意としてマークされたメディアは隠す
         setting_display_media_hide_all: メディアを常に隠す
         setting_display_media_show_all: メディアを常に表示する
-        setting_translation_preferred_mode: 両方の操作は常に表示されます。どちらを優先して左に置くかを選びます。
-        setting_show_translation_bar: 各投稿の下に翻訳バーを表示します。自分で保存するまでは、新機能へのポリシーが「無効にしておき、自分で判断する」のときだけ非表示になります。
+        setting_translation_preferred_mode: 翻訳前に表示する操作を選びます。翻訳後は原文・翻訳・対訳をいつでも切り替えられます。
+        setting_show_translation_bar: 「翻訳対象の言語のときに表示」では、投稿の言語と翻訳先の言語が同じときは翻訳バーを表示しません。必要なときは投稿メニューからその投稿だけ一時的に表示できます。
         setting_emoji_size_in_mix_html: 絵文字・リンクの混在
         setting_emoji_size_in_multi_html: 複数並べた絵文字
         setting_emoji_size_in_other_html: 本文中の絵文字
@@ -347,10 +347,14 @@ ja:
         setting_display_media_default: 標準
         setting_display_media_hide_all: 非表示
         setting_display_media_show_all: 表示
-        setting_translation_preferred_mode: 翻訳の優先表示
-        setting_show_translation_bar: 翻訳バーを表示する
-        setting_translation_preferred_mode_bilingual: 対訳
-        setting_translation_preferred_mode_translated: 翻訳
+        setting_translation_preferred_mode: 翻訳前に表示する操作
+        setting_show_translation_bar: 翻訳バーの表示
+        setting_show_translation_bar_always: 常に表示
+        setting_show_translation_bar_target: 翻訳対象の言語のときに表示
+        setting_show_translation_bar_never: 表示しない
+        setting_translation_preferred_mode_bilingual: 対訳のみ
+        setting_translation_preferred_mode_both: 両方
+        setting_translation_preferred_mode_translated: 翻訳のみ
         setting_emoji_scale: 絵文字の拡大倍率
         setting_emoji_size_in_mix: 混在
         setting_emoji_size_in_multi: 複数

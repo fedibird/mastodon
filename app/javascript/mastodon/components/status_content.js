@@ -10,9 +10,9 @@ import Icon from 'mastodon/components/icon';
 import BilingualContent from 'mastodon/components/bilingual_content';
 import TranslationBar from 'mastodon/components/translation_bar';
 import { setStatusTranslationAssumption, setTranslationTargetLanguage } from 'mastodon/actions/statuses';
-import { autoPlayEmoji, disableReactions, me, showTranslationBar, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
+import { autoPlayEmoji, disableReactions, me, translationBarVisibility, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
 import { translationCapability } from 'mastodon/utils/translation_languages';
-import { sameLanguagePair, statusTranslationView, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
+import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
 
 const messages = defineMessages({
   linkToAcct: { id: 'status.link_to_acct', defaultMessage: 'Link to @{acct}' },
@@ -452,7 +452,13 @@ class StatusContent extends React.PureComponent {
     const mainText = this.renderMainText(viewMode, sourceHtml, targetHtml, sourceLang, targetLang, status.get('spoiler_text').length > 0 ? !hidden : true);
     const spoilerText = this.renderSpoilerText(viewMode, sourceSpoilerHtml, targetSpoilerHtml, sourceLang, targetLang);
 
-    const translateButton = (showTranslationBar || this.props.translationBarRevealed) && (
+    const translateButton = translationBarEffectivelyVisible({
+      visibility: translationBarVisibility,
+      revealed: this.props.translationBarRevealed,
+      source: viewerPair.source,
+      target: viewerPair.target,
+      translationLanguages: this.props.languages,
+    }) && (
       <TranslationBar
         status={status}
         translation={status.get('translation')}

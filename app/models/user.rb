@@ -165,7 +165,7 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
            :hide_following_from_yourself, :hide_followers_from_yourself, :hide_joined_date_from_yourself, :hide_reaction_counter,
            :hide_list_of_emoji_reactions_to_posts, :hide_list_of_favourites_to_posts, :hide_list_of_reblogs_to_posts, :hide_list_of_referred_by_to_posts,    
            :hide_reblogged_by, :enable_status_polling, :enable_status_polling_intersection, :disable_auto_focus_to_emoji_search,
-           :max_frequently_used_emojis, :missing_alt_text_modal, :translation_preferred_mode,
+           :max_frequently_used_emojis, :missing_alt_text_modal,
            to: :settings, prefix: :setting, allow_nil: false
 
   attr_reader :invite_code, :sign_in_token_attempt
@@ -303,13 +303,14 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
     valid_locale_cascade(setting_default_language, locale, I18n.locale)
   end
 
-  # A saved true/false overrides new_features_policy. nil means the user has not chosen,
-  # so a static false default must not be used for this setting.
+  # A saved always/target/never, or a legacy true/false, overrides new_features_policy.
+  # nil and unknown values are not choices, so reading them must not rewrite the setting.
   def setting_show_translation_bar
-    stored = settings.show_translation_bar
-    return ActiveModel::Type::Boolean.new.cast(stored) unless stored.nil?
+    TranslationPreferences.normalize_visibility(settings.show_translation_bar, setting_new_features_policy)
+  end
 
-    setting_new_features_policy.to_s != 'conservative'
+  def setting_translation_preferred_mode
+    TranslationPreferences.normalize_preferred_mode(settings.translation_preferred_mode)
   end
 
   def allows_digest_emails?
