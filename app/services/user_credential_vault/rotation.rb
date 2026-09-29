@@ -3,12 +3,20 @@
 module UserCredentialVault
   # Re-encrypts rows onto the current primary key.
   #
-  # Each row is decrypted with the key id stored on that row, and the purpose
-  # is rebuilt from that row's payload schema, binding_id, user_id, provider,
-  # purpose, and credential_type. The replacement ciphertext is written with
-  # the primary key in one conditional UPDATE that also sets encryption_key_id.
-  # binding_id is not changed. last_used_at is not changed. Plaintext is not
-  # printed and is not assigned to a model attribute.
+  # Every row is decrypted with the key id stored on that row before it is
+  # counted. The purpose is rebuilt from that row's payload schema, binding_id,
+  # user_id, provider, purpose, and credential_type. A row already on the
+  # primary key is left in place only after that authentication succeeds.
+  # Matching the primary id is not by itself success: tampered ciphertext, or
+  # an id whose key material was replaced, is a failure.
+  #
+  # Operators must not reuse a key id with different bytes. Rotation needs a
+  # new id while the previous id still maps to the previous bytes.
+  #
+  # The replacement ciphertext is written with the primary key in one
+  # conditional UPDATE that also sets encryption_key_id. binding_id is not
+  # changed. last_used_at is not changed. Plaintext is not printed and is not
+  # assigned to a model attribute.
   #
   # An unreadable row is reported and left in place. Rotation never deletes it.
   class Rotation
@@ -74,12 +82,12 @@ module UserCredentialVault
         begin
           UserExternalCredential.transaction do
             locked = UserExternalCredential.lock.find(credential.id)
-            if locked.encryption_key_id == keyring.primary_id
-              result = :already_primary
-            else
-              payload = decrypt(locked, keyring)
-              result = write_primary!(locked, payload, keyring, dry_run)
-            end
+            payload = decrypt(locked, keyring)
+            result = if locked.encryption_key_id == keyring.primary_id
+                       :already_primary
+                     else
+                       write_primary!(locked, payload, keyring, dry_run)
+                     end
           end
           result
         ensure

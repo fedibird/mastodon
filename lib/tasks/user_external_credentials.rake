@@ -12,7 +12,7 @@ namespace :user_external_credentials do
     raise
   end
 
-  desc 'Print credential counts grouped by encryption_key_id. Does not decrypt.'
+  desc 'Print credential counts grouped by encryption_key_id. Does not decrypt, so it does not prove ciphertext still authenticates.'
   task key_counts: :environment do
     counts = UserExternalCredential.group(:encryption_key_id).count
     if counts.empty?

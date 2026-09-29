@@ -14,11 +14,16 @@ module UserCredentialVault
   # require the variables, so Mastodon can boot before a consumer exists.
   #
   # Operator rotation:
-  # 1. Add the new key beside the old key.
+  # 1. Add the new key beside the old key. Use a new id. Never replace the
+  #    bytes stored under an existing id; rows that name that id would become
+  #    unreadable, and rotation reports them as failures.
   # 2. Point USER_EXTERNAL_CREDENTIAL_PRIMARY_KEY at the new id.
   # 3. Deploy. New writes use the new key. Old rows still decrypt.
   # 4. Run `rake user_external_credentials:rotate` (preview with DRY_RUN=1).
+  #    This authenticates every row, including rows already on the primary id.
   # 5. Confirm no row still uses the old id (`rake user_external_credentials:key_counts`).
+  #    That count does not decrypt. A clean count is not proof the ciphertext
+  #    still authenticates.
   # 6. Remove the old key in a later deploy.
   class Keyring
     KEY_PATTERN = /\A[A-Za-z0-9+\/]+={0,2}\z/
@@ -81,7 +86,8 @@ module UserCredentialVault
       raise ConfigurationError, 'user external credential keyring is malformed' if serialized.match?(/\s/)
 
       keys = {}
-      serialized.split(',').each do |entry|
+      # -1 keeps a trailing empty field. "v1:<key>," must fail closed.
+      serialized.split(',', -1).each do |entry|
         id, encoded = entry.split(':', 2)
         raise ConfigurationError, 'user external credential keyring is malformed' if id.blank? || encoded.blank?
         raise ConfigurationError, 'user external credential keyring is malformed' unless id.match?(UserExternalCredential::KEY_ID_FORMAT)

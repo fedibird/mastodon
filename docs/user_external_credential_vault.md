@@ -57,7 +57,9 @@ Generate a key with:
 ruby -rsecurerandom -rbase64 -e 'puts Base64.strict_encode64(SecureRandom.random_bytes(32))'
 ```
 
-Duplicate key ids, malformed Base64, a decoded length other than 32 bytes, and a primary id that is not in the ring raise `UserCredentialVault::ConfigurationError` when the vault is used. Unset variables do not prevent boot. There is no fallback to `SECRET_KEY_BASE`, `OTP_SECRET`, or VAPID.
+Duplicate key ids, malformed Base64, a trailing comma or empty entry, a decoded length other than 32 bytes, and a primary id that is not in the ring raise `UserCredentialVault::ConfigurationError` when the vault is used. Unset variables do not prevent boot. There is no fallback to `SECRET_KEY_BASE`, `OTP_SECRET`, or VAPID.
+
+Never replace the bytes stored under an existing key id. Add a new id and leave the previous id mapped to its original bytes until rotation has finished and a later deploy removes the old id. Reusing an id with different material makes every row that names it unreadable.
 
 ## Encryption
 
@@ -93,7 +95,8 @@ Payload schema version is fixed at `1` and is part of the purpose. A future vers
 - `user_id` is `NOT NULL`.
 - `User has_many :external_credentials, dependent: :destroy`.
 - The foreign key uses `ON DELETE CASCADE`.
-- `with_credential` compares `owner.id` to `credential.user_id`.
+- `with_credential` reloads the row by id and compares `owner.id` to that row's `user_id`. The ActiveRecord instance passed in is not the ciphertext that gets decrypted.
+- After a successful decrypt, `last_used_at` is set only if `binding_id`, `provider`, `purpose`, and `credential_type` still match that row. A `replace!` that commits in between does not yield the previous secret. `encryption_key_id` is not part of this check, because key rotation changes it without changing the logical credential.
 - Any non-nil `revoked_at` refuses decryption, including a timestamp in the future.
 - `expires_at <= Time.current` refuses decryption. `nil` means no expiry.
 - `revoke!` and `delete!` do not decrypt. Remote provider revocation is not part of M1.
@@ -109,7 +112,9 @@ bundle exec rake user_external_credentials:key_counts
 
 `DRY_RUN` accepts `1`, `true`, or `yes`. The task prints counts, record ids, and error class names. It does not print plaintext or ciphertext. A failure raises after the run; unreadable rows are not deleted. Each rewritten row updates `encrypted_payload` and `encryption_key_id` in one conditional `UPDATE`.
 
-See `.env.production.sample` for the deploy order (add key, switch primary, deploy, rotate, confirm, then remove the old key later).
+Rotation decrypts every row, including a row whose `encryption_key_id` is already the primary id, and only then counts it as `already_primary`. A tampered primary-key row fails dry-run and write mode. `key_counts` only groups key ids. It does not decrypt, so a count of zero old-key rows does not prove the remaining ciphertext authenticates.
+
+See `.env.production.sample` for the deploy order (add a new key id, switch primary, deploy, rotate, confirm, then remove the old key later). Do not replace the material of an existing key id.
 
 ## Future consumers
 

@@ -87,6 +87,7 @@ RSpec.describe UserCredentialVault, type: :service do
         ['v1', "v1:#{encoded},v1:#{other}", /duplicate/],
         ['v1', "v1:#{encoded}, v2:#{other}", /malformed/],
         ['v2', "v1:#{encoded}", /not in the keyring/],
+        ['v1', "v1:#{encoded},", /malformed/],
       ]
 
       cases.each do |primary, serialized, message|
@@ -422,6 +423,36 @@ RSpec.describe UserCredentialVault, type: :service do
         expect(record.reload.encrypted_payload).to eq(ciphertext)
       end
     end
+
+    it 'fails dry-run and rotation when a primary-key row has tampered ciphertext' do
+      with_vault_keyring(primary: 'v2') do
+        record = store_vault_credential(owner: owner)
+        record.update_columns(encrypted_payload: tamper_ciphertext(record.encrypted_payload))
+        ciphertext = record.encrypted_payload
+
+        expect { described_class.rotate_encryption_keys!(dry_run: true) }.to raise_error(described_class::RotationError) { |error|
+          expect(error.report.dry_run).to be(true)
+          expect(error.report.already_primary).to eq(0)
+          expect(error.report.rotated).to eq(0)
+          expect(error.report.would_rotate).to eq(0)
+          expect(error.report.failures.map { |failure| failure[:id] }).to eq([record.id])
+          expect(error.report.failures.first[:error_class]).to eq('UserCredentialVault::AuthenticationFailure')
+          expect(error.message).not_to include(vault_secret)
+          expect(error.message).not_to include(ciphertext)
+        }
+        expect(record.reload.encrypted_payload).to eq(ciphertext)
+
+        expect { described_class.rotate_encryption_keys! }.to raise_error(described_class::RotationError) { |error|
+          expect(error.report.already_primary).to eq(0)
+          expect(error.report.rotated).to eq(0)
+          expect(error.report.failures.map { |failure| failure[:id] }).to eq([record.id])
+          expect(error.message).not_to include(vault_secret)
+          expect(error.message).not_to include(ciphertext)
+        }
+        expect(record.reload.encrypted_payload).to eq(ciphertext)
+        expect(record.encryption_key_id).to eq('v2')
+      end
+    end
   end
 
   describe 'replace, revoke, and delete' do
@@ -458,6 +489,45 @@ RSpec.describe UserCredentialVault, type: :service do
         expect(reactivated.revoked_at).to be_nil
         expect(reactivated.expires_at).to eq(expires_at)
         expect(probe_vault(owner: owner, credential: reactivated)[:result]).to eq("#{vault_secret}-reactivated")
+      end
+    end
+
+    it 'uses the current secret when a stale instance is presented after replacement' do
+      with_vault_keyring do
+        record = store_vault_credential(owner: owner)
+        stale = UserExternalCredential.find(record.id)
+        old_binding_id = stale.binding_id
+        old_ciphertext = stale.encrypted_payload
+        replaced = replace_vault_credential(owner: owner, credential: record, secret: "#{vault_secret}-replaced")
+
+        expect(stale.binding_id).to eq(old_binding_id)
+        expect(stale.encrypted_payload).to eq(old_ciphertext)
+        expect(stale.binding_id).not_to eq(replaced.binding_id)
+
+        probe = probe_vault(owner: owner, credential: stale)
+        expect(probe[:yielded]).to be(true)
+        expect(probe[:error]).to be_nil
+        expect(probe[:result]).to eq("#{vault_secret}-replaced")
+        expect(probe[:result]).not_to eq(vault_secret)
+        expect(replaced.reload.last_used_at).to be_present
+        expect(stale.encrypted_payload).to eq(old_ciphertext)
+      end
+    end
+
+    it 'does not yield when the binding changes after the current row is read' do
+      with_vault_keyring do
+        record = store_vault_credential(owner: owner)
+        allow(described_class).to receive(:mark_used!).and_wrap_original do |method, current|
+          UserExternalCredential.where(id: current.id).update_all(binding_id: SecureRandom.uuid)
+          method.call(current)
+        end
+
+        probe = probe_vault(owner: owner, credential: record)
+        expect(probe[:yielded]).to be(false)
+        expect(probe[:result]).to be_nil
+        expect(probe[:error]).to be_a(described_class::AccessError)
+        expect(probe[:error].message).not_to include(vault_secret)
+        expect(record.reload.last_used_at).to be_nil
       end
     end
 

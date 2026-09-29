@@ -151,16 +151,20 @@ module UserCredentialVault
     # expiry, and authenticated decryption all succeed. The block value is
     # returned so a caller can return a non-secret result. Do not return the
     # payload itself from the block.
+    #
+    # The caller-supplied record is only an id. Decryption reloads the current
+    # row, so a stale instance cannot yield the secret from before replace!.
+    # mark_used! then requires that same binding_id and classification. If
+    # replacement commits after the reload, the update matches nothing and the
+    # block is not called. encryption_key_id is not part of that check: key
+    # rotation keeps the logical credential and the same binding_id.
     def with_credential(owner:, credential:, provider:, purpose:, credential_type:)
       raise ArgumentError, 'a block is required' unless block_given?
 
       Guard.credential!(credential)
-      Guard.owner!(owner, credential)
-      Guard.classification!(credential, provider: provider, purpose: purpose, credential_type: credential_type)
-      Identifiers.check!(:provider, provider)
-      Identifiers.check!(:purpose, purpose)
-      Identifiers.check!(:credential_type, credential_type)
-      Guard.usable!(credential)
+      provider = Identifiers.check!(:provider, provider)
+      purpose = Identifiers.check!(:purpose, purpose)
+      credential_type = Identifiers.check!(:credential_type, credential_type)
 
       keyring = Keyring.load!
       # rubocop:disable Lint/UselessAssignment -- release plaintext references; this is not memory zeroization
@@ -168,10 +172,11 @@ module UserCredentialVault
       frozen = nil
 
       begin
-        payload = read_payload!(credential, keyring)
+        current = current_credential!(credential.id, owner: owner, provider: provider, purpose: purpose, credential_type: credential_type)
+        payload = read_payload!(current, keyring)
         frozen = freeze_payload(payload)
         payload = nil
-        mark_used!(credential)
+        mark_used!(current)
         yield frozen
       ensure
         payload = nil
@@ -216,6 +221,16 @@ module UserCredentialVault
       )
     end
 
+    def current_credential!(credential_id, owner:, provider:, purpose:, credential_type:)
+      current = UserExternalCredential.find(credential_id)
+      Guard.owner!(owner, current)
+      Guard.classification!(current, provider: provider, purpose: purpose, credential_type: credential_type)
+      Guard.usable!(current)
+      current
+    rescue ActiveRecord::RecordNotFound
+      raise AccessError, 'credential is not usable'
+    end
+
     def read_payload!(credential, keyring)
       raw = Cipher.decrypt(
         credential.encrypted_payload,
@@ -225,9 +240,22 @@ module UserCredentialVault
       Payload.unwrap(raw)
     end
 
+    # binding_id is the replacement generation. provider, purpose, and
+    # credential_type are the classification the caller just authenticated.
+    # encryption_key_id is omitted because rotation changes it without
+    # changing that logical credential.
     def mark_used!(credential)
       now = Time.current
-      scope = UserExternalCredential.where(id: credential.id, user_id: credential.user_id, revoked_at: nil)
+      scope = UserExternalCredential.where(
+        id: credential.id,
+        user_id: credential.user_id,
+        binding_id: credential.binding_id,
+        provider: credential.provider,
+        purpose: credential.purpose,
+        credential_type: credential.credential_type,
+        revoked_at: nil,
+        expires_at: credential.expires_at
+      )
       updated = scope.where('expires_at IS NULL OR expires_at > ?', now).update_all(last_used_at: now)
       raise AccessError, 'credential is not usable' unless updated == 1
 
