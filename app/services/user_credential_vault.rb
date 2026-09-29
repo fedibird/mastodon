@@ -209,6 +209,15 @@ module UserCredentialVault
       report
     end
 
+    # True when the keyring validates. False when it is missing or malformed.
+    # Does not read credential rows, decrypt ciphertext, or return key material.
+    def available?
+      Keyring.load!
+      true
+    rescue ConfigurationError
+      false
+    end
+
     private
 
     def context_for(user_id, binding_id, provider, purpose, credential_type)

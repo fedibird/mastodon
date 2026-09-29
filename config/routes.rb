@@ -151,6 +151,9 @@ Rails.application.routes.draw do
       resource :other, only: [:show, :update], controller: :other
     end
 
+    resource :external_credentials, only: [:show]
+    resources :deepl_credentials, only: [:create, :destroy]
+
     resource :import, only: [:show, :create]
     resource :export, only: [:show, :create]
 

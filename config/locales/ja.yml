@@ -2042,6 +2042,34 @@ ja:
     revoke: 削除
     revoke_success: セッションを削除しました
     title: セッション
+  external_credentials:
+    ambiguous: 複数のDeepL credentialが存在するため、個人DeepLは利用できません。不要なcredentialを削除してください。
+    api_key_label: APIキー
+    appearance_link_html: 個人のDeepL APIキーは「<a href="%{path}">外部サービス</a>」で設定できます。
+    billing: DeepLの利用料金・利用上限はあなた自身の契約に従います。
+    cannot_reveal: 保存したAPIキーを再表示することはできません。差し替える場合は新しいAPIキーを入力してください。
+    configured: 設定済み
+    created_at: '作成:'
+    deepl_title: DeepL
+    delete: 削除
+    delete_fallback: 個人APIキーを削除すると、利用可能な場合はサーバー側の翻訳サービスに戻ります。
+    deleted: DeepL APIキーを削除しました。
+    encrypted: このAPIキーは暗号化して保存され、あなた自身の翻訳リクエストにのみ使用されます。
+    expired: 期限切れ
+    invalid_key: APIキーが無効です。
+    last_used: '最終使用:'
+    never_used: '最終使用: なし'
+    no_connection_test: 保存時にはDeepLへの接続確認を行いません。
+    not_e2ee: サーバーは翻訳実行時にAPIキーを復号します。エンドツーエンド暗号化ではありません。
+    personal_key: 個人のDeepL APIキー
+    replace: APIキーを差し替え
+    revoked: 失効
+    save: APIキーを保存
+    saved: DeepL APIキーを保存しました。
+    storage_unavailable: このサーバーではcredential storageを利用できません。
+    title: 外部サービス
+    updated_at: '更新:'
+    visibility: 現在、個人DeepLでは公開・未収載の投稿だけを翻訳します。
   settings:
     account: アカウント
     account_settings: アカウント設定
@@ -2055,6 +2083,7 @@ ja:
     domain_subscribes: ドメインの購読
     edit_profile: プロフィールを編集
     export: データのエクスポート
+    external_services: 外部サービス
     favourite_domains: お気に入りドメイン
     favourite_tags: お気に入りハッシュタグ
     featured_tags: 注目のハッシュタグ

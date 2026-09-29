@@ -1,0 +1,49 @@
+- content_for :page_title do
+  = t('external_credentials.title')
+
+%h3= t('external_credentials.deepl_title')
+
+%p.hint= t('external_credentials.personal_key')
+%p.hint= t('external_credentials.encrypted')
+%p.hint= t('external_credentials.not_e2ee')
+%p.hint= t('external_credentials.billing')
+%p.hint= t('external_credentials.cannot_reveal')
+%p.hint= t('external_credentials.no_connection_test')
+%p.hint= t('external_credentials.visibility')
+%p.hint= t('external_credentials.delete_fallback')
+
+- unless @vault_available
+  %p.warning-hint= t('external_credentials.storage_unavailable')
+
+- if @credentials.many?
+  %p.warning-hint= t('external_credentials.ambiguous')
+
+- @credentials.each do |credential|
+  .fields-group
+    %h4= t('external_credentials.deepl_title')
+    %p= t('external_credentials.configured')
+    %p
+      = t('external_credentials.created_at')
+      %time{ datetime: credential.created_at.iso8601 }= l(credential.created_at)
+    %p
+      = t('external_credentials.updated_at')
+      %time{ datetime: credential.updated_at.iso8601 }= l(credential.updated_at)
+    %p
+      - if credential.last_used_at
+        = t('external_credentials.last_used')
+        %time{ datetime: credential.last_used_at.iso8601 }= l(credential.last_used_at)
+      - else
+        = t('external_credentials.never_used')
+    - if credential.revoked_at
+      %p= t('external_credentials.revoked')
+    - if credential.expires_at.present? && credential.expires_at <= Time.current
+      %p= t('external_credentials.expired')
+    = button_to t('external_credentials.delete'), settings_deepl_credential_path(credential), method: :delete, class: 'button negative'
+
+- if @vault_available && !@credentials.many?
+  = form_with url: settings_deepl_credentials_path, method: :post, local: true do
+    .fields-group
+      = label_tag :api_key, t('external_credentials.api_key_label')
+      = password_field_tag :api_key, nil, autocomplete: 'new-password', spellcheck: false, autocapitalize: 'none'
+    .actions
+      = submit_tag(@credentials.one? ? t('external_credentials.replace') : t('external_credentials.save'), class: 'button')
