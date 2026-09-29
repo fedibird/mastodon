@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-describe Settings::DeepLCredentialsController do
+describe Settings::ExternalServices::DeepLCredentialsController do
   render_views
 
   let(:user) { Fabricate(:user, password: '123456789') }
@@ -21,11 +21,11 @@ describe Settings::DeepLCredentialsController do
       expect do
         post :create, params: {
           api_key: api_key,
-          form_challenge: { current_password: '123456789', return_to: "#{settings_external_credentials_path}?api_key=#{api_key}" },
+          form_challenge: { current_password: '123456789', return_to: "#{settings_external_services_deepl_path}?api_key=#{api_key}" },
         }
       end.not_to change(UserExternalCredential, :count)
 
-      expect(response).to redirect_to(settings_external_credentials_path)
+      expect(response).to redirect_to(settings_external_services_deepl_path)
       expect(response.body).not_to include(api_key)
       expect(response.body).not_to include('form_challenge')
       expect(flash.to_hash.to_s).not_to include(api_key)
@@ -39,7 +39,7 @@ describe Settings::DeepLCredentialsController do
         post :create, params: { api_key: api_key, provider: 'libretranslate', purpose: 'login', credential_type: 'token', endpoint: 'https://evil.example' }
       end.not_to change(UserExternalCredential, :count)
 
-      expect(response).to redirect_to(settings_external_credentials_path)
+      expect(response).to redirect_to(settings_external_services_deepl_path)
       expect(response).to have_http_status(:see_other)
       expect(response.location).not_to include(api_key)
       expect(response.body).not_to include(api_key)
@@ -61,7 +61,7 @@ describe Settings::DeepLCredentialsController do
         }, session: challenge
 
         row = user.external_credentials.order(:id).last
-        expect(response).to redirect_to(settings_external_credentials_path)
+        expect(response).to redirect_to(settings_external_services_deepl_path)
         expect(flash[:notice]).to eq(I18n.t('external_credentials.saved'))
         expect(flash[:notice]).not_to include(api_key)
         expect(response.location).not_to include(api_key)
@@ -117,7 +117,7 @@ describe Settings::DeepLCredentialsController do
 
         post :create, params: { api_key: api_key }, session: challenge
 
-        expect(response).to redirect_to(settings_external_credentials_path)
+        expect(response).to redirect_to(settings_external_services_deepl_path)
         expect(flash[:notice]).to be_nil
         expect(flash[:alert]).to eq(I18n.t('external_credentials.save_failed'))
         expect(flash[:alert]).not_to include(api_key)
@@ -125,7 +125,7 @@ describe Settings::DeepLCredentialsController do
         expect(response.body).not_to include(api_key)
         expect(user.external_credentials).to be_empty
 
-        @controller = Settings::ExternalCredentialsController.new
+        @controller = Settings::ExternalServices::DeepLController.new
         get :show, session: challenge
         field = Nokogiri::HTML(response.body).at_css('input[name="api_key"]')
         expect(field['value'].to_s).to eq('')
@@ -154,7 +154,7 @@ describe Settings::DeepLCredentialsController do
 
         post :create, params: { api_key: api_key }, session: challenge
 
-        expect(response).to redirect_to(settings_external_credentials_path)
+        expect(response).to redirect_to(settings_external_services_deepl_path)
         expect(flash[:notice]).to be_nil
         expect(flash[:alert]).to eq(I18n.t('external_credentials.save_failed'))
         expect(flash[:alert]).not_to include(api_key)
@@ -162,7 +162,7 @@ describe Settings::DeepLCredentialsController do
         expect(response.body).not_to include(api_key)
         expect(user.external_credentials.count).to eq(1)
 
-        @controller = Settings::ExternalCredentialsController.new
+        @controller = Settings::ExternalServices::DeepLController.new
         get :show, session: challenge
         field = Nokogiri::HTML(response.body).at_css('input[name="api_key"]')
         expect(field['value'].to_s).to eq('')
@@ -177,7 +177,7 @@ describe Settings::DeepLCredentialsController do
         post :create, params: { api_key: secret }, session: challenge
       end
 
-      expect(response).to redirect_to(settings_external_credentials_path)
+      expect(response).to redirect_to(settings_external_services_deepl_path)
       expect(flash[:alert]).to eq(I18n.t('external_credentials.invalid_key'))
       expect(flash[:alert]).not_to include('zzsecretkeyzz')
       expect(response.location).not_to include('zzsecretkeyzz')
@@ -204,7 +204,7 @@ describe Settings::DeepLCredentialsController do
         post :create, params: { api_key: api_key }, session: challenge
       end
 
-      expect(response).to redirect_to(settings_external_credentials_path)
+      expect(response).to redirect_to(settings_external_services_deepl_path)
       expect(flash[:alert]).to eq(I18n.t('external_credentials.storage_unavailable'))
       expect(flash[:alert]).not_to include('USER_EXTERNAL_CREDENTIAL')
       expect(user.external_credentials).to be_empty
@@ -229,7 +229,7 @@ describe Settings::DeepLCredentialsController do
         delete :destroy, params: { id: row.id, api_key: api_key }
       end.not_to change(UserExternalCredential, :count)
 
-      expect(response).to redirect_to(settings_external_credentials_path)
+      expect(response).to redirect_to(settings_external_services_deepl_path)
       expect(response.body).not_to include(api_key)
       expect(response.body).not_to include('form_challenge')
     end
@@ -243,7 +243,7 @@ describe Settings::DeepLCredentialsController do
 
         delete :destroy, params: { id: row.id }, session: challenge
 
-        expect(response).to redirect_to(settings_external_credentials_path)
+        expect(response).to redirect_to(settings_external_services_deepl_path)
         expect(flash[:notice]).to eq(I18n.t('external_credentials.deleted'))
         expect(UserExternalCredential.find_by(id: row.id)).to be_nil
         expect(WebMock).not_to have_requested(:any, /deepl\.com/)

@@ -2042,6 +2042,33 @@ ja:
     revoke: 削除
     revoke_success: セッションを削除しました
     title: セッション
+  external_services:
+    about: 個人のDeepLについて
+    add: 追加
+    add_service: サービスを追加
+    add_service_named: "%{service}を追加"
+    back: 外部サービスに戻る
+    catalog_title: サービスを追加
+    content: 翻訳対象
+    contract: 契約
+    empty: 設定済みの外部サービスはまだありません。
+    manage: 管理
+    manage_service: "%{service}を管理"
+    never: なし
+    save_delete: 保存と削除
+    status_label: 状態
+    status:
+      connected: 設定済み
+      unavailable: 利用不可
+      warning: 要確認
+    storage: 保管
+    title: 外部サービス
+    use: 利用
+    providers:
+      deepl:
+        description: 自分のDeepL APIキーを使って投稿を翻訳します。
+        name: DeepL
+        subtitle: 個人の翻訳
   external_credentials:
     ambiguous: 複数のDeepL credentialが存在するため、個人DeepLは利用できません。不要なcredentialを削除してください。
     api_key_label: APIキー

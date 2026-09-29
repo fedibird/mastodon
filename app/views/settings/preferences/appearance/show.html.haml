@@ -130,7 +130,7 @@
   .fields-group
     = f.input :setting_show_translation_bar, collection: %w(always target never), label_method: lambda { |item| t("simple_form.labels.defaults.setting_show_translation_bar_#{item}") }, hint: true, as: :radio_buttons, collection_wrapper_tag: 'ul', item_wrapper_tag: 'li', wrapper: :with_floating_label
     = f.input :setting_translation_preferred_mode, collection: %w(translated bilingual both), label_method: lambda { |item| t("simple_form.labels.defaults.setting_translation_preferred_mode_#{item}") }, hint: true, as: :radio_buttons, collection_wrapper_tag: 'ul', item_wrapper_tag: 'li', wrapper: :with_floating_label
-    %p.hint= t('external_credentials.appearance_link_html', path: settings_external_credentials_path)
+    %p.hint= t('external_credentials.appearance_link_html', path: settings_external_services_deepl_path)
 
   %h4= t 'appearance.sensitive_content'
 

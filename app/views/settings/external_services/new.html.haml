@@ -1,0 +1,22 @@
+- content_for :page_title do
+  = t('external_services.catalog_title')
+
+.external-services
+  .external-service-header
+    %h3= t('external_services.catalog_title')
+    = link_to settings_external_services_path, class: 'external-services__back' do
+      = t('external_services.back')
+
+  .external-services__grid
+    - @providers.each do |provider|
+      %article.external-service-card
+        = render 'icon', icon: provider.icon
+        .external-service-card__content
+          %h4.external-service-card__title= provider.title
+          %p.external-service-card__subtitle= provider.description
+        - if provider.status_label
+          %p.external-service-card__status
+            %span{ class: "external-service-card__badge external-service-card__badge--#{provider.status}" }= provider.status_label
+        = link_to provider.path, class: 'external-service-card__manage', aria: { label: t(provider.action == :manage ? 'external_services.manage_service' : 'external_services.add_service_named', service: provider.title) } do
+          = t(provider.action == :manage ? 'external_services.manage' : 'external_services.add')
+          %span{ aria: { hidden: 'true' } } →

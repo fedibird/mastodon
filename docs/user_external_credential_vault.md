@@ -127,6 +127,6 @@ Personal DeepL translation is `TranslationService::PersonalDeepL`. It calls `wit
 
 See `docs/personal_deepl_translation.md`. The vault itself does not choose a provider or write those caches.
 
-Personal DeepL credentials are entered on the HTML settings page `/settings/external_credentials`. That flow is a browser session, not a REST API.
+Personal DeepL credentials are entered on the HTML settings page `/settings/external_services/deepl`. `/settings/external_credentials` redirects to the external services hub. The settings UI models connections; this vault stores secrets. See `docs/external_services.md`. That flow is a browser session, not a REST API.
 
 If a job is added later, its arguments may contain only `owner_user_id`, `credential_id`, `provider`, `purpose`, and `credential_type`. The worker loads the row and calls `with_credential`.

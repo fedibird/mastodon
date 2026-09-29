@@ -2113,6 +2113,33 @@ en:
     revoke_success: Session successfully revoked
     title: Sessions
     view_authentication_history: View authentication history of your account
+  external_services:
+    about: About personal DeepL
+    add: Add
+    add_service: Add service
+    add_service_named: Add %{service}
+    back: Back to external services
+    catalog_title: Add service
+    content: Content
+    contract: Contract
+    empty: No external services are configured yet.
+    manage: Manage
+    manage_service: Manage %{service}
+    never: Never
+    save_delete: Save and delete
+    status_label: Status
+    status:
+      connected: Configured
+      unavailable: Unavailable
+      warning: Needs attention
+    storage: Storage
+    title: External services
+    use: Use
+    providers:
+      deepl:
+        description: Use your own DeepL API key to translate posts.
+        name: DeepL
+        subtitle: Personal translation
   external_credentials:
     ambiguous: More than one DeepL credential exists, so personal DeepL cannot be used. Delete the credentials you do not need.
     api_key_label: API key

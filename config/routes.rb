@@ -151,8 +151,16 @@ Rails.application.routes.draw do
       resource :other, only: [:show, :update], controller: :other
     end
 
-    resource :external_credentials, only: [:show]
-    resources :deepl_credentials, only: [:create, :destroy]
+    # Old settings paths. String redirects ignore the request query string,
+    # and these actions do not read a submitted secret.
+    get 'external_credentials', to: redirect('/settings/external_services', status: 302)
+    post 'deepl_credentials', to: redirect('/settings/external_services/deepl', status: 303)
+    delete 'deepl_credentials/:id', to: redirect('/settings/external_services/deepl', status: 303)
+
+    resources :external_services, only: [:index, :new]
+    get 'external_services/deepl', to: 'external_services/deepl#show', as: :external_services_deepl
+    post 'external_services/deepl/credential', to: 'external_services/deepl_credentials#create', as: :external_services_deepl_credential
+    delete 'external_services/deepl/credentials/:id', to: 'external_services/deepl_credentials#destroy', as: :external_services_deepl_credential_record
 
     resource :import, only: [:show, :create]
     resource :export, only: [:show, :create]
