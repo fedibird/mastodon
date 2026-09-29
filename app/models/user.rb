@@ -84,6 +84,9 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
   has_many :invites, inverse_of: :user
   has_many :markers, inverse_of: :user, dependent: :destroy
   has_many :webauthn_credentials, dependent: :destroy
+  # Destroyed with the user. user_external_credentials.user_id also uses
+  # ON DELETE CASCADE so a SQL-level user delete cannot orphan ciphertext.
+  has_many :external_credentials, class_name: 'UserExternalCredential', inverse_of: :user, dependent: :destroy
 
   has_one :invite_request, class_name: 'UserInviteRequest', inverse_of: :user, dependent: :destroy
   accepts_nested_attributes_for :invite_request, reject_if: ->(attributes) { attributes['text'].blank? && !Setting.require_invite_text }

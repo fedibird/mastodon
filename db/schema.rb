@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_26_133000) do
+ActiveRecord::Schema.define(version: 2026_09_29_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1564,6 +1564,25 @@ ActiveRecord::Schema.define(version: 2026_09_26_133000) do
     t.index ["status_id"], name: "index_unresolve_status_reference_params_on_status_id"
   end
 
+  create_table "user_external_credentials", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.string "provider", limit: 64, null: false
+    t.string "purpose", limit: 64, null: false
+    t.string "credential_type", limit: 64, null: false
+    t.string "binding_id", limit: 36, null: false
+    t.text "encrypted_payload", null: false
+    t.string "encryption_key_id", limit: 32, null: false
+    t.string "display_name", limit: 100
+    t.datetime "expires_at"
+    t.datetime "revoked_at"
+    t.datetime "last_used_at"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["binding_id"], name: "index_user_external_credentials_on_binding_id", unique: true
+    t.index ["encryption_key_id"], name: "index_user_external_credentials_on_encryption_key_id"
+    t.index ["user_id", "provider", "purpose"], name: "index_user_external_credentials_on_owner_use"
+  end
+
   create_table "user_invite_requests", force: :cascade do |t|
     t.bigint "user_id"
     t.text "text"
@@ -1824,6 +1843,7 @@ ActiveRecord::Schema.define(version: 2026_09_26_133000) do
   add_foreign_key "tag_follows", "accounts", on_delete: :cascade
   add_foreign_key "tag_follows", "tags", on_delete: :cascade
   add_foreign_key "tombstones", "accounts", on_delete: :cascade
+  add_foreign_key "user_external_credentials", "users", on_delete: :cascade
   add_foreign_key "user_invite_requests", "users", on_delete: :cascade
   add_foreign_key "users", "accounts", name: "fk_50500f500d", on_delete: :cascade
   add_foreign_key "users", "invites", on_delete: :nullify
