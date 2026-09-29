@@ -133,17 +133,57 @@ describe UserSettingsDecorator do
       expect(user.settings['system_font_ui']).to eq false
     end
 
-    it 'saves an explicit translation bar choice separately from the policy default' do
+    it 'saves translation bar visibility as a string without boolean casting' do
       user.settings.new_features_policy = 'conservative'
       user.save!
 
-      settings.update({ 'setting_show_translation_bar' => '1' })
-      expect(user.settings.show_translation_bar).to be true
-      expect(user.setting_show_translation_bar).to be true
+      settings.update({ 'setting_show_translation_bar' => 'always' })
+      expect(user.settings.show_translation_bar).to eq 'always'
+      expect(user.settings.show_translation_bar).to be_a(String)
+      expect(user.setting_show_translation_bar).to eq 'always'
 
-      settings.update({ 'setting_show_translation_bar' => '0' })
-      expect(user.settings.show_translation_bar).to be false
-      expect(user.setting_show_translation_bar).to be false
+      settings.update({ 'setting_show_translation_bar' => 'target' })
+      expect(user.settings.show_translation_bar).to eq 'target'
+      expect(user.setting_show_translation_bar).to eq 'target'
+
+      settings.update({ 'setting_show_translation_bar' => 'never' })
+      expect(user.settings.show_translation_bar).to eq 'never'
+      expect(user.setting_show_translation_bar).to eq 'never'
+
+      settings.update({ 'setting_show_translation_bar' => '1' })
+      expect(user.settings.show_translation_bar).to eq 'never'
+      expect(user.settings.show_translation_bar).not_to be true
+      expect(user.setting_show_translation_bar).to eq 'never'
+    end
+
+    it 'does not let a later policy change replace a saved translation bar choice' do
+      settings.update({ 'setting_show_translation_bar' => 'target' })
+      user.settings.new_features_policy = 'tester'
+      user.save!
+
+      expect(user.settings.show_translation_bar).to eq 'target'
+      expect(user.setting_show_translation_bar).to eq 'target'
+    end
+
+    it 'normalizes an invalid translation bar visibility to the policy default' do
+      user.settings.new_features_policy = 'tester'
+      user.save!
+
+      settings.update({ 'setting_show_translation_bar' => 'nope' })
+
+      expect(user.settings.show_translation_bar).to eq 'always'
+      expect(user.settings.show_translation_bar).to be_a(String)
+      expect(user.setting_show_translation_bar).to eq 'always'
+    end
+
+    it 'accepts both as a pre-translation action and normalizes unknown modes' do
+      settings.update({ 'setting_translation_preferred_mode' => 'both' })
+      expect(user.settings.translation_preferred_mode).to eq 'both'
+      expect(user.setting_translation_preferred_mode).to eq 'both'
+
+      settings.update({ 'setting_translation_preferred_mode' => 'nope' })
+      expect(user.settings.translation_preferred_mode).to eq 'translated'
+      expect(user.setting_translation_preferred_mode).to eq 'translated'
     end
 
     it 'decoerces setting values before applying' do

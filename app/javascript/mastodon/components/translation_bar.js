@@ -6,7 +6,7 @@ import classnames from 'classnames';
 import Overlay from 'react-overlays/Overlay';
 import { languages as preloadedLanguages } from 'mastodon/initial_state';
 import { languageOption, needsChineseScriptChoice, sameTranslationLanguage, sourceLanguageOptions, targetLanguageOptions } from 'mastodon/utils/translation_languages';
-import { normalizedContentLocale, preferredTranslationMode } from 'mastodon/utils/translation_view';
+import { normalizedContentLocale, preTranslationRequestModes } from 'mastodon/utils/translation_view';
 import LanguageDropdownMenu from 'mastodon/components/language_dropdown_menu';
 
 const messages = defineMessages({
@@ -218,8 +218,8 @@ export default class TranslationBar extends React.PureComponent {
     } else if (showUnsupportedPairMessage) {
       actionDescription = intl.formatMessage(messages.unsupportedPair);
     }
-    const preferred = preferredTranslationMode(preferredMode);
-    const requestActions = preferred === 'bilingual' ? ['bilingual', 'translated'] : ['translated', 'bilingual'];
+    const requestActions = preTranslationRequestModes(preferredMode);
+    const preferred = requestActions.length === 1 ? requestActions[0] : null;
     const provider = showResult ? translation?.get('provider') : null;
     const detectedCode = (detectedSource || '').trim();
     const detectedDiffers = showResult && detectedCode !== '' && detectedCode !== viewerSource;

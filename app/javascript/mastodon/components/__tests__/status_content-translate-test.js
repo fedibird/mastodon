@@ -11,7 +11,8 @@ jest.mock('mastodon/initial_state', () => ({
   autoPlayEmoji: false,
   disableReactions: false,
   translationPrivateContentAllowed: false,
-  showTranslationBar: true,
+  translationBarVisibility: 'always',
+  translationPreferredMode: 'both',
   languages: [
     ['en', 'English', 'English'],
     ['ja', 'Japanese', '日本語'],
@@ -130,7 +131,8 @@ describe('StatusContent translation', () => {
   beforeEach(() => {
     initialState.me = '1';
     initialState.translationPrivateContentAllowed = false;
-    initialState.showTranslationBar = true;
+    initialState.translationBarVisibility = 'always';
+    initialState.translationPreferredMode = 'both';
   });
 
   it('shows Translate for a public post whose language can be translated', () => {
@@ -446,6 +448,27 @@ describe('StatusContent translation', () => {
       expect(bilingual).not.toHaveAttribute('title');
       expect(bilingual).not.toHaveAttribute('aria-describedby');
     });
+
+    it.each([
+      ['translated', ['Translate']],
+      ['bilingual', ['Bilingual']],
+      ['both', ['Translate', 'Bilingual']],
+    ])('keeps Chinese guidance on the %s request buttons', (preferredMode, names) => {
+      renderStatus(buildStatus({ language: 'zh', contentHtml: '<p>你好</p>', search_index: '你好' }), { translationPreferredMode: preferredMode }, CHINESE_SCRIPT_LANGUAGES);
+      const guidance = 'Choose Simplified Chinese or Traditional Chinese as the source language.';
+
+      names.forEach(name => {
+        const button = screen.getByRole('button', { name });
+
+        expect(button).toBeDisabled();
+        expect(button).toHaveAttribute('title', guidance);
+        expect(button).toHaveAttribute('aria-describedby', 'translation-pair-s1');
+      });
+      expect(screen.queryByRole('button', { name: 'Translate' }) === null).toBe(!names.includes('Translate'));
+      expect(screen.queryByRole('button', { name: 'Bilingual' }) === null).toBe(!names.includes('Bilingual'));
+      expect(screen.getByText(guidance)).toBeTruthy();
+      expect(screen.queryByText('This language pair is not supported.')).toBeNull();
+    });
   });
 
 
@@ -641,31 +664,74 @@ describe('StatusContent translation', () => {
     expect(translation.spoilerHtml).toContain('警告');
   });
 
-  it('shows Translate and Bilingual, with the preferred action first', () => {
-    const { container, rerender } = renderStatus(buildStatus());
+  it('shows only the configured request action before a translation exists', () => {
+    const { container, rerender } = renderStatus(buildStatus(), { translationPreferredMode: 'translated' });
     let buttons = container.querySelectorAll('.status__content__translate-button');
 
-    expect(buttons).toHaveLength(2);
+    expect(buttons).toHaveLength(1);
     expect(buttons[0].textContent).toBe('Translate');
     expect(buttons[0].className).toContain('status__content__translate-button--primary');
-    expect(buttons[1].textContent).toBe('Bilingual');
-    expect(buttons[1].className).toContain('status__content__translate-button--secondary');
+    expect(screen.queryByRole('button', { name: 'Bilingual' })).toBeNull();
 
-    const onTranslate = jest.fn();
     rerender(
       <Provider store={store}>
-        <StatusContent status={buildStatus()} onTranslate={onTranslate} onClick={jest.fn()} translationPreferredMode='bilingual' />
+        <StatusContent status={buildStatus()} onTranslate={jest.fn()} onClick={jest.fn()} translationPreferredMode='bilingual' />
       </Provider>,
     );
 
     buttons = container.querySelectorAll('.status__content__translate-button');
+    expect(buttons).toHaveLength(1);
     expect(buttons[0].textContent).toBe('Bilingual');
     expect(buttons[0].className).toContain('status__content__translate-button--primary');
-    expect(buttons[1].textContent).toBe('Translate');
-    fireEvent.click(buttons[0]);
-    fireEvent.click(buttons[1]);
-    expect(onTranslate).toHaveBeenNthCalledWith(1, 'bilingual');
-    expect(onTranslate).toHaveBeenNthCalledWith(2, 'translated');
+    expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+
+    rerender(
+      <Provider store={store}>
+        <StatusContent status={buildStatus()} onTranslate={jest.fn()} onClick={jest.fn()} translationPreferredMode='both' />
+      </Provider>,
+    );
+
+    buttons = container.querySelectorAll('.status__content__translate-button');
+    expect(Array.from(buttons).map(button => button.textContent)).toEqual(['Translate', 'Bilingual']);
+    expect(buttons[0].className).not.toContain('status__content__translate-button--primary');
+    expect(buttons[1].className).not.toContain('status__content__translate-button--primary');
+  });
+
+  it('attaches the unsupported warning to the request button that is shown', () => {
+    renderStatus(buildStatus({ language: 'fr' }), { translationPreferredMode: 'translated' });
+    const translate = screen.getByRole('button', { name: 'Translate' });
+
+    expect(translate).toBeDisabled();
+    expect(translate).toHaveAttribute('title', 'This language pair is not supported.');
+    expect(translate).toHaveAttribute('aria-describedby', 'translation-pair-s1');
+    expect(screen.queryByRole('button', { name: 'Bilingual' })).toBeNull();
+    expect(screen.getByText('This language pair is not supported.')).toBeTruthy();
+  });
+
+  it.each(['translated', 'bilingual', 'both'])('shows every display mode after translation when the preference is %s', (preferredMode) => {
+    const onTranslate = jest.fn();
+
+    renderStatus(buildStatus({
+      translationMode: 'translated',
+      translation: {
+        contentHtml: '<p>こんにちは</p>',
+        spoilerHtml: '',
+        language: 'ja',
+        detected_source_language: 'en',
+        requested_source_language: 'en',
+        requested_target_language: 'ja',
+        provider: 'LibreTranslate',
+      },
+    }), { translationPreferredMode: preferredMode, onTranslate });
+
+    expect(screen.getByRole('button', { name: 'Original' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Translated' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Bilingual' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bilingual' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Original' }));
+    expect(onTranslate.mock.calls.map(call => call[0])).toEqual(['bilingual', 'original']);
   });
 
   it('switches loaded translations without asking the component to fetch again', () => {
@@ -838,7 +904,7 @@ describe('StatusContent translation', () => {
   });
 
   it('hides the translation bar when the setting is off', () => {
-    initialState.showTranslationBar = false;
+    initialState.translationBarVisibility = 'never';
     renderStatus(buildStatus());
 
     expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();

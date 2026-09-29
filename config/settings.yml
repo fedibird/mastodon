@@ -33,7 +33,8 @@ defaults: &defaults
   auto_play_media: false
   display_media: 'default'
   translation_preferred_mode: 'translated'
-  # nil until the user saves a choice. The effective value follows new_features_policy.
+  # nil until the user saves always, target, or never. Unset and unknown values
+  # follow new_features_policy. A saved choice, including legacy true/false, wins.
   show_translation_bar:
   expand_spoilers: false
   preview_sensitive_media: false

@@ -1,3 +1,5 @@
+import { normalizeTranslationBarVisibility, normalizeTranslationPreferredMode } from './utils/translation_view';
+
 const element = document.getElementById('initial-state');
 const initialState = element && JSON.parse(element.textContent);
 
@@ -9,8 +11,8 @@ export const autoPlayEmoji = getMeta('auto_play_emoji');
 export const autoPlayHeader = getMeta('auto_play_header');
 export const autoPlayMedia = getMeta('auto_play_media');
 export const displayMedia = getMeta('display_media');
-export const translationPreferredMode = getMeta('translation_preferred_mode') === 'bilingual' ? 'bilingual' : 'translated';
-export const showTranslationBar = getMeta('show_translation_bar') === true;
+export const translationPreferredMode = normalizeTranslationPreferredMode(getMeta('translation_preferred_mode'));
+export const translationBarVisibility = normalizeTranslationBarVisibility(getMeta('translation_bar_visibility'));
 export const locale = getMeta('locale');
 export const translationPrivateContentAllowed = getMeta('translation_private_content_allowed') === true;
 export const expandSpoilers = getMeta('expand_spoilers');

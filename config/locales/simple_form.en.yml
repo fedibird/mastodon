@@ -91,8 +91,8 @@ en:
         setting_display_media_default: Hide media marked as sensitive
         setting_display_media_hide_all: Always hide media
         setting_display_media_show_all: Always show media
-        setting_translation_preferred_mode: Both actions stay available. This chooses which one is placed first.
-        setting_show_translation_bar: Shows a translation bar under each post. Until you save a choice, it stays on unless your policy for new features is conservative.
+        setting_translation_preferred_mode: Choose which actions appear before a translation exists. After translating, you can switch among the original, the translation, and the bilingual view.
+        setting_show_translation_bar: “Show when the languages differ” hides the translation bar when the post language and the target language are the same. You can still show it for one post from the post menu.
         setting_emoji_size_in_mix_html: Mixed emojis and links
         setting_emoji_size_in_multi_html: Multiple lined emojis
         setting_emoji_size_in_other_html: emoji in text
@@ -351,10 +351,14 @@ en:
         setting_display_media_default: Default
         setting_display_media_hide_all: Hide all
         setting_display_media_show_all: Show all
-        setting_translation_preferred_mode: Preferred translation view
-        setting_show_translation_bar: Show translation bar
-        setting_translation_preferred_mode_bilingual: Bilingual
-        setting_translation_preferred_mode_translated: Translation
+        setting_translation_preferred_mode: Actions before translation
+        setting_show_translation_bar: Translation bar
+        setting_show_translation_bar_always: Always show
+        setting_show_translation_bar_target: Show when the languages differ
+        setting_show_translation_bar_never: Don't show
+        setting_translation_preferred_mode_bilingual: Bilingual only
+        setting_translation_preferred_mode_both: Both
+        setting_translation_preferred_mode_translated: Translation only
         setting_emoji_scale: Scaling factor for emoji
         setting_emoji_size_in_mix: Mix
         setting_emoji_size_in_multi: Multi

@@ -5,13 +5,14 @@ import IconButton from '../../../components/icon_button';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import DropdownMenuContainer from '../../../containers/dropdown_menu_container';
 import { defineMessages, injectIntl } from 'react-intl';
-import { me, isStaff, show_quote_button, show_share_button, enableReaction, enableStatusReference, maxReferences, matchVisibilityOfReferences, addReferenceModal, disablePost, disableReactions, disableBlock, disableDomainBlock, disableReport, hideListOfEmojiReactionsToPosts, hideListOfFavouritesToPosts, hideListOfReblogsToPosts, hideListOfReferredByToPosts, showTranslationBar } from '../../../initial_state';
+import { me, isStaff, show_quote_button, show_share_button, enableReaction, enableStatusReference, maxReferences, matchVisibilityOfReferences, addReferenceModal, disablePost, disableReactions, disableBlock, disableDomainBlock, disableReport, hideListOfEmojiReactionsToPosts, hideListOfFavouritesToPosts, hideListOfReblogsToPosts, hideListOfReferredByToPosts, translationBarVisibility } from '../../../initial_state';
 import classNames from 'classnames';
 import ReactionPickerDropdownContainer from 'mastodon/containers/reaction_picker_dropdown_container';
 import { openModal } from '../../../actions/modal';
 import { revealStatusTranslationBar } from '../../../actions/translation_bar';
 import { initAddFilter } from '../../../actions/filters';
 import { canEditStatus, editableStatus } from '../../../utils/status_edit';
+import { translationBarEffectivelyVisible, viewerTranslationPair } from '../../../utils/translation_view';
 
 const messages = defineMessages({
   edit: { id: 'status.edit', defaultMessage: 'Edit' },
@@ -96,6 +97,9 @@ const mapStateToProps = (state, { status }) => ({
   composePrivacy: state.getIn(['compose', 'privacy']),
   editing: !!state.getIn(['compose', 'id']),
   translationBarRevealed: translationBarRevealed(state, status),
+  translationAssumption: state.getIn(['translation_assumptions', status.get('id')]),
+  translationTarget: state.getIn(['settings', 'translation', 'targetLanguage']),
+  languages: state.getIn(['server', 'translationLanguages', 'items']),
 });
 
 export default @connect(mapStateToProps)
@@ -144,10 +148,29 @@ class ActionBar extends React.PureComponent {
     emojiReactioned: PropTypes.bool,
     reactionLimitReached: PropTypes.bool,
     translationBarRevealed: PropTypes.bool,
+    translationAssumption: PropTypes.oneOfType([PropTypes.string, ImmutablePropTypes.map]),
+    translationTarget: PropTypes.string,
+    languages: ImmutablePropTypes.map,
   };
 
   handleShowTranslationBar = () => {
     this.props.dispatch(revealStatusTranslationBar(this.props.status.get('id')));
+  }
+
+  showTranslationBarMenu = (intl) => {
+    if (!translationBarVisibility) {
+      return false;
+    }
+
+    const pair = viewerTranslationPair(this.props.status, this.props.translationAssumption, intl.locale, this.props.translationTarget);
+
+    return !translationBarEffectivelyVisible({
+      visibility: translationBarVisibility,
+      revealed: this.props.translationBarRevealed,
+      source: pair.source,
+      target: pair.target,
+      translationLanguages: this.props.languages,
+    });
   }
 
   handleReplyClick = () => {
@@ -376,7 +399,7 @@ class ActionBar extends React.PureComponent {
       }
     }
 
-    if (showTranslationBar === false && !this.props.translationBarRevealed) {
+    if (this.showTranslationBarMenu(intl)) {
       menu.push({ text: intl.formatMessage(messages.showTranslationBar), action: this.handleShowTranslationBar });
     }
 

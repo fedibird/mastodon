@@ -18,7 +18,8 @@ jest.mock('mastodon/initial_state', () => ({
   autoPlayEmoji: false,
   disableReactions: false,
   translationPrivateContentAllowed: false,
-  showTranslationBar: false,
+  translationBarVisibility: 'never',
+  translationPreferredMode: 'both',
   show_bookmark_button: true,
   show_quote_button: true,
   show_share_button: false,
@@ -249,7 +250,8 @@ describe('on-demand translation bar', () => {
   let put;
 
   beforeEach(() => {
-    initialState.showTranslationBar = false;
+    initialState.translationBarVisibility = 'never';
+    initialState.translationPreferredMode = 'both';
     put = jest.fn(() => Promise.resolve({}));
     api.mockReset();
     api.mockReturnValue({ put, post: jest.fn(() => Promise.resolve({ data: {} })) });
@@ -284,7 +286,7 @@ describe('on-demand translation bar', () => {
     expect(store.getState().get('translation_assumptions').isEmpty()).toBe(true);
     expect(store.getState().getIn(['statuses', 'a', 'language'])).toBe('en');
     expect(store.getState().getIn(['statuses', 'b', 'language'])).toBe('fr');
-    expect(initialState.showTranslationBar).toBe(false);
+    expect(initialState.translationBarVisibility).toBe('never');
     expect(put).not.toHaveBeenCalled();
     expect(within(statusANode).queryByRole('button', { name: 'Show Translation Bar' })).toBeNull();
     expect(within(statusBNode).getByRole('button', { name: 'Show Translation Bar' })).toBeTruthy();
@@ -348,12 +350,12 @@ describe('on-demand translation bar', () => {
     expect(store.getState().get('translation_bar_overrides').has('other')).toBe(false);
     expect(store.getState().get('settings')).toBe(settingsBefore);
     expect(store.getState().getIn(['statuses', 'detail', 'language'])).toBe('en');
-    expect(initialState.showTranslationBar).toBe(false);
+    expect(initialState.translationBarVisibility).toBe('never');
     expect(put).not.toHaveBeenCalled();
   });
 
   it('omits the menu item while the global bar is already shown', () => {
-    initialState.showTranslationBar = true;
+    initialState.translationBarVisibility = 'always';
     const status = buildStatus('a', 'en');
     const store = createRevealStore({ a: status });
 
