@@ -133,6 +133,20 @@ describe Settings::DeepLCredentialsController do
       end
     end
 
+    it 'does not turn a statement error into the save-failed redirect' do
+      with_vault_keyring do
+        allow(UserCredentialVault).to receive(:store!).and_raise(ActiveRecord::StatementInvalid.new('syntax error'))
+
+        expect do
+          post :create, params: { api_key: api_key }, session: challenge
+        end.to raise_error(ActiveRecord::StatementInvalid)
+
+        expect(flash[:notice]).to be_nil
+        expect(flash[:alert]).not_to eq(I18n.t('external_credentials.save_failed'))
+        expect(user.external_credentials).to be_empty
+      end
+    end
+
     it 'redirects a replace lifecycle failure without echoing the secret or showing success' do
       with_vault_keyring do
         store_vault_credential(owner: user, secret: 'old-personal-deepl-key')

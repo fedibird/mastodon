@@ -34,8 +34,9 @@ class DeepLCredentialSettings
   end
 
   # Row disappearance, an ownership or classification mismatch, and a
-  # persistence failure are expected races. They become SaveFailed with no
-  # cause, so the settings redirect does not echo the submitted key.
+  # validation or save failure are expected races. They become SaveFailed
+  # with no cause, so the settings redirect does not echo the submitted key.
+  # SQL, connection, deadlock, and lock-timeout errors stay uncaught.
   # InvalidKey, Unavailable, Ambiguous, and ConfigurationError stay distinct.
   def save!(raw_key)
     key = normalize!(raw_key)
@@ -44,7 +45,10 @@ class DeepLCredentialSettings
     @user.with_lock do
       persist!(key, self.class.scope_for(@user).lock.order(:id).to_a)
     end
-  rescue UserCredentialVault::AccessError, ActiveRecord::ActiveRecordError
+  rescue UserCredentialVault::AccessError,
+         ActiveRecord::RecordNotFound,
+         ActiveRecord::RecordInvalid,
+         ActiveRecord::RecordNotSaved
     raise SaveFailed, cause: nil
   end
 

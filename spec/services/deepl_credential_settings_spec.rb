@@ -142,6 +142,15 @@ RSpec.describe DeepLCredentialSettings, type: :service do
         expect(probe_vault(owner: user, credential: deepl_rows.first)[:result]).to eq('old-personal-deepl-key')
       end
     end
+
+    it 'does not translate a statement error into SaveFailed' do
+      with_vault_keyring do
+        allow(UserCredentialVault).to receive(:store!).and_raise(ActiveRecord::StatementInvalid.new('syntax error'))
+
+        expect { settings.save!(api_key) }.to raise_error(ActiveRecord::StatementInvalid)
+        expect(deepl_rows).to be_empty
+      end
+    end
   end
 
   describe 'delete!' do
