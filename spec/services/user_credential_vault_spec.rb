@@ -56,6 +56,31 @@ RSpec.describe UserCredentialVault, type: :service do
   end
 
   describe 'configuration' do
+    it 'reports keyring availability without decrypting a credential or returning key material' do
+      credential = with_vault_keyring { store_vault_credential(owner: owner) }
+
+      with_vault_keyring do
+        expect(UserCredentialVault::Cipher).not_to receive(:decrypt)
+        expect(described_class).not_to receive(:with_credential)
+        expect(described_class.available?).to be(true)
+      end
+
+      with_vault_keyring(primary: '', keys: '') do
+        expect(described_class.available?).to be(false)
+      end
+
+      encoded = vault_key_material.fetch('v1')
+      with_vault_keyring(primary: 'v1', keys: 'v1:%%%not-base64%%%') do
+        expect(described_class.available?).to be(false)
+      end
+
+      with_vault_keyring(primary: 'missing', keys: "v1:#{encoded}") do
+        expect(described_class.available?).to be(false)
+      end
+
+      expect(credential.reload.encrypted_payload).to be_present
+    end
+
     it 'does not require the keyring while the process is booting or the class is loaded' do
       with_vault_keyring(primary: '', keys: '') do
         expect(UserCredentialVault::Keyring.configured?).to be(false)

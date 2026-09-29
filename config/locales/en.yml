@@ -2113,6 +2113,37 @@ en:
     revoke_success: Session successfully revoked
     title: Sessions
     view_authentication_history: View authentication history of your account
+  external_credentials:
+    ambiguous: More than one DeepL credential exists, so personal DeepL cannot be used. Delete the credentials you do not need.
+    api_key_label: API key
+    appearance_link_html: Your personal DeepL API key can be set in <a href="%{path}">External services</a>.
+    billing: DeepL charges and usage limits follow your own DeepL plan.
+    cannot_reveal: A saved API key cannot be shown again. To replace it, enter a new API key.
+    configured: Configured
+    created_at: 'Created:'
+    deepl_title: DeepL
+    delete: Delete
+    delete_fallback: Deleting your personal API key returns translation to the server's translation service when one is available.
+    deleted: DeepL API key deleted.
+    encrypted: This API key is stored encrypted and is used only for your own translation requests.
+    expired: Expired
+    invalid_key: The API key is invalid.
+    last_used: 'Last used:'
+    never_used: 'Last used: never'
+    no_connection_test: Saving does not contact DeepL to verify the key.
+    not_e2ee: The server decrypts the API key when it performs a translation. This is not end-to-end encryption.
+    operator_decrypt: A server administrator who can read both the database and the vault encryption keys can decrypt this API key.
+    personal_key: Your personal DeepL API key
+    precedence: Your personal DeepL API key is used ahead of this server's translation service. If personal DeepL fails, translation does not silently switch to the server's translation service.
+    replace: Replace API key
+    revoked: Revoked
+    save: Save API key
+    save_failed: The API key could not be saved. Enter it again.
+    saved: DeepL API key saved.
+    storage_unavailable: Credential storage is not available on this server.
+    title: External services
+    updated_at: 'Updated:'
+    visibility: Personal DeepL currently translates public and unlisted posts only.
   settings:
     account: Account
     account_settings: Account settings
@@ -2126,6 +2157,7 @@ en:
     domain_subscribes: Domain subscribes
     edit_profile: Edit profile
     export: Data export
+    external_services: External services
     favourite_domains: Favourite domains
     favourite_tags: Favourite hashtags
     featured_tags: Featured hashtags

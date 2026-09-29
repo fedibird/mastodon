@@ -1,6 +1,6 @@
 # User-owned external credential vault
 
-This is the M1 storage boundary for credentials a user supplies for an external service. It does not call DeepL, LibreTranslate, GitHub, or any other provider. It does not expose a settings page or a credential API.
+This is the M1 storage boundary for credentials a user supplies for an external service. It does not call DeepL, LibreTranslate, GitHub, or any other provider. It does not expose a credential API. `UserCredentialVault.available?` reports whether the keyring validates. It does not decrypt a row or return key material.
 
 ## This is not end-to-end encryption
 
@@ -126,5 +126,7 @@ Personal DeepL translation is `TranslationService::PersonalDeepL`. It calls `wit
 - `translation_service/languages`
 
 See `docs/personal_deepl_translation.md`. The vault itself does not choose a provider or write those caches.
+
+Personal DeepL credentials are entered on the HTML settings page `/settings/external_credentials`. That flow is a browser session, not a REST API.
 
 If a job is added later, its arguments may contain only `owner_user_id`, `credential_id`, `provider`, `purpose`, and `credential_type`. The worker loads the row and calls `with_credential`.
