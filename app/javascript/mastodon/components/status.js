@@ -22,7 +22,7 @@ import EmojiReactionsBar from 'mastodon/components/emoji_reactions_bar';
 import PictureInPicturePlaceholder from 'mastodon/components/picture_in_picture_placeholder';
 import { displayMedia, enableReaction, compactReaction, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy } from 'mastodon/initial_state';
 import { List as ImmutableList } from 'immutable';
-import { attachmentAccessibility, galleryTranslationProps, statusTranslationView, TRANSLATION_MODE_BILINGUAL, TRANSLATION_MODE_ORIGINAL, TRANSLATION_MODE_TRANSLATED } from 'mastodon/utils/translation_view';
+import { attachmentAccessibility, galleryTranslationProps, statusTranslationView, translationDisplayStatus, TRANSLATION_MODE_BILINGUAL, TRANSLATION_MODE_ORIGINAL, TRANSLATION_MODE_TRANSLATED } from 'mastodon/utils/translation_view';
 import { translationRequestStatus } from 'mastodon/utils/translation_languages';
 
 const domParser = new DOMParser();
@@ -434,8 +434,9 @@ class Status extends ImmutablePureComponent {
 
   handleOpenVideo = (options) => {
     const status = this._properStatus();
-    const lang = statusTranslationView(status).mediaLang;
-    this.props.onOpenVideo(status.get('id'), status.getIn(['media_attachments', 0]), options, lang);
+    const mediaStatus = this._translationMediaStatus();
+    const lang = statusTranslationView(mediaStatus).mediaLang;
+    this.props.onOpenVideo(status.get('id'), mediaStatus.getIn(['media_attachments', 0]), options, lang);
   }
 
   handleOpenVideoQuote = (options) => {
@@ -446,7 +447,7 @@ class Status extends ImmutablePureComponent {
 
   handleOpenMedia = (media, index) => {
     const status = this._properStatus();
-    const lang = statusTranslationView(status).mediaLang;
+    const lang = statusTranslationView(this._translationMediaStatus()).mediaLang;
     this.props.onOpenMedia(status.get('id'), media, index, lang);
   }
 
@@ -462,13 +463,15 @@ class Status extends ImmutablePureComponent {
 
     e.preventDefault();
 
-    if (status.get('media_attachments').size > 0) {
-      const lang = statusTranslationView(status).mediaLang;
+    const mediaStatus = this._translationMediaStatus();
 
-      if (status.getIn(['media_attachments', 0, 'type']) === 'video') {
-        onOpenVideo(status.get('id'), status.getIn(['media_attachments', 0]), { startTime: 0 }, lang);
+    if (mediaStatus.get('media_attachments').size > 0) {
+      const lang = statusTranslationView(mediaStatus).mediaLang;
+
+      if (mediaStatus.getIn(['media_attachments', 0, 'type']) === 'video') {
+        onOpenVideo(status.get('id'), mediaStatus.getIn(['media_attachments', 0]), { startTime: 0 }, lang);
       } else {
-        onOpenMedia(status.get('id'), status.get('media_attachments'), 0, lang);
+        onOpenMedia(status.get('id'), mediaStatus.get('media_attachments'), 0, lang);
       }
     }
   }
@@ -520,6 +523,10 @@ class Status extends ImmutablePureComponent {
 
   handleHotkeyToggleSensitive = () => {
     this.handleToggleMediaVisibility();
+  }
+
+  _translationMediaStatus () {
+    return translationDisplayStatus(this._properStatus(), this.props.status);
   }
 
   _properStatus () {
@@ -650,10 +657,11 @@ class Status extends ImmutablePureComponent {
       status  = status.get('reblog');
     }
 
-    const translationView = statusTranslationView(status);
+    const mediaStatus = translationDisplayStatus(status, this.props.status);
+    const translationView = statusTranslationView(mediaStatus);
     const described = attachment => attachmentAccessibility(attachment, translationView);
 
-    if (status.get('media_attachments').size > 0) {
+    if (mediaStatus.get('media_attachments').size > 0) {
       if (pictureInPicture.get('inUse')) {
         media = <PictureInPicturePlaceholder width={this.props.cachedMediaWidth} />;
       } else if (this.props.muted) {
@@ -667,8 +675,8 @@ class Status extends ImmutablePureComponent {
             )}
           </Bundle>
         );
-      } else if (status.getIn(['media_attachments', 0, 'type']) === 'audio') {
-        const attachment = status.getIn(['media_attachments', 0]);
+      } else if (mediaStatus.getIn(['media_attachments', 0, 'type']) === 'audio') {
+        const attachment = mediaStatus.getIn(['media_attachments', 0]);
 
         media = (
           <Bundle fetchComponent={Audio} loading={this.renderLoadingAudioPlayer} >
@@ -690,8 +698,8 @@ class Status extends ImmutablePureComponent {
             )}
           </Bundle>
         );
-      } else if (status.getIn(['media_attachments', 0, 'type']) === 'video') {
-        const attachment = status.getIn(['media_attachments', 0]);
+      } else if (mediaStatus.getIn(['media_attachments', 0, 'type']) === 'video') {
+        const attachment = mediaStatus.getIn(['media_attachments', 0]);
 
         media = (
           <Bundle fetchComponent={Video} loading={this.renderLoadingVideoPlayer} >
@@ -722,7 +730,7 @@ class Status extends ImmutablePureComponent {
           <Bundle fetchComponent={MediaGallery} loading={this.renderLoadingMediaGallery}>
             {Component => (
               <Component
-                media={status.get('media_attachments')}
+                media={mediaStatus.get('media_attachments')}
                 {...galleryTranslationProps(translationView)}
                 sensitive={status.get('sensitive')}
                 height={110}
@@ -987,7 +995,7 @@ class Status extends ImmutablePureComponent {
               removeEmojiReaction={this.props.removeEmojiReaction}
               reactionLimitReached={reactionLimitReached}
             />}
-            <StatusActionBar scrollKey={scrollKey} status={status} account={account} expired={expired} {...other} onFilter={hasMatchedFilters ? this.handleFilterClick : null} />
+            <StatusActionBar scrollKey={scrollKey} status={status} translationStatus={translationRequestStatus(this.props.status)} account={account} expired={expired} {...other} onFilter={hasMatchedFilters ? this.handleFilterClick : null} />
           </div>
         </div>
       </HotKeys>

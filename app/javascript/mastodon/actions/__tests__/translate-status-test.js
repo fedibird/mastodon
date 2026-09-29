@@ -127,6 +127,11 @@ describe('translateStatus', () => {
     });
     expect(store.actions[0].id).toBe('wrap');
     expect(store.actions[0].pollId).toBe('poll-1');
+    expect(store.actions[1]).toMatchObject({
+      type: STATUS_TRANSLATE_SUCCESS,
+      id: 'wrap',
+      contentStatusId: 'orig',
+    });
   });
 
   it('posts to the status translate endpoint and stores the response', async () => {

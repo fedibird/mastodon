@@ -41,6 +41,7 @@ import {
   translateStatus,
   setStatusTranslationMode,
 } from '../../actions/statuses';
+import { translationRequestStatus } from 'mastodon/utils/translation_languages';
 import { statusTranslationView } from 'mastodon/utils/translation_view';
 import {
   unblockAccount,
@@ -698,6 +699,7 @@ class Status extends ImmutablePureComponent {
                 <ActionBar
                   key={`action-bar-${status.get('id')}`}
                   status={status}
+                  translationStatus={translationRequestStatus(status)}
                   referenced={referenced}
                   contextReferenced={contextReferenced}
                   emojiReactioned={emojiReactioned}

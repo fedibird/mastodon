@@ -12,7 +12,7 @@ import TranslationBar from 'mastodon/components/translation_bar';
 import { setStatusTranslationAssumption, setTranslationTargetLanguage } from 'mastodon/actions/statuses';
 import { autoPlayEmoji, disableReactions, me, translationBarVisibility, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
 import { translationCapability, translationRequestStatus } from 'mastodon/utils/translation_languages';
-import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
+import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationDisplayStatus, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
 
 const messages = defineMessages({
   linkToAcct: { id: 'status.link_to_acct', defaultMessage: 'Link to @{acct}' },
@@ -314,21 +314,7 @@ class StatusContent extends React.PureComponent {
 
   // Content stays on the displayed status. A personal boost stores its
   // translation on the wrapper, which is the id the API authorized.
-  translationViewStatus = () => {
-    const displayed = this.props.status;
-    const subject = this.translationSubject();
-
-    if (!subject || subject.get('id') === displayed.get('id')) {
-      return displayed;
-    }
-
-    return displayed.withMutations(map => {
-      map.set('translation', subject.get('translation'));
-      map.set('translationPending', subject.get('translationPending'));
-      map.set('translationMode', subject.get('translationMode'));
-      map.set('translationRequestId', subject.get('translationRequestId'));
-    });
-  };
+  translationViewStatus = () => translationDisplayStatus(this.props.status, this.props.translationWrapper);
 
   viewerPair = () => viewerTranslationPair(this.props.status, this.props.translationAssumption, this.props.intl.locale, this.props.translationTarget);
 

@@ -637,7 +637,7 @@ export const translateStatus = (id, mode = 'translated') => (dispatch, getState)
       requested_target_language: viewerPair.target,
     };
 
-    dispatch(translateStatusSuccess(id, translation, domain, requestedMode, translationRequestId));
+    dispatch(translateStatusSuccess(id, translation, domain, requestedMode, translationRequestId, contentStatus && contentStatus.get('id')));
   }).catch(error => {
     if (!translationRequestIsCurrent()) {
       dispatch(translateStatusFail(id, error, translationRequestId, pollId, true));
@@ -656,13 +656,14 @@ export const translateStatusRequest = (id, mode, translationRequestId, pollId) =
   pollId,
 });
 
-export const translateStatusSuccess = (id, translation, domain, mode, translationRequestId) => ({
+export const translateStatusSuccess = (id, translation, domain, mode, translationRequestId, contentStatusId) => ({
   type: STATUS_TRANSLATE_SUCCESS,
   id,
   translation,
   domain,
   mode,
   translationRequestId,
+  contentStatusId,
 });
 
 export const translateStatusFail = (id, error, translationRequestId, pollId, skipAlert) => ({

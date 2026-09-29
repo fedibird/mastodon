@@ -192,6 +192,10 @@ export const translationRequestStatus = (status) => {
   return reblog;
 };
 
+// Source language lives on the boosted status even when translation state is
+// stored on a different id.
+export const translationPairStatus = (status) => reblogRecord(status) || status;
+
 const personalReblogWrapper = (wrapper) => {
   if (!wrapper || wrapper.get('visibility') !== 'personal' || !reblogRecord(wrapper)) {
     return null;

@@ -401,4 +401,54 @@ describe('statuses translation reducer', () => {
     expect(staleFailure.getIn(['s2', 'poll'])).toBe('p2');
     expect(staleFailure.getIn(['s2', 'translationRequestId'])).toBeUndefined();
   });
+
+  it('normalizes a personal boost from the boosted status and stores it on the wrapper', () => {
+    const proper = fromJS({
+      id: 'proper',
+      content: '<p>Hello :blob:</p>',
+      spoiler_text: '',
+      emojis: [{ shortcode: 'blob', url: 'https://example.test/blob.png', static_url: 'https://example.test/blob.png' }],
+      media_attachments: [
+        { id: 'm1', description: 'a cat', type: 'image' },
+      ],
+    });
+    const wrapper = fromJS({
+      id: 'wrap',
+      content: '',
+      spoiler_text: '',
+      emojis: [],
+      media_attachments: [],
+      reblog: 'proper',
+      visibility: 'personal',
+    });
+
+    const state = reducer(fromJS({ wrap: wrapper, proper }), {
+      type: STATUS_TRANSLATE_SUCCESS,
+      id: 'wrap',
+      contentStatusId: 'proper',
+      domain: 'example.test',
+      mode: 'bilingual',
+      translation: {
+        content: '<p>こんにちは :blob:</p>',
+        spoiler_text: '',
+        detected_source_language: 'en',
+        language: 'ja',
+        provider: 'DeepL',
+        media_attachments: [
+          { id: 'm1', description: 'ねこ' },
+        ],
+      },
+    });
+
+    expect(state.getIn(['wrap', 'translation', 'contentHtml'])).toContain('data-shortcode="blob"');
+    expect(state.getIn(['wrap', 'translation', 'contentHtml'])).toContain('こんにちは');
+    expect(state.getIn(['wrap', 'translationMode'])).toBe('bilingual');
+    expect(state.getIn(['wrap', 'translation', 'media_attachments', 0, 'id'])).toBe('m1');
+    expect(state.getIn(['wrap', 'translation', 'media_attachments', 0, 'description'])).toBe('ねこ');
+    expect(state.getIn(['wrap', 'media_attachments']).size).toBe(0);
+    expect(state.get('proper')).toBe(proper);
+    expect(state.getIn(['proper', 'translation'])).toBeUndefined();
+    expect(state.getIn(['proper', 'media_attachments', 0, 'translation'])).toBeUndefined();
+    expect(state.getIn(['proper', 'media_attachments', 0, 'description'])).toBe('a cat');
+  });
 });
