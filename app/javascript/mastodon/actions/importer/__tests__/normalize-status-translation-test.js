@@ -378,3 +378,184 @@ describe('importFetchedStatuses translation request retention', () => {
     expect(imported.poll.translationRequestId).toBeUndefined();
   });
 });
+
+describe('personal boost wrapper translation source changes', () => {
+  const account = {
+    id: 'a1',
+    username: 'alice',
+    acct: 'alice',
+    display_name: 'Alice',
+    note: '',
+    followed_message: '',
+    emojis: [],
+    fields: [],
+    url: 'https://example.test/@alice',
+    uri: 'https://example.test/users/alice',
+  };
+
+  const media = [
+    { id: 'm1', type: 'image', description: 'a cat', url: 'https://example.test/cat.jpg', remote_url: 'https://example.test/cat.jpg' },
+  ];
+
+  const proper = (overrides = {}) => buildStatus({
+    id: 'proper',
+    account,
+    content: '<p>Hello</p>',
+    spoiler_text: '',
+    language: 'en',
+    visibility: 'private',
+    poll: null,
+    media_attachments: media,
+    ...overrides,
+  });
+
+  const storedProper = fromJS({
+    id: 'proper',
+    account: 'a1',
+    content: '<p>Hello</p>',
+    spoiler_text: '',
+    language: 'en',
+    visibility: 'private',
+    poll: null,
+    media_attachments: [{ id: 'm1', description: 'a cat', type: 'image' }],
+    favourites_count: 1,
+  });
+
+  const storedWrapper = fromJS({
+    id: 'wrap',
+    account: 'a1',
+    reblog: 'proper',
+    content: '',
+    spoiler_text: '',
+    language: null,
+    visibility: 'personal',
+    media_attachments: [],
+    favourites_count: 0,
+    translation: {
+      contentHtml: '<p>こんにちは</p>',
+      media_attachments: [{ id: 'm1', description: 'ねこ' }],
+    },
+    translationMode: 'translated',
+    translationPending: true,
+    translationRequestId: 'req-a',
+    translationContentSignature: 'old',
+    translationStatusSignature: 'old',
+  });
+
+  const importProper = (status, extra = {}) => {
+    const actions = [];
+    const getState = () => fromJS({
+      statuses: { proper: storedProper, wrap: storedWrapper },
+      polls: extra.polls || {},
+      accounts: {},
+    });
+    const dispatch = (action) => {
+      if (typeof action === 'function') {
+        action(dispatch, getState);
+      } else {
+        actions.push(action);
+      }
+    };
+
+    importFetchedStatuses([status])(dispatch, getState);
+
+    return actions.find(action => action.type === STATUSES_IMPORT).statuses;
+  };
+
+  const wrapperOf = (statuses) => statuses.find(status => status.id === 'wrap');
+
+  it('drops the wrapper translation after the boosted status body changes', () => {
+    const statuses = importProper(proper({
+      content: '<p>Hello again</p>',
+      updated_at: '2020-01-02T00:00:00.000Z',
+    }));
+    const wrapper = wrapperOf(statuses);
+
+    expect(wrapper.translation).toBeUndefined();
+    expect(wrapper.translationMode).toBeUndefined();
+    expect(wrapper.translationPending).toBeUndefined();
+    expect(wrapper.translationRequestId).toBeUndefined();
+    expect(wrapper.translationContentSignature).toBeUndefined();
+    expect(wrapper.translationStatusSignature).toBeUndefined();
+    expect(statuses.find(status => status.id === 'proper').content).toBe('<p>Hello again</p>');
+  });
+
+  it('drops the wrapper translation after a boosted media description changes', () => {
+    const statuses = importProper(proper({
+      updated_at: '2020-01-02T00:00:00.000Z',
+      media_attachments: [
+        { id: 'm1', type: 'image', description: 'a kitten', url: 'https://example.test/cat.jpg', remote_url: 'https://example.test/cat.jpg' },
+      ],
+    }));
+
+    expect(wrapperOf(statuses).translation).toBeUndefined();
+    expect(wrapperOf(statuses).translationRequestId).toBeUndefined();
+  });
+
+  it('keeps the wrapper translation when a refresh only changes a counter', () => {
+    const statuses = importProper(proper({
+      updated_at: '2020-01-02T00:00:00.000Z',
+      favourites_count: 4,
+    }));
+
+    expect(wrapperOf(statuses)).toBeUndefined();
+    expect(statuses.find(status => status.id === 'proper').favourites_count).toBe(4);
+  });
+
+  it('keeps fresh wrapper fields when the boost payload arrives with an edited proper status', () => {
+    const statuses = importProper({
+      ...proper({
+        content: '<p>Hello again</p>',
+        updated_at: '2020-01-02T00:00:00.000Z',
+      }),
+      id: 'wrap',
+      visibility: 'personal',
+      reblog: proper({
+        content: '<p>Hello again</p>',
+        updated_at: '2020-01-02T00:00:00.000Z',
+      }),
+      reblogs_count: 3,
+      content: '',
+      spoiler_text: '',
+      media_attachments: [],
+    });
+    const wrapper = wrapperOf(statuses);
+
+    expect(wrapper.translation).toBeUndefined();
+    expect(wrapper.translationRequestId).toBeUndefined();
+    expect(wrapper.reblogs_count).toBe(3);
+    expect(statuses.find(status => status.id === 'proper').content).toBe('<p>Hello again</p>');
+  });
+
+  it('drops the wrapper translation when boosted poll option titles change', () => {
+    const withPoll = storedProper.set('poll', 'p1');
+    const actions = [];
+    const getState = () => fromJS({
+      statuses: {
+        proper: withPoll,
+        wrap: storedWrapper,
+      },
+      polls: {
+        p1: { id: 'p1', emojis: [], options: [{ title: 'Yes' }, { title: 'No' }] },
+      },
+      accounts: {},
+    });
+    const dispatch = (action) => {
+      if (typeof action === 'function') {
+        action(dispatch, getState);
+      } else {
+        actions.push(action);
+      }
+    };
+
+    importFetchedStatuses([proper({
+      updated_at: '2020-01-02T00:00:00.000Z',
+      poll: { id: 'p1', emojis: [], own_votes: [], options: [{ title: 'Yeah' }, { title: 'No' }] },
+    })])(dispatch, getState);
+
+    const statuses = actions.find(action => action.type === STATUSES_IMPORT).statuses;
+
+    expect(wrapperOf(statuses).translation).toBeUndefined();
+    expect(wrapperOf(statuses).translationRequestId).toBeUndefined();
+  });
+});

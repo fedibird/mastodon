@@ -255,6 +255,17 @@ describe('personal boost translated media', () => {
     alone.unmount();
   });
 
+  it('hides a stale wrapper translation after the boosted status source changes', () => {
+    const current = personalBoost('translated').setIn(['reblog', 'contentHtml'], '<p>Hello again</p>').setIn(['reblog', 'content'], '<p>Hello again</p>').setIn(['reblog', 'media_attachments', 0, 'description'], 'a kitten');
+    const stale = current.set('translationStatusSignature', 'stale');
+    const { container } = renderDetailed(stale);
+
+    expect(container.innerHTML).toContain('Hello again');
+    expect(container.innerHTML).not.toContain('こんにちは');
+    expect(container.querySelector('.media-gallery__item-thumbnail img').getAttribute('alt')).toBe('a kitten');
+    expect(container.querySelector('[data-translated="ねこ"]')).toBeNull();
+  });
+
   it('shows translated alt text for a personal boost in the timeline', async () => {
     const { container, findByRole } = renderTimeline(personalBoost('translated'));
     const image = await findByRole('img', { name: 'ねこ' });

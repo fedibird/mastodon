@@ -1,4 +1,5 @@
 import { fromJS } from 'immutable';
+import { statusSourceSignature } from 'mastodon/actions/importer/normalizer';
 import { sameTranslationLanguage, translationRequestStatus } from 'mastodon/utils/translation_languages';
 
 export const TRANSLATION_MODE_ORIGINAL = 'original';
@@ -168,6 +169,12 @@ export function translationDisplayStatus(displayed, wrapper) {
   const subject = translationRequestStatus(wrapper || displayed) || displayed;
 
   if (!subject || typeof subject.get !== 'function' || subject.get('id') === displayed.get('id')) {
+    return displayed;
+  }
+
+  const storedStatusSignature = subject.get('translationStatusSignature');
+
+  if (typeof storedStatusSignature === 'string' && storedStatusSignature !== statusSourceSignature(displayed)) {
     return displayed;
   }
 

@@ -1,4 +1,4 @@
-import { normalizeAccount, normalizeStatus, normalizePoll, normalizeCustomEmojiDetail } from './normalizer';
+import { normalizeAccount, normalizeStatus, normalizePoll, normalizeCustomEmojiDetail, translationSourceSignature } from './normalizer';
 
 export const ACCOUNT_IMPORT  = 'ACCOUNT_IMPORT';
 export const ACCOUNTS_IMPORT = 'ACCOUNTS_IMPORT';
@@ -14,6 +14,31 @@ function pushUnique(array, object) {
     array.push(object);
   }
 }
+
+const stripTranslationState = (status) => {
+  delete status.translation;
+  delete status.translationMode;
+  delete status.translationPending;
+  delete status.translationRequestId;
+  delete status.translationContentSignature;
+  delete status.translationStatusSignature;
+  return status;
+};
+
+const wrapperHasTranslationState = (status) => !!(
+  status.get('translation') ||
+  status.get('translationPending') ||
+  status.get('translationContentSignature') ||
+  status.get('translationStatusSignature')
+);
+
+const pollForSignature = (payloadPoll, previousPoll) => {
+  if (payloadPoll && typeof payloadPoll === 'object' && payloadPoll.options) {
+    return payloadPoll;
+  }
+
+  return previousPoll || null;
+};
 
 export function importAccount(account) {
   return { type: ACCOUNT_IMPORT, account };
@@ -124,9 +149,10 @@ export function importFetchedStatuses(statuses) {
         processStatus(status.quote);
       }
 
-      const previousStatus = getState().getIn(['statuses', status.id]);
-      const previousPoll = status.poll && status.poll.id ? getState().getIn(['polls', status.poll.id]) : null;
-      const domain = (typeof status.account === 'object' ? status.account.acct : getState().getIn(['accounts', status.account, 'acct']))?.split('@')[1] ?? '';
+      const state = getState();
+      const previousStatus = state.getIn(['statuses', status.id]);
+      const previousPoll = status.poll && status.poll.id ? state.getIn(['polls', status.poll.id]) : null;
+      const domain = (typeof status.account === 'object' ? status.account.acct : state.getIn(['accounts', status.account, 'acct']))?.split('@')[1] ?? '';
       const normalizedStatus = normalizeStatus(status, previousStatus, domain, previousPoll);
 
       // A status-level source change invalidates the in-flight translation,
@@ -139,10 +165,46 @@ export function importFetchedStatuses(statuses) {
         }
       }
 
-      pushUnique(normalStatuses, normalizedStatus);
+      // A personal boost keeps its translation on the wrapper, while the
+      // editable source is this proper status. Drop that wrapper state when
+      // the source changes. Counter-only refreshes keep the same signature.
+      if (previousStatus) {
+        const previousSignature = translationSourceSignature(previousStatus, previousPoll);
+        const nextSignature = translationSourceSignature(normalizedStatus, pollForSignature(status.poll, previousPoll));
+
+        if (previousSignature !== nextSignature) {
+          state.get('statuses').forEach(stored => {
+            if (!stored || !wrapperHasTranslationState(stored) || String(stored.get('reblog')) !== String(status.id)) {
+              return;
+            }
+
+            const cleared = stripTranslationState(stored.toJS());
+            cleared._translationInvalidated = true;
+            const index = normalStatuses.findIndex(item => item.id === cleared.id);
+
+            if (index === -1) {
+              normalStatuses.push(cleared);
+            } else {
+              normalStatuses[index] = stripTranslationState(normalStatuses[index]);
+              normalStatuses[index]._translationInvalidated = true;
+            }
+          });
+        }
+      }
+
+      const invalidatedIndex = normalStatuses.findIndex(item => item.id === normalizedStatus.id && item._translationInvalidated);
+
+      if (invalidatedIndex === -1) {
+        pushUnique(normalStatuses, normalizedStatus);
+      } else {
+        normalStatuses[invalidatedIndex] = stripTranslationState(normalizedStatus);
+      }
     }
 
     statuses.forEach(processStatus);
+    normalStatuses.forEach(item => {
+      delete item._translationInvalidated;
+    });
 
     dispatch(importPolls(polls));
     dispatch(importFetchedAccounts(accounts));
