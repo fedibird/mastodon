@@ -245,6 +245,14 @@ const translationSourcesMatch = (oldStatus, incomingStatus, previousPoll) => {
     pollSourcesMatch(oldStatus, incomingStatus, previousPoll);
 };
 
+const copySignature = (normalStatus, normalOldStatus, key) => {
+  const value = normalOldStatus.get(key);
+
+  if (typeof value === 'string') {
+    normalStatus[key] = value;
+  }
+};
+
 const copyTranslationState = (normalStatus, normalOldStatus) => {
   if (normalOldStatus.get('translation')) {
     normalStatus.translation = normalOldStatus.get('translation');
@@ -260,6 +268,14 @@ const copyTranslationState = (normalStatus, normalOldStatus) => {
     if (normalOldStatus.get('translationRequestId')) {
       normalStatus.translationRequestId = normalOldStatus.get('translationRequestId');
     }
+  }
+
+  // A wrapper refresh keeps the attached translation or in-flight request.
+  // The source signatures have to travel with that state, or the next
+  // Translate click treats a still-valid personal boost as stale.
+  if (normalStatus.translation || normalStatus.translationPending) {
+    copySignature(normalStatus, normalOldStatus, 'translationContentSignature');
+    copySignature(normalStatus, normalOldStatus, 'translationStatusSignature');
   }
 };
 

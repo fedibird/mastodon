@@ -43,7 +43,7 @@ import api from '../../api';
 import settingsReducer from '../../reducers/settings';
 import statusesReducer from '../../reducers/statuses';
 import translationAssumptionsReducer from '../../reducers/translation_assumptions';
-import { translationSourceSignature } from '../importer/normalizer';
+import { statusSourceSignature, translationSourceSignature } from '../importer/normalizer';
 import { viewerTranslationPair } from '../../utils/translation_view';
 import {
   translateStatus,
@@ -214,6 +214,126 @@ describe('translateStatus', () => {
       skipAlert: true,
       translationRequestId: inflight.actions[0].translationRequestId,
     });
+  });
+
+  it('reuses a personal-boost translation after a wrapper refresh keeps its signatures', async () => {
+    const { importFetchedStatuses: importRealStatuses, STATUSES_IMPORT } = jest.requireActual('../importer');
+    const account = {
+      id: 'me',
+      username: 'me',
+      acct: 'me',
+      display_name: 'Me',
+      note: '',
+      followed_message: '',
+      emojis: [],
+      fields: [],
+      url: 'https://example.test/@me',
+      uri: 'https://example.test/users/me',
+    };
+    const media = [
+      { id: 'm1', type: 'image', description: 'a cat', url: 'https://example.test/cat.jpg', remote_url: 'https://example.test/cat.jpg' },
+    ];
+    const proper = fromJS({
+      id: 'orig',
+      visibility: 'private',
+      language: 'en',
+      content: '<p>Hello</p>',
+      spoiler_text: '',
+      media_attachments: [{ id: 'm1', description: 'a cat', type: 'image' }],
+      account: 'me',
+    });
+    const full = translationSourceSignature(proper, null);
+    const statusSignature = statusSourceSignature(proper);
+    const translation = {
+      contentHtml: '<p>こんにちは</p>',
+      language: 'ja',
+      requested_source_language: 'en',
+      requested_target_language: 'ja',
+      media_attachments: [{ id: 'm1', description: 'ねこ' }],
+    };
+    const stored = fromJS({
+      statuses: {
+        wrap: {
+          id: 'wrap',
+          visibility: 'personal',
+          reblog: 'orig',
+          account: 'me',
+          language: null,
+          content: '',
+          spoiler_text: '',
+          media_attachments: [],
+          updated_at: '2020-01-01T00:00:00.000Z',
+          translation,
+          translationMode: 'translated',
+          translationContentSignature: full,
+          translationStatusSignature: statusSignature,
+        },
+        orig: proper,
+      },
+      accounts: { me: account },
+      polls: {},
+    });
+    const importedActions = [];
+    const dispatchImport = (action) => {
+      if (typeof action === 'function') {
+        action(dispatchImport, () => stored);
+      } else {
+        importedActions.push(action);
+      }
+    };
+
+    importRealStatuses([{
+      id: 'wrap',
+      account,
+      visibility: 'personal',
+      content: '',
+      spoiler_text: '',
+      language: null,
+      media_attachments: [],
+      emojis: [],
+      mentions: [],
+      sensitive: false,
+      url: 'https://example.test/wrap',
+      uri: 'https://example.test/wrap',
+      updated_at: '2020-01-02T00:00:00.000Z',
+      favourites_count: 4,
+      quote: null,
+      reblog: {
+        id: 'orig',
+        account,
+        visibility: 'private',
+        language: 'en',
+        content: '<p>Hello</p>',
+        spoiler_text: '',
+        media_attachments: media,
+        emojis: [],
+        mentions: [],
+        sensitive: false,
+        url: 'https://example.test/orig',
+        uri: 'https://example.test/orig',
+        updated_at: '2020-01-01T00:00:00.000Z',
+        quote: null,
+      },
+    }])(dispatchImport, () => stored);
+
+    const imported = importedActions.find(action => action.type === STATUSES_IMPORT).statuses;
+    const wrap = imported.find(status => status.id === 'wrap');
+
+    expect(wrap.translationContentSignature).toBe(full);
+    expect(wrap.translationStatusSignature).toBe(statusSignature);
+    expect(wrap.favourites_count).toBe(4);
+
+    const post = jest.fn(() => Promise.resolve({ data: { content: '<p>再翻訳</p>', provider: 'DeepL', language: 'ja' } }));
+    api.mockReturnValue({ post });
+    const refreshed = createDispatch(stored.setIn(['statuses', 'wrap', 'translationContentSignature'], wrap.translationContentSignature).setIn(['statuses', 'wrap', 'translationStatusSignature'], wrap.translationStatusSignature));
+    await refreshed.run(translateStatus('wrap', 'bilingual'));
+
+    expect(post).not.toHaveBeenCalled();
+    expect(refreshed.actions).toEqual([{
+      type: STATUS_TRANSLATE_SET_MODE,
+      id: 'wrap',
+      mode: 'bilingual',
+    }]);
   });
 
   it('ignores a late personal-boost response after the boosted ALT changes', async () => {

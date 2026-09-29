@@ -464,6 +464,46 @@ describe('personal boost wrapper translation source changes', () => {
 
   const wrapperOf = (statuses) => statuses.find(status => status.id === 'wrap');
 
+  const importStatuses = (payloads, statuses) => {
+    const actions = [];
+    const getState = () => fromJS({
+      statuses,
+      polls: {},
+      accounts: {},
+    });
+    const dispatch = (action) => {
+      if (typeof action === 'function') {
+        action(dispatch, getState);
+      } else {
+        actions.push(action);
+      }
+    };
+
+    importFetchedStatuses(payloads)(dispatch, getState);
+
+    return actions.find(action => action.type === STATUSES_IMPORT).statuses;
+  };
+
+  const wrapperRefresh = (overrides = {}) => ({
+    id: 'wrap',
+    account,
+    reblog: proper(),
+    content: '',
+    spoiler_text: '',
+    language: null,
+    visibility: 'personal',
+    media_attachments: [],
+    emojis: [],
+    mentions: [],
+    sensitive: false,
+    url: 'https://example.test/wrap',
+    uri: 'https://example.test/wrap',
+    updated_at: '2020-01-02T00:00:00.000Z',
+    favourites_count: 2,
+    quote: null,
+    ...overrides,
+  });
+
   it('drops the wrapper translation after the boosted status body changes', () => {
     const statuses = importProper(proper({
       content: '<p>Hello again</p>',
@@ -525,6 +565,45 @@ describe('personal boost wrapper translation source changes', () => {
     expect(wrapper.translationRequestId).toBeUndefined();
     expect(wrapper.reblogs_count).toBe(3);
     expect(statuses.find(status => status.id === 'proper').content).toBe('<p>Hello again</p>');
+  });
+
+  it('keeps the wrapper translation and both signatures when only the wrapper is refreshed', () => {
+    const translatedWrapper = storedWrapper
+      .delete('translationPending')
+      .delete('translationRequestId')
+      .set('updated_at', '2020-01-01T00:00:00.000Z');
+    const statuses = importStatuses([wrapperRefresh()], {
+      proper: storedProper,
+      wrap: translatedWrapper,
+    });
+    const wrapper = wrapperOf(statuses);
+
+    expect(wrapper.favourites_count).toBe(2);
+    expect(wrapper.translation.get('contentHtml')).toBe('<p>こんにちは</p>');
+    expect(wrapper.translationMode).toBe('translated');
+    expect(wrapper.translationPending).toBeUndefined();
+    expect(wrapper.translationContentSignature).toBe('old');
+    expect(wrapper.translationStatusSignature).toBe('old');
+    expect(statuses.find(status => status.id === 'proper').content).toBe('<p>Hello</p>');
+  });
+
+  it('keeps a pending wrapper request id and both signatures together', () => {
+    const pendingWrapper = storedWrapper
+      .delete('translation')
+      .delete('translationMode')
+      .set('updated_at', '2020-01-01T00:00:00.000Z');
+    const statuses = importStatuses([wrapperRefresh({ favourites_count: 3 })], {
+      proper: storedProper,
+      wrap: pendingWrapper,
+    });
+    const wrapper = wrapperOf(statuses);
+
+    expect(wrapper.translation).toBeUndefined();
+    expect(wrapper.translationMode).toBeUndefined();
+    expect(wrapper.translationPending).toBe(true);
+    expect(wrapper.translationRequestId).toBe('req-a');
+    expect(wrapper.translationContentSignature).toBe('old');
+    expect(wrapper.translationStatusSignature).toBe('old');
   });
 
   it('drops the wrapper translation when boosted poll option titles change', () => {
