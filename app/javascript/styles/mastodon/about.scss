@@ -903,4 +903,10 @@ $small-breakpoint: 960px;
   &__text {
     color: $primary-text-color;
   }
+
+  &__hint {
+    font-size: 14px;
+    font-weight: 400;
+    color: $darker-text-color;
+  }
 }

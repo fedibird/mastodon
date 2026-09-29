@@ -57,6 +57,8 @@
               - @rules.each do |rule|
                 %li
                   .rules-list__text= rule.text
+                  - if rule.hint.present?
+                    .rules-list__hint= rule.hint
 
           = @contents.html_safe
 
