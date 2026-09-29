@@ -197,6 +197,47 @@ RSpec.describe TranslationService::PersonalDeepL do
     end
   end
 
+  it 'does not follow a redirect to another host or fall back to the instance provider' do
+    with_vault_keyring do
+      store_vault_credential(owner: user, secret: pro_key)
+      backend = described_class.resolve(user)
+      stub_request(:any, %r{\Ahttps://evil\.example/}).to_return(status: 200, body: Oj.dump(translations: [{ text: 'stolen', detected_source_language: 'EN' }]))
+      stub_deepl('https://api-free.deepl.com')
+      stub_request(:any, /libre\.internal/).to_return(status: 200, body: '[]')
+
+      ClimateControl.modify(DEEPL_API_KEY: instance_key, DEEPL_PLAN: 'free', LIBRE_TRANSLATE_ENDPOINT: 'http://libre.internal') do
+        stub_request(:get, 'https://api.deepl.com/v2/languages?type=source').to_return(
+          status: 302,
+          headers: { 'Location' => 'https://evil.example/languages' }
+        )
+
+        expect { backend.languages }.to raise_error(TranslationService::UnexpectedResponseError) { |error|
+          expect(error.full_message).not_to include(pro_key)
+        }
+        expect(WebMock).not_to have_requested(:any, /evil\.example/)
+
+        [307, 308].each do |status|
+          WebMock.reset_executed_requests!
+          stub_request(:post, 'https://api.deepl.com/v2/translate').to_return(
+            status: status,
+            headers: { 'Location' => 'https://evil.example/translate' }
+          )
+
+          expect { backend.translate(['private-status-body'], 'ja', 'en') }.to raise_error(TranslationService::UnexpectedResponseError) { |error|
+            expect(error.full_message).not_to include(pro_key)
+          }
+          expect(WebMock).not_to have_requested(:any, /evil\.example/).with { |request|
+            authorization_header(request).include?(pro_key) || request.body.to_s.include?('private-status-body')
+          }
+          expect(WebMock).not_to have_requested(:any, /evil\.example/)
+        end
+
+        expect(WebMock).not_to have_requested(:any, /api-free\.deepl\.com/)
+        expect(WebMock).not_to have_requested(:any, /libre\.internal/)
+      end
+    end
+  end
+
   it 'keeps the cache scope across encryption-key rotation and changes it on replace' do
     with_vault_keyring(primary: 'v1') do
       credential = store_vault_credential(owner: user, secret: pro_key)

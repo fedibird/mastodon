@@ -7,7 +7,8 @@ class TranslationService::PersonalDeepL < TranslationService
   # Every translate and languages call decrypts through UserCredentialVault
   # and builds TranslationService::DeepL only inside that block. The client
   # and the key are dropped before the block returns. That is lifetime
-  # minimization, not memory zeroization.
+  # minimization, not memory zeroization. DeepL requests set follow: false,
+  # so a redirect cannot forward the key or the request body.
   #
   # In-flight requests: with_credential reloads and authorizes the current row,
   # then yields without holding a database lock across the DeepL HTTP call.

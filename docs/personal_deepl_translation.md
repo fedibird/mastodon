@@ -36,6 +36,8 @@ Inside the vault block, a personal key ending in `:fx` uses `https://api-free.de
 
 The key is sent only as `Authorization: DeepL-Auth-Key ...`. It is not placed in the URL, query, or body.
 
+`TranslationService::DeepL` does not follow redirects (`follow: false`). The HTTP client would otherwise copy `Authorization` onto the next request, and a 307 or 308 would also resubmit the body. A 3xx from the fixed Free or Pro host is an unexpected response. Personal DeepL does not fall back to the instance provider. Instance DeepL uses the same client, so it does not follow redirects either.
+
 ## Plaintext lifetime
 
 `TranslationService::PersonalDeepL` stores the owner, the credential record, and the non-secret cache scope (`user_id`, `credential_id`, `binding_id`, provider). It does not store the API key.
