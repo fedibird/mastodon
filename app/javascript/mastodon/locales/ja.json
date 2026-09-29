@@ -747,6 +747,7 @@
   "status.show_reblogs": "ブーストしたユーザーを表示",
   "status.show_referred_by_statuses": "参照している投稿を表示",
   "status.show_thread": "スレッドを表示",
+  "status.show_translation_bar": "翻訳バーを表示",
   "status.thread_with_references": "スレッド",
   "status.translate": "翻訳",
   "status.translated": "翻訳",
