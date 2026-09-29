@@ -16,13 +16,16 @@ class TranslateStatusService < BaseService
   # source_language / explicit_* are optional. Omitting them keeps the
   # Mastodon v4.2.13 path: source from Status.language, target from the caller.
   # nil is a valid explicit source (provider auto-detection), so omission is a flag.
-  def call(status, target_language, source_language: nil, explicit_source: false, explicit_target: false)
+  # user is the authenticated viewer. nil keeps the instance provider.
+  # rubocop:disable Metrics/ParameterLists -- viewer is an explicit resolver input
+  def call(status, target_language, source_language: nil, explicit_source: false, explicit_target: false, user: nil)
     @status = status
     @source_texts = source_texts
     @target_language = target_language
     @explicit_source = explicit_source
     @explicit_target = explicit_target
     @requested_source_language = source_language
+    @user = user
 
     ensure_permitted!
 
@@ -36,15 +39,23 @@ class TranslateStatusService < BaseService
 
     status_translation
   end
+  # rubocop:enable Metrics/ParameterLists
 
   private
 
+  # One resolution for this call. A personal provider that fails later is not
+  # replaced with the instance provider. Ambiguous personal credentials fail
+  # closed. See TranslationService::PersonalDeepL for in-flight vault semantics.
   def translation_backend
-    @translation_backend ||= TranslationService.configured
+    return @translation_backend if instance_variable_defined?(:@translation_backend)
+
+    @translation_backend = TranslationService.for_user(@user)
+  rescue TranslationService::NotConfiguredError, TranslationService::AmbiguousPersonalProvider
+    raise Mastodon::NotPermittedError
   end
 
   def ensure_permitted!
-    raise Mastodon::NotPermittedError unless TranslationService.configured?
+    raise Mastodon::NotPermittedError unless TranslationService.configured_for?(@user)
     raise Mastodon::NotPermittedError unless @status.distributable? || translation_backend.private_content_allowed?
     return if languages[source_language]&.include?(@target_language)
 
@@ -55,7 +66,11 @@ class TranslateStatusService < BaseService
     raise Mastodon::NotPermittedError
   end
 
+  # Personal backends supply their own scope. Instance backends keep v3.
   def translation_cache_key
+    personal = translation_backend.try(:personal_result_cache_key, cache_source_token, @target_language, content_hash)
+    return personal if personal
+
     "v3:translations/#{cache_source_token}/#{@target_language}/#{content_hash}"
   end
 
@@ -120,7 +135,11 @@ class TranslateStatusService < BaseService
   end
 
   def languages
-    Rails.cache.fetch('translation_service/languages', expires_in: 7.days, race_condition_ttl: 1.hour) { TranslationService.configured.languages }
+    Rails.cache.fetch(languages_cache_key, expires_in: 7.days, race_condition_ttl: 1.hour) { translation_backend.languages }
+  end
+
+  def languages_cache_key
+    translation_backend.try(:personal_languages_cache_key) || 'translation_service/languages'
   end
 
   def content_hash

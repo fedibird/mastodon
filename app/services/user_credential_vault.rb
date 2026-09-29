@@ -26,10 +26,11 @@
 # That would be an SSRF and credential-exfiltration primitive. Adapters are
 # reviewed separately and call a fixed provider endpoint.
 #
-# Future personal translation caches must not reuse the shared instance keys
+# Personal translation caches must not reuse the shared instance keys
 # `v3:translations/<source>/<target>/<content hash>` or
-# `translation_service/languages`. Those caches are not scoped to a user or
-# credential. That is an M2 requirement; this vault does not change them.
+# `translation_service/languages`. TranslationService::PersonalDeepL uses
+# `v4:personal_translations/deepl/user/<user_id>/credential/<credential_id>/binding/<binding_id>/...`.
+# This vault does not read or write those caches.
 module UserCredentialVault
   class Error < StandardError; end
 

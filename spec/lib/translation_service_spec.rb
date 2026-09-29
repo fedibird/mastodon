@@ -110,4 +110,82 @@ RSpec.describe TranslationService do
       end
     end
   end
+
+  describe '.for_user' do
+    let(:user) { Fabricate(:user) }
+    let(:other) { Fabricate(:user) }
+
+    it 'keeps instance DeepL, LibreTranslate, and the unconfigured result' do
+      expect { described_class.for_user(nil) }.to raise_error(TranslationService::NotConfiguredError)
+      expect { described_class.for_user(user) }.to raise_error(TranslationService::NotConfiguredError)
+      expect(described_class.configured_for?(nil)).to be false
+      expect(described_class.configured_for?(user)).to be false
+
+      ClimateControl.modify(LIBRE_TRANSLATE_ENDPOINT: 'http://libre.internal') do
+        expect(described_class.for_user(user)).to be_a(TranslationService::LibreTranslate)
+        expect(described_class.configured).to be_a(TranslationService::LibreTranslate)
+      end
+
+      ClimateControl.modify(DEEPL_API_KEY: 'instance-deepl-key', LIBRE_TRANSLATE_ENDPOINT: 'http://libre.internal') do
+        expect(described_class.for_user(user)).to be_a(TranslationService::DeepL)
+        expect(described_class.configured?).to be true
+      end
+    end
+
+    it 'prefers one usable personal DeepL credential over both instance providers' do
+      with_vault_keyring do
+        store_vault_credential(owner: user, secret: 'm2-personal-pro-key')
+
+        ClimateControl.modify(DEEPL_API_KEY: 'instance-deepl-key', LIBRE_TRANSLATE_ENDPOINT: 'http://libre.internal', LIBRE_TRANSLATE_ALLOW_PRIVATE: 'true') do
+          backend = described_class.for_user(user)
+
+          expect(backend).to be_a(TranslationService::PersonalDeepL)
+          expect(backend.private_content_allowed?).to be false
+          expect(described_class.configured_for?(user)).to be true
+          expect(described_class.private_content_allowed_for(user)).to be false
+          expect(described_class.configured).to be_a(TranslationService::DeepL)
+          expect(described_class.configured?).to be true
+          expect(described_class.private_content_allowed?).to be false
+          expect(described_class.for_user(nil)).to be_a(TranslationService::DeepL)
+          expect(described_class.for_user(other)).to be_a(TranslationService::DeepL)
+        end
+      end
+    end
+
+    it 'treats a revoked or expired personal credential as absent' do
+      with_vault_keyring do
+        revoked = store_vault_credential(owner: user, secret: 'm2-revoked-key')
+        UserCredentialVault.revoke!(owner: user, credential: revoked)
+        store_vault_credential(owner: user, secret: 'm2-expired-key', expires_at: 1.minute.ago)
+
+        travel_to(Time.zone.parse('2026-09-29 12:00:00 UTC')) do
+          store_vault_credential(owner: user, secret: 'm2-boundary-key', expires_at: Time.current.change(usec: 0))
+          store_vault_credential(owner: user, secret: 'm2-other-purpose', purpose: 'other')
+          store_vault_credential(owner: other, secret: 'm2-other-user')
+
+          ClimateControl.modify(LIBRE_TRANSLATE_ENDPOINT: 'http://libre.internal') do
+            expect(TranslationService::PersonalDeepL.availability(user)).to eq :none
+            expect(described_class.for_user(user)).to be_a(TranslationService::LibreTranslate)
+            expect(described_class.configured_for?(user)).to be true
+          end
+        end
+      end
+    end
+
+    it 'fails closed when two usable personal credentials exist' do
+      with_vault_keyring do
+        store_vault_credential(owner: user, secret: 'm2-first-key')
+        store_vault_credential(owner: user, secret: 'm2-second-key')
+
+        ClimateControl.modify(DEEPL_API_KEY: 'instance-deepl-key', LIBRE_TRANSLATE_ENDPOINT: 'http://libre.internal') do
+          expect(TranslationService::PersonalDeepL.availability(user)).to eq :many
+          expect(described_class).not_to receive(:configured)
+          expect { described_class.for_user(user) }.to raise_error(TranslationService::AmbiguousPersonalProvider)
+          expect(described_class.configured_for?(user)).to be false
+          expect(described_class.private_content_allowed_for(user)).to be false
+          expect(described_class.configured?).to be true
+        end
+      end
+    end
+  end
 end

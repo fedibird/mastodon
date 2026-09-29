@@ -588,6 +588,10 @@ Rails.application.routes.draw do
         get :search, to: 'search#index'
       end
 
+      namespace :fedibird do
+        resource :translation_languages, only: [:show]
+      end
+
       resource :instance, only: [:show] do
         scope module: :instances do
           resources :peers, only: [:index]

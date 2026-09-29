@@ -118,13 +118,13 @@ See `.env.production.sample` for the deploy order (add a new key id, switch prim
 
 ## Future consumers
 
-M2 may add a provider resolver and a reviewed adapter with a fixed endpoint. It must not grow a generic "credential + arbitrary URL" client.
+Provider adapters are reviewed separately and call a fixed endpoint. Do not grow a generic "credential + arbitrary URL" client.
 
-Personal translation results must not be stored under the current shared cache keys:
+Personal DeepL translation is `TranslationService::PersonalDeepL`. It calls `with_credential` on every translate and languages request. Its cache keys are under `v4:personal_translations/deepl/user/<user_id>/credential/<credential_id>/binding/<binding_id>/`. It does not read or write the shared instance keys:
 
 - `v3:translations/<source>/<target>/<content hash>` in `TranslateStatusService`
 - `translation_service/languages`
 
-A personal provider cache has to include the user, credential, and provider execution scope. Language capability caches have to be separated per personal provider configuration. M1 does not change those caches.
+See `docs/personal_deepl_translation.md`. The vault itself does not choose a provider or write those caches.
 
 If a job is added later, its arguments may contain only `owner_user_id`, `credential_id`, `provider`, `purpose`, and `credential_type`. The worker loads the row and calls `with_credential`.

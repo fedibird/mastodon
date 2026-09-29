@@ -92,7 +92,7 @@ class InitialStateSerializer < ActiveModel::Serializer
       store[:content_font_size]                     = object.current_account.user.setting_content_font_size
       store[:translation_preferred_mode]            = object.current_account.user.setting_translation_preferred_mode
       store[:translation_bar_visibility]            = object.current_account.user.setting_show_translation_bar
-      store[:translation_private_content_allowed] = TranslationService.private_content_allowed?
+      store[:translation_private_content_allowed] = TranslationService.private_content_allowed_for(object.current_account.user)
       store[:info_font_size]                        = object.current_account.user.setting_info_font_size
       store[:content_emoji_reaction_size]           = object.current_account.user.setting_content_emoji_reaction_size
       store[:emoji_scale]                           = object.current_account.user.setting_emoji_scale
