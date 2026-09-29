@@ -23,6 +23,43 @@ def translation_respecting_no_translate(texts)
   end
 end
 
+# Drops URL-like text that is not inside translate="no", which is how a provider
+# can remove a URL-only line from Translated mode while leaving the source HTML
+# intact for Original and Bilingual.
+def translation_dropping_unprotected_urls(texts)
+  texts.map do |text|
+    fragment = Nokogiri::HTML.fragment(text)
+
+    fragment.css('a').each do |anchor|
+      next if anchor['translate'] == 'no' || anchor.ancestors.any? { |ancestor| ancestor.element? && ancestor['translate'] == 'no' }
+      next unless anchor.text.strip.match?(%r{\Ahttps?://\S+\z}i)
+
+      anchor.xpath('.//text()').each { |node| node.content = '' }
+    end
+
+    fragment.xpath('.//text()').each do |node|
+      next if node.ancestors.any? { |ancestor| ancestor.element? && ancestor['translate'] == 'no' }
+
+      content = node.content
+      next if content.strip.empty?
+
+      node.content = if content.strip.match?(%r{\Ahttps?://\S+\z}i)
+                       ''
+                     else
+                       content
+                         .gsub('本文', '翻訳')
+                         .gsub('Hello', 'こんにちは')
+                         .gsub('Read this', 'これを読む')
+                         .gsub('please', 'どうぞ')
+                         .gsub('公式サイト', '公式サイト訳')
+                         .gsub('Read documentation', 'ドキュメントを読む')
+                     end
+    end
+
+    TranslationService::Translation.new(text: fragment.to_html, detected_source_language: 'en', provider: 'DeepL.com')
+  end
+end
+
 RSpec.describe TranslateStatusService do
   let(:account) { Fabricate(:account) }
   let(:status) { Fabricate(:status, account: account, text: 'Hello :blob: <script>alert(1)</script>', spoiler_text: 'Secret', language: 'en', visibility: :public) }
@@ -558,7 +595,7 @@ RSpec.describe TranslateStatusService do
     expect(result.css('span[translate="no"]')).to be_empty
   end
 
-  it 'does not protect ordinary links' do
+  it 'protects an ordinary URL anchor and leaves the surrounding prose translatable' do
     linked = Fabricate(:status, account: account, text: 'Visit https://example.com/ today', language: 'en', visibility: :public)
 
     described_class.new.call(linked, 'ja')
@@ -569,10 +606,11 @@ RSpec.describe TranslateStatusService do
     link = fragment.css('a').find { |anchor| anchor['href']&.include?('https://example.com/') }
 
     expect(link).to be_present
-    expect(link['translate']).not_to eq 'no'
+    expect(link['translate']).to eq 'no'
+    expect(link.text).to include('https://example.com/')
     expect(link['class'].to_s).not_to include('hashtag')
-    expect(link.ancestors.none? { |node| node.element? && node['translate'] == 'no' }).to be true
-    expect(fragment.css('span[translate="no"]')).to be_empty
+    expect(fragment.at_xpath('.//text()[contains(., "Visit")]').ancestors.none? { |node| node.element? && node['translate'] == 'no' }).to be true
+    expect(fragment.at_xpath('.//text()[contains(., "today")]').ancestors.none? { |node| node.element? && node['translate'] == 'no' }).to be true
   end
 
   describe 'provider trust' do
@@ -1086,6 +1124,177 @@ RSpec.describe TranslateStatusService do
       described_class.new.call(remote, 'ja')
 
       expect(backend).to have_received(:translate).twice
+    end
+  end
+
+  describe 'URL anchors whose visible text is the URL' do
+    def sent_html
+      sent = nil
+      expect(backend).to have_received(:translate) { |texts, _source, _target| sent = texts.first }
+      sent
+    end
+
+    def remote_status(html)
+      remote_account = Fabricate(:account, domain: 'remote.test')
+      Fabricate(:status, account: remote_account, text: html, local: false, language: 'en', visibility: :public)
+    end
+
+    before do
+      allow(backend).to receive(:translate) { |texts, _source, _target| translation_dropping_unprotected_urls(texts) }
+    end
+
+    it 'keeps a URL-only block between two translated paragraphs' do
+      post = Fabricate(:status, account: account, text: "本文\n\nhttps://example.com/\n\n本文", language: 'en', visibility: :public)
+
+      translation = described_class.new.call(post, 'ja')
+      fragment = Nokogiri::HTML.fragment(sent_html)
+      paragraphs = fragment.css('p')
+      url_anchor = paragraphs[1].at_css('a')
+
+      expect(paragraphs.size).to eq 3
+      expect(url_anchor['translate']).to eq 'no'
+      expect(url_anchor.text).to eq 'https://example.com/'
+      expect(url_anchor['href']).to eq 'https://example.com/'
+      expect(paragraphs[0].text).to eq '本文'
+      expect(paragraphs[0].css('[translate]')).to be_empty
+      expect(paragraphs[2].css('[translate]')).to be_empty
+
+      result = Nokogiri::HTML.fragment(translation.content)
+      result_paragraphs = result.css('p')
+      result_anchor = result_paragraphs[1].at_css('a')
+
+      expect(result_paragraphs.map { |paragraph| paragraph.text }).to eq ['翻訳', 'https://example.com/', '翻訳']
+      expect(result_anchor.name).to eq 'a'
+      expect(result_anchor['href']).to eq 'https://example.com/'
+      expect(result_anchor['translate']).to be_nil
+      expect(result.css('[translate]')).to be_empty
+      expect(translation.content).not_to include('<script')
+    end
+
+    it 'translates prose around a protected URL' do
+      mixed = Fabricate(:status, account: account, text: 'Read this https://example.com/foo please', language: 'en', visibility: :public)
+
+      translation = described_class.new.call(mixed, 'ja')
+      fragment = Nokogiri::HTML.fragment(sent_html)
+      anchor = fragment.at_css('a')
+
+      expect(anchor['translate']).to eq 'no'
+      expect(anchor['href']).to eq 'https://example.com/foo'
+      expect(anchor.text).to eq 'https://example.com/foo'
+      expect(fragment.at_xpath('.//text()[contains(., "Read this")]').ancestors.none? { |node| node.element? && node['translate'] == 'no' }).to be true
+
+      result = Nokogiri::HTML.fragment(translation.content)
+      expect(result.text).to include('これを読む')
+      expect(result.text).to include('https://example.com/foo')
+      expect(result.text).to include('どうぞ')
+      expect(result.at_css('a')['href']).to eq 'https://example.com/foo'
+      expect(result.css('[translate]')).to be_empty
+    end
+
+    it 'leaves a human-readable link label translatable' do
+      labelled = remote_status('<p>Hello <a href="https://example.com/">公式サイト</a> <a href="https://example.com/docs">Read documentation</a></p>')
+
+      translation = described_class.new.call(labelled, 'ja')
+      fragment = Nokogiri::HTML.fragment(sent_html)
+      anchors = fragment.css('a')
+
+      expect(anchors.map { |anchor| anchor['translate'] }).to eq [nil, nil]
+      expect(anchors.map { |anchor| anchor['href'] }).to eq ['https://example.com/', 'https://example.com/docs']
+      expect(anchors.map(&:text)).to eq ['公式サイト', 'Read documentation']
+
+      result = Nokogiri::HTML.fragment(translation.content)
+      expect(result.text).to include('こんにちは')
+      expect(result.text).to include('公式サイト訳')
+      expect(result.text).to include('ドキュメントを読む')
+      expect(result.css('a').map { |anchor| anchor['href'] }).to eq ['https://example.com/', 'https://example.com/docs']
+      expect(result.css('[translate]')).to be_empty
+    end
+
+    it 'protects a long local URL without changing its invisible or ellipsis spans' do
+      long_url = "https://example.com/#{'segment/' * 8}end"
+      post = Fabricate(:status, account: account, text: long_url, language: 'en', visibility: :public)
+
+      translation = described_class.new.call(post, 'ja')
+      fragment = Nokogiri::HTML.fragment(sent_html)
+      anchor = fragment.at_css('a')
+      spans = anchor.element_children
+
+      expect(anchor['translate']).to eq 'no'
+      expect(anchor['href']).to eq long_url
+      expect(spans.map(&:name)).to eq %w(span span span)
+      expect(spans.map { |span| span['class'] }).to eq %w(invisible ellipsis invisible)
+      expect(spans.map { |span| span['translate'] }).to all(be_nil)
+      expect(anchor.text).to eq long_url
+
+      result = Nokogiri::HTML.fragment(translation.content)
+      result_anchor = result.at_css('a')
+
+      expect(result_anchor.text).to eq long_url
+      expect(result_anchor['href']).to eq long_url
+      expect(result_anchor.element_children.map { |span| span['class'] }).to eq %w(invisible ellipsis invisible)
+      expect(result.css('[translate]')).to be_empty
+    end
+
+    it 'protects a remote anchor whose display text is the URL' do
+      remote = remote_status('<p>本文</p><p><a href="http://example.com/foo" class="ellipsis">http://example.com/foo</a></p><p>本文</p>')
+
+      translation = described_class.new.call(remote, 'ja')
+      fragment = Nokogiri::HTML.fragment(sent_html)
+      anchor = fragment.css('p')[1].at_css('a')
+
+      expect(anchor['translate']).to eq 'no'
+      expect(anchor['href']).to eq 'http://example.com/foo'
+      expect(anchor['class']).to include('ellipsis')
+      expect(anchor.text).to eq 'http://example.com/foo'
+      expect(fragment.css('p')[0].css('[translate]')).to be_empty
+
+      result = Nokogiri::HTML.fragment(translation.content)
+      result_anchor = result.css('p')[1].at_css('a')
+
+      expect(result.css('p').map(&:text)).to eq ['翻訳', 'http://example.com/foo', '翻訳']
+      expect(result_anchor['href']).to eq 'http://example.com/foo'
+      expect(result_anchor['class']).to include('ellipsis')
+      expect(result.css('[translate]')).to be_empty
+    end
+
+    it 'does not rewrite an href that contains an emoji-like token' do
+      linked = Fabricate(:status, account: account, text: '本文 https://example.com/x/:blob:/:notemoji:/y 本文', language: 'en', visibility: :public)
+      href = 'https://example.com/x/:blob:/:notemoji:/y'
+
+      translation = described_class.new.call(linked, 'ja')
+      fragment = Nokogiri::HTML.fragment(sent_html)
+      anchor = fragment.at_css('a')
+
+      expect(anchor['href']).to eq href
+      expect(anchor['href']).not_to include('<span')
+      expect(anchor['translate']).to eq 'no'
+      expect(anchor.text.delete("\u200B")).to eq href
+      expect(fragment.css('span[translate="no"]').map(&:text)).to include(':blob:')
+
+      result = Nokogiri::HTML.fragment(translation.content)
+      expect(result.at_css('a')['href']).to eq href
+      expect(result.at_css('a').text.delete("\u200B")).to eq href
+      expect(result.text).to include('翻訳')
+      expect(result.css('[translate]')).to be_empty
+    end
+
+    it 'strips unsafe markup while keeping a protected URL anchor' do
+      remote = remote_status('<p>本文</p><p><a href="https://example.com/" onclick="alert(1)">https://example.com/</a></p><script>alert(1)</script><img src="x" onerror="alert(1)"><p>本文</p>')
+
+      translation = described_class.new.call(remote, 'ja')
+      result = Nokogiri::HTML.fragment(translation.content)
+      anchor = result.at_css('a')
+
+      expect(anchor['href']).to eq 'https://example.com/'
+      expect(anchor.text).to eq 'https://example.com/'
+      expect(anchor['onclick']).to be_nil
+      expect(result.text).to include('翻訳')
+      expect(result.text).to include('https://example.com/')
+      expect(translation.content).not_to include('<script')
+      expect(translation.content).not_to include('onclick')
+      expect(translation.content).not_to include('onerror')
+      expect(translation.content).not_to include('<img')
+      expect(result.css('[translate]')).to be_empty
     end
   end
 end

@@ -167,7 +167,7 @@ class TranslateStatusService < BaseService
     texts = {}
     if @status.content.present?
       html = wrap_emoji_shortcodes(status_content_format(@status), @status.proper.emojis)
-      texts[:content] = protect_hashtags(protect_mentions(html))
+      texts[:content] = protect_urls(protect_hashtags(protect_mentions(html)))
     end
     texts[:spoiler_text] = wrap_emoji_shortcodes(html_escape(@status.spoiler_text)) if @status.spoiler_text.present?
 
@@ -383,6 +383,41 @@ class TranslateStatusService < BaseService
 
   def hashtag_anchor?(element)
     element.name == 'a' && element['class'].to_s.split.include?('hashtag')
+  end
+
+  # Ordinary URL anchors are sent to the provider as translatable text unless
+  # their own visible text is an absolute http(s) URL. A provider can then drop
+  # that URL-only block, so Translated mode loses a line that Original and
+  # Bilingual still show from the source HTML. Human-readable labels stay
+  # translatable: the href alone is not a reason to protect the anchor.
+  # Mastodon splits the display text across invisible and ellipsis spans;
+  # anchor text joins those spans back into the URL without rewriting them.
+  def protect_urls(html)
+    fragment = Nokogiri::HTML.fragment(html.to_s)
+    changed = false
+
+    fragment.css('a').to_a.each do |anchor|
+      next if translation_protected?(anchor)
+      next unless absolute_http_url?(anchor.text)
+
+      anchor['translate'] = 'no'
+      changed = true
+    end
+
+    changed ? fragment.to_html : html
+  end
+
+  def absolute_http_url?(text)
+    # Formatter inserts U+200B beside a recognized shortcode inside the visible
+    # URL span. That boundary is not part of the URL the spans reconstruct.
+    candidate = text.to_s.gsub("\u200B", '').strip
+    return false if candidate.empty? || candidate.match?(/\s/)
+    return false unless candidate.match?(%r{\Ahttps?://}i)
+
+    uri = Addressable::URI.parse(candidate)
+    %w(http https).include?(uri.scheme&.downcase) && uri.host.present?
+  rescue Addressable::URI::InvalidURIError, ArgumentError
+    false
   end
 
   def translation_protected?(node)
