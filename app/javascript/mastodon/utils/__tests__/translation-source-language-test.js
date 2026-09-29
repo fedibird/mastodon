@@ -45,13 +45,22 @@ describe('translation source language resolution', () => {
     expect(sameTranslationLanguage('zh-Hans', 'zh-Hant', scriptMap)).toBe(false);
   });
 
-  it('asks for a script only for unresolved bare zh', () => {
-    expect(needsChineseScriptChoice('zh', scriptMap)).toBe(true);
-    expect(needsChineseScriptChoice('zh', fromJS({ zh: ['ja'], 'zh-Hans': ['ja'], und: ['ja'] }))).toBe(false);
-    expect(needsChineseScriptChoice('und', scriptMap)).toBe(false);
-    expect(needsChineseScriptChoice('zh-Hans', scriptMap)).toBe(false);
-    expect(needsChineseScriptChoice('fr', fromJS({ fr: ['de'], 'zh-Hans': ['ja'] }))).toBe(false);
-    expect(needsChineseScriptChoice('zh', fromJS({ en: ['ja'], und: ['ja'] }))).toBe(false);
+  it('asks for a script only when that script can reach the current target', () => {
+    const scripts = fromJS({
+      'zh-Hans': ['ja'],
+      'zh-Hant': ['ja'],
+      und: ['ja'],
+    });
+
+    expect(needsChineseScriptChoice('zh', 'ja', scriptMap)).toBe(true);
+    expect(needsChineseScriptChoice('zh', 'en', fromJS({ 'zh-Hans': ['ja'], 'zh-Hant': ['en'], und: ['ja'] }))).toBe(true);
+    expect(needsChineseScriptChoice('zh', 'de', scripts)).toBe(false);
+    expect(needsChineseScriptChoice('zh', 'zh', scripts)).toBe(false);
+    expect(needsChineseScriptChoice('zh', 'ja', fromJS({ zh: ['ja'], 'zh-Hans': ['ja'], und: ['ja'] }))).toBe(false);
+    expect(needsChineseScriptChoice('und', 'ja', scriptMap)).toBe(false);
+    expect(needsChineseScriptChoice('zh-Hans', 'ja', scriptMap)).toBe(false);
+    expect(needsChineseScriptChoice('fr', 'de', fromJS({ fr: ['de'], 'zh-Hans': ['ja'] }))).toBe(false);
+    expect(needsChineseScriptChoice('zh', 'ja', fromJS({ en: ['ja'], und: ['ja'] }))).toBe(false);
   });
 
   it('labels Chinese scripts and places them beside bare zh', () => {

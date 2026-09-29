@@ -209,7 +209,7 @@ export default class TranslationBar extends React.PureComponent {
     const showActions = !!canRequest && !!statusTranslatable && !!languagesKnown && !showResult;
     const pairUnsupported = showActions && !pairSupported;
     const sameLanguage = sameTranslationLanguage(viewerSource, viewerTarget, translationLanguages);
-    const showChineseScriptGuidance = pairUnsupported && needsChineseScriptChoice(viewerSource, translationLanguages);
+    const showChineseScriptGuidance = pairUnsupported && !sameLanguage && needsChineseScriptChoice(viewerSource, viewerTarget, translationLanguages);
     const showUnsupportedPairMessage = pairUnsupported && !sameLanguage && !showChineseScriptGuidance;
     let actionDescription = null;
 

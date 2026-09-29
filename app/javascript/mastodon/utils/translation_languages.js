@@ -59,8 +59,8 @@ export const languageOption = (code, preloadedLanguages, unspecifiedName) => {
   return known || PROVIDER_LANGUAGE_ALIASES[code] || [code, code, code];
 };
 
-export const needsChineseScriptChoice = (source, translationLanguages) => {
-  if (normalizedLanguageTag(source) !== 'zh' || !translationLanguages || typeof translationLanguages.has !== 'function') {
+export const needsChineseScriptChoice = (source, target, translationLanguages) => {
+  if (normalizedLanguageTag(source) !== 'zh' || !target || !translationLanguages || typeof translationLanguages.has !== 'function') {
     return false;
   }
 
@@ -73,7 +73,7 @@ export const needsChineseScriptChoice = (source, translationLanguages) => {
     return false;
   }
 
-  return CHINESE_SCRIPT_TAGS.some(tag => translationLanguages.has(tag));
+  return CHINESE_SCRIPT_TAGS.some(tag => translationLanguages.get(tag)?.includes(target));
 };
 
 const addCode = (codes, seen, code) => {
