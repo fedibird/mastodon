@@ -25,6 +25,26 @@ const messages = defineMessages({
 
 const languageName = (code, intl) => languageOption(code, preloadedLanguages, intl.formatMessage(messages.unspecified))[2];
 
+// StatusContent opens the status from a mousedown/mouseup gesture and only
+// ignores button, anchor, and label targets. The language menu is a portaled
+// list of role="option" divs, so it still reaches that gesture through the
+// React tree. Keep the whole bar, including the portaled menu, inside this
+// boundary. stopPropagation only: buttons, search, and keyboard handling stay
+// on their own targets, and the menu's document capture listener still sees
+// outside clicks.
+const stopInteractionPropagation = event => {
+  event.stopPropagation();
+};
+
+const interactionBoundary = {
+  onMouseDown: stopInteractionPropagation,
+  onMouseUp: stopInteractionPropagation,
+  onClick: stopInteractionPropagation,
+  onKeyDown: stopInteractionPropagation,
+  onTouchStart: stopInteractionPropagation,
+  onTouchEnd: stopInteractionPropagation,
+};
+
 class LanguageSelector extends React.PureComponent {
 
   static propTypes = {
@@ -96,7 +116,7 @@ class LanguageSelector extends React.PureComponent {
 
         <Overlay show={open} placement='bottom' flip target={this.findTarget} popperConfig={{ strategy: 'fixed', onFirstUpdate: this.handleOverlayEnter }}>
           {({ props }) => (
-            <div {...props}>
+            <div {...props} {...interactionBoundary}>
               <div className={`dropdown-animation language-dropdown__dropdown ${placement}`}>
                 <LanguageDropdownMenu
                   value={value}
@@ -226,7 +246,7 @@ export default class TranslationBar extends React.PureComponent {
     const detectedName = detectedDiffers ? languageName(detectedCode, intl) : '';
 
     return (
-      <div className='status__translation-bar status__translation-controls'>
+      <div className='status__translation-bar status__translation-controls' {...interactionBoundary}>
         <div className='status__translation-bar__languages'>
           <LanguageSelector
             value={viewerSource}
