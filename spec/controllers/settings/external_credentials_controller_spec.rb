@@ -85,7 +85,7 @@ describe Settings::ExternalCredentialsController do
       expect(response.body).to include('DeepLの利用料金・利用上限はあなた自身の契約に従います。')
       expect(response.body).to include('保存したAPIキーを再表示することはできません。差し替える場合は新しいAPIキーを入力してください。')
       expect(response.body).to include('保存時にはDeepLへの接続確認を行いません。')
-      expect(response.body).to include('現在、個人DeepLでは公開・未収載の投稿だけを翻訳します。')
+      expect(response.body).to include('現在、個人DeepLでは公開・未収載の投稿と、自分だけに公開したpersonal投稿を翻訳できます。')
       expect(response.body).to include('個人APIキーを削除すると、利用可能な場合はサーバー側の翻訳サービスに戻ります。')
       expect(response.body).to include('このサーバーの翻訳サービスより優先して使われます。')
       expect(response.body).to include('サーバー側の翻訳サービスへ自動的には切り替えません。')

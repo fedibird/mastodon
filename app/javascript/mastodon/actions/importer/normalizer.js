@@ -193,6 +193,40 @@ const canonicalTranslationSource = (content, spoilerText) => {
   return { content: body, spoilerText: spoiler };
 };
 
+const readStatusField = (status, key) => {
+  if (!status) {
+    return undefined;
+  }
+
+  return typeof status.get === 'function' ? status.get(key) : status[key];
+};
+
+// Body, CW, language, and media descriptions. Poll titles are added by
+// translationSourceSignature. These are the same dimensions as
+// translationSourcesMatch, without using updated_at or counters.
+export function statusSourceSignature(status) {
+  const source = canonicalTranslationSource(readStatusField(status, 'content'), readStatusField(status, 'spoiler_text'));
+
+  return [
+    source.content,
+    source.spoilerText,
+    readStatusField(status, 'language') || '',
+    mediaSignature(readStatusField(status, 'media_attachments')),
+  ].join('\u0001');
+}
+
+export function translationSourceSignature(status, poll) {
+  const statusPollId = pollId(readStatusField(status, 'poll'));
+  const explicitPollId = poll ? pollId(poll) : '';
+  const titles = pollOptionTitles(poll) || [];
+
+  return [
+    statusSourceSignature(status),
+    explicitPollId || statusPollId,
+    titles.join('\n'),
+  ].join('\u0001');
+}
+
 // A stored status translation covers the body, CW, media descriptions, and
 // poll options from one response. Keep it only while every one of those
 // sources is unchanged, so an edited ALT or poll can be translated again.
@@ -211,6 +245,14 @@ const translationSourcesMatch = (oldStatus, incomingStatus, previousPoll) => {
     pollSourcesMatch(oldStatus, incomingStatus, previousPoll);
 };
 
+const copySignature = (normalStatus, normalOldStatus, key) => {
+  const value = normalOldStatus.get(key);
+
+  if (typeof value === 'string') {
+    normalStatus[key] = value;
+  }
+};
+
 const copyTranslationState = (normalStatus, normalOldStatus) => {
   if (normalOldStatus.get('translation')) {
     normalStatus.translation = normalOldStatus.get('translation');
@@ -226,6 +268,14 @@ const copyTranslationState = (normalStatus, normalOldStatus) => {
     if (normalOldStatus.get('translationRequestId')) {
       normalStatus.translationRequestId = normalOldStatus.get('translationRequestId');
     }
+  }
+
+  // A wrapper refresh keeps the attached translation or in-flight request.
+  // The source signatures have to travel with that state, or the next
+  // Translate click treats a still-valid personal boost as stale.
+  if (normalStatus.translation || normalStatus.translationPending) {
+    copySignature(normalStatus, normalOldStatus, 'translationContentSignature');
+    copySignature(normalStatus, normalOldStatus, 'translationStatusSignature');
   }
 };
 

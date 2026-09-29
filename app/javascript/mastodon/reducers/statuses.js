@@ -79,7 +79,7 @@ const removeEmojiReaction = (state, id, name, domain, url, static_url) => update
 
 const statusTranslationMode = mode => (mode === 'bilingual' || mode === 'original') ? mode : 'translated';
 
-const statusTranslateRequest = (state, id, requestId) => {
+const statusTranslateRequest = (state, id, requestId, contentSignature) => {
   if (!state.get(id)) {
     return state;
   }
@@ -90,23 +90,46 @@ const statusTranslateRequest = (state, id, requestId) => {
     if (requestId) {
       map.setIn([id, 'translationRequestId'], requestId);
     }
+
+    if (contentSignature && typeof contentSignature.full === 'string') {
+      map.setIn([id, 'translationContentSignature'], contentSignature.full);
+      map.setIn([id, 'translationStatusSignature'], contentSignature.status);
+    }
   });
 };
 
 const translationRequestCurrent = (status, requestId) => status.get('translationRequestId') === requestId;
 
-const statusTranslateSuccess = (state, id, translation, domain, mode, requestId) => {
+const statusTranslateSuccess = (state, id, translation, domain, mode, requestId, contentStatusId) => {
   const status = state.get(id);
 
   if (!status || !translationRequestCurrent(status, requestId)) {
     return state;
   }
 
+  // A personal boost is authorized as the wrapper, but its text, emoji, and
+  // media live on the boosted status. Keep the translation on the wrapper so
+  // a different permission context cannot see it on the proper status.
+  const contentStatus = contentStatusId && contentStatusId !== id ? state.get(contentStatusId) : null;
+
   return state.withMutations(map => {
-    map.setIn([id, 'translation'], fromJS(normalizeStatusTranslation(translation, map.get(id), domain)));
+    const normalized = normalizeStatusTranslation(translation, contentStatus || status, domain);
+
+    if (contentStatus && Array.isArray(translation.media_attachments)) {
+      normalized.media_attachments = translation.media_attachments.map(item => ({
+        id: item.id,
+        description: item.description,
+      }));
+    }
+
+    map.setIn([id, 'translation'], fromJS(normalized));
     map.setIn([id, 'translationPending'], false);
     map.deleteIn([id, 'translationRequestId']);
     map.setIn([id, 'translationMode'], statusTranslationMode(mode));
+
+    if (contentStatus) {
+      return;
+    }
 
     const list = map.getIn([id, 'media_attachments']);
 
@@ -182,6 +205,8 @@ const statusTranslateUndo = (state, id) => {
     map.deleteIn([id, 'translation']);
     map.deleteIn([id, 'translationMode']);
     map.deleteIn([id, 'translationRequestId']);
+    map.deleteIn([id, 'translationContentSignature']);
+    map.deleteIn([id, 'translationStatusSignature']);
     map.setIn([id, 'translationPending'], false);
 
     const media = map.getIn([id, 'media_attachments']);
@@ -263,9 +288,9 @@ export default function statuses(state = initialState, action) {
   case TIMELINE_DELETE:
     return deleteStatus(state, action.id, action.references, action.quotes);
   case STATUS_TRANSLATE_REQUEST:
-    return statusTranslateRequest(state, action.id, action.translationRequestId);
+    return statusTranslateRequest(state, action.id, action.translationRequestId, action.contentSignature);
   case STATUS_TRANSLATE_SUCCESS:
-    return statusTranslateSuccess(state, action.id, action.translation, action.domain, action.mode, action.translationRequestId);
+    return statusTranslateSuccess(state, action.id, action.translation, action.domain, action.mode, action.translationRequestId, action.contentStatusId);
   case STATUS_TRANSLATE_FAIL:
     return statusTranslateFail(state, action.id, action.translationRequestId);
   case STATUS_TRANSLATE_SET_MODE:

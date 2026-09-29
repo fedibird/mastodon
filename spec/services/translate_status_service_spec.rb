@@ -144,6 +144,63 @@ RSpec.describe TranslateStatusService do
     expect(backend).to have_received(:translate).twice
   end
 
+  it 'translates a viewer-authored personal status and still rejects other non-distributable visibilities' do
+    viewer = Fabricate(:user, account: account)
+    expect(backend.private_content_allowed?).to be false
+
+    %w(public unlisted).each do |visibility|
+      example = Fabricate(:status, account: account, text: "Hello #{visibility}", language: 'en', visibility: visibility)
+      expect(described_class.new.call(example, 'ja', user: viewer).content).to include('JA')
+    end
+
+    personal = Fabricate(:status, account: account, text: 'Hello personal', language: 'en', visibility: :personal)
+    expect(described_class.new.call(personal, 'ja', user: viewer).content).to include('JA')
+    expect(backend).to have_received(:translate).exactly(3).times
+
+    expect { described_class.new.call(personal, 'ja', user: Fabricate(:user)) }.to raise_error(Mastodon::NotPermittedError)
+    expect { described_class.new.call(personal, 'ja', user: nil) }.to raise_error(Mastodon::NotPermittedError)
+
+    %w(private direct limited mutual).each do |visibility|
+      example = Fabricate(:status, account: account, text: "Hello #{visibility}", language: 'en', visibility: visibility)
+      expect { described_class.new.call(example, 'ja', user: viewer) }.to raise_error(Mastodon::NotPermittedError)
+    end
+
+    someone_else = Fabricate(:account)
+    foreign = Fabricate(:status, account: someone_else, text: 'Someone else', language: 'en', visibility: :public)
+    foreign_wrapper = Fabricate(:status, account: account, reblog: foreign, visibility: :personal)
+    expect(foreign_wrapper.proper.account_id).to eq someone_else.id
+    expect { described_class.new.call(foreign_wrapper, 'ja', user: viewer) }.to raise_error(Mastodon::NotPermittedError)
+
+    own = Fabricate(:status, account: account, text: 'My original', language: 'en', visibility: :public)
+    own_wrapper = Fabricate(:status, account: account, reblog: own, visibility: :personal)
+    expect(own_wrapper.account_id).to eq viewer.account_id
+    expect(own_wrapper.proper.account_id).to eq viewer.account_id
+    expect(described_class.new.call(own_wrapper, 'ja', user: viewer).content).to include('My original')
+
+    expect(backend).to have_received(:translate).exactly(4).times
+  end
+
+  it 'rejects an unsupported language pair for a self-authored personal status before translation' do
+    viewer = Fabricate(:user, account: account)
+    personal = Fabricate(:status, account: account, text: 'Hello personal', language: 'en', visibility: :personal)
+
+    expect { described_class.new.call(personal, 'de', user: viewer) }.to raise_error(Mastodon::NotPermittedError)
+    expect(backend).not_to have_received(:translate)
+  end
+
+  it 'does not read the translation cache when the viewer does not own a personal status' do
+    viewer = Fabricate(:user, account: account)
+    personal = Fabricate(:status, account: account, text: 'Hello personal', language: 'en', visibility: :personal)
+
+    described_class.new.call(personal, 'ja', user: viewer)
+    stranger = Fabricate(:user)
+    allow(Rails.cache).to receive(:fetch).and_call_original
+
+    expect { described_class.new.call(personal, 'ja', user: stranger) }.to raise_error(Mastodon::NotPermittedError)
+    expect(Rails.cache).not_to have_received(:fetch)
+    expect(backend).to have_received(:translate).once
+  end
+
   it 'falls back from a regional source language to the provider primary language' do
     regional = Fabricate(:status, account: account, text: '你好', language: 'zh-CN', visibility: :public)
     allow(backend).to receive(:languages).and_return('en' => ['ja'], 'zh' => ['ja'], nil => ['ja'])

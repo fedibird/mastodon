@@ -354,6 +354,109 @@ describe('on-demand translation bar', () => {
     expect(put).not.toHaveBeenCalled();
   });
 
+  it('reveals an allowed personal boost on the wrapper and an ordinary boost on the boosted status', () => {
+    const ownProper = buildStatus('own', 'en').set('visibility', 'private');
+    const personal = buildStatus('wrap', 'en').set('visibility', 'personal').set('language', null).set('reblog', ownProper);
+    const publicProper = buildStatus('pub', 'en');
+    const ordinary = buildStatus('boost', 'en').set('language', null).set('reblog', publicProper);
+    const store = createRevealStore({
+      own: ownProper,
+      wrap: personal,
+      pub: publicProper,
+      boost: ordinary,
+    });
+    const onReply = jest.fn();
+
+    render(
+      <Provider store={store}>
+        <RouterProvider>
+          <div data-testid='personal-boost'>
+            <StatusContent status={ownProper} translationWrapper={personal} onTranslate={jest.fn()} onClick={jest.fn()} />
+            <StatusActionBar status={ownProper} translationStatus={personal} {...timelineProps} onReply={onReply} />
+          </div>
+          <div data-testid='ordinary-boost'>
+            <StatusContent status={publicProper} translationWrapper={ordinary} onTranslate={jest.fn()} onClick={jest.fn()} />
+            <StatusActionBar status={publicProper} translationStatus={publicProper} {...timelineProps} onReply={onReply} />
+          </div>
+        </RouterProvider>
+      </Provider>,
+    );
+
+    const personalNode = screen.getByTestId('personal-boost');
+    const ordinaryNode = screen.getByTestId('ordinary-boost');
+
+    expectNoBar(personalNode);
+    expectNoBar(ordinaryNode);
+
+    fireEvent.click(within(personalNode).getByRole('button', { name: 'Reply' }));
+    fireEvent.click(within(personalNode).getByRole('button', { name: 'Show Translation Bar' }));
+
+    expect(onReply).toHaveBeenCalledTimes(1);
+    expect(onReply.mock.calls[0][0].get('id')).toBe('own');
+    expect(store.getState().get('translation_bar_overrides').has('wrap')).toBe(true);
+    expect(store.getState().get('translation_bar_overrides').has('own')).toBe(false);
+    expectFullBar(personalNode);
+    expectNoBar(ordinaryNode);
+    expect(within(personalNode).queryByRole('button', { name: 'Show Translation Bar' })).toBeNull();
+
+    fireEvent.click(within(ordinaryNode).getByRole('button', { name: 'Show Translation Bar' }));
+
+    expect(store.getState().get('translation_bar_overrides').has('pub')).toBe(true);
+    expect(store.getState().get('translation_bar_overrides').has('boost')).toBe(false);
+    expectFullBar(ordinaryNode);
+  });
+
+  it('reveals a personal boost from the detailed action bar through the wrapper id', () => {
+    const ownProper = buildStatus('own', 'en').set('visibility', 'private');
+    const personal = buildStatus('wrap', 'en').set('visibility', 'personal').set('language', null).set('reblog', ownProper);
+    const publicProper = buildStatus('pub', 'en');
+    const ordinary = buildStatus('boost', 'en').set('language', null).set('reblog', publicProper);
+    const store = createRevealStore({
+      own: ownProper,
+      wrap: personal,
+      pub: publicProper,
+      boost: ordinary,
+    });
+    const onReply = jest.fn();
+
+    render(
+      <Provider store={store}>
+        <RouterProvider>
+          <div data-testid='personal-detail'>
+            <StatusContent status={ownProper} translationWrapper={personal} onTranslate={jest.fn()} onClick={jest.fn()} />
+            <DetailedActionBar status={personal} translationStatus={personal} {...detailProps} onReply={onReply} />
+          </div>
+          <div data-testid='ordinary-detail'>
+            <StatusContent status={publicProper} translationWrapper={ordinary} onTranslate={jest.fn()} onClick={jest.fn()} />
+            <DetailedActionBar status={ordinary} translationStatus={publicProper} {...detailProps} onReply={onReply} />
+          </div>
+        </RouterProvider>
+      </Provider>,
+    );
+
+    const personalNode = screen.getByTestId('personal-detail');
+    const ordinaryNode = screen.getByTestId('ordinary-detail');
+
+    expectNoBar(personalNode);
+    expectNoBar(ordinaryNode);
+
+    fireEvent.click(within(personalNode).getByRole('button', { name: 'Show Translation Bar' }));
+
+    expect(store.getState().get('translation_bar_overrides').has('wrap')).toBe(true);
+    expect(store.getState().get('translation_bar_overrides').has('own')).toBe(false);
+    expectFullBar(personalNode);
+    expectNoBar(ordinaryNode);
+
+    fireEvent.click(within(ordinaryNode).getByRole('button', { name: 'Reply' }));
+    fireEvent.click(within(ordinaryNode).getByRole('button', { name: 'Show Translation Bar' }));
+
+    expect(onReply).toHaveBeenCalledTimes(1);
+    expect(onReply.mock.calls[0][0].get('id')).toBe('boost');
+    expect(store.getState().get('translation_bar_overrides').has('pub')).toBe(true);
+    expect(store.getState().get('translation_bar_overrides').has('boost')).toBe(false);
+    expectFullBar(ordinaryNode);
+  });
+
   it('omits the menu item while the global bar is already shown', () => {
     initialState.translationBarVisibility = 'always';
     const status = buildStatus('a', 'en');

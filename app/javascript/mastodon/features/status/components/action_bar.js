@@ -12,6 +12,7 @@ import { openModal } from '../../../actions/modal';
 import { revealStatusTranslationBar } from '../../../actions/translation_bar';
 import { initAddFilter } from '../../../actions/filters';
 import { canEditStatus, editableStatus } from '../../../utils/status_edit';
+import { translationPairStatus } from '../../../utils/translation_languages';
 import { translationBarEffectivelyVisible, viewerTranslationPair } from '../../../utils/translation_view';
 
 const messages = defineMessages({
@@ -90,17 +91,21 @@ const translationBarRevealed = (state, status) => {
   return !!(overrides && typeof overrides.has === 'function' && overrides.has(status.get('id')));
 };
 
-const mapStateToProps = (state, { status }) => ({
-  relationship: state.getIn(['relationships', status.getIn(['account', 'id'])]),
-  referenceCountLimit: state.getIn(['compose', 'references']).size >= maxReferences,
-  selected: state.getIn(['compose', 'references']).has(status.get('id')),
-  composePrivacy: state.getIn(['compose', 'privacy']),
-  editing: !!state.getIn(['compose', 'id']),
-  translationBarRevealed: translationBarRevealed(state, status),
-  translationAssumption: state.getIn(['translation_assumptions', status.get('id')]),
-  translationTarget: state.getIn(['settings', 'translation', 'targetLanguage']),
-  languages: state.getIn(['server', 'translationLanguages', 'items']),
-});
+const mapStateToProps = (state, { status, translationStatus }) => {
+  const subject = translationStatus || status;
+
+  return {
+    relationship: state.getIn(['relationships', status.getIn(['account', 'id'])]),
+    referenceCountLimit: state.getIn(['compose', 'references']).size >= maxReferences,
+    selected: state.getIn(['compose', 'references']).has(status.get('id')),
+    composePrivacy: state.getIn(['compose', 'privacy']),
+    editing: !!state.getIn(['compose', 'id']),
+    translationBarRevealed: translationBarRevealed(state, subject),
+    translationAssumption: state.getIn(['translation_assumptions', subject.get('id')]),
+    translationTarget: state.getIn(['settings', 'translation', 'targetLanguage']),
+    languages: state.getIn(['server', 'translationLanguages', 'items']),
+  };
+};
 
 export default @connect(mapStateToProps)
 @injectIntl
@@ -112,6 +117,7 @@ class ActionBar extends React.PureComponent {
 
   static propTypes = {
     status: ImmutablePropTypes.map.isRequired,
+    translationStatus: ImmutablePropTypes.map,
     dispatch: PropTypes.func.isRequired,
     referenced: PropTypes.bool,
     contextReferenced: PropTypes.bool,
@@ -154,7 +160,9 @@ class ActionBar extends React.PureComponent {
   };
 
   handleShowTranslationBar = () => {
-    this.props.dispatch(revealStatusTranslationBar(this.props.status.get('id')));
+    const subject = this.props.translationStatus || this.props.status;
+
+    this.props.dispatch(revealStatusTranslationBar(subject.get('id')));
   }
 
   showTranslationBarMenu = (intl) => {
@@ -162,7 +170,7 @@ class ActionBar extends React.PureComponent {
       return false;
     }
 
-    const pair = viewerTranslationPair(this.props.status, this.props.translationAssumption, intl.locale, this.props.translationTarget);
+    const pair = viewerTranslationPair(translationPairStatus(this.props.status), this.props.translationAssumption, intl.locale, this.props.translationTarget);
 
     return !translationBarEffectivelyVisible({
       visibility: translationBarVisibility,

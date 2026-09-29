@@ -1,4 +1,6 @@
-import { sameTranslationLanguage } from 'mastodon/utils/translation_languages';
+import { fromJS } from 'immutable';
+import { statusSourceSignature } from 'mastodon/actions/importer/normalizer';
+import { sameTranslationLanguage, translationRequestStatus } from 'mastodon/utils/translation_languages';
 
 export const TRANSLATION_MODE_ORIGINAL = 'original';
 export const TRANSLATION_MODE_TRANSLATED = 'translated';
@@ -154,6 +156,51 @@ export function statusTranslationView(status) {
     mediaLang: mode === TRANSLATION_MODE_ORIGINAL ? sourceLang : (targetLang || sourceLang),
     pending: !!(status && status.get('translationPending')),
   };
+}
+
+// Merge a wrapper's translation onto the displayed status for rendering only.
+// Media ALT stays inside the wrapper translation so the proper status does
+// not show it outside this permission context.
+export function translationDisplayStatus(displayed, wrapper) {
+  if (!displayed || typeof displayed.get !== 'function') {
+    return displayed;
+  }
+
+  const subject = translationRequestStatus(wrapper || displayed) || displayed;
+
+  if (!subject || typeof subject.get !== 'function' || subject.get('id') === displayed.get('id')) {
+    return displayed;
+  }
+
+  const storedStatusSignature = subject.get('translationStatusSignature');
+
+  if (typeof storedStatusSignature === 'string' && storedStatusSignature !== statusSourceSignature(displayed)) {
+    return displayed;
+  }
+
+  return displayed.withMutations(map => {
+    map.set('translation', subject.get('translation'));
+    map.set('translationPending', subject.get('translationPending'));
+    map.set('translationMode', subject.get('translationMode'));
+    map.set('translationRequestId', subject.get('translationRequestId'));
+
+    const translatedMedia = subject.getIn(['translation', 'media_attachments']);
+    const attachments = map.get('media_attachments');
+
+    if (!translatedMedia || typeof translatedMedia.map !== 'function' || !attachments || typeof attachments.map !== 'function') {
+      return;
+    }
+
+    map.set('media_attachments', attachments.map(attachment => {
+      const match = translatedMedia.find(item => item.get('id') === attachment.get('id'));
+
+      if (!match) {
+        return attachment;
+      }
+
+      return attachment.set('translation', fromJS({ description: match.get('description') || '' }));
+    }));
+  });
 }
 
 export function galleryTranslationProps(view) {

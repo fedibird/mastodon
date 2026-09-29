@@ -15,6 +15,12 @@ RSpec.describe Api::V1::Statuses::TranslationsController, type: :controller do
     allow(I18n).to receive(:locale).and_return(:ja)
   end
 
+  # I18n.with_locale reads the stubbed locale and writes it back. Restore the
+  # real locale so later examples do not translate English pages as Japanese.
+  after do
+    I18n.locale = I18n.default_locale
+  end
+
   describe 'POST #create' do
     it 'returns the translation' do
       translation = Translation.new(
@@ -116,6 +122,52 @@ RSpec.describe Api::V1::Statuses::TranslationsController, type: :controller do
         expect(response).to have_http_status(200)
         expect(body_as_json[:provider]).to eq 'LibreTranslate'
         expect(backend).to have_received(:translate).once
+      end
+    end
+
+    context 'with DeepL, which does not allow private content' do
+      let(:backend) { TranslationService::DeepL.new('free', 'deepl-secret') }
+      let(:owned) { Fabricate(:status, account: user.account, visibility: :personal, text: 'Hello personal', language: 'en') }
+
+      before do
+        allow(TranslationService).to receive(:configured?).and_return(true)
+        allow(TranslationService).to receive(:configured).and_return(backend)
+        allow(backend).to receive(:languages).and_return('en' => ['ja'], nil => ['ja'])
+        allow(backend).to receive(:translate) do |texts, _source, _target|
+          texts.map do |text|
+            TranslationService::Translation.new(text: "JA #{text}", detected_source_language: 'en', provider: 'DeepL.com')
+          end
+        end
+        Rails.cache.clear
+      end
+
+      it 'translates a personal status for its owner' do
+        expect(backend.private_content_allowed?).to be false
+
+        post :create, params: { status_id: owned.id }
+
+        expect(response).to have_http_status(200)
+        expect(body_as_json[:content]).to include('JA')
+        expect(backend).to have_received(:translate).once
+      end
+
+      it 'returns 404 when another user requests that personal status' do
+        other = Fabricate(:user)
+        allow(controller).to receive(:doorkeeper_token) { Fabricate(:accessible_access_token, resource_owner_id: other.id, scopes: 'read:statuses') }
+
+        post :create, params: { status_id: owned.id }
+
+        expect(response).to have_http_status(404)
+        expect(backend).not_to have_received(:translate)
+      end
+
+      it 'returns 401 for an anonymous request' do
+        allow(controller).to receive(:doorkeeper_token).and_return(nil)
+
+        post :create, params: { status_id: owned.id }
+
+        expect(response).to have_http_status(401)
+        expect(backend).not_to have_received(:translate)
       end
     end
 

@@ -2072,7 +2072,7 @@ ja:
     storage_unavailable: このサーバーではcredential storageを利用できません。
     title: 外部サービス
     updated_at: '更新:'
-    visibility: 現在、個人DeepLでは公開・未収載の投稿だけを翻訳します。
+    visibility: 現在、個人DeepLでは公開・未収載の投稿と、自分だけに公開したpersonal投稿を翻訳できます。
   settings:
     account: アカウント
     account_settings: アカウント設定

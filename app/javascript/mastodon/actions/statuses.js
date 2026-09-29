@@ -6,6 +6,7 @@ import { changeSetting } from './settings';
 import { deleteFromTimelines, expireFromTimelines } from './timelines';
 import { fetchRelationshipsFromStatus, fetchRelationshipsFromStatuses } from './accounts';
 import { importFetchedStatus, importFetchedStatuses, importFetchedAccount } from './importer';
+import { statusSourceSignature, translationSourceSignature } from './importer/normalizer';
 import { ensureComposeIsVisible, getContextReference, setComposeToStatus } from './compose';
 import { openModal } from './modal';
 
@@ -603,24 +604,50 @@ export const translateStatus = (id, mode = 'translated') => (dispatch, getState)
   }
 
   const savedTarget = state.getIn(['settings', 'translation', 'targetLanguage']);
-  const viewerPair = viewerTranslationPair(status, state.getIn(['translation_assumptions', id]), interfaceLocale, savedTarget);
+  // A personal boost is requested by wrapper id. Its text and language live on the boosted status.
+  const reblogId = status && status.get('reblog');
+  const contentStatus = (typeof reblogId === 'string' || typeof reblogId === 'number') ? (state.getIn(['statuses', reblogId]) || status) : status;
+  const viewerPair = viewerTranslationPair(contentStatus, state.getIn(['translation_assumptions', id]), interfaceLocale, savedTarget);
+  const splitContent = !!(contentStatus && status && contentStatus.get('id') !== id);
+  const contentPoll = splitContent && contentStatus.get('poll') ? state.getIn(['polls', contentStatus.get('poll')]) : null;
+  const contentSignature = splitContent ? {
+    full: translationSourceSignature(contentStatus, contentPoll),
+    status: statusSourceSignature(contentStatus),
+  } : null;
+  const wrapperTranslationCurrent = !splitContent || status.get('translationContentSignature') === contentSignature.full;
 
-  if (status && status.get('translation') && sameLanguagePair(viewerPair, attachedTranslationPair(status))) {
+  if (status && status.get('translation') && wrapperTranslationCurrent && sameLanguagePair(viewerPair, attachedTranslationPair(status))) {
     dispatch(setStatusTranslationMode(id, requestedMode));
     return Promise.resolve();
   }
 
   const translationRequestId = nextTranslationRequestId();
-  const pollId = status ? status.get('poll') : null;
+  const pollId = contentStatus ? contentStatus.get('poll') : null;
   const translationRequestIsCurrent = () => getState().getIn(['statuses', id, 'translationRequestId']) === translationRequestId;
+  const translationSourceIsCurrent = () => {
+    if (!contentSignature) {
+      return true;
+    }
 
-  dispatch(translateStatusRequest(id, requestedMode, translationRequestId, pollId));
+    const currentState = getState();
+    const currentContent = currentState.getIn(['statuses', contentStatus.get('id')]);
+    const currentPoll = currentContent && currentContent.get('poll') ? currentState.getIn(['polls', currentContent.get('poll')]) : null;
+
+    return !!currentContent && translationSourceSignature(currentContent, currentPoll) === contentSignature.full;
+  };
+
+  dispatch(translateStatusRequest(id, requestedMode, translationRequestId, pollId, contentSignature));
 
   return api(getState).post(`/api/v1/statuses/${id}/translate`, {
     source_language: viewerPair.source,
     target_language: viewerPair.target,
   }).then(response => {
     if (!translationRequestIsCurrent()) {
+      return;
+    }
+
+    if (!translationSourceIsCurrent()) {
+      dispatch(translateStatusFail(id, null, translationRequestId, pollId, true));
       return;
     }
 
@@ -634,7 +661,7 @@ export const translateStatus = (id, mode = 'translated') => (dispatch, getState)
       requested_target_language: viewerPair.target,
     };
 
-    dispatch(translateStatusSuccess(id, translation, domain, requestedMode, translationRequestId));
+    dispatch(translateStatusSuccess(id, translation, domain, requestedMode, translationRequestId, contentStatus && contentStatus.get('id')));
   }).catch(error => {
     if (!translationRequestIsCurrent()) {
       dispatch(translateStatusFail(id, error, translationRequestId, pollId, true));
@@ -645,21 +672,23 @@ export const translateStatus = (id, mode = 'translated') => (dispatch, getState)
   });
 };
 
-export const translateStatusRequest = (id, mode, translationRequestId, pollId) => ({
+export const translateStatusRequest = (id, mode, translationRequestId, pollId, contentSignature) => ({
   type: STATUS_TRANSLATE_REQUEST,
   id,
   mode,
   translationRequestId,
   pollId,
+  contentSignature,
 });
 
-export const translateStatusSuccess = (id, translation, domain, mode, translationRequestId) => ({
+export const translateStatusSuccess = (id, translation, domain, mode, translationRequestId, contentStatusId) => ({
   type: STATUS_TRANSLATE_SUCCESS,
   id,
   translation,
   domain,
   mode,
   translationRequestId,
+  contentStatusId,
 });
 
 export const translateStatusFail = (id, error, translationRequestId, pollId, skipAlert) => ({

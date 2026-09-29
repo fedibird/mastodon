@@ -56,7 +56,7 @@ class TranslateStatusService < BaseService
 
   def ensure_permitted!
     raise Mastodon::NotPermittedError unless TranslationService.configured_for?(@user)
-    raise Mastodon::NotPermittedError unless @status.distributable? || translation_backend.private_content_allowed?
+    raise Mastodon::NotPermittedError unless translation_permitted?
     return if languages[source_language]&.include?(@target_language)
 
     if @explicit_source || @explicit_target
@@ -64,6 +64,23 @@ class TranslateStatusService < BaseService
     end
 
     raise Mastodon::NotPermittedError
+  end
+
+  # Visibility is decided before any cache read. A cached translation is not
+  # returned to a viewer who fails this check.
+  def translation_permitted?
+    @status.distributable? || translation_backend.private_content_allowed? || self_authored_personal_status?
+  end
+
+  # personal is visible only to its author. DeepL may receive that text when
+  # the viewer wrote both the wrapper and the content actually translated.
+  # A personal boost of someone else's status stays denied.
+  def self_authored_personal_status?
+    return false unless @user&.account_id
+    return false unless @status.personal_visibility?
+    return false unless @status.account_id == @user.account_id
+
+    @status.proper.account_id == @user.account_id
   end
 
   # Personal backends supply their own scope. Instance backends keep v3.

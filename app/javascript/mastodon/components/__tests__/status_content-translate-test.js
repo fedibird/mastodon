@@ -515,6 +515,66 @@ describe('StatusContent translation', () => {
     });
   });
 
+  it('shows Translate and Bilingual for the viewer own personal post when private content is not allowed', () => {
+    renderStatus(buildStatus({
+      visibility: 'personal',
+      account: { id: '1' },
+    }));
+
+    expect(screen.getByRole('button', { name: 'Translate' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Bilingual' })).toBeEnabled();
+  });
+
+  it('hides translation for another account personal post, a personal boost of someone else, and the viewer own private visibilities', () => {
+    const { rerender } = renderStatus(buildStatus({
+      visibility: 'personal',
+      account: { id: '2' },
+    }));
+    expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Bilingual' })).toBeNull();
+
+    rerender(
+      <Provider store={store}>
+        <StatusContent
+          status={buildStatus({
+            visibility: 'personal',
+            account: { id: '1' },
+            reblog: { id: 's2', account: { id: '9' }, visibility: 'public' },
+          })}
+          onTranslate={jest.fn()}
+          onClick={jest.fn()}
+        />
+      </Provider>,
+    );
+    expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+
+    rerender(
+      <Provider store={store}>
+        <StatusContent
+          status={buildStatus({
+            visibility: 'personal',
+            account: { id: '1' },
+            reblog: { id: 's3', account: { id: '1' }, visibility: 'public' },
+          })}
+          onTranslate={jest.fn()}
+          onClick={jest.fn()}
+        />
+      </Provider>,
+    );
+    expect(screen.getByRole('button', { name: 'Translate' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Bilingual' })).toBeEnabled();
+
+    ['private', 'direct', 'limited', 'mutual'].forEach(visibility => {
+      rerender(
+        <Provider store={store}>
+          <StatusContent status={buildStatus({ visibility, account: { id: '1' } })} onTranslate={jest.fn()} onClick={jest.fn()} />
+        </Provider>,
+      );
+      expect(screen.queryByRole('button', { name: 'Translate' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Bilingual' })).toBeNull();
+    });
+  });
+
   it('shows Translate and Bilingual for every visibility when private content is allowed', () => {
     initialState.translationPrivateContentAllowed = true;
 
