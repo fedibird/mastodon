@@ -471,6 +471,38 @@ RSpec.describe ActivityPub::ProcessStatusUpdateService, type: :service do # rubo
       end
     end
 
+    context 'when a new remote attachment has a long description' do
+      let(:payload) do
+        {
+          id: status.uri,
+          type: 'Note',
+          content: 'Hello universe',
+          updated: '2021-09-08T22:39:25Z',
+          attachment: [
+            { type: 'Image', mediaType: 'image/png', url: 'https://example.com/long-alt.png', name: 'x' * 2_000 },
+          ],
+        }
+      end
+
+      before do
+        stub_request(:get, 'https://example.com/long-alt.png').to_return(body: attachment_fixture('emojo.png'), headers: { 'Content-Type' => 'image/png' })
+        subject.call(status, json, json)
+      end
+
+      it 'keeps the description past the local limit' do
+        expect(status.reload.ordered_media_attachments.first.description.length).to eq 2_000
+      end
+    end
+
+    it 'keeps a long description when updating an existing remote attachment' do
+      attach_remote_media(status, 'https://example.com/foo.png', description: 'short')
+      updated = json_with(attachment: [{ type: 'Image', mediaType: 'image/png', url: 'https://example.com/foo.png', summary: 'y' * 2_000 }])
+
+      subject.call(status, updated, updated)
+
+      expect(status.reload.ordered_media_attachments.first.description.length).to eq 2_000
+    end
+
     context 'when originally with media attachments' do
       let(:payload) do
         {

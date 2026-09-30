@@ -207,10 +207,40 @@ RSpec.describe MediaAttachment, type: :model do
   end
 
   describe 'descriptions for remote attachments' do
-    it 'are cut off at 1500 characters' do
-      media = Fabricate(:media_attachment, description: 'foo' * 1000, remote_url: 'http://example.com/blah.jpg')
+    it 'keeps descriptions longer than the local limit' do
+      description = 'x' * 2_000
 
-      expect(media.description.size).to be <= 1_500
+      media = Fabricate(:media_attachment, description: description, remote_url: 'https://example.com/image.jpg')
+
+      expect(media.description).to eq description
+    end
+
+    it 'truncates descriptions at the federation hard limit' do
+      media = Fabricate(
+        :media_attachment,
+        description: 'x' * (MediaAttachment::MAX_DESCRIPTION_HARD_LENGTH_LIMIT + 100),
+        remote_url: 'https://example.com/image.jpg'
+      )
+
+      expect(media.description.length).to eq MediaAttachment::MAX_DESCRIPTION_HARD_LENGTH_LIMIT
+    end
+
+    it 'strips surrounding whitespace before applying the hard limit' do
+      media = Fabricate(:media_attachment, description: '   abc   ', remote_url: 'https://example.com/image.jpg')
+
+      expect(media.description).to eq 'abc'
+    end
+  end
+
+  describe 'descriptions for local attachments' do
+    it 'accepts 1500 characters and rejects 1501' do
+      account = Fabricate(:account)
+      accepted = MediaAttachment.new(account: account, file: attachment_fixture('attachment.jpg'), description: 'x' * MediaAttachment::MAX_DESCRIPTION_LENGTH)
+      rejected = MediaAttachment.new(account: account, file: attachment_fixture('attachment.jpg'), description: 'x' * (MediaAttachment::MAX_DESCRIPTION_LENGTH + 1))
+
+      expect(accepted).to be_valid
+      expect(rejected).to_not be_valid
+      expect(rejected.errors[:description]).to be_present
     end
   end
 

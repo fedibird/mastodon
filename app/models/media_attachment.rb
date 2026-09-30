@@ -40,6 +40,7 @@ class MediaAttachment < ApplicationRecord
   ATTACHMENTS_LIMIT = 20
 
   MAX_DESCRIPTION_LENGTH = 1_500
+  MAX_DESCRIPTION_HARD_LENGTH_LIMIT = 10_000
 
   IMAGE_LIMIT = 24.megabytes
   VIDEO_LIMIT = 99.megabytes
@@ -372,7 +373,7 @@ class MediaAttachment < ApplicationRecord
   end
 
   def prepare_description
-    self.description = description.strip[0...MAX_DESCRIPTION_LENGTH] unless description.nil?
+    self.description = description.strip[0...MAX_DESCRIPTION_HARD_LENGTH_LIMIT] unless description.nil?
   end
 
   def set_type_and_extension
