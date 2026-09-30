@@ -1145,7 +1145,7 @@ body > [data-popper-placement] {
   row-gap: 4px;
   margin-block-start: 16px;
   max-width: 100%;
-  font-size: 15px;
+  font-size: calc(var(--info-font-size, 15px)*0.933);
   line-height: 22px;
   color: $dark-text-color;
 }
@@ -1201,9 +1201,14 @@ body > [data-popper-placement] {
   align-items: baseline;
   gap: 4px 12px;
   margin-top: 16px;
-  font-size: 15px;
+  font-size: calc(var(--info-font-size, 15px)*0.933);
   line-height: 22px;
   color: $dark-text-color;
+}
+
+.status__translation-bar .status__content__translate-button {
+  font-size: inherit;
+  line-height: inherit;
 }
 
 .status__translation-controls__meta {
