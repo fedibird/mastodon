@@ -2,6 +2,23 @@
 
 from dataclasses import dataclass
 
+from tests.formatter_snapshots import (
+    DOUBLE_ENCODED_HREF,
+    DOUBLE_ENCODED_INNER,
+    IDN_HREF,
+    IDN_INNER,
+    LONG_HREF,
+    LONG_INNER,
+    PERCENT_HREF,
+    PERCENT_INNER,
+    PRETTY_SHORT_ANCHOR,
+    SHORT_HREF,
+    SHORT_INNER,
+    WWW_HREF,
+    WWW_INNER,
+    status_anchor,
+)
+
 THUMBS = "\U0001f44d"
 THUMBS_TONE = "\U0001f44d\U0001f3fb"
 HEART = "\u2764\ufe0f"
@@ -94,6 +111,38 @@ HTML_FIXTURES: tuple[HtmlFixture, ...] = (
     HtmlFixture(
         "link_with_natural_language",
         '<p>Please read <a href="https://example.com/post">the article</a> today.</p>',
+    ),
+    HtmlFixture(
+        "formatter_link_html_short",
+        f"<p>See {status_anchor(SHORT_HREF, SHORT_INNER)} today.</p>",
+    ),
+    HtmlFixture(
+        "formatter_link_html_long",
+        f"<p>See {status_anchor(LONG_HREF, LONG_INNER)} today.</p>",
+    ),
+    HtmlFixture(
+        "formatter_link_html_percent20",
+        f"<p>See {status_anchor(PERCENT_HREF, PERCENT_INNER)} today.</p>",
+    ),
+    HtmlFixture(
+        "formatter_link_html_percent2520",
+        f"<p>See {status_anchor(DOUBLE_ENCODED_HREF, DOUBLE_ENCODED_INNER)} today.</p>",
+    ),
+    HtmlFixture(
+        "formatter_link_html_www",
+        f"<p>See {status_anchor(WWW_HREF, WWW_INNER)} today.</p>",
+    ),
+    HtmlFixture(
+        "formatter_link_html_idn",
+        f"<p>See {status_anchor(IDN_HREF, IDN_INNER)} today.</p>",
+    ),
+    HtmlFixture(
+        "formatter_link_html_short_pretty",
+        f"<p>See {PRETTY_SHORT_ANCHOR} today.</p>",
+    ),
+    HtmlFixture(
+        "url_between_natural_language",
+        "<p>詳細は https://example.com/foo を確認</p>",
     ),
     HtmlFixture(
         "mention_url_emoji_mixed",

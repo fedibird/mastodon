@@ -29,7 +29,8 @@ backend が変更できるのは、policy が翻訳対象にした自然言語�
 
 DOM 要素だけでなく、text node の中の次の文字列も保護します。
 
-- 絶対 `http://` / `https://` URL（anchor になっていない平文も含む）
+- 絶対 `http://` / `https://` URL（anchor になっていない平文も含む）。URL の直前が CJK や emoji でも検出します。ASCII 英数字の直後のひらがなは URL に含めません
+- URL そのものを表示している `a`（`Formatter#link_html` の短い URL を含む）。anchor 全体を一つの protected fragment にします。人間が読めるリンクラベルは翻訳対象です
 - Unicode emoji sequence（grapheme cluster 単位）
 
 保護した断片は backend に出さず、placeholder に置き換えます。

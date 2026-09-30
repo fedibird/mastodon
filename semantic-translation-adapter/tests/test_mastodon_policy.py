@@ -127,16 +127,14 @@ def test_formatted_url_and_url_anchor_are_not_sent_as_language():
         '<span class="invisible">/path</span></a></p>'
     )
     assert formatted.units == ()
-    assert [fragment.reason for fragment in formatted.protected_fragments] == [
-        "class:invisible",
-        "class:ellipsis",
-        "class:invisible",
-    ]
+    assert [fragment.reason for fragment in formatted.protected_fragments] == ["url-anchor"]
+    assert "class:ellipsis" not in [fragment.reason for fragment in formatted.protected_fragments]
 
     anchor = prepare('<p><a href="https://example.com/foo">https://example.com/foo</a></p>')
     assert anchor.units == ()
-    assert anchor.protected_fragments[0].kind == "url"
-    assert anchor.protected_fragments[0].original == "https://example.com/foo"
+    assert anchor.protected_fragments[0].kind == "element"
+    assert anchor.protected_fragments[0].reason == "url-anchor"
+    assert anchor.protected_fragments[0].original is None
 
 
 def test_plain_urls_in_text_nodes_are_placeholders():

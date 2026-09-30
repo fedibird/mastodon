@@ -37,7 +37,7 @@ from semantic_translation.core.dom import (
     parse_html,
 )
 from semantic_translation.core.errors import PlaceholderCollision, UnsupportedStructure
-from semantic_translation.core.literals import find_literal_spans
+from semantic_translation.core.literals import find_literal_spans, is_absolute_http_url, same_url_display
 from semantic_translation.core.placeholders import PlaceholderCodec, ProtectedFragment
 from semantic_translation.core.units import TranslationUnit, UnitContract
 
@@ -443,6 +443,8 @@ def _is_protected(element: etree._Element) -> bool:
         return True
     if (element.get("translate") or "").lower() == "no":
         return True
+    if _is_url_anchor(element):
+        return True
     return False
 
 
@@ -483,4 +485,43 @@ def _protection_reason(element: etree._Element) -> str:
         return "emoji-picture"
     if (element.get("translate") or "").lower() == "no":
         return "translate-no"
+    if _is_url_anchor(element):
+        return "url-anchor"
     return "unknown"
+
+
+def _is_url_anchor(element: etree._Element) -> bool:
+    """True when an anchor's own text is an HTTP(S) URL display.
+
+    Mention and hashtag anchors are classified by class before this runs.
+    A human-readable label such as ``the article`` does not match.
+    Whitespace-only text nodes are ignored so pretty-printed Formatter HTML
+    still matches. Spaces that belong to a decoded ``%20`` are kept.
+    ``.invisible`` and ``.ellipsis`` children are included in the
+    concatenation; the anchor is one fragment, not one fragment per child.
+    """
+
+    if not isinstance(element.tag, str) or element.tag != "a":
+        return False
+    href = element.get("href") or ""
+    if not is_absolute_http_url(href):
+        return False
+    return same_url_display(href, _anchor_display_text(element))
+
+
+def _anchor_display_text(element: etree._Element) -> str:
+    chunks: list[str] = []
+
+    def add(text: str | None) -> None:
+        if text and text.strip():
+            chunks.append(text)
+
+    def walk(node: etree._Element) -> None:
+        add(node.text)
+        for child in node:
+            if isinstance(child.tag, str):
+                walk(child)
+            add(child.tail)
+
+    walk(element)
+    return "".join(chunks).strip()

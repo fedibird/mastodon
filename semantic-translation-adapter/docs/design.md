@@ -30,10 +30,57 @@ translate(
 
 保護は要素だけではありません。text node 内の次も protected literal です。
 
-- plain URL text。絶対 `http://` と `https://`。Mastodon が anchor にしなかった URL と、remote HTML の平文 URL の両方が対象です。末尾の文の句読点は URL から外します。対応の取れた括弧は URL に残します。
+- plain URL text。絶対 `http://` と `https://`。Mastodon が anchor にしなかった URL と、remote HTML の平文 URL の両方が対象です。末尾の文の句読点は URL から外します。対応の取れた括弧は URL に残します。開始と終了の境界は下の「plain URL の Unicode 境界」です。
 - Unicode emoji sequence。`regex` の `\X` で grapheme cluster に分け、各 cluster を `emoji.is_emoji` で判定します。ZWJ、variation selector、skin tone、regional indicator、keycap は一つの literal です。
 
 URL の中にある emoji は URL literal の一部としてまとめて保護します。
+
+## URL を表示している anchor
+
+`a` のうち、次を両方満たすものは子へ降りません。reason `url-anchor` の protected fragment が一つです。`.invisible` や `.ellipsis` の子を、それぞれ別の fragment にはしません。
+
+- `href` が空白を含まない絶対 `http` / `https` URL
+- 子の text node を連結した文字列が、その URL の表示である
+
+連結では空白だけの text node を除きます。整形された HTML の改行やインデントは表示の一致を壊しません。`%20` をデコードした空白は text node の中に残るので、表示の一部です。
+
+一致は次で判断します。
+
+- 前後の空白と、U+200B / U+200C / U+200D / U+FEFF を除く
+- パーセントデコードした形も比べる（`display_url` は一度だけデコードする）
+- 文字列全体を casefold する
+- 片側だけ末尾に `/` が一つあっても一致とする
+
+追加の自然言語が連結結果に入ると一致しません。`<a href="https://example.com/article">the article</a>` は翻訳対象のままです。
+
+class `h-card`、`mention`、`hashtag` は、この判定より前に保護します。reason は `class:h-card`、`class:hashtag`、`class:mention` のままです。
+
+Fedibird `Formatter#link_html` の実出力はテストの fixture です。短い URL の中央 span は `class=""` です。長い URL の中央 span は `class="ellipsis"` です。`class=""` は保護 class ではないため、anchor 全体を見ない実装では `example.com/foo` が backend に出ます。`url-anchor` はその漏れを止めます。
+
+## plain URL の Unicode 境界
+
+検出は Unicode の `\w` を使いません。SNS の投稿は URL の前後に空白があるとは限りません。
+
+開始: `https://` または `http://` の直前の文字が ASCII の英数字、または `/` であるときだけ、その scheme は URL の開始にしません。ひらがな、漢字、全角記号、emoji は開始を妨げません。`詳細https://example.com/foo` の URL は `https://` から始まり、`詳細` は翻訳対象に残します。
+
+終了: 次の文字は URL 本体に含めます。
+
+- RFC 3986 に現れる ASCII（スキーム、ホスト、パス、クエリ、パーセントエンコード）
+- 上に当てはまらない非 ASCII のうち、次を除くもの
+
+次では URL を止めます。
+
+- ひらがな（U+3040–U+309F）が ASCII の英数字の直後にあるとき。`https://example.com/fooを確認` の `を確認` は翻訳対象です
+- CJK 記号（U+3000–U+303F）。`。` や `、` は URL に含めません
+- 英数字以外の全角形（U+FF00–U+FFEF）。`：` や `（` `）` は URL に含めません
+
+`.` や `/` の直後のひらがなは続けます。`https://nic.みんな/page` のような IRI のラベルを backend に分割して渡さないためです。
+
+漢字、カタカナ、ハングルを ASCII URL の直後に置くと、その文字も URL literal に入ります。`https://example.com/foo詳細` は全体が一つの URL です。これは IRI のパスを backend に渡す false negative を、隣接する漢字一語の over-protection より重大と扱うためです。A1 はこの一般解を URL 文法の完全な実装とはしません。
+
+末尾の ASCII 句読点と、開き括弧より多い閉じ括弧は、上の走査のあとで URL から外します。
+
+Mastodon / Fedibird が整形した URL は、平文検出に頼らず `url-anchor` で anchor 全体を保護します。平文として残った URL だけがこの境界の対象です。
 
 ## Placeholder
 
@@ -71,6 +118,7 @@ block container:
 - `script`、`style`、`code`、`pre`、`kbd`、`samp`、`textarea`、`svg`、`math`
 - `h-card`、`mention`、`hashtag`
 - `invisible`、`ellipsis`
+- URL を表示している `a`（reason `url-anchor`）。判定は「URL を表示している anchor」
 - class `emojione` または `custom-emoji` を持つ要素
 - それらの class を持つ `img` だけを含む `picture`
 - 既知の inline / block 一覧に無い要素。要素ごと保護し、中のテキストは翻訳しません
@@ -134,8 +182,10 @@ libxml2 の HTML parser はネストがおよそ 254 を超えるとテキスト
 - `ruby` / `rt` / `rp` は翻訳しません。
 - `alt` と `title` を含む属性は翻訳しません。
 - `:shortcode:` という平文は protected literal ではありません。custom emoji は `img` と `picture` の構造で保護します。
-- `mailto:`、`xmpp:`、`www.` だけの表記、メールアドレスは A1 の protected literal ではありません。
-- placeholder の並べ替えと、隣接 placeholder のあいだへの文字挿入は拒否します。
+- `mailto:`、`xmpp:`、`www.` だけの表記、メールアドレスは A1 の protected literal ではありません。`xmpp:` を `link_html` が整形しても `url-anchor` にはしません。中央 span の class が空なので、その表示テキストは backend に出ることがあります。
+- scheme を含まない anchor 表示（`<a href="https://example.com/foo">example.com/foo</a>`）は、連結結果が HTTP/HTTPS URL ではないため `url-anchor` にしません。
+- 一つの `a` に URL 表示と追加の文が混ざると連結結果が URL と一致せず、`class=""` の中央 span が翻訳対象に残ります。`Formatter#link_html` はその形を出しません。
+- placeholder の並べ替えと、隣接 placeholder のあいだへの文字挿入は拒否します。並べ替えを許すかは A2 の実モデル試験のあとで決めます。A1 では順序 policy を変えていません。
 - 深いネストは拒否します。parser が落としたテキストを翻訳結果にしません。
 
 IdentityBackend による往復は、byte 列の一致ではなく、parse 後の要素階層、順序、タグ名、属性、テキストが一致することです。
