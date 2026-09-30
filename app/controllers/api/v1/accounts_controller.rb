@@ -9,6 +9,7 @@ class Api::V1::AccountsController < Api::BaseController
 
   before_action :require_user!, except: [:index, :show, :create]
   before_action :set_account, except: [:index, :create]
+  before_action :check_accounts_limit, only: [:index]
   before_action :set_accounts, only: [:index]
   before_action :check_enabled_registrations, only: [:create]
 
@@ -106,7 +107,11 @@ class Api::V1::AccountsController < Api::BaseController
   end
 
   def set_accounts
-    @accounts = Account.where(id: account_ids)
+    @accounts = Account.where(id: account_ids).without_unapproved
+  end
+
+  def check_accounts_limit
+    raise(Mastodon::ValidationError) if account_ids.size > DEFAULT_ACCOUNTS_LIMIT
   end
 
   def relationships(**options)

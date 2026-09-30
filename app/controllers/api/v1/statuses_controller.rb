@@ -6,6 +6,7 @@ class Api::V1::StatusesController < Api::BaseController
   before_action -> { authorize_if_got_token! :read, :'read:statuses' }, except: [:create, :update, :destroy, :expire]
   before_action -> { doorkeeper_authorize! :write, :'write:statuses' }, only:   [:create, :update, :destroy, :expire]
   before_action :require_user!, except:      [:index, :show, :context, :updated]
+  before_action :check_statuses_limit, only: [:index]
   before_action :set_statuses, only:         [:index]
   before_action :set_updated_statuses, only: [:updated]
   before_action :set_status, only:           [:show, :context]
@@ -196,12 +197,16 @@ class Api::V1::StatusesController < Api::BaseController
     @expires_at = status_params[:expires_at] || (expires_in.nil? ? nil : (@scheduled_at || Time.now.utc) + expires_in)
   end
 
+  def check_statuses_limit
+    raise(Mastodon::ValidationError) if status_ids.size > DEFAULT_STATUSES_LIMIT
+  end
+
   def status_ids
-    Array(statuses_params[:ids]).uniq.map(&:to_i)
+    Array(statuses_params[:id]).concat(Array(statuses_params[:ids])).uniq.map(&:to_i)
   end
 
   def statuses_params
-    params.permit(ids: [])
+    params.permit(id: [], ids: [])
   end
 
   def updated_statuses_params 
