@@ -135,6 +135,7 @@ ja:
         media: メディアの添付
         mutes: ミュート
         notifications: 通知
+        profile: Mastodonのプロフィール
         push: プッシュ通知
         reports: 通報
         search: 検索
@@ -154,6 +155,7 @@ ja:
       admin:write:accounts: アカウントに対するアクションの実行
       admin:write:reports: 通報に対するアクションの実行
       follow: アカウントのつながりを変更
+      profile: アカウントのプロフィール情報の読み取りのみ
       push: プッシュ通知の受信
       read: アカウントのすべてのデータの読み取り
       read:accounts: アカウント情報の読み取り

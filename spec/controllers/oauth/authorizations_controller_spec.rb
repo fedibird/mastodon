@@ -65,6 +65,23 @@ RSpec.describe Oauth::AuthorizationsController, type: :controller do
         end
       end
 
+      it 'shows profile as a read-only permission' do
+        app.update!(scopes: 'profile')
+        get :new, params: { client_id: app.uid, response_type: 'code', redirect_uri: 'http://localhost/', scope: 'profile' }
+
+        expect(response).to have_http_status(200)
+        expect(response.body).to include('Your Mastodon profile', 'Read-only access')
+        expect(response.body).not_to include('Read and write access')
+      end
+
+      it 'renders the Japanese profile permission' do
+        user.update!(locale: 'ja')
+        app.update!(scopes: 'profile')
+        get :new, params: { client_id: app.uid, response_type: 'code', redirect_uri: 'http://localhost/', scope: 'profile' }
+
+        expect(response.body).to include('Mastodonのプロフィール', '読み取り専用アクセス')
+      end
+
       it 'renders the Japanese permission review' do
         user.update!(locale: 'ja')
         app.update!(scopes: 'read write read:accounts write:accounts')

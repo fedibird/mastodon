@@ -135,6 +135,7 @@ en:
         media: Media attachments
         mutes: Mutes
         notifications: Notifications
+        profile: Your Mastodon profile
         push: Push notifications
         reports: Reports
         search: Search
@@ -154,6 +155,7 @@ en:
       admin:write:accounts: perform moderation actions on accounts
       admin:write:reports: perform moderation actions on reports
       follow: modify account relationships
+      profile: read only your account's profile information
       push: receive your push notifications
       read: read all your account's data
       read:accounts: see accounts information

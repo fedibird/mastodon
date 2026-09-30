@@ -7,6 +7,7 @@ describe Settings::ApplicationsController do
   let!(:app) { Fabricate(:application, owner: user) }
 
   before do
+    stub_webpacker_manifest
     sign_in user, scope: :user
   end
 
@@ -37,9 +38,23 @@ describe Settings::ApplicationsController do
   end
 
   describe 'GET #new' do
-    it 'works' do
+    it 'defaults a new application to the profile scope' do
       get :new
+
       expect(response).to have_http_status(200)
+      expect(assigns(:application).scopes.to_s).to eq 'profile'
+
+      document = Nokogiri::HTML(response.body)
+      profile = document.at_css('input[type="checkbox"][value="profile"]')
+      expect(profile).to be_present
+      expect(profile['checked']).to eq 'checked'
+      expect(document.at_css('label[for="doorkeeper_application_scopes_profile"] .hint').text).to eq I18n.t('doorkeeper.scopes.profile')
+
+      %w(read write follow).each do |scope|
+        input = document.at_css(%(input[type="checkbox"][value="#{scope}"]))
+        expect(input).to be_present
+        expect(input['checked']).to be_nil
+      end
     end
   end
 
@@ -191,5 +206,12 @@ describe Settings::ApplicationsController do
     it 'should create new token' do
       expect(user.token_for_app(app)).to_not eql(token)
     end
+  end
+
+  def stub_webpacker_manifest
+    manifest = Webpacker.instance.manifest
+    resolver = ->(name, **opts) { opts[:with_integrity] ? ["/packs-test/#{name}", nil] : "/packs-test/#{name}" }
+    allow(manifest).to receive(:lookup!, &resolver)
+    allow(manifest).to receive(:lookup, &resolver)
   end
 end

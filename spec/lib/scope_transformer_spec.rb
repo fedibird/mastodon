@@ -6,6 +6,7 @@ describe ScopeTransformer do
   subject { described_class.new.apply(ScopeParser.new.parse(input)) }
 
   {
+    'profile' => [nil, 'profile', 'read'],
     'read' => [nil, 'all', 'read'],
     'write' => [nil, 'all', 'write'],
     'follow' => [nil, 'follow', 'read/write'],

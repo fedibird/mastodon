@@ -15,6 +15,19 @@ RSpec.describe Api::V1::BookmarksController, type: :controller do
     end
 
     context 'with token' do
+      context 'with only the profile scope' do
+        before do
+          allow(controller).to receive(:doorkeeper_token) do
+            Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: 'profile')
+          end
+        end
+
+        it 'returns http forbidden' do
+          get :index
+          expect(response).to have_http_status :forbidden
+        end
+      end
+
       context 'without read scope' do
         before do
           allow(controller).to receive(:doorkeeper_token) do
