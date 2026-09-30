@@ -127,6 +127,7 @@ describe Settings::ApplicationsController do
 
   describe 'PATCH #update' do
     context 'success' do
+      let!(:token) { user.token_for_app(app) }
       let(:opts) {
         {
           website: 'https://foo.bar/'
@@ -146,12 +147,74 @@ describe Settings::ApplicationsController do
         expect(app.reload.website).to eql(opts[:website])
       end
 
-      it 'redirects back to applications page' do
-        expect(call_update).to redirect_to(settings_applications_path)
+      it 'redirects back to the application page' do
+        expect(call_update).to redirect_to(settings_application_path(app))
+        expect(flash[:notice]).to eq I18n.t('generic.changes_saved_msg')
+      end
+
+      it 'keeps the existing access token' do
+        previous_scopes = token.scopes.to_s
+
+        call_update
+
+        expect(Doorkeeper::AccessToken.find_by(id: token.id)).to eq token
+        expect(user.token_for_app(app).token).to eq token.token
+        expect(user.token_for_app(app).scopes.to_s).to eq previous_scopes
+      end
+    end
+
+    context 'when scopes change' do
+      let!(:old_token) do
+        app.update!(scopes: 'read')
+        user.token_for_app(app)
+      end
+
+      it 'regenerates the access token with the new scopes' do
+        patch :update, params: {
+          id: app.id,
+          doorkeeper_application: {
+            scopes: 'profile',
+          },
+        }
+
+        expect(app.reload.scopes.to_s).to eq 'profile'
+
+        new_token = user.token_for_app(app)
+        expect(Doorkeeper::AccessToken.find_by(id: old_token.id)).to be_nil
+        expect(new_token.id).not_to eq old_token.id
+        expect(new_token.token).not_to eq old_token.token
+        expect(new_token.scopes.to_s).to eq 'profile'
+        expect(response).to redirect_to(settings_application_path(app))
+        expect(flash[:notice]).to eq I18n.t('applications.token_regenerated')
+      end
+    end
+
+    context 'when the same scopes are saved again' do
+      let!(:token) do
+        app.update!(scopes: 'read')
+        user.token_for_app(app)
+      end
+
+      it 'keeps the access token' do
+        patch :update, params: {
+          id: app.id,
+          doorkeeper_application: {
+            scopes: 'read',
+          },
+        }
+
+        expect(app.reload.scopes.to_s).to eq 'read'
+        expect(Doorkeeper::AccessToken.find_by(id: token.id)).to eq token
+        expect(user.token_for_app(app).token).to eq token.token
+        expect(response).to redirect_to(settings_application_path(app))
+        expect(flash[:notice]).to eq I18n.t('generic.changes_saved_msg')
       end
     end
 
     context 'failure' do
+      let!(:token) { user.token_for_app(app) }
+      let!(:original_scopes) { app.scopes.to_s }
+
       before do
         patch :update, params: {
           id: app.id,
@@ -170,6 +233,12 @@ describe Settings::ApplicationsController do
 
       it 'renders form again' do
         expect(response).to render_template(:show)
+      end
+
+      it 'keeps the application scopes and access token' do
+        expect(app.reload.scopes.to_s).to eq original_scopes
+        expect(Doorkeeper::AccessToken.find_by(id: token.id)).to eq token
+        expect(user.token_for_app(app).token).to eq token.token
       end
     end
   end
