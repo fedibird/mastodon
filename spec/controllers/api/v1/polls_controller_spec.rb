@@ -13,7 +13,7 @@ RSpec.describe Api::V1::PollsController, type: :controller do
     let(:poll) { Fabricate(:poll, status: Fabricate(:status, visibility: visibility)) }
 
     before do
-      get :show, params: { id: poll.id }
+      get :show, params: { id: poll.id }, format: :json
     end
 
     context 'when parent status is public' do
