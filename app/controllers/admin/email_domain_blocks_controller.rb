@@ -38,7 +38,7 @@ module Admin
           end
 
           (hostnames + ips).each do |hostname|
-            another_email_domain_block = EmailDomainBlock.new(domain: hostname, parent: @email_domain_block)
+            another_email_domain_block = EmailDomainBlock.new(domain: hostname, parent: @email_domain_block, allow_with_approval: @email_domain_block.allow_with_approval)
             log_action :create, another_email_domain_block if another_email_domain_block.save
           end
         end
@@ -63,7 +63,7 @@ module Admin
     end
 
     def resource_params
-      params.require(:email_domain_block).permit(:domain, :with_dns_records)
+      params.require(:email_domain_block).permit(:domain, :with_dns_records, :allow_with_approval)
     end
   end
 end

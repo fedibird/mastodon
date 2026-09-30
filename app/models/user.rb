@@ -46,6 +46,8 @@
 #  time_zone                 :string
 #
 
+require 'resolv'
+
 class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
   include Settings::Extend
   include UserRoles
@@ -60,6 +62,10 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
   # RegenerationWorker jobs that need to be run when those people come
   # to check their feed
   ACTIVE_DURATION = ENV.fetch('USER_ACTIVE_DAYS', 7).to_i.days.freeze
+
+  def self.skip_mx_check?
+    Rails.env.test? || Rails.env.development?
+  end
 
   devise :two_factor_authenticatable,
          otp_secret_encryption_key: Rails.configuration.x.otp_secret
@@ -201,7 +207,7 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
   def confirm
     new_user      = !confirmed?
     ready_before  = confirmed? && approved?
-    self.approved = true if open_registrations? && !sign_up_from_ip_requires_approval?
+    self.approved = true if grant_approval_on_confirmation?
 
     super
 
@@ -217,7 +223,7 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
   def confirm!
     new_user      = !confirmed?
     ready_before  = confirmed? && approved?
-    self.approved = true if open_registrations?
+    self.approved = true if grant_approval_on_confirmation?
 
     skip_confirmation!
     save!
@@ -544,7 +550,7 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
 
   def set_approved
     self.approved = begin
-      if sign_up_from_ip_requires_approval?
+      if sign_up_from_ip_requires_approval? || sign_up_email_requires_approval?
         false
       else
         open_registrations? || valid_invitation? || external?
@@ -554,6 +560,32 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
 
   def sign_up_from_ip_requires_approval?
     !sign_up_ip.nil? && IpBlock.where(severity: :sign_up_requires_approval).where('ip >>= ?', sign_up_ip.to_s).exists?
+  end
+
+  def sign_up_email_requires_approval?
+    email_address = email.presence || unconfirmed_email
+    return false if email_address.blank?
+
+    _, domain = email_address.split('@', 2)
+    return false if domain.blank?
+
+    records = []
+
+    # Doing this conditionally is not very satisfying, but this is consistent
+    # with the MX records validations we do and keeps the specs tractable.
+    unless self.class.skip_mx_check?
+      Resolv::DNS.open do |dns|
+        dns.timeouts = 5
+
+        records = dns.getresources(domain, Resolv::DNS::Resource::IN::MX).to_a.map { |e| e.exchange.to_s }.compact_blank
+      end
+    end
+
+    EmailDomainBlock.requires_approval?(records + [domain], attempt_ip: sign_up_ip)
+  end
+
+  def grant_approval_on_confirmation?
+    open_registrations? && !sign_up_from_ip_requires_approval? && !sign_up_email_requires_approval?
   end
 
   def open_registrations?
@@ -625,7 +657,7 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
   end
 
   def validate_email_dns?
-    email_changed? && !external? && !(Rails.env.test? || Rails.env.development?)
+    email_changed? && !external? && !self.class.skip_mx_check?
   end
 
   def invite_text_required?

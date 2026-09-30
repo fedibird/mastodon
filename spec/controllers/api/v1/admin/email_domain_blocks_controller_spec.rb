@@ -102,7 +102,8 @@ RSpec.describe Api::V1::Admin::EmailDomainBlocksController, type: :controller do
         expect(body_as_json.map { |entry| entry[:id] }).to eq([child_ip.id.to_s, child_mx.id.to_s, parent.id.to_s])
         expect(body_as_json.first[:id]).to be_a(String)
         expect(body_as_json.map { |entry| entry[:domain] }).to include('example.com', 'mail.example.com', '1.2.3.4')
-        expect(body_as_json.first.keys).to contain_exactly(:id, :domain, :created_at, :history)
+        expect(body_as_json.first.keys).to contain_exactly(:id, :domain, :created_at, :history, :allow_with_approval)
+        expect(body_as_json.map { |entry| entry[:allow_with_approval] }).to all(be false)
       end
 
       it 'respects the limit parameter' do
@@ -151,7 +152,8 @@ RSpec.describe Api::V1::Admin::EmailDomainBlocksController, type: :controller do
       get :show, params: { id: email_domain_block.id }, format: :json
 
       expect(response).to have_http_status(200)
-      expect(body_as_json.keys).to contain_exactly(:id, :domain, :created_at, :history)
+      expect(body_as_json.keys).to contain_exactly(:id, :domain, :created_at, :history, :allow_with_approval)
+      expect(body_as_json[:allow_with_approval]).to be false
       expect(body_as_json[:id]).to eq(email_domain_block.id.to_s)
       expect(body_as_json[:id]).to be_a(String)
       expect(body_as_json[:domain]).to eq('example.com')
@@ -182,6 +184,17 @@ RSpec.describe Api::V1::Admin::EmailDomainBlocksController, type: :controller do
       expect(response).to have_http_status(200)
       expect(body_as_json[:id]).to eq(child.id.to_s)
       expect(body_as_json[:domain]).to eq('mail.example.com')
+      expect(body_as_json[:allow_with_approval]).to be false
+      expect(body_as_json.keys).to contain_exactly(:id, :domain, :created_at, :history, :allow_with_approval)
+    end
+
+    it 'returns allow_with_approval for an approval-only block' do
+      email_domain_block.update!(allow_with_approval: true)
+
+      get :show, params: { id: email_domain_block.id }, format: :json
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json[:allow_with_approval]).to be true
     end
 
     context 'with admin:read:email_domain_blocks scope' do
@@ -218,8 +231,34 @@ RSpec.describe Api::V1::Admin::EmailDomainBlocksController, type: :controller do
       expect(response).to have_http_status(200)
       expect(body_as_json[:id]).to be_a(String)
       expect(body_as_json[:domain]).to eq('example.com')
-      expect(body_as_json.keys).to contain_exactly(:id, :domain, :created_at, :history)
+      expect(body_as_json.keys).to contain_exactly(:id, :domain, :created_at, :history, :allow_with_approval)
+      expect(body_as_json[:allow_with_approval]).to be false
+      expect(EmailDomainBlock.find(body_as_json[:id]).allow_with_approval).to be false
       expect(Admin::ActionLog.last.action).to eq(:create)
+    end
+
+    it 'saves allow_with_approval when it is true' do
+      post :create, params: { domain: 'approval.example', allow_with_approval: true }, format: :json
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json[:allow_with_approval]).to be true
+      expect(EmailDomainBlock.find(body_as_json[:id]).allow_with_approval).to be true
+      expect(body_as_json.keys).to contain_exactly(:id, :domain, :created_at, :history, :allow_with_approval)
+    end
+
+    it 'stores false when allow_with_approval is omitted' do
+      post :create, params: { domain: 'omitted.example' }, format: :json
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json[:allow_with_approval]).to be false
+      expect(EmailDomainBlock.find(body_as_json[:id]).allow_with_approval).to be false
+    end
+
+    it 'stores false when allow_with_approval is false' do
+      post :create, params: { domain: 'explicit-false.example', allow_with_approval: false }, format: :json
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json[:allow_with_approval]).to be false
     end
 
     it 'normalizes the domain' do

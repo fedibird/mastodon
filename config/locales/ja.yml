@@ -889,6 +889,7 @@ ja:
       view: ドメインブロックを表示
     email_domain_blocks:
       add_new: 新規追加
+      allow_registrations_with_approval: 承認制での新規登録を可能にする
       created_msg: メールドメインブロックに追加しました
       delete: 消去
       destroyed_msg: メールドメインブロックから外しました

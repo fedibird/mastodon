@@ -10,6 +10,21 @@ RSpec.describe EmailDomainBlock, type: :model do
     end
   end
 
+  describe 'allow_with_approval' do
+    it 'defaults to false for a new record' do
+      block = described_class.create!(domain: 'default.example')
+
+      expect(block.allow_with_approval).to be false
+      expect(block.reload.allow_with_approval).to be false
+    end
+
+    it 'can be saved as true' do
+      block = described_class.create!(domain: 'approval.example', allow_with_approval: true)
+
+      expect(block.reload.allow_with_approval).to be true
+    end
+  end
+
   describe 'associations' do
     it 'keeps parent and children' do
       parent = Fabricate(:email_domain_block, domain: 'example.com')
@@ -123,6 +138,79 @@ RSpec.describe EmailDomainBlock, type: :model do
         expect(block.history.get(now).uses).to eq 0
         expect(block.history.get(now).accounts).to eq 0
       end
+    end
+  end
+
+  describe 'hard block and approval-only exclusivity' do
+    let(:now) { Time.utc(2026, 9, 19, 12, 0, 0) }
+
+    around do |example|
+      travel_to(now) { example.run }
+    end
+
+    it 'treats a normal block as a hard block only' do
+      described_class.create!(domain: 'example.com', allow_with_approval: false)
+
+      expect(described_class.block?('alice@example.com')).to be true
+      expect(described_class.requires_approval?('alice@example.com')).to be false
+    end
+
+    it 'treats an approval-only block as approval required only' do
+      described_class.create!(domain: 'example.com', allow_with_approval: true)
+
+      expect(described_class.block?('alice@example.com')).to be false
+      expect(described_class.requires_approval?('alice@example.com')).to be true
+    end
+
+    it 'matches subdomains for an approval-only block' do
+      described_class.create!(domain: 'example.com', allow_with_approval: true)
+
+      expect(described_class.block?('alice@mail.example.com')).to be false
+      expect(described_class.requires_approval?('alice@mail.example.com')).to be true
+      expect(described_class.requires_approval?('alice@foo.mail.example.com')).to be true
+      expect(described_class.requires_approval?('alice@notexample.com')).to be false
+    end
+
+    it 'matches subdomains for a normal block without requiring approval' do
+      described_class.create!(domain: 'example.com', allow_with_approval: false)
+
+      expect(described_class.block?('alice@mail.example.com')).to be true
+      expect(described_class.requires_approval?('alice@mail.example.com')).to be false
+    end
+
+    it 'records history only on the matching hard block' do
+      hard     = described_class.create!(domain: 'example.com', allow_with_approval: false)
+      approval = described_class.create!(domain: 'approval.example', allow_with_approval: true)
+
+      expect(described_class.block?('alice@example.com', attempt_ip: '192.0.2.1')).to be true
+
+      expect(hard.history.get(now).uses).to eq 1
+      expect(hard.history.get(now).accounts).to eq 1
+      expect(approval.history.get(now).uses).to eq 0
+      expect(approval.history.get(now).accounts).to eq 0
+    end
+
+    it 'records history only on the matching approval-only block' do
+      hard     = described_class.create!(domain: 'blocked.example', allow_with_approval: false)
+      approval = described_class.create!(domain: 'example.com', allow_with_approval: true)
+
+      expect(described_class.requires_approval?('alice@example.com', attempt_ip: '192.0.2.1')).to be true
+
+      expect(approval.history.get(now).uses).to eq 1
+      expect(approval.history.get(now).accounts).to eq 1
+      expect(hard.history.get(now).uses).to eq 0
+      expect(hard.history.get(now).accounts).to eq 0
+    end
+
+    it 'does not record history on an unrelated record' do
+      unrelated = described_class.create!(domain: 'other.example', allow_with_approval: true)
+
+      expect(described_class.requires_approval?('alice@example.com', attempt_ip: '192.0.2.1')).to be false
+      expect(unrelated.history.get(now).uses).to eq 0
+    end
+
+    it 'treats invalid input as a match for approval checks' do
+      expect(described_class.requires_approval?('alice@')).to be true
     end
   end
 end

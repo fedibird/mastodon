@@ -176,6 +176,36 @@ describe EmailMxValidator do
       expect(child.history.get(now).uses).to eq 1
     end
 
+    it 'does not treat an approval-only IP child as a hard block' do
+      parent = EmailDomainBlock.create!(domain: 'approval.test', allow_with_approval: true)
+      child  = EmailDomainBlock.create!(domain: '1.2.3.4', parent: parent, allow_with_approval: true)
+      resolver = stub_resolver
+
+      allow(resolver).to receive(:getresources).with('example.com', Resolv::DNS::Resource::IN::MX).and_return([])
+      allow(resolver).to receive(:getresources).with('example.com', Resolv::DNS::Resource::IN::A).and_return([double(address: '1.2.3.4')])
+      allow(resolver).to receive(:getresources).with('example.com', Resolv::DNS::Resource::IN::AAAA).and_return([])
+
+      subject.validate(user)
+      expect(user.errors).to_not have_received(:add)
+      expect(child.history.get(now).uses).to eq 0
+      expect(parent.history.get(now).uses).to eq 0
+    end
+
+    it 'does not treat an approval-only MX hostname as a hard block' do
+      block = EmailDomainBlock.create!(domain: 'mail.example.com', allow_with_approval: true)
+      resolver = stub_resolver
+
+      allow(resolver).to receive(:getresources).with('example.com', Resolv::DNS::Resource::IN::MX).and_return([double(exchange: 'mail.example.com')])
+      allow(resolver).to receive(:getresources).with('example.com', Resolv::DNS::Resource::IN::A).and_return([])
+      allow(resolver).to receive(:getresources).with('example.com', Resolv::DNS::Resource::IN::AAAA).and_return([])
+      allow(resolver).to receive(:getresources).with('mail.example.com', Resolv::DNS::Resource::IN::A).and_return([double(address: '2.3.4.5')])
+      allow(resolver).to receive(:getresources).with('mail.example.com', Resolv::DNS::Resource::IN::AAAA).and_return([])
+
+      subject.validate(user)
+      expect(user.errors).to_not have_received(:add)
+      expect(block.history.get(now).uses).to eq 0
+    end
+
     it 'records history on both a hostname parent block and a matching IPv4 child block' do
       parent = EmailDomainBlock.create!(domain: 'mail.example.com')
       child  = EmailDomainBlock.create!(domain: '1.2.3.4', parent: parent)

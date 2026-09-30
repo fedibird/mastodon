@@ -399,6 +399,75 @@ RSpec.describe User, type: :model do
     end
   end
 
+  describe '#confirm with an approval-only email domain' do
+    around do |example|
+      registrations_mode = Setting.registrations_mode
+      Setting.registrations_mode = 'open'
+      example.run
+      Setting.registrations_mode = registrations_mode
+    end
+
+    it 'does not auto-approve when the user confirms' do
+      allow_any_instance_of(User).to receive(:send_devise_notification)
+      Fabricate(:email_domain_block, domain: 'example.com', allow_with_approval: true)
+      user = Fabricate(:user, email: 'confirm-approval@example.com', confirmed_at: nil, approved: false)
+
+      expect(user.approved).to be false
+
+      user.confirm
+
+      expect(user.reload.approved).to be false
+      expect(user).to be_confirmed
+    end
+  end
+
+  describe '#confirm! approval gate' do
+    around do |example|
+      registrations_mode = Setting.registrations_mode
+      Setting.registrations_mode = 'open'
+      example.run
+      Setting.registrations_mode = registrations_mode
+    end
+
+    before do
+      allow_any_instance_of(User).to receive(:send_devise_notification)
+      allow(UserMailer).to receive(:welcome).and_return(double(deliver_later: nil))
+      allow(BootstrapTimelineWorker).to receive(:perform_async)
+    end
+
+    it 'confirms an approval-only direct domain without approving it' do
+      Fabricate(:email_domain_block, domain: 'example.com', allow_with_approval: true)
+      user = Fabricate(:user, email: 'confirm-bang@example.com', confirmed_at: nil, approved: false)
+
+      user.confirm!
+
+      expect(user.reload).to be_confirmed
+      expect(user.approved).to be false
+    end
+
+    it 'confirms an MX hostname approval block without approving it' do
+      allow(User).to receive(:skip_mx_check?).and_return(false)
+      stub_signup_mx('example.com', 'mail.provider.example')
+      Fabricate(:email_domain_block, domain: 'mail.provider.example', allow_with_approval: true)
+      user = Fabricate(:user, email: 'mx-confirm@example.com', confirmed_at: nil, approved: false)
+
+      user.confirm!
+
+      expect(user.reload).to be_confirmed
+      expect(user.approved).to be false
+    end
+
+    it 'approves an open registration user with no approval gate' do
+      user = Fabricate(:user, email: 'open-confirm@example.com', confirmed_at: nil)
+      user.update_column(:approved, false)
+
+      user.confirm!
+
+      expect(user.reload).to be_confirmed
+      expect(user.approved).to be true
+    end
+  end
+
   describe '#enable!' do
     subject(:user) { Fabricate(:user, disabled: true) }
 
@@ -516,5 +585,16 @@ RSpec.describe User, type: :model do
         it { is_expected.to be true }
       end
     end
+  end
+
+  def stub_signup_mx(domain, mx_host, ip: '203.0.113.20')
+    resolver = double
+    allow(resolver).to receive(:timeouts=).and_return(nil)
+    allow(Resolv::DNS).to receive(:open).and_yield(resolver)
+    allow(resolver).to receive(:getresources).with(domain, Resolv::DNS::Resource::IN::MX).and_return([double(exchange: mx_host)])
+    allow(resolver).to receive(:getresources).with(domain, Resolv::DNS::Resource::IN::A).and_return([double(address: ip)])
+    allow(resolver).to receive(:getresources).with(domain, Resolv::DNS::Resource::IN::AAAA).and_return([])
+    allow(resolver).to receive(:getresources).with(mx_host, Resolv::DNS::Resource::IN::A).and_return([double(address: ip)])
+    allow(resolver).to receive(:getresources).with(mx_host, Resolv::DNS::Resource::IN::AAAA).and_return([])
   end
 end

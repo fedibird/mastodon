@@ -67,7 +67,7 @@ class EmailMxValidator < ActiveModel::Validator
   def blocked_ip?(ips, attempt_ip)
     return false if ips.blank?
 
-    blocks = EmailDomainBlock.where(domain: ips.uniq)
+    blocks = EmailDomainBlock.where(domain: ips.uniq, allow_with_approval: false)
     blocks.each { |block| block.history.add(attempt_ip) } if attempt_ip.present?
     blocks.any?
   end

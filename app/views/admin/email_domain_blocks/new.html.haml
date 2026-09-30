@@ -8,6 +8,9 @@
     = f.input :domain, wrapper: :with_block_label, label: t('admin.email_domain_blocks.domain')
 
   .fields-group
+    = f.input :allow_with_approval, as: :boolean, wrapper: :with_label, hint: false, label: I18n.t('admin.email_domain_blocks.allow_registrations_with_approval')
+
+  .fields-group
     = f.input :with_dns_records, as: :boolean, wrapper: :with_label
 
   .actions
