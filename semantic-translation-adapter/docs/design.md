@@ -150,7 +150,7 @@ class は空白区切りの token で比較します。`not-invisible` は保護
 | `unsupported_structure` | ネストが深すぎる、または inline 走査と block 判定が矛盾する |
 | `unparseable_html` | parser が失敗した |
 | `input_too_large` | UTF-8 バイト長が上限を超えた |
-| `unknown_backend` / `unknown_policy` | 名前が A1 の登録に無い |
+| `unknown_backend` / `unknown_policy` | 名前が登録に無い |
 
 ## Backend capability
 
