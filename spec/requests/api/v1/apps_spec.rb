@@ -96,6 +96,22 @@ RSpec.describe 'Apps' do
       end
     end
 
+    context 'with the profile scope' do
+      let(:scopes) { 'profile' }
+
+      it 'creates an OAuth app limited to profile', :aggregate_failures do
+        subject
+
+        expect(response).to have_http_status(200)
+
+        app = Doorkeeper::Application.find_by(name: client_name)
+
+        expect(app).to be_present
+        expect(app.scopes.to_s).to eq 'profile'
+        expect(body_as_json[:scopes]).to eq ['profile']
+      end
+    end
+
     context 'with an unsupported scope' do
       let(:scopes) { 'hoge' }
 
@@ -105,6 +121,16 @@ RSpec.describe 'Apps' do
         expect(response).to have_http_status(422)
         expect(response.content_type)
           .to start_with('application/json')
+      end
+    end
+
+    context 'with some_unknown_scope' do
+      let(:scopes) { 'some_unknown_scope' }
+
+      it 'returns http unprocessable entity' do
+        subject
+
+        expect(response).to have_http_status(422)
       end
     end
 

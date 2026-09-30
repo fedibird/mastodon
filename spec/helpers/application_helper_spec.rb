@@ -137,6 +137,16 @@ describe ApplicationHelper do
       expect(scopes.first.access).to eq 'read/write'
     end
 
+    it 'treats profile as a standalone read-only scope' do
+      scopes = helper.grouped_scopes(%w(profile))
+
+      expect(scopes.size).to eq 1
+      expect(scopes.first.namespace).to be_nil
+      expect(scopes.first.term).to eq 'profile'
+      expect(scopes.first.access).to eq 'read'
+      expect(scopes.first.key).to eq 'profile'
+    end
+
     it 'does not merge different terms' do
       scopes = helper.grouped_scopes(%w(read:accounts read:follows))
 

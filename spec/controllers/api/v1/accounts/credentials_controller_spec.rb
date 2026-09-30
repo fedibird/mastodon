@@ -107,6 +107,37 @@ describe Api::V1::Accounts::CredentialsController do
       end
     end
 
+    describe 'GET #show with the profile scope' do
+      let(:scopes) { 'profile' }
+
+      it 'returns the credential account' do
+        get :show
+
+        expect(response).to have_http_status(200)
+        expect(body_as_json[:id]).to eq user.account.id.to_s
+        expect(body_as_json[:username]).to eq 'alice'
+        expect(body_as_json).to have_key(:source)
+      end
+    end
+
+    describe 'GET #show with the read scope' do
+      let(:scopes) { 'read' }
+
+      it 'returns http success' do
+        get :show
+        expect(response).to have_http_status(200)
+      end
+    end
+
+    describe 'GET #show with write:accounts only' do
+      let(:scopes) { 'write:accounts' }
+
+      it 'returns http forbidden' do
+        get :show
+        expect(response).to have_http_status(403)
+      end
+    end
+
     describe 'PATCH #update' do
       let(:scopes) { 'write:accounts' }
 
@@ -167,6 +198,17 @@ describe Api::V1::Accounts::CredentialsController do
         it 'returns http unprocessable entity' do
           expect(response).to have_http_status(:unprocessable_entity)
         end
+      end
+    end
+
+    describe 'PATCH #update with the profile scope' do
+      let(:scopes) { 'profile' }
+
+      it 'returns http forbidden' do
+        patch :update, params: { display_name: 'Nope' }
+
+        expect(response).to have_http_status(403)
+        expect(user.account.reload.display_name).not_to eq 'Nope'
       end
     end
 
