@@ -125,6 +125,62 @@ RSpec.describe 'API V1 Accounts' do
     end
   end
 
+  describe 'POST /api/v1/accounts/:id/follow' do
+    let(:scopes) { 'write:follows' }
+
+    it 'rejects following your own account', :aggregate_failures do
+      expect do
+        post "/api/v1/accounts/#{user.account.id}/follow", headers: headers
+      end.to not_change(Follow, :count).and not_change(FollowRequest, :count)
+
+      expect(response).to have_http_status(403)
+      expect(response.content_type).to start_with('application/json')
+      expect(body_as_json.keys).to eq %i(error)
+      expect(body_as_json[:error]).to eq 'Following your own account is not allowed'
+    end
+
+    it 'returns the Japanese self-follow error' do
+      post "/api/v1/accounts/#{user.account.id}/follow", headers: headers.merge('Accept-Language' => 'ja')
+
+      expect(response).to have_http_status(403)
+      expect(body_as_json[:error]).to eq '自分のアカウントをフォローすることはできません'
+    end
+
+    context 'with the read:accounts scope' do
+      let(:scopes) { 'read:accounts' }
+
+      it 'rejects the request before the self-follow check' do
+        post "/api/v1/accounts/#{user.account.id}/follow", headers: headers
+
+        expect(response).to have_http_status(403)
+        expect(body_as_json[:error]).to eq 'This action is outside the authorized scopes'
+      end
+    end
+
+    it 'follows an unlocked account' do
+      target = Fabricate(:user).account
+
+      post "/api/v1/accounts/#{target.id}/follow", headers: headers
+
+      expect(response).to have_http_status(200)
+      expect(response.content_type).to start_with('application/json')
+      expect(body_as_json[:following]).to be true
+      expect(body_as_json[:requested]).to be false
+      expect(user.account.following?(target)).to be true
+    end
+
+    it 'requests to follow a locked account' do
+      target = Fabricate(:user, account: Fabricate(:account, locked: true)).account
+
+      post "/api/v1/accounts/#{target.id}/follow", headers: headers
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json[:following]).to be false
+      expect(body_as_json[:requested]).to be true
+      expect(user.account.requested?(target)).to be true
+    end
+  end
+
   def account_ids_from_body
     body_as_json.map { |account| account[:id] }
   end

@@ -9,6 +9,7 @@ class Api::V1::AccountsController < Api::BaseController
 
   before_action :require_user!, except: [:index, :show, :create]
   before_action :set_account, except: [:index, :create]
+  before_action :check_following_self, only: [:follow]
   before_action :check_accounts_limit, only: [:index]
   before_action :set_accounts, only: [:index]
   before_action :check_enabled_registrations, only: [:create]
@@ -104,6 +105,10 @@ class Api::V1::AccountsController < Api::BaseController
     @account = Account.find(params[:id]).tap do |account|
       account.locked = false if account == current_account && current_user.setting_unlocked_for_official_app && (mastodon_for_ios? || mastodon_for_android?)
     end
+  end
+
+  def check_following_self
+    render json: { error: I18n.t('accounts.self_follow_error') }, status: 403 if current_user.account.id == @account.id
   end
 
   def set_accounts
