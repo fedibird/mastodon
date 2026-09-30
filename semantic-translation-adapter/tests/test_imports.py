@@ -36,6 +36,10 @@ def test_backends_do_not_import_html_or_lxml():
         assert not any("lxml" in name for name in modules), path
         assert not any(name.endswith(".dom") or name.endswith(".document") for name in modules), path
         assert not any("fastapi" in name for name in modules), path
+        assert not any(name in {"torch", "transformers"} or name.startswith(("torch.", "transformers.")) for name in modules), path
+        joined = path.read_text(encoding="utf-8")
+        assert "ProtectedFragment" not in joined, path
+        assert "RestorePlan" not in joined, path
 
 
 def test_package_does_not_log_request_content():

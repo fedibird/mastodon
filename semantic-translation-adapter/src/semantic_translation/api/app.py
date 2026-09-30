@@ -8,6 +8,20 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from semantic_translation.backends.errors import (
+    BackendChoicesMissing,
+    BackendConnectionFailed,
+    BackendContentInvalid,
+    BackendContextOverflow,
+    BackendHttpError,
+    BackendInvalidJson,
+    BackendMessageMissing,
+    BackendNotConfigured,
+    BackendTimeout,
+    InvalidBackendConfiguration,
+    InvalidLanguageTag,
+    SourceLanguageRequired,
+)
 from semantic_translation.config import AdapterConfig
 from semantic_translation.core.errors import (
     DuplicatePlaceholder,
@@ -45,6 +59,18 @@ _STATUS = {
     UnknownPlaceholder.code: 422,
     DuplicatePlaceholder.code: 422,
     PlaceholderOrderMismatch.code: 422,
+    SourceLanguageRequired.code: 400,
+    InvalidLanguageTag.code: 400,
+    BackendNotConfigured.code: 503,
+    InvalidBackendConfiguration.code: 500,
+    BackendConnectionFailed.code: 502,
+    BackendTimeout.code: 504,
+    BackendHttpError.code: 502,
+    BackendInvalidJson.code: 502,
+    BackendChoicesMissing.code: 502,
+    BackendMessageMissing.code: 502,
+    BackendContentInvalid.code: 502,
+    BackendContextOverflow.code: 422,
 }
 
 

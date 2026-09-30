@@ -158,7 +158,42 @@ class は空白区切りの token で比較します。`not-invisible` は保護
 
 `StructuredLLMBackend` は unit の JSON リストを受け渡しでき、placeholder を不変にする指示も持てます。それでも HTML は受け取りません。DOM の再構築も許可しません。placeholder の validation は direct と同じです。
 
-A1 が実装しているのは `IdentityBackend` だけです。これは direct 側のテスト用 backend で、unit text をそのまま返します。次段階で TranslateGemma を `DirectTranslationBackend` として追加します。
+`IdentityBackend` は unit text をそのまま返します。A2 はこれに加えて `TranslateGemmaBackend` を direct backend として接続します。semantic core の validation、placeholder、policy は変えていません。
+
+## TranslateGemma direct backend
+
+モデル weight は Adapter の process に載せません。Adapter は torch、transformers、CUDA に依存しません。
+
+```text
+caller
+  → Semantic Translation Adapter
+  → TranslateGemmaBackend
+  → HTTP POST /v1/chat/completions
+  → local vLLM
+  → google/translategemma-12b-it
+```
+
+再現構成の vLLM は `0.30.0` です。structured content は `0.26.0` で入っています。`vllm-translategemma-*` の改変 model は使いません。server の context は公式 model card の 2K に合わせ、`--max-model-len 2048` を優先します。
+
+一つの unit が一つの request です。`messages` は user role だけで、content は公式の structured text です。`text` は `TranslationUnit.text` そのものです。system prompt、翻訳指示、HTML 説明、placeholder 説明は足しません。placeholder を守るのは A1 validation です。
+
+`temperature` は `0.0` です。`max_tokens` は `TRANSLATEGEMMA_MAX_TOKENS` です。
+
+endpoint は `TRANSLATEGEMMA_ENDPOINT` だけが決めます。API の caller は URL を渡せません。redirect は追いません。request 本文と response body はログにも例外 message にも入れません。
+
+`source_language is None` は自動検出ではありません。`source_language_required` で拒否します。`und` の検出は A3 です。
+
+言語タグは次の形だけを、書き換えずに送ります。
+
+- `xx`
+- `xx-YY` または `xx_YY`
+- `xx-Xxxx`（script。`zh-Hans` と `zh-Hant` を probe するため。`zh` や `zh-TW` へは変換しない）
+
+endpoint が未設定でも process は起動します。`backend=translategemma` の request がそのとき `backend_not_configured` になります。
+
+vLLM が context 超過を返したときは `backend_context_overflow` です。token 数の事前計測はしません。
+
+placeholder の削除、変形、重複、並べ替えは従来の A1 validation が拒否します。A2 はその規則を緩めません。並べ替えが実モデルで多いかは evaluation harness の集計を見て、次の PR で判断します。
 
 ## Parser
 
