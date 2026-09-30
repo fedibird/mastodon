@@ -616,6 +616,10 @@ Rails.application.routes.draw do
         end
       end
 
+      namespace :domain_blocks do
+        resource :preview, only: [:show]
+      end
+
       resource :domain_blocks, only: [:show, :create, :destroy]
 
       resource :directory,       only: [:show]
