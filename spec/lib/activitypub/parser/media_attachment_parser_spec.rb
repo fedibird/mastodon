@@ -52,10 +52,22 @@ describe ActivityPub::Parser::MediaAttachmentParser do
     expect(parser.blurhash).to be_nil
   end
 
-  it 'truncates the description to the media attachment limit' do
-    parser = described_class.new('summary' => 'x' * (MediaAttachment::MAX_DESCRIPTION_LENGTH + 20))
+  it 'keeps descriptions longer than the local limit' do
+    parser = described_class.new('summary' => 'x' * 2_000)
 
-    expect(parser.description.length).to eq MediaAttachment::MAX_DESCRIPTION_LENGTH
+    expect(parser.description.length).to eq 2_000
+  end
+
+  it 'keeps a description at the federation hard limit' do
+    parser = described_class.new('name' => 'y' * MediaAttachment::MAX_DESCRIPTION_HARD_LENGTH_LIMIT)
+
+    expect(parser.description.length).to eq MediaAttachment::MAX_DESCRIPTION_HARD_LENGTH_LIMIT
+  end
+
+  it 'truncates descriptions to the federation hard limit' do
+    parser = described_class.new('summary' => 'z' * 10_020)
+
+    expect(parser.description.length).to eq MediaAttachment::MAX_DESCRIPTION_HARD_LENGTH_LIMIT
   end
 
   describe '#significantly_changes?' do
