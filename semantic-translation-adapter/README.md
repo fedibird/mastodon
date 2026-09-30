@@ -39,11 +39,75 @@ DOM 要素だけでなく、text node の中の次の文字列も保護します
 
 backend の応答は信用しません。unit id の過不足と重複、placeholder の過不足、重複、改変、順序の変化、text node が無い位置への文字挿入は復元前に拒否します。失敗時は translated HTML を作りません。
 
-## A1 の範囲
+## backends
 
-実装している backend は `IdentityBackend` だけです。入力 unit をそのまま返すので、prepare から restore までの構造が保たれることをテストします。
+`IdentityBackend` は入力 unit をそのまま返します。構造が保たれることのテストに使います。
 
-TranslateGemma、llama.cpp、Ollama、vLLM、LibreTranslate、DeepL は次段階です。TranslateGemma は、HTML を見ない `DirectTranslationBackend` として追加する想定です。
+`TranslateGemmaBackend` は local vLLM へ HTTP で unit を送ります。モデルは Adapter の process には載せません。GPU、torch、transformers、CUDA は Adapter の依存ではありません。
+
+```text
+Mastodon / caller
+  → Semantic Translation Adapter
+  → TranslateGemmaBackend
+  → HTTP
+  → local vLLM
+  → google/translategemma-12b-it
+```
+
+`backend` に `translategemma` を指定します。翻訳する unit があるとき、`source` は必須です。`null` は自動検出ではなく、`source_language_required` で拒否します。unit が無い文書は HTTP を呼びません。
+
+受理する言語タグは `xx`、`xx-YY`、`xx_YY` だけです。`xx` は小文字の ISO 639-1、region は大文字の ISO 3166-1 です。`zh-Hans` と `zh-Hant` はこの backend では拒否します。成功応答は `finish_reason` が `stop` のときだけです。`length` は `backend_output_truncated` で捨てます。
+
+```json
+{
+  "html": "<p>Hello <span translate=\"no\">@alice@example.com</span></p>",
+  "source": "en",
+  "target": "ja",
+  "backend": "translategemma",
+  "policy": "mastodon-v1"
+}
+```
+
+endpoint が未設定でも API process は起動します。その backend を使った request が `backend_not_configured` になります。
+
+| 環境変数 | 意味 |
+| --- | --- |
+| `TRANSLATEGEMMA_ENDPOINT` | vLLM の origin。例: `http://127.0.0.1:8001`。path は付けません |
+| `TRANSLATEGEMMA_MODEL` | 既定値 `google/translategemma-12b-it` |
+| `TRANSLATEGEMMA_TIMEOUT` | 秒。既定値 120 |
+| `TRANSLATEGEMMA_MAX_TOKENS` | 生成上限。既定値 1024 |
+
+caller が request ごとに URL を指定することはできません。redirect は追いません。
+
+## vLLM
+
+TranslateGemma 12B の structured chat content は vLLM `0.26.0` 以降です。A2 の再現 version は **`0.30.0`** です。改変された `vllm-translategemma-*` は使いません。公式 model card の total input context は 2K tokens なので、server も 2K で起動します。
+
+```bash
+vllm serve google/translategemma-12b-it \
+  --host 127.0.0.1 \
+  --port 8001 \
+  --chat-template-content-format openai \
+  --max-model-len 2048
+```
+
+対応する container image は `vllm/vllm-openai:v0.30.0` です。CUDA 13.0 がその image の既定です。実際に評価した GPU、dtype、追加引数は evaluation report に記録します。
+
+`google/translategemma-12b-it` は Hugging Face の gated model です。利用者は Google / Gemma の利用条件を確認し、自分の環境で model access を用意します。weight と token はこの repository に含まれません。
+
+評価は固定文だけを、起動中の endpoint に流します。
+
+```bash
+cd semantic-translation-adapter
+TRANSLATEGEMMA_ENDPOINT=http://127.0.0.1:8001 \
+  python3.12 scripts/evaluate_translategemma.py \
+  --output translategemma-eval.jsonl \
+  --gpu "not recorded" \
+  --cuda "not recorded" \
+  --dtype "not recorded"
+```
+
+server に届かないときは翻訳結果を作らず終了します。placeholder の順序規則はこの測定では変えません。
 
 ## API
 
@@ -72,6 +136,6 @@ python3.12 -m pip install -e '.[dev]'
 python3.12 -m pytest
 ```
 
-実行時の依存は FastAPI、Pydantic、lxml、regex、emoji です。core domain は FastAPI に依存しません。httpx は API テスト用の開発依存で、A1 は外部の翻訳 API を呼びません。
+実行時の依存は FastAPI、Pydantic、lxml、regex、emoji、httpx です。core domain は FastAPI に依存しません。httpx は vLLM への HTTP と API テストに使います。torch と transformers は依存に入っていません。
 
 設計の詳細は [docs/design.md](docs/design.md) です。

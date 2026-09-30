@@ -150,7 +150,7 @@ class は空白区切りの token で比較します。`not-invisible` は保護
 | `unsupported_structure` | ネストが深すぎる、または inline 走査と block 判定が矛盾する |
 | `unparseable_html` | parser が失敗した |
 | `input_too_large` | UTF-8 バイト長が上限を超えた |
-| `unknown_backend` / `unknown_policy` | 名前が A1 の登録に無い |
+| `unknown_backend` / `unknown_policy` | 名前が登録に無い |
 
 ## Backend capability
 
@@ -158,7 +158,43 @@ class は空白区切りの token で比較します。`not-invisible` は保護
 
 `StructuredLLMBackend` は unit の JSON リストを受け渡しでき、placeholder を不変にする指示も持てます。それでも HTML は受け取りません。DOM の再構築も許可しません。placeholder の validation は direct と同じです。
 
-A1 が実装しているのは `IdentityBackend` だけです。これは direct 側のテスト用 backend で、unit text をそのまま返します。次段階で TranslateGemma を `DirectTranslationBackend` として追加します。
+`IdentityBackend` は unit text をそのまま返します。A2 はこれに加えて `TranslateGemmaBackend` を direct backend として接続します。semantic core の validation、placeholder、policy は変えていません。
+
+## TranslateGemma direct backend
+
+モデル weight は Adapter の process に載せません。Adapter は torch、transformers、CUDA に依存しません。
+
+```text
+caller
+  → Semantic Translation Adapter
+  → TranslateGemmaBackend
+  → HTTP POST /v1/chat/completions
+  → local vLLM
+  → google/translategemma-12b-it
+```
+
+再現構成の vLLM は `0.30.0` です。structured content は `0.26.0` で入っています。`vllm-translategemma-*` の改変 model は使いません。server の context は公式 model card の 2K に合わせ、`--max-model-len 2048` を優先します。
+
+一つの unit が一つの request です。`messages` は user role だけで、content は公式の structured text です。`text` は `TranslationUnit.text` そのものです。system prompt、翻訳指示、HTML 説明、placeholder 説明は足しません。placeholder を守るのは A1 validation です。
+
+`temperature` は `0.0` です。`max_tokens` は `TRANSLATEGEMMA_MAX_TOKENS` です。成功するのは `choices[0].finish_reason` が `"stop"` で、`message.content` が string のときだけです。`"length"` は `backend_output_truncated` で、placeholder が残っていても採用しません。欠落、string でない値、その他の finish reason は `backend_finish_reason_invalid` です。どちらも HTTP 502 で、message は固定文です。
+
+endpoint は `TRANSLATEGEMMA_ENDPOINT` だけが決めます。API の caller は URL を渡せません。redirect は追いません。request 本文と response body はログにも例外 message にも入れません。
+
+unit が空のとき `translate` は検証も HTTP もせず `[]` を返します。unit が 1 件以上で `source_language is None` のときは自動検出ではなく `source_language_required` です。`und` の検出は A3 です。unit が 1 件以上で endpoint が無いときは `backend_not_configured` です。
+
+この backend が送る言語タグは次だけです。書き換えません。
+
+- `xx`。lowercase の ISO 639-1 Alpha-2
+- `xx-YY` または `xx_YY`。region は uppercase の ISO 3166-1 Alpha-2
+
+`zh-Hans` と `zh-Hant` は HTTP の前に `invalid_language_tag` で拒否します。Fedibird の言語意味論は変えません。A2 は `zh-Hans` / `zh-Hant` を `zh` や `zh-TW` に写像しません。実モデル probe は同一の中国語文で `zh`、`zh-CN`、`zh-TW` を比べます。model が unsupported language を返しても、別コードへ fallback しません。
+
+endpoint が未設定でも process は起動します。`backend=translategemma` の request がそのとき `backend_not_configured` になります。
+
+vLLM が context 超過を返したときは `backend_context_overflow` です。token 数の事前計測はしません。
+
+placeholder の削除、変形、重複、並べ替えは従来の A1 validation が拒否します。A2 はその規則を緩めません。並べ替えが実モデルで多いかは evaluation harness の集計を見て、次の PR で判断します。
 
 ## Parser
 
