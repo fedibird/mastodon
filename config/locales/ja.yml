@@ -82,6 +82,7 @@ ja:
       group: Group
       moderator: Mod
     secret: 非公開
+    self_follow_error: 自分のアカウントをフォローすることはできません
     unavailable: プロフィールは利用できません
     unfollow: フォロー解除
   account_subscribes:

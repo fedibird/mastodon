@@ -88,6 +88,7 @@ en:
       group: Group
       moderator: Mod
     secret: Secret
+    self_follow_error: Following your own account is not allowed
     unavailable: Profile unavailable
     unfollow: Unfollow
   account_subscribes:
