@@ -635,6 +635,7 @@ Rails.application.routes.draw do
       resources :notifications, only: [:index, :show] do
         collection do
           post :clear
+          get :unread_count
         end
 
         member do
