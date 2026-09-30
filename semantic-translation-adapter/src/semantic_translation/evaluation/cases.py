@@ -1,7 +1,8 @@
 """Fixed evaluation sentences.
 
 These strings are part of the adapter test suite. The harness must not be
-pointed at live user posts.
+pointed at live user posts. A model error for one language tag is recorded
+as that tag's result. The harness does not retry the case with another tag.
 """
 
 from dataclasses import dataclass
@@ -194,27 +195,19 @@ EVAL_CASES: tuple[EvalCase, ...] = (
         1,
     ),
     EvalCase(
+        "zh_cn_ja_probe",
+        "<p>今天天气很好。</p>",
+        "zh-CN",
+        "ja",
+        ("script:zh-CN",),
+        0,
+    ),
+    EvalCase(
         "zh_tw_ja_probe",
         "<p>今天天气很好。</p>",
         "zh-TW",
         "ja",
         ("script:zh-TW",),
-        0,
-    ),
-    EvalCase(
-        "zh_hans_ja_probe",
-        "<p>今天天气很好。</p>",
-        "zh-Hans",
-        "ja",
-        ("script:zh-Hans",),
-        0,
-    ),
-    EvalCase(
-        "zh_hant_ja_probe",
-        "<p>今天天气很好。</p>",
-        "zh-Hant",
-        "ja",
-        ("script:zh-Hant",),
         0,
     ),
     EvalCase(
@@ -242,9 +235,8 @@ REQUIRED_GROUPS: frozenset[str] = frozenset(
         "language:zh-ja",
         "language:ko-ja",
         "script:zh",
+        "script:zh-CN",
         "script:zh-TW",
-        "script:zh-Hans",
-        "script:zh-Hant",
         "placeholders:none",
         "placeholders:one",
         "placeholders:two",

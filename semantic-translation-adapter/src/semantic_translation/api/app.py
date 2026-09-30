@@ -13,7 +13,9 @@ from semantic_translation.backends.errors import (
     BackendConnectionFailed,
     BackendContentInvalid,
     BackendContextOverflow,
+    BackendFinishReasonInvalid,
     BackendHttpError,
+    BackendOutputTruncated,
     BackendInvalidJson,
     BackendMessageMissing,
     BackendNotConfigured,
@@ -71,6 +73,8 @@ _STATUS = {
     BackendMessageMissing.code: 502,
     BackendContentInvalid.code: 502,
     BackendContextOverflow.code: 422,
+    BackendOutputTruncated.code: 502,
+    BackendFinishReasonInvalid.code: 502,
 }
 
 

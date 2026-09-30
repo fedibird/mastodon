@@ -84,6 +84,20 @@ class BackendContentInvalid(SemanticTranslationError):
         super().__init__("Translation backend response content is not a string.")
 
 
+class BackendOutputTruncated(SemanticTranslationError):
+    code = "backend_output_truncated"
+
+    def __init__(self) -> None:
+        super().__init__("Translation backend stopped because the output reached its length limit.")
+
+
+class BackendFinishReasonInvalid(SemanticTranslationError):
+    code = "backend_finish_reason_invalid"
+
+    def __init__(self) -> None:
+        super().__init__("Translation backend returned an unexpected finish reason.")
+
+
 class BackendContextOverflow(SemanticTranslationError):
     code = "backend_context_overflow"
 

@@ -10,10 +10,12 @@ from semantic_translation.backends.errors import (
     BackendConnectionFailed,
     BackendContentInvalid,
     BackendContextOverflow,
+    BackendFinishReasonInvalid,
     BackendHttpError,
     BackendInvalidJson,
     BackendMessageMissing,
     BackendNotConfigured,
+    BackendOutputTruncated,
     BackendTimeout,
     InvalidBackendConfiguration,
     InvalidLanguageTag,
@@ -56,11 +58,14 @@ def _backend(handler, **overrides) -> tuple[TranslateGemmaBackend, list[httpx.Re
     return backend, seen
 
 
-def _ok(text: str) -> httpx.Response:
-    return httpx.Response(
-        200,
-        json={"choices": [{"message": {"role": "assistant", "content": text}}]},
-    )
+_MISSING = object()
+
+
+def _ok(text: str, finish_reason: object = "stop") -> httpx.Response:
+    choice: dict[str, object] = {"message": {"role": "assistant", "content": text}}
+    if finish_reason is not _MISSING:
+        choice["finish_reason"] = finish_reason
+    return httpx.Response(200, json={"choices": [choice]})
 
 
 def _payload(request: httpx.Request) -> dict:
@@ -151,11 +156,31 @@ def test_invalid_json_choices_message_and_content_are_distinct():
         (httpx.Response(200, content=b"not-json {"), BackendInvalidJson),
         (httpx.Response(200, json={"id": "x"}), BackendChoicesMissing),
         (httpx.Response(200, json={"choices": []}), BackendChoicesMissing),
-        (httpx.Response(200, json={"choices": [{}]}), BackendMessageMissing),
-        (httpx.Response(200, json={"choices": [{"message": {}}]}), BackendContentInvalid),
-        (httpx.Response(200, json={"choices": [{"message": {"content": None}}]}), BackendContentInvalid),
+        (httpx.Response(200, json={"choices": [{}]}), BackendFinishReasonInvalid),
+        (httpx.Response(200, json={"choices": [{"finish_reason": "stop"}]}), BackendMessageMissing),
         (
-            httpx.Response(200, json={"choices": [{"message": {"content": [{"type": "text", "text": SECRET}]}}]}),
+            httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {}}]}),
+            BackendContentInvalid,
+        ),
+        (
+            httpx.Response(
+                200,
+                json={"choices": [{"finish_reason": "stop", "message": {"content": None}}]},
+            ),
+            BackendContentInvalid,
+        ),
+        (
+            httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {"content": [{"type": "text", "text": SECRET}]},
+                        }
+                    ]
+                },
+            ),
             BackendContentInvalid,
         ),
     )
@@ -200,7 +225,7 @@ def test_missing_source_is_rejected_before_any_request():
     assert SECRET not in str(caught.value)
 
 
-@pytest.mark.parametrize("tag", ["zh", "zh-TW", "zh-Hans", "zh-Hant", "en", "ja", "ko", "en-US", "en_US"])
+@pytest.mark.parametrize("tag", ["zh", "zh-CN", "zh-TW", "en", "ja", "ko", "en-US", "en_US"])
 def test_language_tags_are_forwarded_without_rewriting(tag: str):
     assert validated_language_tag(tag, source=True) == tag
     backend, seen = _backend(lambda _request: _ok("訳"))
@@ -211,11 +236,63 @@ def test_language_tags_are_forwarded_without_rewriting(tag: str):
     assert content["text"] == "fixed probe"
 
 
-@pytest.mark.parametrize("tag", ["", "und", "EN", "zh-hans", "zh-Hant-TW", "zh-CN ", "en US"])
+@pytest.mark.parametrize("tag", ["", "und", "EN", "zh-hans", "zh-Hans", "zh-Hant", "zh-Hant-TW", "zh-CN ", "en US"])
 def test_language_tags_outside_the_contract_are_rejected(tag: str):
     backend, seen = _backend(lambda _request: _ok("訳"))
     with pytest.raises(InvalidLanguageTag):
         backend.translate([TranslationUnit("u-0000", SECRET)], tag, "ja")
+    assert seen == []
+
+
+@pytest.mark.parametrize("tag", ["zh-Hans", "zh-Hant"])
+def test_script_subtags_are_rejected_before_any_request(tag: str):
+    backend, seen = _backend(lambda _request: _ok("訳"))
+    with pytest.raises(InvalidLanguageTag) as caught:
+        backend.translate([TranslationUnit("u-0000", SECRET)], tag, "ja")
+    assert seen == []
+    assert tag not in str(caught.value)
+    assert SECRET not in str(caught.value)
+
+
+def test_stop_finish_reason_with_string_content_is_accepted():
+    backend, _seen = _backend(lambda _request: _ok("こんにちは", "stop"))
+    translated = backend.translate([TranslationUnit("u-0000", "Hello")], "en", "ja")
+    assert translated == [TranslatedUnit("u-0000", "こんにちは")]
+
+
+@pytest.mark.parametrize(
+    "source_text,content",
+    [
+        ("See {{MSTDN_P_0000}} {{MSTDN_P_0001}} today", "訳 {{MSTDN_P_0000}} {{MSTDN_P_0001}} 今日"),
+        ("Hello there", "こんにちは"),
+    ],
+)
+def test_length_finish_reason_is_truncated_even_when_placeholders_survive(source_text: str, content: str):
+    backend, _seen = _backend(lambda _request: _ok(content, "length"))
+    with pytest.raises(BackendOutputTruncated) as caught:
+        backend.translate([TranslationUnit("u-0000", source_text)], "en", "ja")
+    assert caught.value.code == "backend_output_truncated"
+    assert source_text not in str(caught.value)
+    assert content not in str(caught.value)
+    assert caught.value.__cause__ is None
+
+
+@pytest.mark.parametrize("finish_reason", [_MISSING, None, 1, "content_filter"])
+def test_missing_or_unexpected_finish_reason_is_rejected(finish_reason: object):
+    content = "訳 {{MSTDN_P_0000}}"
+    backend, _seen = _backend(lambda _request: _ok(content, finish_reason))
+    with pytest.raises(BackendFinishReasonInvalid) as caught:
+        backend.translate([TranslationUnit("u-0000", SECRET)], "en", "ja")
+    assert SECRET not in str(caught.value)
+    assert content not in str(caught.value)
+
+
+def test_empty_unit_list_does_not_validate_or_call_the_network():
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("network")
+
+    backend, seen = _backend(handler, endpoint=None)
+    assert backend.translate([], None, "ja") == []
     assert seen == []
 
 

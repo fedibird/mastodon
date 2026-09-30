@@ -22,7 +22,9 @@ from semantic_translation.backends.errors import (
     BackendConnectionFailed,
     BackendContentInvalid,
     BackendContextOverflow,
+    BackendFinishReasonInvalid,
     BackendHttpError,
+    BackendOutputTruncated,
     BackendInvalidJson,
     BackendMessageMissing,
     BackendNotConfigured,
@@ -45,13 +47,10 @@ _ENV_TIMEOUT = "TRANSLATEGEMMA_TIMEOUT"
 _ENV_MAX_TOKENS = "TRANSLATEGEMMA_MAX_TOKENS"
 _FORK_MODEL_MARKER = "vllm-translategemma"
 
-# Official contract: ISO 639-1, or that code plus an ISO 3166-1 region with
-# "-" or "_". A single BCP 47 script subtag (zh-Hans, zh-Hant) is forwarded
-# unchanged so a probe can see whether the model accepts it. Tags are not
-# case-folded and are not mapped onto a different tag.
-_LANGUAGE_TAG = re.compile(
-    r"(?:[a-z]{2}|[a-z]{2}[-_][A-Z]{2}|[a-z]{2}-[A-Z][a-z]{3})\Z"
-)
+# TranslateGemma wire contract only. This does not rewrite Fedibird language
+# tags. Script subtags such as zh-Hans and zh-Hant are rejected here; A3 may
+# map them after a measured probe. Tags are not case-folded.
+_LANGUAGE_TAG = re.compile(r"(?:[a-z]{2}|[a-z]{2}[-_][A-Z]{2})\Z")
 _CONTEXT_OVERFLOW_MARKERS = (
     "context length",
     "context_length_exceeded",
@@ -120,6 +119,8 @@ class TranslateGemmaBackend:
         source_language: str | None,
         target_language: str,
     ) -> list[TranslatedUnit]:
+        if not units:
+            return []
         source = validated_language_tag(source_language, source=True)
         target = validated_language_tag(target_language, source=False)
         endpoint = self._endpoint()
@@ -219,13 +220,27 @@ def _content_from_payload(payload: object) -> str:
     choices = payload.get("choices")
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
         raise BackendChoicesMissing()
-    message = choices[0].get("message")
+    choice = choices[0]
+    _require_stop(choice)
+    message = choice.get("message")
     if not isinstance(message, dict):
         raise BackendMessageMissing()
     content = message.get("content") if "content" in message else None
     if not isinstance(content, str):
         raise BackendContentInvalid()
     return content
+
+
+def _require_stop(choice: dict[str, object]) -> None:
+    """Accept only a completed generation. ``length`` is an incomplete translation."""
+
+    if "finish_reason" not in choice:
+        raise BackendFinishReasonInvalid()
+    reason = choice.get("finish_reason")
+    if reason == "length":
+        raise BackendOutputTruncated()
+    if reason != "stop":
+        raise BackendFinishReasonInvalid()
 
 
 def _is_context_overflow(response: httpx.Response) -> bool:

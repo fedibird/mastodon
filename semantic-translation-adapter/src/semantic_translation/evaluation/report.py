@@ -28,6 +28,21 @@ _COUNTED_ERRORS = frozenset(
         "placeholder_order_mismatch",
     }
 )
+# These failures mean the server did not accept the generation. Truncation
+# and finish-reason rejection happen after HTTP 200, so they stay accepted
+# at the HTTP layer and still count as other_backend_failure.
+_HTTP_NOT_ACCEPTED = frozenset(
+    {
+        "backend_connection_failed",
+        "backend_timeout",
+        "backend_http_error",
+        "backend_context_overflow",
+        "backend_not_configured",
+        "invalid_language_tag",
+        "source_language_required",
+        "invalid_backend_configuration",
+    }
+)
 
 
 def execute_case(case: EvalCase, *, backend: TranslationBackend, policy: TranslationPolicy) -> dict[str, Any]:
@@ -49,6 +64,7 @@ def execute_case(case: EvalCase, *, backend: TranslationBackend, policy: Transla
             exact=None,
             order=None,
             latency=latency,
+            http_accepted=exc.code not in _HTTP_NOT_ACCEPTED,
         )
     latency = time.perf_counter() - started
     translated_text = "\n".join(unit.text for unit in translated)
@@ -66,6 +82,7 @@ def execute_case(case: EvalCase, *, backend: TranslationBackend, policy: Transla
             exact=exact,
             order=order,
             latency=latency,
+            http_accepted=True,
         )
     return _record(
         case,
@@ -76,6 +93,7 @@ def execute_case(case: EvalCase, *, backend: TranslationBackend, policy: Transla
         exact=exact,
         order=order,
         latency=latency,
+        http_accepted=True,
     )
 
 
@@ -106,6 +124,7 @@ def _record(
     exact: bool | None,
     order: bool | None,
     latency: float,
+    http_accepted: bool,
 ) -> dict[str, Any]:
     return {
         "case": case.name,
@@ -114,6 +133,7 @@ def _record(
         "target": case.target,
         "source_text": source_text,
         "translated_text": translated_text,
+        "http_accepted": http_accepted,
         "validation_passed": validation_passed,
         "error_code": error_code,
         "placeholder_exact_preservation": exact,

@@ -177,17 +177,18 @@ caller
 
 一つの unit が一つの request です。`messages` は user role だけで、content は公式の structured text です。`text` は `TranslationUnit.text` そのものです。system prompt、翻訳指示、HTML 説明、placeholder 説明は足しません。placeholder を守るのは A1 validation です。
 
-`temperature` は `0.0` です。`max_tokens` は `TRANSLATEGEMMA_MAX_TOKENS` です。
+`temperature` は `0.0` です。`max_tokens` は `TRANSLATEGEMMA_MAX_TOKENS` です。成功するのは `choices[0].finish_reason` が `"stop"` で、`message.content` が string のときだけです。`"length"` は `backend_output_truncated` で、placeholder が残っていても採用しません。欠落、string でない値、その他の finish reason は `backend_finish_reason_invalid` です。どちらも HTTP 502 で、message は固定文です。
 
 endpoint は `TRANSLATEGEMMA_ENDPOINT` だけが決めます。API の caller は URL を渡せません。redirect は追いません。request 本文と response body はログにも例外 message にも入れません。
 
-`source_language is None` は自動検出ではありません。`source_language_required` で拒否します。`und` の検出は A3 です。
+unit が空のとき `translate` は検証も HTTP もせず `[]` を返します。unit が 1 件以上で `source_language is None` のときは自動検出ではなく `source_language_required` です。`und` の検出は A3 です。unit が 1 件以上で endpoint が無いときは `backend_not_configured` です。
 
-言語タグは次の形だけを、書き換えずに送ります。
+この backend が送る言語タグは次だけです。書き換えません。
 
-- `xx`
-- `xx-YY` または `xx_YY`
-- `xx-Xxxx`（script。`zh-Hans` と `zh-Hant` を probe するため。`zh` や `zh-TW` へは変換しない）
+- `xx`。lowercase の ISO 639-1 Alpha-2
+- `xx-YY` または `xx_YY`。region は uppercase の ISO 3166-1 Alpha-2
+
+`zh-Hans` と `zh-Hant` は HTTP の前に `invalid_language_tag` で拒否します。Fedibird の言語意味論は変えません。A2 は `zh-Hans` / `zh-Hant` を `zh` や `zh-TW` に写像しません。実モデル probe は同一の中国語文で `zh`、`zh-CN`、`zh-TW` を比べます。model が unsupported language を返しても、別コードへ fallback しません。
 
 endpoint が未設定でも process は起動します。`backend=translategemma` の request がそのとき `backend_not_configured` になります。
 

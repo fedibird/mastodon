@@ -54,7 +54,9 @@ Mastodon / caller
   → google/translategemma-12b-it
 ```
 
-`backend` に `translategemma` を指定します。`source` は必須です。`null` は自動検出ではなく、`source_language_required` で拒否します。
+`backend` に `translategemma` を指定します。翻訳する unit があるとき、`source` は必須です。`null` は自動検出ではなく、`source_language_required` で拒否します。unit が無い文書は HTTP を呼びません。
+
+受理する言語タグは `xx`、`xx-YY`、`xx_YY` だけです。`xx` は小文字の ISO 639-1、region は大文字の ISO 3166-1 です。`zh-Hans` と `zh-Hant` はこの backend では拒否します。成功応答は `finish_reason` が `stop` のときだけです。`length` は `backend_output_truncated` で捨てます。
 
 ```json
 {

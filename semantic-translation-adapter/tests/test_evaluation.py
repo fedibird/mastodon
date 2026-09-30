@@ -6,9 +6,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+from semantic_translation.backends.errors import BackendHttpError, BackendOutputTruncated
 from semantic_translation.core.placeholders import PlaceholderCodec
 from semantic_translation.evaluation.cases import EVAL_CASES, REQUIRED_GROUPS
-from semantic_translation.evaluation.report import summarize
+from semantic_translation.evaluation.report import execute_case, summarize
 from semantic_translation.policies.mastodon_v1 import MastodonV1Policy
 
 
@@ -19,11 +20,16 @@ def test_required_evaluation_groups_are_present_once():
     assert len(names) == len(set(names))
 
 
-def test_script_probes_keep_distinct_tags_and_the_same_sentence():
-    probes = {case.source: case for case in EVAL_CASES if case.name.endswith("_probe") or case.name == "zh_ja_plain"}
-    assert set(probes) == {"zh", "zh-TW", "zh-Hans", "zh-Hant"}
-    html = {case.html for case in probes.values()}
-    assert html == {"<p>今天天气很好。</p>"}
+def test_chinese_probes_use_one_sentence_and_official_region_tags():
+    probes = {
+        case.source: case
+        for case in EVAL_CASES
+        if any(group.startswith("script:") for group in case.groups)
+    }
+    assert set(probes) == {"zh", "zh-CN", "zh-TW"}
+    assert {case.html for case in probes.values()} == {"<p>今天天气很好。</p>"}
+    assert all(case.target == "ja" for case in probes.values())
+    assert not any(case.source in {"zh-Hans", "zh-Hant"} for case in EVAL_CASES)
 
 
 def test_placeholder_cases_match_mastodon_v1_units():
@@ -69,6 +75,33 @@ def test_harness_writes_no_translations_when_the_endpoint_is_missing(tmp_path, m
     assert "SECRET" not in summary_path.read_text(encoding="utf-8")
 
 
+def test_truncated_output_is_an_accepted_http_response_and_an_other_failure():
+    case = next(item for item in EVAL_CASES if item.name == "zh_cn_ja_probe")
+
+    class Truncated:
+        id = "translategemma"
+
+        def translate(self, units, source_language, target_language):
+            raise BackendOutputTruncated()
+
+    class Rejected:
+        id = "translategemma"
+
+        def translate(self, units, source_language, target_language):
+            raise BackendHttpError()
+
+    truncated = execute_case(case, backend=Truncated(), policy=MastodonV1Policy())
+    rejected = execute_case(case, backend=Rejected(), policy=MastodonV1Policy())
+    assert truncated["http_accepted"] is True
+    assert truncated["validation_passed"] is False
+    assert truncated["error_code"] == "backend_output_truncated"
+    assert truncated["translated_text"] is None
+    assert rejected["http_accepted"] is False
+    assert rejected["error_code"] == "backend_http_error"
+    assert summarize([truncated, rejected])["other_backend_failure"] == 2
+    assert "今天天气很好" not in str(truncated["error_code"])
+
+
 def test_summary_counts_validation_codes_and_other_failures():
     records = [
         {"validation_passed": True, "error_code": None},
@@ -79,13 +112,14 @@ def test_summary_counts_validation_codes_and_other_failures():
         {"validation_passed": False, "error_code": "placeholder_order_mismatch"},
         {"validation_passed": False, "error_code": "backend_timeout"},
         {"validation_passed": False, "error_code": "backend_context_overflow"},
+        {"validation_passed": False, "error_code": "backend_output_truncated"},
     ]
     assert summarize(records) == {
-        "total": 8,
+        "total": 9,
         "valid": 2,
         "missing_placeholder": 1,
         "unknown_placeholder": 1,
         "duplicate_placeholder": 1,
         "placeholder_order_mismatch": 1,
-        "other_backend_failure": 2,
+        "other_backend_failure": 3,
     }
