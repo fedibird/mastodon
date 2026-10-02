@@ -41,12 +41,17 @@ class StatusesController < ApplicationController
   end
 
   def references
+    # not_found starts its own respond_to. Calling it from inside this
+    # action's HTML format block makes Rails raise RespondToMismatchError
+    # when the request accepts both HTML and JSON.
+    if request.format.html?
+      expires_in 10.seconds, public: true if current_account.nil?
+      set_references
+      return not_found if @references.blank?
+    end
+
     respond_to do |format|
-      format.html do
-        expires_in 10.seconds, public: true if current_account.nil?
-        set_references
-        return not_found unless @references.present?
-      end
+      format.html
 
       format.json do
         redirect_to account_status_references_url(@account, @status)
