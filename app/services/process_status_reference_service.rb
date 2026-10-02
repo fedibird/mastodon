@@ -104,6 +104,9 @@ class ProcessStatusReferenceService
     urls.uniq!
 
     domains      = urls.filter_map { |url| Addressable::URI.parse(url)&.normalized_host }.uniq
+    # Shorteners are not fediverse nodes. Resolving them here would HTTP
+    # from the post request before redirect preparation runs.
+    domains.reject! { |host| FetchLinkCardService.redirect_target_host?(host) }
     node_domains = domains.filter_map { |host| Node.resolve_domain(host)&.domain }
     node_urls    = urls.filter { |url| node_domains.include?(Addressable::URI.parse(url)&.normalized_host) }
 

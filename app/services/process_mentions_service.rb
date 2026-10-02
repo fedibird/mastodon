@@ -31,7 +31,7 @@ class ProcessMentionsService < BaseService
       persist_mentions!(status)
     end
 
-    record_and_deliver!(explicit)
+    record_and_deliver!(status, explicit)
     explicit
   end
 
@@ -62,7 +62,11 @@ class ProcessMentionsService < BaseService
   # Moderation rows plus mention notification and ActivityPub delivery.
   # Call only after the status transaction has committed so a Sidekiq
   # worker cannot run against a status or mention that is not yet visible.
-  def record_and_deliver!(mentions)
+  # Omit +mentions+ to reload explicit (non-silent) rows from a persisted
+  # status. Silent audience rows are not delivered.
+  def record_and_deliver!(status, mentions = nil)
+    @status = status
+    mentions = status.mentions.active.includes(:account).to_a if mentions.nil?
     mentions = Array(mentions)
     record_moderation_mentions!(mentions)
     deliver_mention_notifications(mentions)

@@ -295,9 +295,10 @@ RSpec.describe PostStatusService, type: :service do
       expect(ApplicationRecord.connection.open_transactions).to be > baseline
       method.call(status)
     end
-    expect(mention_service).to receive(:record_and_deliver!).ordered.and_wrap_original do |method, mentions|
+    expect(mention_service).to receive(:record_and_deliver!).ordered.and_wrap_original do |method, status, mentions = nil|
+      expect(status).to be_persisted
       expect(ApplicationRecord.connection.open_transactions).to eq baseline
-      method.call(mentions)
+      method.call(status, mentions)
     end
 
     status = subject.call(account, text: 'test status update')
@@ -329,14 +330,15 @@ RSpec.describe PostStatusService, type: :service do
     expect(ActivityPub::DistributionWorker).to have_received(:perform_async).with(status.id)
   end
 
-  it 'crawls links' do
-    worker = instance_double(LinkCrawlWorker, perform: true)
-    allow(LinkCrawlWorker).to receive(:new).and_return(worker)
+  it 'enqueues link crawling instead of running it inline' do
+    allow(LinkCrawlWorker).to receive(:perform_async)
+    expect(LinkCrawlWorker).not_to receive(:new)
+    expect(StatusPublishPreparationWorker).not_to receive(:perform_async)
     account = Fabricate(:account)
 
-    status = subject.call(account, text: "test status update")
+    status = subject.call(account, text: 'test status update')
 
-    expect(worker).to have_received(:perform).with(status.id)
+    expect(LinkCrawlWorker).to have_received(:perform_async).with(status.id)
   end
 
   it 'attaches the given media to the created status' do
@@ -635,6 +637,122 @@ RSpec.describe PostStatusService, type: :service do
 
       expect(status.mentions.find_by!(account: group)).not_to be_silent
       expect(reblog_service).to have_received(:call)
+    end
+  end
+
+  context 'when publishing is gated on redirect resolution' do
+    let(:account) { Fabricate(:account) }
+
+    before do
+      allow(DistributionWorker).to receive(:perform_async)
+      allow(PriorityDistributionWorker).to receive(:perform_async)
+      allow(ActivityPub::DistributionWorker).to receive(:perform_async)
+      allow(LinkCrawlWorker).to receive(:perform_async)
+      allow(StatusPublishPreparationWorker).to receive(:perform_async)
+      allow(LocalNotificationWorker).to receive(:perform_async)
+      allow(ActivityPub::DeliveryWorker).to receive(:perform_async)
+    end
+
+    it 'publishes a status with no URL without an external request' do
+      expect(Request).not_to receive(:new)
+
+      status = subject.call(account, text: 'test status update')
+
+      expect(status).to be_persisted
+      expect(StatusPublishPreparationWorker).not_to have_received(:perform_async)
+      expect(DistributionWorker).to have_received(:perform_async).with(status.id)
+      expect(ActivityPub::DistributionWorker).to have_received(:perform_async).with(status.id)
+      expect(LinkCrawlWorker).to have_received(:perform_async).with(status.id)
+      expect(StatusPublishPreparationService.new.marked?(status)).to be false
+    end
+
+    it 'publishes an ordinary URL without waiting for a preview card' do
+      # Unknown hosts are still looked up as possible fediverse nodes.
+      # That lookup is not link crawling, and is not part of this barrier.
+      allow(Node).to receive(:resolve_domain).and_return(nil)
+      expect(Request).not_to receive(:new)
+
+      status = subject.call(account, text: 'read https://example.com/article')
+
+      expect(StatusPublishPreparationWorker).not_to have_received(:perform_async)
+      expect(DistributionWorker).to have_received(:perform_async).with(status.id)
+      expect(ActivityPub::DistributionWorker).to have_received(:perform_async).with(status.id)
+      expect(LinkCrawlWorker).to have_received(:perform_async).with(status.id)
+      expect(status.preview_cards).to be_empty
+    end
+
+    it 'publishes immediately when the redirect target is already known' do
+      short_url = 'https://bit.ly/known'
+      final_url = 'https://example.com/known-target'
+      RedirectLink.create!(url: short_url, redirected_url: final_url)
+      expect(Request).not_to receive(:new)
+
+      status = subject.call(account, text: "see #{short_url}")
+
+      expect(StatusPublishPreparationWorker).not_to have_received(:perform_async)
+      expect(DistributionWorker).to have_received(:perform_async).with(status.id)
+      expect(ActivityPub::DistributionWorker).to have_received(:perform_async).with(status.id)
+      expect(Formatter.instance.format(status, rest: true)).to include(%(href="#{final_url}"))
+    end
+
+    it 'does not publish while a redirect URL is unresolved' do
+      alice = Fabricate(:account, username: 'alice')
+      remote = Fabricate(:account, username: 'remote_user', protocol: :activitypub, domain: 'example.com', inbox_url: 'http://example.com/inbox')
+      group = Fabricate(:user, account: Fabricate(:account, username: 'localsquad', actor_type: 'Group')).account
+      reblog_service = instance_double(ReblogService, call: nil)
+      allow(ReblogService).to receive(:new).and_return(reblog_service)
+      expect(Request).not_to receive(:new)
+
+      status = subject.call(account, text: "https://bit.ly/pending @alice @remote_user@example.com @localsquad")
+
+      expect(status).to be_persisted
+      expect(status.mentions.find_by(account: alice)).to be_present
+      expect(StatusPublishPreparationWorker).to have_received(:perform_async).with(status.id)
+      expect(StatusPublishPreparationService.new.marked?(status)).to be true
+      expect(DistributionWorker).not_to have_received(:perform_async)
+      expect(PriorityDistributionWorker).not_to have_received(:perform_async)
+      expect(ActivityPub::DistributionWorker).not_to have_received(:perform_async)
+      expect(LocalNotificationWorker).not_to have_received(:perform_async)
+      expect(ActivityPub::DeliveryWorker).not_to have_received(:perform_async)
+      expect(reblog_service).not_to have_received(:call)
+      expect(LinkCrawlWorker).not_to have_received(:perform_async)
+    end
+
+    it 'keeps waiting when only one of two redirect URLs is known' do
+      RedirectLink.create!(url: 'https://bit.ly/ready', redirected_url: 'https://example.com/ready')
+
+      status = subject.call(account, text: 'https://bit.ly/ready https://t.co/waiting')
+
+      expect(StatusPublishPreparationWorker).to have_received(:perform_async).with(status.id)
+      expect(DistributionWorker).not_to have_received(:perform_async)
+      expect(StatusPublishPreparationService.new.unresolved_redirect_urls(status)).to eq ['https://t.co/waiting']
+    end
+
+    it 'publishes when every redirect URL is already known' do
+      RedirectLink.create!(url: 'https://bit.ly/ready', redirected_url: 'https://example.com/ready')
+      RedirectLink.create!(url: 'https://t.co/ready', redirected_url: 'https://example.org/ready')
+
+      status = subject.call(account, text: 'https://bit.ly/ready https://t.co/ready')
+
+      expect(StatusPublishPreparationWorker).not_to have_received(:perform_async)
+      expect(DistributionWorker).to have_received(:perform_async).with(status.id)
+      expect(ActivityPub::DistributionWorker).to have_received(:perform_async).with(status.id)
+    end
+
+    it 'logs and does not publish when preparation cannot be enqueued' do
+      allow(StatusPublishPreparationWorker).to receive(:perform_async).and_raise(Redis::CannotConnectError, 'redis down')
+      allow(Rails.logger).to receive(:error)
+
+      status = nil
+      expect do
+        status = subject.call(account, text: 'https://bit.ly/enqueue-failed')
+      end.not_to raise_error
+
+      expect(status).to be_persisted
+      expect(DistributionWorker).not_to have_received(:perform_async)
+      expect(ActivityPub::DistributionWorker).not_to have_received(:perform_async)
+      expect(StatusPublishPreparationService.new.marked?(status)).to be true
+      expect(Rails.logger).to have_received(:error).with(/failed to enqueue status=#{status.id}/)
     end
   end
 

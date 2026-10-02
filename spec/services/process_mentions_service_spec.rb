@@ -126,4 +126,20 @@ RSpec.describe ProcessMentionsService, type: :service do # rubocop:disable Metri
       expect(LocalNotificationWorker).not_to have_received(:perform_async)
     end
   end
+
+  context 'when delivering for a persisted status' do
+    let(:remote_user) { Fabricate(:account, username: 'remote_user', protocol: :activitypub, domain: 'example.com', inbox_url: 'http://example.com/inbox') }
+
+    it 'reloads explicit mentions and does not deliver silent audience rows' do
+      status.mentions.create!(account: remote_user)
+      status.mentions.create!(account: Fabricate(:account, username: 'quiet'), silent: true)
+      allow(ActivityPub::DeliveryWorker).to receive(:perform_async)
+      allow(LocalNotificationWorker).to receive(:perform_async)
+
+      ProcessMentionsService.new.record_and_deliver!(status)
+
+      expect(ActivityPub::DeliveryWorker).to have_received(:perform_async).once
+      expect(LocalNotificationWorker).not_to have_received(:perform_async)
+    end
+  end
 end

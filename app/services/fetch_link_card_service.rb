@@ -83,6 +83,23 @@ class FetchLinkCardService < BaseService
     nil
   end
 
+  # URLs in the status text. No HTTP. A single unparsable URL is skipped
+  # so one bad token does not hide another redirect target.
+  def self.extract_urls(status)
+    new.extract_urls(status)
+  end
+
+  def extract_urls(status)
+    @status = status
+    return parse_urls unless status.local?
+
+    urls = scan_local_urls(status.text.to_s)
+    urls.concat(local_reference_urls(status))
+    urls.uniq.reject { |uri| bad_url?(uri) }.map(&:to_s)
+  rescue Addressable::URI::InvalidURIError, ArgumentError
+    []
+  end
+
   private
 
   def process_url
@@ -116,6 +133,22 @@ class FetchLinkCardService < BaseService
   def attach_card
     @status.preview_cards << @card
     StatusStat.find_by(status_id: @status.id)&.touch || StatusStat.create!(status_id: @status.id)
+  end
+
+  def scan_local_urls(text)
+    text.scan(URL_PATTERN).filter_map do |array|
+      Addressable::URI.parse(array[1]).normalize
+    rescue Addressable::URI::InvalidURIError, ArgumentError
+      nil
+    end
+  end
+
+  def local_reference_urls(status)
+    return [] unless status.persisted? && status.references.exists?
+
+    [Addressable::URI.parse(references_short_account_status_url(status.account, status)).normalize]
+  rescue Addressable::URI::InvalidURIError, ArgumentError
+    []
   end
 
   def parse_urls

@@ -146,6 +146,32 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
         end
       end
 
+      context 'with an unresolved redirect URL' do
+        let(:scopes) { 'write:statuses' }
+
+        before do
+          allow(StatusPublishPreparationWorker).to receive(:perform_async)
+          allow(DistributionWorker).to receive(:perform_async)
+          allow(ActivityPub::DistributionWorker).to receive(:perform_async)
+          allow(LinkCrawlWorker).to receive(:perform_async)
+        end
+
+        it 'returns the created status as processing without fetching the link' do
+          expect(Request).not_to receive(:new)
+
+          post :create, params: { status: 'see https://bit.ly/pending' }
+
+          expect(response).to have_http_status(200)
+          body = body_as_json
+          status = user.account.statuses.find(body[:id])
+          expect(status.text).to eq 'see https://bit.ly/pending'
+          expect(body[:processing]).to be true
+          expect(StatusPublishPreparationWorker).to have_received(:perform_async).with(status.id)
+          expect(DistributionWorker).not_to have_received(:perform_async)
+          expect(LinkCrawlWorker).not_to have_received(:perform_async)
+        end
+      end
+
       context 'with missing parameters' do
         before do
           post :create, params: {}

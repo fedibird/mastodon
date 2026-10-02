@@ -112,3 +112,12 @@ RSpec.describe FetchLinkCardService, type: :service do
     end
   end
 end
+
+RSpec.describe FetchLinkCardService, '.extract_urls' do
+  it 'returns normalized URLs without HTTP' do
+    status = Fabricate(:status, text: 'see https://bit.ly/abc and https://example.com/a')
+
+    expect(Request).not_to receive(:new)
+    expect(described_class.extract_urls(status)).to include('https://bit.ly/abc', 'https://example.com/a')
+  end
+end
