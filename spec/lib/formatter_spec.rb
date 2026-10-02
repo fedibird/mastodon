@@ -642,6 +642,61 @@ RSpec.describe Formatter do
     end
   end
 
+  describe 'remote HTML with an invalid IDN anchor' do
+    let(:linked_account) do
+      Fabricate(
+        :account,
+        username: 'alice',
+        domain: 'valid.example',
+        url: 'https://valid.example/users/alice',
+        uri: 'https://valid.example/users/alice'
+      )
+    end
+    let(:bad_href) { 'https://broken-idn.example/path' }
+    let(:html) { %(<p><a href="#{bad_href}">broken label</a> <a href="#{linked_account.url}">alice</a></p>) }
+    let(:status) { Fabricate(:status, account: remote_account, text: html) }
+
+    def stub_normalize(error)
+      allow(Addressable::URI).to receive(:parse).and_wrap_original do |method, value|
+        uri = method.call(value)
+        allow(uri).to receive(:normalize).and_raise(error) if value.to_s == bad_href
+        uri
+      end
+    end
+
+    it 'formats the remote status without raising and keeps the broken anchor' do
+      stub_normalize(IDN::Idna::IdnaError.new('Punycode failed (2)'))
+
+      formatted = nil
+      expect { formatted = Formatter.instance.format(status) }.not_to raise_error
+
+      fragment = Nokogiri::HTML.fragment(formatted)
+      broken = fragment.at_css(%(a[href="#{bad_href}"]))
+
+      expect(broken).not_to be_nil
+      expect(broken.text).to eq 'broken label'
+      expect(broken['class'].to_s).not_to include('account-url-link')
+    end
+
+    it 'keeps decorating a later valid anchor after the IDN failure' do
+      stub_normalize(IDN::Idna::IdnaError.new('Punycode failed (2)'))
+
+      fragment = Nokogiri::HTML.fragment(Formatter.instance.format(status))
+      valid = fragment.at_css(%(a[href="#{linked_account.url}"]))
+
+      expect(valid).not_to be_nil
+      expect(valid['class']).to include('account-url-link')
+      expect(valid['data-account-id']).to eq linked_account.id.to_s
+      expect(valid.text).to eq 'alice'
+    end
+
+    it 'does not rescue unrelated normalize errors' do
+      stub_normalize(RuntimeError.new('not an idn error'))
+
+      expect { Formatter.instance.format(status) }.to raise_error(RuntimeError, 'not an idn error')
+    end
+  end
+
   describe '#sanitize' do
     let(:html) { '<script>alert("Hello")</script>' }
 

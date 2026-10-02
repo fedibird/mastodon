@@ -500,7 +500,7 @@ class Formatter
     doc.css('a').each do |x|
       begin
         href = Addressable::URI.parse(x['href']).normalize.to_s
-      rescue ArgumentError, Addressable::URI::InvalidURIError
+      rescue ArgumentError, Addressable::URI::InvalidURIError, IDN::Idna::IdnaError
         next
       end
 
