@@ -200,15 +200,18 @@ class PostStatusService < BaseService
   end
 
   def postprocess_status!
-    PollExpirationNotifyWorker.perform_at(@status.poll.expires_at, @status.poll.id) if @status.poll
-    @status.status_expire.queue_action if expires_soon?
-
     preparation = StatusPublishPreparationService.new
     if preparation.unresolved_redirect_urls(@status).any?
       defer_publish_until_redirects_resolve!(preparation)
     else
       PublishStatusService.new.call(@status)
     end
+
+    # Ancillary schedules run after publish has started. A failure here
+    # must not skip distribution or preparation. Expiry timestamps stay
+    # on the status; they are not delayed for redirect resolution.
+    PollExpirationNotifyWorker.perform_at(@status.poll.expires_at, @status.poll.id) if @status.poll
+    @status.status_expire.queue_action if expires_soon?
   end
 
   # Status is already committed. An enqueue failure must not publish an

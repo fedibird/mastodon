@@ -6,8 +6,10 @@ class StatusPublishPreparationService < BaseService
   include Redisable
 
   MARKER = 'StatusPublishPreparationWorker'
+  LINK_CRAWL_MARKER = 'LinkCrawlWorker'
   # Long enough to cover ExponentialBackoff before the last of 6 retries.
   PROCESSING_TTL = 6.hours.to_i
+  LINK_CRAWL_TTL = 15.minutes.to_i
 
   def unresolved_redirect_urls(status)
     return [] if status.nil?
@@ -35,10 +37,18 @@ class StatusPublishPreparationService < BaseService
     redis.sismember(processing_key(id_of(status_or_id)), MARKER)
   end
 
+  def add_link_crawl!(status)
+    key = processing_key(status.id)
+    redis.sadd(key, LINK_CRAWL_MARKER)
+    ttl = redis.ttl(key)
+    # Leave a longer marker, such as redirect preparation, on its own TTL.
+    redis.expire(key, LINK_CRAWL_TTL) if ttl.negative? || ttl < LINK_CRAWL_TTL
+  end
+
   def clear!(status_or_id)
     key = processing_key(id_of(status_or_id))
     redis.srem(key, MARKER)
-    redis.del(key) if redis.scard(key) <= 0
+    adjust_processing_ttl!(key)
   end
 
   private
@@ -48,6 +58,15 @@ class StatusPublishPreparationService < BaseService
     host.present? && FetchLinkCardService.redirect_target_host?(host)
   rescue Addressable::URI::InvalidURIError, ArgumentError
     false
+  end
+
+  def adjust_processing_ttl!(key)
+    members = redis.smembers(key)
+    if members.empty?
+      redis.del(key)
+    elsif members == [LINK_CRAWL_MARKER]
+      redis.expire(key, LINK_CRAWL_TTL)
+    end
   end
 
   def processing_key(status_id)

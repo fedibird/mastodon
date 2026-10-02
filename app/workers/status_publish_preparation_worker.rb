@@ -51,8 +51,18 @@ class StatusPublishPreparationWorker
     end
 
     touch_status_stat!(status)
-    PublishStatusService.new.call(status)
+    publish!(status)
     preparation.clear!(status)
+  end
+
+  # A nil return is not success. The completion marker is the only signal
+  # that every publish call returned.
+  def publish!(status)
+    service = PublishStatusService.new
+    service.call(status)
+    return if service.published?(status)
+
+    raise PublishStatusService::NotPublished, "status #{status.id} was not published"
   end
 
   def resolve_all!(status)

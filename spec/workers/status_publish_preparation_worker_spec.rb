@@ -51,6 +51,10 @@ RSpec.describe StatusPublishPreparationWorker do
     expect(LinkCrawlWorker).to have_received(:perform_async).with(status.id)
     expect(status.reload.preview_cards).to be_empty
     expect(preparation.marked?(status)).to be false
+    expect(preparation.redis.smembers("statuses/#{status.id}/processing")).to eq [StatusPublishPreparationService::LINK_CRAWL_MARKER]
+    ttl = preparation.redis.ttl("statuses/#{status.id}/processing")
+    expect(ttl).to be_positive
+    expect(ttl).to be <= StatusPublishPreparationService::LINK_CRAWL_TTL
   end
 
   it 'puts the final redirect target in the remote mention payload' do
@@ -211,6 +215,51 @@ RSpec.describe StatusPublishPreparationWorker do
     expect(DistributionWorker).not_to have_received(:perform_async)
     expect(preparation.marked?(status)).to be false
     expect(Rails.logger).to have_received(:error).with(/retries exhausted status=#{status.id} urls=#{Regexp.escape(url)} error=ResolveRedirectLinkService::TemporaryFailure/)
+  end
+
+  it 'keeps preparation when publish fails, then completes on retry' do
+    url = 'https://bit.ly/publish-retry'
+    status = create_deferred_status(url)
+    stub_get(url, code: 200, final_url: 'https://example.com/publish-retry')
+    stub_get('https://example.com/publish-retry', code: 200, final_url: 'https://example.com/publish-retry')
+    allow(ActivityPub::DistributionWorker).to receive(:perform_async).and_raise(Redis::CannotConnectError, 'down')
+
+    expect { subject.perform(status.id) }.to raise_error(Redis::CannotConnectError)
+    expect(preparation.marked?(status)).to be true
+    expect(PublishStatusService.new.published?(status)).to be false
+
+    allow(ActivityPub::DistributionWorker).to receive(:perform_async)
+    subject.perform(status.id)
+
+    expect(PublishStatusService.new.published?(status)).to be true
+    expect(preparation.marked?(status)).to be false
+  end
+
+  it 'does not clear preparation when publish returns without a completion marker' do
+    url = 'https://bit.ly/nil-publish'
+    status = create_deferred_status(url)
+    stub_get(url, code: 200, final_url: 'https://example.com/nil-publish')
+    stub_get('https://example.com/nil-publish', code: 200, final_url: 'https://example.com/nil-publish')
+    allow_any_instance_of(PublishStatusService).to receive(:call).and_return(nil)
+
+    expect { subject.perform(status.id) }.to raise_error(PublishStatusService::NotPublished)
+    expect(preparation.marked?(status)).to be true
+    expect(PublishStatusService.new.published?(status)).to be false
+    expect(DistributionWorker).not_to have_received(:perform_async)
+  end
+
+  it 'does not shorten the processing TTL while another marker remains' do
+    status = Fabricate(:status)
+    preparation.mark!(status)
+    preparation.add_link_crawl!(status)
+    preparation.redis.sadd("statuses/#{status.id}/processing", 'RedirectLinkResolveWorker:https://example.test/x')
+
+    preparation.clear!(status)
+
+    members = preparation.redis.smembers("statuses/#{status.id}/processing")
+    expect(members).to include(StatusPublishPreparationService::LINK_CRAWL_MARKER, 'RedirectLinkResolveWorker:https://example.test/x')
+    expect(members).not_to include(StatusPublishPreparationService::MARKER)
+    expect(preparation.redis.ttl("statuses/#{status.id}/processing")).to be > StatusPublishPreparationService::LINK_CRAWL_TTL
   end
 
   it 'clears the marker when the status has been deleted' do

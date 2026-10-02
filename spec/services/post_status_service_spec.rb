@@ -739,6 +739,32 @@ RSpec.describe PostStatusService, type: :service do
       expect(ActivityPub::DistributionWorker).to have_received(:perform_async).with(status.id)
     end
 
+    it 'starts publishing before poll expiration scheduling can fail' do
+      allow(PollExpirationNotifyWorker).to receive(:perform_at).and_raise(Redis::CannotConnectError, 'poll down')
+
+      expect do
+        subject.call(account, text: 'vote', poll: { options: %w(Yes No), expires_in: 1.day.to_i })
+      end.to raise_error(Redis::CannotConnectError)
+
+      status = account.statuses.find_by!(text: 'vote')
+      expect(DistributionWorker).to have_received(:perform_async).with(status.id)
+      expect(ActivityPub::DistributionWorker).to have_received(:perform_async).with(status.id)
+      expect(PublishStatusService.new.published?(status)).to be true
+    end
+
+    it 'enqueues redirect preparation before poll expiration scheduling can fail' do
+      allow(PollExpirationNotifyWorker).to receive(:perform_at).and_raise(Redis::CannotConnectError, 'poll down')
+
+      expect do
+        subject.call(account, text: 'https://bit.ly/vote', poll: { options: %w(Yes No), expires_in: 1.day.to_i })
+      end.to raise_error(Redis::CannotConnectError)
+
+      status = account.statuses.find_by!(text: 'https://bit.ly/vote')
+      expect(StatusPublishPreparationWorker).to have_received(:perform_async).with(status.id)
+      expect(DistributionWorker).not_to have_received(:perform_async)
+      expect(StatusPublishPreparationService.new.marked?(status)).to be true
+    end
+
     it 'logs and does not publish when preparation cannot be enqueued' do
       allow(StatusPublishPreparationWorker).to receive(:perform_async).and_raise(Redis::CannotConnectError, 'redis down')
       allow(Rails.logger).to receive(:error)

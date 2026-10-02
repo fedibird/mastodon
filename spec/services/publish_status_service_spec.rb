@@ -50,6 +50,26 @@ RSpec.describe PublishStatusService, type: :service do
     expect(LocalNotificationWorker).not_to have_received(:perform_async)
   end
 
+  it 'retries publish when federation enqueue fails before the completion marker' do
+    calls = 0
+    allow(ActivityPub::DistributionWorker).to receive(:perform_async) do
+      calls += 1
+      raise Redis::CannotConnectError, 'down' if calls == 1
+    end
+
+    expect { subject.call(status) }.to raise_error(Redis::CannotConnectError)
+    expect(subject.published?(status)).to be false
+    expect(DistributionWorker).to have_received(:perform_async).with(status.id).once
+    expect(LinkCrawlWorker).not_to have_received(:perform_async)
+
+    subject.call(status)
+
+    expect(subject.published?(status)).to be true
+    expect(DistributionWorker).to have_received(:perform_async).with(status.id).twice
+    expect(ActivityPub::DistributionWorker).to have_received(:perform_async).with(status.id).twice
+    expect(LinkCrawlWorker).to have_received(:perform_async).with(status.id).once
+  end
+
   it 'delivers explicit mentions from the persisted status' do
     alice = Fabricate(:account, username: 'alice')
     status.mentions.create!(account: alice)
