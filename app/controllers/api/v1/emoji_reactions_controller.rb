@@ -54,7 +54,9 @@ class Api::V1::EmojiReactionsController < Api::BaseController
   end
 
   def representative_emoji_reaction_ids
-    scope = current_account.emoji_reactions.group(:status_id)
+    # Join through EmojiReaction#status so Discard's deleted_at filter applies
+    # before LIMIT. The association unscope leaves expired statuses included.
+    scope = current_account.emoji_reactions.joins(:status).group(:status_id)
     limit = limit_param(DEFAULT_STATUSES_LIMIT)
     page = params_slice(:max_id, :since_id, :min_id)
 

@@ -148,14 +148,33 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
         lookups = reaction_lookup_queries(queries)
 
         expect(grouped.size).to eq 1
+        expect(grouped.first).to match(/INNER JOIN "statuses"/)
+        expect(grouped.first).to match(/"statuses"\."deleted_at" IS NULL/)
+        expect(grouped.first).not_to match(/"statuses"\."expired_at"/)
         expect(grouped.first).to match(/ORDER BY MIN\("emoji_reactions"\."id"\) DESC/)
         expect(grouped.first).to match(/LIMIT/)
-        expect(grouped.first).not_to match(/JOIN/i)
         expect(grouped.first).not_to match(/"emoji_reactions"\."id" IN \(/)
         expect(lookups.size).to eq 1
         expect(in_list_size(lookups.first)).to eq 2
         expect(lookups.first).not_to match(/GROUP BY/i)
         expect(queries.grep(/IN \(SELECT/i)).to be_empty
+      end
+
+      it 'does not let a discarded status consume the representative limit' do
+        status_a = Fabricate(:status, account: user.account)
+        status_b = Fabricate(:status, account: user.account)
+        status_c = Fabricate(:status, account: user.account)
+        insert_reaction(id: 100, status: status_a)
+        insert_reaction(id: 200, status: status_b)
+        insert_reaction(id: 300, status: status_c)
+        status_c.discard
+
+        get :index, params: { limit: 2 }
+
+        expect(EmojiReaction.where(status_id: status_c.id, id: 300)).to exist
+        expect(status_ids).to eq [status_b.id.to_s, status_a.id.to_s]
+        expect(response.headers['Link'].find_link(%w(rel next)).href).to eq 'http://test.host/api/v1/emoji_reactions?limit=2&max_id=100'
+        expect(response.headers['Link'].find_link(%w(rel prev)).href).to eq 'http://test.host/api/v1/emoji_reactions?limit=2&min_id=200'
       end
 
       it 'filters emojis on the existing representative query' do
