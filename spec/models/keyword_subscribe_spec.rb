@@ -341,4 +341,100 @@ RSpec.describe KeywordSubscribe, type: :model do # rubocop:disable Metrics/Block
       expect(described_class.match?('foo', account_id: account.id, list_id: list.id)).to be true
     end
   end
+
+  describe 'regexp timeout isolation' do # rubocop:disable Metrics/BlockLength
+    def timeout_regexp
+      regexp = instance_double(Regexp)
+      allow(regexp).to receive(:match?).and_raise(Regexp::TimeoutError)
+      regexp
+    end
+
+    def stub_keyword_timeout(subscription)
+      allow(subscription).to receive(:keyword_regexp).and_return(timeout_regexp)
+    end
+
+    it 'treats a positive keyword timeout as a non-match and logs the subscription' do
+      list = Fabricate(:list, account: account)
+      subscription = subscribe('secret-keyword-should-not-log', list_id: list.id).tap(&:save!)
+      status_text = 'status body that must not be logged'
+      stub_keyword_timeout(subscription)
+      allow(Rails.logger).to receive(:warn)
+
+      expect { subscription.match?(status_text) }.not_to raise_error
+      expect(subscription.match?(status_text)).to be false
+      expect(subscription.reload.disabled).to be false
+
+      expect(Rails.logger).to have_received(:warn).with(a_string_including(
+                                                          '[KeywordSubscribe]',
+                                                          "id=#{subscription.id}",
+                                                          "account_id=#{subscription.account_id}",
+                                                          "list_id=#{list.id}",
+                                                          'phase=keyword',
+                                                          'Regexp::TimeoutError'
+                                                        )).at_least(:once)
+
+      expect(Rails.logger).not_to have_received(:warn).with(/secret-keyword-should-not-log/)
+      expect(Rails.logger).not_to have_received(:warn).with(/status body that must not be logged/)
+    end
+
+    it 'fails closed when the exclude keyword times out' do
+      subscription = subscribe('foo', exclude_keyword: 'secret-exclude-should-not-log').tap(&:save!)
+      status_text = 'foo and a body that must not be logged'
+      allow(subscription).to receive(:exclude_keyword_regexp).and_return(timeout_regexp)
+      allow(Rails.logger).to receive(:warn)
+
+      result = nil
+      expect { result = subscription.match?(status_text) }.not_to raise_error
+
+      expect(result).to be false
+      expect(result).not_to be true
+      expect(Rails.logger).to have_received(:warn).with(a_string_including(
+                                                          "id=#{subscription.id}",
+                                                          "account_id=#{subscription.account_id}",
+                                                          'list_id=nil',
+                                                          'phase=exclude',
+                                                          'Regexp::TimeoutError'
+                                                        ))
+      expect(Rails.logger).not_to have_received(:warn).with(/secret-exclude-should-not-log/)
+      expect(Rails.logger).not_to have_received(:warn).with(/foo and a body that must not be logged/)
+    end
+
+    it 'keeps evaluating a later subscription after a timeout' do
+      timed_out = described_class.create!(account: account, keyword: 'alpha', name: 'timeout')
+      described_class.create!(account: account, keyword: 'beta', name: 'match')
+      allow(described_class).to(receive(:active).and_wrap_original { |method| method.call.order(:id) })
+      allow_any_instance_of(described_class).to receive(:keyword_regexp).and_wrap_original do |method|
+        next timeout_regexp if method.receiver.id == timed_out.id
+
+        method.call
+      end
+      allow(Rails.logger).to receive(:warn)
+
+      expect { described_class.match?('beta', account_id: account.id) }.not_to raise_error
+      expect(described_class.match?('beta', account_id: account.id)).to be true
+      expect(Rails.logger).to have_received(:warn).with(/id=#{timed_out.id}.*phase=keyword/).at_least(:once)
+    end
+
+    it 'returns false when a timeout is followed only by non-matches' do
+      timed_out = described_class.create!(account: account, keyword: 'alpha', name: 'timeout')
+      described_class.create!(account: account, keyword: 'beta', name: 'miss')
+      allow_any_instance_of(described_class).to receive(:keyword_regexp).and_wrap_original do |method|
+        next timeout_regexp if method.receiver.id == timed_out.id
+
+        method.call
+      end
+
+      expect { described_class.match?('gamma', account_id: account.id) }.not_to raise_error
+      expect(described_class.match?('gamma', account_id: account.id)).to be false
+    end
+
+    it 'does not rescue errors other than regexp timeouts' do
+      subscription = subscribe('foo')
+      regexp = instance_double(Regexp)
+      allow(regexp).to receive(:match?).and_raise(ArgumentError, 'not a timeout')
+      allow(subscription).to receive(:keyword_regexp).and_return(regexp)
+
+      expect { subscription.match?('foo') }.to raise_error(ArgumentError, 'not a timeout')
+    end
+  end
 end
