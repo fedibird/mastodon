@@ -876,4 +876,52 @@ describe StatusesController do
       end
     end
   end
+
+  describe 'GET #references' do
+    let(:account) { Fabricate(:account) }
+    let(:status)  { Fabricate(:status, account: account, text: 'source status body') }
+
+    context 'when the public status has no references' do
+      it 'returns not found for HTML without a respond_to mismatch' do
+        expect do
+          get :references, params: { account_username: account.username, id: status.id, format: 'html' }
+        end.not_to raise_error
+
+        expect(response).to have_http_status(404)
+      end
+
+      it 'returns not found when HTML is negotiated ahead of JSON' do
+        request.headers['Accept'] = 'text/html,application/json'
+
+        expect do
+          get :references, params: { account_username: account.username, id: status.id }
+        end.not_to raise_error
+
+        expect(response).to have_http_status(404)
+      end
+
+      it 'redirects JSON to the ActivityPub references collection' do
+        get :references, params: { account_username: account.username, id: status.id, format: 'json' }
+
+        expect(response).to have_http_status(:redirect)
+        expect(response).to redirect_to(account_status_references_url(account, status))
+      end
+    end
+
+    context 'when the public status has a reference' do
+      let(:referenced_status) { Fabricate(:status, text: 'referenced status body') }
+
+      before do
+        StatusReference.create!(status: status, target_status: referenced_status)
+      end
+
+      it 'renders the references page' do
+        get :references, params: { account_username: account.username, id: status.id, format: 'html' }
+
+        expect(response).to have_http_status(200)
+        expect(response).to render_template(:references)
+        expect(response.body).to include('referenced status body')
+      end
+    end
+  end
 end
