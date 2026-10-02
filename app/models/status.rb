@@ -532,8 +532,14 @@ class Status < ApplicationRecord
   end
 
   def grouped_emoji_reactions(account = nil)
-    emoji_reactions_cache = (status_stat&.updated_at || Time.at(0)) <= 1.day.ago ? refresh_grouped_emoji_reactions! : status_stat&.emoji_reactions_cache
-    (Oj.load(emoji_reactions_cache || '', mode: :strict) || []).then do |emoji_reactions|
+    stat = status_stat
+    cache = stat&.emoji_reactions_cache
+
+    # Stale caches stay on the request path. A unique worker refreshes them
+    # afterwards so a page of old statuses cannot re-aggregate in the request.
+    RefreshEmojiReactionCacheWorker.perform_async(id) if emoji_reaction_cache_stale?(stat)
+
+    (Oj.load(cache || '', mode: :strict) || []).then do |emoji_reactions|
       @emoji_reactions_count = 0
 
       emoji_reactions.filter do |emoji_reaction|
@@ -753,6 +759,15 @@ class Status < ApplicationRecord
   end
 
   private
+
+  # Daily self-heal for a cache that write-through or the custom-emoji worker
+  # may have missed. Empty statuses have no persisted stat, or a zero count
+  # and blank cache, and must not enqueue a refresh from a read.
+  def emoji_reaction_cache_stale?(stat)
+    stat&.persisted? &&
+      stat.updated_at <= 1.day.ago &&
+      (stat.emoji_reactions_count.to_i.positive? || stat.emoji_reactions_cache.present?)
+  end
 
   def filterable_reference_index
     references.flat_map do |reference|
