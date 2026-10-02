@@ -6,6 +6,9 @@ class MediaProxyController < ApplicationController
   include Redisable
   include Lockable
 
+  # Blank is the legacy /media_proxy/:id URL and means :original.
+  VALID_VARIANTS = %w(original small tiny).freeze
+
   skip_before_action :store_current_location
   skip_before_action :require_functional!
 
@@ -17,6 +20,8 @@ class MediaProxyController < ApplicationController
   rescue_from HTTP::TimeoutError, HTTP::ConnectionError, OpenSSL::SSL::SSLError, with: :internal_server_error
 
   def show
+    return not_found unless valid_variant?
+
     with_redis_lock("media_download:#{params[:id]}") do
       @media_attachment = MediaAttachment.remote.attached.find(params[:id])
       authorize @media_attachment.status, :show?
@@ -46,15 +51,19 @@ class MediaProxyController < ApplicationController
     @media_attachment.save!
   end
 
+  def valid_variant?
+    params[:any].blank? || VALID_VARIANTS.include?(params[:any])
+  end
+
   def version
-    @version ||=
-      if request.path.end_with?('/tiny')
-        :tiny
-      elsif request.path.end_with?('/small')
-        :small
-      else
-        :original
-      end
+    case params[:any]
+    when 'small'
+      :small
+    when 'tiny'
+      :tiny
+    else
+      :original
+    end
   end
 
   def reject_media?
