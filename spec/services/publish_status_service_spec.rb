@@ -70,6 +70,31 @@ RSpec.describe PublishStatusService, type: :service do
     expect(LinkCrawlWorker).to have_received(:perform_async).with(status.id).once
   end
 
+  it 'keeps the status published when preview enqueue fails' do
+    alice = Fabricate(:account, username: 'alice')
+    status.mentions.create!(account: alice)
+    preparation = StatusPublishPreparationService.new
+    preparation.mark!(status)
+    allow(LinkCrawlWorker).to receive(:perform_async).and_raise(Redis::CannotConnectError, 'crawl down')
+    allow(Rails.logger).to receive(:error)
+
+    expect { subject.call(status) }.not_to raise_error
+
+    expect(subject.published?(status)).to be true
+    expect(LocalNotificationWorker).to have_received(:perform_async).with(alice.id, status.mentions.find_by!(account: alice).id, 'Mention', 'mention').once
+    expect(DistributionWorker).to have_received(:perform_async).with(status.id).once
+    expect(ActivityPub::DistributionWorker).to have_received(:perform_async).with(status.id).once
+    expect(preparation.redis.sismember("statuses/#{status.id}/processing", StatusPublishPreparationService::LINK_CRAWL_MARKER)).to be false
+    expect(preparation.marked?(status)).to be true
+    expect(Rails.logger).to have_received(:error).with(/link crawl enqueue failed status=#{status.id}/)
+
+    subject.call(status)
+
+    expect(DistributionWorker).to have_received(:perform_async).with(status.id).once
+    expect(ActivityPub::DistributionWorker).to have_received(:perform_async).with(status.id).once
+    expect(LocalNotificationWorker).to have_received(:perform_async).once
+  end
+
   it 'delivers explicit mentions from the persisted status' do
     alice = Fabricate(:account, username: 'alice')
     status.mentions.create!(account: alice)

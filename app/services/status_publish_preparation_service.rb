@@ -45,6 +45,13 @@ class StatusPublishPreparationService < BaseService
     redis.expire(key, LINK_CRAWL_TTL) if ttl.negative? || ttl < LINK_CRAWL_TTL
   end
 
+  # Drops only the preview-crawl member. Other processing members stay.
+  def remove_link_crawl!(status_or_id)
+    key = processing_key(id_of(status_or_id))
+    redis.srem(key, LINK_CRAWL_MARKER)
+    redis.del(key) if redis.scard(key) <= 0
+  end
+
   def clear!(status_or_id)
     key = processing_key(id_of(status_or_id))
     redis.srem(key, MARKER)

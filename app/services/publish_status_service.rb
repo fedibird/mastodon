@@ -1,13 +1,13 @@
 # frozen_string_literal: true
 
 # Side effects that make a status visible: mention delivery, timelines,
-# federation, and background preview crawling.
+# and federation. Preview crawling is a later best-effort step.
 #
-# statuses/<id>/published is written only after those calls return. A
-# failure before that leaves the key unset so the caller can retry.
-# Enqueues that already succeeded may run again on that retry. That
-# at-least-once window is accepted. Treating an unfinished publish as
-# done is not.
+# statuses/<id>/published is written only after mention delivery and
+# distribution enqueue return. A failure before that leaves the key
+# unset so the caller can retry. Enqueues that already succeeded may
+# run again on that retry. A link-crawl enqueue failure does not.
+
 class PublishStatusService < BaseService
   include Redisable
   include Lockable
@@ -24,8 +24,8 @@ class PublishStatusService < BaseService
 
       deliver_mentions!(status)
       distribute!(status)
-      enqueue_link_crawl!(status)
       mark_published!(status)
+      enqueue_link_crawl_best_effort!(status)
     end
   end
 
@@ -61,8 +61,12 @@ class PublishStatusService < BaseService
     ActivityPub::DistributionWorker.perform_async(status.id) unless status.personal_visibility?
   end
 
-  def enqueue_link_crawl!(status)
-    StatusPublishPreparationService.new.add_link_crawl!(status)
+  def enqueue_link_crawl_best_effort!(status)
+    preparation = StatusPublishPreparationService.new
+    preparation.add_link_crawl!(status)
     LinkCrawlWorker.perform_async(status.id)
+  rescue StandardError => e
+    StatusPublishPreparationService.new.remove_link_crawl!(status)
+    Rails.logger.error("[PublishStatus] link crawl enqueue failed status=#{status.id}: #{e.class}: #{e.message}")
   end
 end
