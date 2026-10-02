@@ -20,4 +20,20 @@ describe PublishScheduledStatusWorker do
       expect(ScheduledStatus.find_by(id: scheduled_status.id)).to be_nil
     end
   end
+
+  it 'uses the same publish barrier when the scheduled text has an unresolved redirect' do
+    scheduled = Fabricate(:scheduled_status, params: { text: 'later https://bit.ly/scheduled' })
+    allow(StatusPublishPreparationWorker).to receive(:perform_async)
+    allow(DistributionWorker).to receive(:perform_async)
+    allow(ActivityPub::DistributionWorker).to receive(:perform_async)
+    expect(Request).not_to receive(:new)
+
+    subject.perform(scheduled.id)
+
+    status = scheduled.account.statuses.find_by!(text: 'later https://bit.ly/scheduled')
+    expect(StatusPublishPreparationWorker).to have_received(:perform_async).with(status.id)
+    expect(DistributionWorker).not_to have_received(:perform_async)
+    expect(ActivityPub::DistributionWorker).not_to have_received(:perform_async)
+    expect(StatusPublishPreparationService.new.marked?(status)).to be true
+  end
 end

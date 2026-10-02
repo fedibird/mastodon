@@ -209,6 +209,10 @@ class UpdateStatusService < BaseService
   end
 
   def broadcast_updates!
+    # A new redirect URL added by an edit is still broadcast immediately.
+    # The publish barrier covers status creation. Follow-up: hold this
+    # update until StatusPublishPreparationService reports no unresolved
+    # redirect URL.
     if @status.account.high_priority?
       PriorityDistributionWorker.perform_async(@status.id, { 'update' => true })
     else

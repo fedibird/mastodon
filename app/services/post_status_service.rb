@@ -164,11 +164,10 @@ class PostStatusService < BaseService
       mention_service.persist_mentions!(@status) if explicit_mentions
     end
 
-    # Hashtags and references are included in the ActivityPub payload
-    # that mention delivery serializes, so they run before enqueue.
+    # Hashtags and references are part of the payload publish serializes.
+    # Mention delivery waits until redirect semantics are prepared.
     ProcessHashtagsService.new.call(@status)
     ProcessStatusReferenceService.new.call(@status, status_reference_ids: (@options[:status_reference_ids] || []) + [@quote_id], urls: @options[:status_reference_urls])
-    mention_service.record_and_deliver!(explicit_mentions) if explicit_mentions
   end
 
   def safeguard_mentions!(status)
@@ -201,20 +200,27 @@ class PostStatusService < BaseService
   end
 
   def postprocess_status!
-    begin
-      redis.sadd("statuses/#{@status.id}/processing", 'LinkCrawlWorker')
-      redis.expire("statuses/#{@status.id}/processing", 60.seconds)
-      LinkCrawlWorker.new.perform(@status.id)
-    rescue
-      # ignore
+    preparation = StatusPublishPreparationService.new
+    if preparation.unresolved_redirect_urls(@status).any?
+      defer_publish_until_redirects_resolve!(preparation)
+    else
+      PublishStatusService.new.call(@status)
     end
 
-    @account.high_priority? ?
-      PriorityDistributionWorker.perform_async(@status.id) :
-      DistributionWorker.perform_async(@status.id)
-    ActivityPub::DistributionWorker.perform_async(@status.id) unless @status.personal_visibility?
+    # Ancillary schedules run after publish has started. A failure here
+    # must not skip distribution or preparation. Expiry timestamps stay
+    # on the status; they are not delayed for redirect resolution.
     PollExpirationNotifyWorker.perform_at(@status.poll.expires_at, @status.poll.id) if @status.poll
     @status.status_expire.queue_action if expires_soon?
+  end
+
+  # Status is already committed. An enqueue failure must not publish an
+  # unresolved status and must not raise into a second user post.
+  def defer_publish_until_redirects_resolve!(preparation)
+    preparation.mark!(@status)
+    StatusPublishPreparationWorker.perform_async(@status.id)
+  rescue StandardError => e
+    Rails.logger.error("[StatusPublishPreparation] failed to enqueue status=#{@status.id}: #{e.class}: #{e.message}")
   end
 
   def expires_soon?

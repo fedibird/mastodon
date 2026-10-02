@@ -76,8 +76,8 @@ RSpec.describe 'Moderation interaction hooks', type: :service do
   describe PostStatusService do
     it 'records a quote interaction toward the quoted author' do
       quoted = Fabricate(:status, account: bob)
-      # LinkCrawlWorker runs inline in tests and would hit the network; it runs
-      # async in production, so stub it out here to exercise the quote hook.
+      # Publish enqueues LinkCrawlWorker. Sidekiq inline mode would run it
+      # and hit the network, so stub the body and exercise the quote hook.
       allow_any_instance_of(LinkCrawlWorker).to receive(:perform)
 
       expect { PostStatusService.new.call(alice, text: 'nice post', quote_id: quoted.id) }.to change(ModerationInteractionEvent, :count).by(1)
