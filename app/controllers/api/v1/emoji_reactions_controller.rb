@@ -28,10 +28,49 @@ class Api::V1::EmojiReactionsController < Api::BaseController
   end
 
   def results
-    @_results ||= filtered_emoji_reactions.to_a_paginated_by_id(
-      limit_param(DEFAULT_STATUSES_LIMIT),
-      params_slice(:max_id, :since_id, :min_id)
-    )
+    @_results ||= if additional_emoji_reaction_filter?
+                    filtered_emoji_reactions.to_a_paginated_by_id(
+                      limit_param(DEFAULT_STATUSES_LIMIT),
+                      params_slice(:max_id, :since_id, :min_id)
+                    )
+                  else
+                    limited_representative_emoji_reactions
+                  end
+  end
+
+  def additional_emoji_reaction_filter?
+    emojis_requested? || media_only? || without_media?
+  end
+
+  # Limit MIN(id) representatives before loading statuses. Pagination has to
+  # happen in this grouped query so the page does not merge every
+  # representative id into the emoji_reactions primary key.
+  def limited_representative_emoji_reactions
+    ids = representative_emoji_reaction_ids
+    return [] if ids.empty?
+
+    reactions = EmojiReaction.where(id: ids).joins(:status).eager_load(:status).index_by { |reaction| reaction.id.to_i }
+    ids.filter_map { |id| reactions[id] }
+  end
+
+  def representative_emoji_reaction_ids
+    scope = current_account.emoji_reactions.group(:status_id)
+    limit = limit_param(DEFAULT_STATUSES_LIMIT)
+    page = params_slice(:max_id, :since_id, :min_id)
+
+    if page[:min_id].present?
+      scope = scope.having(representative_id_node.gt(page[:min_id]))
+      scope = scope.having(representative_id_node.lt(page[:max_id])) if page[:max_id].present?
+      scope.order(representative_id_node.asc).limit(limit).pluck(representative_id_node).map(&:to_i).reverse
+    else
+      scope = scope.having(representative_id_node.lt(page[:max_id])) if page[:max_id].present?
+      scope = scope.having(representative_id_node.gt(page[:since_id])) if page[:since_id].present?
+      scope.order(representative_id_node.desc).limit(limit).pluck(representative_id_node).map(&:to_i)
+    end
+  end
+
+  def representative_id_node
+    Arel::Nodes::NamedFunction.new('MIN', [EmojiReaction.arel_table[:id]])
   end
 
   def filtered_emoji_reactions
