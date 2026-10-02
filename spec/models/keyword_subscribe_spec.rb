@@ -342,7 +342,7 @@ RSpec.describe KeywordSubscribe, type: :model do # rubocop:disable Metrics/Block
     end
   end
 
-  describe 'regexp timeout isolation' do
+  describe 'regexp timeout isolation' do # rubocop:disable Metrics/BlockLength
     def timeout_regexp
       regexp = instance_double(Regexp)
       allow(regexp).to receive(:match?).and_raise(Regexp::TimeoutError)
@@ -365,13 +365,13 @@ RSpec.describe KeywordSubscribe, type: :model do # rubocop:disable Metrics/Block
       expect(subscription.reload.disabled).to be false
 
       expect(Rails.logger).to have_received(:warn).with(a_string_including(
-        '[KeywordSubscribe]',
-        "id=#{subscription.id}",
-        "account_id=#{subscription.account_id}",
-        "list_id=#{list.id}",
-        'phase=keyword',
-        'Regexp::TimeoutError'
-      )).at_least(:once)
+                                                          '[KeywordSubscribe]',
+                                                          "id=#{subscription.id}",
+                                                          "account_id=#{subscription.account_id}",
+                                                          "list_id=#{list.id}",
+                                                          'phase=keyword',
+                                                          'Regexp::TimeoutError'
+                                                        )).at_least(:once)
 
       expect(Rails.logger).not_to have_received(:warn).with(/secret-keyword-should-not-log/)
       expect(Rails.logger).not_to have_received(:warn).with(/status body that must not be logged/)
@@ -389,12 +389,12 @@ RSpec.describe KeywordSubscribe, type: :model do # rubocop:disable Metrics/Block
       expect(result).to be false
       expect(result).not_to be true
       expect(Rails.logger).to have_received(:warn).with(a_string_including(
-        "id=#{subscription.id}",
-        "account_id=#{subscription.account_id}",
-        'list_id=nil',
-        'phase=exclude',
-        'Regexp::TimeoutError'
-      ))
+                                                          "id=#{subscription.id}",
+                                                          "account_id=#{subscription.account_id}",
+                                                          'list_id=nil',
+                                                          'phase=exclude',
+                                                          'Regexp::TimeoutError'
+                                                        ))
       expect(Rails.logger).not_to have_received(:warn).with(/secret-exclude-should-not-log/)
       expect(Rails.logger).not_to have_received(:warn).with(/foo and a body that must not be logged/)
     end
@@ -402,7 +402,7 @@ RSpec.describe KeywordSubscribe, type: :model do # rubocop:disable Metrics/Block
     it 'keeps evaluating a later subscription after a timeout' do
       timed_out = described_class.create!(account: account, keyword: 'alpha', name: 'timeout')
       described_class.create!(account: account, keyword: 'beta', name: 'match')
-      allow(described_class).to receive(:active).and_wrap_original { |method| method.call.order(:id) }
+      allow(described_class).to(receive(:active).and_wrap_original { |method| method.call.order(:id) })
       allow_any_instance_of(described_class).to receive(:keyword_regexp).and_wrap_original do |method|
         next timeout_regexp if method.receiver.id == timed_out.id
 
