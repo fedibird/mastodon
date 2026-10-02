@@ -148,34 +148,36 @@ class PostStatusService < BaseService
   end
 
   def process_status!
-    safeguard_mentions_before_save!
+    # Build the status first so mention resolution can rewrite its text
+    # and attach unsaved mention rows. Remote lookup stays outside the
+    # database transaction below.
+    @status = @account.statuses.new(status_attributes)
+    mention_service = ProcessMentionsService.new
+    explicit_mentions = @status.personal_visibility? ? nil : mention_service.prepare(@status, @circle)
+    safeguard_mentions!(@status)
 
-    # The following transaction block is needed to wrap the UPDATEs to
-    # the media attachments when the status is created
-
+    # Status, capability token, and mention rows commit together.
+    # A failed mention write rolls the status back with them.
     ApplicationRecord.transaction do
-      @status = @account.statuses.create!(status_attributes)
+      @status.save!
       @status.capability_tokens.create! if @status.limited_visibility?
+      mention_service.persist_mentions!(@status) if explicit_mentions
     end
 
+    # Hashtags and references are included in the ActivityPub payload
+    # that mention delivery serializes, so they run before enqueue.
     ProcessHashtagsService.new.call(@status)
     ProcessStatusReferenceService.new.call(@status, status_reference_ids: (@options[:status_reference_ids] || []) + [@quote_id], urls: @options[:status_reference_urls])
-    ProcessMentionsService.new.call(@status, @circle) unless @status.personal_visibility?
-  end
-
-  def safeguard_mentions_before_save!
-    return if @options[:allowed_mentions].nil?
-
-    preview = @account.statuses.new(status_attributes)
-    ProcessMentionsService.new.call(preview, @circle, save_records: false) unless preview.personal_visibility?
-    safeguard_mentions!(preview)
+    mention_service.record_and_deliver!(explicit_mentions) if explicit_mentions
   end
 
   def safeguard_mentions!(status)
     return if @options[:allowed_mentions].nil?
 
     expected_account_ids = @options[:allowed_mentions].map(&:to_i)
-    unexpected_accounts = status.mentions.filter_map(&:account).uniq.reject { |account| expected_account_ids.include?(account.id) }
+    # Circle members and limited-thread audience are silent delivery
+    # rows, not text mentions, and are not subject to the allow-list.
+    unexpected_accounts = status.mentions.reject(&:silent?).filter_map(&:account).uniq.reject { |account| expected_account_ids.include?(account.id) }
     return if unexpected_accounts.empty?
 
     raise UnexpectedMentionsError.new('Post would be sent to unexpected accounts', unexpected_accounts)

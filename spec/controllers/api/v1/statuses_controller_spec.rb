@@ -139,6 +139,11 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
           expect(body_as_json[:error]).to eq 'Post would be sent to unexpected accounts'
           expect(body_as_json[:unexpected_accounts].map { |a| a.slice(:id, :acct) }).to eq [{ id: bob.id.to_s, acct: bob.acct }]
         end
+
+        it 'does not persist the status or mentions' do
+          expect(user.account.statuses.count).to eq 0
+          expect(Mention.where(account_id: [alice.id, bob.id])).to be_empty
+        end
       end
 
       context 'with missing parameters' do

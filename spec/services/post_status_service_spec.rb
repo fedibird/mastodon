@@ -279,16 +279,30 @@ RSpec.describe PostStatusService, type: :service do
     expect(status.language).to eq 'en'
   end
 
-  it 'processes mentions' do
-    mention_service = double(:process_mentions_service)
-    allow(mention_service).to receive(:call)
+  it 'resolves mentions before the status exists and delivers them after commit' do
+    mention_service = ProcessMentionsService.new
     allow(ProcessMentionsService).to receive(:new).and_return(mention_service)
+    baseline = ApplicationRecord.connection.open_transactions
     account = Fabricate(:account)
 
-    status = subject.call(account, text: "test status update")
+    expect(mention_service).to receive(:prepare).ordered.and_wrap_original do |method, status, circle|
+      expect(status).not_to be_persisted
+      expect(circle).to be_nil
+      method.call(status, circle)
+    end
+    expect(mention_service).to receive(:persist_mentions!).ordered.and_wrap_original do |method, status|
+      expect(status).to be_persisted
+      expect(ApplicationRecord.connection.open_transactions).to be > baseline
+      method.call(status)
+    end
+    expect(mention_service).to receive(:record_and_deliver!).ordered.and_wrap_original do |method, mentions|
+      expect(ApplicationRecord.connection.open_transactions).to eq baseline
+      method.call(mentions)
+    end
 
-    expect(ProcessMentionsService).to have_received(:new)
-    expect(mention_service).to have_received(:call).with(status, nil)
+    status = subject.call(account, text: 'test status update')
+
+    expect(status).to be_persisted
   end
 
   it 'processes hashtags' do
@@ -399,6 +413,229 @@ RSpec.describe PostStatusService, type: :service do
     status1 = subject.call(account, text: 'test', idempotency: 'meepmeep')
     status2 = subject.call(account, text: 'test', idempotency: 'meepmeep')
     expect(status2.id).to eq status1.id
+  end
+
+  context 'when mention processing is part of status creation' do
+    let(:account) { Fabricate(:account) }
+    let(:baseline_transactions) { ApplicationRecord.connection.open_transactions }
+
+    before { baseline_transactions }
+
+    it 'does not leave a status when mention resolution raises' do
+      Fabricate(:account, username: 'alice')
+      allow(DistributionWorker).to receive(:perform_async)
+      allow(ActivityPub::DistributionWorker).to receive(:perform_async)
+      # Redis lock failure while resolving a remote account is not one of
+      # the webfinger/HTTP errors mention processing ignores.
+      allow_any_instance_of(ResolveAccountService).to receive(:call).and_raise(Mastodon::RaceConditionError)
+
+      expect do
+        subject.call(account, text: 'Hello @ghost@remote.example', visibility: :limited)
+      end.to raise_error(Mastodon::RaceConditionError)
+        .and(not_change { Status.count })
+        .and(not_change { Mention.count })
+        .and(not_change { StatusCapabilityToken.count })
+
+      expect(DistributionWorker).not_to have_received(:perform_async)
+      expect(ActivityPub::DistributionWorker).not_to have_received(:perform_async)
+    end
+
+    it 'rolls the status back when mention persistence fails' do
+      alice = Fabricate(:account, username: 'alice')
+      mention_service = ProcessMentionsService.new
+      allow(ProcessMentionsService).to receive(:new).and_return(mention_service)
+      allow(mention_service).to receive(:prepare).and_wrap_original do |method, status, circle|
+        explicit = method.call(status, circle)
+        status.mentions.build(account: explicit.first.account)
+        explicit
+      end
+      expect(mention_service).not_to receive(:record_and_deliver!)
+      allow(DistributionWorker).to receive(:perform_async)
+
+      expect do
+        subject.call(account, text: '@alice hello', visibility: :limited)
+      end.to raise_error(ActiveRecord::RecordInvalid)
+        .and(not_change { Status.count })
+        .and(not_change { Mention.count })
+        .and(not_change { StatusCapabilityToken.count })
+
+      expect(Mention.where(account: alice)).to be_empty
+      expect(DistributionWorker).not_to have_received(:perform_async)
+    end
+
+    it 'saves a canonical local mention and enqueues notification after commit' do
+      alice = Fabricate(:account, username: 'alice')
+      notified_mention_id = nil
+      allow(LocalNotificationWorker).to receive(:perform_async).and_wrap_original do |method, receiver_id, mention_id, class_name, type|
+        expect(ApplicationRecord.connection.open_transactions).to eq baseline_transactions
+        expect(Mention.exists?(mention_id)).to be true
+        notified_mention_id = mention_id
+        method.call(receiver_id, mention_id, class_name, type)
+      end
+
+      status = subject.call(account, text: 'Hello @alice @alice')
+
+      mention = status.mentions.find_by!(account: alice)
+      expect(status.text).to eq 'Hello @alice @alice'
+      expect(status.mentions.map(&:account)).to contain_exactly(alice)
+      expect(mention).not_to be_silent
+      expect(notified_mention_id).to eq mention.id
+      expect(LocalNotificationWorker).to have_received(:perform_async).with(alice.id, mention.id, 'Mention', 'mention').once
+    end
+
+    it 'saves a canonical remote mention and enqueues ActivityPub delivery after commit' do
+      remote = Fabricate(:account, username: 'remote_user', protocol: :activitypub, domain: 'example.com', inbox_url: 'http://example.com/inbox')
+      stub_request(:post, remote.inbox_url)
+      allow(ActivityPub::DeliveryWorker).to receive(:perform_async).and_wrap_original do |method, *args|
+        expect(ApplicationRecord.connection.open_transactions).to eq baseline_transactions
+        method.call(*args)
+      end
+
+      status = subject.call(account, text: 'Hello @remote_user@example.com')
+
+      expect(status.text).to eq 'Hello @remote_user@example.com'
+      expect(status.mentions.map(&:account)).to contain_exactly(remote)
+      expect(a_request(:post, remote.inbox_url)).to have_been_made.once
+    end
+
+    it 'leaves an unresolvable mention in the text and stores no mention row' do
+      stub_request(:get, 'https://missing.example/.well-known/webfinger?resource=acct:ghost@missing.example').to_return(status: 404)
+      stub_request(:get, 'https://missing.example/.well-known/host-meta').to_return(status: 404)
+
+      status = subject.call(account, text: 'Hello @ghost@missing.example')
+
+      expect(status).to be_persisted
+      expect(status.text).to eq 'Hello @ghost@missing.example'
+      expect(status.mentions).to be_empty
+    end
+
+    it 'does not mention a suspended account' do
+      suspended = Fabricate(:account, username: 'suspended_user', suspended: true)
+      allow(LocalNotificationWorker).to receive(:perform_async)
+
+      status = subject.call(account, text: 'Hello @suspended_user')
+
+      expect(status.text).to eq 'Hello @suspended_user'
+      expect(status.mentions).to be_empty
+      expect(LocalNotificationWorker).not_to have_received(:perform_async)
+    end
+
+    it 'does not mention an undeliverable remote account' do
+      remote = Fabricate(:account, username: 'old_user', domain: 'ostatus.example', protocol: :ostatus, inbox_url: 'http://ostatus.example/inbox')
+      allow_any_instance_of(ResolveAccountService).to receive(:call).and_return(remote)
+      allow(ActivityPub::DeliveryWorker).to receive(:perform_async)
+
+      status = subject.call(account, text: 'Hello @old_user@ostatus.example')
+
+      expect(status.text).to eq 'Hello @old_user@ostatus.example'
+      expect(remote.mentions).to be_empty
+      expect(ActivityPub::DeliveryWorker).not_to have_received(:perform_async)
+    end
+
+    it 'creates a reply and its mention together' do
+      alice = Fabricate(:account, username: 'alice')
+      parent = Fabricate(:status, account: alice, text: 'original')
+      allow(LocalNotificationWorker).to receive(:perform_async)
+
+      status = nil
+      expect do
+        status = subject.call(account, text: '@alice thanks', thread: parent)
+      end.to change(ModerationInteractionEvent, :count).by(1)
+
+      mention = status.mentions.find_by!(account: alice)
+      expect(status.thread).to eq parent
+      expect(status.in_reply_to_account_id).to eq alice.id
+      expect(mention).not_to be_silent
+      expect(status.text).to eq '@alice thanks'
+      event = ModerationInteractionEvent.order(:id).last
+      expect(event.event_type).to eq 'reply'
+      expect(event.status_id).to eq status.id
+      expect(LocalNotificationWorker).to have_received(:perform_async).with(alice.id, mention.id, 'Mention', 'mention')
+    end
+
+    it 'keeps explicit mentions, thread audience, and the replied-to account on a limited reply' do
+      parent_account = Fabricate(:account, username: 'parent')
+      audience = Fabricate(:account, username: 'audience')
+      explicit = Fabricate(:account, username: 'explicit')
+      parent = Fabricate(:status, account: parent_account, visibility: :limited, text: 'limited thread')
+      parent.mentions.create!(account: audience, silent: true)
+      allow(LocalNotificationWorker).to receive(:perform_async)
+
+      status = subject.call(account, text: '@explicit hello', thread: parent, visibility: :limited)
+
+      expect(status.visibility).to eq 'limited'
+      expect(status.capability_tokens).to exist
+      expect(status.mentions.find_by!(account: explicit)).not_to be_silent
+      expect(status.mentions.find_by!(account: audience)).to be_silent
+      expect(status.mentions.find_by!(account: parent_account)).to be_silent
+      expect(LocalNotificationWorker).to have_received(:perform_async).with(explicit.id, status.mentions.find_by!(account: explicit).id, 'Mention', 'mention')
+      expect(LocalNotificationWorker).not_to have_received(:perform_async).with(audience.id, anything, 'Mention', 'mention')
+      expect(LocalNotificationWorker).not_to have_received(:perform_async).with(parent_account.id, anything, 'Mention', 'mention')
+    end
+
+    it 'keeps circle members as silent mentions' do
+      member = Fabricate(:account)
+      member.follow!(account)
+      circle = Fabricate(:circle, account: account)
+      circle.accounts << member
+      allow(LocalNotificationWorker).to receive(:perform_async)
+
+      status = subject.call(account, text: 'circle hello', circle: circle)
+
+      expect(status.visibility).to eq 'limited'
+      expect(status.capability_tokens).to exist
+      expect(status.mentions.find_by!(account: member)).to be_silent
+      expect(LocalNotificationWorker).not_to have_received(:perform_async)
+    end
+
+    it 'does not save a status when an allow-list rejects a mention' do
+      alice = Fabricate(:account, username: 'alice')
+      bob = Fabricate(:account, username: 'bob')
+      allow(DistributionWorker).to receive(:perform_async)
+
+      expect do
+        subject.call(account, text: '@alice hello @bob', allowed_mentions: [alice.id], visibility: :limited)
+      end.to raise_error(PostStatusService::UnexpectedMentionsError)
+        .and(not_change { Status.count })
+        .and(not_change { Mention.count })
+        .and(not_change { StatusCapabilityToken.count })
+
+      expect(Mention.where(account: [alice, bob])).to be_empty
+      expect(DistributionWorker).not_to have_received(:perform_async)
+    end
+
+    it 'does not process mentions for a personal status' do
+      alice = Fabricate(:account, username: 'alice')
+      personal_account = Fabricate(:user).account
+      allow(LocalNotificationWorker).to receive(:perform_async)
+      allow(ActivityPub::DistributionWorker).to receive(:perform_async)
+
+      status = subject.call(personal_account, text: 'Hello @alice', visibility: :personal)
+
+      expect(status.visibility).to eq 'personal'
+      expect(status.text).to eq 'Hello @alice'
+      expect(status.mentions).to be_empty
+      expect(status.capability_tokens).not_to exist
+      expect(LocalNotificationWorker).not_to have_received(:perform_async)
+      expect(ActivityPub::DistributionWorker).not_to have_received(:perform_async)
+    end
+
+    it 'reblogs a local group mention after the status transaction commits' do
+      group = Fabricate(:user, account: Fabricate(:account, username: 'localsquad', actor_type: 'Group')).account
+      reblog_service = instance_double(ReblogService, call: nil)
+      allow(ReblogService).to receive(:new).and_return(reblog_service)
+      allow(reblog_service).to receive(:call) do |reblogger, status, options|
+        expect(ApplicationRecord.connection.open_transactions).to eq baseline_transactions
+        expect(status).to be_persisted
+        expect(reblogger).to eq group
+        expect(options).to have_key(:visibility)
+      end
+
+      status = subject.call(account, text: '@localsquad hello')
+
+      expect(status.mentions.find_by!(account: group)).not_to be_silent
+      expect(reblog_service).to have_received(:call)
+    end
   end
 
   def create_status_with_options(**options)
