@@ -373,4 +373,61 @@ RSpec.describe Status, type: :model do
       expect(status.uri).to start_with('https://')
     end
   end
+
+  describe '#grouped_emoji_reactions' do
+    let(:status) { Fabricate(:status, account: alice) }
+    let(:cached_reactions) { [{ 'name' => '👍', 'count' => 1, 'account_ids' => [alice.id.to_s] }] }
+    let(:visible_cached_reactions) { cached_reactions.map { |reaction| reaction.merge('me' => false) } }
+
+    def persist_emoji_reaction_stat(updated_at:, emoji_reactions_count:, emoji_reactions_cache:)
+      stat = StatusStat.create!(status: status, emoji_reactions_count: emoji_reactions_count, emoji_reactions_cache: emoji_reactions_cache, created_at: updated_at, updated_at: updated_at)
+      stat.update_columns(created_at: updated_at, updated_at: updated_at)
+      status.association(:status_stat).reset
+      stat
+    end
+
+    it 'returns a stale cache and refreshes it outside the request' do
+      persist_emoji_reaction_stat(updated_at: 2.days.ago, emoji_reactions_count: 1, emoji_reactions_cache: cached_reactions.to_json)
+      allow(RefreshEmojiReactionCacheWorker).to receive(:perform_async)
+      expect(status).not_to receive(:refresh_grouped_emoji_reactions!)
+
+      expect(status.grouped_emoji_reactions).to eq visible_cached_reactions
+      expect(RefreshEmojiReactionCacheWorker).to have_received(:perform_async).with(status.id)
+      expect(status.status_stat.reload.emoji_reactions_cache).to eq cached_reactions.to_json
+      expect(status.status_stat.updated_at).to be <= 1.day.ago
+    end
+
+    it 'returns a fresh cache without enqueueing a refresh' do
+      persist_emoji_reaction_stat(updated_at: Time.current, emoji_reactions_count: 1, emoji_reactions_cache: cached_reactions.to_json)
+      expect(RefreshEmojiReactionCacheWorker).not_to receive(:perform_async)
+
+      expect(status.grouped_emoji_reactions).to eq visible_cached_reactions
+    end
+
+    it 'returns an empty list for a status with no persisted stat or reactions' do
+      expect(StatusStat.where(status_id: status.id)).not_to exist
+      expect(RefreshEmojiReactionCacheWorker).not_to receive(:perform_async)
+
+      expect(status.grouped_emoji_reactions).to eq []
+      expect(StatusStat.where(status_id: status.id)).not_to exist
+    end
+
+    it 'does not refresh a stale stat that has no reactions and a blank cache' do
+      persist_emoji_reaction_stat(updated_at: 2.days.ago, emoji_reactions_count: 0, emoji_reactions_cache: '')
+      expect(RefreshEmojiReactionCacheWorker).not_to receive(:perform_async)
+
+      expect(status.grouped_emoji_reactions).to eq []
+      expect(status.status_stat.reload.updated_at).to be <= 1.day.ago
+    end
+
+    it 'enqueues a refresh when a stale stat has a count but a blank cache' do
+      persist_emoji_reaction_stat(updated_at: 2.days.ago, emoji_reactions_count: 1, emoji_reactions_cache: '')
+      allow(RefreshEmojiReactionCacheWorker).to receive(:perform_async)
+      expect(status).not_to receive(:refresh_grouped_emoji_reactions!)
+
+      expect(status.grouped_emoji_reactions).to eq []
+      expect(RefreshEmojiReactionCacheWorker).to have_received(:perform_async).with(status.id)
+      expect(status.status_stat.reload.emoji_reactions_cache).to eq ''
+    end
+  end
 end
