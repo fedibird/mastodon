@@ -49,13 +49,21 @@ class KeywordSubscribe < ApplicationRecord
   # String. A String is treated as the body, which keeps every legacy caller
   # working. The positive keyword and exclude_keyword are evaluated against the
   # very same prepared string, in both generated and raw regexp mode.
+  # A regexp timeout is a non-match for this subscription only. Positive and
+  # exclude timeouts both fail closed, so an exclude timeout cannot invert into
+  # a delivery. Other subscriptions keep being evaluated by the caller.
   def match?(target)
+    phase = :keyword
     text = matching_text_for(target)
 
     return false if keyword.blank? || !keyword_regexp.match?(text)
     return true if exclude_keyword.blank?
 
+    phase = :exclude
     !exclude_keyword_regexp.match?(text)
+  rescue Regexp::TimeoutError => e
+    warn_regexp_timeout(phase, e)
+    false
   end
 
   def keyword_regexp
@@ -84,6 +92,12 @@ class KeywordSubscribe < ApplicationRecord
   # and each combination is prepared at most once per status.
   def matching_text_for(target)
     KeywordSubscribe::MatchingText.wrap(target).text_for(match_hashtags: match_hashtags?, match_urls: match_urls?)
+  end
+
+  # Identifies the subscription without copying the status body or the keyword
+  # source into production logs.
+  def warn_regexp_timeout(phase, error)
+    Rails.logger.warn("[KeywordSubscribe] regexp timeout id=#{id} account_id=#{account_id} list_id=#{list_id || 'nil'} phase=#{phase} error=#{error.class}")
   end
 
   # Cached per keyword list, case option, and matching options, so one status
