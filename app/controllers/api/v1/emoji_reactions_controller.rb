@@ -1,6 +1,22 @@
 # frozen_string_literal: true
 
 class Api::V1::EmojiReactionsController < Api::BaseController
+  # Overscan so a batch of discarded statuses does not end the page early.
+  # Specs stub representative_batch_size to force the follow-up scan.
+  REPRESENTATIVE_BATCH_SIZE = 100
+
+  # A row is the representative when no earlier reaction exists for the same
+  # account and status. That id is the same value as MIN(emoji_reactions.id).
+  REPRESENTATIVE_NOT_EXISTS_SQL = <<~SQL.squish.freeze
+    NOT EXISTS (
+      SELECT 1
+      FROM emoji_reactions earlier
+      WHERE earlier.account_id = emoji_reactions.account_id
+        AND earlier.status_id = emoji_reactions.status_id
+        AND earlier.id < emoji_reactions.id
+    )
+  SQL
+
   before_action -> { doorkeeper_authorize! :read, :'read:favourites' }
   before_action :require_user!
   after_action :insert_pagination_headers
@@ -42,37 +58,51 @@ class Api::V1::EmojiReactionsController < Api::BaseController
     emojis_requested? || media_only? || without_media?
   end
 
-  # Limit MIN(id) representatives before loading statuses. Pagination has to
-  # happen in this grouped query so the page does not merge every
-  # representative id into the emoji_reactions primary key.
+  # Walk representative ids in index order. Status visibility is applied to
+  # each bounded batch, and the next batch continues after the last scanned
+  # candidate so a fully discarded batch cannot stall the cursor.
   def limited_representative_emoji_reactions
-    ids = representative_emoji_reaction_ids
-    return [] if ids.empty?
-
-    reactions = EmojiReaction.where(id: ids).joins(:status).eager_load(:status).index_by { |reaction| reaction.id.to_i }
-    ids.filter_map { |id| reactions[id] }
-  end
-
-  def representative_emoji_reaction_ids
-    # Join through EmojiReaction#status so Discard's deleted_at filter applies
-    # before LIMIT. The association unscope leaves expired statuses included.
-    scope = current_account.emoji_reactions.joins(:status).group(:status_id)
     limit = limit_param(DEFAULT_STATUSES_LIMIT)
     page = params_slice(:max_id, :since_id, :min_id)
+    ascending = page[:min_id].present?
+    batch_size = representative_batch_size
+    lower_id = ascending ? page[:min_id] : page[:since_id]
+    upper_id = page[:max_id]
+    collected = []
 
-    if page[:min_id].present?
-      scope = scope.having(representative_id_node.gt(page[:min_id]))
-      scope = scope.having(representative_id_node.lt(page[:max_id])) if page[:max_id].present?
-      scope.order(representative_id_node.asc).limit(limit).pluck(representative_id_node).map(&:to_i).reverse
-    else
-      scope = scope.having(representative_id_node.lt(page[:max_id])) if page[:max_id].present?
-      scope = scope.having(representative_id_node.gt(page[:since_id])) if page[:since_id].present?
-      scope.order(representative_id_node.desc).limit(limit).pluck(representative_id_node).map(&:to_i)
+    loop do
+      candidate_ids = representative_candidate_ids(batch_size: batch_size, ascending: ascending, lower_id: lower_id, upper_id: upper_id)
+      break if candidate_ids.empty?
+
+      if ascending
+        lower_id = candidate_ids.last
+      else
+        upper_id = candidate_ids.last
+      end
+
+      collected.concat(kept_representative_reactions(candidate_ids))
+      break if collected.size >= limit || candidate_ids.size < batch_size
     end
+
+    page_reactions = collected.take(limit)
+    ascending ? page_reactions.reverse : page_reactions
   end
 
-  def representative_id_node
-    Arel::Nodes::NamedFunction.new('MIN', [EmojiReaction.arel_table[:id]])
+  def representative_batch_size
+    REPRESENTATIVE_BATCH_SIZE
+  end
+
+  def representative_candidate_ids(batch_size:, ascending:, lower_id:, upper_id:)
+    scope = current_account.emoji_reactions.where(Arel.sql(REPRESENTATIVE_NOT_EXISTS_SQL))
+    scope = scope.where(EmojiReaction.arel_table[:id].gt(lower_id)) if lower_id.present?
+    scope = scope.where(EmojiReaction.arel_table[:id].lt(upper_id)) if upper_id.present?
+    scope = ascending ? scope.order(id: :asc) : scope.order(id: :desc)
+    scope.limit(batch_size).pluck(:id)
+  end
+
+  def kept_representative_reactions(ids)
+    reactions = EmojiReaction.where(id: ids).joins(:status).eager_load(:status).index_by { |reaction| reaction.id.to_i }
+    ids.filter_map { |id| reactions[id.to_i] }
   end
 
   def filtered_emoji_reactions

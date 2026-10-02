@@ -38,12 +38,12 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
     queries
   end
 
-  def representative_queries(queries)
-    queries.select { |sql| sql.include?('GROUP BY') && sql.include?('MIN(') }
+  def candidate_queries(queries)
+    queries.select { |sql| sql.include?('NOT EXISTS') && sql.include?('earlier.id') }
   end
 
   def reaction_lookup_queries(queries)
-    queries.select { |sql| sql.match?(/"emoji_reactions"\."id" IN \(/) && sql.exclude?('MIN(') }
+    queries.select { |sql| sql.match?(/"emoji_reactions"\."id" IN \(/) && sql.exclude?('NOT EXISTS') }
   end
 
   def in_list_size(sql)
@@ -139,24 +139,29 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
         expect(status_ids).to eq [statuses[2].id.to_s, statuses[1].id.to_s]
       end
 
-      it 'limits representative ids in SQL before loading emoji reactions' do
+      it 'selects representative ids with a bounded scan before loading statuses' do
         statuses = Array.new(4) { Fabricate(:status, account: user.account) }
         [210, 220, 230, 240].each_with_index { |id, index| insert_reaction(id: id, status: statuses[index]) }
 
         queries = capture_sql { get :index, params: { limit: 2 } }
-        grouped = representative_queries(queries)
+        candidates = candidate_queries(queries)
         lookups = reaction_lookup_queries(queries)
 
-        expect(grouped.size).to eq 1
-        expect(grouped.first).to match(/INNER JOIN "statuses"/)
-        expect(grouped.first).to match(/"statuses"\."deleted_at" IS NULL/)
-        expect(grouped.first).not_to match(/"statuses"\."expired_at"/)
-        expect(grouped.first).to match(/ORDER BY MIN\("emoji_reactions"\."id"\) DESC/)
-        expect(grouped.first).to match(/LIMIT/)
-        expect(grouped.first).not_to match(/"emoji_reactions"\."id" IN \(/)
+        expect(candidates.size).to eq 1
+        expect(candidates.first).to match(/NOT EXISTS/)
+        expect(candidates.first).to match(/ORDER BY "emoji_reactions"\."id" DESC/)
+        expect(candidates.first).to match(/LIMIT/)
+        expect(candidates.first).not_to match(/GROUP BY/i)
+        expect(candidates.first).not_to match(/MIN\(/)
+        expect(candidates.first).not_to match(/JOIN/i)
+        expect(candidates.first).not_to match(/"statuses"/)
+        expect(candidates.first).not_to match(/IN \(SELECT/i)
         expect(lookups.size).to eq 1
-        expect(in_list_size(lookups.first)).to eq 2
+        expect(in_list_size(lookups.first)).to eq 4
+        expect(in_list_size(lookups.first)).to be <= Api::V1::EmojiReactionsController::REPRESENTATIVE_BATCH_SIZE
         expect(lookups.first).not_to match(/GROUP BY/i)
+        expect(lookups.first).to match(/INNER JOIN "statuses" ON "statuses"\."deleted_at" IS NULL AND "statuses"\."id" = "emoji_reactions"\."status_id"/)
+        expect(lookups.first).not_to match(/expired_at IS NULL/)
         expect(queries.grep(/IN \(SELECT/i)).to be_empty
       end
 
@@ -186,7 +191,7 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
         queries = capture_sql { get :index, params: { emojis: ['👍'] } }
 
         expect(status_ids).to eq [thumb.id.to_s]
-        expect(representative_queries(queries).join).not_to match(/ORDER BY MIN\(/)
+        expect(candidate_queries(queries)).to be_empty
         expect(queries.join).to match(/IN \(SELECT/i)
       end
 
@@ -200,7 +205,7 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
         queries = capture_sql { get :index, params: { only_media: true } }
 
         expect(status_ids).to eq [with_media.id.to_s]
-        expect(representative_queries(queries).join).not_to match(/ORDER BY MIN\(/)
+        expect(candidate_queries(queries)).to be_empty
         expect(queries.join).to match(/IN \(SELECT/i)
       end
 
@@ -214,8 +219,60 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
         queries = capture_sql { get :index, params: { without_media: true } }
 
         expect(status_ids).to eq [plain.id.to_s]
-        expect(representative_queries(queries).join).not_to match(/ORDER BY MIN\(/)
+        expect(candidate_queries(queries)).to be_empty
         expect(queries.join).to match(/IN \(SELECT/i)
+      end
+
+      it 'continues past discarded representatives in later batches' do
+        allow(controller).to receive(:representative_batch_size).and_return(2)
+        discarded = Array.new(2) { Fabricate(:status, account: user.account) }
+        live = Array.new(3) { Fabricate(:status, account: user.account) }
+        insert_reaction(id: 500, status: discarded[0])
+        insert_reaction(id: 400, status: discarded[1])
+        insert_reaction(id: 300, status: live[0])
+        insert_reaction(id: 200, status: live[1])
+        insert_reaction(id: 100, status: live[2])
+        discarded.each(&:discard)
+
+        queries = capture_sql { get :index, params: { limit: 2 } }
+
+        expect(status_ids).to eq [live[0].id.to_s, live[1].id.to_s]
+        expect(candidate_queries(queries).size).to eq 2
+        expect(candidate_queries(queries)).to all(match(/ORDER BY "emoji_reactions"\."id" DESC/))
+        expect(reaction_lookup_queries(queries).map { |sql| in_list_size(sql) }).to eq [2, 2]
+      end
+
+      it 'continues past discarded representatives when scanning forward from min_id' do
+        allow(controller).to receive(:representative_batch_size).and_return(2)
+        discarded = Array.new(2) { Fabricate(:status, account: user.account) }
+        live = Array.new(3) { Fabricate(:status, account: user.account) }
+        insert_reaction(id: 100, status: discarded[0])
+        insert_reaction(id: 200, status: discarded[1])
+        insert_reaction(id: 300, status: live[0])
+        insert_reaction(id: 400, status: live[1])
+        insert_reaction(id: 500, status: live[2])
+        discarded.each(&:discard)
+
+        queries = capture_sql { get :index, params: { limit: 2, min_id: 50 } }
+
+        expect(status_ids).to eq [live[1].id.to_s, live[0].id.to_s]
+        expect(candidate_queries(queries).size).to eq 2
+        expect(candidate_queries(queries)).to all(match(/ORDER BY "emoji_reactions"\."id" ASC/))
+        expect(reaction_lookup_queries(queries).map { |sql| in_list_size(sql) }).to eq [2, 2]
+      end
+
+      it 'keeps an expired status in the unfiltered page' do
+        expired = Fabricate(:status, account: user.account)
+        live = Fabricate(:status, account: user.account)
+        expired.update_column(:expired_at, 1.hour.ago)
+        insert_reaction(id: 710, status: expired)
+        insert_reaction(id: 720, status: live)
+
+        queries = capture_sql { get :index }
+
+        expect(status_ids).to eq [live.id.to_s, expired.id.to_s]
+        expect(reaction_lookup_queries(queries).join).to match(/INNER JOIN "statuses" ON "statuses"\."deleted_at" IS NULL/)
+        expect(reaction_lookup_queries(queries).join).not_to match(/expired_at IS NULL/)
       end
 
       it 'uses the same status order for compact responses' do
