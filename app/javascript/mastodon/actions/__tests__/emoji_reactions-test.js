@@ -23,6 +23,7 @@ jest.mock('../accounts', () => ({
 
 import api, { getLinks } from '../../api';
 import reducer from '../../reducers/emoji_reactioned_statuses';
+import { EMOJI_REACTION_SUCCESS } from '../interactions';
 import {
   expandEmojiReactionedStatuses,
   fetchEmojiReactionEmojiCatalog,
@@ -164,5 +165,51 @@ describe('emoji reaction API actions', () => {
     get.mockClear();
     harness.dispatch(fetchEmojiReactionEmojiCatalog());
     expect(get).not.toHaveBeenCalled();
+  });
+
+  it('fetches the catalog again after a late response leaves it stale', async () => {
+    let resolveCatalog;
+    get.mockImplementation(() => new Promise(resolve => {
+      resolveCatalog = resolve;
+    }));
+    const harness = createHarness();
+
+    const first = harness.dispatch(fetchEmojiReactionEmojiCatalog());
+    harness.dispatch({ type: EMOJI_REACTION_SUCCESS });
+
+    resolveCatalog({ data: [{ name: '🎉', count: 1 }] });
+    await first;
+
+    const staleCatalog = harness.read().get('catalog');
+    expect(staleCatalog.get('stale')).toBe(true);
+    expect(staleCatalog.get('isLoading')).toBe(false);
+    expect(staleCatalog.get('items').map(item => item.get('name')).toJS()).toEqual(['🎉']);
+
+    let resolveRefresh;
+    get.mockImplementation(() => new Promise(resolve => {
+      resolveRefresh = resolve;
+    }));
+
+    const refresh = staleCatalog.get('stale') && !staleCatalog.get('isLoading')
+      ? harness.dispatch(fetchEmojiReactionEmojiCatalog())
+      : null;
+
+    expect(refresh).not.toBeNull();
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(get).toHaveBeenLastCalledWith('/api/v1/emoji_reactions/emojis');
+    expect(harness.read().getIn(['catalog', 'stale'])).toBe(false);
+    expect(harness.read().getIn(['catalog', 'isLoading'])).toBe(true);
+
+    resolveRefresh({
+      data: [
+        { name: '👍', count: 2 },
+        { name: '🎉', count: 1 },
+      ],
+    });
+    await refresh;
+
+    expect(harness.read().getIn(['catalog', 'stale'])).toBe(false);
+    expect(harness.read().getIn(['catalog', 'isLoading'])).toBe(false);
+    expect(harness.read().getIn(['catalog', 'items']).map(item => item.get('name')).toJS()).toEqual(['👍', '🎉']);
   });
 });

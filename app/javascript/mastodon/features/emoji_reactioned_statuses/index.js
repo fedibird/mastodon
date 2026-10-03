@@ -41,6 +41,7 @@ const mapStateToProps = (state, { columnId }) => {
   const emojis = emojiFilterList(pinned ? columns.get(index).getIn(['params', 'emojis']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'emojis']));
   const listKey = emojiReactionedStatusesListKey(columnId);
   const list = state.getIn(['emoji_reactioned_statuses', 'lists', listKey]);
+  const catalog = state.getIn(['emoji_reactioned_statuses', 'catalog']);
 
   return {
     listKey,
@@ -49,6 +50,8 @@ const mapStateToProps = (state, { columnId }) => {
     isLoading: list ? list.get('isLoading') : false,
     hasMore: !!(list && list.get('next')),
     stale: list ? list.get('stale') : false,
+    catalogStale: catalog ? catalog.get('stale') : false,
+    catalogIsLoading: catalog ? catalog.get('isLoading') : false,
     onlyMedia,
     withoutMedia,
     columnWidth: columnWidth ?? defaultColumnWidth,
@@ -71,6 +74,8 @@ class EmojiReactions extends ImmutablePureComponent {
     hasMore: PropTypes.bool,
     isLoading: PropTypes.bool,
     stale: PropTypes.bool,
+    catalogStale: PropTypes.bool,
+    catalogIsLoading: PropTypes.bool,
     listKey: PropTypes.string,
     emojis: ImmutablePropTypes.list,
   };
@@ -79,6 +84,8 @@ class EmojiReactions extends ImmutablePureComponent {
     onlyMedia: false,
     withoutMedia: false,
     stale: false,
+    catalogStale: false,
+    catalogIsLoading: false,
   };
 
   componentDidMount () {
@@ -89,7 +96,7 @@ class EmojiReactions extends ImmutablePureComponent {
   }
 
   componentDidUpdate (prevProps) {
-    const { dispatch, listKey, emojis, onlyMedia, withoutMedia, stale, isLoading } = this.props;
+    const { dispatch, listKey, emojis, onlyMedia, withoutMedia, stale, isLoading, catalogStale, catalogIsLoading } = this.props;
     const filtersChanged = prevProps.listKey !== listKey
       || prevProps.onlyMedia !== onlyMedia
       || prevProps.withoutMedia !== withoutMedia
@@ -99,7 +106,7 @@ class EmojiReactions extends ImmutablePureComponent {
       dispatch(fetchEmojiReactionedStatuses({ listKey, emojis, onlyMedia, withoutMedia }));
     }
 
-    if (stale && !isLoading) {
+    if (catalogStale && !catalogIsLoading) {
       dispatch(fetchEmojiReactionEmojiCatalog());
     }
   }

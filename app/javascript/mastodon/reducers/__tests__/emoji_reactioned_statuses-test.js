@@ -187,9 +187,57 @@ describe('emoji_reactioned_statuses reducer', () => {
       expect(state.getIn(['catalog', 'error'])).toBeNull();
     });
 
+    it('keeps a catalog response that finished after a reaction marked stale', () => {
+      let state = reducer(undefined, { type: EMOJI_REACTION_EMOJIS_FETCH_REQUEST });
+      expect(state.getIn(['catalog', 'stale'])).toBe(false);
+      expect(state.getIn(['catalog', 'isLoading'])).toBe(true);
+
+      state = reducer(state, { type: EMOJI_REACTION_SUCCESS });
+      expect(state.getIn(['catalog', 'stale'])).toBe(true);
+
+      state = reducer(state, {
+        type: EMOJI_REACTION_EMOJIS_FETCH_SUCCESS,
+        emojis: [{ name: '🎉', count: 1 }],
+      });
+
+      expect(state.getIn(['catalog', 'items']).map(item => item.get('name')).toJS()).toEqual(['🎉']);
+      expect(state.getIn(['catalog', 'stale'])).toBe(true);
+      expect(state.getIn(['catalog', 'isLoading'])).toBe(false);
+      expect(state.getIn(['catalog', 'loaded'])).toBe(true);
+    });
+
+    it('replaces a stale catalog when a later fetch succeeds', () => {
+      let state = reducer(undefined, { type: EMOJI_REACTION_EMOJIS_FETCH_REQUEST });
+      state = reducer(state, { type: EMOJI_REACTION_SUCCESS });
+      state = reducer(state, {
+        type: EMOJI_REACTION_EMOJIS_FETCH_SUCCESS,
+        emojis: [{ name: '🎉', count: 1 }],
+      });
+
+      expect(state.getIn(['catalog', 'stale']) && !state.getIn(['catalog', 'isLoading'])).toBe(true);
+
+      state = reducer(state, { type: EMOJI_REACTION_EMOJIS_FETCH_REQUEST });
+      expect(state.getIn(['catalog', 'stale'])).toBe(false);
+      expect(state.getIn(['catalog', 'isLoading'])).toBe(true);
+
+      state = reducer(state, {
+        type: EMOJI_REACTION_EMOJIS_FETCH_SUCCESS,
+        emojis: [
+          { name: '👍', count: 2 },
+          { name: '🎉', count: 1 },
+        ],
+      });
+
+      expect(state.getIn(['catalog', 'stale'])).toBe(false);
+      expect(state.getIn(['catalog', 'isLoading'])).toBe(false);
+      expect(state.getIn(['catalog', 'loaded'])).toBe(true);
+      expect(state.getIn(['catalog', 'items']).map(item => item.get('name')).toJS()).toEqual(['👍', '🎉']);
+    });
+
     it('stores catalog items in API order and keeps them after a failure', () => {
       let state = reducer(undefined, { type: EMOJI_REACTION_EMOJIS_FETCH_REQUEST });
       expect(state.getIn(['catalog', 'isLoading'])).toBe(true);
+      expect(state.getIn(['catalog', 'stale'])).toBe(false);
       expect(state.getIn(['catalog', 'error'])).toBeNull();
 
       state = reducer(state, {

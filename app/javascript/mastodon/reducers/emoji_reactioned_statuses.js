@@ -130,6 +130,7 @@ export default function emojiReactionedStatuses(state = initialState, action) {
   case EMOJI_REACTION_EMOJIS_FETCH_REQUEST:
     return state.mergeIn(['catalog'], {
       isLoading: true,
+      stale: false,
       error: null,
     });
   case EMOJI_REACTION_EMOJIS_FETCH_SUCCESS:
@@ -137,7 +138,6 @@ export default function emojiReactionedStatuses(state = initialState, action) {
       items: fromJS(action.emojis || []),
       loaded: true,
       isLoading: false,
-      stale: false,
       error: null,
     });
   case EMOJI_REACTION_EMOJIS_FETCH_FAIL:
