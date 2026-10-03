@@ -262,17 +262,17 @@ describe Api::V1::Accounts::StatusesController do
 
     it 'keeps public and unlisted visibility for another account' do
       account = Fabricate(:account)
-      insert_status(100, account: account, visibility: :public)
-      insert_status(200, account: account, visibility: :private)
-      insert_status(300, account: account, visibility: :unlisted)
-      insert_status(400, account: account, visibility: :direct)
-      insert_status(500, account: account, visibility: :public)
+      insert_status(600, account: account, visibility: :public)
+      insert_status(700, account: account, visibility: :private)
+      insert_status(800, account: account, visibility: :unlisted)
+      insert_status(900, account: account, visibility: :direct)
+      insert_status(1000, account: account, visibility: :public)
 
       statements = capture_statements do
         get :index, params: { account_id: account.id, min_id: 50, limit: 10 }
       end
 
-      expect(status_ids).to eq [500, 300, 100]
+      expect(status_ids).to eq [1000, 800, 600]
       expect_tuple_lower_bound(tuple_statement(statements), account_id: account.id, min_id: 50)
     end
   end
