@@ -144,6 +144,7 @@ describe('EmojiFilterDropdownContainer', () => {
     expect(actions.map(action => action.type)).toContain(DROPDOWN_MENU_OPEN);
     expect(actions.map(action => action.type)).not.toContain(MODAL_OPEN);
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('searchbox', { name: 'Search emoji you have used' })).toHaveFocus();
   });
 
   it('opens the touch modal instead of a dropdown', () => {
