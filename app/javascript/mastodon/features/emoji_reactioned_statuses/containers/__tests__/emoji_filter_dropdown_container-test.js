@@ -215,4 +215,46 @@ describe('EmojiFilterDropdownContainer', () => {
     expect(store.getState().getIn(['settings', 'columns', 1, 'params', 'emojis']).toJS()).toEqual(['🎉', '🥳']);
     expect(actions.map(action => action.type)).not.toContain(SETTING_CHANGE);
   });
+
+  it('pins preferred emoji into global settings and does not fetch', () => {
+    const { actions, store } = renderFilter(undefined, ['🎉']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by emoji' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pin 👍 to preferred emoji' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pin 🥳 to preferred emoji' }));
+
+    const changes = actions.filter(action => action.type === SETTING_CHANGE);
+
+    expect(changes.map(action => action.path)).toEqual([
+      ['emoji_reactioned_statuses', 'preferred_emojis'],
+      ['emoji_reactioned_statuses', 'preferred_emojis'],
+    ]);
+    expect(changes[1].value.toJS()).toEqual(['👍', '🥳']);
+    expect(actions.map(action => action.type)).not.toContain('EMOJI_REACTIONED_STATUSES_FETCH_REQUEST');
+    expect(actions.map(action => action.type)).not.toContain('EMOJI_REACTION_EMOJIS_FETCH_REQUEST');
+    expect(actions.map(action => action.type)).not.toContain(COLUMN_PARAMS_CHANGE);
+    expect(store.getState().getIn(['settings', 'emoji_reactioned_statuses', 'emojis']).toJS()).toEqual(['🎉']);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '🎉' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '👍' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('heading', { name: 'Preferred' })).toBeInTheDocument();
+  });
+
+  it('pins from a pinned column through the same global setting', () => {
+    const { actions, store } = renderFilter('column-a', ['❤️']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by emoji' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pin 🎉 to preferred emoji' }));
+
+    const change = actions.find(action => action.type === SETTING_CHANGE);
+
+    expect(change.path).toEqual(['emoji_reactioned_statuses', 'preferred_emojis']);
+    expect(change.value.toJS()).toEqual(['🎉']);
+    expect(actions.map(action => action.type)).not.toContain(COLUMN_PARAMS_CHANGE);
+    expect(actions.map(action => action.type)).not.toContain('EMOJI_REACTIONED_STATUSES_FETCH_REQUEST');
+    expect(store.getState().getIn(['settings', 'emoji_reactioned_statuses', 'emojis']).toJS()).toEqual(['❤️']);
+    expect(store.getState().getIn(['settings', 'columns', 0, 'params', 'emojis']).toJS()).toEqual(['👍']);
+    expect(store.getState().getIn(['settings', 'columns', 0, 'params', 'preferred_emojis'])).toBeUndefined();
+    expect(screen.getByRole('button', { name: '👍' })).toHaveAttribute('aria-pressed', 'true');
+  });
 });

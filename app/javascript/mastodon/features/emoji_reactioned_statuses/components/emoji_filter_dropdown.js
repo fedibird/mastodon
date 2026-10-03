@@ -33,6 +33,7 @@ export default class EmojiFilterDropdown extends React.PureComponent {
   static propTypes = {
     columnId: PropTypes.string,
     emojis: PropTypes.oneOfType([ImmutablePropTypes.list, PropTypes.array]),
+    preferredEmojis: PropTypes.oneOfType([ImmutablePropTypes.list, PropTypes.array]),
     catalogItems: PropTypes.oneOfType([ImmutablePropTypes.list, PropTypes.array]),
     isLoading: PropTypes.bool,
     loaded: PropTypes.bool,
@@ -44,6 +45,7 @@ export default class EmojiFilterDropdown extends React.PureComponent {
     onClose: PropTypes.func.isRequired,
     onApply: PropTypes.func.isRequired,
     onChange: PropTypes.func.isRequired,
+    onTogglePreferred: PropTypes.func.isRequired,
   };
 
   state = {
@@ -150,11 +152,13 @@ export default class EmojiFilterDropdown extends React.PureComponent {
           <EmojiReactionFilterPicker
             catalogItems={this.props.catalogItems}
             appliedEmojis={this.props.emojis}
+            preferredEmojis={this.props.preferredEmojis}
             isLoading={this.props.isLoading}
             loaded={this.props.loaded}
             error={this.props.error}
             onApply={this.handleApply}
             onClose={this.handleClose}
+            onTogglePreferred={this.props.onTogglePreferred}
           />
         </div>
       </div>

@@ -2,14 +2,18 @@ jest.mock('react-intl', () => ({
   defineMessages: messages => messages,
 }));
 
-import { fromJS } from 'immutable';
+import { fromJS, Map as ImmutableMap } from 'immutable';
 import {
   emojiReactionCatalogMatches,
   emojiReactionFilterLabel,
   emojiReactionFilterValue,
   emojiReactionSearchText,
   filterEmojiReactionCatalog,
+  getPreferredEmojiReactionFilters,
+  isPreferredEmojiReaction,
+  normalizePreferredEmojiReactionFilters,
   sameEmojiFilters,
+  togglePreferredEmojiReactionFilter,
 } from '../utils';
 
 const remote = {
@@ -67,5 +71,37 @@ describe('emoji reaction filter helpers', () => {
     expect(sameEmojiFilters(['🎉', '👍'], ['🎉', '👍'])).toBe(true);
     expect(sameEmojiFilters(['🎉', '👍'], ['👍', '🎉'])).toBe(false);
     expect(sameEmojiFilters(fromJS(['🎉']), ['🎉'])).toBe(true);
+  });
+
+  it('normalizes preferred emoji without dropping order', () => {
+    expect(normalizePreferredEmojiReactionFilters(['🎉', '', '🎉', '👍'])).toEqual(['🎉', '👍']);
+    expect(normalizePreferredEmojiReactionFilters(fromJS(['  ', 'great@example.com', 'great@example.com']))).toEqual(['great@example.com']);
+    expect(normalizePreferredEmojiReactionFilters(undefined)).toEqual([]);
+  });
+
+  it('toggles preferred emoji at the end and keeps the remaining order', () => {
+    expect(togglePreferredEmojiReactionFilter(['🎉'], '👍')).toEqual(['🎉', '👍']);
+    expect(togglePreferredEmojiReactionFilter(['🎉', '👍', 'great@example.com'], '👍')).toEqual(['🎉', 'great@example.com']);
+    expect(togglePreferredEmojiReactionFilter(['🎉', '', '🎉'], '🎉')).toEqual([]);
+    expect(isPreferredEmojiReaction(['🎉', '👍'], '👍')).toBe(true);
+    expect(isPreferredEmojiReaction(['🎉'], '👍')).toBe(false);
+  });
+
+  it('reads a missing preferred list as empty and hides duplicates', () => {
+    const missing = ImmutableMap({
+      settings: ImmutableMap({
+        emoji_reactioned_statuses: ImmutableMap({ emojis: fromJS(['🎉']) }),
+      }),
+    });
+    const duplicated = fromJS({
+      settings: {
+        emoji_reactioned_statuses: {
+          preferred_emojis: ['🎉', '', '🎉', '👍'],
+        },
+      },
+    });
+
+    expect(getPreferredEmojiReactionFilters(missing).toJS()).toEqual([]);
+    expect(getPreferredEmojiReactionFilters(duplicated).toJS()).toEqual(['🎉', '👍']);
   });
 });

@@ -7,7 +7,9 @@ import EmojiFilterDropdown from '../components/emoji_filter_dropdown';
 import {
   getAppliedEmojiReactionFilters,
   getEmojiReactionCatalogState,
+  getPreferredEmojiReactionFilters,
   saveEmojiReactionFilters,
+  savePreferredEmojiReactionFilters,
 } from '../utils';
 
 const mapStateToProps = (state, { columnId }) => {
@@ -15,6 +17,7 @@ const mapStateToProps = (state, { columnId }) => {
 
   return {
     emojis: getAppliedEmojiReactionFilters(state, columnId),
+    preferredEmojis: getPreferredEmojiReactionFilters(state),
     ...getEmojiReactionCatalogState(state),
     openDropdownId: state.getIn(['dropdown_menu', 'openId']),
     modalType: state.getIn(['modal', 0, 'modalType']),
@@ -29,6 +32,10 @@ const mapDispatchToProps = (dispatch, { columnId }) => ({
 
   onChange(next) {
     dispatch(saveEmojiReactionFilters(columnId, next));
+  },
+
+  onTogglePreferred(next) {
+    dispatch(savePreferredEmojiReactionFilters(next));
   },
 
   onOpen(id, keyboard) {

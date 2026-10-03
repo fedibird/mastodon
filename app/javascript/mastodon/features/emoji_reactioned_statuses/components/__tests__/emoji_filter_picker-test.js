@@ -65,6 +65,7 @@ const catalog = [
 const renderPicker = (props = {}) => {
   const onApply = jest.fn();
   const onClose = jest.fn();
+  const onTogglePreferred = jest.fn();
 
   render(
     <EmojiReactionFilterPicker
@@ -73,17 +74,28 @@ const renderPicker = (props = {}) => {
       loaded
       onApply={onApply}
       onClose={onClose}
+      onTogglePreferred={onTogglePreferred}
       autoFocus={false}
       {...props}
     />,
   );
 
-  return { onApply, onClose };
+  return { onApply, onClose, onTogglePreferred: props.onTogglePreferred || onTogglePreferred };
 };
 
-const tileLabels = () => screen.getAllByRole('button')
-  .filter(button => button.hasAttribute('aria-pressed'))
-  .map(button => button.getAttribute('aria-label'));
+const tileLabels = () => {
+  const tiles = screen.queryAllByRole('button')
+    .filter(button => button.classList.contains('emoji-reaction-filter-picker__tile'));
+
+  return tiles.map(button => button.getAttribute('aria-label'));
+};
+
+const labelsInSection = (name) => {
+  const heading = screen.getByRole('heading', { name });
+
+  return Array.from(heading.parentElement.querySelectorAll('.emoji-reaction-filter-picker__tile'))
+    .map(button => button.getAttribute('aria-label'));
+};
 
 describe('EmojiReactionFilterPicker', () => {
   it('keeps catalog order and shows each count', () => {
@@ -238,5 +250,166 @@ describe('EmojiReactionFilterPicker', () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it('shows preferred emoji first and does not repeat them below', () => {
+    renderPicker({
+      catalogItems: [
+        { name: '🎉', custom: false, domain: null, count: 100 },
+        { name: '👍', custom: false, domain: null, count: 50 },
+        { name: '❤️', custom: false, domain: null, count: 25 },
+      ],
+      preferredEmojis: ['❤️', '🎉'],
+    });
+
+    expect(labelsInSection('Preferred')).toEqual(['❤️', '🎉']);
+    expect(labelsInSection('Frequently used')).toEqual(['👍']);
+    expect(tileLabels()).toEqual(['❤️', '🎉', '👍']);
+    expect(screen.getByRole('button', { name: 'Unpin ❤️ from preferred emoji' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Pin 👍 to preferred emoji' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('pins an emoji without selecting it or applying the filter', () => {
+    const onTogglePreferred = jest.fn();
+    const { onApply } = renderPicker({
+      appliedEmojis: ['🎉'],
+      preferredEmojis: ['❤️', '🎉'],
+      onTogglePreferred,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pin 👍 to preferred emoji' }));
+
+    expect(onTogglePreferred).toHaveBeenCalledWith(['❤️', '🎉', '👍']);
+    expect(onApply).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '👍' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: '🎉' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('unpins an emoji and keeps the remaining preferred order', () => {
+    const onTogglePreferred = jest.fn();
+
+    renderPicker({
+      preferredEmojis: ['❤️', '🎉', '👍'],
+      onTogglePreferred,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unpin 🎉 from preferred emoji' }));
+
+    expect(onTogglePreferred).toHaveBeenCalledWith(['❤️', '👍']);
+  });
+
+  it('does not pin an emoji when its selection tile is clicked', () => {
+    const onTogglePreferred = jest.fn();
+
+    renderPicker({ preferredEmojis: ['❤️'], onTogglePreferred });
+
+    fireEvent.click(screen.getByRole('button', { name: '👍' }));
+
+    expect(onTogglePreferred).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '👍' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Pin 👍 to preferred emoji' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('clears only the filter draft', () => {
+    const onTogglePreferred = jest.fn();
+
+    renderPicker({
+      appliedEmojis: ['🎉', '👍'],
+      preferredEmojis: ['❤️'],
+      onTogglePreferred,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear all' }));
+
+    expect(screen.getByRole('button', { name: '🎉' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Unpin ❤️ from preferred emoji' })).toHaveAttribute('aria-pressed', 'true');
+    expect(onTogglePreferred).not.toHaveBeenCalled();
+  });
+
+  it('keeps a preferred change when the filter draft is cancelled', () => {
+    const onTogglePreferred = jest.fn();
+    const { onApply, onClose } = renderPicker({
+      appliedEmojis: ['🎉'],
+      preferredEmojis: ['❤️'],
+      onTogglePreferred,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '👍' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pin 👍 to preferred emoji' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(onTogglePreferred).toHaveBeenCalledWith(['❤️', '👍']);
+    expect(onApply).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a preferred emoji that has left the catalog', () => {
+    const onTogglePreferred = jest.fn();
+
+    renderPicker({
+      catalogItems: [
+        { name: '🎉', custom: false, domain: null, count: 4 },
+        { name: '👍', custom: false, domain: null, count: 2 },
+      ],
+      preferredEmojis: ['old@example.com', '🎉'],
+      onTogglePreferred,
+    });
+
+    expect(labelsInSection('Preferred')).toEqual([':old:@example.com', '🎉']);
+    expect(labelsInSection('Frequently used')).toEqual(['👍']);
+
+    const missing = screen.getByRole('button', { name: ':old:@example.com' });
+
+    expect(missing).toHaveTextContent('0');
+    expect(missing.parentElement).toHaveTextContent('Emoji not currently used');
+    expect(screen.getByRole('button', { name: 'Unpin :old:@example.com from preferred emoji' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByText('Emoji not currently used', { selector: 'p' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unpin :old:@example.com from preferred emoji' }));
+
+    expect(onTogglePreferred).toHaveBeenCalledWith(['🎉']);
+  });
+
+  it('shows a selected preferred emoji that is missing from the catalog only once', () => {
+    renderPicker({
+      catalogItems: [],
+      appliedEmojis: ['old@example.com'],
+      preferredEmojis: ['old@example.com'],
+      loaded: true,
+    });
+
+    expect(tileLabels()).toEqual([':old:@example.com']);
+    expect(screen.getAllByText('Emoji not currently used')).toHaveLength(1);
+    expect(screen.queryByRole('heading', { name: 'Frequently used' })).not.toBeInTheDocument();
+  });
+
+  it('filters preferred and remaining emoji without reordering either section', () => {
+    renderPicker({
+      catalogItems: [
+        { name: '🎉', custom: false, domain: null, count: 3 },
+        {
+          name: 'achievement',
+          custom: true,
+          domain: 'example.com',
+          count: 2,
+          url: 'https://cdn.example/achievement.png',
+        },
+        { name: 'great', custom: true, domain: null, count: 1 },
+        {
+          name: 'another',
+          custom: true,
+          domain: 'example.net',
+          count: 1,
+          url: 'https://cdn.example/another.png',
+        },
+      ],
+      preferredEmojis: ['achievement@example.com', 'great', 'old@example.com'],
+    });
+
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'example' } });
+
+    expect(labelsInSection('Preferred')).toEqual([':achievement:@example.com', ':old:@example.com']);
+    expect(labelsInSection('Frequently used')).toEqual([':another:@example.net']);
+    expect(tileLabels()).toEqual([':achievement:@example.com', ':old:@example.com', ':another:@example.net']);
   });
 });

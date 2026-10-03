@@ -7,11 +7,14 @@ import Icon from 'mastodon/components/icon';
 import Emoji from 'mastodon/components/emoji';
 import { CircularProgress } from 'mastodon/components/loading_indicator';
 import {
+  emojiReactionCatalogMatches,
   emojiReactionFilterArray,
   emojiReactionFilterLabel,
   emojiReactionFilterValue,
-  filterEmojiReactionCatalog,
+  isPreferredEmojiReaction,
+  normalizePreferredEmojiReactionFilters,
   sameEmojiFilters,
+  togglePreferredEmojiReactionFilter,
 } from '../utils';
 
 const messages = defineMessages({
@@ -26,7 +29,23 @@ const messages = defineMessages({
   empty: { id: 'emoji_reaction_filter.empty', defaultMessage: 'No reaction emoji in use yet' },
   unavailable: { id: 'emoji_reaction_filter.unavailable', defaultMessage: 'Emoji not currently used' },
   error: { id: 'emoji_reaction_filter.error', defaultMessage: 'Could not load reaction emoji' },
+  preferred: { id: 'emoji_reaction_filter.preferred', defaultMessage: 'Preferred' },
+  frequent: { id: 'emoji_reaction_filter.frequent', defaultMessage: 'Frequently used' },
+  pin: { id: 'emoji_reaction_filter.pin', defaultMessage: 'Pin {emoji} to preferred emoji' },
+  unpin: { id: 'emoji_reaction_filter.unpin', defaultMessage: 'Unpin {emoji} from preferred emoji' },
 });
+
+function read(item, key) {
+  if (!item) {
+    return undefined;
+  }
+
+  if (typeof item.get === 'function') {
+    return item.get(key);
+  }
+
+  return item[key];
+}
 
 class EmojiFilterTile extends React.PureComponent {
 
@@ -89,6 +108,69 @@ class EmojiFilterTile extends React.PureComponent {
 
 }
 
+class EmojiFilterItem extends React.PureComponent {
+
+  static propTypes = {
+    value: PropTypes.string.isRequired,
+    label: PropTypes.string.isRequired,
+    count: PropTypes.number,
+    selected: PropTypes.bool,
+    hovered: PropTypes.bool,
+    preferred: PropTypes.bool,
+    preferredLabel: PropTypes.string.isRequired,
+    unavailableLabel: PropTypes.string,
+    emoji: PropTypes.string,
+    url: PropTypes.string,
+    staticUrl: PropTypes.string,
+    domain: PropTypes.string,
+    onToggle: PropTypes.func.isRequired,
+    onHover: PropTypes.func.isRequired,
+    onTogglePreferred: PropTypes.func.isRequired,
+  };
+
+  handlePreferred = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    this.props.onTogglePreferred(this.props.value);
+  };
+
+  render() {
+    const { preferred, preferredLabel, unavailableLabel } = this.props;
+
+    return (
+      <div className='emoji-reaction-filter-picker__item'>
+        <EmojiFilterTile
+          value={this.props.value}
+          label={this.props.label}
+          count={this.props.count}
+          selected={this.props.selected}
+          hovered={this.props.hovered}
+          emoji={this.props.emoji}
+          url={this.props.url}
+          staticUrl={this.props.staticUrl}
+          domain={this.props.domain}
+          onToggle={this.props.onToggle}
+          onHover={this.props.onHover}
+        />
+        <button
+          type='button'
+          className={classNames('emoji-reaction-filter-picker__preferred-toggle', { 'is-preferred': preferred })}
+          aria-pressed={preferred}
+          aria-label={preferredLabel}
+          title={preferredLabel}
+          onClick={this.handlePreferred}
+        >
+          <Icon id='star' />
+        </button>
+        {unavailableLabel && (
+          <span className='emoji-reaction-filter-picker__note'>{unavailableLabel}</span>
+        )}
+      </div>
+    );
+  }
+
+}
+
 export default @injectIntl
 class EmojiReactionFilterPicker extends React.PureComponent {
 
@@ -96,17 +178,20 @@ class EmojiReactionFilterPicker extends React.PureComponent {
     intl: PropTypes.object.isRequired,
     catalogItems: PropTypes.oneOfType([ImmutablePropTypes.list, PropTypes.array]),
     appliedEmojis: PropTypes.oneOfType([ImmutablePropTypes.list, PropTypes.array]),
+    preferredEmojis: PropTypes.oneOfType([ImmutablePropTypes.list, PropTypes.array]),
     isLoading: PropTypes.bool,
     loaded: PropTypes.bool,
     error: PropTypes.any,
     onApply: PropTypes.func.isRequired,
     onClose: PropTypes.func.isRequired,
+    onTogglePreferred: PropTypes.func,
     autoFocus: PropTypes.bool,
   };
 
   static defaultProps = {
     catalogItems: [],
     appliedEmojis: [],
+    preferredEmojis: [],
     isLoading: false,
     loaded: false,
     error: null,
@@ -146,6 +231,14 @@ class EmojiReactionFilterPicker extends React.PureComponent {
 
       return { draft: draft.slice(0, index).concat(draft.slice(index + 1)) };
     });
+  };
+
+  handleTogglePreferred = (value) => {
+    if (!this.props.onTogglePreferred) {
+      return;
+    }
+
+    this.props.onTogglePreferred(togglePreferredEmojiReactionFilter(this.props.preferredEmojis, value));
   };
 
   handleHover = (value) => {
@@ -192,16 +285,89 @@ class EmojiReactionFilterPicker extends React.PureComponent {
     return this.props.loaded || items.length > 0 || Boolean(this.props.error);
   }
 
+  preferredValues() {
+    return normalizePreferredEmojiReactionFilters(this.props.preferredEmojis);
+  }
+
+  entryMatches(value, item) {
+    const query = this.state.query.trim();
+
+    if (!query) {
+      return true;
+    }
+
+    if (item) {
+      return emojiReactionCatalogMatches(item, query);
+    }
+
+    const normalized = query.toLocaleLowerCase();
+    const label = emojiReactionFilterLabel(value).toLocaleLowerCase();
+
+    return value.toLocaleLowerCase().includes(normalized) || label.includes(normalized);
+  }
+
+  sections() {
+    const items = emojiReactionFilterArray(this.props.catalogItems);
+    const byValue = new Map();
+
+    items.forEach(item => {
+      const value = emojiReactionFilterValue(item);
+
+      if (value && !byValue.has(value)) {
+        byValue.set(value, item);
+      }
+    });
+
+    const preferredValues = this.preferredValues();
+    const preferredSet = new Set(preferredValues);
+    const settled = this.catalogSettled();
+    const preferred = [];
+    const remaining = [];
+    const seenRemaining = new Set();
+
+    preferredValues.forEach(value => {
+      const item = byValue.get(value) || null;
+
+      if (!item && !settled) {
+        return;
+      }
+
+      if (!this.entryMatches(value, item)) {
+        return;
+      }
+
+      preferred.push({ value, item, missing: !item });
+    });
+
+    items.forEach(item => {
+      const value = emojiReactionFilterValue(item);
+
+      if (!value || preferredSet.has(value) || seenRemaining.has(value)) {
+        return;
+      }
+
+      if (!this.entryMatches(value, item)) {
+        return;
+      }
+
+      seenRemaining.add(value);
+      remaining.push({ value, item, missing: false });
+    });
+
+    return { preferred, remaining };
+  }
+
   missingValues() {
     if (!this.catalogSettled()) {
       return [];
     }
 
     const known = this.knownValues();
+    const preferred = new Set(this.preferredValues());
     const query = this.state.query.trim().toLocaleLowerCase();
 
     return this.state.draft.filter(value => {
-      if (known.has(value)) {
+      if (known.has(value) || preferred.has(value)) {
         return false;
       }
 
@@ -215,55 +381,71 @@ class EmojiReactionFilterPicker extends React.PureComponent {
     });
   }
 
-  renderTile(item) {
-    const value = emojiReactionFilterValue(item);
-    const custom = Boolean(typeof item.get === 'function' ? item.get('custom') : item.custom);
-    const domain = typeof item.get === 'function' ? item.get('domain') : item.domain;
-    const url = typeof item.get === 'function' ? item.get('url') : item.url;
-    const staticUrl = typeof item.get === 'function' ? item.get('static_url') : item.static_url;
-    const count = typeof item.get === 'function' ? item.get('count') : item.count;
-    const name = typeof item.get === 'function' ? item.get('name') : item.name;
-    const canRenderImage = !custom || url || staticUrl;
+  renderItem(entry) {
+    const { intl } = this.props;
+    const { value, item, missing } = entry;
+    const label = item ? emojiReactionFilterLabel(item) : emojiReactionFilterLabel(value);
+    const custom = Boolean(read(item, 'custom'));
+    const domain = read(item, 'domain');
+    const url = read(item, 'url');
+    const staticUrl = read(item, 'static_url');
+    const name = read(item, 'name');
+    const canRenderImage = Boolean(item) && (!custom || url || staticUrl);
+    const preferred = isPreferredEmojiReaction(this.props.preferredEmojis, value);
 
     return (
-      <EmojiFilterTile
+      <EmojiFilterItem
         key={value}
         value={value}
-        label={emojiReactionFilterLabel(item)}
-        count={Number(count) || 0}
+        label={label}
+        count={item ? (Number(read(item, 'count')) || 0) : 0}
         selected={this.state.draft.indexOf(value) !== -1}
         hovered={this.state.hovered === value}
+        preferred={preferred}
+        preferredLabel={intl.formatMessage(preferred ? messages.unpin : messages.pin, { emoji: label })}
+        unavailableLabel={missing ? intl.formatMessage(messages.unavailable) : null}
         emoji={canRenderImage ? String(name || '') : undefined}
         url={custom ? (url || undefined) : undefined}
         staticUrl={custom ? (staticUrl || undefined) : undefined}
         domain={custom && domain ? domain : undefined}
         onToggle={this.handleToggle}
         onHover={this.handleHover}
+        onTogglePreferred={this.handleTogglePreferred}
       />
     );
   }
 
-  renderMissingTile(value) {
+  renderGrid(entries) {
     return (
-      <EmojiFilterTile
-        key={value}
-        value={value}
-        label={emojiReactionFilterLabel(value)}
-        count={0}
-        selected={this.state.draft.indexOf(value) !== -1}
-        hovered={this.state.hovered === value}
-        onToggle={this.handleToggle}
-        onHover={this.handleHover}
-      />
+      <div className='emoji-reaction-filter-picker__grid'>
+        {entries.map(entry => this.renderItem(entry))}
+      </div>
+    );
+  }
+
+  renderGroup(message, entries) {
+    if (entries.length === 0) {
+      return null;
+    }
+
+    return (
+      <section className='emoji-reaction-filter-picker__group'>
+        <h3 className='emoji-reaction-filter-picker__section-heading'>
+          {this.props.intl.formatMessage(message)}
+        </h3>
+        {this.renderGrid(entries)}
+      </section>
     );
   }
 
   renderBody() {
     const { intl, isLoading, error } = this.props;
     const items = emojiReactionFilterArray(this.props.catalogItems);
-    const matches = filterEmojiReactionCatalog(items, this.state.query);
+    const { preferred, remaining } = this.sections();
     const missing = this.missingValues();
     const query = this.state.query.trim();
+    const hasContent = preferred.length > 0 || remaining.length > 0 || missing.length > 0;
+    const showFrequentHeading = this.preferredValues().length > 0;
 
     if (isLoading && items.length === 0) {
       return (
@@ -273,15 +455,15 @@ class EmojiReactionFilterPicker extends React.PureComponent {
       );
     }
 
-    if (error && items.length === 0 && missing.length === 0) {
+    if (error && items.length === 0 && !hasContent) {
       return <p className='emoji-reaction-filter-picker__message'>{intl.formatMessage(messages.error)}</p>;
     }
 
-    if (!query && items.length === 0 && missing.length === 0) {
+    if (!query && items.length === 0 && !hasContent) {
       return <p className='emoji-reaction-filter-picker__message'>{intl.formatMessage(messages.empty)}</p>;
     }
 
-    if (matches.length === 0 && missing.length === 0) {
+    if (!hasContent) {
       return <p className='emoji-reaction-filter-picker__message'>{intl.formatMessage(messages.noResults)}</p>;
     }
 
@@ -290,17 +472,12 @@ class EmojiReactionFilterPicker extends React.PureComponent {
         {error && items.length === 0 && (
           <p className='emoji-reaction-filter-picker__message'>{intl.formatMessage(messages.error)}</p>
         )}
-        {matches.length > 0 && (
-          <div className='emoji-reaction-filter-picker__grid'>
-            {matches.map(item => this.renderTile(item))}
-          </div>
-        )}
+        {this.renderGroup(messages.preferred, preferred)}
+        {remaining.length > 0 && (showFrequentHeading ? this.renderGroup(messages.frequent, remaining) : this.renderGrid(remaining))}
         {missing.length > 0 && (
           <div className='emoji-reaction-filter-picker__missing'>
             <p className='emoji-reaction-filter-picker__section'>{intl.formatMessage(messages.unavailable)}</p>
-            <div className='emoji-reaction-filter-picker__grid'>
-              {missing.map(value => this.renderMissingTile(value))}
-            </div>
+            {this.renderGrid(missing.map(value => ({ value, item: null, missing: false })))}
           </div>
         )}
       </React.Fragment>
