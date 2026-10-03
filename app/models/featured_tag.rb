@@ -29,6 +29,7 @@ class FeaturedTag < ApplicationRecord
   # delegate :display_name, to: :tag
 
   attr_writer :name
+  attr_accessor :precomputed_statuses_count
 
   LIMIT = 30
 
@@ -63,7 +64,12 @@ class FeaturedTag < ApplicationRecord
   end
 
   def reset_data
-    self.statuses_count = account.statuses.where(visibility: %i(public unlisted)).tagged_with(tag).count
+    # Zero is a real precomputed count. Only a missing value falls back to COUNT.
+    self.statuses_count = if precomputed_statuses_count.nil?
+                            account.statuses.where(visibility: %i(public unlisted)).tagged_with(tag).count
+                          else
+                            precomputed_statuses_count
+                          end
     self.last_status_at = matching_statuses.pick(:created_at)
   end
 

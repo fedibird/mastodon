@@ -98,9 +98,38 @@ class ActivityPub::FetchFeaturedTagsCollectionService < BaseService
 
     FeaturedTag.includes(:tag).where(account: @account, tags: { name: to_remove }).delete_all unless to_remove.empty?
 
-    to_add.each do |name|
-      FeaturedTag.create!(account: @account, name: name, url: item_by_name[name]['href'])
+    create_featured_tags(to_add, item_by_name)
+  end
+
+  def create_featured_tags(names, item_by_name)
+    return if names.empty?
+
+    tags_by_name = names.index_with { |name| Tag.find_or_create_by_names(name)&.first }
+    counts = precomputed_status_counts(tags_by_name.values.compact.map(&:id).uniq)
+
+    names.each do |name|
+      tag = tags_by_name[name]
+
+      FeaturedTag.create!(
+        account: @account,
+        name: name,
+        url: item_by_name[name]['href'],
+        precomputed_statuses_count: counts.fetch(tag&.id, 0)
+      )
     end
+  end
+
+  # Count every new tag in one join. A per-tag COUNT repeats that join for each hashtag.
+  def precomputed_status_counts(tag_ids)
+    return {} if tag_ids.empty?
+
+    @account.statuses
+            .where(visibility: %i(public unlisted))
+            .joins(:statuses_tags)
+            .where(statuses_tags: { tag_id: tag_ids })
+            .reorder(nil)
+            .group('statuses_tags.tag_id')
+            .count
   end
 
   def local_follower
