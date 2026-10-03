@@ -520,8 +520,10 @@ ActiveRecord::Schema.define(version: 2026_10_02_120000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.string "uri"
-    t.index ["account_id", "id", "status_id"], name: "index_emoji_reactions_on_account_id_and_id_include_status_id"
-    t.index ["account_id", "status_id", "id"], name: "index_emoji_reactions_on_account_status_include_id"
+    # Representative-scan indexes use INCLUDE and are created only by
+    # db/migrate/20261002120000_add_emoji_reaction_representative_scan_indexes.rb.
+    # Rails 6.1 schema dump would record them as ordinary 3-column keys, which
+    # is a different index, so they are intentionally omitted here.
     t.index ["account_id", "status_id", "name"], name: "index_emoji_reactions_on_account_id_and_status_id", unique: true
     t.index ["account_id"], name: "index_emoji_reactions_on_account_id"
     t.index ["custom_emoji_id"], name: "index_emoji_reactions_on_custom_emoji_id"

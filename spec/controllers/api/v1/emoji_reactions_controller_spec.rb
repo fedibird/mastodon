@@ -32,10 +32,18 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
   end
 
   def capture_sql(&block)
-    queries = []
-    callback = lambda { |*_args, payload| queries << payload[:sql] }
+    capture_statements(&block).map { |statement| statement[:sql] }
+  end
+
+  def capture_statements(&block)
+    statements = []
+    callback = lambda do |*_args, payload|
+      casted = payload[:type_casted_binds]
+      casted = casted.call if casted.respond_to?(:call)
+      statements << { sql: payload[:sql].to_s, binds: Array(casted) }
+    end
     ActiveSupport::Notifications.subscribed(callback, 'sql.active_record', &block)
-    queries
+    statements
   end
 
   def candidate_queries(queries)
@@ -117,6 +125,43 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
         get :index, params: { limit: 2, since_id: 110 }
 
         expect(status_ids).to eq [statuses[3].id.to_s, statuses[2].id.to_s]
+      end
+
+      it 'applies since_id and max_id together on the descending scan' do
+        statuses = Array.new(5) { Fabricate(:status, account: user.account) }
+        [110, 120, 130, 140, 150].each_with_index { |id, index| insert_reaction(id: id, status: statuses[index]) }
+
+        statements = capture_statements { get :index, params: { limit: 2, since_id: 110, max_id: 150 } }
+        candidate = statements.find { |statement| statement[:sql].include?('NOT EXISTS') && statement[:sql].include?('earlier.id') }
+
+        expect(status_ids).to eq [statuses[3].id.to_s, statuses[2].id.to_s]
+        expect(candidate[:sql]).to match(/"emoji_reactions"\."id" > 110\b/)
+        expect(candidate[:sql]).to match(/"emoji_reactions"\."id" < 150\b/)
+        expect(candidate[:sql]).to match(/ORDER BY "emoji_reactions"\."id" DESC/)
+      end
+
+      it 'pages by representative ids when later reactions sit between them' do
+        oldest = Fabricate(:status, account: user.account)
+        middle = Fabricate(:status, account: user.account)
+        newest = Fabricate(:status, account: user.account)
+        insert_reaction(id: 100, status: oldest)
+        insert_reaction(id: 200, status: middle)
+        insert_reaction(id: 500, status: newest)
+        (210..490).step(10).each_with_index do |reaction_id, index|
+          insert_reaction(id: reaction_id, status: middle, name: "extra#{index}")
+        end
+
+        get :index, params: { limit: 2 }
+
+        expect(status_ids).to eq [newest.id.to_s, middle.id.to_s]
+        expect(status_ids.uniq).to eq status_ids
+        expect(response.headers['Link'].find_link(%w(rel next)).href).to eq 'http://test.host/api/v1/emoji_reactions?limit=2&max_id=200'
+        expect(response.headers['Link'].find_link(%w(rel prev)).href).to eq 'http://test.host/api/v1/emoji_reactions?limit=2&min_id=500'
+
+        controller.remove_instance_variable(:@_results)
+        get :index, params: { limit: 2, max_id: 200 }
+
+        expect(status_ids).to eq [oldest.id.to_s]
       end
 
       it 'returns the representative ids immediately above min_id in descending order' do
@@ -234,11 +279,17 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
         insert_reaction(id: 100, status: live[2])
         discarded.each(&:discard)
 
-        queries = capture_sql { get :index, params: { limit: 2 } }
+        statements = capture_statements { get :index, params: { limit: 2 } }
+        queries = statements.map { |statement| statement[:sql] }
+        candidates = statements.select { |statement| statement[:sql].include?('NOT EXISTS') && statement[:sql].include?('earlier.id') }
 
         expect(status_ids).to eq [live[0].id.to_s, live[1].id.to_s]
-        expect(candidate_queries(queries).size).to eq 2
-        expect(candidate_queries(queries)).to all(match(/ORDER BY "emoji_reactions"\."id" DESC/))
+        expect(candidates.size).to eq 2
+        expect(candidates.map { |statement| statement[:sql] }).to all(match(/ORDER BY "emoji_reactions"\."id" DESC/))
+        expect(candidates.first[:sql]).not_to match(/"emoji_reactions"\."id" </)
+        expect(candidates.second[:sql]).to match(/"emoji_reactions"\."id" < 400\b/)
+        expect(candidates.second[:sql]).not_to match(/"emoji_reactions"\."id" < 500\b/)
+        expect(candidates.second[:sql]).not_to match(/"emoji_reactions"\."id" <= 400\b/)
         expect(reaction_lookup_queries(queries).map { |sql| in_list_size(sql) }).to eq [2, 2]
       end
 
@@ -253,11 +304,16 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
         insert_reaction(id: 500, status: live[2])
         discarded.each(&:discard)
 
-        queries = capture_sql { get :index, params: { limit: 2, min_id: 50 } }
+        statements = capture_statements { get :index, params: { limit: 2, min_id: 50 } }
+        queries = statements.map { |statement| statement[:sql] }
+        candidates = statements.select { |statement| statement[:sql].include?('NOT EXISTS') && statement[:sql].include?('earlier.id') }
 
         expect(status_ids).to eq [live[1].id.to_s, live[0].id.to_s]
-        expect(candidate_queries(queries).size).to eq 2
-        expect(candidate_queries(queries)).to all(match(/ORDER BY "emoji_reactions"\."id" ASC/))
+        expect(candidates.size).to eq 2
+        expect(candidates.map { |statement| statement[:sql] }).to all(match(/ORDER BY "emoji_reactions"\."id" ASC/))
+        expect(candidates.second[:sql]).to match(/"emoji_reactions"\."id" > 200\b/)
+        expect(candidates.second[:sql]).not_to match(/"emoji_reactions"\."id" > 100\b/)
+        expect(candidates.second[:sql]).not_to match(/"emoji_reactions"\."id" >= 200\b/)
         expect(reaction_lookup_queries(queries).map { |sql| in_list_size(sql) }).to eq [2, 2]
       end
 

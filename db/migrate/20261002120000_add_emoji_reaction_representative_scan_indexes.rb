@@ -3,8 +3,10 @@
 class AddEmojiReactionRepresentativeScanIndexes < ActiveRecord::Migration[6.1]
   disable_ddl_transaction!
 
-  # Rails 6.1's schema dumper cannot emit INCLUDE, so db/schema.rb lists
-  # those columns as additional index keys. db:migrate uses the SQL below.
+  # Performance-only INCLUDE indexes. Rails 6.1 cannot dump or load INCLUDE,
+  # and recording the included column as a normal key would create a different
+  # index. db/schema.rb therefore does not list these indexes. db:schema:dump
+  # will try to add the wrong 3-column form; do not commit that output.
   def up
     safety_assured do
       execute <<~SQL.squish
