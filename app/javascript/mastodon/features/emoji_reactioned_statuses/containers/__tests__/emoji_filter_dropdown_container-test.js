@@ -240,6 +240,23 @@ describe('EmojiFilterDropdownContainer', () => {
     expect(screen.getByRole('heading', { name: 'Preferred' })).toBeInTheDocument();
   });
 
+  it('keeps the picker open when a pin click detaches its target', () => {
+    renderFilter(undefined, []);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by emoji' }));
+
+    const button = screen.getByRole('button', { name: 'Pin 🎉 to preferred emoji' });
+    const event = new MouseEvent('click', { bubbles: true });
+
+    Object.defineProperty(event, 'target', { value: document.body });
+    Object.defineProperty(event, 'composedPath', {
+      value: () => [button, button.closest('.emoji-reaction-filter-picker'), document.body],
+    });
+    document.dispatchEvent(event);
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
   it('pins from a pinned column through the same global setting', () => {
     const { actions, store } = renderFilter('column-a', ['❤️']);
 
