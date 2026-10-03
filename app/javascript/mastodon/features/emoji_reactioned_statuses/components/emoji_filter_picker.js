@@ -276,6 +276,8 @@ class EmojiReactionFilterPicker extends React.PureComponent {
     this.dragSnapshot = null;
     this.captureTarget = null;
     this.capturePointerId = null;
+    this.pressTarget = null;
+    this.clickSwallowOrigin = null;
   }
 
   componentDidMount() {
@@ -363,6 +365,7 @@ class EmojiReactionFilterPicker extends React.PureComponent {
     this.dragStarted = false;
     this.previewShown = false;
     this.dragSnapshot = null;
+    this.pressTarget = null;
   }
 
   disarmClickSwallow() {
@@ -375,11 +378,34 @@ class EmojiReactionFilterPicker extends React.PureComponent {
       document.removeEventListener('click', this.clickSwallow, true);
       this.clickSwallow = null;
     }
+
+    this.clickSwallowOrigin = null;
   }
 
-  armClickSwallow() {
+  clickFromPressTarget(event) {
+    const origin = this.clickSwallowOrigin;
+
+    if (!origin) {
+      return false;
+    }
+
+    const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+
+    if (path.indexOf(origin) !== -1) {
+      return true;
+    }
+
+    return Boolean(origin.contains && event.target && origin.contains(event.target));
+  }
+
+  armClickSwallow(origin) {
     this.disarmClickSwallow();
+    this.clickSwallowOrigin = origin || null;
     this.clickSwallow = (event) => {
+      if (!this.clickFromPressTarget(event)) {
+        return;
+      }
+
       event.preventDefault();
       event.stopPropagation();
       this.disarmClickSwallow();
@@ -459,6 +485,7 @@ class EmojiReactionFilterPicker extends React.PureComponent {
 
   handlePressStart = (value, event) => {
     this.releaseGesture();
+    this.pressTarget = event.currentTarget;
     this.pressOrigin = {
       value,
       x: event.clientX,
@@ -512,6 +539,7 @@ class EmojiReactionFilterPicker extends React.PureComponent {
     }
 
     const snapshot = this.dragSnapshot;
+    const pressTarget = this.pressTarget;
     const shouldCommit = Boolean(commit && this.dragStarted && snapshot && snapshot.overZone);
     const shouldConsume = this.gestureMoved || this.previewShown || this.dragStarted;
     const shouldReset = this.previewShown || this.dragStarted || this.state.preview || this.state.drag;
@@ -519,7 +547,7 @@ class EmojiReactionFilterPicker extends React.PureComponent {
     this.releaseGesture();
 
     if (shouldConsume) {
-      this.armClickSwallow();
+      this.armClickSwallow(pressTarget);
     }
 
     if (shouldCommit) {
@@ -906,7 +934,7 @@ class EmojiReactionFilterPicker extends React.PureComponent {
             url={preview.url}
             static_url={preview.staticUrl}
             domain={preview.domain}
-            hovered={false}
+            hovered
             onLoad={this.handlePreviewLoad}
           />
         ) : (

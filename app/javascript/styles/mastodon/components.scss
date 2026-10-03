@@ -9685,8 +9685,7 @@ noscript {
 
   &__header,
   &__search,
-  &__footer,
-  &__pinned {
+  &__footer {
     flex: 0 0 auto;
   }
 
@@ -9735,7 +9734,11 @@ noscript {
   }
 
   &__pinned {
+    flex: 0 1 auto;
+    min-height: 0;
     padding: 0 8px;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
   &__search {

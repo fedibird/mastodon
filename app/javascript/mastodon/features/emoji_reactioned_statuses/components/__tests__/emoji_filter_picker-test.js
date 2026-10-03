@@ -775,6 +775,48 @@ describe('EmojiReactionFilterPicker', () => {
       expect(onTogglePreferred).not.toHaveBeenCalled();
     });
 
+    it('does not swallow an unrelated button after pointercancel', () => {
+      renderPicker();
+      enterEdit();
+
+      const tile = screen.getByRole('button', { name: '👍' });
+
+      pointer(tile, 'pointerDown', 0, 400);
+      pointer(tile, 'pointerMove', 24, 400);
+      pointer(tile, 'pointerCancel', 24, 400);
+      fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+
+      expect(screen.getByRole('button', { name: 'Edit pinned' })).toHaveAttribute('aria-pressed', 'false');
+      expect(tile).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('still leaves Done usable immediately after a drag', () => {
+      const onTogglePreferred = jest.fn();
+      const restore = installLayout({
+        '🎉': rect(0, 40, 90, 80),
+        '👍': rect(100, 40, 90, 80),
+      });
+
+      renderPicker({
+        preferredEmojis: ['🎉', '👍'],
+        onTogglePreferred,
+      });
+      enterEdit();
+
+      const heart = screen.getByRole('button', { name: '❤️' });
+
+      pointer(heart, 'pointerDown', 10, 400);
+      pointer(heart, 'pointerMove', 40, 400);
+      pointer(heart, 'pointerMove', 95, 80);
+      pointer(heart, 'pointerUp', 95, 80);
+      fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+
+      expect(onTogglePreferred).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('button', { name: 'Edit pinned' })).toHaveAttribute('aria-pressed', 'false');
+      expect(heart).toHaveAttribute('aria-pressed', 'false');
+      restore();
+    });
+
     it('suppresses the context menu only after the preview opens', () => {
       renderPicker();
       const tile = screen.getByRole('button', { name: '👍' });
