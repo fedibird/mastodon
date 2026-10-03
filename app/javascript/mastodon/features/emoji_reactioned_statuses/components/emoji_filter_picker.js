@@ -84,14 +84,31 @@ class EmojiFilterTile extends React.PureComponent {
     url: PropTypes.string,
     staticUrl: PropTypes.string,
     domain: PropTypes.string,
+    floating: PropTypes.object,
+    selectionDisabled: PropTypes.bool,
+    onApplySelection: PropTypes.func,
     onToggle: PropTypes.func.isRequired,
     onHover: PropTypes.func.isRequired,
     onPressStart: PropTypes.func,
     onContextMenu: PropTypes.func,
   };
 
-  handleClick = () => {
+  handleClick = (event) => {
+    if (this.props.selectionDisabled || event.detail > 1) {
+      return;
+    }
+
     this.props.onToggle(this.props.value);
+  };
+
+  handleDoubleClick = (event) => {
+    event.preventDefault();
+
+    if (this.props.selectionDisabled || !this.props.onApplySelection) {
+      return;
+    }
+
+    this.props.onApplySelection();
   };
 
   handleMouseEnter = () => {
@@ -117,15 +134,21 @@ class EmojiFilterTile extends React.PureComponent {
   };
 
   render() {
-    const { label, count, selected, hovered, emoji, url, staticUrl, domain } = this.props;
+    const { label, count, selected, hovered, emoji, url, staticUrl, domain, selectionDisabled, floating } = this.props;
 
     return (
       <button
         type='button'
-        className={classNames('emoji-reaction-filter-picker__tile', { 'is-selected': selected })}
+        className={classNames('emoji-reaction-filter-picker__tile', {
+          'is-selected': selected,
+          'is-floating': floating,
+        })}
         aria-pressed={selected}
+        aria-disabled={selectionDisabled}
         aria-label={label}
+        style={floating ? floating : undefined}
         onClick={this.handleClick}
+        onDoubleClick={this.handleDoubleClick}
         onMouseEnter={this.handleMouseEnter}
         onMouseLeave={this.handleMouseLeave}
         onPointerDown={this.handlePointerDown}
@@ -169,8 +192,9 @@ class EmojiFilterItem extends React.PureComponent {
     domain: PropTypes.string,
     pinned: PropTypes.bool,
     dragging: PropTypes.bool,
-    insertBefore: PropTypes.bool,
-    insertAfter: PropTypes.bool,
+    floating: PropTypes.object,
+    selectionDisabled: PropTypes.bool,
+    onApplySelection: PropTypes.func,
     onToggle: PropTypes.func.isRequired,
     onHover: PropTypes.func.isRequired,
     onTogglePreferred: PropTypes.func.isRequired,
@@ -185,14 +209,12 @@ class EmojiFilterItem extends React.PureComponent {
   };
 
   render() {
-    const { preferred, preferredLabel, unavailableLabel, showPreferredToggle, pinned, dragging, insertBefore, insertAfter } = this.props;
+    const { preferred, preferredLabel, unavailableLabel, showPreferredToggle, pinned, dragging, floating, selectionDisabled } = this.props;
 
     return (
       <div
         className={classNames('emoji-reaction-filter-picker__item', {
           'is-drag-source': dragging,
-          'is-insert-before': insertBefore,
-          'is-insert-after': insertAfter,
         })}
         data-pin-value={pinned ? this.props.value : undefined}
       >
@@ -206,6 +228,9 @@ class EmojiFilterItem extends React.PureComponent {
           url={this.props.url}
           staticUrl={this.props.staticUrl}
           domain={this.props.domain}
+          floating={floating}
+          selectionDisabled={selectionDisabled}
+          onApplySelection={this.props.onApplySelection}
           onToggle={this.props.onToggle}
           onHover={this.props.onHover}
           onPressStart={this.props.onPressStart}
@@ -278,6 +303,8 @@ class EmojiReactionFilterPicker extends React.PureComponent {
     this.capturePointerId = null;
     this.pressTarget = null;
     this.clickSwallowOrigin = null;
+    this.lastPointerType = null;
+    this.grabMetrics = null;
   }
 
   componentDidMount() {
@@ -289,6 +316,62 @@ class EmojiReactionFilterPicker extends React.PureComponent {
   componentWillUnmount() {
     this.releaseGesture();
     this.disarmClickSwallow();
+  }
+
+  getSnapshotBeforeUpdate(prevProps, prevState) {
+    if (!this.pinnedZone || !prevState.drag || !this.state.drag) {
+      return null;
+    }
+
+    if (prevState.drag.insertIndex === this.state.drag.insertIndex && prevState.drag.overZone === this.state.drag.overZone) {
+      return null;
+    }
+
+    const rects = new Map();
+
+    this.pinnedZone.querySelectorAll('[data-pin-value], [data-placeholder]').forEach((node) => {
+      if (node.classList.contains('is-drag-source')) {
+        return;
+      }
+
+      const key = node.hasAttribute('data-placeholder') ? 'placeholder' : node.getAttribute('data-pin-value');
+
+      rects.set(key, node.getBoundingClientRect());
+    });
+
+    return rects;
+  }
+
+  componentDidUpdate(prevProps, prevState, snapshot) {
+    if (!snapshot || !this.pinnedZone) {
+      return;
+    }
+
+    this.pinnedZone.querySelectorAll('[data-pin-value], [data-placeholder]').forEach((node) => {
+      if (node.classList.contains('is-drag-source') || typeof node.animate !== 'function') {
+        return;
+      }
+
+      const key = node.hasAttribute('data-placeholder') ? 'placeholder' : node.getAttribute('data-pin-value');
+      const previous = snapshot.get(key);
+
+      if (!previous) {
+        return;
+      }
+
+      const next = node.getBoundingClientRect();
+      const dx = previous.left - next.left;
+      const dy = previous.top - next.top;
+
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) {
+        return;
+      }
+
+      node.animate([
+        { transform: `translate(${dx}px, ${dy}px)` },
+        { transform: 'translate(0, 0)' },
+      ], { duration: 160, easing: 'ease-out' });
+    });
   }
 
   setSearchRef = (node) => {
@@ -370,6 +453,7 @@ class EmojiReactionFilterPicker extends React.PureComponent {
     this.previewShown = false;
     this.dragSnapshot = null;
     this.pressTarget = null;
+    this.grabMetrics = null;
   }
 
   disarmClickSwallow() {
@@ -471,6 +555,14 @@ class EmojiReactionFilterPicker extends React.PureComponent {
     this.props.onApply(this.state.draft.slice());
   };
 
+  handleApplySelection = () => {
+    if (this.state.editingPinned || this.lastPointerType === 'touch') {
+      return;
+    }
+
+    this.handleApply();
+  };
+
   handleKeyDown = (event) => {
     if (event.key !== 'Escape') {
       return;
@@ -490,6 +582,7 @@ class EmojiReactionFilterPicker extends React.PureComponent {
   handlePressStart = (value, event) => {
     this.releaseGesture();
     this.pressTarget = event.currentTarget;
+    this.lastPointerType = event.pointerType || 'mouse';
     this.pressOrigin = {
       value,
       x: event.clientX,
@@ -517,8 +610,7 @@ class EmojiReactionFilterPicker extends React.PureComponent {
       }
 
       if (this.state.editingPinned) {
-        this.dragStarted = true;
-        this.updateDrag(point);
+        this.beginDrag(point);
       }
 
       return;
@@ -563,6 +655,20 @@ class EmojiReactionFilterPicker extends React.PureComponent {
     }
   }
 
+  beginDrag(point) {
+    const node = this.pressTarget;
+    const bounds = node && node.getBoundingClientRect ? node.getBoundingClientRect() : null;
+
+    this.grabMetrics = {
+      grabOffsetX: bounds ? point.x - bounds.left : 0,
+      grabOffsetY: bounds ? point.y - bounds.top : 0,
+      width: bounds ? bounds.width : 0,
+      height: bounds ? bounds.height : 0,
+    };
+    this.dragStarted = true;
+    this.updateDrag(point);
+  }
+
   updateDrag(point) {
     const zone = this.pinnedZone;
     const viewport = this.pinnedViewport;
@@ -577,12 +683,23 @@ class EmojiReactionFilterPicker extends React.PureComponent {
       insertIndex = insertionIndexForPoint(nodes.map(node => node.getBoundingClientRect()), point.x, point.y);
     }
 
-    const snapshot = { value, overZone, insertIndex };
+    const metrics = this.grabMetrics || { grabOffsetX: 0, grabOffsetY: 0, width: 0, height: 0 };
+    const snapshot = {
+      value,
+      overZone,
+      insertIndex,
+      x: point.x,
+      y: point.y,
+      grabOffsetX: metrics.grabOffsetX,
+      grabOffsetY: metrics.grabOffsetY,
+      width: metrics.width,
+      height: metrics.height,
+    };
     const previous = this.dragSnapshot;
 
     this.dragSnapshot = snapshot;
 
-    if (previous && previous.value === value && previous.overZone === overZone && previous.insertIndex === insertIndex) {
+    if (previous && previous.value === value && previous.overZone === overZone && previous.insertIndex === insertIndex && previous.x === point.x && previous.y === point.y) {
       return;
     }
 
@@ -774,7 +891,6 @@ class EmojiReactionFilterPicker extends React.PureComponent {
         selected={this.state.draft.indexOf(value) !== -1}
         hovered={this.state.hovered === value}
         preferred={preferred}
-        showPreferredToggle={this.state.editingPinned}
         preferredLabel={intl.formatMessage(preferred ? messages.unpin : messages.pin, { emoji: label })}
         unavailableLabel={presented.missing ? intl.formatMessage(messages.unavailable) : null}
         emoji={presented.emoji}
@@ -783,8 +899,10 @@ class EmojiReactionFilterPicker extends React.PureComponent {
         domain={presented.domain}
         pinned={Boolean(options.pinned)}
         dragging={Boolean(drag && drag.value === value)}
-        insertBefore={options.insertBefore === value}
-        insertAfter={options.insertAfter === value}
+        floating={drag && drag.value === value ? this.floatingStyle(drag) : null}
+        selectionDisabled={this.state.editingPinned}
+        onApplySelection={this.handleApplySelection}
+        showPreferredToggle={this.state.editingPinned && !(drag && drag.value === value)}
         onToggle={this.handleToggle}
         onHover={this.handleHover}
         onTogglePreferred={this.handleTogglePreferred}
@@ -817,20 +935,80 @@ class EmojiReactionFilterPicker extends React.PureComponent {
     );
   }
 
+  floatingStyle(drag) {
+    const style = {
+      left: `${drag.x - drag.grabOffsetX}px`,
+      top: `${drag.y - drag.grabOffsetY}px`,
+    };
+
+    if (drag.width > 0) {
+      style.width = `${drag.width}px`;
+    }
+
+    if (drag.height > 0) {
+      style.height = `${drag.height}px`;
+    }
+
+    return style;
+  }
+
+  renderPlaceholder(drag) {
+    const style = {};
+
+    if (drag.width > 0) {
+      style.width = `${drag.width}px`;
+    }
+
+    if (drag.height > 0) {
+      style.height = `${drag.height}px`;
+    }
+
+    return (
+      <div
+        key='drag-placeholder'
+        className='emoji-reaction-filter-picker__placeholder'
+        data-placeholder='true'
+        style={style}
+      />
+    );
+  }
+
+  renderPinnedGrid(entries) {
+    const drag = this.state.drag;
+    const showPlaceholder = Boolean(drag && drag.overZone && Number.isFinite(drag.insertIndex));
+    const flow = entries.filter(entry => !drag || entry.value !== drag.value);
+    const source = drag ? entries.find(entry => entry.value === drag.value) : null;
+    const children = [];
+    let placed = false;
+
+    flow.forEach((entry, index) => {
+      if (showPlaceholder && index === drag.insertIndex) {
+        children.push(this.renderPlaceholder(drag));
+        placed = true;
+      }
+
+      children.push(this.renderItem(entry, { pinned: true }));
+    });
+
+    if (showPlaceholder && !placed) {
+      children.push(this.renderPlaceholder(drag));
+    }
+
+    if (source) {
+      children.push(this.renderItem(source, { pinned: true }));
+    }
+
+    return (
+      <div className='emoji-reaction-filter-picker__grid'>
+        {children}
+      </div>
+    );
+  }
+
   renderPinned(entries) {
     const { intl } = this.props;
     const drag = this.state.drag;
-    const visible = entries.map(entry => entry.value).filter(value => !drag || value !== drag.value);
-    let insertBefore = null;
-    let insertAfter = null;
-
-    if (drag && drag.overZone && Number.isFinite(drag.insertIndex)) {
-      if (drag.insertIndex >= visible.length) {
-        insertAfter = visible.length > 0 ? visible[visible.length - 1] : null;
-      } else {
-        insertBefore = visible[drag.insertIndex];
-      }
-    }
+    const showPlaceholder = Boolean(drag && drag.overZone && Number.isFinite(drag.insertIndex));
 
     return (
       <div
@@ -847,16 +1025,12 @@ class EmojiReactionFilterPicker extends React.PureComponent {
           <h3 className='emoji-reaction-filter-picker__section-heading'>
             {intl.formatMessage(messages.preferred)}
           </h3>
-          {entries.length === 0 ? (
+          {entries.length === 0 && !showPlaceholder ? (
             <div className='emoji-reaction-filter-picker__drop-hint'>
               {intl.formatMessage(messages.dropHint)}
             </div>
           ) : (
-            this.renderGrid(entries, {
-              pinned: true,
-              insertBefore,
-              insertAfter,
-            })
+            this.renderPinnedGrid(entries)
           )}
         </section>
       </div>
@@ -965,7 +1139,10 @@ class EmojiReactionFilterPicker extends React.PureComponent {
 
     return (
       <div
-        className={classNames('emoji-reaction-filter-picker', { 'is-editing-pinned': editingPinned })}
+        className={classNames('emoji-reaction-filter-picker', {
+          'is-editing-pinned': editingPinned,
+          'is-dragging': Boolean(this.state.drag),
+        })}
         role='dialog'
         aria-label={intl.formatMessage(messages.title)}
         onKeyDown={this.handleKeyDown}

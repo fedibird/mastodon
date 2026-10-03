@@ -101,6 +101,14 @@ const enterEdit = () => {
   fireEvent.click(screen.getByRole('button', { name: 'Edit pinned' }));
 };
 
+const pinnedFlow = () => Array.from(document.querySelectorAll('.emoji-reaction-filter-picker__group--pinned .emoji-reaction-filter-picker__grid > *'))
+  .filter(node => !node.classList.contains('is-drag-source'))
+  .map(node => node.getAttribute('data-pin-value') || (node.hasAttribute('data-placeholder') ? 'placeholder' : 'other'));
+
+const clickTile = (tile, detail) => {
+  fireEvent.click(tile, { detail });
+};
+
 const starButtons = () => screen.queryAllByRole('button').filter(button => (
   button.classList.contains('emoji-reaction-filter-picker__preferred-toggle')
 ));
@@ -124,10 +132,10 @@ const installPointerEvent = () => {
   window.PointerEvent = PointerEventPolyfill;
 };
 
-const pointer = (node, type, x, y) => {
+const pointer = (node, type, x, y, pointerType = 'mouse') => {
   fireEvent[type](node, {
     pointerId: 1,
-    pointerType: 'mouse',
+    pointerType,
     clientX: x,
     clientY: y,
     button: 0,
@@ -390,7 +398,7 @@ describe('EmojiReactionFilterPicker', () => {
     expect(onTogglePreferred).toHaveBeenCalledWith(['❤️', '👍']);
   });
 
-  it('does not pin an emoji when its selection tile is clicked', () => {
+  it('does not select or pin an emoji when its tile is clicked while editing', () => {
     const onTogglePreferred = jest.fn();
 
     renderPicker({ preferredEmojis: ['❤️'], onTogglePreferred });
@@ -399,7 +407,7 @@ describe('EmojiReactionFilterPicker', () => {
     fireEvent.click(screen.getByRole('button', { name: '👍' }));
 
     expect(onTogglePreferred).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: '👍' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '👍' })).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByRole('button', { name: 'Pin 👍' })).toHaveAttribute('aria-pressed', 'false');
   });
 
@@ -600,6 +608,78 @@ describe('EmojiReactionFilterPicker', () => {
     expect(screen.getByRole('button', { name: '👍' })).toHaveAttribute('aria-pressed', 'true');
   });
 
+  it('applies a single toggle when an unselected emoji is double-clicked', () => {
+    const { onApply } = renderPicker({ appliedEmojis: [] });
+    const tile = screen.getByRole('button', { name: '🎉' });
+
+    clickTile(tile, 1);
+    clickTile(tile, 2);
+    fireEvent.doubleClick(tile);
+
+    expect(onApply).toHaveBeenCalledTimes(1);
+    expect(onApply).toHaveBeenCalledWith(['🎉']);
+    expect(tile).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('applies a single toggle when a selected emoji is double-clicked', () => {
+    const { onApply } = renderPicker({ appliedEmojis: ['🎉', '👍'] });
+    const tile = screen.getByRole('button', { name: '🎉' });
+
+    clickTile(tile, 1);
+    clickTile(tile, 2);
+    fireEvent.doubleClick(tile);
+
+    expect(onApply).toHaveBeenCalledTimes(1);
+    expect(onApply).toHaveBeenCalledWith(['👍']);
+    expect(tile).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: '👍' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('ignores the second click of a double-click', () => {
+    renderPicker({ appliedEmojis: [] });
+    const tile = screen.getByRole('button', { name: '🎉' });
+
+    clickTile(tile, 1);
+    clickTile(tile, 2);
+
+    expect(tile).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('does not apply a filter when a touch double-tap selects an emoji', () => {
+    const { onApply } = renderPicker({ appliedEmojis: [] });
+    const tile = screen.getByRole('button', { name: '🎉' });
+
+    pointer(tile, 'pointerDown', 10, 10, 'touch');
+    pointer(tile, 'pointerUp', 10, 10, 'touch');
+    clickTile(tile, 1);
+    pointer(tile, 'pointerDown', 10, 10, 'touch');
+    pointer(tile, 'pointerUp', 10, 10, 'touch');
+    clickTile(tile, 2);
+    fireEvent.doubleClick(tile);
+
+    expect(onApply).not.toHaveBeenCalled();
+    expect(tile).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('does not change the filter draft from clicks while editing pinned emoji', () => {
+    const { onApply } = renderPicker({ appliedEmojis: ['🎉'] });
+
+    enterEdit();
+    const selected = screen.getByRole('button', { name: '🎉' });
+    const unselected = screen.getByRole('button', { name: '👍' });
+
+    expect(selected).toHaveAttribute('aria-disabled', 'true');
+    clickTile(selected, 1);
+    clickTile(unselected, 1);
+    clickTile(unselected, 2);
+    fireEvent.doubleClick(unselected);
+
+    expect(onApply).not.toHaveBeenCalled();
+    expect(selected).toHaveAttribute('aria-pressed', 'true');
+    expect(unselected).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByText('1 emojis selected')).toBeInTheDocument();
+  });
+
   it('drops an unpinned emoji into the pinned list once', () => {
     const onTogglePreferred = jest.fn();
     const restore = installLayout({
@@ -619,6 +699,10 @@ describe('EmojiReactionFilterPicker', () => {
     pointer(heart, 'pointerDown', 10, 400);
     pointer(heart, 'pointerMove', 40, 400);
     pointer(heart, 'pointerMove', 95, 80);
+    expect(onTogglePreferred).not.toHaveBeenCalled();
+    expect(pinnedFlow()).toEqual(['🎉', 'placeholder', '👍']);
+    expect(heart.parentElement).toHaveClass('is-drag-source');
+    expect(heart).toHaveClass('is-floating');
     pointer(heart, 'pointerUp', 95, 80);
     fireEvent.click(heart);
 
@@ -654,7 +738,11 @@ describe('EmojiReactionFilterPicker', () => {
     pointer(thumb, 'pointerMove', 10, 80);
     expect(onTogglePreferred).not.toHaveBeenCalled();
     expect(document.querySelector('[data-drop-zone="true"]')).toHaveClass('is-drop-target');
-    expect(screen.getByRole('button', { name: '🥳' }).parentElement).toHaveClass('is-insert-before');
+    expect(pinnedFlow()).toEqual(['placeholder', '🥳', '🎉']);
+    expect(thumb.parentElement).toHaveClass('is-drag-source');
+    pointer(thumb, 'pointerMove', 140, 80);
+    expect(pinnedFlow()).toEqual(['🥳', 'placeholder', '🎉']);
+    pointer(thumb, 'pointerMove', 10, 80);
     pointer(thumb, 'pointerUp', 10, 80);
 
     expect(onTogglePreferred).toHaveBeenCalledTimes(1);
