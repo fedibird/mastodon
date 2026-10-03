@@ -5,7 +5,7 @@ import { STORE_HYDRATE } from '../actions/store';
 import { EMOJI_USE } from '../actions/emojis';
 import { LANGUAGE_USE } from '../actions/languages';
 import { LIST_DELETE_SUCCESS, LIST_FETCH_FAIL } from '../actions/lists';
-import { Map as ImmutableMap, fromJS } from 'immutable';
+import { List as ImmutableList, Map as ImmutableMap, fromJS } from 'immutable';
 import uuid from '../uuid';
 
 const initialState = ImmutableMap({
@@ -170,6 +170,11 @@ const initialState = ImmutableMap({
   }),
 
   emoji_reactioned_statuses: ImmutableMap({
+    emojis: ImmutableList(),
+    other: ImmutableMap({
+      onlyMedia: false,
+      withoutMedia: false,
+    }),
     regex: ImmutableMap({
       body: '',
     }),

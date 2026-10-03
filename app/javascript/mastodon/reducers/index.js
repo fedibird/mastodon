@@ -19,6 +19,7 @@ import relationships from './relationships';
 import settings from './settings';
 import push_notifications from './push_notifications';
 import status_lists from './status_lists';
+import emoji_reactioned_statuses from './emoji_reactioned_statuses';
 import mutes from './mutes';
 import blocks from './blocks';
 import boosts from './boosts';
@@ -64,6 +65,7 @@ const reducers = {
   user_lists,
   domain_lists,
   status_lists,
+  emoji_reactioned_statuses,
   accounts,
   accounts_counters,
   statuses,
