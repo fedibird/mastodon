@@ -568,6 +568,7 @@ Rails.application.routes.draw do
       resources :mutes,           only: [:index]
       resources :favourites,      only: [:index]
       resources :bookmarks,       only: [:index]
+      get 'emoji_reactions/emojis', to: 'emoji_reaction_emojis#index'
       resources :emoji_reactions, only: [:index]
       resources :reports,         only: [:create]
       resources :trends,          only: [:index]
