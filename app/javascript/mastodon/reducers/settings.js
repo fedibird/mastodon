@@ -171,6 +171,7 @@ const initialState = ImmutableMap({
 
   emoji_reactioned_statuses: ImmutableMap({
     emojis: ImmutableList(),
+    preferred_emojis: ImmutableList(),
     other: ImmutableMap({
       onlyMedia: false,
       withoutMedia: false,

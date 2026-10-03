@@ -33,6 +33,7 @@ export default class EmojiFilterDropdown extends React.PureComponent {
   static propTypes = {
     columnId: PropTypes.string,
     emojis: PropTypes.oneOfType([ImmutablePropTypes.list, PropTypes.array]),
+    preferredEmojis: PropTypes.oneOfType([ImmutablePropTypes.list, PropTypes.array]),
     catalogItems: PropTypes.oneOfType([ImmutablePropTypes.list, PropTypes.array]),
     isLoading: PropTypes.bool,
     loaded: PropTypes.bool,
@@ -44,6 +45,7 @@ export default class EmojiFilterDropdown extends React.PureComponent {
     onClose: PropTypes.func.isRequired,
     onApply: PropTypes.func.isRequired,
     onChange: PropTypes.func.isRequired,
+    onTogglePreferred: PropTypes.func.isRequired,
   };
 
   state = {
@@ -115,13 +117,27 @@ export default class EmojiFilterDropdown extends React.PureComponent {
   };
 
   handleDocumentClick = (event) => {
-    const target = event.target;
+    const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+    const insidePicker = path.some(node => node && node.classList && (
+      node.classList.contains('emoji-reaction-filter-popover')
+      || node.classList.contains('emoji-reaction-filter-picker')
+      || node.classList.contains('emoji-reaction-filter-modal')
+      || node.classList.contains('emoji-reaction-filter-bar')
+    ));
 
-    if (this.pickerNode && this.pickerNode.contains(target)) {
+    // Pinning updates props during the click. Overlay can replace the panel
+    // before this event reaches document, which detaches event.target.
+    if (insidePicker) {
       return;
     }
 
-    if (this.target && this.target.contains(target)) {
+    const target = event.target;
+
+    if (this.pickerNode && target && this.pickerNode.contains(target)) {
+      return;
+    }
+
+    if (this.target && target && this.target.contains(target)) {
       return;
     }
 
@@ -150,11 +166,13 @@ export default class EmojiFilterDropdown extends React.PureComponent {
           <EmojiReactionFilterPicker
             catalogItems={this.props.catalogItems}
             appliedEmojis={this.props.emojis}
+            preferredEmojis={this.props.preferredEmojis}
             isLoading={this.props.isLoading}
             loaded={this.props.loaded}
             error={this.props.error}
             onApply={this.handleApply}
             onClose={this.handleClose}
+            onTogglePreferred={this.props.onTogglePreferred}
           />
         </div>
       </div>

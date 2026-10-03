@@ -9697,10 +9697,68 @@ noscript {
     padding: 0 8px 8px;
   }
 
+  &__group {
+    margin-bottom: 8px;
+  }
+
+  &__section-heading {
+    margin: 2px 4px 6px;
+    color: $secondary-text-color;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.3;
+    text-align: start;
+  }
+
   &__grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(68px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
     gap: 4px;
+  }
+
+  &__item {
+    position: relative;
+    min-width: 0;
+  }
+
+  &__preferred-toggle {
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    inset-inline-start: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    color: $darker-text-color;
+    background: transparent;
+    opacity: 0.45;
+    font-size: 13px;
+    cursor: pointer;
+
+    &:hover,
+    &:focus {
+      color: $primary-text-color;
+      opacity: 1;
+    }
+
+    &.is-preferred {
+      color: $highlight-text-color;
+      opacity: 1;
+    }
+  }
+
+  &__note {
+    display: block;
+    margin: 0 2px 4px;
+    color: $darker-text-color;
+    font-size: 10px;
+    line-height: 1.2;
+    text-align: center;
   }
 
   &__tile {
@@ -9710,9 +9768,10 @@ noscript {
     align-items: center;
     justify-content: center;
     gap: 2px;
+    width: 100%;
     min-width: 44px;
-    min-height: 64px;
-    padding: 6px 4px 4px;
+    min-height: 72px;
+    padding: 18px 4px 4px;
     border: 2px solid transparent;
     border-radius: 6px;
     color: inherit;

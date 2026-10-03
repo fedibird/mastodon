@@ -14,6 +14,7 @@ describe('emoji reactioned status settings', () => {
     const state = settings(undefined, { type: '@@INIT' });
 
     expect(state.getIn(['emoji_reactioned_statuses', 'emojis'])).toEqual(ImmutableList());
+    expect(state.getIn(['emoji_reactioned_statuses', 'preferred_emojis'])).toEqual(ImmutableList());
     expect(state.getIn(['emoji_reactioned_statuses', 'other', 'onlyMedia'])).toBe(false);
     expect(state.getIn(['emoji_reactioned_statuses', 'other', 'withoutMedia'])).toBe(false);
   });
@@ -31,6 +32,7 @@ describe('emoji reactioned status settings', () => {
     });
 
     expect(state.getIn(['emoji_reactioned_statuses', 'emojis'])).toEqual(ImmutableList());
+    expect(state.getIn(['emoji_reactioned_statuses', 'preferred_emojis'])).toEqual(ImmutableList());
     expect(state.getIn(['emoji_reactioned_statuses', 'other', 'onlyMedia'])).toBe(true);
   });
 
@@ -91,5 +93,28 @@ describe('emoji reactioned status settings', () => {
 
     expect(state.getIn(['emoji_reactioned_statuses', 'emojis']).toJS()).toEqual(['🎉', '👏']);
     expect(state.get('columns').find(column => column.get('uuid') === uuid).getIn(['params', 'emojis']).toJS()).toEqual(['👍']);
+  });
+
+  it('stores preferred emoji globally without copying them into a pinned column', () => {
+    let state = settings(undefined, { type: '@@INIT' }).set('columns', ImmutableList());
+
+    state = settings(state, {
+      type: COLUMN_ADD,
+      id: 'EMOJI_REACTIONS',
+      params: pinnedEmojiReactionColumnParams({ emojis: ['👍'] }),
+    });
+
+    const column = state.get('columns').find(item => item.get('id') === 'EMOJI_REACTIONS');
+
+    state = settings(state, {
+      type: SETTING_CHANGE,
+      path: ['emoji_reactioned_statuses', 'preferred_emojis'],
+      value: ImmutableList(['🎉', 'great@example.com']),
+    });
+
+    expect(state.getIn(['emoji_reactioned_statuses', 'preferred_emojis']).toJS()).toEqual(['🎉', 'great@example.com']);
+    expect(state.getIn(['emoji_reactioned_statuses', 'emojis'])).toEqual(ImmutableList());
+    expect(state.get('columns').find(item => item.get('uuid') === column.get('uuid')).getIn(['params', 'emojis']).toJS()).toEqual(['👍']);
+    expect(state.get('columns').find(item => item.get('uuid') === column.get('uuid')).getIn(['params', 'preferred_emojis'])).toBeUndefined();
   });
 });

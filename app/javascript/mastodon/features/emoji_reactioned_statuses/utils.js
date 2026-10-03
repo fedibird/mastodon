@@ -185,3 +185,59 @@ export function saveEmojiReactionFilters(columnId, emojis) {
 
   return changeSetting(['emoji_reactioned_statuses', 'emojis'], value);
 }
+
+export function normalizePreferredEmojiReactionFilters(value) {
+  const seen = new Set();
+  const next = [];
+
+  emojiReactionFilterArray(value).forEach(item => {
+    const raw = text(item).trim();
+
+    if (!raw || seen.has(raw)) {
+      return;
+    }
+
+    seen.add(raw);
+    next.push(raw);
+  });
+
+  return next;
+}
+
+export function togglePreferredEmojiReactionFilter(preferred, value) {
+  const list = normalizePreferredEmojiReactionFilters(preferred);
+  const raw = text(value).trim();
+
+  if (!raw) {
+    return list;
+  }
+
+  const index = list.indexOf(raw);
+
+  if (index === -1) {
+    return list.concat(raw);
+  }
+
+  return list.slice(0, index).concat(list.slice(index + 1));
+}
+
+export function isPreferredEmojiReaction(preferred, value) {
+  const raw = text(value).trim();
+
+  if (!raw) {
+    return false;
+  }
+
+  return normalizePreferredEmojiReactionFilters(preferred).indexOf(raw) !== -1;
+}
+
+export function getPreferredEmojiReactionFilters(state) {
+  return ImmutableList(normalizePreferredEmojiReactionFilters(state.getIn(['settings', 'emoji_reactioned_statuses', 'preferred_emojis'])));
+}
+
+export function savePreferredEmojiReactionFilters(preferred) {
+  return changeSetting(
+    ['emoji_reactioned_statuses', 'preferred_emojis'],
+    ImmutableList(normalizePreferredEmojiReactionFilters(preferred)),
+  );
+}
