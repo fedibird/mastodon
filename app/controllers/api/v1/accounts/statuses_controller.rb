@@ -38,12 +38,35 @@ class Api::V1::Accounts::StatusesController < Api::BaseController
     statuses.merge!(hashtag_scope)     if params[:tagged].present?
     statuses.merge!(no_personal_scope) if current_user&.setting_hide_personal_from_account
 
-    cache_collection_paginated_by_id(
-      statuses,
-      Status,
-      limit_param(DEFAULT_STATUSES_LIMIT),
-      params_slice(:max_id, :since_id, :min_id)
+    page = params_slice(:max_id, :since_id, :min_id)
+
+    if page[:min_id].present? && account_status_min_id_page?
+      cache_collection(account_statuses_after_min_id(statuses, page), Status)
+    else
+      cache_collection_paginated_by_id(
+        statuses,
+        Status,
+        limit_param(DEFAULT_STATUSES_LIMIT),
+        page
+      )
+    end
+  end
+
+  # `id > min_id` alone lets the planner walk statuses_pkey. With account_id
+  # fixed, a tuple lower bound is the same predicate and can use an existing
+  # account_id/id index. Pinned, media, and tag scopes stay on the generic paginator.
+  def account_status_min_id_page?
+    !truthy_param?(:pinned) && !truthy_param?(:only_media) && params[:tagged].blank?
+  end
+
+  def account_statuses_after_min_id(statuses, page)
+    scope = statuses.where(
+      '(statuses.account_id, statuses.id) > (?, ?)',
+      @account.id,
+      Integer(page[:min_id])
     )
+    scope = scope.where(Status.arel_table[:id].lt(Integer(page[:max_id]))) if page[:max_id].present?
+    scope.reorder(account_id: :asc, id: :asc).limit(limit_param(DEFAULT_STATUSES_LIMIT)).reverse
   end
 
   def fetch_statuses
