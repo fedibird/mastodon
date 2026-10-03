@@ -156,12 +156,31 @@ class AccountsController < ApplicationController
   end
 
   def cached_filtered_status_page
-    cache_collection_paginated_by_id(
-      filtered_statuses,
-      Status,
-      PAGE_SIZE,
-      params_slice(:max_id, :min_id, :since_id)
+    page = params_slice(:max_id, :min_id, :since_id)
+
+    if page[:min_id].present? && profile_min_id_page?
+      cache_collection(profile_statuses_after_min_id(page), Status)
+    else
+      cache_collection_paginated_by_id(filtered_statuses, Status, PAGE_SIZE, page)
+    end
+  end
+
+  # `id > min_id` alone lets the planner walk statuses_pkey. With account_id
+  # fixed, a tuple lower bound is the same predicate and can use
+  # index_statuses_20251001. Tag and media scopes join and group, so they
+  # stay on the generic paginator.
+  def profile_min_id_page?
+    !tag_requested? && !media_requested?
+  end
+
+  def profile_statuses_after_min_id(page)
+    scope = filtered_statuses.where(
+      '(statuses.account_id, statuses.id) > (?, ?)',
+      @account.id,
+      Integer(page[:min_id])
     )
+    scope = scope.where(Status.arel_table[:id].lt(Integer(page[:max_id]))) if page[:max_id].present?
+    scope.reorder(account_id: :asc, id: :asc).limit(PAGE_SIZE).reverse
   end
 
   def params_slice(*keys)
