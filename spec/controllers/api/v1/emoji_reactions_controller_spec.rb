@@ -268,34 +268,70 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
 
         expect(status_ids).to eq [status_b.id.to_s]
         expect(link_param('next', 'max_id')).to eq '200'
-        expect(link_values('next', 'emojis')).to eq ['❤️']
+        expect(link_param('prev', 'min_id')).to eq '200'
+        expect(link_values('next', 'emojis')).to match_array ['❤️']
+        expect(link_values('prev', 'emojis')).to match_array ['❤️']
+      end
 
-        controller.instance_variable_set(:@_results, nil)
+      it 'pages emoji matches with the representative id cursor' do
+        status_a = Fabricate(:status, account: user.account)
+        status_b = Fabricate(:status, account: user.account)
+        insert_reaction(id: 100, status: status_a, name: '👍')
+        insert_reaction(id: 500, status: status_a, name: '❤️')
+        insert_reaction(id: 200, status: status_b, name: '❤️')
+
         get :index, params: { emojis: ['❤️'], limit: 1, max_id: 200 }
 
         expect(status_ids).to eq [status_a.id.to_s]
         expect(link_param('prev', 'min_id')).to eq '100'
-        expect(link_values('prev', 'emojis')).to eq ['❤️']
+        expect(link_values('prev', 'emojis')).to match_array ['❤️']
+        expect(link_values('next', 'emojis')).to match_array ['❤️']
       end
 
-      it 'treats multiple emojis as a disjunction and ignores duplicates' do
+      it 'returns each emoji branch once when several emojis are requested' do
         party = Fabricate(:status, account: user.account)
         thumb = Fabricate(:status, account: user.account)
-        other = Fabricate(:status, account: user.account)
+        both = Fabricate(:status, account: user.account)
         insert_reaction(id: 100, status: party, name: '🎉')
         insert_reaction(id: 200, status: thumb, name: '👍')
-        insert_reaction(id: 300, status: other, name: '🎉')
-        insert_reaction(id: 400, status: other, name: '👍')
-
-        get :index, params: { emojis: ['👍', '👍'] }
-
-        expect(status_ids).to eq [other.id.to_s, thumb.id.to_s]
+        insert_reaction(id: 300, status: both, name: '🎉')
+        insert_reaction(id: 400, status: both, name: '👍')
 
         get :index, params: { emojis: ['🎉', '👍'], limit: 2 }
 
-        expect(status_ids).to eq [other.id.to_s, thumb.id.to_s]
-        expect(link_values('next', 'emojis')).to eq ['🎉', '👍']
+        expect(status_ids).to eq [both.id.to_s, thumb.id.to_s]
         expect(link_param('next', 'max_id')).to eq '200'
+        expect(link_param('prev', 'min_id')).to eq '300'
+        expect(link_values('next', 'emojis')).to match_array ['🎉', '👍']
+        expect(link_values('prev', 'emojis')).to match_array ['🎉', '👍']
+      end
+
+      it 'includes every status that has either requested emoji' do
+        party = Fabricate(:status, account: user.account)
+        thumb = Fabricate(:status, account: user.account)
+        both = Fabricate(:status, account: user.account)
+        insert_reaction(id: 100, status: party, name: '🎉')
+        insert_reaction(id: 200, status: thumb, name: '👍')
+        insert_reaction(id: 300, status: both, name: '🎉')
+        insert_reaction(id: 400, status: both, name: '👍')
+
+        get :index, params: { emojis: ['🎉', '👍'] }
+
+        expect(status_ids).to eq [both.id.to_s, thumb.id.to_s, party.id.to_s]
+      end
+
+      it 'returns the same statuses for a duplicated emoji parameter' do
+        party = Fabricate(:status, account: user.account)
+        thumb = Fabricate(:status, account: user.account)
+        both = Fabricate(:status, account: user.account)
+        insert_reaction(id: 100, status: party, name: '🎉')
+        insert_reaction(id: 200, status: thumb, name: '👍')
+        insert_reaction(id: 300, status: both, name: '🎉')
+        insert_reaction(id: 400, status: both, name: '👍')
+
+        get :index, params: { emojis: ['👍', '👍'] }
+
+        expect(status_ids).to eq [both.id.to_s, thumb.id.to_s]
       end
 
       it 'matches local, remote, and local-domain custom emoji identities' do
@@ -314,7 +350,7 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
         expect(status_ids).to eq [remote_status.id.to_s, local_status.id.to_s]
       end
 
-      it 'does not treat an unknown domain-qualified emoji as unicode' do
+      it 'does not treat an unknown remote emoji as unicode' do
         unicode = Fabricate(:status, account: user.account)
         other = Fabricate(:status, account: user.account)
         insert_reaction(id: 140, status: unicode, name: 'missing')
@@ -323,8 +359,15 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
         get :index, params: { emojis: ['missing@example.com'] }
 
         expect(status_ids).to eq []
+      end
 
+      it 'does not treat an unknown local-domain emoji as unicode' do
+        unicode = Fabricate(:status, account: user.account)
+        other = Fabricate(:status, account: user.account)
+        insert_reaction(id: 140, status: unicode, name: 'missing')
+        insert_reaction(id: 150, status: other, name: '👍')
         local_domain = Rails.configuration.x.local_domain
+
         get :index, params: { emojis: ["missing@#{local_domain}"] }
 
         expect(status_ids).to eq []
@@ -357,6 +400,119 @@ RSpec.describe Api::V1::EmojiReactionsController, type: :controller do
         expect(candidate[:sql]).to include('EXISTS')
         expect(candidate[:sql]).not_to match(/GROUP BY/i)
         expect(candidate[:sql]).not_to match(/MIN\(/)
+      end
+
+      it 'applies min_id to the representative id when an emoji is requested' do
+        below = Fabricate(:status, account: user.account)
+        first = Fabricate(:status, account: user.account)
+        second = Fabricate(:status, account: user.account)
+        insert_reaction(id: 100, status: below, name: '👍')
+        insert_reaction(id: 500, status: below, name: '❤️')
+        insert_reaction(id: 200, status: first, name: '❤️')
+        insert_reaction(id: 300, status: second, name: '👍')
+        insert_reaction(id: 400, status: second, name: '❤️')
+
+        statements = capture_statements { get :index, params: { emojis: ['❤️'], min_id: 150, limit: 2 } }
+        candidate = statements.find { |statement| statement[:sql].include?('NOT EXISTS') && statement[:sql].include?('earlier.id') }
+
+        expect(status_ids).to eq [second.id.to_s, first.id.to_s]
+        expect(candidate[:sql]).to match(/"emoji_reactions"\."id" > 150\b/)
+        expect(candidate[:sql]).to match(/ORDER BY "emoji_reactions"\."id" ASC/)
+        expect(candidate[:sql]).to include('EXISTS')
+      end
+
+      it 'applies since_id and max_id to representative ids when an emoji is requested' do
+        below = Fabricate(:status, account: user.account)
+        low = Fabricate(:status, account: user.account)
+        middle = Fabricate(:status, account: user.account)
+        inside = Fabricate(:status, account: user.account)
+        above = Fabricate(:status, account: user.account)
+        insert_reaction(id: 100, status: below, name: '👍')
+        insert_reaction(id: 180, status: below, name: '❤️')
+        insert_reaction(id: 200, status: low, name: '❤️')
+        insert_reaction(id: 300, status: middle, name: '❤️')
+        insert_reaction(id: 350, status: inside, name: '👍')
+        insert_reaction(id: 500, status: inside, name: '❤️')
+        insert_reaction(id: 450, status: above, name: '❤️')
+
+        statements = capture_statements do
+          get :index, params: { emojis: ['❤️'], since_id: 150, max_id: 400 }
+        end
+        candidate = statements.find { |statement| statement[:sql].include?('NOT EXISTS') && statement[:sql].include?('earlier.id') }
+
+        expect(status_ids).to eq [inside.id.to_s, middle.id.to_s, low.id.to_s]
+        expect(candidate[:sql]).to match(/"emoji_reactions"\."id" > 150\b/)
+        expect(candidate[:sql]).to match(/"emoji_reactions"\."id" < 400\b/)
+        expect(candidate[:sql]).to match(/ORDER BY "emoji_reactions"\."id" DESC/)
+      end
+
+      it 'continues past discarded emoji matches in later batches' do
+        allow(controller).to receive(:representative_batch_size).and_return(2)
+        discarded = Array.new(2) { Fabricate(:status, account: user.account) }
+        live = Array.new(3) { Fabricate(:status, account: user.account) }
+        insert_reaction(id: 500, status: discarded[0], name: '❤️')
+        insert_reaction(id: 400, status: discarded[1], name: '❤️')
+        insert_reaction(id: 300, status: live[0], name: '❤️')
+        insert_reaction(id: 200, status: live[1], name: '❤️')
+        insert_reaction(id: 100, status: live[2], name: '❤️')
+        discarded.each(&:discard)
+
+        statements = capture_statements { get :index, params: { emojis: ['❤️'], limit: 2 } }
+        queries = statements.map { |statement| statement[:sql] }
+        candidates = statements.select { |statement| statement[:sql].include?('NOT EXISTS') && statement[:sql].include?('earlier.id') }
+
+        expect(status_ids).to eq [live[0].id.to_s, live[1].id.to_s]
+        expect(candidates.size).to eq 2
+        expect(candidates.map { |statement| statement[:sql] }).to all(include('EXISTS'))
+        expect(candidates.second[:sql]).to match(/"emoji_reactions"\."id" < 400\b/)
+        expect(reaction_lookup_queries(queries).map { |sql| in_list_size(sql) }).to eq [2, 2]
+      end
+
+      it 'keeps an expired status on an emoji filtered page' do
+        expired = Fabricate(:status, account: user.account)
+        live = Fabricate(:status, account: user.account)
+        expired.update_column(:expired_at, 1.hour.ago)
+        insert_reaction(id: 710, status: expired, name: '❤️')
+        insert_reaction(id: 720, status: live, name: '❤️')
+
+        queries = capture_sql { get :index, params: { emojis: ['❤️'] } }
+
+        expect(status_ids).to eq [live.id.to_s, expired.id.to_s]
+        expect(reaction_lookup_queries(queries).join).to match(/INNER JOIN "statuses" ON "statuses"\."deleted_at" IS NULL/)
+        expect(reaction_lookup_queries(queries).join).not_to match(/expired_at IS NULL/)
+      end
+
+      it 'uses the same emoji page for compact responses' do
+        older = Fabricate(:status, account: user.account)
+        newer = Fabricate(:status, account: user.account)
+        insert_reaction(id: 610, status: older, name: '❤️')
+        insert_reaction(id: 620, status: newer, name: '❤️')
+
+        get :index, params: { emojis: ['❤️'], limit: 2, compact: true }
+
+        expect(body_as_json[:statuses].map { |status| status[:id] }).to eq [newer.id.to_s, older.id.to_s]
+        expect(link_param('next', 'max_id')).to eq '610'
+        expect(link_param('prev', 'min_id')).to eq '620'
+        expect(link_values('next', 'emojis')).to match_array ['❤️']
+        expect(link_values('prev', 'emojis')).to match_array ['❤️']
+      end
+
+      it 'excludes statuses with media when emoji and without_media are combined' do
+        with_media = Fabricate(:status, account: user.account)
+        plain = Fabricate(:status, account: user.account)
+        Fabricate(:media_attachment, account: user.account, status: with_media)
+        insert_reaction(id: 180, status: with_media, name: '❤️')
+        insert_reaction(id: 190, status: plain, name: '❤️')
+
+        statements = capture_statements { get :index, params: { emojis: ['❤️'], without_media: true } }
+        kept = statements.map { |statement| statement[:sql] }.join("\n")
+        candidate = statements.find { |statement| statement[:sql].include?('NOT EXISTS') }
+
+        expect(status_ids).to eq [plain.id.to_s]
+        expect(candidate[:sql]).to include('EXISTS')
+        expect(candidate[:sql]).not_to match(/GROUP BY/i)
+        expect(kept).to match(/LEFT OUTER JOIN "media_attachments"/)
+        expect(kept).to match(/"media_attachments"\."status_id" IS NULL/)
       end
 
       it 'keeps only_media on the existing filtered query' do
