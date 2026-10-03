@@ -520,15 +520,26 @@ ActiveRecord::Schema.define(version: 2026_10_02_120000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.string "uri"
-    # Representative-scan indexes use INCLUDE and are created only by
-    # db/migrate/20261002120000_add_emoji_reaction_representative_scan_indexes.rb.
-    # Rails 6.1 schema dump would record them as ordinary 3-column keys, which
-    # is a different index, so they are intentionally omitted here.
     t.index ["account_id", "status_id", "name"], name: "index_emoji_reactions_on_account_id_and_status_id", unique: true
     t.index ["account_id"], name: "index_emoji_reactions_on_account_id"
     t.index ["custom_emoji_id"], name: "index_emoji_reactions_on_custom_emoji_id"
     t.index ["status_id"], name: "index_emoji_reactions_on_status_id"
   end
+
+  # Rails 6.1 cannot represent PostgreSQL INCLUDE indexes.
+  # Do not replace these statements with the 3-column t.index definitions emitted by db:schema:dump.
+  # The third column is INCLUDE payload, not a btree key.
+  execute <<~SQL
+    CREATE INDEX IF NOT EXISTS index_emoji_reactions_on_account_status_include_id
+    ON emoji_reactions (account_id, status_id)
+    INCLUDE (id)
+  SQL
+
+  execute <<~SQL
+    CREATE INDEX IF NOT EXISTS index_emoji_reactions_on_account_id_and_id_include_status_id
+    ON emoji_reactions (account_id, id)
+    INCLUDE (status_id)
+  SQL
 
   create_table "encrypted_messages", id: :bigint, default: -> { "timestamp_id('encrypted_messages'::text)" }, force: :cascade do |t|
     t.bigint "device_id"
