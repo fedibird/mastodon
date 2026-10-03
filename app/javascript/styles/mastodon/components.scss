@@ -9998,7 +9998,8 @@ noscript {
   }
 
   &.is-editing-pinned &__pinned {
-    min-height: 104px;
+    // The drop hint's 72px min-height is content-box, so its border box is 92px and 104px clips it.
+    min-height: 124px;
   }
 
   &.is-editing-pinned &__tile {
