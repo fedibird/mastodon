@@ -900,8 +900,30 @@ describe StatusesController do
         expect(response).to have_http_status(404)
       end
 
+      it 'returns not found for Accept */* without rendering nil references' do
+        request.headers['Accept'] = '*/*'
+
+        expect do
+          get :references, params: { account_username: account.username, id: status.id }
+        end.not_to raise_error
+
+        expect(response).to have_http_status(404)
+      end
+
       it 'redirects JSON to the ActivityPub references collection' do
+        expect(controller).not_to receive(:set_references)
+
         get :references, params: { account_username: account.username, id: status.id, format: 'json' }
+
+        expect(response).to have_http_status(:redirect)
+        expect(response).to redirect_to(account_status_references_url(account, status))
+      end
+
+      it 'redirects Accept application/json without loading references' do
+        request.headers['Accept'] = 'application/json'
+        expect(controller).not_to receive(:set_references)
+
+        get :references, params: { account_username: account.username, id: status.id }
 
         expect(response).to have_http_status(:redirect)
         expect(response).to redirect_to(account_status_references_url(account, status))
@@ -917,6 +939,16 @@ describe StatusesController do
 
       it 'renders the references page' do
         get :references, params: { account_username: account.username, id: status.id, format: 'html' }
+
+        expect(response).to have_http_status(200)
+        expect(response).to render_template(:references)
+        expect(response.body).to include('referenced status body')
+      end
+
+      it 'renders the references page for Accept */*' do
+        request.headers['Accept'] = '*/*'
+
+        get :references, params: { account_username: account.username, id: status.id }
 
         expect(response).to have_http_status(200)
         expect(response).to render_template(:references)
