@@ -44,7 +44,7 @@ class Api::V1::EmojiReactionsController < Api::BaseController
   end
 
   def results
-    @_results ||= if additional_emoji_reaction_filter?
+    @_results ||= if legacy_media_filter?
                     filtered_emoji_reactions.to_a_paginated_by_id(
                       limit_param(DEFAULT_STATUSES_LIMIT),
                       params_slice(:max_id, :since_id, :min_id)
@@ -54,8 +54,11 @@ class Api::V1::EmojiReactionsController < Api::BaseController
                   end
   end
 
-  def additional_emoji_reaction_filter?
-    emojis_requested? || media_only? || without_media?
+  # Media filters stay on the pre-existing grouped query. emojis[] uses the
+  # bounded representative scan so a later reaction can match without
+  # becoming the pagination id.
+  def legacy_media_filter?
+    !emojis_requested? && (media_only? || without_media?)
   end
 
   # Walk representative ids in index order. Status visibility is applied to
@@ -94,6 +97,7 @@ class Api::V1::EmojiReactionsController < Api::BaseController
 
   def representative_candidate_ids(batch_size:, ascending:, lower_id:, upper_id:)
     scope = current_account.emoji_reactions.where(Arel.sql(REPRESENTATIVE_NOT_EXISTS_SQL))
+    scope = scope.where(matching_emoji_exists_node) if emojis_requested?
     scope = scope.where(EmojiReaction.arel_table[:id].gt(lower_id)) if lower_id.present?
     scope = scope.where(EmojiReaction.arel_table[:id].lt(upper_id)) if upper_id.present?
     scope = ascending ? scope.order(id: :asc) : scope.order(id: :desc)
@@ -101,13 +105,15 @@ class Api::V1::EmojiReactionsController < Api::BaseController
   end
 
   def kept_representative_reactions(ids)
-    reactions = EmojiReaction.where(id: ids).joins(:status).eager_load(:status).index_by { |reaction| reaction.id.to_i }
+    scope = EmojiReaction.where(id: ids).joins(:status).eager_load(:status)
+    scope = scope.merge(media_only_scope) if media_only?
+    scope = scope.merge(without_media_scope) if without_media?
+    reactions = scope.index_by { |reaction| reaction.id.to_i }
     ids.filter_map { |id| reactions[id.to_i] }
   end
 
   def filtered_emoji_reactions
     account_emoji_reactions.joins(:status).eager_load(:status).tap do |emoji_reactions|
-      emoji_reactions.merge!(emojis_scope)        if emojis_requested?
       emoji_reactions.merge!(media_only_scope)    if media_only?
       emoji_reactions.merge!(without_media_scope) if without_media?
     end
@@ -133,19 +139,57 @@ class Api::V1::EmojiReactionsController < Api::BaseController
     truthy_param?(:compact)
   end
 
-  def emojis_scope
-    emoji_reactions = EmojiReaction.none
+  # The representative row only defines order. emojis[] matches when any
+  # current reaction on the same account and status has one of the requested
+  # identities. Repeated parameters collapse to one identity.
+  def matching_emoji_exists_node
+    identities = requested_emoji_identities
+    return Arel.sql('1 = 0') if identities.empty?
 
-    emoji_reactions_params[:emojis].each do |emoji|
-      shortcode, domain = emoji.split('@')
-                 domain = nil if domain == Rails.configuration.x.local_domain
+    matching = EmojiReaction.arel_table.alias('matching')
+    representative = EmojiReaction.arel_table
+    predicate = identities.map { |identity| emoji_identity_predicate(matching, identity) }.reduce { |left, right| left.or(right) }
+    match = Arel::SelectManager.new
+    match.from(matching)
+    match.project(Arel.sql('1'))
+    match.where(
+      matching[:account_id].eq(representative[:account_id]).and(
+        matching[:status_id].eq(representative[:status_id]).and(Arel::Nodes::Grouping.new(predicate))
+      )
+    )
 
-      custom_emoji = CustomEmoji.find_by(shortcode: shortcode, domain: domain)
+    Arel::Nodes::Exists.new(match)
+  end
 
-      emoji_reactions = emoji_reactions.or(EmojiReaction.where(name: shortcode, custom_emoji: custom_emoji))
-    end
+  def emoji_identity_predicate(table, identity)
+    Arel::Nodes::Grouping.new(
+      table[:name].eq(identity[:name]).and(table[:custom_emoji_id].eq(identity[:custom_emoji_id]))
+    )
+  end
 
-    emoji_reactions
+  def requested_emoji_identities
+    return @requested_emoji_identities if defined?(@requested_emoji_identities)
+
+    @requested_emoji_identities = Array(emoji_reactions_params[:emojis]).filter_map { |emoji| emoji_identity(emoji) }.uniq
+  end
+
+  def emoji_identity(emoji)
+    shortcode, domain = emoji.to_s.split('@', 2)
+    return if shortcode.blank?
+    return bare_emoji_identity(shortcode) if domain.nil?
+    return if domain.blank?
+
+    normalized_domain = domain.downcase
+    normalized_domain = nil if normalized_domain == Rails.configuration.x.local_domain.to_s.downcase
+    custom_emoji = CustomEmoji.find_by(shortcode: shortcode, domain: normalized_domain)
+    return if custom_emoji.nil?
+
+    { name: shortcode, custom_emoji_id: custom_emoji.id }
+  end
+
+  def bare_emoji_identity(shortcode)
+    custom_emoji = CustomEmoji.find_by(shortcode: shortcode, domain: nil)
+    { name: shortcode, custom_emoji_id: custom_emoji&.id }
   end
 
   def media_only_scope
@@ -153,7 +197,7 @@ class Api::V1::EmojiReactionsController < Api::BaseController
   end
 
   def without_media_scope
-    Status.left_joins(:media_attachments).where(media_attachments: {status_id: nil})
+    Status.left_joins(:media_attachments).where(media_attachments: { status_id: nil })
   end
 
   def insert_pagination_headers
@@ -181,7 +225,7 @@ class Api::V1::EmojiReactionsController < Api::BaseController
   end
 
   def pagination_params(core_params)
-    params_slice(:limit, :compact, :only_media, :without_media).merge(core_params)
+    params_slice(:limit, :compact, :only_media, :without_media).merge(emoji_reactions_params).merge(core_params)
   end
 
   def emoji_reactions_params
