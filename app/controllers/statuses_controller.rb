@@ -44,7 +44,11 @@ class StatusesController < ApplicationController
     # not_found starts its own respond_to. Calling it from inside this
     # action's HTML format block makes Rails raise RespondToMismatchError
     # when the request accepts both HTML and JSON.
-    if request.format.html?
+    #
+    # request.format.html? is false for Accept: */* even though respond_to
+    # negotiates that header to HTML. Match respond_to's MIME order so
+    # set_references runs before the HTML view is rendered.
+    if negotiated_references_format == Mime[:html]
       expires_in 10.seconds, public: true if current_account.nil?
       set_references
       return not_found if @references.blank?
@@ -115,5 +119,10 @@ class StatusesController < ApplicationController
 
   def set_referrer_policy_header
     response.headers['Referrer-Policy'] = 'origin' unless @status.distributable?
+  end
+
+  # Same order as the respond_to block above: HTML, then JSON.
+  def negotiated_references_format
+    request.negotiate_mime([Mime[:html], Mime[:json]])
   end
 end
