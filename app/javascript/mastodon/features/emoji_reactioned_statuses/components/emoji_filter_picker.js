@@ -299,6 +299,10 @@ class EmojiReactionFilterPicker extends React.PureComponent {
     this.pinnedZone = node;
   };
 
+  setPinnedViewportRef = (node) => {
+    this.pinnedViewport = node;
+  };
+
   bindGestureListeners() {
     document.addEventListener('pointermove', this.handleDocumentPointerMove, true);
     document.addEventListener('pointerup', this.handleDocumentPointerUp, true);
@@ -561,12 +565,13 @@ class EmojiReactionFilterPicker extends React.PureComponent {
 
   updateDrag(point) {
     const zone = this.pinnedZone;
-    const rect = zone && zone.getBoundingClientRect ? zone.getBoundingClientRect() : null;
+    const viewport = this.pinnedViewport;
+    const rect = viewport && viewport.getBoundingClientRect ? viewport.getBoundingClientRect() : null;
     const overZone = pointWithinRect(rect, point.x, point.y);
     const value = this.pressOrigin.value;
     let insertIndex = null;
 
-    if (overZone) {
+    if (overZone && zone) {
       const nodes = Array.from(zone.querySelectorAll('[data-pin-value]'))
         .filter(node => node.getAttribute('data-pin-value') !== value);
       insertIndex = insertionIndexForPoint(nodes.map(node => node.getBoundingClientRect()), point.x, point.y);
@@ -828,7 +833,10 @@ class EmojiReactionFilterPicker extends React.PureComponent {
     }
 
     return (
-      <div className='emoji-reaction-filter-picker__pinned'>
+      <div
+        ref={this.setPinnedViewportRef}
+        className='emoji-reaction-filter-picker__pinned'
+      >
         <section
           ref={this.setPinnedZoneRef}
           data-drop-zone='true'

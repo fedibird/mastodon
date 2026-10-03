@@ -150,12 +150,18 @@ const rect = (left, top, width, height) => ({
   },
 });
 
-const installLayout = (itemRects) => {
+const installLayout = (itemRects, geometry = {}) => {
+  const viewport = geometry.viewport || rect(0, 0, 320, 180);
+  const section = geometry.section || rect(0, 0, 320, 180);
   const original = HTMLElement.prototype.getBoundingClientRect;
 
   HTMLElement.prototype.getBoundingClientRect = function () {
+    if (this.classList && this.classList.contains('emoji-reaction-filter-picker__pinned')) {
+      return viewport;
+    }
+
     if (this.dataset && this.dataset.dropZone) {
-      return rect(0, 0, 320, 180);
+      return section;
     }
 
     const value = this.dataset && this.dataset.pinValue;
@@ -677,6 +683,34 @@ describe('EmojiReactionFilterPicker', () => {
     pointer(heart, 'pointerUp', 80, 420);
 
     expect(onTogglePreferred).not.toHaveBeenCalled();
+    restore();
+  });
+
+  it('does not pin below the visible pinned viewport when the section is taller', () => {
+    const onTogglePreferred = jest.fn();
+    const restore = installLayout({
+      '🎉': rect(0, 40, 90, 80),
+      '👍': rect(100, 40, 90, 80),
+    }, {
+      viewport: rect(0, 0, 320, 180),
+      section: rect(0, 0, 320, 1000),
+    });
+
+    renderPicker({
+      preferredEmojis: ['🎉', '👍'],
+      onTogglePreferred,
+    });
+    enterEdit();
+
+    const heart = screen.getByRole('button', { name: '❤️' });
+
+    pointer(heart, 'pointerDown', 10, 500);
+    pointer(heart, 'pointerMove', 40, 500);
+    pointer(heart, 'pointerMove', 80, 200);
+    pointer(heart, 'pointerUp', 80, 200);
+
+    expect(onTogglePreferred).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-drop-zone="true"]')).not.toHaveClass('is-drop-target');
     restore();
   });
 
