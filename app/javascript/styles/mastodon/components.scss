@@ -9820,7 +9820,7 @@ noscript {
       position: absolute;
       width: 0;
       height: 0;
-      overflow: visible;
+      overflow: hidden;
       pointer-events: none;
     }
   }
@@ -9997,6 +9997,11 @@ noscript {
     }
   }
 
+  &.is-editing-pinned &__pinned {
+    // The drop hint's 72px min-height is content-box, so its border box is 92px and 104px clips it.
+    min-height: 124px;
+  }
+
   &.is-editing-pinned &__tile {
     padding-top: 18px;
     touch-action: none;
@@ -10008,15 +10013,23 @@ noscript {
     cursor: grabbing;
   }
 
-  &__tile.is-floating {
+  &__drag-overlay {
     position: fixed;
     z-index: 10060;
     margin: 0;
-    opacity: 0.96;
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.38);
-    cursor: grabbing;
+    color: $primary-text-color;
     pointer-events: none;
-    transform: scale(1.04);
+
+    .emoji-reaction-filter-picker__tile {
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      padding-top: 18px;
+      opacity: 0.96;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.38);
+      cursor: grabbing;
+      transform: scale(1.04);
+    }
   }
 }
 

@@ -101,6 +101,21 @@ const enterEdit = () => {
   fireEvent.click(screen.getByRole('button', { name: 'Edit pinned' }));
 };
 
+const dragOverlay = () => document.querySelector('.emoji-reaction-filter-picker__drag-overlay');
+
+const expectFloatingOverlay = (source) => {
+  const overlay = dragOverlay();
+
+  expect(overlay).not.toBeNull();
+  expect(overlay.parentElement).toBe(document.body);
+  expect(overlay).toHaveAttribute('aria-hidden', 'true');
+  expect(overlay.closest('.emoji-reaction-filter-picker__body')).toBeNull();
+  expect(overlay.closest('.emoji-reaction-filter-picker__pinned')).toBeNull();
+  expect(source.isConnected).toBe(true);
+  expect(source.parentElement).toHaveClass('is-drag-source');
+  expect(source).not.toHaveClass('is-floating');
+};
+
 const pinnedFlow = () => Array.from(document.querySelectorAll('.emoji-reaction-filter-picker__group--pinned .emoji-reaction-filter-picker__grid > *'))
   .filter(node => !node.classList.contains('is-drag-source'))
   .map(node => node.getAttribute('data-pin-value') || (node.hasAttribute('data-placeholder') ? 'placeholder' : 'other'));
@@ -544,6 +559,8 @@ describe('EmojiReactionFilterPicker', () => {
     expect(screen.getByRole('button', { name: 'Done' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('heading', { name: 'Pinned' })).toBeInTheDocument();
     expect(screen.getByText('Drag here to pin')).toBeInTheDocument();
+    expect(document.querySelector('.emoji-reaction-filter-picker')).toHaveClass('is-editing-pinned');
+    expect(screen.getByText('Drag here to pin').closest('.emoji-reaction-filter-picker__pinned')).not.toBeNull();
     expect(starButtons().length).toBeGreaterThan(0);
     expect(screen.getByRole('heading', { name: 'Pinned' }).closest('.emoji-reaction-filter-picker__body')).toBeNull();
     expect(screen.getByRole('heading', { name: 'Pinned' }).closest('.emoji-reaction-filter-picker__pinned')).not.toBeNull();
@@ -566,6 +583,7 @@ describe('EmojiReactionFilterPicker', () => {
 
     const fixed = screen.getByRole('heading', { name: 'Pinned' }).closest('section');
 
+    expect(document.querySelector('.emoji-reaction-filter-picker')).toHaveClass('is-editing-pinned');
     expect(fixed.closest('.emoji-reaction-filter-picker__body')).toBeNull();
     expect(fixed.closest('.emoji-reaction-filter-picker__pinned')).not.toBeNull();
     expect(labelsInSection('Frequently used')).toEqual(['👍', ':great:', ':achievement:@example.com']);
@@ -701,9 +719,10 @@ describe('EmojiReactionFilterPicker', () => {
     pointer(heart, 'pointerMove', 95, 80);
     expect(onTogglePreferred).not.toHaveBeenCalled();
     expect(pinnedFlow()).toEqual(['🎉', 'placeholder', '👍']);
-    expect(heart.parentElement).toHaveClass('is-drag-source');
-    expect(heart).toHaveClass('is-floating');
+    expectFloatingOverlay(heart);
+    expect(heart.closest('.emoji-reaction-filter-picker__body')).not.toBeNull();
     pointer(heart, 'pointerUp', 95, 80);
+    expect(dragOverlay()).toBeNull();
     fireEvent.click(heart);
 
     expect(onTogglePreferred).toHaveBeenCalledTimes(1);
@@ -739,12 +758,14 @@ describe('EmojiReactionFilterPicker', () => {
     expect(onTogglePreferred).not.toHaveBeenCalled();
     expect(document.querySelector('[data-drop-zone="true"]')).toHaveClass('is-drop-target');
     expect(pinnedFlow()).toEqual(['placeholder', '🥳', '🎉']);
-    expect(thumb.parentElement).toHaveClass('is-drag-source');
+    expectFloatingOverlay(thumb);
+    expect(thumb.closest('.emoji-reaction-filter-picker__pinned')).not.toBeNull();
     pointer(thumb, 'pointerMove', 140, 80);
     expect(pinnedFlow()).toEqual(['🥳', 'placeholder', '🎉']);
     pointer(thumb, 'pointerMove', 10, 80);
     pointer(thumb, 'pointerUp', 10, 80);
 
+    expect(dragOverlay()).toBeNull();
     expect(onTogglePreferred).toHaveBeenCalledTimes(1);
     expect(onTogglePreferred).toHaveBeenCalledWith(['👍', '🥳', '🎉']);
     restore();
@@ -768,8 +789,10 @@ describe('EmojiReactionFilterPicker', () => {
     pointer(heart, 'pointerDown', 10, 400);
     pointer(heart, 'pointerMove', 30, 400);
     pointer(heart, 'pointerMove', 80, 420);
+    expectFloatingOverlay(heart);
     pointer(heart, 'pointerUp', 80, 420);
 
+    expect(dragOverlay()).toBeNull();
     expect(onTogglePreferred).not.toHaveBeenCalled();
     restore();
   });
