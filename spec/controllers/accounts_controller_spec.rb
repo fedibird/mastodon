@@ -683,4 +683,91 @@ RSpec.describe AccountsController, type: :controller do
       end
     end
   end
+
+  describe 'GET #show min_id pagination' do
+    let(:account) { Fabricate(:user).account }
+
+    def insert_status(id, **attrs)
+      Fabricate(:status, { account: account, id: id, text: "status-#{id}" }.merge(attrs))
+    end
+
+    def status_ids
+      assigns(:statuses).map { |status| status.id.to_i }
+    end
+
+    def capture_sql(&block)
+      statements = []
+      callback = lambda do |*_args, payload|
+        statements << payload[:sql].to_s
+      end
+      ActiveSupport::Notifications.subscribed(callback, 'sql.active_record', &block)
+      statements
+    end
+
+    def tuple_page_query(queries)
+      queries.find { |sql| sql.include?('(statuses.account_id, statuses.id) >') && sql.include?('SELECT') }
+    end
+
+    before do
+      [100, 200, 300, 400, 500].each { |id| insert_status(id) }
+      insert_status(350, reply: true, in_reply_to_account_id: Fabricate(:account).id)
+    end
+
+    it 'returns the statuses immediately above min_id in descending order' do
+      queries = capture_sql { get :show, params: { username: account.username, min_id: 200 } }
+      page_query = tuple_page_query(queries)
+
+      expect(response).to have_http_status(200)
+      expect(status_ids).to eq [500, 400, 300]
+      expect(page_query).to match(/\(statuses\.account_id, statuses\.id\) > \(#{account.id}, 200\)/)
+      expect(page_query).to match(/ORDER BY "statuses"\."account_id" ASC, "statuses"\."id" ASC/)
+      expect(page_query).not_to match(/"statuses"\."id" > /)
+      expect(assigns(:older_url)).to include('max_id=300')
+      expect(assigns(:newer_url)).to be_nil
+    end
+
+    it 'keeps min_id and max_id as strict bounds' do
+      queries = capture_sql { get :show, params: { username: account.username, min_id: 200, max_id: 500 } }
+      page_query = tuple_page_query(queries)
+
+      expect(status_ids).to eq [400, 300]
+      expect(page_query).to match(/\(statuses\.account_id, statuses\.id\) > \(#{account.id}, 200\)/)
+      expect(page_query).to match(/"statuses"\."id" < 500/)
+      expect(page_query).to match(/ORDER BY "statuses"\."account_id" ASC, "statuses"\."id" ASC/)
+      expect(page_query).not_to match(/"statuses"\."id" > /)
+      expect(assigns(:older_url)).to include('max_id=300')
+      expect(assigns(:newer_url)).to include('min_id=400')
+    end
+
+    it 'includes replies on the with_replies min_id scan' do
+      allow(controller).to receive(:replies_requested?).and_return(true)
+      queries = capture_sql { get :show, params: { username: account.username, min_id: 200 } }
+
+      expect(status_ids).to eq [500, 400, 350, 300]
+      expect(tuple_page_query(queries)).to match(/ORDER BY "statuses"\."account_id" ASC, "statuses"\."id" ASC/)
+      expect(tuple_page_query(queries)).not_to match(/statuses\.reply = FALSE/)
+    end
+
+    it 'keeps max_id pagination on the id-ordered page' do
+      queries = capture_sql { get :show, params: { username: account.username, max_id: 400 } }
+
+      expect(status_ids).to eq [300, 200, 100]
+      expect(queries.join("\n")).not_to include('(statuses.account_id, statuses.id) >')
+      expect(queries.join("\n")).to match(/ORDER BY "statuses"\."id" DESC/)
+    end
+
+    it 'does not use the tuple bound for a tagged min_id page' do
+      tag = Fabricate(:tag)
+      tagged = insert_status(450)
+      tagged.tags << tag
+      allow(controller).to receive(:tag_requested?).and_return(true)
+
+      queries = capture_sql do
+        get :show, params: { username: account.username, tag: tag.to_param, min_id: 200 }
+      end
+
+      expect(status_ids).to eq [450]
+      expect(queries.join("\n")).not_to include('(statuses.account_id, statuses.id) >')
+    end
+  end
 end
