@@ -45,7 +45,10 @@ class FeaturedTag < ApplicationRecord
   end
 
   def decrement(deleted_status_id)
-    update(statuses_count: [0, statuses_count - 1].max, last_status_at: account.statuses.where(visibility: %i(public unlisted)).tagged_with(tag).where.not(id: deleted_status_id).select(:created_at).first&.created_at)
+    update(
+      statuses_count: [0, statuses_count - 1].max,
+      last_status_at: matching_statuses.where.not(id: deleted_status_id).pick(:created_at)
+    )
   end
 
   def recount
@@ -66,7 +69,7 @@ class FeaturedTag < ApplicationRecord
 
   # Keep tag membership as a correlated scalar subquery.
   # Joining statuses_tags lets PostgreSQL start from the tag and probe every
-  # matching status, which is much slower for featured-tag recounts.
+  # matching status, which is much slower for featured-tag recounts and decrements.
   def matching_statuses
     account.statuses
            .where(visibility: %i(public unlisted))

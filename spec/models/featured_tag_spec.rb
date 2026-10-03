@@ -1,10 +1,11 @@
 require 'rails_helper'
 
 RSpec.describe FeaturedTag, type: :model do
+  let(:account) { Fabricate(:account) }
+  let(:tag) { Fabricate(:tag, name: 'cats') }
+  let(:other_tag) { Fabricate(:tag, name: 'dogs') }
+
   describe '#reset_data' do
-    let(:account) { Fabricate(:account) }
-    let(:tag) { Fabricate(:tag, name: 'cats') }
-    let(:other_tag) { Fabricate(:tag, name: 'dogs') }
 
     it 'counts a public status with the matching tag and uses it as last_status_at' do
       status = tag_status
@@ -97,6 +98,100 @@ RSpec.describe FeaturedTag, type: :model do
 
       expect(sql).to include('SELECT TRUE')
       expect(sql).to include('statuses_tags.status_id = statuses.id')
+      expect(sql).not_to include('INNER JOIN "statuses_tags"')
+    end
+  end
+
+  describe '#decrement' do
+    it 'moves last_status_at to the next highest id' do
+      older = tag_status
+      latest = tag_status
+      featured_tag = create_featured_tag
+
+      featured_tag.decrement(latest.id)
+
+      expect(featured_tag.reload.statuses_count).to eq(1)
+      expect(featured_tag.last_status_at).to eq(older.reload.created_at)
+    end
+
+    it 'keeps the highest id when an older status is decremented' do
+      older = tag_status
+      latest = tag_status
+      featured_tag = create_featured_tag
+
+      featured_tag.decrement(older.id)
+
+      expect(featured_tag.reload.statuses_count).to eq(1)
+      expect(featured_tag.last_status_at).to eq(latest.reload.created_at)
+    end
+
+    it 'follows id order when created_at is reversed' do
+      lower_id = tag_status
+      higher_id = tag_status
+      lower_id.update_columns(created_at: Time.utc(2026, 10, 4, 12, 0, 0))
+      higher_id.update_columns(created_at: Time.utc(2026, 1, 1, 8, 0, 0))
+      featured_tag = create_featured_tag
+
+      featured_tag.decrement(higher_id.id)
+
+      expect(featured_tag.reload.last_status_at).to eq(lower_id.reload.created_at)
+
+      featured_tag.update_columns(statuses_count: 2, last_status_at: higher_id.created_at)
+      featured_tag.decrement(lower_id.id)
+
+      expect(featured_tag.reload.statuses_count).to eq(1)
+      expect(featured_tag.last_status_at).to eq(higher_id.reload.created_at)
+    end
+
+    it 'does not adopt a private, deleted, or expired status as the new latest' do
+      kept = tag_status
+      latest = tag_status
+      tag_status(visibility: :private, created_at: 5.minutes.from_now)
+      deleted = tag_status(created_at: 6.minutes.from_now)
+      expired = tag_status(created_at: 7.minutes.from_now)
+      deleted.discard
+      expired.update_column(:expired_at, Time.now.utc)
+      featured_tag = create_featured_tag
+
+      featured_tag.decrement(latest.id)
+
+      expect(featured_tag.reload.statuses_count).to eq(1)
+      expect(featured_tag.last_status_at).to eq(kept.reload.created_at)
+    end
+
+    it 'clears last_status_at when the last matching status is decremented' do
+      status = tag_status
+      featured_tag = create_featured_tag
+
+      featured_tag.decrement(status.id)
+
+      expect(featured_tag.reload.statuses_count).to eq(0)
+      expect(featured_tag.last_status_at).to be_nil
+    end
+
+    it 'decrements a stale counter by one' do
+      status = tag_status
+      featured_tag = create_featured_tag
+      featured_tag.update_columns(statuses_count: 5)
+
+      featured_tag.decrement(status.id)
+
+      expect(featured_tag.reload.statuses_count).to eq(4)
+      expect(featured_tag.last_status_at).to be_nil
+    end
+
+    it 'excludes the deleted id through matching_statuses without joining statuses_tags' do
+      status = tag_status
+      featured_tag = create_featured_tag
+      sql = featured_tag.send(:matching_statuses).where.not(id: status.id).to_sql
+
+      expect(featured_tag).to receive(:matching_statuses).and_call_original
+
+      featured_tag.decrement(status.id)
+
+      expect(sql).to include('SELECT TRUE')
+      expect(sql).to include('statuses_tags.status_id = statuses.id')
+      expect(sql).to include(%("statuses"."id" != #{status.id}))
       expect(sql).not_to include('INNER JOIN "statuses_tags"')
     end
   end
