@@ -61,7 +61,29 @@ class FeaturedTag < ApplicationRecord
 
   def reset_data
     self.statuses_count = account.statuses.where(visibility: %i(public unlisted)).tagged_with(tag).count
-    self.last_status_at = account.statuses.where(visibility: %i(public unlisted)).tagged_with(tag).select(:created_at).first&.created_at
+    self.last_status_at = matching_statuses.pick(:created_at)
+  end
+
+  # Keep tag membership as a correlated scalar subquery.
+  # Joining statuses_tags lets PostgreSQL start from the tag and probe every
+  # matching status, which is much slower for featured-tag recounts.
+  def matching_statuses
+    account.statuses
+           .where(visibility: %i(public unlisted))
+           .where(matching_tag_predicate, tag_id: tag_id)
+           .reorder(id: :desc)
+  end
+
+  def matching_tag_predicate
+    <<~SQL.squish
+      (
+        SELECT TRUE
+        FROM statuses_tags
+        WHERE statuses_tags.status_id = statuses.id
+          AND statuses_tags.tag_id = :tag_id
+        LIMIT 1
+      ) IS TRUE
+    SQL
   end
 
   def validate_featured_tags_limit
@@ -75,5 +97,4 @@ class FeaturedTag < ApplicationRecord
     errors.add(:name, :invalid) unless @name.match?(Tag::HASHTAG_NAME_RE)
     errors.add(:name, :taken) if FeaturedTag.by_name(@name).where(account_id: account_id).exists?
   end
-
 end
