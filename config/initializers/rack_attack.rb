@@ -45,6 +45,10 @@ class Rack::Attack
       !authenticated_user_id
     end
 
+    def media_proxy_authenticated?
+      authenticated_user_id.present? || warden_user_id.present?
+    end
+
     def api_request?
       path.start_with?('/api')
     end
@@ -80,6 +84,22 @@ class Rack::Attack
 
   throttle('throttle_media_proxy', limit: 300, period: 1.minutes) do |req|
     req.throttleable_remote_ip if req.path.start_with?('/media_proxy')
+  end
+
+  def self.media_proxy_positive_integer(raw, default)
+    return default if raw.nil? || raw == ''
+
+    value = Integer(raw, 10)
+    value.positive? ? value : default
+  rescue ArgumentError, TypeError
+    default
+  end
+
+  MEDIA_PROXY_UNAUTHENTICATED_LIMIT = media_proxy_positive_integer(ENV['MEDIA_PROXY_UNAUTHENTICATED_LIMIT'], 100)
+  MEDIA_PROXY_UNAUTHENTICATED_PERIOD = media_proxy_positive_integer(ENV['MEDIA_PROXY_UNAUTHENTICATED_PERIOD'], 600)
+
+  throttle('throttle_media_proxy_unauthenticated_global', limit: MEDIA_PROXY_UNAUTHENTICATED_LIMIT, period: MEDIA_PROXY_UNAUTHENTICATED_PERIOD) do |req|
+    'unauthenticated' if req.path.start_with?('/media_proxy') && !req.media_proxy_authenticated?
   end
 
   throttle('throttle_statuses_updated_polling', limit: 300, period: 1.minutes) do |req|
