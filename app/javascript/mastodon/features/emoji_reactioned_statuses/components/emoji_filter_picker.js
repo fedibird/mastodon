@@ -84,7 +84,6 @@ class EmojiFilterTile extends React.PureComponent {
     url: PropTypes.string,
     staticUrl: PropTypes.string,
     domain: PropTypes.string,
-    floating: PropTypes.object,
     selectionDisabled: PropTypes.bool,
     onApplySelection: PropTypes.func,
     onToggle: PropTypes.func.isRequired,
@@ -134,19 +133,17 @@ class EmojiFilterTile extends React.PureComponent {
   };
 
   render() {
-    const { label, count, selected, hovered, emoji, url, staticUrl, domain, selectionDisabled, floating } = this.props;
+    const { label, count, selected, hovered, emoji, url, staticUrl, domain, selectionDisabled } = this.props;
 
     return (
       <button
         type='button'
         className={classNames('emoji-reaction-filter-picker__tile', {
           'is-selected': selected,
-          'is-floating': floating,
         })}
         aria-pressed={selected}
         aria-disabled={selectionDisabled}
         aria-label={label}
-        style={floating ? floating : undefined}
         onClick={this.handleClick}
         onDoubleClick={this.handleDoubleClick}
         onMouseEnter={this.handleMouseEnter}
@@ -192,7 +189,6 @@ class EmojiFilterItem extends React.PureComponent {
     domain: PropTypes.string,
     pinned: PropTypes.bool,
     dragging: PropTypes.bool,
-    floating: PropTypes.object,
     selectionDisabled: PropTypes.bool,
     onApplySelection: PropTypes.func,
     onToggle: PropTypes.func.isRequired,
@@ -209,7 +205,7 @@ class EmojiFilterItem extends React.PureComponent {
   };
 
   render() {
-    const { preferred, preferredLabel, unavailableLabel, showPreferredToggle, pinned, dragging, floating, selectionDisabled } = this.props;
+    const { preferred, preferredLabel, unavailableLabel, showPreferredToggle, pinned, dragging, selectionDisabled } = this.props;
 
     return (
       <div
@@ -228,7 +224,6 @@ class EmojiFilterItem extends React.PureComponent {
           url={this.props.url}
           staticUrl={this.props.staticUrl}
           domain={this.props.domain}
-          floating={floating}
           selectionDisabled={selectionDisabled}
           onApplySelection={this.props.onApplySelection}
           onToggle={this.props.onToggle}
@@ -899,7 +894,6 @@ class EmojiReactionFilterPicker extends React.PureComponent {
         domain={presented.domain}
         pinned={Boolean(options.pinned)}
         dragging={Boolean(drag && drag.value === value)}
-        floating={drag && drag.value === value ? this.floatingStyle(drag) : null}
         selectionDisabled={this.state.editingPinned}
         onApplySelection={this.handleApplySelection}
         showPreferredToggle={this.state.editingPinned && !(drag && drag.value === value)}
@@ -1083,6 +1077,47 @@ class EmojiReactionFilterPicker extends React.PureComponent {
     );
   }
 
+  renderDragOverlay() {
+    const { drag } = this.state;
+
+    if (!drag || typeof document === 'undefined' || !document.body) {
+      return null;
+    }
+
+    const presented = this.presentEntry(this.entryForValue(drag.value));
+    const selected = this.state.draft.indexOf(presented.value) !== -1;
+
+    return ReactDOM.createPortal(
+      <div
+        className='emoji-reaction-filter-picker__drag-overlay'
+        aria-hidden='true'
+        style={this.floatingStyle(drag)}
+      >
+        <div
+          className={classNames('emoji-reaction-filter-picker__tile', {
+            'is-selected': selected,
+          })}
+        >
+          {presented.emoji ? (
+            <Emoji
+              className='emoji-reaction-filter-picker__glyph'
+              emoji={presented.emoji}
+              url={presented.url}
+              static_url={presented.staticUrl}
+              domain={presented.domain}
+              hovered={this.state.hovered === presented.value}
+            />
+          ) : (
+            <span className='emoji-reaction-filter-picker__fallback'>{presented.label}</span>
+          )}
+          <span className='emoji-reaction-filter-picker__count'>{presented.count}</span>
+          {selected && <Icon id='check' className='emoji-reaction-filter-picker__check' />}
+        </div>
+      </div>,
+      document.body,
+    );
+  }
+
   handlePreviewLoad = (event) => {
     const img = event.currentTarget;
     const naturalWidth = img.naturalWidth;
@@ -1196,6 +1231,7 @@ class EmojiReactionFilterPicker extends React.PureComponent {
           </div>
         </div>
         {this.renderPreview()}
+        {this.renderDragOverlay()}
       </div>
     );
   }
