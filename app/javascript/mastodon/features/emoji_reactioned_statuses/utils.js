@@ -1,6 +1,9 @@
 import { List as ImmutableList } from 'immutable';
 import { changeColumnParams } from '../../actions/columns';
 import { changeSetting } from '../../actions/settings';
+import { uniqCompact } from '../../utils/uniq';
+
+const { toHiragana } = require('@koozaki/romaji-conv');
 
 const SHORTCODE_PATTERN = /^[A-Za-z0-9_]+$/;
 const REMOTE_SHORTCODE_PATTERN = /^([A-Za-z0-9_]+)@([^@]+)$/;
@@ -93,32 +96,33 @@ export function emojiReactionFilterLabel(itemOrValue) {
   return `:${name}:`;
 }
 
+function readingKeyword(item, name) {
+  const ruby = text(read(item, 'ruby')).trim();
+
+  if (ruby) {
+    return ruby;
+  }
+
+  if (!read(item, 'custom') || !name) {
+    return '';
+  }
+
+  return toHiragana(name);
+}
+
 function searchFields(item) {
   const name = text(read(item, 'name'));
   const domain = read(item, 'domain') ? String(read(item, 'domain')) : '';
-  const fields = [name];
+  const aliases = emojiReactionFilterArray(read(item, 'aliases')).map(alias => text(alias).trim());
 
-  if (domain) {
-    fields.push(domain, `${name}@${domain}`);
-  }
-
-  const alternateName = read(item, 'alternate_name');
-  if (alternateName) {
-    fields.push(String(alternateName));
-  }
-
-  const ruby = read(item, 'ruby');
-  if (ruby) {
-    fields.push(String(ruby));
-  }
-
-  emojiReactionFilterArray(read(item, 'aliases')).forEach(alias => {
-    if (alias) {
-      fields.push(String(alias));
-    }
-  });
-
-  return fields;
+  return uniqCompact([
+    name,
+    readingKeyword(item, name),
+    text(read(item, 'alternate_name')).trim(),
+    ...aliases,
+    domain,
+    domain && name ? `${name}@${domain}` : '',
+  ]);
 }
 
 export function emojiReactionSearchText(item) {
@@ -219,6 +223,19 @@ export function togglePreferredEmojiReactionFilter(preferred, value) {
   }
 
   return list.slice(0, index).concat(list.slice(index + 1));
+}
+
+export function placePreferredEmojiReactionFilter(preferred, value, index) {
+  const raw = text(value).trim();
+  const list = normalizePreferredEmojiReactionFilters(preferred).filter(item => item !== raw);
+
+  if (!raw) {
+    return normalizePreferredEmojiReactionFilters(preferred);
+  }
+
+  const nextIndex = Math.max(0, Math.min(list.length, Number.isFinite(index) ? index : list.length));
+
+  return list.slice(0, nextIndex).concat(raw, list.slice(nextIndex));
 }
 
 export function isPreferredEmojiReaction(preferred, value) {

@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 
 jest.mock('react-intl', () => {
@@ -97,7 +97,92 @@ const labelsInSection = (name) => {
     .map(button => button.getAttribute('aria-label'));
 };
 
+const enterEdit = () => {
+  fireEvent.click(screen.getByRole('button', { name: 'Edit pinned' }));
+};
+
+const starButtons = () => screen.queryAllByRole('button').filter(button => (
+  button.classList.contains('emoji-reaction-filter-picker__preferred-toggle')
+));
+
+const installPointerEvent = () => {
+  if (typeof window.PointerEvent === 'function') {
+    return;
+  }
+
+  function PointerEventPolyfill(type, props) {
+    const init = props || {};
+    const event = new window.MouseEvent(type, init);
+    const pointerId = init.pointerId === undefined || init.pointerId === null ? 1 : init.pointerId;
+
+    Object.defineProperty(event, 'pointerId', { value: pointerId });
+    Object.defineProperty(event, 'pointerType', { value: init.pointerType || 'mouse' });
+
+    return event;
+  }
+
+  window.PointerEvent = PointerEventPolyfill;
+};
+
+const pointer = (node, type, x, y) => {
+  fireEvent[type](node, {
+    pointerId: 1,
+    pointerType: 'mouse',
+    clientX: x,
+    clientY: y,
+    button: 0,
+    bubbles: true,
+    cancelable: true,
+  });
+};
+
+const rect = (left, top, width, height) => ({
+  x: left,
+  y: top,
+  left,
+  top,
+  right: left + width,
+  bottom: top + height,
+  width,
+  height,
+  toJSON() {
+    return this;
+  },
+});
+
+const installLayout = (itemRects, geometry = {}) => {
+  const viewport = geometry.viewport || rect(0, 0, 320, 180);
+  const section = geometry.section || rect(0, 0, 320, 180);
+  const original = HTMLElement.prototype.getBoundingClientRect;
+
+  HTMLElement.prototype.getBoundingClientRect = function () {
+    if (this.classList && this.classList.contains('emoji-reaction-filter-picker__pinned')) {
+      return viewport;
+    }
+
+    if (this.dataset && this.dataset.dropZone) {
+      return section;
+    }
+
+    const value = this.dataset && this.dataset.pinValue;
+
+    if (value && itemRects[value]) {
+      return itemRects[value];
+    }
+
+    return original.apply(this, arguments);
+  };
+
+  return () => {
+    HTMLElement.prototype.getBoundingClientRect = original;
+  };
+};
+
 describe('EmojiReactionFilterPicker', () => {
+  beforeAll(() => {
+    installPointerEvent();
+  });
+
   it('keeps catalog order and shows each count', () => {
     renderPicker();
 
@@ -262,11 +347,16 @@ describe('EmojiReactionFilterPicker', () => {
       preferredEmojis: ['❤️', '🎉'],
     });
 
-    expect(labelsInSection('Preferred')).toEqual(['❤️', '🎉']);
+    expect(labelsInSection('Pinned')).toEqual(['❤️', '🎉']);
     expect(labelsInSection('Frequently used')).toEqual(['👍']);
     expect(tileLabels()).toEqual(['❤️', '🎉', '👍']);
-    expect(screen.getByRole('button', { name: 'Unpin ❤️ from preferred emoji' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Pin 👍 to preferred emoji' })).toHaveAttribute('aria-pressed', 'false');
+    expect(starButtons()).toHaveLength(0);
+    expect(screen.getByRole('button', { name: 'Edit pinned' })).toHaveAttribute('aria-pressed', 'false');
+
+    enterEdit();
+
+    expect(screen.getByRole('button', { name: 'Unpin ❤️' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Pin 👍' })).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('pins an emoji without selecting it or applying the filter', () => {
@@ -277,7 +367,8 @@ describe('EmojiReactionFilterPicker', () => {
       onTogglePreferred,
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Pin 👍 to preferred emoji' }));
+    enterEdit();
+    fireEvent.click(screen.getByRole('button', { name: 'Pin 👍' }));
 
     expect(onTogglePreferred).toHaveBeenCalledWith(['❤️', '🎉', '👍']);
     expect(onApply).not.toHaveBeenCalled();
@@ -293,7 +384,8 @@ describe('EmojiReactionFilterPicker', () => {
       onTogglePreferred,
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Unpin 🎉 from preferred emoji' }));
+    enterEdit();
+    fireEvent.click(screen.getByRole('button', { name: 'Unpin 🎉' }));
 
     expect(onTogglePreferred).toHaveBeenCalledWith(['❤️', '👍']);
   });
@@ -303,11 +395,12 @@ describe('EmojiReactionFilterPicker', () => {
 
     renderPicker({ preferredEmojis: ['❤️'], onTogglePreferred });
 
+    enterEdit();
     fireEvent.click(screen.getByRole('button', { name: '👍' }));
 
     expect(onTogglePreferred).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: '👍' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Pin 👍 to preferred emoji' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Pin 👍' })).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('clears only the filter draft', () => {
@@ -319,10 +412,11 @@ describe('EmojiReactionFilterPicker', () => {
       onTogglePreferred,
     });
 
+    enterEdit();
     fireEvent.click(screen.getByRole('button', { name: 'Clear all' }));
 
     expect(screen.getByRole('button', { name: '🎉' })).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByRole('button', { name: 'Unpin ❤️ from preferred emoji' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Unpin ❤️' })).toHaveAttribute('aria-pressed', 'true');
     expect(onTogglePreferred).not.toHaveBeenCalled();
   });
 
@@ -335,7 +429,8 @@ describe('EmojiReactionFilterPicker', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: '👍' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Pin 👍 to preferred emoji' }));
+    enterEdit();
+    fireEvent.click(screen.getByRole('button', { name: 'Pin 👍' }));
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
     expect(onTogglePreferred).toHaveBeenCalledWith(['❤️', '👍']);
@@ -355,17 +450,19 @@ describe('EmojiReactionFilterPicker', () => {
       onTogglePreferred,
     });
 
-    expect(labelsInSection('Preferred')).toEqual([':old:@example.com', '🎉']);
+    expect(labelsInSection('Pinned')).toEqual([':old:@example.com', '🎉']);
     expect(labelsInSection('Frequently used')).toEqual(['👍']);
 
     const missing = screen.getByRole('button', { name: ':old:@example.com' });
 
     expect(missing).toHaveTextContent('0');
     expect(missing.parentElement).toHaveTextContent('Emoji not currently used');
-    expect(screen.getByRole('button', { name: 'Unpin :old:@example.com from preferred emoji' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByText('Emoji not currently used', { selector: 'p' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Unpin :old:@example.com from preferred emoji' }));
+    enterEdit();
+    expect(screen.getByRole('button', { name: 'Unpin :old:@example.com' })).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unpin :old:@example.com' }));
 
     expect(onTogglePreferred).toHaveBeenCalledWith(['🎉']);
   });
@@ -408,8 +505,366 @@ describe('EmojiReactionFilterPicker', () => {
 
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'example' } });
 
-    expect(labelsInSection('Preferred')).toEqual([':achievement:@example.com', ':old:@example.com']);
+    expect(labelsInSection('Pinned')).toEqual([':achievement:@example.com', ':old:@example.com']);
     expect(labelsInSection('Frequently used')).toEqual([':another:@example.net']);
     expect(tileLabels()).toEqual([':achievement:@example.com', ':old:@example.com', ':another:@example.net']);
+  });
+
+  it('finds a custom emoji from romaji shortcode when ruby is missing', () => {
+    renderPicker({
+      catalogItems: [
+        { name: '🎉', custom: false, domain: null, count: 4 },
+        { name: 'kore', custom: true, domain: null, count: 2, url: 'https://cdn.example/kore.png' },
+        { name: 'kokoro', custom: true, domain: null, count: 1, url: 'https://cdn.example/kokoro.png' },
+      ],
+    });
+
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'これ' } });
+
+    expect(tileLabels()).toEqual([':kore:']);
+  });
+
+  it('hides star buttons until pinned editing is open', () => {
+    renderPicker({ preferredEmojis: [] });
+
+    expect(starButtons()).toHaveLength(0);
+    expect(screen.queryByRole('heading', { name: 'Pinned' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit pinned' })).toHaveAttribute('aria-pressed', 'false');
+
+    enterEdit();
+
+    expect(screen.getByRole('button', { name: 'Done' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('heading', { name: 'Pinned' })).toBeInTheDocument();
+    expect(screen.getByText('Drag here to pin')).toBeInTheDocument();
+    expect(starButtons().length).toBeGreaterThan(0);
+    expect(screen.getByRole('heading', { name: 'Pinned' }).closest('.emoji-reaction-filter-picker__body')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Pinned' }).closest('.emoji-reaction-filter-picker__pinned')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+
+    expect(starButtons()).toHaveLength(0);
+    expect(screen.queryByText('Drag here to pin')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit pinned' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('keeps pinned emoji outside the scrolling list while editing', () => {
+    renderPicker({ preferredEmojis: ['❤️', '🎉'] });
+
+    const pinned = screen.getByRole('heading', { name: 'Pinned' }).closest('section');
+
+    expect(pinned.closest('.emoji-reaction-filter-picker__body')).not.toBeNull();
+
+    enterEdit();
+
+    const fixed = screen.getByRole('heading', { name: 'Pinned' }).closest('section');
+
+    expect(fixed.closest('.emoji-reaction-filter-picker__body')).toBeNull();
+    expect(fixed.closest('.emoji-reaction-filter-picker__pinned')).not.toBeNull();
+    expect(labelsInSection('Frequently used')).toEqual(['👍', ':great:', ':achievement:@example.com']);
+  });
+
+  it('pins with the star without changing the filter draft', () => {
+    const onTogglePreferred = jest.fn();
+    const { onApply } = renderPicker({
+      appliedEmojis: ['🎉', '👍'],
+      preferredEmojis: ['🎉'],
+      onTogglePreferred,
+    });
+
+    enterEdit();
+    fireEvent.click(screen.getByRole('button', { name: 'Pin ❤️' }));
+
+    expect(onTogglePreferred).toHaveBeenCalledTimes(1);
+    expect(onTogglePreferred).toHaveBeenCalledWith(['🎉', '❤️']);
+    expect(onApply).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '🎉' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '👍' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '❤️' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('unpins with the star without changing the filter draft', () => {
+    const onTogglePreferred = jest.fn();
+
+    renderPicker({
+      appliedEmojis: ['🎉', '👍'],
+      preferredEmojis: ['🎉', '👍', '❤️'],
+      onTogglePreferred,
+    });
+
+    enterEdit();
+    fireEvent.click(screen.getByRole('button', { name: 'Unpin 👍' }));
+
+    expect(onTogglePreferred).toHaveBeenCalledTimes(1);
+    expect(onTogglePreferred).toHaveBeenCalledWith(['🎉', '❤️']);
+    expect(screen.getByRole('button', { name: '🎉' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '👍' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('drops an unpinned emoji into the pinned list once', () => {
+    const onTogglePreferred = jest.fn();
+    const restore = installLayout({
+      '🎉': rect(0, 40, 90, 80),
+      '👍': rect(100, 40, 90, 80),
+    });
+
+    renderPicker({
+      appliedEmojis: ['🎉'],
+      preferredEmojis: ['🎉', '👍'],
+      onTogglePreferred,
+    });
+    enterEdit();
+
+    const heart = screen.getByRole('button', { name: '❤️' });
+
+    pointer(heart, 'pointerDown', 10, 400);
+    pointer(heart, 'pointerMove', 40, 400);
+    pointer(heart, 'pointerMove', 95, 80);
+    pointer(heart, 'pointerUp', 95, 80);
+    fireEvent.click(heart);
+
+    expect(onTogglePreferred).toHaveBeenCalledTimes(1);
+    expect(onTogglePreferred).toHaveBeenCalledWith(['🎉', '❤️', '👍']);
+    expect(heart).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: '🎉' })).toHaveAttribute('aria-pressed', 'true');
+    restore();
+  });
+
+  it('reorders pinned emoji when one is dropped at a new index', () => {
+    const onTogglePreferred = jest.fn();
+    const restore = installLayout({
+      '🥳': rect(0, 40, 90, 80),
+      '🎉': rect(100, 40, 90, 80),
+      '👍': rect(200, 40, 90, 80),
+    });
+
+    renderPicker({
+      catalogItems: [
+        { name: '🥳', custom: false, domain: null, count: 3 },
+        { name: '🎉', custom: false, domain: null, count: 2 },
+        { name: '👍', custom: false, domain: null, count: 1 },
+      ],
+      preferredEmojis: ['🥳', '🎉', '👍'],
+      onTogglePreferred,
+    });
+    enterEdit();
+
+    const thumb = screen.getByRole('button', { name: '👍' });
+
+    pointer(thumb, 'pointerDown', 220, 80);
+    pointer(thumb, 'pointerMove', 10, 80);
+    expect(onTogglePreferred).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-drop-zone="true"]')).toHaveClass('is-drop-target');
+    expect(screen.getByRole('button', { name: '🥳' }).parentElement).toHaveClass('is-insert-before');
+    pointer(thumb, 'pointerUp', 10, 80);
+
+    expect(onTogglePreferred).toHaveBeenCalledTimes(1);
+    expect(onTogglePreferred).toHaveBeenCalledWith(['👍', '🥳', '🎉']);
+    restore();
+  });
+
+  it('does not change pinned emoji when the drop misses the zone', () => {
+    const onTogglePreferred = jest.fn();
+    const restore = installLayout({
+      '🎉': rect(0, 40, 90, 80),
+      '👍': rect(100, 40, 90, 80),
+    });
+
+    renderPicker({
+      preferredEmojis: ['🎉', '👍'],
+      onTogglePreferred,
+    });
+    enterEdit();
+
+    const heart = screen.getByRole('button', { name: '❤️' });
+
+    pointer(heart, 'pointerDown', 10, 400);
+    pointer(heart, 'pointerMove', 30, 400);
+    pointer(heart, 'pointerMove', 80, 420);
+    pointer(heart, 'pointerUp', 80, 420);
+
+    expect(onTogglePreferred).not.toHaveBeenCalled();
+    restore();
+  });
+
+  it('does not pin below the visible pinned viewport when the section is taller', () => {
+    const onTogglePreferred = jest.fn();
+    const restore = installLayout({
+      '🎉': rect(0, 40, 90, 80),
+      '👍': rect(100, 40, 90, 80),
+    }, {
+      viewport: rect(0, 0, 320, 180),
+      section: rect(0, 0, 320, 1000),
+    });
+
+    renderPicker({
+      preferredEmojis: ['🎉', '👍'],
+      onTogglePreferred,
+    });
+    enterEdit();
+
+    const heart = screen.getByRole('button', { name: '❤️' });
+
+    pointer(heart, 'pointerDown', 10, 500);
+    pointer(heart, 'pointerMove', 40, 500);
+    pointer(heart, 'pointerMove', 80, 200);
+    pointer(heart, 'pointerUp', 80, 200);
+
+    expect(onTogglePreferred).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-drop-zone="true"]')).not.toHaveClass('is-drop-target');
+    restore();
+  });
+
+  describe('long press preview', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('shows a preview only after the delay and does not toggle on release', () => {
+      renderPicker({ appliedEmojis: [] });
+      const tile = screen.getByRole('button', { name: '👍' });
+
+      pointer(tile, 'pointerDown', 8, 8);
+      act(() => {
+        jest.advanceTimersByTime(449);
+      });
+
+      expect(screen.queryByTestId('emoji-reaction-filter-preview')).not.toBeInTheDocument();
+
+      act(() => {
+        jest.advanceTimersByTime(1);
+      });
+
+      const preview = screen.getByTestId('emoji-reaction-filter-preview');
+
+      expect(preview).toHaveTextContent('👍');
+
+      pointer(tile, 'pointerUp', 8, 8);
+
+      expect(screen.queryByTestId('emoji-reaction-filter-preview')).not.toBeInTheDocument();
+
+      fireEvent.click(tile);
+
+      expect(tile).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('previews a custom emoji with its original url', () => {
+      renderPicker();
+      const tile = screen.getByRole('button', { name: ':achievement:@example.com' });
+
+      pointer(tile, 'pointerDown', 12, 12);
+      act(() => {
+        jest.advanceTimersByTime(450);
+      });
+
+      const preview = screen.getByTestId('emoji-reaction-filter-preview');
+
+      expect(preview).toHaveTextContent(':achievement:@example.com');
+      expect(preview.querySelector('img')).toHaveAttribute('data-url', 'https://cdn.example/achievement.png');
+      expect(preview.querySelector('img')).toHaveAttribute('data-domain', 'example.com');
+
+      pointer(tile, 'pointerUp', 12, 12);
+    });
+
+    it('cancels the preview when the pointer moves past the drag threshold', () => {
+      renderPicker();
+      const tile = screen.getByRole('button', { name: '👍' });
+
+      pointer(tile, 'pointerDown', 0, 0);
+      pointer(tile, 'pointerMove', 20, 0);
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
+
+      expect(screen.queryByTestId('emoji-reaction-filter-preview')).not.toBeInTheDocument();
+
+      pointer(tile, 'pointerUp', 20, 0);
+      fireEvent.click(tile);
+
+      expect(tile).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('starts a drag instead of a preview while editing', () => {
+      const onTogglePreferred = jest.fn();
+
+      renderPicker({ preferredEmojis: ['🎉'], onTogglePreferred });
+      enterEdit();
+
+      const tile = screen.getByRole('button', { name: '👍' });
+
+      pointer(tile, 'pointerDown', 0, 400);
+      pointer(tile, 'pointerMove', 24, 400);
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
+
+      expect(screen.queryByTestId('emoji-reaction-filter-preview')).not.toBeInTheDocument();
+      expect(tile.parentElement).toHaveClass('is-drag-source');
+
+      pointer(tile, 'pointerUp', 24, 400);
+
+      expect(onTogglePreferred).not.toHaveBeenCalled();
+    });
+
+    it('does not swallow an unrelated button after pointercancel', () => {
+      renderPicker();
+      enterEdit();
+
+      const tile = screen.getByRole('button', { name: '👍' });
+
+      pointer(tile, 'pointerDown', 0, 400);
+      pointer(tile, 'pointerMove', 24, 400);
+      pointer(tile, 'pointerCancel', 24, 400);
+      fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+
+      expect(screen.getByRole('button', { name: 'Edit pinned' })).toHaveAttribute('aria-pressed', 'false');
+      expect(tile).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('still leaves Done usable immediately after a drag', () => {
+      const onTogglePreferred = jest.fn();
+      const restore = installLayout({
+        '🎉': rect(0, 40, 90, 80),
+        '👍': rect(100, 40, 90, 80),
+      });
+
+      renderPicker({
+        preferredEmojis: ['🎉', '👍'],
+        onTogglePreferred,
+      });
+      enterEdit();
+
+      const heart = screen.getByRole('button', { name: '❤️' });
+
+      pointer(heart, 'pointerDown', 10, 400);
+      pointer(heart, 'pointerMove', 40, 400);
+      pointer(heart, 'pointerMove', 95, 80);
+      pointer(heart, 'pointerUp', 95, 80);
+      fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+
+      expect(onTogglePreferred).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('button', { name: 'Edit pinned' })).toHaveAttribute('aria-pressed', 'false');
+      expect(heart).toHaveAttribute('aria-pressed', 'false');
+      restore();
+    });
+
+    it('suppresses the context menu only after the preview opens', () => {
+      renderPicker();
+      const tile = screen.getByRole('button', { name: '👍' });
+
+      expect(fireEvent.contextMenu(tile)).toBe(true);
+
+      pointer(tile, 'pointerDown', 6, 6);
+      act(() => {
+        jest.advanceTimersByTime(450);
+      });
+
+      expect(fireEvent.contextMenu(tile)).toBe(false);
+
+      pointer(tile, 'pointerUp', 6, 6);
+    });
   });
 });

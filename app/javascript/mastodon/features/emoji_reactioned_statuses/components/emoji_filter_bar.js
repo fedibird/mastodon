@@ -124,13 +124,14 @@ class EmojiFilterBar extends React.PureComponent {
           <button
             type='button'
             className='emoji-reaction-filter-bar__trigger'
+            aria-label={openLabel}
             aria-expanded={expanded}
             aria-haspopup='dialog'
             onClick={this.handleOpen}
             onMouseDown={this.handleTriggerMouseDown}
           >
             <Icon id='filter' />
-            <span>{openLabel}</span>
+            <span className='emoji-reaction-filter-bar__label'>{openLabel}</span>
           </button>
         </div>
       );

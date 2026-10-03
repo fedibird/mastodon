@@ -15,12 +15,13 @@ export default class Emoji extends React.PureComponent {
     static_url: PropTypes.string,
     domain: PropTypes.string,
     onClick: PropTypes.func,
+    onLoad: PropTypes.func,
     alt: PropTypes.string,
     title: PropTypes.string,
   };
 
   render () {
-    const { emoji, hovered, url, static_url, domain, onClick } = this.props;
+    const { emoji, hovered, url, static_url, domain, onClick, onLoad } = this.props;
 
     if (unicodeMapping[emoji]) {
       const { filename, shortCode } = unicodeMapping[emoji];
@@ -35,6 +36,7 @@ export default class Emoji extends React.PureComponent {
           alt={alt}
           title={title}
           src={`${assetHost}/emoji/${filename}.svg`}
+          onLoad={onLoad}
         />
       );
     } else if (url || static_url) {
@@ -56,6 +58,7 @@ export default class Emoji extends React.PureComponent {
           data-original={url}
           data-static={static_url}
           onClick={onClick}
+          onLoad={onLoad}
         />
       );
     } else {

@@ -220,8 +220,9 @@ describe('EmojiFilterDropdownContainer', () => {
     const { actions, store } = renderFilter(undefined, ['🎉']);
 
     fireEvent.click(screen.getByRole('button', { name: 'Filter by emoji' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Pin 👍 to preferred emoji' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Pin 🥳 to preferred emoji' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit pinned' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pin 👍' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pin 🥳' }));
 
     const changes = actions.filter(action => action.type === SETTING_CHANGE);
 
@@ -237,7 +238,7 @@ describe('EmojiFilterDropdownContainer', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '🎉' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: '👍' })).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByRole('heading', { name: 'Preferred' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Pinned' })).toBeInTheDocument();
   });
 
   it('keeps the picker open when a pin click detaches its target', () => {
@@ -245,7 +246,9 @@ describe('EmojiFilterDropdownContainer', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Filter by emoji' }));
 
-    const button = screen.getByRole('button', { name: 'Pin 🎉 to preferred emoji' });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit pinned' }));
+
+    const button = screen.getByRole('button', { name: 'Pin 🎉' });
     const event = new MouseEvent('click', { bubbles: true });
 
     Object.defineProperty(event, 'target', { value: document.body });
@@ -261,7 +264,8 @@ describe('EmojiFilterDropdownContainer', () => {
     const { actions, store } = renderFilter('column-a', ['❤️']);
 
     fireEvent.click(screen.getByRole('button', { name: 'Filter by emoji' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Pin 🎉 to preferred emoji' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit pinned' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pin 🎉' }));
 
     const change = actions.find(action => action.type === SETTING_CHANGE);
 
