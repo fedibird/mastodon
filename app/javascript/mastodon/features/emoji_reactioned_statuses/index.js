@@ -2,10 +2,10 @@ import React from 'react';
 import { connect } from 'react-redux';
 import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
-import { fetchEmojiReactionedStatuses, expandEmojiReactionedStatuses } from '../../actions/emoji_reactions';
+import { fetchEmojiReactionedStatuses, expandEmojiReactionedStatuses, fetchEmojiReactionEmojiCatalog, emojiReactionedStatusesListKey, pinnedEmojiReactionColumnParams } from '../../actions/emoji_reactions';
 import Column from '../ui/components/column';
 import ColumnHeader from '../../components/column_header';
-import { addColumn, removeColumn, moveColumn } from '../../actions/columns';
+import { addColumn, removeColumn, moveColumn, changeColumnParams } from '../../actions/columns';
 import ColumnSettingsContainer from './containers/column_settings_container';
 import StatusList from '../../components/status_list';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
@@ -13,7 +13,18 @@ import ImmutablePureComponent from 'react-immutable-pure-component';
 import { debounce } from 'lodash';
 import { defaultColumnWidth } from 'mastodon/initial_state';
 import { changeSetting } from '../../actions/settings';
-import { changeColumnParams } from '../../actions/columns';
+import { List as ImmutableList, is } from 'immutable';
+
+const EMPTY_EMOJI_LIST = ImmutableList();
+const EMPTY_STATUS_LIST = ImmutableList();
+
+const emojiFilterList = value => {
+  if (!value) {
+    return EMPTY_EMOJI_LIST;
+  }
+
+  return ImmutableList.isList(value) ? value : ImmutableList(value);
+};
 
 const messages = defineMessages({
   heading: { id: 'column.emoji_reactions', defaultMessage: 'EmojiReactions' },
@@ -22,15 +33,22 @@ const messages = defineMessages({
 const mapStateToProps = (state, { columnId }) => {
   const uuid = columnId;
   const columns = state.getIn(['settings', 'columns']);
-  const index = columns.findIndex(c => c.get('uuid') === uuid);
-  const onlyMedia = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'onlyMedia']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'other', 'onlyMedia']);
-  const withoutMedia = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'other', 'withoutMedia']);
-  const columnWidth = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'columnWidth']);
+  const index = columns ? columns.findIndex(c => c.get('uuid') === uuid) : -1;
+  const pinned = columnId && index >= 0;
+  const onlyMedia = pinned ? columns.get(index).getIn(['params', 'other', 'onlyMedia']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'other', 'onlyMedia']);
+  const withoutMedia = pinned ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'other', 'withoutMedia']);
+  const columnWidth = pinned ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'columnWidth']);
+  const emojis = emojiFilterList(pinned ? columns.get(index).getIn(['params', 'emojis']) : state.getIn(['settings', 'emoji_reactioned_statuses', 'emojis']));
+  const listKey = emojiReactionedStatusesListKey(columnId);
+  const list = state.getIn(['emoji_reactioned_statuses', 'lists', listKey]);
 
   return {
-    statusIds: state.getIn(['status_lists', 'emoji_reactions', 'items']),
-    isLoading: state.getIn(['status_lists', 'emoji_reactions', 'isLoading'], true),
-    hasMore: !!state.getIn(['status_lists', 'emoji_reactions', 'next']),
+    listKey,
+    emojis,
+    statusIds: list ? list.get('items') : EMPTY_STATUS_LIST,
+    isLoading: list ? list.get('isLoading') : false,
+    hasMore: !!(list && list.get('next')),
+    stale: list ? list.get('stale') : false,
     onlyMedia,
     withoutMedia,
     columnWidth: columnWidth ?? defaultColumnWidth,
@@ -52,34 +70,47 @@ class EmojiReactions extends ImmutablePureComponent {
     withoutMedia: PropTypes.bool,
     hasMore: PropTypes.bool,
     isLoading: PropTypes.bool,
+    stale: PropTypes.bool,
+    listKey: PropTypes.string,
+    emojis: ImmutablePropTypes.list,
   };
 
   static defaultProps = {
     onlyMedia: false,
     withoutMedia: false,
+    stale: false,
   };
 
   componentDidMount () {
-    const { dispatch, onlyMedia, withoutMedia } = this.props;
+    const { dispatch, listKey, emojis, onlyMedia, withoutMedia } = this.props;
 
-    dispatch(fetchEmojiReactionedStatuses({ onlyMedia, withoutMedia }));
+    dispatch(fetchEmojiReactionEmojiCatalog());
+    dispatch(fetchEmojiReactionedStatuses({ listKey, emojis, onlyMedia, withoutMedia }));
   }
 
   componentDidUpdate (prevProps) {
-    const { dispatch, onlyMedia, withoutMedia } = this.props;
+    const { dispatch, listKey, emojis, onlyMedia, withoutMedia, stale, isLoading } = this.props;
+    const filtersChanged = prevProps.listKey !== listKey
+      || prevProps.onlyMedia !== onlyMedia
+      || prevProps.withoutMedia !== withoutMedia
+      || !is(prevProps.emojis, emojis);
 
-    if (prevProps.onlyMedia !== onlyMedia || prevProps.withoutMedia !== withoutMedia) {
-      dispatch(fetchEmojiReactionedStatuses({ onlyMedia, withoutMedia }));
+    if (filtersChanged || (stale && !isLoading)) {
+      dispatch(fetchEmojiReactionedStatuses({ listKey, emojis, onlyMedia, withoutMedia }));
+    }
+
+    if (stale && !isLoading) {
+      dispatch(fetchEmojiReactionEmojiCatalog());
     }
   }
 
   handlePin = () => {
-    const { columnId, dispatch, onlyMedia, withoutMedia } = this.props;
+    const { columnId, dispatch, emojis, onlyMedia, withoutMedia } = this.props;
 
     if (columnId) {
       dispatch(removeColumn(columnId));
     } else {
-      dispatch(addColumn('EMOJI_REACTIONS', { other: { onlyMedia, withoutMedia } }));
+      dispatch(addColumn('EMOJI_REACTIONS', pinnedEmojiReactionColumnParams({ emojis, onlyMedia, withoutMedia })));
     }
   }
 
@@ -97,7 +128,7 @@ class EmojiReactions extends ImmutablePureComponent {
   }
 
   handleLoadMore = debounce(() => {
-    this.props.dispatch(expandEmojiReactionedStatuses());
+    this.props.dispatch(expandEmojiReactionedStatuses(this.props.listKey));
   }, 300, { leading: true })
 
   handleWidthChange = (value) => {

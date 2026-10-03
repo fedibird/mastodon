@@ -10,109 +10,229 @@ export const EMOJI_REACTIONED_STATUSES_EXPAND_REQUEST = 'EMOJI_REACTIONED_STATUS
 export const EMOJI_REACTIONED_STATUSES_EXPAND_SUCCESS = 'EMOJI_REACTIONED_STATUSES_EXPAND_SUCCESS';
 export const EMOJI_REACTIONED_STATUSES_EXPAND_FAIL    = 'EMOJI_REACTIONED_STATUSES_EXPAND_FAIL';
 
-export function fetchEmojiReactionedStatuses({ onlyMedia, withoutMedia } = {}) {
+export const EMOJI_REACTION_EMOJIS_FETCH_REQUEST = 'EMOJI_REACTION_EMOJIS_FETCH_REQUEST';
+export const EMOJI_REACTION_EMOJIS_FETCH_SUCCESS = 'EMOJI_REACTION_EMOJIS_FETCH_SUCCESS';
+export const EMOJI_REACTION_EMOJIS_FETCH_FAIL    = 'EMOJI_REACTION_EMOJIS_FETCH_FAIL';
+
+export const DEFAULT_EMOJI_REACTIONED_STATUSES_LIST_KEY = 'default';
+
+export function emojiReactionedStatusesListKey(columnId) {
+  return columnId || DEFAULT_EMOJI_REACTIONED_STATUSES_LIST_KEY;
+}
+
+export function emojiReactionFilterValues(emojis) {
+  if (!emojis) {
+    return [];
+  }
+
+  if (typeof emojis.toArray === 'function') {
+    return emojis.toArray();
+  }
+
+  return Array.from(emojis);
+}
+
+export function getEmojiReactionQueryKey({ emojis = [], onlyMedia = false, withoutMedia = false } = {}) {
+  return JSON.stringify({
+    emojis: Array.from(new Set(emojiReactionFilterValues(emojis))).sort(),
+    onlyMedia: !!onlyMedia,
+    withoutMedia: !!withoutMedia,
+  });
+}
+
+export function pinnedEmojiReactionColumnParams({ emojis, onlyMedia, withoutMedia } = {}) {
+  return {
+    emojis: emojiReactionFilterValues(emojis),
+    other: {
+      onlyMedia: !!onlyMedia,
+      withoutMedia: !!withoutMedia,
+    },
+  };
+}
+
+function emojiReactionRequestParams(emojis, onlyMedia, withoutMedia) {
+  const params = { compact: true };
+
+  if (emojis.length) {
+    params.emojis = emojis;
+  }
+
+  if (onlyMedia) {
+    params.only_media = true;
+  }
+
+  if (withoutMedia) {
+    params.without_media = true;
+  }
+
+  return params;
+}
+
+function importEmojiReactionedStatuses(dispatch, data) {
+  if (data && typeof data === 'object' && 'statuses' in data && 'accounts' in data) {
+    const { statuses, referenced_statuses, accounts, relationships } = data;
+    dispatch(importFetchedAccounts(accounts));
+    dispatch(importFetchedStatuses(statuses.concat(referenced_statuses || [])));
+    dispatch(fetchRelationshipsSuccess(relationships));
+    return statuses;
+  }
+
+  const statuses = Array.isArray(data) ? data : [];
+  dispatch(importFetchedStatuses(statuses));
+  dispatch(fetchRelationshipsFromStatuses(statuses));
+  return statuses;
+}
+
+export function fetchEmojiReactionedStatuses({
+  listKey = DEFAULT_EMOJI_REACTIONED_STATUSES_LIST_KEY,
+  emojis = [],
+  onlyMedia = false,
+  withoutMedia = false,
+} = {}) {
   return (dispatch, getState) => {
-    if (getState().getIn(['status_lists', 'emoji_reactions', 'isLoading'])) {
-      return;
+    const emojiValues = emojiReactionFilterValues(emojis);
+    const queryKey = getEmojiReactionQueryKey({ emojis: emojiValues, onlyMedia, withoutMedia });
+    const current = getState().getIn(['emoji_reactioned_statuses', 'lists', listKey]);
+
+    if (current && current.get('isLoading') && current.get('queryKey') === queryKey) {
+      return Promise.resolve();
     }
 
-    const params = ['compact=true', onlyMedia ? 'only_media=true' : null, withoutMedia ? 'without_media=true' : null];
-    const param_string = params.filter(e => !!e).join('&');
+    const filters = {
+      emojis: emojiValues,
+      onlyMedia: !!onlyMedia,
+      withoutMedia: !!withoutMedia,
+    };
 
-    dispatch(fetchEmojiReactionedStatusesRequest());
+    dispatch(fetchEmojiReactionedStatusesRequest(listKey, queryKey, filters));
 
-    api(getState).get(`/api/v1/emoji_reactions?${param_string}`).then(response => {
+    return api(getState).get('/api/v1/emoji_reactions', {
+      params: emojiReactionRequestParams(emojiValues, filters.onlyMedia, filters.withoutMedia),
+    }).then(response => {
       const next = getLinks(response).refs.find(link => link.rel === 'next');
-      if (response.data) {
-        if ('statuses' in response.data && 'accounts' in response.data) {
-          const { statuses, referenced_statuses, accounts, relationships } = response.data;
-          dispatch(importFetchedAccounts(accounts));
-          dispatch(importFetchedStatuses(statuses.concat(referenced_statuses)));
-          dispatch(fetchRelationshipsSuccess(relationships));
-          dispatch(fetchEmojiReactionedStatusesSuccess(statuses, next ? next.uri : null));
-        } else {
-          const statuses = response.data;
-          dispatch(importFetchedStatuses(statuses));
-          dispatch(fetchRelationshipsFromStatuses(statuses));
-          dispatch(fetchEmojiReactionedStatusesSuccess(statuses, next ? next.uri : null));
-        }
-      }
+      const statuses = importEmojiReactionedStatuses(dispatch, response.data);
+      dispatch(fetchEmojiReactionedStatusesSuccess(listKey, queryKey, statuses, next ? next.uri : null));
     }).catch(error => {
-      dispatch(fetchEmojiReactionedStatusesFail(error));
+      dispatch(fetchEmojiReactionedStatusesFail(listKey, queryKey, error));
     });
   };
-};
+}
 
-export function fetchEmojiReactionedStatusesRequest() {
+export function fetchEmojiReactionedStatusesRequest(listKey, queryKey, filters) {
   return {
     type: EMOJI_REACTIONED_STATUSES_FETCH_REQUEST,
+    listKey,
+    queryKey,
+    filters,
   };
-};
+}
 
-export function fetchEmojiReactionedStatusesSuccess(statuses, next) {
+export function fetchEmojiReactionedStatusesSuccess(listKey, queryKey, statuses, next) {
   return {
     type: EMOJI_REACTIONED_STATUSES_FETCH_SUCCESS,
+    listKey,
+    queryKey,
     statuses,
     next,
   };
-};
+}
 
-export function fetchEmojiReactionedStatusesFail(error) {
+export function fetchEmojiReactionedStatusesFail(listKey, queryKey, error) {
   return {
     type: EMOJI_REACTIONED_STATUSES_FETCH_FAIL,
+    listKey,
+    queryKey,
     error,
   };
-};
+}
 
-export function expandEmojiReactionedStatuses() {
+export function expandEmojiReactionedStatuses(listKey = DEFAULT_EMOJI_REACTIONED_STATUSES_LIST_KEY) {
   return (dispatch, getState) => {
-    const url = getState().getIn(['status_lists', 'emoji_reactions', 'next'], null);
+    const list = getState().getIn(['emoji_reactioned_statuses', 'lists', listKey]);
+    const url = list ? list.get('next') : null;
+    const queryKey = list ? list.get('queryKey') : null;
 
-    if (url === null || getState().getIn(['status_lists', 'emoji_reactions', 'isLoading'])) {
-      return;
+    if (!list || url === null || (list.get('isLoading') && list.get('queryKey') === queryKey)) {
+      return Promise.resolve();
     }
 
-    dispatch(expandEmojiReactionedStatusesRequest());
+    dispatch(expandEmojiReactionedStatusesRequest(listKey, queryKey));
 
-    api(getState).get(url).then(response => {
+    return api(getState).get(url).then(response => {
       const next = getLinks(response).refs.find(link => link.rel === 'next');
-      if (response.data) {
-        if ('statuses' in response.data && 'accounts' in response.data) {
-          const { statuses, referenced_statuses, accounts, relationships } = response.data;
-          dispatch(importFetchedAccounts(accounts));
-          dispatch(importFetchedStatuses(statuses.concat(referenced_statuses)));
-          dispatch(fetchRelationshipsSuccess(relationships));
-          dispatch(expandEmojiReactionedStatusesSuccess(statuses, next ? next.uri : null));
-        } else {
-          const statuses = response.data;
-          dispatch(importFetchedStatuses(statuses));
-          dispatch(fetchRelationshipsFromStatuses(statuses));
-          dispatch(expandEmojiReactionedStatusesSuccess(statuses, next ? next.uri : null));
-        }
-      }
+      const statuses = importEmojiReactionedStatuses(dispatch, response.data);
+      dispatch(expandEmojiReactionedStatusesSuccess(listKey, queryKey, statuses, next ? next.uri : null));
     }).catch(error => {
-      dispatch(expandEmojiReactionedStatusesFail(error));
+      dispatch(expandEmojiReactionedStatusesFail(listKey, queryKey, error));
     });
   };
-};
+}
 
-export function expandEmojiReactionedStatusesRequest() {
+export function expandEmojiReactionedStatusesRequest(listKey, queryKey) {
   return {
     type: EMOJI_REACTIONED_STATUSES_EXPAND_REQUEST,
+    listKey,
+    queryKey,
   };
-};
+}
 
-export function expandEmojiReactionedStatusesSuccess(statuses, next) {
+export function expandEmojiReactionedStatusesSuccess(listKey, queryKey, statuses, next) {
   return {
     type: EMOJI_REACTIONED_STATUSES_EXPAND_SUCCESS,
+    listKey,
+    queryKey,
     statuses,
     next,
   };
-};
+}
 
-export function expandEmojiReactionedStatusesFail(error) {
+export function expandEmojiReactionedStatusesFail(listKey, queryKey, error) {
   return {
     type: EMOJI_REACTIONED_STATUSES_EXPAND_FAIL,
+    listKey,
+    queryKey,
     error,
   };
-};
+}
+
+export function fetchEmojiReactionEmojiCatalog({ force = false } = {}) {
+  return (dispatch, getState) => {
+    const catalog = getState().getIn(['emoji_reactioned_statuses', 'catalog']);
+
+    if (catalog && catalog.get('isLoading')) {
+      return Promise.resolve();
+    }
+
+    if (catalog && catalog.get('loaded') && !catalog.get('stale') && !force) {
+      return Promise.resolve();
+    }
+
+    dispatch(fetchEmojiReactionEmojiCatalogRequest());
+
+    return api(getState).get('/api/v1/emoji_reactions/emojis').then(response => {
+      dispatch(fetchEmojiReactionEmojiCatalogSuccess(response.data || []));
+    }).catch(error => {
+      dispatch(fetchEmojiReactionEmojiCatalogFail(error));
+    });
+  };
+}
+
+export function fetchEmojiReactionEmojiCatalogRequest() {
+  return {
+    type: EMOJI_REACTION_EMOJIS_FETCH_REQUEST,
+  };
+}
+
+export function fetchEmojiReactionEmojiCatalogSuccess(emojis) {
+  return {
+    type: EMOJI_REACTION_EMOJIS_FETCH_SUCCESS,
+    emojis,
+  };
+}
+
+export function fetchEmojiReactionEmojiCatalogFail(error) {
+  return {
+    type: EMOJI_REACTION_EMOJIS_FETCH_FAIL,
+    error,
+  };
+}

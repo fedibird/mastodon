@@ -15,14 +15,6 @@ import {
   BOOKMARKED_STATUSES_EXPAND_FAIL,
 } from '../actions/bookmarks';
 import {
-  EMOJI_REACTIONED_STATUSES_FETCH_REQUEST,
-  EMOJI_REACTIONED_STATUSES_FETCH_SUCCESS,
-  EMOJI_REACTIONED_STATUSES_FETCH_FAIL,
-  EMOJI_REACTIONED_STATUSES_EXPAND_REQUEST,
-  EMOJI_REACTIONED_STATUSES_EXPAND_SUCCESS,
-  EMOJI_REACTIONED_STATUSES_EXPAND_FAIL,
-} from '../actions/emoji_reactions';
-import {
   PINNED_STATUSES_FETCH_SUCCESS,
 } from '../actions/pin_statuses';
 import {
@@ -43,7 +35,6 @@ import {
   UNFAVOURITE_SUCCESS,
   BOOKMARK_SUCCESS,
   UNBOOKMARK_SUCCESS,
-  EMOJI_REACTION_SUCCESS,
   PIN_SUCCESS,
   UNPIN_SUCCESS,
 } from '../actions/interactions';
@@ -55,11 +46,6 @@ const initialState = ImmutableMap({
     items: ImmutableList(),
   }),
   bookmarks: ImmutableMap({
-    next: null,
-    loaded: false,
-    items: ImmutableList(),
-  }),
-  emoji_reactions: ImmutableMap({
     next: null,
     loaded: false,
     items: ImmutableList(),
@@ -135,16 +121,6 @@ export default function statusLists(state = initialState, action) {
     return normalizeList(state, 'bookmarks', action.statuses, action.next);
   case BOOKMARKED_STATUSES_EXPAND_SUCCESS:
     return appendToList(state, 'bookmarks', action.statuses, action.next);
-  case EMOJI_REACTIONED_STATUSES_FETCH_REQUEST:
-  case EMOJI_REACTIONED_STATUSES_EXPAND_REQUEST:
-    return state.setIn(['emoji_reactions', 'isLoading'], true);
-  case EMOJI_REACTIONED_STATUSES_FETCH_FAIL:
-  case EMOJI_REACTIONED_STATUSES_EXPAND_FAIL:
-    return state.setIn(['emoji_reactions', 'isLoading'], false);
-  case EMOJI_REACTIONED_STATUSES_FETCH_SUCCESS:
-    return normalizeList(state, 'emoji_reactions', action.statuses, action.next);
-  case EMOJI_REACTIONED_STATUSES_EXPAND_SUCCESS:
-    return appendToList(state, 'emoji_reactions', action.statuses, action.next);
   case TRENDS_STATUSES_FETCH_REQUEST:
   case TRENDS_STATUSES_EXPAND_REQUEST:
     return state.setIn(['trending', 'isLoading'], true);
@@ -163,8 +139,6 @@ export default function statusLists(state = initialState, action) {
     return prependOneToList(state, 'bookmarks', action.status);
   case UNBOOKMARK_SUCCESS:
     return removeOneFromList(state, 'bookmarks', action.status);
-  case EMOJI_REACTION_SUCCESS:
-    return prependOneToList(state, 'emoji_reactions', action.status);
   case PINNED_STATUSES_FETCH_SUCCESS:
     return normalizeList(state, 'pins', action.statuses, action.next);
   case PIN_SUCCESS:
