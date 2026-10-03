@@ -5,6 +5,7 @@ jest.mock('react-intl', () => ({
 import { fromJS, List as ImmutableList } from 'immutable';
 import settings from '../settings';
 import { COLUMN_ADD, COLUMN_PARAMS_CHANGE, COLUMN_REMOVE } from '../../actions/columns';
+import { SETTING_CHANGE } from '../../actions/settings';
 import { STORE_HYDRATE } from '../../actions/store';
 import { pinnedEmojiReactionColumnParams } from '../../actions/emoji_reactions';
 
@@ -69,5 +70,26 @@ describe('emoji reactioned status settings', () => {
 
     state = settings(state, { type: COLUMN_REMOVE, uuid: first.get('uuid') });
     expect(state.get('columns').filter(column => column.get('id') === 'EMOJI_REACTIONS').size).toBe(1);
+  });
+
+  it('stores a default-page emoji filter without changing a pinned column', () => {
+    let state = settings(undefined, { type: '@@INIT' }).set('columns', ImmutableList());
+
+    state = settings(state, {
+      type: COLUMN_ADD,
+      id: 'EMOJI_REACTIONS',
+      params: pinnedEmojiReactionColumnParams({ emojis: ['👍'] }),
+    });
+
+    const uuid = state.get('columns').find(column => column.get('id') === 'EMOJI_REACTIONS').get('uuid');
+
+    state = settings(state, {
+      type: SETTING_CHANGE,
+      path: ['emoji_reactioned_statuses', 'emojis'],
+      value: ImmutableList(['🎉', '👏']),
+    });
+
+    expect(state.getIn(['emoji_reactioned_statuses', 'emojis']).toJS()).toEqual(['🎉', '👏']);
+    expect(state.get('columns').find(column => column.get('uuid') === uuid).getIn(['params', 'emojis']).toJS()).toEqual(['👍']);
   });
 });
