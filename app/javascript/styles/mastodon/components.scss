@@ -9774,9 +9774,7 @@ noscript {
 
   &__group--pinned.is-drop-target {
     border-radius: 6px;
-    outline: 2px dashed $highlight-text-color;
-    outline-offset: 2px;
-    box-shadow: inset 0 0 0 2px $primary-text-color;
+    background: rgba($primary-text-color, 0.04);
   }
 
   &__drop-hint {
@@ -9796,9 +9794,7 @@ noscript {
   }
 
   &__group--pinned.is-drop-target &__drop-hint {
-    border-style: solid;
-    outline: 3px solid $primary-text-color;
-    outline-offset: 2px;
+    border-color: $primary-text-color;
   }
 
   &__section-heading {
@@ -9821,22 +9817,18 @@ noscript {
     min-width: 0;
 
     &.is-drag-source {
-      opacity: 0.4;
+      position: absolute;
+      width: 0;
+      height: 0;
+      overflow: visible;
+      pointer-events: none;
     }
+  }
 
-    &.is-insert-before,
-    &.is-insert-after {
-      outline: 2px dashed $primary-text-color;
-      outline-offset: 1px;
-    }
-
-    &.is-insert-before {
-      box-shadow: inset 4px 0 0 $highlight-text-color;
-    }
-
-    &.is-insert-after {
-      box-shadow: inset -4px 0 0 $highlight-text-color;
-    }
+  &__placeholder {
+    min-height: 72px;
+    border-radius: 6px;
+    background: transparent;
   }
 
   &__preferred-toggle {
@@ -10008,6 +10000,23 @@ noscript {
   &.is-editing-pinned &__tile {
     padding-top: 18px;
     touch-action: none;
+    cursor: grab;
+  }
+
+  &.is-dragging,
+  &.is-dragging &__tile {
+    cursor: grabbing;
+  }
+
+  &__tile.is-floating {
+    position: fixed;
+    z-index: 10060;
+    margin: 0;
+    opacity: 0.96;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.38);
+    cursor: grabbing;
+    pointer-events: none;
+    transform: scale(1.04);
   }
 }
 
