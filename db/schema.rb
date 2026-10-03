@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_09_29_150000) do
+ActiveRecord::Schema.define(version: 2026_10_02_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -525,6 +525,21 @@ ActiveRecord::Schema.define(version: 2026_09_29_150000) do
     t.index ["custom_emoji_id"], name: "index_emoji_reactions_on_custom_emoji_id"
     t.index ["status_id"], name: "index_emoji_reactions_on_status_id"
   end
+
+  # Rails 6.1 cannot represent PostgreSQL INCLUDE indexes.
+  # Do not replace these statements with the 3-column t.index definitions emitted by db:schema:dump.
+  # The third column is INCLUDE payload, not a btree key.
+  execute <<~SQL
+    CREATE INDEX IF NOT EXISTS index_emoji_reactions_on_account_status_include_id
+    ON emoji_reactions (account_id, status_id)
+    INCLUDE (id)
+  SQL
+
+  execute <<~SQL
+    CREATE INDEX IF NOT EXISTS index_emoji_reactions_on_account_id_and_id_include_status_id
+    ON emoji_reactions (account_id, id)
+    INCLUDE (status_id)
+  SQL
 
   create_table "encrypted_messages", id: :bigint, default: -> { "timestamp_id('encrypted_messages'::text)" }, force: :cascade do |t|
     t.bigint "device_id"
