@@ -132,10 +132,10 @@ const installPointerEvent = () => {
   window.PointerEvent = PointerEventPolyfill;
 };
 
-const pointer = (node, type, x, y) => {
+const pointer = (node, type, x, y, pointerType = 'mouse') => {
   fireEvent[type](node, {
     pointerId: 1,
-    pointerType: 'mouse',
+    pointerType,
     clientX: x,
     clientY: y,
     button: 0,
@@ -642,6 +642,22 @@ describe('EmojiReactionFilterPicker', () => {
     clickTile(tile, 1);
     clickTile(tile, 2);
 
+    expect(tile).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('does not apply a filter when a touch double-tap selects an emoji', () => {
+    const { onApply } = renderPicker({ appliedEmojis: [] });
+    const tile = screen.getByRole('button', { name: '🎉' });
+
+    pointer(tile, 'pointerDown', 10, 10, 'touch');
+    pointer(tile, 'pointerUp', 10, 10, 'touch');
+    clickTile(tile, 1);
+    pointer(tile, 'pointerDown', 10, 10, 'touch');
+    pointer(tile, 'pointerUp', 10, 10, 'touch');
+    clickTile(tile, 2);
+    fireEvent.doubleClick(tile);
+
+    expect(onApply).not.toHaveBeenCalled();
     expect(tile).toHaveAttribute('aria-pressed', 'true');
   });
 
