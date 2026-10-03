@@ -64,6 +64,9 @@ class FeaturedTag < ApplicationRecord
     self.last_status_at = matching_statuses.pick(:created_at)
   end
 
+  # Keep tag membership as a correlated scalar subquery.
+  # Joining statuses_tags lets PostgreSQL start from the tag and probe every
+  # matching status, which is much slower for featured-tag recounts.
   def matching_statuses
     account.statuses
            .where(visibility: %i(public unlisted))
