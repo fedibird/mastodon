@@ -55,6 +55,7 @@ class EmojiReactionFilterModal extends React.PureComponent {
           onApply={this.handleApply}
           onClose={onClose}
           onTogglePreferred={onTogglePreferred}
+          autoFocus={false}
         />
       </div>
     );
