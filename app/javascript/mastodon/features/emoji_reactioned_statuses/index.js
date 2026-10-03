@@ -7,6 +7,7 @@ import Column from '../ui/components/column';
 import ColumnHeader from '../../components/column_header';
 import { addColumn, removeColumn, moveColumn, changeColumnParams } from '../../actions/columns';
 import ColumnSettingsContainer from './containers/column_settings_container';
+import EmojiFilterDropdownContainer from './containers/emoji_filter_dropdown_container';
 import StatusList from '../../components/status_list';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import ImmutablePureComponent from 'react-immutable-pure-component';
@@ -170,6 +171,8 @@ class EmojiReactions extends ImmutablePureComponent {
         >
           <ColumnSettingsContainer columnId={columnId} />
         </ColumnHeader>
+
+        <EmojiFilterDropdownContainer columnId={columnId} />
 
         <StatusList
           trackScroll={!pinned}
