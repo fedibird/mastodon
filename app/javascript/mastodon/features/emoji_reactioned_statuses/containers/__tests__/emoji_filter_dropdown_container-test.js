@@ -176,6 +176,29 @@ describe('EmojiFilterDropdownContainer', () => {
     expect(store.getState().getIn(['settings', 'columns', 1, 'params', 'emojis']).toJS()).toEqual(['🎉', '🥳']);
   });
 
+  it('closes the open desktop picker when a filter chip is removed', () => {
+    const { actions } = renderFilter(undefined, ['🎉', '👍']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by emoji' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '🎉' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '👍' })).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove 🎉 from emoji filter' }));
+
+    const change = actions.find(action => action.type === SETTING_CHANGE);
+
+    expect(change.path).toEqual(['emoji_reactioned_statuses', 'emojis']);
+    expect(change.value.toJS()).toEqual(['👍']);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by emoji' }));
+
+    expect(screen.getByRole('button', { name: '🎉' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: '👍' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+  });
+
   it('applies a pinned column filter without changing another column', () => {
     const { actions, store } = renderFilter('column-a', ['🎉']);
 

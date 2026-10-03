@@ -133,6 +133,14 @@ export default class EmojiFilterDropdown extends React.PureComponent {
     this.handleClose();
   };
 
+  handleBarChange = (next) => {
+    this.props.onChange(next);
+
+    if (this.isDropdownOpen() || this.isModalOpen()) {
+      this.handleClose();
+    }
+  };
+
   renderPicker = ({ props }) => {
     const className = ['emoji-reaction-filter-popover', props.className].filter(Boolean).join(' ');
 
@@ -163,7 +171,7 @@ export default class EmojiFilterDropdown extends React.PureComponent {
           catalogItems={this.props.catalogItems}
           expanded={open || this.isModalOpen()}
           onOpen={this.handleOpen}
-          onChange={this.props.onChange}
+          onChange={this.handleBarChange}
           onTriggerMouseDown={this.handleTriggerMouseDown}
         />
         {open && (
