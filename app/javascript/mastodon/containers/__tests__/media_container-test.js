@@ -34,7 +34,16 @@ jest.mock('mastodon/features/status/components/card', () => () => null);
 jest.mock('mastodon/components/poll', () => () => null);
 jest.mock('mastodon/components/hashtag', () => () => null);
 jest.mock('mastodon/features/audio', () => () => null);
-jest.mock('mastodon/features/ui/components/media_modal', () => () => <div>Media modal</div>);
+jest.mock('mastodon/features/ui/components/media_modal', () => {
+  const React = require('react');
+  const Modal = () => <div>Media modal</div>;
+
+  return {
+    __esModule: true,
+    default: Modal,
+    PublicMediaModal: Modal,
+  };
+});
 jest.mock('mastodon/components/status_history_revision', () => ({ revision }) => <div>History revision {revision.get('content')}</div>);
 jest.mock('mastodon/components/public_status_history', () => {
   const React = require('react');

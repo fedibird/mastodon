@@ -9,7 +9,7 @@ import MediaGallery from 'mastodon/components/media_gallery';
 import Poll from 'mastodon/components/poll';
 import Hashtag from 'mastodon/components/hashtag';
 import ModalRoot from 'mastodon/components/modal_root';
-import MediaModal from 'mastodon/features/ui/components/media_modal';
+import { PublicMediaModal } from 'mastodon/features/ui/components/media_modal';
 import Video from 'mastodon/features/video';
 import Card from 'mastodon/features/status/components/card';
 import Audio from 'mastodon/features/audio';
@@ -126,7 +126,7 @@ export default class MediaContainer extends PureComponent {
 
           <ModalRoot backgroundColor={this.state.backgroundColor} onClose={this.handleCloseMedia}>
             {this.state.media ? (
-              <MediaModal
+              <PublicMediaModal
                 media={this.state.media}
                 index={this.state.index || 0}
                 currentTime={this.state.options?.startTime}
