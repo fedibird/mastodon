@@ -15,6 +15,10 @@ class AddEmojiReactionsCacheDirtyToStatusStats < ActiveRecord::Migration[6.1]
   # A failed CREATE INDEX CONCURRENTLY can leave an INVALID index. Rails 6.1
   # index_exists? ignores pg_index.indisvalid, so that leftover must be dropped
   # before the index is created again.
+  #
+  # lock_timeout = 5s applies only to the short ACCESS EXCLUSIVE column change.
+  # DROP/CREATE INDEX CONCURRENTLY wait for conflicting transactions instead of
+  # blocking ordinary reads and writes, so they use lock_timeout = 0.
   def up
     safety_assured do
       begin
@@ -27,6 +31,9 @@ class AddEmojiReactionsCacheDirtyToStatusStats < ActiveRecord::Migration[6.1]
                      null: false,
                      default: false
         end
+
+        # Concurrent index DDL is allowed to wait for existing transactions.
+        execute 'SET lock_timeout TO 0'
 
         if index_exists?(:status_stats, :status_id, name: INDEX_NAME) && !index_valid?(INDEX_NAME)
           remove_concurrent_index_by_name :status_stats, INDEX_NAME
@@ -48,11 +55,13 @@ class AddEmojiReactionsCacheDirtyToStatusStats < ActiveRecord::Migration[6.1]
   def down
     safety_assured do
       begin
-        execute "SET lock_timeout TO '5s'"
+        execute 'SET lock_timeout TO 0'
 
         if index_exists?(:status_stats, :status_id, name: INDEX_NAME)
           remove_concurrent_index_by_name :status_stats, INDEX_NAME
         end
+
+        execute "SET lock_timeout TO '5s'"
 
         remove_column :status_stats, :emoji_reactions_cache_dirty if column_exists?(:status_stats, :emoji_reactions_cache_dirty)
       ensure
