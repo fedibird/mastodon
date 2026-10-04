@@ -10088,18 +10088,21 @@ noscript {
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 440px;
+  // Insets are physical. Inline-start would swap them in RTL.
+  --left-safe-margin: #{"max(12px, env(safe-area-inset-left, 0px))"};
+  --right-safe-margin: #{"max(12px, env(safe-area-inset-right, 0px))"};
+  // 420px is the picker. Safe margins sit outside that, inside this border box.
+  max-width: calc(420px + var(--left-safe-margin) + var(--right-safe-margin));
   min-height: 0;
   max-height: 100vh;
   max-height: 100dvh;
   margin: 0;
   // The card sits in this padding. Clicks on the inset pass through to the backdrop.
   pointer-events: none;
-  // Insets are physical. Inline-start would swap them in RTL.
   padding-block-start: #{"max(10px, env(safe-area-inset-top, 0px))"};
   padding-block-end: #{"max(10px, env(safe-area-inset-bottom, 0px))"};
-  padding-left: #{"max(12px, env(safe-area-inset-left, 0px))"};
-  padding-right: #{"max(12px, env(safe-area-inset-right, 0px))"};
+  padding-left: var(--left-safe-margin);
+  padding-right: var(--right-safe-margin);
 
   .emoji-reaction-filter-picker {
     box-sizing: border-box;
