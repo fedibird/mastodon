@@ -93,6 +93,14 @@ RSpec.describe FeaturedTag, type: :model do
       expect(featured_tag.last_status_at).to eq(higher_id.reload.created_at)
     end
 
+    it 'keeps a precomputed zero count and still records last_status_at' do
+      status = tag_status
+      featured_tag = FeaturedTag.create!(account: account, name: tag.name, precomputed_statuses_count: 0)
+
+      expect(featured_tag.statuses_count).to eq(0)
+      expect(featured_tag.last_status_at).to eq(status.reload.created_at)
+    end
+
     it 'probes tag membership with a correlated scalar subquery' do
       sql = create_featured_tag.send(:matching_statuses).to_sql
 
