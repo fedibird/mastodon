@@ -3,6 +3,7 @@ jest.mock('react-intl', () => ({
 }));
 
 import { fromJS, Map as ImmutableMap } from 'immutable';
+import unicodeMapping from '../../emoji/emoji_unicode_mapping_light';
 import {
   emojiReactionCatalogMatches,
   emojiReactionFilterLabel,
@@ -144,6 +145,113 @@ describe('emoji reaction filter helpers', () => {
     expect(filterEmojiReactionCatalog([man, party, laugh], 'かお').map(emojiReactionFilterValue)).toEqual(['👨', '😂']);
     expect(emojiReactionCatalogMatches(party, 'ばくしょう')).toBe(false);
     expect(emojiReactionCatalogMatches({ name: 'kore', custom: true, ruby: 'これ' }, 'くらっかー')).toBe(false);
+  });
+
+  it('matches unicode emoji by Emoji Mart shortcodes and English keywords without reordering', () => {
+    const party = { name: '🎉', custom: false };
+    const face = { name: '🥳', custom: false };
+    const heart = { name: '❤️', custom: false };
+    const thumb = { name: '👍', custom: false };
+    const lightThumb = { name: '👍🏻', custom: false };
+    const down = { name: '👎', custom: false };
+    const doctor = { name: '👨\u200D⚕️', custom: false };
+    const man = { name: '👨', custom: false };
+    const staff = { name: '⚕️', custom: false };
+    const keycap = { name: '#⃣', custom: false };
+    const holding = { name: '🧑🏻\u200D🤝\u200D🧑🏻', custom: false };
+    const customParty = { name: 'party', custom: true };
+    const customHeart = { name: 'heart', custom: true, domain: 'example.com' };
+
+    expect(emojiReactionCatalogMatches(party, 'tada')).toBe(true);
+    expect(emojiReactionCatalogMatches(party, 'TADA')).toBe(true);
+    expect(emojiReactionCatalogMatches(party, 'party')).toBe(true);
+    expect(emojiReactionCatalogMatches(party, 'celebration')).toBe(true);
+    expect(emojiReactionCatalogMatches(party, 'party popper')).toBe(true);
+    expect(emojiReactionCatalogMatches(party, 'party_popper')).toBe(true);
+    expect(emojiReactionCatalogMatches(party, 'party-popper')).toBe(true);
+    expect(emojiReactionCatalogMatches(party, 'party,popper')).toBe(true);
+    expect(emojiReactionCatalogMatches(party, 'party!')).toBe(false);
+    expect(emojiReactionCatalogMatches(party, 'a')).toBe(false);
+    expect(emojiReactionCatalogMatches({ name: '🅰️', custom: false }, 'a')).toBe(true);
+    expect(emojiReactionCatalogMatches(face, 'party popper')).toBe(false);
+    expect(emojiReactionFilterValue(party)).toBe('🎉');
+
+    expect(emojiReactionCatalogMatches(heart, 'heart')).toBe(true);
+    expect(emojiReactionCatalogMatches(heart, 'red heart')).toBe(true);
+    expect(emojiReactionCatalogMatches(heart, 'red_heart')).toBe(true);
+    expect(emojiReactionCatalogMatches(heart, 'red-heart')).toBe(true);
+    expect(emojiReactionCatalogMatches(heart, 'love')).toBe(true);
+    expect(emojiReactionFilterValue(heart)).toBe('❤️');
+
+    expect(emojiReactionCatalogMatches(thumb, '+1')).toBe(true);
+    expect(emojiReactionCatalogMatches(thumb, 'thumbsup')).toBe(true);
+    expect(emojiReactionCatalogMatches(thumb, 'thumb')).toBe(true);
+    expect(emojiReactionCatalogMatches(thumb, 'good')).toBe(true);
+    expect(emojiReactionCatalogMatches(thumb, 'thumbs up')).toBe(true);
+    expect(emojiReactionCatalogMatches(thumb, '-1')).toBe(false);
+    expect(emojiReactionCatalogMatches(down, '-1')).toBe(true);
+    expect(emojiReactionCatalogMatches(down, '-')).toBe(true);
+    expect(emojiReactionCatalogMatches(down, 'thumbsdown')).toBe(true);
+    expect(emojiReactionCatalogMatches(down, 'thumbs up')).toBe(false);
+    expect(emojiReactionFilterValue(thumb)).toBe('👍');
+
+    expect(emojiReactionCatalogMatches(lightThumb, 'thumb')).toBe(true);
+    expect(emojiReactionCatalogMatches(lightThumb, 'good')).toBe(true);
+    expect(emojiReactionCatalogMatches({ name: '👍🏿', custom: false }, 'thumbsup')).toBe(true);
+    expect(emojiReactionFilterValue(lightThumb)).toBe('👍🏻');
+    expect(emojiReactionFilterValue({ name: '👍🏿', custom: false })).toBe('👍🏿');
+
+    expect(emojiReactionCatalogMatches(doctor, 'doctor')).toBe(true);
+    expect(emojiReactionCatalogMatches(doctor, 'nurse')).toBe(true);
+    expect(emojiReactionCatalogMatches(doctor, 'male-doctor')).toBe(true);
+    expect(emojiReactionCatalogMatches(man, 'doctor')).toBe(false);
+    expect(emojiReactionCatalogMatches(staff, 'doctor')).toBe(false);
+    expect(emojiReactionCatalogMatches(doctor, 'medical')).toBe(false);
+    expect(emojiReactionCatalogMatches(staff, 'medical')).toBe(true);
+    expect(emojiReactionFilterValue(doctor)).toBe('👨\u200D⚕️');
+
+    expect(emojiReactionCatalogMatches(keycap, 'hash')).toBe(true);
+    expect(emojiReactionCatalogMatches(keycap, 'keycap')).toBe(true);
+    expect(emojiReactionFilterValue(keycap)).toBe('#⃣');
+
+    expect(emojiReactionCatalogMatches(holding, 'friendship')).toBe(true);
+    expect(emojiReactionFilterValue(holding)).toBe('🧑🏻\u200D🤝\u200D🧑🏻');
+
+    expect(filterEmojiReactionCatalog([thumb, party, heart], 'like').map(emojiReactionFilterValue)).toEqual(['👍', '❤️']);
+    expect(filterEmojiReactionCatalog([face, party], 'celebration').map(emojiReactionFilterValue)).toEqual(['🥳', '🎉']);
+    expect(filterEmojiReactionCatalog(Array.from({ length: 80 }, () => heart), 'love')).toHaveLength(80);
+
+    expect(emojiReactionCatalogMatches(customParty, 'party')).toBe(true);
+    expect(emojiReactionCatalogMatches(customParty, 'popper')).toBe(false);
+    expect(emojiReactionCatalogMatches(customParty, 'celebration')).toBe(false);
+    expect(emojiReactionCatalogMatches(customHeart, 'heart')).toBe(true);
+    expect(emojiReactionCatalogMatches(customHeart, 'love')).toBe(false);
+    expect(emojiReactionCatalogMatches(customHeart, 'valentines')).toBe(false);
+  });
+
+  it('does not collapse different Emoji Mart shortcodes onto one variation-stripped key', () => {
+    const shortCodes = new Map();
+    const conflicts = [];
+
+    Object.keys(unicodeMapping).forEach((native) => {
+      const shortCode = unicodeMapping[native] && unicodeMapping[native].shortCode;
+
+      if (!shortCode) {
+        return;
+      }
+
+      const key = native.replace(/[\uFE0E\uFE0F]/g, '');
+      const existing = shortCodes.get(key);
+
+      if (existing && existing !== shortCode) {
+        conflicts.push([key, existing, shortCode]);
+        return;
+      }
+
+      shortCodes.set(key, shortCode);
+    });
+
+    expect(conflicts).toEqual([]);
   });
 
   it('treats filter order as significant', () => {

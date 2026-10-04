@@ -2,13 +2,16 @@ import { List as ImmutableList } from 'immutable';
 import { changeColumnParams } from '../../actions/columns';
 import { changeSetting } from '../../actions/settings';
 import { uniqCompact } from '../../utils/uniq';
+import emojiMartData from '../emoji/emoji_mart_data_light';
 import unicodeEmojiJapaneseReadings from '../emoji/emoji_unicode_ja_readings';
+import unicodeMapping from '../emoji/emoji_unicode_mapping_light';
 
 const { toHiragana } = require('@koozaki/romaji-conv');
 
 const VARIATION_SELECTORS = /[\uFE0E\uFE0F]/g;
 const FITZPATRICK_MODIFIERS = /\u{1F3FB}|\u{1F3FC}|\u{1F3FD}|\u{1F3FE}|\u{1F3FF}/gu;
 const KATAKANA_LETTER = /[\u30A1-\u30FA\u30FD\u30FE]/;
+const ENGLISH_EMOJI_QUERY_SEPARATOR = /[\s,_\-]+/;
 
 const SHORTCODE_PATTERN = /^[A-Za-z0-9_]+$/;
 const REMOTE_SHORTCODE_PATTERN = /^([A-Za-z0-9_]+)@([^@]+)$/;
@@ -119,6 +122,28 @@ function normalizeUnicodeEmojiSearchKey(value) {
   return text(value).replace(VARIATION_SELECTORS, '');
 }
 
+function unicodeEmojiSearchKeys(name) {
+  const exact = text(name);
+
+  if (!exact) {
+    return [];
+  }
+
+  const normalized = normalizeUnicodeEmojiSearchKey(exact);
+  const base = normalized.replace(FITZPATRICK_MODIFIERS, '');
+  const keys = [exact];
+
+  if (normalized !== exact) {
+    keys.push(normalized);
+  }
+
+  if (base !== normalized) {
+    keys.push(base);
+  }
+
+  return keys;
+}
+
 function unicodeEmojiReadingsForKey(key) {
   const readings = key ? unicodeEmojiJapaneseReadings[key] : null;
 
@@ -126,20 +151,186 @@ function unicodeEmojiReadingsForKey(key) {
 }
 
 function lookupUnicodeEmojiJapaneseReadings(name) {
-  const key = normalizeUnicodeEmojiSearchKey(name);
-  const direct = unicodeEmojiReadingsForKey(key);
+  const keys = unicodeEmojiSearchKeys(name);
 
-  if (direct.length) {
-    return direct;
+  for (let index = 0; index < keys.length; index += 1) {
+    const readings = unicodeEmojiReadingsForKey(normalizeUnicodeEmojiSearchKey(keys[index]));
+
+    if (readings.length) {
+      return readings;
+    }
   }
 
-  const base = key.replace(FITZPATRICK_MODIFIERS, '');
+  return [];
+}
 
-  if (base === key) {
-    return [];
+function shortCodeForNative(native) {
+  const entry = native ? unicodeMapping[native] : null;
+
+  return entry && entry.shortCode ? entry.shortCode : '';
+}
+
+function buildNormalizedShortCodes() {
+  const shortCodes = new Map();
+  const ambiguous = new Set();
+
+  Object.keys(unicodeMapping).forEach((native) => {
+    const shortCode = shortCodeForNative(native);
+
+    if (!shortCode) {
+      return;
+    }
+
+    const key = normalizeUnicodeEmojiSearchKey(native);
+
+    if (ambiguous.has(key)) {
+      return;
+    }
+
+    const existing = shortCodes.get(key);
+
+    if (!existing) {
+      shortCodes.set(key, shortCode);
+      return;
+    }
+
+    if (existing !== shortCode) {
+      shortCodes.delete(key);
+      ambiguous.add(key);
+    }
+  });
+
+  return { shortCodes, ambiguous };
+}
+
+const normalizedUnicodeShortCodes = buildNormalizedShortCodes();
+
+function shortCodeForNormalizedKey(key) {
+  if (!key || normalizedUnicodeShortCodes.ambiguous.has(key)) {
+    return '';
   }
 
-  return unicodeEmojiReadingsForKey(base);
+  return normalizedUnicodeShortCodes.shortCodes.get(key) || '';
+}
+
+function lookupUnicodeEmojiShortCode(name) {
+  const keys = unicodeEmojiSearchKeys(name);
+
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
+    const exact = shortCodeForNative(key);
+
+    if (exact) {
+      return exact;
+    }
+
+    const normalized = shortCodeForNormalizedKey(normalizeUnicodeEmojiSearchKey(key));
+
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return '';
+}
+
+function aliasesByShortCode() {
+  const aliasMap = emojiMartData.short_names;
+  const byShortCode = new Map();
+
+  if (!aliasMap || Array.isArray(aliasMap)) {
+    return byShortCode;
+  }
+
+  Object.keys(aliasMap).forEach((alias) => {
+    const shortCode = aliasMap[alias];
+
+    if (!shortCode || !alias) {
+      return;
+    }
+
+    const aliases = byShortCode.get(shortCode) || [];
+    aliases.push(alias);
+    byShortCode.set(shortCode, aliases);
+  });
+
+  return byShortCode;
+}
+
+const unicodeEmojiAliases = aliasesByShortCode();
+
+function lookupUnicodeEmojiEnglishSearchData(name) {
+  const shortCode = lookupUnicodeEmojiShortCode(name);
+  const emoji = shortCode ? emojiMartData.emojis[shortCode] : null;
+
+  if (!emoji) {
+    return null;
+  }
+
+  const shortNames = [];
+  const pushName = (value) => {
+    const alias = text(value);
+
+    if (alias && shortNames.indexOf(alias) === -1) {
+      shortNames.push(alias);
+    }
+  };
+
+  emojiReactionFilterArray(emoji.short_names).forEach(pushName);
+  pushName(shortCode);
+  emojiReactionFilterArray(unicodeEmojiAliases.get(shortCode)).forEach(pushName);
+
+  return {
+    shortNames,
+    search: text(emoji.search),
+  };
+}
+
+function englishSearchHaystack(data) {
+  return `${data.shortNames.join('\n')}\n${data.search}`.toLocaleLowerCase();
+}
+
+function normalizeEnglishEmojiQuery(query) {
+  return String(query || '').trim().toLocaleLowerCase().split(ENGLISH_EMOJI_QUERY_SEPARATOR).filter(Boolean);
+}
+
+function unicodeEmojiEnglishMatches(item, query) {
+  if (read(item, 'custom')) {
+    return false;
+  }
+
+  const data = lookupUnicodeEmojiEnglishSearchData(text(read(item, 'name')));
+
+  if (!data) {
+    return false;
+  }
+
+  const normalized = String(query || '').trim().toLocaleLowerCase();
+
+  if (!normalized) {
+    return false;
+  }
+
+  // Emoji Mart matches the thumbs-down shortcode before hyphen splitting.
+  if (normalized === '-' || normalized === '-1') {
+    return data.shortNames.some(name => name.toLocaleLowerCase() === '-1');
+  }
+
+  if (data.shortNames.some(name => name.toLocaleLowerCase() === normalized)) {
+    return true;
+  }
+
+  const tokens = normalizeEnglishEmojiQuery(normalized);
+
+  // One-character tokens match inside almost every keyword. Exact shortcodes
+  // such as "a" and "x" are handled above; keyword search starts at 2.
+  if (!tokens.length || tokens.some(token => token.length < 2)) {
+    return false;
+  }
+
+  const haystack = englishSearchHaystack(data);
+
+  return tokens.every(token => haystack.includes(token));
 }
 
 function unicodeEmojiReadingKeywords(item, name) {
@@ -180,6 +371,10 @@ export function emojiReactionCatalogMatches(item, query) {
   const fields = searchFields(item);
 
   if (fields.some(field => field.toLocaleLowerCase().includes(normalized))) {
+    return true;
+  }
+
+  if (unicodeEmojiEnglishMatches(item, normalized)) {
     return true;
   }
 
