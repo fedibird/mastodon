@@ -33,8 +33,6 @@ const mapStateToProps = (state, props) => {
   };
 };
 
-export default @connect(mapStateToProps)
-@injectIntl
 class MediaModal extends ImmutablePureComponent {
 
   static propTypes = {
@@ -289,3 +287,9 @@ class MediaModal extends ImmutablePureComponent {
   }
 
 }
+
+// Public status pages mount this without a Redux store. The logged-in WebUI
+// keeps the connected default export so translation state still comes from status.
+export const PublicMediaModal = injectIntl(MediaModal);
+
+export default connect(mapStateToProps)(PublicMediaModal);
