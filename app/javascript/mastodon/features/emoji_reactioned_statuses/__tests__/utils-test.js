@@ -101,6 +101,51 @@ describe('emoji reaction filter helpers', () => {
     expect(filterEmojiReactionCatalog(items, '').map(emojiReactionFilterValue)).toEqual(['🎉', 'kokoro', 'achievement@example.com', 'kore']);
   });
 
+  it('matches unicode emoji by Japanese readings without changing the stored value', () => {
+    const party = { name: '🎉', custom: false };
+    const laugh = { name: '😂', custom: false };
+    const please = { name: '🙏', custom: false };
+    const thumb = { name: '👍', custom: false };
+    const heart = { name: '❤️', custom: false };
+    const heartWithoutSelector = { name: '❤', custom: false };
+    const lightThumb = { name: '👍🏻', custom: false };
+    const darkThumb = { name: '👍🏿', custom: false };
+    const doctor = { name: '👨\u200D⚕️', custom: false };
+    const man = { name: '👨', custom: false };
+    const staff = { name: '⚕️', custom: false };
+
+    expect(emojiReactionCatalogMatches(party, 'くらっかー')).toBe(true);
+    expect(emojiReactionCatalogMatches(party, 'おいわい')).toBe(true);
+    expect(emojiReactionCatalogMatches(party, 'たんじょうび')).toBe(true);
+    expect(emojiReactionCatalogMatches(laugh, 'ばくしょう')).toBe(true);
+    expect(emojiReactionCatalogMatches(please, 'がっしょう')).toBe(true);
+    expect(emojiReactionCatalogMatches(please, 'いのり')).toBe(true);
+    expect(emojiReactionCatalogMatches(thumb, 'いいね')).toBe(true);
+    expect(emojiReactionCatalogMatches(heart, 'はーと')).toBe(true);
+
+    expect(emojiReactionCatalogMatches(party, 'クラッカー')).toBe(true);
+    expect(emojiReactionCatalogMatches(heart, 'ハート')).toBe(true);
+
+    expect(emojiReactionCatalogMatches(heartWithoutSelector, 'はーと')).toBe(true);
+    expect(emojiReactionCatalogMatches(heart, 'ハート')).toBe(true);
+    expect(emojiReactionFilterValue(heart)).toBe('❤️');
+    expect(emojiReactionFilterValue(heartWithoutSelector)).toBe('❤');
+
+    expect(emojiReactionCatalogMatches(lightThumb, 'いいね')).toBe(true);
+    expect(emojiReactionCatalogMatches(darkThumb, 'さむずあっぷ')).toBe(true);
+    expect(emojiReactionFilterValue(lightThumb)).toBe('👍🏻');
+    expect(emojiReactionFilterValue(darkThumb)).toBe('👍🏿');
+
+    expect(emojiReactionCatalogMatches(doctor, 'だんせいのいしゃ')).toBe(true);
+    expect(emojiReactionCatalogMatches(man, 'だんせいのいしゃ')).toBe(false);
+    expect(emojiReactionCatalogMatches(staff, 'だんせいのいしゃ')).toBe(false);
+    expect(emojiReactionFilterValue(doctor)).toBe('👨\u200D⚕️');
+
+    expect(filterEmojiReactionCatalog([man, party, laugh], 'かお').map(emojiReactionFilterValue)).toEqual(['👨', '😂']);
+    expect(emojiReactionCatalogMatches(party, 'ばくしょう')).toBe(false);
+    expect(emojiReactionCatalogMatches({ name: 'kore', custom: true, ruby: 'これ' }, 'くらっかー')).toBe(false);
+  });
+
   it('treats filter order as significant', () => {
     expect(sameEmojiFilters(['🎉', '👍'], ['🎉', '👍'])).toBe(true);
     expect(sameEmojiFilters(['🎉', '👍'], ['👍', '🎉'])).toBe(false);
