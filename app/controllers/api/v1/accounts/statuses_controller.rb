@@ -30,6 +30,8 @@ class Api::V1::Accounts::StatusesController < Api::BaseController
   end
 
   def cached_account_statuses
+    return cache_collection(tagged_account_statuses, Status) if tagged_id_first_eligible?
+
     statuses = truthy_param?(:pinned) ? pinned_scope : permitted_account_statuses
 
     statuses.merge!(only_media_scope)  if truthy_param?(:only_media)
@@ -50,6 +52,36 @@ class Api::V1::Accounts::StatusesController < Api::BaseController
         page
       )
     end
+  end
+
+  # only_media joins media_attachments and applies DISTINCT, so it does not
+  # stay an id-only scan. pinned replaces the permission relation with the
+  # pin scope. Both keep the existing path. fetch=true uses
+  # cached_fetch_account_statuses and never reaches here.
+  def tagged_id_first_eligible?
+    params[:tagged].present? && !truthy_param?(:pinned) && !truthy_param?(:only_media)
+  end
+
+  def tagged_account_statuses
+    tag = Tag.find_normalized(params[:tagged])
+    return [] if tag.nil?
+
+    AccountStatusesTaggedQuery.new(
+      candidate_scope: tagged_candidate_scope,
+      tag_id: tag.id,
+      limit: limit_param(DEFAULT_STATUSES_LIMIT),
+      page: params_slice(:max_id, :since_id, :min_id),
+      filters: {
+        exclude_replies: truthy_param?(:exclude_replies),
+        exclude_reblogs: truthy_param?(:exclude_reblogs),
+      }
+    ).records
+  end
+
+  def tagged_candidate_scope
+    scope = permitted_account_statuses
+    scope = scope.merge(no_personal_scope) if current_user&.setting_hide_personal_from_account
+    scope
   end
 
   # `id > min_id` alone lets the planner walk statuses_pkey. With account_id

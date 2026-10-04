@@ -276,4 +276,296 @@ describe Api::V1::Accounts::StatusesController do
       expect_tuple_lower_bound(tuple_statement(statements), account_id: account.id, min_id: 50)
     end
   end
+
+  describe 'GET #index tagged' do
+    let(:author) { Fabricate(:account, username: 'tagged_api_author') }
+    let(:tag) { Fabricate(:tag, name: 'apitag') }
+    let(:viewer_token) { Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: 'read:statuses') }
+
+    def insert_status(id, account: author, **attrs)
+      Fabricate(:status, { account: account, id: id, text: "status-#{id}", visibility: :public }.merge(attrs))
+    end
+
+    def tag_status(status, hashtag = tag)
+      status.tags << hashtag
+      status
+    end
+
+    def status_ids
+      body_as_json.map { |status| status[:id].to_i }
+    end
+
+    def capture_statements(&block)
+      statements = []
+      callback = lambda do |*_args, payload|
+        statements << payload[:sql].to_s
+      end
+      ActiveSupport::Notifications.subscribed(callback, 'sql.active_record', &block)
+      statements
+    end
+
+    def sql_text(statements)
+      statements.join("\n")
+    end
+
+    def page_sql(statements)
+      statements.find { |statement| statement.include?('WITH matched_ids AS MATERIALIZED') }.to_s
+    end
+
+    def cte_and_outer(statements)
+      page_sql(statements).split(') SELECT statuses.*', 2)
+    end
+
+    def link_param(rel, key)
+      href = response.headers['Link']&.find_link(['rel', rel])&.href
+      return if href.blank?
+
+      Rack::Utils.parse_query(URI(href).query)[key]
+    end
+
+    before do
+      allow(controller).to receive(:doorkeeper_token) { viewer_token }
+    end
+
+    it 'returns tagged statuses in id order without reading statuses.* inside the CTE' do
+      tag_status(insert_status(10))
+      tag_status(insert_status(30))
+      tag_status(insert_status(20))
+      insert_status(40)
+      tag_status(insert_status(50, account: Fabricate(:account)))
+
+      statements = capture_statements do
+        get :index, params: { account_id: author.id, tagged: tag.name }
+      end
+      sql = page_sql(statements)
+      cte, = cte_and_outer(statements)
+
+      expect(response).to have_http_status(200)
+      expect(status_ids).to eq [30, 20, 10]
+      expect(body_as_json.map { |status| status[:content] }).to eq ['<p>status-30</p>', '<p>status-20</p>', '<p>status-10</p>']
+      expect(sql).to include('WITH matched_ids AS MATERIALIZED')
+      expect(cte).to match(/SELECT "statuses"\."id"/)
+      expect(cte).not_to include('statuses.*')
+      expect(sql.scan(/\bLIMIT\b/).size).to eq 1
+      expect(cte).not_to match(/\bLIMIT\b/i)
+    end
+
+    it 'returns an empty list for an unknown tag without a CTE' do
+      tag_status(insert_status(10))
+
+      statements = capture_statements do
+        get :index, params: { account_id: author.id, tagged: "missing' OR 1=1 --" }
+      end
+
+      expect(status_ids).to eq []
+      expect(sql_text(statements)).not_to include('matched_ids')
+      expect(sql_text(statements)).not_to include('AS MATERIALIZED')
+    end
+
+    it 'drops replies to other accounts after the intersection and still fills the limit' do
+      stranger = Fabricate(:account)
+      [100, 200, 300, 400, 500].each { |id| tag_status(insert_status(id)) }
+      25.times do |index|
+        parent = Fabricate(:status, account: stranger, text: "parent-#{index}")
+        tag_status(insert_status(1_000 + index, thread: parent))
+      end
+
+      statements = capture_statements do
+        get :index, params: { account_id: author.id, tagged: tag.name, exclude_replies: true, limit: 5 }
+      end
+      cte, outer = cte_and_outer(statements)
+
+      expect(status_ids).to eq [500, 400, 300, 200, 100]
+      expect(cte).not_to include('statuses.reply')
+      expect(cte).not_to match(/\bLIMIT\b/i)
+      expect(outer).to include('statuses.reply = FALSE')
+      expect(outer).to include('statuses.in_reply_to_account_id = statuses.account_id')
+      expect(outer).to include('LIMIT 5')
+    end
+
+    it 'keeps a self-reply when exclude_replies is set' do
+      tag_status(insert_status(10, thread: Fabricate(:status, account: Fabricate(:account))))
+      tag_status(insert_status(20, thread: Fabricate(:status, account: author)))
+      tag_status(insert_status(30))
+
+      get :index, params: { account_id: author.id, tagged: tag.name, exclude_replies: true }
+
+      expect(status_ids).to eq [30, 20]
+    end
+
+    it 'applies exclude_reblogs outside the id intersection' do
+      tag_status(insert_status(10, account: user.account))
+      tag_status(insert_status(20, account: user.account, reblog: Fabricate(:status)))
+      tag_status(insert_status(30, account: user.account))
+
+      statements = capture_statements do
+        get :index, params: { account_id: user.account.id, tagged: tag.name, exclude_reblogs: true }
+      end
+      cte, outer = cte_and_outer(statements)
+
+      expect(status_ids).to eq [30, 10]
+      expect(cte).not_to include('reblog_of_id IS NULL')
+      expect(outer).to include('statuses.reblog_of_id IS NULL')
+    end
+
+    it 'applies exclude_replies and exclude_reblogs together' do
+      tag_status(insert_status(10))
+      tag_status(insert_status(20, thread: Fabricate(:status, account: Fabricate(:account))))
+      tag_status(insert_status(30, reblog: Fabricate(:status)))
+      tag_status(insert_status(40))
+
+      get :index, params: { account_id: author.id, tagged: tag.name, exclude_replies: true, exclude_reblogs: true }
+
+      expect(status_ids).to eq [40, 10]
+    end
+
+    it 'pages with max_id and since_id inside the id scope' do
+      [10, 20, 30, 40, 50].each { |id| tag_status(insert_status(id)) }
+
+      get :index, params: { account_id: author.id, tagged: tag.name, max_id: 40, limit: 2 }
+      expect(status_ids).to eq [30, 20]
+      expect(link_param('next', 'max_id')).to eq '20'
+
+      get :index, params: { account_id: author.id, tagged: tag.name, since_id: 20, limit: 2 }
+      expect(status_ids).to eq [50, 40]
+    end
+
+    it 'pages min_id in descending order and ignores since_id' do
+      [10, 20, 30, 40, 50].each { |id| tag_status(insert_status(id)) }
+
+      get :index, params: { account_id: author.id, tagged: tag.name, min_id: 20, limit: 2 }
+      expect(status_ids).to eq [40, 30]
+      expect(link_param('prev', 'min_id')).to eq '40'
+      expect(link_param('next', 'max_id')).to eq '30'
+
+      get :index, params: { account_id: author.id, tagged: tag.name, min_id: 20, max_id: 50, limit: 2 }
+      expect(status_ids).to eq [40, 30]
+
+      get :index, params: { account_id: author.id, tagged: tag.name, min_id: 20, since_id: 40, limit: 2 }
+      expect(status_ids).to eq [40, 30]
+    end
+
+    it 'supplements min_id pages when replies would otherwise consume the limit' do
+      stranger = Fabricate(:account)
+      tag_status(insert_status(100))
+      tag_status(insert_status(200, thread: Fabricate(:status, account: stranger)))
+      tag_status(insert_status(300))
+      tag_status(insert_status(400, thread: Fabricate(:status, account: stranger)))
+      tag_status(insert_status(500))
+
+      get :index, params: { account_id: author.id, tagged: tag.name, min_id: 100, exclude_replies: true, limit: 2 }
+
+      expect(status_ids).to eq [500, 300]
+    end
+
+    it 'returns the newest page in id descending order' do
+      25.times { |index| tag_status(insert_status(index + 1)) }
+
+      get :index, params: { account_id: author.id, tagged: tag.name, limit: 20 }
+
+      expect(status_ids).to eq (6..25).to_a.reverse
+    end
+
+    it 'shows an anonymous viewer only public and unlisted tagged statuses' do
+      allow(controller).to receive(:doorkeeper_token).and_return(nil)
+      tag_status(insert_status(10, visibility: :public))
+      tag_status(insert_status(20, visibility: :unlisted))
+      tag_status(insert_status(30, visibility: :private))
+      tag_status(insert_status(40, visibility: :direct))
+      tag_status(insert_status(50, visibility: :limited))
+      tag_status(insert_status(60, visibility: :personal))
+
+      get :index, params: { account_id: author.id, tagged: tag.name }
+
+      expect(status_ids).to eq [20, 10]
+    end
+
+    it 'shows the author their own limited, personal, and direct tagged statuses' do
+      tag_status(insert_status(10, account: user.account, visibility: :direct))
+      tag_status(insert_status(20, account: user.account, visibility: :limited))
+      tag_status(insert_status(30, account: user.account, visibility: :personal))
+      tag_status(insert_status(40, account: user.account, visibility: :mutual))
+
+      get :index, params: { account_id: user.account.id, tagged: tag.name }
+
+      expect(status_ids).to eq [40, 30, 20, 10]
+    end
+
+    it 'hides personal tagged statuses when hide_personal_from_account is set' do
+      user.settings.hide_personal_from_account = true
+      tag_status(insert_status(10, account: user.account, visibility: :public))
+      tag_status(insert_status(20, account: user.account, visibility: :personal))
+
+      get :index, params: { account_id: user.account.id, tagged: tag.name }
+
+      expect(status_ids).to eq [10]
+    end
+
+    context 'when the viewer is not the author' do
+      let(:viewer) { user.account }
+
+      it 'shows private tagged statuses to a follower only' do
+        tag_status(insert_status(10, visibility: :public))
+        tag_status(insert_status(20, visibility: :private))
+
+        get :index, params: { account_id: author.id, tagged: tag.name }
+        expect(status_ids).to eq [10]
+
+        viewer.follow!(author)
+        get :index, params: { account_id: author.id, tagged: tag.name }
+        expect(status_ids).to eq [20, 10]
+      end
+
+      it 'shows a tagged status the viewer is mentioned in and hides other direct statuses' do
+        visible = tag_status(insert_status(10, visibility: :direct))
+        hidden = tag_status(insert_status(20, visibility: :direct))
+        limited = tag_status(insert_status(30, visibility: :limited))
+        Fabricate(:mention, account: viewer, status: visible)
+        Fabricate(:mention, account: viewer, status: limited)
+
+        get :index, params: { account_id: author.id, tagged: tag.name }
+
+        expect(status_ids).to include(visible.id, limited.id)
+        expect(status_ids).not_to include(hidden.id)
+      end
+
+      it 'keeps the permission reblog exclusion in front of exclude_reblogs' do
+        blocked = Fabricate(:account)
+        viewer.block!(blocked)
+        visible = tag_status(insert_status(10))
+        hidden = tag_status(insert_status(20, reblog: Fabricate(:status, account: blocked, visibility: :public)))
+
+        get :index, params: { account_id: author.id, tagged: tag.name }
+
+        expect(status_ids).to eq [visible.id]
+        expect(status_ids).not_to include(hidden.id)
+      end
+    end
+
+    it 'keeps only_media on the existing relation path' do
+      media = tag_status(insert_status(20))
+      Fabricate(:media_attachment, account: author, status: media)
+      tag_status(insert_status(30))
+
+      statements = capture_statements do
+        get :index, params: { account_id: author.id, tagged: tag.name, only_media: true }
+      end
+
+      expect(status_ids).to eq [media.id]
+      expect(sql_text(statements)).not_to include('AS MATERIALIZED')
+    end
+
+    it 'keeps pinned on the existing relation path' do
+      pinned = tag_status(insert_status(10))
+      tag_status(insert_status(20))
+      Fabricate(:status_pin, account: author, status: pinned)
+
+      statements = capture_statements do
+        get :index, params: { account_id: author.id, tagged: tag.name, pinned: true }
+      end
+
+      expect(status_ids).to eq [pinned.id]
+      expect(sql_text(statements)).not_to include('AS MATERIALIZED')
+    end
+  end
 end
