@@ -96,4 +96,45 @@ RSpec.describe DeleteAccountService, type: :service do
       end
     end
   end
+
+  describe 'emoji reaction purge' do
+    let(:author) { Fabricate(:account) }
+    let(:reactor) { Fabricate(:account) }
+    let(:status) { Fabricate(:status, account: author) }
+
+    before do
+      EmojiReaction.create!(account: reactor, status: status, name: '👍')
+      allow(RefreshDirtyEmojiReactionCachesWorker).to receive(:perform_async)
+    end
+
+    it 'dirties affected statuses around delete_all and rebuilds without the deleted reaction' do
+      described_class.new.call(reactor, reserve_username: false, skip_side_effects: true)
+
+      expect(EmojiReaction.where(status: status, account: reactor)).to be_empty
+      expect(status.status_stat.reload.emoji_reactions_cache_dirty).to be true
+      expect(RefreshDirtyEmojiReactionCachesWorker).to have_received(:perform_async)
+
+      status.refresh_grouped_emoji_reactions!
+      stat = status.status_stat.reload
+      expect(stat.emoji_reactions_count).to eq 0
+      expect(stat.emoji_reactions_cache_dirty).to be false
+      expect(Oj.load(stat.emoji_reactions_cache.presence || '[]', mode: :strict)).to eq []
+    end
+
+    it 'dirties a reaction that arrives after the batched purge and is removed with the account' do
+      other_status = Fabricate(:status, account: author)
+      allow_any_instance_of(described_class).to receive(:purge_emoji_reactions!).and_wrap_original do |method, *args|
+        method.call(*args)
+        EmojiReaction.create!(account: reactor, status: other_status, name: '🎉')
+      end
+
+      described_class.new.call(reactor, reserve_username: false, skip_side_effects: true)
+
+      expect(EmojiReaction.where(account_id: reactor.id)).to be_empty
+      stat = other_status.status_stat.reload
+      expect(stat.emoji_reactions_cache_dirty).to be true
+      expect(Oj.load(stat.emoji_reactions_cache, mode: :strict).first['name']).to eq '🎉'
+      expect(RefreshDirtyEmojiReactionCachesWorker).to have_received(:perform_async).twice
+    end
+  end
 end

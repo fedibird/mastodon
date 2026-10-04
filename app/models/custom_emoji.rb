@@ -41,6 +41,7 @@
 
 class CustomEmoji < ApplicationRecord
   include Attachmentable
+  include CustomEmojiReactionCache
 
   LOCAL_LIMIT = (ENV['MAX_EMOJI_SIZE'] || 256.kilobytes).to_i
   LIMIT       = [LOCAL_LIMIT, (ENV['MAX_REMOTE_EMOJI_SIZE'] || 256.kilobytes).to_i].max

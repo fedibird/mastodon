@@ -10,6 +10,7 @@
 #  favourites_count         :bigint(8)        default(0), not null
 #  emoji_reactions_count    :bigint(8)        default(0), not null
 #  emoji_reactions_cache    :string           default(""), not null
+#  emoji_reactions_cache_dirty :boolean       default(FALSE), not null
 #  status_references_count  :bigint(8)        default(0), not null
 #  status_referred_by_count :bigint(8)        default(0), not null
 #  created_at               :datetime         not null
