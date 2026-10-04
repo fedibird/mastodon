@@ -10040,12 +10040,17 @@ noscript {
   right: 0;
   bottom: 0;
   left: 0;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 16px;
-  padding: 24px;
+  // Insets are physical. Inline-start would swap them in RTL.
+  padding-block-start: #{"max(24px, env(safe-area-inset-top, 0px))"};
+  padding-block-end: #{"max(24px, env(safe-area-inset-bottom, 0px))"};
+  padding-left: #{"max(24px, env(safe-area-inset-left, 0px))"};
+  padding-right: #{"max(24px, env(safe-area-inset-right, 0px))"};
   background: rgba(0, 0, 0, 0.62);
   pointer-events: none;
 
@@ -10054,6 +10059,9 @@ noscript {
     height: auto;
     max-width: min(90vw, 520px);
     max-height: min(65vh, 520px);
+    max-height: min(65dvh, 520px);
+    min-height: 0;
+    flex: 0 1 auto;
     margin: 0;
     object-fit: contain;
     object-position: center;
@@ -10076,13 +10084,65 @@ noscript {
 }
 
 .emoji-reaction-filter-modal {
-  width: calc(100vw - 20px);
-  max-width: 420px;
-  max-height: calc(100vh - 20px);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 440px;
+  min-height: 0;
+  max-height: 100vh;
+  max-height: 100dvh;
+  margin: 0;
+  // The card sits in this padding. Clicks on the inset pass through to the backdrop.
+  pointer-events: none;
+  // Insets are physical. Inline-start would swap them in RTL.
+  padding-block-start: #{"max(10px, env(safe-area-inset-top, 0px))"};
+  padding-block-end: #{"max(10px, env(safe-area-inset-bottom, 0px))"};
+  padding-left: #{"max(12px, env(safe-area-inset-left, 0px))"};
+  padding-right: #{"max(12px, env(safe-area-inset-right, 0px))"};
 
   .emoji-reaction-filter-picker {
+    box-sizing: border-box;
     width: 100%;
     max-width: none;
-    max-height: calc(100vh - 20px);
+    max-height: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
+    pointer-events: auto;
+  }
+
+  .emoji-reaction-filter-picker__edit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 48px;
+    min-height: 48px;
+    padding: 8px 12px;
+  }
+
+  .emoji-reaction-filter-picker__search {
+    min-height: 48px;
+  }
+
+  .emoji-reaction-filter-picker__preferred-toggle {
+    width: 48px;
+    height: 48px;
+  }
+
+  .emoji-reaction-filter-picker.is-editing-pinned .emoji-reaction-filter-picker__tile {
+    padding-top: 48px;
+  }
+
+  .emoji-reaction-filter-picker.is-editing-pinned .emoji-reaction-filter-picker__pinned {
+    min-height: 0;
+  }
+
+  .emoji-reaction-filter-picker__button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 48px;
+    min-height: 48px;
+    padding: 8px 12px;
   }
 }
