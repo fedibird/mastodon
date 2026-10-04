@@ -30,6 +30,19 @@ RSpec.describe AccountStatusesTaggedQuery do
     ).records.map { |status| [status.id, status.text] }
   end
 
+  describe 'CTE materialization keyword' do
+    it 'marks the CTE MATERIALIZED on PostgreSQL 12 and newer' do
+      expect(described_class.materialization_keyword(120_000)).to eq 'MATERIALIZED '
+      expect(described_class.materialization_keyword(160_015)).to eq 'MATERIALIZED '
+    end
+
+    it 'omits the keyword on PostgreSQL 10 and 11' do
+      expect(described_class.materialization_keyword(100_000)).to eq ''
+      expect(described_class.materialization_keyword(110_000)).to eq ''
+      expect(described_class.materialization_keyword(119_999)).to eq ''
+    end
+  end
+
   describe 'SQL shape' do
     let(:account) { Account.new(id: 1) }
     let(:candidate_scope) { account.statuses.permitted_for(account, nil) }
@@ -46,7 +59,9 @@ RSpec.describe AccountStatusesTaggedQuery do
       sql = build_sql(filters: { exclude_replies: true })
       cte, outer = cte_and_outer(sql)
 
-      expect(sql).to include('WITH matched_ids AS MATERIALIZED')
+      # This example is the PostgreSQL 12+ shape. Servers older than 12 are covered below.
+      expect(Status.connection.database_version).to be >= 120_000
+      expect(sql).to include('WITH matched_ids AS MATERIALIZED (')
       expect(cte).to match(/SELECT "statuses"\."id"/)
       expect(cte).to include('INNER JOIN "statuses_tags"')
       expect(cte).to include('"statuses"."account_id" = 1')
@@ -92,6 +107,22 @@ RSpec.describe AccountStatusesTaggedQuery do
       expect(cte).to include('"statuses"."id" < 800')
       expect(cte).not_to include('"statuses"."id" > 600')
       expect(outer).to include('ORDER BY statuses.id ASC')
+      expect(outer).to include('LIMIT 20')
+    end
+
+    it 'writes a plain CTE on a PostgreSQL 11 server version' do
+      allow(Status.connection).to receive(:database_version).and_return(110_000)
+
+      sql = build_sql(filters: { exclude_replies: true })
+      cte, outer = cte_and_outer(sql)
+
+      expect(sql).to include('WITH matched_ids AS (')
+      expect(sql).not_to include('MATERIALIZED')
+      expect(cte).to match(/SELECT "statuses"\."id"/)
+      expect(cte).not_to include('statuses.*')
+      expect(sql).to include(') SELECT statuses.* FROM statuses')
+      expect(outer).to include('statuses.reply = FALSE')
+      expect(outer).to include('ORDER BY statuses.id DESC')
       expect(outer).to include('LIMIT 20')
     end
 

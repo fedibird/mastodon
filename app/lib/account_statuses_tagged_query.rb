@@ -9,9 +9,11 @@
 # intersection is known.
 #
 # The caller supplies the existing permission relation. This query keeps
-# the intersection on status ids and marks the CTE MATERIALIZED so the
-# planner does not fold it back into that wide join. statuses.* is read
-# only for the ids that survive.
+# the intersection on status ids inside a CTE so the planner does not
+# fold it back into that wide join. PostgreSQL 12 and newer inline a CTE
+# unless it is marked MATERIALIZED. PostgreSQL 10 and 11 always
+# materialize CTEs and reject that keyword, so the same shape is written
+# as a plain CTE there. statuses.* is read only for the ids that survive.
 #
 # exclude_replies and exclude_reblogs are API filters, separate from the
 # reblog visibility already present on the permission relation. They are
@@ -22,6 +24,14 @@
 # ascending id order and then reversed. since_id is ignored when min_id
 # is present, as to_a_paginated_by_id does.
 class AccountStatusesTaggedQuery
+  # PostgreSQL 12.0. Earlier servers materialize every CTE and do not
+  # accept AS MATERIALIZED.
+  MATERIALIZED_CTE_VERSION = 120_000
+
+  def self.materialization_keyword(database_version)
+    database_version >= MATERIALIZED_CTE_VERSION ? 'MATERIALIZED ' : ''
+  end
+
   def initialize(candidate_scope:, tag_id:, limit:, page: {}, filters: {})
     @candidate_scope = candidate_scope
     @tag_id = Integer(tag_id)
@@ -40,7 +50,7 @@ class AccountStatusesTaggedQuery
 
   def to_sql
     [
-      "WITH matched_ids AS MATERIALIZED (#{matched_ids_scope.to_sql})",
+      "WITH matched_ids AS #{materialization_keyword}(#{matched_ids_scope.to_sql})",
       'SELECT statuses.*',
       'FROM statuses',
       'INNER JOIN matched_ids ON matched_ids.id = statuses.id',
@@ -51,6 +61,10 @@ class AccountStatusesTaggedQuery
   end
 
   private
+
+  def materialization_keyword
+    self.class.materialization_keyword(Status.connection.database_version)
+  end
 
   def matched_ids_scope
     # Drop eager loads and any limit/order carried by the permission
