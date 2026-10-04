@@ -7,37 +7,76 @@ class AddEmojiReactionsCacheDirtyToStatusStats < ActiveRecord::Migration[6.1]
 
   disable_ddl_transaction!
 
-  # Existing rows stay clean. A metadata-only default on PostgreSQL 11+ avoids
-  # a table rewrite and a deploy-time rebuild of every emoji reaction cache.
+  INDEX_NAME = 'index_status_stats_on_dirty_emoji_reactions_cache'
+
+  # Existing rows stay clean. PostgreSQL 11+ adds this boolean default without
+  # a table rewrite. Every SET runs inside safety_assured: Strong Migrations
+  # rejects raw execute, and an ensure outside that block hides the first error.
+  # A failed CREATE INDEX CONCURRENTLY can leave an INVALID index. Rails 6.1
+  # index_exists? ignores pg_index.indisvalid, so that leftover must be dropped
+  # before the index is created again.
   def up
-    disable_statement_timeout
-
     safety_assured do
-      add_column :status_stats, :emoji_reactions_cache_dirty, :boolean, null: false, default: false
-    end
+      begin
+        execute "SET lock_timeout TO '5s'"
 
-    safety_assured do
-      execute <<~SQL.squish
-        CREATE INDEX CONCURRENTLY IF NOT EXISTS index_status_stats_on_dirty_emoji_reactions_cache
-        ON status_stats (status_id)
-        WHERE emoji_reactions_cache_dirty = TRUE
-      SQL
+        unless column_exists?(:status_stats, :emoji_reactions_cache_dirty)
+          add_column :status_stats,
+                     :emoji_reactions_cache_dirty,
+                     :boolean,
+                     null: false,
+                     default: false
+        end
+
+        if index_exists?(:status_stats, :status_id, name: INDEX_NAME) && !index_valid?(INDEX_NAME)
+          remove_concurrent_index_by_name :status_stats, INDEX_NAME
+        end
+
+        unless index_exists?(:status_stats, :status_id, name: INDEX_NAME)
+          add_concurrent_index :status_stats,
+                               :status_id,
+                               name: INDEX_NAME,
+                               where: 'emoji_reactions_cache_dirty = TRUE'
+        end
+      ensure
+        execute 'SET lock_timeout TO DEFAULT'
+        execute 'SET statement_timeout TO DEFAULT'
+      end
     end
-  ensure
-    execute('SET statement_timeout TO DEFAULT')
   end
 
   def down
-    disable_statement_timeout
-
     safety_assured do
-      execute 'DROP INDEX CONCURRENTLY IF EXISTS index_status_stats_on_dirty_emoji_reactions_cache'
-    end
+      begin
+        execute "SET lock_timeout TO '5s'"
 
-    safety_assured do
-      remove_column :status_stats, :emoji_reactions_cache_dirty
+        if index_exists?(:status_stats, :status_id, name: INDEX_NAME)
+          remove_concurrent_index_by_name :status_stats, INDEX_NAME
+        end
+
+        remove_column :status_stats, :emoji_reactions_cache_dirty if column_exists?(:status_stats, :emoji_reactions_cache_dirty)
+      ensure
+        execute 'SET lock_timeout TO DEFAULT'
+        execute 'SET statement_timeout TO DEFAULT'
+      end
     end
-  ensure
-    execute('SET statement_timeout TO DEFAULT')
+  end
+
+  private
+
+  # select_value returns TrueClass or FalseClass: the pg decoder casts bool
+  # before Active Record sees it. == true rejects "t", 1, and nil. A missing
+  # index is false via COALESCE.
+  def index_valid?(name)
+    select_value(<<~SQL.squish) == true
+      SELECT COALESCE(
+        (
+          SELECT indisvalid
+          FROM pg_index
+          WHERE indexrelid = to_regclass(#{connection.quote(name)})
+        ),
+        FALSE
+      )
+    SQL
   end
 end
