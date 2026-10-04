@@ -2,8 +2,13 @@ import { List as ImmutableList } from 'immutable';
 import { changeColumnParams } from '../../actions/columns';
 import { changeSetting } from '../../actions/settings';
 import { uniqCompact } from '../../utils/uniq';
+import unicodeEmojiJapaneseReadings from '../emoji/emoji_unicode_ja_readings';
 
 const { toHiragana } = require('@koozaki/romaji-conv');
+
+const VARIATION_SELECTORS = /[\uFE0E\uFE0F]/g;
+const FITZPATRICK_MODIFIERS = /\u{1F3FB}|\u{1F3FC}|\u{1F3FD}|\u{1F3FE}|\u{1F3FF}/gu;
+const KATAKANA_LETTER = /[\u30A1-\u30FA\u30FD\u30FE]/;
 
 const SHORTCODE_PATTERN = /^[A-Za-z0-9_]+$/;
 const REMOTE_SHORTCODE_PATTERN = /^([A-Za-z0-9_]+)@([^@]+)$/;
@@ -110,6 +115,41 @@ function readingKeyword(item, name) {
   return toHiragana(name);
 }
 
+function normalizeUnicodeEmojiSearchKey(value) {
+  return text(value).replace(VARIATION_SELECTORS, '');
+}
+
+function unicodeEmojiReadingsForKey(key) {
+  const readings = key ? unicodeEmojiJapaneseReadings[key] : null;
+
+  return Array.isArray(readings) ? readings : [];
+}
+
+function lookupUnicodeEmojiJapaneseReadings(name) {
+  const key = normalizeUnicodeEmojiSearchKey(name);
+  const direct = unicodeEmojiReadingsForKey(key);
+
+  if (direct.length) {
+    return direct;
+  }
+
+  const base = key.replace(FITZPATRICK_MODIFIERS, '');
+
+  if (base === key) {
+    return [];
+  }
+
+  return unicodeEmojiReadingsForKey(base);
+}
+
+function unicodeEmojiReadingKeywords(item, name) {
+  if (read(item, 'custom') || !name) {
+    return [];
+  }
+
+  return lookupUnicodeEmojiJapaneseReadings(name);
+}
+
 function searchFields(item) {
   const name = text(read(item, 'name'));
   const domain = read(item, 'domain') ? String(read(item, 'domain')) : '';
@@ -118,6 +158,7 @@ function searchFields(item) {
   return uniqCompact([
     name,
     readingKeyword(item, name),
+    ...unicodeEmojiReadingKeywords(item, name),
     text(read(item, 'alternate_name')).trim(),
     ...aliases,
     domain,
@@ -136,7 +177,23 @@ export function emojiReactionCatalogMatches(item, query) {
     return true;
   }
 
-  return searchFields(item).some(field => field.toLocaleLowerCase().includes(normalized));
+  const fields = searchFields(item);
+
+  if (fields.some(field => field.toLocaleLowerCase().includes(normalized))) {
+    return true;
+  }
+
+  if (!KATAKANA_LETTER.test(normalized)) {
+    return false;
+  }
+
+  const hiragana = toHiragana(normalized);
+
+  if (!hiragana || hiragana === normalized) {
+    return false;
+  }
+
+  return unicodeEmojiReadingKeywords(item, text(read(item, 'name'))).some(field => field.toLocaleLowerCase().includes(hiragana));
 }
 
 export function filterEmojiReactionCatalog(items, query) {
