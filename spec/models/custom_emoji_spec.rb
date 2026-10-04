@@ -253,6 +253,17 @@ RSpec.describe CustomEmoji, type: :model do
       expect(RefreshDirtyEmojiReactionCachesWorker).to have_received(:perform_async)
     end
 
+    it 'builds a reaction created after the update from the new emoji metadata' do
+      custom_emoji.update!(alternate_name: '更新後')
+      late_status = Fabricate(:status)
+      EmojiReaction.create!(account: account, status: late_status, name: custom_emoji.shortcode, custom_emoji: custom_emoji)
+
+      payload = Oj.load(late_status.status_stat.reload.emoji_reactions_cache, mode: :strict).first
+      expect(payload['name']).to eq 'cachemoji'
+      expect(payload['alternate_name']).to eq '更新後'
+      expect(late_status.status_stat.emoji_reactions_cache_dirty).to be false
+    end
+
     it 'does not keep a dirty mark when destroy rolls back' do
       CustomEmoji.transaction do
         custom_emoji.destroy!
@@ -264,5 +275,120 @@ RSpec.describe CustomEmoji, type: :model do
       expect(status.status_stat.reload.emoji_reactions_cache_dirty).to be false
       expect(RefreshDirtyEmojiReactionCachesWorker).not_to have_received(:perform_async)
     end
+  end
+end
+
+RSpec.describe CustomEmoji, 'emoji reaction cache destroy lock', type: :model do
+  self.use_transactional_tests = false
+
+  def with_dedicated_connection
+    pool = ActiveRecord::Base.connection_pool
+    pool.lock_thread = false
+    conn = pool.checkout
+    pool.instance_variable_get(:@thread_cached_conns)[Thread.current] = conn
+    yield
+  ensure
+    if conn
+      conn.rollback_db_transaction if conn.open_transactions.positive?
+      pool.instance_variable_get(:@thread_cached_conns)&.delete(Thread.current)
+      pool.checkin(conn)
+    end
+  end
+
+  it 'holds the emoji row lock so a new reaction cannot commit ahead of the cascade' do
+    custom_emoji = Fabricate(:custom_emoji, shortcode: 'lockmoji')
+    account = Fabricate(:account)
+    status = Fabricate(:status)
+    late_status = Fabricate(:status)
+    EmojiReaction.create!(account: account, status: status, name: custom_emoji.shortcode, custom_emoji: custom_emoji)
+    status.status_stat.update!(emoji_reactions_cache: '[{"name":"lockmoji","count":1}]', emoji_reactions_count: 1, emoji_reactions_cache_dirty: false)
+    allow(RefreshDirtyEmojiReactionCachesWorker).to receive(:perform_async)
+
+    started = Queue.new
+    release = Queue.new
+    errors = Queue.new
+    insert_result = Queue.new
+    destroyer = nil
+    inserter = nil
+    pool = ActiveRecord::Base.connection_pool
+    pool.lock_thread = false
+    ActiveRecord::Base.clear_active_connections!
+
+    allow(EmojiReactionCacheInvalidator).to receive(:mark_for_custom_emoji_ids).and_wrap_original do |original, *args|
+      started << true
+      release.pop
+      original.call(*args)
+    end
+
+    destroyer = Thread.new do
+      with_dedicated_connection do
+        custom_emoji.destroy!
+      end
+    rescue StandardError => e
+      errors << e
+    end
+
+    Timeout.timeout(5) { started.pop }
+    inserter_pid = Queue.new
+
+    inserter = Thread.new do
+      with_dedicated_connection do
+        inserter_pid << ActiveRecord::Base.connection.raw_connection.backend_pid
+        EmojiReaction.create!(account: account, status: late_status, name: custom_emoji.shortcode, custom_emoji_id: custom_emoji.id)
+        insert_result << :committed
+      end
+    rescue StandardError => e
+      insert_result << e
+    end
+
+    marked_pid = Timeout.timeout(5) { inserter_pid.pop }
+    blocked = false
+
+    Timeout.timeout(5) do
+      loop do
+        raise errors.pop unless errors.empty?
+        break unless inserter.alive?
+
+        waiting = ActiveRecord::Base.connection.select_value(
+          "SELECT COUNT(*) FROM pg_stat_activity WHERE pid = #{marked_pid.to_i} AND wait_event_type = 'Lock'"
+        )
+        if waiting.to_i.positive?
+          blocked = true
+          break
+        end
+
+        sleep 0.01
+      end
+    end
+
+    expect(blocked).to be(true), "inserter pid=#{marked_pid.inspect} alive=#{inserter.alive?}"
+
+    release << true
+    destroyer.join
+    inserter.join
+
+    expect(errors).to be_empty
+    expect(insert_result.pop).to be_a(ActiveRecord::InvalidForeignKey)
+    expect(EmojiReaction.where(custom_emoji_id: custom_emoji.id)).to be_empty
+    stat = StatusStat.find_by!(status_id: status.id)
+    expect(stat.emoji_reactions_cache_dirty).to be true
+    expect(stat.emoji_reactions_cache).to include('lockmoji')
+    expect(RefreshDirtyEmojiReactionCachesWorker).to have_received(:perform_async)
+  ensure
+    release << true if defined?(release) && release
+    destroyer&.join(2)
+    inserter&.join(2)
+    pool.lock_thread = true if defined?(pool) && pool
+    ActiveRecord::Base.clear_active_connections!
+    if defined?(custom_emoji) && custom_emoji&.id
+      EmojiReaction.where(custom_emoji_id: custom_emoji.id).delete_all
+      CustomEmoji.where(id: custom_emoji.id).delete_all
+    end
+    status_ids = []
+    status_ids << status.id if defined?(status) && status&.id
+    status_ids << late_status.id if defined?(late_status) && late_status&.id
+    StatusStat.where(status_id: status_ids).delete_all
+    Status.unscoped.where(id: status_ids).delete_all
+    Account.where(id: account.id).delete_all if defined?(account) && account&.id
   end
 end

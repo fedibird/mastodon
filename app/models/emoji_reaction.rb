@@ -65,7 +65,9 @@ class EmojiReaction < ApplicationRecord
     status.mark_grouped_emoji_reactions_dirty!
     status.refresh_grouped_emoji_reactions!
   rescue StandardError
-    RefreshEmojiReactionCacheWorker.perform_async(status_id)
+    # force: the dirty mark itself may have raised, leaving the row clean.
+    # A non-force worker would then no-op.
+    RefreshEmojiReactionCacheWorker.perform_async(status_id, true)
     raise
   end
 end

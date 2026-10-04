@@ -52,6 +52,10 @@ class RefreshDirtyEmojiReactionCachesWorker
     true
   rescue StandardError => e
     Rails.logger.error("Failed to refresh emoji reaction cache for status #{status_id}: #{e.class}: #{e.message}")
+    # Hand the dirty row to the per-status worker. Its retry: 1 covers a
+    # transient failure without scanning this poison id from the batch worker
+    # again on the next tick.
+    RefreshEmojiReactionCacheWorker.perform_async(status_id)
     false
   end
 

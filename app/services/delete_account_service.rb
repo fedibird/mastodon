@@ -156,7 +156,7 @@ class DeleteAccountService < BaseService
 
     unless keep_account_record?
       tombstone_moderation_subject!
-      @account.destroy
+      destroy_account_with_remaining_emoji_reactions!
     end
   end
 
@@ -227,6 +227,30 @@ class DeleteAccountService < BaseService
     end
 
     RefreshDirtyEmojiReactionCachesWorker.perform_async if deleted
+  end
+
+  # purge_emoji_reactions! finishes before feeds and other associations are
+  # removed. A reaction committed in that window is deleted by
+  # emoji_reactions.account_id ON DELETE CASCADE when the account row goes,
+  # which skips EmojiReaction callbacks. Lock the account for the final
+  # delete so a referencing INSERT cannot commit until this transaction does:
+  # either the reaction is visible here and dirtied, or the INSERT fails the
+  # foreign key after the account is gone.
+  def destroy_account_with_remaining_emoji_reactions!
+    remaining = false
+
+    Account.transaction do
+      Account.where(id: @account.id).lock('FOR UPDATE').pick(:id)
+      reactions = @account.emoji_reactions
+      if reactions.exists?
+        EmojiReactionCacheInvalidator.mark_for_emoji_reactions(reactions)
+        reactions.delete_all
+        remaining = true
+      end
+      @account.destroy
+    end
+
+    RefreshDirtyEmojiReactionCachesWorker.perform_async if remaining
   end
 
   def purge_other_associations!

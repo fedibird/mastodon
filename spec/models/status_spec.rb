@@ -493,8 +493,10 @@ RSpec.describe Status, type: :model do
       expect(stat.emoji_reactions_count).to eq 3
     end
 
-    it 'marks a row dirty without rewriting the stored cache' do
+    it 'marks a row dirty without rewriting the stored cache or updated_at' do
       stat = StatusStat.create!(status: status, emoji_reactions_cache: 'cached', emoji_reactions_count: 2, replies_count: 4, emoji_reactions_cache_dirty: false)
+      stat.update_columns(updated_at: Time.zone.parse('2020-01-01 00:00:00'))
+      original_updated_at = stat.reload.updated_at
 
       status.mark_grouped_emoji_reactions_dirty!
 
@@ -503,6 +505,20 @@ RSpec.describe Status, type: :model do
       expect(stat.emoji_reactions_cache).to eq 'cached'
       expect(stat.emoji_reactions_count).to eq 2
       expect(stat.replies_count).to eq 4
+      expect(stat.updated_at).to eq original_updated_at
+    end
+
+    it 'advances updated_at when an authoritative refresh succeeds' do
+      stat = StatusStat.create!(status: status, emoji_reactions_cache: 'cached', emoji_reactions_count: 2, emoji_reactions_cache_dirty: true)
+      stat.update_columns(updated_at: Time.zone.parse('2020-01-01 00:00:00'))
+      original_updated_at = stat.reload.updated_at
+
+      status.refresh_grouped_emoji_reactions!
+
+      stat.reload
+      expect(stat.emoji_reactions_cache_dirty).to be false
+      expect(stat.emoji_reactions_count).to eq 0
+      expect(stat.updated_at).to be > original_updated_at
     end
   end
 end

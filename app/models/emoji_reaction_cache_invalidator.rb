@@ -13,8 +13,7 @@ class EmojiReactionCacheInvalidator
         INSERT INTO status_stats (status_id, emoji_reactions_cache_dirty, created_at, updated_at)
         VALUES (:status_id, TRUE, LOCALTIMESTAMP, LOCALTIMESTAMP)
         ON CONFLICT (status_id) DO UPDATE
-        SET emoji_reactions_cache_dirty = TRUE,
-            updated_at = LOCALTIMESTAMP
+        SET emoji_reactions_cache_dirty = TRUE
       SQL
 
       StatusStat.connection.exec_update(sql, 'SQL')
@@ -30,8 +29,7 @@ class EmojiReactionCacheInvalidator
         FROM emoji_reactions
         WHERE emoji_reactions.custom_emoji_id IN (:ids)
         ON CONFLICT (status_id) DO UPDATE
-        SET emoji_reactions_cache_dirty = TRUE,
-            updated_at = LOCALTIMESTAMP
+        SET emoji_reactions_cache_dirty = TRUE
       SQL
 
       StatusStat.connection.exec_update(sql, 'SQL')
@@ -47,8 +45,7 @@ class EmojiReactionCacheInvalidator
         SELECT DISTINCT affected.status_id, TRUE, LOCALTIMESTAMP, LOCALTIMESTAMP
         FROM (#{subquery.to_sql}) AS affected
         ON CONFLICT (status_id) DO UPDATE
-        SET emoji_reactions_cache_dirty = TRUE,
-            updated_at = LOCALTIMESTAMP
+        SET emoji_reactions_cache_dirty = TRUE
       SQL
 
       StatusStat.connection.exec_update(sql, 'SQL')

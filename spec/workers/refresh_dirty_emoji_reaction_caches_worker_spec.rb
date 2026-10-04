@@ -60,4 +60,27 @@ describe RefreshDirtyEmojiReactionCachesWorker do
     expect(other.status_stat.reload.emoji_reactions_cache_dirty).to be true
     expect(described_class).to have_received(:perform_async).at_least(:once)
   end
+
+  it 'hands a failed status to the per-status worker without rescanning it immediately' do
+    failing, healthy = [Fabricate(:status), Fabricate(:status)].sort_by(&:id)
+    dirty_stat(failing, cache: 'stale', count: 2)
+    dirty_stat(healthy, cache: 'old', count: 1)
+    allow(RefreshEmojiReactionCacheWorker).to receive(:perform_async)
+    allow(described_class).to receive(:perform_async)
+    allow_any_instance_of(Status).to receive(:generate_grouped_emoji_reactions).and_wrap_original do |method, *args|
+      raise StandardError, 'boom' if method.receiver.id == failing.id
+
+      method.call(*args)
+    end
+
+    worker.perform
+
+    expect(healthy.status_stat.reload.emoji_reactions_cache_dirty).to be false
+    failing_stat = failing.status_stat.reload
+    expect(failing_stat.emoji_reactions_cache_dirty).to be true
+    expect(failing_stat.emoji_reactions_cache).to eq 'stale'
+    expect(failing_stat.emoji_reactions_count).to eq 2
+    expect(RefreshEmojiReactionCacheWorker).to have_received(:perform_async).with(failing.id)
+    expect(described_class).not_to have_received(:perform_async)
+  end
 end

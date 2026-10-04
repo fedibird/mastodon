@@ -38,6 +38,38 @@ RSpec.describe EmojiReaction, type: :model do
 
     expect(described_class.where(account: account, status: status, name: '👍')).to exist
     expect(status.status_stat.reload.emoji_reactions_cache_dirty).to be true
-    expect(RefreshEmojiReactionCacheWorker).to have_received(:perform_async).with(status.id)
+    expect(RefreshEmojiReactionCacheWorker).to have_received(:perform_async).with(status.id, true)
+  end
+
+  it 'enqueues a force rebuild when marking the cache dirty fails' do
+    allow(RefreshEmojiReactionCacheWorker).to receive(:perform_async)
+    allow(EmojiReactionCacheInvalidator).to receive(:mark_status!).and_raise(StandardError, 'mark failed')
+
+    expect do
+      described_class.create!(account: account, status: status, name: '👍')
+    end.to raise_error(StandardError, 'mark failed')
+
+    expect(described_class.where(account: account, status: status, name: '👍')).to exist
+    expect(StatusStat.find_by(status_id: status.id)&.emoji_reactions_cache_dirty).not_to be true
+    expect(RefreshEmojiReactionCacheWorker).to have_received(:perform_async).with(status.id, true)
+  end
+
+  it 'rebuilds the committed reaction when the force fallback worker runs after a dirty-mark failure' do
+    calls = 0
+    allow(EmojiReactionCacheInvalidator).to receive(:mark_status!).and_wrap_original do |original, status_id|
+      calls += 1
+      raise StandardError, 'mark failed' if calls == 1
+
+      original.call(status_id)
+    end
+
+    expect do
+      described_class.create!(account: account, status: status, name: '👍')
+    end.to raise_error(StandardError, 'mark failed')
+
+    stat = status.status_stat.reload
+    expect(stat.emoji_reactions_count).to eq 1
+    expect(stat.emoji_reactions_cache_dirty).to be false
+    expect(Oj.load(stat.emoji_reactions_cache, mode: :strict).first['name']).to eq '👍'
   end
 end

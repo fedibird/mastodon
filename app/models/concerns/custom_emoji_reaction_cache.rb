@@ -21,33 +21,59 @@ module CustomEmojiReactionCache
   ).freeze
 
   included do
-    before_update :mark_emoji_reaction_caches_dirty, if: :emoji_reaction_cache_attributes_changing?
+    before_update :remember_emoji_reaction_cache_invalidation, if: :emoji_reaction_cache_attributes_changing?
     before_destroy :mark_emoji_reaction_caches_dirty
-    after_commit :enqueue_dirty_emoji_reaction_cache_refresh, on: [:update, :destroy]
+    after_commit :invalidate_emoji_reaction_caches_after_update, on: :update
+    after_commit :enqueue_dirty_emoji_reaction_cache_refresh, on: :destroy
     after_rollback :clear_emoji_reaction_cache_invalidation_flag
   end
 
   private
 
+  # Snapshot the affected statuses only after this update commits. A reaction
+  # that committed while the update was in flight is then visible to the
+  # set-based query. A reaction that commits later refreshes itself.
+  def remember_emoji_reaction_cache_invalidation
+    @emoji_reaction_cache_invalidated = true
+  end
+
+  def invalidate_emoji_reaction_caches_after_update
+    return unless @emoji_reaction_cache_invalidated
+
+    clear_emoji_reaction_cache_invalidation_flag
+    EmojiReactionCacheInvalidator.mark_for_custom_emoji_ids(id)
+    RefreshDirtyEmojiReactionCachesWorker.perform_async
+  end
+
   def mark_emoji_reaction_caches_dirty
-    # Reactions still exist here, including during destroy, before the
-    # custom_emoji_id ON DELETE CASCADE removes them.
+    lock_custom_emoji_for_destroy!
+    # Reactions still exist here, before custom_emoji_id ON DELETE CASCADE.
+    # The row lock above is held until the destroy transaction commits, so an
+    # insert that references this emoji cannot commit in between the snapshot
+    # and the DELETE.
     return unless EmojiReaction.exists?(custom_emoji_id: id)
 
     EmojiReactionCacheInvalidator.mark_for_custom_emoji_ids(id)
-    # INSERT ... ON CONFLICT rowcounts are not a reliable signal that the
-    # statement wrote, so the commit callback keys off this flag instead.
     @emoji_reaction_cache_invalidated = true
+  end
+
+  def lock_custom_emoji_for_destroy!
+    locked_id = self.class.where(id: id).lock('FOR UPDATE').pick(:id)
+    return if locked_id.present?
+
+    raise ActiveRecord::RecordNotFound, "Couldn't lock CustomEmoji #{id}"
   end
 
   def enqueue_dirty_emoji_reaction_cache_refresh
     return unless @emoji_reaction_cache_invalidated
 
-    @emoji_reaction_cache_invalidated = false
+    clear_emoji_reaction_cache_invalidation_flag
     RefreshDirtyEmojiReactionCachesWorker.perform_async
   end
 
   def clear_emoji_reaction_cache_invalidation_flag
+    return if frozen?
+
     @emoji_reaction_cache_invalidated = false
   end
 

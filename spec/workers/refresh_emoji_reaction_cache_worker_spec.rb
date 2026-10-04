@@ -27,6 +27,20 @@ describe RefreshEmojiReactionCacheWorker do
     expect(stat.emoji_reactions_cache_dirty).to be false
   end
 
+  it 'rebuilds a clean cache when force is true' do
+    status = Fabricate(:status)
+    account = Fabricate(:account)
+    EmojiReaction.create!(account: account, status: status, name: '👍')
+    status.status_stat.update!(emoji_reactions_cache: '[]', emoji_reactions_count: 0, emoji_reactions_cache_dirty: false)
+
+    worker.perform(status.id, true)
+
+    stat = status.status_stat.reload
+    expect(stat.emoji_reactions_count).to eq 1
+    expect(stat.emoji_reactions_cache_dirty).to be false
+    expect(Oj.load(stat.emoji_reactions_cache, mode: :strict).first['name']).to eq '👍'
+  end
+
   it 'does nothing when the cache is clean' do
     status = Fabricate(:status)
     StatusStat.create!(status: status, emoji_reactions_cache: 'keep', emoji_reactions_count: 2, emoji_reactions_cache_dirty: false)
