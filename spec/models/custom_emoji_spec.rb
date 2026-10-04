@@ -238,6 +238,40 @@ RSpec.describe CustomEmoji, type: :model do
       expect_dirty
     end
 
+    it 'dirties related statuses when the image storage schema version changes' do
+      custom_emoji.update!(image_storage_schema_version: custom_emoji.image_storage_schema_version.to_i + 1)
+
+      expect_dirty
+    end
+
+    it 'enqueues a post-process retry when the after-commit dirty mark fails' do
+      calls = 0
+      allow(EmojiReactionCacheInvalidator).to receive(:mark_for_custom_emoji_ids).and_wrap_original do |original, ids|
+        calls += 1
+        raise StandardError, 'mark failed' if calls == 1
+
+        original.call(ids)
+      end
+
+      expect do
+        custom_emoji.update!(alternate_name: '更新後')
+      end.to raise_error(StandardError, 'mark failed')
+
+      expect(custom_emoji.reload.alternate_name).to eq '更新後'
+      expect(status.status_stat.reload.emoji_reactions_cache_dirty).to be false
+      expect(PostProcessEmojiReactionCacheWorker).to have_received(:perform_async).with([custom_emoji.id])
+      expect(RefreshDirtyEmojiReactionCachesWorker).not_to have_received(:perform_async)
+
+      PostProcessEmojiReactionCacheWorker.new.perform([custom_emoji.id])
+
+      expect(status.status_stat.reload.emoji_reactions_cache_dirty).to be true
+
+      status.refresh_grouped_emoji_reactions!
+      payload = Oj.load(status.status_stat.reload.emoji_reactions_cache, mode: :strict).first
+      expect(payload['alternate_name']).to eq '更新後'
+      expect(status.status_stat.emoji_reactions_cache_dirty).to be false
+    end
+
     it 'does not dirty statuses for metadata that is absent from the reaction cache' do
       custom_emoji.update!(description: 'not cached', license: 'CC0', visible_in_picker: false, creator: 'artist')
 

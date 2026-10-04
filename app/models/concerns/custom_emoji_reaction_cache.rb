@@ -3,8 +3,9 @@
 module CustomEmojiReactionCache
   extend ActiveSupport::Concern
 
-  # Attributes copied into REST::GroupedEmojiReactionSerializer, plus shortcode.
+  # Attributes that change REST::GroupedEmojiReactionSerializer output, plus shortcode.
   # disabled also decides whether a reaction is included via EmojiReaction.enabled.
+  # image_storage_schema_version changes the Paperclip prefix used for url and static_url.
   REACTION_CACHE_ATTRIBUTES = %w(
     disabled
     shortcode
@@ -18,6 +19,7 @@ module CustomEmojiReactionCache
     image_file_size
     image_updated_at
     image_remote_url
+    image_storage_schema_version
   ).freeze
 
   included do
@@ -41,8 +43,15 @@ module CustomEmojiReactionCache
     return unless @emoji_reaction_cache_invalidated
 
     clear_emoji_reaction_cache_invalidation_flag
+
     EmojiReactionCacheInvalidator.mark_for_custom_emoji_ids(id)
     RefreshDirtyEmojiReactionCachesWorker.perform_async
+  rescue StandardError
+    # after_commit runs after the emoji row is committed, so a failed mark
+    # cannot roll the new metadata back. Retry by id; the same attribute
+    # values will not look changed on a later save.
+    PostProcessEmojiReactionCacheWorker.perform_async([id])
+    raise
   end
 
   def mark_emoji_reaction_caches_dirty
