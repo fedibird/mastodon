@@ -167,4 +167,102 @@ RSpec.describe CustomEmoji, type: :model do
       expect(custom_emoji.domain).to eq('www.mastodon.com')
     end
   end
+
+  describe 'emoji reaction cache invalidation' do
+    let(:custom_emoji) { Fabricate(:custom_emoji, shortcode: 'cachemoji') }
+    let(:status) { Fabricate(:status) }
+    let(:account) { Fabricate(:account) }
+
+    before do
+      allow(RefreshDirtyEmojiReactionCachesWorker).to receive(:perform_async)
+      allow(PostProcessEmojiReactionCacheWorker).to receive(:perform_async)
+      EmojiReaction.create!(account: account, status: status, name: custom_emoji.shortcode, custom_emoji: custom_emoji)
+      status.status_stat.update!(emoji_reactions_cache_dirty: false)
+    end
+
+    def expect_dirty
+      expect(status.status_stat.reload.emoji_reactions_cache_dirty).to be true
+      expect(RefreshDirtyEmojiReactionCachesWorker).to have_received(:perform_async)
+      expect(PostProcessEmojiReactionCacheWorker).not_to have_received(:perform_async)
+    end
+
+    it 'dirties related statuses when the emoji is disabled' do
+      custom_emoji.update!(disabled: true)
+
+      expect_dirty
+    end
+
+    it 'dirties related statuses when a disabled emoji is enabled' do
+      custom_emoji.update!(disabled: true)
+      status.status_stat.update!(emoji_reactions_cache_dirty: false)
+
+      custom_emoji.update!(disabled: false)
+
+      expect(status.status_stat.reload.emoji_reactions_cache_dirty).to be true
+      expect(RefreshDirtyEmojiReactionCachesWorker).to have_received(:perform_async).twice
+    end
+
+    it 'dirties related statuses when the image timestamp changes' do
+      custom_emoji.update!(image_updated_at: 1.hour.from_now)
+
+      expect_dirty
+    end
+
+    it 'dirties related statuses when dimensions change' do
+      custom_emoji.update!(width: 12, height: 13)
+
+      expect_dirty
+    end
+
+    it 'dirties related statuses when alternate_name changes' do
+      custom_emoji.update!(alternate_name: '別')
+
+      expect_dirty
+    end
+
+    it 'dirties related statuses when ruby changes' do
+      custom_emoji.update!(ruby: 'るび')
+
+      expect_dirty
+    end
+
+    it 'dirties related statuses when the shortcode changes' do
+      custom_emoji.update!(shortcode: 'cachemoji2')
+
+      expect_dirty
+    end
+
+    it 'dirties related statuses when the domain changes' do
+      custom_emoji.update!(domain: 'emoji.example')
+
+      expect_dirty
+    end
+
+    it 'does not dirty statuses for metadata that is absent from the reaction cache' do
+      custom_emoji.update!(description: 'not cached', license: 'CC0', visible_in_picker: false, creator: 'artist')
+
+      expect(status.status_stat.reload.emoji_reactions_cache_dirty).to be false
+      expect(RefreshDirtyEmojiReactionCachesWorker).not_to have_received(:perform_async)
+    end
+
+    it 'leaves the status dirty after destroy cascades the reaction rows away' do
+      custom_emoji.destroy!
+
+      expect(EmojiReaction.where(custom_emoji_id: custom_emoji.id)).to be_empty
+      expect(status.status_stat.reload.emoji_reactions_cache_dirty).to be true
+      expect(RefreshDirtyEmojiReactionCachesWorker).to have_received(:perform_async)
+    end
+
+    it 'does not keep a dirty mark when destroy rolls back' do
+      CustomEmoji.transaction do
+        custom_emoji.destroy!
+        raise ActiveRecord::Rollback
+      end
+
+      expect(custom_emoji.reload).to be_persisted
+      expect(EmojiReaction.where(custom_emoji: custom_emoji)).to exist
+      expect(status.status_stat.reload.emoji_reactions_cache_dirty).to be false
+      expect(RefreshDirtyEmojiReactionCachesWorker).not_to have_received(:perform_async)
+    end
+  end
 end

@@ -216,11 +216,17 @@ class DeleteAccountService < BaseService
   end
 
   def purge_emoji_reactions!
+    deleted = false
+
     @account.emoji_reactions.in_batches do |emoji_reactions|
-      ids = emoji_reactions.pluck(:status_id).uniq
-      emoji_reactions.delete_all
-      Status.where(id: ids).map(&:refresh_grouped_emoji_reactions!)
+      EmojiReaction.transaction do
+        EmojiReactionCacheInvalidator.mark_for_emoji_reactions(emoji_reactions)
+        emoji_reactions.delete_all
+      end
+      deleted = true
     end
+
+    RefreshDirtyEmojiReactionCachesWorker.perform_async if deleted
   end
 
   def purge_other_associations!

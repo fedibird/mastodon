@@ -21,10 +21,17 @@ module Mastodon
     option :concurrency, type: :numeric, default: 5, aliases: [:c]
     option :verbose, type: :boolean, aliases: [:v]
     option :reaction_only, type: :boolean
+    option :dirty_only, type: :boolean
     desc 'recount TYPE', 'Update hard-cached counters'
     long_desc <<~LONG_DESC
       Update hard-cached counters of TYPE by counting referenced
-      records from scratch. TYPE can be "accounts" or "statuses".
+      records from scratch. TYPE can be "accounts", "statuses", or
+      "emoji-reactions".
+
+      `emoji-reactions` rebuilds only emoji reaction caches. It includes
+      statuses that still have reactions, a stored cache or count, or a
+      dirty flag, so a cache left behind after reactions were removed is
+      repaired too. `--dirty-only` limits that rebuild to dirty rows.
 
       It may take a very long time to finish, depending on the
       size of the database.
@@ -40,14 +47,17 @@ module Mastodon
         statuses = statuses.joins(:emoji_reactions).distinct if options[:reaction_only]
 
         processed, = parallelize_with_progress(statuses) do |status|
-          status_stat                       = status.status_stat
-          status_stat.replies_count         = status.replies.where.not(visibility: :direct).count
-          status_stat.reblogs_count         = status.reblogs.count
-          status_stat.favourites_count      = status.favourites.count
-          status_stat.emoji_reactions_count = status.emoji_reactions.count
-          status_stat.emoji_reactions_cache = status.generate_grouped_emoji_reactions
-
+          status_stat                  = status.status_stat
+          status_stat.replies_count    = status.replies.where.not(visibility: :direct).count
+          status_stat.reblogs_count    = status.reblogs.count
+          status_stat.favourites_count = status.favourites.count
           status_stat.save if status_stat.changed?
+
+          status.refresh_grouped_emoji_reactions!(force: true)
+        end
+      when 'emoji-reactions'
+        processed, = parallelize_with_progress(emoji_reaction_recount_scope) do |status|
+          status.refresh_grouped_emoji_reactions!(force: true)
         end
       else
         say("Unknown type: #{type}", :red)
@@ -56,6 +66,25 @@ module Mastodon
 
       say
       say("OK, recounted #{processed} records", :green)
+    end
+
+    private
+
+    def emoji_reaction_recount_scope
+      if options[:dirty_only]
+        return Status.unscoped.where(id: StatusStat.where(emoji_reactions_cache_dirty: true).select(:status_id))
+      end
+
+      Status.unscoped.where(<<~SQL.squish)
+        statuses.id IN (
+          SELECT status_id FROM status_stats
+          WHERE emoji_reactions_cache_dirty = TRUE
+             OR emoji_reactions_count > 0
+             OR emoji_reactions_cache <> ''
+          UNION
+          SELECT DISTINCT status_id FROM emoji_reactions
+        )
+      SQL
     end
   end
 end

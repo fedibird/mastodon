@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_02_120000) do
+ActiveRecord::Schema.define(version: 2026_10_04_133000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1437,10 +1437,12 @@ ActiveRecord::Schema.define(version: 2026_10_02_120000) do
     t.bigint "favourites_count", default: 0, null: false
     t.bigint "emoji_reactions_count", default: 0, null: false
     t.string "emoji_reactions_cache", default: "", null: false
+    t.boolean "emoji_reactions_cache_dirty", default: false, null: false
     t.bigint "status_references_count", default: 0, null: false
     t.bigint "status_referred_by_count", default: 0, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.index ["status_id"], name: "index_status_stats_on_dirty_emoji_reactions_cache", where: "(emoji_reactions_cache_dirty = true)"
     t.index ["status_id"], name: "index_status_stats_on_status_id", unique: true
   end
 

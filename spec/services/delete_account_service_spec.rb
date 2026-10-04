@@ -96,4 +96,29 @@ RSpec.describe DeleteAccountService, type: :service do
       end
     end
   end
+
+  describe 'emoji reaction purge' do
+    let(:author) { Fabricate(:account) }
+    let(:reactor) { Fabricate(:account) }
+    let(:status) { Fabricate(:status, account: author) }
+
+    before do
+      EmojiReaction.create!(account: reactor, status: status, name: '👍')
+      allow(RefreshDirtyEmojiReactionCachesWorker).to receive(:perform_async)
+    end
+
+    it 'dirties affected statuses around delete_all and rebuilds without the deleted reaction' do
+      described_class.new.call(reactor, reserve_username: false, skip_side_effects: true)
+
+      expect(EmojiReaction.where(status: status, account: reactor)).to be_empty
+      expect(status.status_stat.reload.emoji_reactions_cache_dirty).to be true
+      expect(RefreshDirtyEmojiReactionCachesWorker).to have_received(:perform_async)
+
+      status.refresh_grouped_emoji_reactions!
+      stat = status.status_stat.reload
+      expect(stat.emoji_reactions_count).to eq 0
+      expect(stat.emoji_reactions_cache_dirty).to be false
+      expect(Oj.load(stat.emoji_reactions_cache.presence || '[]', mode: :strict)).to eq []
+    end
+  end
 end

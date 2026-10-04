@@ -379,29 +379,47 @@ RSpec.describe Status, type: :model do
     let(:cached_reactions) { [{ 'name' => '👍', 'count' => 1, 'account_ids' => [alice.id.to_s] }] }
     let(:visible_cached_reactions) { cached_reactions.map { |reaction| reaction.merge('me' => false) } }
 
-    def persist_emoji_reaction_stat(updated_at:, emoji_reactions_count:, emoji_reactions_cache:)
-      stat = StatusStat.create!(status: status, emoji_reactions_count: emoji_reactions_count, emoji_reactions_cache: emoji_reactions_cache, created_at: updated_at, updated_at: updated_at)
+    def persist_emoji_reaction_stat(updated_at:, emoji_reactions_count:, emoji_reactions_cache:, dirty: false)
+      stat = StatusStat.create!(status: status, emoji_reactions_count: emoji_reactions_count, emoji_reactions_cache: emoji_reactions_cache, emoji_reactions_cache_dirty: dirty, created_at: updated_at, updated_at: updated_at)
       stat.update_columns(created_at: updated_at, updated_at: updated_at)
       status.association(:status_stat).reset
       stat
     end
 
-    it 'returns a stale cache and refreshes it outside the request' do
-      persist_emoji_reaction_stat(updated_at: 2.days.ago, emoji_reactions_count: 1, emoji_reactions_cache: cached_reactions.to_json)
+    before do
       allow(RefreshEmojiReactionCacheWorker).to receive(:perform_async)
+      allow(RefreshDirtyEmojiReactionCachesWorker).to receive(:perform_async)
+    end
+
+    it 'returns a stored cache older than a day without enqueueing a refresh' do
+      persist_emoji_reaction_stat(updated_at: 2.days.ago, emoji_reactions_count: 1, emoji_reactions_cache: cached_reactions.to_json)
       expect(status).not_to receive(:refresh_grouped_emoji_reactions!)
 
       expect(status.grouped_emoji_reactions).to eq visible_cached_reactions
-      expect(RefreshEmojiReactionCacheWorker).to have_received(:perform_async).with(status.id)
+      expect(RefreshEmojiReactionCacheWorker).not_to have_received(:perform_async)
+      expect(RefreshDirtyEmojiReactionCachesWorker).not_to have_received(:perform_async)
       expect(status.status_stat.reload.emoji_reactions_cache).to eq cached_reactions.to_json
       expect(status.status_stat.updated_at).to be <= 1.day.ago
+      expect(status.status_stat.emoji_reactions_cache_dirty).to be false
     end
 
-    it 'returns a fresh cache without enqueueing a refresh' do
-      persist_emoji_reaction_stat(updated_at: Time.current, emoji_reactions_count: 1, emoji_reactions_cache: cached_reactions.to_json)
-      expect(RefreshEmojiReactionCacheWorker).not_to receive(:perform_async)
+    it 'returns a recently updated stale cache without treating updated_at as freshness' do
+      persist_emoji_reaction_stat(updated_at: Time.current, emoji_reactions_count: 4, emoji_reactions_cache: cached_reactions.to_json)
+      expect(status).not_to receive(:refresh_grouped_emoji_reactions!)
 
       expect(status.grouped_emoji_reactions).to eq visible_cached_reactions
+      expect(RefreshEmojiReactionCacheWorker).not_to have_received(:perform_async)
+      expect(status.status_stat.reload.emoji_reactions_count).to eq 4
+    end
+
+    it 'returns a dirty cache without repairing it on read' do
+      persist_emoji_reaction_stat(updated_at: 2.days.ago, emoji_reactions_count: 1, emoji_reactions_cache: cached_reactions.to_json, dirty: true)
+      expect(status).not_to receive(:refresh_grouped_emoji_reactions!)
+
+      expect(status.grouped_emoji_reactions).to eq visible_cached_reactions
+      expect(RefreshEmojiReactionCacheWorker).not_to have_received(:perform_async)
+      expect(status.status_stat.reload.emoji_reactions_cache_dirty).to be true
+      expect(status.status_stat.emoji_reactions_cache).to eq cached_reactions.to_json
     end
 
     it 'returns an empty list for a status with no persisted stat or reactions' do
@@ -412,22 +430,183 @@ RSpec.describe Status, type: :model do
       expect(StatusStat.where(status_id: status.id)).not_to exist
     end
 
-    it 'does not refresh a stale stat that has no reactions and a blank cache' do
-      persist_emoji_reaction_stat(updated_at: 2.days.ago, emoji_reactions_count: 0, emoji_reactions_cache: '')
-      expect(RefreshEmojiReactionCacheWorker).not_to receive(:perform_async)
-
-      expect(status.grouped_emoji_reactions).to eq []
-      expect(status.status_stat.reload.updated_at).to be <= 1.day.ago
-    end
-
-    it 'enqueues a refresh when a stale stat has a count but a blank cache' do
+    it 'does not use status_stats.updated_at to decide that a blank cache needs rebuilding' do
       persist_emoji_reaction_stat(updated_at: 2.days.ago, emoji_reactions_count: 1, emoji_reactions_cache: '')
-      allow(RefreshEmojiReactionCacheWorker).to receive(:perform_async)
       expect(status).not_to receive(:refresh_grouped_emoji_reactions!)
 
       expect(status.grouped_emoji_reactions).to eq []
-      expect(RefreshEmojiReactionCacheWorker).to have_received(:perform_async).with(status.id)
+      expect(RefreshEmojiReactionCacheWorker).not_to have_received(:perform_async)
       expect(status.status_stat.reload.emoji_reactions_cache).to eq ''
     end
+
+    it 'does not define an age-based staleness check' do
+      expect(Status.private_instance_methods).not_to include(:emoji_reaction_cache_stale?)
+    end
+  end
+
+  describe 'emoji reaction cache refresh' do
+    let(:status) { Fabricate(:status, account: alice) }
+
+    it 'rebuilds a dirty cache and clears the flag' do
+      EmojiReaction.create!(account: alice, status: status, name: '👍')
+      status.status_stat.update!(emoji_reactions_cache: '[]', emoji_reactions_count: 0, emoji_reactions_cache_dirty: true)
+
+      status.refresh_grouped_emoji_reactions_if_dirty!
+
+      stat = status.status_stat.reload
+      expect(stat.emoji_reactions_count).to eq 1
+      expect(stat.emoji_reactions_cache_dirty).to be false
+      expect(Oj.load(stat.emoji_reactions_cache, mode: :strict).first['name']).to eq '👍'
+    end
+
+    it 'leaves a clean cache untouched' do
+      StatusStat.create!(status: status, emoji_reactions_cache: '[]', emoji_reactions_count: 0, emoji_reactions_cache_dirty: false)
+      expect(status).not_to receive(:generate_grouped_emoji_reactions)
+
+      status.refresh_grouped_emoji_reactions_if_dirty!
+
+      expect(status.status_stat.reload.emoji_reactions_cache).to eq '[]'
+      expect(status.status_stat.emoji_reactions_cache_dirty).to be false
+    end
+
+    it 'rebuilds when forced even if the row is clean' do
+      EmojiReaction.create!(account: alice, status: status, name: '👍')
+      status.status_stat.update!(emoji_reactions_cache: '[]', emoji_reactions_count: 0, emoji_reactions_cache_dirty: false)
+
+      status.refresh_grouped_emoji_reactions!(force: true)
+
+      stat = status.status_stat.reload
+      expect(stat.emoji_reactions_count).to eq 1
+      expect(stat.emoji_reactions_cache_dirty).to be false
+      expect(Oj.load(stat.emoji_reactions_cache, mode: :strict).first['count']).to eq 1
+    end
+
+    it 'keeps the dirty flag when rebuilding raises' do
+      stat = StatusStat.create!(status: status, emoji_reactions_cache: '[]', emoji_reactions_count: 3, emoji_reactions_cache_dirty: true)
+      allow(status).to receive(:generate_grouped_emoji_reactions).and_raise(StandardError, 'boom')
+
+      expect { status.refresh_grouped_emoji_reactions! }.to raise_error(StandardError, 'boom')
+
+      stat.reload
+      expect(stat.emoji_reactions_cache_dirty).to be true
+      expect(stat.emoji_reactions_cache).to eq '[]'
+      expect(stat.emoji_reactions_count).to eq 3
+    end
+
+    it 'marks a row dirty without rewriting the stored cache' do
+      stat = StatusStat.create!(status: status, emoji_reactions_cache: 'cached', emoji_reactions_count: 2, replies_count: 4, emoji_reactions_cache_dirty: false)
+
+      status.mark_grouped_emoji_reactions_dirty!
+
+      stat.reload
+      expect(stat.emoji_reactions_cache_dirty).to be true
+      expect(stat.emoji_reactions_cache).to eq 'cached'
+      expect(stat.emoji_reactions_count).to eq 2
+      expect(stat.replies_count).to eq 4
+    end
+  end
+end
+
+RSpec.describe Status, 'emoji reaction cache lock', type: :model do
+  self.use_transactional_tests = false
+
+  # Transactional fixtures pin every thread to the main connection via
+  # lock_thread. A marker on that connection would run inside the refresh
+  # transaction and could not block on the row lock.
+  def with_dedicated_connection
+    pool = ActiveRecord::Base.connection_pool
+    pool.lock_thread = false
+    conn = pool.checkout
+    pool.instance_variable_get(:@thread_cached_conns)[Thread.current] = conn
+    yield
+  ensure
+    if conn
+      conn.rollback_db_transaction if conn.open_transactions.positive?
+      pool.instance_variable_get(:@thread_cached_conns)&.delete(Thread.current)
+      pool.checkin(conn)
+    end
+  end
+
+  it 'does not let a refresh clear a dirty mark that arrived while the cache was generated' do
+    account = Fabricate(:account)
+    status = Fabricate(:status, account: account)
+    StatusStat.create!(status: status, emoji_reactions_cache: '[]', emoji_reactions_count: 0, emoji_reactions_cache_dirty: true)
+
+    started = Queue.new
+    release = Queue.new
+    errors = Queue.new
+    refresher = nil
+    marker = nil
+    pool = ActiveRecord::Base.connection_pool
+    pool.lock_thread = false
+    ActiveRecord::Base.clear_active_connections!
+
+    allow(status).to receive(:generate_grouped_emoji_reactions).and_wrap_original do |original|
+      started << ActiveRecord::Base.connection.raw_connection.backend_pid
+      release.pop
+      original.call
+    end
+
+    refresher = Thread.new do
+      with_dedicated_connection do
+        status.refresh_grouped_emoji_reactions!
+      end
+    rescue StandardError => e
+      errors << e
+    end
+
+    refresher_pid = Timeout.timeout(5) { started.pop }
+    marker_pid = Queue.new
+
+    marker = Thread.new do
+      with_dedicated_connection do
+        marker_pid << ActiveRecord::Base.connection.raw_connection.backend_pid
+        Status.find(status.id).mark_grouped_emoji_reactions_dirty!
+      end
+    rescue StandardError => e
+      errors << e
+      marker_pid << nil
+    end
+
+    marked_pid = Timeout.timeout(5) { marker_pid.pop }
+    blocked = false
+
+    Timeout.timeout(5) do
+      loop do
+        raise errors.pop unless errors.empty?
+        break unless marker.alive?
+
+        waiting = ActiveRecord::Base.connection.select_value(
+          "SELECT COUNT(*) FROM pg_stat_activity WHERE pid = #{marked_pid.to_i} AND wait_event_type = 'Lock'"
+        )
+        if waiting.to_i.positive?
+          blocked = true
+          break
+        end
+
+        sleep 0.01
+      end
+    end
+
+    expect(blocked).to be(true), "marker pid=#{marked_pid.inspect} refresher pid=#{refresher_pid.inspect} marker_alive=#{marker.alive?}"
+
+    release << true
+    refresher.join
+    marker.join
+
+    expect(errors).to be_empty
+    expect(StatusStat.find_by!(status_id: status.id).emoji_reactions_cache_dirty).to be true
+  ensure
+    release << true if defined?(release) && release
+    refresher&.join(2)
+    marker&.join(2)
+    pool.lock_thread = true if defined?(pool) && pool
+    ActiveRecord::Base.clear_active_connections!
+    if defined?(status) && status&.id
+      StatusStat.where(status_id: status.id).delete_all
+      EmojiReaction.where(status_id: status.id).delete_all
+      Status.unscoped.where(id: status.id).delete_all
+    end
+    Account.where(id: account.id).delete_all if defined?(account) && account&.id
   end
 end

@@ -532,12 +532,7 @@ class Status < ApplicationRecord
   end
 
   def grouped_emoji_reactions(account = nil)
-    stat = status_stat
-    cache = stat&.emoji_reactions_cache
-
-    # Stale caches stay on the request path. A unique worker refreshes them
-    # afterwards so a page of old statuses cannot re-aggregate in the request.
-    RefreshEmojiReactionCacheWorker.perform_async(id) if emoji_reaction_cache_stale?(stat)
+    cache = status_stat&.emoji_reactions_cache
 
     (Oj.load(cache || '', mode: :strict) || []).then do |emoji_reactions|
       @emoji_reactions_count = 0
@@ -565,28 +560,34 @@ class Status < ApplicationRecord
     Oj.dump(ActiveModelSerializers::SerializableResource.new(records, each_serializer: REST::GroupedEmojiReactionSerializer, scope: nil, scope_name: :current_user))
   end
 
-  def refresh_grouped_emoji_reactions!
-    generate_grouped_emoji_reactions.tap do |emoji_reactions_cache|
-      updated_at = Time.current
+  def mark_grouped_emoji_reactions_dirty!
+    EmojiReactionCacheInvalidator.mark_status!(id)
+    association(:status_stat).reset
+  end
 
-      result = StatusStat.upsert(
-        {
-          status_id: id,
-          emoji_reactions_count: emoji_reactions.count,
-          emoji_reactions_cache: emoji_reactions_cache,
-          created_at: updated_at,
-          updated_at: updated_at,
-        },
-        unique_by: :status_id
+  # Authoritative rebuild. `force: false` is a no-op when the row is clean.
+  # Generation, the count, and clearing dirty share one row lock so a mutation
+  # that marks the row while this rebuild runs cannot be overwritten by a
+  # stale dirty=false.
+  def refresh_grouped_emoji_reactions!(force: true)
+    stat = emoji_reaction_status_stat_for_refresh(force)
+    return if stat.nil?
+
+    stat.with_lock do
+      next unless force || stat.emoji_reactions_cache_dirty?
+
+      stat.update!(
+        emoji_reactions_cache: generate_grouped_emoji_reactions,
+        emoji_reactions_count: emoji_reactions.count,
+        emoji_reactions_cache_dirty: false
       )
-
-      status_stat_id = result.first['id']
-
-      if association(:status_stat).loaded?
-        status_stat.id = status_stat_id if status_stat.new_record?
-        status_stat.reload
-      end
     end
+  ensure
+    association(:status_stat).reset
+  end
+
+  def refresh_grouped_emoji_reactions_if_dirty!
+    refresh_grouped_emoji_reactions!(force: false)
   end
 
   def referred_by_statuses(account)
@@ -760,13 +761,13 @@ class Status < ApplicationRecord
 
   private
 
-  # Daily self-heal for a cache that write-through or the custom-emoji worker
-  # may have missed. Empty statuses have no persisted stat, or a zero count
-  # and blank cache, and must not enqueue a refresh from a read.
-  def emoji_reaction_cache_stale?(stat)
-    stat&.persisted? &&
-      stat.updated_at <= 1.day.ago &&
-      (stat.emoji_reactions_count.to_i.positive? || stat.emoji_reactions_cache.present?)
+  def emoji_reaction_status_stat_for_refresh(force)
+    stat = StatusStat.find_by(status_id: id)
+    return stat if stat.present? && (!force || stat.emoji_reactions_cache_dirty?)
+    return nil unless force
+
+    EmojiReactionCacheInvalidator.mark_status!(id)
+    StatusStat.find_by!(status_id: id)
   end
 
   def filterable_reference_index

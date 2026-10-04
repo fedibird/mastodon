@@ -60,6 +60,12 @@ class EmojiReaction < ApplicationRecord
   end
 
   def refresh_status
-    status.refresh_grouped_emoji_reactions! unless status.destroyed?
+    return if status.nil? || status.destroyed?
+
+    status.mark_grouped_emoji_reactions_dirty!
+    status.refresh_grouped_emoji_reactions!
+  rescue StandardError
+    RefreshEmojiReactionCacheWorker.perform_async(status_id)
+    raise
   end
 end
