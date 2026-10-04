@@ -7,37 +7,49 @@ class AddEmojiReactionsCacheDirtyToStatusStats < ActiveRecord::Migration[6.1]
 
   disable_ddl_transaction!
 
-  # Existing rows stay clean. A metadata-only default on PostgreSQL 11+ avoids
-  # a table rewrite and a deploy-time rebuild of every emoji reaction cache.
+  # Existing rows stay clean. PostgreSQL 11+ adds this boolean default without
+  # a table rewrite. Every SET runs inside safety_assured: Strong Migrations
+  # rejects raw execute, and an ensure outside that block hides the first error.
   def up
-    disable_statement_timeout
-
     safety_assured do
-      add_column :status_stats, :emoji_reactions_cache_dirty, :boolean, null: false, default: false
-    end
+      begin
+        execute "SET lock_timeout TO '5s'"
 
-    safety_assured do
-      execute <<~SQL.squish
-        CREATE INDEX CONCURRENTLY IF NOT EXISTS index_status_stats_on_dirty_emoji_reactions_cache
-        ON status_stats (status_id)
-        WHERE emoji_reactions_cache_dirty = TRUE
-      SQL
+        unless column_exists?(:status_stats, :emoji_reactions_cache_dirty)
+          add_column :status_stats,
+                     :emoji_reactions_cache_dirty,
+                     :boolean,
+                     null: false,
+                     default: false
+        end
+
+        unless index_exists?(:status_stats, :status_id, name: 'index_status_stats_on_dirty_emoji_reactions_cache')
+          add_concurrent_index :status_stats,
+                               :status_id,
+                               name: 'index_status_stats_on_dirty_emoji_reactions_cache',
+                               where: 'emoji_reactions_cache_dirty = TRUE'
+        end
+      ensure
+        execute 'SET lock_timeout TO DEFAULT'
+        execute 'SET statement_timeout TO DEFAULT'
+      end
     end
-  ensure
-    execute('SET statement_timeout TO DEFAULT')
   end
 
   def down
-    disable_statement_timeout
-
     safety_assured do
-      execute 'DROP INDEX CONCURRENTLY IF EXISTS index_status_stats_on_dirty_emoji_reactions_cache'
-    end
+      begin
+        execute "SET lock_timeout TO '5s'"
 
-    safety_assured do
-      remove_column :status_stats, :emoji_reactions_cache_dirty
+        if index_exists?(:status_stats, :status_id, name: 'index_status_stats_on_dirty_emoji_reactions_cache')
+          remove_concurrent_index_by_name :status_stats, 'index_status_stats_on_dirty_emoji_reactions_cache'
+        end
+
+        remove_column :status_stats, :emoji_reactions_cache_dirty if column_exists?(:status_stats, :emoji_reactions_cache_dirty)
+      ensure
+        execute 'SET lock_timeout TO DEFAULT'
+        execute 'SET statement_timeout TO DEFAULT'
+      end
     end
-  ensure
-    execute('SET statement_timeout TO DEFAULT')
   end
 end
