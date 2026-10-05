@@ -498,9 +498,33 @@ body > [data-popper-placement] {
     border-radius: 4px;
   }
 
+  .compose-form__dropdowns {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    flex: 0 0 auto;
+    min-width: 0;
+    background: $simple-background-color;
+    padding: 8px 10px 6px;
+    border-radius: 4px 4px 0 0;
+
+    .privacy-dropdown {
+      flex: 0 1 auto;
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    .privacy-dropdown.active .privacy-dropdown__value {
+      background: transparent;
+      box-shadow: none;
+      border-radius: 0;
+    }
+  }
+
   .autosuggest-textarea__textarea {
     min-height: var(--composer-min-height, 100px);
-    border-radius: 4px 4px 0 0;
+    border-radius: 0;
     padding-bottom: 0;
     padding-right: 10px + 22px;
     resize: none;
@@ -769,6 +793,52 @@ body > [data-popper-placement] {
       overflow: hidden;
       padding-top: 10px;
     }
+  }
+}
+
+.dropdown-button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+  color: $highlight-text-color;
+  background: transparent;
+  border: 1px solid $highlight-text-color;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 13px;
+  line-height: normal;
+  font-weight: 400;
+  cursor: pointer;
+
+  &:focus {
+    outline: 0;
+    box-shadow: 0 0 0 2px rgba($highlight-text-color, 0.35);
+  }
+
+  &[disabled] {
+    cursor: default;
+    color: $darker-text-color;
+    border-color: $darker-text-color;
+  }
+
+  .fa {
+    font-size: 15px;
+    flex: 0 0 auto;
+  }
+
+  &__label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  &.active {
+    color: $primary-text-color;
+    border-color: $ui-highlight-color;
+    background: $ui-highlight-color;
   }
 }
 
@@ -3427,7 +3497,7 @@ a.account__display-name {
   .compose-form__autosuggest-wrapper {
     overflow-y: auto;
     background-color: $white;
-    border-radius: 4px 4px 0 0;
+    border-radius: 0;
     flex: 0 1 auto;
   }
 

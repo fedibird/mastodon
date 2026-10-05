@@ -21,6 +21,9 @@ const NavigationPanel = () => (
     <ScheduledStatusesNavLink />
     {enableLocalTimeline && <NavLink className='column-link column-link--transparent' exact to='/timelines/public/local' data-preview-title-id='column.community' data-preview-icon='users' ><Icon className='column-link__icon' id='users' fixedWidth /><FormattedMessage id='tabs_bar.local_timeline' defaultMessage='Local' /></NavLink>}
     {enableFederatedTimeline && <NavLink className='column-link column-link--transparent' exact to='/timelines/public' data-preview-title-id='column.public' data-preview-icon='globe' ><Icon className='column-link__icon' id='globe' fixedWidth /><FormattedMessage id='tabs_bar.federated_timeline' defaultMessage='Federated' /></NavLink>}
+    <NavLink className='column-link column-link--transparent' to='/group_directory'><Icon className='column-link__icon' id='address-book-o' fixedWidth /><FormattedMessage id='getting_started.group_directory' defaultMessage='Group directory' /></NavLink>
+    {profile_directory && <NavLink className='column-link column-link--transparent' to='/directory'><Icon className='column-link__icon' id='address-book-o' fixedWidth /><FormattedMessage id='getting_started.directory' defaultMessage='Profile directory' /></NavLink>}
+    {trendsEnabled && <NavLink className='column-link column-link--transparent' to='/explore'><Icon className='column-link__icon' id='hashtag' fixedWidth /><FormattedMessage id='explore.title' defaultMessage='Explore' /></NavLink>}
     <NavLink className='column-link column-link--transparent' to='/accounts/2'><Icon className='column-link__icon' id='info-circle' fixedWidth /><FormattedMessage id='navigation_bar.information_acct' defaultMessage='Fedibird info' /></NavLink>
     <NavLink className='column-link column-link--transparent' to='/timelines/tag/fedibird'><Icon className='column-link__icon' id='hashtag' fixedWidth /><FormattedMessage id='navigation_bar.hashtag_fedibird' defaultMessage='Fedibird topics' /></NavLink>
     <NavLink className='column-link column-link--transparent' to='/timelines/direct'><Icon className='column-link__icon' id='envelope' fixedWidth /><FormattedMessage id='navigation_bar.direct' defaultMessage='Direct messages' /></NavLink>
@@ -29,9 +32,6 @@ const NavigationPanel = () => (
     <NavLink className='column-link column-link--transparent' to='/emoji_reactions'><Icon className='column-link__icon' id='smile-o' fixedWidth /><FormattedMessage id='navigation_bar.emoji_reactions' defaultMessage='Emoji reactions' /></NavLink>
     <NavLink className='column-link column-link--transparent' to='/lists'><Icon className='column-link__icon' id='list-ul' fixedWidth /><FormattedMessage id='navigation_bar.lists' defaultMessage='Lists' /></NavLink>
     <NavLink className='column-link column-link--transparent' to='/circles'><Icon className='column-link__icon' id='user-circle' fixedWidth /><FormattedMessage id='navigation_bar.circles' defaultMessage='Circles' /></NavLink>
-    <NavLink className='column-link column-link--transparent' to='/group_directory'><Icon className='column-link__icon' id='address-book-o' fixedWidth /><FormattedMessage id='getting_started.group_directory' defaultMessage='Group directory' /></NavLink>
-    {profile_directory && <NavLink className='column-link column-link--transparent' to='/directory'><Icon className='column-link__icon' id='address-book-o' fixedWidth /><FormattedMessage id='getting_started.directory' defaultMessage='Profile directory' /></NavLink>}
-    {trendsEnabled && <NavLink className='column-link column-link--transparent' to='/explore'><Icon className='column-link__icon' id='hashtag' fixedWidth /><FormattedMessage id='explore.title' defaultMessage='Explore' /></NavLink>}
 
     <ListPanel />
     <FavouriteDomainPanel />

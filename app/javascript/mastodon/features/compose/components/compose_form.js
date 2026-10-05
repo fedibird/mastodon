@@ -273,6 +273,11 @@ class ComposeForm extends ImmutablePureComponent {
           />
         </div>
 
+        <div className='compose-form__dropdowns'>
+          <PrivacyDropdownContainer disabled={this.props.isEditing} showLabel />
+          <LanguageDropdownContainer />
+        </div>
+
         <AutosuggestTextarea
           ref={this.setAutosuggestTextarea}
           placeholder={intl.formatMessage(messages.placeholder)}
@@ -301,9 +306,7 @@ class ComposeForm extends ImmutablePureComponent {
           <div className='compose-form__buttons'>
             <UploadButtonContainer />
             <PollButtonContainer />
-            <PrivacyDropdownContainer disabled={this.props.isEditing} />
             <SpoilerButtonContainer />
-            <LanguageDropdownContainer />
             <EmojiPickerDropdownContainer onPickEmoji={this.handleEmojiPick} />
             {!this.props.isEditing && <DateTimeButtonContainer />}
             {!this.props.isEditing && <SearchabilityDropdownContainer />}

@@ -4,7 +4,8 @@ import { injectIntl, defineMessages } from 'react-intl';
 import classNames from 'classnames';
 import Overlay from 'react-overlays/Overlay';
 import LanguageDropdownMenu from 'mastodon/components/language_dropdown_menu';
-import TextIconButton from './text_icon_button';
+import Icon from 'mastodon/components/icon';
+import { languages as preloadedLanguages } from 'mastodon/initial_state';
 
 const messages = defineMessages({
   changeLanguage: { id: 'compose.language.change', defaultMessage: 'Change language' },
@@ -30,7 +31,11 @@ class LanguageDropdown extends React.PureComponent {
     placement: 'bottom',
   };
 
-  handleToggle = () => {
+  handleToggle = (e) => {
+    if (e) {
+      e.preventDefault();
+    }
+
     if (this.state.open && this.activeElement) {
       this.activeElement.focus({ preventScroll: true });
     } else if (!this.state.open) {
@@ -39,6 +44,14 @@ class LanguageDropdown extends React.PureComponent {
 
     this.setState({ open: !this.state.open });
   };
+
+  languageLabel () {
+    const { value, languages } = this.props;
+    const available = languages || preloadedLanguages || [];
+    const current = available.find(language => language[0] === value);
+
+    return (current && current[2]) || value || '';
+  }
 
   handleClose = (language) => {
     const { value, onClose } = this.props;
@@ -81,12 +94,16 @@ class LanguageDropdown extends React.PureComponent {
     return (
       <div className={classNames('privacy-dropdown', 'language-dropdown', placement, { active: open })}>
         <div className='privacy-dropdown__value' ref={this.setTargetRef}>
-          <TextIconButton
-            label={value ? value.toUpperCase() : ''}
+          <button
+            type='button'
+            className={classNames('dropdown-button', { active: open })}
             title={intl.formatMessage(messages.changeLanguage)}
-            active={open}
+            aria-expanded={open}
             onClick={this.handleToggle}
-          />
+          >
+            <Icon id='language' fixedWidth aria-hidden='true' />
+            <span className='dropdown-button__label'>{this.languageLabel()}</span>
+          </button>
         </div>
 
         <Overlay show={open} placement={'bottom'} flip target={this.findTarget} popperConfig={{ strategy: 'fixed', onFirstUpdate: this.handleOverlayEnter }}>
