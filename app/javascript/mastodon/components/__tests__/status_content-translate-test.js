@@ -288,8 +288,8 @@ describe('StatusContent translation', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Source language, zh' }));
 
       expect(optionCodes().slice(0, 3)).toEqual(['zh', 'zh-Hans', 'zh-Hant']);
-      expect(screen.getByRole('option', { name: '简体中文 (Chinese (Simplified))' })).toBeTruthy();
-      expect(screen.getByRole('option', { name: '繁體中文 (Chinese (Traditional))' })).toBeTruthy();
+      expect(screen.getByRole('option', { name: '简体中文 (簡体中国語)' })).toBeTruthy();
+      expect(screen.getByRole('option', { name: '繁體中文 (繁体中国語)' })).toBeTruthy();
 
       ['zh-Hans', 'zh-Hant', 'Simplified', 'Traditional', '简体中文', '繁體中文', 'Chinese'].forEach(query => {
         searchFor(query);
@@ -366,7 +366,7 @@ describe('StatusContent translation', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'Target language, 日本語' }));
 
-      expect(screen.getByRole('option', { name: '简体中文 (Chinese (Simplified))' })).toBeTruthy();
+      expect(screen.getByRole('option', { name: '简体中文 (簡体中国語)' })).toBeTruthy();
     });
 
     it('shows guidance when only one Chinese script supports the current target', () => {
@@ -1028,7 +1028,7 @@ describe('StatusContent translation', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Source language, English' }));
-    fireEvent.click(screen.getByRole('option', { name: /French/ }));
+    fireEvent.click(screen.getByRole('option', { name: /Français/ }));
 
     const translate = screen.getByRole('button', { name: 'Translate' });
     expect(translate).toBeEnabled();
@@ -1075,7 +1075,7 @@ describe('StatusContent translation', () => {
     expect(screen.getByText('· DeepL')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Source language, English' }));
-    fireEvent.click(screen.getByRole('option', { name: /French/ }));
+    fireEvent.click(screen.getByRole('option', { name: /Français/ }));
 
     expect(onTranslate).not.toHaveBeenCalled();
     expect(container.querySelector('.status__content__text').innerHTML).toContain('Hello');
@@ -1211,16 +1211,16 @@ describe('StatusContent translation', () => {
 
     expect(screen.getByRole('option', { name: /Unspecified/ })).toBeTruthy();
     expect(screen.getByRole('option', { name: /English/ })).toBeTruthy();
-    expect(screen.getByRole('option', { name: '简体中文 (Chinese (Simplified))' })).toBeTruthy();
-    expect(screen.getByRole('option', { name: '繁體中文 (Chinese (Traditional))' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: '简体中文 (簡体中国語)' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: '繁體中文 (繁体中国語)' })).toBeTruthy();
     expect(screen.getByRole('option', { name: /日本語/ })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.queryByRole('option', { name: /French/ })).toBeNull();
+    expect(screen.queryByRole('option', { name: /Français/ })).toBeNull();
 
     fireEvent.click(screen.getByRole('option', { name: /English/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Target language, 日本語' }));
 
     expect(screen.getByRole('option', { name: /日本語/ })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('option', { name: 'de (de)' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'de (ドイツ語)' })).toBeTruthy();
     expect(screen.queryByRole('option', { name: /English/ })).toBeNull();
   });
 
@@ -1244,7 +1244,7 @@ describe('StatusContent translation', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Source language, English' }));
-    fireEvent.click(screen.getByRole('option', { name: /French/ }));
+    fireEvent.click(screen.getByRole('option', { name: /Français/ }));
 
     expect(screen.getByRole('button', { name: 'Target language, 日本語' })).toBeTruthy();
     expect(store.getState().getIn(['translation_assumptions', 's1'])).toBe('fr');
@@ -1253,7 +1253,7 @@ describe('StatusContent translation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Target language, 日本語' }));
     expect(screen.getByRole('option', { name: /日本語/ })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('option', { name: 'de (de)' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'de (ドイツ語)' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Translate' }));
 
     expect(onTranslate).not.toHaveBeenCalled();

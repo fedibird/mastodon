@@ -176,6 +176,8 @@
   "community.column_settings.remote_only": "リモートのみ表示",
   "community.column_settings.without_bot": "Botを除外",
   "community.column_settings.without_media": "メディアを除外",
+  "compose.language.change": "言語を変更",
+  "compose.language.search": "言語を検索...",
   "compose.saved.body": "投稿が保存されました",
   "compose.saved.title": "保存しました",
   "compose_form.and": " + ",

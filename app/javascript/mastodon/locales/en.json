@@ -176,6 +176,8 @@
   "community.column_settings.remote_only": "Remote only",
   "community.column_settings.without_bot": "Without bot",
   "community.column_settings.without_media": "Without media",
+  "compose.language.change": "Change language",
+  "compose.language.search": "Search languages...",
   "compose.saved.body": "Post saved.",
   "compose.saved.title": "Saved",
   "compose_form.and": " + ",

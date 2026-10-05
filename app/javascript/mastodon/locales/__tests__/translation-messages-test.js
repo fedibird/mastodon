@@ -19,6 +19,11 @@ const translationMessageIds = [
   'status.show_translation_bar',
 ];
 
+const composerLanguageMessageIds = [
+  'compose.language.change',
+  'compose.language.search',
+];
+
 const formatMessage = (messages, descriptor) => messages[descriptor.id] || descriptor.defaultMessage;
 
 describe('translation UI locale messages', () => {
@@ -29,6 +34,20 @@ describe('translation UI locale messages', () => {
       expect(en[id]).not.toBe('');
       expect(ja[id]).not.toBe('');
     });
+  });
+
+  it('defines the composer language picker messages in English and Japanese', () => {
+    composerLanguageMessageIds.forEach((id) => {
+      expect(en[id]).toEqual(expect.any(String));
+      expect(ja[id]).toEqual(expect.any(String));
+      expect(en[id]).not.toBe('');
+      expect(ja[id]).not.toBe('');
+    });
+
+    expect(formatMessage(ja, { id: 'compose.language.change', defaultMessage: 'Change language' })).toBe('言語を変更');
+    expect(formatMessage(ja, { id: 'compose.language.search', defaultMessage: 'Search languages...' })).toBe('言語を検索...');
+    expect(formatMessage(en, { id: 'compose.language.change', defaultMessage: 'Change language' })).toBe('Change language');
+    expect(formatMessage(en, { id: 'compose.language.search', defaultMessage: 'Search languages...' })).toBe('Search languages...');
   });
 
   it('uses Japanese for the Chinese script guidance', () => {

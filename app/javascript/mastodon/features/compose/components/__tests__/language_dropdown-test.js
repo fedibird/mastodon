@@ -1,7 +1,12 @@
 /* eslint-disable react/prop-types */
 
+import fs from 'fs';
+import path from 'path';
+
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
+
+const jaMessages = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../../locales/ja.json'), 'utf8'));
 
 jest.mock('react-intl', () => {
   const intl = {
@@ -9,7 +14,11 @@ jest.mock('react-intl', () => {
   };
 
   return {
-    injectIntl: Component => props => <Component {...props} intl={intl} />,
+    injectIntl: Component => props => {
+      const { intl: intlOverride, ...rest } = props;
+
+      return <Component {...rest} intl={intlOverride || intl} />;
+    },
     defineMessages: messages => messages,
     FormattedMessage: ({ defaultMessage }) => defaultMessage,
   };
@@ -183,5 +192,151 @@ describe('LanguageDropdownMenu ordering', () => {
     fireEvent.change(screen.getByPlaceholderText('Search languages...'), { target: { value: 'eng' } });
 
     expect(codes()).toEqual(['en']);
+  });
+});
+
+describe('localized composer language names', () => {
+  const jaIntl = {
+    locale: 'ja',
+    formatMessage: ({ id, defaultMessage }) => jaMessages[id] || defaultMessage,
+  };
+
+  const localizedLanguages = [
+    ['en', 'English', 'English'],
+    ['ja', 'Japanese', '日本語'],
+    ['de', 'German', 'Deutsch'],
+    ['fr', 'French', 'Français'],
+    ['zh', 'Chinese', '中文'],
+    ['zh-CN', 'Chinese (China)', '简体中文'],
+    ['zh-TW', 'Chinese (Taiwan)', '繁體中文（臺灣）'],
+    ['zh-HK', 'Chinese (Hong Kong)', '繁體中文（香港）'],
+    ['zh-YUE', 'Cantonese', '廣東話'],
+    ['ldn', 'Láadan', 'Láadan'],
+    ['zba', 'Balaibalan', 'باليبلن'],
+    ['zz', 'Mystery', '???'],
+    ['not-a-language', 'Nope', 'Nopeish'],
+  ];
+
+  const renderLocalizedMenu = (props = {}) => render(
+    <LanguageDropdownMenu
+      value='ja'
+      languages={localizedLanguages}
+      frequentlyUsedLanguages={[]}
+      onClose={jest.fn()}
+      onChange={jest.fn()}
+      intl={jaIntl}
+      {...props}
+    />,
+  );
+
+  const optionNames = () => screen.getAllByRole('option').map(option => option.textContent.replace(/\s+/g, ' ').trim());
+
+  it('resolves the composer language messages in the Japanese locale', () => {
+    renderDropdown({ intl: jaIntl, languages: localizedLanguages });
+
+    const button = screen.getByRole('button', { name: '日本語' });
+
+    expect(button).toHaveTextContent('日本語');
+    expect(button).not.toHaveTextContent('英語');
+    expect(button).toHaveAttribute('title', '言語を変更');
+
+    fireEvent.click(button);
+
+    expect(screen.getByPlaceholderText('言語を検索...')).toBeInTheDocument();
+  });
+
+  it('keeps the composer button on the native name', () => {
+    renderDropdown({ intl: jaIntl, value: 'de', languages: localizedLanguages });
+
+    const button = screen.getByRole('button', { name: 'Deutsch' });
+
+    expect(button).toHaveTextContent('Deutsch');
+    expect(button).not.toHaveTextContent('ドイツ語');
+    expect(button).toHaveAttribute('title', '言語を変更');
+  });
+
+  it('shows Japanese common names and omits a redundant parenthetical', () => {
+    renderLocalizedMenu();
+
+    expect(optionNames()).toEqual(expect.arrayContaining([
+      '日本語',
+      'English (英語)',
+      'Deutsch (ドイツ語)',
+      'Français (フランス語)',
+      '中文 (中国語)',
+      '简体中文 (中国語 (中国))',
+      '繁體中文（臺灣） (中国語 (台湾))',
+      '繁體中文（香港） (中国語 (中華人民共和国香港特別行政区))',
+      '廣東話 (広東語)',
+      'Láadan (ラーダン語)',
+      'باليبلن (バライバラン語)',
+    ]));
+    expect(screen.getByRole('option', { name: '日本語' }).querySelector('.language-dropdown__dropdown__results__item__common-name')).toBeNull();
+  });
+
+  it('searches localized Japanese names, English common names, and native names', () => {
+    renderLocalizedMenu();
+    const search = screen.getByPlaceholderText('言語を検索...');
+
+    fireEvent.change(search, { target: { value: 'ドイツ' } });
+    expect(screen.getAllByRole('option').map(option => option.getAttribute('data-index'))).toEqual(['de']);
+    expect(screen.getByRole('option', { name: 'Deutsch (ドイツ語)' })).toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: 'German' } });
+    expect(screen.getAllByRole('option').map(option => option.getAttribute('data-index'))).toEqual(['de']);
+
+    fireEvent.change(search, { target: { value: 'Deutsch' } });
+    expect(screen.getAllByRole('option').map(option => option.getAttribute('data-index'))).toEqual(['de']);
+
+    fireEvent.change(search, { target: { value: 'フランス' } });
+    expect(screen.getAllByRole('option').map(option => option.getAttribute('data-index'))).toEqual(['fr']);
+
+    fireEvent.change(search, { target: { value: '中国' } });
+    expect(screen.getAllByRole('option').map(option => option.getAttribute('data-index'))).toEqual(expect.arrayContaining(['zh']));
+    expect(screen.getByRole('option', { name: '中文 (中国語)' })).toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: 'eng' } });
+    expect(screen.getAllByRole('option').map(option => option.getAttribute('data-index'))).toEqual(['en']);
+
+    fireEvent.change(search, { target: { value: 'de' } });
+    expect(screen.getAllByRole('option').map(option => option.getAttribute('data-index'))).toContain('de');
+  });
+
+  it('falls back to the English common name when Intl.DisplayNames is unavailable', () => {
+    const original = Intl.DisplayNames;
+    Intl.DisplayNames = undefined;
+
+    try {
+      renderLocalizedMenu({
+        languages: [
+          ['ja', 'Japanese', '日本語'],
+          ['de', 'German', 'Deutsch'],
+          ['en', 'English', 'English'],
+          ['zh-YUE', 'Cantonese', '廣東話'],
+        ],
+      });
+
+      expect(screen.getByRole('option', { name: '日本語 (Japanese)' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'Deutsch (German)' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'English' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: '廣東話 (Cantonese)' })).toBeInTheDocument();
+      expect(screen.queryByText('ドイツ語')).not.toBeInTheDocument();
+      expect(screen.queryByText('広東語')).not.toBeInTheDocument();
+    } finally {
+      Intl.DisplayNames = original;
+    }
+  });
+
+  it('does not crash for an unknown language code', () => {
+    renderLocalizedMenu({
+      languages: [
+        ['zz', 'Mystery', '???'],
+        ['not-a-language', 'Nope', 'Nopeish'],
+      ],
+      value: 'zz',
+    });
+
+    expect(screen.getByRole('option', { name: '??? (Mystery)' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Nopeish (Nope)' })).toBeInTheDocument();
   });
 });
