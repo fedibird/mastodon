@@ -32,6 +32,8 @@ jest.mock('react-intl', () => {
       let message = defaultMessage;
 
       if (values) {
+        message = message.replace(/\{(\w+),\s*plural,\s*other\s*\{#([^}]*)\}\}/g, (_match, key, suffix) => `${values[key]}${suffix}`);
+
         Object.keys(values).forEach(key => {
           message = message.replace(`{${key}}`, values[key]);
         });
@@ -85,6 +87,14 @@ const store = createStore(() => fromJS({
 
 function anchor(name, href = `https://example.com/tags/${encodeURIComponent(name)}`) {
   return `<a href="${href}" class="mention hashtag" rel="tag">#<span>${name}</span></a>`;
+}
+
+function hashtagParagraph(names, lead = 'Hello') {
+  return `<p>${lead} ${names.map(name => anchor(name)).join(' ')}</p>`;
+}
+
+function badgeLabels() {
+  return screen.getAllByRole('link', { name: /^#/ }).map(link => link.textContent);
 }
 
 const buildStatus = (overrides = {}) => fromJS({
@@ -240,6 +250,91 @@ describe('StatusContent trailing hashtag badges', () => {
 
     expect(container.querySelector('.status__content__hashtag-badge')).toBeNull();
     expect(container.querySelector('.status__content__text--visible')).toBeNull();
+  });
+
+  it('shows every badge and no more button when there are four trailing hashtags', () => {
+    const { container } = renderStatus(buildStatus({
+      contentHtml: hashtagParagraph(['one', 'two', 'three', 'four']),
+    }));
+
+    expect(badgeLabels()).toEqual(['#one', '#two', '#three', '#four']);
+    expect(container.querySelector('.status__content__hashtag-more')).toBeNull();
+  });
+
+  it('shows the first four badges and one remaining hashtag when there are five', () => {
+    renderStatus(buildStatus({
+      contentHtml: hashtagParagraph(['one', 'two', 'three', 'four', 'five']),
+    }));
+    const more = screen.getByRole('button', { name: '…and 1 more' });
+
+    expect(badgeLabels()).toEqual(['#one', '#two', '#three', '#four']);
+    expect(screen.queryByRole('link', { name: '#five' })).toBeNull();
+    expect(more.tagName).toBe('BUTTON');
+    expect(more).toHaveAttribute('type', 'button');
+    expect(more.className).toContain('status__content__hashtag-more');
+  });
+
+  it('shows a remaining count of three when there are seven trailing hashtags', () => {
+    renderStatus(buildStatus({
+      contentHtml: hashtagParagraph(['one', 'two', 'three', 'four', 'five', 'six', 'seven']),
+    }));
+
+    expect(badgeLabels()).toEqual(['#one', '#two', '#three', '#four']);
+    expect(screen.getByRole('button', { name: '…and 3 more' })).not.toBeNull();
+    expect(screen.queryByRole('link', { name: '#five' })).toBeNull();
+    expect(screen.queryByRole('link', { name: '#seven' })).toBeNull();
+  });
+
+  it('expands every badge from the more button without opening the status', () => {
+    const onClick = jest.fn();
+    const { container } = renderStatus(buildStatus({
+      contentHtml: hashtagParagraph(['one', 'two', 'three', 'four', 'five', 'six', 'seven']),
+    }), { onClick });
+    const more = screen.getByRole('button', { name: '…and 3 more' });
+
+    fireEvent.mouseDown(more, { button: 0, clientX: 10, clientY: 12 });
+    fireEvent.mouseUp(more, { button: 0, clientX: 12, clientY: 14 });
+    fireEvent.click(more);
+
+    expect(onClick).not.toHaveBeenCalled();
+    expect(badgeLabels()).toEqual(['#one', '#two', '#three', '#four', '#five', '#six', '#seven']);
+    expect(screen.queryByRole('button', { name: '…and 3 more' })).toBeNull();
+    expect(container.querySelector('.status__content__hashtag-more')).toBeNull();
+  });
+
+  it('hides badges and the more button while a long content warning is collapsed', () => {
+    const { container } = renderStatus(buildStatus({
+      contentHtml: hashtagParagraph(['one', 'two', 'three', 'four', 'five', 'six']),
+      spoiler_text: 'secret',
+      spoilerHtml: 'secret',
+    }));
+
+    expect(container.querySelector('.status__content__hashtag-badge')).toBeNull();
+    expect(container.querySelector('.status__content__hashtag-more')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
+
+    expect(badgeLabels()).toEqual(['#one', '#two', '#three', '#four']);
+    expect(screen.getByRole('button', { name: '…and 2 more' })).not.toBeNull();
+    expect(screen.queryByRole('link', { name: '#six' })).toBeNull();
+  });
+
+  it('collapses the single source badge row in translated and bilingual modes', () => {
+    const names = ['one', 'two', 'three', 'four', 'five', 'six', 'seven'];
+
+    ['translated', 'bilingual'].forEach((translationMode) => {
+      const view = renderStatus(buildStatus({
+        contentHtml: hashtagParagraph(names),
+        translationMode,
+        translation: translation(hashtagParagraph(names, 'こんにちは')),
+      }));
+
+      expect(view.container.querySelectorAll('.status__content__hashtag-badges')).toHaveLength(1);
+      expect(badgeLabels()).toEqual(['#one', '#two', '#three', '#four']);
+      expect(screen.getByRole('button', { name: '…and 3 more' })).not.toBeNull();
+      expect(view.container.querySelector('.status__content__text').querySelector('a.mention.hashtag')).toBeNull();
+      view.unmount();
+    });
   });
 
   it('keeps compatibility links in the body and places badges after the text, before poll and the translation bar', () => {

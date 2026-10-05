@@ -415,6 +415,7 @@
   "hashtag.column_settings.tag_toggle": "このカラムに追加のタグを含める",
   "hashtag.follow": "ハッシュタグをフォロー",
   "hashtag.unfollow": "ハッシュタグをフォロー解除",
+  "hashtags.and_other": "ほか{count, plural, other {#個}}",
   "home.account.add": "ホームに追加",
   "home.account.remove": "ホームから外す",
   "home.column_settings.basic": "基本設定",

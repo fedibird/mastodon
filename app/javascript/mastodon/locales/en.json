@@ -415,6 +415,7 @@
   "hashtag.column_settings.tag_toggle": "Include additional tags for this column",
   "hashtag.follow": "Follow hashtag",
   "hashtag.unfollow": "Unfollow hashtag",
+  "hashtags.and_other": "…and {count, plural, other {# more}}",
   "home.account.add": "Add to home",
   "home.account.remove": "Remove from home",
   "home.column_settings.basic": "Basic",
