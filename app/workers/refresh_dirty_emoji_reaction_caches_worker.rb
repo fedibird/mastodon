@@ -60,16 +60,25 @@ class RefreshDirtyEmojiReactionCachesWorker
   end
 
   def dirty_exists?
-    StatusStat.where(emoji_reactions_cache_dirty: true).exists?
+    dirty_status_exists?(StatusStat.where(emoji_reactions_cache_dirty: true))
   end
 
   def dirty_exists_after?(status_id)
-    StatusStat.where(emoji_reactions_cache_dirty: true).where(StatusStat.arel_table[:status_id].gt(status_id)).exists?
+    scope = StatusStat.where(emoji_reactions_cache_dirty: true)
+    scope = scope.where(StatusStat.arel_table[:status_id].gt(status_id))
+    dirty_status_exists?(scope)
   end
 
   def dirty_exists_outside?(failed_ids)
     scope = StatusStat.where(emoji_reactions_cache_dirty: true)
     scope = scope.where.not(status_id: failed_ids) if failed_ids.present?
-    scope.exists?
+    dirty_status_exists?(scope)
+  end
+
+  # exists? drops ORDER BY and emits SELECT 1 AS one LIMIT 1. Before the new
+  # boolean has statistics, that plan can walk status_stats from the start.
+  # Ordering by the partial index key keeps a one-row index probe instead.
+  def dirty_status_exists?(scope)
+    !scope.order(:status_id).pick(:status_id).nil?
   end
 end
