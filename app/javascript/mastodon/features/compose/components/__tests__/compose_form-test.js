@@ -87,12 +87,17 @@ describe('ComposeForm visibility controls', () => {
   it('places privacy and language above the textarea and leaves publish in place', () => {
     renderForm();
 
-    const dropdowns = document.querySelector('.compose-form__dropdowns');
+    const form = document.querySelector('.compose-form');
+    const spoiler = form.querySelector(':scope > .spoiler-input');
+    const dropdowns = form.querySelector(':scope > .compose-form__dropdowns');
+    const autosuggest = form.querySelector(':scope > .compose-form__autosuggest-wrapper');
     const buttons = document.querySelector('.compose-form__buttons');
     const publish = document.querySelector('.compose-form__publish');
     const privacy = screen.getByTestId('privacy-dropdown');
     const language = screen.getByTestId('language-dropdown');
 
+    expect(spoiler.compareDocumentPosition(dropdowns) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(dropdowns.compareDocumentPosition(autosuggest) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(dropdowns).toContainElement(privacy);
     expect(dropdowns).toContainElement(language);
     expect(dropdowns.children[0]).toBe(privacy);

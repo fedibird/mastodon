@@ -458,11 +458,13 @@ body > [data-popper-placement] {
     height: 0;
     transform-origin: bottom;
     opacity: 0;
+    pointer-events: none;
 
     &.spoiler-input--visible {
       height: 36px;
       margin-bottom: 11px;
       opacity: 1;
+      pointer-events: auto;
     }
   }
 
