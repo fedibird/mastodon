@@ -10,6 +10,10 @@ class Formatter
   include StatusesHelper
 
   NEWLINE_TAGS_RE = %r{(<br />|<br>|</p>)+}
+  CLOSING_PARAGRAPH_RE = %r{</p>\z}
+  # Block elements that can hold a trailing hashtag run, and that can receive
+  # a suffix when the final block itself is only hashtags.
+  TRAILING_HASHTAG_BLOCK_TAGS = %w(p div blockquote li td th article section).freeze
 
   # A decoded URL is only ever shown to a human or offered to a matcher, so any
   # Unicode control character in it is noise at best. It is also how the
@@ -32,9 +36,7 @@ class Formatter
     end
 
     if raw_content.blank?
-      html = ''
-      html = add_original_link_from_status(html, status) if status.media_attachments.count > 4
-      html = add_compatible_reference_link(html, status) if status.references.exists?
+      html = insert_status_suffixes('', attachment_and_reference_fragments(status))
       return html.html_safe # rubocop:disable Rails/OutputSafety
     end
 
@@ -56,9 +58,7 @@ class Formatter
     html = encode_and_link_urls(html, **options.merge(accounts: linkable_accounts, redirected_urls: redirected_urls(status)))
     html = encode_custom_emojis(html, status.emojis, options[:autoplay]) if options[:custom_emojify]
     html = simple_format(html, {}, sanitize: false)
-    html = quotify(html, status, **options) if status.quote? && !options[:escape_quotify]
-    html = add_original_link_from_status(html, status) if status.media_attachments.count > 4
-    html = add_compatible_reference_link(html, status) if status.references.exists?
+    html = insert_status_suffixes(html, local_status_suffix_fragments(status, **options))
     html = nyaize_html(html) if options[:nyaize]
     html = html.delete("\n")
     html = apply_emoji_compatibility(html, status.emojis) if options[:emoji_compatibility]
@@ -198,13 +198,11 @@ class Formatter
   end
 
   def add_original_link_from_status(html, status)
-    url     = ActivityPub::TagManager.instance.url_for(status)
-    summary = media_summary(status)
-    link    = "<a href=\"#{url}\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"unhandled-link\">[#{summary}]</a>"
-    html    = '<p></p>' if html.blank?
-    html.sub(/<\/p>\z/, "<span class=\"original-media-link\"> #{link}</span></p>")
+    insert_status_suffixes(html, [original_media_link_html(status)])
   end
 
+  # Written into stored remote status text during ingest. Not a display-time
+  # suffix, so trailing-hashtag placement does not apply.
   def add_original_link(html, url, summary)
     html = '<p></p>' if html.blank?
     html.sub(/<\/p>\z/, " <a href=\"#{url}\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"unhandled-link\">[#{summary}]</a></p>")
@@ -357,16 +355,244 @@ class Formatter
   # rubocop:enable Metrics/BlockNesting
 
   def quotify(html, status, **options)
-    url = ActivityPub::TagManager.instance.url_for(status.quote)
-    link = encode_and_link_urls(url, **options)
-    html.sub(/(<[^>]+>)\z/, "<span class=\"quote-inline\"><br/>QT: #{link}</span>\\1")
+    return html if html.blank?
+
+    insert_status_suffixes(html, [quote_inline_html(status, **options)])
   end
 
   def add_compatible_reference_link(html, status)
+    insert_status_suffixes(html, [compatible_reference_link_html(status)])
+  end
+
+  # Place every display-time suffix before a trailing hashtag block.
+  # The status HTML is parsed once. With no trailing hashtags, the fragments
+  # are appended before the final </p> without reserializing the rest.
+  def insert_status_suffixes(html, fragments)
+    fragments = Array(fragments).map(&:to_s).reject(&:blank?)
+    return html if fragments.empty?
+
+    html = html.to_s
+    html = '<p></p>' if html.blank?
+    return append_status_suffixes(html, fragments) unless html.include?('hashtag')
+
+    parsed = Nokogiri::HTML.fragment(html)
+    point = trailing_hashtag_insertion_point(parsed)
+    return append_status_suffixes(html, fragments) if point.nil?
+
+    inserted = Nokogiri::HTML.fragment(fragments.join).children.to_a
+    insert_nodes_at(point, inserted)
+    parsed.to_html(encoding: 'UTF-8')
+  end
+
+  def local_status_suffix_fragments(status, **options)
+    fragments = []
+    fragments << quote_inline_html(status, **options) if status.quote? && !options[:escape_quotify]
+    fragments.concat(attachment_and_reference_fragments(status))
+  end
+
+  def attachment_and_reference_fragments(status)
+    fragments = []
+    fragments << original_media_link_html(status) if status.media_attachments.count > 4
+    fragments << compatible_reference_link_html(status) if status.references.exists?
+    fragments
+  end
+
+  def quote_inline_html(status, **options)
+    url = ActivityPub::TagManager.instance.url_for(status.quote)
+    link = encode_and_link_urls(url, **options)
+    "<span class=\"quote-inline\"><br/>QT: #{link}</span>"
+  end
+
+  def original_media_link_html(status)
+    url = ActivityPub::TagManager.instance.url_for(status)
+    summary = media_summary(status)
+    link = "<a href=\"#{url}\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"unhandled-link\">[#{summary}]</a>"
+    "<span class=\"original-media-link\"> #{link}</span>"
+  end
+
+  def compatible_reference_link_html(status)
     url = references_short_account_status_url(status.account, status)
     link = "<a href=\"#{url}\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"status-link unhandled-link\" data-status-id=\"#{status.id}\">#{I18n.t('status_references.link_text')}</a>"
-    html = '<p></p>' if html.blank?
-    html.sub(/<\/p>\z/, "<span class=\"reference-link-inline\"> #{link}</span></p>")
+    "<span class=\"reference-link-inline\"> #{link}</span>"
+  end
+
+  def append_status_suffixes(html, fragments)
+    html.sub(CLOSING_PARAGRAPH_RE, "#{fragments.join}</p>")
+  end
+
+  # [:before, node] inserts in front of the hashtag row, including the <br>
+  # that separates it from the body. [:append, element] keeps a hashtag-only
+  # final block where it is and puts the suffix on the previous block.
+  def trailing_hashtag_insertion_point(root)
+    container = trailing_content_container(root)
+    return if container.nil?
+
+    scan = scan_trailing_hashtags(container.children.to_a)
+    return if scan.nil?
+
+    if scan[:index].negative?
+      previous = appendable_previous_block(container)
+      return [:append, previous] if previous
+    end
+
+    nodes = scan[:nodes]
+    boundary = scan[:separator_br_index] || scan[:first_hashtag_index]
+    [:before, nodes[boundary]]
+  end
+
+  def trailing_content_container(root)
+    container = root
+    loop do
+      last = last_content_child(container)
+      break unless last&.element? && TRAILING_HASHTAG_BLOCK_TAGS.include?(last.name)
+
+      container = last
+    end
+    container
+  end
+
+  def last_content_child(node)
+    child = node.children.last
+    child = child.previous while child && (ignorable_node?(child) || line_break?(child))
+    child
+  end
+
+  def scan_trailing_hashtags(nodes)
+    index = nodes.length - 1
+    seen_hashtag = false
+    first_hashtag_index = nil
+    separator_br_index = nil
+
+    while index >= 0
+      node = nodes[index]
+
+      if ignorable_node?(node) || (!seen_hashtag && line_break?(node))
+        index -= 1
+        next
+      end
+
+      if trailing_hashtag_anchor?(node)
+        seen_hashtag = true
+        first_hashtag_index = index
+        index -= 1
+        next
+      end
+
+      break unless seen_hashtag && line_break?(node)
+
+      relation = break_relation(nodes, index)
+      separator_br_index = index unless relation == :internal
+      break if relation == :content
+
+      index -= 1
+    end
+
+    return unless seen_hashtag
+
+    { index: index, nodes: nodes, first_hashtag_index: first_hashtag_index, separator_br_index: separator_br_index }
+  end
+
+  def break_relation(nodes, index)
+    previous = previous_significant_index(nodes, index)
+    return :leading if previous.nil?
+
+    previous_node = nodes[previous]
+    return :internal if trailing_hashtag_anchor?(previous_node)
+    return :break_run if line_break?(previous_node)
+
+    :content
+  end
+
+  def previous_significant_index(nodes, index)
+    cursor = index - 1
+    cursor -= 1 while cursor >= 0 && ignorable_node?(nodes[cursor])
+    cursor >= 0 ? cursor : nil
+  end
+
+  def appendable_previous_block(container)
+    return unless container.element?
+
+    previous = container.previous_element
+    previous if previous && TRAILING_HASHTAG_BLOCK_TAGS.include?(previous.name)
+  end
+
+  # Local anchors match a.mention.hashtag[rel~="tag"]. Remote reformat keeps
+  # those classes, but Sanitize's add_attributes replaces rel="tag" with
+  # "nofollow noopener noreferrer", so rel is not required here.
+  def trailing_hashtag_anchor?(node)
+    return false unless node.element? && node.name == 'a'
+
+    classes = node['class'].to_s.split(/[\t\n\f\r ]/)
+    classes.include?('mention') && classes.include?('hashtag')
+  end
+
+  def ignorable_node?(node)
+    return true if node.comment?
+
+    node.text? && node.content.match?(/\A[[:space:]]*\z/)
+  end
+
+  def line_break?(node)
+    node.element? && node.name == 'br'
+  end
+
+  def insert_nodes_at(point, nodes)
+    nodes = Array(nodes).compact
+    return if nodes.empty?
+
+    mode, target = point
+    if mode == :append
+      nodes.each { |node| target.add_child(node) }
+    else
+      nodes.each { |node| target.add_previous_sibling(node) }
+      ensure_space_before_hashtag(target)
+    end
+  end
+
+  def ensure_space_before_hashtag(node)
+    return unless trailing_hashtag_anchor?(node)
+
+    previous = node.previous
+    return if previous&.text? && previous.content.match?(/[[:space:]]\z/)
+
+    node.add_previous_sibling(Nokogiri::XML::Text.new(' ', node.document))
+  end
+
+  def detach_reference_link(doc)
+    node = doc.at_css('span.reference-link-inline')
+    return if node.blank?
+
+    url = node.at_css('a')&.attr('href').to_s.scrub
+    node.unlink
+    url
+  end
+
+  def insert_remote_reference_link(doc, url, status)
+    body = doc.at_css('body')
+    return if body.nil?
+
+    ref_span = reference_link_node(doc, url, status)
+    point = trailing_hashtag_insertion_point(body)
+    if point
+      insert_nodes_at(point, [ref_span])
+    else
+      (doc.at_css('body > p:last-child') || body).add_child(ref_span)
+    end
+  end
+
+  def reference_link_node(doc, url, status)
+    ref_span = Nokogiri::XML::Node.new('span', doc)
+    ref_anchor = Nokogiri::XML::Node.new('a', doc)
+    ref_anchor.add_class('status-link unhandled-link')
+    ref_anchor['href'] = url
+    ref_anchor['target'] = '_blank'
+    ref_anchor['rel'] = 'noopener noreferrer'
+    ref_anchor['data-status-id'] = status.id
+    ref_anchor.content = I18n.t('status_references.link_text')
+    ref_span.content = ' '
+    ref_span.add_class('reference-link-inline')
+    ref_span.add_child(ref_anchor)
+    ref_span
   end
 
   def nyaize_html(html)
@@ -564,29 +790,10 @@ class Formatter
 
   def apply_reference_link(html, status)
     doc = Nokogiri::HTML.parse(html, nil, 'utf-8')
-
-    reference_link_url = nil
-
-    doc.at_css('span.reference-link-inline').tap do |x|
-      if x.present?
-        reference_link_url = x.at_css('a')&.attr('href').to_s.scrub
-        x.unlink 
-      end
-    end
+    reference_link_url = detach_reference_link(doc)
 
     if status.references.exists?
-      ref_span   = Nokogiri::XML::Node.new("span", doc)
-      ref_anchor = Nokogiri::XML::Node.new("a", doc)
-      ref_anchor.add_class('status-link unhandled-link')
-      ref_anchor['href']           = reference_link_url || status.url
-      ref_anchor['target']         = '_blank'
-      ref_anchor['rel']            = 'noopener noreferrer'
-      ref_anchor['data-status-id'] = status.id
-      ref_anchor.content           = I18n.t('status_references.link_text')
-      ref_span.content             = ' '
-      ref_span.add_class('reference-link-inline')
-      ref_span.add_child(ref_anchor)
-      (doc.at_css('body > p:last-child') || doc.at_css('body'))&.add_child(ref_span)
+      insert_remote_reference_link(doc, reference_link_url || status.url, status)
     end
 
     html = doc.at_css('body')&.inner_html || ''
