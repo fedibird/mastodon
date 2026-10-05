@@ -1,9 +1,13 @@
-// Fedibird supported languages that ja Intl.DisplayNames cannot name.
+// Japanese labels used only when Intl.DisplayNames is available.
 // ldn and zba come back as the code itself; zh-YUE is rejected as invalid.
-// yue is the CLDR tag for Cantonese and resolves to 広東語.
+// The Chinese regional codes already name the region in the native name, so
+// the long CLDR region label is replaced with a short one.
 const JAPANESE_LANGUAGE_NAME_OVERRIDES = {
   ldn: 'ラーダン語',
   zba: 'バライバラン語',
+  'zh-CN': '中国語・中国',
+  'zh-TW': '中国語・台湾',
+  'zh-HK': '中国語・香港',
   'zh-YUE': '広東語',
 };
 
@@ -86,18 +90,19 @@ export const localizedCommonName = (code, englishName, locale) => {
 
   const displayNames = displayNamesFor(locale);
   // Without Intl.DisplayNames, keep the English common name for every code.
-  // Overrides only fill gaps in an implementation that is present.
+  // Overrides apply only when the API exists, so a missing implementation
+  // does not mix Japanese and English names.
   if (!displayNames) {
     return fallback;
+  }
+
+  if (isJapaneseLocale(locale) && Object.prototype.hasOwnProperty.call(JAPANESE_LANGUAGE_NAME_OVERRIDES, code)) {
+    return JAPANESE_LANGUAGE_NAME_OVERRIDES[code];
   }
 
   const resolved = readDisplayName(displayNames, code);
   if (acceptsDisplayName(resolved, code, locale)) {
     return String(resolved).normalize('NFKC').trim();
-  }
-
-  if (isJapaneseLocale(locale) && Object.prototype.hasOwnProperty.call(JAPANESE_LANGUAGE_NAME_OVERRIDES, code)) {
-    return JAPANESE_LANGUAGE_NAME_OVERRIDES[code];
   }
 
   return fallback;

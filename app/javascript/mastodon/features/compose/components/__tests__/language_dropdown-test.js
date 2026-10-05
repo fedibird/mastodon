@@ -264,9 +264,9 @@ describe('localized composer language names', () => {
       'Deutsch (ドイツ語)',
       'Français (フランス語)',
       '中文 (中国語)',
-      '简体中文 (中国語 (中国))',
-      '繁體中文（臺灣） (中国語 (台湾))',
-      '繁體中文（香港） (中国語 (中華人民共和国香港特別行政区))',
+      '简体中文 (中国語・中国)',
+      '繁體中文（臺灣） (中国語・台湾)',
+      '繁體中文（香港） (中国語・香港)',
       '廣東話 (広東語)',
       'Láadan (ラーダン語)',
       'باليبلن (バライバラン語)',
@@ -292,8 +292,13 @@ describe('localized composer language names', () => {
     expect(screen.getAllByRole('option').map(option => option.getAttribute('data-index'))).toEqual(['fr']);
 
     fireEvent.change(search, { target: { value: '中国' } });
-    expect(screen.getAllByRole('option').map(option => option.getAttribute('data-index'))).toEqual(expect.arrayContaining(['zh']));
+    expect(screen.getAllByRole('option').map(option => option.getAttribute('data-index'))).toEqual(expect.arrayContaining(['zh', 'zh-CN', 'zh-TW', 'zh-HK']));
     expect(screen.getByRole('option', { name: '中文 (中国語)' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '简体中文 (中国語・中国)' })).toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: '香港' } });
+    expect(screen.getAllByRole('option').map(option => option.getAttribute('data-index'))).toEqual(['zh-HK']);
+    expect(screen.getByRole('option', { name: '繁體中文（香港） (中国語・香港)' })).toBeInTheDocument();
 
     fireEvent.change(search, { target: { value: 'eng' } });
     expect(screen.getAllByRole('option').map(option => option.getAttribute('data-index'))).toEqual(['en']);
@@ -312,6 +317,8 @@ describe('localized composer language names', () => {
           ['ja', 'Japanese', '日本語'],
           ['de', 'German', 'Deutsch'],
           ['en', 'English', 'English'],
+          ['zh-CN', 'Chinese (China)', '简体中文'],
+          ['zh-HK', 'Chinese (Hong Kong)', '繁體中文（香港）'],
           ['zh-YUE', 'Cantonese', '廣東話'],
         ],
       });
@@ -319,8 +326,11 @@ describe('localized composer language names', () => {
       expect(screen.getByRole('option', { name: '日本語 (Japanese)' })).toBeInTheDocument();
       expect(screen.getByRole('option', { name: 'Deutsch (German)' })).toBeInTheDocument();
       expect(screen.getByRole('option', { name: 'English' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: '简体中文 (Chinese (China))' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: '繁體中文（香港） (Chinese (Hong Kong))' })).toBeInTheDocument();
       expect(screen.getByRole('option', { name: '廣東話 (Cantonese)' })).toBeInTheDocument();
       expect(screen.queryByText('ドイツ語')).not.toBeInTheDocument();
+      expect(screen.queryByText('中国語・香港')).not.toBeInTheDocument();
       expect(screen.queryByText('広東語')).not.toBeInTheDocument();
     } finally {
       Intl.DisplayNames = original;
