@@ -8,19 +8,20 @@
 # or probe the other side once per candidate, before the sparse
 # intersection is known.
 #
-# The caller supplies the existing permission relation. This query keeps
-# the intersection on status ids inside a CTE so the planner does not
-# fold it back into that wide join. PostgreSQL 12 and newer inline a CTE
-# unless it is marked MATERIALIZED. PostgreSQL 10 and 11 always
-# materialize CTEs and reject that keyword, so the same shape is written
-# as a plain CTE there. statuses.* is read only for the ids that survive.
+# The caller supplies the existing permission relation. The materialized
+# CTE is the final page of ids: permission, tag, pagination,
+# exclude_replies, and exclude_reblogs are applied before ORDER BY
+# statuses.id and LIMIT. PostgreSQL can stop once that page is full
+# instead of materializing every matching id and limiting afterwards.
+# The outer query only hydrates statuses.* for those ids.
+#
+# PostgreSQL 12 and newer inline a CTE unless it is marked MATERIALIZED.
+# PostgreSQL 10 and 11 always materialize CTEs and reject that keyword,
+# so the same shape is written as a plain CTE there.
 #
 # exclude_replies and exclude_reblogs are API filters, separate from the
-# reblog visibility already present on the permission relation. They are
-# applied after the intersection and before LIMIT: the reply predicate
-# in particular is an OR across columns the id intersection does not
-# need. Pagination bounds are id predicates, so they stay inside the CTE.
-# min_id matches Paginable#paginate_by_min_id: the next page is taken in
+# reblog visibility already present on the permission relation. min_id
+# matches Paginable#paginate_by_min_id: the next page is taken in
 # ascending id order and then reversed. since_id is ignored when min_id
 # is present, as to_a_paginated_by_id does.
 class AccountStatusesTaggedQuery
@@ -54,10 +55,8 @@ class AccountStatusesTaggedQuery
       'SELECT statuses.*',
       'FROM statuses',
       'INNER JOIN matched_ids ON matched_ids.id = statuses.id',
-      outer_where_sql,
       order_sql,
-      "LIMIT #{@limit}",
-    ].compact.join(' ')
+    ].join(' ')
   end
 
   private
@@ -68,16 +67,24 @@ class AccountStatusesTaggedQuery
 
   def matched_ids_scope
     # Drop eager loads and any limit/order carried by the permission
-    # relation. The page size is applied only after the outer filters.
+    # relation. This CTE applies the API filters and then keeps only the
+    # page, so the outer statement does not limit a fully materialized set.
     scope = @candidate_scope
             .except(:includes, :preload, :eager_load)
             .unscope(:limit, :offset)
             .reorder(nil)
-            .reselect(Status.arel_table[:id])
             .joins(:statuses_tags)
             .where(statuses_tags: { tag_id: @tag_id })
+    scope = scope.merge(Status.unscoped.without_replies) if @exclude_replies
+    scope = scope.merge(Status.unscoped.without_reblogs) if @exclude_reblogs
+    scope = apply_page_bounds(scope)
 
-    apply_page_bounds(scope)
+    scope.reselect(Status.arel_table[:id]).reorder(id_order).limit(@limit)
+  end
+
+  def id_order
+    column = Status.arel_table[:id]
+    @min_id.nil? ? column.desc : column.asc
   end
 
   def apply_page_bounds(scope)
@@ -89,23 +96,6 @@ class AccountStatusesTaggedQuery
 
   def lower_id_bound
     @min_id.nil? ? @since_id : @min_id
-  end
-
-  def outer_where_sql
-    predicates = []
-    predicates << scope_predicate(Status.unscoped.without_replies) if @exclude_replies
-    predicates << scope_predicate(Status.unscoped.without_reblogs) if @exclude_reblogs
-    return if predicates.empty?
-
-    "WHERE #{predicates.map { |predicate| "(#{predicate})" }.join(' AND ')}"
-  end
-
-  def scope_predicate(relation)
-    sql = relation.reselect(Arel.sql('1')).reorder(nil).to_sql
-    predicate = sql.split(/\bWHERE\b/, 2).last
-    raise ArgumentError, "scope has no predicate: #{sql}" if predicate.blank?
-
-    predicate.strip
   end
 
   def order_sql
