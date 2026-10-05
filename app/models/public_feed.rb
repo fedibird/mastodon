@@ -10,6 +10,7 @@ class PublicFeed
   # @option [Boolean] :only_media
   # @option [Boolean] :without_media
   # @option [Boolean] :without_bot
+  # @option [String] :domain
   def initialize(account, options = {})
     @account = account
     @options = options
@@ -22,6 +23,7 @@ class PublicFeed
   # @return [Array<Status>]
   def get(limit, max_id = nil, since_id = nil, min_id = nil)
     return Status.none if local_only? && !imast? && !mastodon_for_ios? && !mastodon_for_android?
+    return Status.none if domain_only? && !domain_available?
 
     scope = public_scope
 
@@ -96,7 +98,16 @@ class PublicFeed
   end
 
   def domain
-    options[:domain]
+    return @domain if defined?(@domain)
+
+    raw_domain = options[:domain]
+    @domain = raw_domain.present? ? TagManager.instance.normalize_domain(raw_domain.to_s.strip) : nil
+  rescue Addressable::URI::InvalidURIError
+    @domain = nil
+  end
+
+  def domain_available?
+    domain.present? && Account.where(domain: domain).without_suspended.without_silenced.exists?
   end
 
   def public_scope
