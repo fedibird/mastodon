@@ -56,6 +56,32 @@ export const loadPending = () => ({
   type: NOTIFICATIONS_LOAD_PENDING,
 });
 
+const accountNotificationName = (account) => {
+  if (!account) {
+    return '';
+  }
+
+  if (typeof account.display_name === 'string' && account.display_name.length > 0) {
+    return account.display_name;
+  }
+
+  return account.username || account.acct || '';
+};
+
+const notificationTitleValues = (notification) => {
+  const values = {
+    name: accountNotificationName(notification.account),
+  };
+
+  if (notification.type === 'admin.report') {
+    const targetAccount = notification.report && notification.report.target_account;
+
+    values.target = accountNotificationName(targetAccount);
+  }
+
+  return values;
+};
+
 export function updateNotifications(notification, intlMessages, intlLocale) {
   return (dispatch, getState) => {
     const showInColumn = getState().getIn(['settings', 'notifications', 'shows', notification.type], true);
@@ -97,7 +123,7 @@ export function updateNotifications(notification, intlMessages, intlLocale) {
 
     // Desktop notifications
     if (typeof window.Notification !== 'undefined' && showAlert && !filtered) {
-      const title = new IntlMessageFormat(intlMessages[`notification.${notification.type}`], intlLocale).format({ name: notification.account.display_name.length > 0 ? notification.account.display_name : notification.account.username });
+      const title = new IntlMessageFormat(intlMessages[`notification.${notification.type}`], intlLocale).format(notificationTitleValues(notification));
       const body  = (notification.status && notification.status.spoiler_text.length > 0) ? notification.status.spoiler_text : unescapeHTML(notification.status ? notification.status.content : '');
 
       const notify = new Notification(title, { body, icon: notification.account.avatar, tag: notification.id });

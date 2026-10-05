@@ -14,6 +14,7 @@ import Icon from 'mastodon/components/icon';
 import Permalink from 'mastodon/components/permalink';
 import Content from 'mastodon/components/content';
 import classNames from 'classnames';
+import Report from './report';
 
 const messages = defineMessages({
   favourite: { id: 'notification.favourite', defaultMessage: '{name} favourited your post' },
@@ -561,27 +562,43 @@ class Notification extends ImmutablePureComponent {
 
   renderAdminReport (notification, account, link) {
     const { intl, unread } = this.props;
-    const targetName = notification.getIn(['report', 'target_account', 'acct']) || '';
-    const reportId = notification.getIn(['report', 'id']);
+    const report = notification.get('report');
+    const targetAccount = report && report.get('target_account');
+    const targetAcct = (targetAccount && targetAccount.get('acct')) || '';
+    let target;
+
+    if (targetAccount && targetAccount.get('id')) {
+      const targetPath = `${targetAccount.get('group', false) ? '/timelines/groups/' : '/accounts/'}${targetAccount.get('id')}`;
+
+      target = (
+        <bdi>
+          <Permalink
+            className='notification__display-name'
+            href={targetAccount.get('url') || ''}
+            to={targetPath}
+            title={targetAcct}
+            dangerouslySetInnerHTML={{ __html: targetAccount.get('display_name_html') || '' }}
+          />
+        </bdi>
+      );
+    } else {
+      target = <bdi>{targetAcct}</bdi>;
+    }
 
     return (
       <HotKeys handlers={this.getHandlers()}>
-        <div className={classNames('notification notification-admin-report focusable', { unread })} tabIndex='0' ref={this.setRef} aria-label={notificationForScreenReader(intl, intl.formatMessage(messages.admin_report, { name: account.get('acct'), target: targetName }), notification.get('created_at'))}>
+        <div className={classNames('notification notification-admin-report focusable', { unread })} tabIndex='0' ref={this.setRef} aria-label={notificationForScreenReader(intl, intl.formatMessage(messages.admin_report, { name: account.get('acct') || '', target: targetAcct }), notification.get('created_at'))}>
           <div className='notification__message'>
             <div className='notification__favourite-icon-wrapper'>
               <Icon id='flag' fixedWidth />
             </div>
 
             <span title={notification.get('created_at')}>
-              <FormattedMessage id='notification.admin.report' defaultMessage='{name} reported {target}' values={{ name: link, target: <bdi>{targetName}</bdi> }} />
+              <FormattedMessage id='notification.admin.report' defaultMessage='{name} reported {target}' values={{ name: link, target }} />
             </span>
           </div>
 
-          {reportId && (
-            <a className='notification__report-link' href={`/admin/reports/${reportId}`}>
-              <FormattedMessage id='notification.admin.report_link' defaultMessage='View report' />
-            </a>
-          )}
+          <Report account={account} report={report} hidden={this.props.hidden} />
         </div>
       </HotKeys>
     );
