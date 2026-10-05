@@ -64,8 +64,10 @@ class Sanitize
       current_node.wrap('<p></p>')
     end
 
+    # `small` stays so a Misskey trailing-hashtag group remains one inline
+    # wrapper. Formatter then inserts compatibility suffixes before it.
     MASTODON_STRICT = freeze_config(
-      elements: %w(p br span a del s pre blockquote code b strong u i em ul ol li ruby rt rp),
+      elements: %w(p br span a del s pre blockquote code b strong u i em ul ol li ruby rt rp small),
 
       attributes: {
         'a'    => %w(href rel class),

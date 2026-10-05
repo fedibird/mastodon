@@ -992,6 +992,114 @@ RSpec.describe Formatter do
       end
     end
 
+    describe 'inline wrappers around trailing hashtags' do
+      def wrapped_hashtags(names)
+        anchors = names.map { |name| remote_hashtag_anchor(name) }.join(' ')
+        %(<small>#{anchors}</small>)
+      end
+
+      def remote_with_reference(html)
+        status = Fabricate(:status, account: remote_account, text: html, url: 'https://remote.test/users/bob/statuses/9')
+        add_status_reference(status)
+        formatted_fragment(status)
+      end
+
+      it 'places quote, media, and reference suffixes before a small hashtag wrapper' do
+        quoted = Fabricate(:status, account: local_account, text: 'quoted', uri: nil)
+        status = Fabricate(:status, account: local_account, text: 'body', uri: nil, quote: quoted)
+        attach_overflow_media(status)
+        add_status_reference(status)
+        html = %(<p>Hello #{wrapped_hashtags(%w(one two))}</p>)
+
+        fragment = Nokogiri::HTML.fragment(
+          Formatter.instance.send(:insert_status_suffixes, html, Formatter.instance.send(:local_status_suffix_fragments, status))
+        )
+        wrapper = fragment.at_css('small')
+        quote = fragment.at_css('.quote-inline')
+        media = fragment.at_css('.original-media-link')
+        reference = fragment.at_css('.reference-link-inline')
+
+        expect_before(quote, media)
+        expect_before(media, reference)
+        expect_before(reference, wrapper)
+        expect(wrapper.css('.quote-inline, .original-media-link, .reference-link-inline')).to be_empty
+        expect(wrapper.css('a.mention.hashtag').map { |node| node.text }).to eq(['#one', '#two'])
+        expect(fragment.text.index('Hello')).to be < fragment.text.index('QT:')
+      end
+
+      it 'places a remote reference link before hashtags wrapped in small' do
+        html = %(<p>Hello #{wrapped_hashtags(%w(one two))}</p>)
+        fragment = remote_with_reference(html)
+        wrapper = fragment.at_css('small')
+        reference = fragment.at_css('.reference-link-inline')
+
+        expect_before(reference, wrapper)
+        expect(wrapper.css('.reference-link-inline')).to be_empty
+        expect(wrapper.css('a.mention.hashtag').map { |node| node.text }).to eq(['#one', '#two'])
+        expect(fragment.text).to include('Hello')
+        expect(fragment.text.index('Hello')).to be < fragment.text.index('[Ref.]')
+      end
+
+      it 'places a remote reference link before nested inline hashtag wrappers' do
+        html = %(<p>Hello <small><span>#{remote_hashtag_anchor('one')}</span> <span>#{remote_hashtag_anchor('two')}</span></small></p>)
+        fragment = remote_with_reference(html)
+        wrapper = fragment.at_css('small')
+
+        expect_before(fragment.at_css('.reference-link-inline'), wrapper)
+        expect(wrapper.css('a.mention.hashtag').map { |node| node.text }).to eq(['#one', '#two'])
+      end
+
+      it 'places a remote reference link before a small hashtag group that follows a paragraph' do
+        html = %(<p>Hello</p>#{wrapped_hashtags(%w(one two))})
+        fragment = remote_with_reference(html)
+        paragraph = fragment.at_css('p')
+        wrapper = fragment.at_css('small')
+
+        expect(paragraph.at_css('.reference-link-inline')).to be_nil
+        expect(paragraph.text).to include('Hello')
+        expect_before(fragment.at_css('.reference-link-inline'), wrapper)
+        expect(wrapper.css('a.mention.hashtag').map { |node| node.text }).to eq(['#one', '#two'])
+      end
+
+      it 'does not treat a small element that contains ordinary text as trailing' do
+        html = %(<p>Hello <small>tags: #{remote_hashtag_anchor('one')} #{remote_hashtag_anchor('two')}</small></p>)
+        fragment = remote_with_reference(html)
+        wrapper = fragment.at_css('small')
+
+        expect_before(wrapper, fragment.at_css('.reference-link-inline'))
+        expect(wrapper.text).to include('tags:')
+        expect(wrapper.at_css('.reference-link-inline')).to be_nil
+      end
+
+      it 'does not treat a wrapper that contains an image as trailing' do
+        html = %(<p>Hello <small><img src="https://example.com/a.png">#{remote_hashtag_anchor('one')}</small></p>)
+        result = Formatter.instance.send(
+          :insert_status_suffixes,
+          html,
+          ['<span class="reference-link-inline"> <a href="https://example.com/r">[Ref.]</a></span>']
+        )
+        fragment = Nokogiri::HTML.fragment(result)
+
+        expect_before(fragment.at_css('small'), fragment.at_css('.reference-link-inline'))
+        expect(fragment.at_css('small img')).to be_present
+        expect(fragment.at_css('small .reference-link-inline')).to be_nil
+      end
+
+      it 'does not place a reference link inside a blockquote, list, or pre that wraps hashtags' do
+        {
+          'blockquote' => %(<blockquote><small>#{remote_hashtag_anchor('one')}</small></blockquote>),
+          'li' => %(<ul><li><small>#{remote_hashtag_anchor('one')}</small></li></ul>),
+          'pre' => %(<pre><small>#{remote_hashtag_anchor('one')}</small></pre>),
+        }.each do |boundary, html|
+          fragment = remote_with_reference(html)
+
+          expect(fragment.at_css("#{boundary} .reference-link-inline")).to be_nil
+          expect(fragment.at_css("#{boundary} small a.mention.hashtag").text).to eq('#one')
+          expect(fragment.at_css('.reference-link-inline')).to be_present
+        end
+      end
+    end
+
     describe 'paragraph boundaries' do
       it 'keeps a hashtag-only final paragraph after the suffix' do
         status = Fabricate(:status, account: local_account, text: "Hello\n\n#one #two", uri: nil)

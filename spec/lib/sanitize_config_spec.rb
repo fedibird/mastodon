@@ -18,6 +18,10 @@ describe Sanitize::Config do
       expect(Sanitize.fragment('<p>Check out:</p><ol start="3" reversed=""><li>Foo</li><li>Bar</li></ol>', subject)).to eq '<p>Check out:</p><ol start="3" reversed=""><li>Foo</li><li>Bar</li></ol>'
     end
 
+    it 'keeps small elements' do
+      expect(Sanitize.fragment('<p>Hello <small>#one</small></p>', subject)).to eq '<p>Hello <small>#one</small></p>'
+    end
+
     it 'keeps ruby tags' do
       expect(Sanitize.fragment('<p><ruby>明日 <rp>(</rp><rt>Ashita</rt><rp>)</rp></ruby></p>', subject)).to eq '<p><ruby>明日 <rp>(</rp><rt>Ashita</rt><rp>)</rp></ruby></p>'
     end
