@@ -1004,6 +1004,49 @@ RSpec.describe Formatter do
         formatted_fragment(status)
       end
 
+      def misskey_wrapped_hashtags
+        <<~HTML
+          <p>Hello <small>
+            <a href="https://misskey.example/tags/one" rel="tag">#one</a>
+            <a href="https://misskey.example/tags/two" rel="tag">#two</a>
+          </small></p>
+        HTML
+      end
+
+      it 'places quote, media, and reference suffixes before a classless Misskey hashtag group' do
+        quoted = Fabricate(:status, account: local_account, text: 'quoted', uri: nil)
+        status = Fabricate(:status, account: local_account, text: 'body', uri: nil, quote: quoted)
+        attach_overflow_media(status)
+        add_status_reference(status)
+        sanitized = Formatter.instance.reformat(misskey_wrapped_hashtags)
+
+        fragment = Nokogiri::HTML.fragment(
+          Formatter.instance.send(:insert_status_suffixes, sanitized, Formatter.instance.send(:local_status_suffix_fragments, status))
+        )
+        wrapper = fragment.at_css('small')
+        anchors = wrapper.css('a.mention.hashtag')
+
+        expect_before(fragment.at_css('.quote-inline'), fragment.at_css('.original-media-link'))
+        expect_before(fragment.at_css('.original-media-link'), fragment.at_css('.reference-link-inline'))
+        expect_before(fragment.at_css('.reference-link-inline'), wrapper)
+        expect(wrapper.css('.quote-inline, .original-media-link, .reference-link-inline')).to be_empty
+        expect(anchors.map { |node| node.text }).to eq(['#one', '#two'])
+        expect(anchors.map { |node| node['class'].to_s.split }).to all(include('mention', 'hashtag'))
+        expect(fragment.text.index('Hello')).to be < fragment.text.index('QT:')
+      end
+
+      it 'places a remote reference link before a classless Misskey hashtag group' do
+        fragment = remote_with_reference(misskey_wrapped_hashtags)
+        wrapper = fragment.at_css('small')
+        anchors = wrapper.css('a')
+
+        expect_before(fragment.at_css('.reference-link-inline'), wrapper)
+        expect(wrapper.css('.reference-link-inline')).to be_empty
+        expect(anchors.map { |node| node.text }).to eq(['#one', '#two'])
+        expect(anchors.map { |node| node['class'].to_s.split }).to all(include('mention', 'hashtag'))
+        expect(fragment.text.index('Hello')).to be < fragment.text.index('[Ref.]')
+      end
+
       it 'places quote, media, and reference suffixes before a small hashtag wrapper' do
         quoted = Fabricate(:status, account: local_account, text: 'quoted', uri: nil)
         status = Fabricate(:status, account: local_account, text: 'body', uri: nil, quote: quoted)

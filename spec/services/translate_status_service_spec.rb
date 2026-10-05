@@ -956,7 +956,7 @@ RSpec.describe TranslateStatusService do
 
       expect(formatted_anchor['rel'].to_s.split).not_to include('tag')
       expect(formatted_anchor['href']).to eq 'https://remote.test/tags/Fedibird'
-      expect(formatted_anchor['class'].to_s).not_to include('hashtag')
+      expect(formatted_anchor['class'].to_s.split).to include('mention', 'hashtag')
 
       translation = described_class.new.call(remote, 'ja')
       fragment = Nokogiri::HTML.fragment(sent_html)

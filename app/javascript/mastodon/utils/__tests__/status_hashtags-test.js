@@ -213,6 +213,24 @@ describe('splitTrailingHashtags', () => {
     expect(result.hashtags).toEqual([]);
   });
 
+  it('splits a sanitized Misskey trailing hashtag group', () => {
+    const html = [
+      '<p>Hello <small>',
+      '  <a href="https://misskey.example/tags/one" rel="nofollow noopener noreferrer" class="mention hashtag" target="_blank">#one</a>',
+      '  <a href="https://misskey.example/tags/two" rel="nofollow noopener noreferrer" class="mention hashtag" target="_blank">#two</a>',
+      '</small></p>',
+    ].join('\n');
+    const result = splitTrailingHashtags(html);
+
+    expect(result.html).toBe('<p>Hello</p>');
+    expect(names(result)).toEqual(['one', 'two']);
+    expect(result.hashtags.map(hashtag => hashtag.text)).toEqual(['#one', '#two']);
+    expect(result.hashtags.map(hashtag => hashtag.href)).toEqual([
+      'https://misskey.example/tags/one',
+      'https://misskey.example/tags/two',
+    ]);
+  });
+
   it('splits hashtags wrapped in an inline element', () => {
     const html = `<p>Hello <small>${anchor('one')} ${anchor('two')}</small></p>`;
     const result = splitTrailingHashtags(html);

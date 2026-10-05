@@ -22,6 +22,46 @@ describe Sanitize::Config do
       expect(Sanitize.fragment('<p>Hello <small>#one</small></p>', subject)).to eq '<p>Hello <small>#one</small></p>'
     end
 
+    it 'canonicalizes a Misskey trailing hashtag group before rel=tag is replaced' do
+      html = <<~HTML
+        <p>Hello <small>
+          <a href="https://misskey.example/tags/one" rel="tag">#one</a>
+          <a href="https://misskey.example/tags/two" rel="tag">#two</a>
+        </small></p>
+      HTML
+      fragment = Nokogiri::HTML.fragment(Sanitize.fragment(html, subject))
+      wrapper = fragment.at_css('small')
+      anchors = wrapper.css('a')
+
+      expect(wrapper).to be_present
+      expect(anchors.map { |anchor| anchor.text }).to eq ['#one', '#two']
+      expect(anchors.map { |anchor| anchor['href'] }).to eq [
+        'https://misskey.example/tags/one',
+        'https://misskey.example/tags/two',
+      ]
+      anchors.each do |anchor|
+        expect(anchor['class'].to_s.split).to eq %w(mention hashtag)
+        expect(anchor['rel'].to_s.split).to eq %w(nofollow noopener noreferrer)
+        expect(anchor['rel'].to_s.split).not_to include('tag')
+      end
+    end
+
+    it 'keeps existing classes and does not mark an ordinary link as a hashtag' do
+      html = <<~HTML
+        <p><a class="u-url mention" href="https://misskey.example/tags/one" rel="tag">#one</a>
+        <a href="https://example.com/post" rel="noopener">#not-a-tag</a>
+        <a href="https://example.com/tags/two" rel="tag">two</a></p>
+      HTML
+      fragment = Nokogiri::HTML.fragment(Sanitize.fragment(html, subject))
+      anchors = fragment.css('a')
+
+      expect(anchors[0]['class'].to_s.split).to eq %w(u-url mention hashtag)
+      expect(anchors[1]['class'].to_s).not_to include('hashtag')
+      expect(anchors[1]['class'].to_s).not_to include('mention')
+      expect(anchors[2]['class'].to_s).not_to include('hashtag')
+      expect(anchors[2]['class'].to_s).not_to include('mention')
+    end
+
     it 'keeps ruby tags' do
       expect(Sanitize.fragment('<p><ruby>明日 <rp>(</rp><rt>Ashita</rt><rp>)</rp></ruby></p>', subject)).to eq '<p><ruby>明日 <rp>(</rp><rt>Ashita</rt><rp>)</rp></ruby></p>'
     end
