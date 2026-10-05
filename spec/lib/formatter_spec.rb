@@ -854,6 +854,18 @@ RSpec.describe Formatter do
         expect(fragment.css('.quote-inline').size).to eq(1)
       end
 
+      it 'places the quote link before same-line trailing hashtags' do
+        quoted = Fabricate(:status, account: local_account, text: 'quoted', uri: nil)
+        status = Fabricate(:status, account: local_account, text: 'Hello #one #two', uri: nil, quote: quoted)
+
+        fragment = formatted_fragment(status)
+        hashtags = fragment.css('a.mention.hashtag')
+
+        expect(hashtags.map { |node| node.text }).to eq(['#one', '#two'])
+        expect_before(fragment.at_css('.quote-inline'), hashtags[0])
+        expect_before(hashtags[0], hashtags[1])
+      end
+
       it 'keeps the literal QT break when there is no trailing hashtag' do
         quoted = Fabricate(:status, account: local_account, text: 'quoted', uri: nil)
         status = Fabricate(:status, account: local_account, text: 'Hello', uri: nil, quote: quoted)
@@ -930,6 +942,53 @@ RSpec.describe Formatter do
         fragment = formatted_fragment(status)
         expect_before(fragment.at_css('a.mention.hashtag'), fragment.at_css('.original-media-link'))
         expect(fragment.text.index('@alice')).to be < fragment.text.index('Attached')
+      end
+    end
+
+    describe 'quoted, listed, and preformatted endings' do
+      def remote_with_reference(html)
+        status = Fabricate(:status, account: remote_account, text: html, url: 'https://remote.test/users/bob/statuses/9')
+        add_status_reference(status)
+        formatted_fragment(status)
+      end
+
+      it 'does not place a reference link inside a final blockquote' do
+        html = %(<p>Intro</p><blockquote><p>Quoted #{remote_hashtag_anchor('tag')}</p></blockquote>)
+        fragment = remote_with_reference(html)
+        quote = fragment.at_css('blockquote')
+
+        expect(quote.at_css('.reference-link-inline')).to be_nil
+        expect(quote.at_css('a.mention.hashtag').text).to eq('#tag')
+        expect(fragment.at_css('.reference-link-inline')).to be_present
+      end
+
+      it 'does not append a reference link to a blockquote before a hashtag-only paragraph' do
+        html = %(<blockquote><p>Quoted</p></blockquote><p>#{remote_hashtag_anchor('one')} #{remote_hashtag_anchor('two')}</p>)
+        fragment = remote_with_reference(html)
+        paragraphs = fragment.css('p')
+        hashtags = paragraphs.last.css('a.mention.hashtag')
+
+        expect(fragment.at_css('blockquote .reference-link-inline')).to be_nil
+        expect(hashtags.map { |node| node.text }).to eq(['#one', '#two'])
+        expect_before(fragment.at_css('.reference-link-inline'), hashtags.first)
+      end
+
+      it 'does not place a reference link inside a final list item' do
+        html = %(<p>Intro</p><ul><li>#{remote_hashtag_anchor('one')}</li></ul>)
+        fragment = remote_with_reference(html)
+
+        expect(fragment.at_css('li .reference-link-inline')).to be_nil
+        expect(fragment.at_css('li a.mention.hashtag').text).to eq('#one')
+        expect(fragment.at_css('.reference-link-inline')).to be_present
+      end
+
+      it 'does not place a reference link inside a final preformatted block' do
+        html = %(<p>Intro</p><pre>#{remote_hashtag_anchor('one')}</pre>)
+        fragment = remote_with_reference(html)
+
+        expect(fragment.at_css('pre .reference-link-inline')).to be_nil
+        expect(fragment.at_css('pre a.mention.hashtag').text).to eq('#one')
+        expect(fragment.at_css('.reference-link-inline')).to be_present
       end
     end
 

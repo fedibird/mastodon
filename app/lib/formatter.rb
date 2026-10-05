@@ -11,9 +11,6 @@ class Formatter
 
   NEWLINE_TAGS_RE = %r{(<br />|<br>|</p>)+}
   CLOSING_PARAGRAPH_RE = %r{</p>\z}
-  # Block elements that can hold a trailing hashtag run, and that can receive
-  # a suffix when the final block itself is only hashtags.
-  TRAILING_HASHTAG_BLOCK_TAGS = %w(p div blockquote li td th article section).freeze
 
   # A decoded URL is only ever shown to a human or offered to a matcher, so any
   # Unicode control character in it is noise at best. It is also how the
@@ -422,7 +419,7 @@ class Formatter
 
   # [:before, node] inserts in front of the hashtag row, including the <br>
   # that separates it from the body. [:append, element] keeps a hashtag-only
-  # final block where it is and puts the suffix on the previous block.
+  # final paragraph where it is and puts the suffix on the previous paragraph.
   def trailing_hashtag_insertion_point(root)
     container = trailing_content_container(root)
     return if container.nil?
@@ -440,15 +437,12 @@ class Formatter
     [:before, nodes[boundary]]
   end
 
+  # Only the final top-level paragraph is a trailing-hashtag container.
+  # blockquote, list, and pre stay closed so a generated link cannot look
+  # like part of quoted or preformatted text.
   def trailing_content_container(root)
-    container = root
-    loop do
-      last = last_content_child(container)
-      break unless last&.element? && TRAILING_HASHTAG_BLOCK_TAGS.include?(last.name)
-
-      container = last
-    end
-    container
+    last = last_content_child(root)
+    last&.element? && last.name == 'p' ? last : root
   end
 
   def last_content_child(node)
@@ -510,10 +504,10 @@ class Formatter
   end
 
   def appendable_previous_block(container)
-    return unless container.element?
+    return unless container.element? && container.name == 'p'
 
     previous = container.previous_element
-    previous if previous && TRAILING_HASHTAG_BLOCK_TAGS.include?(previous.name)
+    previous if previous&.name == 'p'
   end
 
   # Local anchors match a.mention.hashtag[rel~="tag"]. Remote reformat keeps
