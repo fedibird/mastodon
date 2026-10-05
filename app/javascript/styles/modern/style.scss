@@ -131,11 +131,15 @@
   .public-layout .search .search__icon > i {
     right: 15px;
   }
+  #mastodon .compose-form .compose-form__dropdowns,
+  .public-layout .compose-form .compose-form__dropdowns {
+    border-radius: var(--radius) var(--radius) 0 0 !important;
+  }
   #mastodon .compose-form .compose-form__autosuggest-wrapper,
   .public-layout .compose-form .compose-form__autosuggest-wrapper,
   #mastodon .compose-form .autosuggest-textarea__textarea,
   .public-layout .compose-form .autosuggest-textarea__textarea {
-    border-radius: var(--radius) var(--radius) 0 0 !important;
+    border-radius: 0 !important;
   }
   #mastodon .compose-form .compose-form__buttons-wrapper,
   .public-layout .compose-form .compose-form__buttons-wrapper {

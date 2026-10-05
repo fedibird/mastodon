@@ -2,7 +2,6 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import { injectIntl, defineMessages } from 'react-intl';
-import IconButton from '../../../components/icon_button';
 import Overlay from 'react-overlays/Overlay';
 import { supportsPassiveEvents } from 'detect-passive-events';
 import classNames from 'classnames';
@@ -162,7 +161,11 @@ class PrivacyDropdown extends React.PureComponent {
     placement: 'bottom',
   };
 
-  handleToggle = () => {
+  handleToggle = (e) => {
+    if (e) {
+      e.preventDefault();
+    }
+
     if (this.props.disabled) {
       return;
     }
@@ -264,20 +267,20 @@ class PrivacyDropdown extends React.PureComponent {
     return (
       <div className={classNames('privacy-dropdown', placement, { active: open })} onKeyDown={this.handleKeyDown}>
         <div className={classNames('privacy-dropdown__value', { active: this.options.indexOf(valueOption) === (placement === 'bottom' ? 0 : (this.options.length - 1)) })} ref={this.setTargetRef}>
-          <IconButton
-            className='privacy-dropdown__value-icon'
-            icon={valueOption.icon}
+          <button
+            type='button'
+            className={classNames('dropdown-button', { active: open })}
             title={intl.formatMessage(messages.change_privacy)}
-            size={18}
-            expanded={open}
-            active={open}
+            aria-label={intl.formatMessage(messages.change_privacy)}
+            aria-expanded={open}
             disabled={this.props.disabled}
-            inverted
             onClick={this.handleToggle}
             onMouseDown={this.handleMouseDown}
             onKeyDown={this.handleButtonKeyDown}
-            style={{ height: null, lineHeight: '27px' }}
-          />
+          >
+            <Icon id={valueOption.icon} fixedWidth aria-hidden='true' />
+            <span className='dropdown-button__label'>{valueOption.text}</span>
+          </button>
         </div>
 
         <Overlay show={open} placement={'bottom'} flip target={this.findTarget} container={container} popperConfig={{ strategy: 'fixed', onFirstUpdate: this.handleOverlayEnter }}>
