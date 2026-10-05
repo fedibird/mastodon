@@ -138,11 +138,13 @@ RSpec.describe PublicFeed, type: :model do
     context 'with a domain option set' do
       let!(:remote_account) { Fabricate(:account, domain: 'misskey.io') }
       let!(:remote_status)  { Fabricate(:status, account: remote_account) }
+      let!(:other_status)   { Fabricate(:status, account: Fabricate(:account, domain: 'other.example')) }
 
       it 'normalizes the requested domain before filtering' do
         statuses = described_class.new(nil, domain: 'Misskey.io').get(20)
 
-        expect(statuses.map(&:id)).to include(remote_status.id)
+        expect(statuses.map(&:id)).to contain_exactly(remote_status.id)
+        expect(statuses.map(&:id)).not_to include(other_status.id)
       end
 
       it 'short-circuits an unknown domain before building the public status scope' do
