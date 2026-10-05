@@ -23,6 +23,7 @@ const messages = defineMessages({
 });
 
 const MAX_HEIGHT = 642; // 20px * 32 (+ 2px padding at the top)
+const VISIBLE_TRAILING_HASHTAGS = 4;
 
 const translationBarRevealed = (state, status) => {
   const overrides = state.get('translation_bar_overrides');
@@ -84,6 +85,7 @@ class StatusContent extends React.PureComponent {
 
   state = {
     hidden: true,
+    hashtagsExpanded: false,
   };
 
   _updateEmojiLinks () {
@@ -358,14 +360,21 @@ class StatusContent extends React.PureComponent {
     }
   }
 
+  handleExpandHashtags = () => {
+    this.setState({ hashtagsExpanded: true });
+  }
+
   renderHashtagBadges (hashtags, visible) {
     if (!visible || !hashtags || hashtags.length === 0) {
       return null;
     }
 
+    const { hashtagsExpanded } = this.state;
+    const revealedHashtags = hashtagsExpanded ? hashtags : hashtags.slice(0, VISIBLE_TRAILING_HASHTAGS);
+
     return (
       <div className='status__content__hashtag-badges'>
-        {hashtags.map((hashtag, index) => (
+        {revealedHashtags.map((hashtag, index) => (
           <a
             key={`${hashtag.name}:${index}`}
             href={hashtag.href || undefined}
@@ -377,6 +386,11 @@ class StatusContent extends React.PureComponent {
             {hashtag.text}
           </a>
         ))}
+        {hashtags.length > VISIBLE_TRAILING_HASHTAGS && !hashtagsExpanded && (
+          <button type='button' className='status__content__hashtag-more' onClick={this.handleExpandHashtags}>
+            <FormattedMessage id='hashtags.and_other' defaultMessage='…and {count, plural, other {# more}}' values={{ count: hashtags.length - VISIBLE_TRAILING_HASHTAGS }} />
+          </button>
+        )}
       </div>
     );
   }
