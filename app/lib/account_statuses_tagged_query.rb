@@ -1,27 +1,32 @@
 # frozen_string_literal: true
 
-# ID-first intersection for GET /api/v1/accounts/:account_id/statuses?tagged=
+# ID-first intersection of one account's statuses with one tag.
 #
-# A large account and a large tag can each match tens of thousands of
-# statuses while sharing only a few. Selecting statuses.* in that join
-# makes the planner walk one side and either read the wide status heap
-# or probe the other side once per candidate, before the sparse
-# intersection is known.
+# Used by GET /api/v1/accounts/:account_id/statuses?tagged= and by the
+# public profile page /@:username/tagged/:tag (including its older/newer
+# probes). A large account and a large tag can each match tens of
+# thousands of statuses while sharing only a few. Selecting statuses.*
+# in that join makes the planner walk one side and either read the wide
+# status heap or probe the other side once per candidate, before the
+# sparse intersection is known.
 #
-# The caller supplies the existing permission relation. The materialized
-# CTE is the final page of ids: permission, tag, pagination,
-# exclude_replies, and exclude_reblogs are applied before ORDER BY
-# statuses.id and LIMIT. PostgreSQL can stop once that page is full
-# instead of materializing every matching id and limiting afterwards.
-# The outer query only hydrates statuses.* for those ids.
+# The caller supplies the candidate relation. The API passes its
+# permission scope. The public profile passes public and unlisted
+# statuses only, which is the HTML page's existing visibility rule.
+# The materialized CTE is the final page of ids: candidate scope, tag,
+# pagination, exclude_replies, and exclude_reblogs are applied before
+# ORDER BY statuses.id and LIMIT. PostgreSQL can stop once that page is
+# full instead of materializing every matching id and limiting
+# afterwards. The outer query only hydrates statuses.* for those ids.
 #
 # PostgreSQL 12 and newer inline a CTE unless it is marked MATERIALIZED.
 # PostgreSQL 10 and 11 always materialize CTEs and reject that keyword,
 # so the same shape is written as a plain CTE there.
 #
-# exclude_replies and exclude_reblogs are API filters, separate from the
-# reblog visibility already present on the permission relation. min_id
-# matches Paginable#paginate_by_min_id: the next page is taken in
+# exclude_replies and exclude_reblogs are caller filters. The public
+# profile sets exclude_replies so self-replies stay and replies to other
+# accounts drop, and leaves exclude_reblogs unset so boosts stay.
+# min_id matches Paginable#paginate_by_min_id: the next page is taken in
 # ascending id order and then reversed. since_id is ignored when min_id
 # is present, as to_a_paginated_by_id does.
 class AccountStatusesTaggedQuery
@@ -66,8 +71,8 @@ class AccountStatusesTaggedQuery
   end
 
   def matched_ids_scope
-    # Drop eager loads and any limit/order carried by the permission
-    # relation. This CTE applies the API filters and then keeps only the
+    # Drop eager loads and any limit/order carried by the candidate
+    # relation. This CTE applies the caller filters and then keeps only the
     # page, so the outer statement does not limit a fully materialized set.
     scope = @candidate_scope
             .except(:includes, :preload, :eager_load)

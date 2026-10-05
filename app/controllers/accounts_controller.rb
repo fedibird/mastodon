@@ -32,10 +32,7 @@ class AccountsController < ApplicationController
         @statuses        = cached_filtered_status_page
         @rss_url         = rss_url
 
-        unless @statuses.empty?
-          @older_url = older_url if @statuses.last.id > filtered_statuses.last.id
-          @newer_url = newer_url if @statuses.first.id < filtered_statuses.first.id
-        end
+        assign_pagination_urls
       end
 
       format.rss do
@@ -89,13 +86,46 @@ class AccountsController < ApplicationController
   end
 
   def hashtag_scope
-    tag = Tag.find_normalized(params[:tag])
-
-    if tag
-      Status.tagged_with(tag.id)
+    if requested_tag
+      Status.tagged_with(requested_tag.id)
     else
       Status.none
     end
+  end
+
+  # Nil is memoized so the page query and the older/newer probes share one lookup.
+  def requested_tag
+    return @requested_tag if defined?(@requested_tag)
+
+    @requested_tag = Tag.find_normalized(params[:tag])
+  end
+
+  # Tagged media keeps the media_attachments join, same as the REST only_media path.
+  def tagged_id_first_eligible?
+    tag_requested? && !media_requested?
+  end
+
+  def tagged_statuses_page(limit, page)
+    return [] if requested_tag.nil?
+
+    AccountStatusesTaggedQuery.new(
+      candidate_scope: default_statuses,
+      tag_id: requested_tag.id,
+      limit: limit,
+      page: page,
+      filters: {
+        exclude_replies: !replies_requested?,
+        exclude_reblogs: false,
+      }
+    ).records
+  end
+
+  def tagged_status_before?(status_id)
+    tagged_statuses_page(1, { max_id: status_id }).present?
+  end
+
+  def tagged_status_after?(status_id)
+    tagged_statuses_page(1, { min_id: status_id }).present?
   end
 
   def username_param
@@ -155,10 +185,24 @@ class AccountsController < ApplicationController
     )
   end
 
+  def assign_pagination_urls
+    return if @statuses.empty?
+
+    if tagged_id_first_eligible?
+      @older_url = older_url if tagged_status_before?(@statuses.last.id)
+      @newer_url = newer_url if tagged_status_after?(@statuses.first.id)
+    else
+      @older_url = older_url if @statuses.last.id > filtered_statuses.last.id
+      @newer_url = newer_url if @statuses.first.id < filtered_statuses.first.id
+    end
+  end
+
   def cached_filtered_status_page
     page = params_slice(:max_id, :min_id, :since_id)
 
-    if page[:min_id].present? && profile_min_id_page?
+    if tagged_id_first_eligible?
+      cache_collection(tagged_statuses_page(PAGE_SIZE, page), Status)
+    elsif page[:min_id].present? && profile_min_id_page?
       cache_collection(profile_statuses_after_min_id(page), Status)
     else
       cache_collection_paginated_by_id(filtered_statuses, Status, PAGE_SIZE, page)
@@ -167,8 +211,8 @@ class AccountsController < ApplicationController
 
   # `id > min_id` alone lets the planner walk statuses_pkey. With account_id
   # fixed, a tuple lower bound is the same predicate and can use
-  # index_statuses_20251001. Tag and media scopes join and group, so they
-  # stay on the generic paginator.
+  # index_statuses_20251001. Non-media tagged HTML uses
+  # AccountStatusesTaggedQuery. Tagged media stays on the generic paginator.
   def profile_min_id_page?
     !tag_requested? && !media_requested?
   end
