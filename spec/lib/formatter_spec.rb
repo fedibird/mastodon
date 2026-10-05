@@ -706,4 +706,365 @@ RSpec.describe Formatter do
       is_expected.to eq ''
     end
   end
+
+  describe 'compatibility suffixes and trailing hashtags' do
+    def formatted_fragment(status)
+      Nokogiri::HTML.fragment(Formatter.instance.format(status))
+    end
+
+    def expect_before(earlier, later)
+      expect(earlier).to be_present
+      expect(later).to be_present
+      expect(earlier <=> later).to eq(-1)
+    end
+
+    def attach_overflow_media(status)
+      5.times { Fabricate(:media_attachment, account: status.account, status: status) }
+    end
+
+    def add_status_reference(status)
+      target = Fabricate(:status, account: local_account, text: 'referenced', uri: nil)
+      StatusReference.create!(status: status, target_status: target)
+    end
+
+    def remote_hashtag_anchor(name)
+      %(<a href="https://remote.test/tags/#{name}" class="mention hashtag" rel="tag">#<span>#{name}</span></a>)
+    end
+
+    describe 'with no generated suffix' do
+      let(:status) { Fabricate(:status, account: local_account, text: "Hello\n#one #two", uri: nil) }
+
+      it 'keeps the historical HTML' do
+        expected = %(<p>Hello<br />#{Formatter.instance.send(:hashtag_html, 'one')} #{Formatter.instance.send(:hashtag_html, 'two')}</p>)
+
+        expect(Formatter.instance.format(status)).to eq(expected)
+        expect { Formatter.instance.format(status) }.not_to change { status.reload.text }
+      end
+    end
+
+    describe 'original media link' do
+      it 'places the media link before a trailing hashtag row' do
+        status = Fabricate(:status, account: local_account, text: "Hello\n#one #two", uri: nil)
+        attach_overflow_media(status)
+
+        fragment = formatted_fragment(status)
+        media = fragment.at_css('.original-media-link')
+        hashtag = fragment.at_css('a.mention.hashtag')
+        separator = fragment.at_css('p > br')
+
+        expect_before(media, separator)
+        expect_before(separator, hashtag)
+        expect(fragment.at_css('p').children.find { |node| node.text? && node.content.include?('Hello') } <=> media).to eq(-1)
+        expect(fragment.css('.original-media-link').size).to eq(1)
+        expect(fragment.text).to include('Attached: 5 images')
+      end
+
+      it 'places the media link before same-line trailing hashtags' do
+        status = Fabricate(:status, account: local_account, text: 'Hello #one #two', uri: nil)
+        attach_overflow_media(status)
+
+        fragment = formatted_fragment(status)
+        media = fragment.at_css('.original-media-link')
+        hashtag = fragment.at_css('a.mention.hashtag')
+
+        expect_before(media, hashtag)
+        expect(hashtag.previous&.text?).to be true
+        expect(hashtag.previous.content).to match(/[[:space:]]\z/)
+      end
+
+      it 'keeps a hashtag-only post ending with the hashtags' do
+        status = Fabricate(:status, account: local_account, text: '#one #two', uri: nil)
+        attach_overflow_media(status)
+
+        fragment = formatted_fragment(status)
+        expect_before(fragment.at_css('.original-media-link'), fragment.at_css('a.mention.hashtag'))
+        expect(fragment.css('a').last['class']).to include('hashtag')
+      end
+
+      it 'appends without reserializing when the post has no trailing hashtag' do
+        status = Fabricate(:status, account: local_account, text: 'Hello', uri: nil)
+        attach_overflow_media(status)
+
+        html = Formatter.instance.format(status)
+
+        expect(html).to start_with('<p>Hello<span class="original-media-link"> ')
+        expect(html).to end_with('</span></p>')
+        expect(html).to include('[Attached: 5 images]')
+        expect(html).not_to include('<br')
+      end
+    end
+
+    describe 'status reference link' do
+      it 'places the local reference link before trailing hashtags' do
+        status = Fabricate(:status, account: local_account, text: "Hello\n#one #two", uri: nil)
+        add_status_reference(status)
+
+        fragment = formatted_fragment(status)
+        reference = fragment.at_css('.reference-link-inline')
+        hashtag = fragment.at_css('a.mention.hashtag')
+
+        expect_before(reference, fragment.at_css('p > br'))
+        expect_before(fragment.at_css('p > br'), hashtag)
+        expect(reference.at_css('a')['href']).to include('/references')
+        expect(fragment.css('.reference-link-inline').size).to eq(1)
+      end
+
+      it 'places a rebuilt remote reference link before trailing hashtags and keeps its URL' do
+        html = %(<p>Hello<br>#{remote_hashtag_anchor('one')} #{remote_hashtag_anchor('two')}<span class="reference-link-inline"> <a href="https://example.com/kept-ref">[Ref.]</a></span></p>)
+        status = Fabricate(:status, account: remote_account, text: html, url: 'https://remote.test/users/bob/statuses/9')
+        add_status_reference(status)
+
+        fragment = formatted_fragment(status)
+        reference = fragment.at_css('.reference-link-inline')
+        hashtag = fragment.at_css('a.mention.hashtag')
+
+        expect_before(reference, hashtag)
+        expect(fragment.css('.reference-link-inline').size).to eq(1)
+        expect(reference.at_css('a')['href']).to eq('https://example.com/kept-ref')
+        expect(reference.at_css('a')['data-status-id']).to eq(status.id.to_s)
+      end
+
+      it 'uses the remote status URL when the HTML has no previous reference link' do
+        html = %(<p>Hello<br>#{remote_hashtag_anchor('one')}</p>)
+        status = Fabricate(:status, account: remote_account, text: html, url: 'https://remote.test/users/bob/statuses/9')
+        add_status_reference(status)
+
+        fragment = formatted_fragment(status)
+        reference = fragment.at_css('.reference-link-inline a')
+
+        expect_before(fragment.at_css('.reference-link-inline'), fragment.at_css('a.mention.hashtag'))
+        expect(reference['href']).to eq('https://remote.test/users/bob/statuses/9')
+      end
+    end
+
+    describe 'quote link' do
+      it 'places the quote link before trailing hashtags and keeps the QT break' do
+        quoted = Fabricate(:status, account: local_account, text: 'quoted', uri: nil)
+        status = Fabricate(:status, account: local_account, text: "Hello\n#one #two", uri: nil, quote: quoted)
+
+        fragment = formatted_fragment(status)
+        quote = fragment.at_css('.quote-inline')
+        hashtag = fragment.at_css('a.mention.hashtag')
+        separator = fragment.css('p > br').find { |node| (quote <=> node) == -1 && (node <=> hashtag) == -1 }
+
+        expect_before(quote, hashtag)
+        expect(separator).to be_present
+        expect(quote.at_css('br')).to be_present
+        expect(quote.text).to include('QT:')
+        expect(fragment.css('.quote-inline').size).to eq(1)
+      end
+
+      it 'places the quote link before same-line trailing hashtags' do
+        quoted = Fabricate(:status, account: local_account, text: 'quoted', uri: nil)
+        status = Fabricate(:status, account: local_account, text: 'Hello #one #two', uri: nil, quote: quoted)
+
+        fragment = formatted_fragment(status)
+        hashtags = fragment.css('a.mention.hashtag')
+
+        expect(hashtags.map { |node| node.text }).to eq(['#one', '#two'])
+        expect_before(fragment.at_css('.quote-inline'), hashtags[0])
+        expect_before(hashtags[0], hashtags[1])
+      end
+
+      it 'keeps the literal QT break when there is no trailing hashtag' do
+        quoted = Fabricate(:status, account: local_account, text: 'quoted', uri: nil)
+        status = Fabricate(:status, account: local_account, text: 'Hello', uri: nil, quote: quoted)
+        html = Formatter.instance.format(status)
+
+        expect(html).to start_with('<p>Hello<span class="quote-inline"><br/>QT:')
+        expect(html).to end_with('</span></p>')
+      end
+    end
+
+    describe 'when quote, media, and reference suffixes are combined' do
+      let(:quoted) { Fabricate(:status, account: local_account, text: 'quoted', uri: nil) }
+      let(:status) { Fabricate(:status, account: local_account, text: "Hello\n#one #two", uri: nil, quote: quoted) }
+
+      before do
+        attach_overflow_media(status)
+        add_status_reference(status)
+      end
+
+      it 'keeps quote, media, then reference before the trailing hashtags' do
+        fragment = formatted_fragment(status)
+        quote = fragment.at_css('.quote-inline')
+        media = fragment.at_css('.original-media-link')
+        reference = fragment.at_css('.reference-link-inline')
+        hashtag = fragment.at_css('a.mention.hashtag')
+
+        expect_before(quote, media)
+        expect_before(media, reference)
+        expect_before(reference, hashtag)
+        expect(fragment.css('.quote-inline').size).to eq(1)
+        expect(fragment.css('.original-media-link').size).to eq(1)
+        expect(fragment.css('.reference-link-inline').size).to eq(1)
+        expect(fragment.css('a.mention.hashtag').map { |node| node.text }).to eq(['#one', '#two'])
+      end
+    end
+
+    describe 'hashtags that are not trailing' do
+      it 'does not treat a hashtag followed by text as the suffix boundary' do
+        status = Fabricate(:status, account: local_account, text: '#one ordinary-text', uri: nil)
+        attach_overflow_media(status)
+
+        fragment = formatted_fragment(status)
+        expect_before(fragment.at_css('a.mention.hashtag'), fragment.at_css('.original-media-link'))
+        expect(fragment.text).to include('ordinary-text')
+        expect(fragment.text.index('ordinary-text')).to be < fragment.text.index('Attached')
+      end
+
+      it 'does not treat a hashtag followed by a URL as the suffix boundary' do
+        status = Fabricate(:status, account: local_account, text: '#one https://example.com/', uri: nil)
+        attach_overflow_media(status)
+
+        fragment = formatted_fragment(status)
+        hashtag = fragment.at_css('a.mention.hashtag')
+        url = fragment.css('a').find { |node| node['href']&.include?('example.com') }
+        media = fragment.at_css('.original-media-link')
+
+        expect_before(hashtag, url)
+        expect_before(url, media)
+      end
+
+      it 'does not treat a hashtag followed by a comma as the suffix boundary' do
+        status = Fabricate(:status, account: local_account, text: '#one ,', uri: nil)
+        attach_overflow_media(status)
+
+        fragment = formatted_fragment(status)
+        expect_before(fragment.at_css('a.mention.hashtag'), fragment.at_css('.original-media-link'))
+        expect(fragment.text).to include(',')
+      end
+
+      it 'does not treat a hashtag followed by a mention as the suffix boundary' do
+        status = Fabricate(:status, account: local_account, text: '#one @alice', uri: nil)
+        attach_overflow_media(status)
+
+        fragment = formatted_fragment(status)
+        expect_before(fragment.at_css('a.mention.hashtag'), fragment.at_css('.original-media-link'))
+        expect(fragment.text.index('@alice')).to be < fragment.text.index('Attached')
+      end
+    end
+
+    describe 'quoted, listed, and preformatted endings' do
+      def remote_with_reference(html)
+        status = Fabricate(:status, account: remote_account, text: html, url: 'https://remote.test/users/bob/statuses/9')
+        add_status_reference(status)
+        formatted_fragment(status)
+      end
+
+      it 'does not place a reference link inside a final blockquote' do
+        html = %(<p>Intro</p><blockquote><p>Quoted #{remote_hashtag_anchor('tag')}</p></blockquote>)
+        fragment = remote_with_reference(html)
+        quote = fragment.at_css('blockquote')
+
+        expect(quote.at_css('.reference-link-inline')).to be_nil
+        expect(quote.at_css('a.mention.hashtag').text).to eq('#tag')
+        expect(fragment.at_css('.reference-link-inline')).to be_present
+      end
+
+      it 'does not append a reference link to a blockquote before a hashtag-only paragraph' do
+        html = %(<blockquote><p>Quoted</p></blockquote><p>#{remote_hashtag_anchor('one')} #{remote_hashtag_anchor('two')}</p>)
+        fragment = remote_with_reference(html)
+        paragraphs = fragment.css('p')
+        hashtags = paragraphs.last.css('a.mention.hashtag')
+
+        expect(fragment.at_css('blockquote .reference-link-inline')).to be_nil
+        expect(hashtags.map { |node| node.text }).to eq(['#one', '#two'])
+        expect_before(fragment.at_css('.reference-link-inline'), hashtags.first)
+      end
+
+      it 'does not place a reference link inside a final list item' do
+        html = %(<p>Intro</p><ul><li>#{remote_hashtag_anchor('one')}</li></ul>)
+        fragment = remote_with_reference(html)
+
+        expect(fragment.at_css('li .reference-link-inline')).to be_nil
+        expect(fragment.at_css('li a.mention.hashtag').text).to eq('#one')
+        expect(fragment.at_css('.reference-link-inline')).to be_present
+      end
+
+      it 'does not place a reference link inside a final preformatted block' do
+        html = %(<p>Intro</p><pre>#{remote_hashtag_anchor('one')}</pre>)
+        fragment = remote_with_reference(html)
+
+        expect(fragment.at_css('pre .reference-link-inline')).to be_nil
+        expect(fragment.at_css('pre a.mention.hashtag').text).to eq('#one')
+        expect(fragment.at_css('.reference-link-inline')).to be_present
+      end
+    end
+
+    describe 'paragraph boundaries' do
+      it 'keeps a hashtag-only final paragraph after the suffix' do
+        status = Fabricate(:status, account: local_account, text: "Hello\n\n#one #two", uri: nil)
+        attach_overflow_media(status)
+
+        paragraphs = formatted_fragment(status).css('p')
+
+        expect(paragraphs.size).to eq(2)
+        expect(paragraphs[0].at_css('.original-media-link')).to be_present
+        expect(paragraphs[0].text).to include('Hello')
+        expect(paragraphs[1].at_css('.original-media-link')).to be_nil
+        expect(paragraphs[1].css('a.mention.hashtag').map { |node| node.text }).to eq(['#one', '#two'])
+      end
+
+      it 'keeps the hashtag row after the line break inside one paragraph' do
+        status = Fabricate(:status, account: local_account, text: "Hello\n#one #two", uri: nil)
+        attach_overflow_media(status)
+
+        paragraph = formatted_fragment(status).at_css('p')
+        media = paragraph.at_css('.original-media-link')
+        hashtag = paragraph.at_css('a.mention.hashtag')
+        separator = paragraph.css('> br').find { |node| (media <=> node) == -1 && (node <=> hashtag) == -1 }
+
+        expect(paragraph.css('p')).to be_empty
+        expect(separator).to be_present
+        expect(paragraph.css('a.mention.hashtag').map { |node| node.text }).to eq(['#one', '#two'])
+      end
+    end
+
+    describe 'blank body' do
+      it 'still wraps an overflow media link' do
+        status = Fabricate(:status, account: local_account, text: 'placeholder', uri: nil)
+        attach_overflow_media(status)
+        status.update_column(:text, '')
+
+        html = Formatter.instance.format(status)
+        fragment = Nokogiri::HTML.fragment(html)
+
+        expect(html).to start_with('<p><span class="original-media-link"> ')
+        expect(html).to end_with('</span></p>')
+        expect(fragment.at_css('a.mention.hashtag')).to be_nil
+        expect(fragment.text).to include('Attached: 5 images')
+      end
+
+      it 'still wraps a reference link' do
+        status = Fabricate(:status, account: local_account, text: 'placeholder', uri: nil)
+        add_status_reference(status)
+        status.update_column(:text, '')
+
+        html = Formatter.instance.format(status)
+
+        expect(html).to start_with('<p><span class="reference-link-inline"> ')
+        expect(html).to end_with('</span></p>')
+        expect(html).to include('/references')
+      end
+
+      it 'stays empty when there is nothing to append' do
+        status = Fabricate(:status, account: local_account, text: 'placeholder', uri: nil)
+        status.update_column(:text, '')
+
+        expect(Formatter.instance.format(status)).to eq('')
+      end
+    end
+
+    describe '#add_original_link' do
+      it 'keeps appending stored remote content before </p> even after a hashtag' do
+        html = '<p>Hello <a class="mention hashtag" rel="tag">#<span>one</span></a></p>'
+        result = Formatter.instance.add_original_link(html, 'https://example.com/status', 'Attached: 5 images')
+        fragment = Nokogiri::HTML.fragment(result)
+
+        expect_before(fragment.at_css('a.mention.hashtag'), fragment.at_css('a.unhandled-link'))
+        expect(result).to end_with('[Attached: 5 images]</a></p>')
+      end
+    end
+  end
 end
