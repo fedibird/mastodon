@@ -18,6 +18,17 @@ class Formatter
   # control character must never reach it.
   UNDISPLAYABLE_URL_RE = /\p{Cc}/.freeze
 
+  # blockquote, list, and pre stay closed. p and other structural tags are
+  # not inline wrappers, but an empty one can still be trailing chrome.
+  BLOCK_BOUNDARY_TAGS = %w(blockquote ul ol li pre).freeze
+  VISIBLE_EMPTY_TAGS = %w(img video audio canvas svg iframe object embed picture hr input textarea button select).freeze
+  STRUCTURAL_TAGS = %w(
+    address article aside blockquote dd details div dl dt figcaption figure
+    footer h1 h2 h3 h4 h5 h6 header li main nav ol p pre script section style
+    summary table tbody td tfoot th thead tr ul
+  ).freeze
+  VISIBLE_EMPTY_SELECTOR = VISIBLE_EMPTY_TAGS.join(', ').freeze
+
   def format(status, **options)
     if status.reblog?
       prepend_reblog = status.reblog.account.acct
@@ -465,7 +476,7 @@ class Formatter
         next
       end
 
-      if trailing_hashtag_anchor?(node)
+      if trailing_hashtag_group?(node)
         seen_hashtag = true
         first_hashtag_index = index
         index -= 1
@@ -491,7 +502,7 @@ class Formatter
     return :leading if previous.nil?
 
     previous_node = nodes[previous]
-    return :internal if trailing_hashtag_anchor?(previous_node)
+    return :internal if trailing_hashtag_group?(previous_node)
     return :break_run if line_break?(previous_node)
 
     :content
@@ -520,6 +531,51 @@ class Formatter
     classes.include?('mention') && classes.include?('hashtag')
   end
 
+  # A hashtag anchor, or an inline wrapper whose visible content is only a
+  # hashtag run. The wrapper is one group, so a suffix is inserted before
+  # the element rather than inside it.
+  def trailing_hashtag_group?(node)
+    trailing_hashtag_anchor?(node) || trailing_hashtag_wrapper?(node)
+  end
+
+  def trailing_hashtag_wrapper?(node)
+    return false unless inline_hashtag_wrapper_element?(node)
+
+    hashtag = false
+
+    node.children.each do |child|
+      kind = hashtag_run_child(child)
+      return false if kind == :content
+
+      hashtag = true if kind == :hashtag
+    end
+
+    hashtag
+  end
+
+  def hashtag_run_child(node)
+    return :chrome if hashtag_run_chrome?(node)
+    return :hashtag if trailing_hashtag_anchor?(node) || trailing_hashtag_wrapper?(node)
+
+    :content
+  end
+
+  def hashtag_run_chrome?(node)
+    ignorable_node?(node) || line_break?(node) || displayless_element?(node)
+  end
+
+  def inline_hashtag_wrapper_element?(node)
+    node.element? && node.name != 'a' && node.name != 'br' && !STRUCTURAL_TAGS.include?(node.name) && !VISIBLE_EMPTY_TAGS.include?(node.name)
+  end
+
+  def displayless_element?(node)
+    return false unless node.element?
+    return false if BLOCK_BOUNDARY_TAGS.include?(node.name) || VISIBLE_EMPTY_TAGS.include?(node.name)
+    return false if node.inner_text.match?(/\S/)
+
+    node.css(VISIBLE_EMPTY_SELECTOR).empty?
+  end
+
   def ignorable_node?(node)
     return true if node.comment?
 
@@ -544,7 +600,7 @@ class Formatter
   end
 
   def ensure_space_before_hashtag(node)
-    return unless trailing_hashtag_anchor?(node)
+    return unless trailing_hashtag_group?(node)
 
     previous = node.previous
     return if previous&.text? && previous.content.match?(/[[:space:]]\z/)

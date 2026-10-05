@@ -212,6 +212,74 @@ describe('splitTrailingHashtags', () => {
     expect(result.html).toBe(html);
     expect(result.hashtags).toEqual([]);
   });
+
+  it('splits a sanitized Misskey trailing hashtag group', () => {
+    const html = [
+      '<p>Hello <small>',
+      '  <a href="https://misskey.example/tags/one" rel="nofollow noopener noreferrer" class="mention hashtag" target="_blank">#one</a>',
+      '  <a href="https://misskey.example/tags/two" rel="nofollow noopener noreferrer" class="mention hashtag" target="_blank">#two</a>',
+      '</small></p>',
+    ].join('\n');
+    const result = splitTrailingHashtags(html);
+
+    expect(result.html).toBe('<p>Hello</p>');
+    expect(names(result)).toEqual(['one', 'two']);
+    expect(result.hashtags.map(hashtag => hashtag.text)).toEqual(['#one', '#two']);
+    expect(result.hashtags.map(hashtag => hashtag.href)).toEqual([
+      'https://misskey.example/tags/one',
+      'https://misskey.example/tags/two',
+    ]);
+  });
+
+  it('splits hashtags wrapped in an inline element', () => {
+    const html = `<p>Hello <small>${anchor('one')} ${anchor('two')}</small></p>`;
+    const result = splitTrailingHashtags(html);
+
+    expect(result.html).toBe('<p>Hello</p>');
+    expect(names(result)).toEqual(['one', 'two']);
+  });
+
+  it('splits hashtags in nested inline wrappers', () => {
+    const html = `<p>Hello <small>
+  <span>${anchor('one')}</span> <span>${anchor('two')}</span>
+</small></p>`;
+    const result = splitTrailingHashtags(html);
+
+    expect(result.html).toBe('<p>Hello</p>');
+    expect(names(result)).toEqual(['one', 'two']);
+  });
+
+  it('does not split a wrapper that also contains ordinary text', () => {
+    const html = `<p>Hello <small>tags: ${anchor('one')} ${anchor('two')}</small></p>`;
+    const result = splitTrailingHashtags(html);
+
+    expect(result.html).toBe(html);
+    expect(result.hashtags).toEqual([]);
+  });
+
+  it('splits a wrapped hashtag run that follows a paragraph', () => {
+    const html = `<p>Hello</p><small>${anchor('one')} ${anchor('two')}</small>`;
+    const result = splitTrailingHashtags(html);
+
+    expect(result.html).toBe('<p>Hello</p>');
+    expect(names(result)).toEqual(['one', 'two']);
+  });
+
+  it('does not split a wrapped hashtag inside a blockquote', () => {
+    const html = `<blockquote><small>${anchor('one')}</small></blockquote>`;
+    const result = splitTrailingHashtags(html);
+
+    expect(result.html).toBe(html);
+    expect(result.hashtags).toEqual([]);
+  });
+
+  it('does not split a wrapper that contains an image', () => {
+    const html = `<p>Hello <small><img src="https://example.com/a.png">${anchor('one')}</small></p>`;
+    const result = splitTrailingHashtags(html);
+
+    expect(result.html).toBe(html);
+    expect(result.hashtags).toEqual([]);
+  });
 });
 
 describe('trailing hashtag translation matching', () => {
@@ -248,6 +316,15 @@ describe('trailing hashtag translation matching', () => {
 
     expect(trailingHashtagsEqual(sourceParts.hashtags, splitTrailingHashtags(target).hashtags)).toBe(false);
     expect(result).toBe(target);
+  });
+
+  it('strips matching trailing hashtags when both runs are wrapped', () => {
+    const source = `<p>Hello <small>${anchor('one')} ${anchor('two')}</small></p>`;
+    const target = `<p>こんにちは <span><span>${anchor('one')}</span> <span>${anchor('two')}</span></span></p>`;
+    const sourceParts = splitTrailingHashtags(source);
+
+    expect(names(sourceParts)).toEqual(['one', 'two']);
+    expect(stripMatchingTrailingHashtags(sourceParts.hashtags, target)).toBe('<p>こんにちは</p>');
   });
 
   it('does not split a target run when the source has no badges', () => {

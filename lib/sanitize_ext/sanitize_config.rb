@@ -21,6 +21,23 @@ class Sanitize
       gemini
     ).freeze
 
+    # Misskey sends <a href="..." rel="tag">#name</a> with no Mastodon classes.
+    # Custom transformers run before add_attributes replaces rel, so the tag
+    # token is still visible here. Existing classes are kept and not repeated.
+    HASHTAG_REL_CLASS_TRANSFORMER = lambda do |env|
+      return unless env[:node_name] == 'a'
+
+      node = env[:node]
+      rel_tokens = node['rel'].to_s.split(/[\t\n\f\r ]/)
+      return unless rel_tokens.include?('tag')
+      return unless node.inner_text.lstrip.start_with?('#')
+
+      classes = node['class'].to_s.split(/[\t\n\f\r ]/).reject(&:empty?)
+      classes << 'mention' unless classes.include?('mention')
+      classes << 'hashtag' unless classes.include?('hashtag')
+      node['class'] = classes.join(' ')
+    end
+
     CLASS_WHITELIST_TRANSFORMER = lambda do |env|
       node = env[:node]
       class_list = node['class']&.split(/[\t\n\f\r ]/)
@@ -64,8 +81,10 @@ class Sanitize
       current_node.wrap('<p></p>')
     end
 
+    # `small` stays so a Misskey trailing-hashtag group remains one inline
+    # wrapper. Formatter then inserts compatibility suffixes before it.
     MASTODON_STRICT = freeze_config(
-      elements: %w(p br span a del s pre blockquote code b strong u i em ul ol li ruby rt rp),
+      elements: %w(p br span a del s pre blockquote code b strong u i em ul ol li ruby rt rp small),
 
       attributes: {
         'a'    => %w(href rel class),
@@ -84,6 +103,7 @@ class Sanitize
       protocols: {},
 
       transformers: [
+        HASHTAG_REL_CLASS_TRANSFORMER,
         CLASS_WHITELIST_TRANSFORMER,
         UNSUPPORTED_ELEMENTS_TRANSFORMER,
         UNSUPPORTED_HREF_TRANSFORMER,

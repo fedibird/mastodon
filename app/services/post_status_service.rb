@@ -123,6 +123,11 @@ class PostStatusService < BaseService
       @quote_id = quote_from_url(md[1])&.id
       @text.sub!(/QT:\s*\[.*?\]/, '')
     end
+
+    # After QT stripping, so the text stored on the status is the text
+    # Mastodon can recognize as a trailing hashtag block. Scheduled params
+    # keep the submitted text; publish runs this service again.
+    @text = TrailingHashtagNormalizer.call(@text)
   rescue ArgumentError
     raise ActiveRecord::RecordInvalid
   end

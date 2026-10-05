@@ -6,6 +6,15 @@ const VISIBLE_EMPTY_TAGS = new Set([
   'IMG', 'VIDEO', 'AUDIO', 'CANVAS', 'SVG', 'IFRAME', 'OBJECT', 'EMBED',
   'PICTURE', 'HR', 'INPUT', 'TEXTAREA', 'BUTTON', 'SELECT',
 ]);
+const VISIBLE_EMPTY_SELECTOR = 'img, video, audio, canvas, svg, iframe, object, embed, picture, hr, input, textarea, button, select';
+// Structural elements stay closed. Inline wrappers such as small and span do not.
+const STRUCTURAL_TAGS = new Set([
+  'ADDRESS', 'ARTICLE', 'ASIDE', 'DD', 'DETAILS', 'DIV', 'DL', 'DT',
+  'FIGCAPTION', 'FIGURE', 'FOOTER', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+  'HEADER', 'LI', 'MAIN', 'NAV', 'OL', 'P', 'PRE', 'SECTION', 'SUMMARY',
+  'TABLE', 'TBODY', 'TD', 'TFOOT', 'TH', 'THEAD', 'TR', 'UL', 'BLOCKQUOTE',
+  'SCRIPT', 'STYLE',
+]);
 
 function isElement(node) {
   return !!node && node.nodeType === Node.ELEMENT_NODE;
@@ -42,12 +51,62 @@ function isDisplaylessElement(node) {
     return false;
   }
 
-  return !node.querySelector('img, video, audio, canvas, svg, iframe, object, embed, picture, hr, input, textarea, button, select');
+  return !node.querySelector(VISIBLE_EMPTY_SELECTOR);
 }
 
-// Whitespace, breaks, comments, and other nodes with nothing to show.
+function isInlineWrapperElement(node) {
+  return isElement(node)
+    && node.tagName !== 'A'
+    && node.tagName !== 'BR'
+    && !STRUCTURAL_TAGS.has(node.tagName)
+    && !VISIBLE_EMPTY_TAGS.has(node.tagName);
+}
+
+// An inline element whose visible content is only a hashtag run. Nested
+// wrappers count. Ordinary text or a visible-empty tag such as img does not.
+function isTransparentHashtagWrapper(node) {
+  if (!isInlineWrapperElement(node)) {
+    return false;
+  }
+
+  let hashtagCount = 0;
+  const children = node.childNodes;
+
+  for (let index = 0; index < children.length; index += 1) {
+    const child = children[index];
+
+    if (isHashtagAnchor(child)) {
+      hashtagCount += 1;
+      continue;
+    }
+
+    if (isWhitespaceText(child) || isLineBreak(child) || isIgnorableNode(child) || isDisplaylessElement(child)) {
+      continue;
+    }
+
+    if (isTransparentHashtagWrapper(child)) {
+      hashtagCount += 1;
+      continue;
+    }
+
+    return false;
+  }
+
+  return hashtagCount > 0;
+}
+
+function isHashtagCarrier(node) {
+  return isHashtagAnchor(node) || isTransparentHashtagWrapper(node);
+}
+
+// Whitespace, breaks, comments, transparent hashtag wrappers, and other
+// nodes with nothing else to show.
 function isRunNode(node) {
   if (isHashtagAnchor(node) || isWhitespaceText(node) || isLineBreak(node) || isIgnorableNode(node)) {
+    return true;
+  }
+
+  if (isTransparentHashtagWrapper(node)) {
     return true;
   }
 
@@ -83,10 +142,16 @@ function hasVisibleContent(node) {
   return false;
 }
 
+function isTrailingChrome(node) {
+  return isRunNode(node) && !isHashtagCarrier(node);
+}
+
 function lastMeaningfulChild(node) {
   let child = node.lastChild;
 
-  while (child && isRunNode(child) && !isHashtagAnchor(child)) {
+  // A wrapped hashtag run is meaningful. Skipping it would select the
+  // previous paragraph and leave <p>Hello</p><small>#one</small> unsplit.
+  while (child && isTrailingChrome(child)) {
     child = child.previousSibling;
   }
 
@@ -110,16 +175,45 @@ function trailingContainer(fragment) {
   return fragment;
 }
 
+function appendHashtagAnchors(node, into) {
+  if (isHashtagAnchor(node)) {
+    into.push(node);
+    return;
+  }
+
+  if (!isElement(node)) {
+    return;
+  }
+
+  const children = node.childNodes;
+
+  for (let index = 0; index < children.length; index += 1) {
+    appendHashtagAnchors(children[index], into);
+  }
+}
+
 function collectTrailingRun(container) {
   const nodes = [];
   let hashtagCount = 0;
   let node = container.lastChild;
 
   while (node && isRunNode(node)) {
-    nodes.push(node);
+    if (isTransparentHashtagWrapper(node)) {
+      const anchors = [];
+      appendHashtagAnchors(node, anchors);
+      nodes.push(node);
 
-    if (isHashtagAnchor(node)) {
-      hashtagCount += 1;
+      for (let index = anchors.length - 1; index >= 0; index -= 1) {
+        nodes.push(anchors[index]);
+      }
+
+      hashtagCount += anchors.length;
+    } else {
+      nodes.push(node);
+
+      if (isHashtagAnchor(node)) {
+        hashtagCount += 1;
+      }
     }
 
     node = node.previousSibling;
@@ -146,7 +240,7 @@ function hashtagData(anchor) {
 function pruneTrailingChrome(node) {
   let child = node.lastChild;
 
-  while (child && isRunNode(child) && !isHashtagAnchor(child)) {
+  while (child && isTrailingChrome(child)) {
     const previous = child.previousSibling;
     child.remove();
     child = previous;
@@ -169,7 +263,7 @@ function removeEmptyTrailingBlocks(fragment) {
   let child = fragment.lastChild;
 
   while (child && (
-    (isRunNode(child) && !isHashtagAnchor(child))
+    isTrailingChrome(child)
     || (isElement(child) && !BLOCK_TAGS.has(child.tagName) && !hasVisibleContent(child))
   )) {
     const previous = child.previousSibling;
