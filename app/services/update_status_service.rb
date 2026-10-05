@@ -157,6 +157,8 @@ class UpdateStatusService < BaseService
       else
         @status.text = @options[:text] || ''
       end
+
+      @status.text = TrailingHashtagNormalizer.call(@status.text)
     end
 
     @status.spoiler_text = @options[:spoiler_text] || '' if @options.key?(:spoiler_text)

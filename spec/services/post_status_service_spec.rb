@@ -306,6 +306,27 @@ RSpec.describe PostStatusService, type: :service do
     expect(status).to be_persisted
   end
 
+  it 'inserts a newline before a same-line trailing hashtag run' do
+    status = subject.call(Fabricate(:account), text: 'Hello #one #two')
+
+    expect(status.text).to eq "Hello\n#one #two"
+    expect(status.tags.map(&:name)).to contain_exactly('one', 'two')
+  end
+
+  it 'normalizes trailing hashtags when a scheduled status is published' do
+    account = Fabricate(:account)
+    future = Time.now.utc + 2.hours
+    scheduled = subject.call(account, text: 'Hello #one #two', scheduled_at: future)
+
+    expect(scheduled).to be_a(ScheduledStatus)
+    expect(scheduled.params['text']).to eq 'Hello #one #two'
+
+    PublishScheduledStatusWorker.new.perform(scheduled.id)
+
+    published = account.statuses.find_by!(text: "Hello\n#one #two")
+    expect(published.tags.map(&:name)).to contain_exactly('one', 'two')
+  end
+
   it 'processes hashtags' do
     hashtags_service = double(:process_hashtags_service)
     allow(hashtags_service).to receive(:call)
