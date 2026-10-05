@@ -69,48 +69,53 @@ RSpec.describe AccountStatusesTaggedQuery do
       expect(cte).to include('"statuses"."deleted_at" IS NULL')
       expect(cte).to include('"statuses"."expired_at" IS NULL')
       expect(cte).to include('"statuses"."visibility" IN (0, 1)')
+      expect(cte).to include('statuses.reply = FALSE')
+      expect(cte).to include('statuses.in_reply_to_account_id = statuses.account_id')
+      expect(cte).to match(/ORDER BY "statuses"\."id" DESC/)
+      expect(cte).to include('LIMIT 20')
       expect(cte).not_to include('statuses.*')
       expect(cte).not_to match(/SELECT "statuses"\.\*/)
-      expect(cte).not_to match(/\bORDER BY\b/i)
-      expect(cte).not_to match(/\bLIMIT\b/i)
-      expect(cte).not_to include('statuses.reply')
       expect(sql).to include(') SELECT statuses.* FROM statuses')
       expect(outer).to include('INNER JOIN matched_ids ON matched_ids.id = statuses.id')
-      expect(outer).to include('statuses.reply = FALSE')
-      expect(outer).to include('statuses.in_reply_to_account_id = statuses.account_id')
       expect(outer).to include('ORDER BY statuses.id DESC')
-      expect(outer).to include('LIMIT 20')
+      expect(outer).not_to include('statuses.reply')
+      expect(outer).not_to match(/\bLIMIT\b/i)
       expect(sql.scan(/\bLIMIT\b/).size).to eq 1
     end
 
-    it 'keeps exclude_reblogs on the outer query' do
+    it 'keeps exclude_reblogs inside the limited id query' do
       cte, outer = cte_and_outer(build_sql(filters: { exclude_reblogs: true }))
 
-      expect(cte).not_to include('reblog_of_id IS NULL')
-      expect(outer).to include('statuses.reblog_of_id IS NULL')
+      expect(cte).to include('statuses.reblog_of_id IS NULL')
+      expect(cte).to include('LIMIT 20')
+      expect(outer).not_to include('reblog_of_id')
+      expect(outer).not_to match(/\bLIMIT\b/i)
     end
 
-    it 'puts max_id and since_id bounds in the CTE and limits outside' do
+    it 'puts max_id, since_id, and the page limit inside the CTE' do
       cte, outer = cte_and_outer(build_sql(page: { max_id: 500, since_id: 120 }))
 
       expect(cte).to include('"statuses"."id" < 500')
       expect(cte).to include('"statuses"."id" > 120')
-      expect(cte).not_to match(/\bLIMIT\b/i)
+      expect(cte).to match(/ORDER BY "statuses"\."id" DESC/)
+      expect(cte).to include('LIMIT 20')
       expect(outer).to include('ORDER BY statuses.id DESC')
-      expect(outer).to include('LIMIT 20')
+      expect(outer).not_to match(/\bLIMIT\b/i)
     end
 
-    it 'uses an ascending outer page for min_id and ignores since_id' do
+    it 'limits the ascending min_id page inside the CTE and ignores since_id' do
       cte, outer = cte_and_outer(build_sql(page: { min_id: 200, max_id: 800, since_id: 600 }))
 
       expect(cte).to include('"statuses"."id" > 200')
       expect(cte).to include('"statuses"."id" < 800')
       expect(cte).not_to include('"statuses"."id" > 600')
+      expect(cte).to match(/ORDER BY "statuses"\."id" ASC/)
+      expect(cte).to include('LIMIT 20')
       expect(outer).to include('ORDER BY statuses.id ASC')
-      expect(outer).to include('LIMIT 20')
+      expect(outer).not_to match(/\bLIMIT\b/i)
     end
 
-    it 'writes a plain CTE on a PostgreSQL 11 server version' do
+    it 'writes a plain limited CTE on a PostgreSQL 11 server version' do
       allow(Status.connection).to receive(:database_version).and_return(110_000)
 
       sql = build_sql(filters: { exclude_replies: true })
@@ -119,11 +124,14 @@ RSpec.describe AccountStatusesTaggedQuery do
       expect(sql).to include('WITH matched_ids AS (')
       expect(sql).not_to include('MATERIALIZED')
       expect(cte).to match(/SELECT "statuses"\."id"/)
+      expect(cte).to include('statuses.reply = FALSE')
+      expect(cte).to match(/ORDER BY "statuses"\."id" DESC/)
+      expect(cte).to include('LIMIT 20')
       expect(cte).not_to include('statuses.*')
       expect(sql).to include(') SELECT statuses.* FROM statuses')
-      expect(outer).to include('statuses.reply = FALSE')
+      expect(outer).not_to include('statuses.reply')
       expect(outer).to include('ORDER BY statuses.id DESC')
-      expect(outer).to include('LIMIT 20')
+      expect(outer).not_to match(/\bLIMIT\b/i)
     end
 
     it 'rejects non-integer bounds and tag ids instead of interpolating them' do

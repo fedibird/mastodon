@@ -345,9 +345,11 @@ describe Api::V1::Accounts::StatusesController do
       expect(body_as_json.map { |status| status[:content] }).to eq ['<p>status-30</p>', '<p>status-20</p>', '<p>status-10</p>']
       expect(sql).to include('WITH matched_ids AS MATERIALIZED')
       expect(cte).to match(/SELECT "statuses"\."id"/)
+      expect(cte).to match(/ORDER BY "statuses"\."id" DESC/)
+      expect(cte).to include('LIMIT 20')
       expect(cte).not_to include('statuses.*')
       expect(sql.scan(/\bLIMIT\b/).size).to eq 1
-      expect(cte).not_to match(/\bLIMIT\b/i)
+      expect(cte_and_outer(statements).last).not_to match(/\bLIMIT\b/i)
     end
 
     it 'returns an empty list for an unknown tag without a CTE' do
@@ -362,7 +364,7 @@ describe Api::V1::Accounts::StatusesController do
       expect(sql_text(statements)).not_to include('AS MATERIALIZED')
     end
 
-    it 'drops replies to other accounts after the intersection and still fills the limit' do
+    it 'fills the limit from non-replies inside the id query' do
       stranger = Fabricate(:account)
       [100, 200, 300, 400, 500].each { |id| tag_status(insert_status(id)) }
       25.times do |index|
@@ -376,11 +378,11 @@ describe Api::V1::Accounts::StatusesController do
       cte, outer = cte_and_outer(statements)
 
       expect(status_ids).to eq [500, 400, 300, 200, 100]
-      expect(cte).not_to include('statuses.reply')
-      expect(cte).not_to match(/\bLIMIT\b/i)
-      expect(outer).to include('statuses.reply = FALSE')
-      expect(outer).to include('statuses.in_reply_to_account_id = statuses.account_id')
-      expect(outer).to include('LIMIT 5')
+      expect(cte).to include('statuses.reply = FALSE')
+      expect(cte).to include('statuses.in_reply_to_account_id = statuses.account_id')
+      expect(cte).to include('LIMIT 5')
+      expect(outer).not_to include('statuses.reply')
+      expect(outer).not_to match(/\bLIMIT\b/i)
     end
 
     it 'keeps a self-reply when exclude_replies is set' do
@@ -393,7 +395,7 @@ describe Api::V1::Accounts::StatusesController do
       expect(status_ids).to eq [30, 20]
     end
 
-    it 'applies exclude_reblogs outside the id intersection' do
+    it 'applies exclude_reblogs inside the limited id query' do
       tag_status(insert_status(10, account: user.account))
       tag_status(insert_status(20, account: user.account, reblog: Fabricate(:status)))
       tag_status(insert_status(30, account: user.account))
@@ -404,8 +406,10 @@ describe Api::V1::Accounts::StatusesController do
       cte, outer = cte_and_outer(statements)
 
       expect(status_ids).to eq [30, 10]
-      expect(cte).not_to include('reblog_of_id IS NULL')
-      expect(outer).to include('statuses.reblog_of_id IS NULL')
+      expect(cte).to include('statuses.reblog_of_id IS NULL')
+      expect(cte).to match(/\bLIMIT\b/i)
+      expect(outer).not_to include('reblog_of_id')
+      expect(outer).not_to match(/\bLIMIT\b/i)
     end
 
     it 'applies exclude_replies and exclude_reblogs together' do
