@@ -4,6 +4,7 @@ import { defineMessages } from 'react-intl';
 import classNames from 'classnames';
 import { supportsPassiveEvents } from 'detect-passive-events';
 import { languages as preloadedLanguages } from 'mastodon/initial_state';
+import { languageMatches, languageOptionParts } from 'mastodon/utils/language_names';
 import Icon from 'mastodon/components/icon';
 
 const messages = defineMessages({
@@ -13,9 +14,7 @@ const messages = defineMessages({
 
 const listenerOptions = supportsPassiveEvents ? { passive: true, capture: true } : true;
 
-export const languageMatches = (lang, query) => (
-  [lang[0], lang[1], lang[2]].some(part => (part || '').toLocaleLowerCase().includes(query))
-);
+export { languageMatches };
 
 export default class LanguageDropdownMenu extends React.PureComponent {
 
@@ -110,8 +109,9 @@ export default class LanguageDropdownMenu extends React.PureComponent {
     }
 
     const query = searchValue.trim().toLocaleLowerCase();
+    const locale = this.props.intl && this.props.intl.locale;
 
-    return list.filter(lang => languageMatches(lang, query)).slice(0, 5);
+    return list.filter(lang => languageMatches(lang, query, locale)).slice(0, 5);
   }
 
   handleClick = e => {
@@ -210,11 +210,18 @@ export default class LanguageDropdownMenu extends React.PureComponent {
   };
 
   renderItem = lang => {
-    const { value } = this.props;
+    const { value, intl } = this.props;
+    const { nativeName, commonName } = languageOptionParts(lang, intl && intl.locale);
 
     return (
       <div key={lang[0]} role='option' tabIndex={0} data-index={lang[0]} className={classNames('language-dropdown__dropdown__results__item', { active: lang[0] === value })} aria-selected={lang[0] === value} onClick={this.handleClick} onKeyDown={this.handleKeyDown}>
-        <span className='language-dropdown__dropdown__results__item__native-name' lang={lang[0]}>{lang[2]}</span> <span className='language-dropdown__dropdown__results__item__common-name'>({lang[1]})</span>
+        <span className='language-dropdown__dropdown__results__item__native-name' lang={lang[0]}>{nativeName}</span>
+        {commonName && (
+          <>
+            {' '}
+            <span className='language-dropdown__dropdown__results__item__common-name'>({commonName})</span>
+          </>
+        )}
       </div>
     );
   };

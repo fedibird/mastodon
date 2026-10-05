@@ -228,7 +228,7 @@ describe('StatusContent translation bar click isolation', () => {
 
     openSource();
 
-    const option = screen.getByRole('option', { name: /French/ });
+    const option = screen.getByRole('option', { name: /Français/ });
     expect(option.closest('.status__translation-bar')).toBeNull();
     expect(option.closest('.status__content')).toBeNull();
 
@@ -247,7 +247,7 @@ describe('StatusContent translation bar click isolation', () => {
     const view = renderTimeline(buildStatus());
 
     openTarget();
-    pointerActivate(screen.getByRole('option', { name: /German/ }));
+    pointerActivate(screen.getByRole('option', { name: /Deutsch/ }));
 
     expect(view.store.getState().getIn(['settings', 'translation', 'targetLanguage'])).toBe('de');
     expect(screen.getByRole('button', { name: 'Target language, Deutsch' })).toBeTruthy();
@@ -265,8 +265,8 @@ describe('StatusContent translation bar click isolation', () => {
     fireEvent.change(search, { target: { value: 'fren' } });
 
     expect(search).toHaveValue('fren');
-    expect(screen.getByRole('option', { name: /French/ })).toBeTruthy();
-    expect(screen.queryByRole('option', { name: /German/ })).toBeNull();
+    expect(screen.getByRole('option', { name: /Français/ })).toBeTruthy();
+    expect(screen.queryByRole('option', { name: /Deutsch/ })).toBeNull();
 
     pointerActivate(screen.getByRole('button', { name: 'Clear' }));
 
@@ -301,7 +301,7 @@ describe('StatusContent translation bar click isolation', () => {
     expect(hotkey).not.toHaveBeenCalled();
 
     openSource();
-    fireEvent.keyDown(screen.getByRole('option', { name: /French/ }), { key: 'Enter' });
+    fireEvent.keyDown(screen.getByRole('option', { name: /Français/ }), { key: 'Enter' });
 
     expect(view.store.getState().getIn(['translation_assumptions', 's1'])).toBe('fr');
     expect(screen.queryByRole('listbox')).toBeNull();
@@ -353,7 +353,7 @@ describe('StatusContent translation bar click isolation', () => {
     view.outer.mouseUp.mockClear();
     view.outer.click.mockClear();
 
-    const option = screen.getByRole('option', { name: /French/ });
+    const option = screen.getByRole('option', { name: /Français/ });
     fireEvent.mouseDown(option, { button: 0, clientX: 8, clientY: 8 });
     fireEvent.mouseUp(screen.getByText('Hello'), { button: 0, clientX: 10, clientY: 9 });
 
@@ -381,13 +381,13 @@ describe('StatusContent translation bar click isolation', () => {
     const view = renderTimeline(buildStatus(), { clickToOpen: false });
 
     openSource();
-    pointerActivate(screen.getByRole('option', { name: /French/ }));
+    pointerActivate(screen.getByRole('option', { name: /Français/ }));
 
     expect(view.store.getState().getIn(['translation_assumptions', 's1'])).toBe('fr');
     expect(screen.getByRole('button', { name: 'Source language, Français' })).toBeTruthy();
 
     openTarget();
-    fireEvent.keyDown(screen.getByRole('option', { name: /German/ }), { key: 'Enter' });
+    fireEvent.keyDown(screen.getByRole('option', { name: /Deutsch/ }), { key: 'Enter' });
 
     expect(view.store.getState().getIn(['settings', 'translation', 'targetLanguage'])).toBe('de');
     expect(screen.queryByRole('listbox')).toBeNull();
