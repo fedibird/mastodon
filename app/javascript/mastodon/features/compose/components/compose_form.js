@@ -274,7 +274,7 @@ class ComposeForm extends ImmutablePureComponent {
         </div>
 
         <div className='compose-form__dropdowns'>
-          <PrivacyDropdownContainer disabled={this.props.isEditing} />
+          <PrivacyDropdownContainer disabled={this.props.isEditing} showLabel />
           <LanguageDropdownContainer />
         </div>
 

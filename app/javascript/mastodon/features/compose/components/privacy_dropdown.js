@@ -6,6 +6,7 @@ import Overlay from 'react-overlays/Overlay';
 import { supportsPassiveEvents } from 'detect-passive-events';
 import classNames from 'classnames';
 import Icon from 'mastodon/components/icon';
+import IconButton from '../../../components/icon_button';
 import { hidePrivacyMeta } from '../../../initial_state';
 
 const messages = defineMessages({
@@ -152,8 +153,13 @@ class PrivacyDropdown extends React.PureComponent {
     onChange: PropTypes.func.isRequired,
     noDirect: PropTypes.bool,
     disabled: PropTypes.bool,
+    showLabel: PropTypes.bool,
     container: PropTypes.func,
     intl: PropTypes.object.isRequired,
+  };
+
+  static defaultProps = {
+    showLabel: false,
   };
 
   state = {
@@ -263,24 +269,41 @@ class PrivacyDropdown extends React.PureComponent {
     const { open, placement } = this.state;
 
     const valueOption = this.options.find(item => item.value === value) || { icon: 'ban', value: 'none', text: intl.formatMessage(messages.none_short), meta: intl.formatMessage(messages.none_long) };
+    const privacyTitle = intl.formatMessage(messages.change_privacy);
 
     return (
       <div className={classNames('privacy-dropdown', placement, { active: open })} onKeyDown={this.handleKeyDown}>
         <div className={classNames('privacy-dropdown__value', { active: this.options.indexOf(valueOption) === (placement === 'bottom' ? 0 : (this.options.length - 1)) })} ref={this.setTargetRef}>
-          <button
-            type='button'
-            className={classNames('dropdown-button', { active: open })}
-            title={intl.formatMessage(messages.change_privacy)}
-            aria-label={intl.formatMessage(messages.change_privacy)}
-            aria-expanded={open}
-            disabled={this.props.disabled}
-            onClick={this.handleToggle}
-            onMouseDown={this.handleMouseDown}
-            onKeyDown={this.handleButtonKeyDown}
-          >
-            <Icon id={valueOption.icon} fixedWidth aria-hidden='true' />
-            <span className='dropdown-button__label'>{valueOption.text}</span>
-          </button>
+          {this.props.showLabel ? (
+            <button
+              type='button'
+              className={classNames('dropdown-button', { active: open })}
+              title={privacyTitle}
+              aria-expanded={open}
+              disabled={this.props.disabled}
+              onClick={this.handleToggle}
+              onMouseDown={this.handleMouseDown}
+              onKeyDown={this.handleButtonKeyDown}
+            >
+              <Icon id={valueOption.icon} fixedWidth aria-hidden='true' />
+              <span className='dropdown-button__label'>{valueOption.text}</span>
+            </button>
+          ) : (
+            <IconButton
+              className='privacy-dropdown__value-icon'
+              icon={valueOption.icon}
+              title={privacyTitle}
+              size={18}
+              expanded={open}
+              active={open}
+              disabled={this.props.disabled}
+              inverted
+              onClick={this.handleToggle}
+              onMouseDown={this.handleMouseDown}
+              onKeyDown={this.handleButtonKeyDown}
+              style={{ height: null, lineHeight: '27px' }}
+            />
+          )}
         </div>
 
         <Overlay show={open} placement={'bottom'} flip target={this.findTarget} container={container} popperConfig={{ strategy: 'fixed', onFirstUpdate: this.handleOverlayEnter }}>

@@ -55,10 +55,12 @@ const renderDropdown = (props = {}) => {
 describe('LanguageDropdown', () => {
   it('shows the current language name and selects a searched language', () => {
     const { onChange, onClose } = renderDropdown();
-    const button = screen.getByRole('button', { name: 'Change language' });
+    const button = screen.getByRole('button', { name: '日本語' });
 
     expect(button).toHaveTextContent('日本語');
     expect(button.querySelector('.fa-language')).not.toBeNull();
+    expect(button).toHaveAttribute('title', 'Change language');
+    expect(button).not.toHaveAttribute('aria-label');
     expect(button).toHaveAttribute('aria-expanded', 'false');
 
     fireEvent.click(button);
@@ -84,12 +86,12 @@ describe('LanguageDropdown', () => {
   it('falls back to the language code when the native name is unknown', () => {
     renderDropdown({ value: 'de' });
 
-    expect(screen.getByRole('button', { name: 'Change language' })).toHaveTextContent('de');
+    expect(screen.getByRole('button', { name: 'de' })).toHaveTextContent('de');
   });
 
   it('returns focus to the language button after Escape', async () => {
     renderDropdown();
-    const button = screen.getByRole('button', { name: 'Change language' });
+    const button = screen.getByRole('button', { name: '日本語' });
 
     button.focus();
     fireEvent.click(button);
@@ -109,7 +111,7 @@ describe('LanguageDropdown', () => {
   it('closes from the search field with Escape', () => {
     renderDropdown();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Change language' }));
+    fireEvent.click(screen.getByRole('button', { name: '日本語' }));
     fireEvent.keyDown(screen.getByPlaceholderText('Search languages...'), { key: 'Escape' });
 
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
@@ -136,7 +138,7 @@ describe('LanguageDropdown', () => {
       </Provider>,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Change language' }));
+    fireEvent.click(screen.getByRole('button', { name: '日本語' }));
 
     expect(screen.getAllByRole('option').map(option => option.getAttribute('data-index'))).toEqual(['ja', 'fr', 'en', 'de']);
   });

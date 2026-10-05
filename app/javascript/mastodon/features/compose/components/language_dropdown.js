@@ -98,7 +98,6 @@ class LanguageDropdown extends React.PureComponent {
             type='button'
             className={classNames('dropdown-button', { active: open })}
             title={intl.formatMessage(messages.changeLanguage)}
-            aria-label={intl.formatMessage(messages.changeLanguage)}
             aria-expanded={open}
             onClick={this.handleToggle}
           >

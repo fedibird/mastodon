@@ -31,7 +31,24 @@ jest.mock('../../containers/poll_button_container', () => () => <div data-testid
 jest.mock('../../containers/datetime_button_container', () => () => null);
 jest.mock('../../containers/upload_button_container', () => () => <div data-testid='upload-button' />);
 jest.mock('../../containers/spoiler_button_container', () => () => null);
-jest.mock('../../containers/privacy_dropdown_container', () => () => <div data-testid='privacy-dropdown' />);
+jest.mock('../../containers/privacy_dropdown_container', () => {
+  const PropTypes = require('prop-types');
+
+  const PrivacyDropdownContainerMock = ({ showLabel, disabled }) => (
+    <div
+      data-testid='privacy-dropdown'
+      data-show-label={showLabel ? 'true' : 'false'}
+      data-disabled={disabled ? 'true' : 'false'}
+    />
+  );
+
+  PrivacyDropdownContainerMock.propTypes = {
+    showLabel: PropTypes.bool,
+    disabled: PropTypes.bool,
+  };
+
+  return PrivacyDropdownContainerMock;
+});
 jest.mock('../../containers/searchability_dropdown_container', () => () => null);
 jest.mock('../../containers/circle_dropdown_container', () => () => null);
 jest.mock('../../containers/datetime_form_container', () => () => null);
@@ -80,6 +97,8 @@ describe('ComposeForm visibility controls', () => {
     expect(dropdowns).toContainElement(language);
     expect(dropdowns.children[0]).toBe(privacy);
     expect(dropdowns.children[1]).toBe(language);
+    expect(privacy).toHaveAttribute('data-show-label', 'true');
+    expect(privacy).toHaveAttribute('data-disabled', 'false');
     expect(buttons).not.toContainElement(privacy);
     expect(buttons).not.toContainElement(language);
     expect(buttons).toContainElement(screen.getByTestId('upload-button'));
