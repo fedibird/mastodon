@@ -135,6 +135,33 @@ RSpec.describe PublicFeed, type: :model do
       end
     end
 
+    context 'with a domain option set' do
+      let!(:remote_account) { Fabricate(:account, domain: 'misskey.io') }
+      let!(:remote_status)  { Fabricate(:status, account: remote_account) }
+      let!(:other_status)   { Fabricate(:status, account: Fabricate(:account, domain: 'other.example')) }
+
+      it 'normalizes the requested domain before filtering' do
+        statuses = described_class.new(nil, domain: 'Misskey.io').get(20)
+
+        expect(statuses.map(&:id)).to contain_exactly(remote_status.id)
+        expect(statuses.map(&:id)).not_to include(other_status.id)
+      end
+
+      it 'short-circuits an unknown domain before building the public status scope' do
+        feed = described_class.new(nil, domain: 'does-not-exist.invalid')
+        expect(feed).not_to receive(:public_scope)
+
+        expect(feed.get(20)).to be_empty
+      end
+
+      it 'does not turn a blank domain filter into the global public timeline' do
+        feed = described_class.new(nil, domain: '')
+        expect(feed).not_to receive(:public_scope)
+
+        expect(feed.get(20)).to be_empty
+      end
+    end
+
     describe 'with an account passed in' do
       before do
         @account = Fabricate(:account)
