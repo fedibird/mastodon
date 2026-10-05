@@ -830,8 +830,8 @@ RSpec.describe AccountsController, type: :controller do
       get :show, params: { username: account.username, tag: tag_name, format: format }.merge(extra)
     end
 
-    def expect_id_first_cte(sql, limit:, order:)
-      cte = cte_of(sql)
+    def expect_deferred_tagged_sql(sql, limit:, order:)
+      cte, outer = sql.split(') SELECT statuses.*', 2)
 
       expect(sql).to include('WITH matched_ids AS MATERIALIZED')
       expect(sql).to include('SELECT statuses.*')
@@ -841,12 +841,15 @@ RSpec.describe AccountsController, type: :controller do
       expect(cte).to include(%("statuses"."account_id" = #{account.id}))
       expect(cte).to include(%("statuses_tags"."tag_id" = #{tag.id}))
       expect(cte).to match(/"statuses"\."visibility" IN \(0, 1\)/)
-      expect(cte).to include('statuses.reply = FALSE')
-      expect(cte).to include('statuses.in_reply_to_account_id = statuses.account_id')
-      expect(cte).not_to include('reblog_of_id IS NULL')
+      expect(cte).not_to include('statuses.reply')
+      expect(cte).not_to include('reblog_of_id')
+      expect(cte).not_to match(/\bLIMIT\b/i)
       expect(cte).to match(/ORDER BY "statuses"\."id" #{order}/)
-      expect(cte).to include("LIMIT #{limit}")
       expect(cte).not_to include('statuses.*')
+      expect(outer).to include('statuses.reply = FALSE')
+      expect(outer).to include('statuses.in_reply_to_account_id = statuses.account_id')
+      expect(outer).to include("ORDER BY statuses.id #{order}")
+      expect(outer).to include("LIMIT #{limit}")
       expect(sql.scan(/\bLIMIT\b/).size).to eq 1
     end
 
@@ -867,7 +870,7 @@ RSpec.describe AccountsController, type: :controller do
 
       expect(response).to have_http_status(200)
       expect(status_ids).to eq [30, 20, 10]
-      expect_id_first_cte(sql, limit: 20, order: 'DESC')
+      expect_deferred_tagged_sql(sql, limit: 20, order: 'DESC')
       expect(legacy_wide_tagged_queries(statements)).to be_empty
       expect(tag_lookup_count(statements)).to eq 1
     end
@@ -900,11 +903,12 @@ RSpec.describe AccountsController, type: :controller do
       insert_status(40)
 
       statements = capture_sql { get_tagged }
-      cte = cte_of(page_sql(statements))
+      _cte, outer = page_sql(statements).split(') SELECT statuses.*', 2)
 
       expect(status_ids).to eq [30, 10]
-      expect(cte).to include('statuses.reply = FALSE')
-      expect(cte).to include('statuses.in_reply_to_account_id = statuses.account_id')
+      expect(cte_of(page_sql(statements))).not_to include('statuses.reply')
+      expect(outer).to include('statuses.reply = FALSE')
+      expect(outer).to include('statuses.in_reply_to_account_id = statuses.account_id')
     end
 
     it 'keeps tagged reblogs' do
@@ -917,17 +921,18 @@ RSpec.describe AccountsController, type: :controller do
       expect(cte_of(page_sql(statements))).not_to include('reblog_of_id IS NULL')
     end
 
-    it 'returns the newest page in id order with the limit inside the CTE' do
+    it 'returns the newest page in id order with the limit after reply filtering' do
       25.times { |index| tag_status(insert_status(index + 1)) }
       create_decoys
 
       statements = capture_sql { get_tagged }
       sql = page_sql(statements)
-      _cte, outer = sql.split(') SELECT statuses.*', 2)
+      cte, outer = sql.split(') SELECT statuses.*', 2)
 
       expect(status_ids).to eq (6..25).to_a.reverse
-      expect_id_first_cte(sql, limit: 20, order: 'DESC')
-      expect(outer).not_to match(/\bLIMIT\b/i)
+      expect_deferred_tagged_sql(sql, limit: 20, order: 'DESC')
+      expect(cte).not_to match(/\bLIMIT\b/i)
+      expect(outer).to include('LIMIT 20')
     end
 
     it 'pages with max_id inside the id scope' do
@@ -953,7 +958,10 @@ RSpec.describe AccountsController, type: :controller do
       expect(status_ids).to eq [500, 400, 300]
       expect(cte_of(sql)).to match(/"statuses"\."id" > 200/)
       expect(cte_of(sql)).to match(/ORDER BY "statuses"\."id" ASC/)
+      expect(cte_of(sql)).not_to include('statuses.reply')
+      expect(cte_of(sql)).not_to match(/\bLIMIT\b/i)
       expect(sql).to match(/ORDER BY statuses\.id ASC/)
+      expect(sql).to match(/\bLIMIT 20\b/)
     end
 
     context 'with more than one page' do
@@ -971,9 +979,9 @@ RSpec.describe AccountsController, type: :controller do
         expect(assigns(:newer_url)).to be_nil
         expect(legacy_wide_tagged_queries(statements)).to be_empty
         expect(boundary_queries(statements).size).to eq 2
-        expect_id_first_cte(older.first, limit: 1, order: 'DESC')
+        expect_deferred_tagged_sql(older.first, limit: 1, order: 'DESC')
         expect(older.first).to include('"id" < 26')
-        expect_id_first_cte(newer.first, limit: 1, order: 'ASC')
+        expect_deferred_tagged_sql(newer.first, limit: 1, order: 'ASC')
         expect(newer.first).to include('"id" > 45')
         expect(tag_lookup_count(statements)).to eq 1
       end

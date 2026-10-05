@@ -113,6 +113,7 @@ class AccountsController < ApplicationController
       tag_id: requested_tag.id,
       limit: limit,
       page: page,
+      filter_after_intersection: true,
       filters: {
         exclude_replies: !replies_requested?,
         exclude_reblogs: false,

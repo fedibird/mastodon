@@ -17,7 +17,7 @@ RSpec.describe AccountStatusesTaggedQuery do
     scope.to_a_paginated_by_id(limit, page).map { |status| [status.id, status.text] }
   end
 
-  def query_rows(account:, viewer:, tag:, limit:, page: {}, exclude_replies: false, exclude_reblogs: false, hide_personal: false)
+  def query_rows(account:, viewer:, tag:, limit:, page: {}, exclude_replies: false, exclude_reblogs: false, hide_personal: false, filter_after_intersection: false)
     candidate = account.permitted_statuses(viewer)
     candidate = candidate.merge(Status.include_expired.without_personal_visibility) if hide_personal
 
@@ -26,6 +26,7 @@ RSpec.describe AccountStatusesTaggedQuery do
       tag_id: tag.id,
       limit: limit,
       page: page,
+      filter_after_intersection: filter_after_intersection,
       filters: { exclude_replies: exclude_replies, exclude_reblogs: exclude_reblogs }
     ).records.map { |status| [status.id, status.text] }
   end
@@ -132,6 +133,75 @@ RSpec.describe AccountStatusesTaggedQuery do
       expect(outer).not_to include('statuses.reply')
       expect(outer).to include('ORDER BY statuses.id DESC')
       expect(outer).not_to match(/\bLIMIT\b/i)
+    end
+
+    it 'keeps the default early filters and limit inside the CTE' do
+      cte, outer = cte_and_outer(build_sql(filters: { exclude_replies: true, exclude_reblogs: true }))
+
+      expect(cte).to include('statuses.reply = FALSE')
+      expect(cte).to include('statuses.reblog_of_id IS NULL')
+      expect(cte).to include('LIMIT 20')
+      expect(outer).not_to include('statuses.reply')
+      expect(outer).not_to include('reblog_of_id')
+      expect(outer).not_to match(/\bLIMIT\b/i)
+    end
+
+    context 'when filters run after the intersection' do
+      def deferred_sql(**options)
+        build_sql(**{ filter_after_intersection: true }.merge(options))
+      end
+
+      it 'moves reply and reblog predicates and the limit to the outer query' do
+        sql = deferred_sql(filters: { exclude_replies: true, exclude_reblogs: true })
+        cte, outer = cte_and_outer(sql)
+
+        expect(sql).to include('WITH matched_ids AS MATERIALIZED (')
+        expect(cte).to match(/SELECT "statuses"\."id"/)
+        expect(cte).not_to include('statuses.reply')
+        expect(cte).not_to include('reblog_of_id')
+        expect(cte).not_to match(/\bLIMIT\b/i)
+        expect(outer).to include('(statuses.reply = FALSE OR statuses.in_reply_to_account_id = statuses.account_id)')
+        expect(outer).to include('statuses.reblog_of_id IS NULL')
+        expect(outer).to include('ORDER BY statuses.id DESC')
+        expect(outer).to include('LIMIT 20')
+        expect(sql.scan(/\bLIMIT\b/).size).to eq 1
+      end
+
+      it 'keeps max_id, min_id, and since_id inside the CTE' do
+        max_cte, max_outer = cte_and_outer(deferred_sql(page: { max_id: 500, since_id: 120 }, filters: { exclude_replies: true }))
+        min_cte, min_outer = cte_and_outer(deferred_sql(page: { min_id: 200, max_id: 800, since_id: 600 }, filters: { exclude_replies: true }))
+
+        expect(max_cte).to include('"statuses"."id" < 500')
+        expect(max_cte).to include('"statuses"."id" > 120')
+        expect(max_cte).to match(/ORDER BY "statuses"\."id" DESC/)
+        expect(max_cte).not_to match(/\bLIMIT\b/i)
+        expect(max_outer).to include('LIMIT 20')
+        expect(max_outer).to include('ORDER BY statuses.id DESC')
+
+        expect(min_cte).to include('"statuses"."id" > 200')
+        expect(min_cte).to include('"statuses"."id" < 800')
+        expect(min_cte).not_to include('"statuses"."id" > 600')
+        expect(min_cte).to match(/ORDER BY "statuses"\."id" ASC/)
+        expect(min_cte).not_to include('statuses.reply')
+        expect(min_cte).not_to match(/\bLIMIT\b/i)
+        expect(min_outer).to include('statuses.reply = FALSE')
+        expect(min_outer).to include('ORDER BY statuses.id ASC')
+        expect(min_outer).to include('LIMIT 20')
+      end
+
+      it 'still omits MATERIALIZED on PostgreSQL 11' do
+        allow(Status.connection).to receive(:database_version).and_return(110_000)
+
+        sql = deferred_sql(filters: { exclude_replies: true })
+        cte, outer = cte_and_outer(sql)
+
+        expect(sql).to include('WITH matched_ids AS (')
+        expect(sql).not_to include('MATERIALIZED')
+        expect(cte).not_to include('statuses.reply')
+        expect(cte).not_to match(/\bLIMIT\b/i)
+        expect(outer).to include('statuses.reply = FALSE')
+        expect(outer).to include('LIMIT 20')
+      end
     end
 
     it 'rejects non-integer bounds and tag ids instead of interpolating them' do
@@ -263,6 +333,81 @@ RSpec.describe AccountStatusesTaggedQuery do
       ])
       expect(rows.map(&:last)).to all(be_present)
       expect(ids_from(rows)).not_to include(deleted_status.id, other_tag_status.id, untagged_status.id, foreign_status.id)
+    end
+
+    it 'returns the older valid page when newer tagged replies would fill a CTE limit' do
+      account = Fabricate(:account, username: 'deferred_author')
+      hashtag = Fabricate(:tag, name: 'deferredtag')
+      valids = (100..119).map do |id|
+        tag_status(Fabricate(:status, account: account, id: id, text: "valid-#{id}", visibility: :public), hashtag)
+      end
+      25.times do |index|
+        parent = Fabricate(:status, account: stranger, text: "newer-parent-#{index}")
+        tag_status(Fabricate(:status, account: account, id: 200 + index, text: "reply-#{index}", visibility: :public, thread: parent), hashtag)
+      end
+
+      query = described_class.new(
+        candidate_scope: account.statuses.where(visibility: [:public, :unlisted]),
+        tag_id: hashtag.id,
+        limit: 20,
+        filter_after_intersection: true,
+        filters: { exclude_replies: true, exclude_reblogs: false }
+      )
+      cte, outer = cte_and_outer(query.to_sql)
+
+      expect(query.records.map(&:id)).to eq(valids.map(&:id).reverse)
+      expect(cte).not_to include('statuses.reply')
+      expect(cte).not_to match(/\bLIMIT\b/i)
+      expect(outer).to include('statuses.reply = FALSE')
+      expect(outer).to include('LIMIT 20')
+    end
+
+    it 'reverses a deferred min_id page after the outer ascending limit' do
+      account = Fabricate(:account, username: 'deferred_min_author')
+      hashtag = Fabricate(:tag, name: 'deferredmin')
+      [10, 20, 30, 40].each do |id|
+        tag_status(Fabricate(:status, account: account, id: id, text: "post-#{id}", visibility: :public), hashtag)
+      end
+      [25, 35].each do |id|
+        parent = Fabricate(:status, account: stranger, text: "min-parent-#{id}")
+        tag_status(Fabricate(:status, account: account, id: id, text: "reply-#{id}", visibility: :public, thread: parent), hashtag)
+      end
+
+      query = described_class.new(
+        candidate_scope: account.statuses.where(visibility: [:public, :unlisted]),
+        tag_id: hashtag.id,
+        limit: 2,
+        page: { min_id: 15 },
+        filter_after_intersection: true,
+        filters: { exclude_replies: true, exclude_reblogs: false }
+      )
+      cte, outer = cte_and_outer(query.to_sql)
+
+      expect(query.records.map(&:id)).to eq [30, 20]
+      expect(cte).to match(/ORDER BY "statuses"\."id" ASC/)
+      expect(cte).not_to match(/\bLIMIT\b/i)
+      expect(outer).to include('ORDER BY statuses.id ASC')
+      expect(outer).to include('LIMIT 2')
+    end
+
+    it 'drops reblogs after the intersection when exclude_reblogs is set' do
+      rows = query_rows(account: author, viewer: author, tag: tag, limit: 40, exclude_reblogs: true, filter_after_intersection: true)
+      sql = described_class.new(
+        candidate_scope: author.permitted_statuses(author),
+        tag_id: tag.id,
+        limit: 40,
+        filter_after_intersection: true,
+        filters: { exclude_reblogs: true }
+      ).to_sql
+      cte, outer = cte_and_outer(sql)
+
+      expect(rows.map(&:first)).not_to include(reblog_status.id, blocked_reblog.id)
+      expect(rows.map(&:first)).to include(public_status.id)
+      expect(rows).to eq(legacy_rows(account: author, viewer: author, tag: tag, limit: 40, exclude_reblogs: true))
+      expect(cte).not_to include('reblog_of_id')
+      expect(cte).not_to match(/\bLIMIT\b/i)
+      expect(outer).to include('statuses.reblog_of_id IS NULL')
+      expect(outer).to include('LIMIT 40')
     end
 
     it 'fills the limit from later rows when leading candidates are replies' do
