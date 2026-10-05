@@ -50,6 +50,34 @@ describe('translation UI locale messages', () => {
     expect(formatMessage(en, { id: 'compose.language.search', defaultMessage: 'Search languages...' })).toBe('Search languages...');
   });
 
+  it('defines admin report notification messages in English and Japanese', () => {
+    const ids = [
+      'notification.admin.report',
+      'report_notification.attached_statuses',
+      'report_notification.categories.legal',
+      'report_notification.categories.other',
+      'report_notification.categories.spam',
+      'report_notification.categories.violation',
+      'report_notification.open',
+    ];
+
+    ids.forEach((id) => {
+      expect(en[id]).toEqual(expect.any(String));
+      expect(ja[id]).toEqual(expect.any(String));
+      expect(en[id]).not.toBe('');
+      expect(ja[id]).not.toBe('');
+    });
+
+    expect(en['notification.admin.report']).toBe('{name} reported {target}');
+    expect(ja['notification.admin.report']).toBe('{name}さんが{target}さんを通報しました');
+    expect(en['report_notification.open']).toBe('Open report');
+    expect(ja['report_notification.open']).toBe('通報を開く');
+    expect(ja['report_notification.categories.spam']).toBe('スパム');
+    expect(ja['report_notification.categories.legal']).toBe('法令違反');
+    expect(ja['report_notification.categories.violation']).toBe('ルール違反');
+    expect(ja['report_notification.categories.other']).toBe('その他');
+  });
+
   it('uses Japanese for the Chinese script guidance', () => {
     const defaultMessage = 'Choose Simplified Chinese or Traditional Chinese as the source language.';
 
