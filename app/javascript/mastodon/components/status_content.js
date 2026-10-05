@@ -12,6 +12,7 @@ import TranslationBar from 'mastodon/components/translation_bar';
 import { setStatusTranslationAssumption, setTranslationTargetLanguage } from 'mastodon/actions/statuses';
 import { autoPlayEmoji, disableReactions, me, translationBarVisibility, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
 import { translationCapability, translationRequestStatus } from 'mastodon/utils/translation_languages';
+import { splitTrailingHashtags, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
 import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationDisplayStatus, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
 
 const messages = defineMessages({
@@ -248,6 +249,10 @@ class StatusContent extends React.PureComponent {
     }
   }
 
+  onHashtagBadgeClick = (e) => {
+    this.onHashtagClick(e.currentTarget.textContent || '', e);
+  }
+
   onAccountUrlClick = (accountId, path, accountActorType, e) => {
     if (this.context.router && e.button === 0 && !(e.ctrlKey || e.metaKey)) {
       e.preventDefault();
@@ -353,6 +358,29 @@ class StatusContent extends React.PureComponent {
     }
   }
 
+  renderHashtagBadges (hashtags, visible) {
+    if (!visible || !hashtags || hashtags.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className='status__content__hashtag-badges'>
+        {hashtags.map((hashtag, index) => (
+          <a
+            key={`${hashtag.name}:${index}`}
+            href={hashtag.href || undefined}
+            className='status__content__hashtag-badge status-link'
+            target='_blank'
+            rel='noopener noreferrer'
+            onClick={this.onHashtagBadgeClick}
+          >
+            {hashtag.text}
+          </a>
+        ))}
+      </div>
+    );
+  }
+
   renderMainText (viewMode, sourceHtml, targetHtml, sourceLang, targetLang, visible = true) {
     const textClass = classnames('status__content__text', {
       'status__content__text--visible': visible,
@@ -435,6 +463,14 @@ class StatusContent extends React.PureComponent {
     const targetLang = translationView.targetLang;
     const sourceHtml = status.get('contentHtml');
     const targetHtml = translated.getIn(['translation', 'contentHtml']);
+    const sourceHashtagParts = typeof sourceHtml === 'string' ? splitTrailingHashtags(sourceHtml) : { html: sourceHtml, hashtags: [] };
+    const trailingHashtags = sourceHashtagParts.hashtags;
+    const sourceBodyHtml = sourceHashtagParts.html;
+    const targetBodyHtml = (viewMode === 'translated' || viewMode === 'bilingual') && typeof targetHtml === 'string'
+      ? stripMatchingTrailingHashtags(trailingHashtags, targetHtml)
+      : targetHtml;
+    const contentVisible = status.get('spoiler_text').length === 0 || !hidden;
+    const hashtagBadges = this.renderHashtagBadges(trailingHashtags, contentVisible);
     const sourceSpoilerHtml = status.get('spoilerHtml');
     const targetSpoilerHtml = translated.getIn(['translation', 'spoilerHtml']);
     const language = viewMode === 'original' ? sourceLang : (targetLang || sourceLang);
@@ -467,7 +503,7 @@ class StatusContent extends React.PureComponent {
       <PollContainer pollId={status.get('poll')} lang={language} sourceLang={sourceLang} targetLang={targetLang} translationMode={viewMode} disabled={disableReactions} />
     );
 
-    const mainText = this.renderMainText(viewMode, sourceHtml, targetHtml, sourceLang, targetLang, status.get('spoiler_text').length > 0 ? !hidden : true);
+    const mainText = this.renderMainText(viewMode, sourceBodyHtml, targetBodyHtml, sourceLang, targetLang, contentVisible);
     const spoilerText = this.renderSpoilerText(viewMode, sourceSpoilerHtml, targetSpoilerHtml, sourceLang, targetLang);
 
     const translateButton = translationBarEffectivelyVisible({
@@ -526,6 +562,7 @@ class StatusContent extends React.PureComponent {
           {mentionsPlaceholder}
 
           {React.cloneElement(mainText, { tabIndex: !hidden ? 0 : null })}
+          {hashtagBadges}
 
           {!hidden && renderShowPoll && quote ? showPollButton : pollContainer}
 
@@ -537,6 +574,7 @@ class StatusContent extends React.PureComponent {
       const output = [
         <div className={classNames} ref={this.setRef} tabIndex='0' onMouseDown={this.handleMouseDown} onMouseUp={this.handleMouseUp} key='status-content' onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave}>
           {mainText}
+          {hashtagBadges}
 
           {renderShowPoll && quote ? showPollButton : pollContainer}
 
@@ -554,6 +592,7 @@ class StatusContent extends React.PureComponent {
       return (
         <div className={classNames} ref={this.setRef} tabIndex='0' onMouseEnter={this.handleMouseEnter} onMouseLeave={this.handleMouseLeave}>
           {mainText}
+          {hashtagBadges}
 
           {renderShowPoll && quote ? showPollButton : pollContainer}
 

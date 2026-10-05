@@ -1101,6 +1101,52 @@ body > [data-popper-placement] {
       display: block;
     }
   }
+
+  .status__content__hashtag-badges {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 4px;
+    margin-top: 6px;
+  }
+
+  a.status__content__hashtag-badge {
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 1px 8px;
+    border: 1px solid lighten($ui-base-color, 18%);
+    border-radius: 999px;
+    background: lighten($ui-base-color, 8%);
+    color: $secondary-text-color;
+    font-size: calc(var(--content-font-size, 15px) * 0.87);
+    font-weight: 400;
+    line-height: 1.4;
+    text-decoration: none;
+    overflow-wrap: anywhere;
+
+    &:hover,
+    &:focus {
+      color: $highlight-text-color;
+      border-color: $ui-highlight-color;
+      background: rgba($ui-highlight-color, 0.15);
+      text-decoration: none;
+    }
+
+    &:focus {
+      outline: 0;
+    }
+
+    &:focus-visible {
+      color: $highlight-text-color;
+      border-color: $ui-highlight-color;
+      outline: 2px solid $ui-highlight-color;
+      outline-offset: 2px;
+    }
+  }
 }
 
 .scheduled-status-warning-indicator__content {
