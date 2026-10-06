@@ -169,7 +169,7 @@ describe('StatusContent trailing hashtag badges', () => {
     expect(history.push).not.toHaveBeenCalled();
     expect(badge).toHaveAttribute('data-menu-hashtag', 'one');
     expect(badge).toHaveAttribute('data-account-id', 'a1');
-    expect(badge).toHaveAttribute('data-account-name', 'Alice');
+    expect(badge).toHaveAttribute('data-account-name', 'alice');
     expect(badge).toHaveAttribute('data-status-id', 's1');
   });
 

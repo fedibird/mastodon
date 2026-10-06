@@ -114,7 +114,7 @@ class HashtagMenuController extends React.PureComponent {
 
   accountLabel () {
     const account = this.props.accounts && this.props.accounts.get(this.state.accountId);
-    const storedName = account && (account.get('display_name') || account.get('username') || account.get('acct'));
+    const storedName = account && (account.get('username') || account.get('acct'));
 
     return storedName || this.state.accountName || '';
   }
@@ -190,7 +190,11 @@ class HashtagMenuController extends React.PureComponent {
   }
 
   handleItemClick = event => {
-    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) {
+    if (event.type === 'click' && event.button !== 0) {
+      return;
+    }
+
+    if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) {
       return;
     }
 

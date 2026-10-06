@@ -157,8 +157,9 @@ function buildStatus(overrides = {}) {
   });
 }
 
-function renderMenu({ status = buildStatus(), signedIn, onClick = jest.fn() } = {}) {
-  const store = createStore(reducer, initialState(), applyMiddleware(thunk));
+function renderMenu({ status = buildStatus(), signedIn, onClick = jest.fn(), account } = {}) {
+  const state = account ? initialState().setIn(['accounts', 'a1'], fromJS(account)) : initialState();
+  const store = createStore(reducer, state, applyMiddleware(thunk));
   const view = render(
     <Provider store={store}>
       <RouterProvider>
@@ -216,7 +217,7 @@ describe('HashtagMenuController', () => {
     click(badge);
 
     expect(screen.getByRole('button', { name: 'View posts with #mastodon' })).toHaveAttribute('href', '/timelines/tag/mastodon');
-    expect(screen.getByRole('button', { name: 'View Alice\'s posts with #mastodon' })).toHaveAttribute('href', '/accounts/a1/posts/mastodon');
+    expect(screen.getByRole('button', { name: 'View alice\'s posts with #mastodon' })).toHaveAttribute('href', '/accounts/a1/posts/mastodon');
     expect(Overlay.lastTarget).toBe(badge);
   });
 
@@ -246,7 +247,7 @@ describe('HashtagMenuController', () => {
     expect(history.push).not.toHaveBeenCalledWith(expect.stringContaining('/tagged/'));
 
     click(inline);
-    fireEvent.click(screen.getByRole('button', { name: 'View Alice\'s posts with #test' }));
+    fireEvent.click(screen.getByRole('button', { name: 'View alice\'s posts with #test' }));
     expect(history.push).toHaveBeenCalledWith('/accounts/a1/posts/test');
     expect(history.push.mock.calls.map(call => call[0]).join(' ')).not.toContain('/@');
   });
@@ -326,13 +327,37 @@ describe('HashtagMenuController', () => {
     expect(navigator.clipboard.writeText).not.toHaveBeenCalledWith(expect.stringContaining('#different'));
   });
 
+  it('uses the acct when the account has no username', () => {
+    const account = { id: 'a1', display_name: 'Alice', username: '', acct: 'alice@example.com' };
+    const { container } = renderMenu({
+      account,
+      status: buildStatus({ account }),
+    });
+
+    click(container.querySelector('a.status__content__hashtag-badge'));
+
+    expect(screen.getByRole('button', { name: 'View alice@example.com\'s posts with #mastodon' })).toHaveAttribute('href', '/accounts/a1/posts/mastodon');
+    expect(container.querySelector('a.status__content__hashtag-badge')).toHaveAttribute('data-account-name', 'alice@example.com');
+  });
+
+  it('runs an open menu action from the keyboard', () => {
+    const { container } = renderMenu();
+    const badge = container.querySelector('a.status__content__hashtag-badge');
+
+    click(badge);
+    // React 16 drops keypress events whose charCode is 0, including a bare Enter.
+    fireEvent.keyPress(screen.getByRole('button', { name: 'Copy hashtag' }), { key: 'Enter', charCode: 13, keyCode: 13 });
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('#mastodon');
+  });
+
   it('opens filters in a new tab and hides favourite and mute when signed out', () => {
     const signedIn = renderMenu();
     click(signedIn.container.querySelector('a.status__content__hashtag-badge'));
     const labels = Array.from(document.querySelectorAll('.dropdown-menu__container__list > li')).map(item => item.textContent);
     expect(labels).toEqual([
       'View posts with #mastodon',
-      'View Alice\'s posts with #mastodon',
+      'View alice\'s posts with #mastodon',
       '',
       'Add to favorites',
       'Copy hashtag',

@@ -12,7 +12,7 @@ import TranslationBar from 'mastodon/components/translation_bar';
 import { setStatusTranslationAssumption, setTranslationTargetLanguage } from 'mastodon/actions/statuses';
 import { autoPlayEmoji, disableReactions, me, translationBarVisibility, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
 import { translationCapability, translationRequestStatus } from 'mastodon/utils/translation_languages';
-import { splitTrailingHashtags, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
+import { isHashtagMenuLink, splitTrailingHashtags, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
 import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationDisplayStatus, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
 
 const messages = defineMessages({
@@ -243,19 +243,7 @@ class StatusContent extends React.PureComponent {
   }
 
   isHashtagLink (link) {
-    if (link.classList.contains('mention') && link.classList.contains('hashtag')) {
-      return true;
-    }
-
-    const text = link.textContent || '';
-
-    if (text[0] === '#' || text[0] === '＃') {
-      return true;
-    }
-
-    const previous = link.previousSibling;
-
-    return !!(previous && previous.textContent && previous.textContent[previous.textContent.length - 1] === '#');
+    return isHashtagMenuLink(link);
   }
 
   statusAccountIdentity () {
@@ -273,11 +261,9 @@ class StatusContent extends React.PureComponent {
       return { id: account.id ? String(account.id) : '', name: '' };
     }
 
-    const displayName = account.get('display_name');
-
     return {
       id: account.get('id') ? String(account.get('id')) : '',
-      name: (displayName && displayName.length > 0) ? displayName : (account.get('username') || account.get('acct') || ''),
+      name: account.get('username') || account.get('acct') || '',
     };
   }
 

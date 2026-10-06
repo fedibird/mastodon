@@ -27,6 +27,29 @@ function isHashtagAnchor(node) {
     && node.classList.contains('hashtag');
 }
 
+// Links that open the hashtag menu. Trailing-run splitting stays on
+// isHashtagAnchor; copy-all uses this broader rule so a link that opens
+// the menu is also copied.
+export function isHashtagMenuLink(link) {
+  if (!isElement(link) || link.tagName !== 'A') {
+    return false;
+  }
+
+  if (link.classList.contains('mention') && link.classList.contains('hashtag')) {
+    return true;
+  }
+
+  const text = link.textContent || '';
+
+  if (text[0] === '#' || text[0] === '＃') {
+    return true;
+  }
+
+  const previous = link.previousSibling;
+
+  return !!(previous && previous.textContent && previous.textContent[previous.textContent.length - 1] === '#');
+}
+
 function isWhitespaceText(node) {
   return !!node && node.nodeType === Node.TEXT_NODE && !/\S/.test(node.textContent || '');
 }
@@ -323,7 +346,7 @@ function hashtagLabel(anchor) {
 // Hashtag anchors in document order. NFKC case-insensitive duplicates keep
 // the first visible spelling. Parsing stays on an inert <template>.
 export function collectStatusHashtags(html) {
-  if (typeof html !== 'string' || !html.includes('hashtag')) {
+  if (typeof html !== 'string' || html === '' || !/hashtag|[#＃]/.test(html)) {
     return [];
   }
 
@@ -332,7 +355,11 @@ export function collectStatusHashtags(html) {
   const seen = new Set();
   const hashtags = [];
 
-  template.content.querySelectorAll('a.mention.hashtag').forEach(anchor => {
+  template.content.querySelectorAll('a').forEach(anchor => {
+    if (!isHashtagMenuLink(anchor)) {
+      return;
+    }
+
     const text = hashtagLabel(anchor);
     const name = text.replace(/^#/, '');
     const key = normalizeHashtagName(name);
