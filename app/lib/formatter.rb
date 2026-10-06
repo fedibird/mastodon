@@ -11,6 +11,9 @@ class Formatter
 
   NEWLINE_TAGS_RE = %r{(<br />|<br>|</p>)+}
   CLOSING_PARAGRAPH_RE = %r{</p>\z}
+  # One logical newline at the start of a text node. PHP nl2br() leaves
+  # that newline immediately after <br />. A newline inside <pre> is kept.
+  LEADING_BREAK_NEWLINE_RE = /\A(?:\r\n|\n\r|\r|\n)/.freeze
 
   # A decoded URL is only ever shown to a human or offered to a matcher, so any
   # Unicode control character in it is noise at best. It is also how the
@@ -50,6 +53,7 @@ class Formatter
 
     unless status.local?
       html = reformat(raw_content)
+      html = strip_break_adjacent_newline(html)
       html = apply_inner_link(html, **options.merge(redirected_urls: redirected_urls(status)))
       html = apply_reference_link(html, status)
       html = encode_custom_emojis(html, status.emojis, options[:autoplay]) if options[:custom_emojify]
@@ -274,6 +278,39 @@ class Formatter
   end
 
   private
+
+  def strip_break_adjacent_newline(html)
+    return html if html.blank? || !html.include?('<br')
+
+    fragment = Nokogiri::HTML.fragment(html)
+    changed = false
+
+    fragment.css('br').each do |br|
+      next if preformatted_break?(br)
+
+      text = br.next_sibling
+      next unless text&.text?
+
+      updated = text.content.sub(LEADING_BREAK_NEWLINE_RE, '')
+      next if updated == text.content
+
+      changed = true
+
+      if updated.empty?
+        text.remove
+      else
+        text.content = updated
+      end
+    end
+
+    return html unless changed
+
+    fragment.to_html(encoding: 'UTF-8')
+  end
+
+  def preformatted_break?(br)
+    br.ancestors.any? { |ancestor| ancestor.element? && ancestor.name == 'pre' }
+  end
 
   def redirected_urls(status)
     status.preview_cards.map { |preview_card| [preview_card.url, preview_card.redirected_url] if preview_card.redirected_url }.compact.to_h

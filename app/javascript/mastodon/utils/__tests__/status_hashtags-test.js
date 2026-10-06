@@ -281,6 +281,24 @@ describe('splitTrailingHashtags', () => {
     expect(result.hashtags).toEqual([]);
   });
 
+  it('splits a Pixelfed trailing hashtag after nl2br newlines were removed', () => {
+    const html = [
+      'たぶんナラタケモドキ。<br><br>',
+      'ジメジメとした天気が続いていたある日…<br><br>',
+      '<a href="https://fedisnap.com/discover/tags/fedibird?src=hash" class="u-url hashtag mention" rel="nofollow noopener noreferrer" target="_blank">#fedibird</a>',
+    ].join('');
+    const result = splitTrailingHashtags(html);
+
+    expect(result.hashtags).toEqual([
+      {
+        name: 'fedibird',
+        text: '#fedibird',
+        href: 'https://fedisnap.com/discover/tags/fedibird?src=hash',
+      },
+    ]);
+    expect(result.html).toBe('たぶんナラタケモドキ。<br><br>ジメジメとした天気が続いていたある日…');
+  });
+
   it('splits a sanitized Pixelfed trailing hashtag and keeps its href', () => {
     const html = [
       'たぶんナラタケモドキ。<br> <br>',

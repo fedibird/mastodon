@@ -494,6 +494,53 @@ RSpec.describe Formatter do
     end
   end
 
+  describe 'remote nl2br newlines' do
+    def remote_display(text)
+      status = Fabricate(:status, account: remote_account, text: text)
+      html = Formatter.instance.format(status)
+      [status, html.sub(/\A<p>(.*)<\/p>\z/m, '\1')]
+    end
+
+    it 'drops the newline Pixelfed nl2br leaves after each break' do
+      text = "たぶんナラタケモドキ。<br />\n<br />\nジメジメとした天気が続いていたある日…"
+      status, html = remote_display(text)
+
+      expect(html).to eq('たぶんナラタケモドキ。<br><br>ジメジメとした天気が続いていたある日…')
+      expect(html).not_to match(/<br>[\r\n]/)
+      expect(status.reload.text).to eq(text)
+    end
+
+    it 'drops one CRLF, LF, or CR immediately after a break and leaves other newlines' do
+      {
+        "A<br />\nB" => 'A<br>B',
+        "A<br />\r\nB" => 'A<br>B',
+        "A<br />\rB" => 'A<br>B',
+        "A<br />\n\nB" => "A<br>\nB",
+        "A\nB" => "A\nB",
+        'A<br><br>B' => 'A<br><br>B',
+      }.each do |text, expected|
+        _status, html = remote_display(text)
+
+        expect(html).to eq(expected)
+      end
+    end
+
+    it 'keeps a break-adjacent newline inside preformatted content' do
+      status = Fabricate(:status, account: remote_account, text: "<pre>A<br />\nB</pre>")
+
+      expect(Formatter.instance.format(status)).to include("<pre>A<br>\nB</pre>")
+      expect(status.reload.text).to eq("<pre>A<br />\nB</pre>")
+    end
+
+    it 'does not rewrite a local status' do
+      status = Fabricate(:status, account: local_account, text: "Hello\n#one #two", uri: nil)
+      expected = %(<p>Hello<br />#{Formatter.instance.send(:hashtag_html, 'one')} #{Formatter.instance.send(:hashtag_html, 'two')}</p>)
+
+      expect(Formatter.instance.format(status)).to eq(expected)
+      expect(status.reload.text).to eq("Hello\n#one #two")
+    end
+  end
+
   describe '#plaintext' do
     subject { Formatter.instance.plaintext(status) }
 
@@ -1150,6 +1197,37 @@ RSpec.describe Formatter do
           ジメジメとした天気が続いていたある日…<br /> <br />
           <a href="https://fedisnap.com/discover/tags/fedibird?src=hash" title="#fedibird" class="u-url hashtag" rel="external nofollow noopener">#fedibird</a>
         HTML
+      end
+
+      it 'places suffixes before a hashtag whose caption used nl2br newlines' do
+        text = <<~HTML.chomp
+          たぶんナラタケモドキ。<br />
+          <br />
+          ジメジメとした天気が続いていたある日…<br />
+          <br />
+          <a href="https://fedisnap.com/discover/tags/fedibird?src=hash" title="#fedibird" class="u-url hashtag" rel="external nofollow noopener">#fedibird</a>
+        HTML
+        remote = Fabricate(:status, account: remote_account, text: text, url: 'https://fedisnap.com/users/a/p/1')
+        quoted = Fabricate(:status, account: local_account, text: 'quoted', uri: nil)
+        status = Fabricate(:status, account: local_account, text: 'body', uri: nil, quote: quoted)
+        attach_overflow_media(status)
+        add_status_reference(status)
+        html = Formatter.instance.format(remote)
+
+        expect(html).to include('たぶんナラタケモドキ。<br><br>ジメジメとした天気が続いていたある日…<br><br>')
+        expect(html).not_to match(/<br>[\r\n]/)
+        expect(remote.reload.text).to eq(text)
+
+        fragment = Nokogiri::HTML.fragment(
+          Formatter.instance.send(:insert_status_suffixes, html, Formatter.instance.send(:local_status_suffix_fragments, status))
+        )
+        anchor = fragment.at_css('a.mention.hashtag')
+
+        expect(anchor.text).to eq('#fedibird')
+        expect(anchor['href']).to eq('https://fedisnap.com/discover/tags/fedibird?src=hash')
+        expect_before(fragment.at_css('.quote-inline'), fragment.at_css('.original-media-link'))
+        expect_before(fragment.at_css('.original-media-link'), fragment.at_css('.reference-link-inline'))
+        expect_before(fragment.at_css('.reference-link-inline'), anchor)
       end
 
       it 'places quote, media, and reference suffixes before a reformatted Pixelfed hashtag' do
