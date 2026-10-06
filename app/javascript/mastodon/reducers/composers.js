@@ -1,4 +1,4 @@
-import { Map as ImmutableMap } from 'immutable';
+import { Map as ImmutableMap, fromJS } from 'immutable';
 import { COMPOSER_CREATE, COMPOSER_DESTROY } from '../actions/composer';
 import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
@@ -24,7 +24,10 @@ export default function composers(state = initialState, action) {
     }
 
     const composerState = action.seed
-      ? hydrateComposer(initialComposerState, action.seed)
+      ? hydrateComposer(
+        initialComposerState,
+        ImmutableMap.isMap(action.seed) ? action.seed : fromJS(action.seed),
+      )
       : initialComposerState;
 
     return state.setIn(['byId', composerId], composerState);

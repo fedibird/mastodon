@@ -42,6 +42,18 @@ describe('composers registry', () => {
     expect(state.get('byId').isEmpty()).toBe(true);
   });
 
+  it('hydrates a new composer from a plain object seed', () => {
+    const composerState = composers(empty(), createComposer('composer-a', {
+      default_privacy: 'private',
+      default_language: 'ja',
+    })).getIn(['byId', 'composer-a']);
+
+    expect(composerState.get('privacy')).toEqual('private');
+    expect(composerState.get('language')).toEqual('ja');
+    expect(composerState.get('text')).toEqual('');
+    expect(composerState.get('idempotencyKey')).not.toBeNull();
+  });
+
   it('hydrates a new composer from the supplied seed', () => {
     const seed = ImmutableMap({
       default_privacy: 'private',
