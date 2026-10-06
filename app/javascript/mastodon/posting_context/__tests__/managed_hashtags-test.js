@@ -11,6 +11,22 @@ describe('managed hashtag normalization', () => {
     expect(textContainsHashtag('#fedibirdExtra', 'fedibird')).toBe(false);
   });
 
+  it('matches the representative Tag::HASHTAG_RE cases', () => {
+    expect(textContainsHashtag('#test_', 'test_')).toBe(true);
+    expect(textContainsHashtag('#_test', '_test')).toBe(true);
+    expect(textContainsHashtag('#3d', '3d')).toBe(true);
+    expect(textContainsHashtag('#one_two_three', 'one_two_three')).toBe(true);
+    expect(textContainsHashtag('#one·two·three', 'one·two·three')).toBe(true);
+    expect(textContainsHashtag('#one·two·three·', 'one·two·three')).toBe(true);
+    expect(textContainsHashtag('#0123456', '0123456')).toBe(false);
+    expect(textContainsHashtag('hello #l33ts35k', 'l33ts35k')).toBe(true);
+    expect(textContainsHashtag('hello #world2016', 'world2016')).toBe(true);
+    expect(textContainsHashtag('hello #ａｅｓｔｈｅｔｉｃ', 'aesthetic')).toBe(true);
+    expect(textContainsHashtag('hello ＃Ｓｙｎｔｈｗａｖｅ', 'synthwave')).toBe(true);
+    expect(textContainsHashtag('hello #·one·two·three', 'one·two·three')).toBe(false);
+    expect(textContainsHashtag('just add #نرم‌افزار and', 'نرم‌افزار')).toBe(true);
+  });
+
   it('does not treat a URL fragment as a hashtag', () => {
     expect(textContainsHashtag('https://en.wikipedia.org/wiki/Ghostbusters_(song)#Lawsuit', 'lawsuit')).toBe(false);
     expect(textContainsHashtag('https://example.com/foo#fedibird', 'fedibird')).toBe(false);
@@ -29,6 +45,10 @@ describe('materializeManagedHashtags', () => {
     expect(materializeManagedHashtags('Hello #foo', [foo])).toEqual('Hello #foo');
     expect(materializeManagedHashtags('#Foo', [foo])).toEqual('#Foo');
     expect(materializeManagedHashtags('＃ＦＯＯ', [foo])).toEqual('＃ＦＯＯ');
+  });
+
+  it('treats a trailing underscore as part of the hashtag', () => {
+    expect(materializeManagedHashtags('#test_', [{ name: 'test_', normalizedName: 'test_' }])).toEqual('#test_');
   });
 
   it('still appends a hashtag that is only a prefix of another tag', () => {

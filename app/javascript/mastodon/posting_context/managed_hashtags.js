@@ -1,8 +1,8 @@
 // Semantic comparison for managed hashtags. NFKC plus case folding, not the
 // visible spelling. This is an internal Composer helper, not ActivityPub.
 const HASHTAG_BOUNDARY = /[\/)A-Za-z0-9_]/;
-const HASHTAG_TOKEN = /^[\p{L}\p{M}\p{N}\p{Pc}_][\p{L}\p{M}\p{N}\p{Pc}_·・\u00B7\u200C]*/u;
-const TRAILING_SEPARATOR = /[·・\u00B7\u200C_]+$/u;
+const HASHTAG_TOKEN = /^[\p{L}\p{M}\p{N}\p{Pc}_][\p{L}\p{M}\p{N}\p{Pc}_·・\u200C]*/u;
+const TRAILING_SEPARATOR = /[·・\u200C]+$/u;
 const LETTER = /\p{L}/u;
 
 export function normalizeManagedHashtagName(name) {
