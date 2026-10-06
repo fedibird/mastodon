@@ -60,7 +60,7 @@ class PortableComposer extends React.PureComponent {
     return (
       <div className='portable-composer' onFocus={this.handleFocus} onBlur={this.handleBlur}>
         <ComposerProvider composerId={composerId}>
-          <ComposeFormContainer />
+          <ComposeFormContainer autoFocus={false} />
         </ComposerProvider>
       </div>
     );

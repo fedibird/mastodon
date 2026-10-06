@@ -83,6 +83,20 @@ const renderForm = (props = {}) => render(
   />,
 );
 
+describe('ComposeForm autoFocus', () => {
+  it('focuses the textarea when autoFocus is omitted', () => {
+    renderForm();
+
+    expect(screen.getByPlaceholderText('What is on your mind?')).toHaveFocus();
+  });
+
+  it('does not focus the textarea when autoFocus is false', () => {
+    renderForm({ autoFocus: false });
+
+    expect(screen.getByPlaceholderText('What is on your mind?')).not.toHaveFocus();
+  });
+});
+
 describe('ComposeForm visibility controls', () => {
   it('places privacy and language above the textarea and leaves publish in place', () => {
     renderForm();

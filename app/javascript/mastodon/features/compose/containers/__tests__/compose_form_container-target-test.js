@@ -37,6 +37,8 @@ jest.mock('../../../../components/autosuggest_textarea', () => {
       return (
         <textarea
           aria-label='Compose'
+          autoFocus={this.props.autoFocus}
+          data-autofocus={this.props.autoFocus ? 'true' : 'false'}
           value={this.props.value || ''}
           onChange={this.props.onChange}
         />
@@ -120,5 +122,25 @@ describe('ComposeFormContainer composer targeting', () => {
 
     expect(store.getState().getIn(['compose', 'text'])).toEqual('primary text');
     expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'text'])).toEqual('changed portable');
+  });
+
+  it('keeps the default autoFocus when the prop is omitted', () => {
+    render(
+      <Provider store={buildStore()}>
+        <ComposeFormContainer />
+      </Provider>,
+    );
+
+    expect(screen.getByLabelText('Compose')).toHaveAttribute('data-autofocus', 'true');
+  });
+
+  it('does not pass autoFocus through connect when autoFocus is false', () => {
+    render(
+      <Provider store={buildStore()}>
+        <ComposeFormContainer autoFocus={false} />
+      </Provider>,
+    );
+
+    expect(screen.getByLabelText('Compose')).toHaveAttribute('data-autofocus', 'false');
   });
 });

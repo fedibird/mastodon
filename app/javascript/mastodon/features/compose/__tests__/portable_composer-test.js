@@ -16,8 +16,8 @@ jest.mock('../containers/compose_form_container', () => {
   const React = require('react');
   const { withComposerId } = require('../composer_id_context');
 
-  const Form = ({ composerId }) => (
-    <textarea aria-label='compose' data-composer-id={composerId} />
+  const Form = ({ composerId, autoFocus }) => (
+    <textarea aria-label='compose' data-composer-id={composerId} data-autofocus={String(autoFocus)} />
   );
 
   return withComposerId(Form);
@@ -66,6 +66,7 @@ describe('PortableComposer', () => {
     const view = renderHost(store);
 
     expect(screen.getByLabelText('compose').getAttribute('data-composer-id')).toBe(composerId);
+    expect(screen.getByLabelText('compose').getAttribute('data-autofocus')).toBe('false');
     expect(store.getState().getIn(['composers', 'byId', composerId, 'mounted'])).toBe(1);
     expect(store.getState().getIn(['composers', 'byId', composerId, 'text'])).toEqual('');
     expect(store.getState().getIn(['composers', 'byId', composerId, 'privacy'])).toEqual('private');
@@ -84,6 +85,7 @@ describe('PortableComposer', () => {
     expect(store.getState().getIn(['composers', 'byId', composerId, 'mounted'])).toBe(1);
     expect(store.getState().getIn(['composers', 'byId', composerId, 'text'])).toEqual('hello');
     expect(screen.getByLabelText('compose').getAttribute('data-composer-id')).toBe(composerId);
+    expect(screen.getByLabelText('compose').getAttribute('data-autofocus')).toBe('false');
   });
 
   it('tracks composing only when focus leaves the host', () => {
