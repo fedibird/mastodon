@@ -12,7 +12,7 @@ import TranslationBar from 'mastodon/components/translation_bar';
 import { setStatusTranslationAssumption, setTranslationTargetLanguage } from 'mastodon/actions/statuses';
 import { autoPlayEmoji, disableReactions, me, translationBarVisibility, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
 import { translationCapability, translationRequestStatus } from 'mastodon/utils/translation_languages';
-import { isHashtagMenuLink, splitTrailingHashtags, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
+import { computeStatusHashtagBadges, isHashtagMenuLink, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
 import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationDisplayStatus, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
 
 const messages = defineMessages({
@@ -23,7 +23,8 @@ const messages = defineMessages({
 });
 
 const MAX_HEIGHT = 642; // 20px * 32 (+ 2px padding at the top)
-const VISIBLE_TRAILING_HASHTAGS = 3;
+const VISIBLE_COLLAPSED_HASHTAGS = 3;
+const HASHTAG_COLLAPSE_THRESHOLD = 5;
 
 const translationBarRevealed = (state, status) => {
   const overrides = state.get('translation_bar_overrides');
@@ -408,7 +409,8 @@ class StatusContent extends React.PureComponent {
     }
 
     const { hashtagsExpanded } = this.state;
-    const revealedHashtags = hashtagsExpanded ? hashtags : hashtags.slice(0, VISIBLE_TRAILING_HASHTAGS);
+    const collapse = !hashtagsExpanded && hashtags.length >= HASHTAG_COLLAPSE_THRESHOLD;
+    const revealedHashtags = collapse ? hashtags.slice(0, VISIBLE_COLLAPSED_HASHTAGS) : hashtags;
     const { id: accountId, name: accountName } = this.statusAccountIdentity();
     const statusId = this.props.status.get('id');
 
@@ -433,9 +435,9 @@ class StatusContent extends React.PureComponent {
             </a>
           );
         })}
-        {hashtags.length > VISIBLE_TRAILING_HASHTAGS && !hashtagsExpanded && (
+        {collapse && (
           <button type='button' className='status__content__hashtag-more' onClick={this.handleExpandHashtags}>
-            <FormattedMessage id='hashtags.and_other' defaultMessage='…and {count, plural, other {# more}}' values={{ count: hashtags.length - VISIBLE_TRAILING_HASHTAGS }} />
+            <FormattedMessage id='hashtags.and_other' defaultMessage='…and {count, plural, other {# more}}' values={{ count: hashtags.length - VISIBLE_COLLAPSED_HASHTAGS }} />
           </button>
         )}
       </div>
@@ -524,14 +526,15 @@ class StatusContent extends React.PureComponent {
     const targetLang = translationView.targetLang;
     const sourceHtml = status.get('contentHtml');
     const targetHtml = translated.getIn(['translation', 'contentHtml']);
-    const sourceHashtagParts = typeof sourceHtml === 'string' ? splitTrailingHashtags(sourceHtml) : { html: sourceHtml, hashtags: [] };
-    const trailingHashtags = sourceHashtagParts.hashtags;
+    const sourceHashtagParts = typeof sourceHtml === 'string'
+      ? computeStatusHashtagBadges(sourceHtml, status.get('tags'))
+      : { html: sourceHtml, hashtags: [], trailing: [] };
     const sourceBodyHtml = sourceHashtagParts.html;
     const targetBodyHtml = (viewMode === 'translated' || viewMode === 'bilingual') && typeof targetHtml === 'string'
-      ? stripMatchingTrailingHashtags(trailingHashtags, targetHtml)
+      ? stripMatchingTrailingHashtags(sourceHashtagParts.trailing, targetHtml)
       : targetHtml;
     const contentVisible = status.get('spoiler_text').length === 0 || !hidden;
-    const hashtagBadges = this.renderHashtagBadges(trailingHashtags, contentVisible);
+    const hashtagBadges = this.renderHashtagBadges(sourceHashtagParts.hashtags, contentVisible);
     const sourceSpoilerHtml = status.get('spoilerHtml');
     const targetSpoilerHtml = translated.getIn(['translation', 'spoilerHtml']);
     const language = viewMode === 'original' ? sourceLang : (targetLang || sourceLang);

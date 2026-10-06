@@ -337,6 +337,102 @@ export function normalizeHashtagName(name) {
   return (name || '').normalize('NFKC').toLowerCase();
 }
 
+// Same idea as Mastodon's HashtagBar: base sensitivity folds case, and NFKC
+// lines the visible spelling up with the tag the server stored.
+const hashtagCollator = new Intl.Collator(undefined, { sensitivity: 'base' });
+
+export function localeAwareInclude(collection, value) {
+  const normalizedValue = (value || '').normalize('NFKC');
+
+  return (collection || []).some(item => (
+    hashtagCollator.compare((item || '').normalize('NFKC'), normalizedValue) === 0
+  ));
+}
+
+function caseSpread(tag) {
+  const upperCase = Array.from(tag).reduce((count, char) => (
+    count + (char.toUpperCase() === char ? 1 : 0)
+  ), 0);
+
+  return Math.abs((tag.length - upperCase) - upperCase);
+}
+
+// One spelling per tag. When several casings exist, keep the one closest to
+// mixed case, matching Mastodon's uniqueHashtagsWithCaseHandling.
+// Badge and copy lists do not use this score. They keep the first spelling
+// written in the status HTML, then the API name for tags that never appear.
+export function uniqueHashtagsWithCaseHandling(hashtags) {
+  const groups = new Map();
+
+  (hashtags || []).forEach(tag => {
+    const key = (tag || '').normalize('NFKD').toLowerCase();
+    const group = groups.get(key);
+
+    if (group) {
+      group.push(tag);
+    } else {
+      groups.set(key, [tag]);
+    }
+  });
+
+  return Array.from(groups.values()).map(tags => {
+    if (tags.length === 1) {
+      return tags[0];
+    }
+
+    return tags.slice().sort((left, right) => caseSpread(left) - caseSpread(right))[0];
+  });
+}
+
+function readStatusTag(tag) {
+  if (!tag) {
+    return null;
+  }
+
+  const read = typeof tag.get === 'function' ? key => tag.get(key) : key => tag[key];
+  const name = String(read('name') || '').trim().replace(/^[#＃]/, '');
+
+  if (!name) {
+    return null;
+  }
+
+  return {
+    name,
+    url: read('url') || read('href') || '',
+  };
+}
+
+function eachStatusTag(statusTags, visit) {
+  if (!statusTags) {
+    return;
+  }
+
+  const list = typeof statusTags.toArray === 'function' ? statusTags.toArray() : statusTags;
+
+  if (!list || typeof list.forEach !== 'function') {
+    return;
+  }
+
+  list.forEach(tag => {
+    const entry = readStatusTag(tag);
+
+    if (entry) {
+      visit(entry);
+    }
+  });
+}
+
+function rememberHashtag(seen, hashtags, hashtag) {
+  const name = hashtag && hashtag.name;
+
+  if (!name || localeAwareInclude(seen, name)) {
+    return;
+  }
+
+  seen.push(name);
+  hashtags.push(hashtag);
+}
+
 function hashtagLabel(anchor) {
   const raw = (anchor.textContent || '').trim().replace(/^[#＃]/, '');
 
@@ -352,7 +448,7 @@ export function collectStatusHashtags(html) {
 
   const template = document.createElement('template');
   template.innerHTML = html;
-  const seen = new Set();
+  const seen = [];
   const hashtags = [];
 
   template.content.querySelectorAll('a').forEach(anchor => {
@@ -362,14 +458,8 @@ export function collectStatusHashtags(html) {
 
     const text = hashtagLabel(anchor);
     const name = text.replace(/^#/, '');
-    const key = normalizeHashtagName(name);
 
-    if (!key || seen.has(key)) {
-      return;
-    }
-
-    seen.add(key);
-    hashtags.push({
+    rememberHashtag(seen, hashtags, {
       name,
       text,
       href: anchor.getAttribute('href'),
@@ -379,13 +469,66 @@ export function collectStatusHashtags(html) {
   return hashtags;
 }
 
+// Visible content hashtags, then status.tags that never appear in that HTML.
+// The first visible spelling wins over the API's canonical name.
+export function collectCopyHashtags(html, statusTags) {
+  const hashtags = collectStatusHashtags(html);
+  const seen = hashtags.map(hashtag => hashtag.name);
+
+  eachStatusTag(statusTags, tag => {
+    rememberHashtag(seen, hashtags, {
+      name: tag.name,
+      text: `#${tag.name}`,
+      href: tag.url,
+    });
+  });
+
+  return hashtags;
+}
+
+// Out-of-band tags from status.tags come first. Trailing tags that are not
+// still visible in the body follow, including ones status.tags does not list.
+export function computeStatusHashtagBadges(sourceHtml, statusTags) {
+  const split = splitTrailingHashtags(typeof sourceHtml === 'string' ? sourceHtml : '');
+  const bodyNames = collectStatusHashtags(split.html).map(hashtag => hashtag.name);
+  const trailingNames = split.hashtags.map(hashtag => hashtag.name);
+  const hashtags = [];
+  const seen = [];
+
+  eachStatusTag(statusTags, tag => {
+    if (localeAwareInclude(bodyNames, tag.name) || localeAwareInclude(trailingNames, tag.name)) {
+      return;
+    }
+
+    rememberHashtag(seen, hashtags, {
+      name: tag.name,
+      text: `#${tag.name}`,
+      href: tag.url,
+    });
+  });
+
+  split.hashtags.forEach(hashtag => {
+    if (localeAwareInclude(bodyNames, hashtag.name)) {
+      return;
+    }
+
+    rememberHashtag(seen, hashtags, hashtag);
+  });
+
+  return {
+    html: split.html,
+    hashtags,
+    trailing: split.hashtags,
+  };
+}
+
 export function trailingHashtagsEqual(left, right) {
   if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
     return false;
   }
 
   return left.every((hashtag, index) => (
-    normalizeHashtagName(hashtag && hashtag.name) === normalizeHashtagName(right[index] && right[index].name)
+    localeAwareInclude([hashtag && hashtag.name], right[index] && right[index].name)
   ));
 }
 
