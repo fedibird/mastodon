@@ -1,4 +1,4 @@
-import { splitTrailingHashtags, stripMatchingTrailingHashtags, trailingHashtagsEqual } from '../status_hashtags';
+import { collectStatusHashtags, splitTrailingHashtags, stripMatchingTrailingHashtags, trailingHashtagsEqual } from '../status_hashtags';
 
 function anchor(name, { href, rel = 'tag', classes = 'mention hashtag' } = {}) {
   const url = href || `https://example.com/tags/${encodeURIComponent(name)}`;
@@ -279,6 +279,45 @@ describe('splitTrailingHashtags', () => {
 
     expect(result.html).toBe(html);
     expect(result.hashtags).toEqual([]);
+  });
+});
+
+describe('collectStatusHashtags', () => {
+  it('collects mention hashtags in document order and drops later duplicates', () => {
+    const html = [
+      `<p>Hello ${anchor('test')} and ${anchor('mastodon')} ${anchor('Test')}</p>`,
+      `<p>${anchor('fedibird')} ${anchor('Ａ')} ${anchor('A')}</p>`,
+    ].join('');
+
+    expect(collectStatusHashtags(html).map(hashtag => hashtag.text)).toEqual([
+      '#test',
+      '#mastodon',
+      '#fedibird',
+      '#Ａ',
+    ]);
+  });
+
+  it('keeps the first spelling after NFKC case-insensitive comparison', () => {
+    const html = `<p>${anchor('Test')} ${anchor('test')} ${anchor('TEST')}</p>`;
+
+    expect(collectStatusHashtags(html)).toEqual([
+      expect.objectContaining({ name: 'Test', text: '#Test' }),
+    ]);
+  });
+
+  it('ignores links that are not mention hashtags', () => {
+    const html = '<p><a class="hashtag" href="https://example.com/tags/one">#one</a> <a href="https://example.com/">link</a></p>';
+
+    expect(collectStatusHashtags(html)).toEqual([]);
+  });
+
+  it('does not execute scripts while collecting hashtags', () => {
+    window.__statusHashtagProbe = jest.fn();
+    const html = `<p>${anchor('one')}<script>window.__statusHashtagProbe()</script></p>`;
+
+    expect(collectStatusHashtags(html).map(hashtag => hashtag.text)).toEqual(['#one']);
+    expect(window.__statusHashtagProbe).not.toHaveBeenCalled();
+    delete window.__statusHashtagProbe;
   });
 });
 

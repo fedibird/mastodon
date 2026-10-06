@@ -314,6 +314,44 @@ export function normalizeHashtagName(name) {
   return (name || '').normalize('NFKC').toLowerCase();
 }
 
+function hashtagLabel(anchor) {
+  const raw = (anchor.textContent || '').trim().replace(/^[#＃]/, '');
+
+  return raw ? `#${raw}` : '';
+}
+
+// Hashtag anchors in document order. NFKC case-insensitive duplicates keep
+// the first visible spelling. Parsing stays on an inert <template>.
+export function collectStatusHashtags(html) {
+  if (typeof html !== 'string' || !html.includes('hashtag')) {
+    return [];
+  }
+
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  const seen = new Set();
+  const hashtags = [];
+
+  template.content.querySelectorAll('a.mention.hashtag').forEach(anchor => {
+    const text = hashtagLabel(anchor);
+    const name = text.replace(/^#/, '');
+    const key = normalizeHashtagName(name);
+
+    if (!key || seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    hashtags.push({
+      name,
+      text,
+      href: anchor.getAttribute('href'),
+    });
+  });
+
+  return hashtags;
+}
+
 export function trailingHashtagsEqual(left, right) {
   if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
     return false;

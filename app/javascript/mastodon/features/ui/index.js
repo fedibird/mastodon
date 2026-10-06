@@ -22,6 +22,7 @@ import { fetchServerTranslationLanguages } from '../../actions/server';
 import { getHomeVisibilities } from 'mastodon/selectors';
 import { WrappedSwitch, WrappedRoute } from './util/react_router_helpers';
 import UploadArea from './components/upload_area';
+import HashtagMenuController from './components/hashtag_menu_controller';
 import ColumnsAreaContainer from './containers/columns_area_container';
 import DocumentTitle from './components/document_title';
 import PictureInPicture from 'mastodon/features/picture_in_picture';
@@ -634,6 +635,7 @@ class UI extends React.PureComponent {
           <NotificationsContainer />
           <LoadingBarContainer className='loading-bar' />
           <ModalContainer />
+          <HashtagMenuController />
           <UploadArea active={draggingOver} onClose={this.closeUploadModal} />
           <DocumentTitle />
         </div>

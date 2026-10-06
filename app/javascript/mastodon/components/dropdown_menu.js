@@ -10,7 +10,7 @@ import { CircularProgress } from 'mastodon/components/loading_indicator';
 const listenerOptions = supportsPassiveEvents ? { passive: true } : false;
 let id = 0;
 
-class DropdownMenu extends React.PureComponent {
+export class DropdownMenu extends React.PureComponent {
 
   static contextTypes = {
     router: PropTypes.object,

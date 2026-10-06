@@ -23,7 +23,7 @@ const messages = defineMessages({
 });
 
 const MAX_HEIGHT = 642; // 20px * 32 (+ 2px padding at the top)
-const VISIBLE_TRAILING_HASHTAGS = 4;
+const VISIBLE_TRAILING_HASHTAGS = 3;
 
 const translationBarRevealed = (state, status) => {
   const overrides = state.get('translation_bar_overrides');
@@ -155,8 +155,8 @@ class StatusContent extends React.PureComponent {
           link.setAttribute('title', intl.formatMessage(messages.linkToCustomEmojiInLocal, { shortcode: link.dataset.shortcode }));
         }
         link.addEventListener('click', this.onCustomEmojiUrlClick.bind(this, link.dataset.shortcode, link.dataset.domain), false);
-      } else if (link.textContent[0] === '#' || (link.previousSibling && link.previousSibling.textContent && link.previousSibling.textContent[link.previousSibling.textContent.length - 1] === '#')) {
-        link.addEventListener('click', this.onHashtagClick.bind(this, link.text), false);
+      } else if (this.isHashtagLink(link)) {
+        this.markHashtagLink(link);
       } else if (link.classList.contains('account-url-link')) {
         link.setAttribute('title', intl.formatMessage(messages.linkToAcct, { acct: link.dataset.accountAcct }));
         link.addEventListener('click', this.onAccountUrlClick.bind(this, link.dataset.accountId, link.dataset.path ?? '', link.dataset.accountActorType), false);
@@ -242,17 +242,69 @@ class StatusContent extends React.PureComponent {
     }
   }
 
-  onHashtagClick = (hashtag, e) => {
-    hashtag = hashtag.replace(/^#/, '');
-
-    if (this.context.router && e.button === 0 && !(e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      this.context.router.history.push(`/timelines/tag/${hashtag}`);
+  isHashtagLink (link) {
+    if (link.classList.contains('mention') && link.classList.contains('hashtag')) {
+      return true;
     }
+
+    const text = link.textContent || '';
+
+    if (text[0] === '#' || text[0] === '＃') {
+      return true;
+    }
+
+    const previous = link.previousSibling;
+
+    return !!(previous && previous.textContent && previous.textContent[previous.textContent.length - 1] === '#');
   }
 
-  onHashtagBadgeClick = (e) => {
-    this.onHashtagClick(e.currentTarget.textContent || '', e);
+  statusAccountIdentity () {
+    const account = this.props.status.get('account');
+
+    if (!account) {
+      return { id: '', name: '' };
+    }
+
+    if (typeof account === 'string') {
+      return { id: account, name: '' };
+    }
+
+    if (!account.get) {
+      return { id: account.id ? String(account.id) : '', name: '' };
+    }
+
+    const displayName = account.get('display_name');
+
+    return {
+      id: account.get('id') ? String(account.get('id')) : '',
+      name: (displayName && displayName.length > 0) ? displayName : (account.get('username') || account.get('acct') || ''),
+    };
+  }
+
+  markHashtagLink (link) {
+    const name = (link.textContent || '').trim().replace(/^[#＃]/, '');
+
+    if (!name) {
+      return;
+    }
+
+    const { id, name: accountName } = this.statusAccountIdentity();
+
+    link.setAttribute('data-menu-hashtag', name);
+
+    if (id) {
+      link.setAttribute('data-account-id', id);
+    }
+
+    if (accountName) {
+      link.setAttribute('data-account-name', accountName);
+    }
+
+    const statusId = this.props.status.get('id');
+
+    if (statusId) {
+      link.setAttribute('data-status-id', statusId);
+    }
   }
 
   onAccountUrlClick = (accountId, path, accountActorType, e) => {
@@ -371,21 +423,30 @@ class StatusContent extends React.PureComponent {
 
     const { hashtagsExpanded } = this.state;
     const revealedHashtags = hashtagsExpanded ? hashtags : hashtags.slice(0, VISIBLE_TRAILING_HASHTAGS);
+    const { id: accountId, name: accountName } = this.statusAccountIdentity();
+    const statusId = this.props.status.get('id');
 
     return (
       <div className='status__content__hashtag-badges'>
-        {revealedHashtags.map((hashtag, index) => (
-          <a
-            key={`${hashtag.name}:${index}`}
-            href={hashtag.href || undefined}
-            className='status__content__hashtag-badge status-link'
-            target='_blank'
-            rel='noopener noreferrer'
-            onClick={this.onHashtagBadgeClick}
-          >
-            {hashtag.text}
-          </a>
-        ))}
+        {revealedHashtags.map((hashtag, index) => {
+          const name = (hashtag.name || '').replace(/^[#＃]/, '');
+
+          return (
+            <a
+              key={`${hashtag.name}:${index}`}
+              href={hashtag.href || undefined}
+              className='status__content__hashtag-badge status-link'
+              target='_blank'
+              rel='noopener noreferrer'
+              data-menu-hashtag={name}
+              data-account-id={accountId || undefined}
+              data-account-name={accountName || undefined}
+              data-status-id={statusId || undefined}
+            >
+              {hashtag.text}
+            </a>
+          );
+        })}
         {hashtags.length > VISIBLE_TRAILING_HASHTAGS && !hashtagsExpanded && (
           <button type='button' className='status__content__hashtag-more' onClick={this.handleExpandHashtags}>
             <FormattedMessage id='hashtags.and_other' defaultMessage='…and {count, plural, other {# more}}' values={{ count: hashtags.length - VISIBLE_TRAILING_HASHTAGS }} />
