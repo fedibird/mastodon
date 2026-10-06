@@ -62,6 +62,51 @@ describe Sanitize::Config do
       expect(anchors[2]['class'].to_s).not_to include('mention')
     end
 
+    it 'canonicalizes a Pixelfed hashtag anchor that uses class instead of rel=tag' do
+      html = <<~HTML
+        たぶんナラタケモドキ。<br /> <br />
+        <a href="https://fedisnap.com/discover/tags/fedibird?src=hash" title="#fedibird" class="u-url hashtag" rel="external nofollow noopener">#fedibird</a>
+      HTML
+      fragment = Nokogiri::HTML.fragment(Sanitize.fragment(html, subject))
+      anchor = fragment.at_css('a')
+
+      expect(anchor.text).to eq '#fedibird'
+      expect(anchor['href']).to eq 'https://fedisnap.com/discover/tags/fedibird?src=hash'
+      expect(anchor['class'].to_s.split).to contain_exactly('u-url', 'hashtag', 'mention')
+      expect(anchor['rel'].to_s.split).to eq %w(nofollow noopener noreferrer)
+      expect(anchor['target']).to eq '_blank'
+      expect(anchor['title']).to be_nil
+    end
+
+    it 'canonicalizes a fullwidth hash when the anchor is already marked as a hashtag' do
+      html = '<a href="https://example.com/tags/one" class="hashtag">＃one</a>'
+      anchor = Nokogiri::HTML.fragment(Sanitize.fragment(html, subject)).at_css('a')
+
+      expect(anchor['class'].to_s.split).to contain_exactly('hashtag', 'mention')
+    end
+
+    it 'does not canonicalize a u-url link whose text merely starts with a hash' do
+      html = '<a href="https://example.com/tags/not-a-tag" class="u-url">#not-a-tag</a>'
+      anchor = Nokogiri::HTML.fragment(Sanitize.fragment(html, subject)).at_css('a')
+
+      expect(anchor.text).to eq '#not-a-tag'
+      expect(anchor['class'].to_s.split).to eq %w(u-url)
+    end
+
+    it 'does not add mention when a hashtag class is not a hash-prefixed label' do
+      html = '<a href="https://fedisnap.com/discover/tags/fedibird" class="hashtag">fedibird</a>'
+      anchor = Nokogiri::HTML.fragment(Sanitize.fragment(html, subject)).at_css('a')
+
+      expect(anchor.text).to eq 'fedibird'
+      expect(anchor['class'].to_s.split).to eq %w(hashtag)
+      expect(anchor['class'].to_s.split).not_to include('mention')
+    end
+
+    it 'does not canonicalize an ordinary link whose text starts with a hash' do
+      expect(Sanitize.fragment('<a>#not-a-tag</a>', subject)).to eq '#not-a-tag'
+      expect(Sanitize.fragment('<a href="https://example.com/">#not-a-tag</a>', subject)).to eq '<a href="https://example.com/" rel="nofollow noopener noreferrer" target="_blank">#not-a-tag</a>'
+    end
+
     it 'keeps ruby tags' do
       expect(Sanitize.fragment('<p><ruby>明日 <rp>(</rp><rt>Ashita</rt><rp>)</rp></ruby></p>', subject)).to eq '<p><ruby>明日 <rp>(</rp><rt>Ashita</rt><rp>)</rp></ruby></p>'
     end

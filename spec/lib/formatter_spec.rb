@@ -1143,6 +1143,39 @@ RSpec.describe Formatter do
       end
     end
 
+    describe 'Pixelfed hashtag anchors' do
+      def pixelfed_trailing_hashtag
+        <<~HTML
+          たぶんナラタケモドキ。<br /> <br />
+          ジメジメとした天気が続いていたある日…<br /> <br />
+          <a href="https://fedisnap.com/discover/tags/fedibird?src=hash" title="#fedibird" class="u-url hashtag" rel="external nofollow noopener">#fedibird</a>
+        HTML
+      end
+
+      it 'places quote, media, and reference suffixes before a reformatted Pixelfed hashtag' do
+        quoted = Fabricate(:status, account: local_account, text: 'quoted', uri: nil)
+        status = Fabricate(:status, account: local_account, text: 'body', uri: nil, quote: quoted)
+        attach_overflow_media(status)
+        add_status_reference(status)
+        sanitized = Formatter.instance.reformat(pixelfed_trailing_hashtag)
+
+        fragment = Nokogiri::HTML.fragment(
+          Formatter.instance.send(:insert_status_suffixes, sanitized, Formatter.instance.send(:local_status_suffix_fragments, status))
+        )
+        anchor = fragment.at_css('a.mention.hashtag')
+
+        expect(anchor.text).to eq('#fedibird')
+        expect(anchor['href']).to eq('https://fedisnap.com/discover/tags/fedibird?src=hash')
+        expect(anchor['class'].to_s.split).to include('u-url', 'hashtag', 'mention')
+        expect(anchor['title']).to be_nil
+        expect_before(fragment.at_css('.quote-inline'), fragment.at_css('.original-media-link'))
+        expect_before(fragment.at_css('.original-media-link'), fragment.at_css('.reference-link-inline'))
+        expect_before(fragment.at_css('.reference-link-inline'), anchor)
+        expect(fragment.text).to include('たぶんナラタケモドキ。')
+        expect(fragment.text.index('QT:')).to be < fragment.text.index('#fedibird')
+      end
+    end
+
     describe 'paragraph boundaries' do
       it 'keeps a hashtag-only final paragraph after the suffix' do
         status = Fabricate(:status, account: local_account, text: "Hello\n\n#one #two", uri: nil)
