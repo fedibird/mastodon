@@ -13,6 +13,9 @@ import StatusItemContainer from '../../containers/status_item_container';
 import {
   resetReference,
 } from '../../actions/compose';
+import { targetComposerAction } from '../../actions/composer';
+import { selectComposer } from '../../selectors/composer';
+import { withComposerId } from '../compose/composer_id_context';
 import { enableStatusReference } from '../../initial_state';
 
 const messages = defineMessages({
@@ -20,11 +23,12 @@ const messages = defineMessages({
   clearConfirm: { id: 'confirmations.clear.confirm', defaultMessage: 'Clear' },
 });
 
-const mapStateToProps = (state) => ({
-  statusIds: state.getIn(['compose', 'references']).toList().sort((a, b) => b - a),
+const mapStateToProps = (state, { composerId }) => ({
+  statusIds: selectComposer(state, composerId).get('references').toList().sort((a, b) => b - a),
 });
 
-export default @injectIntl
+export default @withComposerId
+@injectIntl
 @connect(mapStateToProps)
 class ReferenceStack extends ImmutablePureComponent {
 
@@ -36,19 +40,21 @@ class ReferenceStack extends ImmutablePureComponent {
     statusIds: ImmutablePropTypes.list,
     dispatch: PropTypes.func.isRequired,
     intl: PropTypes.object.isRequired,
+    composerId: PropTypes.string,
     multiColumn: PropTypes.bool,
   };
 
   handleClearClick = (e) => {
-    const { dispatch, intl } = this.props;
+    const { dispatch, intl, composerId } = this.props;
+    const reset = () => dispatch(targetComposerAction(resetReference(), composerId));
 
     if (e && e.shiftKey) {
-      dispatch(resetReference());
+      reset();
     } else {
       dispatch(openModal('CONFIRM', {
         message: intl.formatMessage(messages.clearMessage),
         confirm: intl.formatMessage(messages.clearConfirm),
-        onConfirm: () => dispatch(resetReference()),
+        onConfirm: reset,
       }));
     }
   }

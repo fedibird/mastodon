@@ -2,19 +2,29 @@ import { connect } from 'react-redux';
 import UploadButton from '../components/upload_button';
 import { uploadCompose } from '../../../actions/compose';
 import { allowPollImage, maxAttachments } from '../../../initial_state';
+import { selectComposer } from '../../../selectors/composer';
+import { PRIMARY_COMPOSER_ID } from '../../../utils/composer';
+import { withComposerId } from '../composer_id_context';
 
-const mapStateToProps = state => ({
-  disabled: state.getIn(['compose', 'is_uploading']) || (state.getIn(['compose', 'media_attachments']).size + state.getIn(['compose', 'pending_media_attachments']) >= maxAttachments || state.getIn(['compose', 'media_attachments']).some(m => ['video', 'audio'].includes(m.get('type')))),
-  unavailable: !allowPollImage && state.getIn(['compose', 'poll']) !== null,
-  resetFileKey: state.getIn(['compose', 'resetFileKey']),
-});
+const mapStateToProps = (state, { composerId }) => {
+  const composer = selectComposer(state, composerId);
+  const media = composer.get('media_attachments');
 
-const mapDispatchToProps = dispatch => ({
+  return {
+    disabled: composer.get('is_uploading') || (media.size + composer.get('pending_media_attachments') >= maxAttachments || media.some(m => ['video', 'audio'].includes(m.get('type')))),
+    unavailable: !allowPollImage && composer.get('poll') !== null,
+    resetFileKey: composer.get('resetFileKey'),
+  };
+};
+
+const mapDispatchToProps = (dispatch, { composerId }) => ({
 
   onSelectFile (files) {
-    dispatch(uploadCompose(files));
+    if (composerId === PRIMARY_COMPOSER_ID) {
+      dispatch(uploadCompose(files));
+    }
   },
 
 });
 
-export default connect(mapStateToProps, mapDispatchToProps)(UploadButton);
+export default withComposerId(connect(mapStateToProps, mapDispatchToProps)(UploadButton));

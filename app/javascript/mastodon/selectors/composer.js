@@ -12,3 +12,12 @@ export const selectComposer = (
 
   return state.getIn(['composers', 'byId', composerId], null);
 };
+
+export const getComposerStatePath = (
+  composerId = PRIMARY_COMPOSER_ID,
+  ...path
+) => (
+  composerId === PRIMARY_COMPOSER_ID
+    ? ['compose', ...path]
+    : ['composers', 'byId', composerId, ...path]
+);

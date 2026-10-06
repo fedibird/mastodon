@@ -1,19 +1,26 @@
 import { connect } from 'react-redux';
 import ExpiresIndicator from '../components/expires_indicator';
 import { removeDateTime } from '../../../actions/compose';
+import { targetComposerAction } from '../../../actions/composer';
+import { selectComposer } from '../../../selectors/composer';
+import { withComposerId } from '../composer_id_context';
 
-const mapStateToProps = state => ({
-  default_expires: state.getIn(['compose', 'default_expires']),
-  expires: state.getIn(['compose', 'expires']),
-  expires_action: state.getIn(['compose', 'expires_action']),
-});
+const mapStateToProps = (state, { composerId }) => {
+  const composer = selectComposer(state, composerId);
 
-const mapDispatchToProps = dispatch => ({
+  return {
+    default_expires: composer.get('default_expires'),
+    expires: composer.get('expires'),
+    expires_action: composer.get('expires_action'),
+  };
+};
+
+const mapDispatchToProps = (dispatch, { composerId }) => ({
 
   onCancel () {
-    dispatch(removeDateTime());
+    dispatch(targetComposerAction(removeDateTime(), composerId));
   },
 
 });
 
-export default connect(mapStateToProps, mapDispatchToProps)(ExpiresIndicator);
+export default withComposerId(connect(mapStateToProps, mapDispatchToProps)(ExpiresIndicator));

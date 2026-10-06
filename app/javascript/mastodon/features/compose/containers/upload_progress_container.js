@@ -1,10 +1,16 @@
 import { connect } from 'react-redux';
 import UploadProgress from '../components/upload_progress';
+import { selectComposer } from '../../../selectors/composer';
+import { withComposerId } from '../composer_id_context';
 
-const mapStateToProps = state => ({
-  active: state.getIn(['compose', 'is_uploading']),
-  progress: state.getIn(['compose', 'progress']),
-  isProcessing: state.getIn(['compose', 'is_processing']),
-});
+const mapStateToProps = (state, { composerId }) => {
+  const composer = selectComposer(state, composerId);
 
-export default connect(mapStateToProps)(UploadProgress);
+  return {
+    active: composer.get('is_uploading'),
+    progress: composer.get('progress'),
+    isProcessing: composer.get('is_processing'),
+  };
+};
+
+export default withComposerId(connect(mapStateToProps)(UploadProgress));

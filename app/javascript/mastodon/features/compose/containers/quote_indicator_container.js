@@ -1,8 +1,11 @@
 import { connect } from 'react-redux';
 import { cancelQuoteCompose } from '../../../actions/compose';
 import { openModal } from '../../../actions/modal';
+import { targetComposerAction } from '../../../actions/composer';
 import { makeGetStatus } from '../../../selectors';
+import { selectComposer } from '../../../selectors/composer';
 import QuoteIndicator from '../components/quote_indicator';
+import { withComposerId } from '../composer_id_context';
 import { defineMessages, injectIntl } from 'react-intl';
 
 const messages = defineMessages({
@@ -13,32 +16,37 @@ const messages = defineMessages({
 const makeMapStateToProps = () => {
   const getStatus = makeGetStatus();
 
-  const mapStateToProps = state => ({
-    status: getStatus(state, { id: state.getIn(['compose', 'quote_from']) }),
-    isScheduledStatusEditting: !!state.getIn(['compose', 'scheduled_status_id']),
-  });
+  const mapStateToProps = (state, { composerId }) => {
+    const composer = selectComposer(state, composerId);
+
+    return {
+      status: getStatus(state, { id: composer.get('quote_from') }),
+      isScheduledStatusEditting: !!composer.get('scheduled_status_id'),
+    };
+  };
 
   return mapStateToProps;
 };
 
-const mapDispatchToProps = (dispatch, { intl }) => ({
+const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
 
   onCancel () {
     dispatch((_, getState) => {
-      let state = getState();
+      const composer = selectComposer(getState(), composerId);
+      const cancel = () => dispatch(targetComposerAction(cancelQuoteCompose(), composerId));
 
-      if (state.getIn(['compose', 'text']).trim().length !== 0 && state.getIn(['compose', 'dirty'])) {
+      if (composer.get('text').trim().length !== 0 && composer.get('dirty')) {
         dispatch(openModal('CONFIRM', {
           message: intl.formatMessage(messages.cancelQuoteMessage),
           confirm: intl.formatMessage(messages.cancelQuoteConfirm),
-          onConfirm: () => dispatch(cancelQuoteCompose()),
+          onConfirm: cancel,
         }));
       } else {
-        dispatch(cancelQuoteCompose());
+        cancel();
       }
     });
   },
 
 });
 
-export default injectIntl(connect(makeMapStateToProps, mapDispatchToProps)(QuoteIndicator));
+export default withComposerId(injectIntl(connect(makeMapStateToProps, mapDispatchToProps)(QuoteIndicator)));

@@ -3,9 +3,11 @@ import { connect } from 'react-redux';
 import { createSelector } from 'reselect';
 
 import { changeComposeLanguage } from 'mastodon/actions/compose';
+import { targetComposerAction } from 'mastodon/actions/composer';
 import { useLanguage } from 'mastodon/actions/languages';
 import { selectComposer } from 'mastodon/selectors/composer';
 
+import { withComposerId } from '../composer_id_context';
 import LanguageDropdown from '../components/language_dropdown';
 
 const emptyLanguageCounters = ImmutableMap();
@@ -19,8 +21,8 @@ const getFrequentlyUsedLanguages = createSelector([
     .toArray()
 ));
 
-const mapStateToProps = state => {
-  const composer = selectComposer(state);
+const mapStateToProps = (state, { composerId }) => {
+  const composer = selectComposer(state, composerId);
 
   return {
     frequentlyUsedLanguages: getFrequentlyUsedLanguages(state),
@@ -28,10 +30,10 @@ const mapStateToProps = state => {
   };
 };
 
-const mapDispatchToProps = dispatch => ({
+const mapDispatchToProps = (dispatch, { composerId }) => ({
 
   onChange (value) {
-    dispatch(changeComposeLanguage(value));
+    dispatch(targetComposerAction(changeComposeLanguage(value), composerId));
   },
 
   onClose (value) {
@@ -40,4 +42,4 @@ const mapDispatchToProps = dispatch => ({
 
 });
 
-export default connect(mapStateToProps, mapDispatchToProps)(LanguageDropdown);
+export default withComposerId(connect(mapStateToProps, mapDispatchToProps)(LanguageDropdown));
