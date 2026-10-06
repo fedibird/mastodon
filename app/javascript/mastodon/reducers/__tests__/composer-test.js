@@ -1,4 +1,4 @@
-import { fromJS, Map as ImmutableMap, Set as ImmutableSet } from 'immutable';
+import { fromJS, Set as ImmutableSet } from 'immutable';
 
 jest.mock('react-intl', () => ({
   defineMessages: messages => messages,
@@ -12,7 +12,7 @@ jest.mock('../../uuid', () => ({
 import { COMPOSE_CHANGE, COMPOSE_RESET, COMPOSE_SUBMIT_SUCCESS, changeCompose, setComposeToStatus } from '../../actions/compose';
 import { applyComposerPostingContext, targetComposerAction, toggleComposerManagedHashtag } from '../../actions/composer';
 import { STORE_HYDRATE } from '../../actions/store';
-import { buildFedibirdGroupPostingContext } from '../../posting_context/fedibird_group';
+import { groupPostingContext } from '../../posting_context/__tests__/group_context_fixture';
 import { buildHashtagTimelinePostingContext } from '../../posting_context/hashtag';
 import { materializeComposerText } from '../../posting_context/materialize';
 import { PRIMARY_COMPOSER_ID } from '../../utils/composer';
@@ -214,9 +214,8 @@ describe('posting context', () => {
   });
 
   it('applies a local group context without widening privacy or rewriting the draft', () => {
-    const localGroup = ImmutableMap({ id: '123', acct: 'group', username: 'group', group: true });
     const drafted = composer(undefined, changeCompose('Hello')).set('idempotencyKey', 'previous-key').set('privacy', 'private');
-    const applied = composer(drafted, applyComposerPostingContext('composer-a', buildFedibirdGroupPostingContext(localGroup)));
+    const applied = composer(drafted, applyComposerPostingContext('composer-a', groupPostingContext));
 
     expect(applied.get('privacy')).toEqual('private');
     expect(applied.get('text')).toEqual('Hello');
@@ -229,7 +228,7 @@ describe('posting context', () => {
     expect(applied.getIn(['context', 'requirements', 'followingAccounts', 0, 'ruleId'])).toEqual('group-follow');
     expect(applied.getIn(['context', 'constraints', 'allowedVisibilities']).equals(ImmutableSet(['public', 'unlisted']))).toBe(true);
 
-    const again = composer(applied.set('idempotencyKey', 'kept-key'), applyComposerPostingContext('composer-a', buildFedibirdGroupPostingContext(localGroup)));
+    const again = composer(applied.set('idempotencyKey', 'kept-key'), applyComposerPostingContext('composer-a', groupPostingContext));
 
     expect(again.get('idempotencyKey')).toEqual('kept-key');
     expect(again.getIn(['context', 'suppressions', 'hashtags']).isEmpty()).toBe(true);
@@ -237,8 +236,7 @@ describe('posting context', () => {
   });
 
   it('does not materialize a group mention while editing an existing or scheduled status', () => {
-    const localGroup = ImmutableMap({ id: '123', acct: 'group', username: 'group', group: true });
-    const applied = composer(undefined, applyComposerPostingContext('composer-a', buildFedibirdGroupPostingContext(localGroup))).set('text', 'Hello').set('dirty', false).set('idempotencyKey', 'kept-key');
+    const applied = composer(undefined, applyComposerPostingContext('composer-a', groupPostingContext)).set('text', 'Hello').set('dirty', false).set('idempotencyKey', 'kept-key');
     const editing = composer(applied, setComposeToStatus(fromJS({
       id: 'status-1',
       visibility: 'public',
