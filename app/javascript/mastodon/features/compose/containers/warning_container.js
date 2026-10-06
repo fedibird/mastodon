@@ -3,8 +3,11 @@ import { connect } from 'react-redux';
 import Warning from '../components/warning';
 import PropTypes from 'prop-types';
 import { FormattedMessage } from 'react-intl';
-import { me, maxAttachments } from '../../../initial_state';
+import { me } from '../../../initial_state';
 import { cancelScheduledStatusCompose } from '../../../actions/compose';
+import { targetComposerAction } from '../../../actions/composer';
+import { selectComposer } from '../../../selectors/composer';
+import { withComposerId } from '../composer_id_context';
 import Icon from 'mastodon/components/icon';
 import IconButton from 'mastodon/components/icon_button';
 
@@ -33,22 +36,27 @@ const buildHashtagRE = () => {
 
 const APPROX_HASHTAG_RE = buildHashtagRE();
 
-const mapStateToProps = state => ({
-  needsLockWarning: state.getIn(['compose', 'privacy']) === 'private' && !state.getIn(['accounts', me, 'locked']),
-  hashtagWarning: !['public', 'personal'].includes(state.getIn(['compose', 'privacy'])) && APPROX_HASHTAG_RE.test(state.getIn(['compose', 'text'])),
-  directMessageWarning: state.getIn(['compose', 'privacy']) === 'direct',
-  limitedMessageWarning: state.getIn(['compose', 'privacy']) === 'limited',
-  mutualMessageWarning: state.getIn(['compose', 'privacy']) === 'mutual',
-  personalMessageWarning: state.getIn(['compose', 'privacy']) === 'personal',
-  isScheduledStatusEditting: !!state.getIn(['compose', 'scheduled_status_id']),
-  isEditing: !!state.getIn(['compose', 'id']),
-  attachmentsWarning: !['public', 'unlisted', 'personal'].includes(state.getIn(['compose', 'privacy'])) && state.getIn(['compose', 'media_attachments']).size > 4,
-});
+const mapStateToProps = (state, { composerId }) => {
+  const composer = selectComposer(state, composerId);
+  const privacy = composer.get('privacy');
 
-const mapDispatchToProps = dispatch => ({
+  return {
+    needsLockWarning: privacy === 'private' && !state.getIn(['accounts', me, 'locked']),
+    hashtagWarning: !['public', 'personal'].includes(privacy) && APPROX_HASHTAG_RE.test(composer.get('text')),
+    directMessageWarning: privacy === 'direct',
+    limitedMessageWarning: privacy === 'limited',
+    mutualMessageWarning: privacy === 'mutual',
+    personalMessageWarning: privacy === 'personal',
+    isScheduledStatusEditting: !!composer.get('scheduled_status_id'),
+    isEditing: !!composer.get('id'),
+    attachmentsWarning: !['public', 'unlisted', 'personal'].includes(privacy) && composer.get('media_attachments').size > 4,
+  };
+};
+
+const mapDispatchToProps = (dispatch, { composerId }) => ({
 
   onCancel () {
-    dispatch(cancelScheduledStatusCompose());
+    dispatch(targetComposerAction(cancelScheduledStatusCompose(), composerId));
   },
 
 });
@@ -151,4 +159,4 @@ WarningWrapper.propTypes = {
   onCancel: PropTypes.func.isRequired,
 };
 
-export default connect(mapStateToProps, mapDispatchToProps)(WarningWrapper);
+export default withComposerId(connect(mapStateToProps, mapDispatchToProps)(WarningWrapper));

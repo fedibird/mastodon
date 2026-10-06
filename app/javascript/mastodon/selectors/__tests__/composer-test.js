@@ -1,6 +1,6 @@
 import { fromJS } from 'immutable';
 
-import { PRIMARY_COMPOSER_ID, selectComposer } from '../composer';
+import { PRIMARY_COMPOSER_ID, getComposerStatePath, selectComposer } from '../composer';
 
 const compose = fromJS({
   text: 'hello',
@@ -40,5 +40,15 @@ describe('selectComposer', () => {
 
   it('defines the primary composer id', () => {
     expect(PRIMARY_COMPOSER_ID).toBe('primary');
+  });
+});
+
+describe('getComposerStatePath', () => {
+  it('points at the primary compose slice', () => {
+    expect(getComposerStatePath(PRIMARY_COMPOSER_ID, 'scheduled')).toEqual(['compose', 'scheduled']);
+  });
+
+  it('points at a registry composer', () => {
+    expect(getComposerStatePath('composer-a', 'scheduled')).toEqual(['composers', 'byId', 'composer-a', 'scheduled']);
   });
 });

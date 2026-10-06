@@ -2,17 +2,24 @@ import { connect } from 'react-redux';
 import SearchabilityDropdown from '../components/searchability_dropdown';
 import { changeComposeSearchability } from '../../../actions/compose';
 import { openModal, closeModal } from '../../../actions/modal';
+import { targetComposerAction } from '../../../actions/composer';
 import { isUserTouching } from '../../../is_mobile';
+import { selectComposer } from '../../../selectors/composer';
+import { withComposerId } from '../composer_id_context';
 
-const mapStateToProps = state => ({
-  value: state.getIn(['compose', 'searchability']),
-  prohibitedVisibilities: state.getIn(['compose', 'prohibited_visibilities']),
-});
+const mapStateToProps = (state, { composerId }) => {
+  const composer = selectComposer(state, composerId);
 
-const mapDispatchToProps = dispatch => ({
+  return {
+    value: composer.get('searchability'),
+    prohibitedVisibilities: composer.get('prohibited_visibilities'),
+  };
+};
+
+const mapDispatchToProps = (dispatch, { composerId }) => ({
 
   onChange (value) {
-    dispatch(changeComposeSearchability(value));
+    dispatch(targetComposerAction(changeComposeSearchability(value), composerId));
   },
 
   isUserTouching,
@@ -21,4 +28,4 @@ const mapDispatchToProps = dispatch => ({
 
 });
 
-export default connect(mapStateToProps, mapDispatchToProps)(SearchabilityDropdown);
+export default withComposerId(connect(mapStateToProps, mapDispatchToProps)(SearchabilityDropdown));

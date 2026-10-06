@@ -1,11 +1,14 @@
 import { connect } from 'react-redux';
 import DateTimeDropdown from '../components/datetime_dropdown';
 import { changeScheduled } from '../../../actions/compose';
+import { targetComposerAction } from '../../../actions/composer';
+import { getComposerStatePath, selectComposer } from '../../../selectors/composer';
 import { addDays, addSeconds, set } from 'date-fns';
+import { withComposerId } from '../composer_id_context';
 
-const mapStateToProps = state => {
-  const valueKey = ['compose', 'scheduled'];
-  const value = state.getIn(valueKey) ?? '';
+const mapStateToProps = (state, { composerId }) => {
+  const valueKey = getComposerStatePath(composerId, 'scheduled');
+  const value = selectComposer(state, composerId).get('scheduled') ?? '';
 
   return {
     value: value,
@@ -15,12 +18,12 @@ const mapStateToProps = state => {
   };
 };
 
-const mapDispatchToProps = dispatch => ({
+const mapDispatchToProps = (dispatch, { composerId }) => ({
 
   onChange (value) {
-    dispatch(changeScheduled(value));
+    dispatch(targetComposerAction(changeScheduled(value), composerId));
   },
 
 });
 
-export default connect(mapStateToProps, mapDispatchToProps)(DateTimeDropdown);
+export default withComposerId(connect(mapStateToProps, mapDispatchToProps)(DateTimeDropdown));

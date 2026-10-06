@@ -2,11 +2,13 @@ import { connect } from 'react-redux';
 import PrivacyDropdown from '../components/privacy_dropdown';
 import { changeComposeVisibility } from '../../../actions/compose';
 import { openModal, closeModal } from '../../../actions/modal';
+import { targetComposerAction } from '../../../actions/composer';
 import { isUserTouching } from '../../../is_mobile';
 import { selectComposer } from '../../../selectors/composer';
+import { withComposerId } from '../composer_id_context';
 
-const mapStateToProps = state => {
-  const composer = selectComposer(state);
+const mapStateToProps = (state, { composerId }) => {
+  const composer = selectComposer(state, composerId);
 
   return {
     value: composer.get('privacy'),
@@ -14,10 +16,10 @@ const mapStateToProps = state => {
   };
 };
 
-const mapDispatchToProps = dispatch => ({
+const mapDispatchToProps = (dispatch, { composerId }) => ({
 
   onChange (value) {
-    dispatch(changeComposeVisibility(value));
+    dispatch(targetComposerAction(changeComposeVisibility(value), composerId));
   },
 
   isUserTouching,
@@ -26,4 +28,4 @@ const mapDispatchToProps = dispatch => ({
 
 });
 
-export default connect(mapStateToProps, mapDispatchToProps)(PrivacyDropdown);
+export default withComposerId(connect(mapStateToProps, mapDispatchToProps)(PrivacyDropdown));

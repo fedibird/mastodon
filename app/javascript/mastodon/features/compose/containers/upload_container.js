@@ -2,37 +2,45 @@ import { connect } from 'react-redux';
 import Upload from '../components/upload';
 import { undoUploadCompose, initMediaEditModal, changeMediaOrder } from '../../../actions/compose';
 import { submitComposeWithCheck } from '../../../actions/compose';
+import { targetComposerAction } from '../../../actions/composer';
 import { injectIntl } from 'react-intl';
+import { selectComposer } from '../../../selectors/composer';
+import { PRIMARY_COMPOSER_ID } from '../../../utils/composer';
+import { withComposerId } from '../composer_id_context';
 
-const mapStateToProps = (state, { id, index, size }) => ({
-  media: state.getIn(['compose', 'media_attachments']).find(item => item.get('id') === id),
+const mapStateToProps = (state, { composerId, id, index, size }) => ({
+  media: selectComposer(state, composerId).get('media_attachments').find(item => item.get('id') === id),
   showOrder: size > 1,
   canMoveBackward: index > 0,
   canMoveForward: index < size - 1,
 });
 
-const mapDispatchToProps = (dispatch, { intl }) => ({
+const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
 
   onUndo: id => {
-    dispatch(undoUploadCompose(id));
+    dispatch(targetComposerAction(undoUploadCompose(id), composerId));
   },
 
   onOpenFocalPoint: id => {
-    dispatch(initMediaEditModal(id));
+    if (composerId === PRIMARY_COMPOSER_ID) {
+      dispatch(initMediaEditModal(id));
+    }
   },
 
   onMoveBackward: id => {
-    dispatch(changeMediaOrder(id, -1));
+    dispatch(targetComposerAction(changeMediaOrder(id, -1), composerId));
   },
 
   onMoveForward: id => {
-    dispatch(changeMediaOrder(id, 1));
+    dispatch(targetComposerAction(changeMediaOrder(id, 1), composerId));
   },
 
   onSubmit (router) {
-    dispatch(submitComposeWithCheck(router, intl));
+    if (composerId === PRIMARY_COMPOSER_ID) {
+      dispatch(submitComposeWithCheck(router, intl));
+    }
   },
 
 });
 
-export default injectIntl(connect(mapStateToProps, mapDispatchToProps)(Upload));
+export default withComposerId(injectIntl(connect(mapStateToProps, mapDispatchToProps)(Upload)));

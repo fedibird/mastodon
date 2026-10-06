@@ -3,7 +3,10 @@ import { connect } from 'react-redux';
 import PropTypes from 'prop-types';
 import classNames from 'classnames';
 import { changeComposeSensitivity } from 'mastodon/actions/compose';
+import { targetComposerAction } from 'mastodon/actions/composer';
+import { selectComposer } from 'mastodon/selectors/composer';
 import { injectIntl, defineMessages, FormattedMessage } from 'react-intl';
+import { withComposerId } from '../composer_id_context';
 
 const messages = defineMessages({
   marked: {
@@ -16,16 +19,20 @@ const messages = defineMessages({
   },
 });
 
-const mapStateToProps = state => ({
-  active: state.getIn(['compose', 'sensitive']),
-  disabled: state.getIn(['compose', 'spoiler']),
-  mediaCount: state.getIn(['compose', 'media_attachments']).size,
-});
+const mapStateToProps = (state, { composerId }) => {
+  const composer = selectComposer(state, composerId);
 
-const mapDispatchToProps = dispatch => ({
+  return {
+    active: composer.get('sensitive'),
+    disabled: composer.get('spoiler'),
+    mediaCount: composer.get('media_attachments').size,
+  };
+};
+
+const mapDispatchToProps = (dispatch, { composerId }) => ({
 
   onClick () {
-    dispatch(changeComposeSensitivity());
+    dispatch(targetComposerAction(changeComposeSensitivity(), composerId));
   },
 
 });
@@ -68,4 +75,4 @@ class SensitiveButton extends React.PureComponent {
 
 }
 
-export default connect(mapStateToProps, mapDispatchToProps)(injectIntl(SensitiveButton));
+export default withComposerId(connect(mapStateToProps, mapDispatchToProps)(injectIntl(SensitiveButton)));

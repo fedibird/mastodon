@@ -1,8 +1,11 @@
 import { connect } from 'react-redux';
 import { cancelReplyCompose } from '../../../actions/compose';
 import { openModal } from '../../../actions/modal';
+import { targetComposerAction } from '../../../actions/composer';
 import { makeGetStatus } from '../../../selectors';
+import { selectComposer } from '../../../selectors/composer';
 import ReplyIndicator from '../components/reply_indicator';
+import { withComposerId } from '../composer_id_context';
 import { defineMessages, injectIntl } from 'react-intl';
 
 const messages = defineMessages({
@@ -13,33 +16,38 @@ const messages = defineMessages({
 const makeMapStateToProps = () => {
   const getStatus = makeGetStatus();
 
-  const mapStateToProps = state => ({
-    status: getStatus(state, { id: state.getIn(['compose', 'in_reply_to']) }),
-    isScheduledStatusEditting: !!state.getIn(['compose', 'scheduled_status_id']),
-    isEditing: !!state.getIn(['compose', 'id']),
-  });
+  const mapStateToProps = (state, { composerId }) => {
+    const composer = selectComposer(state, composerId);
+
+    return {
+      status: getStatus(state, { id: composer.get('in_reply_to') }),
+      isScheduledStatusEditting: !!composer.get('scheduled_status_id'),
+      isEditing: !!composer.get('id'),
+    };
+  };
 
   return mapStateToProps;
 };
 
-const mapDispatchToProps = (dispatch, { intl }) => ({
+const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
 
   onCancel () {
     dispatch((_, getState) => {
-      let state = getState();
+      const composer = selectComposer(getState(), composerId);
+      const cancel = () => dispatch(targetComposerAction(cancelReplyCompose(), composerId));
 
-      if (state.getIn(['compose', 'text']).trim().length !== 0 && state.getIn(['compose', 'dirty'])) {
+      if (composer.get('text').trim().length !== 0 && composer.get('dirty')) {
         dispatch(openModal('CONFIRM', {
           message: intl.formatMessage(messages.cancelReplyMessage),
           confirm: intl.formatMessage(messages.cancelReplyConfirm),
-          onConfirm: () => dispatch(cancelReplyCompose()),
+          onConfirm: cancel,
         }));
       } else {
-        dispatch(cancelReplyCompose());
+        cancel();
       }
     });
   },
 
 });
 
-export default injectIntl(connect(makeMapStateToProps, mapDispatchToProps)(ReplyIndicator));
+export default withComposerId(injectIntl(connect(makeMapStateToProps, mapDispatchToProps)(ReplyIndicator)));

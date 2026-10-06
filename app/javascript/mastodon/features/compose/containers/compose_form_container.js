@@ -12,7 +12,10 @@ import {
   cancelEditCompose,
 } from '../../../actions/compose';
 import { openModal } from '../../../actions/modal';
+import { targetComposerAction } from '../../../actions/composer';
 import { selectComposer } from '../../../selectors/composer';
+import { PRIMARY_COMPOSER_ID } from '../../../utils/composer';
+import { withComposerId } from '../composer_id_context';
 import { injectIntl, defineMessages } from 'react-intl';
 
 const messages = defineMessages({
@@ -20,8 +23,8 @@ const messages = defineMessages({
   cancelEditMessage: { id: 'confirmations.cancel_edit.message', defaultMessage: 'Canceling will discard the changes you are currently composing. Are you sure you want to proceed?' },
 });
 
-const mapStateToProps = state => {
-  const composer = selectComposer(state);
+const mapStateToProps = (state, { composerId }) => {
+  const composer = selectComposer(state, composerId);
 
   return {
     text: composer.get('text'),
@@ -47,56 +50,67 @@ const mapStateToProps = state => {
   };
 };
 
-const mapDispatchToProps = (dispatch, { intl }) => ({
+const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
 
   onChange (text) {
-    dispatch(changeCompose(text));
+    dispatch(targetComposerAction(changeCompose(text), composerId));
   },
 
   onSubmit (router) {
-    dispatch(submitComposeWithCheck(router, intl));
+    if (composerId === PRIMARY_COMPOSER_ID) {
+      dispatch(submitComposeWithCheck(router, intl));
+    }
   },
 
   onClearSuggestions () {
-    dispatch(clearComposeSuggestions());
+    if (composerId === PRIMARY_COMPOSER_ID) {
+      dispatch(clearComposeSuggestions());
+    }
   },
 
   onFetchSuggestions (token) {
-    dispatch(fetchComposeSuggestions(token));
+    if (composerId === PRIMARY_COMPOSER_ID) {
+      dispatch(fetchComposeSuggestions(token));
+    }
   },
 
   onSuggestionSelected (position, token, suggestion, path) {
-    dispatch(selectComposeSuggestion(position, token, suggestion, path));
+    if (composerId === PRIMARY_COMPOSER_ID) {
+      dispatch(selectComposeSuggestion(position, token, suggestion, path));
+    }
   },
 
   onChangeSpoilerText (checked) {
-    dispatch(changeComposeSpoilerText(checked));
+    dispatch(targetComposerAction(changeComposeSpoilerText(checked), composerId));
   },
 
   onPaste (files) {
-    dispatch(uploadCompose(files));
+    if (composerId === PRIMARY_COMPOSER_ID) {
+      dispatch(uploadCompose(files));
+    }
   },
 
   onPickEmoji (position, data, needsSpace) {
-    dispatch(insertEmojiCompose(position, data, needsSpace));
+    dispatch(targetComposerAction(insertEmojiCompose(position, data, needsSpace), composerId));
   },
 
   onCancelEdit () {
     dispatch((_, getState) => {
-      const composer = selectComposer(getState());
+      const composer = selectComposer(getState(), composerId);
+      const cancel = () => dispatch(targetComposerAction(cancelEditCompose(), composerId));
 
       if (composer.get('dirty')) {
         dispatch(openModal('CONFIRM', {
           message: intl.formatMessage(messages.cancelEditMessage),
           confirm: intl.formatMessage(messages.cancelEditConfirm),
-          onConfirm: () => dispatch(cancelEditCompose()),
+          onConfirm: cancel,
         }));
       } else {
-        dispatch(cancelEditCompose());
+        cancel();
       }
     });
   },
 
 });
 
-export default injectIntl(connect(mapStateToProps, mapDispatchToProps)(ComposeForm));
+export default withComposerId(injectIntl(connect(mapStateToProps, mapDispatchToProps)(ComposeForm)));
