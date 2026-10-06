@@ -525,6 +525,13 @@ RSpec.describe Formatter do
       end
     end
 
+    it 'keeps a break-adjacent newline inside preformatted content' do
+      status = Fabricate(:status, account: remote_account, text: "<pre>A<br />\nB</pre>")
+
+      expect(Formatter.instance.format(status)).to include("<pre>A<br>\nB</pre>")
+      expect(status.reload.text).to eq("<pre>A<br />\nB</pre>")
+    end
+
     it 'does not rewrite a local status' do
       status = Fabricate(:status, account: local_account, text: "Hello\n#one #two", uri: nil)
       expected = %(<p>Hello<br />#{Formatter.instance.send(:hashtag_html, 'one')} #{Formatter.instance.send(:hashtag_html, 'two')}</p>)

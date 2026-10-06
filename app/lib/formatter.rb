@@ -11,10 +11,9 @@ class Formatter
 
   NEWLINE_TAGS_RE = %r{(<br />|<br>|</p>)+}
   CLOSING_PARAGRAPH_RE = %r{</p>\z}
-  # PHP nl2br() inserts <br /> before a newline and keeps that newline.
-  # After sanitize the tag is <br>, so one CRLF, LF+CR, CR, or LF sits
-  # immediately after it. pre-wrap would draw both.
-  BR_ADJACENT_NEWLINE_RE = %r{<br>(?:\r\n|\n\r|\r|\n)}.freeze
+  # One logical newline at the start of a text node. PHP nl2br() leaves
+  # that newline immediately after <br />. A newline inside <pre> is kept.
+  LEADING_BREAK_NEWLINE_RE = /\A(?:\r\n|\n\r|\r|\n)/.freeze
 
   # A decoded URL is only ever shown to a human or offered to a matcher, so any
   # Unicode control character in it is noise at best. It is also how the
@@ -281,7 +280,36 @@ class Formatter
   private
 
   def strip_break_adjacent_newline(html)
-    html.gsub(BR_ADJACENT_NEWLINE_RE, '<br>')
+    return html if html.blank? || !html.include?('<br')
+
+    fragment = Nokogiri::HTML.fragment(html)
+    changed = false
+
+    fragment.css('br').each do |br|
+      next if preformatted_break?(br)
+
+      text = br.next_sibling
+      next unless text&.text?
+
+      updated = text.content.sub(LEADING_BREAK_NEWLINE_RE, '')
+      next if updated == text.content
+
+      changed = true
+
+      if updated.empty?
+        text.remove
+      else
+        text.content = updated
+      end
+    end
+
+    return html unless changed
+
+    fragment.to_html(encoding: 'UTF-8')
+  end
+
+  def preformatted_break?(br)
+    br.ancestors.any? { |ancestor| ancestor.element? && ancestor.name == 'pre' }
   end
 
   def redirected_urls(status)
