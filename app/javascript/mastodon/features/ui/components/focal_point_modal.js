@@ -4,7 +4,10 @@ import PropTypes from 'prop-types';
 import ImmutablePureComponent from 'react-immutable-pure-component';
 import { connect } from 'react-redux';
 import classNames from 'classnames';
-import { changeUploadCompose, uploadThumbnail, onChangeMediaDescription, onChangeMediaFocus } from '../../../actions/compose';
+import { changeComposerUpload, uploadComposerThumbnail, onChangeMediaDescription, onChangeMediaFocus } from '../../../actions/compose';
+import { targetComposerAction } from '../../../actions/composer';
+import { selectComposer } from '../../../selectors/composer';
+import { PRIMARY_COMPOSER_ID } from '../../../utils/composer';
 import { getPointerPosition } from '../../video';
 import { FormattedMessage, defineMessages, injectIntl } from 'react-intl';
 import IconButton from 'mastodon/components/icon_button';
@@ -34,36 +37,45 @@ const messages = defineMessages({
   discardConfirm: { id: 'confirmations.discard_edit_media.confirm', defaultMessage: 'Discard' },
 });
 
-const mapStateToProps = (state, { id }) => ({
-  media: state.getIn(['compose', 'media_attachments']).find(item => item.get('id') === id),
-  account: state.getIn(['accounts', me]),
-  isUploadingThumbnail: state.getIn(['compose', 'isUploadingThumbnail']),
-  description: state.getIn(['compose', 'media_modal', 'description']),
-  focusX: state.getIn(['compose', 'media_modal', 'focusX']),
-  focusY: state.getIn(['compose', 'media_modal', 'focusY']),
-  dirty: state.getIn(['compose', 'media_modal', 'dirty']),
-  is_changing_upload: state.getIn(['compose', 'is_changing_upload']),
-});
+const mapStateToProps = (state, { id, composerId }) => {
+  const composer = selectComposer(state, composerId);
+  const media = composer
+    ? composer.get('media_attachments').find(item => item.get('id') === id)
+    : null;
 
-const mapDispatchToProps = (dispatch, { id }) => ({
+  return {
+    media: media || null,
+    account: state.getIn(['accounts', me]),
+    isUploadingThumbnail: composer ? composer.get('isUploadingThumbnail') : false,
+    description: composer ? composer.getIn(['media_modal', 'description']) : '',
+    focusX: composer ? composer.getIn(['media_modal', 'focusX']) : 0,
+    focusY: composer ? composer.getIn(['media_modal', 'focusY']) : 0,
+    dirty: composer ? composer.getIn(['media_modal', 'dirty']) : false,
+    is_changing_upload: composer ? composer.get('is_changing_upload') : false,
+  };
+};
 
-  onSave: (description, x, y) => {
-    dispatch(changeUploadCompose(id, { description, focus: `${x.toFixed(2)},${y.toFixed(2)}` }));
-  },
+const mapDispatchToProps = (dispatch, { id, composerId: composerIdProp }) => {
+  const composerId = composerIdProp ?? PRIMARY_COMPOSER_ID;
 
-  onChangeDescription: (description) => {
-    dispatch(onChangeMediaDescription(description));
-  },
+  return {
+    onSave: (description, x, y) => {
+      dispatch(changeComposerUpload(composerId, id, { description, focus: `${x.toFixed(2)},${y.toFixed(2)}` }));
+    },
 
-  onChangeFocus: (focusX, focusY) => {
-    dispatch(onChangeMediaFocus(focusX, focusY));
-  },
+    onChangeDescription: (description) => {
+      dispatch(targetComposerAction(onChangeMediaDescription(description), composerId));
+    },
 
-  onSelectThumbnail: files => {
-    dispatch(uploadThumbnail(id, files[0]));
-  },
+    onChangeFocus: (focusX, focusY) => {
+      dispatch(targetComposerAction(onChangeMediaFocus(focusX, focusY), composerId));
+    },
 
-});
+    onSelectThumbnail: files => {
+      dispatch(uploadComposerThumbnail(composerId, id, files[0]));
+    },
+  };
+};
 
 const removeExtraLineBreaks = str => str.replace(/\n\n/g, '******')
   .replace(/\n/g, ' ')
@@ -104,7 +116,8 @@ export default @connect(mapStateToProps, mapDispatchToProps, null, { forwardRef:
 class FocalPointModal extends ImmutablePureComponent {
 
   static propTypes = {
-    media: ImmutablePropTypes.map.isRequired,
+    composerId: PropTypes.string,
+    media: ImmutablePropTypes.map,
     account: ImmutablePropTypes.map.isRequired,
     isUploadingThumbnail: PropTypes.bool,
     onSave: PropTypes.func.isRequired,
@@ -275,6 +288,11 @@ class FocalPointModal extends ImmutablePureComponent {
 
   render () {
     const { media, intl, account, onClose, isUploadingThumbnail, description, focusX, focusY, dirty, is_changing_upload } = this.props;
+
+    if (!media) {
+      return null;
+    }
+
     const { dragging, detecting, progress, ocrStatus } = this.state;
     const x = (focusX /  2) + .5;
     const y = (focusY / -2) + .5;

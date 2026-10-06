@@ -2,13 +2,12 @@ import { connect } from 'react-redux';
 import PollForm from '../components/poll_form';
 import { addPollOption, removePollOption, changePollOption, changePollSettings } from '../../../actions/compose';
 import {
-  clearComposeSuggestions,
-  fetchComposeSuggestions,
-  selectComposeSuggestion,
+  clearComposerSuggestions,
+  fetchComposerSuggestions,
+  selectComposerSuggestion,
 } from '../../../actions/compose';
 import { targetComposerAction } from '../../../actions/composer';
 import { selectComposer } from '../../../selectors/composer';
-import { PRIMARY_COMPOSER_ID } from '../../../utils/composer';
 import { withComposerId } from '../composer_id_context';
 
 const mapStateToProps = (state, { composerId }) => {
@@ -42,21 +41,15 @@ const mapDispatchToProps = (dispatch, { composerId }) => ({
   },
 
   onClearSuggestions () {
-    if (composerId === PRIMARY_COMPOSER_ID) {
-      dispatch(clearComposeSuggestions());
-    }
+    dispatch(clearComposerSuggestions(composerId));
   },
 
   onFetchSuggestions (token) {
-    if (composerId === PRIMARY_COMPOSER_ID) {
-      dispatch(fetchComposeSuggestions(token));
-    }
+    dispatch(fetchComposerSuggestions(composerId, token));
   },
 
   onSuggestionSelected (position, token, accountId, path) {
-    if (composerId === PRIMARY_COMPOSER_ID) {
-      dispatch(selectComposeSuggestion(position, token, accountId, path));
-    }
+    dispatch(selectComposerSuggestion(composerId, position, token, accountId, path));
   },
 
 });

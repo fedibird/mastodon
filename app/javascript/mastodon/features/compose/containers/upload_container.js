@@ -1,11 +1,10 @@
 import { connect } from 'react-redux';
 import Upload from '../components/upload';
-import { undoUploadCompose, initMediaEditModal, changeMediaOrder } from '../../../actions/compose';
-import { submitComposeWithCheck } from '../../../actions/compose';
+import { undoUploadCompose, initComposerMediaEditModal, changeMediaOrder } from '../../../actions/compose';
+import { submitComposerWithCheck } from '../../../actions/compose';
 import { targetComposerAction } from '../../../actions/composer';
 import { injectIntl } from 'react-intl';
 import { selectComposer } from '../../../selectors/composer';
-import { PRIMARY_COMPOSER_ID } from '../../../utils/composer';
 import { withComposerId } from '../composer_id_context';
 
 const mapStateToProps = (state, { composerId, id, index, size }) => ({
@@ -22,9 +21,7 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
   },
 
   onOpenFocalPoint: id => {
-    if (composerId === PRIMARY_COMPOSER_ID) {
-      dispatch(initMediaEditModal(id));
-    }
+    dispatch(initComposerMediaEditModal(composerId, id));
   },
 
   onMoveBackward: id => {
@@ -36,9 +33,7 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
   },
 
   onSubmit (router) {
-    if (composerId === PRIMARY_COMPOSER_ID) {
-      dispatch(submitComposeWithCheck(router, intl));
-    }
+    dispatch(submitComposerWithCheck(composerId, router, intl));
   },
 
 });

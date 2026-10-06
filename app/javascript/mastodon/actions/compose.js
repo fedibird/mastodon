@@ -14,8 +14,16 @@ import { addYears, addMonths, addDays, addHours, addMinutes, addSeconds, millise
 import { Set as ImmutableSet } from 'immutable';
 import { postReferenceModal, missingAltTextModal, enableFederatedTimeline, allowPollImage, maxAttachments, disablePost } from '../initial_state';
 import { deleteScheduledStatus } from './scheduled_statuses';
+import { selectComposer } from '../selectors/composer';
+import { PRIMARY_COMPOSER_ID } from '../utils/composer';
+import { targetComposerAction } from './composer';
 
-let cancelFetchComposeSuggestionsAccounts, cancelFetchComposeSuggestionsTags;
+const dispatchToComposer = (dispatch, composerId, action) => dispatch(targetComposerAction(action, composerId));
+
+const accountSuggestionCancels = new Map();
+const tagSuggestionCancels = new Map();
+const accountSuggestionFetchers = new Map();
+const tagSuggestionFetchers = new Map();
 
 export const COMPOSE_CHANGE          = 'COMPOSE_CHANGE';
 export const COMPOSE_SUBMIT_REQUEST  = 'COMPOSE_SUBMIT_REQUEST';
@@ -116,8 +124,14 @@ const messages = defineMessages({
 
 const COMPOSE_PANEL_BREAKPOINT = 600 + (285 * 1) + (10 * 1);
 
-export const ensureComposeIsVisible = (getState, routerHistory) => {
-  if (!getState().getIn(['compose', 'mounted']) && window.innerWidth < COMPOSE_PANEL_BREAKPOINT) {
+export const ensureComposeIsVisible = (getState, routerHistory, composerId = PRIMARY_COMPOSER_ID) => {
+  const composer = selectComposer(getState(), composerId);
+
+  if (!composer) {
+    return;
+  }
+
+  if (!composer.get('mounted') && window.innerWidth < COMPOSE_PANEL_BREAKPOINT) {
     routerHistory.push('/statuses/new');
   }
 };
@@ -154,16 +168,24 @@ export function changeCompose(text) {
   };
 };
 
-export function replyCompose(status, routerHistory) {
+export function replyInComposer(composerId, status, routerHistory) {
   return (dispatch, getState) => {
-    dispatch({
+    if (!selectComposer(getState(), composerId)) {
+      return;
+    }
+
+    dispatchToComposer(dispatch, composerId, {
       type: COMPOSE_REPLY,
       status: status,
       context_references: getContextReference(getState, status),
     });
 
-    ensureComposeIsVisible(getState, routerHistory);
+    ensureComposeIsVisible(getState, routerHistory, composerId);
   };
+};
+
+export function replyCompose(status, routerHistory) {
+  return replyInComposer(PRIMARY_COMPOSER_ID, status, routerHistory);
 };
 
 export function cancelReplyCompose() {
@@ -172,15 +194,23 @@ export function cancelReplyCompose() {
   };
 };
 
-export function quoteCompose(status, routerHistory) {
+export function quoteInComposer(composerId, status, routerHistory) {
   return (dispatch, getState) => {
-    dispatch({
+    if (!selectComposer(getState(), composerId)) {
+      return;
+    }
+
+    dispatchToComposer(dispatch, composerId, {
       type: COMPOSE_QUOTE,
       status: status,
     });
 
-    ensureComposeIsVisible(getState, routerHistory);
+    ensureComposeIsVisible(getState, routerHistory, composerId);
   };
+};
+
+export function quoteCompose(status, routerHistory) {
+  return quoteInComposer(PRIMARY_COMPOSER_ID, status, routerHistory);
 };
 
 export function cancelQuoteCompose() {
@@ -195,26 +225,42 @@ export function resetCompose() {
   };
 };
 
-export function mentionCompose(account, routerHistory) {
+export function mentionInComposer(composerId, account, routerHistory) {
   return (dispatch, getState) => {
-    dispatch({
+    if (!selectComposer(getState(), composerId)) {
+      return;
+    }
+
+    dispatchToComposer(dispatch, composerId, {
       type: COMPOSE_MENTION,
       account: account,
     });
 
-    ensureComposeIsVisible(getState, routerHistory);
+    ensureComposeIsVisible(getState, routerHistory, composerId);
   };
 };
 
-export function directCompose(account, routerHistory) {
+export function mentionCompose(account, routerHistory) {
+  return mentionInComposer(PRIMARY_COMPOSER_ID, account, routerHistory);
+};
+
+export function directInComposer(composerId, account, routerHistory) {
   return (dispatch, getState) => {
-    dispatch({
+    if (!selectComposer(getState(), composerId)) {
+      return;
+    }
+
+    dispatchToComposer(dispatch, composerId, {
       type: COMPOSE_DIRECT,
       account: account,
     });
 
-    ensureComposeIsVisible(getState, routerHistory);
+    ensureComposeIsVisible(getState, routerHistory, composerId);
   };
+};
+
+export function directCompose(account, routerHistory) {
+  return directInComposer(PRIMARY_COMPOSER_ID, account, routerHistory);
 };
 
 export function cancelScheduledStatusCompose() {
@@ -264,14 +310,20 @@ export const getDateTimeFromText = (value, origin = new Date()) => {
   };
 };
 
-export function submitComposeWithCheck(routerHistory, intl) {
+export function submitComposerWithCheck(composerId, routerHistory, intl) {
   return function (dispatch, getState) {
-    const status = getState().getIn(['compose', 'text'], '');
-    const media  = getState().getIn(['compose', 'media_attachments']);
-    const missingAltTextMediaId = media.find(media => ['image', 'gifv'].includes(media.get('type')) && (media.get('description') ?? '').length === 0)?.get('id');
-    const statusReferenceIds = getState().getIn(['compose', 'references']);
-    const ignoreStatusReferenceCheck = getState().getIn(['compose', 'ignore_reference_check']);
-    const editing = getState().getIn(['compose', 'id'], null) !== null;
+    const composer = selectComposer(getState(), composerId);
+
+    if (!composer) {
+      return;
+    }
+
+    const status = composer.get('text', '');
+    const media  = composer.get('media_attachments');
+    const missingAltTextMediaId = media.find(item => ['image', 'gifv'].includes(item.get('type')) && (item.get('description') ?? '').length === 0)?.get('id');
+    const statusReferenceIds = composer.get('references');
+    const ignoreStatusReferenceCheck = composer.get('ignore_reference_check');
+    const editing = composer.get('id', null) !== null;
 
     if ((!status || !status.length) && media.size === 0) {
       return;
@@ -281,7 +333,7 @@ export function submitComposeWithCheck(routerHistory, intl) {
       dispatch(openModal('CONFIRM', {
         message: intl.formatMessage(messages.postReferenceMessage),
         confirm: intl.formatMessage(messages.postReferenceConfirm),
-        onConfirm: () => dispatch(submitComposeIgnoreReferenceCheck(routerHistory)),
+        onConfirm: () => dispatch(submitComposerIgnoreReferenceCheck(composerId, routerHistory, intl)),
       }));
     } else if (missingAltTextModal && missingAltTextMediaId) {
       dispatch(openModal('CONFIRM', {
@@ -289,48 +341,77 @@ export function submitComposeWithCheck(routerHistory, intl) {
         message: intl.formatMessage(messages.missingAltTextMessage),
         confirm: intl.formatMessage(messages.missingAltTextConfirm),
         secondary: intl.formatMessage(messages.missingAltTextSecondary),
-        onConfirm: () => dispatch(initMediaEditModal(missingAltTextMediaId)),
-        onSecondary: () => dispatch(submitCompose(routerHistory)),
+        onConfirm: () => dispatch(initComposerMediaEditModal(composerId, missingAltTextMediaId)),
+        onSecondary: () => dispatch(submitComposer(composerId, routerHistory)),
       }));
     } else {
-      dispatch(submitCompose(routerHistory));
+      dispatch(submitComposer(composerId, routerHistory));
     }
+  };
+};
+
+export function submitComposeWithCheck(routerHistory, intl) {
+  return submitComposerWithCheck(PRIMARY_COMPOSER_ID, routerHistory, intl);
+};
+
+export function submitComposerIgnoreReferenceCheck(composerId, routerHistory, intl) {
+  return function (dispatch) {
+    dispatchToComposer(dispatch, composerId, {
+      type: COMPOSE_REFERENCE_CHECK_IGNORE,
+    });
+
+    dispatch(submitComposerWithCheck(composerId, routerHistory, intl));
   };
 };
 
 export function submitComposeIgnoreReferenceCheck(routerHistory, intl) {
-  return function (dispatch) {
-    dispatch({
-      type: COMPOSE_REFERENCE_CHECK_IGNORE,
-    });
-
-    dispatch(submitComposeWithCheck(routerHistory, intl));
-  };
+  return submitComposerIgnoreReferenceCheck(PRIMARY_COMPOSER_ID, routerHistory, intl);
 };
 
-export function submitCompose(routerHistory) {
+export function submitComposer(composerId, routerHistory) {
   return function (dispatch, getState) {
-    const status = getState().getIn(['compose', 'text'], '');
-    const media  = getState().getIn(['compose', 'media_attachments']);
-    const homeVisibilities = getHomeVisibilities(getState());
-    const limitedVisibilities = getLimitedVisibilities(getState());
-    const { in: scheduled_in = null, at: scheduled_at = null } = getDateTimeFromText(getState().getIn(['compose', 'scheduled']), new Date());
-    const { in: expires_in = null, at: expires_at = null } = getDateTimeFromText(getState().getIn(['compose', 'expires']), scheduled_at ?? new Date());
-    const expires_action = getState().getIn(['compose', 'expires_action']);
-    const statusReferenceIds = getState().getIn(['compose', 'references']);
-    const scheduled_status_id = getState().getIn(['compose', 'scheduled_status_id']);
-    const statusId = getState().getIn(['compose', 'id'], null);
+    const state = getState();
+    const composer = selectComposer(state, composerId);
+
+    if (!composer) {
+      return Promise.resolve();
+    }
+
+    const status = composer.get('text', '');
+    const media = composer.get('media_attachments');
+    const scheduled = composer.get('scheduled');
+    const expires = composer.get('expires');
+    const expires_action = composer.get('expires_action');
+    const statusReferenceIds = composer.get('references');
+    const scheduled_status_id = composer.get('scheduled_status_id');
+    const statusId = composer.get('id', null);
+    const poll = composer.get('poll', null);
+    const language = composer.get('language', null);
+    const spoiler = composer.get('spoiler');
+    const spoilerText = composer.get('spoiler_text', '');
+    const sensitive = composer.get('sensitive');
+    const inReplyTo = composer.get('in_reply_to', null);
+    const privacy = composer.get('privacy');
+    const circleId = composer.get('circle_id');
+    const quoteFrom = composer.get('quote_from', null);
+    const searchability = composer.get('searchability');
+    const idempotencyKey = composer.get('idempotencyKey');
+    const tagHistorySnapshot = composer.get('tagHistory');
+    const homeVisibilities = getHomeVisibilities(state);
+    const limitedVisibilities = getLimitedVisibilities(state);
+    const { in: scheduled_in = null, at: scheduled_at = null } = getDateTimeFromText(scheduled, new Date());
+    const { in: expires_in = null, at: expires_at = null } = getDateTimeFromText(expires, scheduled_at ?? new Date());
     const editing = statusId !== null;
 
     if ((!status || !status.length) && media.size === 0) {
-      return;
+      return Promise.resolve();
     }
 
     if (editing && disablePost) {
-      return;
+      return Promise.resolve();
     }
 
-    dispatch(submitComposeRequest());
+    dispatchToComposer(dispatch, composerId, submitComposeRequest());
 
     const mediaAttributes = editing ? media.map(item => {
       const focusX = item.getIn(['meta', 'focus', 'x']);
@@ -347,12 +428,11 @@ export function submitCompose(routerHistory) {
       return attributes;
     }).toArray() : undefined;
 
-    const poll = getState().getIn(['compose', 'poll'], null);
-    const language = getState().getIn(['compose', 'language'], null);
+    const spoiler_text = spoiler ? spoilerText : '';
     const editData = {
       status,
-      spoiler_text: getState().getIn(['compose', 'spoiler']) ? getState().getIn(['compose', 'spoiler_text'], '') : '',
-      sensitive: getState().getIn(['compose', 'sensitive']),
+      spoiler_text,
+      sensitive,
       media_ids: media.map(item => item.get('id')).toArray(),
       media_attributes: mediaAttributes,
       poll: poll ? poll.toJS() : null,
@@ -362,34 +442,34 @@ export function submitCompose(routerHistory) {
       editData.language = language;
     }
 
-    api(getState).request({
+    return api(getState).request({
       url: editing ? `/api/v1/statuses/${statusId}` : '/api/v1/statuses',
       method: editing ? 'put' : 'post',
       data: editing ? editData : {
         status,
-        in_reply_to_id: getState().getIn(['compose', 'in_reply_to'], null),
+        in_reply_to_id: inReplyTo,
         media_ids: media.map(item => item.get('id')),
-        sensitive: getState().getIn(['compose', 'sensitive']),
-        spoiler_text: getState().getIn(['compose', 'spoiler']) ? getState().getIn(['compose', 'spoiler_text'], '') : '',
-        visibility: getState().getIn(['compose', 'privacy']),
-        circle_id: getState().getIn(['compose', 'circle_id']),
+        sensitive,
+        spoiler_text,
+        visibility: privacy,
+        circle_id: circleId,
         poll: poll,
-        quote_id: getState().getIn(['compose', 'quote_from'], null),
+        quote_id: quoteFrom,
         scheduled_at: !scheduled_in && scheduled_at ? formatISO(set(scheduled_at, { seconds: 0 })) : null,
         scheduled_in: scheduled_in,
         expires_at: !expires_in && expires_at ? formatISO(set(expires_at, { seconds: 59 })) : null,
         expires_in: expires_in,
         expires_action: expires_action,
         status_reference_ids: statusReferenceIds,
-        searchability: getState().getIn(['compose', 'searchability']),
+        searchability,
         language,
       },
       headers: {
-        'Idempotency-Key': getState().getIn(['compose', 'idempotencyKey']),
+        'Idempotency-Key': idempotencyKey,
       },
     }).then(function (response) {
       if (!editing && response.data.scheduled_at !== null && response.data.scheduled_at !== undefined) {
-        dispatch(submitScheduledStatusSuccess({ ...response.data }));
+        dispatchToComposer(dispatch, composerId, submitScheduledStatusSuccess({ ...response.data }));
         if (scheduled_status_id) {
           dispatch(deleteScheduledStatus(scheduled_status_id));
         }
@@ -403,8 +483,8 @@ export function submitCompose(routerHistory) {
         dispatch(deleteScheduledStatus(scheduled_status_id));
       }
 
-      dispatch(insertIntoTagHistory(response.data.tags, status));
-      dispatch(submitComposeSuccess({ ...response.data }));
+      dispatch(insertIntoTagHistory(response.data.tags, status, composerId, tagHistorySnapshot));
+      dispatchToComposer(dispatch, composerId, submitComposeSuccess({ ...response.data }));
 
       if (editing) {
         dispatch(importFetchedStatus({ ...response.data }));
@@ -441,9 +521,13 @@ export function submitCompose(routerHistory) {
         insertIfOnline(`account:${response.data.account.id}`);
       }
     }).catch(function (error) {
-      dispatch(submitComposeFail(error));
+      dispatchToComposer(dispatch, composerId, submitComposeFail(error));
     });
   };
+};
+
+export function submitCompose(routerHistory) {
+  return submitComposer(PRIMARY_COMPOSER_ID, routerHistory);
 };
 
 export function submitComposeRequest() {
@@ -473,11 +557,18 @@ export function submitScheduledStatusSuccess(status) {
   };
 };
 
-export function uploadCompose(files) {
+export function uploadToComposer(composerId, files) {
   return function (dispatch, getState) {
+    const composer = selectComposer(getState(), composerId);
+
+    if (!composer) {
+      return;
+    }
+
     const uploadLimit = maxAttachments;
-    const media  = getState().getIn(['compose', 'media_attachments']);
-    const pending  = getState().getIn(['compose', 'pending_media_attachments']);
+    const media = composer.get('media_attachments');
+    const pending = composer.get('pending_media_attachments');
+    const poll = composer.get('poll');
     const progress = new Array(files.length).fill(0);
     const orderBase = Date.now();
     let total = Array.from(files).reduce((a, v) => a + v.size, 0);
@@ -487,12 +578,12 @@ export function uploadCompose(files) {
       return;
     }
 
-    if (!allowPollImage && getState().getIn(['compose', 'poll'])) {
+    if (!allowPollImage && poll) {
       dispatch(showAlert(undefined, messages.uploadErrorPoll));
       return;
     }
 
-    dispatch(uploadComposeRequest());
+    dispatchToComposer(dispatch, composerId, uploadComposeRequest());
 
     for (const [i, file] of Array.from(files).entries()) {
       if (media.size + i >= maxAttachments) break;
@@ -503,44 +594,56 @@ export function uploadCompose(files) {
       api(getState).post('/api/v2/media', data, {
         onUploadProgress: function({ loaded }){
           progress[i] = loaded;
-          dispatch(uploadComposeProgress(progress.reduce((a, v) => a + v, 0), total));
+          dispatchToComposer(
+            dispatch,
+            composerId,
+            uploadComposeProgress(progress.reduce((a, v) => a + v, 0), total),
+          );
         },
       }).then(({ status, data }) => {
         // If server-side processing of the media attachment has not completed yet,
         // poll the server until it is, before showing the media attachment as uploaded
 
         if (status === 200) {
-          dispatch(uploadComposeSuccess({ ...data, order: orderBase + i }, file));
+          dispatchToComposer(dispatch, composerId, uploadComposeSuccess({ ...data, order: orderBase + i }, file));
         } else if (status === 202) {
-          dispatch(uploadComposeProcessing());
+          dispatchToComposer(dispatch, composerId, uploadComposeProcessing());
 
           let tryCount = 1;
 
-          const poll = () => {
+          const pollStatus = () => {
             api(getState).get(`/api/v1/media/${data.id}`).then(response => {
               if (response.status === 200) {
-                dispatch(uploadComposeSuccess({ ...response.data, order: orderBase + i }, file));
+                dispatchToComposer(dispatch, composerId, uploadComposeSuccess({ ...response.data, order: orderBase + i }, file));
               } else if (response.status === 206) {
                 const retryAfter = (Math.log2(tryCount) || 1) * 1000;
                 tryCount += 1;
-                setTimeout(() => poll(), retryAfter);
+                setTimeout(() => pollStatus(), retryAfter);
               }
-            }).catch(error => dispatch(uploadComposeFail(error)));
+            }).catch(error => dispatchToComposer(dispatch, composerId, uploadComposeFail(error)));
           };
 
-          poll();
+          pollStatus();
         }
-      }).catch(error => dispatch(uploadComposeFail(error)));
+      }).catch(error => dispatchToComposer(dispatch, composerId, uploadComposeFail(error)));
     };
   };
+};
+
+export function uploadCompose(files) {
+  return uploadToComposer(PRIMARY_COMPOSER_ID, files);
 };
 
 export const uploadComposeProcessing = () => ({
   type: COMPOSE_UPLOAD_PROCESSING,
 });
 
-export const uploadThumbnail = (id, file) => (dispatch, getState) => {
-  dispatch(uploadThumbnailRequest());
+export const uploadComposerThumbnail = (composerId, id, file) => (dispatch, getState) => {
+  if (!selectComposer(getState(), composerId)) {
+    return;
+  }
+
+  dispatchToComposer(dispatch, composerId, uploadThumbnailRequest());
 
   const total = file.size;
   const data = new FormData();
@@ -549,14 +652,16 @@ export const uploadThumbnail = (id, file) => (dispatch, getState) => {
 
   api(getState).put(`/api/v1/media/${id}`, data, {
     onUploadProgress: ({ loaded }) => {
-      dispatch(uploadThumbnailProgress(loaded, total));
+      dispatchToComposer(dispatch, composerId, uploadThumbnailProgress(loaded, total));
     },
   }).then(({ data }) => {
-    dispatch(uploadThumbnailSuccess(data));
+    dispatchToComposer(dispatch, composerId, uploadThumbnailSuccess(data));
   }).catch(error => {
-    dispatch(uploadThumbnailFail(id, error));
+    dispatchToComposer(dispatch, composerId, uploadThumbnailFail(id, error));
   });
 };
+
+export const uploadThumbnail = (id, file) => uploadComposerThumbnail(PRIMARY_COMPOSER_ID, id, file);
 
 export const uploadThumbnailRequest = () => ({
   type: THUMBNAIL_UPLOAD_REQUEST,
@@ -582,15 +687,31 @@ export const uploadThumbnailFail = error => ({
   skipLoading: true,
 });
 
-export function initMediaEditModal(id) {
-  return dispatch => {
-    dispatch({
+export function initComposerMediaEditModal(composerId, id) {
+  return (dispatch, getState) => {
+    const composer = selectComposer(getState(), composerId);
+
+    if (!composer) {
+      return;
+    }
+
+    const media = composer.get('media_attachments').find(item => item.get('id') === id);
+
+    if (!media) {
+      return;
+    }
+
+    dispatch(targetComposerAction({
       type: INIT_MEDIA_EDIT_MODAL,
       id,
-    });
+    }, composerId));
 
-    dispatch(openModal('FOCAL_POINT', { id }));
+    dispatch(openModal('FOCAL_POINT', { id, composerId }));
   };
+};
+
+export function initMediaEditModal(id) {
+  return initComposerMediaEditModal(PRIMARY_COMPOSER_ID, id);
 };
 
 export function onChangeMediaDescription(description) {
@@ -608,11 +729,17 @@ export function onChangeMediaFocus(focusX, focusY) {
   };
 };
 
-export function changeUploadCompose(id, params) {
+export function changeComposerUpload(composerId, id, params) {
   return (dispatch, getState) => {
-    dispatch(changeUploadComposeRequest());
+    const composer = selectComposer(getState(), composerId);
 
-    const media = getState().getIn(['compose', 'media_attachments']).find(item => item.get('id') === id);
+    if (!composer) {
+      return;
+    }
+
+    dispatchToComposer(dispatch, composerId, changeUploadComposeRequest());
+
+    const media = composer.get('media_attachments').find(item => item.get('id') === id);
 
     // Attached media cannot be updated through the unattached media endpoint.
     // Keep the description and focus in compose and send them with the status PUT.
@@ -628,16 +755,20 @@ export function changeUploadCompose(id, params) {
       }
 
       data.unattached = false;
-      dispatch(changeUploadComposeSuccess(data, true));
+      dispatchToComposer(dispatch, composerId, changeUploadComposeSuccess(data, true));
       return;
     }
 
     api(getState).put(`/api/v1/media/${id}`, params).then(response => {
-      dispatch(changeUploadComposeSuccess(response.data));
+      dispatchToComposer(dispatch, composerId, changeUploadComposeSuccess(response.data));
     }).catch(error => {
-      dispatch(changeUploadComposeFail(id, error));
+      dispatchToComposer(dispatch, composerId, changeUploadComposeFail(id, error));
     });
   };
+};
+
+export function changeUploadCompose(id, params) {
+  return changeComposerUpload(PRIMARY_COMPOSER_ID, id, params);
 };
 
 export function changeUploadComposeRequest() {
@@ -703,89 +834,122 @@ export function undoUploadCompose(media_id) {
   };
 };
 
-export function clearComposeSuggestions() {
-  if (cancelFetchComposeSuggestionsAccounts) {
-    cancelFetchComposeSuggestionsAccounts();
-  }
-  return {
-    type: COMPOSE_SUGGESTIONS_CLEAR,
+export function clearComposerSuggestions(composerId) {
+  return (dispatch) => {
+    const cancel = accountSuggestionCancels.get(composerId);
+
+    if (cancel) {
+      cancel();
+    }
+
+    dispatchToComposer(dispatch, composerId, {
+      type: COMPOSE_SUGGESTIONS_CLEAR,
+    });
   };
 };
 
-const fetchComposeSuggestionsAccounts = throttle((dispatch, getState, token) => {
-  if (cancelFetchComposeSuggestionsAccounts) {
-    cancelFetchComposeSuggestionsAccounts();
-  }
-
-  api(getState).get('/api/v1/accounts/search', {
-    cancelToken: new CancelToken(cancel => {
-      cancelFetchComposeSuggestionsAccounts = cancel;
-    }),
-
-    params: {
-      q: token.replace(/^@@?/, ''),
-      resolve: false,
-      limit: 4,
-      following: token.startsWith('@@'),
-      group_only: token.startsWith('@@'),
-    },
-  }).then(response => {
-    dispatch(importFetchedAccounts(response.data));
-    dispatch(readyComposeSuggestionsAccounts(token, response.data));
-  }).catch(error => {
-    if (!isCancel(error)) {
-      dispatch(showAlertForError(error));
-    }
-  });
-}, 200, { leading: true, trailing: true });
-
-const fetchComposeSuggestionsEmojis = (dispatch, getState, token) => {
-  const results = emojiSearch(token.replace(':', ''), { maxResults: 5 });
-  dispatch(readyComposeSuggestionsEmojis(token, results));
+export function clearComposeSuggestions() {
+  return clearComposerSuggestions(PRIMARY_COMPOSER_ID);
 };
 
-const fetchComposeSuggestionsTags = throttle((dispatch, getState, token) => {
-  if (cancelFetchComposeSuggestionsTags) {
-    cancelFetchComposeSuggestionsTags();
+const getAccountSuggestionFetcher = composerId => {
+  if (!accountSuggestionFetchers.has(composerId)) {
+    accountSuggestionFetchers.set(composerId, throttle((dispatch, getState, token) => {
+      const cancel = accountSuggestionCancels.get(composerId);
+
+      if (cancel) {
+        cancel();
+      }
+
+      api(getState).get('/api/v1/accounts/search', {
+        cancelToken: new CancelToken(nextCancel => {
+          accountSuggestionCancels.set(composerId, nextCancel);
+        }),
+
+        params: {
+          q: token.replace(/^@@?/, ''),
+          resolve: false,
+          limit: 4,
+          following: token.startsWith('@@'),
+          group_only: token.startsWith('@@'),
+        },
+      }).then(response => {
+        dispatch(importFetchedAccounts(response.data));
+        dispatchToComposer(dispatch, composerId, readyComposeSuggestionsAccounts(token, response.data));
+      }).catch(error => {
+        if (!isCancel(error)) {
+          dispatch(showAlertForError(error));
+        }
+      });
+    }, 200, { leading: true, trailing: true }));
   }
 
-  dispatch(updateSuggestionTags(token));
+  return accountSuggestionFetchers.get(composerId);
+};
 
-  api(getState).get('/api/v2/search', {
-    cancelToken: new CancelToken(cancel => {
-      cancelFetchComposeSuggestionsTags = cancel;
-    }),
+const fetchComposeSuggestionsEmojis = (dispatch, token, composerId) => {
+  const results = emojiSearch(token.replace(':', ''), { maxResults: 5 });
+  dispatchToComposer(dispatch, composerId, readyComposeSuggestionsEmojis(token, results));
+};
 
-    params: {
-      type: 'hashtags',
-      q: token.slice(1),
-      resolve: false,
-      limit: 4,
-      exclude_unreviewed: true,
-    },
-  }).then(({ data }) => {
-    dispatch(readyComposeSuggestionsTags(token, data.hashtags));
-  }).catch(error => {
-    if (!isCancel(error)) {
-      dispatch(showAlertForError(error));
-    }
-  });
-}, 200, { leading: true, trailing: true });
+const getTagSuggestionFetcher = composerId => {
+  if (!tagSuggestionFetchers.has(composerId)) {
+    tagSuggestionFetchers.set(composerId, throttle((dispatch, getState, token) => {
+      const cancel = tagSuggestionCancels.get(composerId);
 
-export function fetchComposeSuggestions(token) {
+      if (cancel) {
+        cancel();
+      }
+
+      dispatchToComposer(dispatch, composerId, updateSuggestionTags(token));
+
+      api(getState).get('/api/v2/search', {
+        cancelToken: new CancelToken(nextCancel => {
+          tagSuggestionCancels.set(composerId, nextCancel);
+        }),
+
+        params: {
+          type: 'hashtags',
+          q: token.slice(1),
+          resolve: false,
+          limit: 4,
+          exclude_unreviewed: true,
+        },
+      }).then(({ data }) => {
+        dispatchToComposer(dispatch, composerId, readyComposeSuggestionsTags(token, data.hashtags));
+      }).catch(error => {
+        if (!isCancel(error)) {
+          dispatch(showAlertForError(error));
+        }
+      });
+    }, 200, { leading: true, trailing: true }));
+  }
+
+  return tagSuggestionFetchers.get(composerId);
+};
+
+export function fetchComposerSuggestions(composerId, token) {
   return (dispatch, getState) => {
+    if (!selectComposer(getState(), composerId)) {
+      return;
+    }
+
     switch (token[0]) {
     case ':':
-      fetchComposeSuggestionsEmojis(dispatch, getState, token);
+      fetchComposeSuggestionsEmojis(dispatch, token, composerId);
       break;
     case '#':
-      fetchComposeSuggestionsTags(dispatch, getState, token);
+      getTagSuggestionFetcher(composerId)(dispatch, getState, token);
       break;
     default:
-      fetchComposeSuggestionsAccounts(dispatch, getState, token);
+      getAccountSuggestionFetcher(composerId)(dispatch, getState, token);
       break;
     }
   };
+};
+
+export function fetchComposeSuggestions(token) {
+  return fetchComposerSuggestions(PRIMARY_COMPOSER_ID, token);
 };
 
 export function readyComposeSuggestionsEmojis(token, emojis) {
@@ -810,8 +974,12 @@ export const readyComposeSuggestionsTags = (token, tags) => ({
   tags,
 });
 
-export function selectComposeSuggestion(position, token, suggestion, path) {
+export function selectComposerSuggestion(composerId, position, token, suggestion, path) {
   return (dispatch, getState) => {
+    if (!selectComposer(getState(), composerId)) {
+      return;
+    }
+
     let completion, startPosition;
 
     if (suggestion.type === 'emoji') {
@@ -827,7 +995,7 @@ export function selectComposeSuggestion(position, token, suggestion, path) {
       startPosition = position;
     }
 
-    dispatch({
+    dispatchToComposer(dispatch, composerId, {
       type: COMPOSE_SUGGESTION_SELECT,
       position: startPosition,
       token,
@@ -835,6 +1003,10 @@ export function selectComposeSuggestion(position, token, suggestion, path) {
       path,
     });
   };
+};
+
+export function selectComposeSuggestion(position, token, suggestion, path) {
+  return selectComposerSuggestion(PRIMARY_COMPOSER_ID, position, token, suggestion, path);
 };
 
 export function updateSuggestionTags(token) {
@@ -862,11 +1034,9 @@ export function hydrateCompose() {
   };
 }
 
-function insertIntoTagHistory(recognizedTags, text) {
+function insertIntoTagHistory(recognizedTags, text, composerId, oldHistory) {
   return (dispatch, getState) => {
-    const state = getState();
-    const oldHistory = state.getIn(['compose', 'tagHistory']);
-    const me = state.getIn(['meta', 'me']);
+    const me = getState().getIn(['meta', 'me']);
     const names = recognizedTags.map(tag => text.match(new RegExp(`#${tag.name}`, 'i'))[0].slice(1));
     const intersectedOldHistory = oldHistory.filter(name => names.findIndex(newName => newName.toLowerCase() === name.toLowerCase()) === -1);
 
@@ -875,7 +1045,7 @@ function insertIntoTagHistory(recognizedTags, text) {
     const newHistory = names.slice(0, 1000);
 
     tagHistory.set(me, newHistory);
-    dispatch(updateTagHistory(newHistory));
+    dispatchToComposer(dispatch, composerId, updateTagHistory(newHistory));
   };
 }
 
@@ -1041,26 +1211,33 @@ export function changeMediaOrder(id, direction) {
   };
 }
 
-export function addReference(id, change) {
+export function addReferenceToComposer(composerId, id, change) {
   return (dispatch, getState) => {
-    if (getState().getIn(['compose', 'id'])) {
+    const state = getState();
+    const composer = selectComposer(state, composerId);
+
+    if (!composer || composer.get('id')) {
       return;
     }
 
     if (change) {
-      const status = getState().getIn(['statuses', id]);
-      const visibility = getState().getIn(['compose', 'privacy']);
+      const status = state.getIn(['statuses', id]);
+      const visibility = composer.get('privacy');
 
       if (status && status.get('visibility') === 'private' && ['public', 'unlisted'].includes(visibility)) {
-        dispatch(changeComposeVisibility('private'));
+        dispatchToComposer(dispatch, composerId, changeComposeVisibility('private'));
       }
     }
 
-    dispatch({
+    dispatchToComposer(dispatch, composerId, {
       type: COMPOSE_REFERENCE_ADD,
       id: id,
     });
   };
+};
+
+export function addReference(id, change) {
+  return addReferenceToComposer(PRIMARY_COMPOSER_ID, id, change);
 };
 
 export function removeReference(id) {
