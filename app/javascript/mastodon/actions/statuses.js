@@ -1,5 +1,6 @@
 import api from '../api';
 import { locale as interfaceLocale } from '../initial_state';
+import { copyText } from '../utils/clipboard';
 import { legacyTranslationPair, sameLanguagePair, viewerTranslationPair } from '../utils/translation_view';
 
 import { SETTING_CHANGE, saveSettings } from './settings';
@@ -9,6 +10,7 @@ import { importFetchedStatus, importFetchedStatuses, importFetchedAccount } from
 import { statusSourceSignature, translationSourceSignature } from './importer/normalizer';
 import { ensureComposeIsVisible, getContextReference, setComposeToStatus } from './compose';
 import { openModal } from './modal';
+import { showAlertForError } from './alerts';
 
 export const STATUS_FETCH_REQUEST = 'STATUS_FETCH_REQUEST';
 export const STATUS_FETCH_SUCCESS = 'STATUS_FETCH_SUCCESS';
@@ -268,6 +270,16 @@ export function editStatus(id, routerHistory) {
       dispatch(fetchStatusSourceFail(error));
     });
   };
+}
+
+export function copyStatusSource(id) {
+  return (dispatch, getState) => api(getState).get(`/api/v1/statuses/${id}/source`).then(response => {
+    return copyText(response.data.text).catch(error => {
+      dispatch(showAlertForError(error));
+    });
+  }).catch(error => {
+    dispatch(showAlertForError(error));
+  });
 }
 
 export function fetchStatusSourceRequest() {

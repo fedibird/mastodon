@@ -40,9 +40,14 @@ jest.mock('../modal', () => ({
   openModal: (type, props) => ({ type: 'MODAL_OPEN', modalType: type, modalProps: props }),
 }));
 
+jest.mock('../../utils/clipboard', () => ({
+  copyText: jest.fn(() => Promise.resolve()),
+}));
+
 import api from '../../api';
+import { copyText } from '../../utils/clipboard';
 import { ensureComposeIsVisible, setComposeToStatus } from '../compose';
-import { editStatus, requestEditStatus } from '../statuses';
+import { copyStatusSource, editStatus, requestEditStatus } from '../statuses';
 
 const dispatchThunk = (thunk, state) => {
   const actions = [];
@@ -145,5 +150,59 @@ describe('editStatus', () => {
     expect(api).not.toHaveBeenCalled();
     expect(actions[0].type).toEqual('MODAL_OPEN');
     expect(actions[0].modalType).toEqual('CONFIRM');
+  });
+});
+
+describe('copyStatusSource', () => {
+  const state = fromJS({
+    statuses: {
+      s1: { id: 's1' },
+    },
+  });
+
+  beforeEach(() => {
+    api.mockReset();
+    copyText.mockReset();
+    copyText.mockResolvedValue(undefined);
+  });
+
+  it('copies response.data.text from GET /source and leaves the spoiler', async () => {
+    const text = 'hello @alice\n#tag :emoji:\u200b';
+    api.mockReturnValue({
+      get: jest.fn().mockResolvedValue({ data: { text, spoiler_text: 'raw spoiler' } }),
+    });
+
+    const actions = await dispatchThunk(copyStatusSource('s1'), state);
+
+    expect(api().get).toHaveBeenCalledWith('/api/v1/statuses/s1/source');
+    expect(copyText).toHaveBeenCalledTimes(1);
+    expect(copyText).toHaveBeenCalledWith(text);
+    expect(actions.map(action => action.type)).not.toContain('STATUS_FETCH_SOURCE_REQUEST');
+    expect(actions.map(action => action.type)).not.toContain('ALERT_SHOW');
+  });
+
+  it('does not copy when the source request fails and shows an alert', async () => {
+    const error = { response: { status: 500, statusText: 'nope', headers: {}, data: { error: 'nope' } } };
+    api.mockReturnValue({
+      get: jest.fn().mockRejectedValue(error),
+    });
+
+    const actions = await dispatchThunk(copyStatusSource('s1'), state);
+
+    expect(copyText).not.toHaveBeenCalled();
+    expect(actions.map(action => action.type)).toEqual(['ALERT_SHOW']);
+    expect(actions[0].message).toEqual('nope');
+  });
+
+  it('shows an alert when the clipboard copy fails', async () => {
+    api.mockReturnValue({
+      get: jest.fn().mockResolvedValue({ data: { text: 'raw body', spoiler_text: 'raw spoiler' } }),
+    });
+    copyText.mockRejectedValueOnce(new Error('clipboard failed'));
+
+    const actions = await dispatchThunk(copyStatusSource('s1'), state);
+
+    expect(copyText).toHaveBeenCalledWith('raw body');
+    expect(actions.map(action => action.type)).toEqual(['ALERT_SHOW']);
   });
 });

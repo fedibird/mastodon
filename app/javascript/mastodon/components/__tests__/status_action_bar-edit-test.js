@@ -205,7 +205,8 @@ describe('StatusActionBar edit menu', () => {
     expect(indexOf('Expand this status')).toBeLessThan(indexOf('Copy link to status'));
     expect(indexOf('Copy link to status')).toBeLessThan(indexOf('Embed'));
     expect(indexOf('Embed')).toBeLessThan(indexOf('Edit'));
-    expect(indexOf('Edit')).toBeLessThan(indexOf('Delete & re-draft'));
+    expect(indexOf('Edit')).toBeLessThan(indexOf('Copy post source'));
+    expect(indexOf('Copy post source')).toBeLessThan(indexOf('Delete & re-draft'));
     expect(indexOf('Delete & re-draft')).toBeLessThan(indexOf('Delete'));
     expect(indexOf('Delete')).toBeLessThan(indexOf('Expire'));
     expect(indexOf('Expire')).toBeLessThan(indexOf('Show boosted users'));
@@ -236,5 +237,64 @@ describe('StatusActionBar edit menu', () => {
     expect(labels.indexOf('Mute @bob')).toBeLessThan(labels.indexOf('Block @bob'));
     expect(labels.indexOf('Block @bob')).toBeLessThan(labels.indexOf('Report @bob'));
     expect(labels.indexOf('Edit')).toBe(-1);
+    expect(labels.indexOf('Copy post source')).toBe(-1);
+  });
+});
+
+describe('StatusActionBar copy post source', () => {
+  const labelsOf = () => screen.getAllByRole('button').map(button => button.textContent);
+
+  it('shows the action on the author\'s own post, including private and expired posts', () => {
+    ['public', 'unlisted', 'private', 'limited', 'direct', 'personal'].forEach(visibility => {
+      const view = renderBar(buildStatus({ visibility }));
+
+      expect(screen.getByRole('button', { name: 'Copy post source' })).toBeInTheDocument();
+      view.unmount();
+    });
+
+    renderBar(buildStatus(), { expired: true });
+
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+    expect(labelsOf()).toEqual(expect.arrayContaining([
+      'Copy post source',
+      'Delete & re-draft',
+      'Delete',
+      'Expire',
+    ]));
+    const labels = labelsOf();
+    expect(labels.indexOf('Copy post source')).toBeLessThan(labels.indexOf('Delete & re-draft'));
+    expect(labels.indexOf('Delete & re-draft')).toBeLessThan(labels.indexOf('Delete'));
+    expect(labels.indexOf('Delete')).toBeLessThan(labels.indexOf('Expire'));
+  });
+
+  it('hides the action on someone else\'s post and on boost wrappers', () => {
+    const other = renderBar(buildStatus({
+      account: { id: 'other', acct: 'bob', username: 'bob', url: 'https://example.test/bob' },
+    }));
+    expect(screen.queryByRole('button', { name: 'Copy post source' })).not.toBeInTheDocument();
+    other.unmount();
+
+    const boostedOther = renderBar(buildStatus({
+      reblog: {
+        id: 'original',
+        account: { id: 'other', acct: 'bob', username: 'bob', url: 'https://example.test/bob' },
+        visibility: 'public',
+        emoji_reactions: [],
+      },
+    }));
+    expect(screen.queryByRole('button', { name: 'Copy post source' })).not.toBeInTheDocument();
+    boostedOther.unmount();
+
+    renderBar(buildStatus({
+      id: 'boost-1',
+      reblog: {
+        id: 'original',
+        account: { id: 'me', acct: 'alice', username: 'alice', url: 'https://example.test/alice' },
+        visibility: 'public',
+        emoji_reactions: [],
+        expires_at: null,
+      },
+    }));
+    expect(screen.queryByRole('button', { name: 'Copy post source' })).not.toBeInTheDocument();
   });
 });

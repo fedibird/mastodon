@@ -715,6 +715,7 @@
   "status.cannot_quote": "This post cannot be quoted",
   "status.cannot_reblog": "This post cannot be boosted",
   "status.copy": "Copy link to post",
+  "status.copy_source": "Copy post source",
   "status.delete": "Delete",
   "status.detailed_status": "Detailed conversation view",
   "status.direct": "Direct message @{name}",

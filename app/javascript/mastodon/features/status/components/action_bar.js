@@ -12,11 +12,13 @@ import { openModal } from '../../../actions/modal';
 import { revealStatusTranslationBar } from '../../../actions/translation_bar';
 import { initAddFilter } from '../../../actions/filters';
 import { canEditStatus, editableStatus } from '../../../utils/status_edit';
+import { copyStatusSource } from '../../../actions/statuses';
 import { translationPairStatus } from '../../../utils/translation_languages';
 import { translationBarEffectivelyVisible, viewerTranslationPair } from '../../../utils/translation_view';
 
 const messages = defineMessages({
   edit: { id: 'status.edit', defaultMessage: 'Edit' },
+  copySource: { id: 'status.copy_source', defaultMessage: 'Copy post source' },
   expire: { id: 'status.expire', defaultMessage: 'Expire' },
   delete: { id: 'status.delete', defaultMessage: 'Delete' },
   redraft: { id: 'status.redraft', defaultMessage: 'Delete & re-draft' },
@@ -326,6 +328,10 @@ class ActionBar extends React.PureComponent {
     this.props.onEmbed(this.props.status);
   }
 
+  handleCopySource = () => {
+    this.props.dispatch(copyStatusSource(this.props.status.get('id')));
+  }
+
   handleCopy = () => {
     const url      = this.props.status.get('url');
     const textarea = document.createElement('textarea');
@@ -416,6 +422,10 @@ class ActionBar extends React.PureComponent {
 
       if (canEditStatus(status, { me, expired, disablePost, now: typeof intl.now === 'function' ? intl.now() : Date.now() })) {
         management.push({ text: intl.formatMessage(messages.edit), action: this.handleEditClick });
+      }
+
+      if (!status.get('reblog')) {
+        management.push({ text: intl.formatMessage(messages.copySource), action: this.handleCopySource });
       }
 
       if (!disablePost) {

@@ -715,6 +715,7 @@
   "status.cannot_quote": "この投稿は引用できません",
   "status.cannot_reblog": "この投稿はブーストできません",
   "status.copy": "投稿へのリンクをコピー",
+  "status.copy_source": "投稿のソースをコピーする",
   "status.delete": "削除",
   "status.detailed_status": "詳細な会話ビュー",
   "status.direct": "@{name}さんに非公開で投稿",
