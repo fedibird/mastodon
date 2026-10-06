@@ -13,6 +13,7 @@ import {
 } from '../../../actions/compose';
 import { openModal } from '../../../actions/modal';
 import { targetComposerAction } from '../../../actions/composer';
+import { materializeComposerText } from '../../../posting_context/managed_hashtags';
 import { selectComposer } from '../../../selectors/composer';
 import { withComposerId } from '../composer_id_context';
 import { injectIntl, defineMessages } from 'react-intl';
@@ -27,6 +28,7 @@ const mapStateToProps = (state, { composerId }) => {
 
   return {
     text: composer.get('text'),
+    effectiveText: materializeComposerText(composer),
     suggestions: composer.get('suggestions'),
     spoiler: composer.get('spoiler'),
     spoilerText: composer.get('spoiler_text'),

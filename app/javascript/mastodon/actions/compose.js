@@ -14,6 +14,7 @@ import { addYears, addMonths, addDays, addHours, addMinutes, addSeconds, millise
 import { Set as ImmutableSet } from 'immutable';
 import { postReferenceModal, missingAltTextModal, enableFederatedTimeline, allowPollImage, maxAttachments, disablePost } from '../initial_state';
 import { deleteScheduledStatus } from './scheduled_statuses';
+import { materializeComposerText } from '../posting_context/managed_hashtags';
 import { selectComposer } from '../selectors/composer';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import { targetComposerAction } from './composer';
@@ -318,7 +319,7 @@ export function submitComposerWithCheck(composerId, routerHistory, intl) {
       return;
     }
 
-    const status = composer.get('text', '');
+    const status = materializeComposerText(composer);
     const media  = composer.get('media_attachments');
     const missingAltTextMediaId = media.find(item => ['image', 'gifv'].includes(item.get('type')) && (item.get('description') ?? '').length === 0)?.get('id');
     const statusReferenceIds = composer.get('references');
@@ -377,7 +378,7 @@ export function submitComposer(composerId, routerHistory) {
       return Promise.resolve();
     }
 
-    const status = composer.get('text', '');
+    const status = materializeComposerText(composer);
     const media = composer.get('media_attachments');
     const scheduled = composer.get('scheduled');
     const expires = composer.get('expires');

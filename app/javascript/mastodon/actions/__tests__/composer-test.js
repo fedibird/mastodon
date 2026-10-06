@@ -4,11 +4,15 @@ jest.mock('react-intl', () => ({
 
 import { COMPOSE_CHANGE, changeCompose } from '../compose';
 import {
+  COMPOSER_CONTEXT_APPLY,
+  COMPOSER_CONTEXT_HASHTAG_TOGGLE,
   COMPOSER_CREATE,
   COMPOSER_DESTROY,
+  applyComposerPostingContext,
   createComposer,
   destroyComposer,
   targetComposerAction,
+  toggleComposerManagedHashtag,
 } from '../composer';
 
 describe('targetComposerAction', () => {
@@ -73,6 +77,29 @@ describe('composer lifecycle actions', () => {
     expect(createComposer('composer-a', seed)).toEqual({
       type: COMPOSER_CREATE,
       seed,
+      meta: {
+        composerId: 'composer-a',
+      },
+    });
+  });
+
+  it('targets posting context application', () => {
+    const postingContext = { key: 'builtin:hashtag:foo' };
+
+    expect(applyComposerPostingContext('composer-a', postingContext)).toEqual({
+      type: COMPOSER_CONTEXT_APPLY,
+      postingContext,
+      meta: {
+        composerId: 'composer-a',
+      },
+    });
+    expect(applyComposerPostingContext('composer-a', null).postingContext).toBeNull();
+  });
+
+  it('targets managed hashtag suppression', () => {
+    expect(toggleComposerManagedHashtag('composer-a', 'foo')).toEqual({
+      type: COMPOSER_CONTEXT_HASHTAG_TOGGLE,
+      normalizedName: 'foo',
       meta: {
         composerId: 'composer-a',
       },

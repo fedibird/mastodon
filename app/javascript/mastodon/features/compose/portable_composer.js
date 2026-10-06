@@ -2,7 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { connect } from 'react-redux';
 import { changeComposing, mountCompose, unmountCompose } from '../../actions/compose';
-import { createComposer, targetComposerAction } from '../../actions/composer';
+import { applyComposerPostingContext, createComposer, targetComposerAction } from '../../actions/composer';
 import { selectComposer, selectPortableComposerSeed } from '../../selectors/composer';
 import ComposeFormContainer from './containers/compose_form_container';
 import { ComposerProvider } from './composer_id_context';
@@ -19,13 +19,34 @@ class PortableComposer extends React.PureComponent {
     dispatch: PropTypes.func.isRequired,
     exists: PropTypes.bool,
     seed: PropTypes.object,
+    postingContext: PropTypes.object,
   };
+
+  applyPostingContext () {
+    const { composerId, dispatch, postingContext } = this.props;
+
+    if (postingContext === undefined) {
+      return;
+    }
+
+    dispatch(applyComposerPostingContext(composerId, postingContext));
+  }
 
   componentDidMount () {
     const { composerId, dispatch, seed } = this.props;
 
     dispatch(createComposer(composerId, seed));
     dispatch(targetComposerAction(mountCompose(), composerId));
+    this.applyPostingContext();
+  }
+
+  componentDidUpdate (prevProps) {
+    const previousKey = prevProps.postingContext && prevProps.postingContext.key;
+    const nextKey = this.props.postingContext && this.props.postingContext.key;
+
+    if (this.props.postingContext !== undefined && previousKey !== nextKey) {
+      this.applyPostingContext();
+    }
   }
 
   componentWillUnmount () {

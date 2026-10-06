@@ -524,6 +524,43 @@ body > [data-popper-placement] {
     }
   }
 
+  .compose-form__posting-context {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 0 10px 6px;
+    background: $simple-background-color;
+    color: $dark-text-color;
+    font-size: 14px;
+
+    &-label {
+      color: $dark-text-color;
+      font-size: 14px;
+    }
+
+    &-tag {
+      border: 0;
+      border-radius: 4px;
+      background: lighten($ui-base-color, 8%);
+      color: $secondary-text-color;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 14px;
+      line-height: 20px;
+      padding: 2px 8px;
+
+      span {
+        margin-left: 4px;
+      }
+
+      &--suppressed {
+        opacity: 0.55;
+        text-decoration: line-through;
+      }
+    }
+  }
+
   .autosuggest-textarea__textarea {
     min-height: var(--composer-min-height, 100px);
     border-radius: 0;

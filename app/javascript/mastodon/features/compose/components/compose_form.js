@@ -22,6 +22,7 @@ import LanguageDropdownContainer from '../containers/language_dropdown_container
 import PollFormContainer from '../containers/poll_form_container';
 import UploadFormContainer from '../containers/upload_form_container';
 import WarningContainer from '../containers/warning_container';
+import PostingContextBarContainer from '../containers/posting_context_bar_container';
 import ReferenceStack from '../../../features/reference_stack';
 import { isMobile } from '../../../is_mobile';
 import ImmutablePureComponent from 'react-immutable-pure-component';
@@ -56,6 +57,7 @@ class ComposeForm extends ImmutablePureComponent {
   static propTypes = {
     intl: PropTypes.object.isRequired,
     text: PropTypes.string.isRequired,
+    effectiveText: PropTypes.string,
     suggestions: ImmutablePropTypes.list,
     spoiler: PropTypes.bool,
     privacy: PropTypes.string,
@@ -103,16 +105,21 @@ class ComposeForm extends ImmutablePureComponent {
     }
   }
 
+  composedText = () => {
+    return this.props.effectiveText ?? this.props.text;
+  }
+
   getFulltextForCharacterCounting = () => {
-    return [this.props.spoiler? this.props.spoilerText: '', countableText(this.props.text)].join('');
+    return [this.props.spoiler? this.props.spoilerText: '', countableText(this.composedText())].join('');
   }
 
   canSubmit = () => {
-    const { isSubmitting, isChangingUpload, isUploading, isCircleUnselected, isEditing, anyMedia, prohibitedVisibilities, privacy, prohibitedWords, text, spoilerText } = this.props;
+    const { isSubmitting, isChangingUpload, isUploading, isCircleUnselected, isEditing, anyMedia, prohibitedVisibilities, privacy, prohibitedWords, spoilerText } = this.props;
+    const composedText = this.composedText();
     const fulltext = this.getFulltextForCharacterCounting();
     const isOnlyWhitespace = fulltext.length !== 0 && fulltext.trim().length === 0;
     const noVisibility = !isEditing && prohibitedVisibilities?.includes(privacy);
-    const ngWords = prohibitedWords.some( word => text.includes(word) || spoilerText?.includes(word) );
+    const ngWords = prohibitedWords.some( word => composedText.includes(word) || spoilerText?.includes(word) );
 
     return !(isSubmitting || isUploading || isChangingUpload || isCircleUnselected || length(fulltext) > maxChars || (isOnlyWhitespace && !anyMedia) || noVisibility || ngWords);
   }
@@ -279,6 +286,10 @@ class ComposeForm extends ImmutablePureComponent {
           <PrivacyDropdownContainer disabled={this.props.isEditing} showLabel />
           <LanguageDropdownContainer />
         </div>
+
+        {!this.props.isEditing && !this.props.isScheduledStatusEditting && (
+          <PostingContextBarContainer />
+        )}
 
         <AutosuggestTextarea
           ref={this.setAutosuggestTextarea}

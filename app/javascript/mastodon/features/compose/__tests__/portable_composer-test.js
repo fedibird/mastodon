@@ -24,7 +24,8 @@ jest.mock('../containers/compose_form_container', () => {
 });
 
 import { changeCompose, changeComposeVisibility } from '../../../actions/compose';
-import { targetComposerAction } from '../../../actions/composer';
+import { targetComposerAction, toggleComposerManagedHashtag } from '../../../actions/composer';
+import { buildHashtagTimelinePostingContext } from '../../../posting_context/hashtag';
 import { STORE_HYDRATE } from '../../../actions/store';
 import compose from '../../../reducers/compose';
 import composers from '../../../reducers/composers';
@@ -70,6 +71,7 @@ describe('PortableComposer', () => {
     expect(store.getState().getIn(['composers', 'byId', composerId, 'mounted'])).toBe(1);
     expect(store.getState().getIn(['composers', 'byId', composerId, 'text'])).toEqual('');
     expect(store.getState().getIn(['composers', 'byId', composerId, 'privacy'])).toEqual('private');
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'context', 'managed', 'hashtags']).isEmpty()).toBe(true);
     expect(store.getState().getIn(['compose', 'text'])).toEqual('PRIMARY DRAFT');
     expect(store.getState().getIn(['compose', 'privacy'])).toEqual('direct');
 
@@ -106,5 +108,54 @@ describe('PortableComposer', () => {
 
     fireEvent.blur(host, { relatedTarget: document.body });
     expect(store.getState().getIn(['composers', 'byId', composerId, 'is_composing'])).toBe(false);
+  });
+
+  it('applies a posting context and keeps suppression across remount', () => {
+    const store = makeStore();
+    hydrateDefaults(store);
+    const postingContext = buildHashtagTimelinePostingContext('Fedibird');
+    const view = render(
+      <Provider store={store}>
+        <PortableComposer composerId={composerId} postingContext={postingContext} />
+      </Provider>,
+    );
+    const composerPath = ['composers', 'byId', composerId];
+
+    expect(store.getState().getIn([...composerPath, 'text'])).toEqual('');
+    expect(store.getState().getIn([...composerPath, 'context', 'managed', 'hashtags', 0, 'normalizedName'])).toEqual('fedibird');
+    expect(store.getState().getIn([...composerPath, 'context', 'key'])).toEqual('builtin:hashtag:fedibird');
+
+    store.dispatch(toggleComposerManagedHashtag(composerId, 'fedibird'));
+    store.dispatch(targetComposerAction(changeCompose('hello'), composerId));
+    view.unmount();
+    render(
+      <Provider store={store}>
+        <PortableComposer composerId={composerId} postingContext={{ ...postingContext }} />
+      </Provider>,
+    );
+
+    expect(store.getState().getIn([...composerPath, 'text'])).toEqual('hello');
+    expect(store.getState().getIn([...composerPath, 'context', 'suppressions', 'hashtags']).includes('fedibird')).toBe(true);
+    expect(store.getState().getIn([...composerPath, 'mounted'])).toBe(1);
+  });
+
+  it('reapplies when the posting context key changes', () => {
+    const store = makeStore();
+    hydrateDefaults(store);
+    const view = render(
+      <Provider store={store}>
+        <PortableComposer composerId={composerId} postingContext={buildHashtagTimelinePostingContext('foo')} />
+      </Provider>,
+    );
+
+    store.dispatch(toggleComposerManagedHashtag(composerId, 'foo'));
+    view.rerender(
+      <Provider store={store}>
+        <PortableComposer composerId={composerId} postingContext={buildHashtagTimelinePostingContext('bar')} />
+      </Provider>,
+    );
+
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'context', 'managed', 'hashtags', 0, 'normalizedName'])).toEqual('bar');
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'context', 'suppressions', 'hashtags']).isEmpty()).toBe(true);
   });
 });
