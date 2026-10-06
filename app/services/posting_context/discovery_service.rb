@@ -30,7 +30,7 @@ class PostingContext::DiscoveryService
       context: adapter.context(account),
       discovery: {
         mechanism: adapter.mechanism,
-        adapter: adapter.name,
+        adapter: adapter.adapter_name,
         authority: adapter.authority,
       },
     }

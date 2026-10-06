@@ -52,6 +52,8 @@ RSpec.describe PostingContext::DiscoveryService do # rubocop:disable Metrics/Blo
       )
       expect(result).not_to have_key(:reason)
       expect(result[:context][:requirements][:following_accounts].first).not_to have_key(:following)
+      expect(PostingContext::Adapters::FedibirdGroup.name).to eq('PostingContext::Adapters::FedibirdGroup')
+      expect(result.dig(:discovery, :adapter)).to eq('fedibird_group')
     end
 
     it 'returns unsupported for a remote group without contacting the network' do

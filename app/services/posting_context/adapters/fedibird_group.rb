@@ -35,7 +35,7 @@ class PostingContext::Adapters::FedibirdGroup
     'built_in'
   end
 
-  def self.name
+  def self.adapter_name
     'fedibird_group'
   end
 
