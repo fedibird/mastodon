@@ -11,6 +11,10 @@ class Formatter
 
   NEWLINE_TAGS_RE = %r{(<br />|<br>|</p>)+}
   CLOSING_PARAGRAPH_RE = %r{</p>\z}
+  # PHP nl2br() inserts <br /> before a newline and keeps that newline.
+  # After sanitize the tag is <br>, so one CRLF, LF+CR, CR, or LF sits
+  # immediately after it. pre-wrap would draw both.
+  BR_ADJACENT_NEWLINE_RE = %r{<br>(?:\r\n|\n\r|\r|\n)}.freeze
 
   # A decoded URL is only ever shown to a human or offered to a matcher, so any
   # Unicode control character in it is noise at best. It is also how the
@@ -50,6 +54,7 @@ class Formatter
 
     unless status.local?
       html = reformat(raw_content)
+      html = strip_break_adjacent_newline(html)
       html = apply_inner_link(html, **options.merge(redirected_urls: redirected_urls(status)))
       html = apply_reference_link(html, status)
       html = encode_custom_emojis(html, status.emojis, options[:autoplay]) if options[:custom_emojify]
@@ -274,6 +279,10 @@ class Formatter
   end
 
   private
+
+  def strip_break_adjacent_newline(html)
+    html.gsub(BR_ADJACENT_NEWLINE_RE, '<br>')
+  end
 
   def redirected_urls(status)
     status.preview_cards.map { |preview_card| [preview_card.url, preview_card.redirected_url] if preview_card.redirected_url }.compact.to_h
