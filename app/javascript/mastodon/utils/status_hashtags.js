@@ -254,7 +254,7 @@ function hashtagData(anchor) {
   const text = anchor.textContent || '';
 
   return {
-    name: text.replace(/^#/, ''),
+    name: text.replace(/^[#＃]/, ''),
     text,
     href: anchor.getAttribute('href'),
   };
@@ -357,31 +357,42 @@ function caseSpread(tag) {
   return Math.abs((tag.length - upperCase) - upperCase);
 }
 
-// One spelling per tag. When several casings exist, keep the one closest to
-// mixed case, matching Mastodon's uniqueHashtagsWithCaseHandling.
-// Badge and copy lists do not use this score. They keep the first spelling
-// written in the status HTML, then the API name for tags that never appear.
-export function uniqueHashtagsWithCaseHandling(hashtags) {
+function hashtagCaseKey(name) {
+  return (name || '').normalize('NFKD').toLowerCase();
+}
+
+// One object per tag. When several casings exist, keep the one closest to
+// mixed case, matching Mastodon's uniqueHashtagsWithCaseHandling. The chosen
+// object's href and text stay with that spelling.
+export function uniqueHashtagObjects(hashtags) {
   const groups = new Map();
 
-  (hashtags || []).forEach(tag => {
-    const key = (tag || '').normalize('NFKD').toLowerCase();
+  (hashtags || []).forEach(hashtag => {
+    if (!hashtag) {
+      return;
+    }
+
+    const key = hashtagCaseKey(hashtag.name);
     const group = groups.get(key);
 
     if (group) {
-      group.push(tag);
+      group.push(hashtag);
     } else {
-      groups.set(key, [tag]);
+      groups.set(key, [hashtag]);
     }
   });
 
-  return Array.from(groups.values()).map(tags => {
-    if (tags.length === 1) {
-      return tags[0];
+  return Array.from(groups.values()).map(group => {
+    if (group.length === 1) {
+      return group[0];
     }
 
-    return tags.slice().sort((left, right) => caseSpread(left) - caseSpread(right))[0];
+    return group.slice().sort((left, right) => caseSpread(left.name) - caseSpread(right.name))[0];
   });
+}
+
+export function uniqueHashtagsWithCaseHandling(hashtags) {
+  return uniqueHashtagObjects((hashtags || []).map(name => ({ name }))).map(hashtag => hashtag.name);
 }
 
 function readStatusTag(tag) {
@@ -470,7 +481,7 @@ export function collectStatusHashtags(html) {
 }
 
 // Visible content hashtags, then status.tags that never appear in that HTML.
-// The first visible spelling wins over the API's canonical name.
+// Copy keeps the first spelling written in the status HTML.
 export function collectCopyHashtags(html, statusTags) {
   const hashtags = collectStatusHashtags(html);
   const seen = hashtags.map(hashtag => hashtag.name);
@@ -507,13 +518,12 @@ export function computeStatusHashtagBadges(sourceHtml, statusTags) {
     });
   });
 
-  split.hashtags.forEach(hashtag => {
-    if (localeAwareInclude(bodyNames, hashtag.name)) {
-      return;
-    }
-
-    rememberHashtag(seen, hashtags, hashtag);
-  });
+  // Trailing casings of one tag collapse to the mixed-case spelling. Its href
+  // wins over the API url, which was already left out of the out-of-band list.
+  uniqueHashtagObjects(split.hashtags.filter(hashtag => !localeAwareInclude(bodyNames, hashtag.name)))
+    .forEach(hashtag => {
+      rememberHashtag(seen, hashtags, hashtag);
+    });
 
   return {
     html: split.html,

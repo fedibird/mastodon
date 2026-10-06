@@ -500,6 +500,30 @@ describe('StatusContent trailing hashtag badges', () => {
     expect(screen.getByRole('link', { name: '#fedibird' })).toHaveAttribute('href', 'https://fedisnap.com/discover/tags/fedibird?src=hash');
   });
 
+  it('shows one badge when a fullwidth trailing hash is also in status.tags', () => {
+    const { container } = renderStatus(buildStatus({
+      contentHtml: '<p>本文 <a href="https://remote.example/tags/foo" class="mention hashtag" rel="tag">＃foo</a></p>',
+      tags: [{ name: 'foo', url: 'https://example.com/tags/foo' }],
+    }));
+
+    expect(container.querySelector('.status__content__text').textContent).toBe('本文');
+    expect(badgeRow(container)).toEqual(['＃foo']);
+    expect(container.querySelector('.status__content__hashtag-badge')).toHaveAttribute('href', 'https://remote.example/tags/foo');
+    expect(container.querySelector('.status__content__hashtag-badge')).toHaveAttribute('data-menu-hashtag', 'foo');
+  });
+
+  it('shows the mixed-case trailing spelling once when the same tag repeats', () => {
+    const { container } = renderStatus(buildStatus({
+      contentHtml: hashtagParagraph(['foo', 'Foo', 'FOO']),
+      tags: [{ name: 'foo', url: 'https://api.example/tags/foo' }],
+    }));
+    const badge = container.querySelector('.status__content__hashtag-badge');
+
+    expect(badgeRow(container)).toEqual(['#Foo']);
+    expect(badge).toHaveAttribute('href', 'https://example.com/tags/Foo');
+    expect(badge).toHaveAttribute('data-menu-hashtag', 'Foo');
+  });
+
   it('does not badge a second casing of a hashtag that is already visible', () => {
     const { container } = renderStatus(buildStatus({
       contentHtml: `<p>この話は ${anchor('FediBird')} についてです<br>${anchor('fedibird')}</p>`,

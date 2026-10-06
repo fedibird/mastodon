@@ -555,6 +555,43 @@ describe('computeStatusHashtagBadges', () => {
     expect(repeated.hashtags).toEqual([]);
   });
 
+  it('badges a fullwidth trailing hash once when status.tags lists the same name', () => {
+    const href = 'https://remote.example/tags/foo';
+    const html = `<p>本文 <a href="${href}" class="mention hashtag" rel="tag">＃foo</a></p>`;
+    const result = computeStatusHashtagBadges(html, [
+      { name: 'foo', url: 'https://example.com/tags/foo' },
+    ]);
+
+    expect(result.html).toBe('<p>本文</p>');
+    expect(result.hashtags).toEqual([
+      { name: 'foo', text: '＃foo', href },
+    ]);
+  });
+
+  it('keeps the mixed-case trailing spelling and its href when casings repeat', () => {
+    const html = `<p>Hello ${anchor('foo', { href: 'https://example.com/tags/foo' })} ${anchor('Foo', { href: 'https://example.com/tags/Foo' })} ${anchor('FOO', { href: 'https://example.com/tags/FOO' })}</p>`;
+    const result = computeStatusHashtagBadges(html, [
+      { name: 'foo', url: 'https://api.example/tags/foo' },
+    ]);
+
+    expect(result.html).toBe('<p>Hello</p>');
+    expect(result.hashtags).toEqual([
+      { name: 'Foo', text: '#Foo', href: 'https://example.com/tags/Foo' },
+    ]);
+    expect(result.trailing).toHaveLength(3);
+  });
+
+  it('picks the mixed-case accented spelling Mastodon keeps for the bar', () => {
+    const html = `<p>${anchor('éaa', { href: 'https://example.com/tags/lower' })} ${anchor('Éaa', { href: 'https://example.com/tags/mixed' })}</p>`;
+    const result = computeStatusHashtagBadges(html, [
+      { name: 'éaa', url: 'https://api.example/tags/eaa' },
+    ]);
+
+    expect(result.hashtags).toEqual([
+      { name: 'Éaa', text: '#Éaa', href: 'https://example.com/tags/mixed' },
+    ]);
+  });
+
   it('does not badge a trailing casing when the body already shows that tag', () => {
     const html = `<p>See ${anchor('test')} today ${anchor('mastodon')} ${anchor('Test')} ${anchor('fedibird')}</p>`;
     const result = computeStatusHashtagBadges(html, []);
