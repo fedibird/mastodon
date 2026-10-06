@@ -1,5 +1,9 @@
 import { fromJS } from 'immutable';
 
+jest.mock('react-intl', () => ({
+  defineMessages: messages => messages,
+}));
+
 jest.mock('../../uuid', () => ({
   __esModule: true,
   default: () => 'test-idempotency-key',
