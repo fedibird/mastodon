@@ -9,8 +9,8 @@ export const targetComposerAction = (action, composerId) => ({
   },
 });
 
-export const createComposer = composerId => targetComposerAction(
-  { type: COMPOSER_CREATE },
+export const createComposer = (composerId, seed) => targetComposerAction(
+  (seed === undefined || seed === null) ? { type: COMPOSER_CREATE } : { type: COMPOSER_CREATE, seed },
   composerId,
 );
 

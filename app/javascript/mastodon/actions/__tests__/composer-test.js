@@ -67,6 +67,18 @@ describe('composer lifecycle actions', () => {
     });
   });
 
+  it('keeps an optional seed on the create action', () => {
+    const seed = { default_privacy: 'private' };
+
+    expect(createComposer('composer-a', seed)).toEqual({
+      type: COMPOSER_CREATE,
+      seed,
+      meta: {
+        composerId: 'composer-a',
+      },
+    });
+  });
+
   it('targets destroy at the requested composer', () => {
     expect(destroyComposer('composer-a')).toEqual({
       type: COMPOSER_DESTROY,

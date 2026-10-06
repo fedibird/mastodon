@@ -1,4 +1,4 @@
-import { fromJS } from 'immutable';
+import { Map as ImmutableMap, fromJS } from 'immutable';
 
 jest.mock('react-intl', () => ({
   defineMessages: messages => messages,
@@ -40,6 +40,39 @@ describe('composers registry', () => {
     expect(composers(state, createComposer(''))).toBe(state);
     expect(composers(state, createComposer(null))).toBe(state);
     expect(state.get('byId').isEmpty()).toBe(true);
+  });
+
+  it('hydrates a new composer from the supplied seed', () => {
+    const seed = ImmutableMap({
+      default_privacy: 'private',
+      default_language: 'ja',
+      default_searchability: 'private',
+    });
+    const composerState = composers(empty(), createComposer('composer-a', seed)).getIn(['byId', 'composer-a']);
+
+    expect(composerState.get('privacy')).toEqual('private');
+    expect(composerState.get('language')).toEqual('ja');
+    expect(composerState.get('searchability')).toEqual('private');
+    expect(composerState.get('text')).toEqual('');
+    expect(composerState.get('media_attachments').isEmpty()).toBe(true);
+    expect(composerState.get('idempotencyKey')).not.toBeNull();
+  });
+
+  it('does not reapply a later seed to an existing composer', () => {
+    const created = composers(empty(), createComposer('composer-a', ImmutableMap({
+      default_privacy: 'private',
+      default_language: 'ja',
+    })));
+    const drafted = composers(created, targetComposerAction(changeCompose('draft'), 'composer-a'));
+    const instance = drafted.getIn(['byId', 'composer-a']);
+    const again = composers(drafted, createComposer('composer-a', ImmutableMap({
+      default_privacy: 'public',
+      default_language: 'en',
+    })));
+
+    expect(again).toBe(drafted);
+    expect(again.getIn(['byId', 'composer-a'])).toBe(instance);
+    expect(again.getIn(['byId', 'composer-a', 'text'])).toEqual('draft');
   });
 
   it('does not reset an existing composer when create is repeated', () => {
