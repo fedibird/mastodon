@@ -85,6 +85,27 @@ describe('selectComposerPostingContextCompliance', () => {
     expect(satisfied.valid).toBe(true);
   });
 
+  it('treats an existing or scheduled edit as compliant without clearing context', () => {
+    const draft = groupState({ privacy: 'private' });
+    const editing = draft.setIn(['compose', 'id'], 'status-9');
+    const scheduled = draft.setIn(['compose', 'scheduled_status_id'], 'sched-1');
+
+    [editing, scheduled].forEach(state => {
+      const compliance = selectComposerPostingContextCompliance(state, 'primary');
+
+      expect(compliance.valid).toBe(true);
+      expect(compliance.visibility).toEqual({ valid: true, allowed: null, available: null });
+      expect(compliance.followingAccounts).toEqual([]);
+      expect(state.getIn(['compose', 'context', 'key'])).toEqual('builtin:fedibird-group:123');
+      expect(state.getIn(['compose', 'context', 'managed', 'mentions', 0, 'acct'])).toEqual('group');
+      expect(state.getIn(['compose', 'context', 'requirements', 'followingAccounts', 0, 'accountId'])).toEqual('123');
+      expect(state.getIn(['compose', 'context', 'constraints', 'allowedVisibilities']).includes('private')).toBe(false);
+      expect(state.getIn(['compose', 'context', 'constraints', 'allowedVisibilities']).includes('public')).toBe(true);
+    });
+
+    expect(selectComposerPostingContextCompliance(draft, 'primary').valid).toBe(false);
+  });
+
   it('treats a composer without posting requirements as compliant', () => {
     const compliance = selectComposerPostingContextCompliance(ImmutableMap({
       compose: composer(undefined, { type: '@@INIT' }),

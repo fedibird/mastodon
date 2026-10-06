@@ -1,7 +1,7 @@
 /* eslint-disable react/prop-types */
 
 import { fireEvent, render, screen } from '@testing-library/react';
-import { Map as ImmutableMap } from 'immutable';
+import { fromJS, Map as ImmutableMap } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
 import { combineReducers } from 'redux-immutable';
@@ -73,7 +73,7 @@ jest.mock('../warning_container', () => () => null);
 jest.mock('../../../../features/reference_stack', () => () => null);
 jest.mock('../../../../is_mobile', () => ({ isMobile: () => false }));
 
-import { changeCompose, changeComposeVisibility } from '../../../../actions/compose';
+import { changeCompose, changeComposeVisibility, setComposeToStatus } from '../../../../actions/compose';
 import { applyComposerPostingContext, createComposer, targetComposerAction } from '../../../../actions/composer';
 import { buildFedibirdGroupPostingContext } from '../../../../posting_context/fedibird_group';
 import compose from '../../../../reducers/compose';
@@ -178,5 +178,33 @@ describe('ComposeFormContainer composer targeting', () => {
 
     expect(screen.getByLabelText('Compose').value).toBe('Hello');
     expect(screen.getByRole('button', { name: 'Toot!' })).toBeEnabled();
+  });
+
+  it('keeps Save changes available while editing a private post without following the group', () => {
+    const store = createStore(combineReducers({ compose, composers, relationships }));
+    const group = ImmutableMap({ id: '123', acct: 'group', username: 'group', group: true });
+
+    store.dispatch(createComposer('composer-a'));
+    store.dispatch(applyComposerPostingContext('composer-a', buildFedibirdGroupPostingContext(group)));
+    store.dispatch(targetComposerAction(setComposeToStatus(fromJS({
+      id: 'status-9',
+      visibility: 'private',
+      sensitive: false,
+      media_attachments: [],
+    }), 'Hello', ''), 'composer-a'));
+
+    render(
+      <Provider store={store}>
+        <ComposerProvider composerId='composer-a'>
+          <ComposeFormContainer autoFocus={false} />
+        </ComposerProvider>
+      </Provider>,
+    );
+
+    expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'privacy'])).toEqual('private');
+    expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'context', 'key'])).toEqual('builtin:fedibird-group:123');
+    expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'context', 'managed', 'mentions', 0, 'acct'])).toEqual('group');
+    expect(screen.getByLabelText('Compose').value).toBe('Hello');
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
   });
 });

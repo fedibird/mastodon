@@ -646,33 +646,45 @@ describe('composer async routing', () => {
       expect(request.mock.calls[0][0].data.visibility).toEqual('unlisted');
     });
 
-    it('does not add the group mention while editing an existing or scheduled status', async () => {
+    it('submits a private existing or scheduled edit without applying group compliance', async () => {
       const request = jest.fn().mockResolvedValue({ data: statusResponse });
       api.mockReturnValue({ request });
       const { store } = makeStore();
+      const contextPath = id => ['composers', 'byId', id, 'context'];
 
-      prepareGroup(store, { privacy: 'public', following: true });
+      prepareGroup(store, { privacy: 'private', following: false });
       store.dispatch(targetComposerAction(setComposeToStatus(fromJS({
         id: 'status-9',
-        visibility: 'public',
+        visibility: 'private',
         sensitive: false,
         media_attachments: [],
       }), 'Hello', ''), 'composer-a'));
 
+      expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'privacy'])).toEqual('private');
+      expect(store.getState().getIn([...contextPath('composer-a'), 'key'])).toEqual('builtin:fedibird-group:123');
+      expect(store.getState().getIn([...contextPath('composer-a'), 'managed', 'mentions', 0, 'acct'])).toEqual('group');
+      expect(store.getState().getIn([...contextPath('composer-a'), 'requirements', 'followingAccounts', 0, 'accountId'])).toEqual('123');
+      expect(store.getState().getIn([...contextPath('composer-a'), 'constraints', 'allowedVisibilities']).includes('public')).toBe(true);
+
       await store.dispatch(submitComposer('composer-a', router));
 
-      expect(request.mock.calls[0][0].data.status).toEqual('Hello');
+      expect(request).toHaveBeenCalled();
       expect(request.mock.calls[0][0].method).toEqual('put');
+      expect(request.mock.calls[0][0].data.status).toEqual('Hello');
 
       request.mockClear();
       store.dispatch(createComposer('composer-b'));
       store.dispatch(applyComposerPostingContext('composer-b', buildFedibirdGroupPostingContext(localGroup)));
+      store.dispatch({
+        type: 'RELATIONSHIPS_FETCH_SUCCESS',
+        relationships: [{ id: '123', following: false, requested: false }],
+      });
       store.dispatch(targetComposerAction({
         type: REDRAFT,
         raw_text: 'Hello',
         context_references: fromJS([]),
         status: fromJS({
-          visibility: 'public',
+          visibility: 'private',
           sensitive: false,
           spoiler_text: '',
           language: 'en',
@@ -681,14 +693,18 @@ describe('composer async routing', () => {
           status_reference_ids: [],
         }),
       }, 'composer-b'));
-      store.dispatch({
-        type: 'RELATIONSHIPS_FETCH_SUCCESS',
-        relationships: [{ id: '123', following: true, requested: false }],
-      });
+
+      expect(store.getState().getIn(['composers', 'byId', 'composer-b', 'privacy'])).toEqual('private');
+      expect(store.getState().getIn(['composers', 'byId', 'composer-b', 'scheduled_status_id'])).toEqual('sched-1');
+      expect(store.getState().getIn([...contextPath('composer-b'), 'key'])).toEqual('builtin:fedibird-group:123');
+      expect(store.getState().getIn([...contextPath('composer-b'), 'managed', 'mentions', 0, 'acct'])).toEqual('group');
 
       await store.dispatch(submitComposer('composer-b', router));
 
+      expect(request).toHaveBeenCalled();
+      expect(request.mock.calls[0][0].method).toEqual('post');
       expect(request.mock.calls[0][0].data.status).toEqual('Hello');
+      expect(request.mock.calls[0][0].data.visibility).toEqual('private');
     });
   });
 });

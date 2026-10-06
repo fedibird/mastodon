@@ -1,3 +1,4 @@
+import { isExistingPostEdit } from './materialize';
 import { selectComposer } from '../selectors/composer';
 
 const emptyCompliance = () => ({
@@ -43,7 +44,7 @@ const followStatus = relationship => {
 export function selectComposerPostingContextCompliance(state, composerId) {
   const composer = selectComposer(state, composerId);
 
-  if (!composer) {
+  if (!composer || isExistingPostEdit(composer)) {
     return emptyCompliance();
   }
 
