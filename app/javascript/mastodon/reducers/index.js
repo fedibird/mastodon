@@ -26,6 +26,7 @@ import boosts from './boosts';
 import reports from './reports';
 import contexts from './contexts';
 import compose from './compose';
+import composers from './composers';
 import history from './history';
 import search from './search';
 import media_attachments from './media_attachments';
@@ -83,6 +84,7 @@ const reducers = {
   reports,
   contexts,
   compose,
+  composers,
   history,
   search,
   media_attachments,
