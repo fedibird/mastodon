@@ -157,13 +157,30 @@ function buildStatus(overrides = {}) {
   });
 }
 
-function renderMenu({ status = buildStatus(), signedIn, onClick = jest.fn(), account } = {}) {
-  const state = account ? initialState().setIn(['accounts', 'a1'], fromJS(account)) : initialState();
+function renderMenu({ status, signedIn, onClick = jest.fn(), account, tags, contentHtml: html } = {}) {
+  let state = initialState();
+
+  if (account) {
+    state = state.setIn(['accounts', 'a1'], fromJS(account));
+  }
+
+  if (html) {
+    state = state.setIn(['statuses', 's1', 'contentHtml'], html);
+  }
+
+  if (tags) {
+    state = state.setIn(['statuses', 's1', 'tags'], fromJS(tags));
+  }
+
+  const statusProp = status || buildStatus({
+    ...(html ? { contentHtml: html } : {}),
+    ...(tags ? { tags } : {}),
+  });
   const store = createStore(reducer, state, applyMiddleware(thunk));
   const view = render(
     <Provider store={store}>
       <RouterProvider>
-        <StatusContent status={status} onTranslate={jest.fn()} onClick={onClick} />
+        <StatusContent status={statusProp} onTranslate={jest.fn()} onClick={onClick} />
         <HashtagMenuController signedIn={signedIn} />
       </RouterProvider>
     </Provider>,
@@ -313,13 +330,14 @@ describe('HashtagMenuController', () => {
       }),
     });
     const translated = container.querySelector('.status__content__text a.mention.hashtag');
-    const badge = screen.getByRole('link', { name: '#Test' });
+    const badge = screen.getByRole('link', { name: '#fedibird' });
 
     expect(translated.textContent).toBe('#different');
+    expect(screen.queryByRole('link', { name: '#Test' })).toBeNull();
 
     click(badge);
     fireEvent.click(screen.getByRole('button', { name: 'Copy hashtag' }));
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('#Test');
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('#fedibird');
 
     click(translated);
     fireEvent.click(screen.getByRole('button', { name: 'Copy hashtags' }));
@@ -385,5 +403,44 @@ describe('HashtagMenuController', () => {
     expect(screen.getByRole('button', { name: 'Copy hashtags' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Add to favorites' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Mute #test' })).toBeNull();
+  });
+
+  it('opens the menu from an out-of-band badge and copies that tag with the original set', () => {
+    const html = `<p>本文 ${anchor('FediBird')} です</p>`;
+    const tags = [
+      { name: 'fedibird', url: 'https://example.com/tags/fedibird' },
+      { name: 'bar', url: 'https://example.com/tags/bar' },
+    ];
+    const { container } = renderMenu({
+      contentHtml: html,
+      tags,
+      status: buildStatus({
+        contentHtml: html,
+        tags,
+        translationMode: 'translated',
+        translation,
+      }),
+    });
+    const badge = screen.getByRole('link', { name: '#bar' });
+
+    expect(container.querySelector('.status__content__text').textContent).toContain('#different');
+    expect(container.querySelector('.status__content__hashtag-badge[data-menu-hashtag="fedibird"]')).toBeNull();
+    expect(badge).toHaveAttribute('data-menu-hashtag', 'bar');
+    expect(badge).toHaveAttribute('data-account-id', 'a1');
+    expect(badge).toHaveAttribute('data-account-name', 'alice');
+    expect(badge).toHaveAttribute('data-status-id', 's1');
+
+    click(badge);
+
+    expect(screen.getByRole('button', { name: 'View posts with #bar' })).toHaveAttribute('href', '/timelines/tag/bar');
+    expect(screen.getByRole('button', { name: 'View alice\'s posts with #bar' })).toHaveAttribute('href', '/accounts/a1/posts/bar');
+    expect(screen.getByRole('button', { name: 'Add to favorites' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Mute #bar' })).toHaveAttribute('href', '/filters');
+    expect(Overlay.lastTarget).toBe(badge);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy hashtags' }));
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('#FediBird #bar');
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalledWith(expect.stringContaining('#different'));
   });
 });

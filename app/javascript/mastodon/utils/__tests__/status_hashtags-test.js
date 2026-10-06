@@ -1,4 +1,6 @@
-import { collectStatusHashtags, isHashtagMenuLink, splitTrailingHashtags, stripMatchingTrailingHashtags, trailingHashtagsEqual } from '../status_hashtags';
+import { fromJS } from 'immutable';
+
+import { collectCopyHashtags, collectStatusHashtags, computeStatusHashtagBadges, isHashtagMenuLink, localeAwareInclude, splitTrailingHashtags, stripMatchingTrailingHashtags, trailingHashtagsEqual, uniqueHashtagsWithCaseHandling } from '../status_hashtags';
 
 function anchor(name, { href, rel = 'tag', classes = 'mention hashtag' } = {}) {
   const url = href || `https://example.com/tags/${encodeURIComponent(name)}`;
@@ -428,5 +430,208 @@ describe('trailing hashtag translation matching', () => {
 
     expect(sourceParts.hashtags).toEqual([]);
     expect(stripMatchingTrailingHashtags(sourceParts.hashtags, target)).toBe(target);
+  });
+});
+
+describe('hashtag comparison', () => {
+  it('matches case and NFKC with a base collator', () => {
+    expect(localeAwareInclude(['FediBird'], 'fedibird')).toBe(true);
+    expect(localeAwareInclude(['Ａ'], 'a')).toBe(true);
+    expect(localeAwareInclude(['foo'], 'bar')).toBe(false);
+    expect(localeAwareInclude([], 'foo')).toBe(false);
+  });
+
+  it('keeps the mixed-case spelling when several casings are grouped', () => {
+    expect(uniqueHashtagsWithCaseHandling(['foo', 'Foo', 'FOO'])).toEqual(['Foo']);
+    expect(uniqueHashtagsWithCaseHandling(['alpha', 'beta'])).toEqual(['alpha', 'beta']);
+  });
+});
+
+function textOf(html) {
+  const template = document.createElement('template');
+  template.innerHTML = html;
+
+  return template.content.textContent;
+}
+
+describe('computeStatusHashtagBadges', () => {
+  const tags = (...names) => names.map(name => ({
+    name,
+    url: `https://example.com/tags/${encodeURIComponent(name)}`,
+  }));
+
+  it('keeps a mid-body hashtag and badges only the out-of-band tag', () => {
+    const html = `<p>Simple text ${anchor('hashtag')} continues</p>`;
+    const result = computeStatusHashtagBadges(html, tags('hashtag', 'test'));
+
+    expect(result.html).toBe(html);
+    expect(result.hashtags).toEqual([
+      { name: 'test', text: '#test', href: 'https://example.com/tags/test' },
+    ]);
+    expect(result.trailing).toEqual([]);
+  });
+
+  it('lifts a same-line trailing hashtag and still badges the out-of-band tag first', () => {
+    const result = computeStatusHashtagBadges(
+      `<p>Simple text ${anchor('hashtag')}</p>`,
+      tags('hashtag', 'test'),
+    );
+
+    expect(result.html).toBe('<p>Simple text</p>');
+    expect(result.hashtags.map(hashtag => hashtag.text)).toEqual(['#test', '#hashtag']);
+    expect(result.hashtags[1].href).toBe('https://example.com/tags/hashtag');
+  });
+
+  it('does not badge a tag that remains visible in the body', () => {
+    const html = `<p>本文 ${anchor('foo')} です</p>`;
+    const result = computeStatusHashtagBadges(html, tags('foo'));
+
+    expect(result.html).toBe(html);
+    expect(result.hashtags).toEqual([]);
+  });
+
+  it('removes a repeated trailing tag and does not badge it when the body still shows it', () => {
+    const html = `<p>本文 ${anchor('foo')} です<br>${anchor('foo')}</p>`;
+    const result = computeStatusHashtagBadges(html, tags('foo'));
+
+    expect(result.html).toBe(`<p>本文 ${anchor('foo')} です</p>`);
+    expect(result.hashtags).toEqual([]);
+    expect(result.trailing.map(hashtag => hashtag.name)).toEqual(['foo']);
+    expect(stripMatchingTrailingHashtags(result.trailing, `<p>訳<br>${anchor('foo')}</p>`)).toBe('<p>訳</p>');
+  });
+
+  it('orders out-of-band tags before a trailing tag that is not still in the body', () => {
+    const html = `<p>${anchor('body')} を含む<br>${anchor('tail')}</p>`;
+    const result = computeStatusHashtagBadges(html, tags('body', 'tail', 'hidden'));
+
+    expect(textOf(result.html)).toContain('#body');
+    expect(textOf(result.html)).not.toContain('#tail');
+    expect(result.hashtags.map(hashtag => hashtag.text)).toEqual(['#hidden', '#tail']);
+    expect(result.hashtags[0].href).toBe('https://example.com/tags/hidden');
+    expect(result.hashtags[1].href).toBe('https://example.com/tags/tail');
+  });
+
+  it('still badges a Misskey trailing hashtag that status.tags does not list', () => {
+    const html = [
+      '<p>Hello <small>',
+      '  <a href="https://misskey.example/tags/one" rel="nofollow noopener noreferrer" class="mention hashtag" target="_blank">#one</a>',
+      '</small></p>',
+    ].join('\n');
+    const result = computeStatusHashtagBadges(html, tags('other'));
+
+    expect(result.html).toBe('<p>Hello</p>');
+    expect(result.hashtags.map(hashtag => hashtag.text)).toEqual(['#other', '#one']);
+    expect(result.hashtags[1].href).toBe('https://misskey.example/tags/one');
+  });
+
+  it('still badges a Pixelfed trailing hashtag that status.tags does not list', () => {
+    const html = [
+      'たぶんナラタケモドキ。<br><br>',
+      '<a href="https://fedisnap.com/discover/tags/fedibird?src=hash" class="u-url hashtag mention" rel="nofollow noopener noreferrer" target="_blank">#fedibird</a>',
+    ].join('');
+    const result = computeStatusHashtagBadges(html, []);
+
+    expect(result.hashtags).toEqual([
+      {
+        name: 'fedibird',
+        text: '#fedibird',
+        href: 'https://fedisnap.com/discover/tags/fedibird?src=hash',
+      },
+    ]);
+  });
+
+  it('does not duplicate a tag that differs only by case or NFKC', () => {
+    const trailing = computeStatusHashtagBadges(`<p>Hello ${anchor('FediBird')}</p>`, tags('fedibird'));
+    const fullwidth = computeStatusHashtagBadges(`<p>${anchor('Ａ')} text</p>`, tags('a', 'extra'));
+    const repeated = computeStatusHashtagBadges(
+      `<p>この話は ${anchor('FediBird')} についてです<br>${anchor('fedibird')}</p>`,
+      fromJS(tags('FEDIBIRD')),
+    );
+
+    expect(trailing.hashtags.map(hashtag => hashtag.text)).toEqual(['#FediBird']);
+    expect(textOf(fullwidth.html)).toContain('#Ａ');
+    expect(fullwidth.hashtags.map(hashtag => hashtag.text)).toEqual(['#extra']);
+    expect(textOf(repeated.html)).toBe('この話は #FediBird についてです');
+    expect(repeated.hashtags).toEqual([]);
+  });
+
+  it('badges a fullwidth trailing hash once when status.tags lists the same name', () => {
+    const href = 'https://remote.example/tags/foo';
+    const html = `<p>本文 <a href="${href}" class="mention hashtag" rel="tag">＃foo</a></p>`;
+    const result = computeStatusHashtagBadges(html, [
+      { name: 'foo', url: 'https://example.com/tags/foo' },
+    ]);
+
+    expect(result.html).toBe('<p>本文</p>');
+    expect(result.hashtags).toEqual([
+      { name: 'foo', text: '＃foo', href },
+    ]);
+  });
+
+  it('keeps the mixed-case trailing spelling and its href when casings repeat', () => {
+    const html = `<p>Hello ${anchor('foo', { href: 'https://example.com/tags/foo' })} ${anchor('Foo', { href: 'https://example.com/tags/Foo' })} ${anchor('FOO', { href: 'https://example.com/tags/FOO' })}</p>`;
+    const result = computeStatusHashtagBadges(html, [
+      { name: 'foo', url: 'https://api.example/tags/foo' },
+    ]);
+
+    expect(result.html).toBe('<p>Hello</p>');
+    expect(result.hashtags).toEqual([
+      { name: 'Foo', text: '#Foo', href: 'https://example.com/tags/Foo' },
+    ]);
+    expect(result.trailing).toHaveLength(3);
+  });
+
+  it('picks the mixed-case accented spelling Mastodon keeps for the bar', () => {
+    const html = `<p>${anchor('éaa', { href: 'https://example.com/tags/lower' })} ${anchor('Éaa', { href: 'https://example.com/tags/mixed' })}</p>`;
+    const result = computeStatusHashtagBadges(html, [
+      { name: 'éaa', url: 'https://api.example/tags/eaa' },
+    ]);
+
+    expect(result.hashtags).toEqual([
+      { name: 'Éaa', text: '#Éaa', href: 'https://example.com/tags/mixed' },
+    ]);
+  });
+
+  it('does not badge a trailing casing when the body already shows that tag', () => {
+    const html = `<p>See ${anchor('test')} today ${anchor('mastodon')} ${anchor('Test')} ${anchor('fedibird')}</p>`;
+    const result = computeStatusHashtagBadges(html, []);
+
+    expect(textOf(result.html)).toBe('See #test today');
+    expect(result.hashtags.map(hashtag => hashtag.text)).toEqual(['#mastodon', '#fedibird']);
+  });
+
+  it('reads Immutable status tags and ignores a missing tag list', () => {
+    const html = `<p>Hello ${anchor('one')}</p>`;
+
+    expect(computeStatusHashtagBadges(html, fromJS([
+      { name: '#hidden', url: 'https://example.com/tags/hidden' },
+    ])).hashtags.map(hashtag => hashtag.text)).toEqual(['#hidden', '#one']);
+    expect(computeStatusHashtagBadges(html).hashtags.map(hashtag => hashtag.text)).toEqual(['#one']);
+    expect(computeStatusHashtagBadges(null, tags('only'))).toEqual({
+      html: '',
+      hashtags: [{ name: 'only', text: '#only', href: 'https://example.com/tags/only' }],
+      trailing: [],
+    });
+  });
+});
+
+describe('collectCopyHashtags', () => {
+  it('appends status tags that are not already visible, in API order', () => {
+    const html = `<p>${anchor('foo')}</p>`;
+
+    expect(collectCopyHashtags(html, [
+      { name: 'foo', url: 'https://example.com/tags/foo' },
+      { name: 'bar', url: 'https://example.com/tags/bar' },
+    ]).map(hashtag => hashtag.text)).toEqual(['#foo', '#bar']);
+  });
+
+  it('keeps the visible spelling when the API name differs only by case or NFKC', () => {
+    const html = `<p>${anchor('FediBird')} ${anchor('Ａ')}</p>`;
+
+    expect(collectCopyHashtags(html, fromJS([
+      { name: 'fedibird', url: 'https://example.com/tags/fedibird' },
+      { name: 'a', url: 'https://example.com/tags/a' },
+      { name: 'bar', url: 'https://example.com/tags/bar' },
+    ])).map(hashtag => hashtag.text)).toEqual(['#FediBird', '#Ａ', '#bar']);
   });
 });

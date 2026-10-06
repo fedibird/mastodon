@@ -8,7 +8,7 @@ import { DropdownMenu } from 'mastodon/components/dropdown_menu';
 import { createFavouriteTag } from 'mastodon/actions/favourite_tags';
 import { me } from 'mastodon/initial_state';
 import { copyText } from 'mastodon/utils/clipboard';
-import { collectStatusHashtags } from 'mastodon/utils/status_hashtags';
+import { collectCopyHashtags } from 'mastodon/utils/status_hashtags';
 
 const messages = defineMessages({
   browse: { id: 'hashtag.browse', defaultMessage: 'View posts with #{hashtag}' },
@@ -126,7 +126,7 @@ class HashtagMenuController extends React.PureComponent {
   copyAllHashtags = () => {
     const status = this.props.statuses && this.props.statuses.get(this.state.statusId);
     const html = status && status.get('contentHtml');
-    const labels = collectStatusHashtags(html || '').map(hashtag => hashtag.text);
+    const labels = collectCopyHashtags(html || '', status && status.get('tags')).map(hashtag => hashtag.text);
 
     copyText(labels.join(' '));
   }
