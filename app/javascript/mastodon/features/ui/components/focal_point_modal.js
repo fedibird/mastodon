@@ -38,17 +38,20 @@ const messages = defineMessages({
 });
 
 const mapStateToProps = (state, { id, composerId }) => {
-  const composer = selectComposer(state, composerId ?? PRIMARY_COMPOSER_ID);
+  const composer = selectComposer(state, composerId);
+  const media = composer
+    ? composer.get('media_attachments').find(item => item.get('id') === id)
+    : null;
 
   return {
-    media: composer.get('media_attachments').find(item => item.get('id') === id),
+    media: media || null,
     account: state.getIn(['accounts', me]),
-    isUploadingThumbnail: composer.get('isUploadingThumbnail'),
-    description: composer.getIn(['media_modal', 'description']),
-    focusX: composer.getIn(['media_modal', 'focusX']),
-    focusY: composer.getIn(['media_modal', 'focusY']),
-    dirty: composer.getIn(['media_modal', 'dirty']),
-    is_changing_upload: composer.get('is_changing_upload'),
+    isUploadingThumbnail: composer ? composer.get('isUploadingThumbnail') : false,
+    description: composer ? composer.getIn(['media_modal', 'description']) : '',
+    focusX: composer ? composer.getIn(['media_modal', 'focusX']) : 0,
+    focusY: composer ? composer.getIn(['media_modal', 'focusY']) : 0,
+    dirty: composer ? composer.getIn(['media_modal', 'dirty']) : false,
+    is_changing_upload: composer ? composer.get('is_changing_upload') : false,
   };
 };
 
@@ -114,7 +117,7 @@ class FocalPointModal extends ImmutablePureComponent {
 
   static propTypes = {
     composerId: PropTypes.string,
-    media: ImmutablePropTypes.map.isRequired,
+    media: ImmutablePropTypes.map,
     account: ImmutablePropTypes.map.isRequired,
     isUploadingThumbnail: PropTypes.bool,
     onSave: PropTypes.func.isRequired,
@@ -285,6 +288,11 @@ class FocalPointModal extends ImmutablePureComponent {
 
   render () {
     const { media, intl, account, onClose, isUploadingThumbnail, description, focusX, focusY, dirty, is_changing_upload } = this.props;
+
+    if (!media) {
+      return null;
+    }
+
     const { dragging, detecting, progress, ocrStatus } = this.state;
     const x = (focusX /  2) + .5;
     const y = (focusY / -2) + .5;

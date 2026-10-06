@@ -325,7 +325,7 @@ describe('composer async routing', () => {
       let cancelled = false;
       config.cancelToken.promise.then(() => {
         cancelled = true;
-      }, () => {
+      }).catch(() => {
         cancelled = true;
       });
       requests.push({
@@ -353,6 +353,13 @@ describe('composer async routing', () => {
 
   it('opens the focal point modal against the requested composer', () => {
     const { store, actions } = makeStore();
+    store.dispatch(createComposer('composer-a'));
+    store.dispatch(targetComposerAction({
+      type: COMPOSE_UPLOAD_SUCCESS,
+      media: { id: 'm1', description: 'alt', type: 'image' },
+      file: null,
+      skipLoading: true,
+    }, 'composer-a'));
 
     store.dispatch(initComposerMediaEditModal('composer-a', 'm1'));
 
@@ -368,6 +375,25 @@ describe('composer async routing', () => {
         modalProps: { id: 'm1', composerId: 'composer-a' },
       },
     ]));
+  });
+
+  it('does not open the focal point modal for a missing composer', () => {
+    const { store, actions } = makeStore();
+
+    store.dispatch(initComposerMediaEditModal('missing', 'm1'));
+
+    expect(actions.find(action => action.type === INIT_MEDIA_EDIT_MODAL)).toBeUndefined();
+    expect(actions.find(action => action.type === MODAL_OPEN)).toBeUndefined();
+  });
+
+  it('does not open the focal point modal when the media is gone', () => {
+    const { store, actions } = makeStore();
+    store.dispatch(createComposer('composer-a'));
+
+    store.dispatch(initComposerMediaEditModal('composer-a', 'm1'));
+
+    expect(actions.find(action => action.type === INIT_MEDIA_EDIT_MODAL)).toBeUndefined();
+    expect(actions.find(action => action.type === MODAL_OPEN)).toBeUndefined();
   });
 
   it('routes reply to the requested composer and keeps the primary wrapper on primary', () => {

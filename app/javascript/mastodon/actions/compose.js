@@ -688,7 +688,19 @@ export const uploadThumbnailFail = error => ({
 });
 
 export function initComposerMediaEditModal(composerId, id) {
-  return dispatch => {
+  return (dispatch, getState) => {
+    const composer = selectComposer(getState(), composerId);
+
+    if (!composer) {
+      return;
+    }
+
+    const media = composer.get('media_attachments').find(item => item.get('id') === id);
+
+    if (!media) {
+      return;
+    }
+
     dispatch(targetComposerAction({
       type: INIT_MEDIA_EDIT_MODAL,
       id,
