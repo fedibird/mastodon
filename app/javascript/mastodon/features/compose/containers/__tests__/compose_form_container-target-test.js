@@ -1,7 +1,7 @@
 /* eslint-disable react/prop-types */
 
 import { fireEvent, render, screen } from '@testing-library/react';
-import { fromJS, Map as ImmutableMap } from 'immutable';
+import { fromJS } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
 import { combineReducers } from 'redux-immutable';
@@ -75,7 +75,7 @@ jest.mock('../../../../is_mobile', () => ({ isMobile: () => false }));
 
 import { changeCompose, changeComposeVisibility, setComposeToStatus } from '../../../../actions/compose';
 import { applyComposerPostingContext, createComposer, targetComposerAction } from '../../../../actions/composer';
-import { buildFedibirdGroupPostingContext } from '../../../../posting_context/fedibird_group';
+import { groupPostingContext } from '../../../../posting_context/fixtures/group_context_fixture';
 import compose from '../../../../reducers/compose';
 import composers from '../../../../reducers/composers';
 import relationships from '../../../../reducers/relationships';
@@ -149,12 +149,10 @@ describe('ComposeFormContainer composer targeting', () => {
 
   it('enables publish when a live follow relationship becomes satisfied', () => {
     const store = createStore(combineReducers({ compose, composers, relationships }));
-    const group = ImmutableMap({ id: '123', acct: 'group', username: 'group', group: true });
-
     store.dispatch(createComposer('composer-a'));
     store.dispatch(targetComposerAction(changeComposeVisibility('public'), 'composer-a'));
     store.dispatch(targetComposerAction(changeCompose('Hello'), 'composer-a'));
-    store.dispatch(applyComposerPostingContext('composer-a', buildFedibirdGroupPostingContext(group)));
+    store.dispatch(applyComposerPostingContext('composer-a', groupPostingContext));
     store.dispatch({
       type: 'RELATIONSHIPS_FETCH_SUCCESS',
       relationships: [{ id: '123', following: false, requested: false }],
@@ -182,10 +180,8 @@ describe('ComposeFormContainer composer targeting', () => {
 
   it('keeps Save changes available while editing a private post without following the group', () => {
     const store = createStore(combineReducers({ compose, composers, relationships }));
-    const group = ImmutableMap({ id: '123', acct: 'group', username: 'group', group: true });
-
     store.dispatch(createComposer('composer-a'));
-    store.dispatch(applyComposerPostingContext('composer-a', buildFedibirdGroupPostingContext(group)));
+    store.dispatch(applyComposerPostingContext('composer-a', groupPostingContext));
     store.dispatch(targetComposerAction(setComposeToStatus(fromJS({
       id: 'status-9',
       visibility: 'private',

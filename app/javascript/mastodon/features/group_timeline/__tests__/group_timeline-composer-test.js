@@ -1,11 +1,13 @@
 /* eslint-disable react/prop-types */
 
-import { render } from '@testing-library/react';
-import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
+import { cleanup, render } from '@testing-library/react';
+import { List as ImmutableList, Map as ImmutableMap, fromJS } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
 import { applyMiddleware, createStore } from 'redux';
 import thunk from 'redux-thunk';
+
+import { groupPostingContext } from '../../../posting_context/fixtures/group_context_fixture';
 
 jest.mock('react-intl', () => {
   const React = require('react');
@@ -18,8 +20,15 @@ jest.mock('react-intl', () => {
   };
 });
 
+const mockFetchAccount = jest.fn(id => ({ type: 'ACCOUNT_FETCH', id }));
+const mockFetchPostingContext = jest.fn(id => ({ type: 'POSTING_CONTEXT_FETCH', id }));
+
 jest.mock('../../../actions/accounts', () => ({
-  fetchAccount: id => ({ type: 'ACCOUNT_FETCH', id }),
+  fetchAccount: (...args) => mockFetchAccount(...args),
+}));
+
+jest.mock('../../../actions/posting_contexts', () => ({
+  fetchPostingContext: (...args) => mockFetchPostingContext(...args),
 }));
 
 jest.mock('../../../actions/timelines', () => ({
@@ -65,6 +74,30 @@ const localGroup = ImmutableMap({
   display_name: 'Group',
 });
 
+const remoteLookingGroup = ImmutableMap({
+  id: '456',
+  username: 'group',
+  acct: 'group@example.com',
+  group: true,
+  display_name: 'Remote group',
+});
+
+const discoveryRecord = (status, context = null, reason = null) => fromJS({
+  status,
+  context,
+  discovery: status === 'resolved' ? {
+    mechanism: 'built_in',
+    adapter: 'fedibird_group',
+    authority: 'server',
+  } : {
+    mechanism: null,
+    adapter: null,
+    authority: null,
+  },
+  reason,
+  error: null,
+});
+
 const loadTimeline = (policy) => {
   let GroupTimeline;
 
@@ -79,12 +112,25 @@ const loadTimeline = (policy) => {
   return GroupTimeline;
 };
 
-const renderTimeline = (GroupTimeline, { columnId, account = localGroup, onlyMedia = false, withoutMedia = false, tagged } = {}) => {
+const renderTimeline = (GroupTimeline, {
+  columnId,
+  account = localGroup,
+  accounts,
+  onlyMedia = false,
+  withoutMedia = false,
+  tagged,
+  discovery = discoveryRecord('resolved', groupPostingContext),
+} = {}) => {
   captured.length = 0;
-  const store = createStore(() => ImmutableMap({
-    accounts: ImmutableMap({
-      [account.get('id')]: account,
-    }),
+  const accountMap = accounts || ImmutableMap({
+    [account.get('id')]: account,
+  });
+  const postingContexts = discovery ? accountMap.map(item => (
+    item.get('id') === account.get('id') ? discovery : null
+  )).filter(value => value) : ImmutableMap();
+  const initialState = ImmutableMap({
+    accounts: accountMap,
+    posting_contexts: postingContexts,
     timelines: ImmutableMap(),
     settings: ImmutableMap({
       columns: ImmutableList(),
@@ -92,73 +138,154 @@ const renderTimeline = (GroupTimeline, { columnId, account = localGroup, onlyMed
         other: ImmutableMap({ onlyMedia, withoutMedia }),
       }),
     }),
-  }), applyMiddleware(thunk));
+  });
+  const store = createStore((state = initialState, action) => (
+    action && action.type === 'TEST_REPLACE' ? action.state : state
+  ), initialState, applyMiddleware(thunk));
 
-  render(
+  const view = render(
     <Provider store={store}>
       <GroupTimeline params={{ id: account.get('id'), tagged }} columnId={columnId} multiColumn={false} />
     </Provider>,
   );
 
-  return captured[captured.length - 1];
+  return {
+    props: captured[captured.length - 1],
+    store,
+    initialState,
+    ...view,
+  };
 };
 
 describe('GroupTimeline portable composer', () => {
-  it('prepends a tester composer for a local Fedibird group', () => {
-    const GroupTimeline = loadTimeline('tester');
-    const routeProps = renderTimeline(GroupTimeline);
-    const columnProps = renderTimeline(GroupTimeline, { columnId: 'column-1' });
-    const context = routeProps.prepend.props.postingContext;
-
-    expect(routeProps.alwaysPrepend).toBe(true);
-    expect(routeProps.prepend.props.composerId).toEqual('portable:group-route:123');
-    expect(routeProps.prepend.key).toEqual('portable:group-route:123');
-    expect(context.managed.mentions[0]).toEqual({
-      accountId: '123',
-      acct: 'group',
-      enforcement: 'required',
-      ruleId: 'group-account-mention',
-    });
-    expect(context.requirements.followingAccounts[0]).toEqual({
-      accountId: '123',
-      acct: 'group',
-      enforcement: 'required',
-      ruleId: 'group-follow',
-    });
-    expect(context.constraints.allowedVisibilities).toEqual(['public', 'unlisted']);
-    expect(columnProps.prepend.props.composerId).toEqual('portable:group-column:column-1');
-    expect(columnProps.prepend.key).toEqual('portable:group-column:column-1');
-    expect(columnProps.alwaysPrepend).toBe(true);
+  beforeEach(() => {
+    mockFetchAccount.mockClear();
+    mockFetchPostingContext.mockClear();
   });
 
-  it('keeps timeline filters out of the posting context', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('prepends a tester composer from a resolved discovery result', () => {
+    const GroupTimeline = loadTimeline('tester');
+    const route = renderTimeline(GroupTimeline);
+    const column = renderTimeline(GroupTimeline, { columnId: 'column-1' });
+    const context = route.props.prepend.props.postingContext;
+
+    expect(mockFetchPostingContext).toHaveBeenCalledWith('123');
+    expect(mockFetchAccount).toHaveBeenCalledWith('123');
+    expect(route.props.alwaysPrepend).toBe(true);
+    expect(route.props.prepend.props.composerId).toEqual('portable:group-route:123');
+    expect(route.props.prepend.key).toEqual('portable:group-route:123');
+    expect(context).toEqual(groupPostingContext);
+    expect(context.discovery).toBeUndefined();
+    expect(column.props.prepend.props.composerId).toEqual('portable:group-column:column-1');
+    expect(column.props.prepend.key).toEqual('portable:group-column:column-1');
+    expect(column.props.alwaysPrepend).toBe(true);
+  });
+
+  it('keeps timeline filters out of the posting context and does not rediscover them', () => {
     const GroupTimeline = loadTimeline('tester');
     const plain = renderTimeline(GroupTimeline);
-    const filtered = renderTimeline(GroupTimeline, { tagged: 'news', onlyMedia: true, withoutMedia: true });
+    const callsAfterMount = mockFetchPostingContext.mock.calls.length;
 
-    expect(filtered.prepend.props.composerId).toEqual(plain.prepend.props.composerId);
-    expect(filtered.prepend.props.postingContext).toEqual(plain.prepend.props.postingContext);
+    plain.store.dispatch({
+      type: 'TEST_REPLACE',
+      state: plain.initialState.setIn(['settings', 'group', 'other', 'onlyMedia'], true),
+    });
+
+    const filtered = captured[captured.length - 1];
+
+    expect(mockFetchPostingContext.mock.calls.length).toEqual(callsAfterMount);
+    expect(filtered.prepend.props.composerId).toEqual(plain.props.prepend.props.composerId);
+    expect(filtered.prepend.props.postingContext).toEqual(plain.props.prepend.props.postingContext);
   });
 
-  it('does not prepend a composer for a remote group', () => {
+  it('refetches the account and discovery result when the group id changes', () => {
     const GroupTimeline = loadTimeline('tester');
-    const remote = ImmutableMap({
-      id: '123',
-      username: 'group',
-      acct: 'group@example.com',
-      group: true,
-      display_name: 'Remote group',
+    const accounts = ImmutableMap({
+      '123': localGroup,
+      '456': remoteLookingGroup,
     });
-    const props = renderTimeline(GroupTimeline, { account: remote });
+    const view = renderTimeline(GroupTimeline, {
+      account: localGroup,
+      accounts,
+      discovery: discoveryRecord('resolved', groupPostingContext),
+    });
+
+    view.rerender(
+      <Provider store={view.store}>
+        <GroupTimeline params={{ id: '456' }} multiColumn={false} />
+      </Provider>,
+    );
+
+    expect(mockFetchAccount).toHaveBeenCalledWith('456');
+    expect(mockFetchPostingContext).toHaveBeenCalledWith('456');
+  });
+
+  it('hides the composer when discovery is unsupported, including a local-looking group', () => {
+    const GroupTimeline = loadTimeline('tester');
+    const props = renderTimeline(GroupTimeline, {
+      discovery: discoveryRecord('unsupported', null, 'no_supported_adapter'),
+    }).props;
 
     expect(props.prepend).toBeNull();
     expect(props.alwaysPrepend).toBe(false);
   });
 
-  it('does not prepend a composer for default or conservative policy', () => {
-    ['default', 'conservative'].forEach(policy => {
-      const props = renderTimeline(loadTimeline(policy));
+  it('hides the composer for a remote-looking group when discovery is unsupported', () => {
+    const GroupTimeline = loadTimeline('tester');
+    const props = renderTimeline(GroupTimeline, {
+      account: remoteLookingGroup,
+      discovery: discoveryRecord('unsupported', null, 'no_supported_adapter'),
+    }).props;
 
+    expect(props.prepend).toBeNull();
+    expect(props.alwaysPrepend).toBe(false);
+  });
+
+  it('shows the composer for a remote-looking group when discovery is resolved', () => {
+    const GroupTimeline = loadTimeline('tester');
+    const props = renderTimeline(GroupTimeline, {
+      account: remoteLookingGroup,
+      discovery: discoveryRecord('resolved', {
+        ...groupPostingContext,
+        key: 'builtin:fedibird-group:456',
+      }),
+    }).props;
+
+    expect(props.prepend.props.composerId).toEqual('portable:group-route:456');
+    expect(props.prepend.props.postingContext.key).toEqual('builtin:fedibird-group:456');
+    expect(props.prepend.props.postingContext.discovery).toBeUndefined();
+  });
+
+  it('keeps the timeline without a composer while discovery is missing, loading, or failed', () => {
+    const GroupTimeline = loadTimeline('tester');
+
+    ['loading', 'not_applicable', 'error'].forEach(status => {
+      cleanup();
+      const view = renderTimeline(GroupTimeline, {
+        discovery: status === 'not_applicable' ? discoveryRecord(status, null, 'not_group') : discoveryRecord(status),
+      });
+
+      expect(view.container.querySelector('[data-testid="status-list"]')).not.toBeNull();
+      expect(view.props.prepend).toBeNull();
+    });
+
+    cleanup();
+    const missing = renderTimeline(GroupTimeline, { discovery: null });
+
+    expect(missing.container.querySelector('[data-testid="status-list"]')).not.toBeNull();
+    expect(missing.props.prepend).toBeNull();
+  });
+
+  it('does not fetch or prepend a composer for default or conservative policy', () => {
+    ['default', 'conservative'].forEach(policy => {
+      mockFetchPostingContext.mockClear();
+      const props = renderTimeline(loadTimeline(policy)).props;
+
+      expect(mockFetchPostingContext).not.toHaveBeenCalled();
       expect(props.prepend).toBeNull();
       expect(props.alwaysPrepend).toBe(false);
     });

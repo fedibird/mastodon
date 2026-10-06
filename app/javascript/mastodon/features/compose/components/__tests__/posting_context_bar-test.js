@@ -1,5 +1,4 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { Map as ImmutableMap } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
 import { createStore } from 'redux';
@@ -25,7 +24,7 @@ jest.mock('react-intl', () => {
 
 import { changeCompose } from '../../../../actions/compose';
 import { applyComposerPostingContext, createComposer, targetComposerAction } from '../../../../actions/composer';
-import { buildFedibirdGroupPostingContext } from '../../../../posting_context/fedibird_group';
+import { groupPostingContext } from '../../../../posting_context/fixtures/group_context_fixture';
 import { buildHashtagTimelinePostingContext } from '../../../../posting_context/hashtag';
 import compose from '../../../../reducers/compose';
 import composers from '../../../../reducers/composers';
@@ -76,10 +75,8 @@ describe('PostingContextBar', () => {
 
   it('shows a required group mention without a removal control', () => {
     const store = createStore(combineReducers({ compose, composers, relationships }));
-    const group = ImmutableMap({ id: '123', acct: 'group', username: 'group', group: true });
-
     store.dispatch(createComposer(composerId));
-    store.dispatch(applyComposerPostingContext(composerId, buildFedibirdGroupPostingContext(group)));
+    store.dispatch(applyComposerPostingContext(composerId, groupPostingContext));
     store.dispatch({
       type: 'RELATIONSHIPS_FETCH_SUCCESS',
       relationships: [{ id: '123', following: false, requested: false }],

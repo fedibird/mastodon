@@ -25,6 +25,7 @@ import blocks from './blocks';
 import boosts from './boosts';
 import reports from './reports';
 import contexts from './contexts';
+import posting_contexts from './posting_contexts';
 import compose from './compose';
 import composers from './composers';
 import history from './history';
@@ -83,6 +84,7 @@ const reducers = {
   boosts,
   reports,
   contexts,
+  posting_contexts,
   compose,
   composers,
   history,

@@ -17,7 +17,8 @@ import GroupDetail from './components/group_detail';
 import { connectGroupStream } from '../../actions/streaming';
 import { defaultColumnWidth, new_features_policy } from 'mastodon/initial_state';
 import PortableComposer from '../compose/portable_composer';
-import { buildFedibirdGroupPostingContext } from '../../posting_context/fedibird_group';
+import { fetchPostingContext } from '../../actions/posting_contexts';
+import { selectPostingContextForAccount } from '../../selectors/posting_contexts';
 import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
 
@@ -45,6 +46,7 @@ const makeMapStateToProps = () => {
       onlyMedia,
       withoutMedia,
       account,
+      postingContext: selectPostingContextForAccount(state, id),
       columnWidth: columnWidth ?? defaultColumnWidth,
     };
   };
@@ -76,6 +78,7 @@ class GroupTimeline extends React.PureComponent {
     columnWidth: PropTypes.string,
     onlyMedia: PropTypes.bool,
     withoutMedia: PropTypes.bool,
+    postingContext: PropTypes.object,
   };
 
   state = {
@@ -106,12 +109,25 @@ class GroupTimeline extends React.PureComponent {
     const { dispatch, onlyMedia, withoutMedia, params: { id, tagged } } = this.props;
 
     dispatch(fetchAccount(id));
+
+    if (new_features_policy === 'tester') {
+      dispatch(fetchPostingContext(id));
+    }
+
     dispatch(expandGroupTimeline(id, { onlyMedia, withoutMedia, tagged }));
     this.disconnect = dispatch(connectGroupStream(id, { onlyMedia, withoutMedia, tagged }));
   }
 
   componentDidUpdate (prevProps) {
     const { dispatch, onlyMedia, withoutMedia, params: { id, tagged } } = this.props;
+
+    if (prevProps.params.id !== id) {
+      dispatch(fetchAccount(id));
+
+      if (new_features_policy === 'tester') {
+        dispatch(fetchPostingContext(id));
+      }
+    }
 
     if (prevProps.params.id !== id || prevProps.onlyMedia !== onlyMedia || prevProps.withoutMedia !== this.props.withoutMedia || prevProps.tagged !== tagged) {
       this.disconnect();
@@ -157,7 +173,7 @@ class GroupTimeline extends React.PureComponent {
   }
 
   render () {
-    const { intl, hasUnread, columnId, multiColumn, onlyMedia, withoutMedia, params: { id, tagged }, account, columnWidth } = this.props;
+    const { intl, hasUnread, columnId, multiColumn, onlyMedia, withoutMedia, params: { id, tagged }, account, columnWidth, postingContext } = this.props;
     const pinned = !!columnId;
 
     const { collapsed, animating } = this.state;
@@ -166,7 +182,6 @@ class GroupTimeline extends React.PureComponent {
       return <div />;
     }
 
-    const postingContext = buildFedibirdGroupPostingContext(account);
     const composerId = columnId ? `portable:group-column:${columnId}` : `portable:group-route:${id}`;
     const portableComposer = new_features_policy === 'tester' && postingContext ? (
       <PortableComposer

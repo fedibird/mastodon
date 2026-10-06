@@ -5,15 +5,13 @@ jest.mock('react-intl', () => ({
 }));
 
 import composer from '../../reducers/composer';
-import { buildFedibirdGroupPostingContext } from '../fedibird_group';
 import { selectComposerPostingContextCompliance } from '../compliance';
-
-const localGroup = ImmutableMap({ id: '123', acct: 'group', username: 'group', group: true });
+import { groupPostingContext } from '../fixtures/group_context_fixture';
 
 const groupState = ({ privacy = 'public', prohibited = [], relationship }) => {
   let composerState = composer(undefined, {
     type: 'COMPOSER_CONTEXT_APPLY',
-    postingContext: buildFedibirdGroupPostingContext(localGroup),
+    postingContext: groupPostingContext,
   });
 
   composerState = composer(composerState, {

@@ -56,7 +56,7 @@ import { applyComposerPostingContext, createComposer, destroyComposer, targetCom
 import { REDRAFT } from '../statuses';
 import { buildHashtagTimelinePostingContext } from '../../posting_context/hashtag';
 import { MODAL_OPEN } from '../modal';
-import { buildFedibirdGroupPostingContext } from '../../posting_context/fedibird_group';
+import { groupPostingContext } from '../../posting_context/fixtures/group_context_fixture';
 import compose from '../../reducers/compose';
 import composers from '../../reducers/composers';
 import relationships from '../../reducers/relationships';
@@ -587,13 +587,11 @@ describe('composer async routing', () => {
   });
 
   describe('Fedibird group posting context', () => {
-    const localGroup = ImmutableMap({ id: '123', acct: 'group', username: 'group', group: true });
-
     const prepareGroup = (store, { privacy, following = false, requested = false, text = 'Hello' }) => {
       store.dispatch(createComposer('composer-a'));
       store.dispatch(targetComposerAction(changeComposeVisibility(privacy), 'composer-a'));
       store.dispatch(targetComposerAction(changeCompose(text), 'composer-a'));
-      store.dispatch(applyComposerPostingContext('composer-a', buildFedibirdGroupPostingContext(localGroup)));
+      store.dispatch(applyComposerPostingContext('composer-a', groupPostingContext));
       store.dispatch({
         type: 'RELATIONSHIPS_FETCH_SUCCESS',
         relationships: [{ id: '123', following, requested }],
@@ -674,7 +672,7 @@ describe('composer async routing', () => {
 
       request.mockClear();
       store.dispatch(createComposer('composer-b'));
-      store.dispatch(applyComposerPostingContext('composer-b', buildFedibirdGroupPostingContext(localGroup)));
+      store.dispatch(applyComposerPostingContext('composer-b', groupPostingContext));
       store.dispatch({
         type: 'RELATIONSHIPS_FETCH_SUCCESS',
         relationships: [{ id: '123', following: false, requested: false }],
