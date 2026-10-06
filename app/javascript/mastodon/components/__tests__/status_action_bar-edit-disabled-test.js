@@ -96,6 +96,7 @@ describe('StatusActionBar edit menu when posting is disabled', () => {
     );
 
     expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy post source' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Delete & re-draft' })).not.toBeInTheDocument();
   });
