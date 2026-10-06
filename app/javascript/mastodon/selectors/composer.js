@@ -1,4 +1,6 @@
-export const PRIMARY_COMPOSER_ID = 'primary';
+import { PRIMARY_COMPOSER_ID } from '../utils/composer';
+
+export { PRIMARY_COMPOSER_ID };
 
 export const selectComposer = (
   state,
