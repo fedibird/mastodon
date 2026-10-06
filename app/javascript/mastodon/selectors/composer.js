@@ -10,5 +10,5 @@ export const selectComposer = (
     return state.get('compose');
   }
 
-  return null;
+  return state.getIn(['composers', 'byId', composerId], null);
 };

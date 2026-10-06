@@ -3,7 +3,13 @@ jest.mock('react-intl', () => ({
 }));
 
 import { COMPOSE_CHANGE, changeCompose } from '../compose';
-import { targetComposerAction } from '../composer';
+import {
+  COMPOSER_CREATE,
+  COMPOSER_DESTROY,
+  createComposer,
+  destroyComposer,
+  targetComposerAction,
+} from '../composer';
 
 describe('targetComposerAction', () => {
   it('adds a composer id to a plain action', () => {
@@ -47,6 +53,26 @@ describe('targetComposerAction', () => {
     expect(targeted.meta).not.toBe(action.meta);
     expect(action.meta).toEqual({
       existing: true,
+    });
+  });
+});
+
+describe('composer lifecycle actions', () => {
+  it('targets create at the requested composer', () => {
+    expect(createComposer('composer-a')).toEqual({
+      type: COMPOSER_CREATE,
+      meta: {
+        composerId: 'composer-a',
+      },
+    });
+  });
+
+  it('targets destroy at the requested composer', () => {
+    expect(destroyComposer('composer-a')).toEqual({
+      type: COMPOSER_DESTROY,
+      meta: {
+        composerId: 'composer-a',
+      },
     });
   });
 });

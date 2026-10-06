@@ -7,8 +7,18 @@ const compose = fromJS({
   language: 'ja',
 });
 
+const portable = fromJS({
+  text: 'portable',
+  language: 'en',
+});
+
 const state = fromJS({
   compose,
+  composers: {
+    byId: {
+      'composer-a': portable,
+    },
+  },
 });
 
 describe('selectComposer', () => {
@@ -18,6 +28,10 @@ describe('selectComposer', () => {
 
   it('defaults to the primary composer and keeps the existing map identity', () => {
     expect(selectComposer(state)).toBe(state.get('compose'));
+  });
+
+  it('returns the registry composer by identity', () => {
+    expect(selectComposer(state, 'composer-a')).toBe(state.getIn(['composers', 'byId', 'composer-a']));
   });
 
   it('returns null for an unknown composer id', () => {
