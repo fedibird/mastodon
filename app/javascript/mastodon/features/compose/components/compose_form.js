@@ -88,11 +88,13 @@ class ComposeForm extends ImmutablePureComponent {
     anyMedia: PropTypes.bool,
     singleColumn: PropTypes.bool,
     autoFocus: PropTypes.bool,
+    contextCompliant: PropTypes.bool,
   };
 
   static defaultProps = {
     showSearch: false,
     autoFocus: true,
+    contextCompliant: true,
   };
 
   handleChange = (e) => {
@@ -114,14 +116,14 @@ class ComposeForm extends ImmutablePureComponent {
   }
 
   canSubmit = () => {
-    const { isSubmitting, isChangingUpload, isUploading, isCircleUnselected, isEditing, anyMedia, prohibitedVisibilities, privacy, prohibitedWords, spoilerText } = this.props;
+    const { isSubmitting, isChangingUpload, isUploading, isCircleUnselected, isEditing, anyMedia, prohibitedVisibilities, privacy, prohibitedWords, spoilerText, contextCompliant } = this.props;
     const composedText = this.composedText();
     const fulltext = this.getFulltextForCharacterCounting();
     const isOnlyWhitespace = fulltext.length !== 0 && fulltext.trim().length === 0;
     const noVisibility = !isEditing && prohibitedVisibilities?.includes(privacy);
     const ngWords = prohibitedWords.some( word => composedText.includes(word) || spoilerText?.includes(word) );
 
-    return !(isSubmitting || isUploading || isChangingUpload || isCircleUnselected || length(fulltext) > maxChars || (isOnlyWhitespace && !anyMedia) || noVisibility || ngWords);
+    return !(isSubmitting || isUploading || isChangingUpload || isCircleUnselected || length(fulltext) > maxChars || (isOnlyWhitespace && !anyMedia) || noVisibility || ngWords || !contextCompliant);
   }
 
   handleSubmit = () => {

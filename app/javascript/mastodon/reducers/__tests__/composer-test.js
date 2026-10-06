@@ -1,4 +1,4 @@
-import { fromJS } from 'immutable';
+import { fromJS, Map as ImmutableMap, Set as ImmutableSet } from 'immutable';
 
 jest.mock('react-intl', () => ({
   defineMessages: messages => messages,
@@ -12,8 +12,9 @@ jest.mock('../../uuid', () => ({
 import { COMPOSE_CHANGE, COMPOSE_RESET, COMPOSE_SUBMIT_SUCCESS, changeCompose, setComposeToStatus } from '../../actions/compose';
 import { applyComposerPostingContext, targetComposerAction, toggleComposerManagedHashtag } from '../../actions/composer';
 import { STORE_HYDRATE } from '../../actions/store';
+import { buildFedibirdGroupPostingContext } from '../../posting_context/fedibird_group';
 import { buildHashtagTimelinePostingContext } from '../../posting_context/hashtag';
-import { materializeComposerText } from '../../posting_context/managed_hashtags';
+import { materializeComposerText } from '../../posting_context/materialize';
 import { PRIMARY_COMPOSER_ID } from '../../utils/composer';
 import compose from '../compose';
 import composer from '../composer';
@@ -41,7 +42,10 @@ describe('composer', () => {
     expect(state.get('privacy')).toBeNull();
     expect(state.getIn(['context', 'key'])).toBeNull();
     expect(state.getIn(['context', 'managed', 'hashtags']).isEmpty()).toBe(true);
+    expect(state.getIn(['context', 'managed', 'mentions']).isEmpty()).toBe(true);
     expect(state.getIn(['context', 'suppressions', 'hashtags']).isEmpty()).toBe(true);
+    expect(state.getIn(['context', 'requirements', 'followingAccounts']).isEmpty()).toBe(true);
+    expect(state.getIn(['context', 'constraints', 'allowedVisibilities'])).toBeNull();
   });
 
   it('handles an ordinary compose action without the primary wrapper', () => {
@@ -199,6 +203,57 @@ describe('posting context', () => {
     expect(scheduled.get('dirty')).toBe(false);
     expect(scheduled.get('idempotencyKey')).toEqual('kept-key');
     expect(editing.getIn(['context', 'suppressions', 'hashtags']).isEmpty()).toBe(true);
+  });
+
+  it('keeps a hashtag context free of mention, follow, and visibility rules', () => {
+    const applied = composer(undefined, applyFoo);
+
+    expect(applied.getIn(['context', 'managed', 'mentions']).isEmpty()).toBe(true);
+    expect(applied.getIn(['context', 'requirements', 'followingAccounts']).isEmpty()).toBe(true);
+    expect(applied.getIn(['context', 'constraints', 'allowedVisibilities'])).toBeNull();
+  });
+
+  it('applies a local group context without widening privacy or rewriting the draft', () => {
+    const localGroup = ImmutableMap({ id: '123', acct: 'group', username: 'group', group: true });
+    const drafted = composer(undefined, changeCompose('Hello')).set('idempotencyKey', 'previous-key').set('privacy', 'private');
+    const applied = composer(drafted, applyComposerPostingContext('composer-a', buildFedibirdGroupPostingContext(localGroup)));
+
+    expect(applied.get('privacy')).toEqual('private');
+    expect(applied.get('text')).toEqual('Hello');
+    expect(materializeComposerText(applied)).toEqual('@group Hello');
+    expect(applied.get('idempotencyKey')).toEqual('test-idempotency-key');
+    expect(applied.getIn(['context', 'managed', 'mentions', 0, 'accountId'])).toEqual('123');
+    expect(applied.getIn(['context', 'managed', 'mentions', 0, 'acct'])).toEqual('group');
+    expect(applied.getIn(['context', 'managed', 'mentions', 0, 'enforcement'])).toEqual('required');
+    expect(applied.getIn(['context', 'requirements', 'followingAccounts', 0, 'accountId'])).toEqual('123');
+    expect(applied.getIn(['context', 'requirements', 'followingAccounts', 0, 'ruleId'])).toEqual('group-follow');
+    expect(applied.getIn(['context', 'constraints', 'allowedVisibilities']).equals(ImmutableSet(['public', 'unlisted']))).toBe(true);
+
+    const again = composer(applied.set('idempotencyKey', 'kept-key'), applyComposerPostingContext('composer-a', buildFedibirdGroupPostingContext(localGroup)));
+
+    expect(again.get('idempotencyKey')).toEqual('kept-key');
+    expect(again.getIn(['context', 'suppressions', 'hashtags']).isEmpty()).toBe(true);
+    expect(materializeComposerText(again)).toEqual('@group Hello');
+  });
+
+  it('does not materialize a group mention while editing an existing or scheduled status', () => {
+    const localGroup = ImmutableMap({ id: '123', acct: 'group', username: 'group', group: true });
+    const applied = composer(undefined, applyComposerPostingContext('composer-a', buildFedibirdGroupPostingContext(localGroup))).set('text', 'Hello').set('dirty', false).set('idempotencyKey', 'kept-key');
+    const editing = composer(applied, setComposeToStatus(fromJS({
+      id: 'status-1',
+      visibility: 'public',
+      sensitive: false,
+    }), 'Hello', ''));
+    const scheduled = applied.set('scheduled_status_id', 'sched-1');
+
+    expect(materializeComposerText(editing)).toEqual('Hello');
+    expect(materializeComposerText(scheduled)).toEqual('Hello');
+    expect(composer(editing, applyBar)).toBe(editing);
+    expect(composer(scheduled, applyBar)).toBe(scheduled);
+    expect(composer(editing, toggleComposerManagedHashtag('composer-a', 'foo'))).toBe(editing);
+    expect(composer(scheduled, toggleComposerManagedHashtag('composer-a', 'foo'))).toBe(scheduled);
+    expect(scheduled.get('dirty')).toBe(false);
+    expect(scheduled.get('idempotencyKey')).toEqual('kept-key');
   });
 });
 

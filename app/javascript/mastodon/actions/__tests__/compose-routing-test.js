@@ -56,8 +56,10 @@ import { applyComposerPostingContext, createComposer, destroyComposer, targetCom
 import { REDRAFT } from '../statuses';
 import { buildHashtagTimelinePostingContext } from '../../posting_context/hashtag';
 import { MODAL_OPEN } from '../modal';
+import { buildFedibirdGroupPostingContext } from '../../posting_context/fedibird_group';
 import compose from '../../reducers/compose';
 import composers from '../../reducers/composers';
+import relationships from '../../reducers/relationships';
 
 const statusResponse = {
   id: 's1',
@@ -71,6 +73,7 @@ const statusResponse = {
 const reducer = combineReducers({
   compose,
   composers,
+  relationships,
   timelines: (state = ImmutableMap()) => state,
   meta: (state = ImmutableMap()) => state,
   statuses: (state = ImmutableMap()) => state,
@@ -578,5 +581,114 @@ describe('composer async routing', () => {
 
     expect(request.mock.calls[0][0].data.status).toEqual('Hello');
     expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'context', 'managed', 'hashtags']).isEmpty()).toBe(true);
+    expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'context', 'managed', 'mentions']).isEmpty()).toBe(true);
+    expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'context', 'requirements', 'followingAccounts']).isEmpty()).toBe(true);
+    expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'context', 'constraints', 'allowedVisibilities'])).toBeNull();
+  });
+
+  describe('Fedibird group posting context', () => {
+    const localGroup = ImmutableMap({ id: '123', acct: 'group', username: 'group', group: true });
+
+    const prepareGroup = (store, { privacy, following = false, requested = false, text = 'Hello' }) => {
+      store.dispatch(createComposer('composer-a'));
+      store.dispatch(targetComposerAction(changeComposeVisibility(privacy), 'composer-a'));
+      store.dispatch(targetComposerAction(changeCompose(text), 'composer-a'));
+      store.dispatch(applyComposerPostingContext('composer-a', buildFedibirdGroupPostingContext(localGroup)));
+      store.dispatch({
+        type: 'RELATIONSHIPS_FETCH_SUCCESS',
+        relationships: [{ id: '123', following, requested }],
+      });
+    };
+
+    it('does not submit a private group post even when the author follows the group', async () => {
+      const request = jest.fn().mockResolvedValue({ data: statusResponse });
+      api.mockReturnValue({ request });
+      const { store } = makeStore();
+
+      prepareGroup(store, { privacy: 'private', following: true });
+      await store.dispatch(submitComposer('composer-a', router));
+      await store.dispatch(submitComposerWithCheck('composer-a', router, { formatMessage: () => '' }));
+
+      expect(request).not.toHaveBeenCalled();
+      expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'privacy'])).toEqual('private');
+      expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'text'])).toEqual('Hello');
+    });
+
+    it('does not submit when the author is not following the group', async () => {
+      const request = jest.fn().mockResolvedValue({ data: statusResponse });
+      api.mockReturnValue({ request });
+      const { store } = makeStore();
+
+      prepareGroup(store, { privacy: 'public', following: false });
+      await store.dispatch(submitComposerWithCheck('composer-a', router, { formatMessage: () => '' }));
+      await store.dispatch(submitComposer('composer-a', router));
+
+      expect(request).not.toHaveBeenCalled();
+    });
+
+    it('submits public and unlisted group posts with the required mention', async () => {
+      const request = jest.fn().mockResolvedValue({ data: statusResponse });
+      api.mockReturnValue({ request });
+      const { store } = makeStore();
+
+      prepareGroup(store, { privacy: 'public', following: true });
+      expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'text'])).toEqual('Hello');
+      await store.dispatch(submitComposer('composer-a', router));
+
+      expect(request.mock.calls[0][0].data.status).toEqual('@group Hello');
+      expect(request.mock.calls[0][0].data.visibility).toEqual('public');
+
+      request.mockClear();
+      prepareGroup(store, { privacy: 'unlisted', following: true, text: 'Hello @group' });
+      await store.dispatch(submitComposerWithCheck('composer-a', router, { formatMessage: () => '' }));
+
+      expect(request.mock.calls[0][0].data.status).toEqual('Hello @group');
+      expect(request.mock.calls[0][0].data.visibility).toEqual('unlisted');
+    });
+
+    it('does not add the group mention while editing an existing or scheduled status', async () => {
+      const request = jest.fn().mockResolvedValue({ data: statusResponse });
+      api.mockReturnValue({ request });
+      const { store } = makeStore();
+
+      prepareGroup(store, { privacy: 'public', following: true });
+      store.dispatch(targetComposerAction(setComposeToStatus(fromJS({
+        id: 'status-9',
+        visibility: 'public',
+        sensitive: false,
+        media_attachments: [],
+      }), 'Hello', ''), 'composer-a'));
+
+      await store.dispatch(submitComposer('composer-a', router));
+
+      expect(request.mock.calls[0][0].data.status).toEqual('Hello');
+      expect(request.mock.calls[0][0].method).toEqual('put');
+
+      request.mockClear();
+      store.dispatch(createComposer('composer-b'));
+      store.dispatch(applyComposerPostingContext('composer-b', buildFedibirdGroupPostingContext(localGroup)));
+      store.dispatch(targetComposerAction({
+        type: REDRAFT,
+        raw_text: 'Hello',
+        context_references: fromJS([]),
+        status: fromJS({
+          visibility: 'public',
+          sensitive: false,
+          spoiler_text: '',
+          language: 'en',
+          scheduled_status_id: 'sched-1',
+          media_attachments: [],
+          status_reference_ids: [],
+        }),
+      }, 'composer-b'));
+      store.dispatch({
+        type: 'RELATIONSHIPS_FETCH_SUCCESS',
+        relationships: [{ id: '123', following: true, requested: false }],
+      });
+
+      await store.dispatch(submitComposer('composer-b', router));
+
+      expect(request.mock.calls[0][0].data.status).toEqual('Hello');
+    });
   });
 });

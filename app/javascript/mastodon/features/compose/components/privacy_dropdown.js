@@ -150,6 +150,7 @@ class PrivacyDropdown extends React.PureComponent {
     onModalClose: PropTypes.func,
     value: PropTypes.string.isRequired,
     prohibitedVisibilities: ImmutablePropTypes.set,
+    allowedVisibilities: ImmutablePropTypes.set,
     onChange: PropTypes.func.isRequired,
     noDirect: PropTypes.bool,
     disabled: PropTypes.bool,
@@ -236,20 +237,30 @@ class PrivacyDropdown extends React.PureComponent {
     this.props.onChange(value);
   }
 
-  componentWillMount () {
-    const { intl: { formatMessage }, prohibitedVisibilities } = this.props;
+  buildOptions (props) {
+    const { intl: { formatMessage }, prohibitedVisibilities, allowedVisibilities, noDirect } = props;
 
     this.options = [
       { icon: 'globe', value: 'public', text: formatMessage(messages.public_short), meta: formatMessage(messages.public_long) },
       { icon: 'unlock', value: 'unlisted', text: formatMessage(messages.unlisted_short), meta: formatMessage(messages.unlisted_long) },
       { icon: 'lock', value: 'private', text: formatMessage(messages.private_short), meta: formatMessage(messages.private_long) },
       { icon: 'exchange', value: 'mutual', text: formatMessage(messages.mutual_short), meta: formatMessage(messages.mutual_long) },
-      ...!this.props.noDirect && [
+      ...!noDirect && [
         { icon: 'user-circle', value: 'limited', text: formatMessage(messages.limited_short), meta: formatMessage(messages.limited_long) },
         { icon: 'envelope', value: 'direct', text: formatMessage(messages.direct_short), meta: formatMessage(messages.direct_long) },
         { icon: 'book', value: 'personal', text: formatMessage(messages.personal_short), meta: formatMessage(messages.personal_long) },
       ],
-    ].filter(option => option && !prohibitedVisibilities?.includes(option.value));
+    ].filter(option => option && !prohibitedVisibilities?.includes(option.value) && (!allowedVisibilities || allowedVisibilities.includes(option.value)));
+  }
+
+  componentWillMount () {
+    this.buildOptions(this.props);
+  }
+
+  componentWillReceiveProps (nextProps) {
+    if (nextProps.prohibitedVisibilities !== this.props.prohibitedVisibilities || nextProps.allowedVisibilities !== this.props.allowedVisibilities || nextProps.noDirect !== this.props.noDirect) {
+      this.buildOptions(nextProps);
+    }
   }
 
   setTargetRef = c => {

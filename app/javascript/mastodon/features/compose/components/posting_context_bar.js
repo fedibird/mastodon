@@ -8,7 +8,20 @@ const messages = defineMessages({
   label: { id: 'compose_form.posting_context', defaultMessage: 'Posting context' },
   include: { id: 'compose_form.posting_context.include', defaultMessage: 'Include #{hashtag}' },
   exclude: { id: 'compose_form.posting_context.exclude', defaultMessage: 'Do not add #{hashtag}' },
+  mentionRequired: { id: 'compose_form.posting_context.mention_required', defaultMessage: 'Required mention: @{acct}' },
+  visibilityPublicUnlisted: { id: 'compose_form.posting_context.visibility.public_unlisted', defaultMessage: 'Visibility: Public or Unlisted' },
+  followSatisfied: { id: 'compose_form.posting_context.follow.satisfied', defaultMessage: '✓ Following @{acct}' },
+  followUnknown: { id: 'compose_form.posting_context.follow.unknown', defaultMessage: 'Checking follow status for @{acct}…' },
+  followRequested: { id: 'compose_form.posting_context.follow.requested', defaultMessage: 'Follow request to @{acct} is pending' },
+  followNotFollowing: { id: 'compose_form.posting_context.follow.not_following', defaultMessage: 'Follow @{acct} to post in this group' },
 });
+
+const followMessages = {
+  satisfied: messages.followSatisfied,
+  unknown: messages.followUnknown,
+  requested: messages.followRequested,
+  not_following: messages.followNotFollowing,
+};
 
 class ManagedHashtagButton extends React.PureComponent {
 
@@ -54,13 +67,25 @@ class PostingContextBar extends React.PureComponent {
     intl: PropTypes.object.isRequired,
     hashtags: ImmutablePropTypes.list,
     suppressedHashtags: ImmutablePropTypes.set,
+    mentions: ImmutablePropTypes.list,
+    visibility: PropTypes.shape({
+      valid: PropTypes.bool,
+      allowed: PropTypes.array,
+    }),
+    followingAccounts: PropTypes.array,
     onToggle: PropTypes.func.isRequired,
   };
 
   render () {
-    const { intl, hashtags, suppressedHashtags, onToggle } = this.props;
+    const { intl, hashtags, suppressedHashtags, mentions, visibility, followingAccounts, onToggle } = this.props;
+    const hasHashtags = Boolean(hashtags && !hashtags.isEmpty());
+    const requiredMentions = mentions ? mentions.filter(mention => mention.get('enforcement') === 'required' && mention.get('acct')) : null;
+    const hasMentions = Boolean(requiredMentions && !requiredMentions.isEmpty());
+    const allowed = visibility && visibility.allowed;
+    const showVisibility = Array.isArray(allowed) && allowed.includes('public') && allowed.includes('unlisted');
+    const hasFollows = Boolean(followingAccounts && followingAccounts.length > 0);
 
-    if (!hashtags || hashtags.isEmpty()) {
+    if (!hasHashtags && !hasMentions && !showVisibility && !hasFollows) {
       return null;
     }
 
@@ -69,7 +94,22 @@ class PostingContextBar extends React.PureComponent {
         <span className='compose-form__posting-context-label'>
           {intl.formatMessage(messages.label)}
         </span>
-        {hashtags.map(tag => {
+        {hasMentions && requiredMentions.map(mention => (
+          <span key={mention.get('accountId')} className='compose-form__posting-context-mention'>
+            {intl.formatMessage(messages.mentionRequired, { acct: mention.get('acct') })}
+          </span>
+        ))}
+        {showVisibility && (
+          <span className={classNames('compose-form__posting-context-visibility', { 'compose-form__posting-context-warning': !visibility.valid })}>
+            {intl.formatMessage(messages.visibilityPublicUnlisted)}
+          </span>
+        )}
+        {hasFollows && followingAccounts.map(account => (
+          <span key={account.accountId} className={classNames('compose-form__posting-context-follow', { 'compose-form__posting-context-warning': account.status !== 'satisfied' })}>
+            {intl.formatMessage(followMessages[account.status] || messages.followUnknown, { acct: account.acct })}
+          </span>
+        ))}
+        {hasHashtags && hashtags.map(tag => {
           const normalizedName = tag.get('normalizedName');
 
           return (

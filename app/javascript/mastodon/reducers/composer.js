@@ -68,7 +68,9 @@ import { REDRAFT } from '../actions/statuses';
 import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE } from '../actions/composer';
 import { Map as ImmutableMap, List as ImmutableList, Set as ImmutableSet, OrderedSet as ImmutableOrderedSet, fromJS } from 'immutable';
 import uuid from '../uuid';
-import { isExistingPostEdit, normalizeManagedHashtagName } from '../posting_context/managed_hashtags';
+import { normalizeManagedHashtagName } from '../posting_context/managed_hashtags';
+import { normalizeManagedMentionAcct } from '../posting_context/managed_mentions';
+import { isExistingPostEdit } from '../posting_context/materialize';
 import { me } from '../initial_state';
 import { unescapeHTML } from '../utils/html';
 import { format } from 'date-fns';
@@ -135,9 +137,16 @@ export const initialState = ImmutableMap({
     source: null,
     managed: ImmutableMap({
       hashtags: ImmutableList(),
+      mentions: ImmutableList(),
     }),
     suppressions: ImmutableMap({
       hashtags: ImmutableSet(),
+    }),
+    requirements: ImmutableMap({
+      followingAccounts: ImmutableList(),
+    }),
+    constraints: ImmutableMap({
+      allowedVisibilities: null,
     }),
   }),
 });
@@ -181,15 +190,22 @@ const clearManagedHashtagSuppressions = map => {
   map.setIn(['context', 'suppressions', 'hashtags'], ImmutableSet());
 };
 
-const activeManagedHashtagSignature = state => {
+const postingContextMaterializationSignature = state => {
   const hashtags = state.getIn(['context', 'managed', 'hashtags'], ImmutableList());
   const suppressed = state.getIn(['context', 'suppressions', 'hashtags'], ImmutableSet());
-
-  return hashtags
+  const hashtagPart = hashtags
     .map(tag => tag.get('normalizedName'))
     .filter(name => name && !suppressed.includes(name))
     .sort()
     .join('\0');
+  const mentions = state.getIn(['context', 'managed', 'mentions'], ImmutableList());
+  const mentionPart = mentions
+    .filter(mention => mention.get('enforcement') === 'required' && mention.get('acct'))
+    .map(mention => `${mention.get('accountId')}:${normalizeManagedMentionAcct(mention.get('acct'))}`)
+    .sort()
+    .join('\0');
+
+  return [hashtagPart, mentionPart].filter(Boolean).join('\n');
 };
 
 const managedHashtagRecord = tag => {
@@ -203,14 +219,45 @@ const managedHashtagRecord = tag => {
   });
 };
 
+const managedMentionRecord = mention => ImmutableMap({
+  accountId: mention ? mention.accountId : null,
+  acct: mention && mention.acct ? String(mention.acct).replace(/^@+/u, '') : null,
+  enforcement: (mention && mention.enforcement) || 'required',
+  ruleId: (mention && mention.ruleId) || null,
+});
+
+const followingAccountRecord = requirement => ImmutableMap({
+  accountId: requirement ? requirement.accountId : null,
+  acct: requirement && requirement.acct ? String(requirement.acct).replace(/^@+/u, '') : null,
+  enforcement: (requirement && requirement.enforcement) || 'required',
+  ruleId: (requirement && requirement.ruleId) || null,
+});
+
+const allowedVisibilitySet = postingContext => {
+  const allowed = postingContext.constraints && postingContext.constraints.allowedVisibilities;
+
+  if (!allowed) {
+    return null;
+  }
+
+  return ImmutableSet(allowed);
+};
+
 const emptyPostingContext = () => ImmutableMap({
   key: null,
   source: null,
   managed: ImmutableMap({
     hashtags: ImmutableList(),
+    mentions: ImmutableList(),
   }),
   suppressions: ImmutableMap({
     hashtags: ImmutableSet(),
+  }),
+  requirements: ImmutableMap({
+    followingAccounts: ImmutableList(),
+  }),
+  constraints: ImmutableMap({
+    allowedVisibilities: null,
   }),
 });
 
@@ -437,7 +484,7 @@ export default function composer(state = initialState, action) {
     }
 
     const postingContext = action.postingContext;
-    const previousSignature = activeManagedHashtagSignature(state);
+    const previousSignature = postingContextMaterializationSignature(state);
 
     if (!postingContext) {
       return state.withMutations(map => {
@@ -452,6 +499,8 @@ export default function composer(state = initialState, action) {
     const nextKey = postingContext.key || null;
     const sameKey = state.getIn(['context', 'key']) === nextKey;
     const hashtags = ImmutableList(((postingContext.managed && postingContext.managed.hashtags) || []).map(managedHashtagRecord));
+    const mentions = ImmutableList(((postingContext.managed && postingContext.managed.mentions) || []).map(managedMentionRecord));
+    const followingAccounts = ImmutableList(((postingContext.requirements && postingContext.requirements.followingAccounts) || []).map(followingAccountRecord));
     const source = postingContext.source ? ImmutableMap({
       id: postingContext.source.id,
       revision: postingContext.source.revision,
@@ -461,12 +510,15 @@ export default function composer(state = initialState, action) {
       map.setIn(['context', 'key'], nextKey);
       map.setIn(['context', 'source'], source);
       map.setIn(['context', 'managed', 'hashtags'], hashtags);
+      map.setIn(['context', 'managed', 'mentions'], mentions);
+      map.setIn(['context', 'requirements', 'followingAccounts'], followingAccounts);
+      map.setIn(['context', 'constraints', 'allowedVisibilities'], allowedVisibilitySet(postingContext));
 
       if (!sameKey) {
         map.setIn(['context', 'suppressions', 'hashtags'], ImmutableSet());
       }
 
-      if (previousSignature !== activeManagedHashtagSignature(map) && (state.get('idempotencyKey') || state.get('text') || state.get('dirty'))) {
+      if (previousSignature !== postingContextMaterializationSignature(map) && (state.get('idempotencyKey') || state.get('text') || state.get('dirty'))) {
         map.set('idempotencyKey', uuid());
       }
     });
