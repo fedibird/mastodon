@@ -13,6 +13,7 @@ const mapStateToProps = (state, { composerId }) => {
   return {
     value: composer.get('privacy'),
     prohibitedVisibilities: composer.get('prohibited_visibilities'),
+    allowedVisibilities: composer.getIn(['context', 'constraints', 'allowedVisibilities']),
   };
 };
 

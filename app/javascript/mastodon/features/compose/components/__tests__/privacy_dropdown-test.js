@@ -95,6 +95,45 @@ describe('PrivacyDropdown', () => {
     expect(optionValues()).toEqual(['public', 'unlisted', 'private', 'mutual', 'limited']);
   });
 
+  it('rebuilds options when allowed visibilities arrive after mount', () => {
+    const { rerender } = render(
+      <PrivacyDropdown
+        value='public'
+        onChange={jest.fn()}
+        showLabel
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Public' }));
+    expect(optionValues()).toEqual(['public', 'unlisted', 'private', 'mutual', 'limited', 'direct', 'personal']);
+    fireEvent.click(screen.getByRole('button', { name: 'Public' }));
+
+    rerender(
+      <PrivacyDropdown
+        value='public'
+        onChange={jest.fn()}
+        showLabel
+        allowedVisibilities={ImmutableSet(['public', 'unlisted'])}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Public' }));
+    expect(optionValues()).toEqual(['public', 'unlisted']);
+  });
+
+  it('intersects context visibilities with base prohibitions', () => {
+    renderDropdown({
+      value: 'unlisted',
+      showLabel: true,
+      allowedVisibilities: ImmutableSet(['public', 'unlisted']),
+      prohibitedVisibilities: ImmutableSet(['public']),
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unlisted' }));
+
+    expect(optionValues()).toEqual(['unlisted']);
+  });
+
   it('keeps the icon-only button when showLabel is omitted', () => {
     renderDropdown();
     const button = screen.getByRole('button', { name: 'Adjust status privacy' });

@@ -14,7 +14,8 @@ import { addYears, addMonths, addDays, addHours, addMinutes, addSeconds, millise
 import { Set as ImmutableSet } from 'immutable';
 import { postReferenceModal, missingAltTextModal, enableFederatedTimeline, allowPollImage, maxAttachments, disablePost } from '../initial_state';
 import { deleteScheduledStatus } from './scheduled_statuses';
-import { materializeComposerText } from '../posting_context/managed_hashtags';
+import { selectComposerPostingContextCompliance } from '../posting_context/compliance';
+import { materializeComposerText } from '../posting_context/materialize';
 import { selectComposer } from '../selectors/composer';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import { targetComposerAction } from './composer';
@@ -313,9 +314,14 @@ export const getDateTimeFromText = (value, origin = new Date()) => {
 
 export function submitComposerWithCheck(composerId, routerHistory, intl) {
   return function (dispatch, getState) {
-    const composer = selectComposer(getState(), composerId);
+    const state = getState();
+    const composer = selectComposer(state, composerId);
 
     if (!composer) {
+      return;
+    }
+
+    if (!selectComposerPostingContextCompliance(state, composerId).valid) {
       return;
     }
 
@@ -375,6 +381,10 @@ export function submitComposer(composerId, routerHistory) {
     const composer = selectComposer(state, composerId);
 
     if (!composer) {
+      return Promise.resolve();
+    }
+
+    if (!selectComposerPostingContextCompliance(state, composerId).valid) {
       return Promise.resolve();
     }
 

@@ -15,7 +15,9 @@ import { addColumn, removeColumn, moveColumn } from '../../actions/columns';
 import ColumnSettingsContainer from './containers/column_settings_container';
 import GroupDetail from './components/group_detail';
 import { connectGroupStream } from '../../actions/streaming';
-import { defaultColumnWidth } from 'mastodon/initial_state';
+import { defaultColumnWidth, new_features_policy } from 'mastodon/initial_state';
+import PortableComposer from '../compose/portable_composer';
+import { buildFedibirdGroupPostingContext } from '../../posting_context/fedibird_group';
 import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
 
@@ -164,6 +166,16 @@ class GroupTimeline extends React.PureComponent {
       return <div />;
     }
 
+    const postingContext = buildFedibirdGroupPostingContext(account);
+    const composerId = columnId ? `portable:group-column:${columnId}` : `portable:group-route:${id}`;
+    const portableComposer = new_features_policy === 'tester' && postingContext ? (
+      <PortableComposer
+        key={composerId}
+        composerId={composerId}
+        postingContext={postingContext}
+      />
+    ) : null;
+
     const collapsibleClassName = classNames('column-header__collapsible', {
       'collapsed': collapsed,
       'animating': animating,
@@ -222,6 +234,8 @@ class GroupTimeline extends React.PureComponent {
           emptyMessage={<FormattedMessage id='empty_column.group' defaultMessage='The group timeline is empty. When members of this group post new toots, they will appear here.' />}
           bindToDocument={!multiColumn}
           showCard={!withoutMedia}
+          prepend={portableComposer}
+          alwaysPrepend={!!portableComposer}
         />
       </Column>
     );

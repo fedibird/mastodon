@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { Map as ImmutableMap } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
 import { createStore } from 'redux';
@@ -24,9 +25,11 @@ jest.mock('react-intl', () => {
 
 import { changeCompose } from '../../../../actions/compose';
 import { applyComposerPostingContext, createComposer, targetComposerAction } from '../../../../actions/composer';
+import { buildFedibirdGroupPostingContext } from '../../../../posting_context/fedibird_group';
 import { buildHashtagTimelinePostingContext } from '../../../../posting_context/hashtag';
 import compose from '../../../../reducers/compose';
 import composers from '../../../../reducers/composers';
+import relationships from '../../../../reducers/relationships';
 import { ComposerProvider } from '../../composer_id_context';
 import PostingContextBarContainer from '../../containers/posting_context_bar_container';
 
@@ -69,5 +72,38 @@ describe('PostingContextBar', () => {
     renderBar(store);
 
     expect(screen.queryByText('Posting context')).toBeNull();
+  });
+
+  it('shows a required group mention without a removal control', () => {
+    const store = createStore(combineReducers({ compose, composers, relationships }));
+    const group = ImmutableMap({ id: '123', acct: 'group', username: 'group', group: true });
+
+    store.dispatch(createComposer(composerId));
+    store.dispatch(applyComposerPostingContext(composerId, buildFedibirdGroupPostingContext(group)));
+    store.dispatch({
+      type: 'RELATIONSHIPS_FETCH_SUCCESS',
+      relationships: [{ id: '123', following: false, requested: false }],
+    });
+
+    renderBar(store);
+
+    expect(screen.getByText('Required mention: @group')).toBeTruthy();
+    expect(screen.getByText('Visibility: Public or Unlisted')).toBeTruthy();
+    expect(screen.getByText('Follow @group to post in this group')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /@group/ })).toBeNull();
+    expect(screen.getByText('Follow @group to post in this group').className).toContain('compose-form__posting-context-warning');
+
+    store.dispatch({
+      type: 'RELATIONSHIPS_FETCH_SUCCESS',
+      relationships: [{ id: '123', following: false, requested: true }],
+    });
+    expect(screen.getByText('Follow request to @group is pending')).toBeTruthy();
+
+    store.dispatch({
+      type: 'RELATIONSHIPS_FETCH_SUCCESS',
+      relationships: [{ id: '123', following: true, requested: false }],
+    });
+    expect(screen.getByText('✓ Following @group')).toBeTruthy();
+    expect(screen.queryByText('Follow @group to post in this group')).toBeNull();
   });
 });

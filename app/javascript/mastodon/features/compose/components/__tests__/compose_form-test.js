@@ -141,6 +141,13 @@ describe('ComposeForm effective text', () => {
 
     expect(screen.getByRole('button', { name: 'Toot!' })).toBeDisabled();
   });
+
+  it('disables publish when the posting context is not compliant', () => {
+    renderForm({ text: 'Hello', contextCompliant: false });
+
+    expect(screen.getByPlaceholderText('What is on your mind?')).toHaveValue('Hello');
+    expect(screen.getByRole('button', { name: 'Toot!' })).toBeDisabled();
+  });
 });
 
 describe('ComposeForm visibility controls', () => {
