@@ -85,10 +85,12 @@ class ComposeForm extends ImmutablePureComponent {
     showSearch: PropTypes.bool,
     anyMedia: PropTypes.bool,
     singleColumn: PropTypes.bool,
+    autoFocus: PropTypes.bool,
   };
 
   static defaultProps = {
     showSearch: false,
+    autoFocus: true,
   };
 
   handleChange = (e) => {
@@ -220,7 +222,7 @@ class ComposeForm extends ImmutablePureComponent {
   }
 
   render () {
-    const { intl, onPaste, showSearch } = this.props;
+    const { intl, onPaste, showSearch, autoFocus } = this.props;
     const disabled = this.props.isSubmitting;
     let publishText = '';
 
@@ -291,7 +293,7 @@ class ComposeForm extends ImmutablePureComponent {
           onSuggestionsClearRequested={this.onSuggestionsClearRequested}
           onSuggestionSelected={this.onSuggestionSelected}
           onPaste={onPaste}
-          autoFocus={!showSearch && !isMobile(window.innerWidth)}
+          autoFocus={autoFocus && !showSearch && !isMobile(window.innerWidth)}
           lang={this.props.lang}
         >
           <div className='compose-form__modifiers'>

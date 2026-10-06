@@ -1,6 +1,6 @@
-import { fromJS } from 'immutable';
+import { List as ImmutableList, Set as ImmutableSet, fromJS } from 'immutable';
 
-import { PRIMARY_COMPOSER_ID, getComposerStatePath, selectComposer } from '../composer';
+import { PRIMARY_COMPOSER_ID, getComposerStatePath, selectComposer, selectPortableComposerSeed } from '../composer';
 
 const compose = fromJS({
   text: 'hello',
@@ -40,6 +40,47 @@ describe('selectComposer', () => {
 
   it('defines the primary composer id', () => {
     expect(PRIMARY_COMPOSER_ID).toBe('primary');
+  });
+});
+
+describe('selectPortableComposerSeed', () => {
+  const primary = fromJS({
+    text: 'PRIMARY DRAFT',
+    media_attachments: [{ id: 'm1' }],
+    in_reply_to: 'status-1',
+    privacy: 'direct',
+    idempotencyKey: 'primary-key',
+    default_privacy: 'private',
+    default_sensitive: true,
+    default_language: 'ja',
+    default_searchability: 'private',
+    default_expires_in: 3600,
+    default_expires_action: 'delete',
+    poll_max_options: 4,
+    tagHistory: ['fedibird'],
+  }).set('prohibited_visibilities', ImmutableSet(['direct']))
+    .set('prohibited_words', ImmutableSet(['nope']));
+
+  const seededState = fromJS({ compose: {} }).set('compose', primary);
+
+  it('copies only composer defaults from the primary composer', () => {
+    const seed = selectPortableComposerSeed(seededState);
+
+    expect(seed.get('default_privacy')).toEqual('private');
+    expect(seed.get('default_sensitive')).toBe(true);
+    expect(seed.get('default_language')).toEqual('ja');
+    expect(seed.get('default_searchability')).toEqual('private');
+    expect(seed.get('default_expires_in')).toEqual(3600);
+    expect(seed.get('default_expires_action')).toEqual('delete');
+    expect(seed.get('poll_max_options')).toEqual(4);
+    expect(seed.get('prohibited_visibilities')).toBe(primary.get('prohibited_visibilities'));
+    expect(seed.get('prohibited_words')).toBe(primary.get('prohibited_words'));
+    expect(seed.get('tagHistory')).toEqual(ImmutableList(['fedibird']));
+    expect(seed.has('text')).toBe(false);
+    expect(seed.has('media_attachments')).toBe(false);
+    expect(seed.has('in_reply_to')).toBe(false);
+    expect(seed.has('privacy')).toBe(false);
+    expect(seed.has('idempotencyKey')).toBe(false);
   });
 });
 

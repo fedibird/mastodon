@@ -3568,6 +3568,12 @@ a.account__display-name {
   }
 }
 
+.portable-composer {
+  flex: 0 0 auto;
+  background: lighten($ui-base-color, 13%);
+  border-bottom: 1px solid lighten($ui-base-color, 8%);
+}
+
 .compose-panel {
   width: 285px;
   margin-top: 10px;

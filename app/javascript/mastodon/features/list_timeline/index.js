@@ -16,7 +16,8 @@ import MissingIndicator from '../../components/missing_indicator';
 import LoadingIndicator from '../../components/loading_indicator';
 import Icon from 'mastodon/components/icon';
 import RadioButton from 'mastodon/components/radio_button';
-import { defaultColumnWidth } from 'mastodon/initial_state';
+import { defaultColumnWidth, new_features_policy } from 'mastodon/initial_state';
+import PortableComposer from '../compose/portable_composer';
 import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
 
@@ -168,6 +169,10 @@ class ListTimeline extends React.PureComponent {
     const pinned = !!columnId;
     const title  = list ? list.get('title') : id;
     const replies_policy = list ? list.get('replies_policy') : undefined;
+    const composerId = columnId ? `portable:list-column:${columnId}` : `portable:list-route:${id}`;
+    const portableComposer = new_features_policy === 'tester' ? (
+      <PortableComposer key={composerId} composerId={composerId} />
+    ) : null;
 
     if (typeof list === 'undefined') {
       return (
@@ -231,6 +236,8 @@ class ListTimeline extends React.PureComponent {
           onLoadMore={this.handleLoadMore}
           emptyMessage={<FormattedMessage id='empty_column.list' defaultMessage='There is nothing in this list yet. When members of this list post new statuses, they will appear here.' />}
           bindToDocument={!multiColumn}
+          prepend={portableComposer}
+          alwaysPrepend={!!portableComposer}
         />
       </Column>
     );

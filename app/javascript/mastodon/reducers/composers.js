@@ -1,8 +1,8 @@
-import { Map as ImmutableMap } from 'immutable';
+import { Map as ImmutableMap, fromJS } from 'immutable';
 import { COMPOSER_CREATE, COMPOSER_DESTROY } from '../actions/composer';
 import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
-import composer, { initialState as initialComposerState } from './composer';
+import composer, { hydrateComposer, initialState as initialComposerState } from './composer';
 
 const initialState = ImmutableMap({
   byId: ImmutableMap(),
@@ -18,12 +18,20 @@ export default function composers(state = initialState, action) {
   const composerId = action.meta?.composerId;
 
   switch(action.type) {
-  case COMPOSER_CREATE:
+  case COMPOSER_CREATE: {
     if (!isValidPortableComposerId(composerId) || state.hasIn(['byId', composerId])) {
       return state;
     }
 
-    return state.setIn(['byId', composerId], initialComposerState);
+    const composerState = action.seed
+      ? hydrateComposer(
+        initialComposerState,
+        ImmutableMap.isMap(action.seed) ? action.seed : fromJS(action.seed),
+      )
+      : initialComposerState;
+
+    return state.setIn(['byId', composerId], composerState);
+  }
   case COMPOSER_DESTROY:
     if (!isValidPortableComposerId(composerId) || !state.hasIn(['byId', composerId])) {
       return state;
