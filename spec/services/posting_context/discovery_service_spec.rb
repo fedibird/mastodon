@@ -2,8 +2,8 @@
 
 require 'rails_helper'
 
-RSpec.describe PostingContext::DiscoveryService do
-  describe '#call' do
+RSpec.describe PostingContext::DiscoveryService do # rubocop:disable Metrics/BlockLength
+  describe '#call' do # rubocop:disable Metrics/BlockLength
     it 'resolves a local group with built-in Fedibird semantics' do
       account = Fabricate(:account, username: 'group', actor_type: 'Group')
 
@@ -48,7 +48,7 @@ RSpec.describe PostingContext::DiscoveryService do
           mechanism: 'built_in',
           adapter: 'fedibird_group',
           authority: 'server',
-        },
+        }
       )
       expect(result).not_to have_key(:reason)
       expect(result[:context][:requirements][:following_accounts].first).not_to have_key(:following)
@@ -73,7 +73,7 @@ RSpec.describe PostingContext::DiscoveryService do
           mechanism: nil,
           adapter: nil,
           authority: nil,
-        },
+        }
       )
     end
 
@@ -85,7 +85,7 @@ RSpec.describe PostingContext::DiscoveryService do
         account_id: account.id.to_s,
         status: 'not_applicable',
         reason: 'not_group',
-        context: nil,
+        context: nil
       )
     end
 
@@ -95,7 +95,7 @@ RSpec.describe PostingContext::DiscoveryService do
       expect(described_class.new.call(account)).to include(
         status: 'not_applicable',
         reason: 'not_group',
-        context: nil,
+        context: nil
       )
     end
   end

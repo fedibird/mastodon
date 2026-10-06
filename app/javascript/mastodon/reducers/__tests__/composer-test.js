@@ -12,7 +12,7 @@ jest.mock('../../uuid', () => ({
 import { COMPOSE_CHANGE, COMPOSE_RESET, COMPOSE_SUBMIT_SUCCESS, changeCompose, setComposeToStatus } from '../../actions/compose';
 import { applyComposerPostingContext, targetComposerAction, toggleComposerManagedHashtag } from '../../actions/composer';
 import { STORE_HYDRATE } from '../../actions/store';
-import { groupPostingContext } from '../../posting_context/__tests__/group_context_fixture';
+import { groupPostingContext } from '../../posting_context/fixtures/group_context_fixture';
 import { buildHashtagTimelinePostingContext } from '../../posting_context/hashtag';
 import { materializeComposerText } from '../../posting_context/materialize';
 import { PRIMARY_COMPOSER_ID } from '../../utils/composer';

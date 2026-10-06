@@ -24,7 +24,7 @@ jest.mock('react-intl', () => {
 
 import { changeCompose } from '../../../../actions/compose';
 import { applyComposerPostingContext, createComposer, targetComposerAction } from '../../../../actions/composer';
-import { groupPostingContext } from '../../../../posting_context/__tests__/group_context_fixture';
+import { groupPostingContext } from '../../../../posting_context/fixtures/group_context_fixture';
 import { buildHashtagTimelinePostingContext } from '../../../../posting_context/hashtag';
 import compose from '../../../../reducers/compose';
 import composers from '../../../../reducers/composers';

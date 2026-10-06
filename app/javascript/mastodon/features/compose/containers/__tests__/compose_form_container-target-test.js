@@ -75,7 +75,7 @@ jest.mock('../../../../is_mobile', () => ({ isMobile: () => false }));
 
 import { changeCompose, changeComposeVisibility, setComposeToStatus } from '../../../../actions/compose';
 import { applyComposerPostingContext, createComposer, targetComposerAction } from '../../../../actions/composer';
-import { groupPostingContext } from '../../../../posting_context/__tests__/group_context_fixture';
+import { groupPostingContext } from '../../../../posting_context/fixtures/group_context_fixture';
 import compose from '../../../../reducers/compose';
 import composers from '../../../../reducers/composers';
 import relationships from '../../../../reducers/relationships';

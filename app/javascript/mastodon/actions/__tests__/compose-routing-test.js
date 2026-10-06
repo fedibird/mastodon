@@ -56,7 +56,7 @@ import { applyComposerPostingContext, createComposer, destroyComposer, targetCom
 import { REDRAFT } from '../statuses';
 import { buildHashtagTimelinePostingContext } from '../../posting_context/hashtag';
 import { MODAL_OPEN } from '../modal';
-import { groupPostingContext } from '../../posting_context/__tests__/group_context_fixture';
+import { groupPostingContext } from '../../posting_context/fixtures/group_context_fixture';
 import compose from '../../reducers/compose';
 import composers from '../../reducers/composers';
 import relationships from '../../reducers/relationships';

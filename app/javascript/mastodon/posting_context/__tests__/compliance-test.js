@@ -6,7 +6,7 @@ jest.mock('react-intl', () => ({
 
 import composer from '../../reducers/composer';
 import { selectComposerPostingContextCompliance } from '../compliance';
-import { groupPostingContext } from './group_context_fixture';
+import { groupPostingContext } from '../fixtures/group_context_fixture';
 
 const groupState = ({ privacy = 'public', prohibited = [], relationship }) => {
   let composerState = composer(undefined, {

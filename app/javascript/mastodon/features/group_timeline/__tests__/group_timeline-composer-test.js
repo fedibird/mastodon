@@ -1,13 +1,13 @@
 /* eslint-disable react/prop-types */
 
-import { render } from '@testing-library/react';
+import { cleanup, render } from '@testing-library/react';
 import { List as ImmutableList, Map as ImmutableMap, fromJS } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
 import { applyMiddleware, createStore } from 'redux';
 import thunk from 'redux-thunk';
 
-import { groupPostingContext } from '../../../posting_context/__tests__/group_context_fixture';
+import { groupPostingContext } from '../../../posting_context/fixtures/group_context_fixture';
 
 jest.mock('react-intl', () => {
   const React = require('react');
@@ -163,6 +163,10 @@ describe('GroupTimeline portable composer', () => {
     mockFetchPostingContext.mockClear();
   });
 
+  afterEach(() => {
+    cleanup();
+  });
+
   it('prepends a tester composer from a resolved discovery result', () => {
     const GroupTimeline = loadTimeline('tester');
     const route = renderTimeline(GroupTimeline);
@@ -260,17 +264,19 @@ describe('GroupTimeline portable composer', () => {
     const GroupTimeline = loadTimeline('tester');
 
     ['loading', 'not_applicable', 'error'].forEach(status => {
+      cleanup();
       const view = renderTimeline(GroupTimeline, {
         discovery: status === 'not_applicable' ? discoveryRecord(status, null, 'not_group') : discoveryRecord(status),
       });
 
-      expect(view.getByTestId('status-list')).toBeTruthy();
+      expect(view.container.querySelector('[data-testid="status-list"]')).not.toBeNull();
       expect(view.props.prepend).toBeNull();
     });
 
+    cleanup();
     const missing = renderTimeline(GroupTimeline, { discovery: null });
 
-    expect(missing.getByTestId('status-list')).toBeTruthy();
+    expect(missing.container.querySelector('[data-testid="status-list"]')).not.toBeNull();
     expect(missing.props.prepend).toBeNull();
   });
 

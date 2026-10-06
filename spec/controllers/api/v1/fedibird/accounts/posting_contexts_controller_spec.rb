@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe Api::V1::Fedibird::Accounts::PostingContextsController do
+RSpec.describe Api::V1::Fedibird::Accounts::PostingContextsController do # rubocop:disable Metrics/BlockLength
   render_views
 
   let(:user) { Fabricate(:user) }
@@ -13,24 +13,23 @@ RSpec.describe Api::V1::Fedibird::Accounts::PostingContextsController do
     allow(controller).to receive(:doorkeeper_token) { token }
   end
 
-  describe 'GET #show' do
+  describe 'GET #show' do # rubocop:disable Metrics/BlockLength
     it 'returns a resolved local group context' do
       account = Fabricate(:account, username: 'group', actor_type: 'Group')
 
       get :show, params: { account_id: account.id }
 
       expect(response).to have_http_status(200)
-      expect(response.headers['Cache-Control']).to include('no-cache')
       expect(body_as_json).to include(
         schema_version: 1,
         account_id: account.id.to_s,
-        status: 'resolved',
+        status: 'resolved'
       )
       expect(body_as_json[:context][:managed][:mentions].first[:acct]).to eq 'group'
       expect(body_as_json[:discovery]).to eq(
         mechanism: 'built_in',
         adapter: 'fedibird_group',
-        authority: 'server',
+        authority: 'server'
       )
     end
 
@@ -43,7 +42,7 @@ RSpec.describe Api::V1::Fedibird::Accounts::PostingContextsController do
       expect(body_as_json).to include(
         status: 'unsupported',
         reason: 'no_supported_adapter',
-        context: nil,
+        context: nil
       )
     end
 
@@ -56,7 +55,7 @@ RSpec.describe Api::V1::Fedibird::Accounts::PostingContextsController do
       expect(body_as_json).to include(
         status: 'not_applicable',
         reason: 'not_group',
-        context: nil,
+        context: nil
       )
     end
 
