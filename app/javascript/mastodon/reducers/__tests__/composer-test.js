@@ -9,8 +9,10 @@ jest.mock('../../uuid', () => ({
   default: () => 'test-idempotency-key',
 }));
 
-import { COMPOSE_CHANGE } from '../../actions/compose';
+import { COMPOSE_CHANGE, changeCompose } from '../../actions/compose';
+import { targetComposerAction } from '../../actions/composer';
 import { STORE_HYDRATE } from '../../actions/store';
+import { PRIMARY_COMPOSER_ID } from '../../utils/composer';
 import compose from '../compose';
 import composer from '../composer';
 
@@ -66,5 +68,47 @@ describe('compose primary wrapper', () => {
     const state = composer(undefined, { type: '@@INIT' });
 
     expect(compose(state, changeAction)).toEqual(composer(state, changeAction));
+  });
+
+  it('hydrates the primary slice before composer targeting', () => {
+    const state = composer(undefined, { type: '@@INIT' }).set('text', 'keep');
+    const next = compose(state, {
+      ...hydrateAction,
+      meta: { composerId: 'composer-a' },
+    });
+
+    expect(next.get('default_language')).toEqual('ja');
+    expect(next.get('language')).toEqual('ja');
+    expect(next.get('text')).toEqual('hydrated');
+  });
+
+  it('applies a legacy action to the primary composer', () => {
+    const state = composer(undefined, { type: '@@INIT' });
+    const next = compose(state, changeCompose('legacy'));
+
+    expect(next.get('text')).toEqual('legacy');
+  });
+
+  it('applies an explicit primary action to the primary composer', () => {
+    const state = composer(undefined, { type: '@@INIT' });
+    const next = compose(state, targetComposerAction(changeCompose('primary'), PRIMARY_COMPOSER_ID));
+
+    expect(next.get('text')).toEqual('primary');
+  });
+
+  it('leaves the primary composer unchanged for an explicit non-primary action', () => {
+    const state = composer(undefined, { type: '@@INIT' });
+    const next = compose(state, targetComposerAction(changeCompose('other'), 'composer-a'));
+
+    expect(next).toBe(state);
+  });
+});
+
+describe('composer routing metadata', () => {
+  it('applies a targeted action when called directly', () => {
+    const state = composer(undefined, { type: '@@INIT' });
+    const next = composer(state, targetComposerAction(changeCompose('other'), 'composer-a'));
+
+    expect(next.get('text')).toEqual('other');
   });
 });
