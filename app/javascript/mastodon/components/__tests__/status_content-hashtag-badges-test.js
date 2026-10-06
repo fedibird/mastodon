@@ -154,9 +154,11 @@ describe('StatusContent trailing hashtag badges', () => {
     expect(screen.getByRole('link', { name: '#one' }).className).toContain('status-link');
   });
 
-  it('navigates to the hashtag timeline on a normal click without opening the status', () => {
+  it('marks a badge for the hashtag menu and does not open the status or the timeline', () => {
     const onClick = jest.fn();
-    renderStatus(buildStatus(), { onClick });
+    renderStatus(buildStatus({
+      account: { id: 'a1', display_name: 'Alice', username: 'alice' },
+    }), { onClick });
     const badge = screen.getByRole('link', { name: '#one' });
 
     fireEvent.mouseDown(badge, { button: 0, clientX: 10, clientY: 12 });
@@ -164,8 +166,11 @@ describe('StatusContent trailing hashtag badges', () => {
     fireEvent.click(badge, { button: 0, clientX: 12, clientY: 14 });
 
     expect(onClick).not.toHaveBeenCalled();
-    expect(history.push).toHaveBeenCalledTimes(1);
-    expect(history.push).toHaveBeenCalledWith('/timelines/tag/one');
+    expect(history.push).not.toHaveBeenCalled();
+    expect(badge).toHaveAttribute('data-menu-hashtag', 'one');
+    expect(badge).toHaveAttribute('data-account-id', 'a1');
+    expect(badge).toHaveAttribute('data-account-name', 'alice');
+    expect(badge).toHaveAttribute('data-status-id', 's1');
   });
 
   it('keeps modified and middle clicks on the anchor', () => {
@@ -252,36 +257,36 @@ describe('StatusContent trailing hashtag badges', () => {
     expect(container.querySelector('.status__content__text--visible')).toBeNull();
   });
 
-  it('shows every badge and no more button when there are four trailing hashtags', () => {
+  it('shows every badge and no more button when there are three trailing hashtags', () => {
     const { container } = renderStatus(buildStatus({
-      contentHtml: hashtagParagraph(['one', 'two', 'three', 'four']),
+      contentHtml: hashtagParagraph(['one', 'two', 'three']),
     }));
 
-    expect(badgeLabels()).toEqual(['#one', '#two', '#three', '#four']);
+    expect(badgeLabels()).toEqual(['#one', '#two', '#three']);
     expect(container.querySelector('.status__content__hashtag-more')).toBeNull();
   });
 
-  it('shows the first four badges and one remaining hashtag when there are five', () => {
+  it('shows the first three badges and one remaining hashtag when there are four', () => {
     renderStatus(buildStatus({
-      contentHtml: hashtagParagraph(['one', 'two', 'three', 'four', 'five']),
+      contentHtml: hashtagParagraph(['one', 'two', 'three', 'four']),
     }));
     const more = screen.getByRole('button', { name: '…and 1 more' });
 
-    expect(badgeLabels()).toEqual(['#one', '#two', '#three', '#four']);
-    expect(screen.queryByRole('link', { name: '#five' })).toBeNull();
+    expect(badgeLabels()).toEqual(['#one', '#two', '#three']);
+    expect(screen.queryByRole('link', { name: '#four' })).toBeNull();
     expect(more.tagName).toBe('BUTTON');
     expect(more).toHaveAttribute('type', 'button');
     expect(more.className).toContain('status__content__hashtag-more');
   });
 
-  it('shows a remaining count of three when there are seven trailing hashtags', () => {
+  it('shows a remaining count of four when there are seven trailing hashtags', () => {
     renderStatus(buildStatus({
       contentHtml: hashtagParagraph(['one', 'two', 'three', 'four', 'five', 'six', 'seven']),
     }));
 
-    expect(badgeLabels()).toEqual(['#one', '#two', '#three', '#four']);
-    expect(screen.getByRole('button', { name: '…and 3 more' })).not.toBeNull();
-    expect(screen.queryByRole('link', { name: '#five' })).toBeNull();
+    expect(badgeLabels()).toEqual(['#one', '#two', '#three']);
+    expect(screen.getByRole('button', { name: '…and 4 more' })).not.toBeNull();
+    expect(screen.queryByRole('link', { name: '#four' })).toBeNull();
     expect(screen.queryByRole('link', { name: '#seven' })).toBeNull();
   });
 
@@ -290,7 +295,7 @@ describe('StatusContent trailing hashtag badges', () => {
     const { container } = renderStatus(buildStatus({
       contentHtml: hashtagParagraph(['one', 'two', 'three', 'four', 'five', 'six', 'seven']),
     }), { onClick });
-    const more = screen.getByRole('button', { name: '…and 3 more' });
+    const more = screen.getByRole('button', { name: '…and 4 more' });
 
     fireEvent.mouseDown(more, { button: 0, clientX: 10, clientY: 12 });
     fireEvent.mouseUp(more, { button: 0, clientX: 12, clientY: 14 });
@@ -298,7 +303,7 @@ describe('StatusContent trailing hashtag badges', () => {
 
     expect(onClick).not.toHaveBeenCalled();
     expect(badgeLabels()).toEqual(['#one', '#two', '#three', '#four', '#five', '#six', '#seven']);
-    expect(screen.queryByRole('button', { name: '…and 3 more' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '…and 4 more' })).toBeNull();
     expect(container.querySelector('.status__content__hashtag-more')).toBeNull();
   });
 
@@ -314,8 +319,8 @@ describe('StatusContent trailing hashtag badges', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
 
-    expect(badgeLabels()).toEqual(['#one', '#two', '#three', '#four']);
-    expect(screen.getByRole('button', { name: '…and 2 more' })).not.toBeNull();
+    expect(badgeLabels()).toEqual(['#one', '#two', '#three']);
+    expect(screen.getByRole('button', { name: '…and 3 more' })).not.toBeNull();
     expect(screen.queryByRole('link', { name: '#six' })).toBeNull();
   });
 
@@ -330,8 +335,8 @@ describe('StatusContent trailing hashtag badges', () => {
       }));
 
       expect(view.container.querySelectorAll('.status__content__hashtag-badges')).toHaveLength(1);
-      expect(badgeLabels()).toEqual(['#one', '#two', '#three', '#four']);
-      expect(screen.getByRole('button', { name: '…and 3 more' })).not.toBeNull();
+      expect(badgeLabels()).toEqual(['#one', '#two', '#three']);
+      expect(screen.getByRole('button', { name: '…and 4 more' })).not.toBeNull();
       expect(view.container.querySelector('.status__content__text').querySelector('a.mention.hashtag')).toBeNull();
       view.unmount();
     });

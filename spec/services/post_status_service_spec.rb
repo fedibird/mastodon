@@ -306,10 +306,10 @@ RSpec.describe PostStatusService, type: :service do
     expect(status).to be_persisted
   end
 
-  it 'inserts a newline before a same-line trailing hashtag run' do
+  it 'inserts a blank line before a same-line trailing hashtag run' do
     status = subject.call(Fabricate(:account), text: 'Hello #one #two')
 
-    expect(status.text).to eq "Hello\n#one #two"
+    expect(status.text).to eq "Hello\n\n#one #two"
     expect(status.tags.map(&:name)).to contain_exactly('one', 'two')
   end
 
@@ -323,7 +323,7 @@ RSpec.describe PostStatusService, type: :service do
 
     PublishScheduledStatusWorker.new.perform(scheduled.id)
 
-    published = account.statuses.find_by!(text: "Hello\n#one #two")
+    published = account.statuses.find_by!(text: "Hello\n\n#one #two")
     expect(published.tags.map(&:name)).to contain_exactly('one', 'two')
   end
 

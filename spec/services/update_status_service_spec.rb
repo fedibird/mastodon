@@ -144,21 +144,37 @@ RSpec.describe UpdateStatusService, type: :service do # rubocop:disable Metrics/
     expect(media.reload.description).to eq 'kept alt'
   end
 
-  it 'inserts a newline before a same-line trailing hashtag when text is edited' do
+  it 'inserts a blank line before a same-line trailing hashtag when text is edited' do
     subject.call(status, account.id, text: 'Edited #one')
 
-    expect(status.reload.text).to eq "Edited\n#one"
+    expect(status.reload.text).to eq "Edited\n\n#one"
     expect(status.tags.map(&:name)).to contain_exactly('one')
   end
 
-  it 'does not add another newline when the edited text already separates trailing hashtags' do
+  it 'adds one newline when the edited text has a single line break before trailing hashtags' do
     subject.call(status, account.id, text: "Edited\n#one")
 
-    expect(status.reload.text).to eq "Edited\n#one"
+    expect(status.reload.text).to eq "Edited\n\n#one"
+  end
 
+  it 'does not change an existing blank line or extra blank lines before trailing hashtags' do
     subject.call(status, account.id, text: "Edited\n\n#one")
 
     expect(status.reload.text).to eq "Edited\n\n#one"
+
+    subject.call(status, account.id, text: "Edited\n\n\n#one")
+
+    expect(status.reload.text).to eq "Edited\n\n\n#one"
+  end
+
+  it 'does not change a hashtag-only edit or a hashtag that is not trailing' do
+    subject.call(status, account.id, text: '#one #two')
+
+    expect(status.reload.text).to eq '#one #two'
+
+    subject.call(status, account.id, text: 'Edited #one today')
+
+    expect(status.reload.text).to eq 'Edited #one today'
   end
 
   it 'does not rewrite status text when the edit does not include text' do

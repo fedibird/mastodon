@@ -17,6 +17,13 @@ class Api::V1::FavouriteTagsController < Api::BaseController
   end
 
   def create
+    existing = find_existing_favourite_tag(favourite_tag_params[:name])
+
+    if existing
+      render json: existing, serializer: REST::FavouriteTagSerializer
+      return
+    end
+
     @favourite_tag = FavouriteTag.create!(favourite_tag_params.merge(account: current_account))
     render json: @favourite_tag, serializer: REST::FavouriteTagSerializer
   end
@@ -39,5 +46,14 @@ class Api::V1::FavouriteTagsController < Api::BaseController
 
   def favourite_tag_params
     params.permit(:name)
+  end
+
+  def find_existing_favourite_tag(name)
+    normalized = HashtagNormalizer.new.normalize(name.to_s)
+    return if normalized.blank?
+
+    current_account.favourite_tags.includes(:tag).find do |favourite|
+      HashtagNormalizer.new.normalize(favourite.name.to_s) == normalized
+    end
   end
 end

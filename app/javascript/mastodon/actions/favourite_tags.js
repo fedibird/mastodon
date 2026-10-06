@@ -1,4 +1,6 @@
 import api from '../api';
+import { showAlertForError } from './alerts';
+import { normalizeHashtagName } from '../utils/status_hashtags';
 
 export const FAVOURITE_TAG_FETCH_REQUEST = 'FAVOURITE_TAG_FETCH_REQUEST';
 export const FAVOURITE_TAG_FETCH_SUCCESS = 'FAVOURITE_TAG_FETCH_SUCCESS';
@@ -57,3 +59,35 @@ export const fetchFavouriteTagsFail = error => ({
   type: FAVOURITE_TAGS_FETCH_FAIL,
   error,
 });
+
+const favouriteTagName = name => String(name || '').trim().replace(/^[#＃]/, '');
+
+export const favouriteTagAlreadyAdded = (favouriteTags, name) => {
+  if (!favouriteTags || typeof favouriteTags.some !== 'function') {
+    return false;
+  }
+
+  const normalized = normalizeHashtagName(favouriteTagName(name));
+
+  if (!normalized) {
+    return false;
+  }
+
+  return favouriteTags.some(tag => (
+    tag
+    && typeof tag.get === 'function'
+    && normalizeHashtagName(tag.get('name')) === normalized
+  ));
+};
+
+export const createFavouriteTag = name => (dispatch, getState) => {
+  const trimmed = favouriteTagName(name);
+
+  if (!trimmed || favouriteTagAlreadyAdded(getState().get('favourite_tags'), trimmed)) {
+    return Promise.resolve();
+  }
+
+  return api(getState).post('/api/v1/favourite_tags', { name: trimmed })
+    .then(({ data }) => dispatch(fetchFavouriteTagSuccess(data)))
+    .catch(error => dispatch(showAlertForError(error)));
+};
