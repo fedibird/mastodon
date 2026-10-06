@@ -4,6 +4,7 @@ import { createSelector } from 'reselect';
 
 import { changeComposeLanguage } from 'mastodon/actions/compose';
 import { useLanguage } from 'mastodon/actions/languages';
+import { selectComposer } from 'mastodon/selectors/composer';
 
 import LanguageDropdown from '../components/language_dropdown';
 
@@ -18,10 +19,14 @@ const getFrequentlyUsedLanguages = createSelector([
     .toArray()
 ));
 
-const mapStateToProps = state => ({
-  frequentlyUsedLanguages: getFrequentlyUsedLanguages(state),
-  value: state.getIn(['compose', 'language']),
-});
+const mapStateToProps = state => {
+  const composer = selectComposer(state);
+
+  return {
+    frequentlyUsedLanguages: getFrequentlyUsedLanguages(state),
+    value: composer.get('language'),
+  };
+};
 
 const mapDispatchToProps = dispatch => ({
 

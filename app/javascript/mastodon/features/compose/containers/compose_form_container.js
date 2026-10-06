@@ -12,6 +12,7 @@ import {
   cancelEditCompose,
 } from '../../../actions/compose';
 import { openModal } from '../../../actions/modal';
+import { selectComposer } from '../../../selectors/composer';
 import { injectIntl, defineMessages } from 'react-intl';
 
 const messages = defineMessages({
@@ -19,28 +20,32 @@ const messages = defineMessages({
   cancelEditMessage: { id: 'confirmations.cancel_edit.message', defaultMessage: 'Canceling will discard the changes you are currently composing. Are you sure you want to proceed?' },
 });
 
-const mapStateToProps = state => ({
-  text: state.getIn(['compose', 'text']),
-  suggestions: state.getIn(['compose', 'suggestions']),
-  spoiler: state.getIn(['compose', 'spoiler']),
-  spoilerText: state.getIn(['compose', 'spoiler_text']),
-  privacy: state.getIn(['compose', 'privacy']),
-  focusDate: state.getIn(['compose', 'focusDate']),
-  caretPosition: state.getIn(['compose', 'caretPosition']),
-  preselectDate: state.getIn(['compose', 'preselectDate']),
-  isSubmitting: state.getIn(['compose', 'is_submitting']),
-  isChangingUpload: state.getIn(['compose', 'is_changing_upload']),
-  isUploading: state.getIn(['compose', 'is_uploading']),
-  isCircleUnselected: !state.getIn(['compose', 'id']) && state.getIn(['compose', 'privacy']) === 'limited' && state.getIn(['compose', 'reply_status', 'visibility']) !== 'limited' && !state.getIn(['compose', 'circle_id']),
-  showSearch: state.getIn(['search', 'submitted']) && !state.getIn(['search', 'hidden']),
-  anyMedia: state.getIn(['compose', 'media_attachments']).size > 0,
-  prohibitedVisibilities: state.getIn(['compose', 'prohibited_visibilities']),
-  prohibitedWords: state.getIn(['compose', 'prohibited_words']),
-  isScheduled: !!state.getIn(['compose', 'scheduled']),
-  isScheduledStatusEditting: !!state.getIn(['compose', 'scheduled_status_id']),
-  isEditing: !!state.getIn(['compose', 'id']),
-  lang: state.getIn(['compose', 'language']),
-});
+const mapStateToProps = state => {
+  const composer = selectComposer(state);
+
+  return {
+    text: composer.get('text'),
+    suggestions: composer.get('suggestions'),
+    spoiler: composer.get('spoiler'),
+    spoilerText: composer.get('spoiler_text'),
+    privacy: composer.get('privacy'),
+    focusDate: composer.get('focusDate'),
+    caretPosition: composer.get('caretPosition'),
+    preselectDate: composer.get('preselectDate'),
+    isSubmitting: composer.get('is_submitting'),
+    isChangingUpload: composer.get('is_changing_upload'),
+    isUploading: composer.get('is_uploading'),
+    isCircleUnselected: !composer.get('id') && composer.get('privacy') === 'limited' && composer.getIn(['reply_status', 'visibility']) !== 'limited' && !composer.get('circle_id'),
+    showSearch: state.getIn(['search', 'submitted']) && !state.getIn(['search', 'hidden']),
+    anyMedia: composer.get('media_attachments').size > 0,
+    prohibitedVisibilities: composer.get('prohibited_visibilities'),
+    prohibitedWords: composer.get('prohibited_words'),
+    isScheduled: !!composer.get('scheduled'),
+    isScheduledStatusEditting: !!composer.get('scheduled_status_id'),
+    isEditing: !!composer.get('id'),
+    lang: composer.get('language'),
+  };
+};
 
 const mapDispatchToProps = (dispatch, { intl }) => ({
 
@@ -78,7 +83,9 @@ const mapDispatchToProps = (dispatch, { intl }) => ({
 
   onCancelEdit () {
     dispatch((_, getState) => {
-      if (getState().getIn(['compose', 'dirty'])) {
+      const composer = selectComposer(getState());
+
+      if (composer.get('dirty')) {
         dispatch(openModal('CONFIRM', {
           message: intl.formatMessage(messages.cancelEditMessage),
           confirm: intl.formatMessage(messages.cancelEditConfirm),
