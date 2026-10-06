@@ -472,6 +472,10 @@ export default function composer(state = initialState, action) {
     });
   }
   case COMPOSER_CONTEXT_HASHTAG_TOGGLE: {
+    if (isExistingPostEdit(state)) {
+      return state;
+    }
+
     const normalizedName = normalizeManagedHashtagName(action.normalizedName);
     const suppressed = state.getIn(['context', 'suppressions', 'hashtags'], ImmutableSet());
     const next = suppressed.includes(normalizedName) ? suppressed.delete(normalizedName) : suppressed.add(normalizedName);

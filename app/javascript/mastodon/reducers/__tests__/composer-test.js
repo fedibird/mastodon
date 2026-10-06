@@ -182,6 +182,24 @@ describe('posting context', () => {
     expect(composer(scheduled, applyBar)).toBe(scheduled);
     expect(materializeComposerText(scheduled)).toEqual('Hello');
   });
+
+  it('does not toggle suppression while editing an existing or scheduled status', () => {
+    const applied = composer(undefined, applyFoo).set('dirty', false).set('idempotencyKey', 'kept-key');
+    const editing = composer(applied, setComposeToStatus(fromJS({
+      id: 'status-1',
+      visibility: 'public',
+      sensitive: false,
+    }), 'Hello', ''));
+    const scheduled = applied.set('text', 'Hello').set('scheduled_status_id', 'sched-1');
+    const toggle = toggleComposerManagedHashtag('composer-a', 'foo');
+
+    expect(composer(editing, toggle)).toBe(editing);
+    expect(composer(scheduled, toggle)).toBe(scheduled);
+    expect(scheduled.getIn(['context', 'suppressions', 'hashtags']).isEmpty()).toBe(true);
+    expect(scheduled.get('dirty')).toBe(false);
+    expect(scheduled.get('idempotencyKey')).toEqual('kept-key');
+    expect(editing.getIn(['context', 'suppressions', 'hashtags']).isEmpty()).toBe(true);
+  });
 });
 
 describe('composer routing metadata', () => {

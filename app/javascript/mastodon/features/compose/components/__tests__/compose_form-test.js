@@ -98,6 +98,26 @@ describe('ComposeForm autoFocus', () => {
   });
 });
 
+describe('ComposeForm posting context visibility', () => {
+  it('shows the posting context bar for a new post', () => {
+    renderForm();
+
+    expect(screen.getByTestId('posting-context-bar')).toBeTruthy();
+  });
+
+  it('hides the posting context bar while editing a status', () => {
+    renderForm({ isEditing: true });
+
+    expect(screen.queryByTestId('posting-context-bar')).toBeNull();
+  });
+
+  it('hides the posting context bar while editing a scheduled status', () => {
+    renderForm({ isScheduledStatusEditting: true });
+
+    expect(screen.queryByTestId('posting-context-bar')).toBeNull();
+  });
+});
+
 describe('ComposeForm effective text', () => {
   it('keeps the textarea on the raw draft and counts effective text', () => {
     renderForm({ text: 'hi', effectiveText: 'hi\n\n#foo' });

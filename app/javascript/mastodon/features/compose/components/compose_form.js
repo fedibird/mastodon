@@ -287,7 +287,9 @@ class ComposeForm extends ImmutablePureComponent {
           <LanguageDropdownContainer />
         </div>
 
-        <PostingContextBarContainer />
+        {!this.props.isEditing && !this.props.isScheduledStatusEditting && (
+          <PostingContextBarContainer />
+        )}
 
         <AutosuggestTextarea
           ref={this.setAutosuggestTextarea}
