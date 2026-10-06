@@ -1,9 +1,8 @@
 import { connect } from 'react-redux';
 import UploadButton from '../components/upload_button';
-import { uploadCompose } from '../../../actions/compose';
+import { uploadToComposer } from '../../../actions/compose';
 import { allowPollImage, maxAttachments } from '../../../initial_state';
 import { selectComposer } from '../../../selectors/composer';
-import { PRIMARY_COMPOSER_ID } from '../../../utils/composer';
 import { withComposerId } from '../composer_id_context';
 
 const mapStateToProps = (state, { composerId }) => {
@@ -20,9 +19,7 @@ const mapStateToProps = (state, { composerId }) => {
 const mapDispatchToProps = (dispatch, { composerId }) => ({
 
   onSelectFile (files) {
-    if (composerId === PRIMARY_COMPOSER_ID) {
-      dispatch(uploadCompose(files));
-    }
+    dispatch(uploadToComposer(composerId, files));
   },
 
 });

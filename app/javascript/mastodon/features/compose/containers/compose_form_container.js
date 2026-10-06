@@ -2,19 +2,18 @@ import { connect } from 'react-redux';
 import ComposeForm from '../components/compose_form';
 import {
   changeCompose,
-  submitComposeWithCheck,
-  clearComposeSuggestions,
-  fetchComposeSuggestions,
-  selectComposeSuggestion,
+  submitComposerWithCheck,
+  clearComposerSuggestions,
+  fetchComposerSuggestions,
+  selectComposerSuggestion,
   changeComposeSpoilerText,
   insertEmojiCompose,
-  uploadCompose,
+  uploadToComposer,
   cancelEditCompose,
 } from '../../../actions/compose';
 import { openModal } from '../../../actions/modal';
 import { targetComposerAction } from '../../../actions/composer';
 import { selectComposer } from '../../../selectors/composer';
-import { PRIMARY_COMPOSER_ID } from '../../../utils/composer';
 import { withComposerId } from '../composer_id_context';
 import { injectIntl, defineMessages } from 'react-intl';
 
@@ -57,27 +56,19 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
   },
 
   onSubmit (router) {
-    if (composerId === PRIMARY_COMPOSER_ID) {
-      dispatch(submitComposeWithCheck(router, intl));
-    }
+    dispatch(submitComposerWithCheck(composerId, router, intl));
   },
 
   onClearSuggestions () {
-    if (composerId === PRIMARY_COMPOSER_ID) {
-      dispatch(clearComposeSuggestions());
-    }
+    dispatch(clearComposerSuggestions(composerId));
   },
 
   onFetchSuggestions (token) {
-    if (composerId === PRIMARY_COMPOSER_ID) {
-      dispatch(fetchComposeSuggestions(token));
-    }
+    dispatch(fetchComposerSuggestions(composerId, token));
   },
 
   onSuggestionSelected (position, token, suggestion, path) {
-    if (composerId === PRIMARY_COMPOSER_ID) {
-      dispatch(selectComposeSuggestion(position, token, suggestion, path));
-    }
+    dispatch(selectComposerSuggestion(composerId, position, token, suggestion, path));
   },
 
   onChangeSpoilerText (checked) {
@@ -85,9 +76,7 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
   },
 
   onPaste (files) {
-    if (composerId === PRIMARY_COMPOSER_ID) {
-      dispatch(uploadCompose(files));
-    }
+    dispatch(uploadToComposer(composerId, files));
   },
 
   onPickEmoji (position, data, needsSpace) {
