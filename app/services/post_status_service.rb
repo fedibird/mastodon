@@ -124,9 +124,9 @@ class PostStatusService < BaseService
       @text.sub!(/QT:\s*\[.*?\]/, '')
     end
 
-    # After QT stripping, so the text stored on the status is the text
-    # Mastodon can recognize as a trailing hashtag block. Scheduled params
-    # keep the submitted text; publish runs this service again.
+    # After QT stripping, so the stored status separates a trailing hashtag
+    # block with a blank line. Scheduled params keep the submitted text;
+    # publish runs this service again. Remote ActivityPub ingestion does not.
     @text = TrailingHashtagNormalizer.call(@text)
   rescue ArgumentError
     raise ActiveRecord::RecordInvalid

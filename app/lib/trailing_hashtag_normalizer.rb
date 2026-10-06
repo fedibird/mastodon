@@ -1,10 +1,17 @@
 # frozen_string_literal: true
 
-# Inserts one newline between body text and a trailing hashtag run.
+# Guarantees one blank line between body text and a trailing hashtag run.
 #
 # The run is the suffix of Extractor hashtag entities whose gaps, and the
-# text after the final hashtag, are whitespace only. A boundary that already
-# contains CR or LF is left unchanged, including its surrounding whitespace.
+# text after the final hashtag, are whitespace only. Tag-only posts and
+# hashtags that are not at the end stay unchanged. Zero logical newlines
+# become two, and a single logical newline gains one more. A boundary that
+# already has two or more logical newlines is left untouched, including
+# extra blank lines. Horizontal whitespace at the end of the body may be
+# removed when a newline is inserted.
+#
+# Local compose, edit, and scheduled publish call this. Remote ActivityPub
+# create and update must not.
 class TrailingHashtagNormalizer
   def self.call(text)
     new(text).call
@@ -22,16 +29,24 @@ class TrailingHashtagNormalizer
     return @text if start.zero?
 
     prefix = @text[0...start]
-    body = prefix.sub(/[[:space:]]+\z/, '')
+    body, separator = split_trailing_whitespace(prefix)
     return @text if body.empty?
 
-    separator = prefix[body.length..-1]
-    return @text if separator.match?(/\r|\n/)
+    breaks = separator.scan(/\r\n|\r|\n/)
+    return @text if breaks.size >= 2
 
-    "#{body}\n#{@text[start..-1]}"
+    gap = breaks.empty? ? "\n\n" : "#{breaks.join}\n"
+    "#{body}#{gap}#{@text[start..-1]}"
   end
 
   private
+
+  def split_trailing_whitespace(prefix)
+    match = prefix.match(/[[:space:]]+\z/)
+    return [prefix, ''] unless match
+
+    [prefix[0, match.begin(0)], match[0]]
+  end
 
   def trailing_run
     entities = Extractor.extract_hashtags_with_indices(@text)

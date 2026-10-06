@@ -659,6 +659,24 @@ RSpec.describe ActivityPub::Activity::Create do
         end
       end
 
+      context 'with a trailing hashtag in the remote body' do
+        let(:object_json) do
+          {
+            id: [ActivityPub::TagManager.instance.uri_for(sender), '#bar'].join,
+            type: 'Note',
+            content: 'Hello #one',
+          }
+        end
+
+        it 'does not rewrite the remote body' do
+          expect(TrailingHashtagNormalizer).not_to receive(:call)
+
+          expect { subject.perform }.to change(sender.statuses, :count).by(1)
+
+          expect(sender.statuses.first.text).to eq 'Hello #one'
+        end
+      end
+
       context 'with featured hashtags' do
         let(:object_json) do
           {
