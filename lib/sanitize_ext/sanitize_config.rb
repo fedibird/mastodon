@@ -21,18 +21,22 @@ class Sanitize
       gemini
     ).freeze
 
-    # Misskey sends <a href="..." rel="tag">#name</a> with no Mastodon classes.
-    # Custom transformers run before add_attributes replaces rel, so the tag
-    # token is still visible here. Existing classes are kept and not repeated.
-    HASHTAG_REL_CLASS_TRANSFORMER = lambda do |env|
+    # Misskey sends <a href="..." rel="tag">#name</a>. Pixelfed sends
+    # <a class="u-url hashtag" rel="external nofollow noopener">#name</a>.
+    # Custom transformers run before add_attributes replaces rel, so a tag
+    # token is still visible here. title is not a signal: MASTODON_STRICT
+    # drops it. Existing classes are kept and not repeated.
+    HASHTAG_ANCHOR_CLASS_TRANSFORMER = lambda do |env|
       return unless env[:node_name] == 'a'
 
       node = env[:node]
-      rel_tokens = node['rel'].to_s.split(/[\t\n\f\r ]/)
-      return unless rel_tokens.include?('tag')
-      return unless node.inner_text.lstrip.start_with?('#')
+      text = node.inner_text.lstrip
+      return unless text.start_with?('#') || text.start_with?('＃')
 
+      rel_tokens = node['rel'].to_s.split(/[\t\n\f\r ]/)
       classes = node['class'].to_s.split(/[\t\n\f\r ]/).reject(&:empty?)
+      return unless rel_tokens.include?('tag') || classes.include?('hashtag')
+
       classes << 'mention' unless classes.include?('mention')
       classes << 'hashtag' unless classes.include?('hashtag')
       node['class'] = classes.join(' ')
@@ -103,7 +107,7 @@ class Sanitize
       protocols: {},
 
       transformers: [
-        HASHTAG_REL_CLASS_TRANSFORMER,
+        HASHTAG_ANCHOR_CLASS_TRANSFORMER,
         CLASS_WHITELIST_TRANSFORMER,
         UNSUPPORTED_ELEMENTS_TRANSFORMER,
         UNSUPPORTED_HREF_TRANSFORMER,
