@@ -65,8 +65,10 @@ import {
 } from '../actions/compose';
 import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { REDRAFT } from '../actions/statuses';
+import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE } from '../actions/composer';
 import { Map as ImmutableMap, List as ImmutableList, Set as ImmutableSet, OrderedSet as ImmutableOrderedSet, fromJS } from 'immutable';
 import uuid from '../uuid';
+import { isExistingPostEdit, normalizeManagedHashtagName } from '../posting_context/managed_hashtags';
 import { me } from '../initial_state';
 import { unescapeHTML } from '../utils/html';
 import { format } from 'date-fns';
@@ -128,6 +130,16 @@ export const initialState = ImmutableMap({
   prohibited_visibilities: ImmutableSet(),
   prohibited_words: ImmutableSet(),
   scheduled_status_id: null,
+  context: ImmutableMap({
+    key: null,
+    source: null,
+    managed: ImmutableMap({
+      hashtags: ImmutableList(),
+    }),
+    suppressions: ImmutableMap({
+      hashtags: ImmutableSet(),
+    }),
+  }),
 });
 
 const initialPoll = ImmutableMap({
@@ -165,6 +177,43 @@ const statusToTextMentions = (text, privacy, replyStatus) => {
   }
 };
 
+const clearManagedHashtagSuppressions = map => {
+  map.setIn(['context', 'suppressions', 'hashtags'], ImmutableSet());
+};
+
+const activeManagedHashtagSignature = state => {
+  const hashtags = state.getIn(['context', 'managed', 'hashtags'], ImmutableList());
+  const suppressed = state.getIn(['context', 'suppressions', 'hashtags'], ImmutableSet());
+
+  return hashtags
+    .map(tag => tag.get('normalizedName'))
+    .filter(name => name && !suppressed.includes(name))
+    .sort()
+    .join('\0');
+};
+
+const managedHashtagRecord = tag => {
+  const name = String((tag && (tag.name || tag.normalizedName)) || '').replace(/^[#＃]+/u, '');
+
+  return ImmutableMap({
+    name,
+    normalizedName: normalizeManagedHashtagName((tag && (tag.normalizedName || tag.name)) || ''),
+    enforcement: (tag && tag.enforcement) || 'advisory',
+    ruleId: (tag && tag.ruleId) || null,
+  });
+};
+
+const emptyPostingContext = () => ImmutableMap({
+  key: null,
+  source: null,
+  managed: ImmutableMap({
+    hashtags: ImmutableList(),
+  }),
+  suppressions: ImmutableMap({
+    hashtags: ImmutableSet(),
+  }),
+});
+
 const clearAll = state => {
   return state.withMutations(map => {
     map.set('id', null);
@@ -194,6 +243,7 @@ const clearAll = state => {
     map.update('context_references', set => set.clear());
     map.set('ignore_reference_check', false);
     map.set('scheduled_status_id', null);
+    clearManagedHashtagSuppressions(map);
   });
 };
 
@@ -381,6 +431,56 @@ export default function composer(state = initialState, action) {
     return state
       .set('mounted', Math.max(state.get('mounted') - 1, 0))
       .set('is_composing', false);
+  case COMPOSER_CONTEXT_APPLY: {
+    if (isExistingPostEdit(state)) {
+      return state;
+    }
+
+    const postingContext = action.postingContext;
+    const previousSignature = activeManagedHashtagSignature(state);
+
+    if (!postingContext) {
+      return state.withMutations(map => {
+        map.set('context', emptyPostingContext());
+
+        if (previousSignature !== '' && (state.get('idempotencyKey') || state.get('text') || state.get('dirty'))) {
+          map.set('idempotencyKey', uuid());
+        }
+      });
+    }
+
+    const nextKey = postingContext.key || null;
+    const sameKey = state.getIn(['context', 'key']) === nextKey;
+    const hashtags = ImmutableList(((postingContext.managed && postingContext.managed.hashtags) || []).map(managedHashtagRecord));
+    const source = postingContext.source ? ImmutableMap({
+      id: postingContext.source.id,
+      revision: postingContext.source.revision,
+    }) : null;
+
+    return state.withMutations(map => {
+      map.setIn(['context', 'key'], nextKey);
+      map.setIn(['context', 'source'], source);
+      map.setIn(['context', 'managed', 'hashtags'], hashtags);
+
+      if (!sameKey) {
+        map.setIn(['context', 'suppressions', 'hashtags'], ImmutableSet());
+      }
+
+      if (previousSignature !== activeManagedHashtagSignature(map) && (state.get('idempotencyKey') || state.get('text') || state.get('dirty'))) {
+        map.set('idempotencyKey', uuid());
+      }
+    });
+  }
+  case COMPOSER_CONTEXT_HASHTAG_TOGGLE: {
+    const normalizedName = normalizeManagedHashtagName(action.normalizedName);
+    const suppressed = state.getIn(['context', 'suppressions', 'hashtags'], ImmutableSet());
+    const next = suppressed.includes(normalizedName) ? suppressed.delete(normalizedName) : suppressed.add(normalizedName);
+
+    return state
+      .setIn(['context', 'suppressions', 'hashtags'], next)
+      .set('dirty', true)
+      .set('idempotencyKey', uuid());
+  }
   case COMPOSE_SENSITIVITY_CHANGE:
     return state.withMutations(map => {
       if (!state.get('spoiler')) {
@@ -469,6 +569,7 @@ export default function composer(state = initialState, action) {
       map.set('quote_from_url', null);
       map.set('reply_status', action.status);
       map.set('text', statusToTextMentions('', privacy, action.status));
+      clearManagedHashtagSuppressions(map);
       map.set('privacy', privacy);
       map.set('searchability', searchability);
       map.set('circle_id', null);
@@ -510,6 +611,7 @@ export default function composer(state = initialState, action) {
       map.set('quote_from', action.status.get('id'));
       map.set('quote_from_url', action.status.get('url'));
       map.set('text', '');
+      clearManagedHashtagSuppressions(map);
       map.set('privacy', privacy);
       map.set('searchability', searchability);
       map.set('focusDate', new Date());
@@ -567,6 +669,7 @@ export default function composer(state = initialState, action) {
         map.update('references', set => set.clear());
       }
       map.set('scheduled_status_id', null);
+      clearManagedHashtagSuppressions(map);
     });
   case COMPOSE_SUBMIT_REQUEST:
     return state.set('is_submitting', true);
@@ -698,6 +801,7 @@ export default function composer(state = initialState, action) {
       const datetime_form = !!action.status.get('scheduled_at') || !!action.status.get('expires_at') ? true : null;
 
       map.set('text', action.raw_text || unescapeHTML(stripCompatibleText(expandMentions(action.status))));
+      clearManagedHashtagSuppressions(map);
       map.set('in_reply_to', action.status.get('in_reply_to_id', null));
       map.set('quote_from', action.status.getIn(['quote', 'id'], null));
       map.set('quote_from_url', action.status.getIn(['quote', 'url']));

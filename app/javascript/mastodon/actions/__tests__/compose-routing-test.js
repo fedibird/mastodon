@@ -46,11 +46,15 @@ import {
   quoteInComposer,
   replyCompose,
   replyInComposer,
+  setComposeToStatus,
   submitComposeRequest,
   submitComposer,
+  submitComposerWithCheck,
   uploadToComposer,
 } from '../compose';
-import { createComposer, destroyComposer, targetComposerAction } from '../composer';
+import { applyComposerPostingContext, createComposer, destroyComposer, targetComposerAction, toggleComposerManagedHashtag } from '../composer';
+import { REDRAFT } from '../statuses';
+import { buildHashtagTimelinePostingContext } from '../../posting_context/hashtag';
 import { MODAL_OPEN } from '../modal';
 import compose from '../../reducers/compose';
 import composers from '../../reducers/composers';
@@ -447,5 +451,132 @@ describe('composer async routing', () => {
     });
     expect(store.getState().getIn(['compose', 'privacy'])).toEqual('unlisted');
     expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'privacy'])).toEqual('private');
+  });
+
+  it('materializes an advisory hashtag without changing the primary draft', async () => {
+    const request = jest.fn().mockResolvedValue({
+      data: { ...statusResponse, tags: [{ name: 'foo' }] },
+    });
+    api.mockReturnValue({ request });
+    const { store, actions } = makeStore();
+
+    store.dispatch(changeCompose('PRIMARY'));
+    store.dispatch(createComposer('composer-a'));
+    store.dispatch(targetComposerAction(changeCompose('Hello'), 'composer-a'));
+    store.dispatch(applyComposerPostingContext('composer-a', buildHashtagTimelinePostingContext('foo')));
+
+    await store.dispatch(submitComposer('composer-a', router));
+
+    expect(request.mock.calls[0][0].data.status).toEqual('Hello\n\n#foo');
+    expect(store.getState().getIn(['compose', 'text'])).toEqual('PRIMARY');
+    expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'text'])).toEqual('');
+    expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'context', 'managed', 'hashtags', 0, 'normalizedName'])).toEqual('foo');
+    expect(actions.some(action => action.type === 'COMPOSE_TAG_HISTORY_UPDATE' && action.meta.composerId === 'composer-a')).toBe(true);
+  });
+
+  it('does not duplicate a manually typed equivalent hashtag', async () => {
+    const request = jest.fn().mockResolvedValue({ data: statusResponse });
+    api.mockReturnValue({ request });
+    const { store } = makeStore();
+
+    store.dispatch(createComposer('composer-a'));
+    store.dispatch(targetComposerAction(changeCompose('Hello #Foo'), 'composer-a'));
+    store.dispatch(applyComposerPostingContext('composer-a', buildHashtagTimelinePostingContext('foo')));
+
+    await store.dispatch(submitComposer('composer-a', router));
+
+    expect(request.mock.calls[0][0].data.status).toEqual('Hello #Foo');
+  });
+
+  it('omits a suppressed advisory hashtag and clears that suppression after success', async () => {
+    const request = jest.fn().mockResolvedValue({ data: statusResponse });
+    api.mockReturnValue({ request });
+    const { store } = makeStore();
+
+    store.dispatch(createComposer('composer-a'));
+    store.dispatch(targetComposerAction(changeCompose('Hello'), 'composer-a'));
+    store.dispatch(applyComposerPostingContext('composer-a', buildHashtagTimelinePostingContext('foo')));
+    store.dispatch(toggleComposerManagedHashtag('composer-a', 'foo'));
+
+    await store.dispatch(submitComposer('composer-a', router));
+
+    expect(request.mock.calls[0][0].data.status).toEqual('Hello');
+    expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'context', 'managed', 'hashtags', 0, 'normalizedName'])).toEqual('foo');
+    expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'context', 'suppressions', 'hashtags']).isEmpty()).toBe(true);
+  });
+
+  it('submits a managed hashtag when the raw draft is empty', async () => {
+    const request = jest.fn().mockResolvedValue({ data: statusResponse });
+    api.mockReturnValue({ request });
+    const { store } = makeStore();
+    const intl = { formatMessage: () => '' };
+
+    store.dispatch(createComposer('composer-a'));
+    store.dispatch(applyComposerPostingContext('composer-a', buildHashtagTimelinePostingContext('foo')));
+    await store.dispatch(submitComposerWithCheck('composer-a', router, intl));
+
+    expect(request.mock.calls[0][0].data.status).toEqual('#foo');
+
+    request.mockClear();
+    store.dispatch(toggleComposerManagedHashtag('composer-a', 'foo'));
+    await store.dispatch(submitComposerWithCheck('composer-a', router, intl));
+
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('does not add a timeline hashtag while editing an existing or scheduled status', async () => {
+    const request = jest.fn().mockResolvedValue({ data: statusResponse });
+    api.mockReturnValue({ request });
+    const { store } = makeStore();
+
+    store.dispatch(createComposer('composer-a'));
+    store.dispatch(applyComposerPostingContext('composer-a', buildHashtagTimelinePostingContext('foo')));
+    store.dispatch(targetComposerAction(setComposeToStatus(fromJS({
+      id: 'status-9',
+      visibility: 'public',
+      sensitive: false,
+      media_attachments: [],
+    }), 'Hello', ''), 'composer-a'));
+
+    await store.dispatch(submitComposer('composer-a', router));
+
+    expect(request.mock.calls[0][0].data.status).toEqual('Hello');
+    expect(request.mock.calls[0][0].method).toEqual('put');
+
+    request.mockClear();
+    store.dispatch(createComposer('composer-b'));
+    store.dispatch(applyComposerPostingContext('composer-b', buildHashtagTimelinePostingContext('foo')));
+    store.dispatch(targetComposerAction({
+      type: REDRAFT,
+      raw_text: 'Hello',
+      context_references: fromJS([]),
+      status: fromJS({
+        visibility: 'public',
+        sensitive: false,
+        spoiler_text: '',
+        language: 'en',
+        scheduled_status_id: 'sched-1',
+        media_attachments: [],
+        status_reference_ids: [],
+      }),
+    }, 'composer-b'));
+
+    await store.dispatch(submitComposer('composer-b', router));
+
+    expect(request.mock.calls[0][0].data.status).toEqual('Hello');
+  });
+
+  it('leaves a context-free composer payload equal to its raw text', async () => {
+    const request = jest.fn().mockResolvedValue({ data: statusResponse });
+    api.mockReturnValue({ request });
+    const { store } = makeStore();
+
+    store.dispatch(createComposer('composer-a'));
+    store.dispatch(targetComposerAction(changeCompose('Hello'), 'composer-a'));
+
+    await store.dispatch(submitComposer('composer-a', router));
+
+    expect(request.mock.calls[0][0].data.status).toEqual('Hello');
+    expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'context', 'managed', 'hashtags']).isEmpty()).toBe(true);
   });
 });

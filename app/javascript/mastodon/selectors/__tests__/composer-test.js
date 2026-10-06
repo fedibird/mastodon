@@ -1,6 +1,6 @@
 import { List as ImmutableList, Set as ImmutableSet, fromJS } from 'immutable';
 
-import { PRIMARY_COMPOSER_ID, getComposerStatePath, selectComposer, selectPortableComposerSeed } from '../composer';
+import { PRIMARY_COMPOSER_ID, getComposerStatePath, selectComposer, selectComposerEffectiveManagedHashtags, selectComposerManagedHashtags, selectPortableComposerSeed } from '../composer';
 
 const compose = fromJS({
   text: 'hello',
@@ -81,6 +81,40 @@ describe('selectPortableComposerSeed', () => {
     expect(seed.has('in_reply_to')).toBe(false);
     expect(seed.has('privacy')).toBe(false);
     expect(seed.has('idempotencyKey')).toBe(false);
+  });
+});
+
+describe('selectComposerManagedHashtags', () => {
+  const hashtag = fromJS({
+    name: 'foo',
+    normalizedName: 'foo',
+    enforcement: 'advisory',
+    ruleId: 'timeline-primary-hashtag',
+  });
+  const contextual = fromJS({
+    compose: {
+      context: {
+        managed: { hashtags: [] },
+        suppressions: { hashtags: [] },
+      },
+    },
+    composers: {
+      byId: {
+        'composer-a': {
+          context: {
+            managed: { hashtags: [hashtag] },
+            suppressions: { hashtags: ['foo'] },
+          },
+        },
+      },
+    },
+  });
+
+  it('returns every managed hashtag and the unsuppressed subset', () => {
+    expect(selectComposerManagedHashtags(contextual).isEmpty()).toBe(true);
+    expect(selectComposerManagedHashtags(contextual, 'composer-a').map(tag => tag.get('normalizedName')).toArray()).toEqual(['foo']);
+    expect(selectComposerEffectiveManagedHashtags(contextual, 'composer-a').isEmpty()).toBe(true);
+    expect(selectComposerManagedHashtags(contextual, 'missing').isEmpty()).toBe(true);
   });
 });
 

@@ -104,6 +104,7 @@ describe('ListTimeline portable composer', () => {
 
     expect(routeProps.alwaysPrepend).toBe(true);
     expect(routeProps.prepend.props.composerId).toEqual('portable:list-route:7');
+    expect(routeProps.prepend.props.postingContext).toBeUndefined();
     expect(routeProps.prepend.key).toEqual('portable:list-route:7');
     expect(columnProps.prepend.props.composerId).toEqual('portable:list-column:col-1');
     expect(columnProps.prepend.key).toEqual('portable:list-column:col-1');

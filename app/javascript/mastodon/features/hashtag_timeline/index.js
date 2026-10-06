@@ -14,7 +14,10 @@ import { isEqual } from 'lodash';
 import { fetchHashtag, followHashtag, unfollowHashtag } from 'mastodon/actions/tags';
 import Icon from 'mastodon/components/icon';
 import classNames from 'classnames';
-import { defaultColumnWidth, followTagModal, unfollowTagModal } from 'mastodon/initial_state';
+import { defaultColumnWidth, followTagModal, unfollowTagModal, new_features_policy } from 'mastodon/initial_state';
+import PortableComposer from '../compose/portable_composer';
+import { buildHashtagTimelinePostingContext } from 'mastodon/posting_context/hashtag';
+import { normalizeManagedHashtagName } from 'mastodon/posting_context/managed_hashtags';
 import { openModal } from 'mastodon/actions/modal';
 import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
@@ -209,6 +212,15 @@ class HashtagTimeline extends React.PureComponent {
     const { hasUnread, columnId, multiColumn, tag, columnWidth, intl } = this.props;
     const { id } = this.props.params;
     const pinned = !!columnId;
+    const normalizedTag = normalizeManagedHashtagName(id);
+    const composerId = columnId ? `portable:hashtag-column:${columnId}` : `portable:hashtag-route:${normalizedTag}`;
+    const portableComposer = new_features_policy === 'tester' ? (
+      <PortableComposer
+        key={composerId}
+        composerId={composerId}
+        postingContext={buildHashtagTimelinePostingContext(id)}
+      />
+    ) : null;
 
     let followButton;
 
@@ -248,6 +260,8 @@ class HashtagTimeline extends React.PureComponent {
           onLoadMore={this.handleLoadMore}
           emptyMessage={<FormattedMessage id='empty_column.hashtag' defaultMessage='There is nothing in this hashtag yet.' />}
           bindToDocument={!multiColumn}
+          prepend={portableComposer}
+          alwaysPrepend={!!portableComposer}
         />
       </Column>
     );

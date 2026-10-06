@@ -1,3 +1,4 @@
+import { List as ImmutableList } from 'immutable';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 
 export { PRIMARY_COMPOSER_ID };
@@ -34,6 +35,30 @@ export const selectPortableComposerSeed = (state) => {
   }
 
   return composer.filter((_, key) => PORTABLE_COMPOSER_SEED_FIELDS.includes(key));
+};
+
+export const selectComposerManagedHashtags = (state, composerId) => {
+  const composer = selectComposer(state, composerId);
+
+  if (!composer) {
+    return ImmutableList();
+  }
+
+  return composer.getIn(['context', 'managed', 'hashtags'], ImmutableList());
+};
+
+export const selectComposerEffectiveManagedHashtags = (state, composerId) => {
+  const composer = selectComposer(state, composerId);
+
+  if (!composer) {
+    return ImmutableList();
+  }
+
+  const suppressed = composer.getIn(['context', 'suppressions', 'hashtags']);
+
+  return selectComposerManagedHashtags(state, composerId).filter(tag => (
+    !suppressed || !suppressed.includes(tag.get('normalizedName'))
+  ));
 };
 
 export const getComposerStatePath = (
