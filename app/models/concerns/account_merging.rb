@@ -51,6 +51,8 @@ module AccountMerging
     # account's snapshot and leave the duplicate's rows to be removed with it.
     # Copying them would revive stale positive evidence, including into an
     # authoritative empty snapshot. affiliations_url is likewise left untouched.
+    # can_create_affiliation, can_view_affiliation, and
+    # permission_definitions_fetched_at stay with the canonical account too.
 
     # Some follow relationships have moved, so the cache is stale
     Rails.cache.delete_matched("followers_hash:#{id}:*")

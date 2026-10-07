@@ -6,6 +6,7 @@ class ActivityPub::ProcessAccountService < BaseService
   include Redisable
   include Lockable
   include ActivityPub::ProcessAccountAffiliations
+  include ActivityPub::ProcessAccountPermissionDefinitions
 
   VALID_URI_SCHEMES = %w(http https).freeze
 
@@ -88,6 +89,7 @@ class ActivityPub::ProcessAccountService < BaseService
     set_immediate_attributes! unless @account.suspended?
     set_fetchable_attributes! unless @options[:only_key] || @account.suspended?
     assign_group_affiliations_url! unless @options[:only_key] || @account.suspended?
+    assign_group_permission_definitions! unless @options[:only_key] || @account.suspended?
 
     @account.save_with_optional_media!
   end

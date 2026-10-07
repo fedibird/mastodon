@@ -16,6 +16,24 @@ export const selectPostingContextViewerEvidence = (state, accountId) => {
   return discovery.get('viewerEvidence', null);
 };
 
+const selectPermissionEvidence = (state, accountId, privilege) => {
+  const evidence = selectPostingContextViewerEvidence(state, accountId);
+
+  if (!evidence || !evidence.get) {
+    return null;
+  }
+
+  return evidence.getIn(['permissions', privilege], null);
+};
+
+export const selectPostingContextCreatePermissionEvidence = (state, accountId) => (
+  selectPermissionEvidence(state, accountId, 'create')
+);
+
+export const selectPostingContextViewPermissionEvidence = (state, accountId) => (
+  selectPermissionEvidence(state, accountId, 'view')
+);
+
 export const selectPostingContextForAccount = (state, accountId) => {
   const discovery = selectPostingContextDiscovery(state, accountId);
 

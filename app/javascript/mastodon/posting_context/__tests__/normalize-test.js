@@ -260,6 +260,98 @@ describe('normalizePostingContextDiscovery', () => {
           { relationship: 'trusted-poster', affiliationUri: null },
         ],
       },
+      permissions: null,
     });
+  });
+
+  it('normalizes create permission evidence and leaves it null when absent', () => {
+    const allowed = normalizeViewerEvidence({
+      affiliations: {
+        source: 'fep-5219-affiliations',
+        snapshot_status: 'fresh',
+        fetched_at: '2026-10-07T01:23:45Z',
+        relationships: [
+          { relationship: 'admin', affiliation_uri: 'https://mitra.example/relationships/1' },
+        ],
+      },
+      permissions: {
+        create: {
+          status: 'allowed',
+          source: 'fep-5219',
+          via_relationship: 'admin',
+          authority: 'protocol',
+        },
+      },
+    });
+
+    expect(allowed.permissions).toEqual({
+      create: {
+        status: 'allowed',
+        source: 'fep-5219',
+        viaRelationship: 'admin',
+        authority: 'protocol',
+      },
+    });
+
+    const unknown = normalizeViewerEvidence({
+      affiliations: {
+        source: 'fep-5219-affiliations',
+        snapshot_status: 'fresh',
+        fetched_at: '2026-10-07T01:23:45Z',
+        relationships: [],
+      },
+      permissions: {
+        create: {
+          status: 'unknown',
+          source: 'fep-5219',
+          via_relationship: null,
+          authority: 'protocol',
+        },
+      },
+    });
+
+    expect(unknown.permissions.create).toEqual({
+      status: 'unknown',
+      source: 'fep-5219',
+      viaRelationship: null,
+      authority: 'protocol',
+    });
+    expect(unknown.permissions.view).toBeUndefined();
+  });
+
+  it('normalizes view permission evidence beside create', () => {
+    const normalized = normalizeViewerEvidence({
+      affiliations: {
+        source: 'fep-5219-affiliations',
+        snapshot_status: 'fresh',
+        fetched_at: '2026-10-07T01:23:45Z',
+        relationships: [
+          { relationship: 'trusted-poster', affiliation_uri: null },
+        ],
+      },
+      permissions: {
+        create: {
+          status: 'allowed',
+          source: 'fep-5219',
+          via_relationship: 'trusted-poster',
+          authority: 'protocol',
+        },
+        view: {
+          status: 'unknown',
+          source: 'fep-5219',
+          via_relationship: null,
+          authority: 'protocol',
+        },
+      },
+    });
+
+    expect(normalized.permissions.create.viaRelationship).toEqual('trusted-poster');
+    expect(normalized.permissions.view).toEqual({
+      status: 'unknown',
+      source: 'fep-5219',
+      viaRelationship: null,
+      authority: 'protocol',
+    });
+    expect(normalized.affiliations.fetchedAt).toEqual('2026-10-07T01:23:45Z');
   });
 });

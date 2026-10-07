@@ -365,6 +365,84 @@ RSpec.describe ActivityPub::ProcessAccountService, type: :service do
       expect(account.group_affiliations).to be_empty
     end
 
+    it 'stores canCreate and canView from the actor document without another fetch' do
+      payload = group_payload(canCreate: 'trusted-poster', canView: { 'id' => 'member' })
+
+      Sidekiq::Testing.fake! do
+        subject.call('group', 'foo.test', payload)
+        expect(ActivityPub::SynchronizeGroupAffiliationsWorker.jobs).to be_empty
+      end
+
+      account.reload
+      expect(account.can_create_affiliation).to eq 'trusted-poster'
+      expect(account.can_view_affiliation).to eq 'member'
+      expect(account.permission_definitions_fetched_at).to be_within(5.seconds).of(Time.now.utc)
+      expect(a_request(:get, /foo\.test/)).not_to have_been_made
+    end
+
+    it 'stores an explicit none threshold and does not case-fold identifiers' do
+      payload = group_payload(canCreate: ' none ', canView: 'Admin')
+
+      subject.call('group', 'foo.test', payload)
+
+      account.reload
+      expect(account.can_create_affiliation).to eq 'none'
+      expect(account.can_view_affiliation).to eq 'Admin'
+    end
+
+    it 'records a snapshot when the actor publishes no usable threshold' do
+      payload = group_payload(canCreate: ['member'], canView: '')
+
+      subject.call('group', 'foo.test', payload)
+
+      account.reload
+      expect(account.can_create_affiliation).to be_nil
+      expect(account.can_view_affiliation).to be_nil
+      expect(account.permission_definitions_fetched_at).to be_present
+    end
+
+    it 'clears permission definitions when the actor is no longer a group' do
+      account.update_columns(
+        can_create_affiliation: 'trusted-poster',
+        can_view_affiliation: 'member',
+        permission_definitions_fetched_at: Time.utc(2026, 1, 1)
+      )
+
+      subject.call('group', 'foo.test', group_payload(type: 'Person'))
+
+      account.reload
+      expect(account.can_create_affiliation).to be_nil
+      expect(account.can_view_affiliation).to be_nil
+      expect(account.permission_definitions_fetched_at).to be_nil
+    end
+
+    it 'does not change permission definitions during an only_key refresh' do
+      account.update_columns(
+        can_create_affiliation: 'trusted-poster',
+        permission_definitions_fetched_at: Time.utc(2026, 1, 1)
+      )
+
+      subject.call('group', 'foo.test', group_payload(canCreate: 'admin'), only_key: true)
+
+      account.reload
+      expect(account.can_create_affiliation).to eq 'trusted-poster'
+      expect(account.permission_definitions_fetched_at).to eq Time.utc(2026, 1, 1)
+    end
+
+    it 'does not change permission definitions while the group is suspended' do
+      account.update_columns(
+        can_create_affiliation: 'trusted-poster',
+        permission_definitions_fetched_at: Time.utc(2026, 1, 1),
+        suspended_at: Time.now.utc,
+        suspension_origin: Account.suspension_origins[:local]
+      )
+
+      subject.call('group', 'foo.test', group_payload(canCreate: 'admin'))
+
+      expect(account.reload.can_create_affiliation).to eq 'trusted-poster'
+      expect(account.permission_definitions_fetched_at).to eq Time.utc(2026, 1, 1)
+    end
+
     it 'does not queue affiliation sync while the group is suspended' do
       account.update_columns(affiliations_url: affiliations_url, suspended_at: Time.now.utc, suspension_origin: Account.suspension_origins[:local])
       payload = group_payload(affiliations: 'https://foo.test/groups/g/other')
@@ -377,13 +455,15 @@ RSpec.describe ActivityPub::ProcessAccountService, type: :service do
       expect(account.reload.affiliations_url).to eq affiliations_url
     end
 
-    def group_payload(type: 'Group', affiliations: nil)
+    def group_payload(type: 'Group', affiliations: nil, canCreate: nil, canView: nil)
       payload = {
         id: uri,
         type: type,
         inbox: 'https://foo.test/inbox',
       }
       payload[:affiliations] = affiliations unless affiliations.nil?
+      payload[:canCreate] = canCreate unless canCreate.nil?
+      payload[:canView] = canView unless canView.nil?
       payload.with_indifferent_access
     end
   end

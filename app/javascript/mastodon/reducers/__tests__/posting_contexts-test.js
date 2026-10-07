@@ -54,6 +54,7 @@ describe('postingContexts', () => {
     expect(state.getIn(['123', 'status'])).toEqual('loading');
     expect(state.getIn(['123', 'context'])).toBeNull();
     expect(state.getIn(['123', 'error'])).toBeNull();
+    expect(state.getIn(['123', 'receivedAt'])).toBeNull();
   });
 
   it('stores a resolved context', () => {
@@ -99,6 +100,43 @@ describe('postingContexts', () => {
     expect(state.getIn(['456', 'viewerEvidence', 'affiliations', 'snapshotStatus'])).toEqual('fresh');
     expect(state.getIn(['456', 'viewerEvidence', 'affiliations', 'relationships', 0, 'relationship'])).toEqual('admin');
     expect(state.getIn(['456', 'viewerEvidence', 'affiliations', 'relationships', 0, 'affiliationUri'])).toEqual('https://mitra.example/relationships/1');
+    expect(state.getIn(['456', 'viewerEvidence', 'permissions'])).toBeNull();
+  });
+
+  it('stores REST receivedAt separately from affiliation fetchedAt and permission evidence', () => {
+    const state = postingContexts(undefined, {
+      type: POSTING_CONTEXT_FETCH_SUCCESS,
+      accountId: '456',
+      receivedAt: 1700000000000,
+      data: {
+        ...resolvedPayload,
+        account_id: '456',
+        viewer_evidence: {
+          affiliations: {
+            source: 'fep-5219-affiliations',
+            snapshot_status: 'fresh',
+            fetched_at: '2026-10-07T01:23:45Z',
+            relationships: [
+              { relationship: 'admin', affiliation_uri: 'https://mitra.example/relationships/1' },
+            ],
+          },
+          permissions: {
+            create: {
+              status: 'allowed',
+              source: 'fep-5219',
+              via_relationship: 'admin',
+              authority: 'protocol',
+            },
+          },
+        },
+      },
+    });
+
+    expect(state.getIn(['456', 'receivedAt'])).toEqual(1700000000000);
+    expect(state.getIn(['456', 'viewerEvidence', 'affiliations', 'fetchedAt'])).toEqual('2026-10-07T01:23:45Z');
+    expect(state.getIn(['456', 'viewerEvidence', 'permissions', 'create', 'status'])).toEqual('allowed');
+    expect(state.getIn(['456', 'viewerEvidence', 'permissions', 'create', 'viaRelationship'])).toEqual('admin');
+    expect(state.getIn(['456', 'context', 'managed', 'mentions', 0, 'ruleId'])).toEqual('group-account-mention');
   });
 
   it('stores unsupported and not_applicable results without a context', () => {
@@ -155,11 +193,13 @@ describe('postingContexts', () => {
     const resolved = postingContexts(undefined, {
       type: POSTING_CONTEXT_FETCH_SUCCESS,
       accountId: '123',
+      receivedAt: 111,
       data: resolvedPayload,
     });
     const next = postingContexts(resolved, {
       type: POSTING_CONTEXT_FETCH_SUCCESS,
       accountId: '456',
+      receivedAt: 222,
       data: {
         schema_version: 1,
         account_id: '456',
@@ -172,6 +212,8 @@ describe('postingContexts', () => {
 
     expect(next.getIn(['123', 'status'])).toEqual('resolved');
     expect(next.getIn(['123', 'context', 'key'])).toEqual('builtin:fedibird-group:123');
+    expect(next.getIn(['123', 'receivedAt'])).toEqual(111);
     expect(next.getIn(['456', 'status'])).toEqual('unsupported');
+    expect(next.getIn(['456', 'receivedAt'])).toEqual(222);
   });
 });

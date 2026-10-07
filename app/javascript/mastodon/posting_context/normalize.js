@@ -75,6 +75,31 @@ const normalizeAffiliationRelationship = (relationship) => ({
   affiliationUri: relationship.affiliation_uri || null,
 });
 
+const normalizePermission = (permission) => ({
+  status: permission.status,
+  source: permission.source,
+  viaRelationship: permission.via_relationship || null,
+  authority: permission.authority,
+});
+
+const normalizePermissions = (permissions) => {
+  if (!permissions || (!permissions.create && !permissions.view)) {
+    return null;
+  }
+
+  const normalized = {};
+
+  if (permissions.create) {
+    normalized.create = normalizePermission(permissions.create);
+  }
+
+  if (permissions.view) {
+    normalized.view = normalizePermission(permissions.view);
+  }
+
+  return normalized;
+};
+
 export function normalizeViewerEvidence(evidence) {
   if (!evidence || !evidence.affiliations) {
     return null;
@@ -89,6 +114,7 @@ export function normalizeViewerEvidence(evidence) {
       fetchedAt: affiliations.fetched_at || null,
       relationships: (affiliations.relationships || []).map(normalizeAffiliationRelationship),
     },
+    permissions: normalizePermissions(evidence.permissions),
   };
 }
 

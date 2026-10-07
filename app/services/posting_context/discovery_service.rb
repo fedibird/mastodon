@@ -27,8 +27,14 @@ class PostingContext::DiscoveryService
   def viewer_evidence_for(account, viewer)
     return if account.local? || viewer.nil?
 
+    affiliations = PostingContext::GroupAffiliationEvidenceResolver.new.call(account, viewer)
+    definitions = PostingContext::GroupPermissionDefinitionResolver.new.call(account)
+
+    # permissions joins the two cached snapshots. It does not choose an
+    # adapter or change posting transport authority.
     {
-      affiliations: PostingContext::GroupAffiliationEvidenceResolver.new.call(account, viewer),
+      affiliations: affiliations,
+      permissions: PostingContext::GroupPermissionEvidenceResolver.new.call(affiliations, definitions),
     }
   end
 

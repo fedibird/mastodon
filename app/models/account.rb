@@ -57,6 +57,9 @@
 #  priority                      :integer          default("default"), not null
 #  affiliations_url              :string
 #  affiliations_fetched_at       :datetime
+#  can_create_affiliation        :string
+#  can_view_affiliation          :string
+#  permission_definitions_fetched_at :datetime
 #
 
 class Account < ApplicationRecord

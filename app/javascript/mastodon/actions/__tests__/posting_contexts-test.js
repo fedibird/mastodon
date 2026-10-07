@@ -13,7 +13,7 @@ import thunk from 'redux-thunk';
 
 import api from '../../api';
 import posting_contexts from '../../reducers/posting_contexts';
-import { fetchPostingContext } from '../posting_contexts';
+import { POSTING_CONTEXT_CACHE_TTL, fetchPostingContext } from '../posting_contexts';
 
 const resolvedData = {
   schema_version: 1,
@@ -81,7 +81,7 @@ describe('fetchPostingContext', () => {
     const store = makeStore();
 
     const first = store.dispatch(fetchPostingContext('123'));
-    const second = store.dispatch(fetchPostingContext('123'));
+    const second = store.dispatch(fetchPostingContext('123', { force: true }));
 
     expect(get).toHaveBeenCalledTimes(1);
     expect(store.getState().getIn(['posting_contexts', '123', 'status'])).toEqual('loading');
@@ -115,5 +115,66 @@ describe('fetchPostingContext', () => {
 
     expect(get).toHaveBeenCalledTimes(2);
     expect(store.getState().getIn(['posting_contexts', '123', 'status'])).toEqual('resolved');
+  });
+
+  describe('cache TTL', () => {
+    const start = 1_700_000_000_000;
+
+    beforeEach(() => {
+      jest.spyOn(Date, 'now').mockReturnValue(start);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('skips fresh success results and refetches them after the TTL', async () => {
+      const get = jest.fn()
+        .mockResolvedValueOnce({ data: resolvedData })
+        .mockResolvedValueOnce({ data: neutral('456', 'unsupported', 'no_supported_adapter') })
+        .mockResolvedValueOnce({ data: neutral('789', 'not_applicable', 'not_group') })
+        .mockResolvedValueOnce({ data: resolvedData })
+        .mockResolvedValueOnce({ data: neutral('456', 'unsupported', 'no_supported_adapter') })
+        .mockResolvedValueOnce({ data: neutral('789', 'not_applicable', 'not_group') });
+      api.mockReturnValue({ get });
+      const store = makeStore();
+
+      await store.dispatch(fetchPostingContext('123'));
+      await store.dispatch(fetchPostingContext('456'));
+      await store.dispatch(fetchPostingContext('789'));
+      expect(get).toHaveBeenCalledTimes(3);
+      expect(store.getState().getIn(['posting_contexts', '123', 'receivedAt'])).toEqual(start);
+      expect(store.getState().getIn(['posting_contexts', '123', 'viewerEvidence'])).toBeNull();
+
+      Date.now.mockReturnValue(start + POSTING_CONTEXT_CACHE_TTL - 1);
+      await store.dispatch(fetchPostingContext('123'));
+      await store.dispatch(fetchPostingContext('456'));
+      await store.dispatch(fetchPostingContext('789'));
+      expect(get).toHaveBeenCalledTimes(3);
+
+      Date.now.mockReturnValue(start + POSTING_CONTEXT_CACHE_TTL);
+      await store.dispatch(fetchPostingContext('123'));
+      await store.dispatch(fetchPostingContext('456'));
+      await store.dispatch(fetchPostingContext('789'));
+      expect(get).toHaveBeenCalledTimes(6);
+      expect(store.getState().getIn(['posting_contexts', '123', 'status'])).toEqual('resolved');
+      expect(store.getState().getIn(['posting_contexts', '456', 'status'])).toEqual('unsupported');
+      expect(store.getState().getIn(['posting_contexts', '789', 'status'])).toEqual('not_applicable');
+      expect(store.getState().getIn(['posting_contexts', '123', 'receivedAt'])).toEqual(start + POSTING_CONTEXT_CACHE_TTL);
+    });
+
+    it('refetches a fresh resolved result when force is set', async () => {
+      const get = jest.fn()
+        .mockResolvedValueOnce({ data: resolvedData })
+        .mockResolvedValueOnce({ data: resolvedData });
+      api.mockReturnValue({ get });
+      const store = makeStore();
+
+      await store.dispatch(fetchPostingContext('123'));
+      await store.dispatch(fetchPostingContext('123', { force: true }));
+
+      expect(get).toHaveBeenCalledTimes(2);
+      expect(store.getState().getIn(['posting_contexts', '123', 'status'])).toEqual('resolved');
+    });
   });
 });

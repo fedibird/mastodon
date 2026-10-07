@@ -5,7 +5,11 @@ export const POSTING_CONTEXT_FETCH_REQUEST = 'POSTING_CONTEXT_FETCH_REQUEST';
 export const POSTING_CONTEXT_FETCH_SUCCESS = 'POSTING_CONTEXT_FETCH_SUCCESS';
 export const POSTING_CONTEXT_FETCH_FAIL    = 'POSTING_CONTEXT_FETCH_FAIL';
 
-const CACHED_STATUSES = ['loading', 'resolved', 'unsupported', 'not_applicable'];
+// How long a discovery REST result stays reusable in this session.
+// This is separate from the server affiliation snapshot freshness.
+export const POSTING_CONTEXT_CACHE_TTL = 5 * 60 * 1000;
+
+const SUCCESS_STATUSES = ['resolved', 'unsupported', 'not_applicable'];
 
 const fetchPostingContextRequest = accountId => ({
   type: POSTING_CONTEXT_FETCH_REQUEST,
@@ -13,10 +17,11 @@ const fetchPostingContextRequest = accountId => ({
   skipLoading: true,
 });
 
-const fetchPostingContextSuccess = (accountId, data) => ({
+const fetchPostingContextSuccess = (accountId, data, receivedAt) => ({
   type: POSTING_CONTEXT_FETCH_SUCCESS,
   accountId,
   data,
+  receivedAt,
   skipLoading: true,
 });
 
@@ -28,11 +33,25 @@ const fetchPostingContextFail = (accountId, error) => ({
   skipAlert: true,
 });
 
-export function fetchPostingContext(accountId) {
+const successCacheIsFresh = (current, now) => {
+  if (!current || !SUCCESS_STATUSES.includes(current.get('status'))) {
+    return false;
+  }
+
+  const receivedAt = current.get('receivedAt');
+
+  return typeof receivedAt === 'number' && (now - receivedAt) < POSTING_CONTEXT_CACHE_TTL;
+};
+
+export function fetchPostingContext(accountId, { force = false } = {}) {
   return (dispatch, getState) => {
     const current = selectPostingContextDiscovery(getState(), accountId);
 
-    if (current && CACHED_STATUSES.includes(current.get('status'))) {
+    if (current && current.get('status') === 'loading') {
+      return Promise.resolve();
+    }
+
+    if (!force && successCacheIsFresh(current, Date.now())) {
       return Promise.resolve();
     }
 
@@ -41,7 +60,7 @@ export function fetchPostingContext(accountId) {
     return api(getState)
       .get(`/api/v1/fedibird/accounts/${encodeURIComponent(accountId)}/posting_context`)
       .then(({ data }) => {
-        dispatch(fetchPostingContextSuccess(String(accountId), data));
+        dispatch(fetchPostingContextSuccess(String(accountId), data, Date.now()));
       })
       .catch(error => {
         dispatch(fetchPostingContextFail(String(accountId), error));

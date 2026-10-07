@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_07_020001) do
+ActiveRecord::Schema.define(version: 2026_10_07_050000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -221,6 +221,9 @@ ActiveRecord::Schema.define(version: 2026_10_07_020001) do
     t.datetime "requested_review_at"
     t.string "affiliations_url"
     t.datetime "affiliations_fetched_at"
+    t.string "can_create_affiliation"
+    t.string "can_view_affiliation"
+    t.datetime "permission_definitions_fetched_at"
     t.index "(((setweight(to_tsvector('simple'::regconfig, (display_name)::text), 'A'::\"char\") || setweight(to_tsvector('simple'::regconfig, (username)::text), 'B'::\"char\")) || setweight(to_tsvector('simple'::regconfig, (COALESCE(domain, ''::character varying))::text), 'C'::\"char\")))", name: "search_index", using: :gin
     t.index "lower((username)::text), COALESCE(lower((domain)::text), ''::text)", name: "index_accounts_on_username_and_domain_lower", unique: true
     t.index ["domain", "id"], name: "index_accounts_on_domain_and_id"
