@@ -27,8 +27,13 @@ class PostingContext::DiscoveryService
   def viewer_evidence_for(account, viewer)
     return if account.local? || viewer.nil?
 
+    affiliations = PostingContext::GroupAffiliationEvidenceResolver.new.call(account, viewer)
+
+    # permissions is an observational reading of affiliation evidence.
+    # It does not choose an adapter or change posting transport authority.
     {
-      affiliations: PostingContext::GroupAffiliationEvidenceResolver.new.call(account, viewer),
+      affiliations: affiliations,
+      permissions: PostingContext::GroupPermissionEvidenceResolver.new.call(affiliations),
     }
   end
 

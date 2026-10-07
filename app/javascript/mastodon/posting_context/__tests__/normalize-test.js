@@ -260,6 +260,61 @@ describe('normalizePostingContextDiscovery', () => {
           { relationship: 'trusted-poster', affiliationUri: null },
         ],
       },
+      permissions: null,
+    });
+  });
+
+  it('normalizes create permission evidence and leaves it null when absent', () => {
+    const allowed = normalizeViewerEvidence({
+      affiliations: {
+        source: 'fep-5219-affiliations',
+        snapshot_status: 'fresh',
+        fetched_at: '2026-10-07T01:23:45Z',
+        relationships: [
+          { relationship: 'admin', affiliation_uri: 'https://mitra.example/relationships/1' },
+        ],
+      },
+      permissions: {
+        create: {
+          status: 'allowed',
+          source: 'fep-5219',
+          via_relationship: 'admin',
+          authority: 'protocol',
+        },
+      },
+    });
+
+    expect(allowed.permissions).toEqual({
+      create: {
+        status: 'allowed',
+        source: 'fep-5219',
+        viaRelationship: 'admin',
+        authority: 'protocol',
+      },
+    });
+
+    const unknown = normalizeViewerEvidence({
+      affiliations: {
+        source: 'fep-5219-affiliations',
+        snapshot_status: 'fresh',
+        fetched_at: '2026-10-07T01:23:45Z',
+        relationships: [],
+      },
+      permissions: {
+        create: {
+          status: 'unknown',
+          source: 'fep-5219',
+          via_relationship: null,
+          authority: 'protocol',
+        },
+      },
+    });
+
+    expect(unknown.permissions.create).toEqual({
+      status: 'unknown',
+      source: 'fep-5219',
+      viaRelationship: null,
+      authority: 'protocol',
     });
   });
 });
