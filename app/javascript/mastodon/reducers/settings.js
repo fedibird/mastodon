@@ -189,6 +189,8 @@ const initialState = ImmutableMap({
     }),
   }),
 
+  portableComposerVisibility: ImmutableMap(),
+
   emoji_reactioned_statuses: ImmutableMap({
     emojis: ImmutableList(),
     preferred_emojis: ImmutableList(),

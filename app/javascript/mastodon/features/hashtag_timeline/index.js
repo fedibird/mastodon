@@ -15,8 +15,10 @@ import { isEqual } from 'lodash';
 import { fetchHashtag, followHashtag, unfollowHashtag } from 'mastodon/actions/tags';
 import Icon from 'mastodon/components/icon';
 import classNames from 'classnames';
-import { defaultColumnWidth, followTagModal, unfollowTagModal, new_features_policy } from 'mastodon/initial_state';
+import { defaultColumnWidth, followTagModal, unfollowTagModal, isAdministrator } from 'mastodon/initial_state';
 import PortableComposer from '../compose/portable_composer';
+import PortableComposerToggle from '../compose/components/portable_composer_toggle';
+import { selectPortableComposerVisible } from 'mastodon/selectors/composer';
 import { buildHashtagTimelinePostingContext } from 'mastodon/posting_context/hashtag';
 import { normalizeManagedHashtagName } from 'mastodon/posting_context/managed_hashtags';
 import { openModal } from 'mastodon/actions/modal';
@@ -33,6 +35,10 @@ const messages = defineMessages({
   splitUnavailable: { id: 'timeline.split_source_unavailable', defaultMessage: 'This timeline is already split in another column' },
 });
 
+const hashtagComposerId = (id, columnId) => (
+  columnId ? `portable:hashtag-column:${columnId}` : `portable:hashtag-route:${normalizeManagedHashtagName(id)}`
+);
+
 const mapStateToProps = (state, { columnId, params }) => {
   const columns = state.getIn(['settings', 'columns']);
   const index = columns ? columns.findIndex(column => column.get('uuid') === columnId) : -1;
@@ -43,6 +49,7 @@ const mapStateToProps = (state, { columnId, params }) => {
     tag: state.getIn(['tags', params.id]),
     columnWidth: columnWidth ?? defaultColumnWidth,
     splitRatio: clampTimelineSplitRatio(state.getIn(['settings', 'hashtag', 'splitRatio'], DEFAULT_TIMELINE_SPLIT_RATIO)),
+    composerVisible: selectPortableComposerVisible(state, hashtagComposerId(params.id, columnId)),
   };
 };
 
@@ -60,6 +67,7 @@ class HashtagTimeline extends React.PureComponent {
     columnWidth: PropTypes.string,
     intl: PropTypes.object,
     splitRatio: PropTypes.number,
+    composerVisible: PropTypes.bool,
     location: PropTypes.shape({
       key: PropTypes.string,
     }),
@@ -208,6 +216,12 @@ class HashtagTimeline extends React.PureComponent {
     }
   }
 
+  handleToggleComposer = () => {
+    const { columnId, dispatch, composerVisible, params: { id } } = this.props;
+
+    dispatch(changeSetting(['portableComposerVisibility', hashtagComposerId(id, columnId)], !composerVisible));
+  }
+
   handleWidthChange = (value) => {
     const { columnId, dispatch } = this.props;
 
@@ -219,13 +233,12 @@ class HashtagTimeline extends React.PureComponent {
   }
 
   renderColumn = (split) => {
-    const { hasUnread, columnId, multiColumn, tag, columnWidth, intl } = this.props;
+    const { hasUnread, columnId, multiColumn, tag, columnWidth, intl, composerVisible } = this.props;
     const { id } = this.props.params;
     const pinned = !!columnId;
     const sourceTimelineId = hashtagTimelineId(id);
-    const normalizedTag = normalizeManagedHashtagName(id);
-    const composerId = columnId ? `portable:hashtag-column:${columnId}` : `portable:hashtag-route:${normalizedTag}`;
-    const portableComposer = new_features_policy === 'tester' ? (
+    const composerId = hashtagComposerId(id, columnId);
+    const portableComposer = isAdministrator && composerVisible ? (
       <PortableComposer
         key={composerId}
         composerId={composerId}
@@ -315,6 +328,7 @@ class HashtagTimeline extends React.PureComponent {
           extraButton={(
             <Fragment>
               {split.splitButton}
+              <PortableComposerToggle visible={composerVisible} onToggle={this.handleToggleComposer} />
               {followButton}
             </Fragment>
           )}

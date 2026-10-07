@@ -833,6 +833,8 @@
   "time_remaining.minutes": "残り{number}分",
   "time_remaining.moments": "まもなく終了",
   "time_remaining.seconds": "残り{number}秒",
+  "timeline.hide_composer": "コンポーザーを隠す",
+  "timeline.show_composer": "コンポーザーを表示",
   "timeline.split": "タイムラインを分割",
   "timeline.split_list_unavailable": "このリストは別のカラムですでに分割されています",
   "timeline.split_source_unavailable": "このタイムラインは別のカラムですでに分割されています",

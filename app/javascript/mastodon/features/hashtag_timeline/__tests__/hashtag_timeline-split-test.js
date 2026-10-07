@@ -24,7 +24,7 @@ jest.mock('react-intl', () => {
 
 jest.mock('mastodon/initial_state', () => ({
   ...jest.requireActual('mastodon/initial_state'),
-  new_features_policy: 'tester',
+  isAdministrator: true,
 }));
 
 const mockGet = jest.fn(() => new Promise(() => {}));
@@ -108,12 +108,24 @@ describe('HashtagTimeline split', () => {
   it('keeps the follow button and puts the composer on the live pane only', () => {
     const store = buildStore();
     const { container } = renderTag(store, { id: 'ruby' });
+    const headerLabels = [];
+    const headerButtons = container.querySelector('.column-header__buttons');
+
+    for (let child = headerButtons.firstElementChild; child; child = child.nextElementSibling) {
+      headerLabels.push(child.getAttribute('aria-label'));
+    }
 
     expect(container.querySelector('.scrollable').getAttribute('data-timeline')).toBe('hashtag:ruby');
-    expect(screen.getByRole('button', { name: 'Follow hashtag' })).toBeTruthy();
+    expect(headerLabels.slice(0, 3)).toEqual(['Split timeline', 'Show composer', 'Follow hashtag']);
+    expect(screen.getByRole('button', { name: 'Show composer' }).getAttribute('aria-pressed')).toBe('false');
+    expect(container.querySelectorAll('[data-testid="portable-composer"]')).toHaveLength(0);
+    expect(streamLog).toEqual(['connect:ruby:ruby']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show composer' }));
+
     expect(container.querySelectorAll('[data-testid="portable-composer"]')).toHaveLength(1);
     expect(container.querySelector('[data-testid="portable-composer"]').getAttribute('data-composer-id')).toBe('portable:hashtag-column:col-a');
-    expect(streamLog).toEqual(['connect:ruby:ruby']);
+    expect(screen.getByRole('button', { name: 'Hide composer' }).getAttribute('aria-pressed')).toBe('true');
 
     fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
 
@@ -121,13 +133,22 @@ describe('HashtagTimeline split', () => {
     expect(container.querySelectorAll('.timeline-split__pane--history [data-testid="portable-composer"]')).toHaveLength(0);
     expect(container.querySelector('.timeline-split__pane--history .scrollable').getAttribute('data-prepend')).toBe('false');
     expect(screen.getByRole('button', { name: 'Follow hashtag' })).toBeTruthy();
+    expect(store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:hashtag-column:col-a'])).toBe(true);
     expect(streamLog).toEqual(['connect:ruby:ruby']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide composer' }));
+
+    expect(container.querySelectorAll('.timeline-split__pane--live [data-testid="portable-composer"]')).toHaveLength(0);
+    expect(container.querySelectorAll('.timeline-split__pane--history [data-testid="portable-composer"]')).toHaveLength(0);
+    expect(screen.getByRole('button', { name: 'Follow hashtag' })).toBeTruthy();
+    expect(store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:hashtag-column:col-a'])).toBe(false);
   });
 
   it('drops the split, temporary timeline, and return anchor when additional filters change', () => {
     const store = buildStore();
     const view = renderTag(store, { id: 'ruby' });
 
+    fireEvent.click(screen.getByRole('button', { name: 'Show composer' }));
     fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
     const splitTimelineId = store.getState().getIn(['timelines', 'hashtag:ruby', 'splitTimelineId']);
 
@@ -162,6 +183,7 @@ describe('HashtagTimeline split', () => {
     ]);
     expect(screen.getByRole('button', { name: 'Follow hashtag' })).toBeTruthy();
     expect(view.container.querySelectorAll('[data-testid="portable-composer"]')).toHaveLength(1);
+    expect(store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:hashtag-column:col-a'])).toBe(true);
   });
 
   it('keeps the ruby return anchor across a hashtag route change and restores it on back', () => {
