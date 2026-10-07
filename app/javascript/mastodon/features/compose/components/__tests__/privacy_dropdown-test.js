@@ -146,6 +146,83 @@ describe('PrivacyDropdown', () => {
     expect(screen.queryByRole('button', { name: 'Public' })).not.toBeInTheDocument();
   });
 
+  const renderConnected = (compose) => {
+    const store = createStore(() => fromJS({
+      compose: {
+        id: null,
+        privacy: 'public',
+        prohibited_visibilities: null,
+        scheduled_status_id: null,
+        draft_audience_account_id: null,
+        context: {
+          constraints: {
+            allowedVisibilities: ['private', 'direct'],
+          },
+        },
+        ...compose,
+      },
+    }));
+
+    render(
+      <Provider store={store}>
+        <PrivacyDropdownContainer showLabel />
+      </Provider>,
+    );
+  };
+
+  it('limits a scheduled audience draft to public and unlisted', () => {
+    renderConnected({
+      scheduled_status_id: 'sched-1',
+      draft_audience_account_id: '456',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Public' }));
+
+    expect(optionValues()).toEqual(['public', 'unlisted']);
+  });
+
+  it('hides a prohibited public option on a scheduled audience draft', () => {
+    const store = createStore(() => fromJS({
+      compose: {
+        id: null,
+        privacy: 'unlisted',
+        scheduled_status_id: 'sched-1',
+        draft_audience_account_id: '456',
+      },
+    }).setIn(['compose', 'prohibited_visibilities'], ImmutableSet(['public'])));
+
+    render(
+      <Provider store={store}>
+        <PrivacyDropdownContainer showLabel />
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unlisted' }));
+
+    expect(optionValues()).toEqual(['unlisted']);
+  });
+
+  it('offers no visibility when a scheduled audience draft prohibits public and unlisted', () => {
+    const store = createStore(() => fromJS({
+      compose: {
+        id: null,
+        privacy: 'public',
+        scheduled_status_id: 'sched-1',
+        draft_audience_account_id: '456',
+      },
+    }).setIn(['compose', 'prohibited_visibilities'], ImmutableSet(['public', 'unlisted'])));
+
+    render(
+      <Provider store={store}>
+        <PrivacyDropdownContainer showLabel />
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'None' }));
+
+    expect(screen.queryAllByRole('option')).toEqual([]);
+  });
+
   it('forwards showLabel through the connected container', () => {
     const store = createStore(() => fromJS({
       compose: {

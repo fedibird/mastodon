@@ -406,4 +406,62 @@ describe('submitCompose', () => {
     expect(data.status).toEqual('Hello');
     expect(data.audience_account_id).toEqual('456');
   });
+
+  it('does not submit a private scheduled draft that retains an audience target', async () => {
+    const request = jest.fn().mockResolvedValue({ data: statusResponse });
+    api.mockReturnValue({ request });
+    const compose = composerReducer(undefined, applyComposerPostingContext('primary', groupPostingContext))
+      .set('text', 'Hello')
+      .set('privacy', 'private')
+      .set('in_reply_to', null)
+      .set('media_attachments', ImmutableList())
+      .set('references', ImmutableSet())
+      .set('scheduled_status_id', 'sched-1')
+      .set('draft_audience_account_id', '456');
+    const state = composeState().set('compose', compose);
+    const router = { location: { pathname: '/home' }, push: jest.fn(), goBack: jest.fn() };
+
+    await dispatchThunk(submitCompose(router), state);
+    await dispatchThunk(submitComposeWithCheck(router, intl), state);
+
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('POSTs public and unlisted scheduled replacements with the retained audience', async () => {
+    const request = jest.fn().mockResolvedValue({ data: statusResponse });
+    api.mockReturnValue({ request });
+    const router = { location: { pathname: '/home' }, push: jest.fn(), goBack: jest.fn() };
+    const scheduled = (privacy) => composerReducer(undefined, applyComposerPostingContext('primary', groupPostingContext))
+      .set('text', 'Hello')
+      .set('privacy', privacy)
+      .set('in_reply_to', null)
+      .set('media_attachments', ImmutableList())
+      .set('references', ImmutableSet())
+      .set('scheduled_status_id', 'sched-1')
+      .set('draft_audience_account_id', '456')
+      .setIn(['context', 'protocol', 'activityPub', 'audience'], ImmutableMap({
+        accountId: '789',
+        acct: 'other@example.com',
+        enforcement: 'required',
+        ruleId: 'fep-1b12-group-audience',
+      }));
+
+    await dispatchThunk(submitCompose(router), composeState().set('compose', scheduled('public')));
+    await dispatchThunk(
+      submitComposeWithCheck(router, intl),
+      composeState().set('compose', scheduled('unlisted')),
+    );
+
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request.mock.calls[0][0]).toEqual(expect.objectContaining({
+      url: '/api/v1/statuses',
+      method: 'post',
+    }));
+    expect(request.mock.calls[0][0].data.status).toEqual('Hello');
+    expect(request.mock.calls[0][0].data.visibility).toEqual('public');
+    expect(request.mock.calls[0][0].data.audience_account_id).toEqual('456');
+    expect(request.mock.calls[1][0].data.visibility).toEqual('unlisted');
+    expect(request.mock.calls[1][0].data.audience_account_id).toEqual('456');
+    expect(request.mock.calls[1][0].data.status).toEqual('Hello');
+  });
 });

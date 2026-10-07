@@ -104,6 +104,61 @@ describe('selectComposerPostingContextCompliance', () => {
     expect(selectComposerPostingContextCompliance(draft, 'primary').valid).toBe(false);
   });
 
+  it('accepts public and unlisted scheduled drafts that retain an audience target', () => {
+    const retained = groupState({ privacy: 'public', relationship: { following: false } })
+      .setIn(['compose', 'scheduled_status_id'], 'sched-1')
+      .setIn(['compose', 'draft_audience_account_id'], '456')
+      .setIn(['compose', 'context', 'protocol', 'activityPub', 'audience'], ImmutableMap({
+        accountId: '789',
+        acct: 'other@example.com',
+        enforcement: 'required',
+        ruleId: 'fep-1b12-group-audience',
+      }));
+
+    const publicCompliance = selectComposerPostingContextCompliance(retained, 'primary');
+    const unlisted = selectComposerPostingContextCompliance(retained.setIn(['compose', 'privacy'], 'unlisted'), 'primary');
+    const privateCompliance = selectComposerPostingContextCompliance(retained.setIn(['compose', 'privacy'], 'private'), 'primary');
+
+    expect(publicCompliance.valid).toBe(true);
+    expect(publicCompliance.visibility.allowed).toEqual(['public', 'unlisted']);
+    expect(publicCompliance.visibility.available).toEqual(['public', 'unlisted']);
+    expect(publicCompliance.followingAccounts).toEqual([]);
+    expect(unlisted.valid).toBe(true);
+    expect(unlisted.visibility.valid).toBe(true);
+    expect(privateCompliance.valid).toBe(false);
+    expect(privateCompliance.visibility.valid).toBe(false);
+    expect(privateCompliance.followingAccounts).toEqual([]);
+  });
+
+  it('intersects a retained scheduled audience with base visibility prohibitions', () => {
+    const retained = groupState({ privacy: 'unlisted' })
+      .setIn(['compose', 'scheduled_status_id'], 'sched-1')
+      .setIn(['compose', 'draft_audience_account_id'], '456')
+      .setIn(['compose', 'prohibited_visibilities'], ImmutableSet(['public']));
+    const none = retained
+      .setIn(['compose', 'privacy'], 'public')
+      .setIn(['compose', 'prohibited_visibilities'], ImmutableSet(['public', 'unlisted']));
+
+    const unlistedOnly = selectComposerPostingContextCompliance(retained, 'primary');
+    const blocked = selectComposerPostingContextCompliance(none, 'primary');
+
+    expect(unlistedOnly.visibility.available).toEqual(['unlisted']);
+    expect(unlistedOnly.valid).toBe(true);
+    expect(blocked.visibility.available).toEqual([]);
+    expect(blocked.valid).toBe(false);
+  });
+
+  it('keeps a scheduled edit without a retained audience outside context compliance', () => {
+    const scheduled = groupState({ privacy: 'private' })
+      .setIn(['compose', 'scheduled_status_id'], 'sched-1')
+      .setIn(['compose', 'draft_audience_account_id'], null);
+    const compliance = selectComposerPostingContextCompliance(scheduled, 'primary');
+
+    expect(compliance.valid).toBe(true);
+    expect(compliance.visibility).toEqual({ valid: true, allowed: null, available: null });
+    expect(compliance.followingAccounts).toEqual([]);
+  });
+
   it('rejects a required ActivityPub audience that has no account', () => {
     const postingContext = {
       key: 'protocol:audience:missing',
