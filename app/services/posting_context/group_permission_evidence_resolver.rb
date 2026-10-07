@@ -5,9 +5,10 @@ class PostingContext::GroupPermissionEvidenceResolver
   AUTHORITY = 'protocol'
   NO_AFFILIATION = 'none'
 
-  # Joins a fresh viewer affiliation snapshot with the Group's fresh
-  # canCreate / canView identifiers. The identifier must match exactly.
-  # A missing match is unknown, not a denial.
+  # Joins a fresh canCreate / canView identifier with the viewer's
+  # affiliations. none means no affiliation is required, so that result
+  # does not depend on the affiliation snapshot. Any other identifier
+  # must match a fresh snapshot exactly. A missing match is unknown.
   def call(affiliation_evidence, definition_evidence)
     {
       create: permission(:can_create, affiliation_evidence, definition_evidence),
@@ -18,16 +19,16 @@ class PostingContext::GroupPermissionEvidenceResolver
   private
 
   def permission(attribute, affiliation_evidence, definition_evidence)
-    required = required_affiliation(attribute, affiliation_evidence, definition_evidence)
+    required = required_affiliation(attribute, definition_evidence)
     return unknown if required.nil?
     return allowed(NO_AFFILIATION) if required == NO_AFFILIATION
-    return unknown unless listed?(affiliation_evidence, required)
+    return unknown unless fresh?(affiliation_evidence) && listed?(affiliation_evidence, required)
 
     allowed(required)
   end
 
-  def required_affiliation(attribute, affiliation_evidence, definition_evidence)
-    return unless fresh?(affiliation_evidence) && fresh?(definition_evidence)
+  def required_affiliation(attribute, definition_evidence)
+    return unless fresh?(definition_evidence)
 
     value = definition_evidence[attribute]
     return unless value.is_a?(String) && value.present?

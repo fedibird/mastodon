@@ -122,10 +122,43 @@ RSpec.describe PostingContext::GroupPermissionEvidenceResolver do
     end
   end
 
-  it 'allows create when canCreate is none and the affiliation snapshot is fresh' do
-    result = described_class.new.call(fresh_affiliations, fresh_definitions(can_create: 'none'))
+  %w(fresh stale unfetched unavailable).each do |snapshot_status|
+    it "allows create via none when canCreate is none and the affiliation snapshot is #{snapshot_status}" do
+      result = described_class.new.call(
+        { snapshot_status: snapshot_status, relationships: [] },
+        fresh_definitions(can_create: 'none')
+      )
 
-    expect(result[:create]).to eq(allowed_create.merge(via_relationship: 'none'))
+      expect(result[:create]).to eq(allowed_create.merge(via_relationship: 'none'))
+    end
+
+    it "allows view via none when canView is none and the affiliation snapshot is #{snapshot_status}" do
+      result = described_class.new.call(
+        { snapshot_status: snapshot_status, relationships: [] },
+        fresh_definitions(can_view: 'none')
+      )
+
+      expect(result[:view]).to eq(allowed_create.merge(via_relationship: 'none'))
+      expect(result[:create]).to eq unknown_permission
+    end
+  end
+
+  it 'leaves create unknown when canCreate is none but the definition snapshot is stale' do
+    result = described_class.new.call(
+      fresh_affiliations,
+      { snapshot_status: 'stale', can_create: 'none', can_view: nil }
+    )
+
+    expect(result[:create]).to eq unknown_permission
+  end
+
+  it 'leaves view unknown when canView is none but the definition snapshot is stale' do
+    result = described_class.new.call(
+      fresh_affiliations,
+      { snapshot_status: 'stale', can_create: nil, can_view: 'none' }
+    )
+
+    expect(result[:view]).to eq unknown_permission
   end
 
   it 'allows view only from canView' do
