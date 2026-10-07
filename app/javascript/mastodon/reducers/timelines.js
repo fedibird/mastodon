@@ -312,9 +312,13 @@ export default function timelines(state = initialState, action) {
     state = filterTimeline('home', state, action.relationship, action.statuses);
     state = filterTimeline('limited', state, action.relationship, action.statuses);
 
-    if (state.getIn(['home', 'splitTimelineId'])) {
-      state = filterTimeline(state.getIn(['home', 'splitTimelineId']), state, action.relationship, action.statuses);
-    }
+    ['home', 'limited'].forEach(sourceTimeline => {
+      const splitTimelineId = state.getIn([sourceTimeline, 'splitTimelineId']);
+
+      if (splitTimelineId) {
+        state = filterTimeline(splitTimelineId, state, action.relationship, action.statuses);
+      }
+    });
 
     return state;
   case TIMELINE_SPLIT_CREATE:

@@ -355,6 +355,42 @@ describe('timeline split lifecycle', () => {
     expect(next.getIn([splitId, 'items'])).toEqual(ImmutableList(['90']));
   });
 
+  it.each([
+    ACCOUNT_UNFOLLOW_SUCCESS,
+    ACCOUNT_UNSUBSCRIBE_SUCCESS,
+  ])('filters %s out of limited, its pending items, and the active history timeline', (type) => {
+    const limitedSplitId = 'limited:split:column-a:uuid-1';
+    const next = timelines(ImmutableMap({
+      home: ImmutableMap({
+        items: ImmutableList(['1']),
+        pendingItems: ImmutableList(),
+      }),
+      limited: ImmutableMap({
+        items: ImmutableList(['100', '90']),
+        pendingItems: ImmutableList(['110']),
+        splitTimelineId: limitedSplitId,
+      }),
+      [limitedSplitId]: ImmutableMap({
+        items: ImmutableList(['100', '90']),
+        pendingItems: ImmutableList(),
+      }),
+    }), {
+      type,
+      relationship: { id: '2' },
+      statuses: fromJS({
+        '110': { id: '110', account: '2' },
+        '100': { id: '100', account: '2' },
+        '90': { id: '90', account: '3' },
+        '1': { id: '1', account: '9' },
+      }),
+    });
+
+    expect(next.getIn(['limited', 'items'])).toEqual(ImmutableList(['90']));
+    expect(next.getIn(['limited', 'pendingItems'])).toEqual(ImmutableList());
+    expect(next.getIn([limitedSplitId, 'items'])).toEqual(ImmutableList(['90']));
+    expect(next.getIn(['home', 'items'])).toEqual(ImmutableList(['1']));
+  });
+
   it('keeps a return anchor when the split timeline is destroyed', () => {
     const anchor = ImmutableMap({
       locationKey: 'A',

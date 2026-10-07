@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Fragment } from 'react';
 import { connect } from 'react-redux';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import PropTypes from 'prop-types';
@@ -10,7 +10,8 @@ import ColumnHeader from '../../components/column_header';
 import Icon from '../../components/icon';
 import { fetchAccount } from '../../actions/accounts';
 import { makeGetAccount } from 'mastodon/selectors';
-import { expandGroupTimeline } from '../../actions/timelines';
+import { expandGroupTimeline, clearTimelineSplitReturnAnchor } from '../../actions/timelines';
+import { groupTimelineId } from '../../actions/timeline_ids';
 import { addColumn, removeColumn, moveColumn } from '../../actions/columns';
 import ColumnSettingsContainer from './containers/column_settings_container';
 import GroupDetail from './components/group_detail';
@@ -21,23 +22,26 @@ import { fetchPostingContext } from '../../actions/posting_contexts';
 import { selectPostingContextForAccount } from '../../selectors/posting_contexts';
 import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
+import { DEFAULT_TIMELINE_SPLIT_RATIO } from 'mastodon/components/timeline_splitter';
+import StatusTimelineSplitController, { clampTimelineSplitRatio } from '../ui/components/status_timeline_split_controller';
 
 const messages = defineMessages({
   title: { id: 'column.group', defaultMessage: 'Group timeline' },
   show_group_detail: { id: 'home.show_group_detail', defaultMessage: 'Show group detail' },
   hide_group_detail: { id: 'home.hide_group_detail', defaultMessage: 'Hide group detail' },
+  splitUnavailable: { id: 'timeline.split_source_unavailable', defaultMessage: 'This timeline is already split in another column' },
 });
 
 const makeMapStateToProps = () => {
   const getAccount = makeGetAccount();
 
   const mapStateToProps = (state, { columnId, params: { id, tagged } }) => {
-    const uuid = columnId;
     const columns = state.getIn(['settings', 'columns']);
-    const index = columns.findIndex(c => c.get('uuid') === uuid);
+    const index = columns ? columns.findIndex(column => column.get('uuid') === columnId) : -1;
     const onlyMedia = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'onlyMedia']) : state.getIn(['settings', 'group', 'other', 'onlyMedia']);
     const withoutMedia = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'group', 'other', 'withoutMedia']);
-    const timelineState = state.getIn(['timelines', `group:${id}${withoutMedia ? ':nomedia' : ''}${onlyMedia ? ':media' : ''}${tagged ? `:${tagged}` : ''}`]);
+    const sourceTimelineId = groupTimelineId(id, { withoutMedia, onlyMedia, tagged });
+    const timelineState = state.getIn(['timelines', sourceTimelineId]);
     const columnWidth = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'group', 'columnWidth']);
     const account = getAccount(state, id);
 
@@ -48,6 +52,7 @@ const makeMapStateToProps = () => {
       account,
       postingContext: selectPostingContextForAccount(state, id),
       columnWidth: columnWidth ?? defaultColumnWidth,
+      splitRatio: clampTimelineSplitRatio(state.getIn(['settings', 'group', 'splitRatio'], DEFAULT_TIMELINE_SPLIT_RATIO)),
     };
   };
 
@@ -79,6 +84,10 @@ class GroupTimeline extends React.PureComponent {
     onlyMedia: PropTypes.bool,
     withoutMedia: PropTypes.bool,
     postingContext: PropTypes.object,
+    splitRatio: PropTypes.number,
+    location: PropTypes.shape({
+      key: PropTypes.string,
+    }),
   };
 
   state = {
@@ -101,8 +110,8 @@ class GroupTimeline extends React.PureComponent {
     dispatch(moveColumn(columnId, dir));
   }
 
-  handleHeaderClick = () => {
-    this.column.scrollTop();
+  handleSplitRatioCommit = (ratio) => {
+    this.props.dispatch(changeSetting(['group', 'splitRatio'], ratio));
   }
 
   componentDidMount () {
@@ -129,10 +138,21 @@ class GroupTimeline extends React.PureComponent {
       }
     }
 
-    if (prevProps.params.id !== id || prevProps.onlyMedia !== onlyMedia || prevProps.withoutMedia !== this.props.withoutMedia || prevProps.tagged !== tagged) {
+    const mediaChanged = prevProps.onlyMedia !== onlyMedia || prevProps.withoutMedia !== withoutMedia;
+    const routeChanged = prevProps.params.id !== id || prevProps.params.tagged !== tagged;
+
+    if (routeChanged || mediaChanged) {
       this.disconnect();
       dispatch(expandGroupTimeline(id, { onlyMedia, withoutMedia, tagged }));
       this.disconnect = dispatch(connectGroupStream(id, { onlyMedia, withoutMedia, tagged }));
+    }
+
+    if (mediaChanged && !routeChanged) {
+      dispatch(clearTimelineSplitReturnAnchor(groupTimelineId(prevProps.params.id, {
+        onlyMedia: prevProps.onlyMedia,
+        withoutMedia: prevProps.withoutMedia,
+        tagged: prevProps.params.tagged,
+      })));
     }
   }
 
@@ -143,14 +163,16 @@ class GroupTimeline extends React.PureComponent {
     }
   }
 
-  setRef = c => {
-    this.column = c;
-  }
-
   handleLoadMore = maxId => {
     const { dispatch, onlyMedia, withoutMedia, params: { id, tagged } } = this.props;
 
     dispatch(expandGroupTimeline(id, { maxId, onlyMedia, withoutMedia, tagged }));
+  }
+
+  handleLoadMoreHistory = maxId => {
+    const { dispatch, onlyMedia, withoutMedia, params: { id, tagged } } = this.props;
+
+    dispatch(expandGroupTimeline(id, { maxId, onlyMedia, withoutMedia, tagged, timelineId: this.splitTimelineId }));
   }
 
   handleToggleClick = (e) => {
@@ -172,16 +194,11 @@ class GroupTimeline extends React.PureComponent {
     }
   }
 
-  render () {
+  renderColumn = (split) => {
     const { intl, hasUnread, columnId, multiColumn, onlyMedia, withoutMedia, params: { id, tagged }, account, columnWidth, postingContext } = this.props;
     const pinned = !!columnId;
-
     const { collapsed, animating } = this.state;
-
-    if (!account) {
-      return <div />;
-    }
-
+    const sourceTimelineId = groupTimelineId(id, { withoutMedia, onlyMedia, tagged });
     const composerId = columnId ? `portable:group-column:${columnId}` : `portable:group-route:${id}`;
     const portableComposer = new_features_policy === 'tester' && postingContext ? (
       <PortableComposer
@@ -190,6 +207,9 @@ class GroupTimeline extends React.PureComponent {
         postingContext={postingContext}
       />
     ) : null;
+    const emptyMessage = <FormattedMessage id='empty_column.group' defaultMessage='The group timeline is empty. When members of this group post new toots, they will appear here.' />;
+
+    this.splitTimelineId = split.splitTimelineId;
 
     const collapsibleClassName = classNames('column-header__collapsible', {
       'collapsed': collapsed,
@@ -212,8 +232,8 @@ class GroupTimeline extends React.PureComponent {
       </button>
     );
 
-    const displayName = account.get('display_name')
-    const title = displayName.length === 0 ? account.get('acct').split('@')[0] : displayName
+    const displayName = account.get('display_name');
+    const title = displayName.length === 0 ? account.get('acct').split('@')[0] : displayName;
 
     const groupDetail = (
       <div className={collapsibleClassName} tabIndex={collapsed ? -1 : null} onTransitionEnd={this.handleTransitionEnd}>
@@ -221,18 +241,79 @@ class GroupTimeline extends React.PureComponent {
       </div>
     );
 
+    let timeline;
+
+    if (!split.isSplit) {
+      timeline = (
+        <StatusListContainer
+          trackScroll={!pinned}
+          scrollKey={`group_timeline-${columnId}`}
+          timelineId={sourceTimelineId}
+          onLoadMore={this.handleLoadMore}
+          emptyMessage={emptyMessage}
+          bindToDocument={!multiColumn}
+          showCard={!withoutMedia}
+          prepend={portableComposer}
+          alwaysPrepend={!!portableComposer}
+        />
+      );
+    } else {
+      timeline = (
+        <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
+          <div className='timeline-split__pane timeline-split__pane--live'>
+            <StatusListContainer
+              timelineId={sourceTimelineId}
+              dataTimelineId={sourceTimelineId}
+              includePendingItems
+              statusLimit={40}
+              manageTimelineScrollState={false}
+              trackIntersection={false}
+              trackScroll={false}
+              scrollKey={`group_timeline-${columnId}-live`}
+              emptyMessage={emptyMessage}
+              bindToDocument={false}
+              showCard={!withoutMedia}
+              prepend={portableComposer}
+              alwaysPrepend={!!portableComposer}
+            />
+          </div>
+
+          {split.splitter}
+
+          <div className='timeline-split__pane timeline-split__pane--history'>
+            <StatusListContainer
+              trackScroll={multiColumn ? !pinned : false}
+              scrollKey={`group_timeline-${columnId}`}
+              onLoadMore={this.handleLoadMoreHistory}
+              timelineId={sourceTimelineId}
+              dataTimelineId={split.splitTimelineId}
+              trackIntersection
+              emptyMessage={emptyMessage}
+              bindToDocument={false}
+              showCard={!withoutMedia}
+            />
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <Column bindToDocument={!multiColumn} ref={this.setRef} label={title} columnWidth={columnWidth}>
+      <Column bindToDocument={!multiColumn} ref={split.setColumnRef} label={title} columnWidth={columnWidth}>
         <ColumnHeader
           icon='users'
           active={hasUnread}
           title={title}
           onPin={this.handlePin}
           onMove={this.handleMove}
-          onClick={this.handleHeaderClick}
+          onClick={split.handleHeaderClick}
           pinned={pinned}
           multiColumn={multiColumn}
-          extraButton={groupDetailButton}
+          extraButton={(
+            <Fragment>
+              {split.splitButton}
+              {groupDetailButton}
+            </Fragment>
+          )}
           columnWidth={columnWidth}
           onWidthChange={this.handleWidthChange}
         >
@@ -241,18 +322,33 @@ class GroupTimeline extends React.PureComponent {
 
         {groupDetail}
 
-        <StatusListContainer
-          trackScroll={!pinned}
-          scrollKey={`group_timeline-${columnId}`}
-          timelineId={`group:${id}${withoutMedia ? ':nomedia' : ''}${onlyMedia ? ':media' : ''}${tagged ? `:${tagged}` : ''}`}
-          onLoadMore={this.handleLoadMore}
-          emptyMessage={<FormattedMessage id='empty_column.group' defaultMessage='The group timeline is empty. When members of this group post new toots, they will appear here.' />}
-          bindToDocument={!multiColumn}
-          showCard={!withoutMedia}
-          prepend={portableComposer}
-          alwaysPrepend={!!portableComposer}
-        />
+        {timeline}
       </Column>
+    );
+  }
+
+  render () {
+    const { account, columnId, multiColumn, onlyMedia, withoutMedia, params: { id, tagged }, splitRatio, location } = this.props;
+
+    if (!account) {
+      return <div />;
+    }
+
+    const sourceTimelineId = groupTimelineId(id, { withoutMedia, onlyMedia, tagged });
+
+    return (
+      <StatusTimelineSplitController
+        key={sourceTimelineId}
+        sourceTimelineId={sourceTimelineId}
+        columnId={columnId}
+        multiColumn={multiColumn}
+        location={location}
+        splitRatio={splitRatio}
+        onSplitRatioCommit={this.handleSplitRatioCommit}
+        unavailableMessage={messages.splitUnavailable}
+      >
+        {this.renderColumn}
+      </StatusTimelineSplitController>
     );
   }
 

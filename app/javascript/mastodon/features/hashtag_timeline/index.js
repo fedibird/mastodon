@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Fragment } from 'react';
 import { connect } from 'react-redux';
 import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
@@ -7,6 +7,7 @@ import Column from 'mastodon/components/column';
 import ColumnHeader from 'mastodon/components/column_header';
 import ColumnSettingsContainer from './containers/column_settings_container';
 import { expandHashtagTimeline, clearTimeline } from 'mastodon/actions/timelines';
+import { hashtagSplitContextKey, hashtagTimelineId } from 'mastodon/actions/timeline_ids';
 import { addColumn, removeColumn, moveColumn } from 'mastodon/actions/columns';
 import { injectIntl, FormattedMessage, defineMessages } from 'react-intl';
 import { connectHashtagStream } from 'mastodon/actions/streaming';
@@ -21,24 +22,27 @@ import { normalizeManagedHashtagName } from 'mastodon/posting_context/managed_ha
 import { openModal } from 'mastodon/actions/modal';
 import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
+import { DEFAULT_TIMELINE_SPLIT_RATIO } from 'mastodon/components/timeline_splitter';
+import StatusTimelineSplitController, { clampTimelineSplitRatio } from '../ui/components/status_timeline_split_controller';
 
 const messages = defineMessages({
   followHashtag: { id: 'hashtag.follow', defaultMessage: 'Follow hashtag' },
   unfollowHashtag: { id: 'hashtag.unfollow', defaultMessage: 'Unfollow hashtag' },
   followHashtagConfirm: { id: 'confirmations.follow_hashtag.confirm', defaultMessage: 'Follow hastag' },
   unfollowHashtagConfirm: { id: 'confirmations.unfollow_hashtag.confirm', defaultMessage: 'Unfollow hashtag' },
+  splitUnavailable: { id: 'timeline.split_source_unavailable', defaultMessage: 'This timeline is already split in another column' },
 });
 
 const mapStateToProps = (state, { columnId, params }) => {
-  const uuid = columnId;
   const columns = state.getIn(['settings', 'columns']);
-  const index = columns.findIndex(c => c.get('uuid') === uuid);
+  const index = columns ? columns.findIndex(column => column.get('uuid') === columnId) : -1;
   const columnWidth = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'hashtag', 'columnWidth']);
 
   return {
-    hasUnread: state.getIn(['timelines', `hashtag:${params.id}`, 'unread']) > 0,
+    hasUnread: state.getIn(['timelines', hashtagTimelineId(params.id), 'unread']) > 0,
     tag: state.getIn(['tags', params.id]),
     columnWidth: columnWidth ?? defaultColumnWidth,
+    splitRatio: clampTimelineSplitRatio(state.getIn(['settings', 'hashtag', 'splitRatio'], DEFAULT_TIMELINE_SPLIT_RATIO)),
   };
 };
 
@@ -55,6 +59,10 @@ class HashtagTimeline extends React.PureComponent {
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
     intl: PropTypes.object,
+    splitRatio: PropTypes.number,
+    location: PropTypes.shape({
+      key: PropTypes.string,
+    }),
   };
 
   handlePin = () => {
@@ -101,8 +109,8 @@ class HashtagTimeline extends React.PureComponent {
     dispatch(moveColumn(columnId, dir));
   }
 
-  handleHeaderClick = () => {
-    this.column.scrollTop();
+  handleSplitRatioCommit = (ratio) => {
+    this.props.dispatch(changeSetting(['hashtag', 'splitRatio'], ratio));
   }
 
   _subscribe (dispatch, id, tags = {}) {
@@ -125,14 +133,6 @@ class HashtagTimeline extends React.PureComponent {
     this.disconnects = [];
   }
 
-  _unload () {
-    const { dispatch } = this.props;
-    const { id } = this.props.params;
-
-    this._unsubscribe();
-    dispatch(clearTimeline(`hashtag:${id}`));
-  }
-
   _load() {
     const { dispatch } = this.props;
     const { id, tags } = this.props.params;
@@ -147,11 +147,18 @@ class HashtagTimeline extends React.PureComponent {
   }
 
   componentDidUpdate (prevProps) {
-    const { params } = this.props;
-    const { id, tags } = prevProps.params;
+    const previousId = prevProps.params.id;
+    const { id, tags } = this.props.params;
+    const idChanged = previousId !== id;
+    const tagsChanged = !isEqual(prevProps.params.tags, tags);
 
-    if (id !== params.id || !isEqual(tags, params.tags)) {
-      this._unload();
+    if (idChanged || tagsChanged) {
+      this._unsubscribe();
+
+      if (!idChanged) {
+        this.props.dispatch(clearTimeline(hashtagTimelineId(id)));
+      }
+
       this._load();
     }
   }
@@ -160,15 +167,18 @@ class HashtagTimeline extends React.PureComponent {
     this._unsubscribe();
   }
 
-  setRef = c => {
-    this.column = c;
-  }
-
   handleLoadMore = maxId => {
     const { dispatch, params } = this.props;
     const { id, tags }  = params;
 
     dispatch(expandHashtagTimeline(id, { maxId, tags }));
+  }
+
+  handleLoadMoreHistory = maxId => {
+    const { dispatch, params } = this.props;
+    const { id, tags } = params;
+
+    dispatch(expandHashtagTimeline(id, { maxId, tags, timelineId: this.splitTimelineId }));
   }
 
   handleFollow = () => {
@@ -208,10 +218,11 @@ class HashtagTimeline extends React.PureComponent {
     }
   }
 
-  render () {
+  renderColumn = (split) => {
     const { hasUnread, columnId, multiColumn, tag, columnWidth, intl } = this.props;
     const { id } = this.props.params;
     const pinned = !!columnId;
+    const sourceTimelineId = hashtagTimelineId(id);
     const normalizedTag = normalizeManagedHashtagName(id);
     const composerId = columnId ? `portable:hashtag-column:${columnId}` : `portable:hashtag-route:${normalizedTag}`;
     const portableComposer = new_features_policy === 'tester' ? (
@@ -221,6 +232,9 @@ class HashtagTimeline extends React.PureComponent {
         postingContext={buildHashtagTimelinePostingContext(id)}
       />
     ) : null;
+    const emptyMessage = <FormattedMessage id='empty_column.hashtag' defaultMessage='There is nothing in this hashtag yet.' />;
+
+    this.splitTimelineId = split.splitTimelineId;
 
     let followButton;
 
@@ -234,18 +248,76 @@ class HashtagTimeline extends React.PureComponent {
       );
     }
 
+    let timeline;
+
+    if (!split.isSplit) {
+      timeline = (
+        <StatusListContainer
+          trackScroll={!pinned}
+          scrollKey={`hashtag_timeline-${columnId}`}
+          timelineId={sourceTimelineId}
+          onLoadMore={this.handleLoadMore}
+          emptyMessage={emptyMessage}
+          bindToDocument={!multiColumn}
+          prepend={portableComposer}
+          alwaysPrepend={!!portableComposer}
+        />
+      );
+    } else {
+      timeline = (
+        <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
+          <div className='timeline-split__pane timeline-split__pane--live'>
+            <StatusListContainer
+              timelineId={sourceTimelineId}
+              dataTimelineId={sourceTimelineId}
+              includePendingItems
+              statusLimit={40}
+              manageTimelineScrollState={false}
+              trackIntersection={false}
+              trackScroll={false}
+              scrollKey={`hashtag_timeline-${columnId}-live`}
+              emptyMessage={emptyMessage}
+              bindToDocument={false}
+              prepend={portableComposer}
+              alwaysPrepend={!!portableComposer}
+            />
+          </div>
+
+          {split.splitter}
+
+          <div className='timeline-split__pane timeline-split__pane--history'>
+            <StatusListContainer
+              trackScroll={multiColumn ? !pinned : false}
+              scrollKey={`hashtag_timeline-${columnId}`}
+              onLoadMore={this.handleLoadMoreHistory}
+              timelineId={sourceTimelineId}
+              dataTimelineId={split.splitTimelineId}
+              trackIntersection
+              emptyMessage={emptyMessage}
+              bindToDocument={false}
+            />
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <Column bindToDocument={!multiColumn} ref={this.setRef} label={`#${id}`} columnWidth={columnWidth}>
+      <Column bindToDocument={!multiColumn} ref={split.setColumnRef} label={`#${id}`} columnWidth={columnWidth}>
         <ColumnHeader
           icon='hashtag'
           active={hasUnread}
           title={this.title()}
           onPin={this.handlePin}
           onMove={this.handleMove}
-          onClick={this.handleHeaderClick}
+          onClick={split.handleHeaderClick}
           pinned={pinned}
           multiColumn={multiColumn}
-          extraButton={followButton}
+          extraButton={(
+            <Fragment>
+              {split.splitButton}
+              {followButton}
+            </Fragment>
+          )}
           showBackButton
           columnWidth={columnWidth}
           onWidthChange={this.handleWidthChange}
@@ -253,17 +325,30 @@ class HashtagTimeline extends React.PureComponent {
           {columnId && <ColumnSettingsContainer columnId={columnId} />}
         </ColumnHeader>
 
-        <StatusListContainer
-          trackScroll={!pinned}
-          scrollKey={`hashtag_timeline-${columnId}`}
-          timelineId={`hashtag:${id}`}
-          onLoadMore={this.handleLoadMore}
-          emptyMessage={<FormattedMessage id='empty_column.hashtag' defaultMessage='There is nothing in this hashtag yet.' />}
-          bindToDocument={!multiColumn}
-          prepend={portableComposer}
-          alwaysPrepend={!!portableComposer}
-        />
+        {timeline}
       </Column>
+    );
+  }
+
+  render () {
+    const { columnId, multiColumn, splitRatio, location } = this.props;
+    const { id, tags } = this.props.params;
+    const sourceTimelineId = hashtagTimelineId(id);
+
+    return (
+      <StatusTimelineSplitController
+        key={sourceTimelineId}
+        sourceTimelineId={sourceTimelineId}
+        splitContextKey={hashtagSplitContextKey(id, tags)}
+        columnId={columnId}
+        multiColumn={multiColumn}
+        location={location}
+        splitRatio={splitRatio}
+        onSplitRatioCommit={this.handleSplitRatioCommit}
+        unavailableMessage={messages.splitUnavailable}
+      >
+        {this.renderColumn}
+      </StatusTimelineSplitController>
     );
   }
 

@@ -5,28 +5,34 @@ import PropTypes from 'prop-types';
 import StatusListContainer from '../ui/containers/status_list_container';
 import Column from '../../components/column';
 import ColumnHeader from '../../components/column_header';
-import { expandPublicTimeline } from '../../actions/timelines';
+import { clearTimelineSplitReturnAnchor, expandPublicTimeline } from '../../actions/timelines';
+import { publicTimelineId } from '../../actions/timeline_ids';
 import { addColumn, removeColumn, moveColumn } from '../../actions/columns';
 import ColumnSettingsContainer from './containers/column_settings_container';
 import { connectPublicStream } from '../../actions/streaming';
 import { defaultColumnWidth } from 'mastodon/initial_state';
 import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
+import { DEFAULT_TIMELINE_SPLIT_RATIO } from 'mastodon/components/timeline_splitter';
+import StatusTimelineSplitController, { clampTimelineSplitRatio } from '../ui/components/status_timeline_split_controller';
 
 const messages = defineMessages({
   title: { id: 'column.public', defaultMessage: 'Federated timeline' },
+  splitUnavailable: { id: 'timeline.split_source_unavailable', defaultMessage: 'This timeline is already split in another column' },
 });
 
+const columnIndex = (columns, columnId) => columns ? columns.findIndex(column => column.get('uuid') === columnId) : -1;
+
 const mapStateToProps = (state, { columnId }) => {
-  const uuid = columnId;
   const columns = state.getIn(['settings', 'columns']);
-  const index = columns.findIndex(c => c.get('uuid') === uuid);
+  const index = columnIndex(columns, columnId);
   const onlyMedia = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'onlyMedia']) : state.getIn(['settings', 'public', 'other', 'onlyMedia']);
   const withoutMedia = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'public', 'other', 'withoutMedia']);
   const withoutBot = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'withoutBot']) : state.getIn(['settings', 'public', 'other', 'withoutBot']);
   const onlyRemote = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'onlyRemote']) : state.getIn(['settings', 'public', 'other', 'onlyRemote']);
   const columnWidth = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'public', 'columnWidth']);
-  const timelineState = state.getIn(['timelines', `public${onlyRemote ? ':remote' : ''}${withoutBot ? ':nobot' : ':bot'}${withoutMedia ? ':nomedia' : ''}${onlyMedia ? ':media' : ''}`]);
+  const sourceTimelineId = publicTimelineId({ onlyRemote, withoutBot, withoutMedia, onlyMedia });
+  const timelineState = state.getIn(['timelines', sourceTimelineId]);
 
   return {
     hasUnread: !!timelineState && timelineState.get('unread') > 0,
@@ -35,6 +41,7 @@ const mapStateToProps = (state, { columnId }) => {
     withoutBot,
     onlyRemote,
     columnWidth: columnWidth ?? defaultColumnWidth,
+    splitRatio: clampTimelineSplitRatio(state.getIn(['settings', 'public', 'splitRatio'], DEFAULT_TIMELINE_SPLIT_RATIO)),
   };
 };
 
@@ -64,6 +71,10 @@ class PublicTimeline extends React.PureComponent {
     withoutMedia: PropTypes.bool,
     withoutBot: PropTypes.bool,
     onlyRemote: PropTypes.bool,
+    splitRatio: PropTypes.number,
+    location: PropTypes.shape({
+      key: PropTypes.string,
+    }),
   };
 
   handlePin = () => {
@@ -81,10 +92,6 @@ class PublicTimeline extends React.PureComponent {
     dispatch(moveColumn(columnId, dir));
   }
 
-  handleHeaderClick = () => {
-    this.column.scrollTop();
-  }
-
   handleWidthChange = (value) => {
     const { columnId, dispatch } = this.props;
 
@@ -93,6 +100,10 @@ class PublicTimeline extends React.PureComponent {
     } else {
       dispatch(changeSetting(['public', 'columnWidth'], value));
     }
+  }
+
+  handleSplitRatioCommit = (ratio) => {
+    this.props.dispatch(changeSetting(['public', 'splitRatio'], ratio));
   }
 
   componentDidMount () {
@@ -109,6 +120,7 @@ class PublicTimeline extends React.PureComponent {
       this.disconnect();
       dispatch(expandPublicTimeline({ onlyMedia, withoutMedia, withoutBot, onlyRemote }));
       this.disconnect = dispatch(connectPublicStream({ onlyMedia, withoutMedia, withoutBot, onlyRemote }));
+      dispatch(clearTimelineSplitReturnAnchor(publicTimelineId(prevProps)));
     }
   }
 
@@ -119,47 +131,118 @@ class PublicTimeline extends React.PureComponent {
     }
   }
 
-  setRef = c => {
-    this.column = c;
-  }
-
   handleLoadMore = maxId => {
     const { dispatch, onlyMedia, withoutMedia, withoutBot, onlyRemote } = this.props;
 
     dispatch(expandPublicTimeline({ maxId, onlyMedia, withoutMedia, withoutBot, onlyRemote }));
   }
 
-  render () {
-    const { intl, columnId, hasUnread, multiColumn, onlyMedia, withoutMedia, withoutBot, onlyRemote, columnWidth } = this.props;
+  handleLoadMoreHistory = maxId => {
+    const { dispatch, onlyMedia, withoutMedia, withoutBot, onlyRemote } = this.props;
+
+    dispatch(expandPublicTimeline({ maxId, onlyMedia, withoutMedia, withoutBot, onlyRemote, timelineId: this.splitTimelineId }));
+  }
+
+  renderColumn = (split) => {
+    const { intl, columnId, hasUnread, multiColumn, onlyMedia, withoutMedia, onlyRemote, withoutBot, columnWidth } = this.props;
     const pinned = !!columnId;
+    const sourceTimelineId = publicTimelineId({ onlyRemote, withoutBot, withoutMedia, onlyMedia });
+    const emptyMessage = <FormattedMessage id='empty_column.public' defaultMessage='There is nothing here! Write something publicly, or manually follow users from other servers to fill it up' />;
+
+    this.splitTimelineId = split.splitTimelineId;
+
+    let timeline;
+
+    if (!split.isSplit) {
+      timeline = (
+        <StatusListContainer
+          timelineId={sourceTimelineId}
+          onLoadMore={this.handleLoadMore}
+          trackScroll={!pinned}
+          scrollKey={`public_timeline-${columnId}`}
+          emptyMessage={emptyMessage}
+          bindToDocument={!multiColumn}
+          showCard={!withoutMedia}
+        />
+      );
+    } else {
+      timeline = (
+        <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
+          <div className='timeline-split__pane timeline-split__pane--live'>
+            <StatusListContainer
+              timelineId={sourceTimelineId}
+              dataTimelineId={sourceTimelineId}
+              includePendingItems
+              statusLimit={40}
+              manageTimelineScrollState={false}
+              trackIntersection={false}
+              trackScroll={false}
+              scrollKey={`public_timeline-${columnId}-live`}
+              emptyMessage={emptyMessage}
+              bindToDocument={false}
+              showCard={!withoutMedia}
+            />
+          </div>
+
+          {split.splitter}
+
+          <div className='timeline-split__pane timeline-split__pane--history'>
+            <StatusListContainer
+              trackScroll={multiColumn ? !pinned : false}
+              scrollKey={`public_timeline-${columnId}`}
+              onLoadMore={this.handleLoadMoreHistory}
+              timelineId={sourceTimelineId}
+              dataTimelineId={split.splitTimelineId}
+              trackIntersection
+              emptyMessage={emptyMessage}
+              bindToDocument={false}
+              showCard={!withoutMedia}
+            />
+          </div>
+        </div>
+      );
+    }
 
     return (
-      <Column bindToDocument={!multiColumn} ref={this.setRef} label={intl.formatMessage(messages.title)} columnWidth={columnWidth}>
+      <Column bindToDocument={!multiColumn} ref={split.setColumnRef} label={intl.formatMessage(messages.title)} columnWidth={columnWidth}>
         <ColumnHeader
           icon='globe'
           active={hasUnread}
           title={intl.formatMessage(messages.title)}
           onPin={this.handlePin}
           onMove={this.handleMove}
-          onClick={this.handleHeaderClick}
+          onClick={split.handleHeaderClick}
           pinned={pinned}
           multiColumn={multiColumn}
+          extraButton={split.splitButton}
           columnWidth={columnWidth}
           onWidthChange={this.handleWidthChange}
         >
           <ColumnSettingsContainer columnId={columnId} />
         </ColumnHeader>
 
-        <StatusListContainer
-          timelineId={`public${onlyRemote ? ':remote' : ''}${withoutBot ? ':nobot' : ':bot'}${withoutMedia ? ':nomedia' : ''}${onlyMedia ? ':media' : ''}`}
-          onLoadMore={this.handleLoadMore}
-          trackScroll={!pinned}
-          scrollKey={`public_timeline-${columnId}`}
-          emptyMessage={<FormattedMessage id='empty_column.public' defaultMessage='There is nothing here! Write something publicly, or manually follow users from other servers to fill it up' />}
-          bindToDocument={!multiColumn}
-          showCard={!withoutMedia}
-        />
+        {timeline}
       </Column>
+    );
+  }
+
+  render () {
+    const { columnId, multiColumn, onlyMedia, withoutMedia, withoutBot, onlyRemote, splitRatio, location } = this.props;
+    const sourceTimelineId = publicTimelineId({ onlyRemote, withoutBot, withoutMedia, onlyMedia });
+
+    return (
+      <StatusTimelineSplitController
+        key={sourceTimelineId}
+        sourceTimelineId={sourceTimelineId}
+        columnId={columnId}
+        multiColumn={multiColumn}
+        location={location}
+        splitRatio={splitRatio}
+        onSplitRatioCommit={this.handleSplitRatioCommit}
+        unavailableMessage={messages.splitUnavailable}
+      >
+        {this.renderColumn}
+      </StatusTimelineSplitController>
     );
   }
 

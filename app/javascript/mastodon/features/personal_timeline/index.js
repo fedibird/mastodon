@@ -1,6 +1,7 @@
 import React from 'react';
 import { connect } from 'react-redux';
-import { expandPersonalTimeline } from '../../actions/timelines';
+import { expandPersonalTimeline, clearTimelineSplitReturnAnchor } from '../../actions/timelines';
+import { personalTimelineId } from '../../actions/timeline_ids';
 import PropTypes from 'prop-types';
 import StatusListContainer from '../ui/containers/status_list_container';
 import Column from '../../components/column';
@@ -11,24 +12,30 @@ import ColumnSettingsContainer from './containers/column_settings_container';
 import { defaultColumnWidth } from 'mastodon/initial_state';
 import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
+import { DEFAULT_TIMELINE_SPLIT_RATIO } from 'mastodon/components/timeline_splitter';
+import StatusTimelineSplitController, { clampTimelineSplitRatio } from '../ui/components/status_timeline_split_controller';
 
 const messages = defineMessages({
   title: { id: 'column.personal', defaultMessage: 'Personal' },
+  splitUnavailable: { id: 'timeline.split_source_unavailable', defaultMessage: 'This timeline is already split in another column' },
 });
 
+const columnIndex = (columns, columnId) => columns ? columns.findIndex(column => column.get('uuid') === columnId) : -1;
+
 const mapStateToProps = (state, { columnId }) => {
-  const uuid = columnId;
   const columns = state.getIn(['settings', 'columns']);
-  const index = columns.findIndex(c => c.get('uuid') === uuid);
+  const index = columnIndex(columns, columnId);
   const onlyMedia = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'onlyMedia']) : state.getIn(['settings', 'personal', 'other', 'onlyMedia']);
   const withoutMedia = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'other', 'withoutMedia']) : state.getIn(['settings', 'personal', 'other', 'withoutMedia']);
   const columnWidth = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'personal', 'columnWidth']);
+  const sourceTimelineId = personalTimelineId({ onlyMedia, withoutMedia });
 
   return {
-    hasUnread: state.getIn(['timelines', 'personal', 'unread']) > 0,
+    hasUnread: state.getIn(['timelines', sourceTimelineId, 'unread']) > 0,
     onlyMedia,
     withoutMedia,
     columnWidth: columnWidth ?? defaultColumnWidth,
+    splitRatio: clampTimelineSplitRatio(state.getIn(['settings', 'personal', 'splitRatio'], DEFAULT_TIMELINE_SPLIT_RATIO)),
   };
 };
 
@@ -45,6 +52,10 @@ class PersonalTimeline extends React.PureComponent {
     withoutMedia: PropTypes.bool,
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
+    splitRatio: PropTypes.number,
+    location: PropTypes.shape({
+      key: PropTypes.string,
+    }),
   };
 
   static defaultProps = {
@@ -67,18 +78,30 @@ class PersonalTimeline extends React.PureComponent {
     dispatch(moveColumn(columnId, dir));
   }
 
-  handleHeaderClick = () => {
-    this.column.scrollTop();
+  handleWidthChange = (value) => {
+    const { columnId, dispatch } = this.props;
+
+    if (columnId) {
+      dispatch(changeColumnParams(columnId, 'columnWidth', value));
+    } else {
+      dispatch(changeSetting(['personal', 'columnWidth'], value));
+    }
   }
 
-  setRef = c => {
-    this.column = c;
+  handleSplitRatioCommit = (ratio) => {
+    this.props.dispatch(changeSetting(['personal', 'splitRatio'], ratio));
   }
 
   handleLoadMore = maxId => {
     const { dispatch, onlyMedia, withoutMedia } = this.props;
 
     dispatch(expandPersonalTimeline({ maxId, onlyMedia, withoutMedia }));
+  }
+
+  handleLoadMoreHistory = maxId => {
+    const { dispatch, onlyMedia, withoutMedia } = this.props;
+
+    dispatch(expandPersonalTimeline({ maxId, onlyMedia, withoutMedia, timelineId: this.splitTimelineId }));
   }
 
   componentDidMount () {
@@ -92,50 +115,110 @@ class PersonalTimeline extends React.PureComponent {
 
     if (prevProps.onlyMedia !== onlyMedia || prevProps.withoutMedia !== withoutMedia) {
       dispatch(expandPersonalTimeline({ onlyMedia, withoutMedia }));
+      dispatch(clearTimelineSplitReturnAnchor(personalTimelineId(prevProps)));
     }
   }
 
-  handleWidthChange = (value) => {
-    const { columnId, dispatch } = this.props;
-
-    if (columnId) {
-      dispatch(changeColumnParams(columnId, 'columnWidth', value));
-    } else {
-      dispatch(changeSetting(['personal', 'columnWidth'], value));
-    }
-  }
-
-  render () {
+  renderColumn = (split) => {
     const { intl, hasUnread, columnId, multiColumn, columnWidth, onlyMedia, withoutMedia } = this.props;
     const pinned = !!columnId;
+    const sourceTimelineId = personalTimelineId({ onlyMedia, withoutMedia });
+    const emptyMessage = <FormattedMessage id='empty_column.personal' defaultMessage='Personal posts unavailable' />;
+
+    this.splitTimelineId = split.splitTimelineId;
+
+    let timeline;
+
+    if (!split.isSplit) {
+      timeline = (
+        <StatusListContainer
+          timelineId={sourceTimelineId}
+          onLoadMore={this.handleLoadMore}
+          trackScroll={!pinned}
+          scrollKey={`personal_timeline-${columnId}`}
+          emptyMessage={emptyMessage}
+          bindToDocument={!multiColumn}
+          showCard={!withoutMedia}
+        />
+      );
+    } else {
+      timeline = (
+        <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
+          <div className='timeline-split__pane timeline-split__pane--live'>
+            <StatusListContainer
+              timelineId={sourceTimelineId}
+              dataTimelineId={sourceTimelineId}
+              includePendingItems
+              statusLimit={40}
+              manageTimelineScrollState={false}
+              trackIntersection={false}
+              trackScroll={false}
+              scrollKey={`personal_timeline-${columnId}-live`}
+              emptyMessage={emptyMessage}
+              bindToDocument={false}
+              showCard={!withoutMedia}
+            />
+          </div>
+
+          {split.splitter}
+
+          <div className='timeline-split__pane timeline-split__pane--history'>
+            <StatusListContainer
+              trackScroll={multiColumn ? !pinned : false}
+              scrollKey={`personal_timeline-${columnId}`}
+              onLoadMore={this.handleLoadMoreHistory}
+              timelineId={sourceTimelineId}
+              dataTimelineId={split.splitTimelineId}
+              trackIntersection
+              emptyMessage={emptyMessage}
+              bindToDocument={false}
+              showCard={!withoutMedia}
+            />
+          </div>
+        </div>
+      );
+    }
 
     return (
-      <Column bindToDocument={!multiColumn} ref={this.setRef} label={intl.formatMessage(messages.title)} columnWidth={columnWidth}>
+      <Column bindToDocument={!multiColumn} ref={split.setColumnRef} label={intl.formatMessage(messages.title)} columnWidth={columnWidth}>
         <ColumnHeader
           icon='lock'
           active={hasUnread}
           title={intl.formatMessage(messages.title)}
           onPin={this.handlePin}
           onMove={this.handleMove}
-          onClick={this.handleHeaderClick}
+          onClick={split.handleHeaderClick}
           pinned={pinned}
           multiColumn={multiColumn}
+          extraButton={split.splitButton}
           columnWidth={columnWidth}
           onWidthChange={this.handleWidthChange}
         >
           <ColumnSettingsContainer columnId={columnId} />
         </ColumnHeader>
 
-        <StatusListContainer
-          timelineId={`personal${withoutMedia ? ':nomedia' : ''}${onlyMedia ? ':media' : ''}`}
-          onLoadMore={this.handleLoadMore}
-          trackScroll={!pinned}
-          scrollKey={`personal_timeline-${columnId}`}
-          emptyMessage={<FormattedMessage id='empty_column.personal' defaultMessage='Personal posts unavailable' />}
-          bindToDocument={!multiColumn}
-          showCard={!withoutMedia}
-        />
+        {timeline}
       </Column>
+    );
+  }
+
+  render () {
+    const { columnId, multiColumn, onlyMedia, withoutMedia, splitRatio, location } = this.props;
+    const sourceTimelineId = personalTimelineId({ onlyMedia, withoutMedia });
+
+    return (
+      <StatusTimelineSplitController
+        key={sourceTimelineId}
+        sourceTimelineId={sourceTimelineId}
+        columnId={columnId}
+        multiColumn={multiColumn}
+        location={location}
+        splitRatio={splitRatio}
+        onSplitRatioCommit={this.handleSplitRatioCommit}
+        unavailableMessage={messages.splitUnavailable}
+      >
+        {this.renderColumn}
+      </StatusTimelineSplitController>
     );
   }
 

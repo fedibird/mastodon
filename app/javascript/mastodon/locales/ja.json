@@ -835,6 +835,7 @@
   "time_remaining.seconds": "残り{number}秒",
   "timeline.split": "タイムラインを分割",
   "timeline.split_list_unavailable": "このリストは別のカラムですでに分割されています",
+  "timeline.split_source_unavailable": "このタイムラインは別のカラムですでに分割されています",
   "timeline.split_unavailable": "別のホームタイムラインが分割されています",
   "timeline.splitter": "タイムラインの分割位置",
   "timeline.unsplit": "タイムラインの分割を解除",
