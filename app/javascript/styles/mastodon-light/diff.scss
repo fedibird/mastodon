@@ -27,7 +27,6 @@ html {
 
 // Change default background colors of columns
 .column > .scrollable,
-.column > .timeline-split > .timeline-split__pane > .scrollable,
 .getting-started,
 .column-inline-form,
 .error-column,
@@ -35,6 +34,10 @@ html {
   background: $white;
   border: 1px solid lighten($ui-base-color, 8%);
   border-top: 0;
+}
+
+.column > .timeline-split > .timeline-split__pane > .scrollable {
+  background: $white;
 }
 
 .directory__card__img {
