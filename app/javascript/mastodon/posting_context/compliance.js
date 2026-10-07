@@ -97,8 +97,11 @@ export function selectComposerPostingContextCompliance(state, composerId) {
     });
   }
 
+  const audience = composer.getIn(['context', 'protocol', 'activityPub', 'audience']);
+  const audienceValid = !(audience && audience.get('enforcement') === 'required' && !audience.get('accountId'));
+
   return {
-    valid: visibilityValid && followingValid && mentionsValid,
+    valid: visibilityValid && followingValid && mentionsValid && audienceValid,
     visibility: {
       valid: visibilityValid,
       allowed: allowedList,

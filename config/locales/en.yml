@@ -2229,6 +2229,9 @@ en:
       duration_too_long: is too far into the future
       duration_too_short: is too soon
       in_reply_not_found: The post you are trying to reply to does not appear to exist.
+      invalid_audience_account: Audience target must be a remote ActivityPub group
+      invalid_audience_visibility: Audience targets can only be used with public or unlisted posts
+      audience_on_reply: Audience targets cannot be used on replies
     language_detection: Automatically detect language
     open_in_web: Open in web
     over_character_limit: character limit of %{max} exceeded

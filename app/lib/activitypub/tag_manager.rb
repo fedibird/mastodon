@@ -100,18 +100,31 @@ class ActivityPub::TagManager
   # Unlisted and private statuses go out primarily to the followers collection
   # Others go out only to the people they mention
   def to(status)
-    case status.visibility
-    when 'public'
-      [COLLECTIONS[:public]]
-    when 'unlisted', 'private'
-      [account_followers_url(status.account)]
-    when 'limited'
-      status.conversation_id.present? ? [uri_for(status.conversation)] : []
-    when 'direct'
-      mentions_uris(status)
-    else
-      []
-    end
+    addresses = case status.visibility
+                when 'public'
+                  [COLLECTIONS[:public]]
+                when 'unlisted', 'private'
+                  [account_followers_url(status.account)]
+                when 'limited'
+                  status.conversation_id.present? ? [uri_for(status.conversation)] : []
+                when 'direct'
+                  mentions_uris(status)
+                else
+                  []
+                end
+
+    append_audience_account(addresses, status)
+  end
+
+  # FEP-1b12 addresses the Group actor itself. Do not guess its followers collection.
+  def append_audience_account(addresses, status)
+    account = status.audience_account if status.respond_to?(:audience_account)
+    return addresses if account.nil?
+
+    uri = uri_for(account)
+    return addresses if uri.blank?
+
+    (addresses + [uri]).uniq
   end
 
   # Secondary audience of a status

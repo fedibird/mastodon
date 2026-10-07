@@ -86,6 +86,7 @@ class Api::V1::StatusesController < Api::BaseController
                                          status_reference_ids: (Array(status_params[:status_reference_ids]).uniq.map(&:to_i)),
                                          status_reference_urls: status_params[:status_reference_urls] || [],
                                          searchability: status_params[:searchability],
+                                         audience_account_id: status_params[:audience_account_id],
                                          allowed_mentions: status_params[:allowed_mentions]
     )
 
@@ -222,6 +223,7 @@ class Api::V1::StatusesController < Api::BaseController
       :sensitive,
       :spoiler_text,
       :visibility,
+      :audience_account_id,
       :language,
       :scheduled_in,
       :scheduled_at,

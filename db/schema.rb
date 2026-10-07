@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_04_133000) do
+ActiveRecord::Schema.define(version: 2026_10_07_010002) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1485,8 +1485,10 @@ ActiveRecord::Schema.define(version: 2026_10_04_133000) do
     t.bigint "ordered_media_attachment_ids", array: true
     t.datetime "edited_at"
     t.boolean "trendable"
+    t.bigint "audience_account_id"
     t.index ["account_id", "id", "visibility", "updated_at"], name: "index_statuses_20210710", order: { id: :desc }, where: "((deleted_at IS NULL) AND (expired_at IS NULL))"
     t.index ["account_id", "id"], name: "index_statuses_private_searchable", order: { id: :desc }, where: "((deleted_at IS NULL) AND (expired_at IS NULL) AND (reblog_of_id IS NULL) AND (searchability = ANY (ARRAY[0, 1, 2])))"
+    t.index ["audience_account_id"], name: "index_statuses_on_audience_account_id"
     t.index ["id", "account_id"], name: "index_statuses_local_20190824", order: { id: :desc }, where: "((local OR (uri IS NULL)) AND (deleted_at IS NULL) AND (visibility = 0) AND (reblog_of_id IS NULL) AND ((NOT reply) OR (in_reply_to_account_id = account_id)))"
     t.index ["id", "account_id"], name: "index_statuses_public_20200119", order: { id: :desc }, where: "((deleted_at IS NULL) AND (visibility = 0) AND (reblog_of_id IS NULL) AND ((NOT reply) OR (in_reply_to_account_id = account_id)))"
     t.index ["account_id", "id"], name: "index_statuses_personal_timeline", order: :desc, where: "((visibility = 200) AND (deleted_at IS NULL) AND (reblog_of_id IS NULL))"
@@ -1851,6 +1853,7 @@ ActiveRecord::Schema.define(version: 2026_10_04_133000) do
   add_foreign_key "status_stats", "statuses", on_delete: :cascade
   add_foreign_key "status_trends", "accounts", on_delete: :cascade
   add_foreign_key "status_trends", "statuses", on_delete: :cascade
+  add_foreign_key "statuses", "accounts", column: "audience_account_id", on_delete: :nullify
   add_foreign_key "statuses", "accounts", column: "in_reply_to_account_id", name: "fk_c7fa917661", on_delete: :nullify
   add_foreign_key "statuses", "accounts", name: "fk_9bda1543f7", on_delete: :cascade
   add_foreign_key "statuses", "generators", on_delete: :cascade

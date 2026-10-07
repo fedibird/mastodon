@@ -70,6 +70,48 @@ describe ActivityPub::DistributionWorker do
       end
     end
 
+    context 'with an ActivityPub audience target' do
+      let(:group) do
+        Fabricate(
+          :account,
+          username: 'group',
+          domain: 'group.example',
+          actor_type: 'Group',
+          protocol: :activitypub,
+          uri: 'https://group.example/users/group',
+          inbox_url: 'https://group.example/users/group/inbox',
+          shared_inbox_url: 'https://group.example/inbox',
+          followers_url: 'https://group.example/users/group/followers'
+        )
+      end
+
+      before do
+        status.update!(visibility: :public, audience_account: group)
+      end
+
+      it 'delivers the create to the group actor inbox as well as followers' do
+        delivered = []
+        allow(ActivityPub::DeliveryWorker).to receive(:push_bulk) { |inboxes| delivered.concat(inboxes) }
+
+        subject.perform(status.id)
+
+        expect(delivered).to include('http://example.com', group.inbox_url)
+        expect(delivered.count(group.inbox_url)).to eq 1
+        expect(delivered).not_to include(group.shared_inbox_url, group.followers_url)
+        expect(group.following?(status.account)).to be false
+      end
+
+      it 'delivers a shared inbox and the group actor inbox only once when they are the same url' do
+        group.update!(inbox_url: 'http://example.com')
+        delivered = []
+        allow(ActivityPub::DeliveryWorker).to receive(:push_bulk) { |inboxes| delivered.concat(inboxes) }
+
+        subject.perform(status.id)
+
+        expect(delivered.count('http://example.com')).to eq 1
+      end
+    end
+
     context 'with direct status' do
       before do
         status.update(visibility: :direct)

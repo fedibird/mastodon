@@ -72,6 +72,26 @@ describe ActivityPub::NoteSerializer do
     expect(json['sensitive']).to be true
   end
 
+  it 'omits audience when the status has no target' do
+    expect(subject).not_to have_key('audience')
+  end
+
+  it 'serializes a group actor as audience and primary addressing' do
+    group = Fabricate(:account, username: 'group', domain: 'group.example', actor_type: 'Group', protocol: :activitypub, uri: 'https://group.example/users/group', inbox_url: 'https://group.example/users/group/inbox', shared_inbox_url: 'https://group.example/inbox', followers_url: 'https://group.example/users/group/followers')
+    parent.update!(audience_account: group, visibility: :public)
+    json = JSON.parse(ActiveModelSerializers::SerializableResource.new(parent, serializer: ActivityPub::NoteSerializer, adapter: ActivityPub::Adapter).to_json)
+
+    expect(json['audience']).to eq group.uri
+    expect(json['to']).to include('https://www.w3.org/ns/activitystreams#Public', group.uri)
+    expect(json['to']).not_to include(group.followers_url, group.shared_inbox_url)
+
+    parent.update!(visibility: :unlisted)
+    unlisted = JSON.parse(ActiveModelSerializers::SerializableResource.new(parent, serializer: ActivityPub::NoteSerializer, adapter: ActivityPub::Adapter).to_json)
+
+    expect(unlisted['audience']).to eq group.uri
+    expect(unlisted['to']).to include(ActivityPub::TagManager.instance.to(parent).first, group.uri)
+  end
+
   it 'serializes updated from edited_at' do
     parent.update!(edited_at: Time.utc(2026, 9, 22, 3, 4, 5))
     serialization = ActiveModelSerializers::SerializableResource.new(parent, serializer: ActivityPub::NoteSerializer, adapter: ActivityPub::Adapter)

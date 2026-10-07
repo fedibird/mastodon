@@ -17,6 +17,29 @@ const normalizeHashtag = (hashtag) => ({
   ruleId: hashtag.rule_id,
 });
 
+const normalizeAudience = (audience) => {
+  if (!audience) {
+    return null;
+  }
+
+  return {
+    accountId: audience.account_id,
+    acct: audience.acct,
+    enforcement: audience.enforcement,
+    ruleId: audience.rule_id,
+  };
+};
+
+const normalizeProtocol = (protocol) => {
+  const activityPub = protocol && protocol.activitypub;
+
+  return {
+    activityPub: {
+      audience: activityPub ? normalizeAudience(activityPub.audience) : null,
+    },
+  };
+};
+
 export function normalizePostingContext(context) {
   if (!context) {
     return null;
@@ -43,6 +66,7 @@ export function normalizePostingContext(context) {
     constraints: {
       allowedVisibilities: allowedVisibilities || null,
     },
+    protocol: normalizeProtocol(context.protocol),
   };
 }
 

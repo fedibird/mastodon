@@ -2154,6 +2154,9 @@ ja:
       duration_too_long: が長過ぎます
       duration_too_short: が短過ぎます
       in_reply_not_found: あなたが返信しようとしている投稿は存在しないようです。
+      invalid_audience_account: audience対象はリモートのActivityPubグループである必要があります
+      invalid_audience_visibility: audience対象は公開または未収載の投稿でのみ使用できます
+      audience_on_reply: audience対象は返信には使用できません
     language_detection: 自動検出
     open_in_web: Webで開く
     over_character_limit: 上限は %{max}文字までです

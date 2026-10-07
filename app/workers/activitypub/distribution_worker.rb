@@ -57,17 +57,28 @@ class ActivityPub::DistributionWorker
     # Deliver the status to all followers. If the status is a reply
     # to another local status, also forward it to that status'
     # authors' followers. If the status has limited visibility,
-    # deliver it to inboxes of people mentioned (no shared ones)
+    # deliver it to inboxes of people mentioned (no shared ones).
+    # An ActivityPub audience target is delivered to that actor's own
+    # inbox, even when shared-inbox delivery would collapse it.
 
-    @inboxes ||= begin
-      if @status.limited_visibility?
-        DeliveryFailureTracker.without_unavailable(Account.remote.joins(:mentions).merge(@status.mentions).pluck(:inbox_url))
-      elsif @status.in_reply_to_local_account? && @status.distributable?
-        @account.delivery_followers.or(@status.thread.account.delivery_followers).inboxes
-      else
-        @account.delivery_followers.inboxes
-      end
+    @inboxes ||= with_audience_inbox(delivery_inboxes)
+  end
+
+  def delivery_inboxes
+    if @status.limited_visibility?
+      DeliveryFailureTracker.without_unavailable(Account.remote.joins(:mentions).merge(@status.mentions).pluck(:inbox_url))
+    elsif @status.in_reply_to_local_account? && @status.distributable?
+      @account.delivery_followers.or(@status.thread.account.delivery_followers).inboxes
+    else
+      @account.delivery_followers.inboxes
     end
+  end
+
+  def with_audience_inbox(urls)
+    inbox_url = @status.audience_account&.inbox_url.presence
+    return urls if inbox_url.blank?
+
+    (urls + [inbox_url]).uniq
   end
 
   def payload(software)

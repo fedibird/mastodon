@@ -97,6 +97,59 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
         end
       end
 
+      context 'with a remote group audience' do
+        let(:scopes) { 'write:statuses' }
+        let(:group) do
+          Fabricate(
+            :account,
+            username: 'group',
+            domain: 'group.example',
+            actor_type: 'Group',
+            protocol: :activitypub,
+            uri: 'https://group.example/users/group',
+            inbox_url: 'https://group.example/users/group/inbox'
+          )
+        end
+
+        it 'creates the status without exposing the audience target in REST' do
+          allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
+          allow(ActivityPub::DeliveryWorker).to receive(:perform_async)
+
+          post :create, params: { status: 'Hello group', visibility: 'public', audience_account_id: group.id }
+
+          status = user.account.statuses.last
+
+          expect(response).to have_http_status(200)
+          expect(status.audience_account).to eq group
+          expect(status.text).to eq 'Hello group'
+          expect(status.mentions).to be_empty
+          expect(body_as_json).not_to have_key(:audience_account_id)
+        end
+      end
+
+      context 'with an unknown audience account' do
+        let(:scopes) { 'write:statuses' }
+
+        it 'returns 404 and does not create a status' do
+          post :create, params: { status: 'Missing group', visibility: 'public', audience_account_id: 99_999_999_999_999 }
+
+          expect(response).to have_http_status(404)
+          expect(user.account.statuses.count).to eq 0
+        end
+      end
+
+      context 'with a person audience account' do
+        let(:scopes) { 'write:statuses' }
+        let(:person) { Fabricate(:account, username: 'person', domain: 'people.example', actor_type: 'Person', protocol: :activitypub, uri: 'https://people.example/users/person', inbox_url: 'https://people.example/users/person/inbox') }
+
+        it 'returns 422' do
+          post :create, params: { status: 'Nope', visibility: 'public', audience_account_id: person.id }
+
+          expect(response).to have_http_status(422)
+          expect(user.account.statuses.count).to eq 0
+        end
+      end
+
       context 'with an allowed mention' do
         let!(:alice) { Fabricate(:account, username: 'mentioned_alice') }
 

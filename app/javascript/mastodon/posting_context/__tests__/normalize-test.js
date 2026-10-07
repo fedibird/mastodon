@@ -78,7 +78,54 @@ describe('normalizePostingContext', () => {
       constraints: {
         allowedVisibilities: ['public', 'unlisted'],
       },
+      protocol: {
+        activityPub: {
+          audience: null,
+        },
+      },
     });
+  });
+
+  it('converts an ActivityPub audience target and leaves older payloads without one', () => {
+    const withAudience = normalizePostingContext({
+      ...restContext,
+      protocol: {
+        activitypub: {
+          audience: {
+            account_id: '456',
+            acct: 'group@example.com',
+            enforcement: 'required',
+            rule_id: 'fep-1b12-group-audience',
+          },
+        },
+      },
+    });
+
+    expect(withAudience.protocol).toEqual({
+      activityPub: {
+        audience: {
+          accountId: '456',
+          acct: 'group@example.com',
+          enforcement: 'required',
+          ruleId: 'fep-1b12-group-audience',
+        },
+      },
+    });
+    expect(withAudience.managed.mentions[0].acct).toEqual('group');
+
+    const legacy = normalizePostingContext({
+      key: 'builtin:hashtag:news',
+      managed: { hashtags: [], mentions: [] },
+      requirements: { following_accounts: [] },
+      constraints: {},
+    });
+
+    expect(legacy.protocol).toEqual({
+      activityPub: {
+        audience: null,
+      },
+    });
+    expect(legacy.managed.mentions).toEqual([]);
   });
 
   it('returns null for a missing context', () => {

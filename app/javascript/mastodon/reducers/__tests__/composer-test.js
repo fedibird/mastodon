@@ -46,6 +46,8 @@ describe('composer', () => {
     expect(state.getIn(['context', 'suppressions', 'hashtags']).isEmpty()).toBe(true);
     expect(state.getIn(['context', 'requirements', 'followingAccounts']).isEmpty()).toBe(true);
     expect(state.getIn(['context', 'constraints', 'allowedVisibilities'])).toBeNull();
+    expect(state.getIn(['context', 'protocol', 'activityPub', 'audience'])).toBeNull();
+    expect(state.get('draft_audience_account_id')).toBeNull();
   });
 
   it('handles an ordinary compose action without the primary wrapper', () => {
@@ -211,6 +213,7 @@ describe('posting context', () => {
     expect(applied.getIn(['context', 'managed', 'mentions']).isEmpty()).toBe(true);
     expect(applied.getIn(['context', 'requirements', 'followingAccounts']).isEmpty()).toBe(true);
     expect(applied.getIn(['context', 'constraints', 'allowedVisibilities'])).toBeNull();
+    expect(applied.getIn(['context', 'protocol', 'activityPub', 'audience'])).toBeNull();
   });
 
   it('applies a local group context without widening privacy or rewriting the draft', () => {
@@ -227,6 +230,7 @@ describe('posting context', () => {
     expect(applied.getIn(['context', 'requirements', 'followingAccounts', 0, 'accountId'])).toEqual('123');
     expect(applied.getIn(['context', 'requirements', 'followingAccounts', 0, 'ruleId'])).toEqual('group-follow');
     expect(applied.getIn(['context', 'constraints', 'allowedVisibilities']).equals(ImmutableSet(['public', 'unlisted']))).toBe(true);
+    expect(applied.getIn(['context', 'protocol', 'activityPub', 'audience'])).toBeNull();
 
     const again = composer(applied.set('idempotencyKey', 'kept-key'), applyComposerPostingContext('composer-a', groupPostingContext));
 

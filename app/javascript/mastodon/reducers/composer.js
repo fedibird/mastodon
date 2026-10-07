@@ -132,6 +132,7 @@ export const initialState = ImmutableMap({
   prohibited_visibilities: ImmutableSet(),
   prohibited_words: ImmutableSet(),
   scheduled_status_id: null,
+  draft_audience_account_id: null,
   context: ImmutableMap({
     key: null,
     source: null,
@@ -147,6 +148,11 @@ export const initialState = ImmutableMap({
     }),
     constraints: ImmutableMap({
       allowedVisibilities: null,
+    }),
+    protocol: ImmutableMap({
+      activityPub: ImmutableMap({
+        audience: null,
+      }),
     }),
   }),
 });
@@ -190,7 +196,7 @@ const clearManagedHashtagSuppressions = map => {
   map.setIn(['context', 'suppressions', 'hashtags'], ImmutableSet());
 };
 
-const postingContextMaterializationSignature = state => {
+const postingContextOutputSignature = state => {
   const hashtags = state.getIn(['context', 'managed', 'hashtags'], ImmutableList());
   const suppressed = state.getIn(['context', 'suppressions', 'hashtags'], ImmutableSet());
   const hashtagPart = hashtags
@@ -204,8 +210,9 @@ const postingContextMaterializationSignature = state => {
     .map(mention => `${mention.get('accountId')}:${normalizeManagedMentionAcct(mention.get('acct'))}`)
     .sort()
     .join('\0');
+  const audienceAccountId = state.getIn(['context', 'protocol', 'activityPub', 'audience', 'accountId'], null) || '';
 
-  return [hashtagPart, mentionPart].filter(Boolean).join('\n');
+  return [hashtagPart, mentionPart, audienceAccountId].filter(Boolean).join('\n');
 };
 
 const managedHashtagRecord = tag => {
@@ -243,6 +250,38 @@ const allowedVisibilitySet = postingContext => {
   return ImmutableSet(allowed);
 };
 
+const activityPubAudienceRecord = audience => {
+  if (!audience) {
+    return null;
+  }
+
+  const accountId = audience.accountId === null || audience.accountId === undefined || audience.accountId === '' ? null : String(audience.accountId);
+
+  return ImmutableMap({
+    accountId,
+    acct: audience.acct ? String(audience.acct).replace(/^@+/u, '') : null,
+    enforcement: audience.enforcement || null,
+    ruleId: audience.ruleId || null,
+  });
+};
+
+const activityPubAudienceFromContext = postingContext => {
+  const protocol = postingContext && postingContext.protocol;
+  const activityPub = protocol && protocol.activityPub;
+
+  return activityPub && activityPub.audience;
+};
+
+const retainedAudienceAccountId = value => (
+  value === null || value === undefined || value === '' ? null : value
+);
+
+const emptyProtocol = () => ImmutableMap({
+  activityPub: ImmutableMap({
+    audience: null,
+  }),
+});
+
 const emptyPostingContext = () => ImmutableMap({
   key: null,
   source: null,
@@ -259,7 +298,13 @@ const emptyPostingContext = () => ImmutableMap({
   constraints: ImmutableMap({
     allowedVisibilities: null,
   }),
+  protocol: emptyProtocol(),
 });
+
+const clearScheduledDraftProvenance = map => {
+  map.set('scheduled_status_id', null);
+  map.set('draft_audience_account_id', null);
+};
 
 const clearAll = state => {
   return state.withMutations(map => {
@@ -289,7 +334,7 @@ const clearAll = state => {
     map.update('references', set => set.clear());
     map.update('context_references', set => set.clear());
     map.set('ignore_reference_check', false);
-    map.set('scheduled_status_id', null);
+    clearScheduledDraftProvenance(map);
     clearManagedHashtagSuppressions(map);
   });
 };
@@ -484,7 +529,7 @@ export default function composer(state = initialState, action) {
     }
 
     const postingContext = action.postingContext;
-    const previousSignature = postingContextMaterializationSignature(state);
+    const previousSignature = postingContextOutputSignature(state);
 
     if (!postingContext) {
       return state.withMutations(map => {
@@ -513,12 +558,13 @@ export default function composer(state = initialState, action) {
       map.setIn(['context', 'managed', 'mentions'], mentions);
       map.setIn(['context', 'requirements', 'followingAccounts'], followingAccounts);
       map.setIn(['context', 'constraints', 'allowedVisibilities'], allowedVisibilitySet(postingContext));
+      map.setIn(['context', 'protocol', 'activityPub', 'audience'], activityPubAudienceRecord(activityPubAudienceFromContext(postingContext)));
 
       if (!sameKey) {
         map.setIn(['context', 'suppressions', 'hashtags'], ImmutableSet());
       }
 
-      if (previousSignature !== postingContextMaterializationSignature(map) && (state.get('idempotencyKey') || state.get('text') || state.get('dirty'))) {
+      if (previousSignature !== postingContextOutputSignature(map) && (state.get('idempotencyKey') || state.get('text') || state.get('dirty'))) {
         map.set('idempotencyKey', uuid());
       }
     });
@@ -640,7 +686,7 @@ export default function composer(state = initialState, action) {
       map.set('expires', state.get('default_expires_in', null));
       map.set('expires_action', state.get('default_expires_action', 'mark'));
       map.update('context_references', set => set.clear().concat(action.context_references));
-      map.set('scheduled_status_id', null);
+      clearScheduledDraftProvenance(map);
 
       if (action.status.get('spoiler_text').length > 0) {
         map.set('spoiler', true);
@@ -680,7 +726,7 @@ export default function composer(state = initialState, action) {
       map.set('expires', state.get('default_expires_in', null));
       map.set('expires_action', state.get('default_expires_action', 'mark'));
       map.update('context_references', set => set.clear().add(action.status.get('id')));
-      map.set('scheduled_status_id', null);
+      clearScheduledDraftProvenance(map);
 
       if (action.status.get('spoiler_text').length > 0) {
         map.set('spoiler', true);
@@ -724,7 +770,7 @@ export default function composer(state = initialState, action) {
       if (action.type === COMPOSE_RESET || action.type === COMPOSE_SCHEDULED_EDIT_CANCEL) {
         map.update('references', set => set.clear());
       }
-      map.set('scheduled_status_id', null);
+      clearScheduledDraftProvenance(map);
       clearManagedHashtagSuppressions(map);
     });
   case COMPOSE_SUBMIT_REQUEST:
@@ -789,7 +835,7 @@ export default function composer(state = initialState, action) {
       if (state.get('id')) {
         map.set('dirty', true);
       } else {
-        map.set('scheduled_status_id', null);
+        clearScheduledDraftProvenance(map);
         map.set('dirty', false);
       }
     });
@@ -811,7 +857,7 @@ export default function composer(state = initialState, action) {
       map.set('focusDate', new Date());
       map.set('caretPosition', null);
       map.set('idempotencyKey', uuid());
-      map.set('scheduled_status_id', null);
+      clearScheduledDraftProvenance(map);
       map.set('dirty', false);
     });
   case COMPOSE_SUGGESTIONS_CLEAR:
@@ -849,7 +895,9 @@ export default function composer(state = initialState, action) {
 
         return item;
       }));
-  case REDRAFT:
+  case REDRAFT: {
+    const scheduledStatusId = action.status.get('scheduled_status_id', null);
+
     return state.withMutations(map => {
       map.set('id', null);
       map.set('language', action.status.get('language') || state.get('default_language'));
@@ -880,7 +928,8 @@ export default function composer(state = initialState, action) {
       map.update('references', set => set.clear().concat(action.status.get('status_reference_ids', ImmutableList())).delete(action.status.getIn(['quote', 'id'], ImmutableList())));
       map.update('context_references', set => set.clear().concat(action.context_references));
       map.set('ignore_reference_check', true);
-      map.set('scheduled_status_id', action.status.get('scheduled_status_id', null));
+      map.set('scheduled_status_id', scheduledStatusId);
+      map.set('draft_audience_account_id', scheduledStatusId ? retainedAudienceAccountId(action.status.get('audience_account_id', null)) : null);
 
       if (action.status.get('spoiler_text', '').length > 0) {
         map.set('spoiler', true);
@@ -898,6 +947,7 @@ export default function composer(state = initialState, action) {
         }));
       }
     });
+  }
   case COMPOSE_POLL_ADD:
     return state.set('poll', initialPoll);
   case COMPOSE_POLL_REMOVE:
@@ -956,7 +1006,7 @@ export default function composer(state = initialState, action) {
       map.set('references', ImmutableSet());
       map.set('context_references', ImmutableSet());
       map.set('scheduled', null);
-      map.set('scheduled_status_id', null);
+      clearScheduledDraftProvenance(map);
       map.set('expires', null);
       map.set('expires_action', 'mark');
       map.set('circle_id', null);

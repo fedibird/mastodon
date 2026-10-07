@@ -16,6 +16,7 @@ import { postReferenceModal, missingAltTextModal, enableFederatedTimeline, allow
 import { deleteScheduledStatus } from './scheduled_statuses';
 import { selectComposerPostingContextCompliance } from '../posting_context/compliance';
 import { materializeComposerText } from '../posting_context/materialize';
+import { composerActivityPubAudienceAccountId } from '../posting_context/protocol';
 import { selectComposer } from '../selectors/composer';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import { targetComposerAction } from './composer';
@@ -407,6 +408,7 @@ export function submitComposer(composerId, routerHistory) {
     const quoteFrom = composer.get('quote_from', null);
     const searchability = composer.get('searchability');
     const idempotencyKey = composer.get('idempotencyKey');
+    const audienceAccountId = composerActivityPubAudienceAccountId(composer);
     const tagHistorySnapshot = composer.get('tagHistory');
     const homeVisibilities = getHomeVisibilities(state);
     const limitedVisibilities = getLimitedVisibilities(state);
@@ -453,28 +455,34 @@ export function submitComposer(composerId, routerHistory) {
       editData.language = language;
     }
 
+    const createData = {
+      status,
+      in_reply_to_id: inReplyTo,
+      media_ids: media.map(item => item.get('id')),
+      sensitive,
+      spoiler_text,
+      visibility: privacy,
+      circle_id: circleId,
+      poll: poll,
+      quote_id: quoteFrom,
+      scheduled_at: !scheduled_in && scheduled_at ? formatISO(set(scheduled_at, { seconds: 0 })) : null,
+      scheduled_in: scheduled_in,
+      expires_at: !expires_in && expires_at ? formatISO(set(expires_at, { seconds: 59 })) : null,
+      expires_in: expires_in,
+      expires_action: expires_action,
+      status_reference_ids: statusReferenceIds,
+      searchability,
+      language,
+    };
+
+    if (!editing && audienceAccountId) {
+      createData.audience_account_id = audienceAccountId;
+    }
+
     return api(getState).request({
       url: editing ? `/api/v1/statuses/${statusId}` : '/api/v1/statuses',
       method: editing ? 'put' : 'post',
-      data: editing ? editData : {
-        status,
-        in_reply_to_id: inReplyTo,
-        media_ids: media.map(item => item.get('id')),
-        sensitive,
-        spoiler_text,
-        visibility: privacy,
-        circle_id: circleId,
-        poll: poll,
-        quote_id: quoteFrom,
-        scheduled_at: !scheduled_in && scheduled_at ? formatISO(set(scheduled_at, { seconds: 0 })) : null,
-        scheduled_in: scheduled_in,
-        expires_at: !expires_in && expires_at ? formatISO(set(expires_at, { seconds: 59 })) : null,
-        expires_in: expires_in,
-        expires_action: expires_action,
-        status_reference_ids: statusReferenceIds,
-        searchability,
-        language,
-      },
+      data: editing ? editData : createData,
       headers: {
         'Idempotency-Key': idempotencyKey,
       },

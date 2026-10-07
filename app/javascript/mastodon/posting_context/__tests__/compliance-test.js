@@ -104,6 +104,54 @@ describe('selectComposerPostingContextCompliance', () => {
     expect(selectComposerPostingContextCompliance(draft, 'primary').valid).toBe(false);
   });
 
+  it('rejects a required ActivityPub audience that has no account', () => {
+    const postingContext = {
+      key: 'protocol:audience:missing',
+      managed: { hashtags: [], mentions: [] },
+      requirements: { followingAccounts: [] },
+      constraints: {},
+      protocol: {
+        activityPub: {
+          audience: {
+            accountId: null,
+            acct: null,
+            enforcement: 'required',
+            ruleId: 'fep-1b12-group-audience',
+          },
+        },
+      },
+    };
+    const state = ImmutableMap({
+      compose: composer(undefined, {
+        type: 'COMPOSER_CONTEXT_APPLY',
+        postingContext,
+      }),
+    });
+
+    expect(selectComposerPostingContextCompliance(state, 'primary').valid).toBe(false);
+
+    const satisfied = selectComposerPostingContextCompliance(ImmutableMap({
+      compose: composer(undefined, {
+        type: 'COMPOSER_CONTEXT_APPLY',
+        postingContext: {
+          ...postingContext,
+          protocol: {
+            activityPub: {
+              audience: {
+                accountId: '456',
+                acct: 'group@example.com',
+                enforcement: 'required',
+                ruleId: 'fep-1b12-group-audience',
+              },
+            },
+          },
+        },
+      }),
+    }), 'primary');
+
+    expect(satisfied.valid).toBe(true);
+  });
+
   it('treats a composer without posting requirements as compliant', () => {
     const compliance = selectComposerPostingContextCompliance(ImmutableMap({
       compose: composer(undefined, { type: '@@INIT' }),

@@ -30,6 +30,22 @@ RSpec.describe ActivityPub::TagManager do
       expect(subject.to(status)).to eq [account_followers_url(status.account)]
     end
 
+    it 'adds a group actor to public addressing without its followers collection' do
+      group = Fabricate(:account, username: 'group', domain: 'group.example', actor_type: 'Group', protocol: :activitypub, uri: 'https://group.example/users/group', inbox_url: 'https://group.example/users/group/inbox', followers_url: 'https://group.example/users/group/followers')
+      status = Fabricate(:status, visibility: :public, audience_account: group)
+
+      expect(subject.to(status)).to eq ['https://www.w3.org/ns/activitystreams#Public', group.uri]
+      expect(subject.to(status)).not_to include(group.followers_url)
+    end
+
+    it 'adds a group actor to the existing unlisted audience' do
+      group = Fabricate(:account, username: 'group', domain: 'group.example', actor_type: 'Group', protocol: :activitypub, uri: 'https://group.example/users/group', inbox_url: 'https://group.example/users/group/inbox', followers_url: 'https://group.example/users/group/followers')
+      status = Fabricate(:status, visibility: :unlisted, audience_account: group)
+
+      expect(subject.to(status)).to eq [account_followers_url(status.account), group.uri]
+      expect(subject.to(status)).not_to include(group.followers_url)
+    end
+
     it 'returns followers collection for private status' do
       status = Fabricate(:status, visibility: :private)
       expect(subject.to(status)).to eq [account_followers_url(status.account)]

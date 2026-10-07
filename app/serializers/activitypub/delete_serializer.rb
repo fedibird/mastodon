@@ -37,7 +37,10 @@ class ActivityPub::DeleteSerializer < ActivityPub::Serializer
   end
 
   def to
-    [ActivityPub::TagManager::COLLECTIONS[:public]]
+    ActivityPub::TagManager.instance.append_audience_account(
+      [ActivityPub::TagManager::COLLECTIONS[:public]],
+      object
+    )
   end
 
   def expiry?
