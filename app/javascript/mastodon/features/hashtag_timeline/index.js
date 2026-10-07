@@ -18,6 +18,7 @@ import classNames from 'classnames';
 import { defaultColumnWidth, followTagModal, unfollowTagModal, isAdministrator } from 'mastodon/initial_state';
 import PortableComposer from '../compose/portable_composer';
 import PortableComposerToggle from '../compose/components/portable_composer_toggle';
+import { captureVisibleStatusAnchor, scheduleStatusAnchorRestore } from '../compose/components/portable_composer_scroll';
 import { selectPortableComposerVisible } from 'mastodon/selectors/composer';
 import { buildHashtagTimelinePostingContext } from 'mastodon/posting_context/hashtag';
 import { normalizeManagedHashtagName } from 'mastodon/posting_context/managed_hashtags';
@@ -160,6 +161,8 @@ class HashtagTimeline extends React.PureComponent {
     const idChanged = previousId !== id;
     const tagsChanged = !isEqual(prevProps.params.tags, tags);
 
+    this.restoreComposerScroll(prevProps, idChanged);
+
     if (idChanged || tagsChanged) {
       this._unsubscribe();
 
@@ -172,7 +175,33 @@ class HashtagTimeline extends React.PureComponent {
   }
 
   componentWillUnmount () {
+    if (this.cancelStatusAnchor) {
+      this.cancelStatusAnchor();
+      this.cancelStatusAnchor = null;
+    }
+
     this._unsubscribe();
+  }
+
+  restoreComposerScroll = (prevProps, idChanged) => {
+    if (idChanged) {
+      this.statusAnchor = null;
+      return;
+    }
+
+    const wasMounted = isAdministrator && prevProps.composerVisible;
+    const isMounted = isAdministrator && this.props.composerVisible;
+
+    if (wasMounted === isMounted) {
+      return;
+    }
+
+    if (this.cancelStatusAnchor) {
+      this.cancelStatusAnchor();
+    }
+
+    this.cancelStatusAnchor = scheduleStatusAnchorRestore(this.statusAnchor);
+    this.statusAnchor = null;
   }
 
   handleLoadMore = maxId => {
@@ -219,6 +248,7 @@ class HashtagTimeline extends React.PureComponent {
   handleToggleComposer = () => {
     const { columnId, dispatch, composerVisible, params: { id } } = this.props;
 
+    this.statusAnchor = captureVisibleStatusAnchor(`#${id}`);
     dispatch(changeSetting(['portableComposerVisibility', hashtagComposerId(id, columnId)], !composerVisible));
   }
 

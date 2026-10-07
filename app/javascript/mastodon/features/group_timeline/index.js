@@ -19,6 +19,7 @@ import { connectGroupStream } from '../../actions/streaming';
 import { defaultColumnWidth, isAdministrator } from 'mastodon/initial_state';
 import PortableComposer from '../compose/portable_composer';
 import PortableComposerToggle from '../compose/components/portable_composer_toggle';
+import { captureVisibleStatusAnchor, scheduleStatusAnchorRestore } from '../compose/components/portable_composer_scroll';
 import { selectPortableComposerVisible } from 'mastodon/selectors/composer';
 import { fetchPostingContext } from '../../actions/posting_contexts';
 import { selectPostingContextForAccount } from '../../selectors/posting_contexts';
@@ -139,6 +140,8 @@ class GroupTimeline extends React.PureComponent {
     const { dispatch, onlyMedia, withoutMedia, composerVisible, postingContext, params: { id, tagged } } = this.props;
     const idChanged = prevProps.params.id !== id;
 
+    this.restoreComposerScroll(prevProps, idChanged);
+
     if (idChanged) {
       dispatch(fetchAccount(id));
 
@@ -168,10 +171,47 @@ class GroupTimeline extends React.PureComponent {
   }
 
   componentWillUnmount () {
+    if (this.cancelStatusAnchor) {
+      this.cancelStatusAnchor();
+      this.cancelStatusAnchor = null;
+    }
+
     if (this.disconnect) {
       this.disconnect();
       this.disconnect = null;
     }
+  }
+
+  columnLabel = () => {
+    const { account } = this.props;
+
+    if (!account) {
+      return null;
+    }
+
+    const displayName = account.get('display_name');
+
+    return displayName.length === 0 ? account.get('acct').split('@')[0] : displayName;
+  }
+
+  composerIsMounted = (props) => isAdministrator && props.composerVisible && props.postingContext
+
+  restoreComposerScroll = (prevProps, idChanged) => {
+    if (idChanged) {
+      this.statusAnchor = null;
+      return;
+    }
+
+    if (this.composerIsMounted(prevProps) === this.composerIsMounted(this.props)) {
+      return;
+    }
+
+    if (this.cancelStatusAnchor) {
+      this.cancelStatusAnchor();
+    }
+
+    this.cancelStatusAnchor = scheduleStatusAnchorRestore(this.statusAnchor);
+    this.statusAnchor = null;
   }
 
   handleLoadMore = maxId => {
@@ -198,6 +238,7 @@ class GroupTimeline extends React.PureComponent {
   handleToggleComposer = () => {
     const { columnId, dispatch, composerVisible, params: { id } } = this.props;
 
+    this.statusAnchor = captureVisibleStatusAnchor(this.columnLabel());
     dispatch(changeSetting(['portableComposerVisibility', groupComposerId(id, columnId)], !composerVisible));
   }
 

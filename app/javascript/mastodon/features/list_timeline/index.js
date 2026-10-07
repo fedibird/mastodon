@@ -20,6 +20,7 @@ import { defaultColumnWidth, isAdministrator } from 'mastodon/initial_state';
 import { DEFAULT_TIMELINE_SPLIT_RATIO } from 'mastodon/components/timeline_splitter';
 import PortableComposer from '../compose/portable_composer';
 import PortableComposerToggle from '../compose/components/portable_composer_toggle';
+import { captureVisibleStatusAnchor, scheduleStatusAnchorRestore } from '../compose/components/portable_composer_scroll';
 import { selectPortableComposerVisible } from 'mastodon/selectors/composer';
 import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
@@ -125,11 +126,47 @@ class ListTimeline extends React.PureComponent {
     }
   }
 
+  componentDidUpdate (prevProps) {
+    this.restoreComposerScroll(prevProps);
+  }
+
   componentWillUnmount () {
+    if (this.cancelStatusAnchor) {
+      this.cancelStatusAnchor();
+      this.cancelStatusAnchor = null;
+    }
+
     if (this.disconnect) {
       this.disconnect();
       this.disconnect = null;
     }
+  }
+
+  columnLabel = () => {
+    const { list, params: { id } } = this.props;
+
+    return list ? list.get('title') : id;
+  }
+
+  restoreComposerScroll = (prevProps) => {
+    if (prevProps.params.id !== this.props.params.id) {
+      this.statusAnchor = null;
+      return;
+    }
+
+    const wasMounted = isAdministrator && prevProps.composerVisible;
+    const isMounted = isAdministrator && this.props.composerVisible;
+
+    if (wasMounted === isMounted) {
+      return;
+    }
+
+    if (this.cancelStatusAnchor) {
+      this.cancelStatusAnchor();
+    }
+
+    this.cancelStatusAnchor = scheduleStatusAnchorRestore(this.statusAnchor);
+    this.statusAnchor = null;
   }
 
   handleLoadMore = maxId => {
@@ -178,6 +215,7 @@ class ListTimeline extends React.PureComponent {
   handleToggleComposer = () => {
     const { dispatch, composerVisible, columnId, params: { id } } = this.props;
 
+    this.statusAnchor = captureVisibleStatusAnchor(this.columnLabel());
     dispatch(changeSetting(['portableComposerVisibility', listComposerId(id, columnId)], !composerVisible));
   }
 
