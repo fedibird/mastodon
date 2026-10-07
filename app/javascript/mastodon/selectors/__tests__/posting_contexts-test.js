@@ -1,6 +1,6 @@
 import { fromJS } from 'immutable';
 
-import { selectPostingContextCreatePermissionEvidence, selectPostingContextDiscovery, selectPostingContextViewerEvidence } from '../posting_contexts';
+import { selectPostingContextCreatePermissionEvidence, selectPostingContextDiscovery, selectPostingContextViewPermissionEvidence, selectPostingContextViewerEvidence } from '../posting_contexts';
 
 const state = fromJS({
   posting_contexts: {
@@ -19,7 +19,13 @@ const state = fromJS({
           create: {
             status: 'allowed',
             source: 'fep-5219',
-            viaRelationship: 'admin',
+            viaRelationship: 'trusted-poster',
+            authority: 'protocol',
+          },
+          view: {
+            status: 'unknown',
+            source: 'fep-5219',
+            viaRelationship: null,
             authority: 'protocol',
           },
         },
@@ -54,7 +60,7 @@ describe('selectPostingContextCreatePermissionEvidence', () => {
 
     expect(permission).toBe(selectPostingContextViewerEvidence(state, '123').getIn(['permissions', 'create']));
     expect(permission.get('status')).toEqual('allowed');
-    expect(permission.get('viaRelationship')).toEqual('admin');
+    expect(permission.get('viaRelationship')).toEqual('trusted-poster');
     expect(permission.get('authority')).toEqual('protocol');
   });
 
@@ -65,5 +71,19 @@ describe('selectPostingContextCreatePermissionEvidence', () => {
     expect(selectPostingContextCreatePermissionEvidence(state, '456')).toBeNull();
     expect(selectPostingContextCreatePermissionEvidence(state, 'missing')).toBeNull();
     expect(selectPostingContextCreatePermissionEvidence(null, '123')).toBeNull();
+  });
+});
+
+describe('selectPostingContextViewPermissionEvidence', () => {
+  it('returns the immutable view permission for the account', () => {
+    const permission = selectPostingContextViewPermissionEvidence(state, '123');
+
+    expect(permission.get('status')).toEqual('unknown');
+    expect(permission.get('viaRelationship')).toBeNull();
+  });
+
+  it('returns null when view evidence is absent', () => {
+    expect(selectPostingContextViewPermissionEvidence(state, '456')).toBeNull();
+    expect(selectPostingContextViewPermissionEvidence(null, '123')).toBeNull();
   });
 });

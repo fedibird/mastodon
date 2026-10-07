@@ -316,5 +316,42 @@ describe('normalizePostingContextDiscovery', () => {
       viaRelationship: null,
       authority: 'protocol',
     });
+    expect(unknown.permissions.view).toBeUndefined();
+  });
+
+  it('normalizes view permission evidence beside create', () => {
+    const normalized = normalizeViewerEvidence({
+      affiliations: {
+        source: 'fep-5219-affiliations',
+        snapshot_status: 'fresh',
+        fetched_at: '2026-10-07T01:23:45Z',
+        relationships: [
+          { relationship: 'trusted-poster', affiliation_uri: null },
+        ],
+      },
+      permissions: {
+        create: {
+          status: 'allowed',
+          source: 'fep-5219',
+          via_relationship: 'trusted-poster',
+          authority: 'protocol',
+        },
+        view: {
+          status: 'unknown',
+          source: 'fep-5219',
+          via_relationship: null,
+          authority: 'protocol',
+        },
+      },
+    });
+
+    expect(normalized.permissions.create.viaRelationship).toEqual('trusted-poster');
+    expect(normalized.permissions.view).toEqual({
+      status: 'unknown',
+      source: 'fep-5219',
+      viaRelationship: null,
+      authority: 'protocol',
+    });
+    expect(normalized.affiliations.fetchedAt).toEqual('2026-10-07T01:23:45Z');
   });
 });

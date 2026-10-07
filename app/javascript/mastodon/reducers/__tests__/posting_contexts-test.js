@@ -103,7 +103,7 @@ describe('postingContexts', () => {
     expect(state.getIn(['456', 'viewerEvidence', 'permissions'])).toBeNull();
   });
 
-  it('stores create permission evidence inside viewer evidence', () => {
+  it('stores REST receivedAt separately from affiliation fetchedAt and permission evidence', () => {
     const state = postingContexts(undefined, {
       type: POSTING_CONTEXT_FETCH_SUCCESS,
       accountId: '456',

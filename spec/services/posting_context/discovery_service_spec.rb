@@ -325,12 +325,132 @@ RSpec.describe PostingContext::DiscoveryService do # rubocop:disable Metrics/Blo
       expect(result.dig(:viewer_evidence, :affiliations, :relationships)).to eq [
         { relationship: 'admin', affiliation_uri: 'https://mitra.example/relationships/1' },
       ]
+      expect(result.dig(:viewer_evidence, :permissions, :create)).to include(
+        status: 'unknown',
+        via_relationship: nil,
+        source: 'fep-5219',
+        authority: 'protocol'
+      )
+    end
+
+    it 'allows create when a fresh custom affiliation matches the fresh canCreate identifier' do
+      account = remote_activitypub_group(domain: 'publisher.example', software_name: 'mitra')
+      viewer = Fabricate(:account, username: 'alice')
+      account.update_columns(
+        affiliations_fetched_at: Time.now.utc,
+        can_create_affiliation: 'trusted-poster',
+        permission_definitions_fetched_at: Time.now.utc
+      )
+      GroupAffiliation.create!(
+        group_account: account,
+        subject_uri: ActivityPub::TagManager.instance.uri_for(viewer),
+        relationship: 'trusted-poster'
+      )
+
+      expect(ActivityPub::FetchGroupAffiliationsService).not_to receive(:new)
+      expect(ActivityPub::SynchronizeGroupAffiliationsWorker).not_to receive(:perform_async)
+      expect(Node).not_to receive(:resolve_domain)
+      expect(UpdateNodeService).not_to receive(:new)
+
+      result = described_class.new.call(account, viewer: viewer)
+
+      expect(result[:status]).to eq 'resolved'
+      expect(result.dig(:discovery, :adapter)).to eq 'mitra_group'
+      expect(result.dig(:discovery, :authority)).to eq 'compatibility'
+      expect(result.dig(:context, :managed, :mentions)).to eq []
+      expect(result.dig(:context, :protocol, :activitypub, :audience, :rule_id)).to eq 'fep-1b12-group-audience'
       expect(result.dig(:viewer_evidence, :permissions, :create)).to eq(
         status: 'allowed',
         source: 'fep-5219',
-        via_relationship: 'admin',
+        via_relationship: 'trusted-poster',
         authority: 'protocol'
       )
+    end
+
+    it 'allows create for admin only when canCreate names admin' do
+      account = remote_activitypub_group(domain: 'admins.example', software_name: 'mitra')
+      viewer = Fabricate(:account, username: 'alice')
+      account.update_columns(
+        affiliations_fetched_at: Time.now.utc,
+        can_create_affiliation: 'admin',
+        permission_definitions_fetched_at: Time.now.utc
+      )
+      GroupAffiliation.create!(
+        group_account: account,
+        subject_uri: ActivityPub::TagManager.instance.uri_for(viewer),
+        relationship: 'admin'
+      )
+
+      result = described_class.new.call(account, viewer: viewer)
+
+      expect(result[:status]).to eq 'resolved'
+      expect(result.dig(:discovery, :authority)).to eq 'compatibility'
+      expect(result.dig(:viewer_evidence, :permissions, :create)).to include(
+        status: 'allowed',
+        via_relationship: 'admin'
+      )
+    end
+
+    it 'allows create via the published affiliation when the viewer has several' do
+      account = remote_activitypub_group(domain: 'roles.example', software_name: 'mitra')
+      viewer = Fabricate(:account, username: 'alice')
+      viewer_uri = ActivityPub::TagManager.instance.uri_for(viewer)
+      account.update_columns(
+        affiliations_fetched_at: Time.now.utc,
+        can_create_affiliation: 'role-b',
+        permission_definitions_fetched_at: Time.now.utc
+      )
+      GroupAffiliation.create!(group_account: account, subject_uri: viewer_uri, relationship: 'role-a')
+      GroupAffiliation.create!(group_account: account, subject_uri: viewer_uri, relationship: 'role-b')
+
+      result = described_class.new.call(account, viewer: viewer)
+
+      expect(result.dig(:viewer_evidence, :permissions, :create)).to include(
+        status: 'allowed',
+        via_relationship: 'role-b'
+      )
+    end
+
+    it 'does not use a fresh affiliation with a stale permission definition' do
+      account = remote_activitypub_group(domain: 'stale-definition.example', software_name: 'mitra')
+      viewer = Fabricate(:account, username: 'alice')
+      account.update_columns(
+        affiliations_fetched_at: Time.now.utc,
+        can_create_affiliation: 'trusted-poster',
+        permission_definitions_fetched_at: 2.days.ago
+      )
+      GroupAffiliation.create!(
+        group_account: account,
+        subject_uri: ActivityPub::TagManager.instance.uri_for(viewer),
+        relationship: 'trusted-poster'
+      )
+
+      result = described_class.new.call(account, viewer: viewer)
+
+      expect(result[:status]).to eq 'resolved'
+      expect(result.dig(:viewer_evidence, :affiliations, :snapshot_status)).to eq 'fresh'
+      expect(result.dig(:viewer_evidence, :permissions, :create, :status)).to eq 'unknown'
+    end
+
+    it 'does not use a stale affiliation with a fresh permission definition' do
+      account = remote_activitypub_group(domain: 'stale-affiliation.example', software_name: 'mitra')
+      viewer = Fabricate(:account, username: 'alice')
+      account.update_columns(
+        affiliations_fetched_at: 2.days.ago,
+        can_create_affiliation: 'trusted-poster',
+        permission_definitions_fetched_at: Time.now.utc
+      )
+      GroupAffiliation.create!(
+        group_account: account,
+        subject_uri: ActivityPub::TagManager.instance.uri_for(viewer),
+        relationship: 'trusted-poster'
+      )
+
+      result = described_class.new.call(account, viewer: viewer)
+
+      expect(result[:status]).to eq 'resolved'
+      expect(result.dig(:viewer_evidence, :affiliations, :snapshot_status)).to eq 'stale'
+      expect(result.dig(:viewer_evidence, :permissions, :create, :status)).to eq 'unknown'
     end
 
     it 'keeps a resolved Mitra context when the fresh affiliation snapshot is empty' do
@@ -429,7 +549,7 @@ RSpec.describe PostingContext::DiscoveryService do # rubocop:disable Metrics/Blo
       )
     end
 
-    it 'returns positive create evidence for an unsupported group without inventing a context' do
+    it 'leaves create unknown for an unsupported group when admin has no canCreate definition' do
       account = remote_activitypub_group(domain: 'unknown-admin.example', software_name: :absent)
       viewer = Fabricate(:account, username: 'alice')
       account.update_columns(affiliations_fetched_at: Time.now.utc)
@@ -454,10 +574,43 @@ RSpec.describe PostingContext::DiscoveryService do # rubocop:disable Metrics/Blo
       )
       expect(result.dig(:discovery, :adapter)).to be_nil
       expect(result.dig(:viewer_evidence, :affiliations, :snapshot_status)).to eq 'fresh'
+      expect(result.dig(:viewer_evidence, :permissions, :create)).to include(
+        status: 'unknown',
+        via_relationship: nil
+      )
+    end
+
+    it 'returns allowed create evidence for an unsupported group when canCreate matches' do
+      account = remote_activitypub_group(domain: 'unknown-create.example', software_name: :absent)
+      viewer = Fabricate(:account, username: 'alice')
+      account.update_columns(
+        affiliations_fetched_at: Time.now.utc,
+        can_create_affiliation: 'trusted-poster',
+        permission_definitions_fetched_at: Time.now.utc
+      )
+      GroupAffiliation.create!(
+        group_account: account,
+        subject_uri: ActivityPub::TagManager.instance.uri_for(viewer),
+        relationship: 'trusted-poster',
+        affiliation_uri: 'https://unknown-create.example/relationships/1'
+      )
+
+      expect(ActivityPub::FetchGroupAffiliationsService).not_to receive(:new)
+      expect(ActivityPub::SynchronizeGroupAffiliationsWorker).not_to receive(:perform_async)
+      expect(Node).not_to receive(:resolve_domain)
+
+      result = described_class.new.call(account, viewer: viewer)
+
+      expect(result).to include(
+        status: 'unsupported',
+        reason: 'no_supported_adapter',
+        context: nil
+      )
+      expect(result.dig(:discovery, :adapter)).to be_nil
       expect(result.dig(:viewer_evidence, :permissions, :create)).to eq(
         status: 'allowed',
         source: 'fep-5219',
-        via_relationship: 'admin',
+        via_relationship: 'trusted-poster',
         authority: 'protocol'
       )
     end

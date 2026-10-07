@@ -28,12 +28,13 @@ class PostingContext::DiscoveryService
     return if account.local? || viewer.nil?
 
     affiliations = PostingContext::GroupAffiliationEvidenceResolver.new.call(account, viewer)
+    definitions = PostingContext::GroupPermissionDefinitionResolver.new.call(account)
 
-    # permissions is an observational reading of affiliation evidence.
-    # It does not choose an adapter or change posting transport authority.
+    # permissions joins the two cached snapshots. It does not choose an
+    # adapter or change posting transport authority.
     {
       affiliations: affiliations,
-      permissions: PostingContext::GroupPermissionEvidenceResolver.new.call(affiliations),
+      permissions: PostingContext::GroupPermissionEvidenceResolver.new.call(affiliations, definitions),
     }
   end
 
