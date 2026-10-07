@@ -27,6 +27,7 @@ html {
 
 // Change default background colors of columns
 .column > .scrollable,
+.column > .timeline-split > .timeline-split__pane > .scrollable,
 .getting-started,
 .column-inline-form,
 .error-column,
