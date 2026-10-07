@@ -18,7 +18,7 @@ import classNames from 'classnames';
 import { defaultColumnWidth, followTagModal, unfollowTagModal, isAdministrator } from 'mastodon/initial_state';
 import PortableComposer from '../compose/portable_composer';
 import PortableComposerToggle from '../compose/components/portable_composer_toggle';
-import { captureVisibleStatusAnchor, scheduleStatusAnchorRestore } from '../compose/components/portable_composer_scroll';
+import { captureVisibleStatusAnchor, columnNodeFromRef, scheduleStatusAnchorRestore } from '../compose/components/portable_composer_scroll';
 import { selectPortableComposerVisible } from 'mastodon/selectors/composer';
 import { buildHashtagTimelinePostingContext } from 'mastodon/posting_context/hashtag';
 import { normalizeManagedHashtagName } from 'mastodon/posting_context/managed_hashtags';
@@ -183,6 +183,14 @@ class HashtagTimeline extends React.PureComponent {
     this._unsubscribe();
   }
 
+  bindColumn = (column) => {
+    this.columnNode = columnNodeFromRef(column);
+
+    if (this.forwardColumnRef) {
+      this.forwardColumnRef(column);
+    }
+  }
+
   restoreComposerScroll = (prevProps, idChanged) => {
     if (idChanged) {
       this.statusAnchor = null;
@@ -245,10 +253,11 @@ class HashtagTimeline extends React.PureComponent {
     }
   }
 
-  handleToggleComposer = () => {
+  handleToggleComposer = (event) => {
     const { columnId, dispatch, composerVisible, params: { id } } = this.props;
+    const column = event.currentTarget.closest('.column') || this.columnNode;
 
-    this.statusAnchor = captureVisibleStatusAnchor(`#${id}`);
+    this.statusAnchor = captureVisibleStatusAnchor(column);
     dispatch(changeSetting(['portableComposerVisibility', hashtagComposerId(id, columnId)], !composerVisible));
   }
 
@@ -263,6 +272,8 @@ class HashtagTimeline extends React.PureComponent {
   }
 
   renderColumn = (split) => {
+    this.forwardColumnRef = split.setColumnRef;
+
     const { hasUnread, columnId, multiColumn, tag, columnWidth, intl, composerVisible } = this.props;
     const { id } = this.props.params;
     const pinned = !!columnId;
@@ -345,7 +356,7 @@ class HashtagTimeline extends React.PureComponent {
     }
 
     return (
-      <Column bindToDocument={!multiColumn} ref={split.setColumnRef} label={`#${id}`} columnWidth={columnWidth}>
+      <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={`#${id}`} columnWidth={columnWidth}>
         <ColumnHeader
           icon='hashtag'
           active={hasUnread}

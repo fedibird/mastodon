@@ -19,7 +19,7 @@ import { connectGroupStream } from '../../actions/streaming';
 import { defaultColumnWidth, isAdministrator } from 'mastodon/initial_state';
 import PortableComposer from '../compose/portable_composer';
 import PortableComposerToggle from '../compose/components/portable_composer_toggle';
-import { captureVisibleStatusAnchor, scheduleStatusAnchorRestore } from '../compose/components/portable_composer_scroll';
+import { captureVisibleStatusAnchor, columnNodeFromRef, scheduleStatusAnchorRestore } from '../compose/components/portable_composer_scroll';
 import { selectPortableComposerVisible } from 'mastodon/selectors/composer';
 import { fetchPostingContext } from '../../actions/posting_contexts';
 import { selectPostingContextForAccount } from '../../selectors/posting_contexts';
@@ -182,16 +182,12 @@ class GroupTimeline extends React.PureComponent {
     }
   }
 
-  columnLabel = () => {
-    const { account } = this.props;
+  bindColumn = (column) => {
+    this.columnNode = columnNodeFromRef(column);
 
-    if (!account) {
-      return null;
+    if (this.forwardColumnRef) {
+      this.forwardColumnRef(column);
     }
-
-    const displayName = account.get('display_name');
-
-    return displayName.length === 0 ? account.get('acct').split('@')[0] : displayName;
   }
 
   composerIsMounted = (props) => isAdministrator && props.composerVisible && props.postingContext
@@ -235,10 +231,11 @@ class GroupTimeline extends React.PureComponent {
     this.setState({ animating: false });
   }
 
-  handleToggleComposer = () => {
+  handleToggleComposer = (event) => {
     const { columnId, dispatch, composerVisible, params: { id } } = this.props;
+    const column = event.currentTarget.closest('.column') || this.columnNode;
 
-    this.statusAnchor = captureVisibleStatusAnchor(this.columnLabel());
+    this.statusAnchor = captureVisibleStatusAnchor(column);
     dispatch(changeSetting(['portableComposerVisibility', groupComposerId(id, columnId)], !composerVisible));
   }
 
@@ -253,6 +250,8 @@ class GroupTimeline extends React.PureComponent {
   }
 
   renderColumn = (split) => {
+    this.forwardColumnRef = split.setColumnRef;
+
     const { intl, hasUnread, columnId, multiColumn, onlyMedia, withoutMedia, params: { id, tagged }, account, columnWidth, postingContext, composerVisible } = this.props;
     const pinned = !!columnId;
     const { collapsed, animating } = this.state;
@@ -356,7 +355,7 @@ class GroupTimeline extends React.PureComponent {
     }
 
     return (
-      <Column bindToDocument={!multiColumn} ref={split.setColumnRef} label={title} columnWidth={columnWidth}>
+      <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={title} columnWidth={columnWidth}>
         <ColumnHeader
           icon='users'
           active={hasUnread}

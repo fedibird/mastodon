@@ -20,7 +20,7 @@ import { defaultColumnWidth, isAdministrator } from 'mastodon/initial_state';
 import { DEFAULT_TIMELINE_SPLIT_RATIO } from 'mastodon/components/timeline_splitter';
 import PortableComposer from '../compose/portable_composer';
 import PortableComposerToggle from '../compose/components/portable_composer_toggle';
-import { captureVisibleStatusAnchor, scheduleStatusAnchorRestore } from '../compose/components/portable_composer_scroll';
+import { captureVisibleStatusAnchor, columnNodeFromRef, scheduleStatusAnchorRestore } from '../compose/components/portable_composer_scroll';
 import { selectPortableComposerVisible } from 'mastodon/selectors/composer';
 import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
@@ -142,10 +142,12 @@ class ListTimeline extends React.PureComponent {
     }
   }
 
-  columnLabel = () => {
-    const { list, params: { id } } = this.props;
+  bindColumn = (column) => {
+    this.columnNode = columnNodeFromRef(column);
 
-    return list ? list.get('title') : id;
+    if (this.forwardColumnRef) {
+      this.forwardColumnRef(column);
+    }
   }
 
   restoreComposerScroll = (prevProps) => {
@@ -212,10 +214,11 @@ class ListTimeline extends React.PureComponent {
     dispatch(updateList(id, undefined, false, target.value));
   }
 
-  handleToggleComposer = () => {
+  handleToggleComposer = (event) => {
     const { dispatch, composerVisible, columnId, params: { id } } = this.props;
+    const column = event.currentTarget.closest('.column') || this.columnNode;
 
-    this.statusAnchor = captureVisibleStatusAnchor(this.columnLabel());
+    this.statusAnchor = captureVisibleStatusAnchor(column);
     dispatch(changeSetting(['portableComposerVisibility', listComposerId(id, columnId)], !composerVisible));
   }
 
@@ -230,6 +233,8 @@ class ListTimeline extends React.PureComponent {
   }
 
   renderTimeline = (split) => {
+    this.forwardColumnRef = split.setColumnRef;
+
     const { hasUnread, columnId, multiColumn, list, columnWidth, intl, composerVisible } = this.props;
     const { id } = this.props.params;
     const pinned = !!columnId;
@@ -298,7 +303,7 @@ class ListTimeline extends React.PureComponent {
     }
 
     return (
-      <Column bindToDocument={!multiColumn} ref={split.setColumnRef} label={title} columnWidth={columnWidth}>
+      <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={title} columnWidth={columnWidth}>
         <ColumnHeader
           icon='list-ul'
           active={hasUnread}

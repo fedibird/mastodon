@@ -10,16 +10,6 @@ const eachNode = (nodes, visit) => {
   return null;
 };
 
-const columnByLabel = (label) => {
-  if (!label || typeof document === 'undefined') {
-    return null;
-  }
-
-  return eachNode(document.querySelectorAll('.column'), node => (
-    node.getAttribute && node.getAttribute('aria-label') === label ? node : null
-  ));
-};
-
 const scrollingElement = (column) => {
   const inner = column.querySelector('.scrollable');
 
@@ -42,16 +32,40 @@ const articleById = (column, id) => (
   ))
 );
 
-export const captureVisibleStatusAnchor = (label) => {
-  const column = columnByLabel(label);
+const connectedColumn = (column) => {
+  if (!column || !column.querySelector || column.isConnected === false) {
+    return null;
+  }
 
+  return column;
+};
+
+export const columnNodeFromRef = (column) => {
   if (!column) {
     return null;
   }
 
-  const scroller = scrollingElement(column);
+  if (column.node && column.node.querySelector) {
+    return column.node;
+  }
+
+  if (column.querySelector) {
+    return column;
+  }
+
+  return null;
+};
+
+export const captureVisibleStatusAnchor = (column) => {
+  const target = connectedColumn(column);
+
+  if (!target) {
+    return null;
+  }
+
+  const scroller = scrollingElement(target);
   const visibleTop = visibleTopFor(scroller);
-  const article = eachNode(column.querySelectorAll('article[data-id]'), item => (
+  const article = eachNode(target.querySelectorAll('article[data-id]'), item => (
     item.getBoundingClientRect().bottom > visibleTop + 8 ? item : null
   ));
 
@@ -60,7 +74,7 @@ export const captureVisibleStatusAnchor = (label) => {
   }
 
   return {
-    label,
+    column: target,
     id: article.getAttribute('data-id'),
     offset: article.getBoundingClientRect().top - visibleTop,
     useDocument: usesDocument(scroller),
@@ -72,7 +86,7 @@ export const restoreVisibleStatusAnchor = (anchor) => {
     return;
   }
 
-  const column = columnByLabel(anchor.label);
+  const column = connectedColumn(anchor.column);
   const article = column && articleById(column, anchor.id);
 
   if (!column || !article) {

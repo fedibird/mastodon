@@ -314,6 +314,114 @@ describe('HashtagTimeline split', () => {
       document.body.classList.remove('status-timeline-split');
     }
   });
+
+  it('keeps the other #ruby column still when this column shows its composer', () => {
+    const store = buildStore();
+    const { container } = render(
+      <Provider store={store}>
+        <div data-column='a'>
+          <HashtagTimeline params={{ id: 'ruby' }} columnId='col-a' multiColumn />
+        </div>
+        <div data-column='b'>
+          <HashtagTimeline params={{ id: 'ruby' }} columnId='col-b' multiColumn />
+        </div>
+      </Provider>,
+    );
+    const columnA = container.querySelector('[data-column="a"] .column');
+    const columnB = container.querySelector('[data-column="b"] .column');
+    const scrollerA = pinInnerScroller(columnA, 500);
+    const scrollerB = pinInnerScroller(columnB, 700);
+    const restoreRects = installRects(element => {
+      if (element.classList.contains('scrollable')) {
+        return box(0, 500);
+      }
+
+      if (element.tagName === 'ARTICLE') {
+        const host = element.closest('[data-column]');
+        const inner = host && host.querySelector('.scrollable');
+        const which = host && host.getAttribute('data-column');
+        const composer = host && host.querySelector('[data-testid="portable-composer"]');
+        const initial = which === 'b' ? 700 : 500;
+        let base = 20;
+
+        if (which === 'b') {
+          base = composer ? 240 : 80;
+        }
+
+        const top = base - ((inner ? inner.scrollTop : 0) - initial);
+
+        return box(top, top + 60);
+      }
+
+      return box(0, 0);
+    });
+    const buttonB = container.querySelector('[data-column="b"] button[aria-label="Show composer"]');
+
+    expect(columnA.getAttribute('aria-label')).toBe('#ruby');
+    expect(columnB.getAttribute('aria-label')).toBe('#ruby');
+    expect(buttonB.closest('.column')).toBe(columnB);
+
+    try {
+      installAnchorTimers();
+      fireEvent.click(buttonB);
+      flushAnchorTimers();
+
+      expect(scrollerA.scrollTop).toBe(500);
+      expect(scrollerB.scrollTop).toBe(860);
+      expect(store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:hashtag-column:col-a'])).toBeUndefined();
+      expect(store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:hashtag-column:col-b'])).toBe(true);
+      expect(columnB.querySelector('[data-testid="portable-composer"]')).toBeTruthy();
+      expect(columnA.querySelector('[data-testid="portable-composer"]')).toBeNull();
+    } finally {
+      restoreRects();
+      restoreAnchorTimers();
+    }
+  });
+
+  it('restores single-column document scroll when the composer header is portaled', () => {
+    const portal = document.createElement('div');
+    portal.id = 'tabs-bar__portal';
+    document.body.appendChild(portal);
+    const store = buildStore();
+    const scrolling = scroller();
+    const restoreRects = installRects(element => {
+      if (element.tagName === 'ARTICLE') {
+        const column = element.closest('.column');
+        const composer = column && column.querySelector('[data-testid="portable-composer"]');
+        const base = composer ? 400 : 80;
+        const top = base - (scrolling.scrollTop - 1000);
+
+        return box(top, top + 60);
+      }
+
+      return box(0, 0);
+    });
+
+    try {
+      const { container } = render(
+        <Provider store={store}>
+          <HashtagTimeline params={{ id: 'ruby' }} multiColumn={false} />
+        </Provider>,
+      );
+      const button = screen.getByRole('button', { name: 'Show composer' });
+
+      scrolling.scrollTop = 1000;
+
+      expect(button.closest('.column')).toBeNull();
+      expect(container.querySelector('.column')).toBeTruthy();
+
+      installAnchorTimers();
+      fireEvent.click(button);
+      flushAnchorTimers();
+
+      expect(scrolling.scrollTop).toBe(1320);
+      expect(container.querySelector('.portable-composer, [data-testid="portable-composer"]')).toBeTruthy();
+    } finally {
+      restoreRects();
+      restoreAnchorTimers();
+      portal.remove();
+    }
+  });
 });
 
 const box = (top, bottom) => ({
@@ -329,6 +437,45 @@ const box = (top, bottom) => ({
 });
 
 const scroller = () => document.scrollingElement || document.body;
+
+const pinInnerScroller = (column, scrollTop) => {
+  const node = column.querySelector('.scrollable');
+
+  Object.defineProperty(node, 'scrollHeight', { configurable: true, value: 2400 });
+  Object.defineProperty(node, 'clientHeight', { configurable: true, value: 500 });
+  node.scrollTop = scrollTop;
+
+  return node;
+};
+
+let anchorFrameSpy;
+let anchorCancelSpy;
+
+const installAnchorTimers = () => {
+  jest.useFakeTimers();
+  anchorFrameSpy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => setTimeout(callback, 0));
+  anchorCancelSpy = jest.spyOn(window, 'cancelAnimationFrame').mockImplementation(id => clearTimeout(id));
+};
+
+const flushAnchorTimers = () => {
+  act(() => {
+    jest.runAllTimers();
+  });
+};
+
+const restoreAnchorTimers = () => {
+  if (anchorFrameSpy) {
+    anchorFrameSpy.mockRestore();
+    anchorFrameSpy = null;
+  }
+
+  if (anchorCancelSpy) {
+    anchorCancelSpy.mockRestore();
+    anchorCancelSpy = null;
+  }
+
+  jest.useRealTimers();
+};
 
 const flushQueuedFrames = (frames) => {
   const batch = frames.splice(0, frames.length);

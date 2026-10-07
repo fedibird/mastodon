@@ -19,7 +19,7 @@ class PortableComposerToggle extends React.PureComponent {
 
   handleClick = (event) => {
     event.stopPropagation();
-    this.props.onToggle();
+    this.props.onToggle(event);
   }
 
   render () {
