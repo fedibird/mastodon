@@ -3117,6 +3117,8 @@ $timeline-split-separator-size: 12px;
 body.app-body.layout-single-column.home-timeline-split {
   height: 100vh;
   max-height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
   overflow: hidden;
 
   .app-holder,
