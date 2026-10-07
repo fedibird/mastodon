@@ -4,6 +4,7 @@ import { ACCOUNT_UNFOLLOW_SUCCESS, ACCOUNT_UNSUBSCRIBE_SUCCESS } from '../../act
 import {
   TIMELINE_DELETE,
   TIMELINE_EXPAND_SUCCESS,
+  TIMELINE_MARK_AS_PARTIAL,
   TIMELINE_SCROLL_TOP,
   TIMELINE_SPLIT_CREATE,
   TIMELINE_SPLIT_DESTROY,
@@ -93,6 +94,33 @@ describe('timeline split lifecycle', () => {
 
     expect(next.getIn(['home', 'pendingItems']).first()).toBe('120');
     expect(next.getIn([splitId, 'items'])).toEqual(ImmutableList(['100', '90', '80']));
+    expect(next.getIn([splitId, 'pendingItems'])).toEqual(ImmutableList());
+  });
+
+  it('queues updates as pending during a split when pending items are disabled and the timeline is at the top', () => {
+    const items = ImmutableList(Array.from({ length: 41 }, (_, index) => String(1000 - index).padStart(4, '0')));
+    const split = createSplit(withHome({
+      items,
+      pendingItems: ImmutableList(),
+      top: true,
+      unread: 0,
+    }));
+
+    let next = split;
+
+    ['2002', '2001', '2000'].forEach(id => {
+      next = timelines(next, {
+        type: TIMELINE_UPDATE,
+        timeline: 'home',
+        status: { id },
+        usePendingItems: false,
+      });
+    });
+
+    expect(next.getIn(['home', 'pendingItems'])).toEqual(ImmutableList(['2000', '2001', '2002']));
+    expect(next.getIn(['home', 'items'])).toEqual(items);
+    expect(next.getIn(['home', 'unread'])).toBe(3);
+    expect(next.getIn([splitId, 'items'])).toEqual(items);
     expect(next.getIn([splitId, 'pendingItems'])).toEqual(ImmutableList());
   });
 
@@ -212,6 +240,62 @@ describe('timeline split lifecycle', () => {
     expect(next.getIn(['home', 'pendingItems'])).toEqual(ImmutableList(['50']));
     expect(next.getIn(['home', 'unread'])).toBe(1);
     expect(next.getIn(['home', 'top'])).toBe(false);
+    expect(next.getIn(['home', 'splitTimelineId'])).toBeUndefined();
+    expect(next.get(splitId)).toBeUndefined();
+  });
+
+  it('ignores a late expand from a destroyed session after a new split starts', () => {
+    const cleared = destroySplit(createSplit(initial()));
+    const secondId = 'home:split:X:session-b';
+    const second = timelines(cleared, {
+      type: TIMELINE_SPLIT_CREATE,
+      sourceTimeline: 'home',
+      splitTimeline: secondId,
+    });
+    const next = timelines(second, {
+      type: TIMELINE_EXPAND_SUCCESS,
+      timeline: splitId,
+      statuses: [{ id: '70' }, { id: '60' }],
+      next: '/next',
+      partial: false,
+      isLoadingRecent: false,
+      usePendingItems: false,
+    });
+
+    expect(next).toBe(second);
+    expect(next.get(splitId)).toBeUndefined();
+    expect(next.getIn([secondId, 'items'])).toEqual(ImmutableList(['100', '90', '80']));
+    expect(next.getIn(['home', 'items'])).toEqual(ImmutableList(['100', '90', '80']));
+    expect(next.getIn(['home', 'splitTimelineId'])).toBe(secondId);
+  });
+
+  it('keeps a partial canonical timeline when the split is destroyed', () => {
+    const split = createSplit(withHome({
+      items: ImmutableList(['100', '90', '80']),
+      pendingItems: ImmutableList(['110']),
+      online: true,
+      top: false,
+      hasMore: true,
+      unread: 1,
+    }));
+    const partial = timelines(split, {
+      type: TIMELINE_MARK_AS_PARTIAL,
+      timeline: 'home',
+    });
+
+    expect(partial.getIn(['home', 'isPartial'])).toBe(true);
+    expect(partial.getIn(['home', 'items'])).toEqual(ImmutableList());
+    expect(partial.getIn(['home', 'splitTimelineId'])).toBe(splitId);
+    expect(partial.getIn([splitId, 'items'])).toEqual(ImmutableList(['100', '90', '80']));
+
+    const next = destroySplit(partial);
+
+    expect(next.getIn(['home', 'isPartial'])).toBe(true);
+    expect(next.getIn(['home', 'items'])).toEqual(ImmutableList());
+    expect(next.getIn(['home', 'pendingItems'])).toEqual(ImmutableList());
+    expect(next.getIn(['home', 'unread'])).toBe(0);
+    expect(next.getIn(['home', 'online'])).toBe(true);
+    expect(next.getIn(['home', 'hasMore'])).toBe(true);
     expect(next.getIn(['home', 'splitTimelineId'])).toBeUndefined();
     expect(next.get(splitId)).toBeUndefined();
   });

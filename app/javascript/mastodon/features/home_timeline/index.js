@@ -108,9 +108,21 @@ class HomeTimeline extends React.PureComponent {
     this.column.scrollTop();
   }
 
-  getSplitTimelineId = () => `home:split:${this.instanceId}`
+  splitKeyPrefix = () => `home:split:${this.instanceId}:`
 
-  ownsSplit = () => this.props.splitTimelineId === this.getSplitTimelineId()
+  ownsSplit = () => {
+    const active = this.props.splitTimelineId;
+
+    return typeof active === 'string' && active.startsWith(this.splitKeyPrefix());
+  }
+
+  getSplitTimelineId = () => {
+    if (this.ownsSplit()) {
+      return this.props.splitTimelineId;
+    }
+
+    return `${this.splitKeyPrefix()}${this.splitSessionId}`;
+  }
 
   getColumnNode = () => this.column && this.column.node
 
@@ -176,6 +188,7 @@ class HomeTimeline extends React.PureComponent {
       return;
     }
 
+    this.splitSessionId = uuid();
     this.pendingScroll = { top: this.captureScrollTop('single'), target: 'history' };
     this.props.dispatch(createTimelineSplit('home', this.getSplitTimelineId()));
   }

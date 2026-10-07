@@ -97,6 +97,16 @@ const buildStore = () => {
   return createStore(reducer, state, applyMiddleware(thunk));
 };
 
+const activeSplitId = (store) => store.getState().getIn(['timelines', 'home', 'splitTimelineId']);
+
+const expectSplitId = (store, columnId) => {
+  const id = activeSplitId(store);
+
+  expect(id).toEqual(expect.stringMatching(new RegExp(`^home:split:${columnId}:.+`)));
+
+  return id;
+};
+
 const renderHome = (store, props) => render(
   <Provider store={store}>
     <HomeTimeline {...props} />
@@ -139,9 +149,9 @@ describe('HomeTimeline split', () => {
     const history = container.querySelector('.timeline-split__pane--history .scrollable');
     const live = container.querySelector('.timeline-split__pane--live .scrollable');
 
-    expect(store.getState().getIn(['timelines', 'home', 'splitTimelineId'])).toBe('home:split:col-a');
+    const splitTimelineId = expectSplitId(store, 'col-a');
     expect(store.getState().getIn(['timelines', 'home', 'items'])).toEqual(ImmutableList(['100', '90', '80']));
-    expect(store.getState().getIn(['timelines', 'home:split:col-a', 'items'])).toEqual(ImmutableList(['100', '90', '80']));
+    expect(store.getState().getIn(['timelines', splitTimelineId, 'items'])).toEqual(ImmutableList(['100', '90', '80']));
     expect(history.scrollTop).toBe(320);
     expect(live.getAttribute('data-track-intersection')).toBe('false');
     expect(live.getAttribute('data-manage-scroll')).toBe('false');
@@ -152,7 +162,7 @@ describe('HomeTimeline split', () => {
 
     fireEvent.click(container.querySelector('[data-testid="load-history"]'));
 
-    expect(store.getState().getIn(['timelines', 'home:split:col-a', 'isLoading'])).toBe(true);
+    expect(store.getState().getIn(['timelines', splitTimelineId, 'isLoading'])).toBe(true);
     expect(store.getState().getIn(['timelines', 'home', 'isLoading'])).not.toBe(true);
 
     history.scrollTop = 480;
@@ -162,7 +172,7 @@ describe('HomeTimeline split', () => {
 
     expect(container.querySelector('.timeline-split')).toBeNull();
     expect(restored.scrollTop).toBe(480);
-    expect(store.getState().get('timelines').has('home:split:col-a')).toBe(false);
+    expect(store.getState().get('timelines').has(splitTimelineId)).toBe(false);
     expect(store.getState().getIn(['timelines', 'home', 'splitTimelineId'])).toBeUndefined();
     expect(store.getState().getIn(['timelines', 'home', 'items'])).toEqual(ImmutableList(['100', '90', '80']));
     expect(store.getState().getIn(['timelines', 'home', 'pendingItems']).includes('120')).toBe(true);
@@ -191,6 +201,7 @@ describe('HomeTimeline split', () => {
     const { container } = renderHome(store, { columnId: 'col-a', multiColumn: true });
 
     fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+    const firstSplitId = expectSplitId(store, 'col-a');
 
     const separator = container.querySelector('[role="separator"]');
 
@@ -232,6 +243,9 @@ describe('HomeTimeline split', () => {
     expect(container.querySelector('.timeline-split')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+    const secondSplitId = expectSplitId(store, 'col-a');
+    expect(secondSplitId).not.toBe(firstSplitId);
+    expect(store.getState().hasIn(['timelines', firstSplitId])).toBe(false);
     expect(container.querySelector('[role="separator"]').getAttribute('aria-valuenow')).toBe('50');
   });
 
@@ -274,11 +288,12 @@ describe('HomeTimeline split', () => {
     const { unmount } = renderHome(store, { columnId: 'col-a', multiColumn: true });
 
     fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
-    expect(store.getState().hasIn(['timelines', 'home:split:col-a'])).toBe(true);
+    const splitTimelineId = expectSplitId(store, 'col-a');
+    expect(store.getState().hasIn(['timelines', splitTimelineId])).toBe(true);
 
     unmount();
 
-    expect(store.getState().hasIn(['timelines', 'home:split:col-a'])).toBe(false);
+    expect(store.getState().hasIn(['timelines', splitTimelineId])).toBe(false);
     expect(store.getState().getIn(['timelines', 'home', 'splitTimelineId'])).toBeUndefined();
     expect(store.getState().getIn(['timelines', 'home', 'items'])).toEqual(ImmutableList(['100', '90', '80']));
     expect(store.getState().getIn(['timelines', 'home', 'pendingItems'])).toEqual(ImmutableList(['120']));

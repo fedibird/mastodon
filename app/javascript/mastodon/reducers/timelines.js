@@ -70,8 +70,11 @@ const expandNormalizedTimeline = (state, timeline, statuses, next, isPartial, is
 
 const updateTimeline = (state, timeline, status, usePendingItems) => {
   const top = state.getIn([timeline, 'top']);
+  // While a split is active, keep new ids out of items so the top-of-timeline
+  // trim cannot drop arrivals before they are restored as pending.
+  const queueAsPending = !!state.getIn([timeline, 'splitTimelineId']) || usePendingItems || !state.getIn([timeline, 'pendingItems'], ImmutableList()).isEmpty();
 
-  if (usePendingItems || !state.getIn([timeline, 'pendingItems'], ImmutableList()).isEmpty()) {
+  if (queueAsPending) {
     if (state.getIn([timeline, 'pendingItems'], ImmutableList()).includes(status.get('id')) || state.getIn([timeline, 'items'], ImmutableList()).includes(status.get('id'))) {
       return state;
     }
@@ -249,6 +252,13 @@ const destroyTimelineSplit = (state, sourceTimeline, splitTimeline) => {
     }
 
     return next.delete(splitTimeline);
+  }
+
+  if (source.get('isPartial')) {
+    return state.withMutations(mutable => {
+      mutable.update(sourceTimeline, initialTimeline, map => map.delete('splitTimelineId'));
+      mutable.delete(splitTimeline);
+    });
   }
 
   const pendingItems = freshStatusIds(source, history);
