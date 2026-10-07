@@ -23,6 +23,9 @@ export const TIMELINE_CONNECT      = 'TIMELINE_CONNECT';
 
 export const TIMELINE_MARK_AS_PARTIAL = 'TIMELINE_MARK_AS_PARTIAL';
 
+export const TIMELINE_SPLIT_CREATE  = 'TIMELINE_SPLIT_CREATE';
+export const TIMELINE_SPLIT_DESTROY = 'TIMELINE_SPLIT_DESTROY';
+
 export const loadPending = timeline => ({
   type: TIMELINE_LOAD_PENDING,
   timeline,
@@ -55,7 +58,7 @@ export function updateTimeline(timeline, status, accept) {
       });
     };
 
-    const visibility = status.visibility_ex || status.visibility
+    const visibility = status.visibility_ex || status.visibility;
     const homeVisibilities = getHomeVisibilities(getState());
     const limitedVisibilities = getLimitedVisibilities(getState());
 
@@ -118,6 +121,24 @@ export function clearTimeline(timeline) {
 
 const noOp = () => {};
 
+const SPLIT_TIMELINE_MARKER = ':split:';
+
+const isStaleSplitTimeline = (state, timelineId) => {
+  if (typeof timelineId !== 'string') {
+    return false;
+  }
+
+  const index = timelineId.indexOf(SPLIT_TIMELINE_MARKER);
+
+  if (index <= 0) {
+    return false;
+  }
+
+  const sourceTimeline = timelineId.slice(0, index);
+
+  return state.getIn(['timelines', sourceTimeline, 'splitTimelineId']) !== timelineId;
+};
+
 const parseTags = (tags = {}, mode) => {
   return (tags[mode] || []).map((tag) => {
     return tag.value;
@@ -152,6 +173,10 @@ export function expandTimeline(timelineId, path, params = {}, done = noOp) {
     dispatch(expandTimelineRequest(timelineId, isLoadingMore));
 
     api(getState).get(path, { params }).then(response => {
+      if (isStaleSplitTimeline(getState(), timelineId)) {
+        return;
+      }
+
       const next = getLinks(response).refs.find(link => link.rel === 'next');
       if (response.data) {
         if ('statuses' in response.data && 'accounts' in response.data) {
@@ -172,6 +197,10 @@ export function expandTimeline(timelineId, path, params = {}, done = noOp) {
         dispatch(submitMarkers());
       }
     }).catch(error => {
+      if (isStaleSplitTimeline(getState(), timelineId)) {
+        return;
+      }
+
       dispatch(expandTimelineFail(timelineId, error, isLoadingMore));
     }).finally(() => {
       done();
@@ -179,7 +208,7 @@ export function expandTimeline(timelineId, path, params = {}, done = noOp) {
   };
 };
 
-export const expandHomeTimeline            = ({ maxId, visibilities } = {}, done = noOp) => expandTimeline('home', '/api/v1/timelines/home', { max_id: maxId, visibilities: visibilities }, done);
+export const expandHomeTimeline            = ({ maxId, visibilities, timelineId = 'home' } = {}, done = noOp) => expandTimeline(timelineId, '/api/v1/timelines/home', { max_id: maxId, visibilities: visibilities }, done);
 export const expandLimitedTimeline         = ({ maxId, visibilities } = {}, done = noOp) => expandTimeline('limited', '/api/v1/timelines/home', { max_id: maxId, visibilities: visibilities }, done);
 export const expandPersonalTimeline        = ({ maxId, onlyMedia, withoutMedia } = {}, done = noOp) => expandTimeline(`personal${withoutMedia ? ':nomedia' : ''}${onlyMedia ? ':media' : ''}`, '/api/v1/timelines/personal', { max_id: maxId, only_media: !!onlyMedia, without_media: !!withoutMedia }, done);
 export const expandPublicTimeline          = ({ maxId, onlyMedia, withoutMedia, withoutBot, onlyRemote } = {}, done = noOp) => expandTimeline(`public${onlyRemote ? ':remote' : ''}${withoutBot ? ':nobot' : ':bot'}${withoutMedia ? ':nomedia' : ''}${onlyMedia ? ':media' : ''}`, '/api/v1/timelines/public', { remote: !!onlyRemote, max_id: maxId, only_media: !!onlyMedia, without_media: !!withoutMedia, without_bot: !!withoutBot }, done);
@@ -256,3 +285,19 @@ export const markAsPartial = timeline => ({
   type: TIMELINE_MARK_AS_PARTIAL,
   timeline,
 });
+
+export function createTimelineSplit(sourceTimeline, splitTimeline) {
+  return {
+    type: TIMELINE_SPLIT_CREATE,
+    sourceTimeline,
+    splitTimeline,
+  };
+}
+
+export function destroyTimelineSplit(sourceTimeline, splitTimeline) {
+  return {
+    type: TIMELINE_SPLIT_DESTROY,
+    sourceTimeline,
+    splitTimeline,
+  };
+}

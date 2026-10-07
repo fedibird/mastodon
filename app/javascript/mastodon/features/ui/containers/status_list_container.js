@@ -6,6 +6,7 @@ import { Map as ImmutableMap, List as ImmutableList } from 'immutable';
 import { createSelector } from 'reselect';
 import { debounce } from 'lodash';
 import { me } from '../../../initial_state';
+import { uniqWithoutNull } from '../../../utils/uniq';
 
 const visibilitiesByType = (state, type) => {
   if (type === 'home') {
@@ -17,12 +18,7 @@ const visibilitiesByType = (state, type) => {
   }
 };
 
-const makeGetStatusIds = (pending = false) => createSelector([
-  (state, { type }) => state.getIn(['settings', type], ImmutableMap()),
-  (state, { type }) => visibilitiesByType(state, type),
-  (state, { type }) => state.getIn(['timelines', type, pending ? 'pendingItems' : 'items'], ImmutableList()),
-  (state)           => state.get('statuses'),
-], (columnSettings, visibilities, statusIds, statuses) => {
+const filterStatusIds = (columnSettings, visibilities, statusIds, statuses) => {
   return statusIds.filter(id => {
     if (id === null) return true;
 
@@ -45,35 +41,86 @@ const makeGetStatusIds = (pending = false) => createSelector([
 
     return showStatus;
   });
+};
+
+const settingSelectors = [
+  (state, { type }) => state.getIn(['settings', type], ImmutableMap()),
+  (state, { type }) => visibilitiesByType(state, type),
+];
+
+const makeGetStatusIds = (pending = false) => createSelector([
+  ...settingSelectors,
+  (state, { dataTimelineId }) => state.getIn(['timelines', dataTimelineId, pending ? 'pendingItems' : 'items'], ImmutableList()),
+  (state) => state.get('statuses'),
+], filterStatusIds);
+
+const makeGetLiveStatusIds = () => createSelector([
+  ...settingSelectors,
+  (state, { dataTimelineId }) => state.getIn(['timelines', dataTimelineId, 'pendingItems'], ImmutableList()),
+  (state, { dataTimelineId }) => state.getIn(['timelines', dataTimelineId, 'items'], ImmutableList()),
+  (state) => state.get('statuses'),
+  (state, { statusLimit }) => statusLimit,
+], (columnSettings, visibilities, pendingItems, items, statuses, statusLimit) => {
+  let statusIds = filterStatusIds(columnSettings, visibilities, uniqWithoutNull(pendingItems.concat(items)), statuses);
+
+  if (Number.isFinite(statusLimit)) {
+    statusIds = statusIds.take(statusLimit);
+  }
+
+  return statusIds;
 });
 
 const makeMapStateToProps = () => {
   const getStatusIds = makeGetStatusIds();
   const getPendingStatusIds = makeGetStatusIds(true);
+  const getLiveStatusIds = makeGetLiveStatusIds();
 
-  const mapStateToProps = (state, { timelineId }) => ({
-    statusIds: getStatusIds(state, { type: timelineId }),
-    isLoading: state.getIn(['timelines', timelineId, 'isLoading'], true),
-    isPartial: state.getIn(['timelines', timelineId, 'isPartial'], false),
-    hasMore:   state.getIn(['timelines', timelineId, 'hasMore']),
-    numPending: getPendingStatusIds(state, { type: timelineId }).size,
-  });
+  const mapStateToProps = (state, { timelineId, dataTimelineId, includePendingItems, statusLimit }) => {
+    const dataId = dataTimelineId || timelineId;
+    const selectorProps = { type: timelineId, dataTimelineId: dataId, statusLimit };
+
+    if (includePendingItems) {
+      return {
+        statusIds: getLiveStatusIds(state, selectorProps),
+        isLoading: state.getIn(['timelines', dataId, 'isLoading'], true),
+        isPartial: state.getIn(['timelines', dataId, 'isPartial'], false),
+        hasMore: state.getIn(['timelines', dataId, 'hasMore']),
+        numPending: 0,
+      };
+    }
+
+    return {
+      statusIds: getStatusIds(state, selectorProps),
+      isLoading: state.getIn(['timelines', dataId, 'isLoading'], true),
+      isPartial: state.getIn(['timelines', dataId, 'isPartial'], false),
+      hasMore: state.getIn(['timelines', dataId, 'hasMore']),
+      numPending: getPendingStatusIds(state, selectorProps).size,
+    };
+  };
 
   return mapStateToProps;
 };
 
-const mapDispatchToProps = (dispatch, { timelineId }) => ({
+const mapDispatchToProps = (dispatch, { timelineId, dataTimelineId, manageTimelineScrollState = true }) => {
+  const scrollTimeline = dataTimelineId || timelineId;
 
-  onScrollToTop: debounce(() => {
-    dispatch(scrollTopTimeline(timelineId, true));
-  }, 100),
+  if (!manageTimelineScrollState) {
+    return {
+      onLoadPending: () => dispatch(loadPending(scrollTimeline)),
+    };
+  }
 
-  onScroll: debounce(() => {
-    dispatch(scrollTopTimeline(timelineId, false));
-  }, 100),
+  return {
+    onScrollToTop: debounce(() => {
+      dispatch(scrollTopTimeline(scrollTimeline, true));
+    }, 100),
 
-  onLoadPending: () => dispatch(loadPending(timelineId)),
+    onScroll: debounce(() => {
+      dispatch(scrollTopTimeline(scrollTimeline, false));
+    }, 100),
 
-});
+    onLoadPending: () => dispatch(loadPending(scrollTimeline)),
+  };
+};
 
 export default connect(makeMapStateToProps, mapDispatchToProps)(StatusList);

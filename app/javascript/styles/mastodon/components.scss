@@ -3025,6 +3025,106 @@ a.account__display-name {
   }
 }
 
+$timeline-split-separator-size: 12px;
+
+.timeline-split {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: $ui-base-color;
+
+  &__pane {
+    min-height: 120px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: $ui-base-color;
+
+    > .scrollable,
+    .scrollable {
+      flex: 1 1 auto;
+      min-height: 0;
+      background: $ui-base-color;
+    }
+  }
+
+  &__pane--live {
+    flex: 0 0 auto;
+    height: calc(var(--timeline-split-ratio) * 1% - #{$timeline-split-separator-size * 0.5});
+  }
+
+  &__pane--history {
+    flex: 1 1 auto;
+  }
+
+  &__separator {
+    flex: 0 0 $timeline-split-separator-size;
+    height: $timeline-split-separator-size;
+    display: flex;
+    align-items: center;
+    position: relative;
+    cursor: row-resize;
+    touch-action: none;
+    user-select: none;
+    background: lighten($ui-base-color, 4%);
+    color: $darker-text-color;
+
+    &:focus {
+      outline: 2px solid $highlight-text-color;
+      outline-offset: -2px;
+    }
+  }
+
+  &__separator-line {
+    height: 1px;
+    width: 100%;
+    background: lighten($ui-base-color, 12%);
+    pointer-events: none;
+  }
+
+  &__close {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    background: lighten($ui-base-color, 8%);
+    color: $darker-text-color;
+
+    .fa {
+      font-size: 11px;
+      pointer-events: none;
+    }
+
+    &:hover,
+    &:focus {
+      color: $primary-text-color;
+      background: lighten($ui-base-color, 12%);
+    }
+  }
+}
+
+.column-header__button.column-header__split-button {
+  .column-header__split-icon {
+    transform: rotate(90deg);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+}
+
 .column-width {
   display: flex;
   justify-content: flex-end;

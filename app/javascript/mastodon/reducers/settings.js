@@ -44,6 +44,8 @@ const initialState = ImmutableMap({
     regex: ImmutableMap({
       body: '',
     }),
+
+    splitRatio: 35,
   }),
 
   limited: ImmutableMap({
