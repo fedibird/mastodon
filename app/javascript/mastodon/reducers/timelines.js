@@ -13,6 +13,8 @@ import {
   TIMELINE_MARK_AS_PARTIAL,
   TIMELINE_SPLIT_CREATE,
   TIMELINE_SPLIT_DESTROY,
+  TIMELINE_SPLIT_SAVE_RETURN_ANCHOR,
+  TIMELINE_SPLIT_CLEAR_RETURN_ANCHOR,
 } from '../actions/timelines';
 import {
   ACCOUNT_BLOCK_SUCCESS,
@@ -216,7 +218,8 @@ const createTimelineSplit = (state, sourceTimeline, splitTimeline) => {
 
   return state
     .set(splitTimeline, history)
-    .setIn([sourceTimeline, 'splitTimelineId'], splitTimeline);
+    .setIn([sourceTimeline, 'splitTimelineId'], splitTimeline)
+    .deleteIn([sourceTimeline, 'splitReturnAnchor']);
 };
 
 const freshStatusIds = (source, history) => {
@@ -318,6 +321,10 @@ export default function timelines(state = initialState, action) {
     return createTimelineSplit(state, action.sourceTimeline, action.splitTimeline);
   case TIMELINE_SPLIT_DESTROY:
     return destroyTimelineSplit(state, action.sourceTimeline, action.splitTimeline);
+  case TIMELINE_SPLIT_SAVE_RETURN_ANCHOR:
+    return state.update(action.timeline, initialTimeline, map => map.set('splitReturnAnchor', ImmutableMap(action.anchor)));
+  case TIMELINE_SPLIT_CLEAR_RETURN_ANCHOR:
+    return state.update(action.timeline, initialTimeline, map => map.delete('splitReturnAnchor'));
   case TIMELINE_SCROLL_TOP:
     return isStaleSplitTimeline(state, action.timeline) ? state : updateTop(state, action.timeline, action.top);
   case TIMELINE_CONNECT:
@@ -332,7 +339,7 @@ export default function timelines(state = initialState, action) {
     return isStaleSplitTimeline(state, action.timeline) ? state : state.update(
       action.timeline,
       initialTimeline,
-      map => map.set('isPartial', true).set('items', ImmutableList()).set('pendingItems', ImmutableList()).set('unread', 0),
+      map => map.set('isPartial', true).set('items', ImmutableList()).set('pendingItems', ImmutableList()).set('unread', 0).delete('splitReturnAnchor'),
     );
   default:
     return state;

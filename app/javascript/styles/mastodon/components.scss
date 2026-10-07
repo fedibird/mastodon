@@ -3490,6 +3490,10 @@ body.app-body.layout-single-column.home-timeline-split {
   }
 
   .timeline-split {
+    .timeline-split__pane {
+      min-height: 0;
+    }
+
     .scrollable {
       overflow-x: hidden;
       overflow-y: auto;

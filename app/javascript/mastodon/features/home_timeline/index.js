@@ -1,6 +1,6 @@
 import React, { Fragment } from 'react';
 import { connect } from 'react-redux';
-import { createTimelineSplit, destroyTimelineSplit, expandHomeTimeline } from '../../actions/timelines';
+import { clearTimelineSplitReturnAnchor, createTimelineSplit, destroyTimelineSplit, expandHomeTimeline, saveTimelineSplitReturnAnchor } from '../../actions/timelines';
 import { getHomeVisibilities } from 'mastodon/selectors';
 import PropTypes from 'prop-types';
 import StatusListContainer from '../ui/containers/status_list_container';
@@ -89,6 +89,7 @@ const mapStateToProps = (state, { columnId }) => {
     visibilities: getHomeVisibilities(state),
     columnWidth: columnWidth ?? defaultColumnWidth,
     splitTimelineId,
+    splitReturnAnchor: state.getIn(['timelines', 'home', 'splitReturnAnchor']) || null,
     splitRatio: clampSplitRatio(state.getIn(['settings', 'home', 'splitRatio'], DEFAULT_TIMELINE_SPLIT_RATIO)),
   };
 };
@@ -110,7 +111,11 @@ class HomeTimeline extends React.PureComponent {
     showAnnouncements: PropTypes.bool,
     visibilities: PropTypes.arrayOf(PropTypes.string),
     splitTimelineId: PropTypes.string,
+    splitReturnAnchor: PropTypes.object,
     splitRatio: PropTypes.number,
+    location: PropTypes.shape({
+      key: PropTypes.string,
+    }),
   };
 
   state = {
@@ -120,6 +125,7 @@ class HomeTimeline extends React.PureComponent {
   constructor (props) {
     super(props);
     this.instanceId = props.columnId || uuid();
+    this.homeLocationKey = props.location ? props.location.key : undefined;
   }
 
   handlePin = () => {
@@ -477,10 +483,70 @@ class HomeTimeline extends React.PureComponent {
     }));
   }
 
+  returnAnchorRecord = () => {
+    const anchor = this.props.splitReturnAnchor;
+
+    if (!anchor || !anchor.get) {
+      return null;
+    }
+
+    return {
+      target: 'document',
+      id: anchor.get('id'),
+      offset: anchor.get('offset'),
+      fallbackOffset: anchor.get('fallbackOffset'),
+    };
+  }
+
+  scheduleReturnAnchorRestore = () => {
+    if (this.props.multiColumn || this.props.isPartial) {
+      return;
+    }
+
+    const anchor = this.props.splitReturnAnchor;
+
+    if (!anchor || !anchor.get) {
+      return;
+    }
+
+    if (anchor.get('locationKey') !== this.homeLocationKey) {
+      this.props.dispatch(clearTimelineSplitReturnAnchor('home'));
+      return;
+    }
+
+    const record = this.returnAnchorRecord();
+    const token = {};
+    this.returnAnchorToken = token;
+
+    requestAnimationFrame(() => {
+      if (this.returnAnchorToken !== token) {
+        return;
+      }
+
+      if (!this.applyScrollAnchor(record)) {
+        return;
+      }
+
+      requestAnimationFrame(() => {
+        if (this.returnAnchorToken !== token) {
+          return;
+        }
+
+        this.applyScrollAnchor(record);
+
+        if (this.returnAnchorToken === token) {
+          this.returnAnchorToken = null;
+          this.props.dispatch(clearTimelineSplitReturnAnchor('home'));
+        }
+      });
+    });
+  }
+
   componentDidMount () {
     this.announcementsTimer = setTimeout(() => this.props.dispatch(fetchAnnouncements()), 700);
     this._checkIfReloadNeeded(false, this.props.isPartial);
     this.syncSplitLayoutClass();
+    this.scheduleReturnAnchorRestore();
   }
 
   componentDidUpdate (prevProps) {
@@ -519,14 +585,27 @@ class HomeTimeline extends React.PureComponent {
   }
 
   componentWillUnmount () {
+    this.returnAnchorToken = null;
     this._stopPolling();
-    this.clearSplitScroll();
-    this.clearSplitLayoutClass();
 
     if (this.announcementsTimer) {
       clearTimeout(this.announcementsTimer);
       this.announcementsTimer = null;
     }
+
+    if (this.ownsSplit() && !this.props.multiColumn && !this.props.isPartial) {
+      const captured = this.captureHistoryAnchor();
+
+      this.props.dispatch(saveTimelineSplitReturnAnchor('home', {
+        locationKey: this.homeLocationKey,
+        id: captured.id,
+        offset: captured.offset,
+        fallbackOffset: captured.fallbackOffset,
+      }));
+    }
+
+    this.clearSplitScroll();
+    this.clearSplitLayoutClass();
 
     if (this.ownsSplit()) {
       this.props.dispatch(destroyTimelineSplit('home', this.getSplitTimelineId()));
