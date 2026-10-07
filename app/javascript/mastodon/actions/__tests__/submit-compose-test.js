@@ -50,6 +50,9 @@ import { importFetchedStatus } from '../importer';
 import { updateTimeline } from '../timelines';
 import { openModal } from '../modal';
 import { changeUploadCompose, submitCompose, submitComposeWithCheck } from '../compose';
+import { applyComposerPostingContext } from '../composer';
+import { groupPostingContext } from '../../posting_context/fixtures/group_context_fixture';
+import composerReducer from '../../reducers/composer';
 
 const dispatchThunk = (thunk, state) => {
   const actions = [];
@@ -205,6 +208,7 @@ describe('submitCompose', () => {
     expect(data).not.toHaveProperty('expires_at');
     expect(data).not.toHaveProperty('searchability');
     expect(data).not.toHaveProperty('in_reply_to_id');
+    expect(data).not.toHaveProperty('audience_account_id');
     expect(importFetchedStatus).toHaveBeenCalledWith(expect.objectContaining({ id: 's9' }));
     expect(updateTimeline).not.toHaveBeenCalled();
     expect(actions.map(action => action.type)).toEqual(expect.arrayContaining(['STATUS_IMPORT', 'ALERT_SHOW']));
@@ -277,5 +281,187 @@ describe('submitCompose', () => {
       title: 'Add alt text?',
     }));
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it('POSTs an ActivityPub audience target without adding it to the text', async () => {
+    const request = jest.fn().mockResolvedValue({ data: statusResponse });
+    api.mockReturnValue({ request });
+    let compose = composerReducer(undefined, applyComposerPostingContext('primary', {
+      key: 'protocol:activitypub:audience',
+      managed: { hashtags: [], mentions: [] },
+      requirements: { followingAccounts: [] },
+      constraints: { allowedVisibilities: ['public', 'unlisted'] },
+      protocol: {
+        activityPub: {
+          audience: {
+            accountId: '456',
+            acct: 'group@example.com',
+            enforcement: 'required',
+            ruleId: 'fep-1b12-group-audience',
+          },
+        },
+      },
+    }));
+    compose = compose.set('text', 'Hello').set('privacy', 'public').set('in_reply_to', null);
+
+    await dispatchThunk(
+      submitCompose({ location: { pathname: '/home' }, push: jest.fn(), goBack: jest.fn() }),
+      composeState().set('compose', compose),
+    );
+
+    const data = request.mock.calls[0][0].data;
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({
+      url: '/api/v1/statuses',
+      method: 'post',
+    }));
+    expect(data.status).toEqual('Hello');
+    expect(data.audience_account_id).toEqual('456');
+    expect(data.visibility).toEqual('public');
+    expect(data.in_reply_to_id).toBeNull();
+  });
+
+  it('does not send an audience target for a Fedibird local group mention', async () => {
+    const request = jest.fn().mockResolvedValue({ data: statusResponse });
+    api.mockReturnValue({ request });
+    const compose = composerReducer(undefined, applyComposerPostingContext('primary', groupPostingContext))
+      .set('text', 'Hello')
+      .set('privacy', 'public')
+      .set('in_reply_to', null);
+    const state = composeState()
+      .set('compose', compose)
+      .set('relationships', ImmutableMap({ '123': ImmutableMap({ following: true }) }));
+
+    await dispatchThunk(
+      submitCompose({ location: { pathname: '/home' }, push: jest.fn(), goBack: jest.fn() }),
+      state,
+    );
+
+    const data = request.mock.calls[0][0].data;
+    expect(data.status).toEqual('@group Hello');
+    expect(data).not.toHaveProperty('audience_account_id');
+  });
+
+  it('PUTs an existing status edit without an audience target', async () => {
+    const request = jest.fn().mockResolvedValue({ data: { ...statusResponse, id: 's9' } });
+    api.mockReturnValue({ request });
+    const compose = composerReducer(undefined, applyComposerPostingContext('primary', {
+      key: 'protocol:activitypub:audience',
+      protocol: {
+        activityPub: {
+          audience: {
+            accountId: '456',
+            acct: 'group@example.com',
+            enforcement: 'required',
+            ruleId: 'fep-1b12-group-audience',
+          },
+        },
+      },
+    })).set('id', 's9').set('text', 'Hello').set('draft_audience_account_id', '456');
+
+    await dispatchThunk(
+      submitCompose({ location: { pathname: '/home' }, push: jest.fn(), goBack: jest.fn() }),
+      composeState().set('compose', compose),
+    );
+
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({
+      url: '/api/v1/statuses/s9',
+      method: 'put',
+    }));
+    expect(request.mock.calls[0][0].data).not.toHaveProperty('audience_account_id');
+    expect(request.mock.calls[0][0].data.status).toEqual('Hello');
+  });
+
+  it('POSTs the retained audience when replacing a scheduled status', async () => {
+    const request = jest.fn().mockResolvedValue({ data: statusResponse });
+    api.mockReturnValue({ request });
+    const compose = composerReducer(undefined, applyComposerPostingContext('primary', {
+      key: 'protocol:other',
+      protocol: {
+        activityPub: {
+          audience: {
+            accountId: '789',
+            acct: 'other@example.com',
+            enforcement: 'required',
+            ruleId: 'fep-1b12-group-audience',
+          },
+        },
+      },
+    }))
+      .set('text', 'Hello')
+      .set('privacy', 'public')
+      .set('in_reply_to', null)
+      .set('scheduled_status_id', 'sched-1')
+      .set('draft_audience_account_id', '456');
+
+    await dispatchThunk(
+      submitCompose({ location: { pathname: '/home' }, push: jest.fn(), goBack: jest.fn() }),
+      composeState().set('compose', compose),
+    );
+
+    const data = request.mock.calls[0][0].data;
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({
+      url: '/api/v1/statuses',
+      method: 'post',
+    }));
+    expect(data.status).toEqual('Hello');
+    expect(data.audience_account_id).toEqual('456');
+  });
+
+  it('does not submit a private scheduled draft that retains an audience target', async () => {
+    const request = jest.fn().mockResolvedValue({ data: statusResponse });
+    api.mockReturnValue({ request });
+    const compose = composerReducer(undefined, applyComposerPostingContext('primary', groupPostingContext))
+      .set('text', 'Hello')
+      .set('privacy', 'private')
+      .set('in_reply_to', null)
+      .set('media_attachments', ImmutableList())
+      .set('references', ImmutableSet())
+      .set('scheduled_status_id', 'sched-1')
+      .set('draft_audience_account_id', '456');
+    const state = composeState().set('compose', compose);
+    const router = { location: { pathname: '/home' }, push: jest.fn(), goBack: jest.fn() };
+
+    await dispatchThunk(submitCompose(router), state);
+    await dispatchThunk(submitComposeWithCheck(router, intl), state);
+
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('POSTs public and unlisted scheduled replacements with the retained audience', async () => {
+    const request = jest.fn().mockResolvedValue({ data: statusResponse });
+    api.mockReturnValue({ request });
+    const router = { location: { pathname: '/home' }, push: jest.fn(), goBack: jest.fn() };
+    const scheduled = (privacy) => composerReducer(undefined, applyComposerPostingContext('primary', groupPostingContext))
+      .set('text', 'Hello')
+      .set('privacy', privacy)
+      .set('in_reply_to', null)
+      .set('media_attachments', ImmutableList())
+      .set('references', ImmutableSet())
+      .set('scheduled_status_id', 'sched-1')
+      .set('draft_audience_account_id', '456')
+      .setIn(['context', 'protocol', 'activityPub', 'audience'], ImmutableMap({
+        accountId: '789',
+        acct: 'other@example.com',
+        enforcement: 'required',
+        ruleId: 'fep-1b12-group-audience',
+      }));
+
+    await dispatchThunk(submitCompose(router), composeState().set('compose', scheduled('public')));
+    await dispatchThunk(
+      submitComposeWithCheck(router, intl),
+      composeState().set('compose', scheduled('unlisted')),
+    );
+
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request.mock.calls[0][0]).toEqual(expect.objectContaining({
+      url: '/api/v1/statuses',
+      method: 'post',
+    }));
+    expect(request.mock.calls[0][0].data.status).toEqual('Hello');
+    expect(request.mock.calls[0][0].data.visibility).toEqual('public');
+    expect(request.mock.calls[0][0].data.audience_account_id).toEqual('456');
+    expect(request.mock.calls[1][0].data.visibility).toEqual('unlisted');
+    expect(request.mock.calls[1][0].data.audience_account_id).toEqual('456');
+    expect(request.mock.calls[1][0].data.status).toEqual('Hello');
   });
 });

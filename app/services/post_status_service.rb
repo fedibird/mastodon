@@ -35,6 +35,7 @@ class PostStatusService < BaseService
   # @option [Boolean] :with_rate_limit
   # @option [Enumerable] :allowed_mentions Optional array of expected mentioned account IDs, raises `UnexpectedMentionsError` if unexpected accounts end up in mentions
   # @option [String] :searchability
+  # @option [String] :audience_account_id Optional remote ActivityPub Group to address
   # @option [Boolean] :notify Optional notification of completion of schedule post
   # @return [Status]
   def call(account, options = {})
@@ -128,6 +129,8 @@ class PostStatusService < BaseService
     # block with a blank line. Scheduled params keep the submitted text;
     # publish runs this service again. Remote ActivityPub ingestion does not.
     @text = TrailingHashtagNormalizer.call(@text)
+    resolve_audience_account!
+    validate_audience_target!
   rescue ArgumentError
     raise ActiveRecord::RecordInvalid
   end
@@ -340,8 +343,31 @@ class PostStatusService < BaseService
       quote_id: @quote_id,
       expires_at: @expires_at,
       expires_action: @expires_action,
-      searchability: @searchability
+      searchability: @searchability,
+      audience_account: @audience_account,
     }.compact
+  end
+
+  def resolve_audience_account!
+    return if @options[:audience_account_id].blank?
+
+    @audience_account = Account.find(@options[:audience_account_id])
+  end
+
+  # Visibility downgrades, including hard silence, are already applied.
+  # A Group target is only a public or unlisted top-level post.
+  def validate_audience_target!
+    return if @audience_account.nil?
+
+    if @audience_account.local? || !@audience_account.activitypub? || !@audience_account.group?
+      raise Mastodon::ValidationError, I18n.t('statuses.errors.invalid_audience_account')
+    end
+
+    unless %i(public unlisted).include?(@visibility&.to_sym)
+      raise Mastodon::ValidationError, I18n.t('statuses.errors.invalid_audience_visibility')
+    end
+
+    raise Mastodon::ValidationError, I18n.t('statuses.errors.audience_on_reply') if @in_reply_to.present?
   end
 
   def scheduled_status_attributes

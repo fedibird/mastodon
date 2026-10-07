@@ -10,6 +10,7 @@ class ActivityPub::NoteSerializer < ActivityPub::Serializer
              :conversation, :context,
              :searchable_by
 
+  attribute :audience, if: -> { object.audience_account_id.present? }
   attribute :quote_uri, if: -> { object.quote? }
   attribute :misskey_quote, key: :_misskey_quote, if: -> { object.quote? }
   attribute :content
@@ -144,6 +145,10 @@ class ActivityPub::NoteSerializer < ActivityPub::Serializer
 
   def to
     ActivityPub::TagManager.instance.to(object)
+  end
+
+  def audience
+    ActivityPub::TagManager.instance.uri_for(object.audience_account)
   end
 
   def cc

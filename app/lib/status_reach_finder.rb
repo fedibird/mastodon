@@ -15,7 +15,7 @@ class StatusReachFinder
   end
 
   def inboxes
-    (reached_account_inboxes + followers_inboxes + relay_inboxes).uniq
+    (reached_account_inboxes + followers_inboxes + relay_inboxes + audience_target_inboxes).uniq
   end
 
   private
@@ -89,6 +89,15 @@ class StatusReachFinder
     else
       []
     end
+  end
+
+  # Account.inboxes prefers a shared inbox. FEP Group delivery needs the
+  # actor inbox itself so Create, Update, and Delete all reach the Group.
+  def audience_target_inboxes
+    inbox_url = @status.audience_account&.inbox_url.presence
+    return [] if inbox_url.blank?
+
+    [inbox_url]
   end
 
   def distributable?

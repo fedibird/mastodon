@@ -22,6 +22,7 @@
 #  account_id                   :bigint(8)        not null
 #  application_id               :bigint(8)
 #  in_reply_to_account_id       :bigint(8)
+#  audience_account_id          :bigint(8)
 #  quote_id                     :bigint(8)
 #  poll_id                      :bigint(8)
 #  deleted_at                   :datetime
@@ -71,6 +72,7 @@ class Status < ApplicationRecord
 
   belongs_to :account, inverse_of: :statuses
   belongs_to :in_reply_to_account, foreign_key: 'in_reply_to_account_id', class_name: 'Account', optional: true
+  belongs_to :audience_account, class_name: 'Account', optional: true
   belongs_to :conversation, optional: true, inverse_of: :statuses
   belongs_to :preloadable_poll, class_name: 'Poll', foreign_key: 'poll_id', optional: true
 
