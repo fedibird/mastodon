@@ -2995,7 +2995,8 @@ a.account__display-name {
   display: flex;
   flex-direction: column;
 
-  > .scrollable {
+  > .scrollable,
+  > .timeline-split > .timeline-split__pane > .scrollable {
     background: $ui-base-color;
   }
 
@@ -3033,20 +3034,17 @@ $timeline-split-separator-size: 12px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: $ui-base-color;
 
   &__pane {
     min-height: 120px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    background: $ui-base-color;
 
     > .scrollable,
     .scrollable {
       flex: 1 1 auto;
       min-height: 0;
-      background: $ui-base-color;
     }
   }
 

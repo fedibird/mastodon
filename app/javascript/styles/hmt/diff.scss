@@ -36,6 +36,10 @@ html {
   border-top: 0;
 }
 
+.column > .timeline-split > .timeline-split__pane > .scrollable {
+  background: mix($white, darken($ui-base-color, 7%), 80%);
+}
+
 .directory__card__img {
   background: lighten($ui-base-color, 12%);
 }

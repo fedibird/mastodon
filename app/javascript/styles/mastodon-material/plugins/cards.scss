@@ -3,7 +3,8 @@
     margin: 2px 0 !important;
     padding: 8px !important;
 
-    > .scrollable { background: $bg-color }
+    > .scrollable,
+    > .timeline-split > .timeline-split__pane > .scrollable { background: $bg-color }
 }
 
 @media screen and (min-width: 415px) {

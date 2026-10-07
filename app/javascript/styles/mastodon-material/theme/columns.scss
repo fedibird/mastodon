@@ -4,7 +4,8 @@
     margin: 10px 8px;
     border-radius: $card-radius;
 
-    &>.scrollable {
+    &>.scrollable,
+    > .timeline-split > .timeline-split__pane > .scrollable {
         background: $list-bg-color;
         opacity: $column-transparency;
     }
