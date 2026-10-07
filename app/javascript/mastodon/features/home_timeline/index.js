@@ -354,6 +354,7 @@ class HomeTimeline extends React.PureComponent {
     this.scrollAnchorApplied = false;
     this.shouldResetDocumentScroll = false;
     this.scrollRestoreToken = null;
+    this.returnAnchorToken = null;
   }
 
   captureScrollTop = (target) => {
@@ -402,6 +403,7 @@ class HomeTimeline extends React.PureComponent {
       return;
     }
 
+    this.returnAnchorToken = null;
     this.splitSessionId = uuid();
     this.scrollAnchorApplied = false;
 
@@ -499,17 +501,16 @@ class HomeTimeline extends React.PureComponent {
   }
 
   scheduleReturnAnchorRestore = () => {
-    if (this.props.multiColumn || this.props.isPartial) {
-      return;
-    }
-
     const anchor = this.props.splitReturnAnchor;
 
     if (!anchor || !anchor.get) {
       return;
     }
 
-    if (anchor.get('locationKey') !== this.homeLocationKey) {
+    const sameLocation = anchor.get('locationKey') === this.homeLocationKey;
+    const canRestore = sameLocation && !this.props.multiColumn && !this.props.isPartial;
+
+    if (!canRestore) {
       this.props.dispatch(clearTimelineSplitReturnAnchor('home'));
       return;
     }

@@ -778,6 +778,97 @@ describe('HomeTimeline split', () => {
     expect(store.getState().getIn(['timelines', 'home', 'splitReturnAnchor'])).toBeUndefined();
   });
 
+  it('clears a return anchor when the same location key mounts in multiple columns', () => {
+    const store = buildStore();
+
+    store.dispatch({
+      type: 'TIMELINE_SPLIT_SAVE_RETURN_ANCHOR',
+      timeline: 'home',
+      anchor: { locationKey: 'A', id: '90', offset: -7.84, fallbackOffset: 2386 },
+    });
+    mountTabsWrapper(0, 64);
+    const restoreRects = installRects(element => {
+      if (element.classList.contains('tabs-bar__wrapper')) {
+        return box(0, 64);
+      }
+
+      if (element.classList.contains('scrollable')) {
+        return box(0, 900);
+      }
+
+      if (element.tagName === 'ARTICLE' && element.getAttribute('data-id') === '90') {
+        return box(400, 520);
+      }
+
+      return box(-40, 10);
+    });
+    const frames = [];
+    const spy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      frames.push(callback);
+      return frames.length;
+    });
+
+    scroller().scrollTop = 80;
+    const { container } = renderHome(store, { columnId: 'col-multi', multiColumn: true, location: homeLocation('A') });
+    flushQueuedFrames(frames);
+    spy.mockRestore();
+    restoreRects();
+
+    expect(scroller().scrollTop).toBe(80);
+    expect(container.querySelector('.timeline-split')).toBeNull();
+    expect(store.getState().getIn(['timelines', 'home', 'splitReturnAnchor'])).toBeUndefined();
+  });
+
+  it('cancels a queued return restore when a new split starts', () => {
+    const store = buildStore();
+
+    store.dispatch({
+      type: 'TIMELINE_SPLIT_SAVE_RETURN_ANCHOR',
+      timeline: 'home',
+      anchor: { locationKey: 'A', id: '90', offset: -7.84, fallbackOffset: 2386 },
+    });
+    mountTabsWrapper(0, 64);
+    const restoreRects = installRects(element => {
+      if (element.classList.contains('tabs-bar__wrapper')) {
+        return box(0, 64);
+      }
+
+      if (element.classList.contains('scrollable')) {
+        return element.getAttribute('data-pane') === 'history' ? box(100, 700) : box(0, 900);
+      }
+
+      if (element.tagName === 'ARTICLE' && element.getAttribute('data-id') === '90') {
+        const top = 400 - scroller().scrollTop;
+
+        return box(top, top + 120);
+      }
+
+      return box(-40, 10);
+    });
+    const frames = [];
+    const spy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      frames.push(callback);
+      return frames.length;
+    });
+
+    scroller().scrollTop = 0;
+    const { container } = renderHome(store, { columnId: 'col-cancel', multiColumn: false, location: homeLocation('A') });
+    const staleRestore = frames[0];
+
+    expect(staleRestore).toEqual(expect.any(Function));
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+    act(() => {
+      staleRestore(0);
+    });
+    spy.mockRestore();
+    restoreRects();
+
+    expect(scroller().scrollTop).toBe(0);
+    expect(container.querySelector('.timeline-split')).not.toBeNull();
+    expect(activeSplitId(store)).toEqual(expect.stringMatching(/^home:split:col-cancel:/));
+    expect(store.getState().getIn(['timelines', 'home', 'splitReturnAnchor'])).toBeUndefined();
+  });
+
   it('does not save a return anchor when a partial single-column split unmounts', () => {
     const store = buildStore();
     const { unmount } = renderHome(store, { columnId: 'col-partial', multiColumn: false, location: homeLocation('A') });
