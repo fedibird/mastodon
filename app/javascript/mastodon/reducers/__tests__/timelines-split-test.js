@@ -6,8 +6,10 @@ import {
   TIMELINE_EXPAND_SUCCESS,
   TIMELINE_MARK_AS_PARTIAL,
   TIMELINE_SCROLL_TOP,
+  TIMELINE_SPLIT_CLEAR_RETURN_ANCHOR,
   TIMELINE_SPLIT_CREATE,
   TIMELINE_SPLIT_DESTROY,
+  TIMELINE_SPLIT_SAVE_RETURN_ANCHOR,
   TIMELINE_UPDATE,
 } from '../../actions/timelines';
 import timelines from '../timelines';
@@ -351,5 +353,48 @@ describe('timeline split lifecycle', () => {
     expect(next.getIn(['home', 'items'])).toEqual(ImmutableList(['90']));
     expect(next.getIn(['home', 'pendingItems'])).toEqual(ImmutableList());
     expect(next.getIn([splitId, 'items'])).toEqual(ImmutableList(['90']));
+  });
+
+  it('keeps a return anchor when the split timeline is destroyed', () => {
+    const anchor = ImmutableMap({
+      locationKey: 'A',
+      id: '90',
+      offset: -7.84,
+      fallbackOffset: 2386,
+    });
+    const split = timelines(createSplit(initial()), {
+      type: TIMELINE_SPLIT_SAVE_RETURN_ANCHOR,
+      timeline: 'home',
+      anchor: anchor.toJS(),
+    });
+    const next = destroySplit(split);
+
+    expect(next.get(splitId)).toBeUndefined();
+    expect(next.getIn(['home', 'splitTimelineId'])).toBeUndefined();
+    expect(next.getIn(['home', 'items'])).toEqual(ImmutableList(['100', '90', '80']));
+    expect(next.getIn(['home', 'splitReturnAnchor'])).toEqual(anchor);
+  });
+
+  it('drops a return anchor when a new split is created or home becomes partial', () => {
+    const saved = timelines(initial(), {
+      type: TIMELINE_SPLIT_SAVE_RETURN_ANCHOR,
+      timeline: 'home',
+      anchor: { locationKey: 'A', id: '90', offset: -7.84, fallbackOffset: 2386 },
+    });
+    const created = createSplit(saved);
+    const cleared = timelines(saved, {
+      type: TIMELINE_MARK_AS_PARTIAL,
+      timeline: 'home',
+    });
+    const explicit = timelines(saved, {
+      type: TIMELINE_SPLIT_CLEAR_RETURN_ANCHOR,
+      timeline: 'home',
+    });
+
+    expect(created.getIn(['home', 'splitReturnAnchor'])).toBeUndefined();
+    expect(created.getIn(['home', 'splitTimelineId'])).toBe(splitId);
+    expect(cleared.getIn(['home', 'splitReturnAnchor'])).toBeUndefined();
+    expect(cleared.getIn(['home', 'isPartial'])).toBe(true);
+    expect(explicit.getIn(['home', 'splitReturnAnchor'])).toBeUndefined();
   });
 });

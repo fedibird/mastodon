@@ -3114,6 +3114,49 @@ $timeline-split-separator-size: 12px;
   }
 }
 
+body.app-body.layout-single-column.home-timeline-split {
+  height: 100vh;
+  max-height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+
+  .app-holder,
+  .app-holder > div,
+  .ui,
+  .columns-area__panels,
+  .columns-area__panels__main {
+    height: 100%;
+    max-height: 100%;
+    min-height: 0;
+  }
+
+  .columns-area__panels__main {
+    overflow: hidden;
+  }
+
+  .tabs-bar__wrapper {
+    flex: 0 0 auto;
+  }
+
+  .swipeable-view__wrapper,
+  .columns-area__panels__main > .columns-area--mobile {
+    box-sizing: border-box;
+    flex: 1 1 auto;
+    height: auto !important;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .react-swipeable-view-container,
+  .react-swipeable-view-container > div,
+  .columns-area--mobile,
+  .column {
+    height: 100%;
+    min-height: 0;
+  }
+}
+
 .column-header__button.column-header__split-button {
   .column-header__split-icon {
     transform: rotate(90deg);
@@ -3443,6 +3486,20 @@ $timeline-split-separator-size: 12px;
 
     @supports(display: grid) {
       contain: content;
+    }
+  }
+
+  .timeline-split {
+    .timeline-split__pane {
+      min-height: 0;
+    }
+
+    .scrollable {
+      overflow-x: hidden;
+      overflow-y: auto;
+      min-height: 0;
+      overscroll-behavior-y: contain;
+      -webkit-overflow-scrolling: touch;
     }
   }
 

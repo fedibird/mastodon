@@ -25,6 +25,8 @@ export const TIMELINE_MARK_AS_PARTIAL = 'TIMELINE_MARK_AS_PARTIAL';
 
 export const TIMELINE_SPLIT_CREATE  = 'TIMELINE_SPLIT_CREATE';
 export const TIMELINE_SPLIT_DESTROY = 'TIMELINE_SPLIT_DESTROY';
+export const TIMELINE_SPLIT_SAVE_RETURN_ANCHOR = 'TIMELINE_SPLIT_SAVE_RETURN_ANCHOR';
+export const TIMELINE_SPLIT_CLEAR_RETURN_ANCHOR = 'TIMELINE_SPLIT_CLEAR_RETURN_ANCHOR';
 
 export const loadPending = timeline => ({
   type: TIMELINE_LOAD_PENDING,
@@ -299,5 +301,20 @@ export function destroyTimelineSplit(sourceTimeline, splitTimeline) {
     type: TIMELINE_SPLIT_DESTROY,
     sourceTimeline,
     splitTimeline,
+  };
+}
+
+export function saveTimelineSplitReturnAnchor(timeline, anchor) {
+  return {
+    type: TIMELINE_SPLIT_SAVE_RETURN_ANCHOR,
+    timeline,
+    anchor,
+  };
+}
+
+export function clearTimelineSplitReturnAnchor(timeline) {
+  return {
+    type: TIMELINE_SPLIT_CLEAR_RETURN_ANCHOR,
+    timeline,
   };
 }

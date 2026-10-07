@@ -45,6 +45,7 @@ jest.mock('../../ui/containers/status_list_container', () => {
   return function StatusListContainer (props) {
     const timelineId = props.dataTimelineId || props.timelineId;
     const isPartial = useSelector(state => !!state.getIn(['timelines', timelineId, 'isPartial']));
+    const items = useSelector(state => state.getIn(['timelines', timelineId, 'items']));
     let pane = 'single';
 
     if (props.includePendingItems) {
@@ -57,6 +58,8 @@ jest.mock('../../ui/containers/status_list_container', () => {
       return <div data-regenerating='true' data-pane={pane} data-timeline={timelineId} />;
     }
 
+    const ids = items && items.toArray ? items.toArray().filter(id => id !== null) : [];
+
     return (
       <div
         className='scrollable'
@@ -68,6 +71,7 @@ jest.mock('../../ui/containers/status_list_container', () => {
         data-track-intersection={props.trackIntersection === false ? 'false' : 'true'}
         data-manage-scroll={props.manageTimelineScrollState === false ? 'false' : 'true'}
       >
+        {ids.map(id => <article key={id} data-id={id} />)}
         {props.onLoadMore && <button type='button' data-testid={`load-${pane}`} onClick={() => props.onLoadMore('70')}>Load more</button>}
       </div>
     );
@@ -129,6 +133,9 @@ describe('HomeTimeline split', () => {
   });
 
   afterEach(() => {
+    document.querySelectorAll('.tabs-bar__wrapper').forEach(node => node.remove());
+    document.body.classList.remove('home-timeline-split');
+
     const portal = document.getElementById('tabs-bar__portal');
 
     if (portal) {
@@ -136,13 +143,69 @@ describe('HomeTimeline split', () => {
     }
   });
 
-  it('does not offer split in single column and keeps document scrolling', () => {
+  const box = (top, bottom) => ({
+    top,
+    bottom,
+    left: 0,
+    width: 320,
+    height: Math.max(0, bottom - top),
+    right: 320,
+    x: 0,
+    y: top,
+    toJSON () {},
+  });
+
+  const scroller = () => document.scrollingElement || document.body;
+
+  const mountTabsWrapper = (top, bottom) => {
+    const portal = document.getElementById('tabs-bar__portal');
+    const wrapper = document.createElement('div');
+    wrapper.className = 'tabs-bar__wrapper';
+    wrapper.getBoundingClientRect = () => box(top, bottom);
+    portal.parentNode.insertBefore(wrapper, portal);
+    wrapper.appendChild(portal);
+    return wrapper;
+  };
+
+  const installRects = (resolver) => {
+    const original = HTMLElement.prototype.getBoundingClientRect;
+
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      return resolver(this) || box(0, 0);
+    };
+
+    return () => {
+      HTMLElement.prototype.getBoundingClientRect = original;
+    };
+  };
+
+  it('offers split in single column and switches both panes off document scrolling', () => {
     const store = buildStore();
     const { container } = renderHome(store, { multiColumn: false });
+    const before = container.querySelector('.scrollable');
 
-    expect(screen.queryByRole('button', { name: 'Split timeline' })).toBeNull();
-    expect(container.querySelector('.scrollable').getAttribute('data-bind')).toBe('document');
+    expect(screen.getByRole('button', { name: 'Split timeline' })).toBeEnabled();
+    expect(before.getAttribute('data-bind')).toBe('document');
+    expect(before.getAttribute('data-track-scroll')).toBe('true');
     expect(container.querySelector('.timeline-split')).toBeNull();
+
+    scroller().scrollTop = 900;
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+
+    const history = container.querySelector('.timeline-split__pane--history .scrollable');
+    const live = container.querySelector('.timeline-split__pane--live .scrollable');
+
+    expect(container.querySelector('.timeline-split')).not.toBeNull();
+    expect(live.getAttribute('data-bind')).toBe('column');
+    expect(history.getAttribute('data-bind')).toBe('column');
+    expect(live.getAttribute('data-track-scroll')).toBe('false');
+    expect(history.getAttribute('data-track-scroll')).toBe('false');
+    expect(live.getAttribute('data-track-intersection')).toBe('false');
+    expect(live.getAttribute('data-manage-scroll')).toBe('false');
+    expect(container.querySelector('[data-testid="load-live"]')).toBeNull();
+    expect(container.querySelector('[data-testid="load-history"]')).not.toBeNull();
+    expect(scroller().scrollTop).toBe(0);
+    expect(document.body.classList.contains('home-timeline-split')).toBe(true);
   });
 
   it('splits and unsplits from the header while keeping the captured scroll offset', () => {
@@ -345,5 +408,480 @@ describe('HomeTimeline split', () => {
     expect(store.getState().getIn(['timelines', 'home', 'items'])).toEqual(ImmutableList(['100', '90', '80']));
     expect(store.getState().getIn(['timelines', 'home', 'pendingItems'])).toEqual(ImmutableList(['120']));
     expect(store.getState().getIn(['timelines', 'home', 'online'])).toBe(true);
+    expect(store.getState().getIn(['timelines', 'home', 'splitReturnAnchor'])).toBeUndefined();
+  });
+
+  it('keeps multi-column history scroll tracking when the column is not pinned', () => {
+    const store = buildStore();
+    const { container } = renderHome(store, { multiColumn: true });
+
+    container.querySelector('.scrollable').scrollTop = 210;
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+
+    const history = container.querySelector('.timeline-split__pane--history .scrollable');
+    const live = container.querySelector('.timeline-split__pane--live .scrollable');
+
+    expect(history.scrollTop).toBe(210);
+    expect(history.getAttribute('data-bind')).toBe('column');
+    expect(history.getAttribute('data-track-scroll')).toBe('true');
+    expect(live.getAttribute('data-track-scroll')).toBe('false');
+    expect(document.body.classList.contains('home-timeline-split')).toBe(false);
+  });
+
+  it('restores the visible status into the history pane instead of copying document scroll', () => {
+    const store = buildStore();
+    mountTabsWrapper(0, 64);
+    const restoreRects = installRects(element => {
+      if (element.classList.contains('tabs-bar__wrapper')) {
+        return box(0, 64);
+      }
+
+      if (element.classList.contains('scrollable')) {
+        return element.getAttribute('data-pane') === 'history' ? box(120, 640) : box(-400, 1600);
+      }
+
+      if (element.tagName === 'ARTICLE') {
+        const id = element.getAttribute('data-id');
+        const pane = element.parentElement.getAttribute('data-pane');
+
+        if (pane === 'history' && id === '90') {
+          return box(520, 640);
+        }
+
+        if (id === '100') {
+          return box(0, 40);
+        }
+
+        if (id === '90') {
+          return box(80, 180);
+        }
+
+        return box(200, 320);
+      }
+
+      return box(0, 0);
+    });
+    const { container } = renderHome(store, { multiColumn: false });
+
+    scroller().scrollTop = 900;
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+    restoreRects();
+
+    const history = container.querySelector('.timeline-split__pane--history .scrollable');
+
+    expect(history.scrollTop).toBe(384);
+    expect(scroller().scrollTop).toBe(0);
+    expect(history.scrollTop).not.toBe(900);
+  });
+
+  it('uses the list offset when no status is visible at the document top', () => {
+    const store = buildStore();
+    mountTabsWrapper(0, 64);
+    const restoreRects = installRects(element => {
+      if (element.classList.contains('tabs-bar__wrapper')) {
+        return box(0, 64);
+      }
+
+      if (element.classList.contains('scrollable')) {
+        return element.getAttribute('data-pane') === 'single' ? box(-200, 900) : box(80, 500);
+      }
+
+      if (element.tagName === 'ARTICLE') {
+        return box(-80, 20);
+      }
+
+      return box(0, 0);
+    });
+    const { container } = renderHome(store, { multiColumn: false });
+
+    scroller().scrollTop = 800;
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+    restoreRects();
+
+    expect(container.querySelector('.timeline-split__pane--history .scrollable').scrollTop).toBe(264);
+    expect(scroller().scrollTop).toBe(0);
+  });
+
+  it('restores the history status into the document view on unsplit', () => {
+    const store = buildStore();
+    mountTabsWrapper(0, 64);
+    let singleArticleTop = 80;
+    const restoreRects = installRects(element => {
+      if (element.classList.contains('tabs-bar__wrapper')) {
+        return box(0, 64);
+      }
+
+      if (element.classList.contains('scrollable')) {
+        return element.getAttribute('data-pane') === 'history' ? box(100, 700) : box(0, 900);
+      }
+
+      if (element.tagName === 'ARTICLE' && element.getAttribute('data-id') === '90') {
+        const pane = element.parentElement.getAttribute('data-pane');
+
+        return pane === 'history' ? box(140, 260) : box(singleArticleTop, singleArticleTop + 120);
+      }
+
+      if (element.tagName === 'ARTICLE') {
+        return box(-40, 10);
+      }
+
+      return box(0, 0);
+    });
+    const { container } = renderHome(store, { multiColumn: false });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+    singleArticleTop = 500;
+    fireEvent.click(document.querySelector('.column-header__split-button'));
+    restoreRects();
+
+    expect(container.querySelector('.timeline-split')).toBeNull();
+    expect(scroller().scrollTop).toBe(396);
+  });
+
+  it('scrolls the live pane from the header while single-column home is split', () => {
+    const store = buildStore();
+    const { container } = renderHome(store, { multiColumn: false });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+
+    const live = container.querySelector('.timeline-split__pane--live .scrollable');
+    const history = container.querySelector('.timeline-split__pane--history .scrollable');
+    const documentScroller = scroller();
+
+    live.scrollTo = jest.fn();
+    history.scrollTo = jest.fn();
+    documentScroller.scrollTo = jest.fn();
+    documentScroller.scrollTop = 240;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Home' }));
+
+    expect(live.scrollTo).toHaveBeenCalledWith({ behavior: 'smooth', top: 0 });
+    expect(history.scrollTo).not.toHaveBeenCalled();
+    expect(documentScroller.scrollTo).not.toHaveBeenCalled();
+    expect(documentScroller.scrollTop).toBe(240);
+  });
+
+  it('discards the single-column anchor when a partial home is unsplit', () => {
+    const store = buildStore();
+    mountTabsWrapper(0, 64);
+    const restoreRects = installRects(element => {
+      if (element.classList.contains('tabs-bar__wrapper')) {
+        return box(0, 64);
+      }
+
+      if (element.classList.contains('scrollable')) {
+        return element.getAttribute('data-pane') === 'history' ? box(100, 700) : box(0, 900);
+      }
+
+      if (element.tagName === 'ARTICLE' && element.getAttribute('data-id') === '90') {
+        const pane = element.parentElement.getAttribute('data-pane');
+
+        return pane === 'history' ? box(140, 260) : box(500, 620);
+      }
+
+      return box(-40, 10);
+    });
+    const { container } = renderHome(store, { multiColumn: false });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+
+    act(() => {
+      store.dispatch({ type: 'TIMELINE_MARK_AS_PARTIAL', timeline: 'home' });
+    });
+
+    fireEvent.click(document.querySelector('.column-header__split-button'));
+
+    expect(container.querySelector('.scrollable')).toBeNull();
+    expect(scroller().scrollTop).toBe(0);
+
+    act(() => {
+      store.dispatch({
+        type: 'TIMELINE_EXPAND_SUCCESS',
+        timeline: 'home',
+        statuses: [{ id: '200' }],
+        next: '199',
+        partial: false,
+        isLoadingRecent: false,
+        usePendingItems: false,
+      });
+    });
+    restoreRects();
+
+    expect(container.querySelector('.scrollable').scrollTop).toBe(0);
+    expect(scroller().scrollTop).toBe(0);
+    expect(store.getState().getIn(['timelines', 'home', 'isPartial'])).toBe(false);
+  });
+
+  it('removes the split when the layout mode changes in either direction', () => {
+    const store = buildStore();
+    const multi = render(
+      <Provider store={store}>
+        <HomeTimeline columnId='col-layout' multiColumn />
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+    const splitTimelineId = expectSplitId(store, 'col-layout');
+
+    multi.rerender(
+      <Provider store={store}>
+        <HomeTimeline columnId='col-layout' multiColumn={false} />
+      </Provider>,
+    );
+
+    expect(store.getState().hasIn(['timelines', splitTimelineId])).toBe(false);
+    expect(activeSplitId(store)).toBeUndefined();
+    multi.unmount();
+
+    const single = renderHome(store, { columnId: 'col-layout', multiColumn: false });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+    const nextSplitId = expectSplitId(store, 'col-layout');
+
+    single.rerender(
+      <Provider store={store}>
+        <HomeTimeline columnId='col-layout' multiColumn />
+      </Provider>,
+    );
+
+    expect(store.getState().hasIn(['timelines', nextSplitId])).toBe(false);
+    expect(activeSplitId(store)).toBeUndefined();
+    expect(document.body.classList.contains('home-timeline-split')).toBe(false);
+  });
+
+  const homeLocation = (key) => ({ key, pathname: '/timelines/home' });
+
+  const flushQueuedFrames = (frames) => {
+    const batch = frames.splice(0, frames.length);
+
+    act(() => {
+      batch.forEach(callback => callback(0));
+    });
+  };
+
+  it('saves a return anchor when single-column home leaves while split', () => {
+    const store = buildStore();
+    const restoreRects = installRects(element => {
+      if (element.classList.contains('scrollable') && element.getAttribute('data-pane') === 'history') {
+        return box(100, 700);
+      }
+
+      if (element.tagName === 'ARTICLE' && element.getAttribute('data-id') === '90') {
+        return box(92.16, 200);
+      }
+
+      if (element.tagName === 'ARTICLE') {
+        return box(0, 90);
+      }
+
+      return box(0, 0);
+    });
+    const view = renderHome(store, { columnId: 'col-nav', multiColumn: false, location: homeLocation('1g1nyt') });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+    const splitTimelineId = expectSplitId(store, 'col-nav');
+    view.container.querySelector('.timeline-split__pane--history .scrollable').scrollTop = 2386;
+    view.unmount();
+    restoreRects();
+
+    const anchor = store.getState().getIn(['timelines', 'home', 'splitReturnAnchor']);
+
+    expect(store.getState().hasIn(['timelines', splitTimelineId])).toBe(false);
+    expect(store.getState().getIn(['timelines', 'home', 'splitTimelineId'])).toBeUndefined();
+    expect(store.getState().getIn(['timelines', 'home', 'items'])).toEqual(ImmutableList(['100', '90', '80']));
+    expect(anchor.get('locationKey')).toBe('1g1nyt');
+    expect(anchor.get('id')).toBe('90');
+    expect(anchor.get('offset')).toBeCloseTo(-7.84);
+    expect(anchor.get('fallbackOffset')).toBe(2386);
+  });
+
+  it('restores the return anchor into the document when the same location key mounts', () => {
+    const store = buildStore();
+
+    store.dispatch({
+      type: 'TIMELINE_SPLIT_SAVE_RETURN_ANCHOR',
+      timeline: 'home',
+      anchor: { locationKey: 'A', id: '90', offset: -7.84, fallbackOffset: 2386 },
+    });
+    mountTabsWrapper(0, 64);
+    const restoreRects = installRects(element => {
+      if (element.classList.contains('tabs-bar__wrapper')) {
+        return box(0, 64);
+      }
+
+      if (element.classList.contains('scrollable')) {
+        return box(0, 900);
+      }
+
+      if (element.tagName === 'ARTICLE' && element.getAttribute('data-id') === '90') {
+        const top = 400 - scroller().scrollTop;
+
+        return box(top, top + 120);
+      }
+
+      return box(-40, 10);
+    });
+    const frames = [];
+    const spy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      frames.push(callback);
+      return frames.length;
+    });
+
+    scroller().scrollTop = 0;
+    renderHome(store, { multiColumn: false, location: homeLocation('A') });
+    flushQueuedFrames(frames);
+    flushQueuedFrames(frames);
+    spy.mockRestore();
+    restoreRects();
+
+    expect(scroller().scrollTop).toBeCloseTo(343.84);
+    expect(store.getState().getIn(['timelines', 'home', 'splitReturnAnchor'])).toBeUndefined();
+  });
+
+  it('discards a return anchor when home mounts on a different location key', () => {
+    const store = buildStore();
+
+    store.dispatch({
+      type: 'TIMELINE_SPLIT_SAVE_RETURN_ANCHOR',
+      timeline: 'home',
+      anchor: { locationKey: 'A', id: '90', offset: -7.84, fallbackOffset: 2386 },
+    });
+    mountTabsWrapper(0, 64);
+    const restoreRects = installRects(element => {
+      if (element.classList.contains('tabs-bar__wrapper')) {
+        return box(0, 64);
+      }
+
+      if (element.classList.contains('scrollable')) {
+        return box(0, 900);
+      }
+
+      if (element.tagName === 'ARTICLE' && element.getAttribute('data-id') === '90') {
+        return box(400, 520);
+      }
+
+      return box(-40, 10);
+    });
+    const frames = [];
+    const spy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      frames.push(callback);
+      return frames.length;
+    });
+
+    scroller().scrollTop = 80;
+    renderHome(store, { multiColumn: false, location: homeLocation('B') });
+    flushQueuedFrames(frames);
+    spy.mockRestore();
+    restoreRects();
+
+    expect(scroller().scrollTop).toBe(80);
+    expect(store.getState().getIn(['timelines', 'home', 'splitReturnAnchor'])).toBeUndefined();
+  });
+
+  it('clears a return anchor when the same location key mounts in multiple columns', () => {
+    const store = buildStore();
+
+    store.dispatch({
+      type: 'TIMELINE_SPLIT_SAVE_RETURN_ANCHOR',
+      timeline: 'home',
+      anchor: { locationKey: 'A', id: '90', offset: -7.84, fallbackOffset: 2386 },
+    });
+    mountTabsWrapper(0, 64);
+    const restoreRects = installRects(element => {
+      if (element.classList.contains('tabs-bar__wrapper')) {
+        return box(0, 64);
+      }
+
+      if (element.classList.contains('scrollable')) {
+        return box(0, 900);
+      }
+
+      if (element.tagName === 'ARTICLE' && element.getAttribute('data-id') === '90') {
+        return box(400, 520);
+      }
+
+      return box(-40, 10);
+    });
+    const frames = [];
+    const spy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      frames.push(callback);
+      return frames.length;
+    });
+
+    scroller().scrollTop = 80;
+    const { container } = renderHome(store, { columnId: 'col-multi', multiColumn: true, location: homeLocation('A') });
+    flushQueuedFrames(frames);
+    spy.mockRestore();
+    restoreRects();
+
+    expect(scroller().scrollTop).toBe(80);
+    expect(container.querySelector('.timeline-split')).toBeNull();
+    expect(store.getState().getIn(['timelines', 'home', 'splitReturnAnchor'])).toBeUndefined();
+  });
+
+  it('cancels a queued return restore when a new split starts', () => {
+    const store = buildStore();
+
+    store.dispatch({
+      type: 'TIMELINE_SPLIT_SAVE_RETURN_ANCHOR',
+      timeline: 'home',
+      anchor: { locationKey: 'A', id: '90', offset: -7.84, fallbackOffset: 2386 },
+    });
+    mountTabsWrapper(0, 64);
+    const restoreRects = installRects(element => {
+      if (element.classList.contains('tabs-bar__wrapper')) {
+        return box(0, 64);
+      }
+
+      if (element.classList.contains('scrollable')) {
+        return element.getAttribute('data-pane') === 'history' ? box(100, 700) : box(0, 900);
+      }
+
+      if (element.tagName === 'ARTICLE' && element.getAttribute('data-id') === '90') {
+        const top = 400 - scroller().scrollTop;
+
+        return box(top, top + 120);
+      }
+
+      return box(-40, 10);
+    });
+    const frames = [];
+    const spy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      frames.push(callback);
+      return frames.length;
+    });
+
+    scroller().scrollTop = 0;
+    const { container } = renderHome(store, { columnId: 'col-cancel', multiColumn: false, location: homeLocation('A') });
+    const staleRestore = frames[0];
+
+    expect(staleRestore).toEqual(expect.any(Function));
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+    act(() => {
+      staleRestore(0);
+    });
+    spy.mockRestore();
+    restoreRects();
+
+    expect(scroller().scrollTop).toBe(0);
+    expect(container.querySelector('.timeline-split')).not.toBeNull();
+    expect(activeSplitId(store)).toEqual(expect.stringMatching(/^home:split:col-cancel:/));
+    expect(store.getState().getIn(['timelines', 'home', 'splitReturnAnchor'])).toBeUndefined();
+  });
+
+  it('does not save a return anchor when a partial single-column split unmounts', () => {
+    const store = buildStore();
+    const { unmount } = renderHome(store, { columnId: 'col-partial', multiColumn: false, location: homeLocation('A') });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+    const splitTimelineId = expectSplitId(store, 'col-partial');
+
+    act(() => {
+      store.dispatch({ type: 'TIMELINE_MARK_AS_PARTIAL', timeline: 'home' });
+    });
+    unmount();
+
+    expect(store.getState().hasIn(['timelines', splitTimelineId])).toBe(false);
+    expect(store.getState().getIn(['timelines', 'home', 'splitReturnAnchor'])).toBeUndefined();
   });
 });

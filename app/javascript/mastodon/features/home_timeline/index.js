@@ -1,6 +1,6 @@
 import React, { Fragment } from 'react';
 import { connect } from 'react-redux';
-import { createTimelineSplit, destroyTimelineSplit, expandHomeTimeline } from '../../actions/timelines';
+import { clearTimelineSplitReturnAnchor, createTimelineSplit, destroyTimelineSplit, expandHomeTimeline, saveTimelineSplitReturnAnchor } from '../../actions/timelines';
 import { getHomeVisibilities } from 'mastodon/selectors';
 import PropTypes from 'prop-types';
 import StatusListContainer from '../ui/containers/status_list_container';
@@ -20,6 +20,7 @@ import { defaultColumnWidth } from 'mastodon/initial_state';
 import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
 import uuid from '../../uuid';
+import { scrollTop as scrollElementToTop } from '../../scroll';
 
 const messages = defineMessages({
   title: { id: 'column.home', defaultMessage: 'Home' },
@@ -31,6 +32,8 @@ const messages = defineMessages({
   splitter: { id: 'timeline.splitter', defaultMessage: 'Timeline splitter' },
 });
 
+const SPLIT_LAYOUT_CLASS = 'home-timeline-split';
+
 const clampSplitRatio = (value) => {
   const number = Number(value);
 
@@ -39,6 +42,36 @@ const clampSplitRatio = (value) => {
   }
 
   return Math.min(MAX_TIMELINE_SPLIT_RATIO, Math.max(MIN_TIMELINE_SPLIT_RATIO, Math.round(number)));
+};
+
+const articleSelector = (id) => {
+  const value = String(id).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
+  return `article[data-id="${value}"]`;
+};
+
+const findAnchorArticle = (container, visibleTop) => {
+  if (!container) {
+    return null;
+  }
+
+  const articles = container.querySelectorAll('article[data-id]');
+
+  for (let i = 0; i < articles.length; i += 1) {
+    if (articles[i].getBoundingClientRect().bottom > visibleTop) {
+      return articles[i];
+    }
+  }
+
+  return null;
+};
+
+const resetDocumentScroll = () => {
+  const scroller = document.scrollingElement || document.body;
+
+  if (scroller) {
+    scroller.scrollTop = 0;
+  }
 };
 
 const mapStateToProps = (state, { columnId }) => {
@@ -56,6 +89,7 @@ const mapStateToProps = (state, { columnId }) => {
     visibilities: getHomeVisibilities(state),
     columnWidth: columnWidth ?? defaultColumnWidth,
     splitTimelineId,
+    splitReturnAnchor: state.getIn(['timelines', 'home', 'splitReturnAnchor']) || null,
     splitRatio: clampSplitRatio(state.getIn(['settings', 'home', 'splitRatio'], DEFAULT_TIMELINE_SPLIT_RATIO)),
   };
 };
@@ -77,7 +111,11 @@ class HomeTimeline extends React.PureComponent {
     showAnnouncements: PropTypes.bool,
     visibilities: PropTypes.arrayOf(PropTypes.string),
     splitTimelineId: PropTypes.string,
+    splitReturnAnchor: PropTypes.object,
     splitRatio: PropTypes.number,
+    location: PropTypes.shape({
+      key: PropTypes.string,
+    }),
   };
 
   state = {
@@ -87,6 +125,7 @@ class HomeTimeline extends React.PureComponent {
   constructor (props) {
     super(props);
     this.instanceId = props.columnId || uuid();
+    this.homeLocationKey = props.location ? props.location.key : undefined;
   }
 
   handlePin = () => {
@@ -105,6 +144,16 @@ class HomeTimeline extends React.PureComponent {
   }
 
   handleHeaderClick = () => {
+    if (this.ownsSplit()) {
+      const live = this.findScrollable('live');
+
+      if (live) {
+        scrollElementToTop(live);
+      }
+
+      return;
+    }
+
     this.column.scrollTop();
   }
 
@@ -139,7 +188,173 @@ class HomeTimeline extends React.PureComponent {
       return node.querySelector('.timeline-split__pane--history .scrollable');
     }
 
+    if (target === 'live') {
+      return node.querySelector('.timeline-split__pane--live .scrollable');
+    }
+
     return node.querySelector('.scrollable');
+  }
+
+  getDocumentVisibleTop = () => {
+    const portal = document.getElementById('tabs-bar__portal');
+    const wrapper = portal && portal.closest('.tabs-bar__wrapper');
+
+    if (!wrapper) {
+      return 0;
+    }
+
+    const rect = wrapper.getBoundingClientRect();
+
+    if (rect.bottom <= 0 || rect.top > 0) {
+      return 0;
+    }
+
+    return Math.max(0, rect.bottom);
+  }
+
+  captureDocumentAnchor = () => {
+    const scrollable = this.findScrollable('single');
+    const visibleTop = this.getDocumentVisibleTop();
+    const fallbackOffset = scrollable ? Math.max(0, visibleTop - scrollable.getBoundingClientRect().top) : 0;
+    const article = findAnchorArticle(scrollable, visibleTop);
+
+    if (!article) {
+      return { id: null, offset: 0, fallbackOffset, target: 'history' };
+    }
+
+    return {
+      id: article.getAttribute('data-id'),
+      offset: article.getBoundingClientRect().top - visibleTop,
+      fallbackOffset,
+      target: 'history',
+    };
+  }
+
+  captureHistoryAnchor = () => {
+    const history = this.findScrollable('history');
+    const visibleTop = history ? history.getBoundingClientRect().top : 0;
+    const fallbackOffset = history ? history.scrollTop : 0;
+    const article = findAnchorArticle(history, visibleTop);
+
+    if (!article) {
+      return { id: null, offset: 0, fallbackOffset, target: 'document' };
+    }
+
+    return {
+      id: article.getAttribute('data-id'),
+      offset: article.getBoundingClientRect().top - visibleTop,
+      fallbackOffset,
+      target: 'document',
+    };
+  }
+
+  applyScrollAnchor = (anchor) => {
+    if (!anchor) {
+      return false;
+    }
+
+    if (anchor.target === 'history') {
+      const history = this.findScrollable('history');
+
+      if (!history) {
+        return false;
+      }
+
+      const article = anchor.id ? history.querySelector(articleSelector(anchor.id)) : null;
+
+      if (article) {
+        const delta = (article.getBoundingClientRect().top - history.getBoundingClientRect().top) - anchor.offset;
+        history.scrollTop += delta;
+      } else {
+        history.scrollTop = anchor.fallbackOffset;
+      }
+
+      return true;
+    }
+
+    if (anchor.target === 'document') {
+      const scrollable = this.findScrollable('single');
+      const scroller = document.scrollingElement || document.body;
+
+      if (!scrollable || !scroller) {
+        return false;
+      }
+
+      const visibleTop = this.getDocumentVisibleTop();
+      const article = anchor.id ? scrollable.querySelector(articleSelector(anchor.id)) : null;
+
+      if (article) {
+        const delta = article.getBoundingClientRect().top - visibleTop - anchor.offset;
+        scroller.scrollTop += delta;
+      } else {
+        const listOffset = visibleTop - scrollable.getBoundingClientRect().top;
+        scroller.scrollTop += anchor.fallbackOffset - listOffset;
+      }
+
+      return true;
+    }
+
+    return false;
+  }
+
+  restoreScrollAnchor = () => {
+    if (!this.scrollAnchor || this.scrollAnchorApplied) {
+      return;
+    }
+
+    const anchor = this.scrollAnchor;
+
+    if (!this.applyScrollAnchor(anchor)) {
+      return;
+    }
+
+    this.scrollAnchorApplied = true;
+
+    const token = {};
+    this.scrollRestoreToken = token;
+
+    requestAnimationFrame(() => {
+      if (this.scrollRestoreToken !== token || this.scrollAnchor !== anchor) {
+        return;
+      }
+
+      this.applyScrollAnchor(anchor);
+
+      if (this.scrollAnchor === anchor) {
+        this.scrollAnchor = null;
+        this.scrollAnchorApplied = false;
+      }
+    });
+  }
+
+  syncSplitLayoutClass = () => {
+    const active = !this.props.multiColumn && this.ownsSplit();
+
+    if (active) {
+      document.body.classList.add(SPLIT_LAYOUT_CLASS);
+      this.splitLayoutClass = true;
+      return;
+    }
+
+    this.clearSplitLayoutClass();
+  }
+
+  clearSplitLayoutClass = () => {
+    if (!this.splitLayoutClass) {
+      return;
+    }
+
+    document.body.classList.remove(SPLIT_LAYOUT_CLASS);
+    this.splitLayoutClass = false;
+  }
+
+  clearSplitScroll = () => {
+    this.pendingScroll = null;
+    this.scrollAnchor = null;
+    this.scrollAnchorApplied = false;
+    this.shouldResetDocumentScroll = false;
+    this.scrollRestoreToken = null;
+    this.returnAnchorToken = null;
   }
 
   captureScrollTop = (target) => {
@@ -184,12 +399,23 @@ class HomeTimeline extends React.PureComponent {
   }
 
   splitTimeline = () => {
-    if (!this.props.multiColumn || this.props.isPartial || this.props.splitTimelineId) {
+    if (this.props.isPartial || this.props.splitTimelineId) {
       return;
     }
 
+    this.returnAnchorToken = null;
     this.splitSessionId = uuid();
-    this.pendingScroll = { top: this.captureScrollTop('single'), target: 'history' };
+    this.scrollAnchorApplied = false;
+
+    if (this.props.multiColumn) {
+      this.scrollAnchor = null;
+      this.pendingScroll = { top: this.captureScrollTop('single'), target: 'history' };
+    } else {
+      this.pendingScroll = null;
+      this.scrollAnchor = this.captureDocumentAnchor();
+      this.shouldResetDocumentScroll = true;
+    }
+
     this.props.dispatch(createTimelineSplit('home', this.getSplitTimelineId()));
   }
 
@@ -198,12 +424,17 @@ class HomeTimeline extends React.PureComponent {
       return;
     }
 
-    // RegenerationIndicator replaces .scrollable, so a carried history
-    // offset would be applied to the timeline that appears after reload.
+    this.scrollAnchorApplied = false;
+
     if (this.props.isPartial) {
-      this.pendingScroll = null;
-    } else {
+      this.clearSplitScroll();
+    } else if (this.props.multiColumn) {
+      this.scrollAnchor = null;
       this.pendingScroll = { top: this.captureScrollTop('history'), target: 'single' };
+    } else {
+      this.pendingScroll = null;
+      this.shouldResetDocumentScroll = false;
+      this.scrollAnchor = this.captureHistoryAnchor();
     }
 
     this.props.dispatch(destroyTimelineSplit('home', this.getSplitTimelineId()));
@@ -254,36 +485,128 @@ class HomeTimeline extends React.PureComponent {
     }));
   }
 
+  returnAnchorRecord = () => {
+    const anchor = this.props.splitReturnAnchor;
+
+    if (!anchor || !anchor.get) {
+      return null;
+    }
+
+    return {
+      target: 'document',
+      id: anchor.get('id'),
+      offset: anchor.get('offset'),
+      fallbackOffset: anchor.get('fallbackOffset'),
+    };
+  }
+
+  scheduleReturnAnchorRestore = () => {
+    const anchor = this.props.splitReturnAnchor;
+
+    if (!anchor || !anchor.get) {
+      return;
+    }
+
+    const sameLocation = anchor.get('locationKey') === this.homeLocationKey;
+    const canRestore = sameLocation && !this.props.multiColumn && !this.props.isPartial;
+
+    if (!canRestore) {
+      this.props.dispatch(clearTimelineSplitReturnAnchor('home'));
+      return;
+    }
+
+    const record = this.returnAnchorRecord();
+    const token = {};
+    this.returnAnchorToken = token;
+
+    requestAnimationFrame(() => {
+      if (this.returnAnchorToken !== token) {
+        return;
+      }
+
+      if (!this.applyScrollAnchor(record)) {
+        return;
+      }
+
+      requestAnimationFrame(() => {
+        if (this.returnAnchorToken !== token) {
+          return;
+        }
+
+        this.applyScrollAnchor(record);
+
+        if (this.returnAnchorToken === token) {
+          this.returnAnchorToken = null;
+          this.props.dispatch(clearTimelineSplitReturnAnchor('home'));
+        }
+      });
+    });
+  }
+
   componentDidMount () {
     this.announcementsTimer = setTimeout(() => this.props.dispatch(fetchAnnouncements()), 700);
     this._checkIfReloadNeeded(false, this.props.isPartial);
+    this.syncSplitLayoutClass();
+    this.scheduleReturnAnchorRestore();
   }
 
   componentDidUpdate (prevProps) {
     const { dispatch, visibilities, multiColumn } = this.props;
+    const layoutChanged = !!prevProps.multiColumn !== !!multiColumn;
 
     if (prevProps.visibilities.toString() !== visibilities.toString()) {
       dispatch(expandHomeTimeline({ visibilities }));
     }
 
-    if (prevProps.multiColumn && !multiColumn && this.ownsSplit()) {
-      this.pendingScroll = null;
+    if (layoutChanged && this.ownsSplit()) {
+      this.clearSplitScroll();
       dispatch(destroyTimelineSplit('home', this.getSplitTimelineId()));
+    }
+
+    if (layoutChanged) {
+      this.clearSplitLayoutClass();
+    } else {
+      this.syncSplitLayoutClass();
     }
 
     this._checkIfReloadNeeded(prevProps.isPartial, this.props.isPartial);
     this.restorePendingScroll();
+    this.restoreScrollAnchor();
+
+    if (this.shouldResetDocumentScroll) {
+      this.shouldResetDocumentScroll = false;
+      resetDocumentScroll();
+
+      requestAnimationFrame(() => {
+        if (!this.props.multiColumn && this.ownsSplit()) {
+          resetDocumentScroll();
+        }
+      });
+    }
   }
 
   componentWillUnmount () {
+    this.returnAnchorToken = null;
     this._stopPolling();
-    this.scrollRestoreToken = null;
-    this.pendingScroll = null;
 
     if (this.announcementsTimer) {
       clearTimeout(this.announcementsTimer);
       this.announcementsTimer = null;
     }
+
+    if (this.ownsSplit() && !this.props.multiColumn && !this.props.isPartial) {
+      const captured = this.captureHistoryAnchor();
+
+      this.props.dispatch(saveTimelineSplitReturnAnchor('home', {
+        locationKey: this.homeLocationKey,
+        id: captured.id,
+        offset: captured.offset,
+        fallbackOffset: captured.fallbackOffset,
+      }));
+    }
+
+    this.clearSplitScroll();
+    this.clearSplitLayoutClass();
 
     if (this.ownsSplit()) {
       this.props.dispatch(destroyTimelineSplit('home', this.getSplitTimelineId()));
@@ -333,12 +656,7 @@ class HomeTimeline extends React.PureComponent {
   }
 
   renderSplitButton () {
-    const { intl, multiColumn, isPartial } = this.props;
-
-    if (!multiColumn) {
-      return null;
-    }
-
+    const { intl, isPartial } = this.props;
     const ownSplit = this.ownsSplit();
     const otherSplit = !!this.props.splitTimelineId && !ownSplit;
     const disabled = otherSplit || (!ownSplit && !!isPartial);
@@ -373,7 +691,7 @@ class HomeTimeline extends React.PureComponent {
     const pinned = !!columnId;
     const emptyMessage = this.renderEmptyMessage();
 
-    if (!(multiColumn && this.ownsSplit())) {
+    if (!this.ownsSplit()) {
       return (
         <StatusListContainer
           trackScroll={!pinned}
@@ -419,7 +737,7 @@ class HomeTimeline extends React.PureComponent {
 
         <div className='timeline-split__pane timeline-split__pane--history'>
           <StatusListContainer
-            trackScroll={!pinned}
+            trackScroll={multiColumn ? !pinned : false}
             scrollKey={`home_timeline-${columnId}`}
             onLoadMore={this.handleLoadMoreHistory}
             timelineId='home'
