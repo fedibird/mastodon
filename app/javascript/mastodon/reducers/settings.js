@@ -65,6 +65,8 @@ const initialState = ImmutableMap({
     regex: ImmutableMap({
       body: '',
     }),
+
+    splitRatio: 35,
   }),
 
   personal: ImmutableMap({
@@ -75,6 +77,8 @@ const initialState = ImmutableMap({
     regex: ImmutableMap({
       body: '',
     }),
+
+    splitRatio: 35,
   }),
 
   notifications: ImmutableMap({
@@ -143,18 +147,28 @@ const initialState = ImmutableMap({
     regex: ImmutableMap({
       body: '',
     }),
+
+    splitRatio: 35,
   }),
 
   group: ImmutableMap({
     regex: ImmutableMap({
       body: '',
     }),
+
+    splitRatio: 35,
+  }),
+
+  hashtag: ImmutableMap({
+    splitRatio: 35,
   }),
 
   public: ImmutableMap({
     regex: ImmutableMap({
       body: '',
     }),
+
+    splitRatio: 35,
   }),
 
   direct: ImmutableMap({

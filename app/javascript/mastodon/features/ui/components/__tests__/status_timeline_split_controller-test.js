@@ -88,6 +88,7 @@ class Harness extends React.PureComponent {
         splitRatio={this.props.splitRatio}
         onSplitRatioCommit={this.handleCommit}
         unavailableMessage={unavailableMessage}
+        splitContextKey={this.props.splitContextKey}
       >
         {this.renderSplit}
       </StatusTimelineSplitController>
@@ -435,6 +436,48 @@ describe('StatusTimelineSplitController', () => {
 
     expect(scroller().scrollTop).toBeCloseTo(343.84);
     expect(store.getState().getIn(['timelines', 'list:42', 'splitReturnAnchor'])).toBeUndefined();
+  });
+
+  it('drops the active split and return anchor when the split context changes', () => {
+    const store = buildStore();
+    store.dispatch({
+      type: 'TIMELINE_SPLIT_SAVE_RETURN_ANCHOR',
+      timeline: 'list:42',
+      anchor: { locationKey: 'A', id: '90', offset: -7.84, fallbackOffset: 2386 },
+    });
+    mountTabsWrapper(0, 64);
+    const frames = [];
+    const spy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const view = renderHarness(store, { columnId: 'column-a', multiColumn: false, location: location('A'), splitContextKey: 'ruby|any:|all:|none:' });
+    const staleRestore = frames[0];
+
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+    const splitTimelineId = activeSplitId(store);
+    store.dispatch({
+      type: 'TIMELINE_SPLIT_SAVE_RETURN_ANCHOR',
+      timeline: 'list:42',
+      anchor: { locationKey: 'A', id: '90', offset: -7.84, fallbackOffset: 2386 },
+    });
+    view.container.querySelector('.timeline-split__pane--history .scrollable').scrollTop = 640;
+    view.rerender(
+      <Provider store={store}>
+        <ConnectedHarness sourceTimelineId='list:42' columnId='column-a' multiColumn={false} location={location('A')} splitContextKey='ruby|any:a|all:|none:' />
+      </Provider>,
+    );
+    act(() => {
+      staleRestore(0);
+    });
+    spy.mockRestore();
+
+    expect(view.container.querySelector('.timeline-split')).toBeNull();
+    expect(store.getState().get('timelines').has(splitTimelineId)).toBe(false);
+    expect(activeSplitId(store)).toBeUndefined();
+    expect(store.getState().getIn(['timelines', 'list:42', 'splitReturnAnchor'])).toBeUndefined();
+    expect(scroller().scrollTop).toBe(0);
+    expect(document.body.classList.contains(STATUS_TIMELINE_SPLIT_LAYOUT_CLASS)).toBe(false);
   });
 
   it('discards a return anchor when the location key differs or the layout is multi-column', () => {

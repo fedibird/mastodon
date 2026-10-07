@@ -93,6 +93,7 @@ class StatusTimelineSplitController extends React.Component {
       id: PropTypes.string,
       defaultMessage: PropTypes.string,
     }).isRequired,
+    splitContextKey: PropTypes.string,
     splitTimelineId: PropTypes.string,
     splitReturnAnchor: PropTypes.object,
     isPartial: PropTypes.bool,
@@ -505,6 +506,18 @@ class StatusTimelineSplitController extends React.Component {
 
     if (previousLocationKey !== nextLocationKey) {
       this.locationKey = nextLocationKey;
+    }
+
+    if (prevProps.splitContextKey !== this.props.splitContextKey) {
+      this.clearSplitScroll();
+      this.clearSplitLayoutClass();
+
+      if (this.ownsSplit()) {
+        this.props.dispatch(destroyTimelineSplit(this.props.sourceTimelineId, this.getSplitTimelineId()));
+      }
+
+      this.props.dispatch(clearTimelineSplitReturnAnchor(this.props.sourceTimelineId));
+      return;
     }
 
     const layoutChanged = !!prevProps.multiColumn !== !!this.props.multiColumn;
