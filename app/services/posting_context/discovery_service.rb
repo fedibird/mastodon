@@ -4,10 +4,11 @@ class PostingContext::DiscoveryService
   SCHEMA_VERSION = 1
 
   # Ordered from most authoritative to the neutral fallback.
-  # P10 only has the local Fedibird Group adapter. Further adapters
-  # belong in this list, ahead of the unsupported result.
+  # Compatibility heuristics stay behind built-in and, later, explicit
+  # protocol adapters.
   ADAPTERS = [
     PostingContext::Adapters::FedibirdGroup,
+    PostingContext::Adapters::MitraGroup,
   ].freeze
 
   def call(account)

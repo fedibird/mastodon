@@ -100,5 +100,194 @@ RSpec.describe PostingContext::DiscoveryService do # rubocop:disable Metrics/Blo
         context: nil
       )
     end
+
+    it 'resolves a remote ActivityPub group from cached Mitra NodeInfo without fetching' do
+      account = remote_activitypub_group(domain: 'mitra.example', software_name: 'mitra')
+
+      expect(Node).not_to receive(:resolve_domain)
+      expect(UpdateNodeService).not_to receive(:new)
+      expect(ResolveAccountService).not_to receive(:new)
+
+      result = described_class.new.call(account)
+
+      expect(result).to eq(
+        schema_version: 1,
+        account_id: account.id.to_s,
+        status: 'resolved',
+        context: {
+          key: "protocol:fep-1b12-group:#{account.id}",
+          source: {
+            id: 'compat:mitra-fep-1b12',
+            revision: 1,
+          },
+          managed: {
+            hashtags: [],
+            mentions: [],
+          },
+          requirements: {
+            following_accounts: [],
+          },
+          constraints: {
+            allowed_visibilities: %w(public unlisted),
+          },
+          protocol: {
+            activitypub: {
+              audience: {
+                account_id: account.id.to_s,
+                acct: 'group@mitra.example',
+                enforcement: 'required',
+                rule_id: 'fep-1b12-group-audience',
+              },
+            },
+          },
+        },
+        discovery: {
+          mechanism: 'nodeinfo_software',
+          adapter: 'mitra_group',
+          authority: 'compatibility',
+        }
+      )
+    end
+
+    it 'matches Mitra software identity case-insensitively and ignores node liveness' do
+      account = remote_activitypub_group(domain: 'mixed.example', software_name: 'Mitra', node_status: :gone)
+
+      result = described_class.new.call(account)
+
+      expect(result[:status]).to eq 'resolved'
+      expect(result.dig(:discovery, :adapter)).to eq 'mitra_group'
+      expect(result.dig(:discovery, :authority)).to eq 'compatibility'
+    end
+
+    it 'keeps a local Fedibird group ahead of the Mitra compatibility adapter' do
+      local_group = Fabricate(:account, username: 'localgroup', actor_type: 'Group')
+      remote_group = remote_activitypub_group(domain: 'mitra.example', software_name: 'mitra', username: 'remotegroup')
+
+      fedibird = described_class.new.call(local_group)
+      mitra = described_class.new.call(remote_group)
+
+      expect(described_class::ADAPTERS).to eq [
+        PostingContext::Adapters::FedibirdGroup,
+        PostingContext::Adapters::MitraGroup,
+      ]
+      expect(fedibird.dig(:discovery, :adapter)).to eq 'fedibird_group'
+      expect(fedibird.dig(:discovery, :authority)).to eq 'server'
+      expect(fedibird.dig(:context, :managed, :mentions).map { |mention| mention[:rule_id] }).to eq ['group-account-mention']
+      expect(fedibird.dig(:context, :requirements, :following_accounts).map { |requirement| requirement[:rule_id] }).to eq ['group-follow']
+      expect(fedibird.dig(:context, :constraints, :allowed_visibilities)).to eq %w(public unlisted)
+      expect(fedibird[:context]).not_to have_key(:protocol)
+
+      expect(mitra.dig(:discovery, :adapter)).to eq 'mitra_group'
+      expect(mitra.dig(:discovery, :authority)).to eq 'compatibility'
+      expect(mitra.dig(:context, :managed, :mentions)).to eq []
+      expect(mitra.dig(:context, :requirements, :following_accounts)).to eq []
+      expect(mitra.dig(:context, :constraints, :allowed_visibilities)).to eq %w(public unlisted)
+      expect(mitra.dig(:context, :protocol, :activitypub, :audience)).to include(
+        account_id: remote_group.id.to_s,
+        acct: 'remotegroup@mitra.example',
+        enforcement: 'required',
+        rule_id: 'fep-1b12-group-audience'
+      )
+    end
+
+    it 'returns unsupported when a remote group has no cached node' do
+      account = remote_activitypub_group(domain: 'missing.example', software_name: :absent)
+
+      expect(Node).not_to receive(:resolve_domain)
+      expect(UpdateNodeService).not_to receive(:new)
+
+      expect(described_class.new.call(account)).to include(
+        status: 'unsupported',
+        reason: 'no_supported_adapter',
+        context: nil
+      )
+    end
+
+    it 'returns unsupported when cached software identity is blank' do
+      blank = remote_activitypub_group(domain: 'blank.example', software_name: '')
+      missing = remote_activitypub_group(domain: 'nilinfo.example', software_name: nil)
+
+      [blank, missing].each do |account|
+        expect(described_class.new.call(account)).to include(
+          status: 'unsupported',
+          reason: 'no_supported_adapter',
+          context: nil
+        )
+      end
+    end
+
+    it 'does not treat other software, forks, or an upstream name as Mitra' do
+      %w(mastodon lemmy friendica nodebb mitra-fork).each do |software_name|
+        account = remote_activitypub_group(domain: "#{software_name}.example", software_name: software_name)
+
+        expect(described_class.new.call(account)[:status]).to eq 'unsupported'
+      end
+
+      upstream_only = remote_activitypub_group(
+        domain: 'upstream.example',
+        software_name: 'mastodon',
+        upstream_name: 'mitra'
+      )
+
+      expect(described_class.new.call(upstream_only)).to include(
+        status: 'unsupported',
+        reason: 'no_supported_adapter',
+        context: nil
+      )
+    end
+
+    it 'returns unsupported for a Mitra group that is not an ActivityPub actor with an inbox' do
+      ostatus = remote_activitypub_group(domain: 'ostatus.example', software_name: 'mitra', protocol: :ostatus)
+      blank_target = remote_activitypub_group(domain: 'blank-target.example', software_name: 'mitra', uri: '', inbox_url: '')
+
+      expect(described_class.new.call(ostatus)).to include(status: 'unsupported', context: nil)
+      expect(described_class.new.call(blank_target)).to include(status: 'unsupported', context: nil)
+    end
+
+    it 'returns not_applicable for a person on a Mitra server before adapter selection' do
+      domain = 'people.example'
+      Node.create!(domain: domain, info: { 'software_name' => 'mitra' })
+      account = Fabricate(
+        :account,
+        username: 'alice',
+        domain: domain,
+        actor_type: 'Person',
+        protocol: :activitypub,
+        uri: "https://#{domain}/users/alice",
+        inbox_url: "https://#{domain}/users/alice/inbox"
+      )
+
+      expect(PostingContext::Adapters::MitraGroup.applicable?(account)).to be false
+      expect(described_class.new.call(account)).to include(
+        status: 'not_applicable',
+        reason: 'not_group',
+        context: nil
+      )
+    end
+  end
+
+  def remote_activitypub_group(domain:, software_name:, **account_attrs)
+    username = account_attrs.delete(:username) || 'group'
+    node_status = account_attrs.delete(:node_status) || :up
+    upstream_name = account_attrs.delete(:upstream_name)
+
+    unless software_name == :absent
+      info = {}
+      info['software_name'] = software_name unless software_name.nil?
+      info['upstream_name'] = upstream_name if upstream_name
+      Node.create!(domain: domain, info: info, status: node_status)
+    end
+
+    Fabricate(
+      :account,
+      {
+        username: username,
+        domain: domain,
+        actor_type: 'Group',
+        protocol: :activitypub,
+        uri: "https://#{domain}/users/#{username}",
+        inbox_url: "https://#{domain}/users/#{username}/inbox",
+      }.merge(account_attrs)
+    )
   end
 end

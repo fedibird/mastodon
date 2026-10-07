@@ -1,4 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 import React from 'react';
 import { Provider } from 'react-redux';
 import { createStore } from 'redux';
@@ -25,6 +27,7 @@ jest.mock('react-intl', () => {
 import { changeCompose } from '../../../../actions/compose';
 import { applyComposerPostingContext, createComposer, targetComposerAction } from '../../../../actions/composer';
 import { groupPostingContext } from '../../../../posting_context/fixtures/group_context_fixture';
+import { mitraGroupPostingContext } from '../../../../posting_context/fixtures/mitra_group_context_fixture';
 import { buildHashtagTimelinePostingContext } from '../../../../posting_context/hashtag';
 import compose from '../../../../reducers/compose';
 import composers from '../../../../reducers/composers';
@@ -102,5 +105,28 @@ describe('PostingContextBar', () => {
     });
     expect(screen.getByText('✓ Following @group')).toBeTruthy();
     expect(screen.queryByText('Follow @group to post in this group')).toBeNull();
+  });
+
+  it('shows a required audience target without mention, follow, or a removal control', () => {
+    const store = createStore(combineReducers({ compose, composers, relationships }));
+    store.dispatch(createComposer(composerId));
+    store.dispatch(applyComposerPostingContext(composerId, mitraGroupPostingContext));
+
+    renderBar(store);
+
+    expect(screen.getByText('Posting context')).toBeTruthy();
+    expect(screen.getByText('Posting to group: @group@mitra.example')).toBeTruthy();
+    expect(screen.getByText('Visibility: Public or Unlisted')).toBeTruthy();
+    expect(screen.queryByText(/Required mention/)).toBeNull();
+    expect(screen.queryByText(/Following/)).toBeNull();
+    expect(screen.queryByText(/Follow request/)).toBeNull();
+    expect(screen.queryByText(/Follow @/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /group@mitra.example/ })).toBeNull();
+
+    const en = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../../locales/en.json'), 'utf8'));
+    const ja = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../../locales/ja.json'), 'utf8'));
+
+    expect(en['compose_form.posting_context.audience_group']).toEqual('Posting to group: @{acct}');
+    expect(ja['compose_form.posting_context.audience_group']).toEqual('投稿先グループ: @{acct}');
   });
 });

@@ -9,6 +9,7 @@ const messages = defineMessages({
   include: { id: 'compose_form.posting_context.include', defaultMessage: 'Include #{hashtag}' },
   exclude: { id: 'compose_form.posting_context.exclude', defaultMessage: 'Do not add #{hashtag}' },
   mentionRequired: { id: 'compose_form.posting_context.mention_required', defaultMessage: 'Required mention: @{acct}' },
+  audienceGroup: { id: 'compose_form.posting_context.audience_group', defaultMessage: 'Posting to group: @{acct}' },
   visibilityPublicUnlisted: { id: 'compose_form.posting_context.visibility.public_unlisted', defaultMessage: 'Visibility: Public or Unlisted' },
   followSatisfied: { id: 'compose_form.posting_context.follow.satisfied', defaultMessage: '✓ Following @{acct}' },
   followUnknown: { id: 'compose_form.posting_context.follow.unknown', defaultMessage: 'Checking follow status for @{acct}…' },
@@ -68,6 +69,7 @@ class PostingContextBar extends React.PureComponent {
     hashtags: ImmutablePropTypes.list,
     suppressedHashtags: ImmutablePropTypes.set,
     mentions: ImmutablePropTypes.list,
+    audience: ImmutablePropTypes.map,
     visibility: PropTypes.shape({
       valid: PropTypes.bool,
       allowed: PropTypes.array,
@@ -77,15 +79,17 @@ class PostingContextBar extends React.PureComponent {
   };
 
   render () {
-    const { intl, hashtags, suppressedHashtags, mentions, visibility, followingAccounts, onToggle } = this.props;
+    const { intl, hashtags, suppressedHashtags, mentions, audience, visibility, followingAccounts, onToggle } = this.props;
     const hasHashtags = Boolean(hashtags && !hashtags.isEmpty());
     const requiredMentions = mentions ? mentions.filter(mention => mention.get('enforcement') === 'required' && mention.get('acct')) : null;
     const hasMentions = Boolean(requiredMentions && !requiredMentions.isEmpty());
+    const audienceAcct = audience && audience.get('enforcement') === 'required' ? audience.get('acct') : null;
+    const showAudience = Boolean(audienceAcct);
     const allowed = visibility && visibility.allowed;
     const showVisibility = Array.isArray(allowed) && allowed.includes('public') && allowed.includes('unlisted');
     const hasFollows = Boolean(followingAccounts && followingAccounts.length > 0);
 
-    if (!hasHashtags && !hasMentions && !showVisibility && !hasFollows) {
+    if (!hasHashtags && !hasMentions && !showAudience && !showVisibility && !hasFollows) {
       return null;
     }
 
@@ -94,6 +98,11 @@ class PostingContextBar extends React.PureComponent {
         <span className='compose-form__posting-context-label'>
           {intl.formatMessage(messages.label)}
         </span>
+        {showAudience && (
+          <span className='compose-form__posting-context-audience'>
+            {intl.formatMessage(messages.audienceGroup, { acct: audienceAcct })}
+          </span>
+        )}
         {hasMentions && requiredMentions.map(mention => (
           <span key={mention.get('accountId')} className='compose-form__posting-context-mention'>
             {intl.formatMessage(messages.mentionRequired, { acct: mention.get('acct') })}

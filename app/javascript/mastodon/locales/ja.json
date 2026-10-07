@@ -201,6 +201,7 @@
   "compose_form.poll.switch_to_multiple": "複数選択に変更",
   "compose_form.poll.switch_to_single": "単一選択に変更",
   "compose_form.posting_context": "投稿コンテキスト",
+  "compose_form.posting_context.audience_group": "投稿先グループ: @{acct}",
   "compose_form.posting_context.exclude": "#{hashtag} を追加しない",
   "compose_form.posting_context.follow.not_following": "このグループへ投稿するには @{acct} をフォローしてください",
   "compose_form.posting_context.follow.requested": "@{acct} へのフォロー承認待ち",

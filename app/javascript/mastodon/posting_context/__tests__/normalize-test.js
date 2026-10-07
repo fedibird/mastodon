@@ -128,6 +128,57 @@ describe('normalizePostingContext', () => {
     expect(legacy.managed.mentions).toEqual([]);
   });
 
+  it('normalizes a Mitra group discovery payload into an audience target', () => {
+    const normalized = normalizePostingContextDiscovery({
+      schema_version: 1,
+      account_id: '456',
+      status: 'resolved',
+      context: {
+        key: 'protocol:fep-1b12-group:456',
+        source: { id: 'compat:mitra-fep-1b12', revision: 1 },
+        managed: { hashtags: [], mentions: [] },
+        requirements: { following_accounts: [] },
+        constraints: { allowed_visibilities: ['public', 'unlisted'] },
+        protocol: {
+          activitypub: {
+            audience: {
+              account_id: '456',
+              acct: 'group@mitra.example',
+              enforcement: 'required',
+              rule_id: 'fep-1b12-group-audience',
+            },
+          },
+        },
+      },
+      discovery: {
+        mechanism: 'nodeinfo_software',
+        adapter: 'mitra_group',
+        authority: 'compatibility',
+      },
+    });
+
+    expect(normalized.schemaVersion).toEqual(1);
+    expect(normalized.status).toEqual('resolved');
+    expect(normalized.discovery).toEqual({
+      mechanism: 'nodeinfo_software',
+      adapter: 'mitra_group',
+      authority: 'compatibility',
+    });
+    expect(normalized.context.managed.mentions).toEqual([]);
+    expect(normalized.context.requirements.followingAccounts).toEqual([]);
+    expect(normalized.context.constraints.allowedVisibilities).toEqual(['public', 'unlisted']);
+    expect(normalized.context.protocol).toEqual({
+      activityPub: {
+        audience: {
+          accountId: '456',
+          acct: 'group@mitra.example',
+          enforcement: 'required',
+          ruleId: 'fep-1b12-group-audience',
+        },
+      },
+    });
+  });
+
   it('returns null for a missing context', () => {
     expect(normalizePostingContext(null)).toBeNull();
   });

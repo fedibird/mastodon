@@ -52,6 +52,7 @@ import { openModal } from '../modal';
 import { changeUploadCompose, submitCompose, submitComposeWithCheck } from '../compose';
 import { applyComposerPostingContext } from '../composer';
 import { groupPostingContext } from '../../posting_context/fixtures/group_context_fixture';
+import { mitraGroupPostingContext } from '../../posting_context/fixtures/mitra_group_context_fixture';
 import composerReducer from '../../reducers/composer';
 
 const dispatchThunk = (thunk, state) => {
@@ -463,5 +464,91 @@ describe('submitCompose', () => {
     expect(request.mock.calls[1][0].data.visibility).toEqual('unlisted');
     expect(request.mock.calls[1][0].data.audience_account_id).toEqual('456');
     expect(request.mock.calls[1][0].data.status).toEqual('Hello');
+  });
+
+  const mitraCompose = (privacy, relationships) => {
+    const compose = composerReducer(undefined, applyComposerPostingContext('primary', mitraGroupPostingContext))
+      .set('text', 'Hello Mitra')
+      .set('privacy', privacy)
+      .set('in_reply_to', null)
+      .set('media_attachments', ImmutableList())
+      .set('references', ImmutableSet());
+
+    return composeState()
+      .set('compose', compose)
+      .set('relationships', relationships || ImmutableMap());
+  };
+
+  it('posts a Mitra audience context without adding a mention or requiring a follow', async () => {
+    const request = jest.fn().mockResolvedValue({ data: statusResponse });
+    api.mockReturnValue({ request });
+    const router = { location: { pathname: '/home' }, push: jest.fn(), goBack: jest.fn() };
+
+    await dispatchThunk(submitCompose(router), mitraCompose('public'));
+    await dispatchThunk(
+      submitComposeWithCheck(router, intl),
+      mitraCompose('public', ImmutableMap({ '456': ImmutableMap({ following: false }) })),
+    );
+
+    expect(request).toHaveBeenCalledTimes(2);
+    request.mock.calls.forEach((call) => {
+      expect(call[0]).toEqual(expect.objectContaining({
+        url: '/api/v1/statuses',
+        method: 'post',
+      }));
+      expect(call[0].data.status).toEqual('Hello Mitra');
+      expect(call[0].data.visibility).toEqual('public');
+      expect(call[0].data.audience_account_id).toEqual('456');
+      expect(call[0].data.status).not.toContain('@group@mitra.example');
+    });
+  });
+
+  it('posts an unlisted Mitra audience context', async () => {
+    const request = jest.fn().mockResolvedValue({ data: statusResponse });
+    api.mockReturnValue({ request });
+
+    await dispatchThunk(
+      submitCompose({ location: { pathname: '/home' }, push: jest.fn(), goBack: jest.fn() }),
+      mitraCompose('unlisted'),
+    );
+
+    expect(request.mock.calls[0][0].data).toEqual(expect.objectContaining({
+      status: 'Hello Mitra',
+      visibility: 'unlisted',
+      audience_account_id: '456',
+    }));
+  });
+
+  it('does not submit a private Mitra audience context', async () => {
+    const request = jest.fn().mockResolvedValue({ data: statusResponse });
+    api.mockReturnValue({ request });
+    const router = { location: { pathname: '/home' }, push: jest.fn(), goBack: jest.fn() };
+    const state = mitraCompose('private');
+
+    await dispatchThunk(submitCompose(router), state);
+    await dispatchThunk(submitComposeWithCheck(router, intl), state);
+
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('does not apply a Mitra audience context while editing an existing status', async () => {
+    const request = jest.fn().mockResolvedValue({ data: { ...statusResponse, id: 's9' } });
+    api.mockReturnValue({ request });
+    const compose = composerReducer(undefined, applyComposerPostingContext('primary', mitraGroupPostingContext))
+      .set('id', 's9')
+      .set('text', 'Hello Mitra')
+      .set('privacy', 'public');
+
+    await dispatchThunk(
+      submitCompose({ location: { pathname: '/home' }, push: jest.fn(), goBack: jest.fn() }),
+      composeState().set('compose', compose),
+    );
+
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({
+      url: '/api/v1/statuses/s9',
+      method: 'put',
+    }));
+    expect(request.mock.calls[0][0].data.status).toEqual('Hello Mitra');
+    expect(request.mock.calls[0][0].data).not.toHaveProperty('audience_account_id');
   });
 });
