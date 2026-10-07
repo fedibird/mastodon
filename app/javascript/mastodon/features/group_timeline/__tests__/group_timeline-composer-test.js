@@ -8,6 +8,7 @@ import { applyMiddleware, createStore } from 'redux';
 import thunk from 'redux-thunk';
 
 import { groupPostingContext } from '../../../posting_context/fixtures/group_context_fixture';
+import { mitraGroupPostingContext } from '../../../posting_context/fixtures/mitra_group_context_fixture';
 
 jest.mock('react-intl', () => {
   const React = require('react');
@@ -278,6 +279,34 @@ describe('GroupTimeline portable composer', () => {
 
     expect(missing.container.querySelector('[data-testid="status-list"]')).not.toBeNull();
     expect(missing.props.prepend).toBeNull();
+  });
+
+  it('prepends a tester composer for a resolved remote group audience', () => {
+    const GroupTimeline = loadTimeline('tester');
+    const account = ImmutableMap({
+      id: '456',
+      username: 'group',
+      acct: 'group@mitra.example',
+      group: true,
+      display_name: 'Remote group',
+    });
+    const props = renderTimeline(GroupTimeline, {
+      account,
+      discovery: discoveryRecord('resolved', mitraGroupPostingContext),
+    }).props;
+
+    expect(mockFetchPostingContext).toHaveBeenCalledWith('456');
+    expect(props.alwaysPrepend).toBe(true);
+    expect(props.prepend.props.composerId).toEqual('portable:group-route:456');
+    expect(props.prepend.props.postingContext.protocol.activityPub.audience).toEqual({
+      accountId: '456',
+      acct: 'group@mitra.example',
+      enforcement: 'required',
+      ruleId: 'fep-1b12-group-audience',
+    });
+    expect(props.prepend.props.postingContext.managed.mentions).toEqual([]);
+    expect(props.prepend.props.postingContext.requirements.followingAccounts).toEqual([]);
+    expect(props.prepend.props.postingContext.constraints.allowedVisibilities).toEqual(['public', 'unlisted']);
   });
 
   it('does not fetch or prepend a composer for default or conservative policy', () => {

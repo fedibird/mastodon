@@ -46,6 +46,64 @@ RSpec.describe Api::V1::Fedibird::Accounts::PostingContextsController do # ruboc
       )
     end
 
+    it 'returns a resolved Mitra group audience context from cached software identity' do
+      Node.create!(domain: 'mitra.example', info: { 'software_name' => 'mitra' })
+      account = Fabricate(
+        :account,
+        username: 'group',
+        domain: 'mitra.example',
+        actor_type: 'Group',
+        protocol: :activitypub,
+        uri: 'https://mitra.example/users/group',
+        inbox_url: 'https://mitra.example/users/group/inbox'
+      )
+
+      get :show, params: { account_id: account.id }
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json).to include(
+        schema_version: 1,
+        account_id: account.id.to_s,
+        status: 'resolved'
+      )
+      expect(body_as_json[:discovery]).to eq(
+        mechanism: 'nodeinfo_software',
+        adapter: 'mitra_group',
+        authority: 'compatibility'
+      )
+      expect(body_as_json.dig(:context, :managed, :mentions)).to eq []
+      expect(body_as_json.dig(:context, :requirements, :following_accounts)).to eq []
+      expect(body_as_json.dig(:context, :constraints, :allowed_visibilities)).to eq %w(public unlisted)
+      expect(body_as_json.dig(:context, :protocol, :activitypub, :audience)).to eq(
+        account_id: account.id.to_s,
+        acct: 'group@mitra.example',
+        enforcement: 'required',
+        rule_id: 'fep-1b12-group-audience'
+      )
+    end
+
+    it 'returns unsupported for a remote group whose cached software is unknown' do
+      Node.create!(domain: 'unknown.example', info: { 'software_name' => '' })
+      account = Fabricate(
+        :account,
+        username: 'group',
+        domain: 'unknown.example',
+        actor_type: 'Group',
+        protocol: :activitypub,
+        uri: 'https://unknown.example/users/group',
+        inbox_url: 'https://unknown.example/users/group/inbox'
+      )
+
+      get :show, params: { account_id: account.id }
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json).to include(
+        status: 'unsupported',
+        reason: 'no_supported_adapter',
+        context: nil
+      )
+    end
+
     it 'returns not_applicable for a person' do
       account = Fabricate(:account, username: 'alice')
 

@@ -23,6 +23,9 @@ jest.mock('mastodon/initial_state', () => ({
   hidePrivacyMeta: false,
 }));
 
+import { applyComposerPostingContext } from '../../../../actions/composer';
+import { mitraGroupPostingContext } from '../../../../posting_context/fixtures/mitra_group_context_fixture';
+import composerReducer from '../../../../reducers/composer';
 import PrivacyDropdownContainer from '../../containers/privacy_dropdown_container';
 import PrivacyDropdown from '../privacy_dropdown';
 
@@ -221,6 +224,22 @@ describe('PrivacyDropdown', () => {
     fireEvent.click(screen.getByRole('button', { name: 'None' }));
 
     expect(screen.queryAllByRole('option')).toEqual([]);
+  });
+
+  it('offers only public and unlisted for an audience posting context', () => {
+    const compose = composerReducer(undefined, applyComposerPostingContext('primary', mitraGroupPostingContext))
+      .set('privacy', 'public');
+    const store = createStore(() => fromJS({}).set('compose', compose));
+
+    render(
+      <Provider store={store}>
+        <PrivacyDropdownContainer showLabel />
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Public' }));
+
+    expect(optionValues()).toEqual(['public', 'unlisted']);
   });
 
   it('forwards showLabel through the connected container', () => {

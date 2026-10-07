@@ -14,6 +14,7 @@ const mapStateToProps = (state, { composerId }) => {
       hashtags: ImmutableList(),
       suppressedHashtags: ImmutableSet(),
       mentions: ImmutableList(),
+      audience: null,
       visibility: null,
       followingAccounts: [],
     };
@@ -25,6 +26,7 @@ const mapStateToProps = (state, { composerId }) => {
     hashtags: composer.getIn(['context', 'managed', 'hashtags'], ImmutableList()),
     suppressedHashtags: composer.getIn(['context', 'suppressions', 'hashtags'], ImmutableSet()),
     mentions: composer.getIn(['context', 'managed', 'mentions'], ImmutableList()),
+    audience: composer.getIn(['context', 'protocol', 'activityPub', 'audience']),
     visibility: compliance.visibility,
     followingAccounts: compliance.followingAccounts,
   };
