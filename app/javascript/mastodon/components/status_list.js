@@ -14,8 +14,8 @@ import { isIOS } from 'mastodon/is_mobile';
 import { showReloadButton } from '../initial_state';
 import { List as ImmutableList } from 'immutable';
 
-@connect()
-export default class StatusList extends ImmutablePureComponent {
+export default @connect()
+class StatusList extends ImmutablePureComponent {
 
   static propTypes = {
     dispatch: PropTypes.func.isRequired,
@@ -34,11 +34,13 @@ export default class StatusList extends ImmutablePureComponent {
     alwaysPrepend: PropTypes.bool,
     timelineId: PropTypes.string,
     showCard: PropTypes.bool,
+    trackIntersection: PropTypes.bool,
   };
 
   static defaultProps = {
     trackScroll: true,
     showCard: true,
+    trackIntersection: true,
   };
 
   getFeaturedStatusCount = () => {
@@ -100,7 +102,7 @@ export default class StatusList extends ImmutablePureComponent {
   }
 
   render () {
-    const { statusIds, featuredStatusIds, onLoadMore, timelineId, showCard, ...other }  = this.props;
+    const { statusIds, featuredStatusIds, onLoadMore, timelineId, showCard, trackIntersection, ...other }  = this.props;
     const { isLoading, isPartial } = other;
 
     if (isPartial) {
@@ -149,7 +151,7 @@ export default class StatusList extends ImmutablePureComponent {
     }
 
     return (
-      <ScrollableList {...other} showLoading={isLoading && statusIds.size === 0} onLoadMore={onLoadMore && this.handleLoadOlder} onIntersectionChange={this.handleIntersectionChange} ref={this.setRef}>
+      <ScrollableList {...other} showLoading={isLoading && statusIds.size === 0} onLoadMore={onLoadMore && this.handleLoadOlder} onIntersectionChange={trackIntersection ? this.handleIntersectionChange : undefined} ref={this.setRef}>
         {scrollableContent}
       </ScrollableList>
     );
