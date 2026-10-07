@@ -25,7 +25,7 @@ jest.mock('react-intl', () => {
 
 jest.mock('mastodon/initial_state', () => ({
   ...jest.requireActual('mastodon/initial_state'),
-  new_features_policy: 'tester',
+  isAdministrator: true,
 }));
 
 const mockGet = jest.fn(() => new Promise(() => {}));
@@ -173,6 +173,45 @@ const box = (top, bottom) => ({
 
 const scroller = () => document.scrollingElement || document.body;
 
+const pinInnerScroller = (column, scrollTop) => {
+  const node = column.querySelector('.scrollable');
+
+  Object.defineProperty(node, 'scrollHeight', { configurable: true, value: 2400 });
+  Object.defineProperty(node, 'clientHeight', { configurable: true, value: 500 });
+  node.scrollTop = scrollTop;
+
+  return node;
+};
+
+let anchorFrameSpy;
+let anchorCancelSpy;
+
+const installAnchorTimers = () => {
+  jest.useFakeTimers();
+  anchorFrameSpy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => setTimeout(callback, 0));
+  anchorCancelSpy = jest.spyOn(window, 'cancelAnimationFrame').mockImplementation(id => clearTimeout(id));
+};
+
+const flushAnchorTimers = () => {
+  act(() => {
+    jest.runAllTimers();
+  });
+};
+
+const restoreAnchorTimers = () => {
+  if (anchorFrameSpy) {
+    anchorFrameSpy.mockRestore();
+    anchorFrameSpy = null;
+  }
+
+  if (anchorCancelSpy) {
+    anchorCancelSpy.mockRestore();
+    anchorCancelSpy = null;
+  }
+
+  jest.useRealTimers();
+};
+
 const mountTabsWrapper = (top, bottom) => {
   const portal = document.getElementById('tabs-bar__portal');
   const wrapper = document.createElement('div');
@@ -287,26 +326,146 @@ describe('ListTimeline split', () => {
     expect(streamLog).toEqual(['connect:42']);
   });
 
-  it('places the portable composer only on the live pane', () => {
+  it('places the portable composer only on the live pane while it is visible', () => {
     const store = buildStore();
     const { container } = renderList(store, { columnId: 'col-a', multiColumn: true });
+    const composerId = 'portable:list-column:col-a';
 
-    expect(container.querySelector('[data-testid="portable-composer"]')).not.toBeNull();
-    expect(container.querySelector('.scrollable').getAttribute('data-composer-id') || container.querySelector('[data-testid="portable-composer"]').getAttribute('data-composer-id')).toBe('portable:list-column:col-a');
+    expect(container.querySelector('[data-testid="portable-composer"]')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Show composer' }).getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show composer' }));
+
+    expect(store.getState().getIn(['settings', 'portableComposerVisibility', composerId])).toBe(true);
+    expect(screen.getByRole('button', { name: 'Hide composer' }).getAttribute('aria-pressed')).toBe('true');
+    expect(container.querySelectorAll('[data-testid="portable-composer"]')).toHaveLength(1);
+    expect(container.querySelector('[data-testid="portable-composer"]').getAttribute('data-composer-id')).toBe(composerId);
 
     fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
 
-    const liveComposers = container.querySelectorAll('.timeline-split__pane--live [data-testid="portable-composer"]');
-    const historyComposers = container.querySelectorAll('.timeline-split__pane--history [data-testid="portable-composer"]');
     const live = container.querySelector('.timeline-split__pane--live .scrollable');
     const history = container.querySelector('.timeline-split__pane--history .scrollable');
 
-    expect(liveComposers).toHaveLength(1);
-    expect(historyComposers).toHaveLength(0);
+    expect(container.querySelectorAll('.timeline-split__pane--live [data-testid="portable-composer"]')).toHaveLength(1);
+    expect(container.querySelectorAll('.timeline-split__pane--history [data-testid="portable-composer"]')).toHaveLength(0);
     expect(live.getAttribute('data-prepend')).toBe('true');
     expect(live.getAttribute('data-always-prepend')).toBe('true');
     expect(history.getAttribute('data-prepend')).toBe('false');
     expect(history.getAttribute('data-always-prepend')).toBe('false');
+    expect(store.getState().getIn(['settings', 'portableComposerVisibility', composerId])).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide composer' }));
+
+    expect(container.querySelectorAll('.timeline-split__pane--live [data-testid="portable-composer"]')).toHaveLength(0);
+    expect(container.querySelectorAll('.timeline-split__pane--history [data-testid="portable-composer"]')).toHaveLength(0);
+    expect(store.getState().getIn(['settings', 'portableComposerVisibility', composerId])).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show composer' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove timeline split', pressed: true }));
+
+    expect(container.querySelector('.timeline-split')).toBeNull();
+    expect(container.querySelectorAll('[data-testid="portable-composer"]')).toHaveLength(1);
+    expect(store.getState().getIn(['settings', 'portableComposerVisibility', composerId])).toBe(true);
+  });
+
+  it('keeps list composer visibility independent for each column', () => {
+    const store = buildStore();
+
+    store.dispatch({
+      type: 'SETTING_CHANGE',
+      path: ['portableComposerVisibility', 'portable:list-column:col-a'],
+      value: true,
+    });
+    store.dispatch({
+      type: 'SETTING_CHANGE',
+      path: ['portableComposerVisibility', 'portable:list-column:col-b'],
+      value: false,
+    });
+
+    const { container } = render(
+      <Provider store={store}>
+        <div data-testid='column-a'>
+          <ListTimeline params={{ id: '42' }} columnId='col-a' multiColumn />
+        </div>
+        <div data-testid='column-b'>
+          <ListTimeline params={{ id: '42' }} columnId='col-b' multiColumn />
+        </div>
+      </Provider>,
+    );
+
+    expect(container.querySelectorAll('[data-testid="column-a"] [data-testid="portable-composer"]')).toHaveLength(1);
+    expect(container.querySelector('[data-testid="column-a"] [data-testid="portable-composer"]').getAttribute('data-composer-id')).toBe('portable:list-column:col-a');
+    expect(container.querySelectorAll('[data-testid="column-b"] [data-testid="portable-composer"]')).toHaveLength(0);
+    expect(store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:list-column:col-a'])).toBe(true);
+    expect(store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:list-column:col-b'])).toBe(false);
+  });
+
+  it('keeps the other same-titled list still when this column shows its composer', () => {
+    const store = buildStore({
+      42: friendList('42', 'Friends'),
+      7: friendList('7', 'Friends'),
+    });
+    const { container } = render(
+      <Provider store={store}>
+        <div data-column='a'>
+          <ListTimeline params={{ id: '42' }} columnId='col-a' multiColumn />
+        </div>
+        <div data-column='b'>
+          <ListTimeline params={{ id: '7' }} columnId='col-b' multiColumn />
+        </div>
+      </Provider>,
+    );
+    const columnA = container.querySelector('[data-column="a"] .column');
+    const columnB = container.querySelector('[data-column="b"] .column');
+    const scrollerA = pinInnerScroller(columnA, 500);
+    const scrollerB = pinInnerScroller(columnB, 700);
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this.classList.contains('scrollable')) {
+        return box(0, 500);
+      }
+
+      if (this.tagName === 'ARTICLE') {
+        const host = this.closest('[data-column]');
+        const inner = host && host.querySelector('.scrollable');
+        const which = host && host.getAttribute('data-column');
+        const composer = host && host.querySelector('[data-testid="portable-composer"]');
+        const initial = which === 'b' ? 700 : 500;
+        let base = 20;
+
+        if (which === 'b') {
+          base = composer ? 240 : 80;
+        }
+
+        const top = base - ((inner ? inner.scrollTop : 0) - initial);
+
+        return box(top, top + 60);
+      }
+
+      return box(0, 0);
+    };
+
+    const buttonB = container.querySelector('[data-column="b"] button[aria-label="Show composer"]');
+
+    expect(columnA.getAttribute('aria-label')).toBe('Friends');
+    expect(columnB.getAttribute('aria-label')).toBe('Friends');
+    expect(columnA).not.toBe(columnB);
+    expect(buttonB.closest('.column')).toBe(columnB);
+
+    try {
+      installAnchorTimers();
+      fireEvent.click(buttonB);
+      flushAnchorTimers();
+
+      expect(scrollerA.scrollTop).toBe(500);
+      expect(scrollerB.scrollTop).toBe(860);
+      expect(store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:list-column:col-a'])).toBeUndefined();
+      expect(store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:list-column:col-b'])).toBe(true);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect;
+      restoreAnchorTimers();
+    }
   });
 
   it('restores history onto the canonical list when the split closes', () => {

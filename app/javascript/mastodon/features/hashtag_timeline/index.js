@@ -15,8 +15,11 @@ import { isEqual } from 'lodash';
 import { fetchHashtag, followHashtag, unfollowHashtag } from 'mastodon/actions/tags';
 import Icon from 'mastodon/components/icon';
 import classNames from 'classnames';
-import { defaultColumnWidth, followTagModal, unfollowTagModal, new_features_policy } from 'mastodon/initial_state';
+import { defaultColumnWidth, followTagModal, unfollowTagModal, isAdministrator } from 'mastodon/initial_state';
 import PortableComposer from '../compose/portable_composer';
+import PortableComposerToggle from '../compose/components/portable_composer_toggle';
+import { captureVisibleStatusAnchor, columnNodeFromRef, scheduleStatusAnchorRestore } from '../compose/components/portable_composer_scroll';
+import { selectPortableComposerVisible } from 'mastodon/selectors/composer';
 import { buildHashtagTimelinePostingContext } from 'mastodon/posting_context/hashtag';
 import { normalizeManagedHashtagName } from 'mastodon/posting_context/managed_hashtags';
 import { openModal } from 'mastodon/actions/modal';
@@ -33,6 +36,10 @@ const messages = defineMessages({
   splitUnavailable: { id: 'timeline.split_source_unavailable', defaultMessage: 'This timeline is already split in another column' },
 });
 
+const hashtagComposerId = (id, columnId) => (
+  columnId ? `portable:hashtag-column:${columnId}` : `portable:hashtag-route:${normalizeManagedHashtagName(id)}`
+);
+
 const mapStateToProps = (state, { columnId, params }) => {
   const columns = state.getIn(['settings', 'columns']);
   const index = columns ? columns.findIndex(column => column.get('uuid') === columnId) : -1;
@@ -43,6 +50,7 @@ const mapStateToProps = (state, { columnId, params }) => {
     tag: state.getIn(['tags', params.id]),
     columnWidth: columnWidth ?? defaultColumnWidth,
     splitRatio: clampTimelineSplitRatio(state.getIn(['settings', 'hashtag', 'splitRatio'], DEFAULT_TIMELINE_SPLIT_RATIO)),
+    composerVisible: selectPortableComposerVisible(state, hashtagComposerId(params.id, columnId)),
   };
 };
 
@@ -60,6 +68,7 @@ class HashtagTimeline extends React.PureComponent {
     columnWidth: PropTypes.string,
     intl: PropTypes.object,
     splitRatio: PropTypes.number,
+    composerVisible: PropTypes.bool,
     location: PropTypes.shape({
       key: PropTypes.string,
     }),
@@ -152,6 +161,8 @@ class HashtagTimeline extends React.PureComponent {
     const idChanged = previousId !== id;
     const tagsChanged = !isEqual(prevProps.params.tags, tags);
 
+    this.restoreComposerScroll(prevProps, idChanged);
+
     if (idChanged || tagsChanged) {
       this._unsubscribe();
 
@@ -164,7 +175,41 @@ class HashtagTimeline extends React.PureComponent {
   }
 
   componentWillUnmount () {
+    if (this.cancelStatusAnchor) {
+      this.cancelStatusAnchor();
+      this.cancelStatusAnchor = null;
+    }
+
     this._unsubscribe();
+  }
+
+  bindColumn = (column) => {
+    this.columnNode = columnNodeFromRef(column);
+
+    if (this.forwardColumnRef) {
+      this.forwardColumnRef(column);
+    }
+  }
+
+  restoreComposerScroll = (prevProps, idChanged) => {
+    if (idChanged) {
+      this.statusAnchor = null;
+      return;
+    }
+
+    const wasMounted = isAdministrator && prevProps.composerVisible;
+    const isMounted = isAdministrator && this.props.composerVisible;
+
+    if (wasMounted === isMounted) {
+      return;
+    }
+
+    if (this.cancelStatusAnchor) {
+      this.cancelStatusAnchor();
+    }
+
+    this.cancelStatusAnchor = scheduleStatusAnchorRestore(this.statusAnchor);
+    this.statusAnchor = null;
   }
 
   handleLoadMore = maxId => {
@@ -208,6 +253,14 @@ class HashtagTimeline extends React.PureComponent {
     }
   }
 
+  handleToggleComposer = (event) => {
+    const { columnId, dispatch, composerVisible, params: { id } } = this.props;
+    const column = event.currentTarget.closest('.column') || this.columnNode;
+
+    this.statusAnchor = captureVisibleStatusAnchor(column);
+    dispatch(changeSetting(['portableComposerVisibility', hashtagComposerId(id, columnId)], !composerVisible));
+  }
+
   handleWidthChange = (value) => {
     const { columnId, dispatch } = this.props;
 
@@ -219,13 +272,14 @@ class HashtagTimeline extends React.PureComponent {
   }
 
   renderColumn = (split) => {
-    const { hasUnread, columnId, multiColumn, tag, columnWidth, intl } = this.props;
+    this.forwardColumnRef = split.setColumnRef;
+
+    const { hasUnread, columnId, multiColumn, tag, columnWidth, intl, composerVisible } = this.props;
     const { id } = this.props.params;
     const pinned = !!columnId;
     const sourceTimelineId = hashtagTimelineId(id);
-    const normalizedTag = normalizeManagedHashtagName(id);
-    const composerId = columnId ? `portable:hashtag-column:${columnId}` : `portable:hashtag-route:${normalizedTag}`;
-    const portableComposer = new_features_policy === 'tester' ? (
+    const composerId = hashtagComposerId(id, columnId);
+    const portableComposer = isAdministrator && composerVisible ? (
       <PortableComposer
         key={composerId}
         composerId={composerId}
@@ -302,7 +356,7 @@ class HashtagTimeline extends React.PureComponent {
     }
 
     return (
-      <Column bindToDocument={!multiColumn} ref={split.setColumnRef} label={`#${id}`} columnWidth={columnWidth}>
+      <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={`#${id}`} columnWidth={columnWidth}>
         <ColumnHeader
           icon='hashtag'
           active={hasUnread}
@@ -315,6 +369,7 @@ class HashtagTimeline extends React.PureComponent {
           extraButton={(
             <Fragment>
               {split.splitButton}
+              <PortableComposerToggle visible={composerVisible} onToggle={this.handleToggleComposer} />
               {followButton}
             </Fragment>
           )}

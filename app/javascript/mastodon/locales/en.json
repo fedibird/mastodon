@@ -833,6 +833,8 @@
   "time_remaining.minutes": "{number, plural, one {# minute} other {# minutes}} left",
   "time_remaining.moments": "Moments remaining",
   "time_remaining.seconds": "{number, plural, one {# second} other {# seconds}} left",
+  "timeline.hide_composer": "Hide composer",
+  "timeline.show_composer": "Show composer",
   "timeline.split": "Split timeline",
   "timeline.split_list_unavailable": "This list is already split in another column",
   "timeline.split_source_unavailable": "This timeline is already split in another column",

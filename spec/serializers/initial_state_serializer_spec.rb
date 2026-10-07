@@ -40,6 +40,7 @@ RSpec.describe InitialStateSerializer do
     expect(json[:role][:name]).to eq ''
     expect(json[:role][:permissions]).to eq UserRole::FLAGS[:invite_users].to_s
     expect(json[:meta][:is_staff]).to be false
+    expect(json[:meta][:is_administrator]).to be false
   end
 
   it 'returns a custom role and marks manage_reports as staff' do
@@ -53,6 +54,15 @@ RSpec.describe InitialStateSerializer do
     expect(json[:role][:color]).to eq '#abcdef'
     expect(json[:role][:highlighted]).to be true
     expect(json[:meta][:is_staff]).to be true
+    expect(json[:meta][:is_administrator]).to be false
+  end
+
+  it 'marks the administrator permission separately from a manage_reports role' do
+    administrator = user_with_role(UserRole.create!(name: 'Ops admin', position: 12, permissions_as_keys: %w(administrator)))
+    ordinary = Fabricate(:user)
+
+    expect(serialize(administrator.account)[:meta][:is_administrator]).to be true
+    expect(serialize(ordinary.account)[:meta][:is_administrator]).to be false
   end
 
   it 'returns the Owner role when role_id is Owner' do
@@ -62,6 +72,7 @@ RSpec.describe InitialStateSerializer do
     expect(json[:role][:name]).to eq 'Owner'
     expect(json[:role][:permissions]).to eq UserRole::Flags::ALL.to_s
     expect(json[:meta][:is_staff]).to be true
+    expect(json[:meta][:is_administrator]).to be true
   end
 
   it 'does not raise when there is no current account' do
@@ -70,6 +81,7 @@ RSpec.describe InitialStateSerializer do
     expect { json = serialize(nil) }.not_to raise_error
     expect(json[:role]).to be_nil
     expect(json[:meta]).not_to have_key(:is_staff)
+    expect(json[:meta]).not_to have_key(:is_administrator)
   end
 
   it 'exposes the status page URL without a current account' do

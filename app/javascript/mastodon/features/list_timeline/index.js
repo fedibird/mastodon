@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Fragment } from 'react';
 import { connect } from 'react-redux';
 import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
@@ -16,9 +16,12 @@ import MissingIndicator from '../../components/missing_indicator';
 import LoadingIndicator from '../../components/loading_indicator';
 import Icon from 'mastodon/components/icon';
 import RadioButton from 'mastodon/components/radio_button';
-import { defaultColumnWidth, new_features_policy } from 'mastodon/initial_state';
+import { defaultColumnWidth, isAdministrator } from 'mastodon/initial_state';
 import { DEFAULT_TIMELINE_SPLIT_RATIO } from 'mastodon/components/timeline_splitter';
 import PortableComposer from '../compose/portable_composer';
+import PortableComposerToggle from '../compose/components/portable_composer_toggle';
+import { captureVisibleStatusAnchor, columnNodeFromRef, scheduleStatusAnchorRestore } from '../compose/components/portable_composer_scroll';
+import { selectPortableComposerVisible } from 'mastodon/selectors/composer';
 import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
 import StatusTimelineSplitController, { clampTimelineSplitRatio } from '../ui/components/status_timeline_split_controller';
@@ -32,17 +35,23 @@ const messages = defineMessages({
   splitUnavailable: { id: 'timeline.split_list_unavailable', defaultMessage: 'This list is already split in another column' },
 });
 
+const listComposerId = (id, columnId) => (
+  columnId ? `portable:list-column:${columnId}` : `portable:list-route:${id}`
+);
+
 const mapStateToProps = (state, { columnId, params }) => {
   const uuid = columnId;
   const columns = state.getIn(['settings', 'columns']);
   const index = columns ? columns.findIndex(c => c.get('uuid') === uuid) : -1;
   const columnWidth = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'list', 'columnWidth']);
+  const composerId = listComposerId(params.id, columnId);
 
   return {
     list: state.getIn(['lists', params.id]),
     hasUnread: state.getIn(['timelines', `list:${params.id}`, 'unread']) > 0,
     columnWidth: columnWidth ?? defaultColumnWidth,
     splitRatio: clampTimelineSplitRatio(state.getIn(['settings', 'list', 'splitRatio'], DEFAULT_TIMELINE_SPLIT_RATIO)),
+    composerVisible: selectPortableComposerVisible(state, composerId),
   };
 };
 
@@ -62,6 +71,7 @@ class ListTimeline extends React.PureComponent {
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
     splitRatio: PropTypes.number,
+    composerVisible: PropTypes.bool,
     list: PropTypes.oneOfType([ImmutablePropTypes.map, PropTypes.bool]),
     intl: PropTypes.object.isRequired,
     location: PropTypes.shape({
@@ -116,11 +126,49 @@ class ListTimeline extends React.PureComponent {
     }
   }
 
+  componentDidUpdate (prevProps) {
+    this.restoreComposerScroll(prevProps);
+  }
+
   componentWillUnmount () {
+    if (this.cancelStatusAnchor) {
+      this.cancelStatusAnchor();
+      this.cancelStatusAnchor = null;
+    }
+
     if (this.disconnect) {
       this.disconnect();
       this.disconnect = null;
     }
+  }
+
+  bindColumn = (column) => {
+    this.columnNode = columnNodeFromRef(column);
+
+    if (this.forwardColumnRef) {
+      this.forwardColumnRef(column);
+    }
+  }
+
+  restoreComposerScroll = (prevProps) => {
+    if (prevProps.params.id !== this.props.params.id) {
+      this.statusAnchor = null;
+      return;
+    }
+
+    const wasMounted = isAdministrator && prevProps.composerVisible;
+    const isMounted = isAdministrator && this.props.composerVisible;
+
+    if (wasMounted === isMounted) {
+      return;
+    }
+
+    if (this.cancelStatusAnchor) {
+      this.cancelStatusAnchor();
+    }
+
+    this.cancelStatusAnchor = scheduleStatusAnchorRestore(this.statusAnchor);
+    this.statusAnchor = null;
   }
 
   handleLoadMore = maxId => {
@@ -166,6 +214,14 @@ class ListTimeline extends React.PureComponent {
     dispatch(updateList(id, undefined, false, target.value));
   }
 
+  handleToggleComposer = (event) => {
+    const { dispatch, composerVisible, columnId, params: { id } } = this.props;
+    const column = event.currentTarget.closest('.column') || this.columnNode;
+
+    this.statusAnchor = captureVisibleStatusAnchor(column);
+    dispatch(changeSetting(['portableComposerVisibility', listComposerId(id, columnId)], !composerVisible));
+  }
+
   handleWidthChange = (value) => {
     const { columnId, dispatch } = this.props;
 
@@ -177,14 +233,16 @@ class ListTimeline extends React.PureComponent {
   }
 
   renderTimeline = (split) => {
-    const { hasUnread, columnId, multiColumn, list, columnWidth, intl } = this.props;
+    this.forwardColumnRef = split.setColumnRef;
+
+    const { hasUnread, columnId, multiColumn, list, columnWidth, intl, composerVisible } = this.props;
     const { id } = this.props.params;
     const pinned = !!columnId;
     const title  = list ? list.get('title') : id;
     const replies_policy = list ? list.get('replies_policy') : undefined;
     const sourceTimelineId = `list:${id}`;
-    const composerId = columnId ? `portable:list-column:${columnId}` : `portable:list-route:${id}`;
-    const portableComposer = new_features_policy === 'tester' ? (
+    const composerId = listComposerId(id, columnId);
+    const portableComposer = isAdministrator && composerVisible ? (
       <PortableComposer key={composerId} composerId={composerId} />
     ) : null;
     const emptyMessage = <FormattedMessage id='empty_column.list' defaultMessage='There is nothing in this list yet. When members of this list post new statuses, they will appear here.' />;
@@ -245,7 +303,7 @@ class ListTimeline extends React.PureComponent {
     }
 
     return (
-      <Column bindToDocument={!multiColumn} ref={split.setColumnRef} label={title} columnWidth={columnWidth}>
+      <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={title} columnWidth={columnWidth}>
         <ColumnHeader
           icon='list-ul'
           active={hasUnread}
@@ -255,7 +313,12 @@ class ListTimeline extends React.PureComponent {
           onClick={split.handleHeaderClick}
           pinned={pinned}
           multiColumn={multiColumn}
-          extraButton={split.splitButton}
+          extraButton={(
+            <Fragment>
+              {split.splitButton}
+              <PortableComposerToggle visible={composerVisible} onToggle={this.handleToggleComposer} />
+            </Fragment>
+          )}
           columnWidth={columnWidth}
           onWidthChange={this.handleWidthChange}
         >

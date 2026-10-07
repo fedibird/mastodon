@@ -61,6 +61,10 @@ export const selectComposerEffectiveManagedHashtags = (state, composerId) => {
   ));
 };
 
+export const selectPortableComposerVisible = (state, composerId) => (
+  state.getIn(['settings', 'portableComposerVisibility', composerId], false) === true
+);
+
 export const getComposerStatePath = (
   composerId = PRIMARY_COMPOSER_ID,
   ...path

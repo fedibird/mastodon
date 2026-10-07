@@ -55,6 +55,7 @@ class InitialStateSerializer < ActiveModel::Serializer
       store[:use_blurhash]                          = object.current_account.user.setting_use_blurhash
       store[:use_pending_items]                     = object.current_account.user.setting_use_pending_items
       store[:is_staff]                              = object.current_account.user.administrative?
+      store[:is_administrator]                      = object.current_account.user.role.can?(:administrator)
       store[:trends]                                = Setting.trends && object.current_account.user.setting_trends
       store[:show_trends]                           = Setting.trends && object.current_account.user.setting_trends
       store[:crop_images]                           = object.current_account.user.setting_crop_images

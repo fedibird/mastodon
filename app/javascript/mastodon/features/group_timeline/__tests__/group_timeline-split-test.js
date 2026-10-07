@@ -25,7 +25,7 @@ jest.mock('react-intl', () => {
 
 jest.mock('mastodon/initial_state', () => ({
   ...jest.requireActual('mastodon/initial_state'),
-  new_features_policy: 'tester',
+  isAdministrator: true,
 }));
 
 const mockGet = jest.fn(() => new Promise(() => {}));
@@ -129,6 +129,21 @@ describe('GroupTimeline split', () => {
 
     expect(container.querySelector('.scrollable').getAttribute('data-timeline')).toBe('group:7');
     expect(streamLog).toEqual(['connect:7:']);
+    expect(container.querySelector('[data-testid="portable-composer"]')).toBeNull();
+    const headerLabels = [];
+
+    for (let child = container.querySelector('.column-header__buttons').firstElementChild; child; child = child.nextElementSibling) {
+      headerLabels.push(child.getAttribute('aria-label'));
+    }
+
+    expect(headerLabels.slice(0, 3)).toEqual([
+      'Split timeline',
+      'Show composer',
+      'Show group detail',
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show composer' }));
+
     expect(container.querySelector('[data-testid="portable-composer"]').getAttribute('data-composer-id')).toBe('portable:group-column:col-a');
     expect(screen.getByRole('button', { name: 'Show group detail' })).toBeTruthy();
 
@@ -149,7 +164,15 @@ describe('GroupTimeline split', () => {
     expect(store.getState().getIn(['timelines', 'group:7', 'splitTimelineId'])).toEqual(expect.stringMatching(/^group:7:split:col-a:.+/));
     expect(container.querySelectorAll('.timeline-split__pane--live [data-testid="portable-composer"]')).toHaveLength(1);
     expect(container.querySelectorAll('.timeline-split__pane--history [data-testid="portable-composer"]')).toHaveLength(0);
+    expect(store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:group-column:col-a'])).toBe(true);
     expect(container.querySelector('[data-testid="group-detail"]')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide composer' }));
+
+    expect(container.querySelectorAll('.timeline-split__pane--live [data-testid="portable-composer"]')).toHaveLength(0);
+    expect(container.querySelectorAll('.timeline-split__pane--history [data-testid="portable-composer"]')).toHaveLength(0);
+    expect(store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:group-column:col-a'])).toBe(false);
+    expect(screen.getByRole('button', { name: 'Show group detail' })).toBeTruthy();
     expect(streamLog).toEqual(['connect:7:']);
 
     history.scrollTop = 640;
