@@ -70,6 +70,28 @@ export function normalizePostingContext(context) {
   };
 }
 
+const normalizeAffiliationRelationship = (relationship) => ({
+  relationship: relationship.relationship,
+  affiliationUri: relationship.affiliation_uri || null,
+});
+
+export function normalizeViewerEvidence(evidence) {
+  if (!evidence || !evidence.affiliations) {
+    return null;
+  }
+
+  const affiliations = evidence.affiliations;
+
+  return {
+    affiliations: {
+      source: affiliations.source,
+      snapshotStatus: affiliations.snapshot_status,
+      fetchedAt: affiliations.fetched_at || null,
+      relationships: (affiliations.relationships || []).map(normalizeAffiliationRelationship),
+    },
+  };
+}
+
 export function normalizePostingContextDiscovery(data) {
   if (!data) {
     return null;
@@ -90,5 +112,6 @@ export function normalizePostingContextDiscovery(data) {
       adapter: null,
       authority: null,
     },
+    viewerEvidence: normalizeViewerEvidence(data.viewer_evidence),
   };
 }

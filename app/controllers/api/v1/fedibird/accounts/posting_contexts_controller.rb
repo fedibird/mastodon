@@ -6,7 +6,7 @@ class Api::V1::Fedibird::Accounts::PostingContextsController < Api::BaseControll
   before_action :set_account
 
   def show
-    render json: PostingContext::DiscoveryService.new.call(@account)
+    render json: PostingContext::DiscoveryService.new.call(@account, viewer: current_user.account)
   end
 
   private

@@ -48,7 +48,8 @@ RSpec.describe PostingContext::DiscoveryService do # rubocop:disable Metrics/Blo
           mechanism: 'built_in',
           adapter: 'fedibird_group',
           authority: 'server',
-        }
+        },
+        viewer_evidence: nil,
       )
       expect(result).not_to have_key(:reason)
       expect(result[:context][:requirements][:following_accounts].first).not_to have_key(:following)
@@ -75,7 +76,8 @@ RSpec.describe PostingContext::DiscoveryService do # rubocop:disable Metrics/Blo
           mechanism: nil,
           adapter: nil,
           authority: nil,
-        }
+        },
+        viewer_evidence: nil,
       )
     end
 
@@ -145,7 +147,8 @@ RSpec.describe PostingContext::DiscoveryService do # rubocop:disable Metrics/Blo
           mechanism: 'nodeinfo_software',
           adapter: 'mitra_group',
           authority: 'compatibility',
-        }
+        },
+        viewer_evidence: nil,
       )
     end
 
@@ -282,6 +285,109 @@ RSpec.describe PostingContext::DiscoveryService do # rubocop:disable Metrics/Blo
       expect(result.dig(:context, :constraints, :allowed_visibilities)).to eq %w(public unlisted)
       expect(result.dig(:context, :protocol, :activitypub, :audience, :rule_id)).to eq 'fep-1b12-group-audience'
       expect(a_request(:get, account.affiliations_url)).not_to have_been_made
+    end
+
+    it 'keeps local Fedibird semantics free of remote affiliation evidence' do
+      account = Fabricate(:account, username: 'group', actor_type: 'Group')
+      viewer = Fabricate(:account, username: 'alice')
+
+      result = described_class.new.call(account, viewer: viewer)
+
+      expect(result[:status]).to eq 'resolved'
+      expect(result.dig(:discovery, :adapter)).to eq 'fedibird_group'
+      expect(result.dig(:context, :managed, :mentions).map { |mention| mention[:rule_id] }).to eq ['group-account-mention']
+      expect(result.dig(:context, :requirements, :following_accounts).map { |requirement| requirement[:rule_id] }).to eq ['group-follow']
+      expect(result[:context]).not_to have_key(:protocol)
+      expect(result[:viewer_evidence]).to be_nil
+    end
+
+    it 'returns fresh viewer affiliation evidence without changing a Mitra context' do
+      account = remote_activitypub_group(domain: 'mitra.example', software_name: 'mitra')
+      viewer = Fabricate(:account, username: 'alice')
+      viewer_uri = ActivityPub::TagManager.instance.uri_for(viewer)
+      account.update_columns(affiliations_url: 'https://mitra.example/users/group/affiliations', affiliations_fetched_at: Time.now.utc)
+      GroupAffiliation.create!(group_account: account, subject_uri: viewer_uri, relationship: 'admin', affiliation_uri: 'https://mitra.example/relationships/1')
+      GroupAffiliation.create!(group_account: account, subject_uri: 'https://other.example/users/bob', relationship: 'admin')
+
+      expect(ActivityPub::FetchGroupAffiliationsService).not_to receive(:new)
+      expect(ActivityPub::SynchronizeGroupAffiliationsWorker).not_to receive(:perform_async)
+      expect(Node).not_to receive(:resolve_domain)
+
+      result = described_class.new.call(account, viewer: viewer)
+
+      expect(result[:status]).to eq 'resolved'
+      expect(result.dig(:discovery, :adapter)).to eq 'mitra_group'
+      expect(result.dig(:discovery, :authority)).to eq 'compatibility'
+      expect(result.dig(:context, :managed, :mentions)).to eq []
+      expect(result.dig(:context, :requirements, :following_accounts)).to eq []
+      expect(result.dig(:context, :protocol, :activitypub, :audience, :rule_id)).to eq 'fep-1b12-group-audience'
+      expect(result.dig(:viewer_evidence, :affiliations, :snapshot_status)).to eq 'fresh'
+      expect(result.dig(:viewer_evidence, :affiliations, :relationships)).to eq [
+        { relationship: 'admin', affiliation_uri: 'https://mitra.example/relationships/1' },
+      ]
+      expect(result[:viewer_evidence]).not_to have_key(:permissions)
+    end
+
+    it 'keeps a resolved Mitra context when the fresh affiliation snapshot is empty' do
+      account = remote_activitypub_group(domain: 'empty.example', software_name: 'mitra')
+      viewer = Fabricate(:account, username: 'alice')
+      account.update_columns(affiliations_fetched_at: Time.now.utc)
+
+      result = described_class.new.call(account, viewer: viewer)
+
+      expect(result[:status]).to eq 'resolved'
+      expect(result.dig(:context, :protocol, :activitypub, :audience, :rule_id)).to eq 'fep-1b12-group-audience'
+      expect(result.dig(:viewer_evidence, :affiliations)).to include(
+        snapshot_status: 'fresh',
+        relationships: []
+      )
+    end
+
+    it 'keeps a resolved Mitra context when affiliation evidence is stale' do
+      account = remote_activitypub_group(domain: 'stale.example', software_name: 'mitra')
+      viewer = Fabricate(:account, username: 'alice')
+      account.update_columns(affiliations_fetched_at: 2.days.ago)
+      GroupAffiliation.create!(
+        group_account: account,
+        subject_uri: ActivityPub::TagManager.instance.uri_for(viewer),
+        relationship: 'admin'
+      )
+
+      result = described_class.new.call(account, viewer: viewer)
+
+      expect(result[:status]).to eq 'resolved'
+      expect(result.dig(:discovery, :adapter)).to eq 'mitra_group'
+      expect(result.dig(:viewer_evidence, :affiliations)).to include(
+        snapshot_status: 'stale',
+        relationships: []
+      )
+    end
+
+    it 'returns affiliation evidence for an unsupported remote group' do
+      account = remote_activitypub_group(domain: 'unknown-evidence.example', software_name: :absent)
+      viewer = Fabricate(:account, username: 'alice')
+      account.update_columns(affiliations_fetched_at: Time.now.utc)
+      GroupAffiliation.create!(
+        group_account: account,
+        subject_uri: ActivityPub::TagManager.instance.uri_for(viewer),
+        relationship: 'custom-role',
+        affiliation_uri: nil
+      )
+
+      expect(ActivityPub::FetchGroupAffiliationsService).not_to receive(:new)
+      expect(ActivityPub::SynchronizeGroupAffiliationsWorker).not_to receive(:perform_async)
+
+      result = described_class.new.call(account, viewer: viewer)
+
+      expect(result).to include(
+        status: 'unsupported',
+        reason: 'no_supported_adapter',
+        context: nil
+      )
+      expect(result.dig(:viewer_evidence, :affiliations, :snapshot_status)).to eq 'fresh'
+      expect(result.dig(:viewer_evidence, :affiliations, :relationships)).to eq [
+        { relationship: 'custom-role', affiliation_uri: nil },
+      ]
     end
 
     it 'returns not_applicable for a person on a Mitra server before adapter selection' do
