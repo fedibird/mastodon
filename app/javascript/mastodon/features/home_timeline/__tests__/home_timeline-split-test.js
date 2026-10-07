@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types, react/jsx-no-bind */
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
@@ -40,8 +40,11 @@ jest.mock('mastodon/api', () => {
 
 jest.mock('../../ui/containers/status_list_container', () => {
   const React = require('react');
+  const { useSelector } = require('react-redux');
 
   return function StatusListContainer (props) {
+    const timelineId = props.dataTimelineId || props.timelineId;
+    const isPartial = useSelector(state => !!state.getIn(['timelines', timelineId, 'isPartial']));
     let pane = 'single';
 
     if (props.includePendingItems) {
@@ -50,11 +53,15 @@ jest.mock('../../ui/containers/status_list_container', () => {
       pane = 'history';
     }
 
+    if (isPartial) {
+      return <div data-regenerating='true' data-pane={pane} data-timeline={timelineId} />;
+    }
+
     return (
       <div
         className='scrollable'
         data-pane={pane}
-        data-timeline={props.dataTimelineId || props.timelineId}
+        data-timeline={timelineId}
         data-context={props.timelineId}
         data-bind={props.bindToDocument ? 'document' : 'column'}
         data-track-scroll={props.trackScroll === false ? 'false' : 'true'}
@@ -269,6 +276,46 @@ describe('HomeTimeline split', () => {
     fireEvent.click(buttons[0]);
     buttons = container.querySelectorAll('.column-header__split-button');
     expect(buttons[1]).not.toBeDisabled();
+  });
+
+  it('does not restore history scroll after unsplitting a partial home', () => {
+    const store = buildStore();
+    const { container } = renderHome(store, { columnId: 'col-a', multiColumn: true });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+    const splitTimelineId = expectSplitId(store, 'col-a');
+
+    act(() => {
+      store.dispatch({ type: 'TIMELINE_MARK_AS_PARTIAL', timeline: 'home' });
+    });
+
+    const history = container.querySelector('.timeline-split__pane--history .scrollable');
+
+    expect(container.querySelector('.timeline-split__pane--live .scrollable')).toBeNull();
+    expect(history).not.toBeNull();
+    history.scrollTop = 640;
+
+    fireEvent.click(container.querySelector('.column-header__split-button'));
+
+    expect(container.querySelector('.timeline-split')).toBeNull();
+    expect(container.querySelector('.scrollable')).toBeNull();
+    expect(store.getState().get('timelines').has(splitTimelineId)).toBe(false);
+    expect(store.getState().getIn(['timelines', 'home', 'isPartial'])).toBe(true);
+
+    act(() => {
+      store.dispatch({
+        type: 'TIMELINE_EXPAND_SUCCESS',
+        timeline: 'home',
+        statuses: [{ id: '200' }],
+        next: '199',
+        partial: false,
+        isLoadingRecent: false,
+        usePendingItems: false,
+      });
+    });
+
+    expect(container.querySelector('.scrollable').scrollTop).toBe(0);
+    expect(store.getState().getIn(['timelines', 'home', 'isPartial'])).toBe(false);
   });
 
   it('disables a new split while home is regenerating', () => {

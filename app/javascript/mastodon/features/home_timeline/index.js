@@ -198,7 +198,14 @@ class HomeTimeline extends React.PureComponent {
       return;
     }
 
-    this.pendingScroll = { top: this.captureScrollTop('history'), target: 'single' };
+    // RegenerationIndicator replaces .scrollable, so a carried history
+    // offset would be applied to the timeline that appears after reload.
+    if (this.props.isPartial) {
+      this.pendingScroll = null;
+    } else {
+      this.pendingScroll = { top: this.captureScrollTop('history'), target: 'single' };
+    }
+
     this.props.dispatch(destroyTimelineSplit('home', this.getSplitTimelineId()));
   }
 
