@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_07_010002) do
+ActiveRecord::Schema.define(version: 2026_10_07_020001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -219,6 +219,8 @@ ActiveRecord::Schema.define(version: 2026_10_07_010002) do
     t.boolean "trendable"
     t.datetime "reviewed_at"
     t.datetime "requested_review_at"
+    t.string "affiliations_url"
+    t.datetime "affiliations_fetched_at"
     t.index "(((setweight(to_tsvector('simple'::regconfig, (display_name)::text), 'A'::\"char\") || setweight(to_tsvector('simple'::regconfig, (username)::text), 'B'::\"char\")) || setweight(to_tsvector('simple'::regconfig, (COALESCE(domain, ''::character varying))::text), 'C'::\"char\")))", name: "search_index", using: :gin
     t.index "lower((username)::text), COALESCE(lower((domain)::text), ''::text)", name: "index_accounts_on_username_and_domain_lower", unique: true
     t.index ["domain", "id"], name: "index_accounts_on_domain_and_id"
@@ -832,6 +834,17 @@ ActiveRecord::Schema.define(version: 2026_10_07_010002) do
     t.string "website"
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
+  end
+
+  create_table "group_affiliations", force: :cascade do |t|
+    t.bigint "group_account_id", null: false
+    t.string "subject_uri", null: false
+    t.string "relationship", null: false
+    t.string "affiliation_uri"
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["group_account_id", "subject_uri", "relationship"], name: "index_group_affiliations_on_identity", unique: true
+    t.index ["group_account_id"], name: "index_group_affiliations_on_group_account_id"
   end
 
   create_table "identities", force: :cascade do |t|
@@ -1792,6 +1805,7 @@ ActiveRecord::Schema.define(version: 2026_10_07_010002) do
   add_foreign_key "follow_tags", "tags", on_delete: :cascade
   add_foreign_key "follows", "accounts", column: "target_account_id", name: "fk_745ca29eac", on_delete: :cascade
   add_foreign_key "follows", "accounts", name: "fk_32ed1b5560", on_delete: :cascade
+  add_foreign_key "group_affiliations", "accounts", column: "group_account_id", on_delete: :cascade
   add_foreign_key "identities", "users", name: "fk_bea040f377", on_delete: :cascade
   add_foreign_key "imports", "accounts", name: "fk_6db1b6e408", on_delete: :cascade
   add_foreign_key "invites", "users", on_delete: :cascade

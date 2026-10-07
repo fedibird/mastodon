@@ -244,6 +244,46 @@ RSpec.describe PostingContext::DiscoveryService do # rubocop:disable Metrics/Blo
       expect(described_class.new.call(blank_target)).to include(status: 'unsupported', context: nil)
     end
 
+    it 'does not read affiliation cache as posting support or fetch it' do
+      account = remote_activitypub_group(domain: 'unknown.example', software_name: :absent)
+      account.update_columns(affiliations_url: 'https://unknown.example/groups/group/affiliations', affiliations_fetched_at: Time.utc(2026, 1, 1))
+      GroupAffiliation.create!(
+        group_account: account,
+        subject_uri: 'https://unknown.example/users/alice',
+        relationship: 'admin'
+      )
+
+      expect(ActivityPub::FetchGroupAffiliationsService).not_to receive(:new)
+      expect(ActivityPub::SynchronizeGroupAffiliationsWorker).not_to receive(:perform_async)
+      expect(Node).not_to receive(:resolve_domain)
+      expect(UpdateNodeService).not_to receive(:new)
+
+      expect(described_class.new.call(account)).to include(
+        status: 'unsupported',
+        reason: 'no_supported_adapter',
+        context: nil
+      )
+      expect(a_request(:get, account.affiliations_url)).not_to have_been_made
+    end
+
+    it 'keeps Mitra posting context resolution when affiliation metadata is present' do
+      account = remote_activitypub_group(domain: 'mitra.example', software_name: 'mitra')
+      account.update_columns(affiliations_url: 'https://mitra.example/users/group/affiliations')
+
+      expect(ActivityPub::FetchGroupAffiliationsService).not_to receive(:new)
+      expect(ActivityPub::SynchronizeGroupAffiliationsWorker).not_to receive(:perform_async)
+
+      result = described_class.new.call(account)
+
+      expect(result).to include(status: 'resolved')
+      expect(result.dig(:discovery, :adapter)).to eq 'mitra_group'
+      expect(result.dig(:context, :managed, :mentions)).to eq []
+      expect(result.dig(:context, :requirements, :following_accounts)).to eq []
+      expect(result.dig(:context, :constraints, :allowed_visibilities)).to eq %w(public unlisted)
+      expect(result.dig(:context, :protocol, :activitypub, :audience, :rule_id)).to eq 'fep-1b12-group-audience'
+      expect(a_request(:get, account.affiliations_url)).not_to have_been_made
+    end
+
     it 'returns not_applicable for a person on a Mitra server before adapter selection' do
       domain = 'people.example'
       Node.create!(domain: domain, info: { 'software_name' => 'mitra' })
