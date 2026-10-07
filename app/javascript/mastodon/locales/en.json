@@ -834,6 +834,7 @@
   "time_remaining.moments": "Moments remaining",
   "time_remaining.seconds": "{number, plural, one {# second} other {# seconds}} left",
   "timeline.split": "Split timeline",
+  "timeline.split_list_unavailable": "This list is already split in another column",
   "timeline.split_unavailable": "Another Home timeline is already split",
   "timeline.splitter": "Timeline splitter",
   "timeline.unsplit": "Remove timeline split",

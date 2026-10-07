@@ -221,7 +221,7 @@ export const expandAccountTimeline         = (accountId, { maxId, withReplies, w
 export const expandAccountCoversations     = (accountId, { maxId } = {}) => expandTimeline(`account:${accountId}:conversations`, `/api/v1/accounts/${accountId}/conversations`, { max_id: maxId });
 export const expandAccountFeaturedTimeline = (accountId, { tagged } = {}) => expandTimeline(`account:${accountId}:pinned${tagged ? `:${tagged}` : ''}`, `/api/v1/accounts/${accountId}/statuses`, { pinned: true, tagged });
 export const expandAccountMediaTimeline    = (accountId, { maxId } = {}) => expandTimeline(`account:${accountId}:media`, `/api/v1/accounts/${accountId}/statuses`, { max_id: maxId, only_media: true, limit: 40 });
-export const expandListTimeline            = (id, { maxId } = {}, done = noOp) => expandTimeline(`list:${id}`, `/api/v1/timelines/list/${id}`, { max_id: maxId }, done);
+export const expandListTimeline            = (id, { maxId, timelineId = `list:${id}` } = {}, done = noOp) => expandTimeline(timelineId, `/api/v1/timelines/list/${id}`, { max_id: maxId }, done);
 export const expandHashtagTimeline         = (hashtag, { maxId, tags } = {}, done = noOp) => {
   return expandTimeline(`hashtag:${hashtag}`, `/api/v1/timelines/tag/${hashtag}`, {
     max_id: maxId,

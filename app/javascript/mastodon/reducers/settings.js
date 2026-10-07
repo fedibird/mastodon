@@ -48,6 +48,10 @@ const initialState = ImmutableMap({
     splitRatio: 35,
   }),
 
+  list: ImmutableMap({
+    splitRatio: 35,
+  }),
+
   limited: ImmutableMap({
     shows: ImmutableMap({
       reblog: true,

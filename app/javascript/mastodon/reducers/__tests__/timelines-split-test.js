@@ -398,3 +398,142 @@ describe('timeline split lifecycle', () => {
     expect(explicit.getIn(['home', 'splitReturnAnchor'])).toBeUndefined();
   });
 });
+
+describe('timeline split for a colon-delimited list source', () => {
+  const source = 'list:42';
+  const session1 = 'list:42:split:column-a:uuid-1';
+  const session2 = 'list:42:split:column-a:uuid-2';
+
+  const listState = (overrides = {}) => ImmutableMap({
+    [source]: timeline({
+      items: ImmutableList(['100', '90', '80']),
+      pendingItems: ImmutableList(['110']),
+      online: true,
+      top: true,
+      unread: 1,
+      hasMore: true,
+      ...overrides,
+    }),
+  });
+
+  const createListSplit = (state, splitTimeline = session1) => timelines(state, {
+    type: TIMELINE_SPLIT_CREATE,
+    sourceTimeline: source,
+    splitTimeline,
+  });
+
+  it('creates a list split using the full list id as the source', () => {
+    const next = createListSplit(listState());
+
+    expect(next.get('list')).toBeUndefined();
+    expect(next.getIn([source, 'splitTimelineId'])).toBe(session1);
+    expect(next.getIn([source, 'items'])).toEqual(ImmutableList(['100', '90', '80']));
+    expect(next.getIn([session1, 'items'])).toEqual(ImmutableList(['100', '90', '80']));
+    expect(next.getIn([session1, 'splitBoundaryId'])).toBe('100');
+  });
+
+  it('queues a streaming update onto the canonical list while split even when pending items are disabled', () => {
+    const split = createListSplit(listState({
+      pendingItems: ImmutableList(),
+      top: true,
+      unread: 0,
+    }));
+    const next = timelines(split, {
+      type: TIMELINE_UPDATE,
+      timeline: source,
+      status: { id: '120' },
+      usePendingItems: false,
+    });
+
+    expect(next.getIn([source, 'pendingItems'])).toEqual(ImmutableList(['120']));
+    expect(next.getIn([source, 'items'])).toEqual(ImmutableList(['100', '90', '80']));
+    expect(next.getIn([session1, 'items'])).toEqual(ImmutableList(['100', '90', '80']));
+    expect(next.getIn([session1, 'pendingItems'])).toEqual(ImmutableList());
+  });
+
+  it('restores history onto the canonical list and keeps newer live items pending', () => {
+    const split = createListSplit(listState());
+    const live = timelines(split, {
+      type: TIMELINE_UPDATE,
+      timeline: source,
+      status: { id: '130' },
+      usePendingItems: false,
+    });
+    const expanded = timelines(live, {
+      type: TIMELINE_EXPAND_SUCCESS,
+      timeline: session1,
+      statuses: [{ id: '70' }],
+      next: null,
+      partial: false,
+      isLoadingRecent: false,
+      usePendingItems: false,
+    });
+    const next = timelines(expanded, {
+      type: TIMELINE_SPLIT_DESTROY,
+      sourceTimeline: source,
+      splitTimeline: session1,
+    });
+
+    expect(next.get(session1)).toBeUndefined();
+    expect(next.getIn([source, 'splitTimelineId'])).toBeUndefined();
+    expect(next.getIn([source, 'items'])).toEqual(ImmutableList(['100', '90', '80', '70']));
+    expect(next.getIn([source, 'pendingItems'])).toEqual(ImmutableList(['130', '110']));
+  });
+
+  it('accepts load-more for the active session and rejects a stale session after a new split', () => {
+    const first = createListSplit(listState());
+    const accepted = timelines(first, {
+      type: TIMELINE_EXPAND_SUCCESS,
+      timeline: session1,
+      statuses: [{ id: '70' }],
+      next: null,
+      partial: false,
+      isLoadingRecent: false,
+      usePendingItems: false,
+    });
+
+    expect(accepted.getIn([session1, 'items'])).toEqual(ImmutableList(['100', '90', '80', '70']));
+    expect(accepted.getIn([source, 'items'])).toEqual(ImmutableList(['100', '90', '80']));
+
+    const cleared = timelines(first, {
+      type: TIMELINE_SPLIT_DESTROY,
+      sourceTimeline: source,
+      splitTimeline: session1,
+    });
+    const second = createListSplit(cleared, session2);
+    const stale = timelines(second, {
+      type: TIMELINE_EXPAND_SUCCESS,
+      timeline: session1,
+      statuses: [{ id: '70' }, { id: '60' }],
+      next: '/next',
+      partial: false,
+      isLoadingRecent: false,
+      usePendingItems: false,
+    });
+
+    expect(stale).toBe(second);
+    expect(stale.get(session1)).toBeUndefined();
+    expect(stale.getIn([session2, 'items'])).toEqual(ImmutableList(['100', '90', '80']));
+    expect(stale.getIn([source, 'items'])).toEqual(ImmutableList(['100', '90', '80']));
+    expect(stale.getIn([source, 'splitTimelineId'])).toBe(session2);
+  });
+
+  it('clears a list return anchor when a new split is created or the list becomes partial', () => {
+    const saved = timelines(listState(), {
+      type: TIMELINE_SPLIT_SAVE_RETURN_ANCHOR,
+      timeline: source,
+      anchor: { locationKey: 'A', id: '90', offset: -4, fallbackOffset: 10 },
+    });
+    const created = createListSplit(saved);
+    const partial = timelines(saved, {
+      type: TIMELINE_MARK_AS_PARTIAL,
+      timeline: source,
+    });
+
+    expect(saved.getIn([source, 'splitReturnAnchor', 'locationKey'])).toBe('A');
+    expect(created.getIn([source, 'splitReturnAnchor'])).toBeUndefined();
+    expect(created.getIn([source, 'splitTimelineId'])).toBe(session1);
+    expect(partial.getIn([source, 'splitReturnAnchor'])).toBeUndefined();
+    expect(partial.getIn([source, 'isPartial'])).toBe(true);
+  });
+});
