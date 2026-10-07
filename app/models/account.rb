@@ -55,6 +55,8 @@
 #  header_thumbhash              :string
 #  indexable                     :boolean          default(FALSE), not null
 #  priority                      :integer          default("default"), not null
+#  affiliations_url              :string
+#  affiliations_fetched_at       :datetime
 #
 
 class Account < ApplicationRecord

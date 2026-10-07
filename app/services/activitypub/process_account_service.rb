@@ -5,6 +5,7 @@ class ActivityPub::ProcessAccountService < BaseService
   include DomainControlHelper
   include Redisable
   include Lockable
+  include ActivityPub::ProcessAccountAffiliations
 
   VALID_URI_SCHEMES = %w(http https).freeze
 
@@ -51,6 +52,7 @@ class ActivityPub::ProcessAccountService < BaseService
       check_featured_collection! if @json['featured'].present?
       check_featured_tags_collection! if @json['featuredTags'].present?
       check_links! unless @account.fields.empty?
+      check_group_affiliations!
     end
 
     @account
@@ -85,6 +87,7 @@ class ActivityPub::ProcessAccountService < BaseService
     set_fetchable_key! unless @account.suspended? && @account.suspension_origin_local?
     set_immediate_attributes! unless @account.suspended?
     set_fetchable_attributes! unless @options[:only_key] || @account.suspended?
+    assign_group_affiliations_url! unless @options[:only_key] || @account.suspended?
 
     @account.save_with_optional_media!
   end

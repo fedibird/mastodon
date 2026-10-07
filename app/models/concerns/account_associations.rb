@@ -88,6 +88,13 @@ module AccountAssociations
     # Node
     belongs_to :node, primary_key: :domain, foreign_key: :domain, inverse_of: :accounts, optional: true
 
+    # Affiliations this account publishes when it is a Group actor.
+    # This is not the list of groups the account belongs to.
+    has_many :group_affiliations,
+             foreign_key: :group_account_id,
+             dependent: :delete_all,
+             inverse_of: :group_account
+
     # TagAccountMute
     has_many :tag_account_mute_relationships, class_name: 'TagAccountMute', inverse_of: :tag, dependent: :destroy
     has_many :mute_tags, through: :tag_account_mute_relationships, source: :tag

@@ -259,4 +259,132 @@ RSpec.describe ActivityPub::ProcessAccountService, type: :service do
       end
     end
   end
+
+  context 'with a remote group affiliations collection' do
+    after do
+      ActivityPub::SynchronizeGroupAffiliationsWorker.clear
+    end
+
+    let(:uri) { 'https://foo.test/groups/g' }
+    let(:affiliations_url) { 'https://foo.test/groups/g/affiliations' }
+    let!(:account) do
+      Fabricate(
+        :account,
+        username: 'group',
+        domain: 'foo.test',
+        actor_type: 'Group',
+        protocol: :activitypub,
+        uri: uri
+      )
+    end
+
+    it 'stores the collection URL and queues a background sync' do
+      payload = group_payload(affiliations: affiliations_url)
+
+      Sidekiq::Testing.fake! do
+        subject.call('group', 'foo.test', payload)
+        expect(ActivityPub::SynchronizeGroupAffiliationsWorker).to have_enqueued_sidekiq_job(account.id, {})
+      end
+
+      expect(account.reload.affiliations_url).to eq affiliations_url
+    end
+
+    it 'passes an inline collection without the rest of the actor document' do
+      collection = {
+        'id' => affiliations_url,
+        'type' => 'OrderedCollection',
+        'orderedItems' => [],
+      }
+      payload = group_payload(affiliations: collection)
+
+      Sidekiq::Testing.fake! do
+        subject.call('group', 'foo.test', payload)
+        expect(ActivityPub::SynchronizeGroupAffiliationsWorker).to have_enqueued_sidekiq_job(account.id, { 'collection' => collection })
+      end
+
+      expect(account.reload.affiliations_url).to eq affiliations_url
+    end
+
+    it 'stores a collection reference given as an id object' do
+      payload = group_payload(affiliations: { 'id' => affiliations_url })
+
+      Sidekiq::Testing.fake! do
+        subject.call('group', 'foo.test', payload)
+        expect(ActivityPub::SynchronizeGroupAffiliationsWorker).to have_enqueued_sidekiq_job(account.id, {})
+      end
+
+      expect(account.reload.affiliations_url).to eq affiliations_url
+    end
+
+    it 'ignores affiliations on a non-group and drops a previous group cache' do
+      GroupAffiliation.create!(group_account: account, subject_uri: 'https://remote.example/users/alice', relationship: 'admin')
+      account.update_columns(affiliations_url: affiliations_url, affiliations_fetched_at: Time.utc(2026, 1, 1))
+      payload = group_payload(type: 'Person', affiliations: affiliations_url)
+
+      Sidekiq::Testing.fake! do
+        subject.call('group', 'foo.test', payload)
+        expect(ActivityPub::SynchronizeGroupAffiliationsWorker.jobs).to be_empty
+      end
+
+      expect(account.reload.actor_type).to eq 'Person'
+      expect(account.affiliations_url).to be_nil
+      expect(account.affiliations_fetched_at).to be_nil
+      expect(account.group_affiliations).to be_empty
+    end
+
+    it 'does not change affiliation metadata during an only_key refresh' do
+      account.update_columns(affiliations_url: affiliations_url, affiliations_fetched_at: Time.utc(2026, 1, 1))
+      payload = group_payload(affiliations: 'https://foo.test/groups/g/other')
+
+      Sidekiq::Testing.fake! do
+        subject.call('group', 'foo.test', payload, only_key: true)
+        expect(ActivityPub::SynchronizeGroupAffiliationsWorker.jobs).to be_empty
+      end
+
+      expect(account.reload.affiliations_url).to eq affiliations_url
+      expect(account.affiliations_fetched_at).to eq Time.utc(2026, 1, 1)
+    end
+
+    it 'clears the cached collection when the actor withdraws affiliations' do
+      GroupAffiliation.create!(
+        group_account: account,
+        subject_uri: 'https://remote.example/users/alice',
+        relationship: 'admin',
+        affiliation_uri: 'https://foo.test/relationships/1'
+      )
+      account.update_columns(affiliations_url: affiliations_url, affiliations_fetched_at: Time.utc(2026, 1, 1))
+
+      Sidekiq::Testing.fake! do
+        subject.call('group', 'foo.test', group_payload)
+        expect(ActivityPub::SynchronizeGroupAffiliationsWorker.jobs).to be_empty
+      end
+
+      expect(a_request(:get, affiliations_url)).not_to have_been_made
+      expect(account.reload.affiliations_url).to be_nil
+      expect(account.affiliations_fetched_at).to be_nil
+      expect(account.group_affiliations).to be_empty
+    end
+
+    it 'does not queue affiliation sync while the group is suspended' do
+      account.update_columns(affiliations_url: affiliations_url, suspended_at: Time.now.utc, suspension_origin: Account.suspension_origins[:local])
+      payload = group_payload(affiliations: 'https://foo.test/groups/g/other')
+
+      Sidekiq::Testing.fake! do
+        subject.call('group', 'foo.test', payload)
+        expect(ActivityPub::SynchronizeGroupAffiliationsWorker.jobs).to be_empty
+      end
+
+      expect(account.reload.affiliations_url).to eq affiliations_url
+    end
+
+    def group_payload(type: 'Group', affiliations: nil)
+      payload = {
+        id: uri,
+        type: type,
+        inbox: 'https://foo.test/inbox',
+      }
+      payload[:affiliations] = affiliations unless affiliations.nil?
+      payload.with_indifferent_access
+    end
+  end
 end

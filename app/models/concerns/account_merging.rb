@@ -47,6 +47,12 @@ module AccountMerging
       record.update_attribute(:reference_account_id, id)
     end
 
+    GroupAffiliation.where(group_account_id: other_account.id).find_each do |record|
+      record.update_attribute(:group_account_id, id)
+    rescue ActiveRecord::RecordNotUnique
+      next
+    end
+
     # Some follow relationships have moved, so the cache is stale
     Rails.cache.delete_matched("followers_hash:#{id}:*")
     Rails.cache.delete_matched("relationships:#{id}:*")
