@@ -17,9 +17,11 @@ import LoadingIndicator from '../../components/loading_indicator';
 import Icon from 'mastodon/components/icon';
 import RadioButton from 'mastodon/components/radio_button';
 import { defaultColumnWidth, new_features_policy } from 'mastodon/initial_state';
+import { DEFAULT_TIMELINE_SPLIT_RATIO } from 'mastodon/components/timeline_splitter';
 import PortableComposer from '../compose/portable_composer';
 import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
+import StatusTimelineSplitController, { clampTimelineSplitRatio } from '../ui/components/status_timeline_split_controller';
 
 const messages = defineMessages({
   deleteMessage: { id: 'confirmations.delete_list.message', defaultMessage: 'Are you sure you want to permanently delete this list?' },
@@ -27,18 +29,20 @@ const messages = defineMessages({
   followed:   { id: 'lists.replies_policy.followed', defaultMessage: 'Any followed user' },
   none:    { id: 'lists.replies_policy.none', defaultMessage: 'No one' },
   list:  { id: 'lists.replies_policy.list', defaultMessage: 'Members of the list' },
+  splitUnavailable: { id: 'timeline.split_list_unavailable', defaultMessage: 'This list is already split in another column' },
 });
 
 const mapStateToProps = (state, { columnId, params }) => {
   const uuid = columnId;
   const columns = state.getIn(['settings', 'columns']);
-  const index = columns.findIndex(c => c.get('uuid') === uuid);
+  const index = columns ? columns.findIndex(c => c.get('uuid') === uuid) : -1;
   const columnWidth = (columnId && index >= 0) ? columns.get(index).getIn(['params', 'columnWidth']) : state.getIn(['settings', 'list', 'columnWidth']);
 
   return {
     list: state.getIn(['lists', params.id]),
     hasUnread: state.getIn(['timelines', `list:${params.id}`, 'unread']) > 0,
     columnWidth: columnWidth ?? defaultColumnWidth,
+    splitRatio: clampTimelineSplitRatio(state.getIn(['settings', 'list', 'splitRatio'], DEFAULT_TIMELINE_SPLIT_RATIO)),
   };
 };
 
@@ -57,8 +61,12 @@ class ListTimeline extends React.PureComponent {
     hasUnread: PropTypes.bool,
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
+    splitRatio: PropTypes.number,
     list: PropTypes.oneOfType([ImmutablePropTypes.map, PropTypes.bool]),
     intl: PropTypes.object.isRequired,
+    location: PropTypes.shape({
+      key: PropTypes.string,
+    }),
   };
 
   handlePin = () => {
@@ -77,8 +85,8 @@ class ListTimeline extends React.PureComponent {
     dispatch(moveColumn(columnId, dir));
   }
 
-  handleHeaderClick = () => {
-    this.column.scrollTop();
+  handleSplitRatioCommit = (ratio) => {
+    this.props.dispatch(changeSetting(['list', 'splitRatio'], ratio));
   }
 
   componentDidMount () {
@@ -115,13 +123,18 @@ class ListTimeline extends React.PureComponent {
     }
   }
 
-  setRef = c => {
-    this.column = c;
-  }
-
   handleLoadMore = maxId => {
     const { id } = this.props.params;
     this.props.dispatch(expandListTimeline(id, { maxId }));
+  }
+
+  handleLoadMoreHistory = maxId => {
+    const { id } = this.props.params;
+
+    this.props.dispatch(expandListTimeline(id, {
+      maxId,
+      timelineId: this.splitTimelineId,
+    }));
   }
 
   handleEditClick = () => {
@@ -163,45 +176,86 @@ class ListTimeline extends React.PureComponent {
     }
   }
 
-  render () {
+  renderTimeline = (split) => {
     const { hasUnread, columnId, multiColumn, list, columnWidth, intl } = this.props;
     const { id } = this.props.params;
     const pinned = !!columnId;
     const title  = list ? list.get('title') : id;
     const replies_policy = list ? list.get('replies_policy') : undefined;
+    const sourceTimelineId = `list:${id}`;
     const composerId = columnId ? `portable:list-column:${columnId}` : `portable:list-route:${id}`;
     const portableComposer = new_features_policy === 'tester' ? (
       <PortableComposer key={composerId} composerId={composerId} />
     ) : null;
+    const emptyMessage = <FormattedMessage id='empty_column.list' defaultMessage='There is nothing in this list yet. When members of this list post new statuses, they will appear here.' />;
 
-    if (typeof list === 'undefined') {
-      return (
-        <Column>
-          <div className='scrollable'>
-            <LoadingIndicator />
-          </div>
-        </Column>
+    this.splitTimelineId = split.splitTimelineId;
+
+    let timeline;
+
+    if (!split.isSplit) {
+      timeline = (
+        <StatusListContainer
+          trackScroll={!pinned}
+          scrollKey={`list_timeline-${columnId}`}
+          timelineId={sourceTimelineId}
+          onLoadMore={this.handleLoadMore}
+          emptyMessage={emptyMessage}
+          bindToDocument={!multiColumn}
+          prepend={portableComposer}
+          alwaysPrepend={!!portableComposer}
+        />
       );
-    } else if (list === false) {
-      return (
-        <Column>
-          <ColumnBackButton multiColumn={multiColumn} />
-          <MissingIndicator />
-        </Column>
+    } else {
+      timeline = (
+        <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
+          <div className='timeline-split__pane timeline-split__pane--live'>
+            <StatusListContainer
+              timelineId={sourceTimelineId}
+              dataTimelineId={sourceTimelineId}
+              includePendingItems
+              statusLimit={40}
+              manageTimelineScrollState={false}
+              trackIntersection={false}
+              trackScroll={false}
+              scrollKey={`list_timeline-${columnId}-live`}
+              emptyMessage={emptyMessage}
+              bindToDocument={false}
+              prepend={portableComposer}
+              alwaysPrepend={!!portableComposer}
+            />
+          </div>
+
+          {split.splitter}
+
+          <div className='timeline-split__pane timeline-split__pane--history'>
+            <StatusListContainer
+              trackScroll={multiColumn ? !pinned : false}
+              scrollKey={`list_timeline-${columnId}`}
+              onLoadMore={this.handleLoadMoreHistory}
+              timelineId={sourceTimelineId}
+              dataTimelineId={split.splitTimelineId}
+              trackIntersection
+              emptyMessage={emptyMessage}
+              bindToDocument={false}
+            />
+          </div>
+        </div>
       );
     }
 
     return (
-      <Column bindToDocument={!multiColumn} ref={this.setRef} label={title} columnWidth={columnWidth}>
+      <Column bindToDocument={!multiColumn} ref={split.setColumnRef} label={title} columnWidth={columnWidth}>
         <ColumnHeader
           icon='list-ul'
           active={hasUnread}
           title={title}
           onPin={this.handlePin}
           onMove={this.handleMove}
-          onClick={this.handleHeaderClick}
+          onClick={split.handleHeaderClick}
           pinned={pinned}
           multiColumn={multiColumn}
+          extraButton={split.splitButton}
           columnWidth={columnWidth}
           onWidthChange={this.handleWidthChange}
         >
@@ -229,17 +283,46 @@ class ListTimeline extends React.PureComponent {
           )}
         </ColumnHeader>
 
-        <StatusListContainer
-          trackScroll={!pinned}
-          scrollKey={`list_timeline-${columnId}`}
-          timelineId={`list:${id}`}
-          onLoadMore={this.handleLoadMore}
-          emptyMessage={<FormattedMessage id='empty_column.list' defaultMessage='There is nothing in this list yet. When members of this list post new statuses, they will appear here.' />}
-          bindToDocument={!multiColumn}
-          prepend={portableComposer}
-          alwaysPrepend={!!portableComposer}
-        />
+        {timeline}
       </Column>
+    );
+  }
+
+  render () {
+    const { columnId, multiColumn, list, splitRatio, location } = this.props;
+    const { id } = this.props.params;
+    const sourceTimelineId = `list:${id}`;
+
+    if (typeof list === 'undefined') {
+      return (
+        <Column>
+          <div className='scrollable'>
+            <LoadingIndicator />
+          </div>
+        </Column>
+      );
+    } else if (list === false) {
+      return (
+        <Column>
+          <ColumnBackButton multiColumn={multiColumn} />
+          <MissingIndicator />
+        </Column>
+      );
+    }
+
+    return (
+      <StatusTimelineSplitController
+        key={sourceTimelineId}
+        sourceTimelineId={sourceTimelineId}
+        columnId={columnId}
+        multiColumn={multiColumn}
+        location={location}
+        splitRatio={splitRatio}
+        onSplitRatioCommit={this.handleSplitRatioCommit}
+        unavailableMessage={messages.splitUnavailable}
+      >
+        {this.renderTimeline}
+      </StatusTimelineSplitController>
     );
   }
 

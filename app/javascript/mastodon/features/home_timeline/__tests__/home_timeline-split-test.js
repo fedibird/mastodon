@@ -134,7 +134,7 @@ describe('HomeTimeline split', () => {
 
   afterEach(() => {
     document.querySelectorAll('.tabs-bar__wrapper').forEach(node => node.remove());
-    document.body.classList.remove('home-timeline-split');
+    document.body.classList.remove('status-timeline-split');
 
     const portal = document.getElementById('tabs-bar__portal');
 
@@ -205,7 +205,7 @@ describe('HomeTimeline split', () => {
     expect(container.querySelector('[data-testid="load-live"]')).toBeNull();
     expect(container.querySelector('[data-testid="load-history"]')).not.toBeNull();
     expect(scroller().scrollTop).toBe(0);
-    expect(document.body.classList.contains('home-timeline-split')).toBe(true);
+    expect(document.body.classList.contains('status-timeline-split')).toBe(true);
   });
 
   it('splits and unsplits from the header while keeping the captured scroll offset', () => {
@@ -425,7 +425,7 @@ describe('HomeTimeline split', () => {
     expect(history.getAttribute('data-bind')).toBe('column');
     expect(history.getAttribute('data-track-scroll')).toBe('true');
     expect(live.getAttribute('data-track-scroll')).toBe('false');
-    expect(document.body.classList.contains('home-timeline-split')).toBe(false);
+    expect(document.body.classList.contains('status-timeline-split')).toBe(false);
   });
 
   it('restores the visible status into the history pane instead of copying document scroll', () => {
@@ -646,7 +646,7 @@ describe('HomeTimeline split', () => {
 
     expect(store.getState().hasIn(['timelines', nextSplitId])).toBe(false);
     expect(activeSplitId(store)).toBeUndefined();
-    expect(document.body.classList.contains('home-timeline-split')).toBe(false);
+    expect(document.body.classList.contains('status-timeline-split')).toBe(false);
   });
 
   const homeLocation = (key) => ({ key, pathname: '/timelines/home' });
