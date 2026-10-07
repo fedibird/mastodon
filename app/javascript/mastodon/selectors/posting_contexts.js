@@ -6,6 +6,16 @@ export const selectPostingContextDiscovery = (state, accountId) => {
   return state.getIn(['posting_contexts', String(accountId)], null);
 };
 
+export const selectPostingContextViewerEvidence = (state, accountId) => {
+  const discovery = selectPostingContextDiscovery(state, accountId);
+
+  if (!discovery || !discovery.get) {
+    return null;
+  }
+
+  return discovery.get('viewerEvidence', null);
+};
+
 export const selectPostingContextForAccount = (state, accountId) => {
   const discovery = selectPostingContextDiscovery(state, accountId);
 

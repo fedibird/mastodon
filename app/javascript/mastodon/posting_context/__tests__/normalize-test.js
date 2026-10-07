@@ -1,4 +1,4 @@
-import { normalizePostingContext, normalizePostingContextDiscovery } from '../normalize';
+import { normalizePostingContext, normalizePostingContextDiscovery, normalizeViewerEvidence } from '../normalize';
 
 const restContext = {
   key: 'builtin:fedibird-group:123',
@@ -207,6 +207,7 @@ describe('normalizePostingContextDiscovery', () => {
       adapter: 'fedibird_group',
       authority: 'server',
     });
+    expect(resolved.viewerEvidence).toBeNull();
 
     const unsupported = normalizePostingContextDiscovery({
       schema_version: 1,
@@ -223,5 +224,42 @@ describe('normalizePostingContextDiscovery', () => {
 
     expect(unsupported.context).toBeNull();
     expect(unsupported.reason).toEqual('no_supported_adapter');
+    expect(unsupported.viewerEvidence).toBeNull();
+  });
+
+  it('normalizes fresh viewer affiliation evidence and leaves older payloads without it', () => {
+    expect(normalizeViewerEvidence(null)).toBeNull();
+    expect(normalizePostingContextDiscovery({
+      schema_version: 1,
+      account_id: '456',
+      status: 'unsupported',
+      reason: 'no_supported_adapter',
+      context: null,
+      discovery: { mechanism: null, adapter: null, authority: null },
+    }).viewerEvidence).toBeNull();
+
+    const normalized = normalizeViewerEvidence({
+      affiliations: {
+        source: 'fep-5219-affiliations',
+        snapshot_status: 'fresh',
+        fetched_at: '2026-10-07T01:23:45Z',
+        relationships: [
+          { relationship: 'admin', affiliation_uri: 'https://mitra.example/relationships/1' },
+          { relationship: 'trusted-poster', affiliation_uri: null },
+        ],
+      },
+    });
+
+    expect(normalized).toEqual({
+      affiliations: {
+        source: 'fep-5219-affiliations',
+        snapshotStatus: 'fresh',
+        fetchedAt: '2026-10-07T01:23:45Z',
+        relationships: [
+          { relationship: 'admin', affiliationUri: 'https://mitra.example/relationships/1' },
+          { relationship: 'trusted-poster', affiliationUri: null },
+        ],
+      },
+    });
   });
 });

@@ -71,6 +71,34 @@ describe('postingContexts', () => {
     expect(state.getIn(['123', 'context', 'requirements', 'followingAccounts', 0, 'ruleId'])).toEqual('group-follow');
     expect(state.getIn(['123', 'context', 'constraints', 'allowedVisibilities', 0])).toEqual('public');
     expect(state.getIn(['123', 'discovery', 'adapter'])).toEqual('fedibird_group');
+    expect(state.getIn(['123', 'viewerEvidence'])).toBeNull();
+  });
+
+  it('stores viewer affiliation evidence without changing the resolved context', () => {
+    const state = postingContexts(undefined, {
+      type: POSTING_CONTEXT_FETCH_SUCCESS,
+      accountId: '456',
+      data: {
+        ...resolvedPayload,
+        account_id: '456',
+        viewer_evidence: {
+          affiliations: {
+            source: 'fep-5219-affiliations',
+            snapshot_status: 'fresh',
+            fetched_at: '2026-10-07T01:23:45Z',
+            relationships: [
+              { relationship: 'admin', affiliation_uri: 'https://mitra.example/relationships/1' },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(state.getIn(['456', 'status'])).toEqual('resolved');
+    expect(state.getIn(['456', 'context', 'managed', 'mentions', 0, 'ruleId'])).toEqual('group-account-mention');
+    expect(state.getIn(['456', 'viewerEvidence', 'affiliations', 'snapshotStatus'])).toEqual('fresh');
+    expect(state.getIn(['456', 'viewerEvidence', 'affiliations', 'relationships', 0, 'relationship'])).toEqual('admin');
+    expect(state.getIn(['456', 'viewerEvidence', 'affiliations', 'relationships', 0, 'affiliationUri'])).toEqual('https://mitra.example/relationships/1');
   });
 
   it('stores unsupported and not_applicable results without a context', () => {

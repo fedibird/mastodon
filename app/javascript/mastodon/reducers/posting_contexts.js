@@ -8,12 +8,13 @@ import { normalizePostingContextDiscovery } from '../posting_context/normalize';
 
 const initialState = ImmutableMap();
 
-const record = ({ status, context = null, discovery = null, reason = null, error = null }) => fromJS({
+const record = ({ status, context = null, discovery = null, reason = null, error = null, viewerEvidence = null }) => fromJS({
   status,
   context,
   discovery,
   reason,
   error,
+  viewerEvidence,
 });
 
 export default function postingContexts(state = initialState, action) {
@@ -28,6 +29,7 @@ export default function postingContexts(state = initialState, action) {
       context: normalized.context,
       discovery: normalized.discovery,
       reason: normalized.reason,
+      viewerEvidence: normalized.viewerEvidence,
     }));
   }
   case POSTING_CONTEXT_FETCH_FAIL:
