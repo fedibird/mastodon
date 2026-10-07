@@ -133,14 +133,6 @@ class HashtagTimeline extends React.PureComponent {
     this.disconnects = [];
   }
 
-  _unload () {
-    const { dispatch } = this.props;
-    const { id } = this.props.params;
-
-    this._unsubscribe();
-    dispatch(clearTimeline(`hashtag:${id}`));
-  }
-
   _load() {
     const { dispatch } = this.props;
     const { id, tags } = this.props.params;
@@ -155,11 +147,18 @@ class HashtagTimeline extends React.PureComponent {
   }
 
   componentDidUpdate (prevProps) {
-    const { params } = this.props;
-    const { id, tags } = prevProps.params;
+    const previousId = prevProps.params.id;
+    const { id, tags } = this.props.params;
+    const idChanged = previousId !== id;
+    const tagsChanged = !isEqual(prevProps.params.tags, tags);
 
-    if (id !== params.id || !isEqual(tags, params.tags)) {
-      this._unload();
+    if (idChanged || tagsChanged) {
+      this._unsubscribe();
+
+      if (!idChanged) {
+        this.props.dispatch(clearTimeline(hashtagTimelineId(id)));
+      }
+
       this._load();
     }
   }
