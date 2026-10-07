@@ -500,6 +500,13 @@ class StatusTimelineSplitController extends React.Component {
   }
 
   componentDidUpdate (prevProps) {
+    const previousLocationKey = prevProps.location ? prevProps.location.key : undefined;
+    const nextLocationKey = this.props.location ? this.props.location.key : undefined;
+
+    if (previousLocationKey !== nextLocationKey) {
+      this.locationKey = nextLocationKey;
+    }
+
     const layoutChanged = !!prevProps.multiColumn !== !!this.props.multiColumn;
 
     if (layoutChanged && this.ownsSplit()) {

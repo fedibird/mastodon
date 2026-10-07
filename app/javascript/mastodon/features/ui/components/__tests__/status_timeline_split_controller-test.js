@@ -376,6 +376,67 @@ describe('StatusTimelineSplitController', () => {
     expect(store.getState().getIn(['timelines', 'list:42', 'splitReturnAnchor'])).toBeUndefined();
   });
 
+  it('saves the location key from a later history entry on the same source timeline', () => {
+    const store = buildStore();
+    const restoreRects = installRects(element => {
+      if (element.classList.contains('tabs-bar__wrapper')) {
+        return box(0, 64);
+      }
+
+      if (element.classList.contains('scrollable')) {
+        return element.getAttribute('data-pane') === 'history' ? box(100, 700) : box(0, 900);
+      }
+
+      if (element.tagName === 'ARTICLE' && element.getAttribute('data-id') === '90') {
+        const pane = element.parentElement.getAttribute('data-pane');
+
+        if (pane === 'history') {
+          return box(92.16, 200);
+        }
+
+        const top = 400 - scroller().scrollTop;
+
+        return box(top, top + 120);
+      }
+
+      return box(-40, 10);
+    });
+    mountTabsWrapper(0, 64);
+    const view = renderHarness(store, { columnId: 'column-a', multiColumn: false, location: location('A') });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+    view.container.querySelector('.timeline-split__pane--history .scrollable').scrollTop = 2386;
+    view.rerender(
+      <Provider store={store}>
+        <ConnectedHarness sourceTimelineId='list:42' columnId='column-a' multiColumn={false} location={location('B')} />
+      </Provider>,
+    );
+    view.unmount();
+
+    const anchor = store.getState().getIn(['timelines', 'list:42', 'splitReturnAnchor']);
+
+    expect(anchor.get('locationKey')).toBe('B');
+    expect(anchor.get('id')).toBe('90');
+    expect(anchor.get('offset')).toBeCloseTo(-7.84);
+    expect(anchor.get('fallbackOffset')).toBe(2386);
+
+    const frames = [];
+    const spy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      frames.push(callback);
+      return frames.length;
+    });
+
+    scroller().scrollTop = 0;
+    renderHarness(store, { multiColumn: false, location: location('B') });
+    flushQueuedFrames(frames);
+    flushQueuedFrames(frames);
+    spy.mockRestore();
+    restoreRects();
+
+    expect(scroller().scrollTop).toBeCloseTo(343.84);
+    expect(store.getState().getIn(['timelines', 'list:42', 'splitReturnAnchor'])).toBeUndefined();
+  });
+
   it('discards a return anchor when the location key differs or the layout is multi-column', () => {
     const store = buildStore();
 
