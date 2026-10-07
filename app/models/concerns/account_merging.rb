@@ -47,11 +47,10 @@ module AccountMerging
       record.update_attribute(:reference_account_id, id)
     end
 
-    GroupAffiliation.where(group_account_id: other_account.id).find_each do |record|
-      record.update_attribute(:group_account_id, id)
-    rescue ActiveRecord::RecordNotUnique
-      next
-    end
+    # Group affiliations are one complete remote snapshot. Keep the canonical
+    # account's snapshot and leave the duplicate's rows to be removed with it.
+    # Copying them would revive stale positive evidence, including into an
+    # authoritative empty snapshot. affiliations_url is likewise left untouched.
 
     # Some follow relationships have moved, so the cache is stale
     Rails.cache.delete_matched("followers_hash:#{id}:*")
