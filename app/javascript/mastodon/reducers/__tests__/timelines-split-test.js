@@ -4,6 +4,7 @@ import { ACCOUNT_UNFOLLOW_SUCCESS, ACCOUNT_UNSUBSCRIBE_SUCCESS } from '../../act
 import {
   TIMELINE_DELETE,
   TIMELINE_EXPAND_SUCCESS,
+  TIMELINE_SCROLL_TOP,
   TIMELINE_SPLIT_CREATE,
   TIMELINE_SPLIT_DESTROY,
   TIMELINE_UPDATE,
@@ -230,6 +231,18 @@ describe('timeline split lifecycle', () => {
 
     expect(next.get(splitId)).toBeUndefined();
     expect(next.getIn(['home', 'items']).includes('70')).toBe(false);
+    expect(next).toBe(restored);
+  });
+
+  it('ignores a late scroll update so the removed history timeline is not recreated', () => {
+    const restored = timelines(createSplit(initial()), { type: TIMELINE_SPLIT_DESTROY, sourceTimeline: 'home', splitTimeline: splitId });
+    const next = timelines(restored, {
+      type: TIMELINE_SCROLL_TOP,
+      timeline: splitId,
+      top: false,
+    });
+
+    expect(next.get(splitId)).toBeUndefined();
     expect(next).toBe(restored);
   });
 

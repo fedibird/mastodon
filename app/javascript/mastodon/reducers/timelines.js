@@ -275,7 +275,7 @@ const destroyTimelineSplit = (state, sourceTimeline, splitTimeline) => {
 export default function timelines(state = initialState, action) {
   switch(action.type) {
   case TIMELINE_LOAD_PENDING:
-    return state.update(action.timeline, initialTimeline, map =>
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, map =>
       map.update('items', list => map.get('pendingItems').concat(list.take(40))).set('pendingItems', ImmutableList()).set('unread', 0));
   case TIMELINE_EXPAND_REQUEST:
     return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, map => map.set('isLoading', true));
@@ -284,7 +284,7 @@ export default function timelines(state = initialState, action) {
   case TIMELINE_EXPAND_SUCCESS:
     return isStaleSplitTimeline(state, action.timeline) ? state : expandNormalizedTimeline(state, action.timeline, fromJS(action.statuses), action.next, action.partial, action.isLoadingRecent, action.usePendingItems);
   case TIMELINE_UPDATE:
-    return updateTimeline(state, action.timeline, fromJS(action.status), action.usePendingItems);
+    return isStaleSplitTimeline(state, action.timeline) ? state : updateTimeline(state, action.timeline, fromJS(action.status), action.usePendingItems);
   case TIMELINE_DELETE:
     return deleteStatus(state, action.id, action.references);
   case TIMELINE_EXPIRE:
@@ -309,17 +309,17 @@ export default function timelines(state = initialState, action) {
   case TIMELINE_SPLIT_DESTROY:
     return destroyTimelineSplit(state, action.sourceTimeline, action.splitTimeline);
   case TIMELINE_SCROLL_TOP:
-    return updateTop(state, action.timeline, action.top);
+    return isStaleSplitTimeline(state, action.timeline) ? state : updateTop(state, action.timeline, action.top);
   case TIMELINE_CONNECT:
-    return state.update(action.timeline, initialTimeline, map => map.set('online', true));
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, map => map.set('online', true));
   case TIMELINE_DISCONNECT:
-    return state.update(
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(
       action.timeline,
       initialTimeline,
       map => map.set('online', false).update(action.usePendingItems ? 'pendingItems' : 'items', items => items.first() ? items.unshift(null) : items),
     );
   case TIMELINE_MARK_AS_PARTIAL:
-    return state.update(
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(
       action.timeline,
       initialTimeline,
       map => map.set('isPartial', true).set('items', ImmutableList()).set('pendingItems', ImmutableList()).set('unread', 0),

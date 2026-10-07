@@ -86,6 +86,7 @@ const buildStore = ({ homeItems, homePending = [], splitItems = [], shows = {} }
         hasMore: true,
         top: false,
         unread: homePending.length,
+        splitTimelineId: 'home:split:X',
       }),
       'home:split:X': ImmutableMap({
         items: ImmutableList(splitItems),
