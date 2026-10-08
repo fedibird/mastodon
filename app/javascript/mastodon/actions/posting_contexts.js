@@ -40,10 +40,19 @@ const successCacheIsFresh = (current, now) => {
     return false;
   }
 
+  // A failed refresh must be retryable even while receivedAt is inside the TTL.
+  if (current.get('refreshError') || current.get('refreshing')) {
+    return false;
+  }
+
   const receivedAt = current.get('receivedAt');
 
   return typeof receivedAt === 'number' && (now - receivedAt) < POSTING_CONTEXT_CACHE_TTL;
 };
+
+const discoveryInFlight = current => (
+  Boolean(current && (current.get('status') === 'loading' || current.get('refreshing')))
+);
 
 export function fetchPostingContext(accountId, { force = false } = {}) {
   return (dispatch, getState) => {
@@ -52,6 +61,10 @@ export function fetchPostingContext(accountId, { force = false } = {}) {
 
     if (inflightDiscoveries.has(id)) {
       return inflightDiscoveries.get(id);
+    }
+
+    if (discoveryInFlight(current)) {
+      return Promise.resolve();
     }
 
     if (!force && successCacheIsFresh(current, Date.now())) {

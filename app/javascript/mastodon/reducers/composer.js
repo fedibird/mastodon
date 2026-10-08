@@ -146,8 +146,10 @@ export const initialState = ImmutableMap({
   prohibited_words: ImmutableSet(),
   scheduled_status_id: null,
   draft_audience_account_id: null,
+  posting_context_account_id: null,
   context: ImmutableMap({
     key: null,
+    resolvedAccountId: null,
     source: null,
     managed: ImmutableMap({
       hashtags: ImmutableList(),
@@ -279,6 +281,7 @@ const emptyProtocol = () => ImmutableMap({
 
 const emptyPostingContext = () => ImmutableMap({
   key: null,
+  resolvedAccountId: null,
   source: null,
   managed: ImmutableMap({
     hashtags: ImmutableList(),
@@ -524,11 +527,17 @@ export default function composer(state = initialState, action) {
     }
 
     const postingContext = action.postingContext;
+    const hasPostingContextAccountId = Object.prototype.hasOwnProperty.call(action, 'postingContextAccountId');
+    const postingContextAccountId = hasPostingContextAccountId ? (action.postingContextAccountId || null) : null;
     const previousSignature = postingContextOutputSignature(state);
 
     if (!postingContext) {
       return state.withMutations(map => {
         map.set('context', emptyPostingContext());
+
+        if (hasPostingContextAccountId) {
+          map.set('posting_context_account_id', postingContextAccountId);
+        }
 
         if (previousSignature !== '' && (state.get('idempotencyKey') || state.get('text') || state.get('dirty'))) {
           map.set('idempotencyKey', uuid());
@@ -549,6 +558,11 @@ export default function composer(state = initialState, action) {
     return state.withMutations(map => {
       map.setIn(['context', 'key'], nextKey);
       map.setIn(['context', 'source'], source);
+
+      if (hasPostingContextAccountId) {
+        map.set('posting_context_account_id', postingContextAccountId);
+        map.setIn(['context', 'resolvedAccountId'], postingContextAccountId);
+      }
       map.setIn(['context', 'managed', 'hashtags'], hashtags);
       map.setIn(['context', 'managed', 'mentions'], mentions);
       map.setIn(['context', 'requirements', 'followingAccounts'], followingAccounts);

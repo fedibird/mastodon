@@ -21,6 +21,7 @@ import PortableComposer from '../compose/portable_composer';
 import PortableComposerToggle from '../compose/components/portable_composer_toggle';
 import { captureVisibleStatusAnchor, columnNodeFromRef, scheduleStatusAnchorRestore } from '../compose/components/portable_composer_scroll';
 import { selectPortableComposerVisible } from 'mastodon/selectors/composer';
+import { applyComposerPostingContext } from '../../actions/composer';
 import { fetchPostingContext } from '../../actions/posting_contexts';
 import { selectPostingContextForAccount } from '../../selectors/posting_contexts';
 import { changeSetting } from '../../actions/settings';
@@ -137,7 +138,7 @@ class GroupTimeline extends React.PureComponent {
   }
 
   componentDidUpdate (prevProps) {
-    const { dispatch, onlyMedia, withoutMedia, composerVisible, postingContext, params: { id, tagged } } = this.props;
+    const { dispatch, onlyMedia, withoutMedia, composerVisible, postingContext, columnId, params: { id, tagged } } = this.props;
     const idChanged = prevProps.params.id !== id;
 
     this.restoreComposerScroll(prevProps, idChanged);
@@ -150,6 +151,10 @@ class GroupTimeline extends React.PureComponent {
       }
     } else if (isAdministrator && composerVisible && !prevProps.composerVisible && !postingContext) {
       dispatch(fetchPostingContext(id));
+    }
+
+    if (isAdministrator && (idChanged || (prevProps.postingContext && !postingContext))) {
+      dispatch(applyComposerPostingContext(groupComposerId(id, columnId), postingContext, id));
     }
 
     const mediaChanged = prevProps.onlyMedia !== onlyMedia || prevProps.withoutMedia !== withoutMedia;
@@ -262,6 +267,7 @@ class GroupTimeline extends React.PureComponent {
         key={composerId}
         composerId={composerId}
         postingContext={postingContext}
+        postingContextAccountId={id}
       />
     ) : null;
     const emptyMessage = <FormattedMessage id='empty_column.group' defaultMessage='The group timeline is empty. When members of this group post new toots, they will appear here.' />;

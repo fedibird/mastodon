@@ -158,4 +158,55 @@ describe('PortableComposer', () => {
     expect(store.getState().getIn(['composers', 'byId', composerId, 'context', 'managed', 'hashtags', 0, 'normalizedName'])).toEqual('bar');
     expect(store.getState().getIn(['composers', 'byId', composerId, 'context', 'suppressions', 'hashtags']).isEmpty()).toBe(true);
   });
+
+  it('applies updated constraints for the same context key and target account', () => {
+    const store = makeStore();
+    hydrateDefaults(store);
+    const postingContext = {
+      key: 'protocol:fep-1b12-group:456',
+      constraints: {
+        allowedVisibilities: ['public', 'unlisted'],
+      },
+      protocol: {
+        activityPub: {
+          audience: {
+            accountId: '999',
+            acct: 'group@mitra.example',
+            enforcement: 'required',
+          },
+        },
+      },
+    };
+    const view = render(
+      <Provider store={store}>
+        <PortableComposer composerId={composerId} postingContext={postingContext} postingContextAccountId='456' />
+      </Provider>,
+    );
+    const composerPath = ['composers', 'byId', composerId];
+
+    expect(store.getState().getIn([...composerPath, 'posting_context_account_id'])).toEqual('456');
+    expect(store.getState().getIn([...composerPath, 'context', 'resolvedAccountId'])).toEqual('456');
+    expect(store.getState().getIn([...composerPath, 'context', 'constraints', 'allowedVisibilities']).includes('unlisted')).toBe(true);
+
+    view.rerender(
+      <Provider store={store}>
+        <PortableComposer
+          composerId={composerId}
+          postingContextAccountId='456'
+          postingContext={{
+            ...postingContext,
+            constraints: {
+              allowedVisibilities: ['public'],
+            },
+          }}
+        />
+      </Provider>,
+    );
+
+    expect(store.getState().getIn([...composerPath, 'context', 'key'])).toEqual('protocol:fep-1b12-group:456');
+    expect(store.getState().getIn([...composerPath, 'context', 'resolvedAccountId'])).toEqual('456');
+    expect(store.getState().getIn([...composerPath, 'context', 'constraints', 'allowedVisibilities']).includes('public')).toBe(true);
+    expect(store.getState().getIn([...composerPath, 'context', 'constraints', 'allowedVisibilities']).includes('unlisted')).toBe(false);
+    expect(store.getState().getIn([...composerPath, 'context', 'protocol', 'activityPub', 'audience', 'accountId'])).toEqual('999');
+  });
 });

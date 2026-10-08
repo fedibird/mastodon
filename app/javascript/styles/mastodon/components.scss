@@ -729,12 +729,34 @@ body > [data-popper-placement] {
     &-mention,
     &-audience,
     &-visibility,
-    &-follow {
+    &-follow,
+    &-create {
       font-size: 14px;
     }
 
+    &-create--blocked,
     &-warning {
       color: $warning-red;
+    }
+  }
+
+  .compose-form__capability-guard {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 10px 0;
+    color: $warning-red;
+    font-size: 14px;
+
+    button {
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: $secondary-text-color;
+      cursor: pointer;
+      font: inherit;
+      text-decoration: underline;
     }
   }
 

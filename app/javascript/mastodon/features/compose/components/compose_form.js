@@ -23,6 +23,7 @@ import PollFormContainer from '../containers/poll_form_container';
 import UploadFormContainer from '../containers/upload_form_container';
 import WarningContainer from '../containers/warning_container';
 import PostingContextBarContainer from '../containers/posting_context_bar_container';
+import { postingContextCapabilityMessages } from './posting_context_bar';
 import ReferenceStack from '../../../features/reference_stack';
 import { isMobile } from '../../../is_mobile';
 import ImmutablePureComponent from 'react-immutable-pure-component';
@@ -94,6 +95,8 @@ class ComposeForm extends ImmutablePureComponent {
     singleColumn: PropTypes.bool,
     autoFocus: PropTypes.bool,
     contextCompliant: PropTypes.bool,
+    canAttempt: PropTypes.bool,
+    capabilityReason: PropTypes.string,
     displayMode: PropTypes.oneOf(['full', 'simple']),
     onDisplayModeChange: PropTypes.func,
   };
@@ -102,6 +105,8 @@ class ComposeForm extends ImmutablePureComponent {
     showSearch: false,
     autoFocus: true,
     contextCompliant: true,
+    canAttempt: true,
+    capabilityReason: null,
     displayMode: 'full',
   };
 
@@ -124,14 +129,37 @@ class ComposeForm extends ImmutablePureComponent {
   }
 
   canSubmit = () => {
-    const { isSubmitting, isChangingUpload, isUploading, isCircleUnselected, isEditing, anyMedia, prohibitedVisibilities, privacy, prohibitedWords, spoilerText, contextCompliant } = this.props;
+    const { isSubmitting, isChangingUpload, isUploading, isCircleUnselected, isEditing, anyMedia, prohibitedVisibilities, privacy, prohibitedWords, spoilerText, contextCompliant, canAttempt } = this.props;
     const composedText = this.composedText();
     const fulltext = this.getFulltextForCharacterCounting();
     const isOnlyWhitespace = fulltext.length !== 0 && fulltext.trim().length === 0;
     const noVisibility = !isEditing && prohibitedVisibilities?.includes(privacy);
     const ngWords = prohibitedWords.some( word => composedText.includes(word) || spoilerText?.includes(word) );
 
-    return !(isSubmitting || isUploading || isChangingUpload || isCircleUnselected || length(fulltext) > maxChars || (isOnlyWhitespace && !anyMedia) || noVisibility || ngWords || !contextCompliant);
+    return !(isSubmitting || isUploading || isChangingUpload || isCircleUnselected || length(fulltext) > maxChars || (isOnlyWhitespace && !anyMedia) || noVisibility || ngWords || !contextCompliant || !canAttempt);
+  }
+
+  renderCapabilityGuard () {
+    if (!this.isSimpleMode() || this.props.canAttempt !== false) {
+      return null;
+    }
+
+    const reasonMessages = {
+      compliance: postingContextCapabilityMessages.blockedCompliance,
+      delivery_unsupported: postingContextCapabilityMessages.blockedUnsupported,
+      delivery_unresolved: postingContextCapabilityMessages.blockedUnresolved,
+      target_mismatch: postingContextCapabilityMessages.blockedMismatch,
+    };
+    const message = reasonMessages[this.props.capabilityReason] || postingContextCapabilityMessages.blockedCompliance;
+
+    return (
+      <div className='compose-form__capability-guard' role='status'>
+        <span>{this.props.intl.formatMessage(message)}</span>
+        <button type='button' onClick={this.handleFullModeClick}>
+          {this.props.intl.formatMessage(postingContextCapabilityMessages.blockedDetails)}
+        </button>
+      </div>
+    );
   }
 
   handleSubmit = () => {
@@ -377,6 +405,7 @@ class ComposeForm extends ImmutablePureComponent {
     return (
       <div className={simple ? 'compose-form compose-form--simple' : 'compose-form'}>
         {this.props.styleController}
+        {this.renderCapabilityGuard()}
         {!simple && (
           <Fragment key='advanced'>
             <WarningContainer />
