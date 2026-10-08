@@ -1,0 +1,12 @@
+- if @preview.discovery_trust == 'unverified'
+  %p.user-posting-context-constraint.user-posting-context-constraint--unverified= t('user_posting_contexts.unverified_banner')
+- elsif @preview.visibility.permission == 'conflict'
+  %p.user-posting-context-constraint.user-posting-context-constraint--conflict
+    = t('user_posting_contexts.permissions.conflict', value: user_posting_context_visibility_label(@preview.visibility.value))
+    = t('user_posting_contexts.allowed_options', options: @preview.visibility.allowed.map { |visibility| user_posting_context_visibility_label(visibility) }.join(', '))
+- elsif @preview.visibility.permission == 'permitted'
+  %p.user-posting-context-constraint= t('user_posting_contexts.permissions.permitted', options: @preview.visibility.allowed.map { |visibility| user_posting_context_visibility_label(visibility) }.join(', '))
+- elsif @preview.visibility.permission == 'not_applicable'
+  %p.user-posting-context-constraint= t('user_posting_contexts.permissions.not_applicable')
+- else
+  %p.user-posting-context-constraint= t('user_posting_contexts.permissions.undeclared')

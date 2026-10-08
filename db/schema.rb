@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_07_050000) do
+ActiveRecord::Schema.define(version: 2026_10_08_090000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1629,6 +1629,26 @@ ActiveRecord::Schema.define(version: 2026_10_07_050000) do
     t.index ["user_id"], name: "index_user_invite_requests_on_user_id"
   end
 
+  create_table "user_posting_contexts", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.string "name", limit: 80, null: false
+    t.string "icon", limit: 64
+    t.text "purpose"
+    t.string "target_kind", limit: 16, default: "none", null: false
+    t.bigint "target_account_id"
+    t.string "target_hashtag", limit: 100
+    t.jsonb "defaults", default: {}, null: false
+    t.jsonb "managed", default: {}, null: false
+    t.integer "position", default: 0, null: false
+    t.boolean "enabled", default: true, null: false
+    t.integer "schema_version", default: 1, null: false
+    t.integer "lock_version", default: 0, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["target_account_id"], name: "index_user_posting_contexts_on_target_account_id"
+    t.index ["user_id", "position"], name: "index_user_posting_contexts_on_user_id_and_position"
+  end
+
   create_table "user_roles", force: :cascade do |t|
     t.string "name", default: "", null: false
     t.string "color", default: "", null: false
@@ -1885,6 +1905,8 @@ ActiveRecord::Schema.define(version: 2026_10_07_050000) do
   add_foreign_key "tombstones", "accounts", on_delete: :cascade
   add_foreign_key "user_external_credentials", "users", on_delete: :cascade
   add_foreign_key "user_invite_requests", "users", on_delete: :cascade
+  add_foreign_key "user_posting_contexts", "accounts", column: "target_account_id", on_delete: :nullify
+  add_foreign_key "user_posting_contexts", "users", on_delete: :cascade
   add_foreign_key "users", "accounts", name: "fk_50500f500d", on_delete: :cascade
   add_foreign_key "users", "invites", on_delete: :nullify
   add_foreign_key "users", "oauth_applications", column: "created_by_application_id", on_delete: :nullify

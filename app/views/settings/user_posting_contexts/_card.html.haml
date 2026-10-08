@@ -1,0 +1,21 @@
+%article.user-posting-context-card
+  = link_to edit_settings_user_posting_context_path(context), class: 'user-posting-context-card__main' do
+    %span.user-posting-context-card__icon{ data: { custom_emoji_text: true } }= context.icon.presence || '✎'
+    .user-posting-context-card__body
+      %h3.user-posting-context-card__name{ dir: 'auto' }= context.name
+      - if context.purpose.present?
+        .user-posting-context-card__purpose{ dir: 'auto' }= simple_format(h(context.purpose), {}, sanitize: false)
+      %ul.user-posting-context-card__facts
+        - user_posting_context_facts(context).each do |label, value|
+          %li
+            %span.user-posting-context-card__label= label
+            %span{ dir: 'auto' }= value
+      %span.invisible= t('user_posting_contexts.edit_action')
+  %details.user-posting-context-card__menu{ data: { user_posting_context_menu: true } }
+    %summary{ aria: { label: t('user_posting_contexts.more_actions', name: context.name) } }
+      %span{ aria: { hidden: 'true' } } …
+    .user-posting-context-card__menu-panel
+      = form_with url: duplicate_settings_user_posting_context_path(context), method: :post, local: true, class: 'user-posting-context-card__menu-form' do
+        %button.user-posting-context-card__menu-item{ type: 'submit' }= t('user_posting_contexts.duplicate')
+      = form_with url: settings_user_posting_context_path(context), method: :delete, local: true, class: 'user-posting-context-card__menu-form' do
+        %button.user-posting-context-card__menu-item.user-posting-context-card__menu-item--danger{ type: 'submit', aria: { label: t('user_posting_contexts.delete', name: context.name) }, data: { confirm: t('user_posting_contexts.delete_confirm', name: context.name) } }= t('user_posting_contexts.delete_menu')

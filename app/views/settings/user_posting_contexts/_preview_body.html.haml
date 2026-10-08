@@ -1,0 +1,79 @@
+- alerts = @preview.conflicts.reject { |conflict| conflict['kind'] == 'unverified' && conflict['field'] == 'discovery' }
+- if @preview.discovery_trust == 'unverified' || alerts.any?
+  .user-posting-context-preview__alert{ role: 'status' }
+    - if @preview.discovery_trust == 'unverified'
+      %p= t('user_posting_contexts.unverified_not_postable')
+    - alerts.each do |conflict|
+      %p= user_posting_context_conflict_text(conflict)
+
+.user-posting-context-preview__lead
+  %p
+    %span.user-posting-context-card__label= t('user_posting_contexts.preview_labels.destination')
+    %strong{ dir: 'auto' }= user_posting_context_target_label(@context)
+  %p
+    %span.user-posting-context-card__label= t('user_posting_contexts.preview_labels.visibility')
+    %strong{ class: (@preview.visibility.permission == 'conflict' ? 'user-posting-context-constraint--conflict' : nil) }= user_posting_context_visibility_label(@preview.visibility.value)
+
+%ul.user-posting-context-preview__compact
+  %li
+    %span.user-posting-context-card__label= t('user_posting_contexts.preview_labels.auto_tags')
+    - labels = user_posting_context_auto_tag_labels(@preview)
+    - if labels.empty?
+      = t('user_posting_contexts.no_hashtags')
+    - else
+      %span{ dir: 'auto' }= labels.join(' ')
+  %li
+    %span.user-posting-context-card__label= t('user_posting_contexts.preview_labels.required_mentions')
+    - if @preview.discovery_trust == 'unverified'
+      = t('user_posting_contexts.unverified_short')
+    - else
+      - mentions = user_posting_context_required_mention_labels(@preview)
+      - if mentions.empty?
+        = t('user_posting_contexts.no_required_mentions')
+      - else
+        %span{ dir: 'auto' }= mentions.join(' ')
+
+%details.user-posting-context-preview__details
+  %summary= t('user_posting_contexts.preview_details')
+  %p.hint= t('user_posting_contexts.save_not_posting')
+  %dl.user-posting-context-preview__list
+    %dt= t('user_posting_contexts.preview_labels.visibility')
+    %dd
+      = user_posting_context_visibility_label(@preview.visibility.value)
+      %span.user-posting-context-preview__source= user_posting_context_source_label(@preview.visibility.source)
+      - if @preview.visibility.inherited?
+        %span.user-posting-context-preview__usual= t('user_posting_contexts.preview_labels.usual', value: user_posting_context_visibility_label(@preview.visibility.usual_value))
+    %dt= t('user_posting_contexts.preview_labels.language')
+    %dd
+      = user_posting_context_language_label(@preview.language.value)
+      %span.user-posting-context-preview__source= user_posting_context_source_label(@preview.language.source)
+      - if @preview.language.inherited?
+        %span.user-posting-context-preview__usual= t('user_posting_contexts.preview_labels.usual', value: user_posting_context_language_label(@preview.language.usual_value))
+    %dt= t('user_posting_contexts.preview_labels.spoiler')
+    %dd
+      %span{ dir: 'auto' }= user_posting_context_spoiler_label(@preview.spoiler.value)
+      %span.user-posting-context-preview__source= user_posting_context_source_label(@preview.spoiler.source)
+    %dt= t('user_posting_contexts.preview_labels.sensitive')
+    %dd
+      = user_posting_context_sensitive_label(@preview.sensitive.value == true)
+      %span.user-posting-context-preview__source= user_posting_context_source_label(@preview.sensitive.source)
+    - if @context.target_kind == 'hashtag'
+      %dt= t('user_posting_contexts.preview_labels.destination_hashtag')
+      %dd
+        - if @preview.destination_hashtag
+          %span{ dir: 'auto' }= "##{@preview.destination_hashtag['name']}"
+          %span.user-posting-context-preview__source= t('user_posting_contexts.destination_hashtag_origin')
+        - else
+          = t('user_posting_contexts.destination_hashtag_missing')
+    %dt= t('user_posting_contexts.preview_labels.user_hashtags')
+    %dd
+      - if @preview.user_hashtags.empty?
+        = t('user_posting_contexts.no_hashtags')
+      - else
+        %ul
+          - @preview.user_hashtags.each do |tag|
+            %li{ dir: 'auto' }
+              = "##{tag['name']}"
+              %span.user-posting-context-preview__source= t('user_posting_contexts.advisory')
+    %dt= t('user_posting_contexts.preview_labels.discovery')
+    %dd= user_posting_context_discovery_explanation(@preview)

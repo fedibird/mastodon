@@ -1,0 +1,13 @@
+- content_for :page_title do
+  = t('user_posting_contexts.title')
+
+%p= t('user_posting_contexts.description')
+
+%p
+  = link_to t('user_posting_contexts.new'), new_settings_user_posting_context_path, class: 'button'
+
+- if @contexts.empty?
+  %p.user-posting-context-empty{ role: 'status' }= t('user_posting_contexts.empty')
+- else
+  .user-posting-context-list
+    = render partial: 'card', collection: @contexts, as: :context

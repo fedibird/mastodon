@@ -2135,7 +2135,162 @@ ja:
     safety: 安全とプライバシー
     statuses_cleanup: 投稿の自動削除
     two_factor_authentication: 二段階認証
+    user_posting_contexts: 投稿のスタイルと目的
     webauthn_authentication: セキュリティキー
+  user_posting_contexts:
+    advisory: この投稿スタイルによる参考タグ
+    auto_language: 投稿時に言語を自動判定します。
+    destination_hashtag_missing: 投稿先のハッシュタグ名がまだ有効ではありません。
+    destination_hashtag_origin: 投稿先として指定したハッシュタグです。投稿時には参考タグとして追加される予定です。
+    disabled_spoiler: この投稿スタイルで内容警告を無効にします。
+    allowed_options: 変更できる選択肢は %{options} です。
+    back: 一覧に戻る
+    choices:
+      auto: 言語を自動判定する
+      disabled: 内容警告を無効にする
+      enabled: 内容警告を使う
+      explicit: この投稿スタイルで指定する
+      inherit: 通常の設定を使用
+    conflict_item: "%{field}は投稿先の条件から外れています（%{value}）。選択肢: %{options}"
+    conflicts_empty: 未解決の競合はありません。
+    copy_suffix: "（コピー）"
+    delete: "%{name} を削除"
+    delete_menu: 削除
+    delete_confirm: 投稿スタイル「%{name}」を削除しますか？この操作は取り消せません。
+    deleted: 投稿スタイルを削除しました。
+    description: 投稿する目的や場所に合わせて、自分に合った投稿のしかたを用意できます。
+    discovery:
+      hashtag_target: ハッシュタグの投稿先には、グループの投稿条件はありません。
+      missing_group: 選択したグループが見つかりません。条件は未確認です。
+      no_supported_adapter: このグループには対応した投稿条件の取得元がありません。条件は未確認です。
+      no_target: 投稿先は指定されていません。
+      not_applicable: この投稿先には投稿条件は適用されません。
+      not_group: 選択したアカウントはグループではありません。条件は未確認です。
+      resolved: 投稿先の条件を、現在の情報から読み取りました。
+      target_kind: 投稿先の種類を認識できません。条件は未確認です。
+      unknown: 投稿先の条件を確認できませんでした。
+      unsupported: このグループには対応した投稿条件の取得元がありません。条件は未確認です。
+    duplicate: 複製
+    duplicated: 投稿スタイルを複製しました。
+    edit: 投稿スタイルを編集
+    edit_action: 編集
+    more_actions: "%{name} のその他の操作"
+    empty: まだ投稿スタイルがありません。目的や場所に合わせて作成できます。
+    errors:
+      defaults: 投稿の初期値に保存できない内容があります。
+      duplicate: 投稿スタイルを複製できませんでした。
+      group_invalid: このサーバーに既にあるグループを選んでください。不明なアカウントを取得することはありません。
+      hashtag_list: 自動追加するハッシュタグに使えない名前があるか、件数が多すぎます。
+      icon: アイコンに保存できない文字が含まれています。
+      invalid_hashtag: このサーバーで使えるハッシュタグ名を入力してください。
+      language: このサーバーが対応する言語を選んでください。
+      language_choice: 言語を、通常の設定、自動判定、指定のいずれかにしてください。
+      limit: 投稿スタイルは%{count}件まで保存できます。
+      managed: 自動追加するハッシュタグに保存できない内容があります。
+      name: 名前に保存できない文字が含まれています。
+      purpose: 用途の説明に保存できない文字が含まれています。
+      sensitive: センシティブ設定を、通常の設定を使うかどうか選んでください。
+      sensitive_value: メディアをセンシティブにするかどうかを選んでください。
+      spoiler_choice: 内容警告を、通常の設定、無効、有効のいずれかにしてください。
+      spoiler_shape: 内容警告をその形式では保存できません。
+      spoiler_text: 内容警告の文を保存できません。
+      stale: 別の保存が先に行われたため、今回の変更は反映していません。ページを読み込み直してから編集してください。
+      visibility: このサーバーが対応する公開範囲を選んでください。
+      visibility_choice: 公開範囲を、通常の設定を使うかどうか選んでください。
+    fields:
+      hashtags: 自動追加するハッシュタグ
+      icon: アイコン
+      language: 投稿言語
+      language_code: 言語
+      name: 名前
+      purpose: 用途の説明
+      sensitive: センシティブ設定
+      sensitive_value: センシティブの値
+      spoiler: 内容警告
+      spoiler_text: 内容警告の文
+      target_kind: 投稿先
+      visibility: 公開範囲
+      visibility_value: 公開範囲の値
+    hashtags_hint: この投稿スタイルが付ける参考のタグです。投稿先が必須とするタグとは別です。
+    icon_hint: Unicode絵文字、またはピッカーのカスタム絵文字を使えます。
+    inherit_spoiler: 通常の設定には内容警告がありません。内容警告を無効にする指定とは別です。
+    inherit_value: "通常の設定: %{value}"
+    new: 新しい投稿スタイルを作成
+    no_hashtags: なし
+    no_required_mentions: なし
+    no_known_groups: 選べる既知のグループがまだありません。
+    permissions:
+      conflict: "%{value} は、この投稿先が許可する公開範囲に含まれていません。"
+      not_applicable: この投稿先はグループの投稿条件を持ちません。
+      permitted: この投稿先が許可する公開範囲は %{options} です。
+      undeclared: この投稿先は公開範囲の条件を宣言していません。
+    preview_labels:
+      auto_tags: 自動追加タグ
+      conflicts: 未解決の競合
+      destination: 投稿先
+      required_mentions: 必須メンション
+      destination_hashtag: 投稿先のハッシュタグ
+      discovery: 投稿先の条件
+      language: 言語
+      recommended: 投稿先が明示した推奨値
+      required: 投稿先の必須条件
+      sensitive: センシティブ設定
+      spoiler: 内容警告
+      user_hashtags: この投稿スタイルが追加するタグ
+      usual: "通常の設定: %{value}"
+      visibility: 公開範囲
+    preview_failed: 投稿先の条件を取得できませんでした。取得できなかった条件は、現在の条件として表示していません。
+    preview_details: 継承と制約の詳細
+    preview_note: 適用結果のプレビューです。投稿そのものは実行されません。
+    save_not_posting: スタイルの保存は、その条件で投稿できるかどうかとは別です。競合があっても、この画面では保存できます。
+    preview_pending: 投稿先の条件を更新しています。
+    purpose_hint: 用途は自分のためのメモです。投稿本文には含まれません。
+    recommended_empty: 投稿先は推奨値を明示していません。
+    required_empty: 投稿先は必須条件を宣言していません。
+    rules:
+      audience: "オーディエンス %{label} が必須です"
+      following: "@%{label} のフォローが必須です"
+      hashtag: "ハッシュタグ #%{label} が必須です"
+      mention: "@%{label} へのメンションが必須です"
+    saved: 投稿スタイルを保存しました。
+    sections:
+      preview: 投稿するとどうなる？
+      purpose: 何のために投稿する？
+      style: どんなふうに投稿する？
+      target: どこで使う？
+    sensitive_off: センシティブにしない
+    sensitive_on: センシティブ
+    sensitive_values:
+      'false': メディアをセンシティブにしない
+      'true': メディアをセンシティブにする
+    sources:
+      clear: この投稿スタイルで解除
+      explicit: この投稿スタイルで指定
+      inherit: 通常の設定を使用
+    spoiler_hint: 内容警告を無効にすることと、この項目を未指定のままにすることは別です。
+    spoiler_off: 内容警告なし
+    spoiler_on: 内容警告あり
+    summary:
+      hashtags: "タグ: %{value}"
+      language: "言語: %{value}"
+      sensitive: "センシティブ: %{value}"
+      visibility: "公開範囲: %{value}"
+    target_group: グループ
+    target_group_hint: このサーバーが既に知っているグループから選びます。プレビューで新しいアカウントを取得することはありません。
+    target_group_prompt: グループを選択
+    target_hashtag: ハッシュタグ
+    target_hashtag_hint: ハッシュタグ名を指定します。
+    target_kinds:
+      group: グループ
+      hashtag: ハッシュタグ
+      none: 指定しない
+    title: 投稿のスタイルと目的
+    unset: 未設定
+    unverified_banner: 投稿先の条件は未確認です。未確認の条件は許可済みとして扱いません。
+    unverified_not_postable: 投稿先の条件は未確認です。未確認は、投稿できるという意味ではありません。
+    unverified_short: 未確認
+    unverified_item: "%{field} は未確認であり、許可済みとしては扱いません。"
+    usual_summary: "通常の設定は、公開範囲 %{visibility}、言語 %{language}、センシティブ %{sensitive} です。内容警告は通常の設定には含まれません。"
   statuses:
     attached:
       audio:

@@ -217,6 +217,14 @@ Rails.application.routes.draw do
     resources :featured_tags, only: [:index, :create, :destroy]
     resources :favourite_domains, only: [:index, :create, :destroy]
     resources :favourite_tags, only: [:index, :create, :destroy]
+    resources :user_posting_contexts, except: [:show] do
+      member do
+        post :duplicate
+      end
+      collection do
+        post :preview
+      end
+    end
     resources :follow_tags, except: [:show]
     resources :account_subscribes, except: [:show]
     resources :domain_subscribes, except: [:show]
