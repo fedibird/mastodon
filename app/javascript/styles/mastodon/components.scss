@@ -795,12 +795,15 @@ body > [data-popper-placement] {
     background: darken($simple-background-color, 8%);
     border-radius: 0 0 4px 4px;
     display: flex;
-    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
     flex: 0 0 auto;
 
     .compose-form__buttons {
       display: flex;
-      flex: 1 1 auto;
+      align-items: center;
+      flex: 1 1 140px;
       flex-wrap: wrap;
       min-width: 0;
 
@@ -827,21 +830,26 @@ body > [data-popper-placement] {
       padding: 0 3px;
     }
 
-    .character-counter__wrapper {
-      align-self: center;
-      margin-right: 4px;
+    .compose-form__submit {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 1 auto;
+      min-width: 0;
+      margin-inline-start: auto;
     }
-  }
 
-  .compose-form__publish {
-    display: flex;
-    justify-content: flex-end;
-    min-width: 0;
-    flex: 0 0 auto;
+    .character-counter__wrapper {
+      flex: 0 0 auto;
+    }
 
     .compose-form__publish-button-wrapper {
+      min-width: 0;
       overflow: hidden;
-      padding-top: 10px;
+
+      .button {
+        max-width: 100%;
+      }
     }
   }
 }
@@ -3524,10 +3532,6 @@ body.app-body.layout-single-column.status-timeline-split {
     .navigation-bar,
     .compose-form {
       padding: 15px;
-    }
-
-    .compose-form .compose-form__publish .compose-form__publish-button-wrapper {
-      padding-top: 15px;
     }
 
     .status {

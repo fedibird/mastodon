@@ -31,6 +31,7 @@ import { countableText } from '../util/counter';
 import Icon from 'mastodon/components/icon';
 import { disablePost, maxChars } from '../../../initial_state';
 import IconButton from '../../../components/icon_button';
+import { PORTABLE_COMPOSER_MODE_FULL, PORTABLE_COMPOSER_MODE_SIMPLE } from '../../../selectors/composer';
 
 const allowedAroundShortCode = '><\u0085\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000\u2028\u2029\u0009\u000a\u000b\u000c\u000d';
 
@@ -45,6 +46,8 @@ const messages = defineMessages({
   update: { id: 'compose_form.update_scheduled_status', defaultMessage: 'Update scheduled post' },
   delete: { id: 'compose_form.delete_scheduled_status', defaultMessage: 'Delete scheduled post' },
   and: { id: 'compose_form.and', defaultMessage: ' + ' },
+  simpleMode: { id: 'compose_form.simple_mode', defaultMessage: 'Switch to simple view' },
+  fullMode: { id: 'compose_form.full_mode', defaultMessage: 'Show full composer' },
 });
 
 export default @injectIntl
@@ -89,12 +92,15 @@ class ComposeForm extends ImmutablePureComponent {
     singleColumn: PropTypes.bool,
     autoFocus: PropTypes.bool,
     contextCompliant: PropTypes.bool,
+    displayMode: PropTypes.oneOf(['full', 'simple']),
+    onDisplayModeChange: PropTypes.func,
   };
 
   static defaultProps = {
     showSearch: false,
     autoFocus: true,
     contextCompliant: true,
+    displayMode: 'full',
   };
 
   handleChange = (e) => {
@@ -202,9 +208,9 @@ class ComposeForm extends ImmutablePureComponent {
     } else if(prevProps.isSubmitting && !this.props.isSubmitting) {
       this.autosuggestTextarea.textarea.focus();
     } else if (this.props.spoiler !== prevProps.spoiler) {
-      if (this.props.spoiler) {
+      if (this.props.spoiler && this.spoilerText) {
         this.spoilerText.input.focus();
-      } else {
+      } else if (this.autosuggestTextarea) {
         this.autosuggestTextarea.textarea.focus();
       }
     }
@@ -222,17 +228,8 @@ class ComposeForm extends ImmutablePureComponent {
     this.composeForm = c;
   };
 
-  handleEmojiPick = (data) => {
-    const { text }     = this.props;
-    const position     = this.autosuggestTextarea.textarea.selectionStart;
-    const needsSpace   = data.custom && position > 0 && !allowedAroundShortCode.includes(text[position - 1]);
-
-    this.props.onPickEmoji(position, data, needsSpace);
-  }
-
-  render () {
-    const { intl, onPaste, showSearch, autoFocus } = this.props;
-    const disabled = this.props.isSubmitting;
+  publishLabel () {
+    const { intl } = this.props;
     let publishText = '';
 
     if (this.props.isEditing) {
@@ -251,91 +248,194 @@ class ComposeForm extends ImmutablePureComponent {
       }
     }
 
+    return publishText;
+  }
+
+  renderPublishButton (publishText) {
     return (
-      <div className='compose-form'>
-        <WarningContainer />
+      <div className='compose-form__publish-button-wrapper'>
+        <Button text={publishText} onClick={this.handleSubmit} disabled={disablePost || !this.canSubmit()} />
+      </div>
+    );
+  }
 
-        {this.props.isEditing && (
-          <div className='edit-indicator'>
-            <div className='edit-indicator__cancel'><IconButton title={intl.formatMessage(messages.cancelEdit)} icon='times' onClick={this.props.onCancelEdit} inverted /></div>
-            <div className='edit-indicator__content translate'><FormattedMessage {...messages.editing} /></div>
-          </div>
+  isSimpleMode () {
+    return typeof this.props.onDisplayModeChange === 'function' && this.props.displayMode === PORTABLE_COMPOSER_MODE_SIMPLE;
+  }
+
+  handlePaste = (files) => {
+    if (this.isSimpleMode()) {
+      this.props.onDisplayModeChange(PORTABLE_COMPOSER_MODE_FULL);
+    }
+
+    this.props.onPaste(files);
+  }
+
+  handleSimpleModeClick = () => {
+    this.props.onDisplayModeChange(PORTABLE_COMPOSER_MODE_SIMPLE);
+  }
+
+  handleFullModeClick = () => {
+    this.props.onDisplayModeChange(PORTABLE_COMPOSER_MODE_FULL);
+  }
+
+  renderTextarea (modifiers) {
+    const { intl, showSearch, autoFocus } = this.props;
+
+    return (
+      <AutosuggestTextarea
+        ref={this.setAutosuggestTextarea}
+        placeholder={intl.formatMessage(messages.placeholder)}
+        disabled={this.props.isSubmitting}
+        value={this.props.text}
+        onChange={this.handleChange}
+        suggestions={this.props.suggestions}
+        onFocus={this.handleFocus}
+        onKeyDown={this.handleKeyDown}
+        onSuggestionsFetchRequested={this.onSuggestionsFetchRequested}
+        onSuggestionsClearRequested={this.onSuggestionsClearRequested}
+        onSuggestionSelected={this.onSuggestionSelected}
+        onPaste={this.handlePaste}
+        autoFocus={autoFocus && !showSearch && !isMobile(window.innerWidth)}
+        lang={this.props.lang}
+      >
+        {modifiers}
+      </AutosuggestTextarea>
+    );
+  }
+
+  renderModeToggle () {
+    if (typeof this.props.onDisplayModeChange !== 'function') {
+      return null;
+    }
+
+    return (
+      <IconButton
+        icon='compress'
+        title={this.props.intl.formatMessage(messages.simpleMode)}
+        onClick={this.handleSimpleModeClick}
+        inverted
+      />
+    );
+  }
+
+  handleEmojiPick = (data) => {
+    const { text }     = this.props;
+    const position     = this.autosuggestTextarea.textarea.selectionStart;
+    const needsSpace   = data.custom && position > 0 && !allowedAroundShortCode.includes(text[position - 1]);
+
+    this.props.onPickEmoji(position, data, needsSpace);
+  }
+
+  renderFooter (publishText) {
+    const { intl } = this.props;
+    const simple = this.isSimpleMode();
+
+    return (
+      <div className={`compose-form__buttons-wrapper${simple ? ' compose-form__buttons-wrapper--simple' : ''}`}>
+        <div className='compose-form__buttons'>
+          {simple ? (
+            <IconButton
+              icon='expand'
+              title={intl.formatMessage(messages.fullMode)}
+              onClick={this.handleFullModeClick}
+              inverted
+            />
+          ) : (
+            <Fragment>
+              <UploadButtonContainer />
+              <PollButtonContainer />
+              <SpoilerButtonContainer />
+              <EmojiPickerDropdownContainer onPickEmoji={this.handleEmojiPick} />
+              {!this.props.isEditing && <DateTimeButtonContainer />}
+              {!this.props.isEditing && <SearchabilityDropdownContainer />}
+              {this.renderModeToggle()}
+            </Fragment>
+          )}
+        </div>
+
+        <div className='compose-form__submit'>
+          {!simple && (
+            <div className='character-counter__wrapper'>
+              <CharacterCounter max={maxChars} text={this.getFulltextForCharacterCounting()} />
+            </div>
+          )}
+
+          {this.renderPublishButton(publishText)}
+        </div>
+      </div>
+    );
+  }
+
+  render () {
+    const { intl } = this.props;
+    const publishText = this.publishLabel();
+    const simple = this.isSimpleMode();
+
+    return (
+      <div className={simple ? 'compose-form compose-form--simple' : 'compose-form'}>
+        {!simple && (
+          <Fragment key='advanced'>
+            <WarningContainer />
+
+            {this.props.isEditing && (
+              <div className='edit-indicator'>
+                <div className='edit-indicator__cancel'><IconButton title={intl.formatMessage(messages.cancelEdit)} icon='times' onClick={this.props.onCancelEdit} inverted /></div>
+                <div className='edit-indicator__content translate'><FormattedMessage {...messages.editing} /></div>
+              </div>
+            )}
+
+            <ReplyIndicatorContainer />
+            {!this.props.isEditing && <QuoteIndicatorContainer />}
+
+            <div className={`spoiler-input ${this.props.spoiler ? 'spoiler-input--visible' : ''}`} ref={this.setRef}>
+              <AutosuggestInput
+                placeholder={intl.formatMessage(messages.spoiler_placeholder)}
+                value={this.props.spoilerText}
+                onChange={this.handleChangeSpoilerText}
+                onKeyDown={this.handleKeyDown}
+                disabled={!this.props.spoiler}
+                ref={this.setSpoilerText}
+                suggestions={this.props.suggestions}
+                onSuggestionsFetchRequested={this.onSuggestionsFetchRequested}
+                onSuggestionsClearRequested={this.onSuggestionsClearRequested}
+                onSuggestionSelected={this.onSpoilerSuggestionSelected}
+                searchTokens={[':']}
+                id='cw-spoiler-input'
+                className='spoiler-input__input'
+                lang={this.props.lang}
+              />
+            </div>
+
+            <div className='compose-form__dropdowns'>
+              <PrivacyDropdownContainer disabled={this.props.isEditing} showLabel />
+              <LanguageDropdownContainer />
+            </div>
+
+            {!this.props.isEditing && !this.props.isScheduledStatusEditting && (
+              <PostingContextBarContainer />
+            )}
+          </Fragment>
         )}
 
-        <ReplyIndicatorContainer />
-        {!this.props.isEditing && <QuoteIndicatorContainer />}
+        <Fragment key='text'>
+          {this.renderTextarea(simple ? null : (
+            <div className='compose-form__modifiers'>
+              <UploadFormContainer />
+              <PollFormContainer />
+              {!this.props.isEditing && <DateTimeFormContainer />}
+              {!this.props.isEditing && <ExpiresIndicatorContainer />}
+            </div>
+          ))}
+        </Fragment>
 
-        <div className={`spoiler-input ${this.props.spoiler ? 'spoiler-input--visible' : ''}`} ref={this.setRef}>
-          <AutosuggestInput
-            placeholder={intl.formatMessage(messages.spoiler_placeholder)}
-            value={this.props.spoilerText}
-            onChange={this.handleChangeSpoilerText}
-            onKeyDown={this.handleKeyDown}
-            disabled={!this.props.spoiler}
-            ref={this.setSpoilerText}
-            suggestions={this.props.suggestions}
-            onSuggestionsFetchRequested={this.onSuggestionsFetchRequested}
-            onSuggestionsClearRequested={this.onSuggestionsClearRequested}
-            onSuggestionSelected={this.onSpoilerSuggestionSelected}
-            searchTokens={[':']}
-            id='cw-spoiler-input'
-            className='spoiler-input__input'
-            lang={this.props.lang}
-          />
-        </div>
+        {!simple && !this.props.isEditing && <CircleDropdownContainer key='circle' />}
 
-        <div className='compose-form__dropdowns'>
-          <PrivacyDropdownContainer disabled={this.props.isEditing} showLabel />
-          <LanguageDropdownContainer />
-        </div>
+        <Fragment key='footer'>
+          {this.renderFooter(publishText)}
+        </Fragment>
 
-        {!this.props.isEditing && !this.props.isScheduledStatusEditting && (
-          <PostingContextBarContainer />
-        )}
-
-        <AutosuggestTextarea
-          ref={this.setAutosuggestTextarea}
-          placeholder={intl.formatMessage(messages.placeholder)}
-          disabled={disabled}
-          value={this.props.text}
-          onChange={this.handleChange}
-          suggestions={this.props.suggestions}
-          onFocus={this.handleFocus}
-          onKeyDown={this.handleKeyDown}
-          onSuggestionsFetchRequested={this.onSuggestionsFetchRequested}
-          onSuggestionsClearRequested={this.onSuggestionsClearRequested}
-          onSuggestionSelected={this.onSuggestionSelected}
-          onPaste={onPaste}
-          autoFocus={autoFocus && !showSearch && !isMobile(window.innerWidth)}
-          lang={this.props.lang}
-        >
-          <div className='compose-form__modifiers'>
-            <UploadFormContainer />
-            <PollFormContainer />
-            {!this.props.isEditing && <DateTimeFormContainer />}
-            {!this.props.isEditing && <ExpiresIndicatorContainer />}
-          </div>
-        </AutosuggestTextarea>
-
-        <div className='compose-form__buttons-wrapper'>
-          <div className='compose-form__buttons'>
-            <UploadButtonContainer />
-            <PollButtonContainer />
-            <SpoilerButtonContainer />
-            <EmojiPickerDropdownContainer onPickEmoji={this.handleEmojiPick} />
-            {!this.props.isEditing && <DateTimeButtonContainer />}
-            {!this.props.isEditing && <SearchabilityDropdownContainer />}
-          </div>
-          <div className='character-counter__wrapper'><CharacterCounter max={maxChars} text={this.getFulltextForCharacterCounting()} /></div>
-        </div>
-
-        {!this.props.isEditing && <CircleDropdownContainer />}
-
-        <div className='compose-form__publish'>
-          <div className='compose-form__publish-button-wrapper'><Button text={publishText} onClick={this.handleSubmit} disabled={disablePost || !this.canSubmit()} block /></div>
-        </div>
-
-        {!this.props.isEditing && <ReferenceStack />}
+        {!simple && !this.props.isEditing && <ReferenceStack key='references' />}
       </div>
     );
   }

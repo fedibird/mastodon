@@ -190,6 +190,7 @@ const initialState = ImmutableMap({
   }),
 
   portableComposerVisibility: ImmutableMap(),
+  portableComposerDisplayMode: ImmutableMap(),
 
   emoji_reactioned_statuses: ImmutableMap({
     emojis: ImmutableList(),

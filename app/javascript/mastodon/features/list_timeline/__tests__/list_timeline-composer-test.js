@@ -94,14 +94,25 @@ const withVisibility = (settingsState, visibility) => {
   );
 };
 
-const renderTimeline = (ListTimeline, { columnId, id = '7', visibility } = {}) => {
+const withDisplayMode = (settingsState, displayMode) => {
+  if (!displayMode) {
+    return settingsState;
+  }
+
+  return Object.keys(displayMode).reduce(
+    (state, composerId) => state.setIn(['portableComposerDisplayMode', composerId], displayMode[composerId]),
+    settingsState,
+  );
+};
+
+const renderTimeline = (ListTimeline, { columnId, id = '7', visibility, displayMode } = {}) => {
   captured.length = 0;
   const initialState = ImmutableMap({
     lists: ImmutableMap({
       [id]: fromJS({ id, title: 'Friends', replies_policy: 'list' }),
     }),
     timelines: ImmutableMap(),
-    settings: withVisibility(settingsReducer(undefined, { type: '@@INIT' }), visibility),
+    settings: withDisplayMode(withVisibility(settingsReducer(undefined, { type: '@@INIT' }), visibility), displayMode),
   });
   const store = createStore((state = initialState, action) => {
     if (action.type === 'SETTING_CHANGE' || action.type === 'SETTING_SAVE') {
@@ -166,6 +177,26 @@ describe('ListTimeline portable composer', () => {
     expect(props.alwaysPrepend).toBe(true);
     expect(props.prepend.props.composerId).toEqual('portable:list-column:col-1');
     expect(props.prepend.key).toEqual('portable:list-column:col-1');
+  });
+
+  it('keeps display mode when the composer is hidden and shown again', () => {
+    const ListTimeline = loadTimeline({ isAdministrator: true });
+    const view = renderTimeline(ListTimeline, {
+      columnId: 'a',
+      visibility: { 'portable:list-column:a': true },
+      displayMode: {
+        'portable:list-column:a': 'simple',
+        'portable:list-column:b': 'full',
+      },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide composer' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show composer' }));
+
+    expect(view.store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:list-column:a'])).toBe(true);
+    expect(view.store.getState().getIn(['settings', 'portableComposerDisplayMode', 'portable:list-column:a'])).toBe('simple');
+    expect(view.store.getState().getIn(['settings', 'portableComposerDisplayMode', 'portable:list-column:b'])).toBe('full');
+    expect(captured[captured.length - 1].prepend.props.composerId).toEqual('portable:list-column:a');
   });
 
   it('keeps two list composer ids independent', () => {
