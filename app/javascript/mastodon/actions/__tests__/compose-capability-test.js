@@ -82,6 +82,7 @@ const mitraPayload = (createStatus, via = null) => ({
   status: 'resolved',
   context: {
     key: 'protocol:fep-1b12-group:456',
+    source: { id: 'compat:mitra-fep-1b12', revision: 1 },
     managed: { hashtags: [], mentions: [] },
     requirements: { following_accounts: [] },
     constraints: { allowed_visibilities: ['public', 'unlisted'] },
@@ -238,8 +239,28 @@ describe('submit create capability', () => {
       status: 'resolved',
       context: {
         key: 'builtin:fedibird-group:123',
-        managed: { hashtags: [], mentions: [] },
-        requirements: { following_accounts: [] },
+        source: { id: 'builtin:fedibird-group', revision: 1 },
+        managed: {
+          hashtags: [],
+          mentions: [
+            {
+              account_id: '123',
+              acct: 'group',
+              enforcement: 'required',
+              rule_id: 'group-account-mention',
+            },
+          ],
+        },
+        requirements: {
+          following_accounts: [
+            {
+              account_id: '123',
+              acct: 'group',
+              enforcement: 'required',
+              rule_id: 'group-follow',
+            },
+          ],
+        },
         constraints: { allowed_visibilities: ['public', 'unlisted'] },
       },
       discovery: {

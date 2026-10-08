@@ -4,7 +4,7 @@ jest.mock('react-intl', () => ({
   defineMessages: messages => messages,
 }));
 
-import { applyComposerPostingContext, createComposer, targetComposerAction } from '../../actions/composer';
+import { applyComposerPostingContext, createComposer, targetComposerAction, toggleComposerManagedHashtag } from '../../actions/composer';
 import { POSTING_CONTEXT_CACHE_TTL } from '../../actions/posting_contexts';
 import composer from '../../reducers/composer';
 import composers from '../../reducers/composers';
@@ -37,6 +37,7 @@ const viewerEvidence = (create, view = null) => ({
 
 const discoveryRecord = ({
   status = 'resolved',
+  context = null,
   adapter = null,
   authority = null,
   viewerEvidence: evidence = null,
@@ -46,7 +47,7 @@ const discoveryRecord = ({
   reason = null,
 } = {}) => fromJS({
   status,
-  context: null,
+  context,
   discovery: {
     mechanism: adapter ? 'test' : null,
     adapter,
@@ -83,8 +84,11 @@ const primaryState = ({
     [relationship.id]: ImmutableMap(relationship),
   }) : ImmutableMap();
   const cacheId = discoveryAccountId || accountId;
-  const postingContexts = discovery && cacheId ? ImmutableMap({
-    [String(cacheId)]: discovery,
+  const storedDiscovery = discovery && discovery.get && discovery.get('status') === 'resolved' && !discovery.get('context') && postingContext
+    ? discovery.set('context', fromJS(postingContext))
+    : discovery;
+  const postingContexts = storedDiscovery && cacheId ? ImmutableMap({
+    [String(cacheId)]: storedDiscovery,
   }) : ImmutableMap();
 
   return ImmutableMap({
@@ -444,18 +448,19 @@ describe('selectComposerEffectiveCreateCapability', () => {
     expect(createCapabilityNotice(capability)).toBe('unresolved');
   });
 
-  it('defers not_applicable discovery to the normal posting path', () => {
+  it('does not delegate an explicit group target when discovery is not applicable', () => {
     const capability = capabilityFor(primaryState({
-      postingContext: buildHashtagTimelinePostingContext('foo'),
-      accountId: '456',
-      privacy: null,
+      postingContext: groupPostingContext,
+      accountId: '123',
+      relationship: { id: '123', following: true, requested: false },
       discovery: discoveryRecord({ status: 'not_applicable', reason: 'not_group' }),
     }));
 
     expect(capability.delivery.status).toBe('not_applicable');
     expect(capability.permission.status).toBe('not_applicable');
-    expect(capability.canAttempt).toBe(true);
-    expect(createCapabilityNotice(capability)).toBeNull();
+    expect(capability.canAttempt).toBe(false);
+    expect(capability.reason).toBe('target_mismatch');
+    expect(createCapabilityNotice(capability)).toBe('mismatch');
   });
 
   it('keeps permission evidence separate across two composers', () => {
@@ -474,8 +479,12 @@ describe('selectComposerEffectiveCreateCapability', () => {
         '123': ImmutableMap({ following: false, requested: false }),
       }),
       posting_contexts: ImmutableMap({
-        '123': localDiscovery(viewerEvidence(permissionEvidence('allowed', 'admin'))),
-        '456': mitraDiscovery(viewerEvidence(permissionEvidence('unknown'))),
+        '123': localDiscovery(viewerEvidence(permissionEvidence('allowed', 'admin')), {
+          context: groupPostingContext,
+        }),
+        '456': mitraDiscovery(viewerEvidence(permissionEvidence('unknown')), {
+          context: mitraGroupPostingContext,
+        }),
       }),
     });
     const local = capabilityFor(state, 'composer-a');
@@ -500,8 +509,12 @@ describe('selectComposerEffectiveCreateCapability', () => {
       compose: composerState,
       relationships: ImmutableMap(),
       posting_contexts: ImmutableMap({
-        '123': mitraDiscovery(viewerEvidence(permissionEvidence('allowed', 'trusted-poster'))),
-        '456': mitraDiscovery(viewerEvidence(permissionEvidence('unknown'))),
+        '123': mitraDiscovery(viewerEvidence(permissionEvidence('allowed', 'trusted-poster')), {
+          context: groupPostingContext,
+        }),
+        '456': mitraDiscovery(viewerEvidence(permissionEvidence('unknown')), {
+          context: mitraGroupPostingContext,
+        }),
       }),
     });
     const capability = capabilityFor(state);
@@ -512,5 +525,178 @@ describe('selectComposerEffectiveCreateCapability', () => {
     expect(capability.permission.viaRelationship).toBeNull();
     expect(capability.canAttempt).toBe(true);
     expect(createCapabilityNotice(capability)).toBe('unknown_compatibility');
+  });
+
+  it('refuses a resolved group target when no composer context is applied', () => {
+    const capability = capabilityFor(primaryState({
+      postingContext: null,
+      accountId: '456',
+      discovery: mitraDiscovery(viewerEvidence(permissionEvidence('allowed', 'trusted-poster')), {
+        context: mitraGroupPostingContext,
+      }),
+    }));
+
+    expect(capability.delivery.status).toBe('supported');
+    expect(capability.permission.confirmed).toBe(true);
+    expect(capability.canAttempt).toBe(false);
+    expect(capability.reason).toBe('target_mismatch');
+    expect(createCapabilityNotice(capability)).toBe('mismatch');
+  });
+
+  it('refuses a group target whose composer context key and resolved account are empty', () => {
+    const capability = capabilityFor(primaryState({
+      postingContext: null,
+      accountId: '456',
+      discovery: mitraDiscovery(viewerEvidence(permissionEvidence('unknown')), {
+        context: mitraGroupPostingContext,
+      }),
+    }));
+
+    expect(capability.canAttempt).toBe(false);
+    expect(capability.reason).toBe('target_mismatch');
+  });
+
+  it('refuses a group target that still has another target context applied', () => {
+    const state = primaryState({
+      postingContext: groupPostingContext,
+      accountId: '123',
+      relationship: { id: '123', following: true, requested: false },
+      discovery: mitraDiscovery(viewerEvidence(permissionEvidence('allowed', 'trusted-poster')), {
+        context: mitraGroupPostingContext,
+      }),
+      discoveryAccountId: '456',
+    }).setIn(['compose', 'posting_context_account_id'], '456');
+    const capability = capabilityFor(state);
+
+    expect(state.getIn(['compose', 'context', 'key'])).toBe('builtin:fedibird-group:123');
+    expect(state.getIn(['compose', 'context', 'resolvedAccountId'])).toBe('123');
+    expect(capability.permission.confirmed).toBe(true);
+    expect(capability.canAttempt).toBe(false);
+    expect(capability.reason).toBe('target_mismatch');
+    expect(createCapabilityNotice(capability)).toBe('mismatch');
+  });
+
+  it('keeps an ordinary composer on compliance when it has no group target', () => {
+    const capability = capabilityFor(primaryState({
+      privacy: 'private',
+    }));
+
+    expect(capability.permission.status).toBe('not_applicable');
+    expect(capability.delivery.status).toBe('not_applicable');
+    expect(capability.compliance.valid).toBe(true);
+    expect(capability.canAttempt).toBe(true);
+    expect(capability.reason).toBeNull();
+  });
+
+  it('does not send with a stale context after constraints change under the same key', () => {
+    const updated = {
+      ...mitraGroupPostingContext,
+      constraints: {
+        allowedVisibilities: ['public'],
+      },
+      protocol: {
+        activityPub: {
+          audience: {
+            accountId: '456',
+            acct: 'renamed@mitra.example',
+            enforcement: 'required',
+            ruleId: 'fep-1b12-group-audience',
+          },
+        },
+      },
+    };
+    const capability = capabilityFor(primaryState({
+      postingContext: mitraGroupPostingContext,
+      accountId: '456',
+      discovery: mitraDiscovery(viewerEvidence(permissionEvidence('unknown')), {
+        context: updated,
+      }),
+    }));
+
+    expect(capability.delivery.status).toBe('supported');
+    expect(capability.compliance.valid).toBe(true);
+    expect(capability.canAttempt).toBe(false);
+    expect(capability.reason).toBe('target_mismatch');
+    expect(createCapabilityNotice(capability)).toBe('mismatch');
+  });
+
+  it('allows the attempt once the updated context is applied', () => {
+    const updated = {
+      ...groupPostingContext,
+      source: {
+        id: groupPostingContext.source.id,
+        revision: 2,
+      },
+      constraints: {
+        allowedVisibilities: ['public', 'unlisted'],
+      },
+    };
+    const stale = primaryState({
+      postingContext: groupPostingContext,
+      accountId: '123',
+      relationship: { id: '123', following: true, requested: false },
+      discovery: localDiscovery(null, { context: updated }),
+    });
+    const applied = stale.set('compose', composer(stale.get('compose'), applyComposerPostingContext('primary', updated, '123')));
+    const before = capabilityFor(stale);
+    const after = capabilityFor(applied);
+
+    expect(before.canAttempt).toBe(false);
+    expect(before.reason).toBe('target_mismatch');
+    expect(after.compliance.valid).toBe(true);
+    expect(after.canAttempt).toBe(true);
+    expect(after.reason).toBeNull();
+    expect(after.delivery.authority).toBe('server');
+    expect(createCapabilityNotice(after)).toBeNull();
+  });
+
+  it('reports mismatch ahead of a refreshing permission', () => {
+    const capability = capabilityFor(primaryState({
+      postingContext: null,
+      accountId: '456',
+      discovery: mitraDiscovery(viewerEvidence(permissionEvidence('allowed', 'trusted-poster')), {
+        context: mitraGroupPostingContext,
+        refreshing: true,
+      }),
+    }));
+
+    expect(capability.permission.status).toBe('allowed');
+    expect(capability.permission.freshness).toBe('refreshing');
+    expect(capability.permission.confirmed).toBe(false);
+    expect(capability.canAttempt).toBe(false);
+    expect(capability.reason).toBe('target_mismatch');
+    expect(createCapabilityNotice(capability)).toBe('mismatch');
+  });
+
+  it('ignores composer hashtag suppressions when the discovery context matches', () => {
+    const postingContext = {
+      ...groupPostingContext,
+      managed: {
+        ...groupPostingContext.managed,
+        hashtags: [
+          {
+            name: 'News',
+            normalizedName: 'news',
+            enforcement: 'advisory',
+            ruleId: 'hashtag-news',
+          },
+        ],
+      },
+    };
+    const state = primaryState({
+      postingContext,
+      accountId: '123',
+      relationship: { id: '123', following: true, requested: false },
+      discovery: localDiscovery(null),
+    });
+    const suppressed = state.set('compose', composer(
+      state.get('compose'),
+      toggleComposerManagedHashtag('primary', 'news'),
+    ));
+    const capability = capabilityFor(suppressed);
+
+    expect(suppressed.getIn(['compose', 'context', 'suppressions', 'hashtags']).includes('news')).toBe(true);
+    expect(capability.canAttempt).toBe(true);
+    expect(capability.reason).toBeNull();
   });
 });
