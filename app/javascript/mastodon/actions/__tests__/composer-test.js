@@ -89,11 +89,14 @@ describe('composer lifecycle actions', () => {
     expect(applyComposerPostingContext('composer-a', postingContext)).toEqual({
       type: COMPOSER_CONTEXT_APPLY,
       postingContext,
+      postingContextAccountId: null,
       meta: {
         composerId: 'composer-a',
       },
     });
     expect(applyComposerPostingContext('composer-a', null).postingContext).toBeNull();
+    expect(applyComposerPostingContext('composer-a', null).postingContextAccountId).toBeNull();
+    expect(applyComposerPostingContext('composer-a', postingContext, 456).postingContextAccountId).toEqual('456');
   });
 
   it('targets managed hashtag suppression', () => {

@@ -254,6 +254,8 @@ describe('GroupTimeline portable composer', () => {
     expect(route.props.prepend.key).toEqual('portable:group-route:123');
     expect(context).toEqual(groupPostingContext);
     expect(context.discovery).toBeUndefined();
+    expect(route.props.prepend.props.postingContextAccountId).toEqual('123');
+    expect(column.props.prepend.props.postingContextAccountId).toEqual('123');
     expect(column.props.prepend.props.composerId).toEqual('portable:group-column:column-1');
     expect(column.props.prepend.key).toEqual('portable:group-column:column-1');
     expect(column.props.alwaysPrepend).toBe(true);
@@ -465,6 +467,24 @@ describe('GroupTimeline portable composer', () => {
     expect(props.prepend.props.postingContext.managed.mentions).toEqual([]);
     expect(props.prepend.props.postingContext.requirements.followingAccounts).toEqual([]);
     expect(props.prepend.props.postingContext.constraints.allowedVisibilities).toEqual(['public', 'unlisted']);
+  });
+
+  it('keeps the composer mounted while a resolved context is refreshing', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: true });
+    const view = renderTimeline(GroupTimeline, {
+      visibility: { 'portable:group-route:123': true },
+    });
+
+    expect(screen.getByTestId('portable-composer')).toBeTruthy();
+
+    view.store.dispatch({
+      type: 'TEST_REPLACE',
+      state: view.store.getState().setIn(['posting_contexts', '123', 'refreshing'], true),
+    });
+
+    expect(screen.getByTestId('portable-composer')).toBeTruthy();
+    expect(captured[captured.length - 1].prepend.props.postingContext.key).toEqual('builtin:fedibird-group:123');
+    expect(captured[captured.length - 1].prepend.props.postingContextAccountId).toEqual('123');
   });
 
   it('does not fetch or mount a composer for a non-administrator', () => {

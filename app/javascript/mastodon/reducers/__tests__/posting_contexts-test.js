@@ -216,4 +216,118 @@ describe('postingContexts', () => {
     expect(next.getIn(['456', 'status'])).toEqual('unsupported');
     expect(next.getIn(['456', 'receivedAt'])).toEqual(222);
   });
+
+  it('keeps a successful context while a later request is refreshing', () => {
+    const resolved = postingContexts(undefined, {
+      type: POSTING_CONTEXT_FETCH_SUCCESS,
+      accountId: '123',
+      receivedAt: 111,
+      data: resolvedPayload,
+    });
+    const refreshing = postingContexts(resolved, {
+      type: POSTING_CONTEXT_FETCH_REQUEST,
+      accountId: '123',
+    });
+
+    expect(refreshing.getIn(['123', 'status'])).toEqual('resolved');
+    expect(refreshing.getIn(['123', 'refreshing'])).toBe(true);
+    expect(refreshing.getIn(['123', 'refreshError'])).toBeNull();
+    expect(refreshing.getIn(['123', 'context', 'key'])).toEqual('builtin:fedibird-group:123');
+    expect(refreshing.getIn(['123', 'receivedAt'])).toEqual(111);
+  });
+
+  it('keeps the context and records a refresh failure', () => {
+    const resolved = postingContexts(undefined, {
+      type: POSTING_CONTEXT_FETCH_SUCCESS,
+      accountId: '123',
+      receivedAt: 111,
+      data: resolvedPayload,
+    });
+    const refreshing = postingContexts(resolved, {
+      type: POSTING_CONTEXT_FETCH_REQUEST,
+      accountId: '123',
+    });
+    const failed = postingContexts(refreshing, {
+      type: POSTING_CONTEXT_FETCH_FAIL,
+      accountId: '123',
+      error: new Error('offline'),
+    });
+
+    expect(failed.getIn(['123', 'status'])).toEqual('resolved');
+    expect(failed.getIn(['123', 'refreshing'])).toBe(false);
+    expect(failed.getIn(['123', 'refreshError'])).toBe(true);
+    expect(failed.getIn(['123', 'context', 'managed', 'mentions', 0, 'accountId'])).toEqual('123');
+    expect(failed.getIn(['123', 'receivedAt'])).toEqual(111);
+  });
+
+  it('replaces the retained context when a later success is unsupported', () => {
+    const resolved = postingContexts(undefined, {
+      type: POSTING_CONTEXT_FETCH_SUCCESS,
+      accountId: '123',
+      receivedAt: 111,
+      data: resolvedPayload,
+    });
+    const next = postingContexts(resolved, {
+      type: POSTING_CONTEXT_FETCH_SUCCESS,
+      accountId: '123',
+      receivedAt: 222,
+      data: {
+        schema_version: 1,
+        account_id: '123',
+        status: 'unsupported',
+        reason: 'no_supported_adapter',
+        context: null,
+        discovery: { mechanism: null, adapter: null, authority: null },
+      },
+    });
+
+    expect(next.getIn(['123', 'status'])).toEqual('unsupported');
+    expect(next.getIn(['123', 'context'])).toBeNull();
+    expect(next.getIn(['123', 'refreshing'])).toBe(false);
+    expect(next.getIn(['123', 'receivedAt'])).toEqual(222);
+  });
+
+  it('updates permission evidence when a refresh succeeds', () => {
+    const resolved = postingContexts(undefined, {
+      type: POSTING_CONTEXT_FETCH_SUCCESS,
+      accountId: '456',
+      receivedAt: 111,
+      data: resolvedPayload,
+    });
+    const next = postingContexts(postingContexts(resolved, {
+      type: POSTING_CONTEXT_FETCH_REQUEST,
+      accountId: '456',
+    }), {
+      type: POSTING_CONTEXT_FETCH_SUCCESS,
+      accountId: '456',
+      receivedAt: 222,
+      data: {
+        ...resolvedPayload,
+        account_id: '456',
+        viewer_evidence: {
+          affiliations: {
+            source: 'fep-5219-affiliations',
+            snapshot_status: 'fresh',
+            fetched_at: '2026-10-07T01:23:45Z',
+            relationships: [],
+          },
+          permissions: {
+            create: {
+              status: 'allowed',
+              source: 'fep-5219',
+              via_relationship: 'none',
+              authority: 'protocol',
+            },
+          },
+        },
+      },
+    });
+
+    expect(next.getIn(['456', 'status'])).toEqual('resolved');
+    expect(next.getIn(['456', 'refreshing'])).toBe(false);
+    expect(next.getIn(['456', 'context', 'key'])).toEqual('builtin:fedibird-group:123');
+    expect(next.getIn(['456', 'viewerEvidence', 'permissions', 'create', 'status'])).toEqual('allowed');
+    expect(next.getIn(['456', 'viewerEvidence', 'permissions', 'create', 'viaRelationship'])).toEqual('none');
+    expect(next.getIn(['456', 'receivedAt'])).toEqual(222);
+  });
 });

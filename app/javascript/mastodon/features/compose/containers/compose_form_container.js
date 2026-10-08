@@ -13,7 +13,7 @@ import {
 } from '../../../actions/compose';
 import { openModal } from '../../../actions/modal';
 import { targetComposerAction } from '../../../actions/composer';
-import { selectComposerPostingContextCompliance } from '../../../posting_context/compliance';
+import { selectComposerEffectiveCreateCapability } from '../../../posting_context/create_capability';
 import { materializeComposerText } from '../../../posting_context/materialize';
 import { selectComposer } from '../../../selectors/composer';
 import { withComposerId } from '../composer_id_context';
@@ -27,10 +27,14 @@ const messages = defineMessages({
 const mapStateToProps = (state, { composerId }) => {
   const composer = selectComposer(state, composerId);
 
+  const capability = selectComposerEffectiveCreateCapability(state, composerId);
+
   return {
     text: composer.get('text'),
     effectiveText: materializeComposerText(composer),
-    contextCompliant: selectComposerPostingContextCompliance(state, composerId).valid,
+    contextCompliant: capability.compliance.valid,
+    canAttempt: capability.canAttempt,
+    capabilityReason: capability.reason,
     suggestions: composer.get('suggestions'),
     spoiler: composer.get('spoiler'),
     spoilerText: composer.get('spoiler_text'),

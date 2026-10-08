@@ -21,9 +21,14 @@ export const destroyComposer = composerId => targetComposerAction(
   composerId,
 );
 
-export const applyComposerPostingContext = (composerId, postingContext) => targetComposerAction({
+export const applyComposerPostingContext = (composerId, postingContext, postingContextAccountId) => targetComposerAction({
   type: COMPOSER_CONTEXT_APPLY,
   postingContext: postingContext === undefined ? null : postingContext,
+  postingContextAccountId: (
+    postingContextAccountId === undefined || postingContextAccountId === null || postingContextAccountId === ''
+      ? null
+      : String(postingContextAccountId)
+  ),
 }, composerId);
 
 export const toggleComposerManagedHashtag = (composerId, normalizedName) => targetComposerAction({
