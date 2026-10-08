@@ -7,6 +7,8 @@ class ActivityPub::FetchRemoteAccountService < BaseService
 
   class Error < StandardError; end
 
+  attr_reader :deferred_group_affiliations_collection, :deferred_group_affiliations_invalid
+
   SUPPORTED_TYPES = %w(Application Group Organization Person Service).freeze
 
   # Does a WebFinger roundtrip on each call, unless `only_key` is true
@@ -37,7 +39,11 @@ class ActivityPub::FetchRemoteAccountService < BaseService
 
     check_webfinger! unless only_key
 
-    ActivityPub::ProcessAccountService.new.call(@username, @domain, @json, only_key: only_key, verified_webfinger: !only_key, defer_group_affiliations: defer_group_affiliations)
+    processor = ActivityPub::ProcessAccountService.new
+    account = processor.call(@username, @domain, @json, only_key: only_key, verified_webfinger: !only_key, defer_group_affiliations: defer_group_affiliations)
+    @deferred_group_affiliations_collection = processor.deferred_group_affiliations_collection
+    @deferred_group_affiliations_invalid = processor.deferred_group_affiliations_invalid
+    account
   rescue Error => e
     Rails.logger.debug "Fetching account #{uri} failed: #{e.message}"
     raise unless suppress_errors

@@ -35,6 +35,9 @@ const messages = defineMessages({
   revalidationFailed: { id: 'compose_form.posting_context.revalidation.failed', defaultMessage: 'Create permission could not be rechecked' },
   revalidationStale: { id: 'compose_form.posting_context.revalidation.stale', defaultMessage: 'Permission information is out of date' },
   revalidationRateLimited: { id: 'compose_form.posting_context.revalidation.rate_limited', defaultMessage: 'Wait before rechecking create permission' },
+  revalidationResume: { id: 'compose_form.posting_context.revalidation.resume', defaultMessage: 'Check status again' },
+  revalidationInterrupted: { id: 'compose_form.posting_context.revalidation.interrupted', defaultMessage: 'Status could not be checked' },
+  revalidationTimedOut: { id: 'compose_form.posting_context.revalidation.timed_out', defaultMessage: 'Recheck may still be running on the server' },
   revalidationDetail: { id: 'compose_form.posting_context.revalidation.detail', defaultMessage: 'Actor: {actor} / Affiliations: {affiliations}' },
 });
 
@@ -56,6 +59,8 @@ const revalidationMessages = {
   failed: messages.revalidationFailed,
   stale: messages.revalidationStale,
   rate_limited: messages.revalidationRateLimited,
+  interrupted: messages.revalidationInterrupted,
+  timed_out: messages.revalidationTimedOut,
 };
 
 export const postingContextCapabilityMessages = messages;
@@ -129,6 +134,7 @@ class PostingContextBar extends React.PureComponent {
     revalidationExplicit: PropTypes.bool,
     onToggle: PropTypes.func.isRequired,
     onRecheck: PropTypes.func,
+    onRefreshStatus: PropTypes.func,
     onWatch: PropTypes.func,
   };
 
@@ -171,6 +177,12 @@ class PostingContextBar extends React.PureComponent {
     }
   }
 
+  handleRefreshStatus = () => {
+    if (this.props.onRefreshStatus) {
+      this.props.onRefreshStatus();
+    }
+  }
+
   viaTitle () {
     const { intl, viaRelationship, createNotice } = this.props;
     const confirmed = createNotice === 'allowed' || createNotice === 'allowed_compatibility' || createNotice === 'allowed_unsupported';
@@ -198,9 +210,10 @@ class PostingContextBar extends React.PureComponent {
     const hasFollows = Boolean(followingAccounts && followingAccounts.length > 0);
     const createMessage = createNoticeMessages[createNotice];
     const revalidationMessage = revalidationMessages[revalidationNotice];
-    const showRecheck = Boolean(canRecheck && revalidationNotice !== 'running');
+    const showResume = revalidationNotice === 'interrupted' || revalidationNotice === 'timed_out';
+    const showRecheck = Boolean(canRecheck && !showResume && revalidationNotice !== 'running');
 
-    if (!hasHashtags && !hasMentions && !showAudience && !showVisibility && !hasFollows && !createMessage && !showRecheck && !revalidationMessage) {
+    if (!hasHashtags && !hasMentions && !showAudience && !showVisibility && !hasFollows && !createMessage && !showRecheck && !showResume && !revalidationMessage) {
       return null;
     }
 
@@ -233,6 +246,11 @@ class PostingContextBar extends React.PureComponent {
         {showRecheck && (
           <button type='button' className='compose-form__posting-context-recheck' onClick={this.handleRecheck}>
             {intl.formatMessage(messages.recheck)}
+          </button>
+        )}
+        {showResume && (
+          <button type='button' className='compose-form__posting-context-recheck' onClick={this.handleRefreshStatus}>
+            {intl.formatMessage(messages.revalidationResume)}
           </button>
         )}
         {showAudience && (

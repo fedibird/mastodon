@@ -1,7 +1,7 @@
 import { connect } from 'react-redux';
 import { List as ImmutableList, Set as ImmutableSet } from 'immutable';
 import { isAdministrator } from 'mastodon/initial_state';
-import { requestPostingContextRevalidation, watchPostingContextRevalidation } from '../../../actions/posting_context_revalidations';
+import { fetchPostingContextRevalidationStatus, requestPostingContextRevalidation, watchPostingContextRevalidation } from '../../../actions/posting_context_revalidations';
 import { toggleComposerManagedHashtag } from '../../../actions/composer';
 import { toggleUserPostingStyleHashtag } from '../../../actions/user_posting_styles';
 import { createCapabilityNotice, selectComposerEffectiveCreateCapability } from '../../../posting_context/create_capability';
@@ -15,6 +15,15 @@ const present = value => value !== null && value !== undefined && value !== '';
 
 const revalidationNoticeFor = (revalidation, permission) => {
   const jobState = revalidation && revalidation.get('state');
+  const polling = revalidation && revalidation.get('polling');
+
+  if (polling === 'interrupted') {
+    return 'interrupted';
+  }
+
+  if (polling === 'timed_out') {
+    return 'timed_out';
+  }
 
   if (jobState === 'queued' || jobState === 'running') {
     return 'running';
@@ -117,6 +126,17 @@ const mapDispatchToProps = (dispatch, { composerId }) => ({
 
       if (present(accountId)) {
         innerDispatch(requestPostingContextRevalidation(accountId));
+      }
+    });
+  },
+
+  onRefreshStatus () {
+    dispatch((innerDispatch, getState) => {
+      const composer = selectComposer(getState(), composerId);
+      const accountId = composer && composer.get('posting_context_account_id');
+
+      if (present(accountId)) {
+        innerDispatch(fetchPostingContextRevalidationStatus(accountId));
       }
     });
   },

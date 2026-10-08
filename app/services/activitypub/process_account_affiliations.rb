@@ -1,6 +1,11 @@
 # frozen_string_literal: true
 
 module ActivityPub::ProcessAccountAffiliations
+  # Present only when defer_group_affiliations asked this refresh not to
+  # enqueue SynchronizeGroupAffiliationsWorker. The collection comes from the
+  # actor document that already passed JSON-LD processing.
+  attr_reader :deferred_group_affiliations_collection, :deferred_group_affiliations_invalid
+
   private
 
   def assign_group_affiliations_url!
@@ -8,10 +13,19 @@ module ActivityPub::ProcessAccountAffiliations
   end
 
   def check_group_affiliations!
+    @deferred_group_affiliations_collection = nil
+    @deferred_group_affiliations_invalid = false
+
     if enqueue_group_affiliations?
       # P17 refreshes affiliations itself after the actor update. Skip only
       # the automatic enqueue. Withdrawing a removed collection still runs.
-      enqueue_group_affiliations_sync! unless @options[:defer_group_affiliations]
+      if @options[:defer_group_affiliations]
+        @deferred_group_affiliations_collection = deferred_inline_collection
+      else
+        enqueue_group_affiliations_sync!
+      end
+    elsif deferred_affiliations_invalid?
+      @deferred_group_affiliations_invalid = true
     else
       withdraw_group_affiliations_cache!
     end
@@ -55,6 +69,20 @@ module ActivityPub::ProcessAccountAffiliations
     return unless equals_or_includes_any?(value['type'], ActivityPub::FetchGroupAffiliationsService::COLLECTION_TYPES)
 
     value
+  end
+
+  def deferred_inline_collection
+    collection = inline_affiliations_collection
+    native_json(collection) if collection
+  end
+
+  # A present affiliations value that is neither a collection nor a URI is
+  # not a successful empty snapshot and must not be withdrawn as "removed".
+  def deferred_affiliations_invalid?
+    @options[:defer_group_affiliations] &&
+      @account.group? &&
+      @json['affiliations'].present? &&
+      @account.affiliations_url.blank?
   end
 
   def withdraw_group_affiliations_cache!

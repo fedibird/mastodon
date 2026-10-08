@@ -289,6 +289,23 @@ RSpec.describe ActivityPub::ProcessAccountService, type: :service do
       expect(account.reload.affiliations_url).to eq affiliations_url
     end
 
+    it 'exposes an inline collection when affiliation sync is deferred' do
+      collection = {
+        'type' => 'OrderedCollection',
+        'orderedItems' => [],
+      }
+      payload = group_payload(affiliations: collection)
+
+      Sidekiq::Testing.fake! do
+        subject.call('group', 'foo.test', payload, defer_group_affiliations: true)
+        expect(ActivityPub::SynchronizeGroupAffiliationsWorker.jobs).to be_empty
+      end
+
+      expect(subject.deferred_group_affiliations_collection).to eq collection
+      expect(subject.deferred_group_affiliations_invalid).to be false
+      expect(account.reload.affiliations_url).to be_nil
+    end
+
     it 'does not enqueue affiliation sync when the caller defers it' do
       payload = group_payload(affiliations: 'https://foo.test/groups/g/other', canCreate: 'admin')
 

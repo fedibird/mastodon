@@ -71,6 +71,47 @@ RSpec.describe PostingContext::RevalidationRegistry do
     expect(current[:actor]).to eq 'failed'
   end
 
+  it 'extends the lease for the lock owner and rejects a missing or foreign lock' do
+    created = registry.request!(account, requester: requester)
+    request_id = created.payload[:request_id]
+    expect(registry.mark_running!(account.id, request_id)).to be true
+
+    RedisConfiguration.with do |redis|
+      redis.expire("posting_context:revalidation:v1:#{account.id}:lock", 5)
+    end
+    expect(registry.renew!(account.id, request_id)).to be true
+    RedisConfiguration.with do |redis|
+      expect(redis.ttl("posting_context:revalidation:v1:#{account.id}:lock")).to be > 5
+    end
+
+    RedisConfiguration.with { |redis| redis.del("posting_context:revalidation:v1:#{account.id}:lock") }
+    expect(registry.renew!(account.id, request_id)).to be false
+    expect(registry.extend_lease!(account.id, request_id)).to be false
+    expect(registry.finish!(account.id, request_id, result('completed', 'refreshed', 'refreshed'))).to be false
+    expect(registry.read(account)[:state]).to eq 'failed'
+  end
+
+  it 'does not update state or a foreign lock when the lease belongs to someone else' do
+    created = registry.request!(account, requester: requester)
+    request_id = created.payload[:request_id]
+    registry.mark_running!(account.id, request_id)
+    RedisConfiguration.with do |redis|
+      redis.set("posting_context:revalidation:v1:#{account.id}:lock", 'other-request', ex: 30)
+    end
+
+    expect(registry.mark_running!(account.id, request_id)).to be false
+    expect(registry.renew!(account.id, request_id)).to be false
+    expect(registry.extend_lease!(account.id, request_id)).to be false
+    expect(registry.finish!(account.id, request_id, result('completed', 'refreshed', 'refreshed'))).to be false
+
+    current = registry.read(account)
+    expect(current[:state]).to eq 'running'
+    expect(current[:request_id]).to eq request_id
+    RedisConfiguration.with do |redis|
+      expect(redis.get("posting_context:revalidation:v1:#{account.id}:lock")).to eq 'other-request'
+    end
+  end
+
   it 'limits how often one administrator can start revalidation' do
     stub_const('PostingContext::RevalidationRegistry::ADMIN_LIMIT', 1)
     other = Fabricate(

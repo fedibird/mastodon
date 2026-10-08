@@ -18,6 +18,9 @@ class PostingContext::RevalidationRegistry
 
   Outcome = Struct.new(:status, :payload, :retry_after, keyword_init: true)
 
+  # State changes require the caller to still own the lock. Lua runs
+  # atomically, so a lock acquired by another request cannot be extended
+  # or deleted here.
   COMPARE_AND_SET = <<~LUA
     local current = redis.call('GET', KEYS[1])
     if not current then
@@ -35,15 +38,50 @@ class PostingContext::RevalidationRegistry
     if ARGV[4] == 'running' and not queued then
       return 0
     end
-    redis.call('SET', KEYS[1], ARGV[2], 'EX', tonumber(ARGV[3]))
     local lock = redis.call('GET', KEYS[2])
-    if lock == ARGV[1] then
-      if ARGV[5] == 'release' then
-        redis.call('DEL', KEYS[2])
-      else
-        redis.call('EXPIRE', KEYS[2], tonumber(ARGV[6]))
-      end
+    if lock ~= ARGV[1] then
+      return 0
     end
+    redis.call('SET', KEYS[1], ARGV[2], 'EX', tonumber(ARGV[3]))
+    if ARGV[5] == 'release' then
+      if redis.call('GET', KEYS[2]) == ARGV[1] then
+        redis.call('DEL', KEYS[2])
+      end
+    else
+      redis.call('EXPIRE', KEYS[2], tonumber(ARGV[6]))
+    end
+    return 1
+  LUA
+
+  # Used only when the lease is already gone. A lock owned by another
+  # request is left untouched, including its key.
+  RECOVER_EXPIRED = <<~LUA
+    local current = redis.call('GET', KEYS[1])
+    if not current then
+      return 0
+    end
+    local request_id = string.match(current, '"request_id"%s*:%s*"([^"]+)"')
+    if request_id ~= ARGV[1] then
+      return 0
+    end
+    local queued = string.find(current, '"state":"queued"', 1, true)
+    local running = string.find(current, '"state":"running"', 1, true)
+    if not queued and not running then
+      return 0
+    end
+    local lock = redis.call('GET', KEYS[2])
+    if lock then
+      return 0
+    end
+    redis.call('SET', KEYS[1], ARGV[2], 'EX', tonumber(ARGV[3]))
+    return 1
+  LUA
+
+  EXTEND_LEASE = <<~LUA
+    if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+      return 0
+    end
+    redis.call('EXPIRE', KEYS[1], tonumber(ARGV[2]))
     return 1
   LUA
 
@@ -91,6 +129,18 @@ class PostingContext::RevalidationRegistry
     return false if state.nil? || state['request_id'] != request_id || state['state'] != 'running'
 
     compare_and_set!(account_id, request_id, state, transition: 'renew')
+  end
+
+  # Heartbeat used while actor and affiliation fetches are in progress.
+  # Extends the lease only when this request still owns the lock.
+  def extend_lease!(account_id, request_id)
+    RedisConfiguration.with do |connection|
+      connection.eval(
+        EXTEND_LEASE,
+        keys: [lock_key(account_id)],
+        argv: [request_id, LEASE.to_i]
+      ).to_i == 1
+    end
   end
 
   def finish!(account_id, request_id, result)
@@ -150,9 +200,18 @@ class PostingContext::RevalidationRegistry
   def recover_expired!(account_id)
     state = load_state(account_id)
     return unless state && active_state?(state)
-    return if redis.get(lock_key(account_id)) == state['request_id']
 
-    finish!(account_id, state['request_id'], failed_result)
+    failed = state.merge(
+      'state' => 'failed',
+      'actor' => 'failed',
+      'affiliations' => 'failed',
+      'finished_at' => iso_now
+    )
+    redis.eval(
+      RECOVER_EXPIRED,
+      keys: [state_key(account_id), lock_key(account_id)],
+      argv: [state['request_id'], JSON.generate(failed), STATE_TTL.to_i]
+    )
   end
 
   def inflight?(account_id, state)
@@ -196,10 +255,6 @@ class PostingContext::RevalidationRegistry
   def retry_after(key)
     ttl = redis.ttl(key)
     ttl.positive? ? ttl : nil
-  end
-
-  def failed_result
-    PostingContext::RevalidateGroupEvidenceService::Result.new(state: 'failed', actor: 'failed', affiliations: 'failed')
   end
 
   def iso_now

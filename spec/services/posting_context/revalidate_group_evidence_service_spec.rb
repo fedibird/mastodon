@@ -119,6 +119,99 @@ RSpec.describe PostingContext::RevalidateGroupEvidenceService do
     expect(account.group_affiliations).to be_empty
   end
 
+  it 'refreshes an inline collection that has no URL' do
+    fetch_actor(canCreate: 'member', affiliations: {
+      'type' => 'OrderedCollection',
+      'orderedItems' => [
+        {
+          'type' => 'Relationship',
+          'subject' => 'https://remote.example/users/inline',
+          'relationship' => 'admin',
+          'object' => uri,
+        },
+      ],
+    })
+
+    result = nil
+    Sidekiq::Testing.fake! do
+      result = service.call(account)
+      expect(ActivityPub::SynchronizeGroupAffiliationsWorker.jobs).to be_empty
+    end
+
+    account.reload
+    expect(result).to have_attributes(state: 'completed', actor: 'refreshed', affiliations: 'refreshed')
+    expect(account.affiliations_url).to be_nil
+    expect(account.group_affiliations.pluck(:subject_uri, :relationship)).to eq [['https://remote.example/users/inline', 'admin']]
+    expect(account.affiliations_fetched_at).to be > Time.utc(2026, 1, 1)
+    expect(a_request(:get, old_url)).not_to have_been_made
+  end
+
+  it 'stores an inline empty collection as a fresh snapshot' do
+    fetch_actor(canCreate: 'none', affiliations: {
+      'type' => 'OrderedCollection',
+      'orderedItems' => [],
+    })
+
+    result = service.call(account)
+
+    account.reload
+    expect(result).to have_attributes(state: 'completed', actor: 'refreshed', affiliations: 'refreshed')
+    expect(account.affiliations_url).to be_nil
+    expect(account.group_affiliations).to be_empty
+    expect(account.affiliations_fetched_at).to be > Time.utc(2026, 1, 1)
+  end
+
+  it 'uses an inline collection with an id and stores that id as the URL' do
+    fetch_actor(canCreate: 'member', affiliations: {
+      'id' => new_url,
+      'type' => 'OrderedCollection',
+      'orderedItems' => [
+        {
+          'type' => 'Relationship',
+          'subject' => 'https://remote.example/users/inline',
+          'relationship' => 'trusted-poster',
+          'object' => uri,
+        },
+      ],
+    })
+
+    result = service.call(account)
+
+    account.reload
+    expect(result).to have_attributes(state: 'completed', affiliations: 'refreshed')
+    expect(account.affiliations_url).to eq new_url
+    expect(account.group_affiliations.pluck(:relationship)).to eq ['trusted-poster']
+    expect(a_request(:get, new_url)).not_to have_been_made
+    expect(a_request(:get, old_url)).not_to have_been_made
+  end
+
+  it 'does not treat an unusable inline affiliations value as success' do
+    fetch_actor(canCreate: 'admin', affiliations: { 'type' => 'Note', 'content' => 'nope' })
+
+    result = nil
+    Sidekiq::Testing.fake! do
+      result = service.call(account)
+      expect(ActivityPub::SynchronizeGroupAffiliationsWorker.jobs).to be_empty
+    end
+
+    account.reload
+    expect(result).to have_attributes(state: 'partial', actor: 'refreshed', affiliations: 'failed')
+    expect(account.group_affiliations.pluck(:relationship)).to eq ['member']
+    expect(account.affiliations_fetched_at).to eq Time.utc(2026, 1, 1)
+  end
+
+  it 'does not refresh affiliations after the lease check fails' do
+    fetch_actor(canCreate: 'admin', affiliations: old_url)
+    expect(ActivityPub::FetchGroupAffiliationsService).not_to receive(:new)
+
+    expect(service.call(account, on_step: -> { false })).to be_nil
+
+    account.reload
+    expect(account.can_create_affiliation).to eq 'admin'
+    expect(account.group_affiliations.pluck(:relationship)).to eq ['member']
+    expect(account.affiliations_fetched_at).to eq Time.utc(2026, 1, 1)
+  end
+
   it 'does not fetch affiliations when the actor is no longer a group' do
     fetch_actor(type: 'Person', canCreate: 'admin', affiliations: old_url)
     expect(ActivityPub::FetchGroupAffiliationsService).not_to receive(:new)
@@ -142,13 +235,17 @@ RSpec.describe PostingContext::RevalidateGroupEvidenceService do
     payload[:canView] = canView unless canView.nil?
     payload[:affiliations] = affiliations unless affiliations.nil?
     fetcher = instance_double(ActivityPub::FetchRemoteAccountService)
+    processor = nil
     allow(ActivityPub::FetchRemoteAccountService).to receive(:new).and_return(fetcher)
     allow(fetcher).to receive(:call) do |requested_uri, **options|
       expect(requested_uri).to eq account.uri
       expect(options[:only_key]).to eq false
       expect(options[:defer_group_affiliations]).to eq true
-      ActivityPub::ProcessAccountService.new.call(account.username, account.domain, payload.with_indifferent_access, defer_group_affiliations: true)
+      processor = ActivityPub::ProcessAccountService.new
+      processor.call(account.username, account.domain, payload.with_indifferent_access, defer_group_affiliations: true)
     end
+    allow(fetcher).to receive(:deferred_group_affiliations_collection) { processor&.deferred_group_affiliations_collection }
+    allow(fetcher).to receive(:deferred_group_affiliations_invalid) { processor&.deferred_group_affiliations_invalid }
   end
 
   def relationship_collection(subject, relationship)

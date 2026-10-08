@@ -415,4 +415,141 @@ describe('posting context revalidation', () => {
     expect(store.getState().getIn(['posting_contexts', '456', 'viewerEvidence', 'permissions', 'create', 'status'])).toEqual('allowed');
     expect(store.getState().getIn(['composers', 'byId', composerId, 'text'])).toEqual('Kept');
   });
+
+  const flush = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+
+  it('stops after a failed status read and resumes with GET only', async () => {
+    const post = jest.fn(() => Promise.resolve({
+      data: { state: 'queued', request_id: 'job-4', account_id: '456' },
+    }));
+    const get = jest.fn(() => Promise.reject(new Error('offline')));
+    api.mockImplementation(() => ({ post, get }));
+    const store = makeStore();
+
+    store.dispatch(createComposer(composerId));
+    store.dispatch(targetComposerAction(changeCompose('Still here'), composerId));
+    store.dispatch({
+      type: 'COMPOSE_UPLOAD_SUCCESS',
+      meta: { composerId },
+      media: { id: 'media-2', type: 'image' },
+      file: null,
+    });
+    store.dispatch(applyComposerPostingContext(composerId, mitraGroupPostingContext, '456'));
+    store.dispatch({
+      type: 'POSTING_CONTEXT_FETCH_SUCCESS',
+      accountId: '456',
+      receivedAt: Date.now(),
+      data: discovery('456', 'unknown'),
+    });
+
+    renderBar(store);
+    const before = selectComposerEffectiveCreateCapability(store.getState(), composerId);
+    fireEvent.click(screen.getByRole('button', { name: 'Recheck' }));
+    await flush();
+    jest.advanceTimersByTime(2000);
+    await flush();
+
+    expect(screen.getByText('Status could not be checked')).toBeTruthy();
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(post).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(20000);
+    await flush();
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'state'])).toEqual('queued');
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'polling'])).toEqual('interrupted');
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'text'])).toEqual('Still here');
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'media_attachments']).size).toBe(1);
+    expect(selectComposerEffectiveCreateCapability(store.getState(), composerId).canAttempt).toBe(before.canAttempt);
+
+    get.mockImplementation(url => Promise.resolve({
+      data: String(url).endsWith('/revalidation')
+        ? { state: 'running', request_id: 'job-4', account_id: '456' }
+        : discovery('456', 'unknown'),
+    }));
+    fireEvent.click(screen.getByRole('button', { name: 'Check status again' }));
+    await flush();
+
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('Rechecking create permission')).toBeTruthy();
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'text'])).toEqual('Still here');
+  });
+
+  it('shows a timeout after the polling limit without calling the server job failed', async () => {
+    const post = jest.fn(() => Promise.resolve({
+      data: { state: 'running', request_id: 'job-5', account_id: '456' },
+    }));
+    const get = jest.fn(() => Promise.resolve({
+      data: { state: 'running', request_id: 'job-5', account_id: '456' },
+    }));
+    api.mockImplementation(() => ({ post, get }));
+    const store = makeStore();
+
+    store.dispatch(createComposer(composerId));
+    store.dispatch(targetComposerAction(changeCompose('Waiting'), composerId));
+    store.dispatch(applyComposerPostingContext(composerId, mitraGroupPostingContext, '456'));
+    store.dispatch({
+      type: 'POSTING_CONTEXT_FETCH_SUCCESS',
+      accountId: '456',
+      receivedAt: Date.now(),
+      data: discovery('456', 'unknown'),
+    });
+    renderBar(store);
+    fireEvent.click(screen.getByRole('button', { name: 'Recheck' }));
+    await flush();
+
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      jest.advanceTimersByTime(2000);
+      await flush();
+    }
+
+    expect(get).toHaveBeenCalledTimes(15);
+    jest.advanceTimersByTime(2000);
+    await flush();
+    jest.advanceTimersByTime(20000);
+    await flush();
+
+    expect(get).toHaveBeenCalledTimes(15);
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Recheck may still be running on the server')).toBeTruthy();
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'state'])).toEqual('running');
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'polling'])).toEqual('timed_out');
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'text'])).toEqual('Waiting');
+  });
+
+  it('does not let an older running poll replace a completed job or another request', () => {
+    const store = makeStore();
+
+    store.dispatch({
+      type: 'POSTING_CONTEXT_REVALIDATION_UPDATE',
+      accountId: '456',
+      explicit: true,
+      fromPoll: true,
+      polling: 'idle',
+      data: { state: 'completed', request_id: 'job-new', actor: 'refreshed', affiliations: 'refreshed' },
+    });
+    store.dispatch({
+      type: 'POSTING_CONTEXT_REVALIDATION_UPDATE',
+      accountId: '456',
+      explicit: true,
+      fromPoll: true,
+      polling: 'active',
+      data: { state: 'running', request_id: 'job-new' },
+    });
+    store.dispatch({
+      type: 'POSTING_CONTEXT_REVALIDATION_UPDATE',
+      accountId: '456',
+      explicit: true,
+      fromPoll: true,
+      polling: 'active',
+      data: { state: 'running', request_id: 'job-old' },
+    });
+
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'state'])).toEqual('completed');
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'requestId'])).toEqual('job-new');
+  });
 });

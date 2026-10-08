@@ -6,8 +6,16 @@ class PostingContext::RevalidateGroupEvidenceService < BaseService
   # Actor refresh runs first and may change the stored affiliations URL.
   # Affiliation refresh then uses that URL. The two results stay separate
   # from permission allowed/unknown.
-  def call(account)
+  # on_step is called after the actor refresh and before affiliations.
+  # A false result means this worker no longer owns the lease, so later
+  # snapshot writes are skipped. nil tells the worker not to publish a result.
+  def call(account, on_step: nil)
+    @on_step = on_step
+    @inline_collection = nil
+    @affiliations_invalid = false
     actor = refresh_actor(account)
+    return unless lease_held?
+
     account.reload
     affiliations = refresh_affiliations(account, actor)
     Result.new(state: overall(actor, affiliations), actor: actor, affiliations: affiliations)
@@ -19,12 +27,17 @@ class PostingContext::RevalidateGroupEvidenceService < BaseService
     return 'unavailable' unless PostingContext::RevalidationEligibility.usable_actor_uri?(account.uri)
 
     before = account.permission_definitions_fetched_at
-    fetched = ActivityPub::FetchRemoteAccountService.new.call(
+    fetcher = ActivityPub::FetchRemoteAccountService.new
+    fetched = fetcher.call(
       account.uri,
       only_key: false,
       suppress_errors: true,
       defer_group_affiliations: true
     )
+    if fetched
+      @inline_collection = fetcher.deferred_group_affiliations_collection
+      @affiliations_invalid = fetcher.deferred_group_affiliations_invalid
+    end
     account.reload
     return 'failed' if fetched.nil?
     return 'skipped' unless account.group?
@@ -43,12 +56,22 @@ class PostingContext::RevalidateGroupEvidenceService < BaseService
 
   def refresh_affiliations(account, actor_status)
     return 'skipped' if actor_status == 'skipped' || !account.group?
+    return 'failed' if @affiliations_invalid
+
+    if @inline_collection.present?
+      return affiliation_status(ActivityPub::FetchGroupAffiliationsService.new.call(account, collection: @inline_collection))
+    end
+
     # A refreshed actor with no collection URL already withdrew or never had
     # a snapshot. That is not a fetch failure.
     return 'skipped' if actor_status == 'refreshed' && account.affiliations_url.blank?
     return 'unavailable' if account.affiliations_url.blank? || account.suspended?
 
-    case ActivityPub::FetchGroupAffiliationsService.new.call(account)
+    affiliation_status(ActivityPub::FetchGroupAffiliationsService.new.call(account))
+  end
+
+  def affiliation_status(result)
+    case result
     when :refreshed
       'refreshed'
     when :failed
@@ -56,6 +79,10 @@ class PostingContext::RevalidateGroupEvidenceService < BaseService
     else
       'unavailable'
     end
+  end
+
+  def lease_held?
+    @on_step.nil? || @on_step.call
   end
 
   def overall(actor, affiliations)
