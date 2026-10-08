@@ -12,6 +12,7 @@ const emptyProtocol = () => ImmutableMap({
 
 export const emptyComposerPostingContext = () => ImmutableMap({
   key: null,
+  resolvedAccountId: null,
   source: null,
   managed: ImmutableMap({
     hashtags: ImmutableList(),
@@ -44,6 +45,7 @@ export const initialUserPostingStyle = () => ImmutableMap({
   unapplied: ImmutableList(),
   suppressions: ImmutableSet(),
   parkedContext: null,
+  parkedPostingContextAccountId: null,
   parkedDestinationStatus: null,
   parkedDestinationFailure: null,
   parkedStyleId: null,
@@ -94,9 +96,30 @@ export function rememberManualSetting(map, field) {
 
 const clearParkedDestination = map => {
   map.setIn(['userPostingStyle', 'parkedContext'], null);
+  map.setIn(['userPostingStyle', 'parkedPostingContextAccountId'], null);
   map.setIn(['userPostingStyle', 'parkedDestinationStatus'], null);
   map.setIn(['userPostingStyle', 'parkedDestinationFailure'], null);
   map.setIn(['userPostingStyle', 'parkedStyleId'], null);
+};
+
+const styleOwnsDestination = map => map.getIn(['userPostingStyle', 'destinationSource']) === 'style';
+
+const styleAccountId = accountId => (
+  accountId === null || accountId === undefined || accountId === '' ? null : String(accountId)
+);
+
+// A portable composer stores its target in the same field. Clear it only
+// when this composer's style destination is the owner.
+const clearStyleAccountIdentity = map => {
+  if (!styleOwnsDestination(map)) {
+    return;
+  }
+
+  map.set('posting_context_account_id', null);
+};
+
+const assignStyleAccountIdentity = (map, accountId) => {
+  map.set('posting_context_account_id', styleAccountId(accountId));
 };
 
 const withoutDestination = list => (list || ImmutableList()).filter(item => item !== 'destination');
@@ -117,10 +140,12 @@ export function releaseStyleDestination(map) {
   }
 
   map.setIn(['userPostingStyle', 'parkedContext'], map.get('context'));
+  map.setIn(['userPostingStyle', 'parkedPostingContextAccountId'], map.get('posting_context_account_id'));
   map.setIn(['userPostingStyle', 'parkedDestinationStatus'], map.getIn(['userPostingStyle', 'destinationStatus']));
   map.setIn(['userPostingStyle', 'parkedDestinationFailure'], map.getIn(['userPostingStyle', 'destinationFailure']));
   map.setIn(['userPostingStyle', 'parkedStyleId'], map.getIn(['userPostingStyle', 'selectedId']));
   map.set('context', emptyComposerPostingContext());
+  clearStyleAccountIdentity(map);
   map.setIn(['userPostingStyle', 'destinationStatus'], 'skipped');
   map.setIn(['userPostingStyle', 'unapplied'], withDestination(map.getIn(['userPostingStyle', 'unapplied'])));
 }
@@ -131,6 +156,7 @@ export function abandonStyleDestination(map) {
   }
 
   map.set('context', emptyComposerPostingContext());
+  clearStyleAccountIdentity(map);
   map.setIn(['userPostingStyle', 'destinationStatus'], 'skipped');
   clearParkedDestination(map);
   map.setIn(['userPostingStyle', 'unapplied'], withDestination(map.getIn(['userPostingStyle', 'unapplied'])));
@@ -185,9 +211,12 @@ const restoreManualValues = map => {
 };
 
 const clearStyleContext = map => {
-  if (map.getIn(['userPostingStyle', 'destinationSource']) === 'style') {
-    map.set('context', emptyComposerPostingContext());
+  if (!styleOwnsDestination(map)) {
+    return;
   }
+
+  map.set('context', emptyComposerPostingContext());
+  clearStyleAccountIdentity(map);
 };
 
 const applyClearStyle = map => {
@@ -210,15 +239,49 @@ const applyHashtagDestination = map => {
   clearParkedDestination(map);
 };
 
+const parkedGroupIsReady = (previous, accountId) => {
+  const parkedContext = previous.getIn(['userPostingStyle', 'parkedContext']);
+  const parkedAccountId = previous.getIn(['userPostingStyle', 'parkedPostingContextAccountId']);
+  const resolvedAccountId = parkedContext && parkedContext.get ? parkedContext.get('resolvedAccountId') : null;
+
+  return previous.getIn(['userPostingStyle', 'parkedDestinationStatus']) === 'ready'
+    && Boolean(parkedContext)
+    && String(resolvedAccountId || '') === String(accountId || '')
+    && String(parkedAccountId || '') === String(accountId || '');
+};
+
 const restoreParkedGroup = (map, previous, accountId) => {
-  map.set('context', previous.getIn(['userPostingStyle', 'parkedContext']));
   const parkedStatus = previous.getIn(['userPostingStyle', 'parkedDestinationStatus']) || 'ready';
+
   map.setIn(['userPostingStyle', 'destinationSource'], 'style');
   map.setIn(['userPostingStyle', 'destinationAccountId'], accountId);
-  map.setIn(['userPostingStyle', 'destinationStatus'], parkedStatus);
-  map.setIn(['userPostingStyle', 'destinationFailure'], parkedStatus === 'failed' ? (previous.getIn(['userPostingStyle', 'parkedDestinationFailure']) || 'error') : null);
-  map.setIn(['userPostingStyle', 'status'], parkedStatus === 'failed' ? 'failed' : 'applied');
-  map.setIn(['userPostingStyle', 'unapplied'], parkedStatus === 'failed' ? withDestination(map.getIn(['userPostingStyle', 'unapplied'])) : withoutDestination(map.getIn(['userPostingStyle', 'unapplied'])));
+  assignStyleAccountIdentity(map, accountId);
+
+  if (parkedGroupIsReady(previous, accountId)) {
+    map.set('context', previous.getIn(['userPostingStyle', 'parkedContext']));
+    map.setIn(['userPostingStyle', 'destinationStatus'], 'ready');
+    map.setIn(['userPostingStyle', 'destinationFailure'], null);
+    map.setIn(['userPostingStyle', 'status'], 'applied');
+    map.setIn(['userPostingStyle', 'unapplied'], withoutDestination(map.getIn(['userPostingStyle', 'unapplied'])));
+    clearParkedDestination(map);
+    return;
+  }
+
+  map.set('context', emptyComposerPostingContext());
+
+  if (parkedStatus === 'failed') {
+    map.setIn(['userPostingStyle', 'destinationStatus'], 'failed');
+    map.setIn(['userPostingStyle', 'destinationFailure'], previous.getIn(['userPostingStyle', 'parkedDestinationFailure']) || 'error');
+    map.setIn(['userPostingStyle', 'status'], 'failed');
+    map.setIn(['userPostingStyle', 'unapplied'], withDestination(map.getIn(['userPostingStyle', 'unapplied'])));
+    clearParkedDestination(map);
+    return;
+  }
+
+  map.setIn(['userPostingStyle', 'destinationStatus'], 'needs_resolve');
+  map.setIn(['userPostingStyle', 'destinationFailure'], null);
+  map.setIn(['userPostingStyle', 'status'], 'applying');
+  map.setIn(['userPostingStyle', 'unapplied'], withoutDestination(map.getIn(['userPostingStyle', 'unapplied'])));
   clearParkedDestination(map);
 };
 
@@ -236,6 +299,7 @@ const applyGroupDestination = (map, previous, plan, restoreParked) => {
   if (sameAccount && previous.getIn(['userPostingStyle', 'destinationStatus']) === 'ready') {
     map.setIn(['userPostingStyle', 'status'], 'applied');
     map.setIn(['userPostingStyle', 'unapplied'], withoutDestination(map.getIn(['userPostingStyle', 'unapplied'])));
+    assignStyleAccountIdentity(map, accountId);
     return;
   }
 
@@ -243,6 +307,7 @@ const applyGroupDestination = (map, previous, plan, restoreParked) => {
     map.set('context', emptyComposerPostingContext());
     map.setIn(['userPostingStyle', 'destinationSource'], 'style');
     map.setIn(['userPostingStyle', 'destinationAccountId'], accountId);
+    assignStyleAccountIdentity(map, accountId);
     map.setIn(['userPostingStyle', 'destinationStatus'], 'pending');
     map.setIn(['userPostingStyle', 'destinationFailure'], null);
     map.setIn(['userPostingStyle', 'status'], 'applying');
@@ -258,6 +323,7 @@ const applyGroupDestination = (map, previous, plan, restoreParked) => {
   map.set('context', emptyComposerPostingContext());
   map.setIn(['userPostingStyle', 'destinationSource'], 'style');
   map.setIn(['userPostingStyle', 'destinationAccountId'], accountId);
+  assignStyleAccountIdentity(map, accountId);
   map.setIn(['userPostingStyle', 'destinationStatus'], restoreParked ? 'needs_resolve' : 'pending');
   map.setIn(['userPostingStyle', 'destinationFailure'], null);
   map.setIn(['userPostingStyle', 'status'], 'applying');
@@ -402,6 +468,7 @@ export function beginStyleDestinationRetry(state) {
     map.setIn(['userPostingStyle', 'destinationStatus'], 'pending');
     map.setIn(['userPostingStyle', 'destinationFailure'], null);
     map.setIn(['userPostingStyle', 'destinationAccountId'], String(accountId));
+    assignStyleAccountIdentity(map, accountId);
     map.setIn(['userPostingStyle', 'status'], 'applying');
     map.setIn(['userPostingStyle', 'unapplied'], withoutDestination(map.getIn(['userPostingStyle', 'unapplied'])));
   });
@@ -443,6 +510,11 @@ export function finishStyleDestination(state, action) {
   if (action.status === 'failed') {
     return state.withMutations(map => {
       map.set('context', emptyComposerPostingContext());
+
+      if (styleOwnsDestination(map)) {
+        assignStyleAccountIdentity(map, action.accountId);
+      }
+
       map.setIn(['userPostingStyle', 'destinationStatus'], 'failed');
       map.setIn(['userPostingStyle', 'destinationFailure'], action.failure === 'unsupported' ? 'unsupported' : 'error');
       map.setIn(['userPostingStyle', 'status'], 'failed');
@@ -523,11 +595,21 @@ const ownSensitiveFromStyleWarning = (map, state) => {
   }
 };
 
+const warningTextPresent = text => String(text || '').trim() !== '';
+
+// Media plus the account default, matching the value a normal composer
+// would show when no person and no style has chosen sensitive.
+const derivedComposerSensitive = state => {
+  const media = state.get('media_attachments');
+
+  return Boolean(media && media.size > 0) && state.get('default_sensitive') === true;
+};
+
 // The server stores sensitive when the warning text is non-blank. Forcing that
-// on does not count as a manual choice. Clearing the text, or the warning,
-// restores the manual value or the style's explicit value.
+// on does not count as a manual choice. Once the text is empty again, restore
+// the manual value, then the style's explicit value, then the composer default.
 export function syncSensitiveWithWarning(map, state, { spoiler, spoilerText }) {
-  if (spoiler === true && String(spoilerText || '').trim() !== '') {
+  if (spoiler === true && warningTextPresent(spoilerText)) {
     map.set('sensitive', true);
     ownSensitiveFromStyleWarning(map, state);
     return true;
@@ -544,6 +626,13 @@ export function syncSensitiveWithWarning(map, state, { spoiler, spoilerText }) {
 
   if (explicit === true || explicit === false) {
     map.set('sensitive', explicit);
+    return true;
+  }
+
+  const forcedBefore = state.get('spoiler') === true && warningTextPresent(state.get('spoiler_text'));
+
+  if (forcedBefore && !warningTextPresent(spoilerText)) {
+    map.set('sensitive', derivedComposerSensitive(state));
     return true;
   }
 

@@ -108,7 +108,7 @@ export function loadUserPostingStyleDestination(composerId, { selectedId, accoun
         return;
       }
 
-      dispatch(applyComposerPostingContext(composerId, context));
+      dispatch(applyComposerPostingContext(composerId, context, accountId));
 
       if (!stillWaiting(getState, composerId, selectedId, accountId)) {
         return;

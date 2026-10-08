@@ -10,7 +10,7 @@ jest.mock('../../uuid', () => ({
 }));
 
 import { COMPOSE_QUOTE_CANCEL, COMPOSE_REPLY, COMPOSE_REPLY_CANCEL, COMPOSE_SENSITIVITY_CHANGE, COMPOSE_SPOILER_TEXT_CHANGE, COMPOSE_SPOILERNESS_CHANGE, COMPOSE_SUBMIT_SUCCESS, COMPOSE_UPLOAD_SUCCESS, COMPOSE_UPLOAD_UNDO, COMPOSE_VISIBILITY_CHANGE, changeCompose, setComposeToStatus } from '../../actions/compose';
-import { createComposer, targetComposerAction } from '../../actions/composer';
+import { applyComposerPostingContext, createComposer, targetComposerAction } from '../../actions/composer';
 import { USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../../actions/user_posting_styles';
 import { selectComposerPostingContextCompliance } from '../compliance';
 import { materializeComposerText } from '../materialize';
@@ -637,5 +637,110 @@ describe('user posting style hashtag toggle', () => {
 
     expect(toggled.getIn(['context', 'suppressions', 'hashtags']).isEmpty()).toBe(true);
     expect(toggled.getIn(['userPostingStyle', 'suppressions']).equals(ImmutableSet(['style:fedibird']))).toBe(true);
+  });
+
+  it('does not clear an account id that a portable composer set on its own', () => {
+    const posted = composer(undefined, applyComposerPostingContext('composer-a', {
+      key: 'protocol:fep-1b12-group:456',
+      managed: { hashtags: [], mentions: [] },
+      requirements: { followingAccounts: [] },
+      constraints: { allowedVisibilities: ['public', 'unlisted'] },
+    }, '456'));
+    const reply = composer(posted, {
+      type: COMPOSE_REPLY,
+      status: fromJS({
+        id: 's1',
+        language: 'en',
+        visibility: 'public',
+        spoiler_text: '',
+        mentions: [],
+        account: { id: '2', acct: 'bob' },
+      }),
+    });
+    const usual = commit(posted, null);
+
+    expect(posted.get('posting_context_account_id')).toEqual('456');
+    expect(posted.getIn(['userPostingStyle', 'destinationSource'])).toBeNull();
+    expect(reply.get('posting_context_account_id')).toEqual('456');
+    expect(reply.getIn(['context', 'resolvedAccountId'])).toEqual('456');
+    expect(usual.get('posting_context_account_id')).toEqual('456');
+    expect(usual.getIn(['context', 'resolvedAccountId'])).toEqual('456');
+  });
+
+  const typeWarning = (state, text) => composer(state, { type: COMPOSE_SPOILER_TEXT_CHANGE, text });
+
+  it('restores the usual composer sensitive value when warning text is cleared', () => {
+    const opened = composer(undefined, { type: '@@INIT' });
+    const enabled = composer(opened, { type: COMPOSE_SPOILERNESS_CHANGE });
+    const typed = typeWarning(enabled, 'note');
+    const cleared = typeWarning(typed, '');
+    const withDefault = composer(undefined, { type: '@@INIT' }).set('default_sensitive', true);
+    const attached = composer(withDefault, {
+      type: COMPOSE_UPLOAD_SUCCESS,
+      media: { id: 'm1', type: 'image' },
+    });
+    const warned = typeWarning(composer(attached, { type: COMPOSE_SPOILERNESS_CHANGE }), 'note');
+    const kept = typeWarning(warned, '');
+    const plainMedia = composer(composer(undefined, { type: '@@INIT' }), {
+      type: COMPOSE_UPLOAD_SUCCESS,
+      media: { id: 'm2', type: 'image' },
+    });
+    const forced = typeWarning(composer(plainMedia, { type: COMPOSE_SPOILERNESS_CHANGE }), 'note');
+    const dropped = typeWarning(forced, '');
+
+    expect(typed.get('sensitive')).toBe(true);
+    expect(typed.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(false);
+    expect(cleared.get('sensitive')).toBe(false);
+    expect(cleared.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(false);
+    expect(attached.get('sensitive')).toBe(true);
+    expect(kept.get('sensitive')).toBe(true);
+    expect(kept.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(false);
+    expect(forced.get('sensitive')).toBe(true);
+    expect(dropped.get('sensitive')).toBe(false);
+    expect(dropped.get('spoiler')).toBe(true);
+    expect(dropped.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(false);
+  });
+
+  it('restores a manual value, then a style value, then the composer default after warning text is cleared', () => {
+    const manualOn = composer(composer(undefined, { type: '@@INIT' }).set('sensitive', false), {
+      type: COMPOSE_SENSITIVITY_CHANGE,
+    });
+    const manualWarned = typeWarning(composer(manualOn, { type: COMPOSE_SPOILERNESS_CHANGE }), 'note');
+    const manualRestored = typeWarning(manualWarned, '');
+    const explicit = fromJS({
+      id: '30',
+      revision: 1,
+      target: { kind: 'none' },
+      defaults: { sensitive: true, spoiler: { enabled: true, text: '' } },
+    });
+    const styled = commit(composer(undefined, { type: '@@INIT' }).set('default_sensitive', false), explicit);
+    const styleWarned = typeWarning(styled, 'note');
+    const styleRestored = typeWarning(styleWarned, '');
+    const inherited = fromJS({
+      id: '31',
+      revision: 1,
+      target: { kind: 'none' },
+      defaults: { spoiler: { enabled: true, text: '' } },
+    });
+    const drafted = composer(undefined, { type: '@@INIT' })
+      .set('default_sensitive', true)
+      .set('media_attachments', ImmutableList([ImmutableMap({ id: 'm1' })]));
+    const inheritedStyle = commit(drafted, inherited);
+    const inheritedWarned = typeWarning(inheritedStyle, 'cw');
+    const inheritedRestored = typeWarning(inheritedWarned, '');
+
+    expect(manualOn.get('sensitive')).toBe(true);
+    expect(manualWarned.get('sensitive')).toBe(true);
+    expect(manualWarned.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(true);
+    expect(manualRestored.get('sensitive')).toBe(true);
+    expect(manualRestored.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(true);
+    expect(styled.get('sensitive')).toBe(true);
+    expect(styleWarned.get('sensitive')).toBe(true);
+    expect(styleWarned.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(false);
+    expect(styleRestored.get('sensitive')).toBe(true);
+    expect(styleRestored.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(false);
+    expect(inheritedRestored.get('sensitive')).toBe(true);
+    expect(inheritedRestored.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(false);
+    expect(inheritedRestored.getIn(['userPostingStyle', 'selectedId'])).toEqual('31');
   });
 });
