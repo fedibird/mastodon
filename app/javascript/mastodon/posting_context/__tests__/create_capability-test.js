@@ -10,6 +10,7 @@ import composer from '../../reducers/composer';
 import composers from '../../reducers/composers';
 import { groupPostingContext } from '../fixtures/group_context_fixture';
 import { mitraGroupPostingContext } from '../fixtures/mitra_group_context_fixture';
+import { nodebbGroupPostingContext, nodebbGroupPostingContextFor } from '../fixtures/nodebb_group_context_fixture';
 import { buildHashtagTimelinePostingContext } from '../hashtag';
 import { createCapabilityNotice, selectComposerEffectiveCreateCapability } from '../create_capability';
 
@@ -107,6 +108,13 @@ const localDiscovery = (evidence = null, extras = {}) => discoveryRecord({
 
 const mitraDiscovery = (evidence = null, extras = {}) => discoveryRecord({
   adapter: 'mitra_group',
+  authority: 'compatibility',
+  viewerEvidence: evidence,
+  ...extras,
+});
+
+const nodebbDiscovery = (evidence = null, extras = {}) => discoveryRecord({
+  adapter: 'nodebb_group',
   authority: 'compatibility',
   viewerEvidence: evidence,
   ...extras,
@@ -738,5 +746,108 @@ describe('selectComposerEffectiveCreateCapability', () => {
     expect(capability.permission.confirmed).toBe(true);
     expect(capability.canAttempt).toBe(true);
     expect(createCapabilityNotice(capability)).toBe('allowed_compatibility');
+  });
+
+  it('attempts a public NodeBB post when create is unknown and the context matches', () => {
+    const state = primaryState({
+      postingContext: nodebbGroupPostingContext,
+      accountId: '456',
+      discovery: nodebbDiscovery(viewerEvidence(permissionEvidence('unknown'))),
+    });
+    const capability = capabilityFor(state);
+
+    expect(state.getIn(['compose', 'privacy'])).toBe('public');
+    expect(capability.permission.status).toBe('unknown');
+    expect(capability.permission.confirmed).toBe(false);
+    expect(capability.delivery).toEqual({
+      status: 'supported',
+      authority: 'compatibility',
+      adapter: 'nodebb_group',
+    });
+    expect(capability.compliance.valid).toBe(true);
+    expect(capability.compliance.visibility.allowed).toEqual(['public']);
+    expect(capability.canAttempt).toBe(true);
+    expect(createCapabilityNotice(capability)).toBe('unknown_compatibility');
+  });
+
+  it('blocks an unlisted NodeBB post without changing the selected visibility', () => {
+    const state = primaryState({
+      postingContext: nodebbGroupPostingContext,
+      accountId: '456',
+      privacy: 'unlisted',
+      discovery: nodebbDiscovery(viewerEvidence(permissionEvidence('unknown'))),
+    });
+    const blocked = capabilityFor(state);
+    const published = state.set('compose', withPrivacy(state.get('compose'), 'public'));
+    const allowed = capabilityFor(published);
+
+    expect(state.getIn(['compose', 'privacy'])).toBe('unlisted');
+    expect(blocked.compliance.valid).toBe(false);
+    expect(blocked.canAttempt).toBe(false);
+    expect(blocked.reason).toBe('compliance');
+    expect(blocked.delivery.authority).toBe('compatibility');
+    expect(published.getIn(['compose', 'privacy'])).toBe('public');
+    expect(allowed.canAttempt).toBe(true);
+    expect(allowed.reason).toBeNull();
+  });
+
+  it('does not describe an allowed NodeBB permission as guaranteed acceptance', () => {
+    const capability = capabilityFor(primaryState({
+      postingContext: nodebbGroupPostingContext,
+      accountId: '456',
+      discovery: nodebbDiscovery(viewerEvidence(permissionEvidence('allowed', 'none'))),
+    }));
+
+    expect(capability.permission.confirmed).toBe(true);
+    expect(capability.canAttempt).toBe(true);
+    expect(createCapabilityNotice(capability)).toBe('allowed_compatibility');
+  });
+
+  it('refuses a NodeBB target when the composer still has another group context', () => {
+    const state = primaryState({
+      postingContext: nodebbGroupPostingContext,
+      accountId: '456',
+      discovery: nodebbDiscovery(viewerEvidence(permissionEvidence('unknown')), {
+        context: nodebbGroupPostingContextFor('789', 'other@nodebb.example'),
+      }),
+      discoveryAccountId: '789',
+    }).setIn(['compose', 'posting_context_account_id'], '789');
+    const capability = capabilityFor(state);
+
+    expect(state.getIn(['compose', 'context', 'key'])).toBe('protocol:fep-1b12-nodebb:456');
+    expect(capability.canAttempt).toBe(false);
+    expect(capability.reason).toBe('target_mismatch');
+    expect(createCapabilityNotice(capability)).toBe('mismatch');
+  });
+
+  it('does not turn a completed NodeBB revalidation into create permission', () => {
+    const completed = capabilityFor(primaryState({
+      postingContext: nodebbGroupPostingContext,
+      accountId: '456',
+      discovery: nodebbDiscovery(viewerEvidence(permissionEvidence('unknown'))),
+    }).set('posting_context_revalidations', fromJS({
+      '456': { state: 'completed', explicit: true, actor: 'refreshed', affiliations: 'refreshed' },
+    })));
+    const failed = capabilityFor(primaryState({
+      postingContext: nodebbGroupPostingContext,
+      accountId: '456',
+      discovery: nodebbDiscovery(viewerEvidence(permissionEvidence('allowed', 'none'))),
+    }).set('posting_context_revalidations', fromJS({
+      '456': { state: 'failed', explicit: true, actor: 'failed', affiliations: 'failed' },
+    })));
+
+    expect(completed.permission.status).toBe('unknown');
+    expect(completed.permission.confirmed).toBe(false);
+    expect(completed.canAttempt).toBe(true);
+    expect(completed.delivery).toEqual({
+      status: 'supported',
+      authority: 'compatibility',
+      adapter: 'nodebb_group',
+    });
+    expect(createCapabilityNotice(completed)).toBe('unknown_compatibility');
+    expect(failed.permission.status).toBe('allowed');
+    expect(failed.permission.confirmed).toBe(false);
+    expect(failed.canAttempt).toBe(true);
+    expect(createCapabilityNotice(failed)).not.toBe('allowed_compatibility');
   });
 });

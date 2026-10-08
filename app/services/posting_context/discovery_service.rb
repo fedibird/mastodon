@@ -4,11 +4,14 @@ class PostingContext::DiscoveryService
   SCHEMA_VERSION = 1
 
   # Ordered from most authoritative to the neutral fallback.
-  # Compatibility heuristics stay behind built-in and, later, explicit
-  # protocol adapters.
+  # Built-in rules come first. An explicit protocol adapter, once one
+  # exists, belongs ahead of NodeInfo software heuristics. This pass
+  # does not infer that evidence. NodeInfo adapters stay in this order:
+  # Mitra, then NodeBB.
   ADAPTERS = [
     PostingContext::Adapters::FedibirdGroup,
     PostingContext::Adapters::MitraGroup,
+    PostingContext::Adapters::NodebbGroup,
   ].freeze
 
   def call(account, viewer: nil)

@@ -233,6 +233,7 @@
   "compose_form.posting_context.revalidation.running": "Rechecking create permission",
   "compose_form.posting_context.revalidation.stale": "Permission information is out of date",
   "compose_form.posting_context.revalidation.timed_out": "Recheck may still be running on the server",
+  "compose_form.posting_context.visibility.public_only": "This destination supports public posts only",
   "compose_form.posting_context.visibility.public_unlisted": "Visibility: Public or Unlisted",
   "compose_form.posting_style.catalog_failed": "Couldn’t load posting styles.",
   "compose_form.posting_style.catalog_retry": "Reload posting styles",

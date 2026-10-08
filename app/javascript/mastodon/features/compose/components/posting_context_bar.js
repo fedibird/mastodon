@@ -11,6 +11,7 @@ const messages = defineMessages({
   exclude: { id: 'compose_form.posting_context.exclude', defaultMessage: 'Do not add #{hashtag}' },
   mentionRequired: { id: 'compose_form.posting_context.mention_required', defaultMessage: 'Required mention: @{acct}' },
   audienceGroup: { id: 'compose_form.posting_context.audience_group', defaultMessage: 'Posting to group: @{acct}' },
+  visibilityPublicOnly: { id: 'compose_form.posting_context.visibility.public_only', defaultMessage: 'This destination supports public posts only' },
   visibilityPublicUnlisted: { id: 'compose_form.posting_context.visibility.public_unlisted', defaultMessage: 'Visibility: Public or Unlisted' },
   followSatisfied: { id: 'compose_form.posting_context.follow.satisfied', defaultMessage: '✓ Following @{acct}' },
   followUnknown: { id: 'compose_form.posting_context.follow.unknown', defaultMessage: 'Checking follow status for @{acct}…' },
@@ -207,13 +208,14 @@ class PostingContextBar extends React.PureComponent {
     const showAudience = Boolean(audienceAcct);
     const allowed = visibility && visibility.allowed;
     const showVisibility = Array.isArray(allowed) && allowed.includes('public') && allowed.includes('unlisted');
+    const showPublicOnly = Array.isArray(allowed) && allowed.length === 1 && allowed[0] === 'public';
     const hasFollows = Boolean(followingAccounts && followingAccounts.length > 0);
     const createMessage = createNoticeMessages[createNotice];
     const revalidationMessage = revalidationMessages[revalidationNotice];
     const showResume = revalidationNotice === 'interrupted' || revalidationNotice === 'timed_out';
     const showRecheck = Boolean(canRecheck && !showResume && revalidationNotice !== 'running');
 
-    if (!hasHashtags && !hasMentions && !showAudience && !showVisibility && !hasFollows && !createMessage && !showRecheck && !showResume && !revalidationMessage) {
+    if (!hasHashtags && !hasMentions && !showAudience && !showVisibility && !showPublicOnly && !hasFollows && !createMessage && !showRecheck && !showResume && !revalidationMessage) {
       return null;
     }
 
@@ -266,6 +268,11 @@ class PostingContextBar extends React.PureComponent {
         {showVisibility && (
           <span className={classNames('compose-form__posting-context-visibility', { 'compose-form__posting-context-warning': !visibility.valid })}>
             {intl.formatMessage(messages.visibilityPublicUnlisted)}
+          </span>
+        )}
+        {showPublicOnly && (
+          <span className={classNames('compose-form__posting-context-visibility', { 'compose-form__posting-context-warning': !visibility.valid })}>
+            {intl.formatMessage(messages.visibilityPublicOnly)}
           </span>
         )}
         {hasFollows && followingAccounts.map(account => (

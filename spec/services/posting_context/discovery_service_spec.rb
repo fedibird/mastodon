@@ -172,6 +172,7 @@ RSpec.describe PostingContext::DiscoveryService do # rubocop:disable Metrics/Blo
       expect(described_class::ADAPTERS).to eq [
         PostingContext::Adapters::FedibirdGroup,
         PostingContext::Adapters::MitraGroup,
+        PostingContext::Adapters::NodebbGroup,
       ]
       expect(fedibird.dig(:discovery, :adapter)).to eq 'fedibird_group'
       expect(fedibird.dig(:discovery, :authority)).to eq 'server'
@@ -220,7 +221,7 @@ RSpec.describe PostingContext::DiscoveryService do # rubocop:disable Metrics/Blo
     end
 
     it 'does not treat other software, forks, or an upstream name as Mitra' do
-      %w(mastodon lemmy friendica nodebb mitra-fork).each do |software_name|
+      %w(mastodon lemmy friendica piefed mitra-fork).each do |software_name|
         account = remote_activitypub_group(domain: "#{software_name}.example", software_name: software_name)
 
         expect(described_class.new.call(account)[:status]).to eq 'unsupported'
@@ -612,6 +613,132 @@ RSpec.describe PostingContext::DiscoveryService do # rubocop:disable Metrics/Blo
         source: 'fep-5219',
         via_relationship: 'trusted-poster',
         authority: 'protocol'
+      )
+    end
+
+    it 'resolves a remote NodeBB category from cached NodeInfo without fetching' do
+      account = remote_activitypub_group(domain: 'nodebb.example', software_name: 'nodebb', username: 'category')
+
+      expect(Node).not_to receive(:resolve_domain)
+      expect(UpdateNodeService).not_to receive(:new)
+      expect(ResolveAccountService).not_to receive(:new)
+      expect(ActivityPub::FetchRemoteAccountService).not_to receive(:new)
+
+      result = described_class.new.call(account)
+
+      expect(result).to eq(
+        schema_version: 1,
+        account_id: account.id.to_s,
+        status: 'resolved',
+        context: {
+          key: "protocol:fep-1b12-nodebb:#{account.id}",
+          source: {
+            id: 'compat:nodebb-fep-1b12',
+            revision: 1,
+          },
+          managed: {
+            hashtags: [],
+            mentions: [
+              {
+                account_id: account.id.to_s,
+                acct: 'category@nodebb.example',
+                enforcement: 'required',
+                rule_id: 'nodebb-group-mention',
+              },
+            ],
+          },
+          requirements: {
+            following_accounts: [],
+          },
+          constraints: {
+            allowed_visibilities: %w(public),
+          },
+          protocol: {
+            activitypub: {
+              audience: {
+                account_id: account.id.to_s,
+                acct: 'category@nodebb.example',
+                enforcement: 'required',
+                rule_id: 'fep-1b12-group-audience',
+              },
+            },
+          },
+        },
+        discovery: {
+          mechanism: 'nodeinfo_software',
+          adapter: 'nodebb_group',
+          authority: 'compatibility',
+        },
+        viewer_evidence: nil,
+      )
+      expect(a_request(:get, /.+/)).not_to have_been_made
+    end
+
+    it 'matches NodeBB software identity case-insensitively and keeps it behind Fedibird and Mitra' do
+      account = remote_activitypub_group(domain: 'mixed-nodebb.example', software_name: 'NodeBB', username: 'category', node_status: :gone)
+      result = described_class.new.call(account)
+
+      expect(described_class::ADAPTERS.map(&:adapter_name)).to eq %w(fedibird_group mitra_group nodebb_group)
+      expect(result[:status]).to eq 'resolved'
+      expect(result.dig(:discovery, :adapter)).to eq 'nodebb_group'
+      expect(result.dig(:discovery, :mechanism)).to eq 'nodeinfo_software'
+      expect(result.dig(:discovery, :authority)).to eq 'compatibility'
+      expect(result.dig(:context, :constraints, :allowed_visibilities)).to eq %w(public)
+      expect(result.dig(:context, :managed, :mentions).first[:account_id]).to eq account.id.to_s
+      expect(result.dig(:context, :protocol, :activitypub, :audience, :account_id)).to eq account.id.to_s
+    end
+
+    it 'keeps NodeBB viewer evidence unknown and does not allow create from the software name' do
+      account = remote_activitypub_group(domain: 'nodebb-evidence.example', software_name: 'nodebb')
+      viewer = Fabricate(:account, username: 'alice')
+      account.update_columns(affiliations_fetched_at: Time.now.utc, affiliations_url: 'https://nodebb-evidence.example/categories/group/affiliations')
+      GroupAffiliation.create!(
+        group_account: account,
+        subject_uri: ActivityPub::TagManager.instance.uri_for(viewer),
+        relationship: 'admin',
+        affiliation_uri: 'https://nodebb-evidence.example/relationships/1'
+      )
+
+      expect(ActivityPub::FetchGroupAffiliationsService).not_to receive(:new)
+      expect(ActivityPub::SynchronizeGroupAffiliationsWorker).not_to receive(:perform_async)
+      expect(Node).not_to receive(:resolve_domain)
+      expect(UpdateNodeService).not_to receive(:new)
+
+      result = described_class.new.call(account, viewer: viewer)
+
+      expect(result[:status]).to eq 'resolved'
+      expect(result.dig(:discovery, :adapter)).to eq 'nodebb_group'
+      expect(result.dig(:discovery, :authority)).to eq 'compatibility'
+      expect(result.dig(:context, :managed, :mentions).first[:rule_id]).to eq 'nodebb-group-mention'
+      expect(result.dig(:context, :protocol, :activitypub, :audience, :rule_id)).to eq 'fep-1b12-group-audience'
+      expect(result.dig(:viewer_evidence, :affiliations, :snapshot_status)).to eq 'fresh'
+      expect(result.dig(:viewer_evidence, :permissions, :create)).to include(
+        status: 'unknown',
+        via_relationship: nil,
+        source: 'fep-5219',
+        authority: 'protocol'
+      )
+      expect(a_request(:get, account.affiliations_url)).not_to have_been_made
+    end
+
+    it 'returns not_applicable for a person on a NodeBB server before adapter selection' do
+      domain = 'nodebb-people.example'
+      Node.create!(domain: domain, info: { 'software_name' => 'nodebb' })
+      account = Fabricate(
+        :account,
+        username: 'alice',
+        domain: domain,
+        actor_type: 'Person',
+        protocol: :activitypub,
+        uri: "https://#{domain}/users/alice",
+        inbox_url: "https://#{domain}/users/alice/inbox"
+      )
+
+      expect(PostingContext::Adapters::NodebbGroup.applicable?(account)).to be false
+      expect(described_class.new.call(account)).to include(
+        status: 'not_applicable',
+        reason: 'not_group',
+        context: nil
       )
     end
 
