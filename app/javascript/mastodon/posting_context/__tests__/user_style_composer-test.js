@@ -9,7 +9,7 @@ jest.mock('../../uuid', () => ({
   default: () => 'test-idempotency-key',
 }));
 
-import { COMPOSE_QUOTE_CANCEL, COMPOSE_REPLY, COMPOSE_REPLY_CANCEL, COMPOSE_SENSITIVITY_CHANGE, COMPOSE_SPOILERNESS_CHANGE, COMPOSE_SUBMIT_SUCCESS, COMPOSE_UPLOAD_SUCCESS, COMPOSE_UPLOAD_UNDO, COMPOSE_VISIBILITY_CHANGE, changeCompose, setComposeToStatus } from '../../actions/compose';
+import { COMPOSE_QUOTE_CANCEL, COMPOSE_REPLY, COMPOSE_REPLY_CANCEL, COMPOSE_SENSITIVITY_CHANGE, COMPOSE_SPOILER_TEXT_CHANGE, COMPOSE_SPOILERNESS_CHANGE, COMPOSE_SUBMIT_SUCCESS, COMPOSE_UPLOAD_SUCCESS, COMPOSE_UPLOAD_UNDO, COMPOSE_VISIBILITY_CHANGE, changeCompose, setComposeToStatus } from '../../actions/compose';
 import { createComposer, targetComposerAction } from '../../actions/composer';
 import { USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../../actions/user_posting_styles';
 import { selectComposerPostingContextCompliance } from '../compliance';
@@ -389,6 +389,74 @@ describe('composer posting styles', () => {
     expect(switched.get('sensitive')).toBe(true);
     expect(removed.get('sensitive')).toBe(true);
     expect(removed.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(false);
+  });
+
+  it('turns sensitive on while warning text is present and restores the style value when it is cleared', () => {
+    const blank = fromJS({
+      id: '12',
+      revision: 1,
+      target: { kind: 'none' },
+      defaults: { sensitive: false, spoiler: { enabled: true, text: '' } },
+    });
+    const applied = commit(undefined, blank);
+    const typed = composer(applied.set('idempotencyKey', 'kept-key'), {
+      type: COMPOSE_SPOILER_TEXT_CHANGE,
+      text: 'note',
+    });
+    const cleared = composer(typed.set('idempotencyKey', 'kept-key'), {
+      type: COMPOSE_SPOILER_TEXT_CHANGE,
+      text: '',
+    });
+    const retyped = composer(cleared, {
+      type: COMPOSE_SPOILER_TEXT_CHANGE,
+      text: 'note',
+    });
+    const closed = composer(retyped, { type: COMPOSE_SPOILERNESS_CHANGE });
+
+    expect(applied.get('spoiler')).toBe(true);
+    expect(applied.get('sensitive')).toBe(false);
+    expect(typed.get('sensitive')).toBe(true);
+    expect(typed.get('spoiler_text')).toEqual('note');
+    expect(typed.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(false);
+    expect(typed.get('idempotencyKey')).toEqual('test-idempotency-key');
+    expect(cleared.get('sensitive')).toBe(false);
+    expect(cleared.get('spoiler_text')).toEqual('');
+    expect(cleared.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(false);
+    expect(cleared.get('idempotencyKey')).toEqual('test-idempotency-key');
+    expect(closed.get('spoiler')).toBe(false);
+    expect(closed.get('sensitive')).toBe(false);
+    expect(closed.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(false);
+  });
+
+  it('keeps a manual sensitive choice across removing and attaching media', () => {
+    const drafted = composer(undefined, { type: '@@INIT' }).set('default_sensitive', true).set('sensitive', true);
+    const manual = composer(drafted, { type: COMPOSE_SENSITIVITY_CHANGE });
+    const withMedia = composer(manual, {
+      type: COMPOSE_UPLOAD_SUCCESS,
+      media: { id: 'm1', type: 'image' },
+    });
+    const removed = composer(withMedia, { type: COMPOSE_UPLOAD_UNDO, media_id: 'm1' });
+    const again = composer(removed, {
+      type: COMPOSE_UPLOAD_SUCCESS,
+      media: { id: 'm2', type: 'image' },
+    });
+    const forced = composer(again, { type: COMPOSE_SPOILERNESS_CHANGE });
+    const warned = composer(forced, { type: COMPOSE_SPOILER_TEXT_CHANGE, text: 'cw' });
+    const cleared = composer(warned, { type: COMPOSE_SPOILER_TEXT_CHANGE, text: '' });
+    const usual = composer(composer(undefined, { type: '@@INIT' }).set('default_sensitive', true), {
+      type: COMPOSE_UPLOAD_SUCCESS,
+      media: { id: 'm3', type: 'image' },
+    });
+
+    expect(manual.get('sensitive')).toBe(false);
+    expect(withMedia.get('sensitive')).toBe(false);
+    expect(removed.get('sensitive')).toBe(false);
+    expect(again.get('sensitive')).toBe(false);
+    expect(again.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(true);
+    expect(warned.get('sensitive')).toBe(true);
+    expect(warned.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(true);
+    expect(cleared.get('sensitive')).toBe(false);
+    expect(usual.get('sensitive')).toBe(true);
   });
 
   it('keeps a manual sensitive value distinct from a style value', () => {

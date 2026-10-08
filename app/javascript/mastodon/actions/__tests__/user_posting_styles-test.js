@@ -15,7 +15,8 @@ jest.mock('../../api', () => ({
 }));
 
 import api from '../../api';
-import { commitUserPostingStyle, fetchUserPostingStyles } from '../user_posting_styles';
+import { COMPOSE_LANGUAGE_CHANGE, COMPOSE_POLL_ADD, COMPOSE_UPLOAD_SUCCESS, COMPOSE_VISIBILITY_CHANGE, changeCompose } from '../compose';
+import { commitUserPostingStyle, fetchUserPostingStyles, retryUserPostingStyleDestination, toggleUserPostingStyleHashtag } from '../user_posting_styles';
 import { POSTING_CONTEXT_FETCH_SUCCESS } from '../posting_contexts';
 import { selectComposerPostingContextCompliance } from '../../posting_context/compliance';
 import { materializeComposerText } from '../../posting_context/materialize';
@@ -304,6 +305,98 @@ describe('group discovery retry', () => {
 
     expect(store.getState().getIn(['compose', 'userPostingStyle', 'destinationStatus'])).toEqual('ready');
     expect(materializeComposerText(store.getState().get('compose'))).toContain('@localsquad');
+  });
+
+  it('retries discovery without reapplying the style or clearing a suppressed tag', async () => {
+    let resolveRetry;
+    const get = jest.fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockImplementationOnce(() => new Promise(resolve => {
+        resolveRetry = resolve;
+      }));
+    api.mockReturnValue({ get });
+
+    const store = makeStore();
+    store.dispatch({
+      type: 'USER_POSTING_STYLES_FETCH_SUCCESS',
+      styles: [style],
+    });
+
+    await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, '1'));
+    store.dispatch(changeCompose('Keep me'));
+    store.dispatch({ type: COMPOSE_VISIBILITY_CHANGE, value: 'unlisted' });
+    store.dispatch({ type: COMPOSE_LANGUAGE_CHANGE, language: 'en' });
+    store.dispatch({ type: COMPOSE_UPLOAD_SUCCESS, media: { id: 'm1', type: 'image' } });
+    store.dispatch({ type: COMPOSE_POLL_ADD });
+    store.dispatch(toggleUserPostingStyleHashtag(PRIMARY_COMPOSER_ID, 'style', 'fedibird'));
+
+    const before = store.getState().get('compose');
+    const key = before.get('idempotencyKey');
+    const retry = store.dispatch(retryUserPostingStyleDestination(PRIMARY_COMPOSER_ID));
+    const pending = store.getState().get('compose');
+
+    expect(pending.getIn(['userPostingStyle', 'destinationStatus'])).toEqual('pending');
+    expect(pending.getIn(['userPostingStyle', 'selectedId'])).toEqual('1');
+    expect(pending.get('text')).toEqual('Keep me');
+    expect(pending.get('privacy')).toEqual('unlisted');
+    expect(pending.get('language')).toEqual('en');
+    expect(pending.get('media_attachments').size).toEqual(1);
+    expect(pending.get('poll')).not.toBeNull();
+    expect(pending.getIn(['userPostingStyle', 'manualFields']).includes('privacy')).toBe(true);
+    expect(pending.getIn(['userPostingStyle', 'manualFields']).includes('language')).toBe(true);
+    expect(pending.getIn(['userPostingStyle', 'suppressions']).includes('style:fedibird')).toBe(true);
+    expect(pending.get('idempotencyKey')).toEqual(key);
+    expect(selectComposerPostingContextCompliance(store.getState(), PRIMARY_COMPOSER_ID).valid).toBe(false);
+
+    resolveRetry({ data: discovery('resolved') });
+    await retry;
+
+    const done = store.getState().get('compose');
+
+    expect(done.getIn(['userPostingStyle', 'destinationStatus'])).toEqual('ready');
+    expect(done.getIn(['userPostingStyle', 'selectedId'])).toEqual('1');
+    expect(done.get('text')).toEqual('Keep me');
+    expect(done.get('privacy')).toEqual('unlisted');
+    expect(done.get('language')).toEqual('en');
+    expect(done.get('media_attachments').size).toEqual(1);
+    expect(done.get('poll')).not.toBeNull();
+    expect(done.getIn(['userPostingStyle', 'suppressions']).includes('style:fedibird')).toBe(true);
+    expect(materializeComposerText(done)).toEqual('@localsquad Keep me\n\n#squad');
+    expect(materializeComposerText(done)).not.toContain('#fedibird');
+    expect(done.get('idempotencyKey')).not.toEqual(key);
+  });
+
+  it('does not apply a dedicated retry after the style has changed', async () => {
+    let resolveRetry;
+    const get = jest.fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockImplementationOnce(() => new Promise(resolve => {
+        resolveRetry = resolve;
+      }));
+    api.mockReturnValue({ get });
+
+    const store = makeStore();
+    const reading = style.set('id', '2').setIn(['target', 'kind'], 'hashtag').setIn(['target', 'hashtag'], 'books').setIn(['target', 'accountId'], null);
+
+    store.dispatch({
+      type: 'USER_POSTING_STYLES_FETCH_SUCCESS',
+      styles: [style, reading],
+    });
+
+    await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, '1'));
+    const retry = store.dispatch(retryUserPostingStyleDestination(PRIMARY_COMPOSER_ID));
+
+    expect(store.getState().getIn(['compose', 'userPostingStyle', 'destinationStatus'])).toEqual('pending');
+
+    await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, '2'));
+    resolveRetry({ data: discovery('resolved') });
+    await retry;
+
+    const composer = store.getState().get('compose');
+
+    expect(composer.getIn(['userPostingStyle', 'selectedId'])).toEqual('2');
+    expect(materializeComposerText(composer)).not.toContain('@localsquad');
+    expect(materializeComposerText(composer)).toContain('#books');
   });
 });
 

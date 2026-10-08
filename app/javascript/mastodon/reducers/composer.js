@@ -66,7 +66,7 @@ import {
 import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { REDRAFT } from '../actions/statuses';
 import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE } from '../actions/composer';
-import { USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DESTINATION, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../actions/user_posting_styles';
+import { USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DESTINATION, USER_POSTING_STYLE_DESTINATION_RETRY, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../actions/user_posting_styles';
 import { Map as ImmutableMap, List as ImmutableList, Set as ImmutableSet, OrderedSet as ImmutableOrderedSet, fromJS } from 'immutable';
 import uuid from '../uuid';
 import { normalizeManagedHashtagName } from '../posting_context/managed_hashtags';
@@ -76,12 +76,14 @@ import {
   applySensitiveOnFirstMedia,
   applySensitiveOnLastMediaRemoved,
   clearStyleManualState,
+  beginStyleDestinationRetry,
   commitUserPostingStyle,
   finishStyleDestination,
   initialUserPostingStyle,
   reapplySelectedStyle,
   releaseStyleDestination,
   rememberManualSetting,
+  syncSensitiveWithWarning,
   toggleStyleHashtag,
 } from '../posting_context/user_style_state';
 import { me } from '../initial_state';
@@ -582,6 +584,8 @@ export default function composer(state = initialState, action) {
     return commitUserPostingStyle(state, action);
   case USER_POSTING_STYLE_DESTINATION:
     return finishStyleDestination(state, action);
+  case USER_POSTING_STYLE_DESTINATION_RETRY:
+    return beginStyleDestinationRetry(state);
   case USER_POSTING_STYLE_HASHTAG_TOGGLE:
     return toggleStyleHashtag(state, action);
   case COMPOSER_CONTEXT_HASHTAG_TOGGLE: {
@@ -610,11 +614,17 @@ export default function composer(state = initialState, action) {
     });
   case COMPOSE_SPOILERNESS_CHANGE:
     return state.withMutations(map => {
-      map.set('spoiler', !state.get('spoiler'));
+      const nextSpoiler = !state.get('spoiler');
+
+      map.set('spoiler', nextSpoiler);
       map.set('idempotencyKey', uuid());
       map.set('dirty', true);
+      const handled = syncSensitiveWithWarning(map, state, {
+        spoiler: nextSpoiler,
+        spoilerText: state.get('spoiler_text'),
+      });
 
-      if (!state.get('sensitive') && state.get('media_attachments').size >= 1) {
+      if (!handled && nextSpoiler && !state.get('sensitive') && state.get('media_attachments').size >= 1) {
         map.set('sensitive', true);
       }
 
@@ -624,6 +634,10 @@ export default function composer(state = initialState, action) {
     if (!state.get('spoiler')) return state;
     return state.withMutations(map => {
       map.set('spoiler_text', action.text);
+      syncSensitiveWithWarning(map, state, {
+        spoiler: true,
+        spoilerText: action.text,
+      });
       map.set('idempotencyKey', uuid());
       map.set('dirty', true);
       rememberManualSetting(map, 'spoiler');

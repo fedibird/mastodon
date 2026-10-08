@@ -380,6 +380,33 @@ export function reapplySelectedStyle(state, { respectManual, resetSuppressions }
   return next.withMutations(restoreManualValues);
 }
 
+export function beginStyleDestinationRetry(state) {
+  if (isExistingPostEdit(state)) {
+    return state;
+  }
+
+  const style = state.get('userPostingStyle');
+  const snapshot = style && style.get('snapshot');
+  const accountId = snapshot && snapshot.getIn(['target', 'accountId']);
+
+  if (!style || style.get('destinationStatus') !== 'failed' || style.get('destinationSource') !== 'style') {
+    return state;
+  }
+
+  if (!snapshot || snapshot.getIn(['target', 'kind']) !== 'group' || !accountId) {
+    return state;
+  }
+
+  return state.withMutations(map => {
+    map.set('context', emptyComposerPostingContext());
+    map.setIn(['userPostingStyle', 'destinationStatus'], 'pending');
+    map.setIn(['userPostingStyle', 'destinationFailure'], null);
+    map.setIn(['userPostingStyle', 'destinationAccountId'], String(accountId));
+    map.setIn(['userPostingStyle', 'status'], 'applying');
+    map.setIn(['userPostingStyle', 'unapplied'], withoutDestination(map.getIn(['userPostingStyle', 'unapplied'])));
+  });
+}
+
 export function finishStyleDestination(state, action) {
   if (isExistingPostEdit(state)) {
     return state;
@@ -474,24 +501,81 @@ const spoilerTextForcesSensitive = state => (
   state.get('spoiler') === true && String(state.get('spoiler_text') || '').trim() !== ''
 );
 
+const manualSensitiveValue = state => {
+  const manual = state.getIn(['userPostingStyle', 'manualFields']);
+
+  if (!manual || !manual.includes || !manual.includes('sensitive')) {
+    return undefined;
+  }
+
+  const stored = state.getIn(['userPostingStyle', 'manualValues', 'sensitive']);
+
+  return stored === true || stored === false ? stored : undefined;
+};
+
+const ownSensitiveFromStyleWarning = (map, state) => {
+  const manual = state.getIn(['userPostingStyle', 'manualFields']);
+  const owned = state.getIn(['userPostingStyle', 'styleOwnedFields']);
+  const styleWarning = Boolean(owned && owned.includes && owned.includes('spoiler'));
+
+  if (styleWarning && !(manual && manual.includes && manual.includes('sensitive'))) {
+    map.updateIn(['userPostingStyle', 'styleOwnedFields'], set => (set || ImmutableSet()).add('sensitive'));
+  }
+};
+
+// The server stores sensitive when the warning text is non-blank. Forcing that
+// on does not count as a manual choice. Clearing the text, or the warning,
+// restores the manual value or the style's explicit value.
+export function syncSensitiveWithWarning(map, state, { spoiler, spoilerText }) {
+  if (spoiler === true && String(spoilerText || '').trim() !== '') {
+    map.set('sensitive', true);
+    ownSensitiveFromStyleWarning(map, state);
+    return true;
+  }
+
+  const manualValue = manualSensitiveValue(state);
+
+  if (manualValue === true || manualValue === false) {
+    map.set('sensitive', manualValue);
+    return true;
+  }
+
+  const explicit = explicitStyleSensitive(state);
+
+  if (explicit === true || explicit === false) {
+    map.set('sensitive', explicit);
+    return true;
+  }
+
+  return false;
+}
+
 export function applySensitiveOnFirstMedia(map, state) {
+  if (spoilerTextForcesSensitive(state)) {
+    map.set('sensitive', true);
+    ownSensitiveFromStyleWarning(map, state);
+    return;
+  }
+
+  const manualValue = manualSensitiveValue(state);
+
+  if (manualValue === true || manualValue === false) {
+    map.set('sensitive', manualValue);
+    return;
+  }
+
   const explicit = explicitStyleSensitive(state);
   const spoilerOn = state.get('spoiler') === true;
-  const manual = state.getIn(['userPostingStyle', 'manualFields']);
-  const manualSensitive = Boolean(manual && manual.includes && manual.includes('sensitive'));
 
-  if (explicit === false && !spoilerTextForcesSensitive(state)) {
+  if (explicit === false) {
     return;
   }
 
   if (explicit === true || state.get('default_sensitive') || spoilerOn) {
     map.set('sensitive', true);
 
-    const owned = state.getIn(['userPostingStyle', 'styleOwnedFields']);
-    const styleWarning = Boolean(owned && owned.includes && owned.includes('spoiler'));
-
-    if (spoilerOn && styleWarning && !manualSensitive) {
-      map.updateIn(['userPostingStyle', 'styleOwnedFields'], set => (set || ImmutableSet()).add('sensitive'));
+    if (spoilerOn) {
+      ownSensitiveFromStyleWarning(map, state);
     }
   }
 }

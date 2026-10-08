@@ -4,7 +4,7 @@ import { connect } from 'react-redux';
 import { injectIntl, defineMessages } from 'react-intl';
 import { List as ImmutableList } from 'immutable';
 import { openModal } from '../../../actions/modal';
-import { commitUserPostingStyle, fetchUserPostingStyles } from '../../../actions/user_posting_styles';
+import { commitUserPostingStyle, fetchUserPostingStyles, retryUserPostingStyleDestination } from '../../../actions/user_posting_styles';
 import { selectComposerPostingContextCompliance } from '../../../posting_context/compliance';
 import { resolveUserPostingStyle } from '../../../posting_context/user_style_resolver';
 import { selectComposer } from '../../../selectors/composer';
@@ -83,14 +83,7 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => {
   return {
     onSelect: applyStyle,
     onRetry () {
-      dispatch((_, getState) => {
-        const composer = selectComposer(getState(), composerId);
-        const selectedId = composer && composer.getIn(['userPostingStyle', 'selectedId']);
-
-        if (selectedId) {
-          applyStyle(selectedId);
-        }
-      });
+      dispatch(retryUserPostingStyleDestination(composerId));
     },
     onRetryCatalog () {
       dispatch(fetchUserPostingStyles({ force: true }));

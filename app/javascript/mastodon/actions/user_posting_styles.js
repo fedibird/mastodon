@@ -12,6 +12,7 @@ export const USER_POSTING_STYLES_FETCH_SUCCESS = 'USER_POSTING_STYLES_FETCH_SUCC
 export const USER_POSTING_STYLES_FETCH_FAIL = 'USER_POSTING_STYLES_FETCH_FAIL';
 export const USER_POSTING_STYLE_COMMIT = 'USER_POSTING_STYLE_COMMIT';
 export const USER_POSTING_STYLE_DESTINATION = 'USER_POSTING_STYLE_DESTINATION';
+export const USER_POSTING_STYLE_DESTINATION_RETRY = 'USER_POSTING_STYLE_DESTINATION_RETRY';
 export const USER_POSTING_STYLE_HASHTAG_TOGGLE = 'USER_POSTING_STYLE_HASHTAG_TOGGLE';
 
 const selectStyle = (state, styleId) => {
@@ -159,6 +160,33 @@ export function commitUserPostingStyle(composerId, styleId) {
     }
 
     return Promise.resolve();
+  };
+}
+
+export function retryUserPostingStyleDestination(composerId) {
+  return (dispatch, getState) => {
+    const composer = selectComposer(getState(), composerId);
+    const snapshot = composer && composer.getIn(['userPostingStyle', 'snapshot']);
+    const accountId = snapshot && snapshot.getIn(['target', 'accountId']);
+    const selectedId = composer && composer.getIn(['userPostingStyle', 'selectedId']);
+
+    if (!composer || composer.getIn(['userPostingStyle', 'destinationStatus']) !== 'failed' || !selectedId) {
+      return Promise.resolve();
+    }
+
+    if (!snapshot || snapshot.getIn(['target', 'kind']) !== 'group' || !accountId) {
+      return Promise.resolve();
+    }
+
+    dispatch(targetComposerAction({
+      type: USER_POSTING_STYLE_DESTINATION_RETRY,
+    }, composerId));
+
+    return dispatch(loadUserPostingStyleDestination(composerId, {
+      selectedId,
+      accountId,
+      force: true,
+    }));
   };
 }
 
