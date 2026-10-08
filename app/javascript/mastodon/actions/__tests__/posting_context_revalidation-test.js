@@ -551,6 +551,49 @@ describe('posting context revalidation', () => {
 
     expect(store.getState().getIn(['posting_context_revalidations', '456', 'state'])).toEqual('completed');
     expect(store.getState().getIn(['posting_context_revalidations', '456', 'requestId'])).toEqual('job-new');
+
+    store.dispatch({
+      type: 'POSTING_CONTEXT_REVALIDATION_UPDATE',
+      accountId: '456',
+      explicit: true,
+      statusRead: true,
+      polling: 'active',
+      data: { state: 'running', request_id: 'job-new' },
+    });
+    store.dispatch({
+      type: 'POSTING_CONTEXT_REVALIDATION_UPDATE',
+      accountId: '456',
+      explicit: true,
+      statusRead: true,
+      polling: 'idle',
+      data: { state: 'completed', request_id: 'job-old', actor: 'refreshed', affiliations: 'refreshed' },
+    });
+
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'state'])).toEqual('completed');
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'requestId'])).toEqual('job-new');
+  });
+
+  it('does not roll a status read back to an earlier state of the same request', () => {
+    const store = makeStore();
+
+    store.dispatch({
+      type: 'POSTING_CONTEXT_REVALIDATION_UPDATE',
+      accountId: '456',
+      explicit: true,
+      polling: 'active',
+      data: { state: 'running', request_id: 'job-same' },
+    });
+    store.dispatch({
+      type: 'POSTING_CONTEXT_REVALIDATION_UPDATE',
+      accountId: '456',
+      explicit: true,
+      statusRead: true,
+      polling: 'active',
+      data: { state: 'queued', request_id: 'job-same' },
+    });
+
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'state'])).toEqual('running');
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'requestId'])).toEqual('job-same');
   });
 
   it('keeps the newer job polling when an older completed status arrives', async () => {
@@ -647,6 +690,161 @@ describe('posting context revalidation', () => {
     jest.advanceTimersByTime(20000);
     await flush();
     expect(revalidationGets).toBe(3);
+    view.unmount();
+  });
+
+  const mountInterruptedJob = (store, requestId) => {
+    store.dispatch(createComposer(composerId));
+    store.dispatch(targetComposerAction(changeCompose('Kept'), composerId));
+    store.dispatch(applyComposerPostingContext(composerId, mitraGroupPostingContext, '456'));
+    store.dispatch({
+      type: 'POSTING_CONTEXT_FETCH_SUCCESS',
+      accountId: '456',
+      receivedAt: Date.now(),
+      data: discovery('456', 'unknown'),
+    });
+    store.dispatch({
+      type: 'POSTING_CONTEXT_REVALIDATION_UPDATE',
+      accountId: '456',
+      explicit: true,
+      polling: 'interrupted',
+      data: { state: 'running', request_id: requestId, account_id: '456' },
+    });
+    return renderBar(store);
+  };
+
+  it('drops a late manual status read after a newer job starts', async () => {
+    let resolveOlder;
+    const olderGet = new Promise(resolve => {
+      resolveOlder = resolve;
+    });
+    let revalidationGets = 0;
+    let discoveryGets = 0;
+    const post = jest.fn(() => Promise.resolve({
+      data: { state: 'running', request_id: 'job-b', account_id: '456', requested_at: '2026-10-08T10:00:00Z' },
+    }));
+    const get = jest.fn(url => {
+      const path = String(url);
+
+      if (path.endsWith('/posting_context')) {
+        discoveryGets += 1;
+        return Promise.resolve({ data: discovery('456', 'allowed') });
+      }
+
+      revalidationGets += 1;
+
+      if (revalidationGets === 1) {
+        return olderGet;
+      }
+
+      if (revalidationGets === 2) {
+        return Promise.resolve({ data: { state: 'running', request_id: 'job-b', account_id: '456' } });
+      }
+
+      return Promise.resolve({
+        data: { state: 'completed', request_id: 'job-b', account_id: '456', actor: 'refreshed', affiliations: 'refreshed' },
+      });
+    });
+    api.mockImplementation(() => ({ post, get }));
+    const store = makeStore();
+    const view = mountInterruptedJob(store, 'job-a');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check status again' }));
+    await flush();
+    expect(revalidationGets).toBe(1);
+
+    await store.dispatch(requestPostingContextRevalidation('456'));
+    await flush();
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'requestId'])).toEqual('job-b');
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'state'])).toEqual('running');
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'polling'])).toEqual('active');
+
+    resolveOlder({
+      data: { state: 'completed', request_id: 'job-a', account_id: '456', actor: 'refreshed', affiliations: 'refreshed' },
+    });
+    await flush();
+    await flush();
+
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'requestId'])).toEqual('job-b');
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'state'])).toEqual('running');
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'polling'])).toEqual('active');
+    expect(discoveryGets).toBe(0);
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'text'])).toEqual('Kept');
+
+    jest.advanceTimersByTime(2000);
+    await flush();
+    await flush();
+    expect(revalidationGets).toBe(2);
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'state'])).toEqual('running');
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'polling'])).toEqual('active');
+    expect(discoveryGets).toBe(0);
+
+    jest.advanceTimersByTime(2000);
+    await flush();
+    await flush();
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'state'])).toEqual('completed');
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'requestId'])).toEqual('job-b');
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'polling'])).toEqual('idle');
+    expect(discoveryGets).toBe(1);
+
+    jest.advanceTimersByTime(20000);
+    await flush();
+    expect(revalidationGets).toBe(3);
+    expect(post).toHaveBeenCalledTimes(1);
+    view.unmount();
+  });
+
+  it('does not interrupt a newer job when an older manual status read fails', async () => {
+    let rejectOlder;
+    const olderGet = new Promise((_, reject) => {
+      rejectOlder = reject;
+    });
+    let revalidationGets = 0;
+    let discoveryGets = 0;
+    const post = jest.fn(() => Promise.resolve({
+      data: { state: 'running', request_id: 'job-b', account_id: '456', requested_at: '2026-10-08T10:00:00Z' },
+    }));
+    const get = jest.fn(url => {
+      const path = String(url);
+
+      if (path.endsWith('/posting_context')) {
+        discoveryGets += 1;
+        return Promise.resolve({ data: discovery('456', 'unknown') });
+      }
+
+      revalidationGets += 1;
+
+      if (revalidationGets === 1) {
+        return olderGet;
+      }
+
+      return Promise.resolve({ data: { state: 'running', request_id: 'job-b', account_id: '456' } });
+    });
+    api.mockImplementation(() => ({ post, get }));
+    const store = makeStore();
+    const view = mountInterruptedJob(store, 'job-a');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check status again' }));
+    await flush();
+    await store.dispatch(requestPostingContextRevalidation('456'));
+    await flush();
+
+    rejectOlder(new Error('offline'));
+    await flush();
+    await flush();
+
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'requestId'])).toEqual('job-b');
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'state'])).toEqual('running');
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'polling'])).toEqual('active');
+    expect(discoveryGets).toBe(0);
+
+    jest.advanceTimersByTime(2000);
+    await flush();
+    await flush();
+    expect(revalidationGets).toBe(2);
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'polling'])).toEqual('active');
+    expect(store.getState().getIn(['posting_context_revalidations', '456', 'state'])).toEqual('running');
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'text'])).toEqual('Kept');
     view.unmount();
   });
 });

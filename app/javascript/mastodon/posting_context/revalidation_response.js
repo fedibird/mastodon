@@ -1,21 +1,21 @@
-const TERMINAL = {
-  completed: true,
-  partial: true,
-  failed: true,
-};
-
-const ACTIVE = {
-  queued: true,
-  running: true,
-  idle: true,
+const PROGRESS = {
+  idle: 0,
+  queued: 1,
+  running: 2,
+  completed: 3,
+  partial: 3,
+  failed: 3,
 };
 
 export const revalidationRequestId = data => data && (data.request_id || data.requestId);
 
-// Shared by the reducer and the poll action. A fromPoll response for another
-// request, or an active response after a terminal one, is not the current job.
+const observesStatus = action => Boolean(action && (action.fromPoll || action.statusRead));
+
+// Shared by the reducer and every status GET. A manual refresh uses the same
+// request-id and progress checks as an automatic poll. A POST is not a status
+// read, so it can switch the current job.
 export const isStaleRevalidationPoll = (current, action) => {
-  if (!action.fromPoll || !current) {
+  if (!observesStatus(action) || !current) {
     return false;
   }
 
@@ -26,23 +26,26 @@ export const isStaleRevalidationPoll = (current, action) => {
     return true;
   }
 
-  return Boolean(TERMINAL[current.get('state')] && action.data && ACTIVE[action.data.state]);
+  const currentProgress = PROGRESS[current.get('state')];
+  const incomingProgress = action.data && PROGRESS[action.data.state];
+
+  return currentProgress !== undefined && incomingProgress !== undefined && incomingProgress < currentProgress;
 };
 
 // True only when this response is the job now stored for the account.
-// generationIsCurrent is false after the watcher that issued the poll is gone.
-export const revalidationResponseAccepted = (current, data, { fromPoll = false, generationIsCurrent = true } = {}) => {
+// generationIsCurrent is the watcher generation captured before dispatch.
+export const revalidationResponseAccepted = (current, data, { fromPoll = false, statusRead = false, generationIsCurrent = true } = {}) => {
   if (!current || !data || (fromPoll && !generationIsCurrent)) {
     return false;
   }
 
-  if (isStaleRevalidationPoll(current, { fromPoll, data })) {
+  if (isStaleRevalidationPoll(current, { fromPoll, statusRead, data })) {
     return false;
   }
 
   const incomingRequestId = revalidationRequestId(data);
 
-  if (incomingRequestId && current.get('requestId') !== incomingRequestId) {
+  if ((fromPoll || statusRead) && incomingRequestId && current.get('requestId') !== incomingRequestId) {
     return false;
   }
 
