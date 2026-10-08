@@ -153,6 +153,8 @@ describe Settings::UserPostingContextsController do
       expect(group_body['preview_html']).to include(I18n.t('user_posting_contexts.conflict_item', field: I18n.t('user_posting_contexts.preview_labels.visibility'), value: I18n.t('statuses.visibilities.private'), options: [I18n.t('statuses.visibilities.public'), I18n.t('statuses.visibilities.unlisted')].join(', ')))
       expect(group_body['constraint_html']).to include(I18n.t('user_posting_contexts.permissions.conflict', value: I18n.t('statuses.visibilities.private')))
       expect(group_body['preview_html']).not_to include('name="user_posting_context')
+      expect(group_body['destination_html']).to include(I18n.t('user_posting_contexts.rules.mention', label: group.acct))
+      expect(group_body['destination_html']).to include(I18n.t('user_posting_contexts.recommended_empty'))
 
       post :preview, params: {
         id: record.id,
@@ -168,6 +170,11 @@ describe Settings::UserPostingContextsController do
       expect(body['preview_html']).to include(I18n.t('statuses.visibilities.private'))
       expect(body['preview_html']).to include('fedibird')
       expect(body['preview_html']).to include('#ruby')
+      expect(body['preview_html']).to include(I18n.t('user_posting_contexts.destination_hashtag_origin'))
+      expect(body['preview_html']).to include(I18n.t('user_posting_contexts.advisory'))
+      expect(body['preview_html']).not_to include(I18n.t('user_posting_contexts.preview_labels.recommended'))
+      expect(body['destination_html']).to include(I18n.t('user_posting_contexts.destination_hashtag_origin'))
+      expect(body['destination_html']).not_to include(I18n.t('user_posting_contexts.recommended_empty'))
       expect(record.reload.target_kind).to eq('group')
       expect(record.defaults['visibility']).to eq('private')
     end
@@ -207,6 +214,9 @@ describe Settings::UserPostingContextsController do
       expect(body['constraint_html']).to include(I18n.t('user_posting_contexts.unverified_banner'))
       expect(body['preview_html']).not_to include(I18n.t('user_posting_contexts.permissions.permitted', options: 'Public'))
       expect(body['preview_html']).to include(I18n.t('user_posting_contexts.discovery.unsupported'))
+      expect(body['preview_html']).not_to include(I18n.t('user_posting_contexts.recommended_empty'))
+      expect(body['destination_html']).to include(I18n.t('user_posting_contexts.unverified_banner'))
+      expect(body['destination_html']).not_to include(I18n.t('user_posting_contexts.recommended_empty'))
     end
 
     it 'stops a fifty-first style' do

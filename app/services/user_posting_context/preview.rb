@@ -5,11 +5,36 @@ class UserPostingContext
   # destination's current discovery result. This does not publish a post and
   # does not fetch a remote account.
   #
-  # permission == 'permitted' is the only state that means the destination
-  # allowed the value. unsupported, unknown, and a missing constraint list
-  # are never reported as permitted.
+  # permission == 'permitted' is the only state that means this field's
+  # value is inside a constraint list the destination declared. It does not
+  # mean the viewer may post to the group, and it does not mean a required
+  # follow or mention is satisfied. unsupported, unknown, and a missing
+  # constraint list are never reported as permitted.
+  #
+  # Hashtag contributions a later composer can merge. This preview does not
+  # write them onto a post. Each contribution has name, normalized_name,
+  # enforcement, origin, and rule_id.
+  #
+  # origin:
+  #   style       - reference tags saved in managed. rule_id is
+  #                 user-posting-context. enforcement is advisory.
+  #   destination - the hashtag selected as target_kind hashtag. It is not
+  #                 stored in managed. rule_id is
+  #                 user-posting-context:destination. enforcement is advisory.
+  #   discovery   - a tag from the destination context. rule_id and
+  #                 enforcement come from that context.
+  #
+  # Future composition dedupes on normalized_name and keeps the strongest
+  # enforcement (required, then recommended, then advisory). It records every
+  # origin that contributed the name. Suppression is per origin: hiding style
+  # advisory tags must not drop a destination advisory tag or a discovery
+  # required tag that shares the normalized name. Do not rewrite one origin's
+  # rule_id to another's while deduping.
   class Preview
     Field = Struct.new(:source, :value, :usual_value, :permission, :allowed, :detail, keyword_init: true) do
+      # True only when this field's value is inside the destination's
+      # declared constraint list. This is not authorization to post, and it
+      # does not say that follow or mention requirements are met.
       def permitted?
         permission == 'permitted'
       end
@@ -22,7 +47,7 @@ class UserPostingContext
     Result = Struct.new(
       :destination, :discovery_status, :discovery_reason, :discovery_trust,
       :visibility, :language, :sensitive, :spoiler,
-      :user_hashtags, :required_rules, :recommended_rules, :conflicts,
+      :user_hashtags, :destination_hashtag, :required_rules, :recommended_rules, :conflicts,
       keyword_init: true
     )
 
@@ -54,6 +79,7 @@ class UserPostingContext
         sensitive: sensitive,
         spoiler: spoiler,
         user_hashtags: user_hashtags,
+        destination_hashtag: destination_hashtag,
         required_rules: required_rules,
         recommended_rules: recommended_rules,
         conflicts: conflicts_for(visibility, language)
@@ -204,7 +230,28 @@ class UserPostingContext
     end
 
     def user_hashtags
-      Array(@managed['hashtags']).select { |tag| tag.is_a?(Hash) && tag['enforcement'] == 'advisory' }
+      Array(@managed['hashtags']).filter_map do |tag|
+        next unless tag.is_a?(Hash) && tag['enforcement'] == 'advisory'
+
+        tag.merge('origin' => UserPostingContext::HASHTAG_ORIGIN_STYLE)
+      end
+    end
+
+    def destination_hashtag
+      return nil unless @context.target_kind == 'hashtag'
+
+      pair = HashtagName.canonicalize(@context.target_hashtag)
+      return nil if pair.nil?
+
+      display, normalized = pair
+
+      {
+        'name' => display,
+        'normalized_name' => normalized,
+        'enforcement' => 'advisory',
+        'origin' => UserPostingContext::HASHTAG_ORIGIN_DESTINATION,
+        'rule_id' => UserPostingContext::DESTINATION_HASHTAG_RULE_ID,
+      }
     end
 
     def required_rules

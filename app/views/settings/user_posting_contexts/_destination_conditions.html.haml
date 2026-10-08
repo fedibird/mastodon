@@ -1,0 +1,26 @@
+- if @preview.discovery_trust == 'unverified'
+  %p.user-posting-context-constraint.user-posting-context-constraint--unverified= t('user_posting_contexts.unverified_banner')
+- elsif @context.target_kind == 'hashtag'
+  - if @preview.destination_hashtag
+    %p
+      %span{ dir: 'auto' }= "##{@preview.destination_hashtag['name']}"
+      %span.user-posting-context-preview__source= t('user_posting_contexts.destination_hashtag_origin')
+  - else
+    %p= t('user_posting_contexts.destination_hashtag_missing')
+- elsif @preview.discovery_trust == 'resolved'
+  %p.user-posting-context-card__label= t('user_posting_contexts.preview_labels.required')
+  - if @preview.required_rules.empty?
+    %p= t('user_posting_contexts.required_empty')
+  - else
+    %ul
+      - @preview.required_rules.each do |rule|
+        %li{ dir: 'auto' }= t("user_posting_contexts.rules.#{rule['kind']}", label: rule['label'])
+  %p.user-posting-context-card__label= t('user_posting_contexts.preview_labels.recommended')
+  - if @preview.recommended_rules.empty?
+    %p= t('user_posting_contexts.recommended_empty')
+  - else
+    %ul
+      - @preview.recommended_rules.each do |rule|
+        %li{ dir: 'auto' }= rule['label']
+- else
+  %p= user_posting_context_discovery_explanation(@preview)

@@ -100,8 +100,49 @@ RSpec.describe UserPostingContext::Preview do
 
     expect(tagged_preview.discovery_trust).to eq('not_applicable')
     expect(tagged_preview.visibility).not_to be_permitted
+    expect(tagged_preview.destination_hashtag).to include(
+      'name' => 'ruby',
+      'normalized_name' => 'ruby',
+      'enforcement' => 'advisory',
+      'origin' => 'destination',
+      'rule_id' => 'user-posting-context:destination'
+    )
+    expect(tagged_preview.recommended_rules).to be_empty
     expect(plain_preview.discovery_reason).to eq('no_target')
+    expect(plain_preview.destination_hashtag).to be_nil
     expect(plain_preview.required_rules).to be_empty
+    expect(tagged.reload.managed).not_to have_key('hashtags')
+  end
+
+  it 'keeps a destination hashtag distinct from a style advisory tag with the same name' do
+    user = Fabricate(:user)
+    record = style_for(
+      user,
+      target_kind: 'hashtag',
+      target_hashtag: '#Ruby・',
+      managed: {
+        'hashtags' => [
+          { 'name' => 'ruby', 'normalized_name' => 'ruby', 'enforcement' => 'advisory', 'rule_id' => 'user-posting-context' },
+        ],
+      }
+    )
+
+    preview = described_class.build(user: user, context: record)
+
+    expect(preview.destination_hashtag).to include('normalized_name' => 'ruby', 'origin' => 'destination', 'rule_id' => 'user-posting-context:destination')
+    expect(preview.user_hashtags.first).to include('normalized_name' => 'ruby', 'origin' => 'style', 'rule_id' => 'user-posting-context')
+    expect(record.reload.managed['hashtags'].first.keys).to match_array(%w(name normalized_name enforcement rule_id))
+  end
+
+  it 'does not treat a permitted visibility as permission to post in the group' do
+    user = Fabricate(:user)
+    group = Fabricate(:account, username: 'localsquad', actor_type: 'Group')
+    record = style_for(user, target_kind: 'group', target_account: group, defaults: { 'visibility' => 'public' })
+
+    preview = described_class.build(user: user, context: record)
+
+    expect(preview.visibility).to be_permitted
+    expect(preview.required_rules.map { |rule| rule['kind'] }).to include('following', 'mention')
   end
 
   it 'labels an omitted content warning as inheritance and an explicit disable as a clear' do

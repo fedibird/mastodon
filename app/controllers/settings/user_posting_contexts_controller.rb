@@ -67,6 +67,7 @@ class Settings::UserPostingContextsController < Settings::BaseController
     render json: {
       preview_html: render_to_string(partial: 'preview_body', formats: [:html], layout: false),
       constraint_html: render_to_string(partial: 'constraints', formats: [:html], layout: false),
+      destination_html: render_to_string(partial: 'destination_conditions', formats: [:html], layout: false),
     }
   end
 

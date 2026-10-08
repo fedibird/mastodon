@@ -1329,6 +1329,34 @@ a.name-tag,
   margin-top: 28px;
 }
 
+.user-posting-context-preview-status:empty {
+  display: none;
+}
+
+.user-posting-context-preview-status[data-state='failed'] {
+  color: $error-value-color;
+}
+
+.user-posting-context-conditions--stale {
+  opacity: 0.55;
+}
+
+.user-posting-context-destination {
+  margin-top: 8px;
+}
+
+.user-posting-context-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 28px;
+
+  .button,
+  button {
+    margin: 0;
+  }
+}
+
 .user-posting-context-preview__list {
   margin: 0;
 
@@ -1360,10 +1388,9 @@ a.name-tag,
     }
   }
 
-  .user-posting-context-form .actions {
-    display: flex;
+  .user-posting-context-actions {
     flex-direction: column;
-    gap: 8px;
+    align-items: stretch;
 
     .button,
     button {

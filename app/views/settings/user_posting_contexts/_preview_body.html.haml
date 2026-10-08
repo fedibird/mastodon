@@ -23,6 +23,14 @@
   %dd
     = user_posting_context_sensitive_label(@preview.sensitive.value == true)
     %span.user-posting-context-preview__source= user_posting_context_source_label(@preview.sensitive.source)
+  - if @context.target_kind == 'hashtag'
+    %dt= t('user_posting_contexts.preview_labels.destination_hashtag')
+    %dd
+      - if @preview.destination_hashtag
+        %span{ dir: 'auto' }= "##{@preview.destination_hashtag['name']}"
+        %span.user-posting-context-preview__source= t('user_posting_contexts.destination_hashtag_origin')
+      - else
+        = t('user_posting_contexts.destination_hashtag_missing')
   %dt= t('user_posting_contexts.preview_labels.user_hashtags')
   %dd
     - if @preview.user_hashtags.empty?
@@ -43,16 +51,15 @@
       %ul
         - @preview.required_rules.each do |rule|
           %li{ dir: 'auto' }= t("user_posting_contexts.rules.#{rule['kind']}", label: rule['label'])
-  %dt= t('user_posting_contexts.preview_labels.recommended')
-  %dd
-    - if @preview.discovery_trust == 'unverified'
-      = t('user_posting_contexts.unverified_banner')
-    - elsif @preview.recommended_rules.empty?
-      = t('user_posting_contexts.recommended_empty')
-    - else
-      %ul
-        - @preview.recommended_rules.each do |rule|
-          %li{ dir: 'auto' }= rule['label']
+  - if @preview.discovery_trust == 'resolved'
+    %dt= t('user_posting_contexts.preview_labels.recommended')
+    %dd
+      - if @preview.recommended_rules.empty?
+        = t('user_posting_contexts.recommended_empty')
+      - else
+        %ul
+          - @preview.recommended_rules.each do |rule|
+            %li{ dir: 'auto' }= rule['label']
   %dt= t('user_posting_contexts.preview_labels.conflicts')
   %dd
     - if @preview.conflicts.empty?

@@ -2139,6 +2139,10 @@ ja:
     webauthn_authentication: セキュリティキー
   user_posting_contexts:
     advisory: この投稿スタイルによる参考タグ
+    auto_language: 投稿時に言語を自動判定します。
+    destination_hashtag_missing: 投稿先のハッシュタグ名がまだ有効ではありません。
+    destination_hashtag_origin: 投稿先として指定したハッシュタグです。投稿時には参考タグとして追加される予定です。
+    disabled_spoiler: この投稿スタイルで内容警告を無効にします。
     allowed_options: 変更できる選択肢は %{options} です。
     back: 一覧に戻る
     choices:
@@ -2206,6 +2210,8 @@ ja:
       visibility_value: 公開範囲の値
     hashtags_hint: この投稿スタイルが付ける参考のタグです。投稿先が必須とするタグとは別です。
     icon_hint: Unicode絵文字、またはピッカーのカスタム絵文字を使えます。
+    inherit_spoiler: 通常の設定には内容警告がありません。内容警告を無効にする指定とは別です。
+    inherit_value: "通常の設定: %{value}"
     new: 新しい投稿スタイルを作成
     no_hashtags: なし
     no_known_groups: 選べる既知のグループがまだありません。
@@ -2217,6 +2223,7 @@ ja:
     preview_labels:
       conflicts: 未解決の競合
       destination: 投稿先
+      destination_hashtag: 投稿先のハッシュタグ
       discovery: 投稿先の条件
       language: 言語
       recommended: 投稿先が明示した推奨値
@@ -2226,7 +2233,9 @@ ja:
       user_hashtags: この投稿スタイルが追加するタグ
       usual: "通常の設定: %{value}"
       visibility: 公開範囲
+    preview_failed: 投稿先の条件を取得できませんでした。取得できなかった条件は、現在の条件として表示していません。
     preview_note: 適用結果のプレビューです。投稿そのものは実行されません。
+    preview_pending: 投稿先の条件を更新しています。
     purpose_hint: 用途は自分のためのメモです。投稿本文には含まれません。
     recommended_empty: 投稿先は推奨値を明示していません。
     required_empty: 投稿先は必須条件を宣言していません。

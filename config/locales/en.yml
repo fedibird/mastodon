@@ -2210,6 +2210,10 @@ en:
     webauthn_authentication: Security keys
   user_posting_contexts:
     advisory: Advisory tag from this posting style
+    auto_language: Language will be detected when you post.
+    destination_hashtag_missing: The destination hashtag name is not valid yet.
+    destination_hashtag_origin: Hashtag selected as the destination. It is planned to be added as an advisory tag when you post.
+    disabled_spoiler: This posting style turns the content warning off.
     allowed_options: You can change it to %{options}.
     back: Back to the list
     choices:
@@ -2277,6 +2281,8 @@ en:
       visibility_value: Visibility value
     hashtags_hint: These tags are advisory for this posting style. They are not required rules from the destination.
     icon_hint: You can use a Unicode emoji or a custom emoji from the picker.
+    inherit_spoiler: Your usual settings do not include a content warning. That is different from turning the warning off in this style.
+    inherit_value: "Usual setting: %{value}"
     new: Create a new posting style
     no_hashtags: None
     no_known_groups: No known groups are available to choose yet.
@@ -2288,6 +2294,7 @@ en:
     preview_labels:
       conflicts: Unresolved conflicts
       destination: Destination
+      destination_hashtag: Destination hashtag
       discovery: Destination conditions
       language: Language
       recommended: Recommended values from the destination
@@ -2297,7 +2304,9 @@ en:
       user_hashtags: Tags added by this posting style
       usual: "Usual setting: %{value}"
       visibility: Visibility
+    preview_failed: The destination conditions could not be loaded. Conditions that could not be loaded are not shown as current.
     preview_note: This previews the settings that would apply. It does not publish a post.
+    preview_pending: Updating destination conditions.
     purpose_hint: This note is for you. It is not included in the post.
     recommended_empty: The destination did not provide recommended values.
     required_empty: The destination did not declare required conditions.

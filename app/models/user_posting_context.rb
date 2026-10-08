@@ -30,6 +30,12 @@
 # read-side merge a later composer can call without changing this table.
 class UserPostingContext < ApplicationRecord
   ADVISORY_HASHTAG_RULE_ID = 'user-posting-context'
+  # The hashtag named as the destination is not stored in `managed`. A later
+  # composer can recognize it by this rule id and origin. See Preview.
+  DESTINATION_HASHTAG_RULE_ID = 'user-posting-context:destination'
+  HASHTAG_ORIGIN_STYLE = 'style'
+  HASHTAG_ORIGIN_DESTINATION = 'destination'
+  HASHTAG_ORIGIN_DISCOVERY = 'discovery'
   MAX_PER_USER = 50
   SCHEMA_VERSION = 1
   TARGET_KINDS = %w(none hashtag group).freeze
