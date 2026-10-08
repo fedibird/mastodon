@@ -6,7 +6,7 @@ import { List as ImmutableList } from 'immutable';
 import { openModal } from '../../../actions/modal';
 import { commitUserPostingStyle, fetchUserPostingStyles, retryUserPostingStyleDestination } from '../../../actions/user_posting_styles';
 import { selectComposerPostingContextCompliance } from '../../../posting_context/compliance';
-import { selectPortablePostingStyleCandidates } from '../../../posting_context/surface';
+import { selectPortablePostingStyleCandidates, styleMatchesSurface } from '../../../posting_context/surface';
 import { resolveUserPostingStyle } from '../../../posting_context/user_style_resolver';
 import { PORTABLE_COMPOSER_MODE_SIMPLE, selectComposer, selectPortableComposerDisplayMode } from '../../../selectors/composer';
 import { PRIMARY_COMPOSER_ID } from '../../../utils/composer';
@@ -71,9 +71,16 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => {
       }
 
       const style = styleId === null || styleId === undefined ? null : findStyle(getState(), styleId);
-      const destinationPolicy = composer.get('surface') ? 'locked' : 'change';
+      const surface = composer.get('surface');
+      const destinationPolicy = surface ? 'locked' : 'change';
+
+      if (destinationPolicy === 'locked' && (composer.get('surfaceMismatch') || (style && !styleMatchesSurface(style, surface)))) {
+        return;
+      }
+
       const plan = resolveUserPostingStyle(style, composer, { destinationPolicy });
-      const apply = () => dispatch(commitUserPostingStyle(composerId, styleId));
+      const expectedSurface = surface ? { kind: surface.get('kind'), key: surface.get('key') } : null;
+      const apply = () => dispatch(commitUserPostingStyle(composerId, styleId, { expectedSurface }));
 
       if (plan.needsConfirmation) {
         dispatch(openModal('CONFIRM', {

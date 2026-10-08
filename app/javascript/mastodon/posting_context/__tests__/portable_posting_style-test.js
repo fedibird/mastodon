@@ -6,7 +6,7 @@ import { COMPOSE_CHANGE, COMPOSE_POLL_ADD, COMPOSE_REPLY, COMPOSE_REPLY_CANCEL, 
 import { submitComposer } from '../../actions/compose';
 import { acceptComposerSurface, applyComposerSurface, createComposer } from '../../actions/composer';
 import { COMPOSER_CONTEXT_APPLY } from '../../actions/composer';
-import { USER_POSTING_STYLES_FETCH_SUCCESS, maybeAutoSelectPortablePostingStyle } from '../../actions/user_posting_styles';
+import { USER_POSTING_STYLES_FETCH_SUCCESS, commitUserPostingStyle, maybeAutoSelectPortablePostingStyle } from '../../actions/user_posting_styles';
 import composer from '../../reducers/composer';
 import composers from '../../reducers/composers';
 import userPostingStyles from '../../reducers/user_posting_styles';
@@ -18,6 +18,7 @@ import { materializeComposerText } from '../materialize';
 import { selectPortablePostingStyleCandidates } from '../surface';
 import { resolveUserPostingStyle } from '../user_style_resolver';
 import { toggleComposerManagedHashtag } from '../../actions/composer';
+import { PRIMARY_COMPOSER_ID } from '../../utils/composer';
 
 jest.mock('react-intl', () => ({
   defineMessages: messages => messages,
@@ -80,11 +81,11 @@ const withStyles = (styles) => ({
   styles,
 });
 
-const storeFor = (composerState, styles, extra = ImmutableMap()) => createStore((state, action) => {
+const storeFor = (composerState, styles, extra = ImmutableMap(), composerId = 'portable:group-column:123') => createStore((state, action) => {
   const current = state || extra.merge(ImmutableMap({
     compose: composer(undefined, { type: '@@INIT' }),
-    composers: composers(undefined, createComposer('portable:group-column:123'))
-      .setIn(['byId', 'portable:group-column:123'], composerState),
+    composers: composers(undefined, createComposer(composerId))
+      .setIn(['byId', composerId], composerState),
     userPostingStyles: userPostingStyles(undefined, withStyles(styles)),
     relationships: ImmutableMap(),
     posting_contexts: ImmutableMap(),
@@ -162,7 +163,7 @@ describe('portable posting styles', () => {
 
   it('keeps the group account id and audience when a style changes settings', () => {
     let drafted = composer(undefined, applyGroup('456', mitraGroupPostingContext));
-    drafted = commitStyle(drafted, groupStyle('1', '999', { defaults: { visibility: 'unlisted' } }));
+    drafted = commitStyle(drafted, groupStyle('1', '456', { defaults: { visibility: 'unlisted' } }));
 
     expect(drafted.get('privacy')).toEqual('unlisted');
     expect(drafted.get('posting_context_account_id')).toEqual('456');
@@ -377,11 +378,255 @@ describe('portable posting styles', () => {
     expect(cancelled.getIn(['userPostingStyle', 'selectedId'])).toEqual('1');
   });
 
-  it('still lets the primary composer change its destination', () => {
+  it('still lets the primary composer change its destination', async () => {
     const drafted = composer(undefined, { type: '@@INIT' });
     const plan = resolveUserPostingStyle(groupStyle('1', '123'), drafted);
 
     expect(plan.destination).toMatchObject({ action: 'group', accountId: '123', changes: true });
     expect(plan.destination.policy).toBeUndefined();
+
+    const now = Date.now();
+    const store = createStore((state, action) => {
+      const current = state || ImmutableMap({
+        compose: drafted,
+        userPostingStyles: userPostingStyles(undefined, withStyles(ImmutableList([groupStyle('1', '123')]))),
+        posting_contexts: ImmutableMap({
+          123: fromJS({
+            status: 'resolved',
+            context: groupPostingContext,
+            discovery: { mechanism: 'built_in', adapter: 'fedibird_group', authority: 'server' },
+            receivedAt: now,
+            refreshing: false,
+            refreshError: null,
+          }),
+        }),
+        relationships: ImmutableMap(),
+      });
+
+      if (!action || action.type === '@@INIT') {
+        return current;
+      }
+
+      return current.set('compose', composer(current.get('compose'), action));
+    }, undefined, applyMiddleware(thunk));
+
+    await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, '1'));
+
+    const next = store.getState().get('compose');
+
+    expect(next.get('surface')).toBeNull();
+    expect(next.get('privacy')).toEqual('unlisted');
+    expect(next.get('posting_context_account_id')).toEqual('123');
+    expect(next.getIn(['context', 'resolvedAccountId'])).toEqual('123');
+    expect(next.getIn(['context', 'key'])).toEqual(groupPostingContext.key);
+    expect(next.getIn(['userPostingStyle', 'selectedId'])).toEqual('1');
+    expect(next.getIn(['userPostingStyle', 'destinationStatus'])).toEqual('ready');
+    expect(next.getIn(['userPostingStyle', 'destinationPolicy'])).not.toEqual('locked');
+  });
+
+  it('does not apply a style confirmed for group A after the composer moves to group B', async () => {
+    let drafted = composer(undefined, applyGroup('123'));
+    drafted = composer(drafted, { type: COMPOSE_CHANGE, text: 'Hello group' });
+    const surfaceAtChoice = { kind: 'group', key: '123' };
+    const moved = composer(drafted, applyGroup('456', mitraGroupPostingContext));
+    const store = storeFor(moved, ImmutableList([groupStyle('1', '123'), plainStyle]));
+
+    await store.dispatch(commitUserPostingStyle('portable:group-column:123', '1', { expectedSurface: surfaceAtChoice }));
+
+    let next = store.getState().getIn(['composers', 'byId', 'portable:group-column:123']);
+
+    expect(next.get('surfaceMismatch')).toBe(true);
+    expect(next.get('text')).toEqual('Hello group');
+    expect(next.get('privacy')).toBeNull();
+    expect(next.getIn(['userPostingStyle', 'selectedId'])).toBeNull();
+    expect(next.get('posting_context_account_id')).toEqual('123');
+    expect(next.getIn(['context', 'key'])).toEqual(groupPostingContext.key);
+
+    store.dispatch(acceptComposerSurface('portable:group-column:123'));
+    await store.dispatch(commitUserPostingStyle('portable:group-column:123', 'plain-1', { expectedSurface: surfaceAtChoice }));
+
+    next = store.getState().getIn(['composers', 'byId', 'portable:group-column:123']);
+
+    expect(next.get('surfaceMismatch')).toBe(false);
+    expect(next.get('text')).toEqual('Hello group');
+    expect(next.get('privacy')).toBeNull();
+    expect(next.getIn(['userPostingStyle', 'selectedId'])).toBeNull();
+    expect(next.get('posting_context_account_id')).toEqual('456');
+    expect(next.getIn(['context', 'key'])).toEqual(mitraGroupPostingContext.key);
+  });
+
+  it('does not apply a group style dispatched directly onto a list composer', async () => {
+    const composerId = 'portable:list-column:a';
+    let drafted = composer(undefined, applyComposerSurface(composerId, { kind: 'list', key: '7' }));
+    drafted = composer(drafted, { type: COMPOSE_CHANGE, text: 'List draft' });
+    const untouched = commitStyle(drafted, groupStyle('1', '123'));
+    const store = storeFor(drafted, ImmutableList([groupStyle('1', '123'), plainStyle]), ImmutableMap(), composerId);
+
+    expect(untouched).toBe(drafted);
+
+    await store.dispatch(commitUserPostingStyle(composerId, '1'));
+
+    const next = store.getState().getIn(['composers', 'byId', composerId]);
+
+    expect(next.get('text')).toEqual('List draft');
+    expect(next.get('privacy')).toBeNull();
+    expect(next.getIn(['userPostingStyle', 'selectedId'])).toBeNull();
+    expect(next.get('posting_context_account_id')).toBeNull();
+    expect(next.getIn(['context', 'resolvedAccountId'])).toBeNull();
+    expect(next.getIn(['context', 'key'])).toBeNull();
+    expect(next.getIn(['context', 'protocol', 'activityPub', 'audience'])).toBeNull();
+  });
+
+  it('clears the group destination when an empty composer moves to a list', () => {
+    let drafted = composer(undefined, applyGroup('123'));
+    const staleEpoch = drafted.get('surfaceEpoch');
+    const moved = composer(drafted, applyComposerSurface('portable:group-column:123', { kind: 'list', key: '7' }));
+
+    expect(moved.get('surfaceMismatch')).toBe(false);
+    expect(moved.getIn(['surface', 'kind'])).toEqual('list');
+    expect(moved.getIn(['surface', 'key'])).toEqual('7');
+    expect(moved.get('posting_context_account_id')).toBeNull();
+    expect(moved.getIn(['context', 'resolvedAccountId'])).toBeNull();
+    expect(moved.getIn(['context', 'key'])).toBeNull();
+    expect(moved.getIn(['context', 'managed', 'mentions']).size).toEqual(0);
+    expect(moved.getIn(['context', 'protocol', 'activityPub', 'audience'])).toBeNull();
+
+    const ignored = composer(moved, {
+      type: COMPOSER_CONTEXT_APPLY,
+      surface: { kind: 'group', key: '123' },
+      hasPostingContext: true,
+      postingContext: groupPostingContext,
+      postingContextAccountId: '123',
+      surfaceEpoch: staleEpoch,
+    });
+
+    expect(ignored.getIn(['surface', 'kind'])).toEqual('list');
+    expect(ignored.get('posting_context_account_id')).toBeNull();
+    expect(ignored.getIn(['context', 'key'])).toBeNull();
+
+    const renamed = composer(moved, applyComposerSurface('portable:group-column:123', { kind: 'list', key: '8' }));
+
+    expect(renamed.get('surfaceMismatch')).toBe(false);
+    expect(renamed.getIn(['surface', 'key'])).toEqual('8');
+    expect(renamed.get('posting_context_account_id')).toBeNull();
+    expect(renamed.getIn(['context', 'resolvedAccountId'])).toBeNull();
+    expect(renamed.getIn(['context', 'protocol', 'activityPub', 'audience'])).toBeNull();
+  });
+
+  it('blocks sending when a draft moves from a group to a list', () => {
+    let drafted = composer(undefined, applyGroup('123'));
+    drafted = composer(drafted, { type: COMPOSE_CHANGE, text: 'Hello group' });
+    drafted = composer(drafted, { type: COMPOSE_POLL_ADD });
+    drafted = drafted.set('media_attachments', ImmutableList([ImmutableMap({ id: 'media-1' })]));
+    const moved = composer(drafted, applyComposerSurface('portable:group-column:123', { kind: 'list', key: '7' }));
+
+    expect(moved.get('surfaceMismatch')).toBe(true);
+    expect(moved.get('text')).toEqual('Hello group');
+    expect(moved.get('poll')).not.toBeNull();
+    expect(moved.get('media_attachments').getIn([0, 'id'])).toEqual('media-1');
+    expect(moved.get('posting_context_account_id')).toEqual('123');
+    expect(moved.getIn(['context', 'key'])).toEqual(groupPostingContext.key);
+    expect(moved.getIn(['context', 'resolvedAccountId'])).toEqual('123');
+
+    const store = storeFor(moved, ImmutableList());
+    store.dispatch(submitComposer('portable:group-column:123'));
+
+    expect(store.getState().getIn(['composers', 'byId', 'portable:group-column:123', 'is_submitting'])).not.toBe(true);
+    expect(store.getState().getIn(['composers', 'byId', 'portable:group-column:123', 'text'])).toEqual('Hello group');
+  });
+
+  it('keeps the draft and clears the old group destination when the list surface is accepted', () => {
+    let drafted = composer(undefined, applyGroup('123'));
+    drafted = commitStyle(drafted, groupStyle('1', '123'));
+    drafted = composer(drafted, { type: COMPOSE_CHANGE, text: 'Hello group' });
+    drafted = composer(drafted, { type: COMPOSE_POLL_ADD });
+    drafted = drafted.set('media_attachments', ImmutableList([ImmutableMap({ id: 'media-1' })]));
+    const moved = composer(drafted, applyComposerSurface('portable:group-column:123', { kind: 'list', key: '7' }));
+    const accepted = composer(moved, acceptComposerSurface('portable:group-column:123'));
+
+    expect(moved.get('surfaceMismatch')).toBe(true);
+    expect(accepted.get('surfaceMismatch')).toBe(false);
+    expect(accepted.get('text')).toEqual('Hello group');
+    expect(accepted.get('poll')).not.toBeNull();
+    expect(accepted.get('media_attachments').getIn([0, 'id'])).toEqual('media-1');
+    expect(accepted.getIn(['surface', 'kind'])).toEqual('list');
+    expect(accepted.get('posting_context_account_id')).toBeNull();
+    expect(accepted.getIn(['context', 'resolvedAccountId'])).toBeNull();
+    expect(accepted.getIn(['context', 'key'])).toBeNull();
+    expect(accepted.getIn(['context', 'managed', 'mentions']).size).toEqual(0);
+    expect(accepted.getIn(['context', 'protocol', 'activityPub', 'audience'])).toBeNull();
+    expect(accepted.getIn(['userPostingStyle', 'selectedId'])).toBeNull();
+  });
+
+  it('drops the timeline hashtag when a hashtag composer moves to a list', () => {
+    const hashtagSurface = applyComposerSurface(
+      'portable:hashtag-column:a',
+      { kind: 'hashtag', key: 'foo' },
+      buildHashtagTimelinePostingContext('Foo'),
+      null,
+    );
+    const listSurface = applyComposerSurface('portable:hashtag-column:a', { kind: 'list', key: '7' });
+    const empty = composer(composer(undefined, hashtagSurface), listSurface);
+
+    expect(empty.getIn(['context', 'managed', 'hashtags']).size).toEqual(0);
+    expect(empty.getIn(['context', 'key'])).toBeNull();
+    expect(empty.get('posting_context_account_id')).toBeNull();
+
+    let drafted = composer(undefined, hashtagSurface);
+    drafted = composer(drafted, { type: COMPOSE_CHANGE, text: 'reading' });
+    const moved = composer(drafted, listSurface);
+    const accepted = composer(moved, acceptComposerSurface('portable:hashtag-column:a'));
+
+    expect(moved.get('surfaceMismatch')).toBe(true);
+    expect(moved.getIn(['context', 'managed', 'hashtags']).size).toEqual(1);
+    expect(accepted.get('text')).toEqual('reading');
+    expect(accepted.get('surfaceMismatch')).toBe(false);
+    expect(accepted.getIn(['context', 'managed', 'hashtags']).size).toEqual(0);
+    expect(accepted.getIn(['context', 'key'])).toBeNull();
+    expect(accepted.get('posting_context_account_id')).toBeNull();
+    expect(accepted.getIn(['context', 'resolvedAccountId'])).toBeNull();
+    expect(accepted.getIn(['context', 'protocol', 'activityPub', 'audience'])).toBeNull();
+  });
+
+  it('cannot send to a group moved from a list until that group definition arrives', () => {
+    const composerId = 'portable:group-column:123';
+    let drafted = composer(undefined, applyComposerSurface(composerId, { kind: 'list', key: '7' }));
+    drafted = composer(drafted, applyComposerSurface(composerId, { kind: 'group', key: '456' }));
+    const now = 1_700_000_000_000;
+    const blockedState = ImmutableMap({
+      composers: ImmutableMap({ byId: ImmutableMap({ [composerId]: drafted }) }),
+      relationships: ImmutableMap(),
+      posting_contexts: ImmutableMap(),
+      posting_context_revalidations: ImmutableMap(),
+    });
+    const blocked = selectComposerEffectiveCreateCapability(blockedState, composerId, now);
+
+    expect(drafted.get('surfaceMismatch')).toBe(false);
+    expect(drafted.getIn(['surface', 'kind'])).toEqual('group');
+    expect(drafted.get('posting_context_account_id')).toEqual('456');
+    expect(drafted.getIn(['context', 'resolvedAccountId'])).toBeNull();
+    expect(drafted.getIn(['context', 'key'])).toBeNull();
+    expect(blocked.canAttempt).toBe(false);
+    expect(blocked.reason).toEqual('delivery_unresolved');
+
+    let readyDraft = composer(drafted, applyComposerSurface(composerId, { kind: 'group', key: '456' }, mitraGroupPostingContext, '456'));
+    readyDraft = composer(readyDraft, { type: COMPOSE_VISIBILITY_CHANGE, value: 'public' });
+    const discovery = fromJS({
+      status: 'resolved',
+      context: mitraGroupPostingContext,
+      discovery: { mechanism: 'test', adapter: 'mitra_group', authority: 'compatibility' },
+      viewerEvidence: {
+        permissions: { create: { status: 'allowed', source: 'fep-5219', viaRelationship: 'member', authority: 'protocol' } },
+      },
+      receivedAt: now,
+    });
+    const readyState = blockedState
+      .setIn(['composers', 'byId', composerId], readyDraft)
+      .setIn(['posting_contexts', '456'], discovery);
+    const ready = selectComposerEffectiveCreateCapability(readyState, composerId, now);
+
+    expect(readyDraft.getIn(['context', 'key'])).toEqual(mitraGroupPostingContext.key);
+    expect(readyDraft.getIn(['context', 'resolvedAccountId'])).toEqual('456');
+    expect(ready.canAttempt).toBe(true);
   });
 });

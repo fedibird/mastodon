@@ -4,7 +4,7 @@ import { applyComposerPostingContext, targetComposerAction } from './composer';
 import { fetchPostingContext } from './posting_contexts';
 import { isExistingPostEdit } from '../posting_context/materialize';
 import { normalizeUserPostingStyle, resolveUserPostingStyle } from '../posting_context/user_style_resolver';
-import { selectPortableAutoStyle } from '../posting_context/surface';
+import { selectPortableAutoStyle, styleMatchesSurface, surfacesEqual } from '../posting_context/surface';
 import { selectComposer } from '../selectors/composer';
 import { selectPostingContextDiscovery, selectPostingContextForAccount } from '../selectors/posting_contexts';
 
@@ -135,7 +135,7 @@ export function loadUserPostingStyleDestination(composerId, { selectedId, accoun
   };
 }
 
-export function commitUserPostingStyle(composerId, styleId, { selectionOrigin } = {}) {
+export function commitUserPostingStyle(composerId, styleId, { selectionOrigin, expectedSurface } = {}) {
   return (dispatch, getState) => {
     const composer = selectComposer(getState(), composerId);
 
@@ -149,7 +149,26 @@ export function commitUserPostingStyle(composerId, styleId, { selectionOrigin } 
       return Promise.resolve();
     }
 
-    const destinationPolicy = composer.get('surface') ? 'locked' : 'change';
+    const surface = composer.get('surface');
+    const destinationPolicy = surface ? 'locked' : 'change';
+
+    // The surface at confirmation time has to be the surface being confirmed.
+    // A locked composer also refuses a style aimed at a different destination,
+    // and refuses every apply while the draft still belongs to the previous one.
+    if (destinationPolicy === 'locked') {
+      if (composer.get('surfaceMismatch')) {
+        return Promise.resolve();
+      }
+
+      if (expectedSurface !== undefined && !surfacesEqual(expectedSurface, surface)) {
+        return Promise.resolve();
+      }
+
+      if (style && !styleMatchesSurface(style, surface)) {
+        return Promise.resolve();
+      }
+    }
+
     const plan = resolveUserPostingStyle(style, composer, { destinationPolicy });
 
     if (plan.blocked) {
@@ -160,7 +179,6 @@ export function commitUserPostingStyle(composerId, styleId, { selectionOrigin } 
       && plan.destination.action === 'group'
       && composer.getIn(['userPostingStyle', 'destinationStatus']) === 'failed'
       && String(composer.getIn(['userPostingStyle', 'destinationAccountId'] || '')) === String(plan.destination.accountId || '');
-    const surface = composer.get('surface');
 
     dispatch(targetComposerAction({
       type: USER_POSTING_STYLE_COMMIT,

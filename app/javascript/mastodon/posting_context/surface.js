@@ -216,7 +216,24 @@ export function selectPortableAutoStyle(styles, composer) {
   return style;
 }
 
-const surfaceChangesDestination = surface => surface.kind === 'group' || surface.kind === 'hashtag';
+const deliversToDestination = surface => Boolean(surface) && (surface.kind === 'group' || surface.kind === 'hashtag');
+
+// Moving onto or off a Group or Hashtag changes where the draft would be sent.
+// A List has no delivery target, so List-to-List only renames the surface.
+export function destinationShift(current, incoming) {
+  const from = normalizeSurface(current);
+  const to = normalizeSurface(incoming);
+
+  if (!from || surfacesEqual(from, to)) {
+    return false;
+  }
+
+  if (from.kind === 'list' && to && to.kind === 'list') {
+    return false;
+  }
+
+  return deliversToDestination(from) || deliversToDestination(to);
+}
 
 // Decides whether an incoming surface may replace the composer's context.
 // Older epochs cannot roll a newer surface back.
@@ -238,15 +255,18 @@ export function surfaceApplyDecision(state, action) {
     return { mode: 'ignore' };
   }
 
+  const current = normalizeSurface(state.get('surface'));
+  const shift = destinationShift(current, incoming);
+
   if (action.forceSurface) {
     return {
       mode: action.hasPostingContext === false ? 'surface-only' : 'replace',
       incoming,
       accept: true,
+      shift,
     };
   }
 
-  const current = normalizeSurface(state.get('surface'));
   const pending = state.get('surfaceMismatch') ? normalizeSurface(state.get('pendingSurface')) : null;
 
   if (pending && surfacesEqual(incoming, pending)) {
@@ -266,15 +286,17 @@ export function surfaceApplyDecision(state, action) {
       mode: action.hasPostingContext === false ? 'surface-only' : 'apply',
       incoming,
       changed: !current,
+      shift: false,
     };
   }
 
-  if (surfaceChangesDestination(incoming) && composerDraftInProgress(state)) {
-    return { mode: 'mismatch', incoming };
+  if (shift && composerDraftInProgress(state)) {
+    return { mode: 'mismatch', incoming, shift: true };
   }
 
   return {
     mode: action.hasPostingContext === false ? 'surface-only' : 'replace',
     incoming,
+    shift,
   };
 }

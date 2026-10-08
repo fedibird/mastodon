@@ -2,6 +2,7 @@ import { List as ImmutableList, Map as ImmutableMap, Set as ImmutableSet } from 
 import uuid from '../uuid';
 import { normalizeManagedHashtagName } from './managed_hashtags';
 import { isExistingPostEdit, postingContextOutputSignature } from './materialize';
+import { styleMatchesSurface } from './surface';
 import { resolveUserPostingStyle } from './user_style_resolver';
 
 const emptyProtocol = () => ImmutableMap({
@@ -411,6 +412,17 @@ const refreshIdempotency = (map, previous) => {
 
 export function commitUserPostingStyle(state, action) {
   if (isExistingPostEdit(state) || !action.plan || action.plan.blocked) {
+    return state;
+  }
+
+  const locked = Boolean(state.get('surface'))
+    && action.plan.destination
+    && action.plan.destination.policy === 'locked';
+
+  // A dedicated style for another destination must not change this draft.
+  // Clearing the selection uses a null snapshot and stays allowed, including
+  // while a surface change releases a style that no longer matches.
+  if (locked && action.snapshot && !styleMatchesSurface(action.snapshot, state.get('surface'))) {
     return state;
   }
 

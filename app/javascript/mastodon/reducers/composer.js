@@ -636,9 +636,37 @@ const reduceSurfaceContext = (state, action) => {
   }
 
   if (decision.mode === 'surface-only') {
-    return state.withMutations(map => {
+    const released = decision.shift ? releaseIncompatibleStyle(state, decision.incoming) : state;
+    const previousSignature = postingContextOutputSignature(released);
+
+    return released.withMutations(map => {
+      if (decision.shift) {
+        map.set('context', emptyPostingContext());
+        map.set('posting_context_account_id', null);
+      }
+
       rememberSurface(map, decision.incoming, action.surfaceEpoch || 0);
       map.setIn(['userPostingStyle', 'autoAttemptKey'], null);
+
+      // A Group surface is a delivery target even before its definition arrives.
+      if (decision.incoming.kind === 'group' && action.hasPostingContext === false) {
+        map.set('posting_context_account_id', decision.incoming.key);
+      }
+
+      if (decision.accept) {
+        map.setIn(['userPostingStyle', 'styleInputLock'], true);
+      } else if (decision.shift) {
+        map.setIn(['userPostingStyle', 'styleInputLock'], false);
+      }
+
+      if (decision.shift && !map.getIn(['userPostingStyle', 'selectedId'])) {
+        map.setIn(['userPostingStyle', 'selectionOrigin'], null);
+        map.setIn(['userPostingStyle', 'evaluatedSurface'], null);
+      }
+
+      if (decision.shift && previousSignature !== postingContextOutputSignature(map) && (released.get('idempotencyKey') || released.get('text') || released.get('dirty'))) {
+        map.set('idempotencyKey', uuid());
+      }
     });
   }
 
