@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Fragment } from 'react';
 import { connect } from 'react-redux';
 import { expandPersonalTimeline, clearTimelineSplitReturnAnchor } from '../../actions/timelines';
 import { personalTimelineId } from '../../actions/timeline_ids';
@@ -145,7 +145,6 @@ class PersonalTimeline extends React.PureComponent {
       timeline = (
         <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
           <div className='timeline-split__pane timeline-split__pane--live'>
-            {split.closeLiveButton}
             <StatusListContainer
               timelineId={sourceTimelineId}
               dataTimelineId={sourceTimelineId}
@@ -191,7 +190,12 @@ class PersonalTimeline extends React.PureComponent {
           onClick={split.handleHeaderClick}
           pinned={pinned}
           multiColumn={multiColumn}
-          extraButton={split.splitButton}
+          extraButton={(
+            <Fragment>
+              {split.splitButton}
+              {split.closeLiveButton}
+            </Fragment>
+          )}
           columnWidth={columnWidth}
           onWidthChange={this.handleWidthChange}
         >

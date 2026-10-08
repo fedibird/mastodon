@@ -195,6 +195,7 @@ class HomeTimeline extends React.PureComponent {
       <Fragment>
         {split.splitButton}
         {announcementsButton}
+        {split.closeLiveButton}
       </Fragment>
     );
 
@@ -215,7 +216,6 @@ class HomeTimeline extends React.PureComponent {
       timeline = (
         <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
           <div className='timeline-split__pane timeline-split__pane--live'>
-            {split.closeLiveButton}
             <StatusListContainer
               timelineId='home'
               dataTimelineId='home'

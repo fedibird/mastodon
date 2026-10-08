@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Fragment } from 'react';
 import { connect } from 'react-redux';
 import { expandLimitedTimeline } from '../../actions/timelines';
 import PropTypes from 'prop-types';
@@ -132,7 +132,6 @@ class LimitedTimeline extends React.PureComponent {
       timeline = (
         <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
           <div className='timeline-split__pane timeline-split__pane--live'>
-            {split.closeLiveButton}
             <StatusListContainer
               timelineId='limited'
               dataTimelineId='limited'
@@ -176,7 +175,12 @@ class LimitedTimeline extends React.PureComponent {
           onClick={split.handleHeaderClick}
           pinned={pinned}
           multiColumn={multiColumn}
-          extraButton={split.splitButton}
+          extraButton={(
+            <Fragment>
+              {split.splitButton}
+              {split.closeLiveButton}
+            </Fragment>
+          )}
           columnWidth={columnWidth}
           onWidthChange={this.handleWidthChange}
         >

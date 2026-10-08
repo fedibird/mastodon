@@ -268,7 +268,6 @@ class ListTimeline extends React.PureComponent {
       timeline = (
         <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
           <div className='timeline-split__pane timeline-split__pane--live'>
-            {split.closeLiveButton}
             <StatusListContainer
               timelineId={sourceTimelineId}
               dataTimelineId={sourceTimelineId}
@@ -318,6 +317,7 @@ class ListTimeline extends React.PureComponent {
             <Fragment>
               {split.splitButton}
               <PortableComposerToggle visible={composerVisible} onToggle={this.handleToggleComposer} />
+              {split.closeLiveButton}
             </Fragment>
           )}
           columnWidth={columnWidth}

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Fragment } from 'react';
 import { connect } from 'react-redux';
 import { injectIntl, FormattedMessage } from 'react-intl';
 import { defineMessages } from 'react-intl';
@@ -174,7 +174,6 @@ class DomainTimeline extends React.PureComponent {
       timeline = (
         <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
           <div className='timeline-split__pane timeline-split__pane--live'>
-            {split.closeLiveButton}
             <StatusListContainer
               timelineId={sourceTimelineId}
               dataTimelineId={sourceTimelineId}
@@ -220,7 +219,12 @@ class DomainTimeline extends React.PureComponent {
           onClick={split.handleHeaderClick}
           pinned={pinned}
           multiColumn={multiColumn}
-          extraButton={split.splitButton}
+          extraButton={(
+            <Fragment>
+              {split.splitButton}
+              {split.closeLiveButton}
+            </Fragment>
+          )}
           showBackButton
           columnWidth={columnWidth}
           onWidthChange={this.handleWidthChange}

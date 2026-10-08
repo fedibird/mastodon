@@ -31,23 +31,29 @@ const unavailableMessage = {
   defaultMessage: 'Another timeline is already split',
 };
 
-const recordLivePaneClick = () => {
-  window.__livePaneClicked = true;
+const recordHeaderClick = () => {
+  window.__headerClicked = true;
 };
 
 const SplitView = ({ split, multiColumn }) => (
   <Column ref={split.setColumnRef} bindToDocument={!multiColumn} label='Timeline'>
-    <ColumnHeader
-      icon='home'
-      title='Timeline'
-      onClick={split.handleHeaderClick}
-      extraButton={split.splitButton}
-      multiColumn={multiColumn}
-    />
+    <div className='column-header-proxy' onClick={recordHeaderClick}>
+      <ColumnHeader
+        icon='home'
+        title='Timeline'
+        onClick={split.handleHeaderClick}
+        extraButton={(
+          <React.Fragment>
+            {split.splitButton}
+            {split.closeLiveButton}
+          </React.Fragment>
+        )}
+        multiColumn={multiColumn}
+      />
+    </div>
     {split.isSplit ? (
       <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
-        <div className='timeline-split__pane timeline-split__pane--live' onClick={recordLivePaneClick}>
-          {split.closeLiveButton}
+        <div className='timeline-split__pane timeline-split__pane--live'>
           <div className='scrollable' data-pane='live'>
             <article data-id='100' />
             <article data-id='90' />
@@ -702,7 +708,7 @@ describe('StatusTimelineSplitController', () => {
     const originalRect = HTMLElement.prototype.getBoundingClientRect;
     HTMLElement.prototype.getBoundingClientRect = () => ({ top: 100, height: 400, left: 0, width: 300, bottom: 500, right: 300, x: 0, y: 100, toJSON () {} });
 
-    window.__livePaneClicked = false;
+    window.__headerClicked = false;
     fireEvent.pointerDown(container.querySelector('.timeline-split__close'), { button: 0, clientY: 300, pointerId: 1 });
     fireEvent.pointerMove(document, { clientY: 300, pointerId: 1 });
     fireEvent.pointerUp(document, { clientY: 300, pointerId: 1 });
@@ -713,7 +719,7 @@ describe('StatusTimelineSplitController', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close live pane' }));
     HTMLElement.prototype.getBoundingClientRect = originalRect;
 
-    expect(window.__livePaneClicked).toBe(false);
+    expect(window.__headerClicked).toBe(false);
     expect(container.querySelector('.timeline-split')).toBeNull();
     expect(store.getState().getIn(['timelines', 'list:42', 'pendingItems']).includes('120')).toBe(true);
     expect(store.getState().getIn(['timelines', 'list:42', 'items'])).toEqual(ImmutableList(['100', '90', '80']));

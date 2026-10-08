@@ -663,12 +663,12 @@ class StatusTimelineSplitController extends React.Component {
     return (
       <button
         type='button'
-        className='timeline-split__close-live'
+        className='column-header__button column-header__split-close-live'
         title={label}
         aria-label={label}
         onClick={this.handleCloseLive}
       >
-        <Icon id='times' />
+        <Icon id='times' className='column-header__icon' />
       </button>
     );
   }

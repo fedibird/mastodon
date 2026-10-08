@@ -535,7 +535,7 @@ describe('HomeTimeline split', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
     singleArticleTop = 500;
-    fireEvent.click(container.querySelector('.timeline-split__close-live'));
+    fireEvent.click(screen.getByRole('button', { name: 'Close live pane' }));
     restoreRects();
 
     expect(container.querySelector('.timeline-split')).toBeNull();

@@ -496,7 +496,7 @@ describe('ListTimeline split', () => {
 
     const history = container.querySelector('.timeline-split__pane--history .scrollable');
     history.scrollTop = 480;
-    fireEvent.click(container.querySelector('.timeline-split__close-live'));
+    fireEvent.click(screen.getByRole('button', { name: 'Close live pane' }));
 
     expect(container.querySelector('.timeline-split')).toBeNull();
     expect(container.querySelector('.scrollable').scrollTop).toBe(480);
