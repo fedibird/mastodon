@@ -835,6 +835,8 @@
   "time_remaining.minutes": "{number, plural, one {# minute} other {# minutes}} left",
   "time_remaining.moments": "Moments remaining",
   "time_remaining.seconds": "{number, plural, one {# second} other {# seconds}} left",
+  "timeline.close_history_pane": "Close history pane",
+  "timeline.close_live_pane": "Close live pane",
   "timeline.hide_composer": "Hide composer",
   "timeline.show_composer": "Show composer",
   "timeline.split": "Split timeline",

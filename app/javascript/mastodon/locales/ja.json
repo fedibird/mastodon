@@ -835,6 +835,8 @@
   "time_remaining.minutes": "残り{number}分",
   "time_remaining.moments": "まもなく終了",
   "time_remaining.seconds": "残り{number}秒",
+  "timeline.close_history_pane": "下部を閉じる",
+  "timeline.close_live_pane": "上部を閉じる",
   "timeline.hide_composer": "コンポーザーを隠す",
   "timeline.show_composer": "コンポーザーを表示",
   "timeline.split": "タイムラインを分割",

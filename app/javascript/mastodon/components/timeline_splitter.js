@@ -17,9 +17,9 @@ export default class TimelineSplitter extends React.PureComponent {
     max: PropTypes.number,
     onChange: PropTypes.func.isRequired,
     onCommit: PropTypes.func.isRequired,
-    onClose: PropTypes.func.isRequired,
+    onCloseHistory: PropTypes.func.isRequired,
     label: PropTypes.string.isRequired,
-    closeLabel: PropTypes.string.isRequired,
+    closeHistoryLabel: PropTypes.string.isRequired,
   };
 
   static defaultProps = {
@@ -161,11 +161,11 @@ export default class TimelineSplitter extends React.PureComponent {
   handleCloseClick = (event) => {
     event.preventDefault();
     event.stopPropagation();
-    this.props.onClose();
+    this.props.onCloseHistory();
   }
 
   render () {
-    const { value, min, max, label, closeLabel } = this.props;
+    const { value, min, max, label, closeHistoryLabel } = this.props;
 
     return (
       <div
@@ -186,8 +186,8 @@ export default class TimelineSplitter extends React.PureComponent {
         <button
           type='button'
           className='timeline-split__close'
-          aria-label={closeLabel}
-          title={closeLabel}
+          aria-label={closeHistoryLabel}
+          title={closeHistoryLabel}
           onPointerDown={this.handleClosePointerDown}
           onClick={this.handleCloseClick}
         >

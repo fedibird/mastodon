@@ -9,6 +9,7 @@ import {
   TIMELINE_SPLIT_CLEAR_RETURN_ANCHOR,
   TIMELINE_SPLIT_CREATE,
   TIMELINE_SPLIT_DESTROY,
+  TIMELINE_SPLIT_KEEP_LIVE,
   TIMELINE_SPLIT_SAVE_RETURN_ANCHOR,
   TIMELINE_UPDATE,
 } from '../../actions/timelines';
@@ -187,6 +188,124 @@ describe('timeline split lifecycle', () => {
     expect(next.getIn(['home', 'online'])).toBe(true);
     expect(next.getIn(['home', 'splitTimelineId'])).toBeUndefined();
     expect(next.get(splitId)).toBeUndefined();
+  });
+
+  it('materializes the live pane and drops history-only statuses', () => {
+    const state = withHome({
+      items: ImmutableList(['100', '90', '80']),
+      pendingItems: ImmutableList(['120', '110', '100']),
+      splitTimelineId: splitId,
+      online: true,
+      top: true,
+      unread: 2,
+      hasMore: true,
+    }, {
+      [splitId]: timeline({
+        items: ImmutableList(['100', '90', '80', '70', '60']),
+        pendingItems: ImmutableList(),
+        splitBoundaryId: '100',
+        hasMore: false,
+        online: false,
+        top: false,
+      }),
+    });
+
+    const next = timelines(state, {
+      type: TIMELINE_SPLIT_DESTROY,
+      sourceTimeline: 'home',
+      splitTimeline: splitId,
+      keep: TIMELINE_SPLIT_KEEP_LIVE,
+      liveAtTop: false,
+    });
+
+    expect(next.getIn(['home', 'items'])).toEqual(ImmutableList(['120', '110', '100', '90', '80']));
+    expect(next.getIn(['home', 'pendingItems'])).toEqual(ImmutableList());
+    expect(next.getIn(['home', 'unread'])).toBe(0);
+    expect(next.getIn(['home', 'top'])).toBe(false);
+    expect(next.getIn(['home', 'hasMore'])).toBe(true);
+    expect(next.getIn(['home', 'online'])).toBe(true);
+    expect(next.getIn(['home', 'splitTimelineId'])).toBeUndefined();
+    expect(next.get(splitId)).toBeUndefined();
+    expect(next.getIn(['home', 'items']).includes('70')).toBe(false);
+    expect(next.getIn(['home', 'items']).includes('60')).toBe(false);
+  });
+
+  it('records whether the kept live pane was scrolled to the top', () => {
+    const state = withHome({
+      items: ImmutableList(['100']),
+      pendingItems: ImmutableList(),
+      splitTimelineId: splitId,
+      top: false,
+    }, {
+      [splitId]: timeline({
+        items: ImmutableList(['100', '70']),
+        splitBoundaryId: '100',
+      }),
+    });
+
+    const next = timelines(state, {
+      type: TIMELINE_SPLIT_DESTROY,
+      sourceTimeline: 'home',
+      splitTimeline: splitId,
+      keep: TIMELINE_SPLIT_KEEP_LIVE,
+      liveAtTop: true,
+    });
+
+    expect(next.getIn(['home', 'items'])).toEqual(ImmutableList(['100']));
+    expect(next.getIn(['home', 'top'])).toBe(true);
+    expect(next.get(splitId)).toBeUndefined();
+  });
+
+  it('does not merge a partial snapshot when keeping the live pane', () => {
+    const state = withHome({
+      items: ImmutableList(['100']),
+      pendingItems: ImmutableList(['120']),
+      splitTimelineId: splitId,
+      isPartial: true,
+      online: true,
+      top: false,
+      unread: 1,
+      hasMore: true,
+    }, {
+      [splitId]: timeline({
+        items: ImmutableList(['100', '70']),
+        splitBoundaryId: '100',
+        hasMore: false,
+      }),
+    });
+
+    const next = timelines(state, {
+      type: TIMELINE_SPLIT_DESTROY,
+      sourceTimeline: 'home',
+      splitTimeline: splitId,
+      keep: TIMELINE_SPLIT_KEEP_LIVE,
+      liveAtTop: true,
+    });
+
+    expect(next.getIn(['home', 'isPartial'])).toBe(true);
+    expect(next.getIn(['home', 'items'])).toEqual(ImmutableList(['100']));
+    expect(next.getIn(['home', 'pendingItems'])).toEqual(ImmutableList(['120']));
+    expect(next.getIn(['home', 'unread'])).toBe(1);
+    expect(next.getIn(['home', 'top'])).toBe(false);
+    expect(next.getIn(['home', 'hasMore'])).toBe(true);
+    expect(next.getIn(['home', 'splitTimelineId'])).toBeUndefined();
+    expect(next.get(splitId)).toBeUndefined();
+  });
+
+  it('leaves the active split alone when a stale live close arrives', () => {
+    const split = createSplit(initial());
+    const next = timelines(split, {
+      type: TIMELINE_SPLIT_DESTROY,
+      sourceTimeline: 'home',
+      splitTimeline: 'home:split:stale',
+      keep: TIMELINE_SPLIT_KEEP_LIVE,
+      liveAtTop: true,
+    });
+
+    expect(next.getIn(['home', 'splitTimelineId'])).toBe(splitId);
+    expect(next.getIn(['home', 'items'])).toEqual(ImmutableList(['100', '90', '80']));
+    expect(next.getIn(['home', 'pendingItems'])).toEqual(ImmutableList(['110', '105']));
+    expect(next.get(splitId)).toBe(split.get(splitId));
   });
 
   it('uses the first non-null status as the split boundary', () => {

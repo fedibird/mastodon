@@ -1,4 +1,4 @@
-/* eslint-disable react/prop-types, react/jsx-no-bind */
+/* eslint-disable react/prop-types, react/jsx-no-bind, jsx-a11y/no-static-element-interactions */
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
@@ -31,6 +31,10 @@ const unavailableMessage = {
   defaultMessage: 'Another timeline is already split',
 };
 
+const recordLivePaneClick = () => {
+  window.__livePaneClicked = true;
+};
+
 const SplitView = ({ split, multiColumn }) => (
   <Column ref={split.setColumnRef} bindToDocument={!multiColumn} label='Timeline'>
     <ColumnHeader
@@ -42,7 +46,8 @@ const SplitView = ({ split, multiColumn }) => (
     />
     {split.isSplit ? (
       <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
-        <div className='timeline-split__pane timeline-split__pane--live'>
+        <div className='timeline-split__pane timeline-split__pane--live' onClick={recordLivePaneClick}>
+          {split.closeLiveButton}
           <div className='scrollable' data-pane='live'>
             <article data-id='100' />
             <article data-id='90' />
@@ -213,8 +218,10 @@ describe('StatusTimelineSplitController', () => {
     expect(container.querySelector('.timeline-split')).toBeNull();
     expect(store.getState().get('timelines').has(splitTimelineId)).toBe(false);
     expect(activeSplitId(store)).toBeUndefined();
-    expect(store.getState().getIn(['timelines', 'list:42', 'items'])).toEqual(ImmutableList(['100', '90', '80']));
-    expect(store.getState().getIn(['timelines', 'list:42', 'pendingItems']).includes('120')).toBe(true);
+    expect(store.getState().getIn(['timelines', 'list:42', 'items'])).toEqual(ImmutableList(['120', '100', '90', '80']));
+    expect(store.getState().getIn(['timelines', 'list:42', 'pendingItems'])).toEqual(ImmutableList());
+    expect(store.getState().getIn(['timelines', 'list:42', 'unread'])).toBe(0);
+    expect(store.getState().getIn(['settings', 'list', 'splitRatio'])).toBe(35);
   });
 
   it('commits ratio changes separately from the home timeline ratio', () => {
@@ -271,7 +278,7 @@ describe('StatusTimelineSplitController', () => {
     expect(history.scrollTop).toBe(320);
 
     history.scrollTop = 480;
-    fireEvent.click(container.querySelector('.column-header__split-button'));
+    fireEvent.click(screen.getByRole('button', { name: 'Close live pane' }));
 
     expect(container.querySelector('.scrollable').scrollTop).toBe(480);
   });
@@ -652,5 +659,146 @@ describe('StatusTimelineSplitController', () => {
     expect(store.getState().getIn(['timelines', 'list:42', 'items'])).toEqual(ImmutableList(['100', '90', '80']));
     expect(store.getState().getIn(['timelines', 'list:42', 'splitReturnAnchor'])).toBeUndefined();
     expect(document.body.classList.contains(STATUS_TIMELINE_SPLIT_LAYOUT_CLASS)).toBe(false);
+  });
+
+  it('keeps the live scroll from the splitter and the history scroll from the live close button', () => {
+    const store = buildStore();
+    const { container } = renderHarness(store, { columnId: 'column-a', multiColumn: true });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+    const live = container.querySelector('.timeline-split__pane--live .scrollable');
+    const history = container.querySelector('.timeline-split__pane--history .scrollable');
+
+    live.scrollTop = 320;
+    history.scrollTop = 1600;
+    expect(screen.getByRole('button', { name: 'Close history pane' })).toHaveAttribute('title', 'Close history pane');
+    fireEvent.click(screen.getByRole('button', { name: 'Close history pane' }));
+
+    expect(container.querySelector('.timeline-split')).toBeNull();
+    expect(container.querySelector('[data-pane="single"]').scrollTop).toBe(320);
+    expect(store.getState().getIn(['timelines', 'list:42', 'items'])).toEqual(ImmutableList(['120', '100', '90', '80']));
+    expect(store.getState().getIn(['timelines', 'list:42', 'pendingItems'])).toEqual(ImmutableList());
+    expect(store.getState().getIn(['timelines', 'list:42', 'top'])).toBe(false);
+    expect(store.getState().getIn(['settings', 'list', 'splitRatio'])).toBe(35);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+    container.querySelector('.timeline-split__pane--live .scrollable').scrollTop = 320;
+    container.querySelector('.timeline-split__pane--history .scrollable').scrollTop = 1600;
+    fireEvent.click(screen.getByRole('button', { name: 'Close live pane' }));
+
+    expect(container.querySelector('[data-pane="single"]').scrollTop).toBe(1600);
+    expect(store.getState().getIn(['timelines', 'list:42', 'items'])).toEqual(ImmutableList(['120', '100', '90', '80']));
+    expect(store.getState().getIn(['timelines', 'list:42', 'pendingItems'])).toEqual(ImmutableList());
+    expect(store.getState().getIn(['settings', 'list', 'splitRatio'])).toBe(35);
+  });
+
+  it('does not start a splitter drag or bubble the live close click', () => {
+    const store = buildStore();
+    const { container } = renderHarness(store, { columnId: 'column-a', multiColumn: true });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+
+    const separator = container.querySelector('[role="separator"]');
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = () => ({ top: 100, height: 400, left: 0, width: 300, bottom: 500, right: 300, x: 0, y: 100, toJSON () {} });
+
+    window.__livePaneClicked = false;
+    fireEvent.pointerDown(container.querySelector('.timeline-split__close'), { button: 0, clientY: 300, pointerId: 1 });
+    fireEvent.pointerMove(document, { clientY: 300, pointerId: 1 });
+    fireEvent.pointerUp(document, { clientY: 300, pointerId: 1 });
+
+    expect(separator.getAttribute('aria-valuenow')).toBe('35');
+    expect(store.getState().getIn(['settings', 'list', 'splitRatio'])).toBe(35);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close live pane' }));
+    HTMLElement.prototype.getBoundingClientRect = originalRect;
+
+    expect(window.__livePaneClicked).toBe(false);
+    expect(container.querySelector('.timeline-split')).toBeNull();
+    expect(store.getState().getIn(['timelines', 'list:42', 'pendingItems']).includes('120')).toBe(true);
+    expect(store.getState().getIn(['timelines', 'list:42', 'items'])).toEqual(ImmutableList(['100', '90', '80']));
+  });
+
+  it('restores the visible live status from the splitter and the history status from the live close button', () => {
+    const store = buildStore();
+    mountTabsWrapper(0, 64);
+    const restoreRects = installRects(element => {
+      if (element.classList.contains('tabs-bar__wrapper')) {
+        return box(0, 64);
+      }
+
+      if (element.classList.contains('scrollable')) {
+        const pane = element.getAttribute('data-pane');
+
+        if (pane === 'live') {
+          return box(40, 280);
+        }
+
+        if (pane === 'history') {
+          return box(320, 700);
+        }
+
+        return box(0, 900);
+      }
+
+      if (element.tagName === 'ARTICLE') {
+        const pane = element.parentElement.getAttribute('data-pane');
+        const id = element.getAttribute('data-id');
+
+        if (pane === 'live' && id === '100') {
+          return box(80, 160);
+        }
+
+        if (pane === 'history' && id === '80') {
+          return box(400, 480);
+        }
+
+        if (pane === 'single' && id === '100') {
+          return box(200 - scroller().scrollTop, 280 - scroller().scrollTop);
+        }
+
+        if (pane === 'single' && id === '80') {
+          return box(500 - scroller().scrollTop, 580 - scroller().scrollTop);
+        }
+
+        return box(-80, -10);
+      }
+
+      return box(0, 0);
+    });
+    const frames = [];
+    const spy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      frames.push(callback);
+      return frames.length;
+    });
+
+    const { container } = renderHarness(store, { columnId: 'column-a', multiColumn: false, location: location('A') });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+    flushQueuedFrames(frames);
+    scroller().scrollTop = 0;
+    fireEvent.click(screen.getByRole('button', { name: 'Close history pane' }));
+    flushQueuedFrames(frames);
+    flushQueuedFrames(frames);
+
+    expect(container.querySelector('.timeline-split')).toBeNull();
+    expect(scroller().scrollTop).toBe(96);
+    expect(store.getState().getIn(['timelines', 'list:42', 'items'])).toEqual(ImmutableList(['120', '100', '90', '80']));
+    expect(store.getState().getIn(['timelines', 'list:42', 'splitReturnAnchor'])).toBeUndefined();
+
+    scroller().scrollTop = 0;
+    fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
+    flushQueuedFrames(frames);
+    scroller().scrollTop = 0;
+    fireEvent.click(screen.getByRole('button', { name: 'Close live pane' }));
+    flushQueuedFrames(frames);
+    flushQueuedFrames(frames);
+    spy.mockRestore();
+    restoreRects();
+
+    expect(scroller().scrollTop).toBe(356);
+    expect(store.getState().getIn(['timelines', 'list:42', 'items'])).toEqual(ImmutableList(['120', '100', '90', '80']));
+    expect(store.getState().getIn(['timelines', 'list:42', 'pendingItems'])).toEqual(ImmutableList());
+    expect(store.getState().getIn(['settings', 'list', 'splitRatio'])).toBe(35);
   });
 });

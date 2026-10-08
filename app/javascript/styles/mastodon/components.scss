@@ -3057,6 +3057,7 @@ $timeline-split-separator-size: 12px;
   }
 
   &__pane--live {
+    position: relative;
     flex: 0 0 auto;
     height: calc(var(--timeline-split-ratio) * 1% - #{$timeline-split-separator-size * 0.5});
   }
@@ -3090,11 +3091,8 @@ $timeline-split-separator-size: 12px;
     pointer-events: none;
   }
 
-  &__close {
-    position: absolute;
-    right: 4px;
-    top: 50%;
-    transform: translateY(-50%);
+  &__close,
+  &__close-live {
     width: 18px;
     height: 18px;
     padding: 0;
@@ -3117,6 +3115,20 @@ $timeline-split-separator-size: 12px;
       color: $primary-text-color;
       background: lighten($ui-base-color, 12%);
     }
+  }
+
+  &__close {
+    position: absolute;
+    inset-inline-end: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  &__close-live {
+    position: absolute;
+    top: 4px;
+    inset-inline-end: 4px;
+    z-index: 3;
   }
 }
 

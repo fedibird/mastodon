@@ -208,7 +208,7 @@ describe('HomeTimeline split', () => {
     expect(document.body.classList.contains('status-timeline-split')).toBe(true);
   });
 
-  it('splits and unsplits from the header while keeping the captured scroll offset', () => {
+  it('keeps the live pane scroll when the header split button closes the split', () => {
     const store = buildStore();
     const { container } = renderHome(store, { columnId: 'col-a', multiColumn: true });
     const before = container.querySelector('.scrollable');
@@ -235,17 +235,21 @@ describe('HomeTimeline split', () => {
     expect(store.getState().getIn(['timelines', splitTimelineId, 'isLoading'])).toBe(true);
     expect(store.getState().getIn(['timelines', 'home', 'isLoading'])).not.toBe(true);
 
-    history.scrollTop = 480;
+    history.scrollTop = 1600;
+    live.scrollTop = 320;
     fireEvent.click(container.querySelector('.column-header__split-button'));
 
     const restored = container.querySelector('.scrollable');
 
     expect(container.querySelector('.timeline-split')).toBeNull();
-    expect(restored.scrollTop).toBe(480);
+    expect(restored.scrollTop).toBe(320);
     expect(store.getState().get('timelines').has(splitTimelineId)).toBe(false);
     expect(store.getState().getIn(['timelines', 'home', 'splitTimelineId'])).toBeUndefined();
-    expect(store.getState().getIn(['timelines', 'home', 'items'])).toEqual(ImmutableList(['100', '90', '80']));
-    expect(store.getState().getIn(['timelines', 'home', 'pendingItems']).includes('120')).toBe(true);
+    expect(store.getState().getIn(['timelines', 'home', 'items'])).toEqual(ImmutableList(['120', '100', '90', '80']));
+    expect(store.getState().getIn(['timelines', 'home', 'pendingItems'])).toEqual(ImmutableList());
+    expect(store.getState().getIn(['timelines', 'home', 'unread'])).toBe(0);
+    expect(store.getState().getIn(['timelines', 'home', 'top'])).toBe(false);
+    expect(store.getState().getIn(['settings', 'home', 'splitRatio'])).toBe(35);
   });
 
   it('scrolls the live pane when the header title is clicked', () => {
@@ -531,7 +535,7 @@ describe('HomeTimeline split', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
     singleArticleTop = 500;
-    fireEvent.click(document.querySelector('.column-header__split-button'));
+    fireEvent.click(container.querySelector('.timeline-split__close-live'));
     restoreRects();
 
     expect(container.querySelector('.timeline-split')).toBeNull();
