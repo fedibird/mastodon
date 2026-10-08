@@ -801,6 +801,12 @@ body > [data-popper-placement] {
       margin: 0;
       padding: 0;
       background: transparent;
+      color: $primary-text-color;
+
+      .compose-form__style-button,
+      .compose-form__style-name {
+        color: $primary-text-color;
+      }
 
       .compose-form__style-label,
       .compose-form__style-current-destination {
@@ -815,6 +821,8 @@ body > [data-popper-placement] {
       }
 
       .compose-form__style-button {
+        flex: 1 1 auto;
+        min-width: 0;
         max-width: 100%;
         padding: 2px 0;
       }
