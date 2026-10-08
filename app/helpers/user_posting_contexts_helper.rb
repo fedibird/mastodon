@@ -41,14 +41,26 @@ module UserPostingContextsHelper
     end
   end
 
-  def user_posting_context_summary(context)
+  def user_posting_context_facts(context)
     fields = UserPostingContext::Defaults.form_fields(context.defaults)
-    parts = [t('user_posting_contexts.summary.visibility', value: summary_visibility(fields))]
-    parts << t('user_posting_contexts.summary.language', value: summary_language(fields))
-    parts << t('user_posting_contexts.summary.sensitive', value: summary_sensitive(fields))
     tags = UserPostingContext::ManagedHashtags.form_text(context.managed)
-    parts << t('user_posting_contexts.summary.hashtags', value: tags.presence || t('user_posting_contexts.no_hashtags'))
-    safe_join(parts, ' · ')
+    [
+      [t('user_posting_contexts.preview_labels.destination'), user_posting_context_target_label(context)],
+      [t('user_posting_contexts.preview_labels.visibility'), summary_visibility(fields)],
+      [t('user_posting_contexts.preview_labels.language'), summary_language(fields)],
+      [t('user_posting_contexts.fields.hashtags'), tags.presence || t('user_posting_contexts.no_hashtags')],
+    ]
+  end
+
+  def user_posting_context_auto_tag_labels(preview)
+    labels = []
+    labels << "##{preview.destination_hashtag['name']}" if preview.destination_hashtag
+    preview.user_hashtags.each { |tag| labels << "##{tag['name']}" }
+    labels
+  end
+
+  def user_posting_context_required_mention_labels(preview)
+    preview.required_rules.select { |rule| rule['kind'] == 'mention' }.map { |rule| "@#{rule['label']}" }
   end
 
   def user_posting_context_visibility_options(context)

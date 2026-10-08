@@ -80,6 +80,7 @@ describe Settings::UserPostingContextsController do
       end.to change { owner.user_posting_contexts.count }.by(1)
       copy = owner.user_posting_contexts.ordered.last
       expect(copy.id).not_to eq(record.id)
+      expect(copy.name).to eq(UserPostingContext.copied_name(record.name))
       expect(copy.defaults).to eq(record.defaults)
       expect(copy.user_id).to eq(owner.id)
 
@@ -177,6 +178,15 @@ describe Settings::UserPostingContextsController do
       expect(body['destination_html']).not_to include(I18n.t('user_posting_contexts.recommended_empty'))
       expect(record.reload.target_kind).to eq('group')
       expect(record.defaults['visibility']).to eq('private')
+    end
+
+    it 'previews without loading the group choice list' do
+      expect(Account).not_to receive(:local)
+
+      post :preview, params: { user_posting_context: style_params(name: 'Quiet', purpose: 'A note', icon: '✎', target_kind: 'none') }
+
+      expect(response).to have_http_status(:ok)
+      expect(JSON.parse(response.body)['preview_html']).to include(I18n.t('user_posting_contexts.save_not_posting'))
     end
 
     it 'does not overwrite a stale edit' do

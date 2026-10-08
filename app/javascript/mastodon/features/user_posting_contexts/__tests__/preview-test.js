@@ -27,6 +27,8 @@ const markup = () => {
       <div data-choice-panel="visibility" data-choice-when="explicit">
         <input data-preserve-on-preview name="user_posting_context[visibility_value]" value="private" />
       </div>
+      <input data-preserve-on-preview name="user_posting_context[name]" value="Field notes" />
+      <input data-preserve-on-preview name="user_posting_context[purpose]" value="A note" />
       <input data-preserve-on-preview name="user_posting_context[hashtags_text]" value="fedibird" />
       <div data-user-posting-context-constraints><p>old constraint</p></div>
       <p data-user-posting-context-preview-status data-pending-message="updating" data-failed-message="failed"></p>
@@ -193,5 +195,81 @@ describe('user posting context preview', () => {
     expect(document.querySelector('[data-user-posting-context-constraints]').textContent).not.toContain('old constraint');
     expect(document.querySelector('[name="user_posting_context[visibility_value]"]').value).toBe('private');
     expect(document.querySelector('[name="user_posting_context[hashtags_text]"]').value).toBe('fedibird');
+  });
+
+  it('does not refresh the preview when only the name or purpose changes', async () => {
+    const fetchImpl = jest.fn();
+
+    bindUserPostingContextPreview(document, { fetchImpl, delay: 0 });
+    document.querySelector('[name="user_posting_context[name]"]').dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector('[name="user_posting_context[purpose]"]').dispatchEvent(new Event('input', { bubbles: true }));
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-user-posting-context-preview]').classList.contains('user-posting-context-conditions--stale')).toBe(false);
+  });
+
+  it('ignores an older response that arrives before the next request starts', async () => {
+    let resolveFirst;
+    const fetchImpl = jest.fn()
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveFirst = resolve;
+      }))
+      .mockImplementationOnce(() => Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          preview_html: '<p>second</p>',
+          constraint_html: '<p>second-constraint</p>',
+          destination_html: '<p>second-destination</p>',
+        }),
+      }));
+
+    bindUserPostingContextPreview(document, { fetchImpl, delay: 30 });
+    const kind = document.querySelector('[data-target-kind]');
+    const preview = () => document.querySelector('[data-user-posting-context-preview]');
+
+    kind.value = 'hashtag';
+    kind.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 40);
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(preview().getAttribute('aria-busy')).toBe('true');
+
+    kind.value = 'group';
+    kind.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(preview().classList.contains('user-posting-context-conditions--stale')).toBe(true);
+    expect(fetchImpl.mock.calls[0][1].signal.aborted).toBe(true);
+
+    resolveFirst({
+      ok: true,
+      json: () => Promise.resolve({
+        preview_html: '<p>first</p>',
+        constraint_html: '<p>first-constraint</p>',
+        destination_html: '<p>first-destination</p>',
+      }),
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(preview().textContent).toContain('original');
+    expect(preview().textContent).not.toContain('first');
+    expect(preview().classList.contains('user-posting-context-conditions--stale')).toBe(true);
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 40);
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(preview().textContent).toContain('second');
+    expect(preview().textContent).not.toContain('first');
+    expect(preview().classList.contains('user-posting-context-conditions--stale')).toBe(false);
+    expect(document.querySelector('[data-user-posting-context-destination]').textContent).toContain('second-destination');
   });
 });

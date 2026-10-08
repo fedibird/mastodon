@@ -2153,6 +2153,7 @@ ja:
       inherit: 通常の設定を使用
     conflict_item: "%{field}は投稿先の条件から外れています（%{value}）。選択肢: %{options}"
     conflicts_empty: 未解決の競合はありません。
+    copy_suffix: "（コピー）"
     delete: "%{name} を削除"
     delete_confirm: 投稿スタイル「%{name}」を削除しますか？この操作は取り消せません。
     deleted: 投稿スタイルを削除しました。
@@ -2172,6 +2173,7 @@ ja:
     duplicated: 投稿スタイルを複製しました。
     edit: 投稿スタイルを編集
     edit_action: 編集
+    more_actions: "%{name} のその他の操作"
     empty: まだ投稿スタイルがありません。目的や場所に合わせて作成できます。
     errors:
       defaults: 投稿の初期値に保存できない内容があります。
@@ -2214,6 +2216,7 @@ ja:
     inherit_value: "通常の設定: %{value}"
     new: 新しい投稿スタイルを作成
     no_hashtags: なし
+    no_required_mentions: なし
     no_known_groups: 選べる既知のグループがまだありません。
     permissions:
       conflict: "%{value} は、この投稿先が許可する公開範囲に含まれていません。"
@@ -2221,8 +2224,10 @@ ja:
       permitted: この投稿先が許可する公開範囲は %{options} です。
       undeclared: この投稿先は公開範囲の条件を宣言していません。
     preview_labels:
+      auto_tags: 自動追加タグ
       conflicts: 未解決の競合
       destination: 投稿先
+      required_mentions: 必須メンション
       destination_hashtag: 投稿先のハッシュタグ
       discovery: 投稿先の条件
       language: 言語
@@ -2234,7 +2239,9 @@ ja:
       usual: "通常の設定: %{value}"
       visibility: 公開範囲
     preview_failed: 投稿先の条件を取得できませんでした。取得できなかった条件は、現在の条件として表示していません。
+    preview_details: 継承と制約の詳細
     preview_note: 適用結果のプレビューです。投稿そのものは実行されません。
+    save_not_posting: スタイルの保存は、その条件で投稿できるかどうかとは別です。競合があっても、この画面では保存できます。
     preview_pending: 投稿先の条件を更新しています。
     purpose_hint: 用途は自分のためのメモです。投稿本文には含まれません。
     recommended_empty: 投稿先は推奨値を明示していません。
@@ -2279,6 +2286,8 @@ ja:
     title: 投稿のスタイルと目的
     unset: 未設定
     unverified_banner: 投稿先の条件は未確認です。未確認の条件は許可済みとして扱いません。
+    unverified_not_postable: 投稿先の条件は未確認です。未確認は、投稿できるという意味ではありません。
+    unverified_short: 未確認
     unverified_item: "%{field} は未確認であり、許可済みとしては扱いません。"
     usual_summary: "通常の設定は、公開範囲 %{visibility}、言語 %{language}、センシティブ %{sensitive} です。内容警告は通常の設定には含まれません。"
   statuses:

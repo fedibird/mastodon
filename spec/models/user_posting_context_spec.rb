@@ -37,6 +37,8 @@ RSpec.describe UserPostingContext, type: :model do
     expect(style_for(user, name: 'Same')).to be_persisted
     expect(described_class.new(user: user, name: '   ')).not_to be_valid
     expect(described_class.new(user: user, name: 'a' * 81)).not_to be_valid
+    expect(described_class.copied_name('Same')).to eq("Same#{I18n.t('user_posting_contexts.copy_suffix')}")
+    expect(described_class.copied_name('あ' * 80).length).to eq(80)
   end
 
   it 'limits each user to 50 styles' do

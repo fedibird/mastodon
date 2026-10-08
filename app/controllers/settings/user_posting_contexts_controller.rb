@@ -63,7 +63,7 @@ class Settings::UserPostingContextsController < Settings::BaseController
     @context = preview_context
     @context.apply_form(form_params)
     @context.valid?
-    load_form
+    load_preview
     render json: {
       preview_html: render_to_string(partial: 'preview_body', formats: [:html], layout: false),
       constraint_html: render_to_string(partial: 'constraints', formats: [:html], layout: false),
@@ -91,6 +91,10 @@ class Settings::UserPostingContextsController < Settings::BaseController
 
   def load_form
     @group_choices = group_choices(@context)
+    load_preview
+  end
+
+  def load_preview
     @preview = UserPostingContext::Preview.build(user: current_user, context: @context)
   end
 
@@ -111,7 +115,7 @@ class Settings::UserPostingContextsController < Settings::BaseController
 
   def duplicate_attributes
     {
-      name: @context.name,
+      name: UserPostingContext.copied_name(@context.name),
       icon: @context.icon,
       purpose: @context.purpose,
       target_kind: @context.target_kind,

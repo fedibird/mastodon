@@ -123,21 +123,34 @@ export function bindUserPostingContextPreview(root = document, options = {}) {
   let generation = 0;
   let activeAbort = null;
 
+  const affectsPreview = (target) => {
+    if (!target || typeof target.name !== 'string') {
+      return false;
+    }
+
+    return /user_posting_context\[(target_kind|target_account_id|target_hashtag|visibility_choice|visibility_value|language_choice|language_code|sensitive_choice|sensitive_value|spoiler_choice|spoiler_text|hashtags_text)\]/.test(target.name);
+  };
+
+  const invalidate = () => {
+    generation += 1;
+
+    if (activeAbort) {
+      activeAbort.abort();
+      activeAbort = null;
+    }
+
+    setPreviewStatus(root, 'pending');
+    setConditionStale(root, true);
+  };
+
   const refresh = () => {
     if (!form.dataset.previewUrl) {
       return;
     }
 
-    generation += 1;
     const requestId = generation;
 
-    if (activeAbort) {
-      activeAbort.abort();
-    }
-
     activeAbort = Abort ? new Abort() : null;
-    setPreviewStatus(root, 'pending');
-    setConditionStale(root, true);
 
     const body = new FormData(form);
 
@@ -202,11 +215,16 @@ export function bindUserPostingContextPreview(root = document, options = {}) {
   };
 
   const schedule = () => {
+    invalidate();
     window.clearTimeout(timer);
     timer = window.setTimeout(refresh, delay);
   };
 
-  form.addEventListener('input', schedule);
+  form.addEventListener('input', (event) => {
+    if (affectsPreview(event.target)) {
+      schedule();
+    }
+  });
   form.addEventListener('change', (event) => {
     if (event.target && event.target.matches('[data-target-kind]')) {
       syncUserPostingContextTargetPanels(form);
@@ -216,6 +234,31 @@ export function bindUserPostingContextPreview(root = document, options = {}) {
       syncUserPostingContextChoicePanels(form);
     }
 
-    schedule();
+    if (affectsPreview(event.target)) {
+      schedule();
+    }
+  });
+}
+
+export function bindUserPostingContextCardMenus(root = document) {
+  root.querySelectorAll('[data-user-posting-context-menu]').forEach((menu) => {
+    if (menu.dataset.menuBound === 'true') {
+      return;
+    }
+
+    menu.dataset.menuBound = 'true';
+    const summary = menu.querySelector('summary');
+
+    menu.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape' || !menu.open) {
+        return;
+      }
+
+      menu.open = false;
+
+      if (summary) {
+        summary.focus();
+      }
+    });
   });
 }

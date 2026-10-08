@@ -2224,6 +2224,7 @@ en:
       inherit: Use the usual setting
     conflict_item: "%{field} is outside the destination conditions (%{value}). Options: %{options}."
     conflicts_empty: No unresolved conflicts.
+    copy_suffix: " (copy)"
     delete: Delete %{name}
     delete_confirm: Delete the posting style "%{name}"? This cannot be undone.
     deleted: Posting style deleted.
@@ -2243,6 +2244,7 @@ en:
     duplicated: Posting style duplicated.
     edit: Edit posting style
     edit_action: Edit
+    more_actions: More actions for %{name}
     empty: No posting styles yet. Create one for a purpose or a place you post to.
     errors:
       defaults: The posting defaults contain a value that cannot be saved.
@@ -2285,6 +2287,7 @@ en:
     inherit_value: "Usual setting: %{value}"
     new: Create a new posting style
     no_hashtags: None
+    no_required_mentions: None
     no_known_groups: No known groups are available to choose yet.
     permissions:
       conflict: "%{value} is outside the visibility this destination allows."
@@ -2292,8 +2295,10 @@ en:
       permitted: This destination allows %{options}.
       undeclared: This destination did not declare a visibility constraint.
     preview_labels:
+      auto_tags: Tags added automatically
       conflicts: Unresolved conflicts
       destination: Destination
+      required_mentions: Required mentions
       destination_hashtag: Destination hashtag
       discovery: Destination conditions
       language: Language
@@ -2305,7 +2310,9 @@ en:
       usual: "Usual setting: %{value}"
       visibility: Visibility
     preview_failed: The destination conditions could not be loaded. Conditions that could not be loaded are not shown as current.
+    preview_details: Inheritance and constraint details
     preview_note: This previews the settings that would apply. It does not publish a post.
+    save_not_posting: Saving this style is separate from whether a post would be allowed. You can save it here even when a condition conflicts.
     preview_pending: Updating destination conditions.
     purpose_hint: This note is for you. It is not included in the post.
     recommended_empty: The destination did not provide recommended values.
@@ -2350,6 +2357,8 @@ en:
     title: Posting style and purpose
     unset: Not set
     unverified_banner: Destination conditions are unverified. Unverified conditions are not treated as allowed.
+    unverified_not_postable: Destination conditions are unverified. Unverified does not mean a post is allowed.
+    unverified_short: Unverified
     unverified_item: "%{field} is unverified and is not treated as allowed."
     usual_summary: "Your usual settings are visibility %{visibility}, language %{language}, and sensitive media %{sensitive}. A content warning is not part of those usual settings."
   statuses:

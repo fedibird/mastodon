@@ -1,7 +1,7 @@
 import './public-path';
 import { delegate } from '@rails/ujs';
 import ready from '../mastodon/ready';
-import { bindUserPostingContextPreview } from '../mastodon/features/user_posting_contexts/preview';
+import { bindUserPostingContextCardMenus, bindUserPostingContextPreview } from '../mastodon/features/user_posting_contexts/preview';
 
 const batchCheckboxClassName = '.batch-checkbox input[type="checkbox"]';
 
@@ -153,6 +153,7 @@ ready(() => {
   const registrationMode = document.getElementById('form_admin_settings_registrations_mode');
   if (registrationMode) onChangeRegistrationMode(registrationMode);
 
+  bindUserPostingContextCardMenus(document);
   bindUserPostingContextPreview(document, {
     renderEmoji: (root) => {
       const preview = root.querySelector('[data-user-posting-context-preview]');

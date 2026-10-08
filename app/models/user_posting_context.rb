@@ -82,6 +82,17 @@ class UserPostingContext < ApplicationRecord
 
   scope :ordered, -> { order(:position, :id) }
 
+  # Duplicate names stay allowed. The suffix is only the default label.
+  def self.copied_name(name)
+    suffix = I18n.t('user_posting_contexts.copy_suffix')
+    base = name.to_s
+    return "#{base}#{suffix}" if base.length + suffix.length <= 80
+
+    room = 80 - suffix.length
+    room = 0 if room.negative?
+    "#{base[0, room]}#{suffix}"
+  end
+
   # Values a later composer can read without learning the form field names.
   # Missing defaults keys mean inherit. Do not treat a missing discovery
   # result as permission to post; ask UserPostingContext::Preview.
