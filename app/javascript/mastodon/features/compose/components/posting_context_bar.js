@@ -57,13 +57,14 @@ class ManagedHashtagButton extends React.PureComponent {
   static propTypes = {
     name: PropTypes.string.isRequired,
     normalizedName: PropTypes.string.isRequired,
+    origin: PropTypes.string,
     suppressed: PropTypes.bool,
     onToggle: PropTypes.func.isRequired,
     intl: PropTypes.object.isRequired,
   };
 
   handleClick = () => {
-    this.props.onToggle(this.props.normalizedName);
+    this.props.onToggle(this.props.normalizedName, this.props.origin);
   }
 
   render () {
@@ -176,13 +177,25 @@ class PostingContextBar extends React.PureComponent {
         ))}
         {hasHashtags && hashtags.map(tag => {
           const normalizedName = tag.get('normalizedName');
+          const origin = tag.get('origin');
+          const suppressed = tag.has('suppressed') ? tag.get('suppressed') : Boolean(suppressedHashtags && suppressedHashtags.includes(normalizedName));
+          const key = `${origin || 'context'}:${normalizedName}`;
+
+          if (tag.get('enforcement') === 'required') {
+            return (
+              <span key={key} className='compose-form__posting-context-tag compose-form__posting-context-tag--required'>
+                {`#${tag.get('name')}`}
+              </span>
+            );
+          }
 
           return (
             <ManagedHashtagButton
-              key={normalizedName}
+              key={key}
               name={tag.get('name')}
               normalizedName={normalizedName}
-              suppressed={Boolean(suppressedHashtags && suppressedHashtags.includes(normalizedName))}
+              origin={origin}
+              suppressed={suppressed}
               onToggle={onToggle}
               intl={intl}
             />

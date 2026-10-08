@@ -124,7 +124,7 @@ class PrivacyDropdownMenu extends React.PureComponent {
 
     return (
       <div style={{ ...style }} role='listbox' ref={this.setRef}>
-          {items.map(item => (
+        {items.map(item => (
           <div role='option' tabIndex='0' key={item.value} data-index={item.value} onKeyDown={this.handleKeyDown} onClick={this.handleClick} className={classNames('privacy-dropdown__option', { active: item.value === value })} aria-selected={item.value === value} ref={item.value === value ? this.setFocusRef : null}>
             <div className='privacy-dropdown__option__icon'>
               <Icon id={item.icon} fixedWidth />
@@ -240,7 +240,7 @@ class PrivacyDropdown extends React.PureComponent {
   buildOptions (props) {
     const { intl: { formatMessage }, prohibitedVisibilities, allowedVisibilities, noDirect } = props;
 
-    this.options = [
+    const catalog = [
       { icon: 'globe', value: 'public', text: formatMessage(messages.public_short), meta: formatMessage(messages.public_long) },
       { icon: 'unlock', value: 'unlisted', text: formatMessage(messages.unlisted_short), meta: formatMessage(messages.unlisted_long) },
       { icon: 'lock', value: 'private', text: formatMessage(messages.private_short), meta: formatMessage(messages.private_long) },
@@ -250,7 +250,12 @@ class PrivacyDropdown extends React.PureComponent {
         { icon: 'envelope', value: 'direct', text: formatMessage(messages.direct_short), meta: formatMessage(messages.direct_long) },
         { icon: 'book', value: 'personal', text: formatMessage(messages.personal_short), meta: formatMessage(messages.personal_long) },
       ],
-    ].filter(option => option && !prohibitedVisibilities?.includes(option.value) && (!allowedVisibilities || allowedVisibilities.includes(option.value)));
+    ].filter(option => option);
+
+    // The closed control shows the visibility that is actually stored.
+    // Destination rules only limit what can be chosen next; they do not rewrite it.
+    this.catalog = catalog;
+    this.options = catalog.filter(option => !prohibitedVisibilities?.includes(option.value) && (!allowedVisibilities || allowedVisibilities.includes(option.value)));
   }
 
   componentWillMount () {
@@ -276,10 +281,12 @@ class PrivacyDropdown extends React.PureComponent {
   }
 
   render () {
-    const { value, container, intl } = this.props;
+    const { value, container, intl, prohibitedVisibilities } = this.props;
     const { open, placement } = this.state;
+    const stored = (this.catalog || []).find(item => item.value === value);
+    const hiddenByUser = prohibitedVisibilities && prohibitedVisibilities.includes(value);
 
-    const valueOption = this.options.find(item => item.value === value) || { icon: 'ban', value: 'none', text: intl.formatMessage(messages.none_short), meta: intl.formatMessage(messages.none_long) };
+    const valueOption = (!hiddenByUser && stored) || { icon: 'ban', value: 'none', text: intl.formatMessage(messages.none_short), meta: intl.formatMessage(messages.none_long) };
     const privacyTitle = intl.formatMessage(messages.change_privacy);
 
     return (

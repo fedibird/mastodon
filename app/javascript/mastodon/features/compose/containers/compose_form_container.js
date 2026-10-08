@@ -1,3 +1,5 @@
+import React from 'react';
+import PropTypes from 'prop-types';
 import { connect } from 'react-redux';
 import ComposeForm from '../components/compose_form';
 import {
@@ -17,6 +19,8 @@ import { selectComposerEffectiveCreateCapability } from '../../../posting_contex
 import { materializeComposerText } from '../../../posting_context/materialize';
 import { selectComposer } from '../../../selectors/composer';
 import { withComposerId } from '../composer_id_context';
+import UserPostingStyleController from './user_posting_style_controller';
+import UserPostingStylePickerContainer from './user_posting_style_picker_container';
 import { injectIntl, defineMessages } from 'react-intl';
 
 const messages = defineMessages({
@@ -110,4 +114,18 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
 
 });
 
-export default withComposerId(injectIntl(connect(mapStateToProps, mapDispatchToProps)(ComposeForm)));
+const ConnectedComposeForm = injectIntl(connect(mapStateToProps, mapDispatchToProps)(ComposeForm));
+
+const ComposeFormWithPostingStyles = props => (
+  <ConnectedComposeForm
+    {...props}
+    styleController={<UserPostingStyleController />}
+    stylePicker={<UserPostingStylePickerContainer />}
+  />
+);
+
+ComposeFormWithPostingStyles.propTypes = {
+  composerId: PropTypes.string,
+};
+
+export default withComposerId(ComposeFormWithPostingStyles);

@@ -33,6 +33,8 @@ const fetchPostingContextFail = (accountId, error) => ({
   skipAlert: true,
 });
 
+const inflightDiscoveries = new Map();
+
 const successCacheIsFresh = (current, now) => {
   if (!current || !SUCCESS_STATUSES.includes(current.get('status'))) {
     return false;
@@ -54,7 +56,12 @@ const discoveryInFlight = current => (
 
 export function fetchPostingContext(accountId, { force = false } = {}) {
   return (dispatch, getState) => {
-    const current = selectPostingContextDiscovery(getState(), accountId);
+    const id = String(accountId);
+    const current = selectPostingContextDiscovery(getState(), id);
+
+    if (inflightDiscoveries.has(id)) {
+      return inflightDiscoveries.get(id);
+    }
 
     if (discoveryInFlight(current)) {
       return Promise.resolve();
@@ -64,15 +71,22 @@ export function fetchPostingContext(accountId, { force = false } = {}) {
       return Promise.resolve();
     }
 
-    dispatch(fetchPostingContextRequest(String(accountId)));
+    dispatch(fetchPostingContextRequest(id));
 
-    return api(getState)
-      .get(`/api/v1/fedibird/accounts/${encodeURIComponent(accountId)}/posting_context`)
+    const pending = api(getState)
+      .get(`/api/v1/fedibird/accounts/${encodeURIComponent(id)}/posting_context`)
       .then(({ data }) => {
-        dispatch(fetchPostingContextSuccess(String(accountId), data, Date.now()));
+        dispatch(fetchPostingContextSuccess(id, data, Date.now()));
       })
       .catch(error => {
-        dispatch(fetchPostingContextFail(String(accountId), error));
+        dispatch(fetchPostingContextFail(id, error));
+      })
+      .finally(() => {
+        inflightDiscoveries.delete(id);
       });
+
+    inflightDiscoveries.set(id, pending);
+
+    return pending;
   };
 }
