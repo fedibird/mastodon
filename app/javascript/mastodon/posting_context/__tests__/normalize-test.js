@@ -243,7 +243,7 @@ describe('normalizePostingContext', () => {
     expect(normalized.viewerEvidence.permissions.create.status).toEqual('unknown');
   });
 
-  it('normalizes Lemmy and PieFed append placements without treating an omitted placement as append', () => {
+  it('keeps Lemmy after_title and PieFed append placements, and treats an omitted placement as prepend', () => {
     const lemmy = normalizePostingContext({
       key: 'protocol:fep-1b12-lemmy:456',
       source: { id: 'compat:lemmy-group-note', revision: 1 },
@@ -255,7 +255,7 @@ describe('normalizePostingContext', () => {
             acct: 'technology@lemmy.example',
             enforcement: 'required',
             rule_id: 'lemmy-group-mention',
-            placement: 'append',
+            placement: 'after_title',
           },
         ],
       },
@@ -272,11 +272,53 @@ describe('normalizePostingContext', () => {
         },
       },
     });
+    const piefed = normalizePostingContext({
+      key: 'protocol:fep-1b12-piefed:456',
+      source: { id: 'compat:piefed-group-note', revision: 1 },
+      managed: {
+        hashtags: [],
+        mentions: [
+          {
+            account_id: '456',
+            acct: 'technology@piefed.example',
+            enforcement: 'required',
+            rule_id: 'piefed-group-mention',
+            placement: 'append',
+          },
+        ],
+      },
+      requirements: { following_accounts: [] },
+      constraints: { allowed_visibilities: ['public'] },
+      protocol: {
+        activitypub: {
+          audience: {
+            account_id: '456',
+            acct: 'technology@piefed.example',
+            enforcement: 'required',
+            rule_id: 'fep-1b12-group-audience',
+          },
+        },
+      },
+    });
     const omitted = normalizePostingContext(restContext);
+    const unknown = normalizePostingContext({
+      ...restContext,
+      managed: {
+        ...restContext.managed,
+        mentions: [
+          {
+            ...restContext.managed.mentions[0],
+            placement: 'beside',
+          },
+        ],
+      },
+    });
 
-    expect(lemmy.managed.mentions[0].placement).toEqual('append');
+    expect(lemmy.managed.mentions[0].placement).toEqual('after_title');
+    expect(piefed.managed.mentions[0].placement).toEqual('append');
     expect(lemmy.constraints.allowedVisibilities).toEqual(['public']);
     expect(omitted.managed.mentions[0].placement).toEqual('prepend');
+    expect(unknown.managed.mentions[0].placement).toEqual('prepend');
   });
 
   it('returns null for a missing context', () => {

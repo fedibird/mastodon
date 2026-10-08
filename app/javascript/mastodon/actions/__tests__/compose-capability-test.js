@@ -386,7 +386,7 @@ describe('submit create capability', () => {
     expect(request.mock.calls[0][0].data.media_ids.toArray()).toEqual(['media-1']);
   });
 
-  it('appends a Lemmy community mention on submit and keeps the draft text', async () => {
+  it('places a Lemmy community mention after the title on submit and keeps the draft text', async () => {
     const request = jest.fn().mockResolvedValue({ data: statusResponse });
     api.mockReturnValue({ request });
     const store = makeStore();
@@ -410,7 +410,7 @@ describe('submit create capability', () => {
             acct: 'technology@lemmy.example',
             enforcement: 'required',
             rule_id: 'lemmy-group-mention',
-            placement: 'append',
+            placement: 'after_title',
           }],
         },
         requirements: { following_accounts: [] },
@@ -448,7 +448,7 @@ describe('submit create capability', () => {
     store.dispatch(targetComposerAction(changeComposeVisibility('public'), 'composer-a'));
     await store.dispatch(submitComposerWithCheck('composer-a', router, intl));
 
-    expect(request.mock.calls[0][0].data.status).toEqual('Title line\n\nBody @bob@people.example\n@technology@lemmy.example');
+    expect(request.mock.calls[0][0].data.status).toEqual('Title line\n@technology@lemmy.example\n\nBody @bob@people.example');
     expect(request.mock.calls[0][0].data.visibility).toEqual('public');
     expect(request.mock.calls[0][0].data.audience_account_id).toEqual('456');
     expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'text'])).toEqual(draft);

@@ -501,7 +501,7 @@ describe('GroupTimeline portable composer', () => {
     expect(props.prepend.props.postingContext.protocol.activityPub.audience.accountId).toEqual('456');
   });
 
-  it('prepends a Lemmy community context with an appended mention', () => {
+  it('prepends a Lemmy community context with an after-title mention', () => {
     const GroupTimeline = loadTimeline({ isAdministrator: true });
     const account = ImmutableMap({
       id: '456',
@@ -523,7 +523,7 @@ describe('GroupTimeline portable composer', () => {
         acct: 'technology@lemmy.example',
         enforcement: 'required',
         ruleId: 'lemmy-group-mention',
-        placement: 'append',
+        placement: 'after_title',
       },
     ]);
     expect(props.prepend.props.postingContext.constraints.allowedVisibilities).toEqual(['public']);

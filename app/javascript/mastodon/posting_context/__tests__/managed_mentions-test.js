@@ -1,4 +1,4 @@
-import { materializeManagedMentions, textContainsMention } from '../managed_mentions';
+import { firstLineLacksProse, materializeManagedMentions, textContainsMention } from '../managed_mentions';
 
 describe('managed mentions', () => {
   it('prefixes a missing required mention and leaves an existing one', () => {
@@ -38,5 +38,37 @@ describe('managed mentions', () => {
       { acct: 'group' },
       { acct: 'technology@lemmy.example', placement: 'append' },
     ])).toEqual('@group Hello\n@technology@lemmy.example');
+  });
+
+  it('inserts an after_title mention after the first line without rewriting the draft', () => {
+    const mention = { acct: 'technology@lemmy.example', placement: 'after_title' };
+
+    expect(materializeManagedMentions('', [mention])).toEqual('@technology@lemmy.example');
+    expect(materializeManagedMentions('My title', [mention])).toEqual('My title\n@technology@lemmy.example');
+    expect(materializeManagedMentions('My title\n', [mention])).toEqual('My title\n@technology@lemmy.example');
+    expect(materializeManagedMentions('Title line\n\nKeep this @bob@people.example', [mention])).toEqual('Title line\n@technology@lemmy.example\n\nKeep this @bob@people.example');
+    expect(materializeManagedMentions('Title\n\n\nHello @bob@people.example', [mention])).toEqual('Title\n@technology@lemmy.example\n\n\nHello @bob@people.example');
+    expect(materializeManagedMentions('Title line\n@technology@lemmy.example\n\nKeep this', [mention])).toEqual('Title line\n@technology@lemmy.example\n\nKeep this');
+    expect(materializeManagedMentions('Title @technology@lemmy.example\n\nKeep this @bob@people.example', [mention])).toEqual('Title @technology@lemmy.example\n\nKeep this @bob@people.example');
+    expect(materializeManagedMentions('@bob@people.example stays\n\nsecond line', [mention])).toEqual('@bob@people.example stays\n@technology@lemmy.example\n\nsecond line');
+    expect(materializeManagedMentions('Title\n\n\n', [mention])).toEqual('Title\n@technology@lemmy.example\n\n\n');
+    expect(materializeManagedMentions('Hello', [
+      { acct: 'technology@lemmy.example', placement: 'after_title' },
+      { acct: 'other@lemmy.example', placement: 'after_title' },
+    ])).toEqual('Hello\n@technology@lemmy.example @other@lemmy.example');
+    expect(materializeManagedMentions('Hello', [
+      { acct: 'group' },
+      { acct: 'technology@lemmy.example', placement: 'after_title' },
+      { acct: 'tail@piefed.example', placement: 'append' },
+    ])).toEqual('@group Hello\n@technology@lemmy.example\n@tail@piefed.example');
+  });
+
+  it('treats an empty first line as a weak Lemmy title', () => {
+    expect(firstLineLacksProse('')).toBe(true);
+    expect(firstLineLacksProse('\nKeep this body')).toBe(true);
+    expect(firstLineLacksProse('   \nKeep this body')).toBe(true);
+    expect(firstLineLacksProse('@technology@lemmy.example\nBody')).toBe(true);
+    expect(firstLineLacksProse('#only\nBody')).toBe(true);
+    expect(firstLineLacksProse('Title line\n@technology@lemmy.example\n\nBody')).toBe(false);
   });
 });

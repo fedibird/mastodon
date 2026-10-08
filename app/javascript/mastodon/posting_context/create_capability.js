@@ -4,6 +4,7 @@ import { selectPostingContextRevalidation } from '../selectors/posting_context_r
 import { selectPostingContextDiscovery } from '../selectors/posting_contexts';
 import { selectComposerPostingContextCompliance } from './compliance';
 import { normalizeManagedHashtagName } from './managed_hashtags';
+import { managedMentionPlacement } from './managed_mentions';
 
 // Delivery support is keyed by the discovery adapter id.
 // Authority is copied from discovery and is never rewritten from permission
@@ -203,7 +204,7 @@ const ruleRecord = record => {
     acct: acctOf(record),
     enforcement: textOrNull(valueAt(record, 'enforcement')),
     ruleId: textOrNull(valueAt(record, 'ruleId')),
-    placement: valueAt(record, 'placement') === 'append' ? 'append' : 'prepend',
+    placement: managedMentionPlacement(record),
   };
 };
 

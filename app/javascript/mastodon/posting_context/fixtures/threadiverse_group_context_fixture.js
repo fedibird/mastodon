@@ -1,6 +1,6 @@
 // Internal Composer descriptor for a resolved Lemmy or PieFed discovery result.
 
-const threadiverseGroupPostingContextFor = (software, accountId, acct) => {
+const threadiverseGroupPostingContextFor = (software, accountId, acct, placement) => {
   const id = String(accountId);
 
   return {
@@ -17,7 +17,7 @@ const threadiverseGroupPostingContextFor = (software, accountId, acct) => {
           acct,
           enforcement: 'required',
           ruleId: `${software}-group-mention`,
-          placement: 'append',
+          placement,
         },
       ],
     },
@@ -41,11 +41,11 @@ const threadiverseGroupPostingContextFor = (software, accountId, acct) => {
 };
 
 export const lemmyGroupPostingContextFor = (accountId, acct) => (
-  threadiverseGroupPostingContextFor('lemmy', accountId, acct)
+  threadiverseGroupPostingContextFor('lemmy', accountId, acct, 'after_title')
 );
 
 export const piefedGroupPostingContextFor = (accountId, acct) => (
-  threadiverseGroupPostingContextFor('piefed', accountId, acct)
+  threadiverseGroupPostingContextFor('piefed', accountId, acct, 'append')
 );
 
 export const lemmyGroupPostingContext = lemmyGroupPostingContextFor('456', 'technology@lemmy.example');

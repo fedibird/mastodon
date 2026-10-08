@@ -412,7 +412,7 @@ describe('PostingContextBar', () => {
   it('explains Lemmy and PieFed destinations and warns when the Lemmy title line has no prose', () => {
     const lemmyMessage = 'The first line becomes the post title (100 characters max). The community mention is added automatically';
     const piefedMessage = 'The community mention is added automatically';
-    const weakTitle = 'A first line with only a mention or hashtag may not work as a title';
+    const weakTitle = 'An empty first line, or one with only a mention or hashtag, may not work as a title';
     const discoveryFor = (software, acct) => ({
       schema_version: 1,
       account_id: '456',
@@ -427,7 +427,7 @@ describe('PostingContextBar', () => {
             acct,
             enforcement: 'required',
             rule_id: `${software}-group-mention`,
-            placement: 'append',
+            placement: 'after_title',
           }],
         },
         requirements: { following_accounts: [] },
@@ -472,7 +472,7 @@ describe('PostingContextBar', () => {
           acct: 'technology@lemmy.example',
           enforcement: 'required',
           ruleId: 'lemmy-group-mention',
-          placement: 'append',
+          placement: 'after_title',
         }],
       },
       requirements: { followingAccounts: [] },
@@ -502,6 +502,18 @@ describe('PostingContextBar', () => {
     expect(screen.queryByText(weakTitle)).toBeNull();
     expect(screen.getByText(lemmyMessage)).toBeTruthy();
 
+    store.dispatch(targetComposerAction(changeCompose('\nKeep this body'), composerId));
+    expect(screen.getByText(weakTitle)).toBeTruthy();
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'text'])).toEqual('\nKeep this body');
+
+    store.dispatch(targetComposerAction(changeCompose('   \nKeep this body'), composerId));
+    expect(screen.getByText(weakTitle)).toBeTruthy();
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'text'])).toEqual('   \nKeep this body');
+
+    store.dispatch(targetComposerAction(changeCompose(''), composerId));
+    expect(screen.getByText(weakTitle)).toBeTruthy();
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'text'])).toEqual('');
+
     render(
       <PostingContextBar
         hashtags={ImmutableList()}
@@ -524,7 +536,7 @@ describe('PostingContextBar', () => {
     expect(ja['compose_form.posting_context.threadiverse.lemmy']).toEqual('最初の行が投稿タイトルになります（最大100文字）。コミュニティのメンションは自動追加されます');
     expect(en['compose_form.posting_context.threadiverse.piefed']).toEqual(piefedMessage);
     expect(ja['compose_form.posting_context.threadiverse.piefed']).toEqual('コミュニティのメンションは自動追加されます');
-    expect(ja['compose_form.posting_context.threadiverse.weak_title']).toEqual('先頭行がメンションやハッシュタグだけの場合、タイトルとして適さないことがあります');
+    expect(ja['compose_form.posting_context.threadiverse.weak_title']).toEqual('先頭行が空、またはメンションやハッシュタグだけの場合、タイトルとして適さないことがあります');
   });
 
   it('keeps the existing recheck control beside a NodeBB public-only destination', () => {

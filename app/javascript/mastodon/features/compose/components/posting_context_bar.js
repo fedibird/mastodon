@@ -15,7 +15,7 @@ const messages = defineMessages({
   visibilityPublicUnlisted: { id: 'compose_form.posting_context.visibility.public_unlisted', defaultMessage: 'Visibility: Public or Unlisted' },
   threadiverseLemmy: { id: 'compose_form.posting_context.threadiverse.lemmy', defaultMessage: 'The first line becomes the post title (100 characters max). The community mention is added automatically' },
   threadiversePiefed: { id: 'compose_form.posting_context.threadiverse.piefed', defaultMessage: 'The community mention is added automatically' },
-  threadiverseWeakTitle: { id: 'compose_form.posting_context.threadiverse.weak_title', defaultMessage: 'A first line with only a mention or hashtag may not work as a title' },
+  threadiverseWeakTitle: { id: 'compose_form.posting_context.threadiverse.weak_title', defaultMessage: 'An empty first line, or one with only a mention or hashtag, may not work as a title' },
   followSatisfied: { id: 'compose_form.posting_context.follow.satisfied', defaultMessage: '✓ Following @{acct}' },
   followUnknown: { id: 'compose_form.posting_context.follow.unknown', defaultMessage: 'Checking follow status for @{acct}…' },
   followRequested: { id: 'compose_form.posting_context.follow.requested', defaultMessage: 'Follow request to @{acct} is pending' },

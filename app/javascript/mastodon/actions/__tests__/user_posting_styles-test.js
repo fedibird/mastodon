@@ -965,7 +965,7 @@ describe('NodeBB group posting style', () => {
   });
 });
 
-const threadiverseDiscovery = (software, accountId, acct) => ({
+const threadiverseDiscovery = (software, accountId, acct, placement) => ({
   schema_version: 1,
   account_id: accountId,
   status: 'resolved',
@@ -979,7 +979,7 @@ const threadiverseDiscovery = (software, accountId, acct) => ({
         acct,
         enforcement: 'required',
         rule_id: `${software}-group-mention`,
-        placement: 'append',
+        placement,
       }],
     },
     requirements: { following_accounts: [] },
@@ -1034,9 +1034,9 @@ describe('Lemmy and PieFed group posting styles', () => {
   }), applyMiddleware(thunk));
 
   it.each([
-    ['lemmy', 'technology@lemmy.example'],
-    ['piefed', 'technology@piefed.example'],
-  ])('applies a %s community from a posting style and appends its mention', async (software, acct) => {
+    ['lemmy', 'technology@lemmy.example', 'after_title', 'Title line\n@technology@lemmy.example\n\nKeep this'],
+    ['piefed', 'technology@piefed.example', 'append', 'Title line\n\nKeep this\n@technology@piefed.example'],
+  ])('applies a %s community from a posting style and places its mention', async (software, acct, placement, sent) => {
     const store = makeStore();
 
     store.dispatch({
@@ -1046,7 +1046,7 @@ describe('Lemmy and PieFed group posting styles', () => {
     store.dispatch({
       type: POSTING_CONTEXT_FETCH_SUCCESS,
       accountId: '456',
-      data: threadiverseDiscovery(software, '456', acct),
+      data: threadiverseDiscovery(software, '456', acct, placement),
       receivedAt: Date.now(),
     });
     store.dispatch(changeCompose('Title line\n\nKeep this'));
@@ -1063,9 +1063,9 @@ describe('Lemmy and PieFed group posting styles', () => {
     expect(drafted.get('privacy')).toEqual('unlisted');
     expect(drafted.get('text')).toEqual('Title line\n\nKeep this');
     expect(drafted.getIn(['media_attachments', 0, 'id'])).toEqual('media-1');
-    expect(drafted.getIn(['context', 'managed', 'mentions', 0, 'placement'])).toEqual('append');
+    expect(drafted.getIn(['context', 'managed', 'mentions', 0, 'placement'])).toEqual(placement);
     expect(materializeComposerText(drafted).split('\n')[0]).toEqual('Title line');
-    expect(materializeComposerText(drafted)).toEqual(`Title line\n\nKeep this\n@${acct}`);
+    expect(materializeComposerText(drafted)).toEqual(sent);
     expect(capabilityOf(store).canAttempt).toBe(false);
 
     store.dispatch({ type: COMPOSE_VISIBILITY_CHANGE, value: 'public' });

@@ -758,7 +758,7 @@ RSpec.describe PostingContext::DiscoveryService do # rubocop:disable Metrics/Blo
           acct: "technology@#{software_name}.example",
           enforcement: 'required',
           rule_id: "#{software_name}-group-mention",
-          placement: 'append'
+          placement: software_name == 'lemmy' ? 'after_title' : 'append'
         )
         expect(result.dig(:context, :protocol, :activitypub, :audience)).to include(
           account_id: account.id.to_s,

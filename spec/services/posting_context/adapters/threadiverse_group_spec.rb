@@ -9,12 +9,14 @@ RSpec.describe 'Threadiverse group posting adapters' do # rubocop:disable Metric
       key_prefix: 'protocol:fep-1b12-lemmy:',
       source_id: 'compat:lemmy-group-note',
       rule_id: 'lemmy-group-mention',
+      placement: 'after_title',
     },
     PostingContext::Adapters::PiefedGroup => {
       software: 'piefed',
       key_prefix: 'protocol:fep-1b12-piefed:',
       source_id: 'compat:piefed-group-note',
       rule_id: 'piefed-group-mention',
+      placement: 'append',
     },
   }.each do |adapter, definition|
     describe adapter do # rubocop:disable Metrics/BlockLength
@@ -45,7 +47,7 @@ RSpec.describe 'Threadiverse group posting adapters' do # rubocop:disable Metric
         expect(adapter.applicable?(unsaved)).to be false
       end
 
-      it 'builds a public compatibility context with an appended community mention' do
+      it 'builds a public compatibility context with the community mention placement' do
         software = definition[:software]
         account = remote_group(domain: "#{software}.example", software_name: software, username: 'technology')
         context = adapter.context(account)
@@ -65,7 +67,7 @@ RSpec.describe 'Threadiverse group posting adapters' do # rubocop:disable Metric
             acct: "technology@#{software}.example",
             enforcement: 'required',
             rule_id: definition[:rule_id],
-            placement: 'append',
+            placement: definition[:placement],
           },
         ]
         expect(context.dig(:protocol, :activitypub, :audience)).to include(

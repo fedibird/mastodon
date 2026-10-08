@@ -67,7 +67,7 @@ class PostingContext::Adapters::LemmyGroup
       acct: acct,
       enforcement: 'required',
       rule_id: rule_id,
-      placement: 'append',
+      placement: 'after_title',
     }
   end
 
