@@ -50,7 +50,7 @@ jest.mock('../../containers/privacy_dropdown_container', () => {
   return PrivacyDropdownContainerMock;
 });
 jest.mock('../../containers/searchability_dropdown_container', () => () => null);
-jest.mock('../../containers/circle_dropdown_container', () => () => null);
+jest.mock('../../containers/circle_dropdown_container', () => () => <div data-testid='circle-dropdown' />);
 jest.mock('../../containers/datetime_form_container', () => () => null);
 jest.mock('../../containers/expires_indicator_container', () => () => null);
 jest.mock('../../containers/emoji_picker_dropdown_container', () => () => null);
@@ -159,9 +159,12 @@ describe('ComposeForm visibility controls', () => {
     const dropdowns = form.querySelector(':scope > .compose-form__dropdowns');
     const autosuggest = form.querySelector(':scope > .compose-form__autosuggest-wrapper');
     const buttons = document.querySelector('.compose-form__buttons');
-    const publish = document.querySelector('.compose-form__publish');
+    const wrapper = document.querySelector('.compose-form__buttons-wrapper');
+    const submit = document.querySelector('.compose-form__submit');
+    const publish = screen.getByRole('button', { name: 'Toot!' });
     const privacy = screen.getByTestId('privacy-dropdown');
     const language = screen.getByTestId('language-dropdown');
+    const circle = screen.getByTestId('circle-dropdown');
 
     expect(spoiler.compareDocumentPosition(dropdowns) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const postingContext = screen.getByTestId('posting-context-bar');
@@ -178,6 +181,12 @@ describe('ComposeForm visibility controls', () => {
     expect(buttons).not.toContainElement(language);
     expect(buttons).toContainElement(screen.getByTestId('upload-button'));
     expect(buttons).toContainElement(screen.getByTestId('poll-button'));
-    expect(publish).toContainElement(screen.getByRole('button', { name: 'Toot!' }));
+    expect(document.querySelector('.compose-form__publish')).toBeNull();
+    expect(autosuggest.compareDocumentPosition(circle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(circle.compareDocumentPosition(wrapper) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(wrapper).toContainElement(submit);
+    expect(submit).toContainElement(screen.getByText('500'));
+    expect(submit).toContainElement(publish);
+    expect(publish).not.toHaveClass('button--block');
   });
 });

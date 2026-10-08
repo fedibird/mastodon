@@ -222,17 +222,8 @@ class ComposeForm extends ImmutablePureComponent {
     this.composeForm = c;
   };
 
-  handleEmojiPick = (data) => {
-    const { text }     = this.props;
-    const position     = this.autosuggestTextarea.textarea.selectionStart;
-    const needsSpace   = data.custom && position > 0 && !allowedAroundShortCode.includes(text[position - 1]);
-
-    this.props.onPickEmoji(position, data, needsSpace);
-  }
-
-  render () {
-    const { intl, onPaste, showSearch, autoFocus } = this.props;
-    const disabled = this.props.isSubmitting;
+  publishLabel () {
+    const { intl } = this.props;
     let publishText = '';
 
     if (this.props.isEditing) {
@@ -250,6 +241,30 @@ class ComposeForm extends ImmutablePureComponent {
         publishText = <Fragment><span className='compose-form__delete'>{intl.formatMessage(messages.delete)}</span>{intl.formatMessage(messages.and)}{publishText}</Fragment>;
       }
     }
+
+    return publishText;
+  }
+
+  renderPublishButton (publishText) {
+    return (
+      <div className='compose-form__publish-button-wrapper'>
+        <Button text={publishText} onClick={this.handleSubmit} disabled={disablePost || !this.canSubmit()} />
+      </div>
+    );
+  }
+
+  handleEmojiPick = (data) => {
+    const { text }     = this.props;
+    const position     = this.autosuggestTextarea.textarea.selectionStart;
+    const needsSpace   = data.custom && position > 0 && !allowedAroundShortCode.includes(text[position - 1]);
+
+    this.props.onPickEmoji(position, data, needsSpace);
+  }
+
+  render () {
+    const { intl, onPaste, showSearch, autoFocus } = this.props;
+    const disabled = this.props.isSubmitting;
+    const publishText = this.publishLabel();
 
     return (
       <div className='compose-form'>
@@ -317,6 +332,8 @@ class ComposeForm extends ImmutablePureComponent {
           </div>
         </AutosuggestTextarea>
 
+        {!this.props.isEditing && <CircleDropdownContainer />}
+
         <div className='compose-form__buttons-wrapper'>
           <div className='compose-form__buttons'>
             <UploadButtonContainer />
@@ -326,13 +343,14 @@ class ComposeForm extends ImmutablePureComponent {
             {!this.props.isEditing && <DateTimeButtonContainer />}
             {!this.props.isEditing && <SearchabilityDropdownContainer />}
           </div>
-          <div className='character-counter__wrapper'><CharacterCounter max={maxChars} text={this.getFulltextForCharacterCounting()} /></div>
-        </div>
 
-        {!this.props.isEditing && <CircleDropdownContainer />}
+          <div className='compose-form__submit'>
+            <div className='character-counter__wrapper'>
+              <CharacterCounter max={maxChars} text={this.getFulltextForCharacterCounting()} />
+            </div>
 
-        <div className='compose-form__publish'>
-          <div className='compose-form__publish-button-wrapper'><Button text={publishText} onClick={this.handleSubmit} disabled={disablePost || !this.canSubmit()} block /></div>
+            {this.renderPublishButton(publishText)}
+          </div>
         </div>
 
         {!this.props.isEditing && <ReferenceStack />}
