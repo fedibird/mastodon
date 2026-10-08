@@ -325,6 +325,30 @@ describe('ComposeForm display mode', () => {
     expect(onSubmit).toHaveBeenCalledTimes(2);
   });
 
+  it('shows a simple-mode send guard without hiding the reason', () => {
+    const onSubmit = jest.fn();
+    const onDisplayModeChange = jest.fn();
+
+    renderForm({
+      text: 'hello',
+      displayMode: 'simple',
+      canAttempt: false,
+      capabilityReason: 'compliance',
+      onSubmit,
+      onDisplayModeChange,
+    });
+
+    expect(screen.getByRole('button', { name: 'Toot!' })).toBeDisabled();
+    expect(screen.getByRole('status').textContent).toContain('Posting conditions are not met');
+    expect(screen.queryByText('Create permission not confirmed · compatibility method')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Toot!' }));
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show details' }));
+    expect(onDisplayModeChange).toHaveBeenCalledWith('full');
+  });
+
   it('disables publish in both modes when the post cannot be submitted', () => {
     const full = renderForm({
       text: 'hello',

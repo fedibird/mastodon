@@ -14,7 +14,7 @@ import { addYears, addMonths, addDays, addHours, addMinutes, addSeconds, millise
 import { Set as ImmutableSet } from 'immutable';
 import { postReferenceModal, missingAltTextModal, enableFederatedTimeline, allowPollImage, maxAttachments, disablePost } from '../initial_state';
 import { deleteScheduledStatus } from './scheduled_statuses';
-import { selectComposerPostingContextCompliance } from '../posting_context/compliance';
+import { selectComposerEffectiveCreateCapability } from '../posting_context/create_capability';
 import { materializeComposerText } from '../posting_context/materialize';
 import { composerActivityPubAudienceAccountId } from '../posting_context/protocol';
 import { selectComposer } from '../selectors/composer';
@@ -322,7 +322,7 @@ export function submitComposerWithCheck(composerId, routerHistory, intl) {
       return;
     }
 
-    if (!selectComposerPostingContextCompliance(state, composerId).valid) {
+    if (!selectComposerEffectiveCreateCapability(state, composerId).canAttempt) {
       return;
     }
 
@@ -385,7 +385,7 @@ export function submitComposer(composerId, routerHistory) {
       return Promise.resolve();
     }
 
-    if (!selectComposerPostingContextCompliance(state, composerId).valid) {
+    if (!selectComposerEffectiveCreateCapability(state, composerId).canAttempt) {
       return Promise.resolve();
     }
 

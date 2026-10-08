@@ -22,17 +22,18 @@ class PortableComposer extends React.PureComponent {
     exists: PropTypes.bool,
     seed: PropTypes.object,
     postingContext: PropTypes.object,
+    postingContextAccountId: PropTypes.string,
     displayMode: PropTypes.oneOf(['full', 'simple']),
   };
 
   applyPostingContext () {
-    const { composerId, dispatch, postingContext } = this.props;
+    const { composerId, dispatch, postingContext, postingContextAccountId } = this.props;
 
     if (postingContext === undefined) {
       return;
     }
 
-    dispatch(applyComposerPostingContext(composerId, postingContext));
+    dispatch(applyComposerPostingContext(composerId, postingContext, postingContextAccountId));
   }
 
   componentDidMount () {
@@ -44,10 +45,16 @@ class PortableComposer extends React.PureComponent {
   }
 
   componentDidUpdate (prevProps) {
-    const previousKey = prevProps.postingContext && prevProps.postingContext.key;
-    const nextKey = this.props.postingContext && this.props.postingContext.key;
+    if (this.props.postingContext === undefined) {
+      return;
+    }
 
-    if (this.props.postingContext !== undefined && previousKey !== nextKey) {
+    const previousContext = JSON.stringify(prevProps.postingContext || null);
+    const nextContext = JSON.stringify(this.props.postingContext || null);
+    const previousAccountId = prevProps.postingContextAccountId || null;
+    const nextAccountId = this.props.postingContextAccountId || null;
+
+    if (previousContext !== nextContext || previousAccountId !== nextAccountId) {
       this.applyPostingContext();
     }
   }
