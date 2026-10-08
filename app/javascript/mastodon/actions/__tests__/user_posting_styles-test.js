@@ -7,10 +7,14 @@ jest.mock('react-intl', () => ({
   defineMessages: messages => messages,
 }));
 
-jest.mock('../../api', () => () => ({
-  get: jest.fn(() => Promise.reject(new Error('discovery should use the cache'))),
+jest.mock('../../api', () => ({
+  __esModule: true,
+  default: jest.fn(() => ({
+    get: jest.fn(() => Promise.reject(new Error('discovery should use the cache'))),
+  })),
 }));
 
+import api from '../../api';
 import { commitUserPostingStyle } from '../user_posting_styles';
 import { POSTING_CONTEXT_FETCH_SUCCESS } from '../posting_contexts';
 import { selectComposerPostingContextCompliance } from '../../posting_context/compliance';
@@ -109,6 +113,79 @@ describe('commitUserPostingStyle group destination', () => {
     expect(state.getIn(['compose', 'context', 'protocol', 'activityPub', 'audience'])).toBeNull();
     expect(selectComposerPostingContextCompliance(state, PRIMARY_COMPOSER_ID).valid).toBe(false);
     expect(materializeComposerText(state.get('compose'))).toEqual('#fedibird');
+  });
+});
+
+describe('slow group discovery', () => {
+  it('waits for the in-flight result instead of failing after two seconds', async () => {
+    let resolveGet;
+    const get = jest.fn(() => new Promise(resolve => {
+      resolveGet = resolve;
+    }));
+    api.mockReturnValue({ get });
+
+    const store = createStore(combineReducers({
+      compose,
+      posting_contexts: postingContexts,
+      relationships,
+      userPostingStyles,
+    }), applyMiddleware(thunk));
+
+    store.dispatch({
+      type: 'USER_POSTING_STYLES_FETCH_SUCCESS',
+      styles: [style],
+    });
+
+    jest.useFakeTimers();
+    const pending = store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, '1'));
+
+    await Promise.resolve();
+    jest.advanceTimersByTime(2500);
+    await Promise.resolve();
+
+    expect(store.getState().getIn(['compose', 'userPostingStyle', 'destinationStatus'])).toEqual('pending');
+    expect(get).toHaveBeenCalledTimes(1);
+
+    resolveGet({ data: discovery('resolved') });
+    await pending;
+    jest.useRealTimers();
+
+    expect(store.getState().getIn(['compose', 'userPostingStyle', 'destinationStatus'])).toEqual('ready');
+    expect(materializeComposerText(store.getState().get('compose'))).toEqual('@localsquad\n\n#squad #fedibird');
+  });
+
+  it('does not apply a group result after the style has changed', async () => {
+    let resolveGet;
+    const get = jest.fn(() => new Promise(resolve => {
+      resolveGet = resolve;
+    }));
+    api.mockReturnValue({ get });
+
+    const store = createStore(combineReducers({
+      compose,
+      posting_contexts: postingContexts,
+      relationships,
+      userPostingStyles,
+    }), applyMiddleware(thunk));
+    const reading = style.set('id', '2').setIn(['target', 'kind'], 'hashtag').setIn(['target', 'hashtag'], 'books').setIn(['target', 'accountId'], null);
+
+    store.dispatch({
+      type: 'USER_POSTING_STYLES_FETCH_SUCCESS',
+      styles: [style, reading],
+    });
+
+    const pending = store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, '1'));
+
+    await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, '2'));
+    resolveGet({ data: discovery('resolved') });
+    await pending;
+
+    const composer = store.getState().get('compose');
+
+    expect(composer.getIn(['userPostingStyle', 'selectedId'])).toEqual('2');
+    expect(composer.getIn(['context', 'key'])).toBeNull();
+    expect(materializeComposerText(composer)).not.toContain('@localsquad');
+    expect(materializeComposerText(composer)).toContain('#books');
   });
 });
 

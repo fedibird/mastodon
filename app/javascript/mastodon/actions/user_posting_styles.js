@@ -75,42 +75,18 @@ export function fetchUserPostingStyles() {
   };
 }
 
-const waitForDiscovery = async (getState, accountId) => {
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    const discovery = selectPostingContextDiscovery(getState(), accountId);
-
-    if (!discovery || discovery.get('status') !== 'loading') {
-      return discovery;
-    }
-
-    await new Promise(resolve => {
-      setTimeout(resolve, 50);
-    });
-  }
-
-  return selectPostingContextDiscovery(getState(), accountId);
-};
-
 export function loadUserPostingStyleDestination(composerId, { selectedId, accountId }) {
   return (dispatch, getState) => {
     if (!stillWaiting(getState, composerId, selectedId, accountId)) {
       return Promise.resolve();
     }
 
-    return dispatch(fetchPostingContext(accountId)).then(async () => {
+    return dispatch(fetchPostingContext(accountId)).then(() => {
       if (!stillWaiting(getState, composerId, selectedId, accountId)) {
         return;
       }
 
-      let discovery = selectPostingContextDiscovery(getState(), accountId);
-
-      if (discovery && discovery.get('status') === 'loading') {
-        discovery = await waitForDiscovery(getState, accountId);
-      }
-
-      if (!stillWaiting(getState, composerId, selectedId, accountId)) {
-        return;
-      }
+      const discovery = selectPostingContextDiscovery(getState(), accountId);
 
       const status = discovery && discovery.get('status');
 

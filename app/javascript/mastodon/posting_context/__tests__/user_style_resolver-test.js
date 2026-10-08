@@ -59,6 +59,71 @@ describe('resolveUserPostingStyle', () => {
 
     expect(plan.fields.language).toBeUndefined();
     expect(plan.fields.privacy).toBeUndefined();
+    expect(plan.ownedFields).toEqual([]);
+  });
+
+  it('releases a previous style value when the next style inherits that field', () => {
+    const drafted = composer({
+      privacy: 'private',
+      language: 'en',
+      spoiler: true,
+      spoiler_text: 'note',
+      sensitive: true,
+      userPostingStyle: {
+        manualFields: [],
+        styleOwnedFields: ['privacy', 'language', 'spoiler', 'sensitive'],
+        destinationSource: null,
+        destinationStatus: 'idle',
+        destinationAccountId: null,
+      },
+    });
+    const plan = resolveUserPostingStyle(style(), drafted);
+
+    expect(plan.fields).toEqual({
+      privacy: 'public',
+      language: 'ja',
+      spoiler: false,
+      spoilerText: '',
+      sensitive: false,
+    });
+    expect(plan.ownedFields).toEqual([]);
+  });
+
+  it('keeps a manual value when the next style inherits that field', () => {
+    const drafted = composer({
+      privacy: 'unlisted',
+      userPostingStyle: {
+        manualFields: ['privacy'],
+        styleOwnedFields: ['privacy'],
+        destinationSource: null,
+        destinationStatus: 'idle',
+        destinationAccountId: null,
+      },
+    });
+    const plan = resolveUserPostingStyle(style(), drafted);
+
+    expect(plan.fields.privacy).toBeUndefined();
+    expect(plan.unapplied).toEqual([]);
+    expect(plan.ownedFields).toEqual([]);
+  });
+
+  it('uses the account sensitive default when media is already attached', () => {
+    const drafted = composer({
+      sensitive: true,
+      default_sensitive: true,
+      media_attachments: ImmutableList([ImmutableMap({ id: 'media-1' })]),
+      userPostingStyle: {
+        manualFields: [],
+        styleOwnedFields: ['sensitive'],
+        destinationSource: null,
+        destinationStatus: 'idle',
+        destinationAccountId: null,
+      },
+    });
+    const plan = resolveUserPostingStyle(null, drafted);
+
+    expect(plan.fields.sensitive).toBeUndefined();
+    expect(plan.ownedFields).toEqual([]);
   });
 
   it('keeps manually edited fields and reports them as unapplied', () => {

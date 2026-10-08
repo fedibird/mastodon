@@ -28,6 +28,8 @@ const fieldMessage = {
   destination: messages.fieldDestination,
 };
 
+let pickerSequence = 0;
+
 const destinationLabel = style => {
   if (!style || !style.getIn) {
     return null;
@@ -62,8 +64,91 @@ class UserPostingStylePicker extends React.PureComponent {
 
   root = null;
 
+  trigger = null;
+
+  constructor (props) {
+    super(props);
+    pickerSequence += 1;
+    this.menuId = `posting-style-menu-${pickerSequence}`;
+    this.labelId = `posting-style-label-${pickerSequence}`;
+  }
+
   setRoot = node => {
     this.root = node;
+  };
+
+  setTrigger = node => {
+    this.trigger = node;
+  };
+
+  componentDidUpdate (_prevProps, prevState) {
+    if (!this.state.open || prevState.open || !this.root) {
+      return;
+    }
+
+    const selected = this.root.querySelector('.compose-form__style-option.active') || this.root.querySelector('.compose-form__style-option');
+
+    if (selected) {
+      selected.focus();
+    }
+  }
+
+  closeMenu = ({ focusTrigger = false } = {}) => {
+    this.setState({ open: false }, () => {
+      if (focusTrigger && this.trigger) {
+        this.trigger.focus();
+      }
+    });
+  };
+
+  focusOption = offset => {
+    if (!this.root) {
+      return;
+    }
+
+    const options = Array.from(this.root.querySelectorAll('.compose-form__style-option'));
+
+    if (options.length === 0) {
+      return;
+    }
+
+    const index = options.indexOf(document.activeElement);
+    let next = 0;
+
+    if (index < 0) {
+      next = offset > 0 ? 0 : options.length - 1;
+    } else {
+      next = (index + offset + options.length) % options.length;
+    }
+
+    options[next].focus();
+  };
+
+  handleMenuKey = event => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      this.focusOption(1);
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      this.focusOption(-1);
+      return;
+    }
+
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+
+    const option = event.target.closest('.compose-form__style-option');
+
+    if (!option || !this.root || !this.root.contains(option)) {
+      return;
+    }
+
+    event.preventDefault();
+    option.click();
   };
 
   componentDidMount () {
@@ -86,7 +171,8 @@ class UserPostingStylePicker extends React.PureComponent {
 
   handleDocumentKey = event => {
     if (event.key === 'Escape' && this.state.open) {
-      this.setState({ open: false });
+      event.preventDefault();
+      this.closeMenu({ focusTrigger: true });
     }
   };
 
@@ -97,7 +183,7 @@ class UserPostingStylePicker extends React.PureComponent {
   handleSelect = event => {
     const styleId = event.currentTarget.getAttribute('data-style-id');
 
-    this.setState({ open: false });
+    this.closeMenu({ focusTrigger: true });
     this.props.onSelect(styleId || null);
   };
 
@@ -127,9 +213,9 @@ class UserPostingStylePicker extends React.PureComponent {
       <button
         key={id || 'usual'}
         type='button'
-        role='option'
+        role='menuitemradio'
         data-style-id={id || ''}
-        aria-selected={selectedId === id || (!selectedId && !style)}
+        aria-checked={selectedId === id || (!selectedId && !style)}
         className={classNames('compose-form__style-option', { active: selectedId === id || (!selectedId && !style) })}
         onClick={this.handleSelect}
       >
@@ -187,12 +273,14 @@ class UserPostingStylePicker extends React.PureComponent {
 
     return (
       <div className='compose-form__style' ref={this.setRoot} data-posting-style-picker='true'>
-        <div className='compose-form__style-label'>{intl.formatMessage(messages.label)}</div>
+        <div className='compose-form__style-label' id={this.labelId}>{intl.formatMessage(messages.label)}</div>
         <button
           type='button'
           className='compose-form__style-button'
           aria-expanded={this.state.open}
-          aria-haspopup='listbox'
+          aria-haspopup='menu'
+          aria-controls={this.menuId}
+          ref={this.setTrigger}
           onClick={this.handleToggle}
         >
           {icon ? <span className='compose-form__style-icon' aria-hidden='true'>{icon}</span> : null}
@@ -200,9 +288,18 @@ class UserPostingStylePicker extends React.PureComponent {
         </button>
         {label ? <div className='compose-form__style-current-destination'>{intl.formatMessage(messages.destination, { label })}</div> : null}
         {this.state.open && (
-          <div className='compose-form__style-menu' role='listbox'>
-            {this.renderOption(null)}
-            {this.props.styles && this.props.styles.map(style => this.renderOption(style))}
+          <div className='compose-form__style-menu'>
+            <div
+              id={this.menuId}
+              className='compose-form__style-options'
+              role='menu'
+              tabIndex={-1}
+              aria-labelledby={this.labelId}
+              onKeyDown={this.handleMenuKey}
+            >
+              {this.renderOption(null)}
+              {this.props.styles && this.props.styles.map(style => this.renderOption(style))}
+            </div>
             <a className='compose-form__style-settings' href='/settings/user_posting_contexts'>
               {intl.formatMessage(messages.settings)}
             </a>

@@ -9,7 +9,7 @@ jest.mock('../../uuid', () => ({
   default: () => 'test-idempotency-key',
 }));
 
-import { COMPOSE_REPLY, COMPOSE_SUBMIT_SUCCESS, COMPOSE_VISIBILITY_CHANGE, changeCompose, setComposeToStatus } from '../../actions/compose';
+import { COMPOSE_QUOTE_CANCEL, COMPOSE_REPLY, COMPOSE_REPLY_CANCEL, COMPOSE_SUBMIT_SUCCESS, COMPOSE_VISIBILITY_CHANGE, changeCompose, setComposeToStatus } from '../../actions/compose';
 import { createComposer, targetComposerAction } from '../../actions/composer';
 import { USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../../actions/user_posting_styles';
 import { selectComposerPostingContextCompliance } from '../compliance';
@@ -169,6 +169,114 @@ describe('composer posting styles', () => {
     expect(composer(scheduled, { type: USER_POSTING_STYLE_COMMIT, plan: { blocked: false }, snapshot: hashtagStyle })).toBe(scheduled);
   });
 
+  it('drops a previous style value when the next style inherits that field', () => {
+    const privateStyle = circleStyle.set('defaults', fromJS({
+      visibility: 'private',
+      language: { mode: 'explicit', code: 'en' },
+      sensitive: true,
+      spoiler: { enabled: true, text: 'note' },
+    })).setIn(['target', 'kind'], 'none');
+    const inherited = hashtagStyle.set('defaults', fromJS({}));
+    const applied = commit(composer(undefined, changeCompose('Keep me')), privateStyle);
+    const next = commit(applied, inherited);
+
+    expect(applied.get('privacy')).toEqual('private');
+    expect(applied.get('language')).toEqual('en');
+    expect(applied.get('spoiler')).toBe(true);
+    expect(applied.get('sensitive')).toBe(true);
+    expect(next.get('text')).toEqual('Keep me');
+    expect(next.get('privacy')).toEqual('public');
+    expect(next.get('language')).toBeNull();
+    expect(next.get('spoiler')).toBe(false);
+    expect(next.get('spoiler_text')).toEqual('');
+    expect(next.get('sensitive')).toBe(false);
+    expect(next.getIn(['userPostingStyle', 'styleOwnedFields']).isEmpty()).toBe(true);
+  });
+
+  it('keeps a manual value when switching to a style that inherits it', () => {
+    const applied = commit(undefined, circleStyle.setIn(['target', 'kind'], 'none'));
+    const manual = composer(applied, { type: COMPOSE_VISIBILITY_CHANGE, value: 'unlisted' });
+    const inherited = hashtagStyle.set('defaults', fromJS({})).setIn(['target', 'kind'], 'none');
+    const next = commit(manual, inherited);
+
+    expect(next.get('privacy')).toEqual('unlisted');
+    expect(next.get('text')).toEqual('');
+    expect(next.getIn(['userPostingStyle', 'manualFields']).includes('privacy')).toBe(true);
+  });
+
+  it('restores the account sensitive default for attached media', () => {
+    const marked = fromJS({
+      id: '9',
+      revision: 1,
+      target: { kind: 'none' },
+      defaults: { sensitive: true },
+    });
+    const drafted = composer(undefined, { type: '@@INIT' })
+      .set('default_sensitive', true)
+      .set('media_attachments', ImmutableList([ImmutableMap({ id: 'media-1' })]));
+    const applied = commit(drafted, marked);
+    const next = commit(applied, null);
+
+    expect(applied.get('sensitive')).toBe(true);
+    expect(next.get('sensitive')).toBe(true);
+    expect(next.getIn(['userPostingStyle', 'selectedId'])).toBeNull();
+  });
+
+  it('marks media sensitive when a style turns the content warning on', () => {
+    const warned = fromJS({
+      id: '8',
+      revision: 1,
+      target: { kind: 'none' },
+      defaults: { spoiler: { enabled: true, text: 'cw' } },
+    });
+    const drafted = composer(undefined, { type: '@@INIT' })
+      .set('media_attachments', ImmutableList([ImmutableMap({ id: 'media-1' })]));
+    const next = commit(drafted, warned);
+
+    expect(next.get('spoiler')).toBe(true);
+    expect(next.get('sensitive')).toBe(true);
+    expect(next.getIn(['userPostingStyle', 'styleOwnedFields']).includes('sensitive')).toBe(true);
+  });
+
+  it('restores the style after leaving a reply or quote', () => {
+    const applied = commit(composer(undefined, changeCompose('Hello')), circleStyle.setIn(['target', 'kind'], 'none'));
+    const reply = composer(applied, {
+      type: COMPOSE_REPLY,
+      status: fromJS({
+        id: 's1',
+        language: 'en',
+        visibility: 'public',
+        spoiler_text: '',
+        mentions: [],
+        account: { id: '2', acct: 'bob' },
+      }),
+    });
+    const restored = composer(reply, { type: COMPOSE_REPLY_CANCEL });
+
+    expect(reply.get('privacy')).toEqual('public');
+    expect(restored.get('in_reply_to')).toBeNull();
+    expect(restored.get('privacy')).toEqual('private');
+    expect(restored.get('language')).toBeNull();
+    expect(restored.get('text')).toEqual('');
+
+    const quote = composer(restored, {
+      type: 'COMPOSE_QUOTE',
+      status: fromJS({
+        id: 's2',
+        url: 'https://example.test/s2',
+        visibility: 'public',
+        spoiler_text: 'secret',
+      }),
+    });
+    const afterQuote = composer(quote, { type: COMPOSE_QUOTE_CANCEL });
+
+    expect(quote.get('spoiler')).toBe(true);
+    expect(afterQuote.get('quote_from')).toBeNull();
+    expect(afterQuote.get('spoiler')).toBe(true);
+    expect(afterQuote.get('spoiler_text')).toEqual('note');
+    expect(afterQuote.get('privacy')).toEqual('private');
+  });
+
   it('reapplies the selected style after a successful post', () => {
     const applied = commit(composer(undefined, changeCompose('Hello')), hashtagStyle);
     const next = composer(applied, { type: COMPOSE_SUBMIT_SUCCESS });
@@ -179,6 +287,50 @@ describe('composer posting styles', () => {
     expect(next.getIn(['userPostingStyle', 'manualFields']).isEmpty()).toBe(true);
     expect(next.getIn(['userPostingStyle', 'destinationStatus'])).toEqual('ready');
     expect(materializeComposerText(next)).toEqual('#fedibird #books');
+  });
+
+  it('rotates the idempotency key when an effective post value changes and keeps it when nothing changes', () => {
+    const drafted = composer(undefined, changeCompose('Hello')).set('idempotencyKey', 'previous-key');
+    const privateStyle = fromJS({
+      id: '3',
+      revision: 1,
+      target: { kind: 'none' },
+      defaults: { visibility: 'private' },
+      managed: { hashtags: [] },
+    });
+    const languageStyle = fromJS({
+      id: '4',
+      revision: 1,
+      target: { kind: 'none' },
+      defaults: { language: { mode: 'explicit', code: 'en' } },
+      managed: { hashtags: [] },
+    });
+    const warningStyle = fromJS({
+      id: '5',
+      revision: 1,
+      target: { kind: 'none' },
+      defaults: { spoiler: { enabled: true, text: 'cw' }, sensitive: true },
+      managed: { hashtags: [] },
+    });
+
+    const byPrivacy = commit(drafted, privateStyle);
+    expect(byPrivacy.get('text')).toEqual('Hello');
+    expect(byPrivacy.get('privacy')).toEqual('private');
+    expect(byPrivacy.get('idempotencyKey')).toEqual('test-idempotency-key');
+
+    const byLanguage = commit(byPrivacy.set('idempotencyKey', 'kept-key'), languageStyle);
+    expect(byLanguage.get('language')).toEqual('en');
+    expect(byLanguage.get('privacy')).toEqual('public');
+    expect(byLanguage.get('idempotencyKey')).toEqual('test-idempotency-key');
+
+    const byWarning = commit(byLanguage.set('idempotencyKey', 'kept-key'), warningStyle);
+    expect(byWarning.get('spoiler')).toBe(true);
+    expect(byWarning.get('sensitive')).toBe(true);
+    expect(byWarning.get('idempotencyKey')).toEqual('test-idempotency-key');
+
+    const again = commit(byWarning.set('idempotencyKey', 'kept-key'), warningStyle);
+    expect(again.get('idempotencyKey')).toEqual('kept-key');
+    expect(again.get('spoiler_text')).toEqual('cw');
   });
 
   it('blocks submit while a group destination is unresolved and does not rewrite visibility', () => {

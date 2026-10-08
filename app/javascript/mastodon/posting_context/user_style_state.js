@@ -39,6 +39,7 @@ export const initialUserPostingStyle = () => ImmutableMap({
   destinationStatus: 'idle',
   destinationAccountId: null,
   snapshot: null,
+  styleOwnedFields: ImmutableSet(),
   unapplied: ImmutableList(),
   suppressions: ImmutableSet(),
   parkedContext: null,
@@ -275,8 +276,31 @@ const applyDestination = (map, previous, plan, restoreParked) => {
   }
 };
 
-const refreshIdempotency = (map, previous, previousSignature) => {
-  if (previousSignature === postingContextOutputSignature(map) || !(previous.get('idempotencyKey') || previous.get('text') || previous.get('dirty'))) {
+// Values the status create request sends. Text and managed tags are included so
+// a style apply rotates the key when any of them change, and leaves it when
+// the request would be identical.
+export function composerSubmissionSignature(composer) {
+  if (!composer) {
+    return '';
+  }
+
+  const spoiler = composer.get('spoiler') === true;
+
+  return [
+    composer.get('text') || '',
+    composer.get('privacy') || '',
+    composer.get('language') || '',
+    spoiler ? '1' : '0',
+    spoiler ? (composer.get('spoiler_text') || '') : '',
+    composer.get('sensitive') === true ? '1' : '0',
+    composer.get('searchability') || '',
+    composer.get('circle_id') || '',
+    postingContextOutputSignature(composer),
+  ].join('\u001f');
+}
+
+const refreshIdempotency = (map, previous) => {
+  if (composerSubmissionSignature(previous) === composerSubmissionSignature(map)) {
     return;
   }
 
@@ -288,13 +312,12 @@ export function commitUserPostingStyle(state, action) {
     return state;
   }
 
-  const previousSignature = postingContextOutputSignature(state);
-
   return state.withMutations(map => {
     applyFields(map, action.plan.fields || {});
     map.setIn(['userPostingStyle', 'selectedId'], action.plan.selectedId);
     map.setIn(['userPostingStyle', 'appliedRevision'], action.plan.revision);
     map.setIn(['userPostingStyle', 'snapshot'], action.snapshot || null);
+    map.setIn(['userPostingStyle', 'styleOwnedFields'], ImmutableSet(action.plan.ownedFields || []));
     map.setIn(['userPostingStyle', 'unapplied'], ImmutableList(action.plan.unapplied || []));
 
     map.setIn(['userPostingStyle', 'status'], action.plan.selectedId ? 'applied' : 'idle');
@@ -304,7 +327,7 @@ export function commitUserPostingStyle(state, action) {
     }
 
     applyDestination(map, state, action.plan, action.restoreParked === true);
-    refreshIdempotency(map, state, previousSignature);
+    refreshIdempotency(map, state);
   });
 }
 

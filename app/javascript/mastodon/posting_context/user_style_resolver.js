@@ -53,13 +53,13 @@ const desiredLanguage = defaults => {
 
 const desiredSpoiler = defaults => {
   if (!defaults || !defaults.has || !defaults.has('spoiler')) {
-    return null;
+    return undefined;
   }
 
   const spoiler = defaults.get('spoiler');
 
   if (!spoiler || !spoiler.get) {
-    return null;
+    return undefined;
   }
 
   if (spoiler.get('enabled') === false) {
@@ -70,107 +70,149 @@ const desiredSpoiler = defaults => {
     return { enabled: true, text: spoiler.get('text') || '' };
   }
 
-  return null;
+  return undefined;
 };
 
-const assignField = ({ unapplied, manual, occupied, name, wanted, current, write }) => {
-  if (wanted === undefined) {
+const styleOwnedFields = composer => {
+  const fields = composer.getIn(['userPostingStyle', 'styleOwnedFields']);
+
+  return {
+    has: field => Boolean(fields && fields.includes && fields.includes(field)),
+  };
+};
+
+const hasMedia = composer => {
+  const media = composer.get('media_attachments');
+
+  return Boolean(media && media.size > 0);
+};
+
+// Account defaults, not the value a previous style happened to leave behind.
+// Sensitive follows the composer: the account default applies once media exists.
+const baselineFor = (composer, name) => {
+  if (name === 'privacy') {
+    return composer.get('default_privacy');
+  }
+
+  if (name === 'language') {
+    return composer.get('default_language');
+  }
+
+  if (name === 'spoiler') {
+    return { enabled: false, text: '' };
+  }
+
+  return hasMedia(composer) && composer.get('default_sensitive') === true;
+};
+
+const currentFor = (composer, name) => {
+  if (name === 'spoiler') {
+    return {
+      enabled: composer.get('spoiler') === true,
+      text: composer.get('spoiler_text') || '',
+    };
+  }
+
+  if (name === 'sensitive') {
+    return composer.get('sensitive') === true;
+  }
+
+  return composer.get(name);
+};
+
+const sameValue = (name, left, right) => {
+  if (name === 'spoiler') {
+    return Boolean(left) && Boolean(right) && left.enabled === right.enabled && left.text === right.text;
+  }
+
+  return left === right;
+};
+
+const writeField = (fields, name, value) => {
+  if (name === 'spoiler') {
+    fields.spoiler = value.enabled;
+    fields.spoilerText = value.enabled ? value.text : '';
     return;
   }
 
-  if (manual.has(name) || occupied.has(name)) {
-    if (wanted !== current) {
-      unapplied.push(name);
-    }
-
-    return;
-  }
-
-  write();
+  fields[name] = value;
 };
 
-const usualFields = (composer, manual, occupied) => {
-  const fields = {};
-
-  if (!manual.has('privacy') && !occupied.has('privacy')) {
-    fields.privacy = composer.get('default_privacy');
+const explicitFields = style => {
+  if (!style) {
+    return {
+      privacy: undefined,
+      language: undefined,
+      spoiler: undefined,
+      sensitive: undefined,
+    };
   }
 
-  if (!manual.has('language') && !occupied.has('language')) {
-    fields.language = composer.get('default_language');
-  }
-
-  if (!manual.has('spoiler') && !occupied.has('spoiler')) {
-    fields.spoiler = false;
-    fields.spoilerText = '';
-  }
-
-  if (!manual.has('sensitive') && !occupied.has('sensitive')) {
-    fields.sensitive = false;
-  }
-
-  return { fields, unapplied: [] };
-};
-
-const styleFields = (style, composer, manual, occupied) => {
   const defaults = style.get('defaults');
+
+  return {
+    privacy: defaults && defaults.has && defaults.has('visibility') ? defaults.get('visibility') : undefined,
+    language: desiredLanguage(defaults),
+    spoiler: desiredSpoiler(defaults),
+    sensitive: defaults && defaults.has && defaults.has('sensitive') ? defaults.get('sensitive') === true : undefined,
+  };
+};
+
+// Inherit releases a value the previous style wrote. It leaves account
+// defaults, manual edits, and reply or quote values where they are.
+const composeFields = (style, composer, manual, occupied) => {
+  const explicit = explicitFields(style);
+  const owned = styleOwnedFields(composer);
   const fields = {};
   const unapplied = [];
-  const visibility = defaults && defaults.has && defaults.has('visibility') ? defaults.get('visibility') : undefined;
-  const language = desiredLanguage(defaults);
-  const spoiler = desiredSpoiler(defaults);
-  const sensitive = defaults && defaults.has && defaults.has('sensitive') ? defaults.get('sensitive') === true : undefined;
+  const ownedFields = [];
+  const names = ['privacy', 'language', 'spoiler', 'sensitive'];
 
-  assignField({
-    unapplied,
-    manual,
-    occupied,
-    name: 'privacy',
-    wanted: visibility,
-    current: composer.get('privacy'),
-    write: () => {
-      fields.privacy = visibility;
-    },
-  });
+  names.forEach(name => {
+    const specified = explicit[name] !== undefined;
+    const current = currentFor(composer, name);
+    let wanted;
 
-  assignField({
-    unapplied,
-    manual,
-    occupied,
-    name: 'language',
-    wanted: language,
-    current: composer.get('language'),
-    write: () => {
-      fields.language = language;
-    },
-  });
-
-  if (spoiler) {
-    const same = composer.get('spoiler') === spoiler.enabled && composer.get('spoiler_text') === spoiler.text;
-
-    if (manual.has('spoiler') || occupied.has('spoiler')) {
-      if (!same) {
-        unapplied.push('spoiler');
-      }
+    if (specified) {
+      wanted = explicit[name];
+    } else if (owned.has(name)) {
+      wanted = baselineFor(composer, name);
     } else {
-      fields.spoiler = spoiler.enabled;
-      fields.spoilerText = spoiler.text;
+      return;
+    }
+
+    if (manual.has(name) || occupied.has(name)) {
+      if (specified && !sameValue(name, wanted, current)) {
+        unapplied.push(name);
+      }
+
+      return;
+    }
+
+    if (!sameValue(name, wanted, current)) {
+      writeField(fields, name, wanted);
+    }
+
+    if (specified) {
+      ownedFields.push(name);
+    }
+  });
+
+  const spoilerTurnedOn = Object.prototype.hasOwnProperty.call(fields, 'spoiler') && fields.spoiler === true && composer.get('spoiler') !== true;
+
+  if (spoilerTurnedOn && hasMedia(composer) && explicit.sensitive === undefined && !manual.has('sensitive') && !occupied.has('sensitive')) {
+    const resulting = Object.prototype.hasOwnProperty.call(fields, 'sensitive') ? fields.sensitive === true : composer.get('sensitive') === true;
+
+    if (!resulting) {
+      fields.sensitive = true;
+    }
+
+    if (!ownedFields.includes('sensitive')) {
+      ownedFields.push('sensitive');
     }
   }
 
-  assignField({
-    unapplied,
-    manual,
-    occupied,
-    name: 'sensitive',
-    wanted: sensitive,
-    current: composer.get('sensitive'),
-    write: () => {
-      fields.sensitive = sensitive;
-    },
-  });
-
-  return { fields, unapplied };
+  return { fields, unapplied, ownedFields };
 };
 
 const destinationPlan = (style, composer, occupied) => {
@@ -233,6 +275,7 @@ const blockedPlan = () => ({
   selectedId: null,
   revision: null,
   fields: {},
+  ownedFields: [],
   unapplied: [],
   destination: { action: 'keep', accountId: null, hashtag: null, changes: false },
   needsConfirmation: false,
@@ -245,7 +288,7 @@ export function resolveUserPostingStyle(style, composer) {
 
   const manual = manualFields(composer);
   const occupied = occupiedFields(composer);
-  const { fields, unapplied } = style ? styleFields(style, composer, manual, occupied) : usualFields(composer, manual, occupied);
+  const { fields, unapplied, ownedFields } = composeFields(style, composer, manual, occupied);
   const destination = destinationPlan(style, composer, occupied);
 
   if (destination.action === 'skip') {
@@ -260,6 +303,7 @@ export function resolveUserPostingStyle(style, composer) {
     selectedId: style ? String(style.get('id')) : null,
     revision: style ? style.get('revision') : null,
     fields,
+    ownedFields,
     unapplied,
     destination,
     needsConfirmation: !occupied.has('destination') && draftHasContent(composer) && (privacyChange || destinationChange),
