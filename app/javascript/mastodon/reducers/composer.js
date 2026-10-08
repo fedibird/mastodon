@@ -230,6 +230,7 @@ const managedMentionRecord = mention => ImmutableMap({
   acct: mention && mention.acct ? String(mention.acct).replace(/^@+/u, '') : null,
   enforcement: (mention && mention.enforcement) || 'required',
   ruleId: (mention && mention.ruleId) || null,
+  placement: mention && mention.placement === 'append' ? 'append' : 'prepend',
 });
 
 const followingAccountRecord = requirement => ImmutableMap({

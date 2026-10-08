@@ -964,3 +964,118 @@ describe('NodeBB group posting style', () => {
     expect(store.getState().getIn(['compose', 'privacy'])).toEqual('unlisted');
   });
 });
+
+const threadiverseDiscovery = (software, accountId, acct) => ({
+  schema_version: 1,
+  account_id: accountId,
+  status: 'resolved',
+  context: {
+    key: `protocol:fep-1b12-${software}:${accountId}`,
+    source: { id: `compat:${software}-group-note`, revision: 1 },
+    managed: {
+      hashtags: [],
+      mentions: [{
+        account_id: accountId,
+        acct,
+        enforcement: 'required',
+        rule_id: `${software}-group-mention`,
+        placement: 'append',
+      }],
+    },
+    requirements: { following_accounts: [] },
+    constraints: { allowed_visibilities: ['public'] },
+    protocol: {
+      activitypub: {
+        audience: {
+          account_id: accountId,
+          acct,
+          enforcement: 'required',
+          rule_id: 'fep-1b12-group-audience',
+        },
+      },
+    },
+  },
+  discovery: {
+    mechanism: 'nodeinfo_software',
+    adapter: `${software}_group`,
+    authority: 'compatibility',
+  },
+  viewer_evidence: {
+    affiliations: {
+      source: 'fep-5219-affiliations',
+      snapshot_status: 'fresh',
+      fetched_at: '2026-10-08T00:00:00Z',
+      relationships: [],
+    },
+    permissions: {
+      create: { status: 'unknown', source: 'fep-5219', via_relationship: null, authority: 'protocol' },
+    },
+  },
+});
+
+const threadiverseStyle = (id, accountId, label) => fromJS({
+  id,
+  name: label,
+  revision: 1,
+  target: { kind: 'group', accountId, hashtag: null, label },
+  defaults: { visibility: 'unlisted' },
+  managed: {
+    hashtags: [{ name: 'fedibird', normalizedName: 'fedibird', enforcement: 'advisory' }],
+  },
+});
+
+describe('Lemmy and PieFed group posting styles', () => {
+  const makeStore = () => createStore(combineReducers({
+    compose,
+    posting_contexts: postingContexts,
+    relationships,
+    userPostingStyles,
+    posting_context_revalidations: (state = ImmutableMap()) => state,
+  }), applyMiddleware(thunk));
+
+  it.each([
+    ['lemmy', 'technology@lemmy.example'],
+    ['piefed', 'technology@piefed.example'],
+  ])('applies a %s community from a posting style and appends its mention', async (software, acct) => {
+    const store = makeStore();
+
+    store.dispatch({
+      type: 'USER_POSTING_STYLES_FETCH_SUCCESS',
+      styles: [threadiverseStyle('t1', '456', 'technology')],
+    });
+    store.dispatch({
+      type: POSTING_CONTEXT_FETCH_SUCCESS,
+      accountId: '456',
+      data: threadiverseDiscovery(software, '456', acct),
+      receivedAt: Date.now(),
+    });
+    store.dispatch(changeCompose('Title line\n\nKeep this'));
+    store.dispatch({
+      type: COMPOSE_UPLOAD_SUCCESS,
+      media: { id: 'media-1', type: 'image', description: 'tree' },
+    });
+
+    await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 't1'));
+    store.dispatch(toggleUserPostingStyleHashtag(PRIMARY_COMPOSER_ID, 'style', 'fedibird'));
+
+    const drafted = store.getState().get('compose');
+
+    expect(drafted.get('privacy')).toEqual('unlisted');
+    expect(drafted.get('text')).toEqual('Title line\n\nKeep this');
+    expect(drafted.getIn(['media_attachments', 0, 'id'])).toEqual('media-1');
+    expect(drafted.getIn(['context', 'managed', 'mentions', 0, 'placement'])).toEqual('append');
+    expect(materializeComposerText(drafted).split('\n')[0]).toEqual('Title line');
+    expect(materializeComposerText(drafted)).toEqual(`Title line\n\nKeep this\n@${acct}`);
+    expect(capabilityOf(store).canAttempt).toBe(false);
+
+    store.dispatch({ type: COMPOSE_VISIBILITY_CHANGE, value: 'public' });
+
+    expect(capabilityOf(store).delivery).toEqual({
+      status: 'supported',
+      authority: 'compatibility',
+      adapter: `${software}_group`,
+    });
+    expect(capabilityOf(store).canAttempt).toBe(true);
+    expect(store.getState().getIn(['compose', 'text'])).toEqual('Title line\n\nKeep this');
+  });
+});

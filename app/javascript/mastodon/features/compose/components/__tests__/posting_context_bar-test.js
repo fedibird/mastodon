@@ -397,6 +397,7 @@ describe('PostingContextBar', () => {
     expect(screen.getByText('Posting to group: @category@nodebb.example')).toBeTruthy();
     expect(screen.getByText('Create permission not confirmed · compatibility method')).toBeTruthy();
     expect(screen.queryByText('Visibility: Public or Unlisted')).toBeNull();
+    expect(screen.queryByText('The first line becomes the post title (100 characters max). The community mention is added automatically')).toBeNull();
     expect(store.getState().getIn(['composers', 'byId', composerId, 'privacy'])).toEqual('unlisted');
 
     const en = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../../locales/en.json'), 'utf8'));
@@ -406,6 +407,124 @@ describe('PostingContextBar', () => {
     expect(ja['compose_form.posting_context.visibility.public_only']).toEqual('この投稿先は公開投稿のみ対応しています');
     expect(en['compose_form.posting_context.visibility.public_unlisted']).toEqual('Visibility: Public or Unlisted');
     expect(ja['compose_form.posting_context.visibility.public_unlisted']).toEqual('公開範囲: 公開 / 未収載');
+  });
+
+  it('explains Lemmy and PieFed destinations and warns when the Lemmy title line has no prose', () => {
+    const lemmyMessage = 'The first line becomes the post title (100 characters max). The community mention is added automatically';
+    const piefedMessage = 'The community mention is added automatically';
+    const weakTitle = 'A first line with only a mention or hashtag may not work as a title';
+    const discoveryFor = (software, acct) => ({
+      schema_version: 1,
+      account_id: '456',
+      status: 'resolved',
+      context: {
+        key: `protocol:fep-1b12-${software}:456`,
+        source: { id: `compat:${software}-group-note`, revision: 1 },
+        managed: {
+          hashtags: [],
+          mentions: [{
+            account_id: '456',
+            acct,
+            enforcement: 'required',
+            rule_id: `${software}-group-mention`,
+            placement: 'append',
+          }],
+        },
+        requirements: { following_accounts: [] },
+        constraints: { allowed_visibilities: ['public'] },
+        protocol: {
+          activitypub: {
+            audience: {
+              account_id: '456',
+              acct,
+              enforcement: 'required',
+              rule_id: 'fep-1b12-group-audience',
+            },
+          },
+        },
+      },
+      discovery: {
+        mechanism: 'nodeinfo_software',
+        adapter: `${software}_group`,
+        authority: 'compatibility',
+      },
+      viewer_evidence: {
+        affiliations: {
+          source: 'fep-5219-affiliations',
+          snapshot_status: 'fresh',
+          fetched_at: '2026-10-08T00:00:00Z',
+          relationships: [],
+        },
+        permissions: {
+          create: { status: 'unknown', source: 'fep-5219', via_relationship: null, authority: 'protocol' },
+        },
+      },
+    });
+    const store = storeWithDiscovery();
+
+    store.dispatch(createComposer(composerId));
+    store.dispatch(applyComposerPostingContext(composerId, {
+      ...discoveryFor('lemmy', 'technology@lemmy.example').context,
+      managed: {
+        hashtags: [],
+        mentions: [{
+          accountId: '456',
+          acct: 'technology@lemmy.example',
+          enforcement: 'required',
+          ruleId: 'lemmy-group-mention',
+          placement: 'append',
+        }],
+      },
+      requirements: { followingAccounts: [] },
+      constraints: { allowedVisibilities: ['public'] },
+      protocol: {
+        activityPub: {
+          audience: {
+            accountId: '456',
+            acct: 'technology@lemmy.example',
+            enforcement: 'required',
+            ruleId: 'fep-1b12-group-audience',
+          },
+        },
+      },
+      source: { id: 'compat:lemmy-group-note', revision: 1 },
+    }, '456'));
+    store.dispatch(targetComposerAction(changeCompose('#only'), composerId));
+    discover(store, '456', discoveryFor('lemmy', 'technology@lemmy.example'));
+    renderBar(store);
+
+    expect(screen.getByText(lemmyMessage)).toBeTruthy();
+    expect(screen.getByText(weakTitle)).toBeTruthy();
+    expect(screen.getByText('This destination supports public posts only')).toBeTruthy();
+    expect(screen.queryByText(piefedMessage)).toBeNull();
+
+    store.dispatch(targetComposerAction(changeCompose('Title line'), composerId));
+    expect(screen.queryByText(weakTitle)).toBeNull();
+    expect(screen.getByText(lemmyMessage)).toBeTruthy();
+
+    render(
+      <PostingContextBar
+        hashtags={ImmutableList()}
+        mentions={ImmutableList()}
+        visibility={{ valid: true, allowed: ['public'] }}
+        followingAccounts={[]}
+        threadiverse='piefed'
+        weakTitle={false}
+        onToggle={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByText(piefedMessage)).toBeTruthy();
+    expect(screen.getAllByText('This destination supports public posts only').length).toBeGreaterThan(1);
+
+    const en = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../../locales/en.json'), 'utf8'));
+    const ja = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../../locales/ja.json'), 'utf8'));
+
+    expect(en['compose_form.posting_context.threadiverse.lemmy']).toEqual(lemmyMessage);
+    expect(ja['compose_form.posting_context.threadiverse.lemmy']).toEqual('最初の行が投稿タイトルになります（最大100文字）。コミュニティのメンションは自動追加されます');
+    expect(en['compose_form.posting_context.threadiverse.piefed']).toEqual(piefedMessage);
+    expect(ja['compose_form.posting_context.threadiverse.piefed']).toEqual('コミュニティのメンションは自動追加されます');
+    expect(ja['compose_form.posting_context.threadiverse.weak_title']).toEqual('先頭行がメンションやハッシュタグだけの場合、タイトルとして適さないことがあります');
   });
 
   it('keeps the existing recheck control beside a NodeBB public-only destination', () => {

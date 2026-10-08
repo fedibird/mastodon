@@ -62,6 +62,7 @@ describe('normalizePostingContext', () => {
             acct: 'group',
             enforcement: 'required',
             ruleId: 'group-account-mention',
+            placement: 'prepend',
           },
         ],
       },
@@ -240,6 +241,42 @@ describe('normalizePostingContext', () => {
     expect(normalized.context.managed.mentions[0].acct).toEqual('category@nodebb.example');
     expect(normalized.context.protocol.activityPub.audience.accountId).toEqual('456');
     expect(normalized.viewerEvidence.permissions.create.status).toEqual('unknown');
+  });
+
+  it('normalizes Lemmy and PieFed append placements without treating an omitted placement as append', () => {
+    const lemmy = normalizePostingContext({
+      key: 'protocol:fep-1b12-lemmy:456',
+      source: { id: 'compat:lemmy-group-note', revision: 1 },
+      managed: {
+        hashtags: [],
+        mentions: [
+          {
+            account_id: '456',
+            acct: 'technology@lemmy.example',
+            enforcement: 'required',
+            rule_id: 'lemmy-group-mention',
+            placement: 'append',
+          },
+        ],
+      },
+      requirements: { following_accounts: [] },
+      constraints: { allowed_visibilities: ['public'] },
+      protocol: {
+        activitypub: {
+          audience: {
+            account_id: '456',
+            acct: 'technology@lemmy.example',
+            enforcement: 'required',
+            rule_id: 'fep-1b12-group-audience',
+          },
+        },
+      },
+    });
+    const omitted = normalizePostingContext(restContext);
+
+    expect(lemmy.managed.mentions[0].placement).toEqual('append');
+    expect(lemmy.constraints.allowedVisibilities).toEqual(['public']);
+    expect(omitted.managed.mentions[0].placement).toEqual('prepend');
   });
 
   it('returns null for a missing context', () => {

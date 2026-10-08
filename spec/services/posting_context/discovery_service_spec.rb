@@ -173,6 +173,8 @@ RSpec.describe PostingContext::DiscoveryService do # rubocop:disable Metrics/Blo
         PostingContext::Adapters::FedibirdGroup,
         PostingContext::Adapters::MitraGroup,
         PostingContext::Adapters::NodebbGroup,
+        PostingContext::Adapters::LemmyGroup,
+        PostingContext::Adapters::PiefedGroup,
       ]
       expect(fedibird.dig(:discovery, :adapter)).to eq 'fedibird_group'
       expect(fedibird.dig(:discovery, :authority)).to eq 'server'
@@ -221,7 +223,7 @@ RSpec.describe PostingContext::DiscoveryService do # rubocop:disable Metrics/Blo
     end
 
     it 'does not treat other software, forks, or an upstream name as Mitra' do
-      %w(mastodon lemmy friendica piefed mitra-fork).each do |software_name|
+      %w(mastodon friendica mitra-fork).each do |software_name|
         account = remote_activitypub_group(domain: "#{software_name}.example", software_name: software_name)
 
         expect(described_class.new.call(account)[:status]).to eq 'unsupported'
@@ -678,7 +680,7 @@ RSpec.describe PostingContext::DiscoveryService do # rubocop:disable Metrics/Blo
       account = remote_activitypub_group(domain: 'mixed-nodebb.example', software_name: 'NodeBB', username: 'category', node_status: :gone)
       result = described_class.new.call(account)
 
-      expect(described_class::ADAPTERS.map(&:adapter_name)).to eq %w(fedibird_group mitra_group nodebb_group)
+      expect(described_class::ADAPTERS.map(&:adapter_name)).to eq %w(fedibird_group mitra_group nodebb_group lemmy_group piefed_group)
       expect(result[:status]).to eq 'resolved'
       expect(result.dig(:discovery, :adapter)).to eq 'nodebb_group'
       expect(result.dig(:discovery, :mechanism)).to eq 'nodeinfo_software'
@@ -719,6 +721,84 @@ RSpec.describe PostingContext::DiscoveryService do # rubocop:disable Metrics/Blo
         authority: 'protocol'
       )
       expect(a_request(:get, account.affiliations_url)).not_to have_been_made
+    end
+
+    it 'resolves Lemmy and PieFed communities from cached NodeInfo without fetching or allowing create' do
+      {
+        'lemmy' => PostingContext::Adapters::LemmyGroup,
+        'piefed' => PostingContext::Adapters::PiefedGroup,
+      }.each do |software_name, adapter|
+        account = remote_activitypub_group(domain: "#{software_name}.example", software_name: software_name, username: 'technology')
+        viewer = Fabricate(:account, username: "viewer#{software_name}")
+        account.update_columns(affiliations_fetched_at: Time.now.utc, affiliations_url: "https://#{software_name}.example/c/technology/affiliations")
+        GroupAffiliation.create!(
+          group_account: account,
+          subject_uri: ActivityPub::TagManager.instance.uri_for(viewer),
+          relationship: 'admin',
+          affiliation_uri: "https://#{software_name}.example/relationships/1"
+        )
+
+        expect(Node).not_to receive(:resolve_domain)
+        expect(UpdateNodeService).not_to receive(:new)
+
+        result = described_class.new.call(account, viewer: viewer)
+        mention = result.dig(:context, :managed, :mentions).first
+
+        expect(result[:status]).to eq 'resolved'
+        expect(result.dig(:discovery, :adapter)).to eq adapter.adapter_name
+        expect(result.dig(:discovery, :mechanism)).to eq 'nodeinfo_software'
+        expect(result.dig(:discovery, :authority)).to eq 'compatibility'
+        expect(result.dig(:context, :key)).to eq "protocol:fep-1b12-#{software_name}:#{account.id}"
+        expect(result.dig(:context, :source)).to include(id: "compat:#{software_name}-group-note", revision: 1)
+        expect(result.dig(:context, :managed, :hashtags)).to eq []
+        expect(result.dig(:context, :requirements, :following_accounts)).to eq []
+        expect(result.dig(:context, :constraints, :allowed_visibilities)).to eq %w(public)
+        expect(mention).to include(
+          account_id: account.id.to_s,
+          acct: "technology@#{software_name}.example",
+          enforcement: 'required',
+          rule_id: "#{software_name}-group-mention",
+          placement: 'append'
+        )
+        expect(result.dig(:context, :protocol, :activitypub, :audience)).to include(
+          account_id: account.id.to_s,
+          acct: "technology@#{software_name}.example",
+          rule_id: 'fep-1b12-group-audience'
+        )
+        expect(result.dig(:viewer_evidence, :permissions, :create, :status)).to eq 'unknown'
+        expect(a_request(:get, /.+/)).not_to have_been_made
+      end
+    end
+
+    it 'keeps Lemmy and PieFed behind Fedibird, Mitra, and NodeBB and ignores forks and upstream names' do
+      names = described_class::ADAPTERS.map(&:adapter_name)
+
+      expect(names).to eq %w(fedibird_group mitra_group nodebb_group lemmy_group piefed_group)
+      expect(names.index('nodebb_group')).to be < names.index('lemmy_group')
+      expect(names.index('lemmy_group')).to be < names.index('piefed_group')
+
+      %w(lemmy piefed).each do |software_name|
+        person_domain = "#{software_name}-people.example"
+        Node.create!(domain: person_domain, info: { 'software_name' => software_name })
+        person = Fabricate(
+          :account,
+          username: 'alice',
+          domain: person_domain,
+          actor_type: 'Person',
+          protocol: :activitypub,
+          uri: "https://#{person_domain}/u/alice",
+          inbox_url: "https://#{person_domain}/u/alice/inbox"
+        )
+        local_group = Fabricate(:account, username: "#{software_name}local", actor_type: 'Group')
+
+        expect(described_class.new.call(person)).to include(status: 'not_applicable', reason: 'not_group', context: nil)
+        expect(described_class.new.call(local_group).dig(:discovery, :adapter)).to eq 'fedibird_group'
+        expect(described_class.new.call(remote_activitypub_group(domain: "#{software_name}-fork.example", software_name: "#{software_name}-fork"))[:status]).to eq 'unsupported'
+        expect(described_class.new.call(remote_activitypub_group(domain: "#{software_name}-upstream.example", software_name: 'mastodon', upstream_name: software_name))[:status]).to eq 'unsupported'
+        expect(described_class.new.call(remote_activitypub_group(domain: "#{software_name}-missing.example", software_name: :absent))[:status]).to eq 'unsupported'
+        expect(described_class.new.call(remote_activitypub_group(domain: "#{software_name}-blank.example", software_name: software_name, uri: '', inbox_url: ''))[:status]).to eq 'unsupported'
+        expect(a_request(:get, /.+/)).not_to have_been_made
+      end
     end
 
     it 'returns not_applicable for a person on a NodeBB server before adapter selection' do

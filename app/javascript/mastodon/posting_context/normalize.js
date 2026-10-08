@@ -10,6 +10,11 @@ const normalizeManagedRecord = (record) => ({
   ruleId: record.rule_id,
 });
 
+const normalizeMentionRecord = (record) => ({
+  ...normalizeManagedRecord(record),
+  placement: record.placement === 'append' ? 'append' : 'prepend',
+});
+
 const normalizeHashtag = (hashtag) => ({
   name: hashtag.name,
   normalizedName: hashtag.normalized_name,
@@ -58,7 +63,7 @@ export function normalizePostingContext(context) {
     } : null,
     managed: {
       hashtags: (hashtags || []).map(normalizeHashtag),
-      mentions: (mentions || []).map(normalizeManagedRecord),
+      mentions: (mentions || []).map(normalizeMentionRecord),
     },
     requirements: {
       followingAccounts: (followingAccounts || []).map(normalizeManagedRecord),

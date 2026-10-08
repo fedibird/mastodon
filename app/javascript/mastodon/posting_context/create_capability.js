@@ -12,6 +12,8 @@ const SUPPORTED_DELIVERY_ADAPTERS = {
   fedibird_group: true,
   mitra_group: true,
   nodebb_group: true,
+  lemmy_group: true,
+  piefed_group: true,
 };
 
 const present = value => value !== null && value !== undefined && value !== '';
@@ -201,6 +203,7 @@ const ruleRecord = record => {
     acct: acctOf(record),
     enforcement: textOrNull(valueAt(record, 'enforcement')),
     ruleId: textOrNull(valueAt(record, 'ruleId')),
+    placement: valueAt(record, 'placement') === 'append' ? 'append' : 'prepend',
   };
 };
 

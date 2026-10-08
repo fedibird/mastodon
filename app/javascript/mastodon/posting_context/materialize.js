@@ -1,6 +1,6 @@
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 import { materializeManagedHashtags, normalizeManagedHashtagName, textContainsHashtag } from './managed_hashtags';
-import { materializeManagedMentions, normalizeManagedMentionAcct } from './managed_mentions';
+import { managedMentionPlacement, materializeManagedMentions, normalizeManagedMentionAcct } from './managed_mentions';
 
 export function isExistingPostEdit(composer) {
   if (!composer) {
@@ -23,6 +23,7 @@ const activeManagedMentions = composer => {
         active.push({
           accountId: mention.get('accountId'),
           acct: mention.get('acct'),
+          placement: managedMentionPlacement(mention),
         });
       }
     });
@@ -161,7 +162,7 @@ export function postingContextOutputSignature(composer) {
   const mentions = composer.getIn(['context', 'managed', 'mentions']);
   const mentionPart = mentions && mentions.filter ? mentions
     .filter(mention => mention.get('enforcement') === 'required' && mention.get('acct'))
-    .map(mention => `${mention.get('accountId')}:${normalizeManagedMentionAcct(mention.get('acct'))}`)
+    .map(mention => `${mention.get('accountId')}:${normalizeManagedMentionAcct(mention.get('acct'))}:${managedMentionPlacement(mention)}`)
     .sort()
     .join('\0') : '';
   const audienceAccountId = composer.getIn(['context', 'protocol', 'activityPub', 'audience', 'accountId'], null) || '';

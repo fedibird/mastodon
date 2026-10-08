@@ -5,7 +5,8 @@ import { fetchPostingContextRevalidationStatus, requestPostingContextRevalidatio
 import { toggleComposerManagedHashtag } from '../../../actions/composer';
 import { toggleUserPostingStyleHashtag } from '../../../actions/user_posting_styles';
 import { createCapabilityNotice, selectComposerEffectiveCreateCapability } from '../../../posting_context/create_capability';
-import { styleHashtagChips } from '../../../posting_context/materialize';
+import { firstLineLacksProse } from '../../../posting_context/managed_mentions';
+import { isExistingPostEdit, materializeComposerText, styleHashtagChips } from '../../../posting_context/materialize';
 import { selectComposer } from '../../../selectors/composer';
 import { selectPostingContextRevalidation } from '../../../selectors/posting_context_revalidations';
 import { withComposerId } from '../composer_id_context';
@@ -81,6 +82,8 @@ const mapStateToProps = (state, { composerId }) => {
       viaRelationship: null,
       canRecheck: false,
       revalidationNotice: null,
+      threadiverse: null,
+      weakTitle: false,
     };
   }
 
@@ -89,6 +92,18 @@ const mapStateToProps = (state, { composerId }) => {
   const confirmedNotice = createNotice === 'allowed' || createNotice === 'allowed_compatibility' || createNotice === 'allowed_unsupported';
   const accountId = composer.get('posting_context_account_id');
   const revalidation = present(accountId) ? selectPostingContextRevalidation(state, accountId) : null;
+  const adapter = capability.delivery && capability.delivery.adapter;
+  let threadiverse = null;
+
+  if (!isExistingPostEdit(composer)) {
+    if (adapter === 'lemmy_group') {
+      threadiverse = 'lemmy';
+    } else if (adapter === 'piefed_group') {
+      threadiverse = 'piefed';
+    }
+  }
+
+  const previewText = threadiverse ? materializeComposerText(composer) : '';
 
   return {
     hashtags: composer.getIn(['context', 'managed', 'hashtags'], ImmutableList()).concat(styleHashtagChips(composer)),
@@ -105,6 +120,8 @@ const mapStateToProps = (state, { composerId }) => {
     revalidationAffiliations: (revalidation && revalidation.get('affiliations')) || undefined,
     revalidationAccountId: present(accountId) ? String(accountId) : null,
     revalidationExplicit: Boolean(revalidation && revalidation.get('explicit')),
+    threadiverse,
+    weakTitle: threadiverse === 'lemmy' && firstLineLacksProse(previewText),
   };
 };
 

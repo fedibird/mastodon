@@ -7,11 +7,13 @@ class PostingContext::DiscoveryService
   # Built-in rules come first. An explicit protocol adapter, once one
   # exists, belongs ahead of NodeInfo software heuristics. This pass
   # does not infer that evidence. NodeInfo adapters stay in this order:
-  # Mitra, then NodeBB.
+  # Mitra, then NodeBB, then Lemmy, then PieFed.
   ADAPTERS = [
     PostingContext::Adapters::FedibirdGroup,
     PostingContext::Adapters::MitraGroup,
     PostingContext::Adapters::NodebbGroup,
+    PostingContext::Adapters::LemmyGroup,
+    PostingContext::Adapters::PiefedGroup,
   ].freeze
 
   def call(account, viewer: nil)
