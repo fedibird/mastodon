@@ -98,6 +98,18 @@ describe('PrivacyDropdown', () => {
     expect(optionValues()).toEqual(['public', 'unlisted', 'private', 'mutual', 'limited']);
   });
 
+  it('keeps the stored visibility label when the destination does not allow it', () => {
+    renderDropdown({
+      value: 'private',
+      showLabel: true,
+      allowedVisibilities: ImmutableSet(['public', 'unlisted']),
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Followers-only' }));
+
+    expect(optionValues()).toEqual(['public', 'unlisted']);
+  });
+
   it('rebuilds options when allowed visibilities arrive after mount', () => {
     const { rerender } = render(
       <PrivacyDropdown
