@@ -1,4 +1,5 @@
 import api from '../api';
+import { revalidationResponseAccepted } from '../posting_context/revalidation_response';
 import { fetchPostingContext } from './posting_contexts';
 
 export const POSTING_CONTEXT_REVALIDATION_UPDATE = 'POSTING_CONTEXT_REVALIDATION_UPDATE';
@@ -74,13 +75,30 @@ const finishJob = (dispatch, accountId, data) => {
   }
 };
 
+// Reducer and this check share isStaleRevalidationPoll. A terminal response
+// that was not stored as the current job must not stop the newer poll.
+const acceptedTerminal = (getState, accountId, data, { fromPoll = false, generationIsCurrent = true } = {}) => {
+  if (!data || !terminal(data.state)) {
+    return false;
+  }
+
+  const current = getState().getIn(['posting_context_revalidations', String(accountId)]);
+
+  return revalidationResponseAccepted(current, data, {
+    fromPoll,
+    generationIsCurrent,
+  });
+};
+
 const pollingFor = data => (
   data && (data.state === 'queued' || data.state === 'running') ? 'active' : 'idle'
 );
 
 export function fetchPostingContextRevalidationStatus(accountId, { fromPoll = false, generation = null } = {}) {
   return (dispatch, getState) => api(getState).get(endpoint(accountId)).then(({ data }) => {
-    if (fromPoll && !pollIsCurrent(accountId, generation)) {
+    const generationIsCurrent = !fromPoll || pollIsCurrent(accountId, generation);
+
+    if (fromPoll && !generationIsCurrent) {
       return data;
     }
 
@@ -89,7 +107,7 @@ export function fetchPostingContextRevalidationStatus(accountId, { fromPoll = fa
       fromPoll,
     }));
 
-    if (terminal(data.state)) {
+    if (acceptedTerminal(getState, accountId, data, { fromPoll, generationIsCurrent })) {
       finishJob(dispatch, accountId, data);
     }
 
@@ -181,7 +199,7 @@ export function requestPostingContextRevalidation(accountId) {
   return (dispatch, getState) => api(getState).post(endpoint(accountId)).then(({ data }) => {
     dispatch(updateRevalidation(accountId, data, { polling: pollingFor(data) }));
 
-    if (terminal(data.state)) {
+    if (acceptedTerminal(getState, accountId, data)) {
       finishJob(dispatch, accountId, data);
     }
 

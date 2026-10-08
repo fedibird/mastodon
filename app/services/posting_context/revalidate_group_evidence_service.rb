@@ -9,8 +9,11 @@ class PostingContext::RevalidateGroupEvidenceService < BaseService
   # on_step is called after the actor refresh and before affiliations.
   # A false result means this worker no longer owns the lease, so later
   # snapshot writes are skipped. nil tells the worker not to publish a result.
-  def call(account, on_step: nil)
+  # request_id fences the actor and affiliation writes that happen after HTTP
+  # returns. Losing the lease during a fetch cannot commit over a newer snapshot.
+  def call(account, on_step: nil, request_id: nil)
     @on_step = on_step
+    @request_id = request_id
     @inline_collection = nil
     @affiliations_invalid = false
     actor = refresh_actor(account)
@@ -28,12 +31,14 @@ class PostingContext::RevalidateGroupEvidenceService < BaseService
 
     before = account.permission_definitions_fetched_at
     fetcher = ActivityPub::FetchRemoteAccountService.new
-    fetched = fetcher.call(
-      account.uri,
+    fetch_options = {
       only_key: false,
       suppress_errors: true,
-      defer_group_affiliations: true
-    )
+      defer_group_affiliations: true,
+    }
+    fence = write_fence(account)
+    fetch_options[:revalidation_fence] = fence if fence
+    fetched = fetcher.call(account.uri, **fetch_options)
     if fetched
       @inline_collection = fetcher.deferred_group_affiliations_collection
       @affiliations_invalid = fetcher.deferred_group_affiliations_invalid
@@ -59,7 +64,7 @@ class PostingContext::RevalidateGroupEvidenceService < BaseService
     return 'failed' if @affiliations_invalid
 
     if @inline_collection.present?
-      return affiliation_status(ActivityPub::FetchGroupAffiliationsService.new.call(account, collection: @inline_collection))
+      return affiliation_status(fetch_affiliations(account, collection: @inline_collection))
     end
 
     # A refreshed actor with no collection URL already withdrew or never had
@@ -67,7 +72,25 @@ class PostingContext::RevalidateGroupEvidenceService < BaseService
     return 'skipped' if actor_status == 'refreshed' && account.affiliations_url.blank?
     return 'unavailable' if account.affiliations_url.blank? || account.suspended?
 
-    affiliation_status(ActivityPub::FetchGroupAffiliationsService.new.call(account))
+    affiliation_status(fetch_affiliations(account))
+  end
+
+  def fetch_affiliations(account, collection: nil)
+    options = {}
+    options[:collection] = collection if collection
+    fence = write_fence(account)
+    options[:revalidation_fence] = fence if fence
+    ActivityPub::FetchGroupAffiliationsService.new.call(account, **options)
+  end
+
+  def write_fence(account)
+    return if @request_id.blank?
+
+    account_id = account.id
+    request_id = @request_id
+    lambda do |&block|
+      PostingContext::RevalidationWriteFence.call(account_id, request_id, &block)
+    end
   end
 
   def affiliation_status(result)

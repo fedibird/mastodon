@@ -34,7 +34,11 @@ class PostingContext::RevalidateGroupEvidenceWorker
     account = Account.find_by(id: account_id)
     return failed_result unless account && PostingContext::RevalidationEligibility.eligible?(account)
 
-    PostingContext::RevalidateGroupEvidenceService.new.call(account, on_step: -> { registry.renew!(account_id, request_id) })
+    PostingContext::RevalidateGroupEvidenceService.new.call(
+      account,
+      on_step: -> { registry.renew!(account_id, request_id) },
+      request_id: request_id
+    )
   end
 
   def start_heartbeat(registry, account_id, request_id)

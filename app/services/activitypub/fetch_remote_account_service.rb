@@ -14,7 +14,7 @@ class ActivityPub::FetchRemoteAccountService < BaseService
   # Does a WebFinger roundtrip on each call, unless `only_key` is true
   # `id` is retained from the historical signature. This fetch always requests
   # the actor document by URI; `only_key` is the switch that skips permissions.
-  def call(uri, id: true, prefetched_body: nil, break_on_redirect: false, only_key: false, suppress_errors: true, defer_group_affiliations: false) # rubocop:disable Metrics/ParameterLists, Lint/UnusedMethodArgument
+  def call(uri, id: true, prefetched_body: nil, break_on_redirect: false, only_key: false, suppress_errors: true, defer_group_affiliations: false, revalidation_fence: nil) # rubocop:disable Metrics/ParameterLists, Lint/UnusedMethodArgument
     return if domain_not_allowed?(uri)
     return ActivityPub::TagManager.instance.uri_to_resource(uri, Account) if ActivityPub::TagManager.instance.local_uri?(uri)
 
@@ -40,7 +40,11 @@ class ActivityPub::FetchRemoteAccountService < BaseService
     check_webfinger! unless only_key
 
     processor = ActivityPub::ProcessAccountService.new
-    account = processor.call(@username, @domain, @json, only_key: only_key, verified_webfinger: !only_key, defer_group_affiliations: defer_group_affiliations)
+    process = lambda do
+      processor.call(@username, @domain, @json, only_key: only_key, verified_webfinger: !only_key, defer_group_affiliations: defer_group_affiliations)
+    end
+    # The fence covers only the post-fetch write. HTTP and WebFinger stay outside it.
+    account = revalidation_fence ? revalidation_fence.call(&process) : process.call
     @deferred_group_affiliations_collection = processor.deferred_group_affiliations_collection
     @deferred_group_affiliations_invalid = processor.deferred_group_affiliations_invalid
     account

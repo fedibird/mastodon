@@ -112,6 +112,67 @@ RSpec.describe PostingContext::RevalidationRegistry do
     end
   end
 
+  it 'accepts concurrent requests onto one queued job' do
+    start = Queue.new
+    outcomes = Queue.new
+    errors = Queue.new
+    threads = Array.new(2) do
+      Thread.new do
+        start.pop
+        outcomes << described_class.new.request!(account, requester: requester)
+      rescue StandardError => e
+        errors << e
+      ensure
+        leased = Thread.current[:redis]
+        if leased
+          RedisConfiguration.pool.checkin
+          Thread.current[:redis] = nil
+        end
+      end
+    end
+
+    2.times { start << true }
+    threads.each { |thread| thread.join(20) }
+    raise errors.pop unless errors.empty?
+
+    found = Array.new(2) { outcomes.pop(timeout: 1) }
+    expect(found).to all(be_present)
+    expect(threads).to all(be_stop)
+    ids = found.map { |outcome| outcome.payload[:request_id] }
+    expect(ids).to all(be_present)
+    expect(ids.uniq).to eq [ids.first]
+    expect(found.map(&:status).uniq).to contain_exactly(:created, :inflight)
+    expect(registry.read(account)).to include(state: 'queued', request_id: ids.first)
+    RedisConfiguration.with do |redis|
+      expect(redis.ttl("posting_context:revalidation:v1:#{account.id}:cooldown")).to be_positive
+      expect(redis.get("posting_context:revalidation:v1:#{account.id}:lock")).to eq ids.first
+    end
+  end
+
+  it 'does not return an older completed request when its lock was stored without state' do
+    created = registry.request!(account, requester: requester)
+    registry.mark_running!(account.id, created.payload[:request_id])
+    registry.finish!(account.id, created.payload[:request_id], result('completed', 'refreshed', 'refreshed'))
+    RedisConfiguration.with do |redis|
+      redis.del("posting_context:revalidation:v1:#{account.id}:cooldown")
+      redis.set("posting_context:revalidation:v1:#{account.id}:lock", 'pending-request', ex: 60)
+    end
+
+    follow_up = registry.request!(account, requester: requester)
+
+    expect(follow_up.status).to eq :inflight
+    expect(follow_up.payload[:state]).to eq 'queued'
+    expect(follow_up.payload[:request_id]).to be_nil
+    expect(follow_up.payload[:account_id]).to eq account.id.to_s
+    stored = registry.read(account)
+    expect(stored[:request_id]).to eq created.payload[:request_id]
+    expect(stored[:state]).to eq 'completed'
+    RedisConfiguration.with do |redis|
+      expect(redis.get("posting_context:revalidation:v1:#{account.id}:cooldown")).to be_nil
+      expect(redis.get("posting_context:revalidation:v1:#{account.id}:lock")).to eq 'pending-request'
+    end
+  end
+
   it 'limits how often one administrator can start revalidation' do
     stub_const('PostingContext::RevalidationRegistry::ADMIN_LIMIT', 1)
     other = Fabricate(

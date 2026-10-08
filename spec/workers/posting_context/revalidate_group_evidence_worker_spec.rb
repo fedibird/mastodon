@@ -39,7 +39,8 @@ RSpec.describe PostingContext::RevalidateGroupEvidenceWorker do
     created = registry.request!(account, requester: requester)
     calls = 0
     allow(PostingContext::RevalidateGroupEvidenceService).to receive(:new).and_return(instance_double(PostingContext::RevalidateGroupEvidenceService).tap { |service|
-      allow(service).to receive(:call) do |_account, on_step: nil|
+      allow(service).to receive(:call) do |_account, on_step: nil, request_id: nil|
+        expect(request_id).to eq created.payload[:request_id]
         calls += 1
         RedisConfiguration.with { |redis| redis.expire("posting_context:revalidation:v1:#{account.id}:lock", 1) }
         sleep 0.08

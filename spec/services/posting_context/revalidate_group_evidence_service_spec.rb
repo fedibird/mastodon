@@ -55,6 +55,17 @@ RSpec.describe PostingContext::RevalidateGroupEvidenceService do
     expect(a_request(:get, old_url)).not_to have_been_made
   end
 
+  it 'does not fence an ordinary refresh that has no request id' do
+    fetch_actor(canCreate: 'trusted-poster', canView: 'admin', affiliations: new_url)
+    stub_collection(new_url, relationship_collection('https://remote.example/users/alice', 'trusted-poster'))
+    expect(PostingContext::RevalidationWriteFence).not_to receive(:call)
+
+    result = service.call(account)
+
+    expect(result).to have_attributes(actor: 'refreshed', affiliations: 'refreshed')
+    expect(account.reload.can_create_affiliation).to eq 'trusted-poster'
+  end
+
   it 'keeps the definition snapshot when the actor refresh fails and still refreshes affiliations' do
     allow(ActivityPub::FetchRemoteAccountService).to receive(:new).and_return(instance_double(ActivityPub::FetchRemoteAccountService, call: nil))
     stub_collection(old_url, relationship_collection('https://remote.example/users/alice', 'admin'))

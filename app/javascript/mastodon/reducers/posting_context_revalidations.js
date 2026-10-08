@@ -3,20 +3,9 @@ import {
   POSTING_CONTEXT_REVALIDATION_FAIL,
   POSTING_CONTEXT_REVALIDATION_UPDATE,
 } from '../actions/posting_context_revalidations';
+import { isStaleRevalidationPoll } from '../posting_context/revalidation_response';
 
 const initialState = ImmutableMap();
-
-const TERMINAL = {
-  completed: true,
-  partial: true,
-  failed: true,
-};
-
-const ACTIVE = {
-  queued: true,
-  running: true,
-  idle: true,
-};
 
 const recordFrom = (accountId, data, extra = {}) => fromJS({
   accountId: String(accountId),
@@ -29,24 +18,6 @@ const recordFrom = (accountId, data, extra = {}) => fromJS({
   polling: 'idle',
   ...extra,
 });
-
-const requestIdOf = data => data && (data.request_id || data.requestId);
-
-// A late poll must not rewind a finished job or replace a newer request.
-const stalePoll = (current, action) => {
-  if (!action.fromPoll || !current) {
-    return false;
-  }
-
-  const currentRequestId = current.get('requestId');
-  const incomingRequestId = requestIdOf(action.data);
-
-  if (currentRequestId && incomingRequestId && currentRequestId !== incomingRequestId) {
-    return true;
-  }
-
-  return Boolean(TERMINAL[current.get('state')] && action.data && ACTIVE[action.data.state]);
-};
 
 export default function postingContextRevalidations(state = initialState, action) {
   switch (action.type) {
@@ -62,7 +33,7 @@ export default function postingContextRevalidations(state = initialState, action
       return state.set(key, current.set('polling', action.polling));
     }
 
-    if (stalePoll(current, action)) {
+    if (isStaleRevalidationPoll(current, action)) {
       return state;
     }
 

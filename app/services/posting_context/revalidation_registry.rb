@@ -85,6 +85,20 @@ class PostingContext::RevalidationRegistry
     return 1
   LUA
 
+  # Publishing a request id, its lock, its queued state, and the cooldown is
+  # one Redis operation. A lock that already exists is left unchanged, and
+  # its value is returned so the caller can ignore an older state document.
+  CREATE_REQUEST = <<~LUA
+    local existing = redis.call('GET', KEYS[1])
+    if existing then
+      return {0, existing}
+    end
+    redis.call('SET', KEYS[1], ARGV[1], 'EX', tonumber(ARGV[3]))
+    redis.call('SET', KEYS[2], ARGV[2], 'EX', tonumber(ARGV[4]))
+    redis.call('SET', KEYS[3], ARGV[1], 'EX', tonumber(ARGV[5]))
+    return {1, ARGV[1]}
+  LUA
+
   def request!(account, requester:)
     recover_expired!(account.id)
     current = load_state(account.id)
@@ -143,6 +157,12 @@ class PostingContext::RevalidationRegistry
     end
   end
 
+  def owns_lock?(account_id, request_id)
+    return false if request_id.blank?
+
+    redis.get(lock_key(account_id)) == request_id
+  end
+
   def finish!(account_id, request_id, result)
     state = load_state(account_id)
     return false if state.nil? || state['request_id'] != request_id
@@ -159,15 +179,15 @@ class PostingContext::RevalidationRegistry
 
   def create_request!(account)
     request_id = SecureRandom.uuid
-    locked = redis.set(lock_key(account.id), request_id, nx: true, ex: LEASE.to_i)
-    unless locked
-      current = load_state(account.id)
-      return Outcome.new(status: :inflight, payload: payload_for(current)) if current
+    state = queued_state(account, request_id)
+    created, lock_owner = accept_request(account.id, request_id, state)
+    return Outcome.new(status: :created, payload: payload_for(state)) if created
 
-      return Outcome.new(status: :inflight, payload: { state: 'queued', account_id: account.id.to_s })
-    end
+    Outcome.new(status: :inflight, payload: inflight_payload(account, lock_owner))
+  end
 
-    state = {
+  def queued_state(account, request_id)
+    {
       'state' => 'queued',
       'request_id' => request_id,
       'account_id' => account.id.to_s,
@@ -177,9 +197,26 @@ class PostingContext::RevalidationRegistry
       'actor' => nil,
       'affiliations' => nil,
     }
-    redis.set(state_key(account.id), JSON.generate(state), ex: STATE_TTL.to_i)
-    redis.set(cooldown_key(account.id), request_id, ex: COOLDOWN.to_i)
-    Outcome.new(status: :created, payload: payload_for(state))
+  end
+
+  def accept_request(account_id, request_id, state)
+    result = redis.eval(
+      CREATE_REQUEST,
+      keys: [lock_key(account_id), state_key(account_id), cooldown_key(account_id)],
+      argv: [request_id, JSON.generate(state), LEASE.to_i, STATE_TTL.to_i, COOLDOWN.to_i]
+    )
+    [result[0].to_i == 1, result[1]]
+  end
+
+  # A held lock whose queued state is not stored yet must not be reported as
+  # an older completed request.
+  def inflight_payload(account, lock_owner)
+    current = load_state(account.id)
+    if current && current['request_id'] == lock_owner && active_state?(current)
+      payload_for(current)
+    else
+      { state: 'queued', account_id: account.id.to_s }
+    end
   end
 
   def rate_limit!(requester, account)
