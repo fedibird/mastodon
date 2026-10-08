@@ -22,6 +22,7 @@ SimpleNavigation::Configuration.run do |navigation|
       s.item :favourite_tags, safe_join([fa_icon('hashtag fw'), t('settings.favourite_tags')]), settings_favourite_tags_url
       s.item :safety, safe_join([fa_icon('shield fw'), t('preferences.safety')]), settings_preferences_safety_url
       s.item :other, safe_join([fa_icon('cog fw'), t('preferences.other')]), settings_preferences_other_url
+      s.item :user_posting_contexts, safe_join([fa_icon('pencil fw'), t('settings.user_posting_contexts')]), settings_user_posting_contexts_url, highlights_on: %r{/settings/user_posting_contexts}, if: -> { current_user.can?(:administrator) }
     end
 
     n.item :follow_and_subscriptions, safe_join([fa_icon('users fw'), t('settings.follow_and_subscriptions')]), hide_relationships ? settings_follow_tags_url : relationships_url, if: -> { current_user.functional? } do |s|

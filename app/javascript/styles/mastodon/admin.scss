@@ -1245,3 +1245,130 @@ a.name-tag,
     }
   }
 }
+
+.user-posting-context-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.user-posting-context-empty {
+  margin-top: 16px;
+}
+
+.user-posting-context-card,
+.user-posting-context-preview {
+  border: 1px solid lighten($ui-base-color, 14%);
+  background: lighten($ui-base-color, 4%);
+  border-radius: 8px;
+  padding: 16px;
+  overflow-wrap: anywhere;
+}
+
+.user-posting-context-card__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.user-posting-context-card__icon {
+  flex: 0 0 auto;
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.user-posting-context-card__name {
+  margin: 0 0 8px;
+}
+
+.user-posting-context-card__purpose,
+.user-posting-context-card__summary {
+  margin: 0 0 8px;
+}
+
+.user-posting-context-card__label,
+.user-posting-context-preview__source,
+.user-posting-context-preview__usual {
+  display: inline-block;
+  margin-right: 8px;
+  color: $darker-text-color;
+}
+
+.user-posting-context-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+
+  .button,
+  button {
+    margin: 0;
+  }
+}
+
+.user-posting-context-card__action {
+  margin: 0;
+}
+
+.user-posting-context-section {
+  border: 0;
+  margin: 28px 0 0;
+  padding: 0;
+  min-width: 0;
+
+  legend {
+    font-size: 18px;
+    font-weight: 700;
+    padding: 0;
+    margin-bottom: 12px;
+    float: none;
+  }
+}
+
+.user-posting-context-preview {
+  margin-top: 28px;
+}
+
+.user-posting-context-preview__list {
+  margin: 0;
+
+  dt {
+    font-weight: 700;
+    margin-top: 12px;
+  }
+
+  dd {
+    margin: 4px 0 0;
+  }
+}
+
+.user-posting-context-constraint--conflict,
+.user-posting-context-constraint--unverified {
+  color: $error-value-color;
+}
+
+@media screen and (max-width: 600px) {
+  .user-posting-context-card__actions {
+    flex-direction: column;
+    align-items: stretch;
+
+    .button,
+    button,
+    .user-posting-context-card__action,
+    .user-posting-context-card__action .button {
+      width: 100%;
+    }
+  }
+
+  .user-posting-context-form .actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+
+    .button,
+    button {
+      width: 100%;
+      margin-left: 0;
+    }
+  }
+}

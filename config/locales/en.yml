@@ -2206,7 +2206,143 @@ en:
     safety: Safety & Privacy
     statuses_cleanup: Automated post deletion
     two_factor_authentication: Two-factor Auth
+    user_posting_contexts: Posting style and purpose
     webauthn_authentication: Security keys
+  user_posting_contexts:
+    advisory: Advisory tag from this posting style
+    allowed_options: You can change it to %{options}.
+    back: Back to the list
+    choices:
+      auto: Detect language automatically
+      disabled: Turn the content warning off
+      enabled: Use a content warning
+      explicit: Set in this posting style
+      inherit: Use the usual setting
+    conflict_item: "%{field} is outside the destination conditions (%{value}). Options: %{options}."
+    conflicts_empty: No unresolved conflicts.
+    delete: Delete %{name}
+    delete_confirm: Delete the posting style "%{name}"? This cannot be undone.
+    deleted: Posting style deleted.
+    description: You can prepare a way of posting that fits your purpose and where you are posting.
+    discovery:
+      hashtag_target: A hashtag destination has no group posting conditions to read.
+      missing_group: The selected group could not be found. Its conditions stay unverified.
+      no_supported_adapter: This group has no supported posting-condition source. Conditions stay unverified.
+      no_target: No destination is selected.
+      not_applicable: Posting conditions do not apply to this destination.
+      not_group: The selected account is not a group. Its conditions stay unverified.
+      resolved: Destination conditions were read from the current information.
+      target_kind: The destination type is not recognized. Conditions stay unverified.
+      unknown: Destination conditions could not be confirmed.
+      unsupported: This group has no supported posting-condition source. Conditions stay unverified.
+    duplicate: Duplicate
+    duplicated: Posting style duplicated.
+    edit: Edit posting style
+    edit_action: Edit
+    empty: No posting styles yet. Create one for a purpose or a place you post to.
+    errors:
+      defaults: The posting defaults contain a value that cannot be saved.
+      duplicate: The posting style could not be duplicated.
+      group_invalid: Choose a group that already exists on this server. This form does not fetch unknown accounts.
+      hashtag_list: One or more automatic hashtags are not valid, or there are too many.
+      icon: The icon contains characters that cannot be saved.
+      invalid_hashtag: Enter a hashtag name this server can use.
+      language: Choose a language this server supports.
+      language_choice: Choose whether language uses your usual setting, automatic detection, or a specific language.
+      limit: You can save up to %{count} posting styles.
+      managed: The automatic hashtags contain a value that cannot be saved.
+      name: The name contains characters that cannot be saved.
+      purpose: The purpose note contains characters that cannot be saved.
+      sensitive: Choose whether sensitive media uses your usual setting.
+      sensitive_value: Choose whether media is sensitive.
+      spoiler_choice: Choose whether the content warning uses your usual setting.
+      spoiler_shape: The content warning could not be saved in that form.
+      spoiler_text: The content warning text cannot be saved.
+      stale: Someone else saved this posting style. Your edit was not applied. Reload the page and try again.
+      visibility: Choose a visibility this server supports.
+      visibility_choice: Choose whether visibility uses your usual setting.
+    fields:
+      hashtags: Hashtags to add automatically
+      icon: Icon
+      language: Post language
+      language_code: Language
+      name: Name
+      purpose: Purpose
+      sensitive: Sensitive media
+      sensitive_value: Sensitive media value
+      spoiler: Content warning
+      spoiler_text: Content warning text
+      target_kind: Destination
+      visibility: Visibility
+      visibility_value: Visibility value
+    hashtags_hint: These tags are advisory for this posting style. They are not required rules from the destination.
+    icon_hint: You can use a Unicode emoji or a custom emoji from the picker.
+    new: Create a new posting style
+    no_hashtags: None
+    no_known_groups: No known groups are available to choose yet.
+    permissions:
+      conflict: "%{value} is outside the visibility this destination allows."
+      not_applicable: This destination does not provide group posting conditions.
+      permitted: This destination allows %{options}.
+      undeclared: This destination did not declare a visibility constraint.
+    preview_labels:
+      conflicts: Unresolved conflicts
+      destination: Destination
+      discovery: Destination conditions
+      language: Language
+      recommended: Recommended values from the destination
+      required: Required conditions from the destination
+      sensitive: Sensitive media
+      spoiler: Content warning
+      user_hashtags: Tags added by this posting style
+      usual: "Usual setting: %{value}"
+      visibility: Visibility
+    preview_note: This previews the settings that would apply. It does not publish a post.
+    purpose_hint: This note is for you. It is not included in the post.
+    recommended_empty: The destination did not provide recommended values.
+    required_empty: The destination did not declare required conditions.
+    rules:
+      audience: "Audience %{label} is required"
+      following: "Following @%{label} is required"
+      hashtag: "Hashtag #%{label} is required"
+      mention: "Mentioning @%{label} is required"
+    saved: Posting style saved.
+    sections:
+      preview: What happens when you post?
+      purpose: What are you posting for?
+      style: How do you want to post?
+      target: Where will you use this?
+    sensitive_off: Not sensitive
+    sensitive_on: Sensitive
+    sensitive_values:
+      'false': Do not mark media as sensitive
+      'true': Mark media as sensitive
+    sources:
+      clear: Cleared by this posting style
+      explicit: Set by this posting style
+      inherit: Uses your usual setting
+    spoiler_hint: Turning the warning off is different from leaving this on the usual setting.
+    spoiler_off: Content warning off
+    spoiler_on: Content warning on
+    summary:
+      hashtags: "Tags: %{value}"
+      language: "Language: %{value}"
+      sensitive: "Sensitive media: %{value}"
+      visibility: "Visibility: %{value}"
+    target_group: Group
+    target_group_hint: Choose a group this server already knows. Preview does not fetch a new account.
+    target_group_prompt: Select a group
+    target_hashtag: Hashtag
+    target_hashtag_hint: Enter the hashtag name without requiring a separate fetch.
+    target_kinds:
+      group: Group
+      hashtag: Hashtag
+      none: No specific destination
+    title: Posting style and purpose
+    unset: Not set
+    unverified_banner: Destination conditions are unverified. Unverified conditions are not treated as allowed.
+    unverified_item: "%{field} is unverified and is not treated as allowed."
+    usual_summary: "Your usual settings are visibility %{visibility}, language %{language}, and sensitive media %{sensitive}. A content warning is not part of those usual settings."
   statuses:
     attached:
       audio:

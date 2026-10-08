@@ -1,0 +1,15 @@
+%article.user-posting-context-card
+  .user-posting-context-card__header
+    %span.user-posting-context-card__icon{ data: { custom_emoji_text: true } }= context.icon.presence || '✎'
+    .user-posting-context-card__body
+      %h3.user-posting-context-card__name{ dir: 'auto' }= context.name
+      - if context.purpose.present?
+        .user-posting-context-card__purpose{ dir: 'auto' }= simple_format(h(context.purpose), {}, sanitize: false)
+      %p
+        %span.user-posting-context-card__label= t('user_posting_contexts.preview_labels.destination')
+        = user_posting_context_target_label(context)
+      %p.user-posting-context-card__summary= user_posting_context_summary(context)
+  .user-posting-context-card__actions
+    = link_to t('user_posting_contexts.edit_action'), edit_settings_user_posting_context_path(context), class: 'button'
+    = button_to t('user_posting_contexts.duplicate'), duplicate_settings_user_posting_context_path(context), method: :post, class: 'button', form_class: 'user-posting-context-card__action'
+    = button_to t('user_posting_contexts.delete', name: context.name), settings_user_posting_context_path(context), method: :delete, class: 'button button--destructive', form_class: 'user-posting-context-card__action', data: { confirm: t('user_posting_contexts.delete_confirm', name: context.name) }

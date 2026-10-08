@@ -1,0 +1,53 @@
+= simple_form_for @context, url: (@context.persisted? ? settings_user_posting_context_path(@context) : settings_user_posting_contexts_path), method: (@context.persisted? ? :patch : :post), html: { class: 'user-posting-context-form', data: { user_posting_context_form: true, preview_url: preview_settings_user_posting_contexts_path, record_id: @context.id } } do |f|
+  = render 'shared/error_messages', object: @context
+  = f.hidden_field :lock_version if @context.persisted?
+
+  %fieldset.user-posting-context-section
+    %legend= t('user_posting_contexts.sections.purpose')
+    .fields-group
+      = f.input :name, wrapper: :with_label, label: t('user_posting_contexts.fields.name'), required: true, input_html: { maxlength: 80, data: { preserve_on_preview: true } }
+    .fields-group
+      = f.input :icon, wrapper: :with_label, label: t('user_posting_contexts.fields.icon'), required: false, hint: t('user_posting_contexts.icon_hint'), input_html: { maxlength: 64, data: { emoji_picker: true, preserve_on_preview: true }, autocomplete: 'off' }
+    .fields-group
+      = f.input :purpose, as: :text, wrapper: :with_label, label: t('user_posting_contexts.fields.purpose'), required: false, hint: t('user_posting_contexts.purpose_hint'), input_html: { maxlength: 500, rows: 4, data: { preserve_on_preview: true } }
+
+  %fieldset.user-posting-context-section
+    %legend= t('user_posting_contexts.sections.target')
+    .fields-group
+      = f.input :target_kind, collection: UserPostingContext::TARGET_KINDS, label_method: ->(kind) { t("user_posting_contexts.target_kinds.#{kind}") }, value_method: :itself, include_blank: false, wrapper: :with_label, label: t('user_posting_contexts.fields.target_kind'), input_html: { data: { target_kind: true, preserve_on_preview: true } }
+    .fields-group{ data: { target_panel: 'hashtag' } }
+      = f.input :target_hashtag, wrapper: :with_label, label: t('user_posting_contexts.target_hashtag'), required: false, hint: t('user_posting_contexts.target_hashtag_hint'), input_html: { maxlength: 100, data: { preserve_on_preview: true } }
+    .fields-group{ data: { target_panel: 'group' } }
+      = f.input :target_account_id, collection: @group_choices, label_method: :acct, value_method: :id, include_blank: t('user_posting_contexts.target_group_prompt'), wrapper: :with_label, label: t('user_posting_contexts.target_group'), required: false, hint: t('user_posting_contexts.target_group_hint'), input_html: { data: { preserve_on_preview: true } }
+      - if @group_choices.blank?
+        %p.hint= t('user_posting_contexts.no_known_groups')
+
+  %fieldset.user-posting-context-section
+    %legend= t('user_posting_contexts.sections.style')
+    %p.hint= t('user_posting_contexts.usual_summary', visibility: user_posting_context_visibility_label(current_user.setting_default_privacy), language: user_posting_context_language_label(current_user.setting_default_language), sensitive: user_posting_context_sensitive_label(current_user.setting_default_sensitive == true))
+    .fields-group
+      = f.input :visibility_choice, collection: %w(inherit explicit), label_method: ->(choice) { t("user_posting_contexts.choices.#{choice}") }, value_method: :itself, include_blank: false, wrapper: :with_label, label: t('user_posting_contexts.fields.visibility'), input_html: { data: { preserve_on_preview: true } }
+      = f.input :visibility_value, collection: user_posting_context_visibility_options(@context), label_method: ->(visibility) { user_posting_context_visibility_label(visibility) }, value_method: :itself, include_blank: t('user_posting_contexts.unset'), wrapper: :with_label, label: t('user_posting_contexts.fields.visibility_value'), required: false, input_html: { data: { preserve_on_preview: true } }
+      #user-posting-context-constraints{ data: { user_posting_context_constraints: true } }
+        = render 'constraints'
+    .fields-group
+      = f.input :language_choice, collection: %w(inherit auto explicit), label_method: ->(choice) { t("user_posting_contexts.choices.#{choice}") }, value_method: :itself, include_blank: false, wrapper: :with_label, label: t('user_posting_contexts.fields.language'), input_html: { data: { preserve_on_preview: true } }
+      = f.input :language_code, collection: filterable_languages.sort, label_method: ->(locale) { user_posting_context_language_label(locale) }, value_method: :itself, include_blank: t('user_posting_contexts.unset'), wrapper: :with_label, label: t('user_posting_contexts.fields.language_code'), required: false, input_html: { data: { preserve_on_preview: true } }
+    .fields-group
+      = f.input :spoiler_choice, collection: %w(inherit disabled enabled), label_method: ->(choice) { t("user_posting_contexts.choices.#{choice}") }, value_method: :itself, include_blank: false, wrapper: :with_label, label: t('user_posting_contexts.fields.spoiler'), hint: t('user_posting_contexts.spoiler_hint'), input_html: { data: { preserve_on_preview: true } }
+      = f.input :spoiler_text, wrapper: :with_label, label: t('user_posting_contexts.fields.spoiler_text'), required: false, input_html: { maxlength: UserPostingContext::Defaults::SPOILER_TEXT_LIMIT, data: { preserve_on_preview: true } }
+    .fields-group
+      = f.input :sensitive_choice, collection: %w(inherit explicit), label_method: ->(choice) { t("user_posting_contexts.choices.#{choice}") }, value_method: :itself, include_blank: false, wrapper: :with_label, label: t('user_posting_contexts.fields.sensitive'), input_html: { data: { preserve_on_preview: true } }
+      = f.input :sensitive_value, collection: %w(true false), label_method: ->(value) { t("user_posting_contexts.sensitive_values.#{value}") }, value_method: :itself, include_blank: t('user_posting_contexts.unset'), wrapper: :with_label, label: t('user_posting_contexts.fields.sensitive_value'), required: false, input_html: { data: { preserve_on_preview: true } }
+    .fields-group
+      = f.input :hashtags_text, as: :text, wrapper: :with_label, label: t('user_posting_contexts.fields.hashtags'), required: false, hint: t('user_posting_contexts.hashtags_hint'), input_html: { rows: 3, data: { preserve_on_preview: true } }
+
+  .actions
+    = f.button :button, t('generic.save_changes'), type: :submit
+    = link_to t('user_posting_contexts.back'), settings_user_posting_contexts_path, class: 'button'
+
+%section.user-posting-context-preview
+  %h3#user-posting-context-preview-title= t('user_posting_contexts.sections.preview')
+  %p.hint= t('user_posting_contexts.preview_note')
+  #user-posting-context-preview-body{ data: { user_posting_context_preview: true }, aria: { live: 'polite', labelledby: 'user-posting-context-preview-title' } }
+    = render 'preview_body'
