@@ -26,6 +26,7 @@ import boosts from './boosts';
 import reports from './reports';
 import contexts from './contexts';
 import posting_contexts from './posting_contexts';
+import posting_context_revalidations from './posting_context_revalidations';
 import user_posting_styles from './user_posting_styles';
 import compose from './compose';
 import composers from './composers';
@@ -86,6 +87,7 @@ const reducers = {
   reports,
   contexts,
   posting_contexts,
+  posting_context_revalidations,
   userPostingStyles: user_posting_styles,
   compose,
   composers,

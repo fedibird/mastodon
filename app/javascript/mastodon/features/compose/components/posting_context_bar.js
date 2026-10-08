@@ -29,6 +29,16 @@ const messages = defineMessages({
   blockedMismatch: { id: 'compose_form.posting_context.blocked.mismatch', defaultMessage: 'The posting target does not match this composer' },
   blockedCompliance: { id: 'compose_form.posting_context.blocked.compliance', defaultMessage: 'Posting conditions are not met' },
   blockedDetails: { id: 'compose_form.posting_context.blocked.details', defaultMessage: 'Show details' },
+  recheck: { id: 'compose_form.posting_context.revalidation.action', defaultMessage: 'Recheck' },
+  revalidationRunning: { id: 'compose_form.posting_context.revalidation.running', defaultMessage: 'Rechecking create permission' },
+  revalidationPartial: { id: 'compose_form.posting_context.revalidation.partial', defaultMessage: 'Some information could not be updated' },
+  revalidationFailed: { id: 'compose_form.posting_context.revalidation.failed', defaultMessage: 'Create permission could not be rechecked' },
+  revalidationStale: { id: 'compose_form.posting_context.revalidation.stale', defaultMessage: 'Permission information is out of date' },
+  revalidationRateLimited: { id: 'compose_form.posting_context.revalidation.rate_limited', defaultMessage: 'Wait before rechecking create permission' },
+  revalidationResume: { id: 'compose_form.posting_context.revalidation.resume', defaultMessage: 'Check status again' },
+  revalidationInterrupted: { id: 'compose_form.posting_context.revalidation.interrupted', defaultMessage: 'Status could not be checked' },
+  revalidationTimedOut: { id: 'compose_form.posting_context.revalidation.timed_out', defaultMessage: 'Recheck may still be running on the server' },
+  revalidationDetail: { id: 'compose_form.posting_context.revalidation.detail', defaultMessage: 'Actor: {actor} / Affiliations: {affiliations}' },
 });
 
 const createNoticeMessages = {
@@ -41,6 +51,16 @@ const createNoticeMessages = {
   unsupported: messages.blockedUnsupported,
   unresolved: messages.blockedUnresolved,
   mismatch: messages.blockedMismatch,
+};
+
+const revalidationMessages = {
+  running: messages.revalidationRunning,
+  partial: messages.revalidationPartial,
+  failed: messages.revalidationFailed,
+  stale: messages.revalidationStale,
+  rate_limited: messages.revalidationRateLimited,
+  interrupted: messages.revalidationInterrupted,
+  timed_out: messages.revalidationTimedOut,
 };
 
 export const postingContextCapabilityMessages = messages;
@@ -106,8 +126,62 @@ class PostingContextBar extends React.PureComponent {
     followingAccounts: PropTypes.array,
     createNotice: PropTypes.string,
     viaRelationship: PropTypes.string,
+    canRecheck: PropTypes.bool,
+    revalidationNotice: PropTypes.string,
+    revalidationActor: PropTypes.string,
+    revalidationAffiliations: PropTypes.string,
+    revalidationAccountId: PropTypes.string,
+    revalidationExplicit: PropTypes.bool,
     onToggle: PropTypes.func.isRequired,
+    onRecheck: PropTypes.func,
+    onRefreshStatus: PropTypes.func,
+    onWatch: PropTypes.func,
   };
+
+  componentDidMount () {
+    this.syncWatch();
+  }
+
+  componentDidUpdate (prevProps) {
+    if (prevProps.revalidationAccountId !== this.props.revalidationAccountId) {
+      this.releaseWatch();
+    }
+
+    this.syncWatch();
+  }
+
+  componentWillUnmount () {
+    this.releaseWatch();
+  }
+
+  releaseWatch () {
+    if (this.release) {
+      this.release();
+      this.release = null;
+    }
+  }
+
+  syncWatch () {
+    const active = this.props.revalidationExplicit && this.props.revalidationNotice === 'running';
+
+    if (active && !this.release && this.props.onWatch) {
+      this.release = this.props.onWatch();
+    } else if (!active) {
+      this.releaseWatch();
+    }
+  }
+
+  handleRecheck = () => {
+    if (this.props.onRecheck) {
+      this.props.onRecheck();
+    }
+  }
+
+  handleRefreshStatus = () => {
+    if (this.props.onRefreshStatus) {
+      this.props.onRefreshStatus();
+    }
+  }
 
   viaTitle () {
     const { intl, viaRelationship, createNotice } = this.props;
@@ -125,7 +199,7 @@ class PostingContextBar extends React.PureComponent {
   }
 
   render () {
-    const { intl, hashtags, suppressedHashtags, mentions, audience, visibility, followingAccounts, createNotice, onToggle } = this.props;
+    const { intl, hashtags, suppressedHashtags, mentions, audience, visibility, followingAccounts, createNotice, canRecheck, revalidationNotice, revalidationActor, revalidationAffiliations, onToggle } = this.props;
     const hasHashtags = Boolean(hashtags && !hashtags.isEmpty());
     const requiredMentions = mentions ? mentions.filter(mention => mention.get('enforcement') === 'required' && mention.get('acct')) : null;
     const hasMentions = Boolean(requiredMentions && !requiredMentions.isEmpty());
@@ -135,8 +209,11 @@ class PostingContextBar extends React.PureComponent {
     const showVisibility = Array.isArray(allowed) && allowed.includes('public') && allowed.includes('unlisted');
     const hasFollows = Boolean(followingAccounts && followingAccounts.length > 0);
     const createMessage = createNoticeMessages[createNotice];
+    const revalidationMessage = revalidationMessages[revalidationNotice];
+    const showResume = revalidationNotice === 'interrupted' || revalidationNotice === 'timed_out';
+    const showRecheck = Boolean(canRecheck && !showResume && revalidationNotice !== 'running');
 
-    if (!hasHashtags && !hasMentions && !showAudience && !showVisibility && !hasFollows && !createMessage) {
+    if (!hasHashtags && !hasMentions && !showAudience && !showVisibility && !hasFollows && !createMessage && !showRecheck && !showResume && !revalidationMessage) {
       return null;
     }
 
@@ -154,6 +231,27 @@ class PostingContextBar extends React.PureComponent {
           >
             {intl.formatMessage(createMessage)}
           </span>
+        )}
+        {revalidationMessage && (
+          <span
+            className='compose-form__posting-context-revalidation'
+            title={revalidationActor || revalidationAffiliations ? intl.formatMessage(messages.revalidationDetail, {
+              actor: revalidationActor || 'unavailable',
+              affiliations: revalidationAffiliations || 'unavailable',
+            }) : undefined}
+          >
+            {intl.formatMessage(revalidationMessage)}
+          </span>
+        )}
+        {showRecheck && (
+          <button type='button' className='compose-form__posting-context-recheck' onClick={this.handleRecheck}>
+            {intl.formatMessage(messages.recheck)}
+          </button>
+        )}
+        {showResume && (
+          <button type='button' className='compose-form__posting-context-recheck' onClick={this.handleRefreshStatus}>
+            {intl.formatMessage(messages.revalidationResume)}
+          </button>
         )}
         {showAudience && (
           <span className='compose-form__posting-context-audience'>

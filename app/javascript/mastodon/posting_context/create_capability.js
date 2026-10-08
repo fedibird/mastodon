@@ -1,5 +1,6 @@
 import { POSTING_CONTEXT_CACHE_TTL } from '../actions/posting_contexts';
 import { selectComposer } from '../selectors/composer';
+import { selectPostingContextRevalidation } from '../selectors/posting_context_revalidations';
 import { selectPostingContextDiscovery } from '../selectors/posting_contexts';
 import { selectComposerPostingContextCompliance } from './compliance';
 import { normalizeManagedHashtagName } from './managed_hashtags';
@@ -341,7 +342,7 @@ export function selectComposerEffectiveCreateCapability(state, composerId, now =
 
   const discovery = selectPostingContextDiscovery(state, targetAccountId);
   const delivery = resolveDelivery(discovery);
-  const permission = resolvePermission(discovery, delivery, now);
+  const permission = applyRevalidationOverlay(resolvePermission(discovery, delivery, now), state, targetAccountId);
 
   return groupAttempt({
     permission,
@@ -350,6 +351,33 @@ export function selectComposerEffectiveCreateCapability(state, composerId, now =
     aligned: appliedContextMatchesDiscovery(composer, discovery, targetAccountId),
   });
 }
+
+const REVALIDATION_BLOCKS_CONFIRMATION = {
+  queued: true,
+  running: true,
+  failed: true,
+  partial: true,
+};
+
+// A revalidation job is not permission evidence. While it is unfinished or
+// did not fully succeed, leftover positive evidence is not "latest confirmed".
+const applyRevalidationOverlay = (permission, state, targetAccountId) => {
+  if (!permission || permission.status === 'not_applicable') {
+    return permission;
+  }
+
+  const revalidation = selectPostingContextRevalidation(state, targetAccountId);
+  const jobState = revalidation && revalidation.get ? revalidation.get('state') : null;
+
+  if (!REVALIDATION_BLOCKS_CONFIRMATION[jobState]) {
+    return permission;
+  }
+
+  return {
+    ...permission,
+    confirmed: false,
+  };
+};
 
 const WARNING_NOTICES = {
   allowed_unsupported: true,

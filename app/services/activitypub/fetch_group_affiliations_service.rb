@@ -14,13 +14,20 @@ class ActivityPub::FetchGroupAffiliationsService < BaseService
     OrderedCollectionPage
   ).freeze
 
-  def call(account, collection: nil)
-    return unless eligible?(account, collection)
+  # :refreshed when a snapshot was saved, including a successful empty
+  # collection. :failed when the previous snapshot was kept. :unavailable
+  # when this account has nothing to fetch. Callers that ignore the result
+  # keep the previous behavior.
+  def call(account, collection: nil, revalidation_fence: nil)
+    return :unavailable unless eligible?(account, collection)
 
     @account = account
     @failed = false
     records = collect_records(collection.presence || account.affiliations_url)
-    replace_affiliations!(records) unless records.nil?
+    return :failed if @failed || records.nil?
+    return :failed unless commit_affiliations(records, revalidation_fence)
+
+    :refreshed
   end
 
   private
@@ -193,6 +200,18 @@ class ActivityPub::FetchGroupAffiliationsService < BaseService
     return if uri.blank? || uri.length > GroupAffiliation::AFFILIATION_URI_MAX_LENGTH
 
     uri
+  end
+
+  # Pagination stays outside the fence. The lease is checked again in the
+  # same transaction that replaces the rows.
+  def commit_affiliations(records, revalidation_fence)
+    write = lambda do
+      replace_affiliations!(records)
+      true
+    end
+    return write.call unless revalidation_fence
+
+    !revalidation_fence.call(&write).nil?
   end
 
   def replace_affiliations!(records)
