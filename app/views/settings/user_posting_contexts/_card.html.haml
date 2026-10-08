@@ -18,4 +18,4 @@
       = form_with url: duplicate_settings_user_posting_context_path(context), method: :post, local: true, class: 'user-posting-context-card__menu-form' do
         %button.user-posting-context-card__menu-item{ type: 'submit' }= t('user_posting_contexts.duplicate')
       = form_with url: settings_user_posting_context_path(context), method: :delete, local: true, class: 'user-posting-context-card__menu-form' do
-        %button.user-posting-context-card__menu-item.user-posting-context-card__menu-item--danger{ type: 'submit', data: { confirm: t('user_posting_contexts.delete_confirm', name: context.name) } }= t('user_posting_contexts.delete', name: context.name)
+        %button.user-posting-context-card__menu-item.user-posting-context-card__menu-item--danger{ type: 'submit', aria: { label: t('user_posting_contexts.delete', name: context.name) }, data: { confirm: t('user_posting_contexts.delete_confirm', name: context.name) } }= t('user_posting_contexts.delete_menu')

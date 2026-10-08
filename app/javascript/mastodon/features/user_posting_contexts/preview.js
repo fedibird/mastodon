@@ -241,7 +241,9 @@ export function bindUserPostingContextPreview(root = document, options = {}) {
 }
 
 export function bindUserPostingContextCardMenus(root = document) {
-  root.querySelectorAll('[data-user-posting-context-menu]').forEach((menu) => {
+  const menus = () => root.querySelectorAll('[data-user-posting-context-menu]');
+
+  menus().forEach((menu) => {
     if (menu.dataset.menuBound === 'true') {
       return;
     }
@@ -254,11 +256,29 @@ export function bindUserPostingContextCardMenus(root = document) {
         return;
       }
 
+      event.preventDefault();
       menu.open = false;
 
       if (summary) {
         summary.focus();
       }
+    });
+  });
+
+  const host = root === document ? document.documentElement : root;
+
+  if (host.dataset.postingContextMenusBound === 'true') {
+    return;
+  }
+
+  host.dataset.postingContextMenusBound = 'true';
+  root.addEventListener('click', (event) => {
+    menus().forEach((menu) => {
+      if (!menu.open || menu.contains(event.target)) {
+        return;
+      }
+
+      menu.open = false;
     });
   });
 }

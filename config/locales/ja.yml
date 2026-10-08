@@ -2155,6 +2155,7 @@ ja:
     conflicts_empty: 未解決の競合はありません。
     copy_suffix: "（コピー）"
     delete: "%{name} を削除"
+    delete_menu: 削除
     delete_confirm: 投稿スタイル「%{name}」を削除しますか？この操作は取り消せません。
     deleted: 投稿スタイルを削除しました。
     description: 投稿する目的や場所に合わせて、自分に合った投稿のしかたを用意できます。

@@ -2226,6 +2226,7 @@ en:
     conflicts_empty: No unresolved conflicts.
     copy_suffix: " (copy)"
     delete: Delete %{name}
+    delete_menu: Delete
     delete_confirm: Delete the posting style "%{name}"? This cannot be undone.
     deleted: Posting style deleted.
     description: You can prepare a way of posting that fits your purpose and where you are posting.
