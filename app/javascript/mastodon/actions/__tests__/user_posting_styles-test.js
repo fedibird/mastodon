@@ -800,3 +800,167 @@ describe('fetch failure stays usable', () => {
     expect(store.getState().getIn(['compose', 'text'])).toEqual('');
   });
 });
+
+const nodebbDiscovery = (accountId, acct) => ({
+  schema_version: 1,
+  account_id: accountId,
+  status: 'resolved',
+  context: {
+    key: `protocol:fep-1b12-nodebb:${accountId}`,
+    source: { id: 'compat:nodebb-fep-1b12', revision: 1 },
+    managed: {
+      hashtags: [],
+      mentions: [{ account_id: accountId, acct, enforcement: 'required', rule_id: 'nodebb-group-mention' }],
+    },
+    requirements: { following_accounts: [] },
+    constraints: { allowed_visibilities: ['public'] },
+    protocol: {
+      activitypub: {
+        audience: {
+          account_id: accountId,
+          acct,
+          enforcement: 'required',
+          rule_id: 'fep-1b12-group-audience',
+        },
+      },
+    },
+  },
+  discovery: {
+    mechanism: 'nodeinfo_software',
+    adapter: 'nodebb_group',
+    authority: 'compatibility',
+  },
+  viewer_evidence: {
+    affiliations: {
+      source: 'fep-5219-affiliations',
+      snapshot_status: 'fresh',
+      fetched_at: '2026-10-08T00:00:00Z',
+      relationships: [],
+    },
+    permissions: {
+      create: {
+        status: 'unknown',
+        source: 'fep-5219',
+        via_relationship: null,
+        authority: 'protocol',
+      },
+    },
+  },
+});
+
+const nodebbStyle = (id, accountId, label) => fromJS({
+  id,
+  name: label,
+  revision: 1,
+  target: { kind: 'group', accountId, hashtag: null, label },
+  defaults: { visibility: 'unlisted' },
+  managed: {
+    hashtags: [{ name: 'fedibird', normalizedName: 'fedibird', enforcement: 'advisory' }],
+  },
+});
+
+describe('NodeBB group posting style', () => {
+  const makeStore = () => createStore(combineReducers({
+    compose,
+    posting_contexts: postingContexts,
+    relationships,
+    userPostingStyles,
+    posting_context_revalidations: (state = ImmutableMap()) => state,
+  }), applyMiddleware(thunk));
+
+  it('applies the discovered NodeBB context and does not rewrite unlisted to public', async () => {
+    const store = makeStore();
+
+    store.dispatch({
+      type: 'USER_POSTING_STYLES_FETCH_SUCCESS',
+      styles: [nodebbStyle('n1', '456', 'category')],
+    });
+    store.dispatch({
+      type: POSTING_CONTEXT_FETCH_SUCCESS,
+      accountId: '456',
+      data: nodebbDiscovery('456', 'category@nodebb.example'),
+      receivedAt: Date.now(),
+    });
+    store.dispatch(changeCompose('Keep this'));
+    store.dispatch({
+      type: COMPOSE_UPLOAD_SUCCESS,
+      media: { id: 'media-1', type: 'image', description: 'tree' },
+    });
+
+    await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'n1'));
+    store.dispatch(toggleUserPostingStyleHashtag(PRIMARY_COMPOSER_ID, 'style', 'fedibird'));
+
+    const drafted = store.getState().get('compose');
+    const blocked = capabilityOf(store);
+
+    expect(drafted.get('privacy')).toEqual('unlisted');
+    expect(drafted.get('text')).toEqual('Keep this');
+    expect(drafted.getIn(['media_attachments', 0, 'id'])).toEqual('media-1');
+    expect(drafted.getIn(['context', 'key'])).toEqual('protocol:fep-1b12-nodebb:456');
+    expect(drafted.getIn(['context', 'protocol', 'activityPub', 'audience', 'accountId'])).toEqual('456');
+    expect(drafted.getIn(['context', 'managed', 'mentions', 0, 'acct'])).toEqual('category@nodebb.example');
+    expect(drafted.getIn(['userPostingStyle', 'suppressions']).includes('style:fedibird')).toBe(true);
+    expect(materializeComposerText(drafted)).toEqual('@category@nodebb.example Keep this');
+    expect(materializeComposerText(drafted)).not.toContain('#fedibird');
+    expect(blocked.delivery).toEqual({
+      status: 'supported',
+      authority: 'compatibility',
+      adapter: 'nodebb_group',
+    });
+    expect(blocked.permission.status).toBe('unknown');
+    expect(blocked.canAttempt).toBe(false);
+    expect(blocked.reason).toBe('compliance');
+
+    store.dispatch({ type: COMPOSE_VISIBILITY_CHANGE, value: 'public' });
+
+    expect(store.getState().getIn(['compose', 'privacy'])).toEqual('public');
+    expect(capabilityOf(store).canAttempt).toBe(true);
+    expect(store.getState().getIn(['compose', 'text'])).toEqual('Keep this');
+    expect(store.getState().getIn(['compose', 'media_attachments']).size).toBe(1);
+  });
+
+  it('does not let a stale NodeBB discovery overwrite the next group', async () => {
+    let resolveFirst;
+    const get = jest.fn()
+      .mockImplementationOnce(() => new Promise(resolve => {
+        resolveFirst = resolve;
+      }))
+      .mockResolvedValueOnce({ data: nodebbDiscovery('789', 'other@nodebb.example') });
+    api.mockReturnValue({ get });
+
+    const store = makeStore();
+
+    store.dispatch({
+      type: 'USER_POSTING_STYLES_FETCH_SUCCESS',
+      styles: [
+        nodebbStyle('n1', '456', 'category'),
+        nodebbStyle('n2', '789', 'other'),
+      ],
+    });
+    store.dispatch(changeCompose('Keep this'));
+    store.dispatch({
+      type: COMPOSE_UPLOAD_SUCCESS,
+      media: { id: 'media-1', type: 'image', description: 'tree' },
+    });
+
+    const pending = store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'n1'));
+
+    await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, 'n2'));
+    resolveFirst({ data: nodebbDiscovery('456', 'category@nodebb.example') });
+    await pending;
+
+    const composer = store.getState().get('compose');
+
+    expect(composer.getIn(['userPostingStyle', 'selectedId'])).toEqual('n2');
+    expect(composer.get('posting_context_account_id')).toEqual('789');
+    expect(composer.getIn(['context', 'key'])).toEqual('protocol:fep-1b12-nodebb:789');
+    expect(composer.getIn(['context', 'protocol', 'activityPub', 'audience', 'accountId'])).toEqual('789');
+    expect(composer.getIn(['context', 'managed', 'mentions']).size).toBe(1);
+    expect(materializeComposerText(composer)).toEqual('@other@nodebb.example Keep this\n\n#fedibird');
+    expect(materializeComposerText(composer)).not.toContain('@category@nodebb.example');
+    expect(composer.get('text')).toEqual('Keep this');
+    expect(composer.getIn(['media_attachments', 0, 'id'])).toEqual('media-1');
+    expect(capabilityOf(store).canAttempt).toBe(false);
+    expect(store.getState().getIn(['compose', 'privacy'])).toEqual('unlisted');
+  });
+});

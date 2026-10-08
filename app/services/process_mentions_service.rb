@@ -231,9 +231,22 @@ class ProcessMentionsService < BaseService
       ReblogService.new.call(group, status, { visibility: visibility })
     elsif mentioned_account.local?
       LocalNotificationWorker.perform_async(mentioned_account.id, mention.id, mention.class.name, 'mention')
-    elsif mentioned_account.activitypub?
+    elsif mentioned_account.activitypub? && !covered_by_audience_delivery?(mentioned_account, status)
       ActivityPub::DeliveryWorker.perform_async(activitypub_json(node_software_name(mentioned_account.inbox_url), status), status.account_id, mentioned_account.inbox_url, { 'synchronize_followers' => !status.distributable? })
     end
+  end
+
+  # Public and unlisted audience targets are already delivered to the
+  # actor inbox by ActivityPub::DistributionWorker, and updates and
+  # deletes reach that inbox through StatusReachFinder. A second Create
+  # for the same mention would duplicate that inbox. Other mentions keep
+  # their own delivery.
+  def covered_by_audience_delivery?(mentioned_account, status)
+    return false unless status.distributable?
+    return false if mentioned_account.inbox_url.blank?
+    return false if status.audience_account_id.blank?
+
+    mentioned_account.id == status.audience_account_id
   end
 
   def node_software_name(inbox_url)

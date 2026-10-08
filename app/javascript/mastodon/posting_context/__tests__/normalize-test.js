@@ -179,6 +179,69 @@ describe('normalizePostingContext', () => {
     });
   });
 
+  it('normalizes a NodeBB group discovery payload with a required mention and public-only constraint', () => {
+    const normalized = normalizePostingContextDiscovery({
+      schema_version: 1,
+      account_id: '456',
+      status: 'resolved',
+      context: {
+        key: 'protocol:fep-1b12-nodebb:456',
+        source: { id: 'compat:nodebb-fep-1b12', revision: 1 },
+        managed: {
+          hashtags: [],
+          mentions: [
+            {
+              account_id: '456',
+              acct: 'category@nodebb.example',
+              enforcement: 'required',
+              rule_id: 'nodebb-group-mention',
+            },
+          ],
+        },
+        requirements: { following_accounts: [] },
+        constraints: { allowed_visibilities: ['public'] },
+        protocol: {
+          activitypub: {
+            audience: {
+              account_id: '456',
+              acct: 'category@nodebb.example',
+              enforcement: 'required',
+              rule_id: 'fep-1b12-group-audience',
+            },
+          },
+        },
+      },
+      discovery: {
+        mechanism: 'nodeinfo_software',
+        adapter: 'nodebb_group',
+        authority: 'compatibility',
+      },
+      viewer_evidence: {
+        affiliations: {
+          source: 'fep-5219-affiliations',
+          snapshot_status: 'fresh',
+          fetched_at: '2026-10-08T00:00:00Z',
+          relationships: [],
+        },
+        permissions: {
+          create: {
+            status: 'unknown',
+            source: 'fep-5219',
+            via_relationship: null,
+            authority: 'protocol',
+          },
+        },
+      },
+    });
+
+    expect(normalized.discovery.adapter).toEqual('nodebb_group');
+    expect(normalized.discovery.authority).toEqual('compatibility');
+    expect(normalized.context.constraints.allowedVisibilities).toEqual(['public']);
+    expect(normalized.context.managed.mentions[0].acct).toEqual('category@nodebb.example');
+    expect(normalized.context.protocol.activityPub.audience.accountId).toEqual('456');
+    expect(normalized.viewerEvidence.permissions.create.status).toEqual('unknown');
+  });
+
   it('returns null for a missing context', () => {
     expect(normalizePostingContext(null)).toBeNull();
   });
