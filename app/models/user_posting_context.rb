@@ -25,9 +25,9 @@
 # later account move does not have to relocate these rows.
 #
 # schema_version 1 keeps inheritance, explicit values, and explicit clears
-# distinct. See UserPostingContext::Defaults. Composer application is
-# intentionally not implemented here. UserPostingContext::Preview is the
-# read-side merge a later composer can call without changing this table.
+# distinct. See UserPostingContext::Defaults. The composer reads
+# composer_api_payload and does not write this table. UserPostingContext::Preview
+# remains the settings-page merge and does not run Discovery for the index.
 class UserPostingContext < ApplicationRecord
   ADVISORY_HASHTAG_RULE_ID = 'user-posting-context'
   # The hashtag named as the destination is not stored in `managed`. A later
@@ -81,6 +81,7 @@ class UserPostingContext < ApplicationRecord
   before_create :append_position
 
   scope :ordered, -> { order(:position, :id) }
+  scope :enabled, -> { where(enabled: true) }
 
   # Duplicate names stay allowed. The suffix is only the default label.
   def self.copied_name(name)
@@ -113,6 +114,15 @@ class UserPostingContext < ApplicationRecord
     }
   end
 
+  # Read model for the composer. Label is display-only. Discovery is not called.
+  def composer_api_payload
+    payload = composer_overrides
+    payload['purpose'] = purpose
+    payload['revision'] = lock_version
+    payload['target'] = payload['target'].merge('label' => target_label)
+    payload
+  end
+
   def apply_form(values)
     data = values.to_h.stringify_keys
     @submitted_keys = data.keys
@@ -131,6 +141,15 @@ class UserPostingContext < ApplicationRecord
   end
 
   private
+
+  def target_label
+    case target_kind
+    when 'hashtag'
+      target_hashtag.present? ? "##{target_hashtag}" : nil
+    when 'group'
+      target_account&.acct
+    end
+  end
 
   def normalize_text
     self.name = name.to_s.strip

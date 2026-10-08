@@ -610,6 +610,7 @@ Rails.application.routes.draw do
 
       namespace :fedibird do
         resource :translation_languages, only: [:show]
+        resources :user_posting_contexts, only: :index
 
         resources :accounts, only: [] do
           resource :posting_context, only: :show, module: :accounts, controller: :posting_contexts

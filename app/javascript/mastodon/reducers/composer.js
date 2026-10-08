@@ -66,11 +66,22 @@ import {
 import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { REDRAFT } from '../actions/statuses';
 import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE } from '../actions/composer';
+import { USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DESTINATION, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../actions/user_posting_styles';
 import { Map as ImmutableMap, List as ImmutableList, Set as ImmutableSet, OrderedSet as ImmutableOrderedSet, fromJS } from 'immutable';
 import uuid from '../uuid';
 import { normalizeManagedHashtagName } from '../posting_context/managed_hashtags';
-import { normalizeManagedMentionAcct } from '../posting_context/managed_mentions';
-import { isExistingPostEdit } from '../posting_context/materialize';
+import { isExistingPostEdit, postingContextOutputSignature } from '../posting_context/materialize';
+import {
+  abandonStyleDestination,
+  clearStyleManualState,
+  commitUserPostingStyle,
+  finishStyleDestination,
+  initialUserPostingStyle,
+  reapplySelectedStyle,
+  releaseStyleDestination,
+  rememberManualSetting,
+  toggleStyleHashtag,
+} from '../posting_context/user_style_state';
 import { me } from '../initial_state';
 import { unescapeHTML } from '../utils/html';
 import { format } from 'date-fns';
@@ -155,6 +166,7 @@ export const initialState = ImmutableMap({
       }),
     }),
   }),
+  userPostingStyle: initialUserPostingStyle(),
 });
 
 const initialPoll = ImmutableMap({
@@ -194,25 +206,6 @@ const statusToTextMentions = (text, privacy, replyStatus) => {
 
 const clearManagedHashtagSuppressions = map => {
   map.setIn(['context', 'suppressions', 'hashtags'], ImmutableSet());
-};
-
-const postingContextOutputSignature = state => {
-  const hashtags = state.getIn(['context', 'managed', 'hashtags'], ImmutableList());
-  const suppressed = state.getIn(['context', 'suppressions', 'hashtags'], ImmutableSet());
-  const hashtagPart = hashtags
-    .map(tag => tag.get('normalizedName'))
-    .filter(name => name && !suppressed.includes(name))
-    .sort()
-    .join('\0');
-  const mentions = state.getIn(['context', 'managed', 'mentions'], ImmutableList());
-  const mentionPart = mentions
-    .filter(mention => mention.get('enforcement') === 'required' && mention.get('acct'))
-    .map(mention => `${mention.get('accountId')}:${normalizeManagedMentionAcct(mention.get('acct'))}`)
-    .sort()
-    .join('\0');
-  const audienceAccountId = state.getIn(['context', 'protocol', 'activityPub', 'audience', 'accountId'], null) || '';
-
-  return [hashtagPart, mentionPart, audienceAccountId].filter(Boolean).join('\n');
 };
 
 const managedHashtagRecord = tag => {
@@ -569,6 +562,12 @@ export default function composer(state = initialState, action) {
       }
     });
   }
+  case USER_POSTING_STYLE_COMMIT:
+    return commitUserPostingStyle(state, action);
+  case USER_POSTING_STYLE_DESTINATION:
+    return finishStyleDestination(state, action);
+  case USER_POSTING_STYLE_HASHTAG_TOGGLE:
+    return toggleStyleHashtag(state, action);
   case COMPOSER_CONTEXT_HASHTAG_TOGGLE: {
     if (isExistingPostEdit(state)) {
       return state;
@@ -587,6 +586,7 @@ export default function composer(state = initialState, action) {
     return state.withMutations(map => {
       if (!state.get('spoiler')) {
         map.set('sensitive', !state.get('sensitive'));
+        rememberManualSetting(map, 'sensitive');
       }
 
       map.set('idempotencyKey', uuid());
@@ -601,13 +601,17 @@ export default function composer(state = initialState, action) {
       if (!state.get('sensitive') && state.get('media_attachments').size >= 1) {
         map.set('sensitive', true);
       }
+
+      rememberManualSetting(map, 'spoiler');
     });
   case COMPOSE_SPOILER_TEXT_CHANGE:
     if (!state.get('spoiler')) return state;
-    return state
-      .set('spoiler_text', action.text)
-      .set('idempotencyKey', uuid())
-      .set('dirty', true);
+    return state.withMutations(map => {
+      map.set('spoiler_text', action.text);
+      map.set('idempotencyKey', uuid());
+      map.set('dirty', true);
+      rememberManualSetting(map, 'spoiler');
+    });
   case COMPOSE_VISIBILITY_CHANGE:
     if (state.get('id')) return state;
     return state.withMutations(map => {
@@ -619,6 +623,7 @@ export default function composer(state = initialState, action) {
       map.set('idempotencyKey', uuid());
       map.set('dirty', true);
       map.set('circle_id', null);
+      rememberManualSetting(map, 'privacy');
     });
   case COMPOSE_SEARCHABILITY_CHANGE:
     if (state.get('id')) return state;
@@ -650,6 +655,8 @@ export default function composer(state = initialState, action) {
     return state.set('is_composing', action.value);
   case COMPOSE_REPLY:
     return state.withMutations(map => {
+      releaseStyleDestination(map);
+
       if (state.get('id')) {
         map.update('media_attachments', list => list.clear());
         map.set('poll', null);
@@ -698,6 +705,8 @@ export default function composer(state = initialState, action) {
     });
   case COMPOSE_QUOTE:
     return state.withMutations(map => {
+      releaseStyleDestination(map);
+
       if (state.get('id')) {
         map.update('media_attachments', list => list.clear());
         map.set('poll', null);
@@ -737,16 +746,16 @@ export default function composer(state = initialState, action) {
       }
     });
   case COMPOSE_EDIT_CANCEL:
-    return clearAll(state);
+    return reapplySelectedStyle(clearStyleManualState(clearAll(state)), { respectManual: false, resetSuppressions: true });
   case COMPOSE_REPLY_CANCEL:
   case COMPOSE_QUOTE_CANCEL:
   case COMPOSE_SCHEDULED_EDIT_CANCEL:
   case COMPOSE_RESET:
     if (state.get('id')) {
-      return clearAll(state);
+      return reapplySelectedStyle(clearStyleManualState(clearAll(state)), { respectManual: false, resetSuppressions: true });
     }
 
-    return state.withMutations(map => {
+    return reapplySelectedStyle(state.withMutations(map => {
       map.set('in_reply_to', null);
       map.set('quote_from', null);
       map.set('quote_from_url', null);
@@ -772,14 +781,14 @@ export default function composer(state = initialState, action) {
       }
       clearScheduledDraftProvenance(map);
       clearManagedHashtagSuppressions(map);
-    });
+    }), { respectManual: true, resetSuppressions: false });
   case COMPOSE_SUBMIT_REQUEST:
     return state.set('is_submitting', true);
   case COMPOSE_UPLOAD_CHANGE_REQUEST:
     return state.set('is_changing_upload', true);
   case COMPOSE_SUBMIT_SUCCESS:
   case SCHEDULED_STATUS_SUBMIT_SUCCESS:
-    return clearAll(state);
+    return reapplySelectedStyle(clearStyleManualState(clearAll(state)), { respectManual: false, resetSuppressions: true });
   case COMPOSE_SUBMIT_FAIL:
     return state.set('is_submitting', false);
   case COMPOSE_UPLOAD_CHANGE_FAIL:
@@ -899,6 +908,7 @@ export default function composer(state = initialState, action) {
     const scheduledStatusId = action.status.get('scheduled_status_id', null);
 
     return state.withMutations(map => {
+      abandonStyleDestination(map);
       map.set('id', null);
       map.set('language', action.status.get('language') || state.get('default_language'));
 
@@ -961,12 +971,15 @@ export default function composer(state = initialState, action) {
   case COMPOSE_POLL_SETTINGS_CHANGE:
     return state.update('poll', poll => poll.set('expires_in', action.expiresIn).set('multiple', action.isMultiple));
   case COMPOSE_LANGUAGE_CHANGE:
-    return state
-      .set('language', action.language)
-      .set('idempotencyKey', uuid())
-      .set('dirty', true);
+    return state.withMutations(map => {
+      map.set('language', action.language);
+      map.set('idempotencyKey', uuid());
+      map.set('dirty', true);
+      rememberManualSetting(map, 'language');
+    });
   case COMPOSE_SET_STATUS:
     return state.withMutations(map => {
+      abandonStyleDestination(map);
       const media = action.status.get('media_attachments') || ImmutableList();
 
       map.set('id', action.status.get('id'));

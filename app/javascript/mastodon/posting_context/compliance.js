@@ -124,10 +124,16 @@ export function selectComposerPostingContextCompliance(state, composerId) {
 
   const audience = composer.getIn(['context', 'protocol', 'activityPub', 'audience']);
   const audienceValid = !(audience && audience.get('enforcement') === 'required' && !audience.get('accountId'));
+  const destinationStatus = composer.getIn(['userPostingStyle', 'destinationStatus']);
+  const destinationValid = destinationStatus !== 'pending' && destinationStatus !== 'needs_resolve' && destinationStatus !== 'failed';
 
   return {
-    valid: visibilityValid && followingValid && mentionsValid && audienceValid,
+    valid: visibilityValid && followingValid && mentionsValid && audienceValid && destinationValid,
     visibility,
     followingAccounts,
+    destination: {
+      valid: destinationValid,
+      status: destinationStatus || 'idle',
+    },
   };
 }

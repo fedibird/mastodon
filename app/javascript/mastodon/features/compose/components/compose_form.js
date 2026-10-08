@@ -78,6 +78,8 @@ class ComposeForm extends ImmutablePureComponent {
     isScheduledStatusEditting: PropTypes.bool,
     isEditing: PropTypes.bool,
     lang: PropTypes.string,
+    styleController: PropTypes.node,
+    stylePicker: PropTypes.node,
     onCancelEdit: PropTypes.func,
     onChange: PropTypes.func.isRequired,
     onSubmit: PropTypes.func.isRequired,
@@ -374,6 +376,7 @@ class ComposeForm extends ImmutablePureComponent {
 
     return (
       <div className={simple ? 'compose-form compose-form--simple' : 'compose-form'}>
+        {this.props.styleController}
         {!simple && (
           <Fragment key='advanced'>
             <WarningContainer />
@@ -406,6 +409,8 @@ class ComposeForm extends ImmutablePureComponent {
                 lang={this.props.lang}
               />
             </div>
+
+            {this.props.stylePicker}
 
             <div className='compose-form__dropdowns'>
               <PrivacyDropdownContainer disabled={this.props.isEditing} showLabel />

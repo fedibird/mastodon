@@ -1,7 +1,9 @@
 import { connect } from 'react-redux';
 import { List as ImmutableList, Set as ImmutableSet } from 'immutable';
 import { toggleComposerManagedHashtag } from '../../../actions/composer';
+import { toggleUserPostingStyleHashtag } from '../../../actions/user_posting_styles';
 import { selectComposerPostingContextCompliance } from '../../../posting_context/compliance';
+import { styleHashtagChips } from '../../../posting_context/materialize';
 import { selectComposer } from '../../../selectors/composer';
 import { withComposerId } from '../composer_id_context';
 import PostingContextBar from '../components/posting_context_bar';
@@ -23,7 +25,7 @@ const mapStateToProps = (state, { composerId }) => {
   const compliance = selectComposerPostingContextCompliance(state, composerId);
 
   return {
-    hashtags: composer.getIn(['context', 'managed', 'hashtags'], ImmutableList()),
+    hashtags: composer.getIn(['context', 'managed', 'hashtags'], ImmutableList()).concat(styleHashtagChips(composer)),
     suppressedHashtags: composer.getIn(['context', 'suppressions', 'hashtags'], ImmutableSet()),
     mentions: composer.getIn(['context', 'managed', 'mentions'], ImmutableList()),
     audience: composer.getIn(['context', 'protocol', 'activityPub', 'audience']),
@@ -34,7 +36,12 @@ const mapStateToProps = (state, { composerId }) => {
 
 const mapDispatchToProps = (dispatch, { composerId }) => ({
 
-  onToggle (normalizedName) {
+  onToggle (normalizedName, origin) {
+    if (origin === 'style' || origin === 'destination') {
+      dispatch(toggleUserPostingStyleHashtag(composerId, origin, normalizedName));
+      return;
+    }
+
     dispatch(toggleComposerManagedHashtag(composerId, normalizedName));
   },
 
