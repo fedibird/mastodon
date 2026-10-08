@@ -2,14 +2,16 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { connect } from 'react-redux';
 import { changeComposing, mountCompose, unmountCompose } from '../../actions/compose';
+import { changeSetting } from '../../actions/settings';
 import { applyComposerPostingContext, createComposer, targetComposerAction } from '../../actions/composer';
-import { selectComposer, selectPortableComposerSeed } from '../../selectors/composer';
+import { selectComposer, selectPortableComposerDisplayMode, selectPortableComposerSeed } from '../../selectors/composer';
 import ComposeFormContainer from './containers/compose_form_container';
 import { ComposerProvider } from './composer_id_context';
 
 const mapStateToProps = (state, { composerId }) => ({
   exists: selectComposer(state, composerId) !== null,
   seed: selectPortableComposerSeed(state),
+  displayMode: selectPortableComposerDisplayMode(state, composerId),
 });
 
 class PortableComposer extends React.PureComponent {
@@ -20,6 +22,7 @@ class PortableComposer extends React.PureComponent {
     exists: PropTypes.bool,
     seed: PropTypes.object,
     postingContext: PropTypes.object,
+    displayMode: PropTypes.oneOf(['full', 'simple']),
   };
 
   applyPostingContext () {
@@ -71,8 +74,17 @@ class PortableComposer extends React.PureComponent {
     dispatch(targetComposerAction(changeComposing(false), composerId));
   }
 
+  handleDisplayModeChange = (mode) => {
+    const { composerId, dispatch } = this.props;
+
+    dispatch(changeSetting(
+      ['portableComposerDisplayMode', composerId],
+      mode,
+    ));
+  }
+
   render () {
-    const { composerId, exists } = this.props;
+    const { composerId, displayMode, exists } = this.props;
 
     if (!exists) {
       return null;
@@ -81,7 +93,11 @@ class PortableComposer extends React.PureComponent {
     return (
       <div className='portable-composer' onFocus={this.handleFocus} onBlur={this.handleBlur}>
         <ComposerProvider composerId={composerId}>
-          <ComposeFormContainer autoFocus={false} />
+          <ComposeFormContainer
+            autoFocus={false}
+            displayMode={displayMode}
+            onDisplayModeChange={this.handleDisplayModeChange}
+          />
         </ComposerProvider>
       </div>
     );

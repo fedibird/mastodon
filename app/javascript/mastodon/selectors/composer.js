@@ -65,6 +65,18 @@ export const selectPortableComposerVisible = (state, composerId) => (
   state.getIn(['settings', 'portableComposerVisibility', composerId], false) === true
 );
 
+export const PORTABLE_COMPOSER_MODE_FULL = 'full';
+export const PORTABLE_COMPOSER_MODE_SIMPLE = 'simple';
+
+export const selectPortableComposerDisplayMode = (state, composerId) => (
+  state.getIn(
+    ['settings', 'portableComposerDisplayMode', composerId],
+    PORTABLE_COMPOSER_MODE_FULL,
+  ) === PORTABLE_COMPOSER_MODE_SIMPLE
+    ? PORTABLE_COMPOSER_MODE_SIMPLE
+    : PORTABLE_COMPOSER_MODE_FULL
+);
+
 export const getComposerStatePath = (
   composerId = PRIMARY_COMPOSER_ID,
   ...path
