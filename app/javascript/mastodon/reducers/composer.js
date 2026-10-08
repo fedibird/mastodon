@@ -65,12 +65,14 @@ import {
 } from '../actions/compose';
 import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { REDRAFT } from '../actions/statuses';
-import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE } from '../actions/composer';
-import { USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DESTINATION, USER_POSTING_STYLE_DESTINATION_RETRY, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../actions/user_posting_styles';
+import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE, COMPOSER_SURFACE_ACCEPT } from '../actions/composer';
+import { USER_POSTING_STYLE_AUTO_ATTEMPT, USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DESTINATION, USER_POSTING_STYLE_DESTINATION_RETRY, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../actions/user_posting_styles';
 import { Map as ImmutableMap, List as ImmutableList, Set as ImmutableSet, OrderedSet as ImmutableOrderedSet, fromJS } from 'immutable';
 import uuid from '../uuid';
 import { normalizeManagedHashtagName } from '../posting_context/managed_hashtags';
 import { isExistingPostEdit, postingContextOutputSignature } from '../posting_context/materialize';
+import { styleMatchesSurface, surfaceApplyDecision } from '../posting_context/surface';
+import { resolveUserPostingStyle } from '../posting_context/user_style_resolver';
 import {
   abandonStyleDestination,
   applySensitiveOnFirstMedia,
@@ -80,6 +82,7 @@ import {
   commitUserPostingStyle,
   finishStyleDestination,
   initialUserPostingStyle,
+  notePortableDraftInput,
   reapplySelectedStyle,
   releaseStyleDestination,
   rememberManualSetting,
@@ -173,6 +176,10 @@ export const initialState = ImmutableMap({
     }),
   }),
   userPostingStyle: initialUserPostingStyle(),
+  surface: null,
+  pendingSurface: null,
+  surfaceMismatch: false,
+  surfaceEpoch: 0,
 });
 
 const initialPoll = ImmutableMap({
@@ -356,6 +363,8 @@ const appendMedia = (state, media, file) => {
     if (prevSize === 0) {
       applySensitiveOnFirstMedia(map, state);
     }
+
+    notePortableDraftInput(map);
   });
 };
 
@@ -515,6 +524,163 @@ const stripCompatibleText = html => {
   return fragment.innerHTML;
 };
 
+const rememberSurface = (map, incoming, epoch) => {
+  map.set('surface', ImmutableMap({ kind: incoming.kind, key: incoming.key }));
+  map.set('pendingSurface', null);
+  map.set('surfaceMismatch', false);
+  map.set('surfaceEpoch', epoch);
+  map.setIn(['userPostingStyle', 'destinationPolicy'], 'locked');
+};
+
+const rememberPendingSurface = (map, action, incoming) => {
+  map.set('surfaceMismatch', true);
+  map.set('surfaceEpoch', action.surfaceEpoch || map.get('surfaceEpoch') || 0);
+  map.set('pendingSurface', ImmutableMap({
+    kind: incoming.kind,
+    key: incoming.key,
+    postingContext: action.postingContext,
+    postingContextAccountId: action.postingContextAccountId ?? null,
+    hasPostingContext: action.hasPostingContext !== false,
+    surfaceEpoch: action.surfaceEpoch || 0,
+  }));
+};
+
+const releaseIncompatibleStyle = (state, incoming) => {
+  const selectedId = state.getIn(['userPostingStyle', 'selectedId']);
+  const snapshot = state.getIn(['userPostingStyle', 'snapshot']);
+
+  if (!selectedId || styleMatchesSurface(snapshot, incoming)) {
+    return state;
+  }
+
+  return commitUserPostingStyle(state, {
+    plan: resolveUserPostingStyle(null, state, { destinationPolicy: 'locked' }),
+    snapshot: null,
+    resetSuppressions: true,
+    selectionOrigin: null,
+    evaluatedSurface: null,
+  });
+};
+
+const applyPostingContextFields = (state, action) => {
+  const postingContext = action.postingContext;
+  const hasPostingContextAccountId = Object.prototype.hasOwnProperty.call(action, 'postingContextAccountId');
+  const postingContextAccountId = hasPostingContextAccountId ? (action.postingContextAccountId || null) : null;
+  const previousSignature = postingContextOutputSignature(state);
+
+  if (!postingContext) {
+    return state.withMutations(map => {
+      map.set('context', emptyPostingContext());
+
+      if (hasPostingContextAccountId) {
+        map.set('posting_context_account_id', postingContextAccountId);
+      }
+
+      if (previousSignature !== '' && (state.get('idempotencyKey') || state.get('text') || state.get('dirty'))) {
+        map.set('idempotencyKey', uuid());
+      }
+    });
+  }
+
+  const nextKey = postingContext.key || null;
+  const sameKey = state.getIn(['context', 'key']) === nextKey;
+  const hashtags = ImmutableList(((postingContext.managed && postingContext.managed.hashtags) || []).map(managedHashtagRecord));
+  const mentions = ImmutableList(((postingContext.managed && postingContext.managed.mentions) || []).map(managedMentionRecord));
+  const followingAccounts = ImmutableList(((postingContext.requirements && postingContext.requirements.followingAccounts) || []).map(followingAccountRecord));
+  const source = postingContext.source ? ImmutableMap({
+    id: postingContext.source.id,
+    revision: postingContext.source.revision,
+  }) : null;
+
+  return state.withMutations(map => {
+    map.setIn(['context', 'key'], nextKey);
+    map.setIn(['context', 'source'], source);
+
+    if (hasPostingContextAccountId) {
+      map.set('posting_context_account_id', postingContextAccountId);
+      map.setIn(['context', 'resolvedAccountId'], postingContextAccountId);
+    }
+    map.setIn(['context', 'managed', 'hashtags'], hashtags);
+    map.setIn(['context', 'managed', 'mentions'], mentions);
+    map.setIn(['context', 'requirements', 'followingAccounts'], followingAccounts);
+    map.setIn(['context', 'constraints', 'allowedVisibilities'], allowedVisibilitySet(postingContext));
+    map.setIn(['context', 'protocol', 'activityPub', 'audience'], activityPubAudienceRecord(activityPubAudienceFromContext(postingContext)));
+
+    if (!sameKey) {
+      map.setIn(['context', 'suppressions', 'hashtags'], ImmutableSet());
+    }
+
+    if (previousSignature !== postingContextOutputSignature(map) && (state.get('idempotencyKey') || state.get('text') || state.get('dirty'))) {
+      map.set('idempotencyKey', uuid());
+    }
+  });
+};
+
+const reduceSurfaceContext = (state, action) => {
+  if (isExistingPostEdit(state)) {
+    return state;
+  }
+
+  const decision = surfaceApplyDecision(state, action);
+
+  if (decision.mode === 'ignore') {
+    return state;
+  }
+
+  if (decision.mode === 'legacy') {
+    return applyPostingContextFields(state, action);
+  }
+
+  if (decision.mode === 'mismatch' || decision.mode === 'refresh-pending') {
+    return state.withMutations(map => rememberPendingSurface(map, action, decision.incoming));
+  }
+
+  if (decision.mode === 'surface-only') {
+    return state.withMutations(map => {
+      rememberSurface(map, decision.incoming, action.surfaceEpoch || 0);
+      map.setIn(['userPostingStyle', 'autoAttemptKey'], null);
+    });
+  }
+
+  const basis = decision.mode === 'replace' ? releaseIncompatibleStyle(state, decision.incoming) : state;
+  const next = applyPostingContextFields(basis, action);
+
+  return next.withMutations(map => {
+    if (decision.mode === 'refresh-held') {
+      map.set('surfaceMismatch', true);
+      map.set('pendingSurface', state.get('pendingSurface'));
+      map.set('surfaceEpoch', action.surfaceEpoch || map.get('surfaceEpoch') || 0);
+      return;
+    }
+
+    rememberSurface(map, decision.incoming, action.surfaceEpoch || 0);
+
+    if (decision.mode !== 'replace') {
+      return;
+    }
+
+    map.setIn(['userPostingStyle', 'autoAttemptKey'], null);
+
+    if (!decision.accept) {
+      map.setIn(['userPostingStyle', 'styleInputLock'], false);
+    }
+
+    if (!map.getIn(['userPostingStyle', 'selectedId'])) {
+      map.setIn(['userPostingStyle', 'selectionOrigin'], null);
+      map.setIn(['userPostingStyle', 'evaluatedSurface'], null);
+    } else {
+      map.setIn(['userPostingStyle', 'evaluatedSurface'], ImmutableMap({
+        kind: decision.incoming.kind,
+        key: decision.incoming.key,
+      }));
+    }
+
+    if (decision.accept) {
+      map.setIn(['userPostingStyle', 'styleInputLock'], true);
+    }
+  });
+};
+
 export default function composer(state = initialState, action) {
   switch(action.type) {
   case COMPOSE_MOUNT:
@@ -523,63 +689,27 @@ export default function composer(state = initialState, action) {
     return state
       .set('mounted', Math.max(state.get('mounted') - 1, 0))
       .set('is_composing', false);
-  case COMPOSER_CONTEXT_APPLY: {
-    if (isExistingPostEdit(state)) {
+  case COMPOSER_CONTEXT_APPLY:
+    return reduceSurfaceContext(state, action);
+  case COMPOSER_SURFACE_ACCEPT: {
+    const pending = state.get('pendingSurface');
+
+    if (!pending || !state.get('surfaceMismatch')) {
       return state;
     }
 
-    const postingContext = action.postingContext;
-    const hasPostingContextAccountId = Object.prototype.hasOwnProperty.call(action, 'postingContextAccountId');
-    const postingContextAccountId = hasPostingContextAccountId ? (action.postingContextAccountId || null) : null;
-    const previousSignature = postingContextOutputSignature(state);
-
-    if (!postingContext) {
-      return state.withMutations(map => {
-        map.set('context', emptyPostingContext());
-
-        if (hasPostingContextAccountId) {
-          map.set('posting_context_account_id', postingContextAccountId);
-        }
-
-        if (previousSignature !== '' && (state.get('idempotencyKey') || state.get('text') || state.get('dirty'))) {
-          map.set('idempotencyKey', uuid());
-        }
-      });
-    }
-
-    const nextKey = postingContext.key || null;
-    const sameKey = state.getIn(['context', 'key']) === nextKey;
-    const hashtags = ImmutableList(((postingContext.managed && postingContext.managed.hashtags) || []).map(managedHashtagRecord));
-    const mentions = ImmutableList(((postingContext.managed && postingContext.managed.mentions) || []).map(managedMentionRecord));
-    const followingAccounts = ImmutableList(((postingContext.requirements && postingContext.requirements.followingAccounts) || []).map(followingAccountRecord));
-    const source = postingContext.source ? ImmutableMap({
-      id: postingContext.source.id,
-      revision: postingContext.source.revision,
-    }) : null;
-
-    return state.withMutations(map => {
-      map.setIn(['context', 'key'], nextKey);
-      map.setIn(['context', 'source'], source);
-
-      if (hasPostingContextAccountId) {
-        map.set('posting_context_account_id', postingContextAccountId);
-        map.setIn(['context', 'resolvedAccountId'], postingContextAccountId);
-      }
-      map.setIn(['context', 'managed', 'hashtags'], hashtags);
-      map.setIn(['context', 'managed', 'mentions'], mentions);
-      map.setIn(['context', 'requirements', 'followingAccounts'], followingAccounts);
-      map.setIn(['context', 'constraints', 'allowedVisibilities'], allowedVisibilitySet(postingContext));
-      map.setIn(['context', 'protocol', 'activityPub', 'audience'], activityPubAudienceRecord(activityPubAudienceFromContext(postingContext)));
-
-      if (!sameKey) {
-        map.setIn(['context', 'suppressions', 'hashtags'], ImmutableSet());
-      }
-
-      if (previousSignature !== postingContextOutputSignature(map) && (state.get('idempotencyKey') || state.get('text') || state.get('dirty'))) {
-        map.set('idempotencyKey', uuid());
-      }
+    return reduceSurfaceContext(state, {
+      type: COMPOSER_CONTEXT_APPLY,
+      postingContext: pending.get('postingContext'),
+      postingContextAccountId: pending.get('postingContextAccountId'),
+      hasPostingContext: pending.get('hasPostingContext') !== false,
+      surface: { kind: pending.get('kind'), key: pending.get('key') },
+      surfaceEpoch: Math.max(Number(state.get('surfaceEpoch')) || 0, Number(pending.get('surfaceEpoch')) || 0),
+      forceSurface: true,
     });
   }
+  case USER_POSTING_STYLE_AUTO_ATTEMPT:
+    return state.setIn(['userPostingStyle', 'autoAttemptKey'], action.autoAttemptKey);
   case USER_POSTING_STYLE_COMMIT:
     return commitUserPostingStyle(state, action);
   case USER_POSTING_STYLE_DESTINATION:
@@ -677,10 +807,15 @@ export default function composer(state = initialState, action) {
       .set('idempotencyKey', uuid())
       .set('dirty', true);
   case COMPOSE_CHANGE:
-    return state
-      .set('text', action.text)
-      .set('idempotencyKey', uuid())
-      .set('dirty', true);
+    return state.withMutations(map => {
+      map.set('text', action.text);
+      map.set('idempotencyKey', uuid());
+      map.set('dirty', true);
+
+      if (String(action.text || '').trim()) {
+        notePortableDraftInput(map);
+      }
+    });
   case COMPOSE_COMPOSING_CHANGE:
     return state.set('is_composing', action.value);
   case COMPOSE_REPLY:
@@ -818,7 +953,10 @@ export default function composer(state = initialState, action) {
     return state.set('is_changing_upload', true);
   case COMPOSE_SUBMIT_SUCCESS:
   case SCHEDULED_STATUS_SUBMIT_SUCCESS:
-    return reapplySelectedStyle(clearStyleManualState(clearAll(state)), { respectManual: false, resetSuppressions: true });
+    return reapplySelectedStyle(clearStyleManualState(clearAll(state)).withMutations(map => {
+      map.setIn(['userPostingStyle', 'styleInputLock'], false);
+      map.setIn(['userPostingStyle', 'autoAttemptKey'], null);
+    }), { respectManual: false, resetSuppressions: true });
   case COMPOSE_SUBMIT_FAIL:
     return state.set('is_submitting', false);
   case COMPOSE_UPLOAD_CHANGE_FAIL:
@@ -989,7 +1127,10 @@ export default function composer(state = initialState, action) {
     });
   }
   case COMPOSE_POLL_ADD:
-    return state.set('poll', initialPoll);
+    return state.withMutations(map => {
+      map.set('poll', initialPoll);
+      notePortableDraftInput(map);
+    });
   case COMPOSE_POLL_REMOVE:
     return state.set('poll', null);
   case COMPOSE_POLL_OPTION_ADD:

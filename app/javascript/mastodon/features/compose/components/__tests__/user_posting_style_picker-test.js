@@ -151,6 +151,32 @@ describe('UserPostingStylePicker', () => {
     expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
   });
 
+  it('names the empty option for a fixed destination separately from the style', () => {
+    render(
+      <UserPostingStylePicker
+        styles={styles}
+        selectedId={null}
+        snapshot={null}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        emptyLabel='place'
+        compact
+        onSelect={jest.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'This place only' }));
+
+    const place = screen.getByRole('menuitemradio', { name: 'This place only' });
+    const circle = screen.getByRole('menuitemradio', { name: /サークル告知/ });
+
+    expect(place).toHaveAttribute('aria-checked', 'true');
+    expect(circle).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText('Destination localsquad')).toBeTruthy();
+    expect(screen.getByText('サークル告知').className).toContain('compose-form__style-name');
+  });
+
   it('offers a way to reload posting styles after the catalog request fails', () => {
     const onRetry = jest.fn();
 

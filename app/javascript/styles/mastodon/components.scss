@@ -754,7 +754,8 @@ body > [data-popper-placement] {
     }
   }
 
-  .compose-form__capability-guard {
+  .compose-form__capability-guard,
+  .compose-form__surface-mismatch {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
@@ -771,6 +772,82 @@ body > [data-popper-placement] {
       cursor: pointer;
       font: inherit;
       text-decoration: underline;
+    }
+  }
+
+  &--simple {
+    .compose-form__simple-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      padding: 6px 10px 0;
+    }
+
+    .compose-form__simple-privacy {
+      flex: 0 1 auto;
+      max-width: 46%;
+      min-width: 0;
+      overflow: hidden;
+      color: $dark-text-color;
+      font-size: 13px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .compose-form__style--compact {
+      flex: 1 1 auto;
+      min-width: 0;
+      margin: 0;
+      padding: 0;
+      background: transparent;
+
+      .compose-form__style-label,
+      .compose-form__style-current-destination {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        border: 0;
+      }
+
+      .compose-form__style-button {
+        max-width: 100%;
+        padding: 2px 0;
+      }
+
+      .compose-form__style-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .compose-form__style-menu {
+        left: 0;
+        right: auto;
+        width: max(100%, 12rem);
+        max-width: calc(100vw - 24px);
+      }
+    }
+
+    .autosuggest-textarea__textarea {
+      min-height: 4.5em;
+    }
+  }
+
+  @media screen and (max-width: 375px) {
+    &--simple {
+      .compose-form__simple-bar {
+        gap: 6px;
+      }
+
+      .compose-form__simple-privacy {
+        max-width: 42%;
+        font-size: 12px;
+      }
     }
   }
 

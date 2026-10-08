@@ -59,6 +59,16 @@ const rememberTag = (groups, record) => {
   groups.get(record.normalizedName).push(record);
 };
 
+const styleDestinationHashtagActive = composer => {
+  if (composer.getIn(['userPostingStyle', 'destinationStatus']) === 'ready') {
+    return true;
+  }
+
+  // A locked portable composer keeps the surface destination. The style's
+  // hashtag is still an advisory tag and is merged by normalized name.
+  return composer.getIn(['userPostingStyle', 'destinationPolicy']) === 'locked';
+};
+
 const collectTagGroups = composer => {
   const groups = new Map();
   const contextTags = composer.getIn(['context', 'managed', 'hashtags']);
@@ -77,7 +87,7 @@ const collectTagGroups = composer => {
       styleTags.forEach(tag => rememberTag(groups, tagRecord(tag, 'style')));
     }
 
-    if (snapshot.getIn(['target', 'kind']) === 'hashtag' && composer.getIn(['userPostingStyle', 'destinationStatus']) === 'ready') {
+    if (snapshot.getIn(['target', 'kind']) === 'hashtag' && styleDestinationHashtagActive(composer)) {
       const hashtag = snapshot.getIn(['target', 'hashtag']);
 
       rememberTag(groups, tagRecord(ImmutableMap({
@@ -201,7 +211,7 @@ export function styleHashtagChips(composer) {
     styleTags.forEach(tag => pushChip(tag.get('name'), 'style'));
   }
 
-  if (snapshot.getIn(['target', 'kind']) === 'hashtag' && composer.getIn(['userPostingStyle', 'destinationStatus']) === 'ready') {
+  if (snapshot.getIn(['target', 'kind']) === 'hashtag' && styleDestinationHashtagActive(composer)) {
     pushChip(snapshot.getIn(['target', 'hashtag']), 'destination');
   }
 

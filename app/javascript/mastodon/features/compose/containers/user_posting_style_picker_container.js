@@ -6,8 +6,9 @@ import { List as ImmutableList } from 'immutable';
 import { openModal } from '../../../actions/modal';
 import { commitUserPostingStyle, fetchUserPostingStyles, retryUserPostingStyleDestination } from '../../../actions/user_posting_styles';
 import { selectComposerPostingContextCompliance } from '../../../posting_context/compliance';
+import { selectPortablePostingStyleCandidates } from '../../../posting_context/surface';
 import { resolveUserPostingStyle } from '../../../posting_context/user_style_resolver';
-import { selectComposer } from '../../../selectors/composer';
+import { PORTABLE_COMPOSER_MODE_SIMPLE, selectComposer, selectPortableComposerDisplayMode } from '../../../selectors/composer';
 import { PRIMARY_COMPOSER_ID } from '../../../utils/composer';
 import { withComposerId } from '../composer_id_context';
 import UserPostingStylePicker, { IntlUserPostingStyleCatalogNotice } from '../components/user_posting_style_picker';
@@ -31,20 +32,26 @@ const mapStateToProps = (state, { composerId }) => {
   const composer = selectComposer(state, composerId);
   const catalogStatus = state.getIn(['userPostingStyles', 'status']);
   const editing = Boolean(composer && (composer.get('id') || composer.get('scheduled_status_id')));
-  const primary = composerId === PRIMARY_COMPOSER_ID && !editing && Boolean(composer);
-  const visible = primary && catalogStatus === 'ready';
-  const catalogFailed = primary && catalogStatus === 'failed';
+  const surface = composer && composer.get('surface');
+  const portable = Boolean(surface);
+  const eligible = !editing && Boolean(composer) && (composerId === PRIMARY_COMPOSER_ID || portable);
+  const visible = eligible && catalogStatus === 'ready';
+  const catalogFailed = eligible && catalogStatus === 'failed';
 
   if (!composer || (!visible && !catalogFailed)) {
     return { visible: false, catalogFailed: false, styles: ImmutableList() };
   }
 
   const compliance = selectComposerPostingContextCompliance(state, composerId);
+  const styles = state.getIn(['userPostingStyles', 'styles'], ImmutableList());
+  const kind = surface && surface.get('kind');
 
   return {
     visible,
     catalogFailed,
-    styles: state.getIn(['userPostingStyles', 'styles'], ImmutableList()),
+    styles: portable ? selectPortablePostingStyleCandidates(styles, surface) : styles,
+    emptyLabel: kind === 'group' || kind === 'hashtag' ? 'place' : 'usual',
+    compact: portable && selectPortableComposerDisplayMode(state, composerId) === PORTABLE_COMPOSER_MODE_SIMPLE,
     selectedId: composer.getIn(['userPostingStyle', 'selectedId']),
     snapshot: composer.getIn(['userPostingStyle', 'snapshot']),
     unapplied: composer.getIn(['userPostingStyle', 'unapplied'], ImmutableList()),
@@ -64,7 +71,8 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => {
       }
 
       const style = styleId === null || styleId === undefined ? null : findStyle(getState(), styleId);
-      const plan = resolveUserPostingStyle(style, composer);
+      const destinationPolicy = composer.get('surface') ? 'locked' : 'change';
+      const plan = resolveUserPostingStyle(style, composer, { destinationPolicy });
       const apply = () => dispatch(commitUserPostingStyle(composerId, styleId));
 
       if (plan.needsConfirmation) {

@@ -3,7 +3,8 @@ import PropTypes from 'prop-types';
 import { connect } from 'react-redux';
 import { changeComposing, mountCompose, unmountCompose } from '../../actions/compose';
 import { changeSetting } from '../../actions/settings';
-import { applyComposerPostingContext, createComposer, targetComposerAction } from '../../actions/composer';
+import { applyComposerPostingContext, applyComposerSurface, createComposer, targetComposerAction } from '../../actions/composer';
+import { surfacesEqual } from '../../posting_context/surface';
 import { selectComposer, selectPortableComposerDisplayMode, selectPortableComposerSeed } from '../../selectors/composer';
 import ComposeFormContainer from './containers/compose_form_container';
 import { ComposerProvider } from './composer_id_context';
@@ -23,11 +24,20 @@ class PortableComposer extends React.PureComponent {
     seed: PropTypes.object,
     postingContext: PropTypes.object,
     postingContextAccountId: PropTypes.string,
+    surface: PropTypes.shape({
+      kind: PropTypes.oneOf(['group', 'hashtag', 'list']).isRequired,
+      key: PropTypes.string.isRequired,
+    }),
     displayMode: PropTypes.oneOf(['full', 'simple']),
   };
 
-  applyPostingContext () {
-    const { composerId, dispatch, postingContext, postingContextAccountId } = this.props;
+  syncDestination () {
+    const { composerId, dispatch, postingContext, postingContextAccountId, surface } = this.props;
+
+    if (surface) {
+      dispatch(applyComposerSurface(composerId, surface, postingContext, postingContextAccountId));
+      return;
+    }
 
     if (postingContext === undefined) {
       return;
@@ -36,17 +46,13 @@ class PortableComposer extends React.PureComponent {
     dispatch(applyComposerPostingContext(composerId, postingContext, postingContextAccountId));
   }
 
-  componentDidMount () {
-    const { composerId, dispatch, seed } = this.props;
+  destinationChanged (prevProps) {
+    if (!surfacesEqual(prevProps.surface, this.props.surface)) {
+      return true;
+    }
 
-    dispatch(createComposer(composerId, seed));
-    dispatch(targetComposerAction(mountCompose(), composerId));
-    this.applyPostingContext();
-  }
-
-  componentDidUpdate (prevProps) {
-    if (this.props.postingContext === undefined) {
-      return;
+    if (!this.props.surface && this.props.postingContext === undefined) {
+      return false;
     }
 
     const previousContext = JSON.stringify(prevProps.postingContext || null);
@@ -54,8 +60,20 @@ class PortableComposer extends React.PureComponent {
     const previousAccountId = prevProps.postingContextAccountId || null;
     const nextAccountId = this.props.postingContextAccountId || null;
 
-    if (previousContext !== nextContext || previousAccountId !== nextAccountId) {
-      this.applyPostingContext();
+    return previousContext !== nextContext || previousAccountId !== nextAccountId;
+  }
+
+  componentDidMount () {
+    const { composerId, dispatch, seed } = this.props;
+
+    dispatch(createComposer(composerId, seed));
+    dispatch(targetComposerAction(mountCompose(), composerId));
+    this.syncDestination();
+  }
+
+  componentDidUpdate (prevProps) {
+    if (this.destinationChanged(prevProps)) {
+      this.syncDestination();
     }
   }
 

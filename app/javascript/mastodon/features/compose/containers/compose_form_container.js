@@ -14,7 +14,7 @@ import {
   cancelEditCompose,
 } from '../../../actions/compose';
 import { openModal } from '../../../actions/modal';
-import { targetComposerAction } from '../../../actions/composer';
+import { acceptComposerSurface, targetComposerAction } from '../../../actions/composer';
 import { selectComposerEffectiveCreateCapability } from '../../../posting_context/create_capability';
 import { materializeComposerText } from '../../../posting_context/materialize';
 import { selectComposer } from '../../../selectors/composer';
@@ -58,6 +58,7 @@ const mapStateToProps = (state, { composerId }) => {
     isScheduledStatusEditting: !!composer.get('scheduled_status_id'),
     isEditing: !!composer.get('id'),
     lang: composer.get('language'),
+    surfaceMismatch: composer.get('surfaceMismatch') === true,
   };
 };
 
@@ -93,6 +94,10 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
 
   onPickEmoji (position, data, needsSpace) {
     dispatch(targetComposerAction(insertEmojiCompose(position, data, needsSpace), composerId));
+  },
+
+  onAcceptSurface () {
+    dispatch(acceptComposerSurface(composerId));
   },
 
   onCancelEdit () {

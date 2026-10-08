@@ -322,7 +322,7 @@ export function submitComposerWithCheck(composerId, routerHistory, intl) {
       return;
     }
 
-    if (!selectComposerEffectiveCreateCapability(state, composerId).canAttempt) {
+    if (composer.get('surfaceMismatch') || !selectComposerEffectiveCreateCapability(state, composerId).canAttempt) {
       return;
     }
 
@@ -385,7 +385,7 @@ export function submitComposer(composerId, routerHistory) {
       return Promise.resolve();
     }
 
-    if (!selectComposerEffectiveCreateCapability(state, composerId).canAttempt) {
+    if (composer.get('surfaceMismatch') || !selectComposerEffectiveCreateCapability(state, composerId).canAttempt) {
       return Promise.resolve();
     }
 

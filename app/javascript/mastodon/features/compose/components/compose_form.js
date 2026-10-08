@@ -49,6 +49,15 @@ const messages = defineMessages({
   and: { id: 'compose_form.and', defaultMessage: ' + ' },
   simpleMode: { id: 'compose_form.simple_mode', defaultMessage: 'Switch to simple view' },
   fullMode: { id: 'compose_form.full_mode', defaultMessage: 'Show full composer' },
+  privacyPublic: { id: 'privacy.public.short', defaultMessage: 'Public' },
+  privacyUnlisted: { id: 'privacy.unlisted.short', defaultMessage: 'Unlisted' },
+  privacyPrivate: { id: 'privacy.private.short', defaultMessage: 'Followers-only' },
+  privacyMutual: { id: 'privacy.mutual.short', defaultMessage: 'Mutuals-followers-only' },
+  privacyLimited: { id: 'privacy.limited.short', defaultMessage: 'Circle' },
+  privacyDirect: { id: 'privacy.direct.short', defaultMessage: 'Direct' },
+  privacyPersonal: { id: 'privacy.personal.short', defaultMessage: 'Personal' },
+  surfaceMismatch: { id: 'compose_form.posting_style.surface_mismatch', defaultMessage: 'This draft still uses the previous destination. Posting stays off until you apply the destination shown here.' },
+  surfaceAccept: { id: 'compose_form.posting_style.surface_accept', defaultMessage: 'Use this destination' },
 });
 
 export default @injectIntl
@@ -97,6 +106,8 @@ class ComposeForm extends ImmutablePureComponent {
     contextCompliant: PropTypes.bool,
     canAttempt: PropTypes.bool,
     capabilityReason: PropTypes.string,
+    surfaceMismatch: PropTypes.bool,
+    onAcceptSurface: PropTypes.func,
     displayMode: PropTypes.oneOf(['full', 'simple']),
     onDisplayModeChange: PropTypes.func,
   };
@@ -107,6 +118,7 @@ class ComposeForm extends ImmutablePureComponent {
     contextCompliant: true,
     canAttempt: true,
     capabilityReason: null,
+    surfaceMismatch: false,
     displayMode: 'full',
   };
 
@@ -136,7 +148,39 @@ class ComposeForm extends ImmutablePureComponent {
     const noVisibility = !isEditing && prohibitedVisibilities?.includes(privacy);
     const ngWords = prohibitedWords.some( word => composedText.includes(word) || spoilerText?.includes(word) );
 
-    return !(isSubmitting || isUploading || isChangingUpload || isCircleUnselected || length(fulltext) > maxChars || (isOnlyWhitespace && !anyMedia) || noVisibility || ngWords || !contextCompliant || !canAttempt);
+    return !(isSubmitting || isUploading || isChangingUpload || isCircleUnselected || length(fulltext) > maxChars || (isOnlyWhitespace && !anyMedia) || noVisibility || ngWords || !contextCompliant || !canAttempt || this.props.surfaceMismatch);
+  }
+
+  privacyLabel () {
+    const labels = {
+      public: messages.privacyPublic,
+      unlisted: messages.privacyUnlisted,
+      private: messages.privacyPrivate,
+      mutual: messages.privacyMutual,
+      limited: messages.privacyLimited,
+      direct: messages.privacyDirect,
+      personal: messages.privacyPersonal,
+    };
+    const message = labels[this.props.privacy];
+
+    return message ? this.props.intl.formatMessage(message) : null;
+  }
+
+  renderSurfaceMismatch () {
+    if (!this.props.surfaceMismatch) {
+      return null;
+    }
+
+    return (
+      <div className='compose-form__surface-mismatch' role='status'>
+        <span>{this.props.intl.formatMessage(messages.surfaceMismatch)}</span>
+        {this.props.onAcceptSurface ? (
+          <button type='button' onClick={this.props.onAcceptSurface}>
+            {this.props.intl.formatMessage(messages.surfaceAccept)}
+          </button>
+        ) : null}
+      </div>
+    );
   }
 
   renderCapabilityGuard () {
@@ -405,7 +449,14 @@ class ComposeForm extends ImmutablePureComponent {
     return (
       <div className={simple ? 'compose-form compose-form--simple' : 'compose-form'}>
         {this.props.styleController}
+        {this.renderSurfaceMismatch()}
         {this.renderCapabilityGuard()}
+        {simple && (
+          <div className='compose-form__simple-bar'>
+            {this.props.stylePicker}
+            {this.privacyLabel() ? <span className='compose-form__simple-privacy'>{this.privacyLabel()}</span> : null}
+          </div>
+        )}
         {!simple && (
           <Fragment key='advanced'>
             <WarningContainer />

@@ -7,6 +7,7 @@ import classNames from 'classnames';
 const messages = defineMessages({
   label: { id: 'compose_form.posting_style.label', defaultMessage: 'Posting style' },
   usual: { id: 'compose_form.posting_style.usual', defaultMessage: 'Usual settings' },
+  placeOnly: { id: 'compose_form.posting_style.place_only', defaultMessage: 'This place only' },
   settings: { id: 'compose_form.posting_style.settings', defaultMessage: 'Posting style settings' },
   destination: { id: 'compose_form.posting_style.destination', defaultMessage: 'Destination {label}' },
   pending: { id: 'compose_form.posting_style.pending', defaultMessage: 'Checking the destination' },
@@ -63,6 +64,8 @@ class UserPostingStylePicker extends React.PureComponent {
     visibilityConflict: PropTypes.bool,
     onSelect: PropTypes.func.isRequired,
     onRetry: PropTypes.func,
+    emptyLabel: PropTypes.oneOf(['usual', 'place']),
+    compact: PropTypes.bool,
   };
 
   state = {
@@ -214,7 +217,7 @@ class UserPostingStylePicker extends React.PureComponent {
     const label = style ? destinationLabel(style) : null;
     const purpose = style ? style.get('purpose') : '';
     const icon = style ? style.get('icon') : '';
-    const name = style ? style.get('name') : intl.formatMessage(messages.usual);
+    const name = style ? style.get('name') : this.emptyOptionLabel();
 
     return (
       <button
@@ -234,6 +237,16 @@ class UserPostingStylePicker extends React.PureComponent {
         {label ? <span className='compose-form__style-destination'>{intl.formatMessage(messages.destination, { label })}</span> : null}
       </button>
     );
+  }
+
+  emptyOptionLabel () {
+    const { intl, emptyLabel } = this.props;
+
+    if (emptyLabel === 'place') {
+      return intl.formatMessage(messages.placeOnly);
+    }
+
+    return intl.formatMessage(messages.usual);
   }
 
   failureMessage () {
@@ -291,14 +304,14 @@ class UserPostingStylePicker extends React.PureComponent {
   }
 
   render () {
-    const { intl } = this.props;
+    const { intl, compact } = this.props;
     const current = this.currentStyle();
     const icon = current ? current.get('icon') : '';
-    const name = current ? current.get('name') : intl.formatMessage(messages.usual);
+    const name = current ? current.get('name') : this.emptyOptionLabel();
     const label = destinationLabel(current);
 
     return (
-      <div className='compose-form__style' ref={this.setRoot} data-posting-style-picker='true'>
+      <div className={classNames('compose-form__style', { 'compose-form__style--compact': compact })} ref={this.setRoot} data-posting-style-picker='true'>
         <div className='compose-form__style-label' id={this.labelId}>{intl.formatMessage(messages.label)}</div>
         <button
           type='button'
@@ -311,6 +324,7 @@ class UserPostingStylePicker extends React.PureComponent {
         >
           {icon ? <span className='compose-form__style-icon' aria-hidden='true'>{icon}</span> : null}
           <span className='compose-form__style-name'>{name}</span>
+          {compact ? <span className='compose-form__style-caret' aria-hidden='true'>▾</span> : null}
         </button>
         {label ? <div className='compose-form__style-current-destination'>{intl.formatMessage(messages.destination, { label })}</div> : null}
         {this.state.open && (

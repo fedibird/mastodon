@@ -65,6 +65,14 @@ import ComposeForm from '../compose_form';
 
 const noop = () => {};
 
+const SimpleStyleButton = ({ onSelect }) => (
+  <button type='button' onClick={onSelect}>読書メモ</button>
+);
+
+SimpleStyleButton.propTypes = {
+  onSelect: () => null,
+};
+
 const renderForm = (props = {}) => render(
   <ComposeForm
     text=''
@@ -391,6 +399,48 @@ describe('ComposeForm display mode', () => {
 
     expect(document.querySelector('.compose-form__publish-private')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Toot' })).toBeEnabled();
+  });
+
+  it('changes a posting style in simple mode without leaving simple mode', () => {
+    const onDisplayModeChange = jest.fn();
+    const onSelect = jest.fn();
+
+    renderForm({
+      displayMode: 'simple',
+      onDisplayModeChange,
+      privacy: 'unlisted',
+      stylePicker: <SimpleStyleButton onSelect={onSelect} />,
+    });
+
+    expect(screen.getByText('Unlisted')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '読書メモ' }));
+
+    expect(onSelect).toHaveBeenCalled();
+    expect(onDisplayModeChange).not.toHaveBeenCalled();
+    expect(document.querySelector('.compose-form--simple')).toBeTruthy();
+  });
+
+  it('explains a blocked destination change in simple mode', () => {
+    const onSubmit = jest.fn();
+    const onAcceptSurface = jest.fn();
+
+    renderForm({
+      text: 'hello',
+      displayMode: 'simple',
+      onDisplayModeChange: jest.fn(),
+      surfaceMismatch: true,
+      onAcceptSurface,
+      onSubmit,
+    });
+
+    expect(screen.getByRole('button', { name: 'Toot!' })).toBeDisabled();
+    expect(screen.getByRole('status').textContent).toContain('previous destination');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Toot!' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use this destination' }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onAcceptSurface).toHaveBeenCalledTimes(1);
   });
 
   it('returns to full view before accepting a pasted file', () => {
