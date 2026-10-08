@@ -468,7 +468,7 @@ describe('ListTimeline split', () => {
     }
   });
 
-  it('restores history onto the canonical list when the split closes', () => {
+  it('restores history onto the canonical list when the live pane is closed', () => {
     const store = buildStore();
     const { container } = renderList(store, { columnId: 'col-a', multiColumn: true });
 
@@ -496,7 +496,7 @@ describe('ListTimeline split', () => {
 
     const history = container.querySelector('.timeline-split__pane--history .scrollable');
     history.scrollTop = 480;
-    fireEvent.click(container.querySelector('.column-header__split-button'));
+    fireEvent.click(screen.getByRole('button', { name: 'Close live pane' }));
 
     expect(container.querySelector('.timeline-split')).toBeNull();
     expect(container.querySelector('.scrollable').scrollTop).toBe(480);

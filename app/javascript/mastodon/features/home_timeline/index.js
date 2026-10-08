@@ -195,6 +195,7 @@ class HomeTimeline extends React.PureComponent {
       <Fragment>
         {split.splitButton}
         {announcementsButton}
+        {split.closeLiveButton}
       </Fragment>
     );
 

@@ -317,6 +317,7 @@ class ListTimeline extends React.PureComponent {
             <Fragment>
               {split.splitButton}
               <PortableComposerToggle visible={composerVisible} onToggle={this.handleToggleComposer} />
+              {split.closeLiveButton}
             </Fragment>
           )}
           columnWidth={columnWidth}

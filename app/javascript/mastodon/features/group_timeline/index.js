@@ -370,6 +370,7 @@ class GroupTimeline extends React.PureComponent {
               {split.splitButton}
               <PortableComposerToggle visible={composerVisible} onToggle={this.handleToggleComposer} />
               {groupDetailButton}
+              {split.closeLiveButton}
             </Fragment>
           )}
           columnWidth={columnWidth}

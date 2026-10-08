@@ -4,6 +4,8 @@ import PropTypes from 'prop-types';
 import { defineMessages, injectIntl } from 'react-intl';
 import classNames from 'classnames';
 import {
+  TIMELINE_SPLIT_KEEP_HISTORY,
+  TIMELINE_SPLIT_KEEP_LIVE,
   clearTimelineSplitReturnAnchor,
   createTimelineSplit,
   destroyTimelineSplit,
@@ -22,6 +24,8 @@ const messages = defineMessages({
   split: { id: 'timeline.split', defaultMessage: 'Split timeline' },
   unsplit: { id: 'timeline.unsplit', defaultMessage: 'Remove timeline split' },
   splitter: { id: 'timeline.splitter', defaultMessage: 'Timeline splitter' },
+  closeHistoryPane: { id: 'timeline.close_history_pane', defaultMessage: 'Close history pane' },
+  closeLivePane: { id: 'timeline.close_live_pane', defaultMessage: 'Close live pane' },
 });
 
 export const STATUS_TIMELINE_SPLIT_LAYOUT_CLASS = 'status-timeline-split';
@@ -182,11 +186,11 @@ class StatusTimelineSplitController extends React.Component {
     };
   }
 
-  captureHistoryAnchor = () => {
-    const history = this.findScrollable('history');
-    const visibleTop = history ? history.getBoundingClientRect().top : 0;
-    const fallbackOffset = history ? history.scrollTop : 0;
-    const article = findAnchorArticle(history, visibleTop);
+  capturePaneAnchor = (pane) => {
+    const scrollable = this.findScrollable(pane);
+    const visibleTop = scrollable ? scrollable.getBoundingClientRect().top : 0;
+    const fallbackOffset = scrollable ? scrollable.scrollTop : 0;
+    const article = findAnchorArticle(scrollable, visibleTop);
 
     if (!article) {
       return { id: null, offset: 0, fallbackOffset, target: 'document' };
@@ -371,7 +375,7 @@ class StatusTimelineSplitController extends React.Component {
     this.props.dispatch(createTimelineSplit(this.props.sourceTimelineId, this.getSplitTimelineId()));
   }
 
-  unsplitTimeline = () => {
+  unsplitToHistory = () => {
     if (!this.ownsSplit()) {
       return;
     }
@@ -386,21 +390,56 @@ class StatusTimelineSplitController extends React.Component {
     } else {
       this.pendingScroll = null;
       this.shouldResetDocumentScroll = false;
-      this.scrollAnchor = this.captureHistoryAnchor();
+      this.scrollAnchor = this.capturePaneAnchor('history');
     }
 
-    this.props.dispatch(destroyTimelineSplit(this.props.sourceTimelineId, this.getSplitTimelineId()));
+    this.props.dispatch(destroyTimelineSplit(this.props.sourceTimelineId, this.getSplitTimelineId(), {
+      keep: TIMELINE_SPLIT_KEEP_HISTORY,
+    }));
+  }
+
+  unsplitToLive = () => {
+    if (!this.ownsSplit()) {
+      return;
+    }
+
+    const liveScrollTop = this.captureScrollTop('live');
+    const liveAtTop = liveScrollTop <= 1;
+
+    this.scrollAnchorApplied = false;
+
+    if (this.props.isPartial) {
+      this.clearSplitScroll();
+    } else if (this.props.multiColumn) {
+      this.scrollAnchor = null;
+      this.pendingScroll = { top: liveScrollTop, target: 'single' };
+    } else {
+      this.pendingScroll = null;
+      this.shouldResetDocumentScroll = false;
+      this.scrollAnchor = this.capturePaneAnchor('live');
+    }
+
+    this.props.dispatch(destroyTimelineSplit(this.props.sourceTimelineId, this.getSplitTimelineId(), {
+      keep: TIMELINE_SPLIT_KEEP_LIVE,
+      liveAtTop,
+    }));
   }
 
   handleToggleSplit = (event) => {
     event.stopPropagation();
 
     if (this.ownsSplit()) {
-      this.unsplitTimeline();
+      this.unsplitToLive();
       return;
     }
 
     this.splitTimeline();
+  }
+
+  handleCloseLive = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    this.unsplitToHistory();
   }
 
   handleRatioChange = (value) => {
@@ -552,7 +591,7 @@ class StatusTimelineSplitController extends React.Component {
     this.returnAnchorToken = null;
 
     if (this.ownsSplit() && !this.props.multiColumn && !this.props.isPartial) {
-      const captured = this.captureHistoryAnchor();
+      const captured = this.capturePaneAnchor('history');
 
       this.props.dispatch(saveTimelineSplitReturnAnchor(this.props.sourceTimelineId, {
         locationKey: this.locationKey,
@@ -611,10 +650,26 @@ class StatusTimelineSplitController extends React.Component {
         max={MAX_TIMELINE_SPLIT_RATIO}
         onChange={this.handleRatioChange}
         onCommit={this.handleRatioCommit}
-        onClose={this.unsplitTimeline}
+        onCloseHistory={this.unsplitToLive}
         label={this.props.intl.formatMessage(messages.splitter)}
-        closeLabel={this.props.intl.formatMessage(messages.unsplit)}
+        closeHistoryLabel={this.props.intl.formatMessage(messages.closeHistoryPane)}
       />
+    );
+  }
+
+  renderCloseLiveButton () {
+    const label = this.props.intl.formatMessage(messages.closeLivePane);
+
+    return (
+      <button
+        type='button'
+        className='column-header__button column-header__split-close-live'
+        title={label}
+        aria-label={label}
+        onClick={this.handleCloseLive}
+      >
+        <Icon id='times' className='column-header__icon' />
+      </button>
     );
   }
 
@@ -629,6 +684,7 @@ class StatusTimelineSplitController extends React.Component {
       handleHeaderClick: this.handleHeaderClick,
       splitButton: this.renderSplitButton(),
       splitter: isSplit ? this.renderSplitter() : null,
+      closeLiveButton: isSplit ? this.renderCloseLiveButton() : null,
     });
   }
 

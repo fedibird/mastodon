@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Fragment } from 'react';
 import { connect } from 'react-redux';
 import { injectIntl, FormattedMessage } from 'react-intl';
 import { defineMessages } from 'react-intl';
@@ -219,7 +219,12 @@ class DomainTimeline extends React.PureComponent {
           onClick={split.handleHeaderClick}
           pinned={pinned}
           multiColumn={multiColumn}
-          extraButton={split.splitButton}
+          extraButton={(
+            <Fragment>
+              {split.splitButton}
+              {split.closeLiveButton}
+            </Fragment>
+          )}
           showBackButton
           columnWidth={columnWidth}
           onWidthChange={this.handleWidthChange}

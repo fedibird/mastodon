@@ -13,6 +13,7 @@ import {
   TIMELINE_MARK_AS_PARTIAL,
   TIMELINE_SPLIT_CREATE,
   TIMELINE_SPLIT_DESTROY,
+  TIMELINE_SPLIT_KEEP_LIVE,
   TIMELINE_SPLIT_SAVE_RETURN_ANCHOR,
   TIMELINE_SPLIT_CLEAR_RETURN_ANCHOR,
 } from '../actions/timelines';
@@ -242,7 +243,23 @@ const freshStatusIds = (source, history) => {
   return ImmutableList(fresh);
 };
 
-const destroyTimelineSplit = (state, sourceTimeline, splitTimeline) => {
+const keepLiveTimeline = (source, liveAtTop) => {
+  const items = uniqWithoutNull(
+    source.get('pendingItems', ImmutableList())
+      .concat(source.get('items', ImmutableList())),
+  );
+
+  return source.withMutations(map => {
+    map.set('items', items);
+    map.set('pendingItems', ImmutableList());
+    map.set('unread', 0);
+    map.set('top', !!liveAtTop);
+    map.delete('splitTimelineId');
+  });
+};
+
+const destroyTimelineSplit = (state, action) => {
+  const { sourceTimeline, splitTimeline, keep, liveAtTop } = action;
   const source = state.get(sourceTimeline, initialTimeline);
   const history = state.get(splitTimeline);
   const active = source.get('splitTimelineId') === splitTimeline;
@@ -260,6 +277,13 @@ const destroyTimelineSplit = (state, sourceTimeline, splitTimeline) => {
   if (source.get('isPartial')) {
     return state.withMutations(mutable => {
       mutable.update(sourceTimeline, initialTimeline, map => map.delete('splitTimelineId'));
+      mutable.delete(splitTimeline);
+    });
+  }
+
+  if (keep === TIMELINE_SPLIT_KEEP_LIVE) {
+    return state.withMutations(mutable => {
+      mutable.update(sourceTimeline, initialTimeline, map => keepLiveTimeline(map, liveAtTop));
       mutable.delete(splitTimeline);
     });
   }
@@ -324,7 +348,7 @@ export default function timelines(state = initialState, action) {
   case TIMELINE_SPLIT_CREATE:
     return createTimelineSplit(state, action.sourceTimeline, action.splitTimeline);
   case TIMELINE_SPLIT_DESTROY:
-    return destroyTimelineSplit(state, action.sourceTimeline, action.splitTimeline);
+    return destroyTimelineSplit(state, action);
   case TIMELINE_SPLIT_SAVE_RETURN_ANCHOR:
     return state.update(action.timeline, initialTimeline, map => map.set('splitReturnAnchor', ImmutableMap(action.anchor)));
   case TIMELINE_SPLIT_CLEAR_RETURN_ANCHOR:

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Fragment } from 'react';
 import { connect } from 'react-redux';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import PropTypes from 'prop-types';
@@ -214,7 +214,12 @@ class PublicTimeline extends React.PureComponent {
           onClick={split.handleHeaderClick}
           pinned={pinned}
           multiColumn={multiColumn}
-          extraButton={split.splitButton}
+          extraButton={(
+            <Fragment>
+              {split.splitButton}
+              {split.closeLiveButton}
+            </Fragment>
+          )}
           columnWidth={columnWidth}
           onWidthChange={this.handleWidthChange}
         >

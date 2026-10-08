@@ -35,6 +35,9 @@ export const TIMELINE_SPLIT_DESTROY = 'TIMELINE_SPLIT_DESTROY';
 export const TIMELINE_SPLIT_SAVE_RETURN_ANCHOR = 'TIMELINE_SPLIT_SAVE_RETURN_ANCHOR';
 export const TIMELINE_SPLIT_CLEAR_RETURN_ANCHOR = 'TIMELINE_SPLIT_CLEAR_RETURN_ANCHOR';
 
+export const TIMELINE_SPLIT_KEEP_LIVE = 'live';
+export const TIMELINE_SPLIT_KEEP_HISTORY = 'history';
+
 export const loadPending = timeline => ({
   type: TIMELINE_LOAD_PENDING,
   timeline,
@@ -310,11 +313,20 @@ export function createTimelineSplit(sourceTimeline, splitTimeline) {
   };
 }
 
-export function destroyTimelineSplit(sourceTimeline, splitTimeline) {
+export function destroyTimelineSplit(
+  sourceTimeline,
+  splitTimeline,
+  {
+    keep = TIMELINE_SPLIT_KEEP_HISTORY,
+    liveAtTop,
+  } = {},
+) {
   return {
     type: TIMELINE_SPLIT_DESTROY,
     sourceTimeline,
     splitTimeline,
+    keep,
+    liveAtTop,
   };
 }
 

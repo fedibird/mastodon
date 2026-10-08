@@ -371,6 +371,7 @@ class HashtagTimeline extends React.PureComponent {
               {split.splitButton}
               <PortableComposerToggle visible={composerVisible} onToggle={this.handleToggleComposer} />
               {followButton}
+              {split.closeLiveButton}
             </Fragment>
           )}
           showBackButton

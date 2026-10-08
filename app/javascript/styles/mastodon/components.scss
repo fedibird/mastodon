@@ -3092,7 +3092,7 @@ $timeline-split-separator-size: 12px;
 
   &__close {
     position: absolute;
-    right: 4px;
+    inset-inline-end: 4px;
     top: 50%;
     transform: translateY(-50%);
     width: 18px;

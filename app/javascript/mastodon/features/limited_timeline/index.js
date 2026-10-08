@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Fragment } from 'react';
 import { connect } from 'react-redux';
 import { expandLimitedTimeline } from '../../actions/timelines';
 import PropTypes from 'prop-types';
@@ -175,7 +175,12 @@ class LimitedTimeline extends React.PureComponent {
           onClick={split.handleHeaderClick}
           pinned={pinned}
           multiColumn={multiColumn}
-          extraButton={split.splitButton}
+          extraButton={(
+            <Fragment>
+              {split.splitButton}
+              {split.closeLiveButton}
+            </Fragment>
+          )}
           columnWidth={columnWidth}
           onWidthChange={this.handleWidthChange}
         >
