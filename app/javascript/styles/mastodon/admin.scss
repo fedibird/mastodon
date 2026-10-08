@@ -1289,13 +1289,20 @@ a.name-tag,
 .user-posting-context-card__facts {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 12px;
+  gap: 6px;
   margin: 8px 0 0;
   padding: 0;
   list-style: none;
 
   li {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    max-width: 100%;
     margin: 0;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: lighten($ui-base-color, 12%);
   }
 }
 
@@ -1322,9 +1329,15 @@ a.name-tag,
   color: $darker-text-color;
 }
 
+.user-posting-context-card:has(.user-posting-context-card__menu[open]) {
+  position: relative;
+  z-index: 4;
+}
+
 .user-posting-context-card__menu {
   position: relative;
   flex: 0 0 auto;
+  z-index: 1;
 
   summary {
     display: flex;
@@ -1352,14 +1365,17 @@ a.name-tag,
 
 .user-posting-context-card__menu-panel {
   position: absolute;
-  z-index: 3;
+  z-index: 5;
   top: 44px;
   right: 0;
-  min-width: 180px;
+  width: max-content;
+  min-width: 17rem;
+  max-width: min(280px, calc(100vw - 48px));
   padding: 4px 0;
-  border: 1px solid lighten($ui-base-color, 14%);
+  border: 1px solid lighten($ui-base-color, 22%);
   border-radius: 6px;
-  background: lighten($ui-base-color, 8%);
+  background: lighten($ui-base-color, 16%);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
 }
 
 .user-posting-context-card__menu-form {
@@ -1368,7 +1384,7 @@ a.name-tag,
 
 .user-posting-context-card__menu-item {
   display: block;
-  width: 100%;
+  width: auto;
   min-height: 44px;
   margin: 0;
   padding: 10px 14px;
@@ -1381,6 +1397,7 @@ a.name-tag,
   line-height: 1.4;
   text-align: start;
   text-transform: none;
+  white-space: nowrap;
   cursor: pointer;
 
   &:hover,
