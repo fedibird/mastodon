@@ -73,6 +73,8 @@ import { normalizeManagedHashtagName } from '../posting_context/managed_hashtags
 import { isExistingPostEdit, postingContextOutputSignature } from '../posting_context/materialize';
 import {
   abandonStyleDestination,
+  applySensitiveOnFirstMedia,
+  applySensitiveOnLastMediaRemoved,
   clearStyleManualState,
   commitUserPostingStyle,
   finishStyleDestination,
@@ -346,8 +348,8 @@ const appendMedia = (state, media, file) => {
     map.set('idempotencyKey', uuid());
     map.update('pending_media_attachments', n => n - 1);
 
-    if (prevSize === 0 && (state.get('default_sensitive') || state.get('spoiler'))) {
-      map.set('sensitive', true);
+    if (prevSize === 0) {
+      applySensitiveOnFirstMedia(map, state);
     }
   });
 };
@@ -360,7 +362,7 @@ const removeMedia = (state, mediaId) => {
     map.set('idempotencyKey', uuid());
 
     if (prevSize === 1) {
-      map.set('sensitive', false);
+      applySensitiveOnLastMediaRemoved(map, state);
     }
   });
 };

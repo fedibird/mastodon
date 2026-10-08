@@ -107,6 +107,58 @@ describe('resolveUserPostingStyle', () => {
     expect(plan.ownedFields).toEqual([]);
   });
 
+  it('uses the server sensitive value when a content warning has text', () => {
+    const plan = resolveUserPostingStyle(style({
+      defaults: {
+        sensitive: false,
+        spoiler: { enabled: true, text: 'cw' },
+      },
+    }), composer({
+      media_attachments: [{ id: 'media-1' }],
+    }));
+
+    expect(plan.fields.spoiler).toBe(true);
+    expect(plan.fields.spoilerText).toEqual('cw');
+    expect(plan.fields.sensitive).toBe(true);
+    expect(plan.ownedFields).toEqual(expect.arrayContaining(['spoiler', 'sensitive']));
+    expect(plan.unapplied).toEqual([]);
+  });
+
+  it('keeps an explicit sensitive off when the content warning has no text', () => {
+    const plan = resolveUserPostingStyle(style({
+      defaults: {
+        sensitive: false,
+        spoiler: { enabled: true, text: '  ' },
+      },
+    }), composer({
+      media_attachments: [{ id: 'media-1' }],
+      default_sensitive: true,
+    }));
+
+    expect(plan.fields.spoiler).toBe(true);
+    expect(plan.fields.sensitive).toBeUndefined();
+    expect(plan.ownedFields).toContain('sensitive');
+  });
+
+  it('retries the same failed group without asking for confirmation', () => {
+    const plan = resolveUserPostingStyle(style({
+      target: { kind: 'group', accountId: '9', hashtag: null, label: 'group' },
+    }), composer({
+      text: 'Hello',
+      userPostingStyle: {
+        manualFields: [],
+        styleOwnedFields: [],
+        destinationSource: 'style',
+        destinationStatus: 'failed',
+        destinationAccountId: '9',
+      },
+    }));
+
+    expect(plan.destination.action).toEqual('group');
+    expect(plan.destination.changes).toBe(false);
+    expect(plan.needsConfirmation).toBe(false);
+  });
+
   it('uses the account sensitive default when media is already attached', () => {
     const drafted = composer({
       sensitive: true,

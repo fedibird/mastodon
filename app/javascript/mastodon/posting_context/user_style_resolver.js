@@ -198,17 +198,42 @@ const composeFields = (style, composer, manual, occupied) => {
     }
   });
 
-  const spoilerTurnedOn = Object.prototype.hasOwnProperty.call(fields, 'spoiler') && fields.spoiler === true && composer.get('spoiler') !== true;
+  // PostStatusService stores sensitive when spoiler text is present, even if
+  // the client sent false. The composer must show that final value.
+  const resultingSpoilerOn = Object.prototype.hasOwnProperty.call(fields, 'spoiler') ? fields.spoiler === true : composer.get('spoiler') === true;
+  let resultingSpoilerText = '';
 
-  if (spoilerTurnedOn && hasMedia(composer) && explicit.sensitive === undefined && !manual.has('sensitive') && !occupied.has('sensitive')) {
-    const resulting = Object.prototype.hasOwnProperty.call(fields, 'sensitive') ? fields.sensitive === true : composer.get('sensitive') === true;
+  if (Object.prototype.hasOwnProperty.call(fields, 'spoiler')) {
+    resultingSpoilerText = fields.spoiler ? (fields.spoilerText || '') : '';
+  } else if (composer.get('spoiler') === true) {
+    resultingSpoilerText = composer.get('spoiler_text') || '';
+  }
+  const serverForcesSensitive = resultingSpoilerOn && String(resultingSpoilerText).trim() !== '';
 
-    if (!resulting) {
+  if (serverForcesSensitive && !occupied.has('sensitive')) {
+    const resultingSensitive = Object.prototype.hasOwnProperty.call(fields, 'sensitive') ? fields.sensitive === true : composer.get('sensitive') === true;
+
+    if (!resultingSensitive) {
       fields.sensitive = true;
     }
 
-    if (!ownedFields.includes('sensitive')) {
+    const unappliedIndex = unapplied.indexOf('sensitive');
+
+    if (unappliedIndex >= 0) {
+      unapplied.splice(unappliedIndex, 1);
+    }
+
+    const styleSetsWarning = Boolean(explicit.spoiler && explicit.spoiler.enabled === true && String(explicit.spoiler.text || '').trim() !== '');
+
+    if (!manual.has('sensitive') && (styleSetsWarning || explicit.sensitive !== undefined) && !ownedFields.includes('sensitive')) {
       ownedFields.push('sensitive');
+    }
+  } else if (manual.has('sensitive') && !occupied.has('sensitive')) {
+    const stored = composer.getIn(['userPostingStyle', 'manualValues', 'sensitive']);
+    const resultingSensitive = Object.prototype.hasOwnProperty.call(fields, 'sensitive') ? fields.sensitive === true : composer.get('sensitive') === true;
+
+    if ((stored === true || stored === false) && stored !== resultingSensitive) {
+      fields.sensitive = stored === true;
     }
   }
 
@@ -252,13 +277,15 @@ const destinationPlan = (style, composer, occupied) => {
 
   if (kind === 'group') {
     const nextAccountId = style.getIn(['target', 'accountId']);
-    const sameReady = styleOwned && String(accountId) === String(nextAccountId) && status === 'ready';
+    const sameAccount = styleOwned && String(accountId) === String(nextAccountId);
+    const sameReady = sameAccount && status === 'ready';
+    const retryFailure = sameAccount && status === 'failed';
 
     return {
       action: 'group',
       accountId: nextAccountId,
       hashtag: null,
-      changes: !sameReady,
+      changes: !sameReady && !retryFailure,
     };
   }
 

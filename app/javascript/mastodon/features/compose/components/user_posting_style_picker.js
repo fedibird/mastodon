@@ -11,6 +11,11 @@ const messages = defineMessages({
   destination: { id: 'compose_form.posting_style.destination', defaultMessage: 'Destination {label}' },
   pending: { id: 'compose_form.posting_style.pending', defaultMessage: 'Checking the destination' },
   failed: { id: 'compose_form.posting_style.failed', defaultMessage: 'Can’t post because the destination could not be verified' },
+  failedError: { id: 'compose_form.posting_style.failed_error', defaultMessage: 'Couldn’t reach the destination. Choose the style again or retry.' },
+  failedUnsupported: { id: 'compose_form.posting_style.failed_unsupported', defaultMessage: 'This destination isn’t supported, so you can’t post.' },
+  retry: { id: 'compose_form.posting_style.retry', defaultMessage: 'Retry' },
+  catalogFailed: { id: 'compose_form.posting_style.catalog_failed', defaultMessage: 'Couldn’t load posting styles.' },
+  catalogRetry: { id: 'compose_form.posting_style.catalog_retry', defaultMessage: 'Reload posting styles' },
   unapplied: { id: 'compose_form.posting_style.unapplied', defaultMessage: 'Not applied: {fields}' },
   conflict: { id: 'compose_form.posting_style.conflict', defaultMessage: 'Can’t post because visibility does not meet the destination' },
   fieldPrivacy: { id: 'compose_form.posting_style.field.privacy', defaultMessage: 'visibility' },
@@ -54,8 +59,10 @@ class UserPostingStylePicker extends React.PureComponent {
     snapshot: ImmutablePropTypes.map,
     unapplied: ImmutablePropTypes.list,
     destinationStatus: PropTypes.string,
+    destinationFailure: PropTypes.string,
     visibilityConflict: PropTypes.bool,
     onSelect: PropTypes.func.isRequired,
+    onRetry: PropTypes.func,
   };
 
   state = {
@@ -229,14 +236,28 @@ class UserPostingStylePicker extends React.PureComponent {
     );
   }
 
+  failureMessage () {
+    const { intl, destinationFailure } = this.props;
+
+    if (destinationFailure === 'unsupported') {
+      return intl.formatMessage(messages.failedUnsupported);
+    }
+
+    if (destinationFailure === 'error') {
+      return intl.formatMessage(messages.failedError);
+    }
+
+    return intl.formatMessage(messages.failed);
+  }
+
   renderNotices () {
-    const { intl, unapplied, destinationStatus, visibilityConflict } = this.props;
+    const { intl, unapplied, destinationStatus, visibilityConflict, onRetry } = this.props;
     const notices = [];
 
     if (destinationStatus === 'pending' || destinationStatus === 'needs_resolve') {
       notices.push(intl.formatMessage(messages.pending));
     } else if (destinationStatus === 'failed') {
-      notices.push(intl.formatMessage(messages.failed));
+      notices.push(this.failureMessage());
     }
 
     if (visibilityConflict) {
@@ -260,6 +281,11 @@ class UserPostingStylePicker extends React.PureComponent {
         {notices.map(notice => (
           <p key={notice} className='compose-form__style-notice'>{notice}</p>
         ))}
+        {destinationStatus === 'failed' && onRetry ? (
+          <button type='button' className='compose-form__style-retry' onClick={onRetry}>
+            {intl.formatMessage(messages.retry)}
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -312,4 +338,27 @@ class UserPostingStylePicker extends React.PureComponent {
 
 }
 
+export class UserPostingStyleCatalogNotice extends React.PureComponent {
+
+  static propTypes = {
+    intl: PropTypes.object.isRequired,
+    onRetry: PropTypes.func.isRequired,
+  };
+
+  render () {
+    const { intl, onRetry } = this.props;
+
+    return (
+      <div className='compose-form__style' data-posting-style-catalog='failed'>
+        <p className='compose-form__style-notice'>{intl.formatMessage(messages.catalogFailed)}</p>
+        <button type='button' className='compose-form__style-retry' onClick={onRetry}>
+          {intl.formatMessage(messages.catalogRetry)}
+        </button>
+      </div>
+    );
+  }
+
+}
+
 export default injectIntl(UserPostingStylePicker);
+export const IntlUserPostingStyleCatalogNotice = injectIntl(UserPostingStyleCatalogNotice);

@@ -15,7 +15,7 @@ jest.mock('../../api', () => ({
 }));
 
 import api from '../../api';
-import { commitUserPostingStyle } from '../user_posting_styles';
+import { commitUserPostingStyle, fetchUserPostingStyles } from '../user_posting_styles';
 import { POSTING_CONTEXT_FETCH_SUCCESS } from '../posting_contexts';
 import { selectComposerPostingContextCompliance } from '../../posting_context/compliance';
 import { materializeComposerText } from '../../posting_context/materialize';
@@ -109,6 +109,7 @@ describe('commitUserPostingStyle group destination', () => {
     const state = store.getState();
 
     expect(state.getIn(['compose', 'userPostingStyle', 'destinationStatus'])).toEqual('failed');
+    expect(state.getIn(['compose', 'userPostingStyle', 'destinationFailure'])).toEqual('unsupported');
     expect(state.getIn(['compose', 'userPostingStyle', 'status'])).toEqual('failed');
     expect(state.getIn(['compose', 'context', 'protocol', 'activityPub', 'audience'])).toBeNull();
     expect(selectComposerPostingContextCompliance(state, PRIMARY_COMPOSER_ID).valid).toBe(false);
@@ -189,6 +190,123 @@ describe('slow group discovery', () => {
   });
 });
 
+describe('group discovery retry', () => {
+  const makeStore = () => createStore(combineReducers({
+    compose,
+    posting_contexts: postingContexts,
+    relationships,
+    userPostingStyles,
+  }), applyMiddleware(thunk));
+
+  it('retries a failed group when the same style is selected again', async () => {
+    let resolveRetry;
+    const get = jest.fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockImplementationOnce(() => new Promise(resolve => {
+        resolveRetry = resolve;
+      }));
+    api.mockReturnValue({ get });
+
+    const store = makeStore();
+    store.dispatch({
+      type: 'USER_POSTING_STYLES_FETCH_SUCCESS',
+      styles: [style],
+    });
+
+    await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, '1'));
+
+    expect(store.getState().getIn(['compose', 'userPostingStyle', 'destinationStatus'])).toEqual('failed');
+    expect(store.getState().getIn(['compose', 'userPostingStyle', 'destinationFailure'])).toEqual('error');
+    expect(selectComposerPostingContextCompliance(store.getState(), PRIMARY_COMPOSER_ID).destination.valid).toBe(false);
+    expect(get).toHaveBeenCalledTimes(1);
+
+    const retry = store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, '1'));
+
+    expect(store.getState().getIn(['compose', 'userPostingStyle', 'destinationStatus'])).toEqual('pending');
+    expect(store.getState().getIn(['compose', 'userPostingStyle', 'destinationFailure'])).toBeNull();
+    expect(selectComposerPostingContextCompliance(store.getState(), PRIMARY_COMPOSER_ID).valid).toBe(false);
+    expect(get).toHaveBeenCalledTimes(2);
+
+    resolveRetry({ data: discovery('resolved') });
+    await retry;
+    store.dispatch({
+      type: 'RELATIONSHIPS_FETCH_SUCCESS',
+      relationships: [{ id: '123', following: true, requested: false }],
+    });
+
+    const composer = store.getState().get('compose');
+
+    expect(composer.getIn(['userPostingStyle', 'destinationStatus'])).toEqual('ready');
+    expect(composer.getIn(['userPostingStyle', 'destinationFailure'])).toBeNull();
+    expect(materializeComposerText(composer)).toEqual('@localsquad\n\n#squad #fedibird');
+  });
+
+  it('does not apply a retried group result after the style has changed', async () => {
+    let resolveRetry;
+    const get = jest.fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockImplementationOnce(() => new Promise(resolve => {
+        resolveRetry = resolve;
+      }));
+    api.mockReturnValue({ get });
+
+    const store = makeStore();
+    const reading = style.set('id', '2').setIn(['target', 'kind'], 'hashtag').setIn(['target', 'hashtag'], 'books').setIn(['target', 'accountId'], null);
+
+    store.dispatch({
+      type: 'USER_POSTING_STYLES_FETCH_SUCCESS',
+      styles: [style, reading],
+    });
+
+    await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, '1'));
+    const retry = store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, '1'));
+
+    await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, '2'));
+    resolveRetry({ data: discovery('resolved') });
+    await retry;
+
+    const composer = store.getState().get('compose');
+
+    expect(composer.getIn(['userPostingStyle', 'selectedId'])).toEqual('2');
+    expect(composer.getIn(['userPostingStyle', 'destinationStatus'])).toEqual('ready');
+    expect(materializeComposerText(composer)).not.toContain('@localsquad');
+    expect(materializeComposerText(composer)).toContain('#books');
+  });
+
+  it('can recover from an unsupported destination by selecting the style again', async () => {
+    let resolveRetry;
+    const get = jest.fn()
+      .mockResolvedValueOnce({ data: discovery('unsupported') })
+      .mockImplementationOnce(() => new Promise(resolve => {
+        resolveRetry = resolve;
+      }));
+    api.mockReturnValue({ get });
+
+    const store = makeStore();
+    store.dispatch({
+      type: 'USER_POSTING_STYLES_FETCH_SUCCESS',
+      styles: [style],
+    });
+
+    await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, '1'));
+
+    expect(store.getState().getIn(['compose', 'userPostingStyle', 'destinationFailure'])).toEqual('unsupported');
+    expect(get).toHaveBeenCalledTimes(1);
+
+    const retry = store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, '1'));
+
+    expect(store.getState().getIn(['compose', 'userPostingStyle', 'destinationStatus'])).toEqual('pending');
+    expect(selectComposerPostingContextCompliance(store.getState(), PRIMARY_COMPOSER_ID).destination.valid).toBe(false);
+    expect(get).toHaveBeenCalledTimes(2);
+
+    resolveRetry({ data: discovery('resolved') });
+    await retry;
+
+    expect(store.getState().getIn(['compose', 'userPostingStyle', 'destinationStatus'])).toEqual('ready');
+    expect(materializeComposerText(store.getState().get('compose'))).toContain('@localsquad');
+  });
+});
+
 describe('fetch failure stays usable', () => {
   it('records a failed catalog without a composer style', () => {
     const store = createStore(combineReducers({
@@ -202,5 +320,41 @@ describe('fetch failure stays usable', () => {
     expect(store.getState().getIn(['compose', 'userPostingStyle', 'selectedId'])).toBeNull();
     expect(store.getState().getIn(['compose', 'text'])).toEqual('');
     expect(ImmutableMap.isMap(store.getState().get('compose'))).toBe(true);
+  });
+
+  it('loads the catalog again after a failure when retry is requested', async () => {
+    const get = jest.fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({
+        data: [{
+          id: '4',
+          name: '読書メモ',
+          target: { kind: 'none' },
+          defaults: {},
+          managed: { hashtags: [] },
+        }],
+      });
+    api.mockReturnValue({ get });
+
+    const store = createStore(combineReducers({
+      compose,
+      userPostingStyles,
+    }), applyMiddleware(thunk));
+
+    await store.dispatch(fetchUserPostingStyles());
+
+    expect(store.getState().getIn(['userPostingStyles', 'status'])).toEqual('failed');
+
+    await store.dispatch(fetchUserPostingStyles());
+
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(store.getState().getIn(['userPostingStyles', 'status'])).toEqual('failed');
+
+    await store.dispatch(fetchUserPostingStyles({ force: true }));
+
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(store.getState().getIn(['userPostingStyles', 'status'])).toEqual('ready');
+    expect(store.getState().getIn(['userPostingStyles', 'styles', 0, 'name'])).toEqual('読書メモ');
+    expect(store.getState().getIn(['compose', 'text'])).toEqual('');
   });
 });

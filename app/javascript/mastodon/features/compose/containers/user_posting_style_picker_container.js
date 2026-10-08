@@ -4,13 +4,13 @@ import { connect } from 'react-redux';
 import { injectIntl, defineMessages } from 'react-intl';
 import { List as ImmutableList } from 'immutable';
 import { openModal } from '../../../actions/modal';
-import { commitUserPostingStyle } from '../../../actions/user_posting_styles';
+import { commitUserPostingStyle, fetchUserPostingStyles } from '../../../actions/user_posting_styles';
 import { selectComposerPostingContextCompliance } from '../../../posting_context/compliance';
 import { resolveUserPostingStyle } from '../../../posting_context/user_style_resolver';
 import { selectComposer } from '../../../selectors/composer';
 import { PRIMARY_COMPOSER_ID } from '../../../utils/composer';
 import { withComposerId } from '../composer_id_context';
-import UserPostingStylePicker from '../components/user_posting_style_picker';
+import UserPostingStylePicker, { IntlUserPostingStyleCatalogNotice } from '../components/user_posting_style_picker';
 
 const messages = defineMessages({
   confirmMessage: { id: 'compose_form.posting_style.confirm_message', defaultMessage: 'The destination or visibility of this draft may change. Apply this posting style?' },
@@ -29,29 +29,33 @@ const findStyle = (state, styleId) => {
 
 const mapStateToProps = (state, { composerId }) => {
   const composer = selectComposer(state, composerId);
-  const catalogReady = state.getIn(['userPostingStyles', 'status']) === 'ready';
+  const catalogStatus = state.getIn(['userPostingStyles', 'status']);
   const editing = Boolean(composer && (composer.get('id') || composer.get('scheduled_status_id')));
-  const visible = composerId === PRIMARY_COMPOSER_ID && catalogReady && !editing && Boolean(composer);
+  const primary = composerId === PRIMARY_COMPOSER_ID && !editing && Boolean(composer);
+  const visible = primary && catalogStatus === 'ready';
+  const catalogFailed = primary && catalogStatus === 'failed';
 
-  if (!composer || !visible) {
-    return { visible: false, styles: ImmutableList() };
+  if (!composer || (!visible && !catalogFailed)) {
+    return { visible: false, catalogFailed: false, styles: ImmutableList() };
   }
 
   const compliance = selectComposerPostingContextCompliance(state, composerId);
 
   return {
-    visible: true,
+    visible,
+    catalogFailed,
     styles: state.getIn(['userPostingStyles', 'styles'], ImmutableList()),
     selectedId: composer.getIn(['userPostingStyle', 'selectedId']),
     snapshot: composer.getIn(['userPostingStyle', 'snapshot']),
     unapplied: composer.getIn(['userPostingStyle', 'unapplied'], ImmutableList()),
     destinationStatus: composer.getIn(['userPostingStyle', 'destinationStatus']),
+    destinationFailure: composer.getIn(['userPostingStyle', 'destinationFailure']),
     visibilityConflict: Boolean(compliance.visibility && compliance.visibility.valid === false && compliance.visibility.allowed),
   };
 };
 
-const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
-  onSelect (styleId) {
+const mapDispatchToProps = (dispatch, { intl, composerId }) => {
+  const applyStyle = styleId => {
     dispatch((_, getState) => {
       const composer = selectComposer(getState(), composerId);
 
@@ -74,13 +78,38 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
 
       apply();
     });
-  },
-});
+  };
 
-const VisiblePicker = ({ visible, ...props }) => (visible ? <UserPostingStylePicker {...props} /> : null);
+  return {
+    onSelect: applyStyle,
+    onRetry () {
+      dispatch((_, getState) => {
+        const composer = selectComposer(getState(), composerId);
+        const selectedId = composer && composer.getIn(['userPostingStyle', 'selectedId']);
+
+        if (selectedId) {
+          applyStyle(selectedId);
+        }
+      });
+    },
+    onRetryCatalog () {
+      dispatch(fetchUserPostingStyles({ force: true }));
+    },
+  };
+};
+
+const VisiblePicker = ({ visible, catalogFailed, onRetryCatalog, ...props }) => {
+  if (catalogFailed) {
+    return <IntlUserPostingStyleCatalogNotice onRetry={onRetryCatalog} />;
+  }
+
+  return visible ? <UserPostingStylePicker {...props} /> : null;
+};
 
 VisiblePicker.propTypes = {
   visible: PropTypes.bool,
+  catalogFailed: PropTypes.bool,
+  onRetryCatalog: PropTypes.func,
 };
 
 export default withComposerId(injectIntl(connect(mapStateToProps, mapDispatchToProps)(VisiblePicker)));

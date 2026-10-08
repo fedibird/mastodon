@@ -43,11 +43,11 @@ const destinationResult = (composerId, payload) => targetComposerAction({
   ...payload,
 }, composerId);
 
-export function fetchUserPostingStyles() {
+export function fetchUserPostingStyles({ force = false } = {}) {
   return (dispatch, getState) => {
     const status = getState().getIn(['userPostingStyles', 'status']);
 
-    if (status === 'loading' || status === 'ready' || status === 'failed') {
+    if (status === 'loading' || (!force && (status === 'ready' || status === 'failed'))) {
       return Promise.resolve();
     }
 
@@ -75,13 +75,13 @@ export function fetchUserPostingStyles() {
   };
 }
 
-export function loadUserPostingStyleDestination(composerId, { selectedId, accountId }) {
+export function loadUserPostingStyleDestination(composerId, { selectedId, accountId, force = false }) {
   return (dispatch, getState) => {
     if (!stillWaiting(getState, composerId, selectedId, accountId)) {
       return Promise.resolve();
     }
 
-    return dispatch(fetchPostingContext(accountId)).then(() => {
+    return dispatch(fetchPostingContext(accountId, { force })).then(() => {
       if (!stillWaiting(getState, composerId, selectedId, accountId)) {
         return;
       }
@@ -91,14 +91,19 @@ export function loadUserPostingStyleDestination(composerId, { selectedId, accoun
       const status = discovery && discovery.get('status');
 
       if (status !== 'resolved') {
-        dispatch(destinationResult(composerId, { status: 'failed', selectedId, accountId }));
+        dispatch(destinationResult(composerId, {
+          status: 'failed',
+          failure: status === 'unsupported' || status === 'not_applicable' ? 'unsupported' : 'error',
+          selectedId,
+          accountId,
+        }));
         return;
       }
 
       const context = selectPostingContextForAccount(getState(), accountId);
 
       if (!context || !stillWaiting(getState, composerId, selectedId, accountId)) {
-        dispatch(destinationResult(composerId, { status: 'failed', selectedId, accountId }));
+        dispatch(destinationResult(composerId, { status: 'failed', failure: 'error', selectedId, accountId }));
         return;
       }
 
@@ -133,6 +138,10 @@ export function commitUserPostingStyle(composerId, styleId) {
       return Promise.resolve();
     }
 
+    const retryingDiscovery = plan.destination.action === 'group'
+      && composer.getIn(['userPostingStyle', 'destinationStatus']) === 'failed'
+      && String(composer.getIn(['userPostingStyle', 'destinationAccountId'] || '')) === String(plan.destination.accountId || '');
+
     dispatch(targetComposerAction({
       type: USER_POSTING_STYLE_COMMIT,
       plan,
@@ -145,6 +154,7 @@ export function commitUserPostingStyle(composerId, styleId) {
       return dispatch(loadUserPostingStyleDestination(composerId, {
         selectedId: plan.selectedId,
         accountId: plan.destination.accountId,
+        force: retryingDiscovery,
       }));
     }
 

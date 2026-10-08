@@ -20,7 +20,7 @@ jest.mock('react-intl', () => {
   };
 });
 
-import UserPostingStylePicker from '../user_posting_style_picker';
+import UserPostingStylePicker, { IntlUserPostingStyleCatalogNotice } from '../user_posting_style_picker';
 
 const styles = ImmutableList([
   fromJS({
@@ -110,5 +110,54 @@ describe('UserPostingStylePicker', () => {
 
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it('distinguishes a network failure from an unsupported destination and retries outside the menu', () => {
+    const onRetry = jest.fn();
+    const { rerender } = render(
+      <UserPostingStylePicker
+        styles={styles}
+        selectedId='1'
+        snapshot={styles.get(0)}
+        unapplied={ImmutableList()}
+        destinationStatus='failed'
+        destinationFailure='error'
+        visibilityConflict={false}
+        onSelect={jest.fn()}
+        onRetry={onRetry}
+      />,
+    );
+
+    expect(screen.getByText('Couldn’t reach the destination. Choose the style again or retry.')).toBeTruthy();
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <UserPostingStylePicker
+        styles={styles}
+        selectedId='1'
+        snapshot={styles.get(0)}
+        unapplied={ImmutableList()}
+        destinationStatus='failed'
+        destinationFailure='unsupported'
+        visibilityConflict={false}
+        onSelect={jest.fn()}
+        onRetry={onRetry}
+      />,
+    );
+
+    expect(screen.getByText('This destination isn’t supported, so you can’t post.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
+  });
+
+  it('offers a way to reload posting styles after the catalog request fails', () => {
+    const onRetry = jest.fn();
+
+    render(<IntlUserPostingStyleCatalogNotice onRetry={onRetry} />);
+
+    expect(screen.getByText('Couldn’t load posting styles.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Reload posting styles' }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
   });
 });

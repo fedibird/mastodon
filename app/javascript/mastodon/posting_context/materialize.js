@@ -1,5 +1,5 @@
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
-import { materializeManagedHashtags, normalizeManagedHashtagName } from './managed_hashtags';
+import { materializeManagedHashtags, normalizeManagedHashtagName, textContainsHashtag } from './managed_hashtags';
 import { materializeManagedMentions, normalizeManagedMentionAcct } from './managed_mentions';
 
 export function isExistingPostEdit(composer) {
@@ -135,12 +135,21 @@ const activeManagedHashtags = composer => {
   return active;
 };
 
+// Tags already written in the draft are not appended again. The signature uses
+// the spelling that would be sent, so #Fedibird and #fedibird differ, while two
+// origins that emit the same spelling do not.
+const emittedManagedHashtags = composer => {
+  const text = composer.get('text', '') || '';
+
+  return activeManagedHashtags(composer).filter(tag => !textContainsHashtag(text, tag.normalizedName || tag.name));
+};
+
 export function activeManagedHashtagSignature(composer) {
   if (!composer) {
     return '';
   }
 
-  return activeManagedHashtags(composer).map(tag => tag.normalizedName).sort().join('\0');
+  return emittedManagedHashtags(composer).map(tag => tag.name).join('\0');
 }
 
 export function postingContextOutputSignature(composer) {

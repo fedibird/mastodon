@@ -9,7 +9,7 @@ jest.mock('../../uuid', () => ({
   default: () => 'test-idempotency-key',
 }));
 
-import { COMPOSE_QUOTE_CANCEL, COMPOSE_REPLY, COMPOSE_REPLY_CANCEL, COMPOSE_SUBMIT_SUCCESS, COMPOSE_VISIBILITY_CHANGE, changeCompose, setComposeToStatus } from '../../actions/compose';
+import { COMPOSE_QUOTE_CANCEL, COMPOSE_REPLY, COMPOSE_REPLY_CANCEL, COMPOSE_SENSITIVITY_CHANGE, COMPOSE_SPOILERNESS_CHANGE, COMPOSE_SUBMIT_SUCCESS, COMPOSE_UPLOAD_SUCCESS, COMPOSE_UPLOAD_UNDO, COMPOSE_VISIBILITY_CHANGE, changeCompose, setComposeToStatus } from '../../actions/compose';
 import { createComposer, targetComposerAction } from '../../actions/composer';
 import { USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../../actions/user_posting_styles';
 import { selectComposerPostingContextCompliance } from '../compliance';
@@ -289,6 +289,136 @@ describe('composer posting styles', () => {
     expect(materializeComposerText(next)).toEqual('#fedibird #books');
   });
 
+  it('does not let an attached file replace an explicit sensitive off with the account default', () => {
+    const off = fromJS({
+      id: '9',
+      revision: 1,
+      target: { kind: 'none' },
+      defaults: { sensitive: false },
+    });
+    const applied = commit(composer(undefined, { type: '@@INIT' }).set('default_sensitive', true), off);
+    const withMedia = composer(applied, {
+      type: COMPOSE_UPLOAD_SUCCESS,
+      media: { id: 'm1', type: 'image' },
+    });
+
+    expect(withMedia.get('sensitive')).toBe(false);
+    expect(withMedia.get('media_attachments').size).toEqual(1);
+    expect(withMedia.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(false);
+
+    const blankWarning = fromJS({
+      id: '12',
+      revision: 1,
+      target: { kind: 'none' },
+      defaults: { sensitive: false, spoiler: { enabled: true, text: '  ' } },
+    });
+    const blank = commit(withMedia, blankWarning);
+
+    expect(blank.get('spoiler')).toBe(true);
+    expect(blank.get('sensitive')).toBe(false);
+  });
+
+  it('restores an explicit sensitive on after media is removed and attached again', () => {
+    const on = fromJS({
+      id: '9',
+      revision: 1,
+      target: { kind: 'none' },
+      defaults: { sensitive: true },
+    });
+    const applied = commit(undefined, on);
+    const withMedia = composer(applied, {
+      type: COMPOSE_UPLOAD_SUCCESS,
+      media: { id: 'm1', type: 'image' },
+    });
+    const removed = composer(withMedia, { type: COMPOSE_UPLOAD_UNDO, media_id: 'm1' });
+    const again = composer(removed, {
+      type: COMPOSE_UPLOAD_SUCCESS,
+      media: { id: 'm2', type: 'image' },
+    });
+
+    expect(withMedia.get('sensitive')).toBe(true);
+    expect(removed.get('sensitive')).toBe(false);
+    expect(removed.get('media_attachments').size).toEqual(0);
+    expect(removed.getIn(['userPostingStyle', 'styleOwnedFields']).includes('sensitive')).toBe(true);
+    expect(again.get('sensitive')).toBe(true);
+    expect(again.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(false);
+  });
+
+  it('keeps the usual media sensitive default when no style pins it', () => {
+    const drafted = composer(undefined, { type: '@@INIT' }).set('default_sensitive', true);
+    const withMedia = composer(drafted, {
+      type: COMPOSE_UPLOAD_SUCCESS,
+      media: { id: 'm1', type: 'image' },
+    });
+    const removed = composer(withMedia, { type: COMPOSE_UPLOAD_UNDO, media_id: 'm1' });
+    const warned = composer(composer(undefined, { type: COMPOSE_SPOILERNESS_CHANGE }), {
+      type: COMPOSE_UPLOAD_SUCCESS,
+      media: { id: 'm2', type: 'image' },
+    });
+
+    expect(withMedia.get('sensitive')).toBe(true);
+    expect(removed.get('sensitive')).toBe(false);
+    expect(warned.get('spoiler')).toBe(true);
+    expect(warned.get('sensitive')).toBe(true);
+  });
+
+  it('shows sensitive on for a content warning with text, including when another warning style is selected', () => {
+    const first = fromJS({
+      id: '8',
+      revision: 1,
+      target: { kind: 'none' },
+      defaults: { sensitive: false, spoiler: { enabled: true, text: 'cw' } },
+    });
+    const second = fromJS({
+      id: '10',
+      revision: 1,
+      target: { kind: 'none' },
+      defaults: { sensitive: false, spoiler: { enabled: true, text: 'other' } },
+    });
+    const drafted = composer(composer(undefined, { type: '@@INIT' }).set('default_sensitive', true), {
+      type: COMPOSE_UPLOAD_SUCCESS,
+      media: { id: 'm1', type: 'image' },
+    });
+    const applied = commit(drafted, first);
+    const switched = commit(applied, second);
+    const removed = composer(switched, { type: COMPOSE_UPLOAD_UNDO, media_id: 'm1' });
+
+    expect(applied.get('sensitive')).toBe(true);
+    expect(applied.get('spoiler_text')).toEqual('cw');
+    expect(switched.get('spoiler_text')).toEqual('other');
+    expect(switched.get('sensitive')).toBe(true);
+    expect(removed.get('sensitive')).toBe(true);
+    expect(removed.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(false);
+  });
+
+  it('keeps a manual sensitive value distinct from a style value', () => {
+    const manual = composer(composer(undefined, { type: '@@INIT' }).set('sensitive', true), {
+      type: COMPOSE_SENSITIVITY_CHANGE,
+    });
+    const warned = fromJS({
+      id: '8',
+      revision: 1,
+      target: { kind: 'none' },
+      defaults: { spoiler: { enabled: true, text: 'cw' } },
+    });
+    const plain = fromJS({
+      id: '11',
+      revision: 1,
+      target: { kind: 'none' },
+      defaults: { spoiler: { enabled: false } },
+    });
+    const applied = commit(manual, warned);
+    const restored = commit(applied, plain);
+
+    expect(manual.get('sensitive')).toBe(false);
+    expect(manual.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(true);
+    expect(applied.get('sensitive')).toBe(true);
+    expect(applied.get('spoiler')).toBe(true);
+    expect(restored.get('spoiler')).toBe(false);
+    expect(restored.get('sensitive')).toBe(false);
+    expect(restored.getIn(['userPostingStyle', 'manualFields']).includes('sensitive')).toBe(true);
+  });
+
   it('rotates the idempotency key when an effective post value changes and keeps it when nothing changes', () => {
     const drafted = composer(undefined, changeCompose('Hello')).set('idempotencyKey', 'previous-key');
     const privateStyle = fromJS({
@@ -331,6 +461,65 @@ describe('composer posting styles', () => {
     const again = commit(byWarning.set('idempotencyKey', 'kept-key'), warningStyle);
     expect(again.get('idempotencyKey')).toEqual('kept-key');
     expect(again.get('spoiler_text')).toEqual('cw');
+  });
+
+  it('rotates the idempotency key only when the sent hashtag text changes', () => {
+    const spelled = (id, name, tagName, target = { kind: 'none' }) => fromJS({
+      id,
+      name,
+      icon: '✦',
+      revision: 1,
+      target,
+      defaults: {},
+      managed: { hashtags: [{ name: tagName, normalizedName: tagName.toLowerCase(), enforcement: 'advisory' }] },
+    });
+    const drafted = composer(undefined, changeCompose('Hello')).set('idempotencyKey', 'previous-key');
+    const wide = commit(drafted, spelled('21', 'Wide', 'Fedibird'));
+    const lower = commit(wide.set('idempotencyKey', 'kept-key'), spelled('22', 'Lower', 'fedibird'));
+    const renamed = commit(lower.set('idempotencyKey', 'kept-key'), spelled('23', 'Alias', 'fedibird'));
+    const destination = commit(renamed.set('idempotencyKey', 'kept-key'), spelled('24', 'Destination', 'fedibird', {
+      kind: 'hashtag',
+      hashtag: 'fedibird',
+      label: '#fedibird',
+    }));
+    const changedOrigin = commit(wide.set('idempotencyKey', 'kept-key'), spelled('25', 'Mixed', 'Fedibird', {
+      kind: 'hashtag',
+      hashtag: 'fedibird',
+      label: '#fedibird',
+    }));
+    const suppressed = composer(changedOrigin.set('idempotencyKey', 'kept-key'), {
+      type: USER_POSTING_STYLE_HASHTAG_TOGGLE,
+      origin: 'destination',
+      normalizedName: 'fedibird',
+    });
+    const sameOrigin = commit(drafted.set('idempotencyKey', 'kept-key'), spelled('24', 'Destination', 'fedibird', {
+      kind: 'hashtag',
+      hashtag: 'fedibird',
+      label: '#fedibird',
+    }));
+    const suppressedSame = composer(sameOrigin.set('idempotencyKey', 'kept-key'), {
+      type: USER_POSTING_STYLE_HASHTAG_TOGGLE,
+      origin: 'destination',
+      normalizedName: 'fedibird',
+    });
+    const alreadyWritten = commit(composer(undefined, changeCompose('Hello #Fedibird')).set('idempotencyKey', 'kept-key'), spelled('22', 'Lower', 'fedibird'));
+
+    expect(materializeComposerText(wide)).toEqual('Hello\n\n#Fedibird');
+    expect(wide.get('idempotencyKey')).toEqual('test-idempotency-key');
+    expect(materializeComposerText(lower)).toEqual('Hello\n\n#fedibird');
+    expect(lower.get('idempotencyKey')).toEqual('test-idempotency-key');
+    expect(materializeComposerText(renamed)).toEqual('Hello\n\n#fedibird');
+    expect(renamed.get('idempotencyKey')).toEqual('kept-key');
+    expect(materializeComposerText(destination)).toEqual('Hello\n\n#fedibird');
+    expect(destination.get('idempotencyKey')).toEqual('kept-key');
+    expect(materializeComposerText(changedOrigin)).toEqual('Hello\n\n#fedibird');
+    expect(changedOrigin.get('idempotencyKey')).toEqual('test-idempotency-key');
+    expect(materializeComposerText(suppressed)).toEqual('Hello\n\n#Fedibird');
+    expect(suppressed.get('idempotencyKey')).toEqual('test-idempotency-key');
+    expect(materializeComposerText(suppressedSame)).toEqual('Hello\n\n#fedibird');
+    expect(suppressedSame.get('idempotencyKey')).toEqual('kept-key');
+    expect(materializeComposerText(alreadyWritten)).toEqual('Hello #Fedibird');
+    expect(alreadyWritten.get('idempotencyKey')).toEqual('kept-key');
   });
 
   it('blocks submit while a group destination is unresolved and does not rewrite visibility', () => {
