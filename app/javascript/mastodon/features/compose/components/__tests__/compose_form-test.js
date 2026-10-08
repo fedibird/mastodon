@@ -333,6 +333,25 @@ describe('ComposeForm display mode', () => {
     expect(onSubmit).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps the simple composer send guard for a public-only destination', () => {
+    const onSubmit = jest.fn();
+
+    renderForm({
+      text: 'hello',
+      privacy: 'unlisted',
+      displayMode: 'simple',
+      canAttempt: false,
+      capabilityReason: 'compliance',
+      onSubmit,
+      onDisplayModeChange: jest.fn(),
+    });
+
+    expect(screen.getByRole('button', { name: 'Toot' })).toBeDisabled();
+    expect(screen.getByRole('status').textContent).toContain('Posting conditions are not met');
+    fireEvent.click(screen.getByRole('button', { name: 'Toot' }));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it('shows a simple-mode send guard without hiding the reason', () => {
     const onSubmit = jest.fn();
     const onDisplayModeChange = jest.fn();

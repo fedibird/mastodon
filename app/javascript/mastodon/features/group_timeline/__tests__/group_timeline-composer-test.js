@@ -10,6 +10,7 @@ import thunk from 'redux-thunk';
 import settingsReducer from 'mastodon/reducers/settings';
 import { groupPostingContext } from '../../../posting_context/fixtures/group_context_fixture';
 import { mitraGroupPostingContext } from '../../../posting_context/fixtures/mitra_group_context_fixture';
+import { nodebbGroupPostingContext } from '../../../posting_context/fixtures/nodebb_group_context_fixture';
 
 jest.mock('react-intl', () => {
   const React = require('react');
@@ -467,6 +468,36 @@ describe('GroupTimeline portable composer', () => {
     expect(props.prepend.props.postingContext.managed.mentions).toEqual([]);
     expect(props.prepend.props.postingContext.requirements.followingAccounts).toEqual([]);
     expect(props.prepend.props.postingContext.constraints.allowedVisibilities).toEqual(['public', 'unlisted']);
+  });
+
+  it('prepends a NodeBB category context with its required mention and public-only constraint', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: true });
+    const account = ImmutableMap({
+      id: '456',
+      username: 'category',
+      acct: 'category@nodebb.example',
+      group: true,
+      display_name: 'Category',
+    });
+    const props = renderTimeline(GroupTimeline, {
+      account,
+      discovery: discoveryRecord('resolved', nodebbGroupPostingContext),
+      visibility: { 'portable:group-route:456': true },
+    }).props;
+
+    expect(props.prepend.props.composerId).toEqual('portable:group-route:456');
+    expect(props.prepend.props.postingContextAccountId).toEqual('456');
+    expect(props.prepend.props.postingContext.key).toEqual('protocol:fep-1b12-nodebb:456');
+    expect(props.prepend.props.postingContext.constraints.allowedVisibilities).toEqual(['public']);
+    expect(props.prepend.props.postingContext.managed.mentions).toEqual([
+      {
+        accountId: '456',
+        acct: 'category@nodebb.example',
+        enforcement: 'required',
+        ruleId: 'nodebb-group-mention',
+      },
+    ]);
+    expect(props.prepend.props.postingContext.protocol.activityPub.audience.accountId).toEqual('456');
   });
 
   it('keeps the composer mounted while a resolved context is refreshing', () => {

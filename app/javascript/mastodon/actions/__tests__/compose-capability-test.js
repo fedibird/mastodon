@@ -28,6 +28,7 @@ import { applyComposerPostingContext, createComposer, targetComposerAction } fro
 import { POSTING_CONTEXT_FETCH_SUCCESS } from '../posting_contexts';
 import { groupPostingContext } from '../../posting_context/fixtures/group_context_fixture';
 import { mitraGroupPostingContext } from '../../posting_context/fixtures/mitra_group_context_fixture';
+import { nodebbGroupPostingContext } from '../../posting_context/fixtures/nodebb_group_context_fixture';
 import { buildHashtagTimelinePostingContext } from '../../posting_context/hashtag';
 import { selectComposerEffectiveCreateCapability } from '../../posting_context/create_capability';
 import composers from '../../reducers/composers';
@@ -303,5 +304,84 @@ describe('submit create capability', () => {
     expect(request).toHaveBeenCalled();
     expect(request.mock.calls[0][0].method).toEqual('put');
     expect(request.mock.calls[0][0].data.status).toEqual('Hello');
+  });
+
+  it('submits a public NodeBB post with the required mention and blocks unlisted', async () => {
+    const request = jest.fn().mockResolvedValue({ data: statusResponse });
+    api.mockReturnValue({ request });
+    const store = makeStore();
+
+    store.dispatch(createComposer('composer-a'));
+    store.dispatch(targetComposerAction(changeComposeVisibility('unlisted'), 'composer-a'));
+    store.dispatch(targetComposerAction(changeCompose('Hello @category@nodebb.example'), 'composer-a'));
+    store.dispatch(targetComposerAction({
+      type: 'COMPOSE_UPLOAD_SUCCESS',
+      media: { id: 'media-1', type: 'image', description: 'tree' },
+    }, 'composer-a'));
+    store.dispatch(applyComposerPostingContext('composer-a', nodebbGroupPostingContext, '456'));
+    discover(store, '456', {
+      schema_version: 1,
+      account_id: '456',
+      status: 'resolved',
+      context: {
+        key: 'protocol:fep-1b12-nodebb:456',
+        source: { id: 'compat:nodebb-fep-1b12', revision: 1 },
+        managed: {
+          hashtags: [],
+          mentions: [
+            {
+              account_id: '456',
+              acct: 'category@nodebb.example',
+              enforcement: 'required',
+              rule_id: 'nodebb-group-mention',
+            },
+          ],
+        },
+        requirements: { following_accounts: [] },
+        constraints: { allowed_visibilities: ['public'] },
+        protocol: {
+          activitypub: {
+            audience: {
+              account_id: '456',
+              acct: 'category@nodebb.example',
+              enforcement: 'required',
+              rule_id: 'fep-1b12-group-audience',
+            },
+          },
+        },
+      },
+      discovery: {
+        mechanism: 'nodeinfo_software',
+        adapter: 'nodebb_group',
+        authority: 'compatibility',
+      },
+      viewer_evidence: permissions({
+        status: 'unknown',
+        source: 'fep-5219',
+        via_relationship: null,
+        authority: 'protocol',
+      }),
+    });
+
+    const blocked = selectComposerEffectiveCreateCapability(store.getState(), 'composer-a');
+
+    await store.dispatch(submitComposerWithCheck('composer-a', router, intl));
+    await store.dispatch(submitComposer('composer-a', router));
+
+    expect(blocked.canAttempt).toBe(false);
+    expect(blocked.reason).toBe('compliance');
+    expect(request).not.toHaveBeenCalled();
+    expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'privacy'])).toEqual('unlisted');
+    expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'text'])).toEqual('Hello @category@nodebb.example');
+    expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'media_attachments']).size).toBe(1);
+
+    store.dispatch(targetComposerAction(changeComposeVisibility('public'), 'composer-a'));
+    await store.dispatch(submitComposerWithCheck('composer-a', router, intl));
+
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0][0].data.visibility).toEqual('public');
+    expect(request.mock.calls[0][0].data.status).toEqual('Hello @category@nodebb.example');
+    expect(request.mock.calls[0][0].data.audience_account_id).toEqual('456');
+    expect(request.mock.calls[0][0].data.media_ids.toArray()).toEqual(['media-1']);
   });
 });

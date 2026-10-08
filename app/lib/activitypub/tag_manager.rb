@@ -181,19 +181,26 @@ class ActivityPub::TagManager
       # Only notify followers if the account is locally silenced
       account_ids = status.active_mentions.pluck(:account_id)
       uris = status.account.followers.where(id: account_ids).each_with_object([]) do |account, result|
-        result << uri_for(account)
-        result << followers_uri_for(account) if account.group?
+        append_mention_uris(result, account, status)
       end.compact
       uris.concat(FollowRequest.where(target_account_id: status.account_id, account_id: account_ids).each_with_object([]) do |request, result|
-        result << uri_for(request.account)
-        result << followers_uri_for(request.account) if request.account.group?
+        append_mention_uris(result, request.account, status)
       end.compact)
     else
       status.active_mentions.each_with_object([]) do |mention, result|
-        result << uri_for(mention.account)
-        result << followers_uri_for(mention.account) if mention.account.group?
+        append_mention_uris(result, mention.account, status)
       end.compact
     end
+  end
+
+  # Group mentions are also addressed to that group's followers collection.
+  # The FEP-1b12 audience is the Group actor, so that collection is not added
+  # for the audience target. Other group mentions keep their followers URI.
+  def append_mention_uris(result, account, status)
+    result << uri_for(account)
+    return unless account.group? && account.id != status.audience_account_id
+
+    result << followers_uri_for(account)
   end
 
   def local_uri?(uri)

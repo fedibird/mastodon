@@ -103,6 +103,19 @@ RSpec.describe ActivityPub::TagManager do
       expect(subject.cc(status)).to include(subject.uri_for(mentioned))
     end
 
+    it 'addresses an audience group actor without its followers collection and keeps other group followers' do
+      audience = Fabricate(:account, username: 'category', domain: 'nodebb.example', actor_type: 'Group', protocol: :activitypub, uri: 'https://nodebb.example/category/category', inbox_url: 'https://nodebb.example/category/category/inbox', followers_url: 'https://nodebb.example/category/category/followers')
+      other = Fabricate(:account, username: 'localsquad', actor_type: 'Group', followers_url: 'https://example.invalid/users/localsquad/followers')
+      status = Fabricate(:status, visibility: :public, audience_account: audience)
+      status.mentions.create(account: audience)
+      status.mentions.create(account: other)
+
+      expect(subject.cc(status)).to include(subject.uri_for(audience), subject.uri_for(other), subject.followers_uri_for(other))
+      expect(subject.cc(status)).not_to include(audience.followers_url)
+      expect(subject.to(status)).to include('https://www.w3.org/ns/activitystreams#Public', audience.uri)
+      expect(subject.to(status)).not_to include(audience.followers_url)
+    end
+
     it "returns URIs of mentions for silenced author's non-direct status only if they are followers or requesting to be" do
       bob    = Fabricate(:account, username: 'bob')
       alice  = Fabricate(:account, username: 'alice')

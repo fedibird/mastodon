@@ -1,3 +1,4 @@
+import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 import { fireEvent, render, screen } from '@testing-library/react';
 import fs from 'fs';
 import path from 'path';
@@ -29,6 +30,7 @@ import { applyComposerPostingContext, createComposer, targetComposerAction } fro
 import { POSTING_CONTEXT_FETCH_REQUEST, POSTING_CONTEXT_FETCH_SUCCESS, POSTING_CONTEXT_FETCH_FAIL } from '../../../../actions/posting_contexts';
 import { groupPostingContext } from '../../../../posting_context/fixtures/group_context_fixture';
 import { mitraGroupPostingContext } from '../../../../posting_context/fixtures/mitra_group_context_fixture';
+import { nodebbGroupPostingContext } from '../../../../posting_context/fixtures/nodebb_group_context_fixture';
 import { buildHashtagTimelinePostingContext } from '../../../../posting_context/hashtag';
 import compose from '../../../../reducers/compose';
 import composers from '../../../../reducers/composers';
@@ -36,6 +38,7 @@ import postingContexts from '../../../../reducers/posting_contexts';
 import relationships from '../../../../reducers/relationships';
 import { ComposerProvider } from '../../composer_id_context';
 import PostingContextBarContainer from '../../containers/posting_context_bar_container';
+import PostingContextBar from '../posting_context_bar';
 
 const composerId = 'composer-a';
 
@@ -323,5 +326,119 @@ describe('PostingContextBar', () => {
     expect(screen.getByText('Latest create permission could not be confirmed')).toBeTruthy();
     expect(screen.queryByText('Create permission confirmed · compatibility method')).toBeNull();
     expect(screen.getByText('Posting to group: @group@mitra.example')).toBeTruthy();
+  });
+
+  it('shows a public-only NodeBB destination and keeps an unlisted selection', () => {
+    const store = storeWithDiscovery();
+
+    store.dispatch(createComposer(composerId));
+    store.dispatch(applyComposerPostingContext(composerId, nodebbGroupPostingContext, '456'));
+    store.dispatch(targetComposerAction({ type: 'COMPOSE_VISIBILITY_CHANGE', value: 'unlisted' }, composerId));
+    discover(store, '456', {
+      schema_version: 1,
+      account_id: '456',
+      status: 'resolved',
+      context: {
+        key: 'protocol:fep-1b12-nodebb:456',
+        source: { id: 'compat:nodebb-fep-1b12', revision: 1 },
+        managed: {
+          hashtags: [],
+          mentions: [
+            {
+              account_id: '456',
+              acct: 'category@nodebb.example',
+              enforcement: 'required',
+              rule_id: 'nodebb-group-mention',
+            },
+          ],
+        },
+        requirements: { following_accounts: [] },
+        constraints: { allowed_visibilities: ['public'] },
+        protocol: {
+          activitypub: {
+            audience: {
+              account_id: '456',
+              acct: 'category@nodebb.example',
+              enforcement: 'required',
+              rule_id: 'fep-1b12-group-audience',
+            },
+          },
+        },
+      },
+      discovery: {
+        mechanism: 'nodeinfo_software',
+        adapter: 'nodebb_group',
+        authority: 'compatibility',
+      },
+      viewer_evidence: {
+        affiliations: {
+          source: 'fep-5219-affiliations',
+          snapshot_status: 'fresh',
+          fetched_at: '2026-10-08T00:00:00Z',
+          relationships: [],
+        },
+        permissions: {
+          create: {
+            status: 'unknown',
+            source: 'fep-5219',
+            via_relationship: null,
+            authority: 'protocol',
+          },
+        },
+      },
+    });
+
+    renderBar(store);
+
+    const visibility = screen.getByText('This destination supports public posts only');
+
+    expect(visibility.className).toContain('compose-form__posting-context-warning');
+    expect(screen.getByText('Required mention: @category@nodebb.example')).toBeTruthy();
+    expect(screen.getByText('Posting to group: @category@nodebb.example')).toBeTruthy();
+    expect(screen.getByText('Create permission not confirmed · compatibility method')).toBeTruthy();
+    expect(screen.queryByText('Visibility: Public or Unlisted')).toBeNull();
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'privacy'])).toEqual('unlisted');
+
+    const en = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../../locales/en.json'), 'utf8'));
+    const ja = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../../locales/ja.json'), 'utf8'));
+
+    expect(en['compose_form.posting_context.visibility.public_only']).toEqual('This destination supports public posts only');
+    expect(ja['compose_form.posting_context.visibility.public_only']).toEqual('この投稿先は公開投稿のみ対応しています');
+    expect(en['compose_form.posting_context.visibility.public_unlisted']).toEqual('Visibility: Public or Unlisted');
+    expect(ja['compose_form.posting_context.visibility.public_unlisted']).toEqual('公開範囲: 公開 / 未収載');
+  });
+
+  it('keeps the existing recheck control beside a NodeBB public-only destination', () => {
+    const onRecheck = jest.fn();
+    const onToggle = jest.fn();
+
+    render(
+      <PostingContextBar
+        hashtags={ImmutableList()}
+        mentions={ImmutableList([ImmutableMap({
+          accountId: '456',
+          acct: 'category@nodebb.example',
+          enforcement: 'required',
+          ruleId: 'nodebb-group-mention',
+        })])}
+        audience={ImmutableMap({
+          accountId: '456',
+          acct: 'category@nodebb.example',
+          enforcement: 'required',
+          ruleId: 'fep-1b12-group-audience',
+        })}
+        visibility={{ valid: true, allowed: ['public'] }}
+        followingAccounts={[]}
+        createNotice='unknown_compatibility'
+        canRecheck
+        onRecheck={onRecheck}
+        onToggle={onToggle}
+      />,
+    );
+
+    expect(screen.getByText('This destination supports public posts only')).toBeTruthy();
+    expect(screen.getByText('Required mention: @category@nodebb.example')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Recheck' }));
+    expect(onRecheck).toHaveBeenCalledTimes(1);
   });
 });

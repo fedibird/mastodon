@@ -233,6 +233,7 @@
   "compose_form.posting_context.revalidation.running": "投稿権限を再確認しています",
   "compose_form.posting_context.revalidation.stale": "権限情報が古くなっています",
   "compose_form.posting_context.revalidation.timed_out": "再確認はサーバーで継続している可能性があります",
+  "compose_form.posting_context.visibility.public_only": "この投稿先は公開投稿のみ対応しています",
   "compose_form.posting_context.visibility.public_unlisted": "公開範囲: 公開 / 未収載",
   "compose_form.posting_style.catalog_failed": "投稿スタイルを読み込めませんでした。",
   "compose_form.posting_style.catalog_retry": "投稿スタイルを再読み込み",

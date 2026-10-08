@@ -11,6 +11,7 @@ import { normalizeManagedHashtagName } from './managed_hashtags';
 const SUPPORTED_DELIVERY_ADAPTERS = {
   fedibird_group: true,
   mitra_group: true,
+  nodebb_group: true,
 };
 
 const present = value => value !== null && value !== undefined && value !== '';
