@@ -699,4 +699,44 @@ describe('selectComposerEffectiveCreateCapability', () => {
     expect(capability.canAttempt).toBe(true);
     expect(capability.reason).toBeNull();
   });
+
+  it('does not treat a failed revalidation as a fresh confirmation and still allows a compatibility attempt', () => {
+    const allowed = capabilityFor(primaryState({
+      postingContext: mitraGroupPostingContext,
+      accountId: '456',
+      discovery: mitraDiscovery(viewerEvidence(permissionEvidence('allowed', 'none'))),
+    }).set('posting_context_revalidations', fromJS({
+      '456': { state: 'failed', explicit: true, actor: 'failed', affiliations: 'failed' },
+    })));
+    const unknown = capabilityFor(primaryState({
+      postingContext: mitraGroupPostingContext,
+      accountId: '456',
+      discovery: mitraDiscovery(viewerEvidence(permissionEvidence('unknown'))),
+    }).set('posting_context_revalidations', fromJS({
+      '456': { state: 'running', explicit: true },
+    })));
+
+    expect(allowed.permission.status).toBe('allowed');
+    expect(allowed.permission.viaRelationship).toBe('none');
+    expect(allowed.permission.confirmed).toBe(false);
+    expect(allowed.canAttempt).toBe(true);
+    expect(createCapabilityNotice(allowed)).not.toBe('allowed_compatibility');
+    expect(unknown.permission.status).toBe('unknown');
+    expect(unknown.canAttempt).toBe(true);
+    expect(unknown.delivery.authority).toBe('compatibility');
+  });
+
+  it('does not apply another group revalidation result to the current target', () => {
+    const capability = capabilityFor(primaryState({
+      postingContext: mitraGroupPostingContext,
+      accountId: '456',
+      discovery: mitraDiscovery(viewerEvidence(permissionEvidence('allowed', 'trusted-poster'))),
+    }).set('posting_context_revalidations', fromJS({
+      '123': { state: 'failed', explicit: true, actor: 'failed', affiliations: 'failed' },
+    })));
+
+    expect(capability.permission.confirmed).toBe(true);
+    expect(capability.canAttempt).toBe(true);
+    expect(createCapabilityNotice(capability)).toBe('allowed_compatibility');
+  });
 });

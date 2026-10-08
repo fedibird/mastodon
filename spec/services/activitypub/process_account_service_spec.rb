@@ -289,6 +289,37 @@ RSpec.describe ActivityPub::ProcessAccountService, type: :service do
       expect(account.reload.affiliations_url).to eq affiliations_url
     end
 
+    it 'does not enqueue affiliation sync when the caller defers it' do
+      payload = group_payload(affiliations: 'https://foo.test/groups/g/other', canCreate: 'admin')
+
+      Sidekiq::Testing.fake! do
+        subject.call('group', 'foo.test', payload, defer_group_affiliations: true)
+        expect(ActivityPub::SynchronizeGroupAffiliationsWorker.jobs).to be_empty
+      end
+
+      account.reload
+      expect(account.affiliations_url).to eq 'https://foo.test/groups/g/other'
+      expect(account.can_create_affiliation).to eq 'admin'
+    end
+
+    it 'still withdraws a removed affiliations collection when sync is deferred' do
+      GroupAffiliation.create!(
+        group_account: account,
+        subject_uri: 'https://remote.example/users/alice',
+        relationship: 'admin'
+      )
+      account.update_columns(affiliations_url: affiliations_url, affiliations_fetched_at: Time.utc(2026, 1, 1))
+
+      Sidekiq::Testing.fake! do
+        subject.call('group', 'foo.test', group_payload, defer_group_affiliations: true)
+        expect(ActivityPub::SynchronizeGroupAffiliationsWorker.jobs).to be_empty
+      end
+
+      expect(account.reload.affiliations_url).to be_nil
+      expect(account.affiliations_fetched_at).to be_nil
+      expect(account.group_affiliations).to be_empty
+    end
+
     it 'passes an inline collection without the rest of the actor document' do
       collection = {
         'id' => affiliations_url,

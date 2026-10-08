@@ -738,6 +738,20 @@ body > [data-popper-placement] {
     &-warning {
       color: $warning-red;
     }
+
+    &-recheck {
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: $secondary-text-color;
+      cursor: pointer;
+      font: inherit;
+      text-decoration: underline;
+    }
+
+    &-revalidation {
+      font-size: 14px;
+    }
   }
 
   .compose-form__capability-guard {

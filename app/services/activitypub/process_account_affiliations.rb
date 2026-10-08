@@ -9,10 +9,16 @@ module ActivityPub::ProcessAccountAffiliations
 
   def check_group_affiliations!
     if enqueue_group_affiliations?
-      ActivityPub::SynchronizeGroupAffiliationsWorker.perform_async(@account.id, group_affiliations_worker_options)
+      # P17 refreshes affiliations itself after the actor update. Skip only
+      # the automatic enqueue. Withdrawing a removed collection still runs.
+      enqueue_group_affiliations_sync! unless @options[:defer_group_affiliations]
     else
       withdraw_group_affiliations_cache!
     end
+  end
+
+  def enqueue_group_affiliations_sync!
+    ActivityPub::SynchronizeGroupAffiliationsWorker.perform_async(@account.id, group_affiliations_worker_options)
   end
 
   def enqueue_group_affiliations?

@@ -10,7 +10,9 @@ class ActivityPub::FetchRemoteAccountService < BaseService
   SUPPORTED_TYPES = %w(Application Group Organization Person Service).freeze
 
   # Does a WebFinger roundtrip on each call, unless `only_key` is true
-  def call(uri, id: true, prefetched_body: nil, break_on_redirect: false, only_key: false, suppress_errors: true)
+  # `id` is retained from the historical signature. This fetch always requests
+  # the actor document by URI; `only_key` is the switch that skips permissions.
+  def call(uri, id: true, prefetched_body: nil, break_on_redirect: false, only_key: false, suppress_errors: true, defer_group_affiliations: false) # rubocop:disable Metrics/ParameterLists, Lint/UnusedMethodArgument
     return if domain_not_allowed?(uri)
     return ActivityPub::TagManager.instance.uri_to_resource(uri, Account) if ActivityPub::TagManager.instance.local_uri?(uri)
 
@@ -35,7 +37,7 @@ class ActivityPub::FetchRemoteAccountService < BaseService
 
     check_webfinger! unless only_key
 
-    ActivityPub::ProcessAccountService.new.call(@username, @domain, @json, only_key: only_key, verified_webfinger: !only_key)
+    ActivityPub::ProcessAccountService.new.call(@username, @domain, @json, only_key: only_key, verified_webfinger: !only_key, defer_group_affiliations: defer_group_affiliations)
   rescue Error => e
     Rails.logger.debug "Fetching account #{uri} failed: #{e.message}"
     raise unless suppress_errors

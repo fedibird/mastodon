@@ -31,7 +31,7 @@ RSpec.describe ActivityPub::FetchGroupAffiliationsService do
       expect(ActivityPub::FetchRemoteAccountService).not_to receive(:new)
       expect(ResolveAccountService).not_to receive(:new)
 
-      service.call(account)
+      expect(service.call(account)).to eq :refreshed
 
       expect(a_request(:get, alice)).not_to have_been_made
       expect(a_request(:get, %r{/.well-known/webfinger})).not_to have_been_made
@@ -128,7 +128,7 @@ RSpec.describe ActivityPub::FetchGroupAffiliationsService do
       cache_affiliation!
       stub_collection(collection_url, ordered_collection([]))
 
-      service.call(account)
+      expect(service.call(account)).to eq :refreshed
 
       expect(account.group_affiliations).to be_empty
       expect(account.reload.affiliations_fetched_at).to be_within(2.seconds).of(Time.now.utc)
@@ -162,7 +162,7 @@ RSpec.describe ActivityPub::FetchGroupAffiliationsService do
       cached = cache_affiliation!
       stub_request(:get, collection_url).to_timeout
 
-      service.call(account)
+      expect(service.call(account)).to eq :failed
 
       expect(account.group_affiliations.pluck(:subject_uri)).to eq [cached.subject_uri]
       expect(account.reload.affiliations_fetched_at).to eq cached_stamp

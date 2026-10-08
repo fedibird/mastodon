@@ -14,13 +14,20 @@ class ActivityPub::FetchGroupAffiliationsService < BaseService
     OrderedCollectionPage
   ).freeze
 
+  # :refreshed when a snapshot was saved, including a successful empty
+  # collection. :failed when the previous snapshot was kept. :unavailable
+  # when this account has nothing to fetch. Callers that ignore the result
+  # keep the previous behavior.
   def call(account, collection: nil)
-    return unless eligible?(account, collection)
+    return :unavailable unless eligible?(account, collection)
 
     @account = account
     @failed = false
     records = collect_records(collection.presence || account.affiliations_url)
-    replace_affiliations!(records) unless records.nil?
+    return :failed if @failed || records.nil?
+
+    replace_affiliations!(records)
+    :refreshed
   end
 
   private
