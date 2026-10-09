@@ -2137,6 +2137,11 @@ ja:
     two_factor_authentication: 二段階認証
     user_posting_contexts: 投稿のスタイルと目的
     webauthn_authentication: セキュリティキー
+  user_posting_context_assignments:
+    errors:
+      invalid: この場所または投稿スタイルは保存できません。
+      style: この場所で使える、自分の有効な投稿スタイルを選んでください。
+      surface: 使えるグループ、ハッシュタグ、またはリストを選んでください。
   user_posting_contexts:
     advisory: この投稿スタイルによる参考タグ
     auto_language: 投稿時に言語を自動判定します。

@@ -55,6 +55,7 @@ export const initialUserPostingStyle = () => ImmutableMap({
   styleInputLock: false,
   destinationPolicy: null,
   autoAttemptKey: null,
+  defaultsSettledSurface: null,
 });
 
 const searchabilityForPrivacy = (privacy, current) => {

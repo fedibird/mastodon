@@ -49,6 +49,10 @@ class UserPostingContext < ApplicationRecord
 
   belongs_to :user, inverse_of: :user_posting_contexts
   belongs_to :target_account, class_name: 'Account', optional: true, inverse_of: false
+  # Nullified when this style is deleted so the place stays an explicit
+  # "no style" and does not guess a replacement. The foreign key does the
+  # same for a SQL-level delete.
+  has_many :user_posting_context_assignments, inverse_of: :user_posting_context, dependent: :nullify
 
   # External input cannot retarget a row or rewrite the storage version.
   attr_readonly :user_id, :schema_version

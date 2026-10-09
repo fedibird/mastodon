@@ -4,7 +4,7 @@ import { applyComposerPostingContext, targetComposerAction } from './composer';
 import { fetchPostingContext } from './posting_contexts';
 import { isExistingPostEdit } from '../posting_context/materialize';
 import { normalizeUserPostingStyle, resolveUserPostingStyle } from '../posting_context/user_style_resolver';
-import { selectPortableAutoStyle, styleMatchesSurface, surfacesEqual } from '../posting_context/surface';
+import { portablePostingContextReady, selectPortableAutoStyle, styleMatchesSurface, surfaceCacheKey, surfacesEqual } from '../posting_context/surface';
 import { selectComposer } from '../selectors/composer';
 import { selectPostingContextDiscovery, selectPostingContextForAccount } from '../selectors/posting_contexts';
 
@@ -16,6 +16,7 @@ export const USER_POSTING_STYLE_DESTINATION = 'USER_POSTING_STYLE_DESTINATION';
 export const USER_POSTING_STYLE_DESTINATION_RETRY = 'USER_POSTING_STYLE_DESTINATION_RETRY';
 export const USER_POSTING_STYLE_HASHTAG_TOGGLE = 'USER_POSTING_STYLE_HASHTAG_TOGGLE';
 export const USER_POSTING_STYLE_AUTO_ATTEMPT = 'USER_POSTING_STYLE_AUTO_ATTEMPT';
+export const USER_POSTING_STYLE_DEFAULTS_SETTLED = 'USER_POSTING_STYLE_DEFAULTS_SETTLED';
 
 const selectStyle = (state, styleId) => {
   const styles = state.getIn(['userPostingStyles', 'styles']);
@@ -205,17 +206,66 @@ export function commitUserPostingStyle(composerId, styleId, { selectionOrigin, e
 export function maybeAutoSelectPortablePostingStyle(composerId) {
   return (dispatch, getState) => {
     const composer = selectComposer(getState(), composerId);
-    const styles = getState().getIn(['userPostingStyles', 'styles']);
-    const style = selectPortableAutoStyle(styles, composer);
+    const surface = composer && composer.get('surface');
+    const cacheKey = surfaceCacheKey(surface);
+    const assignment = cacheKey && getState().getIn(['userPostingContextAssignments', 'bySurface', cacheKey]);
 
-    if (!composer || !style) {
+    if (!composer || !surface || !assignment || assignment.get('status') !== 'ready' || composer.get('surfaceMismatch')) {
       return Promise.resolve();
     }
 
-    const surface = composer.get('surface');
-    const attemptKey = `${surface.get('kind')}:${surface.get('key')}:${style.get('id')}`;
+    // A save makes the same place ready again. Composers that already
+    // considered this place keep their draft; a composer that has not
+    // considered it yet can still take the saved default.
+    if (composer.getIn(['userPostingStyle', 'defaultsSettledSurface']) === cacheKey) {
+      return Promise.resolve();
+    }
 
-    if (composer.getIn(['userPostingStyle', 'autoAttemptKey']) === attemptKey) {
+    // Group and hashtag definitions can arrive after the place assignment.
+    // Leaving this unset lets the same assignment be considered once the
+    // posting context is actually ready. none and unavailable still select
+    // nothing, but only after that context exists.
+    if (!portablePostingContextReady(composer)) {
+      return Promise.resolve();
+    }
+
+    const styles = getState().getIn(['userPostingStyles', 'styles']);
+    const style = selectPortableAutoStyle(styles, composer, assignment);
+    const styleId = assignment.get('styleId');
+    const listed = Boolean(styles && styles.find && styleId && styles.find(item => item.get('id') === String(styleId)));
+
+    // The saved style may arrive with a later catalog read. Deciding now
+    // would freeze this composer before that style can be considered.
+    if (assignment.get('assignmentStatus') === 'style' && styleId && !listed) {
+      return Promise.resolve();
+    }
+
+    const current = selectComposer(getState(), composerId);
+    const currentSurface = current && current.get('surface');
+
+    if (!current || current.get('surfaceMismatch') || surfaceCacheKey(currentSurface) !== cacheKey || !portablePostingContextReady(current)) {
+      return Promise.resolve();
+    }
+
+    dispatch(targetComposerAction({
+      type: USER_POSTING_STYLE_DEFAULTS_SETTLED,
+      surfaceKey: cacheKey,
+    }, composerId));
+
+    if (!style) {
+      return Promise.resolve();
+    }
+
+    const confirmed = selectComposer(getState(), composerId);
+
+    if (!confirmed || confirmed.get('surfaceMismatch') || surfaceCacheKey(confirmed.get('surface')) !== cacheKey) {
+      return Promise.resolve();
+    }
+
+    const origin = assignment.get('assignmentStatus') === 'style' ? 'saved_default' : 'automatic';
+    const attemptKey = `${currentSurface.get('kind')}:${currentSurface.get('key')}:${origin}:${style.get('id')}`;
+
+    if (confirmed.getIn(['userPostingStyle', 'autoAttemptKey']) === attemptKey) {
       return Promise.resolve();
     }
 
@@ -224,7 +274,10 @@ export function maybeAutoSelectPortablePostingStyle(composerId) {
       autoAttemptKey: attemptKey,
     }, composerId));
 
-    return dispatch(commitUserPostingStyle(composerId, style.get('id'), { selectionOrigin: 'automatic' }));
+    return dispatch(commitUserPostingStyle(composerId, style.get('id'), {
+      selectionOrigin: origin,
+      expectedSurface: { kind: currentSurface.get('kind'), key: currentSurface.get('key') },
+    }));
   };
 }
 

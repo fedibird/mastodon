@@ -177,6 +177,250 @@ describe('UserPostingStylePicker', () => {
     expect(screen.getByText('サークル告知').className).toContain('compose-form__style-name');
   });
 
+  const defaultProps = {
+    showDefaults: true,
+    assignmentFetchStatus: 'ready',
+    assignmentStatus: 'unset',
+    assignmentStyleId: null,
+    assignmentFailure: null,
+    onSaveDefault: jest.fn(),
+    onUseNoStyle: jest.fn(),
+    onResetDefault: jest.fn(),
+    onRetryAssignment: jest.fn(),
+  };
+
+  it('keeps place defaults outside the style radio group', () => {
+    const onSelect = jest.fn();
+    const onSaveDefault = jest.fn();
+
+    render(
+      <UserPostingStylePicker
+        styles={styles}
+        selectedId='1'
+        snapshot={styles.get(0)}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        onSelect={onSelect}
+        {...defaultProps}
+        onSaveDefault={onSaveDefault}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /サークル告知/ }));
+
+    const useHere = screen.getByRole('button', { name: 'Always use this style here' });
+    const radios = screen.getAllByRole('menuitemradio').map(item => item.textContent);
+
+    expect(useHere.getAttribute('role')).toBeNull();
+    expect(radios.some(text => text.includes('Always use this style here'))).toBe(false);
+    expect(screen.getByRole('button', { name: 'Don’t use a style here' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Return to automatic selection' })).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(useHere);
+
+    expect(onSaveDefault).toHaveBeenCalledWith('1');
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('shows a saved default and does not present a failed save as success', () => {
+    const { rerender } = render(
+      <UserPostingStylePicker
+        styles={styles}
+        selectedId='1'
+        snapshot={styles.get(0)}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        onSelect={jest.fn()}
+        {...defaultProps}
+        assignmentStatus='style'
+        assignmentStyleId='1'
+      />,
+    );
+
+    expect(screen.getByText('This place uses this style by default')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Always use this style here' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Always use this style here' })).toBeDisabled();
+
+    rerender(
+      <UserPostingStylePicker
+        styles={styles}
+        selectedId='2'
+        snapshot={styles.get(1)}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        onSelect={jest.fn()}
+        {...defaultProps}
+        assignmentFetchStatus='saving'
+        assignmentStatus='unset'
+      />,
+    );
+
+    expect(screen.getByText('Saving the default for this place')).toBeTruthy();
+    expect(screen.queryByText('This place uses this style by default')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Always use this style here' })).toBeDisabled();
+
+    rerender(
+      <UserPostingStylePicker
+        styles={styles}
+        selectedId='2'
+        snapshot={styles.get(1)}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        emptyLabel='place'
+        compact
+        onSelect={jest.fn()}
+        {...defaultProps}
+        assignmentFetchStatus='ready'
+        assignmentFailure='save'
+        assignmentStatus='unset'
+      />,
+    );
+
+    expect(screen.getByText('Couldn’t save the default for this place.')).toBeTruthy();
+    expect(screen.queryByText('This place uses this style by default')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Always use this style here' })).not.toBeInTheDocument();
+    expect(document.querySelector('.compose-form__style--compact')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /読書メモ/ })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /読書メモ/ }));
+
+    const failedSave = screen.getByRole('button', { name: 'Always use this style here' });
+
+    expect(failedSave.getAttribute('role')).toBeNull();
+    expect(failedSave.closest('[role="menu"]')).toBeNull();
+    expect(failedSave.closest('.compose-form__style-menu')).toBeTruthy();
+  });
+
+  it('keeps simple-mode default actions in the open menu and out of the radio group', () => {
+    const onSelect = jest.fn();
+    const onUseNoStyle = jest.fn();
+
+    render(
+      <UserPostingStylePicker
+        styles={styles}
+        selectedId='2'
+        snapshot={styles.get(1)}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        emptyLabel='place'
+        compact
+        onSelect={onSelect}
+        {...defaultProps}
+        assignmentStatus='style'
+        assignmentStyleId='2'
+        onUseNoStyle={onUseNoStyle}
+      />,
+    );
+
+    expect(screen.getByText('Default')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Always use this style here' })).not.toBeInTheDocument();
+    expect(document.querySelector('.compose-form__style-defaults')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /読書メモ/ }));
+
+    const useHere = screen.getByRole('button', { name: 'Always use this style here' });
+    const none = screen.getByRole('button', { name: 'Don’t use a style here' });
+    const menu = screen.getByRole('menu');
+
+    expect(useHere.closest('[role="menu"]')).toBeNull();
+    expect(useHere.closest('.compose-form__style-menu')).toBeTruthy();
+    expect(screen.getAllByRole('menuitemradio').some(item => item.textContent.includes('Always use this style here'))).toBe(false);
+    expect(document.activeElement.getAttribute('role')).toEqual('menuitemradio');
+
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+
+    expect(document.activeElement.getAttribute('role')).toEqual('menuitemradio');
+    expect(document.activeElement).not.toBe(useHere);
+
+    useHere.focus();
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+
+    expect(document.activeElement.getAttribute('role')).toEqual('menuitemradio');
+    expect(document.activeElement).not.toBe(useHere);
+
+    fireEvent.click(none);
+
+    expect(onUseNoStyle).toHaveBeenCalledTimes(1);
+    expect(onSelect).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Always use this style here' })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /読書メモ/ }));
+  });
+
+  it('blocks place-default changes while the destination is unconfirmed', () => {
+    const onSaveDefault = jest.fn();
+    const onUseNoStyle = jest.fn();
+    const onResetDefault = jest.fn();
+
+    render(
+      <UserPostingStylePicker
+        styles={styles}
+        selectedId='1'
+        snapshot={styles.get(0)}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        onSelect={jest.fn()}
+        {...defaultProps}
+        defaultsBlocked
+        onSaveDefault={onSaveDefault}
+        onUseNoStyle={onUseNoStyle}
+        onResetDefault={onResetDefault}
+      />,
+    );
+
+    expect(screen.getByText('This draft’s destination isn’t confirmed, so the default for this place can’t be changed.')).toBeTruthy();
+
+    const useHere = screen.getByRole('button', { name: 'Always use this style here' });
+    const none = screen.getByRole('button', { name: 'Don’t use a style here' });
+    const auto = screen.getByRole('button', { name: 'Return to automatic selection' });
+
+    expect(useHere).toBeDisabled();
+    expect(none).toBeDisabled();
+    expect(auto).toBeDisabled();
+
+    fireEvent.click(useHere);
+    fireEvent.click(none);
+    fireEvent.click(auto);
+
+    expect(onSaveDefault).not.toHaveBeenCalled();
+    expect(onUseNoStyle).not.toHaveBeenCalled();
+    expect(onResetDefault).not.toHaveBeenCalled();
+  });
+
+  it('offers a reload when the place default could not be loaded', () => {
+    const onRetryAssignment = jest.fn();
+
+    render(
+      <UserPostingStylePicker
+        styles={styles}
+        selectedId={null}
+        snapshot={null}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        onSelect={jest.fn()}
+        {...defaultProps}
+        assignmentFetchStatus='failed'
+        assignmentFailure='fetch'
+        assignmentStatus={null}
+        onRetryAssignment={onRetryAssignment}
+      />,
+    );
+
+    expect(screen.queryByText('This place does not use a style')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Reload the default for this place' }));
+    expect(onRetryAssignment).toHaveBeenCalledTimes(1);
+  });
+
   it('offers a way to reload posting styles after the catalog request fails', () => {
     const onRetry = jest.fn();
 

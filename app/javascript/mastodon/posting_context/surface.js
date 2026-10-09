@@ -32,6 +32,56 @@ export function normalizeSurface(surface) {
   };
 }
 
+// The cache key for a place. Hashtag keys use the same comparison as style
+// matching. Group and list keys stay the ids the column already uses.
+export function assignmentSurface(surface) {
+  const normalized = normalizeSurface(surface);
+
+  if (!normalized || (normalized.kind !== 'group' && normalized.kind !== 'hashtag' && normalized.kind !== 'list')) {
+    return null;
+  }
+
+  if (normalized.kind === 'hashtag') {
+    const key = normalizeManagedHashtagName(normalized.key);
+
+    return key ? { kind: 'hashtag', key } : null;
+  }
+
+  return normalized;
+}
+
+export function surfaceCacheKey(surface) {
+  const normalized = assignmentSurface(surface);
+
+  return normalized ? `${normalized.kind}:${normalized.key}` : null;
+}
+
+// The place whose default may be written. A draft whose displayed place
+// differs from the place it still belongs to is not safe to update.
+export function placeDefaultWriteSurface(composer) {
+  if (!composer || composer.get('surfaceMismatch')) {
+    return null;
+  }
+
+  const surface = assignmentSurface(composer.get('surface'));
+
+  if (!surface) {
+    return null;
+  }
+
+  const displayed = composer.get('displayedSurface');
+
+  if (displayed) {
+    const shown = assignmentSurface(displayed);
+
+    if (!shown || !surfacesEqual(shown, surface)) {
+      return null;
+    }
+  }
+
+  return surface;
+}
+
 export function surfacesEqual(left, right) {
   const first = normalizeSurface(left);
   const second = normalizeSurface(right);
@@ -181,25 +231,48 @@ export function lockedStyleViolatesComposer(composer, style) {
 const selectionBlocksAuto = composer => {
   const origin = composer.getIn(['userPostingStyle', 'selectionOrigin']);
 
-  return origin === 'automatic' || origin === 'manual' || origin === 'none';
+  return origin === 'automatic' || origin === 'manual' || origin === 'none' || origin === 'saved_default';
 };
 
-// Exactly one dedicated style, and only when the draft has not been touched.
-export function selectPortableAutoStyle(styles, composer) {
+const assignmentValue = (assignment, key) => {
+  if (!assignment) {
+    return undefined;
+  }
+
+  if (typeof assignment.get === 'function') {
+    return assignment.get(key);
+  }
+
+  return assignment[key];
+};
+
+const composerCanAutoSelect = composer => {
   if (!composer || !composer.get('surface') || isExistingPostEdit(composer)) {
-    return null;
+    return false;
   }
 
   if (selectionBlocksAuto(composer) || composer.getIn(['userPostingStyle', 'styleInputLock']) || composer.get('surfaceMismatch')) {
-    return null;
+    return false;
   }
 
   const manual = composer.getIn(['userPostingStyle', 'manualFields']);
 
-  if ((manual && manual.size > 0) || composerDraftInProgress(composer) || !portablePostingContextReady(composer)) {
+  return !(manual && manual.size > 0) && !composerDraftInProgress(composer) && portablePostingContextReady(composer);
+};
+
+const savedStyleForSurface = (styles, composer, assignment) => {
+  const styleId = assignmentValue(assignment, 'styleId');
+  const candidates = selectPortablePostingStyleCandidates(styles, composer.get('surface'));
+  const style = candidates && candidates.find ? candidates.find(item => item.get('id') === String(styleId)) : null;
+
+  if (!style || !styleMatchesSurface(style, composer.get('surface')) || lockedStyleViolatesComposer(composer, style)) {
     return null;
   }
 
+  return style;
+};
+
+const singleDedicatedStyle = (styles, composer) => {
   const dedicated = selectPortablePostingStyleCandidates(styles, composer.get('surface'))
     .filter(style => targetKind(style) !== 'none');
 
@@ -214,6 +287,31 @@ export function selectPortableAutoStyle(styles, composer) {
   }
 
   return style;
+};
+
+// Saved place defaults win over the one-dedicated-style guess.
+// none and unavailable do not guess. A missing assignment is not unset:
+// the caller waits until the place has been read.
+export function selectPortableAutoStyle(styles, composer, assignment) {
+  if (!composerCanAutoSelect(composer)) {
+    return null;
+  }
+
+  const status = assignmentValue(assignment, 'assignmentStatus');
+
+  if (status === 'style') {
+    return savedStyleForSurface(styles, composer, assignment);
+  }
+
+  if (status === 'none' || status === 'unavailable') {
+    return null;
+  }
+
+  if (status !== 'unset') {
+    return null;
+  }
+
+  return singleDedicatedStyle(styles, composer);
 }
 
 const deliversToDestination = surface => Boolean(surface) && (surface.kind === 'group' || surface.kind === 'hashtag');

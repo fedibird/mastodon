@@ -6,9 +6,11 @@ import { COMPOSE_CHANGE, COMPOSE_POLL_ADD, COMPOSE_REPLY, COMPOSE_REPLY_CANCEL, 
 import { submitComposer } from '../../actions/compose';
 import { acceptComposerSurface, applyComposerSurface, createComposer } from '../../actions/composer';
 import { COMPOSER_CONTEXT_APPLY } from '../../actions/composer';
+import { USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_SUCCESS } from '../../actions/user_posting_context_assignments';
 import { USER_POSTING_STYLES_FETCH_SUCCESS, commitUserPostingStyle, maybeAutoSelectPortablePostingStyle } from '../../actions/user_posting_styles';
 import composer from '../../reducers/composer';
 import composers from '../../reducers/composers';
+import userPostingContextAssignments from '../../reducers/user_posting_context_assignments';
 import userPostingStyles from '../../reducers/user_posting_styles';
 import { selectComposerEffectiveCreateCapability } from '../create_capability';
 import { groupPostingContext } from '../fixtures/group_context_fixture';
@@ -81,12 +83,40 @@ const withStyles = (styles) => ({
   styles,
 });
 
-const storeFor = (composerState, styles, extra = ImmutableMap(), composerId = 'portable:group-column:123') => createStore((state, action) => {
+const readyUnsetAssignment = (composerState) => {
+  const surface = composerState && composerState.get('surface');
+  const kind = surface ? surface.get('kind') : 'group';
+  const key = surface ? String(surface.get('key')) : '123';
+
+  const surfaceKey = `${kind}:${key}`;
+  const requested = userPostingContextAssignments(undefined, {
+    type: 'USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_REQUEST',
+    surfaceKey,
+    surface: { kind, key },
+    generation: 1,
+  });
+
+  return userPostingContextAssignments(requested, {
+    type: USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_SUCCESS,
+    surfaceKey,
+    surface: { kind, key },
+    generation: 1,
+    assignment: {
+      surface: { kind, key },
+      assignmentStatus: 'unset',
+      styleId: null,
+      revision: null,
+    },
+  });
+};
+
+const storeFor = (composerState, styles, extra = ImmutableMap(), composerId = 'portable:group-column:123', assignmentState) => createStore((state, action) => {
   const current = state || extra.merge(ImmutableMap({
     compose: composer(undefined, { type: '@@INIT' }),
     composers: composers(undefined, createComposer(composerId))
       .setIn(['byId', composerId], composerState),
     userPostingStyles: userPostingStyles(undefined, withStyles(styles)),
+    userPostingContextAssignments: assignmentState || readyUnsetAssignment(composerState),
     relationships: ImmutableMap(),
     posting_contexts: ImmutableMap(),
   }));

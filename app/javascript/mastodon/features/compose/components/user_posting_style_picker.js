@@ -17,6 +17,19 @@ const messages = defineMessages({
   retry: { id: 'compose_form.posting_style.retry', defaultMessage: 'Retry' },
   catalogFailed: { id: 'compose_form.posting_style.catalog_failed', defaultMessage: 'Couldn’t load posting styles.' },
   catalogRetry: { id: 'compose_form.posting_style.catalog_retry', defaultMessage: 'Reload posting styles' },
+  defaultLabel: { id: 'compose_form.posting_style.default_label', defaultMessage: 'Default for this place' },
+  defaultUse: { id: 'compose_form.posting_style.default_use', defaultMessage: 'Always use this style here' },
+  defaultNone: { id: 'compose_form.posting_style.default_none', defaultMessage: 'Don’t use a style here' },
+  defaultAuto: { id: 'compose_form.posting_style.default_auto', defaultMessage: 'Return to automatic selection' },
+  defaultSaved: { id: 'compose_form.posting_style.default_saved', defaultMessage: 'This place uses this style by default' },
+  defaultNoneSaved: { id: 'compose_form.posting_style.default_none_saved', defaultMessage: 'This place does not use a style' },
+  defaultUnavailable: { id: 'compose_form.posting_style.default_unavailable', defaultMessage: 'The saved style for this place isn’t available' },
+  defaultMark: { id: 'compose_form.posting_style.default_mark', defaultMessage: 'Default' },
+  defaultSaving: { id: 'compose_form.posting_style.default_saving', defaultMessage: 'Saving the default for this place' },
+  defaultFailed: { id: 'compose_form.posting_style.default_failed', defaultMessage: 'Couldn’t save the default for this place.' },
+  defaultLoadFailed: { id: 'compose_form.posting_style.default_load_failed', defaultMessage: 'Couldn’t load the default for this place.' },
+  defaultRetry: { id: 'compose_form.posting_style.default_retry', defaultMessage: 'Reload the default for this place' },
+  defaultBlocked: { id: 'compose_form.posting_style.default_blocked', defaultMessage: 'This draft’s destination isn’t confirmed, so the default for this place can’t be changed.' },
   unapplied: { id: 'compose_form.posting_style.unapplied', defaultMessage: 'Not applied: {fields}' },
   conflict: { id: 'compose_form.posting_style.conflict', defaultMessage: 'Can’t post because visibility does not meet the destination' },
   fieldPrivacy: { id: 'compose_form.posting_style.field.privacy', defaultMessage: 'visibility' },
@@ -64,8 +77,18 @@ class UserPostingStylePicker extends React.PureComponent {
     visibilityConflict: PropTypes.bool,
     onSelect: PropTypes.func.isRequired,
     onRetry: PropTypes.func,
+    onSaveDefault: PropTypes.func,
+    onUseNoStyle: PropTypes.func,
+    onResetDefault: PropTypes.func,
+    onRetryAssignment: PropTypes.func,
     emptyLabel: PropTypes.oneOf(['usual', 'place']),
     compact: PropTypes.bool,
+    showDefaults: PropTypes.bool,
+    assignmentFetchStatus: PropTypes.string,
+    assignmentStatus: PropTypes.string,
+    assignmentStyleId: PropTypes.string,
+    assignmentFailure: PropTypes.string,
+    defaultsBlocked: PropTypes.bool,
   };
 
   state = {
@@ -197,6 +220,36 @@ class UserPostingStylePicker extends React.PureComponent {
     this.props.onSelect(styleId || null);
   };
 
+  handleSaveDefault = () => {
+    const { onSaveDefault, selectedId, assignmentFetchStatus, defaultsBlocked } = this.props;
+
+    if (!onSaveDefault || !selectedId || assignmentFetchStatus === 'saving' || defaultsBlocked) {
+      return;
+    }
+
+    onSaveDefault(selectedId);
+  };
+
+  handleUseNoStyle = () => {
+    const { onUseNoStyle, assignmentFetchStatus, defaultsBlocked } = this.props;
+
+    if (!onUseNoStyle || assignmentFetchStatus === 'saving' || defaultsBlocked) {
+      return;
+    }
+
+    onUseNoStyle();
+  };
+
+  handleResetDefault = () => {
+    const { onResetDefault, assignmentFetchStatus, defaultsBlocked } = this.props;
+
+    if (!onResetDefault || assignmentFetchStatus === 'saving' || defaultsBlocked) {
+      return;
+    }
+
+    onResetDefault();
+  };
+
   currentStyle () {
     const { styles, selectedId, snapshot } = this.props;
 
@@ -263,6 +316,116 @@ class UserPostingStylePicker extends React.PureComponent {
     return intl.formatMessage(messages.failed);
   }
 
+  savedStyleMatches () {
+    const { assignmentFetchStatus, assignmentStatus, assignmentStyleId, selectedId } = this.props;
+
+    return assignmentFetchStatus === 'ready'
+      && assignmentStatus === 'style'
+      && Boolean(selectedId)
+      && assignmentStyleId === selectedId;
+  }
+
+  renderDefaultFailure () {
+    const { intl, assignmentFetchStatus, assignmentFailure, onRetryAssignment } = this.props;
+
+    if (assignmentFailure === 'save') {
+      return <p className='compose-form__style-notice'>{intl.formatMessage(messages.defaultFailed)}</p>;
+    }
+
+    if (assignmentFetchStatus !== 'failed') {
+      return null;
+    }
+
+    return (
+      <React.Fragment>
+        <p className='compose-form__style-notice'>{intl.formatMessage(messages.defaultLoadFailed)}</p>
+        {onRetryAssignment ? (
+          <button type='button' className='compose-form__style-retry' onClick={onRetryAssignment}>
+            {intl.formatMessage(messages.defaultRetry)}
+          </button>
+        ) : null}
+      </React.Fragment>
+    );
+  }
+
+  renderDefaultActions () {
+    const {
+      intl,
+      compact,
+      showDefaults,
+      selectedId,
+      assignmentFetchStatus,
+      assignmentStatus,
+      onSaveDefault,
+      onUseNoStyle,
+      onResetDefault,
+      defaultsBlocked,
+    } = this.props;
+
+    if (!showDefaults || !onSaveDefault || !onUseNoStyle || !onResetDefault) {
+      return null;
+    }
+
+    if (!assignmentFetchStatus || assignmentFetchStatus === 'idle') {
+      return null;
+    }
+
+    const failure = this.renderDefaultFailure();
+
+    // Simple mode keeps the text area clear. The three saved-default
+    // actions appear in the open style menu, separate from its radios.
+    if (compact && !this.state.open) {
+      return failure;
+    }
+
+    const saving = assignmentFetchStatus === 'saving';
+    const ready = assignmentFetchStatus === 'ready';
+    const known = ready || assignmentFetchStatus === 'failed';
+    const blocked = Boolean(defaultsBlocked);
+    const usePressed = this.savedStyleMatches();
+    const nonePressed = ready && assignmentStatus === 'none';
+    const autoPressed = ready && assignmentStatus === 'unset';
+
+    return (
+      <div className='compose-form__style-defaults' role='group' aria-label={intl.formatMessage(messages.defaultLabel)} data-posting-style-defaults='true'>
+        <p className='compose-form__style-default-heading'>{intl.formatMessage(messages.defaultLabel)}</p>
+        {blocked ? <p className='compose-form__style-default-status'>{intl.formatMessage(messages.defaultBlocked)}</p> : null}
+        {saving ? <p className='compose-form__style-default-status'>{intl.formatMessage(messages.defaultSaving)}</p> : null}
+        {!blocked && ready && usePressed ? <p className='compose-form__style-default-status'>{intl.formatMessage(messages.defaultSaved)}</p> : null}
+        {!blocked && ready && assignmentStatus === 'none' ? <p className='compose-form__style-default-status'>{intl.formatMessage(messages.defaultNoneSaved)}</p> : null}
+        {!blocked && ready && assignmentStatus === 'unavailable' ? <p className='compose-form__style-default-status'>{intl.formatMessage(messages.defaultUnavailable)}</p> : null}
+        {failure}
+        <button
+          type='button'
+          className='compose-form__style-default-action'
+          aria-pressed={usePressed}
+          disabled={blocked || !known || saving || !selectedId || usePressed}
+          onClick={this.handleSaveDefault}
+        >
+          {intl.formatMessage(messages.defaultUse)}
+        </button>
+        <button
+          type='button'
+          className='compose-form__style-default-action'
+          aria-pressed={nonePressed}
+          disabled={blocked || !known || saving || nonePressed}
+          onClick={this.handleUseNoStyle}
+        >
+          {intl.formatMessage(messages.defaultNone)}
+        </button>
+        <button
+          type='button'
+          className='compose-form__style-default-action'
+          aria-pressed={autoPressed}
+          disabled={blocked || !known || saving || autoPressed}
+          onClick={this.handleResetDefault}
+        >
+          {intl.formatMessage(messages.defaultAuto)}
+        </button>
+      </div>
+    );
+  }
+
   renderNotices () {
     const { intl, unapplied, destinationStatus, visibilityConflict, onRetry } = this.props;
     const notices = [];
@@ -309,6 +472,7 @@ class UserPostingStylePicker extends React.PureComponent {
     const icon = current ? current.get('icon') : '';
     const name = current ? current.get('name') : this.emptyOptionLabel();
     const label = destinationLabel(current);
+    const defaultActions = this.renderDefaultActions();
 
     return (
       <div className={classNames('compose-form__style', { 'compose-form__style--compact': compact })} ref={this.setRoot} data-posting-style-picker='true'>
@@ -324,11 +488,12 @@ class UserPostingStylePicker extends React.PureComponent {
         >
           {icon ? <span className='compose-form__style-icon' aria-hidden='true'>{icon}</span> : null}
           <span className='compose-form__style-name'>{name}</span>
+          {compact && this.savedStyleMatches() ? <span className='compose-form__style-default-mark'>{intl.formatMessage(messages.defaultMark)}</span> : null}
           {compact ? <span className='compose-form__style-caret' aria-hidden='true'>▾</span> : null}
         </button>
         {label ? <div className='compose-form__style-current-destination'>{intl.formatMessage(messages.destination, { label })}</div> : null}
         {this.state.open && (
-          <div className='compose-form__style-menu'>
+          <div className={classNames('compose-form__style-menu', { 'compose-form__style-menu--sectioned': compact })}>
             <div
               id={this.menuId}
               className='compose-form__style-options'
@@ -340,11 +505,14 @@ class UserPostingStylePicker extends React.PureComponent {
               {this.renderOption(null)}
               {this.props.styles && this.props.styles.map(style => this.renderOption(style))}
             </div>
+            {compact ? defaultActions : null}
             <a className='compose-form__style-settings' href='/settings/user_posting_contexts'>
               {intl.formatMessage(messages.settings)}
             </a>
           </div>
         )}
+        {compact && !this.state.open ? defaultActions : null}
+        {compact ? null : defaultActions}
         {this.renderNotices()}
       </div>
     );
