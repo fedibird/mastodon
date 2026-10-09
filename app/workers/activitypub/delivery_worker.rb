@@ -26,6 +26,12 @@ class ActivityPub::DeliveryWorker
         Rails.logger.warn("[ActivityPub::DeliveryWorker] retries-exhausted tracking failed: #{e.class}: #{e.message}")
       end
     end
+
+    begin
+      PostingContext::GroupDeliveryObserver.record_terminal(options)
+    rescue StandardError => e
+      Rails.logger.warn("[ActivityPub::DeliveryWorker] retries-exhausted group observation failed: #{e.class}")
+    end
   end
 
   HEADERS = { 'Content-Type' => 'application/activity+json' }.freeze
@@ -65,10 +71,24 @@ class ActivityPub::DeliveryWorker
       end
 
       record_follow_import_delivery_observation(inbox_url, started_at, error)
+      record_group_delivery_observation(error)
     end
   end
 
   private
+
+  def record_group_delivery_observation(error)
+    PostingContext::GroupDeliveryObserver.record_attempt(
+      options: @options,
+      response: @http_response,
+      error: error,
+      skip_reason: @delivery_skip_reason,
+      request_started_at: @request_started_at
+    )
+  rescue StandardError => e
+    Rails.logger.warn("[ActivityPub::DeliveryWorker] group observation failed: #{e.class}")
+    nil
+  end
 
   def record_follow_import_delivery_observation(inbox_url, started_at, error)
     FollowImport::DeliveryObserver.record_attempt(

@@ -48,9 +48,32 @@ class ActivityPub::DistributionWorker
   end
 
   def deliver_to_inboxes!
+    observation_key = safe_group_observation_key
+    audience_inbox = observation_key.present? ? @status.audience_account&.inbox_url.presence : nil
+
     ActivityPub::DeliveryWorker.push_bulk(inboxes) do |inbox_url|
-      [payload(node_software_name(inbox_url)), @account.id, inbox_url, { 'synchronize_followers' => !@status.distributable?}]
+      [payload(node_software_name(inbox_url)), @account.id, inbox_url, delivery_options_for(inbox_url, observation_key, audience_inbox)]
     end
+
+    begin
+      PostingContext::GroupFederationObservation.mark_queued(observation_key)
+    rescue StandardError => e
+      Rails.logger.warn("[ActivityPub::DistributionWorker] group observation queue mark failed: #{e.class}")
+    end
+  end
+
+  def safe_group_observation_key
+    PostingContext::GroupFederationObservation.prepare(@status, @account)
+  rescue StandardError => e
+    Rails.logger.warn("[ActivityPub::DistributionWorker] group observation prepare failed: #{e.class}")
+    nil
+  end
+
+  def delivery_options_for(inbox_url, observation_key, audience_inbox)
+    options = { 'synchronize_followers' => !@status.distributable? }
+    return options if observation_key.blank? || inbox_url != audience_inbox
+
+    options.merge(PostingContext::GroupFederationObservation::OPTION => observation_key)
   end
 
   def inboxes
