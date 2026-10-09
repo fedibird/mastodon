@@ -375,6 +375,20 @@ describe('composer sender identity', () => {
     expect(store.getState().getIn(['composers', 'byId', 'portable:group-column:123', 'context', 'protocol', 'activityPub', 'audience', 'accountId'])).toEqual('123');
   });
 
+  it('does not treat a delegated catalog entry as a sender that can post', () => {
+    const delegated = readyIdentity('delegated:99', 'unavailable').set('kind', 'delegated').setIn(['account', 'id'], '99');
+    const store = catalogState([readyIdentity('local:42'), delegated]);
+
+    expect(selectComposerCanSendAsIdentity(store.getState(), 'primary')).toEqual(expect.objectContaining({
+      canSend: true,
+    }));
+
+    store.dispatch(selectComposerSenderIdentity('primary', 'delegated:99'));
+
+    expect(store.getState().getIn(['compose', 'senderIdentity', 'id'])).toEqual('local:42');
+    expect(store.getState().getIn(['compose', 'text'])).toEqual('');
+  });
+
   it('sends the signed-in identity with media upload, thumbnail, and description updates', async () => {
     const post = jest.fn().mockResolvedValue({ status: 200, data: { id: 'm1', type: 'image' } });
     const put = jest.fn().mockResolvedValue({ data: { id: 'm1', type: 'image', description: 'alt' } });

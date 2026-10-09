@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-PostingIdentity::Record = Struct.new(:id, :kind, :provider, :account, :authorization, :capabilities, keyword_init: true) do
+PostingIdentity::Record = Struct.new(:id, :kind, :provider, :account, :authorization, :capabilities, :delegation, keyword_init: true) do
   include ActiveModel::Serialization
 
   def ready?

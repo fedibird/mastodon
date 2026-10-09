@@ -57,6 +57,17 @@ RSpec.describe Api::V1::StatusesController, type: :controller do
       expect(response).to have_http_status(403)
     end
 
+    it 'does not post as a delegated identity in this stage' do
+      other = Fabricate(:account, username: 'delegated_sender')
+
+      expect do
+        post :create, params: { status: 'Borrowed', posting_identity_id: "delegated:#{other.id}" }
+      end.not_to change(Status, :count)
+
+      expect(response).to have_http_status(403)
+      expect(other.statuses).to be_empty
+    end
+
     it 'does not post when the named identity is not allowed to post' do
       user.settings.disable_post = true
 

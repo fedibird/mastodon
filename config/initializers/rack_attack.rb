@@ -161,6 +161,21 @@ class Rack::Attack
     req.warden_user_id if (req.put? || req.patch?) && req.path_matches?('/auth')
   end
 
+  throttle('throttle_posting_identity_link_requests/ip', limit: 10, period: 10.minutes) do |req|
+    req.throttleable_remote_ip if req.post? && req.path_matches?('/settings/posting_identity_links')
+  end
+
+  throttle('throttle_posting_identity_link_requests/user', limit: 10, period: 10.minutes) do |req|
+    req.warden_user_id if req.post? && req.path_matches?('/settings/posting_identity_links')
+  end
+
+  throttle('throttle_posting_identity_link_requests/pair', limit: 3, period: 30.minutes) do |req|
+    if req.post? && req.path_matches?('/settings/posting_identity_links') && req.warden_user_id
+      acct = req.params['acct'].to_s.strip.delete_prefix('@').downcase
+      "#{req.warden_user_id}:#{acct}" if acct.present?
+    end
+  end
+
   self.throttled_responder = lambda do |request|
     now        = Time.now.utc
     match_data = request.env['rack.attack.match_data']

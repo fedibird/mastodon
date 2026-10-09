@@ -217,6 +217,25 @@ Rails.application.routes.draw do
     resources :featured_tags, only: [:index, :create, :destroy]
     resources :favourite_domains, only: [:index, :create, :destroy]
     resources :favourite_tags, only: [:index, :create, :destroy]
+    resources :posting_identity_links, only: [:index, :create] do
+      member do
+        post :cancel
+      end
+    end
+    resource :posting_identity_approval, only: [:new, :create] do
+      post :preview
+    end
+    resources :posting_identity_request_allowances, only: [:create] do
+      member do
+        post :revoke
+      end
+    end
+    resources :posting_identity_grants, only: [] do
+      member do
+        post :revoke
+        post :unlink
+      end
+    end
     resources :user_posting_contexts, except: [:show] do
       member do
         post :duplicate
