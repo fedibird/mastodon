@@ -117,6 +117,34 @@ class UserPostingContextAssignment < ApplicationRecord
     end
   end
 
+  # One grouped read for every style a user references. Callers that need
+  # active and unavailable split still use availability_status on a
+  # preloaded relation, not one count per card.
+  def self.reference_counts_by_style(user)
+    return {} if user.nil?
+
+    user.user_posting_context_assignments.where.not(user_posting_context_id: nil).group(:user_posting_context_id).count
+  end
+
+  # Settings clears a place by its row id. The surface does not have to
+  # still exist. A stale lock_version does not delete a newer choice.
+  def release!(expected_lock_version)
+    with_lock do
+      assert_expected_lock!(expected_lock_version)
+      destroy!
+    end
+  end
+
+  # Keeps the row and stores an explicit none. Creating a new assignment
+  # still goes through assign! and its surface checks.
+  def decline!(expected_lock_version)
+    with_lock do
+      assert_expected_lock!(expected_lock_version)
+      clear_style! if user_posting_context_id.present?
+    end
+    self
+  end
+
   def api_payload
     status = availability_status
 
@@ -187,6 +215,33 @@ class UserPostingContextAssignment < ApplicationRecord
   end
 
   private
+
+  def clear_style!
+    self.user_posting_context = nil
+    if valid?
+      save!
+    else
+      nullify_style_without_surface_check!
+    end
+  end
+
+  def assert_expected_lock!(expected_lock_version)
+    given = Integer(expected_lock_version)
+    return if lock_version == given
+
+    raise ActiveRecord::StaleObjectError.new(self, 'update')
+  rescue ArgumentError, TypeError
+    raise ActiveRecord::StaleObjectError.new(self, 'update')
+  end
+
+  def nullify_style_without_surface_check!
+    update_columns(
+      user_posting_context_id: nil,
+      lock_version: lock_version + 1,
+      updated_at: Time.now.utc
+    )
+    reload
+  end
 
   def surface_contract
     return if user.nil? || surface_kind.blank? || surface_key.blank?

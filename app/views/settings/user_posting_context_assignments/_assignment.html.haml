@@ -1,0 +1,30 @@
+- style = assignment.user_posting_context
+- place_label = @places.label(assignment)
+- release_hint_id = "user-posting-assignment-#{assignment.id}-release"
+- decline_hint_id = "user-posting-assignment-#{assignment.id}-decline"
+%article.user-posting-assignment
+  %p.user-posting-assignment__kind= user_posting_assignment_kind_label(assignment)
+  %h3.user-posting-assignment__place{ dir: 'auto' }= place_label
+  - unless @places.place_available?(assignment)
+    %p.user-posting-assignment__warning= t('user_posting_context_assignments.place_unavailable')
+  .user-posting-assignment__style
+    - if style
+      %span.user-posting-assignment__icon{ aria: { hidden: 'true' }, data: { custom_emoji_text: true } }= style.icon.presence || '✎'
+      %span{ dir: 'auto' }= style.name
+    - else
+      %span= t('user_posting_context_assignments.no_style')
+  %p.user-posting-assignment__status= user_posting_assignment_status_label(assignment)
+  .user-posting-assignment__actions
+    = form_with url: release_settings_user_posting_context_assignment_path(assignment), method: :post, local: true, class: 'user-posting-assignment__form' do
+      = hidden_field_tag :lock_version, assignment.lock_version
+      = hidden_field_tag :user_posting_context_id, params[:user_posting_context_id] if params[:user_posting_context_id].present?
+      = hidden_field_tag :page, params[:page] if params[:page].present?
+      %button.button{ type: 'submit', aria: { describedby: release_hint_id } }= t('user_posting_context_assignments.return_to_automatic')
+      %p.user-posting-assignment__hint{ id: release_hint_id }= t('user_posting_context_assignments.return_to_automatic_hint')
+    - if assignment.user_posting_context_id.present?
+      = form_with url: decline_settings_user_posting_context_assignment_path(assignment), method: :post, local: true, class: 'user-posting-assignment__form' do
+        = hidden_field_tag :lock_version, assignment.lock_version
+        = hidden_field_tag :user_posting_context_id, params[:user_posting_context_id] if params[:user_posting_context_id].present?
+        = hidden_field_tag :page, params[:page] if params[:page].present?
+        %button.button{ type: 'submit', aria: { describedby: decline_hint_id } }= t('user_posting_context_assignments.decline_style')
+        %p.user-posting-assignment__hint{ id: decline_hint_id }= t('user_posting_context_assignments.decline_style_hint')

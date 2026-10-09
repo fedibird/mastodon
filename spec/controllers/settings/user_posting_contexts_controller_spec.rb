@@ -237,6 +237,91 @@ describe Settings::UserPostingContextsController do
       end.not_to change(UserPostingContext, :count)
       expect(response.body).to include('50')
     end
+
+    it 'shows active places on the card without nesting those links, and separates unusable defaults' do
+      groups = Array.new(4) { |index| Fabricate(:account, username: "squad#{index}", actor_type: 'Group') }
+      style = owner.user_posting_contexts.create!(name: 'Field notes', icon: '📝')
+      groups.each do |account|
+        UserPostingContextAssignment.assign!(user: owner, surface_kind: 'group', surface_key: account.id.to_s, style: style)
+      end
+      owner.user_posting_contexts.create!(name: 'Unused')
+      blocked = owner.user_posting_contexts.create!(name: 'Blocked', target_kind: 'hashtag', target_hashtag: 'beta')
+      UserPostingContextAssignment.assign!(user: owner, surface_kind: 'hashtag', surface_key: 'beta', style: blocked)
+      blocked.update!(target_hashtag: 'alpha')
+
+      expect(PostingContext::DiscoveryService).not_to receive(:new)
+      expect(ResolveAccountService).not_to receive(:new)
+      expect(UserPostingContext::Preview).not_to receive(:build)
+
+      get :index
+
+      document = Nokogiri::HTML(response.body)
+      card = document.css('.user-posting-context-card').find { |node| node.at_css('h3').text == 'Field notes' }
+      usage_links = card.css('.user-posting-context-card__usage a')
+
+      expect(card.at_css('a.user-posting-context-card__main').css('a')).to be_empty
+      expect(usage_links.map { |link| link.text.strip }).to include(I18n.t('user_posting_context_assignments.used_as_default', count: 4))
+      expect(usage_links.map { |link| link.text.strip }).to include(I18n.t('user_posting_context_assignments.see_all'))
+      expect(card.css('.user-posting-context-card__places li').size).to eq(3)
+      expect(card.text).to include('squad0')
+      expect(card.text).not_to include('squad3')
+      expect(usage_links.first['href']).to include("user_posting_context_id=#{style.id}")
+      expect(document.css('.user-posting-context-card').find { |node| node.at_css('h3').text == 'Unused' }.at_css('.user-posting-context-card__usage')).to be_nil
+      blocked_card = document.css('.user-posting-context-card').find { |node| node.at_css('h3').text == 'Blocked' }
+      expect(blocked_card.text).to include(I18n.t('user_posting_context_assignments.unavailable_defaults'))
+      expect(blocked_card.text).not_to include(I18n.t('user_posting_context_assignments.used_as_default', count: 1))
+      expect(document.at_css('details.user-posting-context-card__menu summary')).to be_present
+      expect(response.body).to include(I18n.t('user_posting_contexts.duplicate'))
+    end
+
+    it 'warns how many defaults a deleted style will turn into none, including unusable ones' do
+      listed = Fabricate(:list, account: owner.account, title: 'Reading')
+      style = owner.user_posting_contexts.create!(name: 'Field notes')
+      UserPostingContextAssignment.assign!(user: owner, surface_kind: 'group', surface_key: group.id.to_s, style: style)
+      UserPostingContextAssignment.assign!(user: owner, surface_kind: 'hashtag', surface_key: 'field', style: style)
+      UserPostingContextAssignment.assign!(user: owner, surface_kind: 'list', surface_key: listed.id.to_s, style: style)
+      style.update!(enabled: false)
+
+      get :confirm_destroy, params: { id: style.id }
+
+      expect(response.body).to include(ERB::Util.html_escape(I18n.t('user_posting_contexts.delete_confirm_with_defaults', name: 'Field notes', count: 3)))
+
+      expect { delete :destroy, params: { id: style.id } }.not_to change(UserPostingContextAssignment, :count)
+      rows = owner.user_posting_context_assignments
+      expect(rows.map(&:user_posting_context_id).uniq).to eq([nil])
+      expect(rows.map(&:availability_status).uniq).to eq(['none'])
+
+      quiet = owner.user_posting_contexts.create!(name: 'Quiet')
+      get :confirm_destroy, params: { id: quiet.id }
+      expect(response.body).to include(ERB::Util.html_escape(I18n.t('user_posting_contexts.delete_confirm', name: 'Quiet')))
+      expect(response.body).not_to include('is the default in')
+    end
+
+    it 'does not query once per assignment while rendering style cards' do
+      style = owner.user_posting_contexts.create!(name: 'Field notes')
+      2.times do |index|
+        UserPostingContextAssignment.assign!(user: owner, surface_kind: 'hashtag', surface_key: "card#{index}", style: style)
+      end
+      statements = lambda do
+        queries = []
+        callback = lambda do |_name, _started, _finished, _unique_id, payload|
+          sql = payload[:sql].to_s
+          next if payload[:cached] || payload[:name] == 'SCHEMA'
+          next if sql.match?(/\A\s*(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)/i)
+
+          queries << sql
+        end
+        ActiveSupport::Notifications.subscribed(callback, 'sql.active_record') { get :index }
+        queries.size
+      end
+      get :index
+      small = statements.call
+      10.times do |index|
+        UserPostingContextAssignment.assign!(user: owner, surface_kind: 'hashtag', surface_key: "extra#{index}", style: style)
+      end
+
+      expect(statements.call).to eq(small)
+    end
   end
 end
 

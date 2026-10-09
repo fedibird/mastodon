@@ -41,6 +41,13 @@ module UserPostingContextsHelper
     end
   end
 
+  def user_posting_context_card_usage(context)
+    usage = instance_variable_get(:@card_usage)
+    return UserPostingContextAssignment::CardUsage::Entry.empty if usage.nil?
+
+    usage.for(context)
+  end
+
   def user_posting_context_facts(context)
     fields = UserPostingContext::Defaults.form_fields(context.defaults)
     tags = UserPostingContext::ManagedHashtags.form_text(context.managed)

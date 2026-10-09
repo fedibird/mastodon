@@ -220,9 +220,16 @@ Rails.application.routes.draw do
     resources :user_posting_contexts, except: [:show] do
       member do
         post :duplicate
+        get :confirm_destroy
       end
       collection do
         post :preview
+      end
+    end
+    resources :user_posting_context_assignments, only: [:index] do
+      member do
+        post :release
+        post :decline
       end
     end
     resources :follow_tags, except: [:show]
