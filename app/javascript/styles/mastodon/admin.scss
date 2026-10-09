@@ -1645,14 +1645,17 @@ a.name-tag,
 }
 
 .posting-identity-links {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
   max-width: 40rem;
 
   &__section,
-  &__details {
+  &__details,
+  &__list,
+  &__code {
     min-width: 0;
+  }
+
+  &__section + &__section {
+    margin-top: 8px;
   }
 
   &__list {
@@ -1661,46 +1664,35 @@ a.name-tag,
     list-style: none;
 
     li + li {
-      margin-top: 12px;
+      margin-top: 16px;
+    }
+
+    li {
+      overflow-wrap: anywhere;
     }
   }
 
   &__token,
-  &__code {
+  &__code,
+  &__details dd {
     overflow-wrap: anywhere;
-    word-break: break-word;
   }
 
   &__token {
-    font-family: monospace;
+    font-family: $font-monospace, monospace;
     font-size: 16px;
   }
 
-  input[type='text'],
-  .button,
-  button {
-    max-width: 100%;
-    box-sizing: border-box;
-  }
+  &__details {
+    margin: 0 0 16px;
 
-  input[type='text'] {
-    width: 100%;
-  }
+    dt {
+      margin-top: 12px;
+      font-weight: 700;
+    }
 
-  form {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 12px;
-  }
-
-  @media screen and (max-width: 375px) {
-    gap: 16px;
-
-    .button,
-    button,
-    input[type='submit'] {
-      width: 100%;
+    dd {
+      margin: 0;
     }
   }
 }

@@ -2129,7 +2129,7 @@ ja:
     keyword_subscribes: キーワードの購読
     migrate: アカウントの引っ越し
     notifications: 通知
-    posting_identity_links: 送信元アカウント
+    posting_identity_links: 連携アカウント
     preferences: ユーザー設定
     profile: プロフィール
     relationships: フォロー・フォロワー
@@ -2139,29 +2139,40 @@ ja:
     user_posting_contexts: 投稿のスタイルと目的
     webauthn_authentication: セキュリティキー
   posting_identity_links:
-    acct_label: 依頼するローカルアカウント
-    allowance_acct_label: 申請を受け付けるローカルアカウント
-    allowance_empty: 連携申請を受け付ける相手はいません。
-    allowance_hint: 申請を受け付けても、投稿権限は付与されません。すでに承認した投稿権限を止めるには、下の撤回も必要です。
+    acct_hint: このサーバーのアカウント
+    acct_label: 連携するアカウント
+    acct_placeholder: alice
+    add_lead: 操作している投稿欄から、別のアカウントとして投稿できるようにします。
+    add_title: ほかのアカウントを追加する
+    allow_lead: 自分のアカウントを、別のアカウントから投稿に使えるようにします。申請の受付と、投稿権限の承認は別の段階です。
+    allow_title: ほかのアカウントからの連携を許可する
+    allowance_acct_label: 申請を受け付ける相手
+    allowance_empty: 受け付ける相手はいません。
     allowance_item: "%{acct} は %{expires_at} まで %{scopes} の申請ができます。"
-    allowance_revoke: 申請の受付をやめる
+    allowance_keeps_delegation: 受付を停止しても、すでに承認した投稿権限は撤回されません。
+    allowance_revoke: 受付を停止する
+    allowance_revoke_for: "%{acct} からの申請受付を停止する"
     allowance_revoked: このアカウントからの新しい申請は受け付けません。すでに承認した投稿権限はそのままです。
     allowance_saved: このアカウントからの連携申請を、表示の期限まで受け付けます。
-    allowance_submit: 連携申請を受け付ける
-    allowance_title: 連携申請を受け付ける相手
-    approve_intro: 投稿を任されたコードを入力します。コードの確認だけでは承認になりません。
+    allowance_submit: 申請を受け付ける
+    allowance_title: 受付を許可した相手
+    approve_intro: 受け取った連携コードを入力します。コードの確認だけでは承認になりません。
     approve_link: 連携コードを入力する
-    approve_submit: この権限委譲を承認する
-    approve_title: 送信元アカウントの承認
-    approved: 権限委譲を承認しました。送信元アカウントから撤回できます。
+    approve_submit: この投稿権限を承認する
+    approve_title: 連携アカウントの承認
+    approved: 投稿権限を承認しました。連携アカウントの画面から撤回できます。
     back: 戻る
     cancel: 申請を取り消す
+    cancel_for: "%{acct} への申請を取り消す"
     canceled: 申請を取り消しました。
+    code_entry_lead: コードを確認するだけでは承認になりません。
+    code_entry_title: 受け取った連携コード
     code_hint: このコードを相手のアカウントに渡してください。一度だけ使え、まもなく期限が切れます。再表示はしません。
     code_label: 連携コード
+    code_placeholder: "例: aB3xK9mQ_2pL8nR4sT6uV"
     code_once: 連携コード
-    current_account: あなたのアカウント
-    description: 別のローカルアカウントに、そのアカウントとして投稿する許可を依頼します。あなたが渡した許可も確認できます。ログイン中のアカウントは切り替わりません。
+    current_account: ログイン中
+    description: ほかのアカウントとして投稿するための連携と、自分のアカウントの利用許可を管理します。
     errors:
       allowance_conflict: 受付許可を保存できませんでした。もう一度お試しください。
       allowance_inactive: この申請は、現在の受付許可では承認できません。
@@ -2185,38 +2196,45 @@ ja:
     expired_empty: 期限切れや終了した連携はありません。
     expired_item: "%{acct} · %{scopes} · %{expires_at} まで"
     expired_title: 期限切れ・終了
-    granted_empty: あなたのアカウントを使える人はいません。
+    granted_empty: 利用できる人はいません。
     granted_item: "%{acct} があなたのアカウントを %{scopes} に使えます。承認 %{approved_at}。%{expires_at} まで。"
-    granted_title: あなたのアカウントを使える人
-    linked_empty: 連携中の送信元はありません。
+    granted_title: 利用できる人
+    linked_empty: 連携済みのアカウントはありません。
     linked_item: "%{acct} · %{scopes} · %{expires_at} まで"
-    linked_title: 連携中の送信元
+    linked_title: 連携済み
+    login_unchanged: ログイン中のアカウントは切り替わりません。
     pending_empty: 申請中のものはありません。
     pending_item: "%{acct} の承認待ち · %{scopes} · %{expires_at} まで"
     pending_title: 申請中
-    stale_hint: これらは以前の受付許可で発行されたコードで、承認できません。
-    stale_item: "%{acct} · %{scopes} · 以前の受付許可"
-    stale_title: 承認できない申請
-    request_submit: 連携コードを作る
-    request_title: 送信元アカウントを連携
+    request_admin_only: 新しい連携の申請は、管理者だけができます。
+    request_needs_acceptance: 相手が申請を受け付けていない場合は、申請できません。
+    request_result: 申請すると、相手に渡す連携コードが発行されます。
+    request_submit: 連携を申請する
     review_attribution: この権限で許可した投稿は、あなたのアカウントとして表示されます。
     review_expires: 権限の有効期限
     review_grantee: 権限を受け取るアカウント
     review_grantor: あなたのアカウント
     review_revoke: この権限はいつでも撤回できます。
     review_scopes: 許可する操作
+    review_stage: これは投稿権限の承認です。申請を受け付ける設定とは別です。
     review_submit: コードの内容を確認する
     review_title: 承認前の確認
-    revoke: 撤回する
-    revoked: 権限委譲を撤回しました。
+    revoke: 権限を撤回する
+    revoke_for: "%{acct} の投稿権限を撤回する"
+    revoked: 投稿権限を撤回しました。
+    sending_unavailable: 連携が承認されても、別のアカウントとしての送信はまだできません。
+    stale_hint: これらは以前の受付許可で発行されたコードで、承認できません。
+    stale_item: "%{acct} · %{scopes} · 以前の受付許可"
+    stale_title: 承認できなくなった申請
     scopes:
       joiner: "、"
       media: 新規投稿用のメディアアップロード
       post: 新規投稿
       post_included: 新規投稿は含まれます。メディアのアップロードは別の許可です。
-    sending_not_enabled: このアカウントとしての送信は、まだ使えません。
-    title: 送信元アカウント
+    sending_not_enabled: このアカウントとしての送信は、まだできません。
+    title: 連携アカウント
     unlink: 連携を解除する
+    unlink_for: "%{acct} との連携を解除する"
     unlinked: 連携を解除しました。
   user_posting_context_assignments:
     all_assignments: すべての既定設定

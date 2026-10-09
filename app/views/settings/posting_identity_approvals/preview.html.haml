@@ -3,6 +3,7 @@
 
 .posting-identity-links
   %h3= t('posting_identity_links.review_title')
+  %p= t('posting_identity_links.review_stage')
   %dl.posting-identity-links__details
     %dt= t('posting_identity_links.review_grantee')
     %dd= @link_request.requester_user.account.pretty_acct
@@ -14,8 +15,9 @@
     %dd= l(@grant_expires_at)
   %p= t('posting_identity_links.review_revoke')
   %p= t('posting_identity_links.review_attribution')
-  %p.hint= t('posting_identity_links.sending_not_enabled')
-  = form_with url: settings_posting_identity_approval_path, method: :post, local: true do
+  %p= t('posting_identity_links.sending_not_enabled')
+  = form_with url: settings_posting_identity_approval_path, method: :post, local: true, html: { class: 'simple_form' } do
     = hidden_field_tag :token, params[:token]
-    = submit_tag t('posting_identity_links.approve_submit')
+    .actions
+      = button_tag t('posting_identity_links.approve_submit'), type: 'submit', class: 'button'
   %p= link_to t('posting_identity_links.back'), new_settings_posting_identity_approval_path

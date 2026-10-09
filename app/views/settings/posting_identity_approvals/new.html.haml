@@ -3,9 +3,13 @@
 
 .posting-identity-links
   %p= t('posting_identity_links.approve_intro')
-  = form_with url: preview_settings_posting_identity_approval_path, method: :post, local: true do
+  = form_with url: preview_settings_posting_identity_approval_path, method: :post, local: true, html: { class: 'simple_form' } do
     .fields-group
-      = label_tag :token, t('posting_identity_links.code_label')
-      = text_field_tag :token, nil, required: true, autocomplete: 'off', autocapitalize: 'off', spellcheck: false
-    = submit_tag t('posting_identity_links.review_submit')
+      .input.string.required.with_label
+        .label_input
+          %label{ for: 'posting_identity_approval_token' }= t('posting_identity_links.code_label')
+          .label_input__wrapper
+            = text_field_tag :token, nil, id: 'posting_identity_approval_token', required: true, placeholder: t('posting_identity_links.code_placeholder'), autocomplete: 'off', autocapitalize: 'off', spellcheck: false, class: 'string required'
+    .actions
+      = button_tag t('posting_identity_links.review_submit'), type: 'submit', class: 'button'
   %p= link_to t('posting_identity_links.back'), settings_posting_identity_links_path

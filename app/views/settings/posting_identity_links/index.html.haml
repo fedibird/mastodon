@@ -3,35 +3,48 @@
 
 .posting-identity-links
   %p= t('posting_identity_links.description')
+  %p= t('posting_identity_links.login_unchanged')
+  %p= t('posting_identity_links.sending_unavailable')
 
   %section.posting-identity-links__section
-    %h3= t('posting_identity_links.current_account')
+    %h3= t('posting_identity_links.add_title')
+    %p= t('posting_identity_links.add_lead')
     %p
+      = t('posting_identity_links.current_account')
       %strong= current_account.pretty_acct
 
-  - if flash[:posting_identity_token].present?
-    %section.posting-identity-links__section.posting-identity-links__code{ role: 'status' }
-      %h3= t('posting_identity_links.code_once')
-      %p.posting-identity-links__token= flash[:posting_identity_token]
-      %p= t('posting_identity_links.code_hint')
+    - if flash[:posting_identity_token].present?
+      %section.posting-identity-links__code{ role: 'status' }
+        %h4= t('posting_identity_links.code_once')
+        %p.posting-identity-links__token= flash[:posting_identity_token]
+        %p= t('posting_identity_links.code_hint')
 
-  - if current_user.can?(:administrator)
-    %section.posting-identity-links__section
-      %h3= t('posting_identity_links.request_title')
-      = form_with url: settings_posting_identity_links_path, method: :post, local: true do
+    - if current_user.can?(:administrator)
+      = form_with url: settings_posting_identity_links_path, method: :post, local: true, html: { class: 'simple_form' } do
+        %p.hint= t('posting_identity_links.request_result')
+        %p.hint= t('posting_identity_links.request_needs_acceptance')
         .fields-group
-          = label_tag :acct, t('posting_identity_links.acct_label')
-          = text_field_tag :acct, params[:acct], required: true, autocomplete: 'off', autocapitalize: 'off', spellcheck: false
+          .input.string.required.with_label
+            .label_input
+              %label{ for: 'posting_identity_request_acct' }= t('posting_identity_links.acct_label')
+              .label_input__wrapper
+                = text_field_tag :acct, params[:acct], id: 'posting_identity_request_acct', required: true, placeholder: t('posting_identity_links.acct_placeholder'), autocomplete: 'off', autocapitalize: 'off', spellcheck: false, class: 'string required'
+            %span.hint= t('posting_identity_links.acct_hint')
         .fields-group
-          = hidden_field_tag 'scopes[]', 'post'
-          = label_tag 'scopes_media' do
-            = check_box_tag 'scopes[]', 'media', Array(params[:scopes]).include?('media'), id: 'scopes_media'
-            = t('posting_identity_links.scopes.media')
-          %p.hint= t('posting_identity_links.scopes.post_included')
-        = submit_tag t('posting_identity_links.request_submit')
+          = hidden_field_tag 'scopes[]', 'post', id: 'posting_identity_request_scope_post'
+          .input.boolean.optional.with_label
+            .label_input
+              %label{ for: 'posting_identity_request_scope_media' }= t('posting_identity_links.scopes.media')
+              .label_input__wrapper
+                %label.checkbox
+                  = check_box_tag 'scopes[]', 'media', Array(params[:scopes]).include?('media'), id: 'posting_identity_request_scope_media', class: 'boolean optional'
+            %span.hint= t('posting_identity_links.scopes.post_included')
+        .actions
+          = button_tag t('posting_identity_links.request_submit'), type: 'submit', class: 'button'
+    - else
+      %p= t('posting_identity_links.request_admin_only')
 
-  %section.posting-identity-links__section
-    %h3= t('posting_identity_links.pending_title')
+    %h4= t('posting_identity_links.pending_title')
     - current_pending = @pending.select { |link_request| link_request.open? && link_request.current_allowance? }
     - stale_pending = @pending.select { |link_request| link_request.open? && !link_request.current_allowance? }
     - if current_pending.empty?
@@ -41,17 +54,16 @@
         - current_pending.each do |link_request|
           %li
             %p= t('posting_identity_links.pending_item', acct: link_request.target_user.account.pretty_acct, scopes: posting_identity_scope_labels(link_request.scopes), expires_at: l(link_request.expires_at))
-            = button_to t('posting_identity_links.cancel'), cancel_settings_posting_identity_link_path(link_request), method: :post
+            = render 'post_action', url: cancel_settings_posting_identity_link_path(link_request), label: t('posting_identity_links.cancel'), described: t('posting_identity_links.cancel_for', acct: link_request.target_user.account.pretty_acct)
     - if stale_pending.any?
-      %h3= t('posting_identity_links.stale_title')
+      %h4= t('posting_identity_links.stale_title')
       %p= t('posting_identity_links.stale_hint')
       %ul.posting-identity-links__list
         - stale_pending.each do |link_request|
           %li
             %p= t('posting_identity_links.stale_item', acct: link_request.target_user.account.pretty_acct, scopes: posting_identity_scope_labels(link_request.scopes))
 
-  %section.posting-identity-links__section
-    %h3= t('posting_identity_links.linked_title')
+    %h4= t('posting_identity_links.linked_title')
     - active_received = @received.select(&:active_record?)
     - if active_received.empty?
       %p= t('posting_identity_links.linked_empty')
@@ -60,34 +72,44 @@
         - active_received.each do |delegation|
           %li
             %p= t('posting_identity_links.linked_item', acct: delegation.posting_account.pretty_acct, scopes: posting_identity_scope_labels(delegation.scopes), expires_at: l(delegation.expires_at))
-            %p.hint= t('posting_identity_links.sending_not_enabled')
-            = button_to t('posting_identity_links.unlink'), unlink_settings_posting_identity_grant_path(delegation), method: :post
+            %p= t('posting_identity_links.sending_not_enabled')
+            = render 'post_action', url: unlink_settings_posting_identity_grant_path(delegation), label: t('posting_identity_links.unlink'), described: t('posting_identity_links.unlink_for', acct: delegation.posting_account.pretty_acct)
 
-  %section.posting-identity-links__section
-    %h3= t('posting_identity_links.expired_title')
     - closed = @received.reject(&:active_record?)
-    - if closed.empty?
-      %p= t('posting_identity_links.expired_empty')
-    - else
+    - if closed.any?
+      %h4= t('posting_identity_links.expired_title')
       %ul.posting-identity-links__list
         - closed.each do |delegation|
           %li
             %p= t('posting_identity_links.expired_item', acct: delegation.posting_account.pretty_acct, scopes: posting_identity_scope_labels(delegation.scopes), expires_at: l(delegation.expires_at))
 
+  %hr.spacer/
+
   %section.posting-identity-links__section
-    %h3= t('posting_identity_links.allowance_title')
-    %p= t('posting_identity_links.allowance_hint')
-    = form_with url: settings_posting_identity_request_allowances_path, method: :post, local: true do
+    %h3= t('posting_identity_links.allow_title')
+    %p= t('posting_identity_links.allow_lead')
+    %p= t('posting_identity_links.allowance_keeps_delegation')
+
+    %h4= t('posting_identity_links.allowance_title')
+    = form_with url: settings_posting_identity_request_allowances_path, method: :post, local: true, html: { class: 'simple_form' } do
       .fields-group
-        = label_tag :allowance_acct, t('posting_identity_links.allowance_acct_label')
-        = text_field_tag :acct, nil, required: true, autocomplete: 'off', autocapitalize: 'off', spellcheck: false, id: 'allowance_acct'
+        .input.string.required.with_label
+          .label_input
+            %label{ for: 'posting_identity_allowance_acct' }= t('posting_identity_links.allowance_acct_label')
+            .label_input__wrapper
+              = text_field_tag :acct, nil, id: 'posting_identity_allowance_acct', required: true, placeholder: t('posting_identity_links.acct_placeholder'), autocomplete: 'off', autocapitalize: 'off', spellcheck: false, class: 'string required'
+          %span.hint= t('posting_identity_links.acct_hint')
       .fields-group
-        = hidden_field_tag 'scopes[]', 'post', id: 'allowance_scope_post'
-        = label_tag 'allowance_scope_media' do
-          = check_box_tag 'scopes[]', 'media', false, id: 'allowance_scope_media'
-          = t('posting_identity_links.scopes.media')
-        %p.hint= t('posting_identity_links.scopes.post_included')
-      = submit_tag t('posting_identity_links.allowance_submit')
+        = hidden_field_tag 'scopes[]', 'post', id: 'posting_identity_allowance_scope_post'
+        .input.boolean.optional.with_label
+          .label_input
+            %label{ for: 'posting_identity_allowance_scope_media' }= t('posting_identity_links.scopes.media')
+            .label_input__wrapper
+              %label.checkbox
+                = check_box_tag 'scopes[]', 'media', false, id: 'posting_identity_allowance_scope_media', class: 'boolean optional'
+          %span.hint= t('posting_identity_links.scopes.post_included')
+      .actions
+        = button_tag t('posting_identity_links.allowance_submit'), type: 'submit', class: 'button'
     - active_allowances = @allowances.select(&:active?)
     - if active_allowances.empty?
       %p= t('posting_identity_links.allowance_empty')
@@ -96,11 +118,15 @@
         - active_allowances.each do |allowance|
           %li
             %p= t('posting_identity_links.allowance_item', acct: allowance.requester_user.account.pretty_acct, scopes: posting_identity_scope_labels(allowance.allowed_scopes), expires_at: l(allowance.expires_at))
-            = button_to t('posting_identity_links.allowance_revoke'), revoke_settings_posting_identity_request_allowance_path(allowance), method: :post
+            = render 'post_action', url: revoke_settings_posting_identity_request_allowance_path(allowance), label: t('posting_identity_links.allowance_revoke'), described: t('posting_identity_links.allowance_revoke_for', acct: allowance.requester_user.account.pretty_acct)
 
-  %section.posting-identity-links__section
-    %h3= t('posting_identity_links.granted_title')
-    %p= link_to t('posting_identity_links.approve_link'), new_settings_posting_identity_approval_path
+    %h4= t('posting_identity_links.code_entry_title')
+    %p= t('posting_identity_links.code_entry_lead')
+    .simple_form
+      .actions
+        = link_to t('posting_identity_links.approve_link'), new_settings_posting_identity_approval_path, class: 'button'
+
+    %h4= t('posting_identity_links.granted_title')
     - active_granted = @granted.select(&:active_record?)
     - if active_granted.empty?
       %p= t('posting_identity_links.granted_empty')
@@ -109,4 +135,4 @@
         - active_granted.each do |delegation|
           %li
             %p= t('posting_identity_links.granted_item', acct: delegation.grantee_user.account.pretty_acct, scopes: posting_identity_scope_labels(delegation.scopes), expires_at: l(delegation.expires_at), approved_at: l(delegation.approved_at))
-            = button_to t('posting_identity_links.revoke'), revoke_settings_posting_identity_grant_path(delegation), method: :post
+            = render 'post_action', url: revoke_settings_posting_identity_grant_path(delegation), label: t('posting_identity_links.revoke'), described: t('posting_identity_links.revoke_for', acct: delegation.grantee_user.account.pretty_acct)
