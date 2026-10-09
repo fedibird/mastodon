@@ -197,4 +197,219 @@ describe ActivityPub::DeliveryWorker do
       }.to raise_error(Mastodon::UnexpectedResponseError)
     end
   end
+
+  describe 'group delivery observation' do
+    let(:author) { Fabricate(:user, admin: true).account }
+    let(:group) do
+      Fabricate(
+        :account,
+        username: 'technology',
+        domain: 'lemmy.example',
+        actor_type: 'Group',
+        protocol: :activitypub,
+        uri: 'https://lemmy.example/c/technology',
+        inbox_url: 'https://lemmy.example/c/technology/inbox'
+      )
+    end
+    let(:status) { Fabricate(:status, account: author, visibility: :public, audience_account: group) }
+    let(:inbox_url) { 'https://lemmy.example/c/technology/inbox' }
+    let(:observation_key) { PostingContext::GroupFederationObservation.key_for(status.id, group.id) }
+
+    def with_observation
+      ClimateControl.modify(
+        GROUP_FEDERATION_OBSERVATION_ENABLED: 'true',
+        GROUP_FEDERATION_OBSERVATION_AUTHOR_IDS: author.id.to_s
+      ) { yield }
+    end
+
+    def observed_record
+      PostingContext::GroupFederationObservation.read(status.id, group.id)
+    end
+
+    before do
+      Node.create!(domain: 'lemmy.example', info: { 'software_name' => 'lemmy' })
+      with_observation { PostingContext::GroupFederationObservation.prepare(status, author) }
+    end
+
+    after do
+      RedisConfiguration.with { |redis| redis.del(observation_key) }
+    end
+
+    def perform_observed(extra = {})
+      subject.perform(payload, sender.id, inbox_url, { 'group_delivery_observation' => observation_key }.merge(extra))
+    end
+
+    it 'records HTTP 202 as 2xx without using delivery tracking as that evidence' do
+      stub_request(:post, inbox_url).to_return(status: 202)
+      expect(ActivityPub::DeliveryTracking).to receive(:delivered).with({ 'type' => 'follow_import_target', 'id' => 5 })
+
+      perform_observed('delivery_tracking' => { 'type' => 'follow_import_target', 'id' => 5 })
+
+      expect(observed_record['last_attempt_outcome']).to eq 'http_success'
+      expect(observed_record['last_http_status']).to eq 202
+      expect(observed_record['http_2xx_observed']).to be true
+      expect(observed_record['http_2xx_at']).to match(/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z/)
+      expect(observed_record['attempt_count']).to eq 1
+      expect(observed_record['terminal_failure_observed']).to be false
+      expect(observed_record.values.join).not_to include(payload)
+    end
+
+    it 'does not treat an unsalvageable 4xx as success' do
+      stub_request(:post, inbox_url).to_return(status: 404)
+
+      expect { perform_observed }.not_to raise_error
+
+      expect(observed_record['last_attempt_outcome']).to eq 'http_unsalvageable'
+      expect(observed_record['last_http_status']).to eq 404
+      expect(observed_record['http_2xx_observed']).to be false
+      expect(observed_record['terminal_failure_observed']).to be false
+      expect(observed_record['attempt_count']).to eq 1
+    end
+
+    it 'keeps a retryable HTTP error and a timeout off the terminal flag' do
+      stub_request(:post, inbox_url).to_return(status: 503)
+
+      expect { perform_observed }.to raise_error(Mastodon::UnexpectedResponseError)
+
+      expect(observed_record['last_attempt_outcome']).to eq 'http_retryable'
+      expect(observed_record['last_http_status']).to eq 503
+      expect(observed_record['terminal_failure_observed']).to be false
+      expect(observed_record['attempt_count']).to eq 1
+
+      stub_request(:post, inbox_url).to_raise(HTTP::TimeoutError.new('read timed out'))
+
+      expect { perform_observed }.to raise_error(HTTP::TimeoutError)
+
+      expect(observed_record['last_attempt_outcome']).to eq 'timeout'
+      expect(observed_record['last_http_status']).to eq 503
+      expect(observed_record['terminal_failure_observed']).to be false
+      expect(observed_record['attempt_count']).to eq 2
+    end
+
+    it 'records terminal failure only after retries are exhausted and keeps earlier 2xx evidence' do
+      stub_request(:post, inbox_url).to_return(status: 200)
+      perform_observed
+
+      expect(observed_record['last_attempt_outcome']).to eq 'http_success'
+      expect(observed_record['last_http_status']).to eq 200
+      expect(observed_record['http_2xx_observed']).to be true
+
+      stub_request(:post, inbox_url).to_return(status: 500)
+
+      expect { perform_observed }.to raise_error(Mastodon::UnexpectedResponseError)
+
+      expect(observed_record['http_2xx_observed']).to be true
+      expect(observed_record['terminal_failure_observed']).to be false
+      expect(observed_record['attempt_count']).to eq 2
+
+      described_class.sidekiq_retries_exhausted_block.call(
+        'args' => [payload, sender.id, inbox_url, { 'group_delivery_observation' => observation_key }]
+      )
+
+      expect(observed_record['terminal_failure_observed']).to be true
+      expect(observed_record['http_2xx_observed']).to be true
+      expect(observed_record['last_http_status']).to eq 500
+      expect(observed_record['last_attempt_outcome']).to eq 'http_retryable'
+      expect(observed_record['http_2xx_at']).to be_present
+    end
+
+    it 'keeps the last HTTP code and 2xx evidence when a later attempt times out' do
+      stub_request(:post, inbox_url).to_return(status: 200)
+      perform_observed
+
+      stub_request(:post, inbox_url).to_raise(HTTP::TimeoutError.new('read timed out'))
+
+      expect { perform_observed }.to raise_error(HTTP::TimeoutError)
+
+      expect(observed_record['last_attempt_outcome']).to eq 'timeout'
+      expect(observed_record['last_http_status']).to eq 200
+      expect(observed_record['http_2xx_observed']).to be true
+      expect(observed_record['attempt_count']).to eq 2
+      expect(observed_record['terminal_failure_observed']).to be false
+
+      described_class.sidekiq_retries_exhausted_block.call(
+        'args' => [payload, sender.id, inbox_url, { 'group_delivery_observation' => observation_key }]
+      )
+
+      expect(observed_record['terminal_failure_observed']).to be true
+      expect(observed_record['last_http_status']).to eq 200
+      expect(observed_record['http_2xx_observed']).to be true
+      expect(observed_record['last_attempt_outcome']).to eq 'timeout'
+    end
+
+    it 'does not count an error raised before the HTTP client sends' do
+      allow_any_instance_of(Request).to receive(:headers).and_raise(OpenSSL::SSL::SSLError.new('sign'))
+
+      expect { perform_observed }.to raise_error(OpenSSL::SSL::SSLError)
+
+      expect(observed_record['attempt_count']).to eq 0
+      expect(observed_record['last_attempt_outcome']).to eq 'not_attempted'
+      expect(observed_record['last_http_status']).to be_nil
+      expect(observed_record['http_2xx_observed']).to be false
+    end
+
+    it 'records a circuit interruption without counting an HTTP attempt' do
+      allow(subject).to receive(:perform_request).and_raise(Stoplight::Error::RedLight)
+
+      expect { perform_observed }.to raise_error(Stoplight::Error::RedLight)
+
+      expect(observed_record['last_attempt_outcome']).to eq 'circuit_interruption'
+      expect(observed_record['attempt_count']).to eq 0
+      expect(observed_record['last_http_status']).to be_nil
+      expect(observed_record['terminal_failure_observed']).to be false
+    end
+
+    it 'does not record an HTTP attempt when availability suppression skips the request' do
+      allow(DeliveryFailureTracker).to receive(:available?).with(inbox_url).and_return(false)
+
+      expect { perform_observed }.not_to raise_error
+
+      expect(observed_record['last_attempt_outcome']).to eq 'availability_suppression'
+      expect(observed_record['attempt_count']).to eq 0
+      expect(observed_record['last_http_status']).to be_nil
+      expect(observed_record['http_2xx_observed']).to be false
+      expect(a_request(:post, inbox_url)).not_to have_been_made
+    end
+
+    it 'does not fail a successful or retryable delivery when observation storage raises' do
+      allow(RedisConfiguration).to receive(:with).and_raise(Redis::ConnectionError)
+      stub_request(:post, inbox_url).to_return(status: 200)
+
+      expect { perform_observed }.not_to raise_error
+
+      stub_request(:post, inbox_url).to_return(status: 500)
+
+      expect { perform_observed }.to raise_error(Mastodon::UnexpectedResponseError)
+      allow(RedisConfiguration).to receive(:with).and_call_original
+    end
+
+    it 'does not let a later duplicate failure erase 2xx evidence from an earlier attempt' do
+      earlier = 2.seconds.ago.utc
+      later = Time.now.utc
+      success = {
+        'outcome' => 'http_success',
+        'http_status' => 200,
+        'http_attempt' => true,
+        'http_2xx' => true,
+        'request_started_at' => later.iso8601(6),
+        'observed_at' => later.iso8601,
+      }
+      stale_failure = success.merge(
+        'outcome' => 'http_retryable',
+        'http_status' => 500,
+        'http_2xx' => false,
+        'request_started_at' => earlier.iso8601(6),
+        'observed_at' => later.iso8601
+      )
+
+      PostingContext::GroupFederationObservation.apply_attempt(observation_key, success)
+      PostingContext::GroupFederationObservation.apply_attempt(observation_key, stale_failure)
+
+      expect(observed_record['http_2xx_observed']).to be true
+      expect(observed_record['last_attempt_outcome']).to eq 'http_success'
+      expect(observed_record['last_http_status']).to eq 200
+      expect(observed_record['attempt_count']).to eq 2
+      expect(observed_record['terminal_failure_observed']).to be false
+    end
+  end
 end

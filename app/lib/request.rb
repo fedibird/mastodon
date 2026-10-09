@@ -113,9 +113,15 @@ class Request
     self
   end
 
+  attr_reader :http_request_started_at
+
   def perform
     begin
-      response = http_client.public_send(@verb, @url.to_s, @options.merge(headers: headers))
+      # Signature headers are built before this timestamp. The stamp is
+      # the HTTP client send, so a signing error is not a started request.
+      request_options = @options.merge(headers: headers)
+      @http_request_started_at = Time.now.utc
+      response = http_client.public_send(@verb, @url.to_s, request_options)
     rescue => e
       raise e.class, "#{e.message} on #{@url}", e.backtrace[0]
     end

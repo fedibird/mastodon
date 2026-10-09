@@ -124,3 +124,268 @@ describe ActivityPub::DistributionWorker do
     end
   end
 end
+
+describe 'ActivityPub::DistributionWorker group observation' do
+  subject { ActivityPub::DistributionWorker.new }
+
+  let(:author) { Fabricate(:user, admin: true).account }
+  let(:group) do
+    Fabricate(
+      :account,
+      username: 'technology',
+      domain: 'lemmy.example',
+      actor_type: 'Group',
+      protocol: :activitypub,
+      uri: 'https://lemmy.example/c/technology',
+      inbox_url: 'https://lemmy.example/c/technology/inbox',
+      shared_inbox_url: 'https://lemmy.example/inbox'
+    )
+  end
+  let(:status) { Fabricate(:status, account: author, visibility: :public, audience_account: group) }
+  let(:follower) { Fabricate(:account, protocol: :activitypub, inbox_url: 'https://follower.example/inbox') }
+  let(:observation_key) { PostingContext::GroupFederationObservation.key_for(status.id, group.id) }
+
+  before do
+    Node.create!(domain: 'lemmy.example', info: { 'software_name' => 'lemmy' })
+    follower.follow!(author)
+    Fabricate(:relay, inbox_url: 'https://relay.example/inbox', state: :accepted)
+  end
+
+  after do
+    RedisConfiguration.with { |redis| redis.del(observation_key) }
+  end
+
+  def enable_observation(account)
+    ClimateControl.modify(
+      GROUP_FEDERATION_OBSERVATION_ENABLED: 'true',
+      GROUP_FEDERATION_OBSERVATION_AUTHOR_IDS: account.id.to_s
+    ) { yield }
+  end
+
+  def capture_deliveries
+    calls = []
+    allow(ActivityPub::DeliveryWorker).to receive(:push_bulk) do |inboxes, &block|
+      jobs = inboxes.map { |inbox| block.call(inbox) }
+      calls << { inboxes: inboxes, jobs: jobs }
+      Array.new(inboxes.size) { SecureRandom.hex(12) }
+    end
+    calls
+  end
+
+  def queue_state
+    PostingContext::GroupPostObservationReader.new.call(status)['delivery_queue']
+  end
+
+  it 'attaches the observation id only to the group actor inbox job' do
+    calls = capture_deliveries
+
+    enable_observation(author) { subject.perform(status.id) }
+
+    group_jobs = calls.flat_map { |call| call[:jobs] }.select { |job| job[2] == group.inbox_url }
+    other_jobs = calls.flat_map { |call| call[:jobs] }.reject { |job| job[2] == group.inbox_url }
+    record = PostingContext::GroupFederationObservation.read(status.id, group.id)
+
+    expect(calls.first[:inboxes]).to include(follower.inbox_url, group.inbox_url)
+    expect(calls.first[:inboxes].count(group.inbox_url)).to eq 1
+    expect(group_jobs.size).to eq 1
+    expect(group_jobs.first[3]).to include('group_delivery_observation' => observation_key)
+    expect(other_jobs.map { |job| job[3] }).to all(satisfy { |options| options.nil? || !options.key?('group_delivery_observation') })
+    expect(calls.second[:inboxes]).to eq ['https://relay.example/inbox']
+    expect(record['queue_observed']).to be true
+    expect(record['adapter']).to eq 'lemmy_group'
+    expect(record['activity_type']).to eq 'Create'
+    expect(record['attempt_count']).to eq 0
+    expect(queue_state).to eq 'observed'
+  end
+
+  it 'keeps one physical delivery when the group inbox is also a follower inbox' do
+    group.update!(inbox_url: follower.inbox_url)
+    calls = capture_deliveries
+
+    enable_observation(author) { subject.perform(status.id) }
+
+    audience_jobs = calls.first[:jobs].select { |job| job[2] == follower.inbox_url }
+
+    expect(calls.first[:inboxes].count(follower.inbox_url)).to eq 1
+    expect(audience_jobs.size).to eq 1
+    expect(audience_jobs.first[3]).to include('group_delivery_observation' => PostingContext::GroupFederationObservation.key_for(status.id, group.id))
+  end
+
+  it 'initializes the record before enqueue and does not mark the queue when enqueue fails' do
+    order = []
+    allow(ActivityPub::DeliveryWorker).to receive(:push_bulk) do
+      order << JSON.parse(RedisConfiguration.with { |redis| redis.get(observation_key) })['queue_observed']
+      raise Redis::ConnectionError
+    end
+
+    expect {
+      enable_observation(author) { subject.perform(status.id) }
+    }.to raise_error(Redis::ConnectionError)
+
+    record = PostingContext::GroupFederationObservation.read(status.id, group.id)
+
+    expect(order).to eq [false]
+    expect(record['queue_observed']).to be false
+    expect(record['http_2xx_observed']).to be false
+    expect(record['terminal_failure_observed']).to be false
+    expect(queue_state).to eq 'not_observed'
+  end
+
+  it 'still delivers when observation storage is unavailable' do
+    allow(PostingContext::GroupFederationObservation).to receive(:prepare).and_raise(Redis::ConnectionError)
+    allow(ActivityPub::DeliveryWorker).to receive(:push_bulk)
+
+    expect {
+      enable_observation(author) { subject.perform(status.id) }
+    }.not_to raise_error
+
+    expect(ActivityPub::DeliveryWorker).to have_received(:push_bulk).at_least(:once)
+  end
+
+  it 'does not start observation for an ordinary public post or a non-admin author' do
+    plain = Fabricate(:status, account: author, visibility: :public)
+    outsider = Fabricate(:user, admin: false).account
+    outsider_status = Fabricate(:status, account: outsider, visibility: :public, audience_account: group)
+    calls = capture_deliveries
+
+    enable_observation(author) do
+      subject.perform(plain.id)
+      ClimateControl.modify(GROUP_FEDERATION_OBSERVATION_AUTHOR_IDS: outsider.id.to_s) do
+        subject.perform(outsider_status.id)
+      end
+    end
+
+    observed_jobs = calls.flat_map { |call| call[:jobs] }.select { |job| job[3].is_a?(Hash) && job[3].key?('group_delivery_observation') }
+
+    expect(observed_jobs).to be_empty
+    expect(PostingContext::GroupFederationObservation.read(plain.id, group.id)).to be_nil
+    expect(PostingContext::GroupFederationObservation.read(outsider_status.id, group.id)).to be_nil
+  end
+
+  it 'does not observe private, unlisted, direct, or local-group posts' do
+    local_group = Fabricate(:account, username: 'localgroup', actor_type: 'Group')
+    samples = [
+      Fabricate(:status, account: author, visibility: :private, audience_account: group),
+      Fabricate(:status, account: author, visibility: :unlisted, audience_account: group),
+      Fabricate(:status, account: author, visibility: :direct, audience_account: group),
+      Fabricate(:status, account: author, visibility: :public, audience_account: local_group),
+    ]
+    calls = capture_deliveries
+
+    enable_observation(author) { samples.each { |sample| subject.perform(sample.id) } }
+
+    observed_jobs = calls.flat_map { |call| call[:jobs] }.select { |job| job[3].is_a?(Hash) && job[3].key?('group_delivery_observation') }
+
+    expect(observed_jobs).to be_empty
+    expect(samples.map { |sample| PostingContext::GroupFederationObservation.read(sample.id, sample.audience_account_id) }).to all(be_nil)
+  end
+
+  it 'does not reset stored HTTP evidence when the same status is distributed again' do
+    calls = capture_deliveries
+
+    enable_observation(author) do
+      PostingContext::GroupFederationObservation.prepare(status, author)
+      PostingContext::GroupFederationObservation.apply_attempt(
+        observation_key,
+        'outcome' => 'http_success',
+        'http_status' => 200,
+        'http_attempt' => true,
+        'http_2xx' => true,
+        'request_started_at' => Time.now.utc.iso8601(6),
+        'observed_at' => Time.now.utc.iso8601
+      )
+      subject.perform(status.id)
+    end
+
+    record = PostingContext::GroupFederationObservation.read(status.id, group.id)
+
+    expect(calls.first[:inboxes].count(group.inbox_url)).to eq 1
+    expect(record['http_2xx_observed']).to be true
+    expect(record['last_http_status']).to eq 200
+    expect(record['queue_observed']).to be true
+    expect(record['attempt_count']).to eq 1
+  end
+
+  it 'reads not_observed for a record created before enqueue' do
+    enable_observation(author) { PostingContext::GroupFederationObservation.prepare(status, author) }
+
+    record = PostingContext::GroupFederationObservation.read(status.id, group.id)
+
+    expect(record['queue_observed']).to be false
+    expect(record['last_attempt_outcome']).to eq 'not_attempted'
+    expect(queue_state).to eq 'not_observed'
+  end
+
+  it 'does not mark the queue when enqueue returns but the queue mark fails' do
+    capture_deliveries
+    allow(PostingContext::GroupFederationObservation).to receive(:mark_queued).and_raise(Redis::ConnectionError)
+
+    expect {
+      enable_observation(author) { subject.perform(status.id) }
+    }.not_to raise_error
+
+    expect(ActivityPub::DeliveryWorker).to have_received(:push_bulk).at_least(:once)
+    expect(PostingContext::GroupFederationObservation.read(status.id, group.id)['queue_observed']).to be false
+    expect(queue_state).to eq 'not_observed'
+  end
+
+  it 'treats an HTTP attempt recorded before the queue mark as observed' do
+    enable_observation(author) do
+      PostingContext::GroupFederationObservation.prepare(status, author)
+      PostingContext::GroupFederationObservation.apply_attempt(
+        observation_key,
+        'outcome' => 'http_success',
+        'http_status' => 202,
+        'http_attempt' => true,
+        'http_2xx' => true,
+        'request_started_at' => Time.now.utc.iso8601(6),
+        'observed_at' => Time.now.utc.iso8601
+      )
+    end
+
+    record = PostingContext::GroupFederationObservation.read(status.id, group.id)
+
+    expect(record['queue_observed']).to be false
+    expect(record['attempt_count']).to eq 1
+    expect(queue_state).to eq 'observed'
+  end
+
+  it 'reads unknown after the observation record expires' do
+    enable_observation(author) { PostingContext::GroupFederationObservation.prepare(status, author) }
+    RedisConfiguration.with { |redis| redis.del(observation_key) }
+
+    expect(PostingContext::GroupFederationObservation.read(status.id, group.id)).to be_nil
+    expect(queue_state).to eq 'unknown'
+  end
+
+  it 'marks the queue from the real push_bulk jid for the group inbox only' do
+    Sidekiq::Testing.fake! do
+      ActivityPub::DeliveryWorker.clear
+
+      enable_observation(author) { subject.perform(status.id) }
+
+      jobs = ActivityPub::DeliveryWorker.jobs
+      group_job = jobs.find { |job| job['args'][2] == group.inbox_url }
+      follower_job = jobs.find { |job| job['args'][2] == follower.inbox_url }
+      relay_job = jobs.find { |job| job['args'][2] == 'https://relay.example/inbox' }
+
+      expect(group_job['args'][3]).to include('group_delivery_observation' => observation_key)
+      expect(follower_job['args'][3]).not_to have_key('group_delivery_observation')
+      expect(relay_job['args'].size).to eq 3
+      expect(jobs.count { |job| job['args'][2] == group.inbox_url }).to eq 1
+      expect(queue_state).to eq 'observed'
+    end
+  end
+
+  it 'does not mark the queue when push_bulk returns no jid for the group inbox' do
+    allow(ActivityPub::DeliveryWorker).to receive(:push_bulk) do |inboxes, &block|
+      inboxes.each { |inbox| block.call(inbox) }
+      inboxes.map { |inbox| inbox == group.inbox_url ? nil : SecureRandom.hex(12) }
+    end
+
+    enable_observation(author) { subject.perform(status.id) }
+
+    expect(PostingContext::GroupFederationObservation.read(status.id, group.id)['queue_observed']).to be false
+    expect(queue_state).to eq 'not_observed'
+  end
+end

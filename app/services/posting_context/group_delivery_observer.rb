@@ -1,0 +1,136 @@
+# frozen_string_literal: true
+
+# Classifies one ActivityPub::DeliveryWorker execution for a group inbox
+# observation. HTTP 2xx comes only from the response code. @performed is
+# also set for unsalvageable responses, so it is not a success signal.
+#
+# Recording never raises. Follow-import delivery_tracking is not read
+# or written here.
+class PostingContext::GroupDeliveryObserver
+  class << self
+    def record_attempt(options:, response:, error:, skip_reason:, request_started_at:)
+      key = observation_key(options)
+      return if key.nil?
+
+      PostingContext::GroupFederationObservation.apply_attempt(
+        key,
+        attempt_event(response: response, error: error, skip_reason: skip_reason, request_started_at: request_started_at)
+      )
+    rescue StandardError => e
+      Rails.logger.warn("[PostingContext::GroupDeliveryObserver] #{e.class}")
+      nil
+    end
+
+    def record_terminal(options)
+      key = observation_key(options)
+      return if key.nil?
+
+      PostingContext::GroupFederationObservation.mark_terminal(key)
+    rescue StandardError => e
+      Rails.logger.warn("[PostingContext::GroupDeliveryObserver] #{e.class}")
+      nil
+    end
+
+    private
+
+    def observation_key(options)
+      return if options.blank?
+
+      key = options.with_indifferent_access[PostingContext::GroupFederationObservation::OPTION]
+      key if PostingContext::GroupFederationObservation.valid_key?(key)
+    rescue StandardError
+      nil
+    end
+
+    def attempt_event(response:, error:, skip_reason:, request_started_at:)
+      classified = classify(response: response, error: error, skip_reason: skip_reason, request_started_at: request_started_at)
+      {
+        'outcome' => classified[:outcome],
+        'http_status' => classified[:http_status],
+        'http_attempt' => classified[:http_attempt],
+        'http_2xx' => classified[:http_2xx],
+        'request_started_at' => timestamp(request_started_at),
+        'observed_at' => Time.now.utc.iso8601,
+      }
+    end
+
+    # A response code is the attempt. Timeout and connection errors
+    # count only after the HTTP client send has started. Stoplight and
+    # other errors before that send are not attempts. 2xx is the code
+    # range only.
+    def classify(response:, error:, skip_reason:, request_started_at:)
+      status = http_status_from(response) || http_status_from(response_from(error))
+      return classify_status(status, error) if status
+      return non_http('availability_suppression') if skip_reason == 'availability_suppression'
+      return non_http('circuit_interruption') if stoplight_error?(error)
+      return non_http('not_attempted') if request_started_at.blank?
+
+      return http_result('timeout', nil) if timeout_error?(error)
+      return http_result('connection_failure', nil) if connection_error?(error)
+      return http_result('http_retryable', nil) if error.is_a?(Mastodon::UnexpectedResponseError)
+
+      non_http('not_attempted')
+    end
+
+    # 2xx is success from the code alone. Other codes follow
+    # JsonLdHelper#response_error_unsalvageable?: 501, and 4xx other
+    # than 401, 408, and 429, are terminal. DeliveryWorker also accepts
+    # a 401 without retry when the source account is permanently
+    # suspended, and that path does not raise. A retryable code such as
+    # 503 stays retryable when the error is a different class, including
+    # Stoplight::Error::RedLight.
+    def classify_status(status, error)
+      return http_result('http_success', status, http_2xx: true) if (200...300).cover?(status)
+      return http_result('http_unsalvageable', status) if unsalvageable_http_status?(status, error)
+
+      http_result('http_retryable', status)
+    end
+
+    def unsalvageable_http_status?(status, error)
+      return true if status == 501
+      return true if (400...500).cover?(status) && ![401, 408, 429].include?(status)
+
+      status == 401 && error.nil?
+    end
+
+    def non_http(outcome)
+      { outcome: outcome, http_status: nil, http_attempt: false, http_2xx: false }
+    end
+
+    def http_result(outcome, status, http_2xx: false)
+      { outcome: outcome, http_status: status, http_attempt: true, http_2xx: http_2xx }
+    end
+
+    def response_from(error)
+      error.respond_to?(:response) ? error.response : nil
+    end
+
+    def http_status_from(response)
+      return unless response.respond_to?(:code)
+
+      Integer(response.code)
+    rescue ArgumentError, TypeError
+      nil
+    end
+
+    def timeout_error?(error)
+      defined?(HTTP::TimeoutError) && error.is_a?(HTTP::TimeoutError)
+    end
+
+    def connection_error?(error)
+      (defined?(HTTP::ConnectionError) && error.is_a?(HTTP::ConnectionError)) || error.is_a?(OpenSSL::SSL::SSLError)
+    end
+
+    def stoplight_error?(error)
+      defined?(Stoplight::Error::RedLight) && error.is_a?(Stoplight::Error::RedLight)
+    end
+
+    def timestamp(time)
+      return '' if time.blank?
+
+      time.utc.iso8601(6)
+    rescue StandardError
+      ''
+    end
+  end
+end
