@@ -7,7 +7,7 @@ class Api::V1::MediaController < Api::BaseController
   before_action :check_processing, except: [:create]
 
   def create
-    @media_attachment = current_account.media_attachments.create!(media_attachment_params)
+    @media_attachment = session_sender_account!.media_attachments.create!(media_attachment_params)
     render json: @media_attachment, serializer: REST::MediaAttachmentSerializer
   rescue Paperclip::Errors::NotIdentifiedByImageMagickError
     render json: file_type_error, status: 422
@@ -20,6 +20,7 @@ class Api::V1::MediaController < Api::BaseController
   end
 
   def update
+    session_sender_account!
     @media_attachment.update!(updateable_media_attachment_params)
     render json: @media_attachment, serializer: REST::MediaAttachmentSerializer, status: status_code_for_media_attachment
   end
@@ -36,6 +37,14 @@ class Api::V1::MediaController < Api::BaseController
 
   def check_processing
     render json: processing_error, status: 422 if @media_attachment.processing_failed?
+  end
+
+  def session_sender_account!
+    PostingIdentity::SendGuard.call!(
+      user: current_user,
+      account_id: params[:account_id],
+      posting_identity_id: params[:posting_identity_id]
+    )
   end
 
   def media_attachment_params

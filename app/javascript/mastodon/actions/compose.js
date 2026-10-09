@@ -18,6 +18,7 @@ import { selectComposerEffectiveCreateCapability } from '../posting_context/crea
 import { materializeComposerText } from '../posting_context/materialize';
 import { composerActivityPubAudienceAccountId } from '../posting_context/protocol';
 import { selectComposer } from '../selectors/composer';
+import { selectComposerCanSendAsIdentity, selectComposerCanUploadAsIdentity } from '../selectors/posting_identities';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import { targetComposerAction } from './composer';
 
@@ -115,10 +116,10 @@ const messages = defineMessages({
   uploadErrorPoll:  { id: 'upload_error.poll', defaultMessage: 'File upload not allowed with polls.' },
   postReferenceMessage:  { id: 'confirmations.post_reference.message', defaultMessage: 'It contains references, do you want to post it?' },
   postReferenceConfirm:  { id: 'confirmations.post_reference.confirm', defaultMessage: 'Post' },
-  missingAltTextTitle:     { id: "confirmations.missing_alt_text.title", defaultMessage: 'Add alt text?' },
-  missingAltTextMessage:   { id: "confirmations.missing_alt_text.message", defaultMessage: 'Your post contains media without alt text. Adding descriptions helps make your content accessible to more people.' },
-  missingAltTextSecondary: { id: "confirmations.missing_alt_text.secondary", defaultMessage: 'Post anyway' },
-  missingAltTextConfirm:   { id: "confirmations.missing_alt_text.confirm", defaultMessage: 'Add alt text' },
+  missingAltTextTitle:     { id: 'confirmations.missing_alt_text.title', defaultMessage: 'Add alt text?' },
+  missingAltTextMessage:   { id: 'confirmations.missing_alt_text.message', defaultMessage: 'Your post contains media without alt text. Adding descriptions helps make your content accessible to more people.' },
+  missingAltTextSecondary: { id: 'confirmations.missing_alt_text.secondary', defaultMessage: 'Post anyway' },
+  missingAltTextConfirm:   { id: 'confirmations.missing_alt_text.confirm', defaultMessage: 'Add alt text' },
   savedTitle: { id: 'compose.saved.title', defaultMessage: 'Saved' },
   saved: { id: 'compose.saved.body', defaultMessage: 'Post saved.' },
   cancelEditConfirm: { id: 'confirmations.cancel_edit.confirm', defaultMessage: 'Discard changes' },
@@ -326,6 +327,10 @@ export function submitComposerWithCheck(composerId, routerHistory, intl) {
       return;
     }
 
+    if (!selectComposerCanSendAsIdentity(state, composerId).canSend) {
+      return;
+    }
+
     const status = materializeComposerText(composer);
     const media  = composer.get('media_attachments');
     const missingAltTextMediaId = media.find(item => ['image', 'gifv'].includes(item.get('type')) && (item.get('description') ?? '').length === 0)?.get('id');
@@ -389,6 +394,10 @@ export function submitComposer(composerId, routerHistory) {
       return Promise.resolve();
     }
 
+    if (!selectComposerCanSendAsIdentity(state, composerId).canSend) {
+      return Promise.resolve();
+    }
+
     const status = materializeComposerText(composer);
     const media = composer.get('media_attachments');
     const scheduled = composer.get('scheduled');
@@ -408,6 +417,7 @@ export function submitComposer(composerId, routerHistory) {
     const quoteFrom = composer.get('quote_from', null);
     const searchability = composer.get('searchability');
     const idempotencyKey = composer.get('idempotencyKey');
+    const senderIdentityId = composer.getIn(['senderIdentity', 'id']);
     const audienceAccountId = composerActivityPubAudienceAccountId(composer);
     const tagHistorySnapshot = composer.get('tagHistory');
     const homeVisibilities = getHomeVisibilities(state);
@@ -455,6 +465,10 @@ export function submitComposer(composerId, routerHistory) {
       editData.language = language;
     }
 
+    if (senderIdentityId) {
+      editData.posting_identity_id = senderIdentityId;
+    }
+
     const createData = {
       status,
       in_reply_to_id: inReplyTo,
@@ -477,6 +491,10 @@ export function submitComposer(composerId, routerHistory) {
 
     if (!editing && audienceAccountId) {
       createData.audience_account_id = audienceAccountId;
+    }
+
+    if (!editing && senderIdentityId) {
+      createData.posting_identity_id = senderIdentityId;
     }
 
     return api(getState).request({
@@ -584,6 +602,10 @@ export function uploadToComposer(composerId, files) {
       return;
     }
 
+    if (!selectComposerCanUploadAsIdentity(getState(), composerId).canUpload) {
+      return;
+    }
+
     const uploadLimit = maxAttachments;
     const media = composer.get('media_attachments');
     const pending = composer.get('pending_media_attachments');
@@ -659,6 +681,10 @@ export const uploadComposeProcessing = () => ({
 
 export const uploadComposerThumbnail = (composerId, id, file) => (dispatch, getState) => {
   if (!selectComposer(getState(), composerId)) {
+    return;
+  }
+
+  if (!selectComposerCanUploadAsIdentity(getState(), composerId).canUpload) {
     return;
   }
 

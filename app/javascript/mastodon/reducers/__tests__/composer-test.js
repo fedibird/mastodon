@@ -48,6 +48,11 @@ describe('composer', () => {
     expect(state.getIn(['context', 'constraints', 'allowedVisibilities'])).toBeNull();
     expect(state.getIn(['context', 'protocol', 'activityPub', 'audience'])).toBeNull();
     expect(state.get('draft_audience_account_id')).toBeNull();
+    expect(state.getIn(['senderIdentity', 'id'])).toBeNull();
+    expect(state.getIn(['senderIdentity', 'selectionOrigin'])).toEqual('default');
+    expect(state.getIn(['senderIdentity', 'status'])).toEqual('ready');
+    expect(state.getIn(['senderIdentity', 'changeEpoch'])).toEqual(0);
+    expect(state.getIn(['userPostingStyle', 'selectedId'])).toBeNull();
   });
 
   it('handles an ordinary compose action without the primary wrapper', () => {

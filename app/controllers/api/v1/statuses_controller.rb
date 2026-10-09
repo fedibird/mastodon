@@ -66,7 +66,8 @@ class Api::V1::StatusesController < Api::BaseController
   def create
     raise Mastodon::NotPermittedError if current_user.setting_disable_post
 
-    @status = PostStatusService.new.call(current_user.account,
+    sender = session_sender_account!
+    @status = PostStatusService.new.call(sender,
                                          text: status_params[:status],
                                          thread: @thread,
                                          circle: @circle,
@@ -102,7 +103,8 @@ class Api::V1::StatusesController < Api::BaseController
   def update
     raise Mastodon::NotPermittedError if current_user.setting_disable_post
 
-    @status = Status.where(account: current_account).find(params[:id])
+    sender = session_sender_account!
+    @status = Status.where(account: sender).find(params[:id])
     authorize @status, :update?
 
     @status = UpdateStatusService.new.call(@status, current_account.id, edit_options)
@@ -212,6 +214,16 @@ class Api::V1::StatusesController < Api::BaseController
 
   def updated_statuses_params 
     params.permit(:updated_at, d: [:id, :updated_at])
+  end
+
+  # Client-supplied account ids are not a sender. SendGuard re-checks the
+  # named posting identity and always returns the authenticated account.
+  def session_sender_account!
+    PostingIdentity::SendGuard.call!(
+      user: current_user,
+      account_id: params[:account_id],
+      posting_identity_id: params[:posting_identity_id]
+    )
   end
 
   def status_params

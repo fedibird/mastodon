@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { List as ImmutableList, Set as ImmutableSet } from 'immutable';
+import { List as ImmutableList, Map as ImmutableMap, Set as ImmutableSet } from 'immutable';
 import React from 'react';
 
 jest.mock('react-intl', () => {
@@ -62,6 +62,7 @@ jest.mock('../../containers/posting_context_bar_container', () => () => <div dat
 jest.mock('../../../reference_stack', () => () => <div data-testid='reference-stack' />);
 
 import ComposeForm from '../compose_form';
+import SenderIdentity from '../sender_identity';
 
 const noop = () => {};
 
@@ -528,5 +529,61 @@ describe('ComposeForm display mode', () => {
     expect(onDisplayModeChange).not.toHaveBeenCalled();
     expect(onPaste).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Show full composer' })).toBeTruthy();
+  });
+});
+
+const senderIdentity = () => (
+  <SenderIdentity
+    current={ImmutableMap({
+      id: 'local:42',
+      authorization: 'ready',
+      account: ImmutableMap({ acct: 'admin', displayName: 'Admin' }),
+    })}
+    choices={ImmutableList()}
+    selectedId='local:42'
+  />
+);
+
+describe('ComposeForm sender identity', () => {
+  it('shows the sender separately from the posting style and the destination', () => {
+    renderForm({
+      senderIdentity: senderIdentity(),
+      stylePicker: <div data-testid='style-picker'>読書メモ</div>,
+    });
+
+    const identity = screen.getByTestId('sender-identity');
+    const style = screen.getByTestId('style-picker');
+    const destination = screen.getByTestId('posting-context-bar');
+
+    expect(identity.textContent).toContain('Posting as');
+    expect(identity.textContent).toContain('@admin');
+    expect(identity.compareDocumentPosition(style) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(style.compareDocumentPosition(destination) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(destination).not.toContainElement(identity);
+    expect(style).not.toContainElement(identity);
+  });
+
+  it('shows who is posting in simple mode', () => {
+    renderForm({
+      displayMode: 'simple',
+      onDisplayModeChange: jest.fn(),
+      senderIdentity: senderIdentity(),
+    });
+
+    const bar = document.querySelector('.compose-form__simple-bar');
+
+    expect(bar).toContainElement(screen.getByTestId('sender-identity'));
+    expect(screen.getByTestId('sender-identity').textContent).toContain('@admin');
+    expect(screen.getByRole('button', { name: 'Toot!' })).toBeEnabled();
+  });
+
+  it('disables publish when the sender identity cannot post', () => {
+    const onSubmit = jest.fn();
+
+    renderForm({ text: 'hello', canSendAsIdentity: false, onSubmit });
+
+    expect(screen.getByRole('button', { name: 'Toot!' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Toot!' }));
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 });

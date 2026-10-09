@@ -2,7 +2,7 @@
 
 class Api::V2::MediaController < Api::V1::MediaController
   def create
-    @media_attachment = current_account.media_attachments.create!({ delay_processing: true }.merge(media_attachment_params))
+    @media_attachment = session_sender_account!.media_attachments.create!({ delay_processing: true }.merge(media_attachment_params))
     render json: @media_attachment,
            serializer: REST::MediaAttachmentSerializer,
            status: @media_attachment.not_processed? ? 202 : 200

@@ -839,6 +839,88 @@ body > [data-popper-placement] {
     }
   }
 
+  .compose-form__sender {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+    padding: 8px 10px 0;
+    color: $dark-text-color;
+    font-size: 13px;
+
+    &-label {
+      flex: 0 0 auto;
+      color: $secondary-text-color;
+      font-size: 12px;
+    }
+
+    &-current,
+    &-choice {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      max-width: 100%;
+      color: $primary-text-color;
+    }
+
+    &-choice {
+      border: 0;
+      border-radius: 4px;
+      padding: 2px 4px;
+      background: transparent;
+      cursor: pointer;
+      font: inherit;
+
+      &.active {
+        background: $ui-base-color;
+      }
+    }
+
+    &-avatar {
+      width: 20px;
+      height: 20px;
+      flex: 0 0 auto;
+      border-radius: 4px;
+      background: $ui-base-color;
+      object-fit: cover;
+    }
+
+    &-acct {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    &-hint,
+    &-status {
+      flex: 1 1 100%;
+      margin: 0;
+      color: $secondary-text-color;
+      font-size: 12px;
+    }
+
+    &-status {
+      color: $warning-red;
+    }
+
+    &-retry {
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: $secondary-text-color;
+      cursor: pointer;
+      font: inherit;
+      text-decoration: underline;
+    }
+
+    &--compact {
+      padding: 0;
+      flex: 1 1 100%;
+    }
+  }
+
   .compose-form__capability-guard,
   .compose-form__surface-mismatch {
     display: flex;

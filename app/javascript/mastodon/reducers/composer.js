@@ -65,7 +65,7 @@ import {
 } from '../actions/compose';
 import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { REDRAFT } from '../actions/statuses';
-import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE, COMPOSER_SURFACE_ACCEPT } from '../actions/composer';
+import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE, COMPOSER_SENDER_IDENTITY_SELECT, COMPOSER_SURFACE_ACCEPT } from '../actions/composer';
 import { USER_POSTING_STYLE_AUTO_ATTEMPT, USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DEFAULTS_SETTLED, USER_POSTING_STYLE_DESTINATION, USER_POSTING_STYLE_DESTINATION_RETRY, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../actions/user_posting_styles';
 import { Map as ImmutableMap, List as ImmutableList, Set as ImmutableSet, OrderedSet as ImmutableOrderedSet, fromJS } from 'immutable';
 import uuid from '../uuid';
@@ -91,6 +91,7 @@ import {
   toggleStyleHashtag,
 } from '../posting_context/user_style_state';
 import { me } from '../initial_state';
+import { initialSenderIdentity, sessionPostingIdentityId } from '../posting_identity/identity';
 import { unescapeHTML } from '../utils/html';
 import { format } from 'date-fns';
 
@@ -177,6 +178,7 @@ export const initialState = ImmutableMap({
     }),
   }),
   userPostingStyle: initialUserPostingStyle(),
+  senderIdentity: initialSenderIdentity(),
   surface: null,
   pendingSurface: null,
   displayedSurface: null,
@@ -460,7 +462,59 @@ export const hydrateComposer = (state, hydratedState) => {
     state = state.set('prohibited_words', hydratedState.get('prohibited_words').toSet());
   }
 
-  return state;
+  return enforceSessionSenderIdentity(state);
+};
+
+const enforceSessionSenderIdentity = state => {
+  const sessionId = sessionPostingIdentityId();
+  const sender = state.get('senderIdentity');
+
+  if (
+    sender
+    && sender.get('id') === sessionId
+    && sender.get('status') === 'ready'
+    && sender.get('selectionOrigin')
+  ) {
+    return state;
+  }
+
+  return state.set('senderIdentity', initialSenderIdentity());
+};
+
+const applySenderIdentitySelection = (state, action) => {
+  const decision = action.decision;
+  const sessionId = sessionPostingIdentityId();
+
+  if (!decision || decision.permitted !== true || decision.changing !== true) {
+    return state;
+  }
+
+  if (!sessionId || decision.toIdentityId !== sessionId) {
+    return state;
+  }
+
+  return state.withMutations(map => {
+    const needsRecheck = decision.mustRevalidateReply || decision.mustRevalidateQuote || decision.refreshGroupDiscovery;
+
+    map.set('senderIdentity', ImmutableMap({
+      id: sessionId,
+      selectionOrigin: 'selected',
+      status: needsRecheck ? 'unresolved' : 'ready',
+      changeEpoch: (state.getIn(['senderIdentity', 'changeEpoch']) || 0) + 1,
+    }));
+
+    if (decision.discardMedia) {
+      const kept = ImmutableSet(decision.keptMediaIds || []);
+
+      map.update('media_attachments', list => list.filter(item => kept.includes(item.get('id'))));
+      map.set('pending_media_attachments', 0);
+      map.set('is_uploading', false);
+    }
+
+    if (decision.rotateIdempotencyKey && decision.nextIdempotencyKey) {
+      map.set('idempotencyKey', decision.nextIdempotencyKey);
+    }
+  });
 };
 
 const domParser = new DOMParser();
@@ -733,6 +787,8 @@ export default function composer(state = initialState, action) {
       .set('is_composing', false);
   case COMPOSER_CONTEXT_APPLY:
     return reduceSurfaceContext(state, action);
+  case COMPOSER_SENDER_IDENTITY_SELECT:
+    return applySenderIdentitySelection(state, action);
   case COMPOSER_SURFACE_ACCEPT: {
     const pending = state.get('pendingSurface');
     const displayed = state.get('displayedSurface');
