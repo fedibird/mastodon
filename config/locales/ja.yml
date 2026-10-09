@@ -2129,6 +2129,7 @@ ja:
     keyword_subscribes: キーワードの購読
     migrate: アカウントの引っ越し
     notifications: 通知
+    posting_identity_links: 送信元アカウント
     preferences: ユーザー設定
     profile: プロフィール
     relationships: フォロー・フォロワー
@@ -2137,6 +2138,70 @@ ja:
     two_factor_authentication: 二段階認証
     user_posting_contexts: 投稿のスタイルと目的
     webauthn_authentication: セキュリティキー
+  posting_identity_links:
+    acct_label: 依頼するローカルアカウント
+    approve_intro: 投稿を任されたコードを入力します。コードの確認だけでは承認になりません。
+    approve_link: 連携コードを入力する
+    approve_submit: この権限委譲を承認する
+    approve_title: 送信元アカウントの承認
+    approved: 権限委譲を承認しました。送信元アカウントから撤回できます。
+    back: 戻る
+    cancel: 申請を取り消す
+    canceled: 申請を取り消しました。
+    code_hint: このコードを相手のアカウントに渡してください。一度だけ使え、まもなく期限が切れます。再表示はしません。
+    code_label: 連携コード
+    code_once: 連携コード
+    current_account: あなたのアカウント
+    description: 別のローカルアカウントに、そのアカウントとして投稿する許可を依頼します。あなたが渡した許可も確認できます。ログイン中のアカウントは切り替わりません。
+    errors:
+      already_delegated: そのアカウントとはすでに連携しています。
+      canceled: この申請は取り消されています。
+      consumed: このコードはすでに使われています。
+      expired: このコードの期限が切れています。
+      grantor_unavailable: 許可を渡すアカウントは、いま委譲できません。
+      grantee_unavailable: 許可を受けるアカウントは、いま受け取れません。
+      invalid_scopes: その操作は委譲できません。
+      invalid_target: このサーバーの別のローカルアカウントを指定してください。
+      invalid_token: このコードは承認できません。
+      not_administrator: 連携申請は管理者テスターだけが作成できます。
+      not_found: この権限委譲は変更できません。
+      not_owner: この権限委譲を変更できるアカウントではありません。
+      not_target: 承認を依頼されたアカウントでログインしてください。
+      rate_limited: 連携申請が多すぎます。しばらくしてからもう一度お試しください。
+      self_target: 自分のアカウントには申請できません。
+    expired_empty: 期限切れや終了した連携はありません。
+    expired_item: "%{acct} · %{scopes} · %{expires_at} まで"
+    expired_title: 期限切れ・終了
+    granted_empty: あなたのアカウントを使える人はいません。
+    granted_item: "%{acct} があなたのアカウントを %{scopes} に使えます。承認 %{approved_at}。%{expires_at} まで。"
+    granted_title: あなたのアカウントを使える人
+    linked_empty: 連携中の送信元はありません。
+    linked_item: "%{acct} · %{scopes} · %{expires_at} まで"
+    linked_title: 連携中の送信元
+    pending_empty: 申請中のものはありません。
+    pending_item: "%{acct} の承認待ち · %{scopes} · %{expires_at} まで"
+    pending_title: 申請中
+    request_submit: 連携コードを作る
+    request_title: 送信元アカウントを連携
+    review_attribution: この権限で許可した投稿は、あなたのアカウントとして表示されます。
+    review_expires: 権限の有効期限
+    review_grantee: 権限を受け取るアカウント
+    review_grantor: あなたのアカウント
+    review_revoke: この権限はいつでも撤回できます。
+    review_scopes: 許可する操作
+    review_submit: コードの内容を確認する
+    review_title: 承認前の確認
+    revoke: 撤回する
+    revoked: 権限委譲を撤回しました。
+    scopes:
+      joiner: "、"
+      media: 新規投稿用のメディアアップロード
+      post: 新規投稿
+      post_included: 新規投稿は含まれます。メディアのアップロードは別の許可です。
+    sending_not_enabled: このアカウントとしての送信は、まだ使えません。
+    title: 送信元アカウント
+    unlink: 連携を解除する
+    unlinked: 連携を解除しました。
   user_posting_context_assignments:
     all_assignments: すべての既定設定
     availability:

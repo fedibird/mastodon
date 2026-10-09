@@ -1,0 +1,21 @@
+- content_for :page_title do
+  = t('posting_identity_links.approve_title')
+
+.posting-identity-links
+  %h3= t('posting_identity_links.review_title')
+  %dl.posting-identity-links__details
+    %dt= t('posting_identity_links.review_grantee')
+    %dd= @link_request.requester_user.account.pretty_acct
+    %dt= t('posting_identity_links.review_grantor')
+    %dd= @link_request.target_user.account.pretty_acct
+    %dt= t('posting_identity_links.review_scopes')
+    %dd= posting_identity_scope_labels(@link_request.scopes)
+    %dt= t('posting_identity_links.review_expires')
+    %dd= l(@grant_expires_at)
+  %p= t('posting_identity_links.review_revoke')
+  %p= t('posting_identity_links.review_attribution')
+  %p.hint= t('posting_identity_links.sending_not_enabled')
+  = form_with url: settings_posting_identity_approval_path, method: :post, local: true do
+    = hidden_field_tag :token, params[:token]
+    = submit_tag t('posting_identity_links.approve_submit')
+  %p= link_to t('posting_identity_links.back'), new_settings_posting_identity_approval_path

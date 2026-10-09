@@ -8,6 +8,7 @@
 # the same id space, but this stage never issues them.
 module PostingIdentity
   LOCAL_KIND = 'local'
+  DELEGATED_KIND = 'delegated'
   LOCAL_PROVIDER = 'fedibird'
   KNOWN_KINDS = %w(local delegated mastodon misskey bluesky).freeze
   ENABLED_KINDS = [LOCAL_KIND].freeze
@@ -19,5 +20,9 @@ module PostingIdentity
 
   def self.local_id(account)
     "local:#{account.id}"
+  end
+
+  def self.delegated_id(account)
+    "delegated:#{account.id}"
   end
 end

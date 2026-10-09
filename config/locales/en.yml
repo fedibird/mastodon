@@ -2200,6 +2200,7 @@ en:
     keyword_subscribes: Keyword subscribes
     migrate: Account migration
     notifications: Notifications
+    posting_identity_links: Sending accounts
     preferences: Preferences
     profile: Profile
     relationships: Follows and followers
@@ -2208,6 +2209,70 @@ en:
     two_factor_authentication: Two-factor Auth
     user_posting_contexts: Posting style and purpose
     webauthn_authentication: Security keys
+  posting_identity_links:
+    acct_label: Local account to ask
+    approve_intro: Enter the code from the person who asked to post as you. Looking up a code does not approve it.
+    approve_link: Enter a linking code
+    approve_submit: Approve this delegation
+    approve_title: Approve a sending account
+    approved: The delegation was approved. You can revoke it from Sending accounts.
+    back: Back
+    cancel: Cancel request
+    canceled: The request was canceled.
+    code_hint: Share this code with that account. It works once and expires soon. It is not shown again.
+    code_label: Linking code
+    code_once: Linking code
+    current_account: Your account
+    description: Ask another local account for permission to post as them, or review permission you have given. This does not switch the account you are logged in as.
+    errors:
+      already_delegated: That account is already linked.
+      canceled: This request was canceled.
+      consumed: This code has already been used.
+      expired: This code has expired.
+      grantor_unavailable: The account giving permission cannot delegate right now.
+      grantee_unavailable: The account asking for permission can no longer receive it.
+      invalid_scopes: Those permissions cannot be delegated.
+      invalid_target: Choose a different local account on this server.
+      invalid_token: That code cannot be approved.
+      not_administrator: Only an administrator tester can request a link.
+      not_found: That delegation could not be changed.
+      not_owner: You cannot change this delegation.
+      not_target: Sign in as the account that was asked to approve.
+      rate_limited: Too many link requests. Try again later.
+      self_target: You cannot request a link to your own account.
+    expired_empty: No expired or ended links.
+    expired_item: "%{acct} · %{scopes} · until %{expires_at}"
+    expired_title: Expired or ended
+    granted_empty: Nobody else can post as you.
+    granted_item: "%{acct} can use your account for %{scopes}. Approved %{approved_at}. Until %{expires_at}."
+    granted_title: People who can post as you
+    linked_empty: No linked sending accounts.
+    linked_item: "%{acct} · %{scopes} · until %{expires_at}"
+    linked_title: Linked sending accounts
+    pending_empty: No open requests.
+    pending_item: "Waiting for %{acct} · %{scopes} · until %{expires_at}"
+    pending_title: Open requests
+    request_submit: Create a linking code
+    request_title: Link a sending account
+    review_attribution: Posts allowed by this delegation appear as your account.
+    review_expires: Permission expires
+    review_grantee: Account that receives permission
+    review_grantor: Your account
+    review_revoke: You can revoke this at any time.
+    review_scopes: Allowed actions
+    review_submit: Review this code
+    review_title: Confirm before approving
+    revoke: Revoke
+    revoked: The delegation was revoked.
+    scopes:
+      joiner: ", "
+      media: Upload media for new posts
+      post: Create new posts
+      post_included: New posts are included. Media upload is a separate permission.
+    sending_not_enabled: Sending as this account is not available yet.
+    title: Sending accounts
+    unlink: Remove link
+    unlinked: The link was removed.
   user_posting_context_assignments:
     all_assignments: All place defaults
     availability:

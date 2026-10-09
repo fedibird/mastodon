@@ -1,0 +1,11 @@
+- content_for :page_title do
+  = t('posting_identity_links.approve_title')
+
+.posting-identity-links
+  %p= t('posting_identity_links.approve_intro')
+  = form_with url: preview_settings_posting_identity_approval_path, method: :post, local: true do
+    .fields-group
+      = label_tag :token, t('posting_identity_links.code_label')
+      = text_field_tag :token, nil, required: true, autocomplete: 'off', autocapitalize: 'off', spellcheck: false
+    = submit_tag t('posting_identity_links.review_submit')
+  %p= link_to t('posting_identity_links.back'), settings_posting_identity_links_path

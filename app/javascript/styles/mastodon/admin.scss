@@ -1643,3 +1643,64 @@ a.name-tag,
     width: 100%;
   }
 }
+
+.posting-identity-links {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 40rem;
+
+  &__section,
+  &__details {
+    min-width: 0;
+  }
+
+  &__list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+
+    li + li {
+      margin-top: 12px;
+    }
+  }
+
+  &__token,
+  &__code {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  &__token {
+    font-family: monospace;
+    font-size: 16px;
+  }
+
+  input[type='text'],
+  .button,
+  button {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  input[type='text'] {
+    width: 100%;
+  }
+
+  form {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  @media screen and (max-width: 375px) {
+    gap: 16px;
+
+    .button,
+    button,
+    input[type='submit'] {
+      width: 100%;
+    }
+  }
+}
