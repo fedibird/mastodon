@@ -297,6 +297,16 @@ const destinationPlan = (style, composer, occupied) => {
   };
 };
 
+// Portable composers already have a destination. A style may change settings
+// and advisory tags, and must not replace that destination.
+const lockedDestinationPlan = () => ({
+  action: 'keep',
+  accountId: null,
+  hashtag: null,
+  changes: false,
+  policy: 'locked',
+});
+
 const blockedPlan = () => ({
   blocked: true,
   selectedId: null,
@@ -308,7 +318,7 @@ const blockedPlan = () => ({
   needsConfirmation: false,
 });
 
-export function resolveUserPostingStyle(style, composer) {
+export function resolveUserPostingStyle(style, composer, options = {}) {
   if (!composer || isExistingPostEdit(composer)) {
     return blockedPlan();
   }
@@ -316,7 +326,9 @@ export function resolveUserPostingStyle(style, composer) {
   const manual = manualFields(composer);
   const occupied = occupiedFields(composer);
   const { fields, unapplied, ownedFields } = composeFields(style, composer, manual, occupied);
-  const destination = destinationPlan(style, composer, occupied);
+  const destination = options.destinationPolicy === 'locked'
+    ? lockedDestinationPlan()
+    : destinationPlan(style, composer, occupied);
 
   if (destination.action === 'skip') {
     unapplied.push('destination');

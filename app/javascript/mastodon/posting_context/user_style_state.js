@@ -2,6 +2,7 @@ import { List as ImmutableList, Map as ImmutableMap, Set as ImmutableSet } from 
 import uuid from '../uuid';
 import { normalizeManagedHashtagName } from './managed_hashtags';
 import { isExistingPostEdit, postingContextOutputSignature } from './materialize';
+import { styleMatchesSurface } from './surface';
 import { resolveUserPostingStyle } from './user_style_resolver';
 
 const emptyProtocol = () => ImmutableMap({
@@ -49,6 +50,11 @@ export const initialUserPostingStyle = () => ImmutableMap({
   parkedDestinationStatus: null,
   parkedDestinationFailure: null,
   parkedStyleId: null,
+  selectionOrigin: null,
+  evaluatedSurface: null,
+  styleInputLock: false,
+  destinationPolicy: null,
+  autoAttemptKey: null,
 });
 
 const searchabilityForPrivacy = (privacy, current) => {
@@ -73,6 +79,20 @@ const valueKey = field => {
 
   return null;
 };
+
+export function notePortableDraftInput(map) {
+  if (!map.get('surface')) {
+    return;
+  }
+
+  const origin = map.getIn(['userPostingStyle', 'selectionOrigin']);
+
+  if (origin) {
+    return;
+  }
+
+  map.setIn(['userPostingStyle', 'styleInputLock'], true);
+}
 
 export function rememberManualSetting(map, field) {
   if (!map.get('userPostingStyle')) {
@@ -395,6 +415,17 @@ export function commitUserPostingStyle(state, action) {
     return state;
   }
 
+  const locked = Boolean(state.get('surface'))
+    && action.plan.destination
+    && action.plan.destination.policy === 'locked';
+
+  // A dedicated style for another destination must not change this draft.
+  // Clearing the selection uses a null snapshot and stays allowed, including
+  // while a surface change releases a style that no longer matches.
+  if (locked && action.snapshot && !styleMatchesSurface(action.snapshot, state.get('surface'))) {
+    return state;
+  }
+
   return state.withMutations(map => {
     applyFields(map, action.plan.fields || {});
     map.setIn(['userPostingStyle', 'selectedId'], action.plan.selectedId);
@@ -410,6 +441,26 @@ export function commitUserPostingStyle(state, action) {
     }
 
     applyDestination(map, state, action.plan, action.restoreParked === true);
+
+    if (action.selectionOrigin) {
+      map.setIn(['userPostingStyle', 'selectionOrigin'], action.selectionOrigin);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(action, 'evaluatedSurface')) {
+      const surface = action.evaluatedSurface;
+      const kind = surface && (surface.kind || (typeof surface.get === 'function' ? surface.get('kind') : null));
+      const key = surface && (surface.key || (typeof surface.get === 'function' ? surface.get('key') : null));
+
+      map.setIn(['userPostingStyle', 'evaluatedSurface'], surface ? ImmutableMap({
+        kind,
+        key: String(key),
+      }) : null);
+    }
+
+    if (action.plan.destination && action.plan.destination.policy === 'locked') {
+      map.setIn(['userPostingStyle', 'destinationPolicy'], 'locked');
+    }
+
     refreshIdempotency(map, state);
   });
 }
@@ -426,7 +477,8 @@ export function reapplySelectedStyle(state, { respectManual, resetSuppressions }
     map.setIn(['userPostingStyle', 'manualFields'], ImmutableSet());
     map.setIn(['userPostingStyle', 'manualValues'], ImmutableMap());
   });
-  const plan = resolveUserPostingStyle(snapshot, basis);
+  const destinationPolicy = state.get('surface') ? 'locked' : 'change';
+  const plan = resolveUserPostingStyle(snapshot, basis, { destinationPolicy });
 
   if (plan.blocked) {
     return state;

@@ -283,6 +283,7 @@ class HashtagTimeline extends React.PureComponent {
       <PortableComposer
         key={composerId}
         composerId={composerId}
+        surface={{ kind: 'hashtag', key: normalizeManagedHashtagName(id) }}
         postingContext={buildHashtagTimelinePostingContext(id)}
       />
     ) : null;

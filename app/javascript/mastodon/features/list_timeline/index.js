@@ -243,7 +243,7 @@ class ListTimeline extends React.PureComponent {
     const sourceTimelineId = `list:${id}`;
     const composerId = listComposerId(id, columnId);
     const portableComposer = isAdministrator && composerVisible ? (
-      <PortableComposer key={composerId} composerId={composerId} />
+      <PortableComposer key={composerId} composerId={composerId} surface={{ kind: 'list', key: String(id) }} />
     ) : null;
     const emptyMessage = <FormattedMessage id='empty_column.list' defaultMessage='There is nothing in this list yet. When members of this list post new statuses, they will appear here.' />;
 

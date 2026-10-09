@@ -4,6 +4,7 @@ import { applyComposerPostingContext, targetComposerAction } from './composer';
 import { fetchPostingContext } from './posting_contexts';
 import { isExistingPostEdit } from '../posting_context/materialize';
 import { normalizeUserPostingStyle, resolveUserPostingStyle } from '../posting_context/user_style_resolver';
+import { selectPortableAutoStyle, styleMatchesSurface, surfacesEqual } from '../posting_context/surface';
 import { selectComposer } from '../selectors/composer';
 import { selectPostingContextDiscovery, selectPostingContextForAccount } from '../selectors/posting_contexts';
 
@@ -14,6 +15,7 @@ export const USER_POSTING_STYLE_COMMIT = 'USER_POSTING_STYLE_COMMIT';
 export const USER_POSTING_STYLE_DESTINATION = 'USER_POSTING_STYLE_DESTINATION';
 export const USER_POSTING_STYLE_DESTINATION_RETRY = 'USER_POSTING_STYLE_DESTINATION_RETRY';
 export const USER_POSTING_STYLE_HASHTAG_TOGGLE = 'USER_POSTING_STYLE_HASHTAG_TOGGLE';
+export const USER_POSTING_STYLE_AUTO_ATTEMPT = 'USER_POSTING_STYLE_AUTO_ATTEMPT';
 
 const selectStyle = (state, styleId) => {
   const styles = state.getIn(['userPostingStyles', 'styles']);
@@ -76,13 +78,27 @@ export function fetchUserPostingStyles({ force = false } = {}) {
   };
 }
 
+const destinationLocked = composer => (
+  Boolean(composer && (composer.get('surface') || composer.getIn(['userPostingStyle', 'destinationPolicy']) === 'locked'))
+);
+
 export function loadUserPostingStyleDestination(composerId, { selectedId, accountId, force = false }) {
   return (dispatch, getState) => {
-    if (!stillWaiting(getState, composerId, selectedId, accountId)) {
+    const started = selectComposer(getState(), composerId);
+
+    if (destinationLocked(started) || !stillWaiting(getState, composerId, selectedId, accountId)) {
       return Promise.resolve();
     }
 
+    const startedEpoch = started.get('surfaceEpoch') || 0;
+
     return dispatch(fetchPostingContext(accountId, { force })).then(() => {
+      const current = selectComposer(getState(), composerId);
+
+      if (!current || destinationLocked(current) || (current.get('surfaceEpoch') || 0) !== startedEpoch) {
+        return;
+      }
+
       if (!stillWaiting(getState, composerId, selectedId, accountId)) {
         return;
       }
@@ -119,7 +135,7 @@ export function loadUserPostingStyleDestination(composerId, { selectedId, accoun
   };
 }
 
-export function commitUserPostingStyle(composerId, styleId) {
+export function commitUserPostingStyle(composerId, styleId, { selectionOrigin, expectedSurface } = {}) {
   return (dispatch, getState) => {
     const composer = selectComposer(getState(), composerId);
 
@@ -133,13 +149,34 @@ export function commitUserPostingStyle(composerId, styleId) {
       return Promise.resolve();
     }
 
-    const plan = resolveUserPostingStyle(style, composer);
+    const surface = composer.get('surface');
+    const destinationPolicy = surface ? 'locked' : 'change';
+
+    // The surface at confirmation time has to be the surface being confirmed.
+    // A locked composer also refuses a style aimed at a different destination,
+    // and refuses every apply while the draft still belongs to the previous one.
+    if (destinationPolicy === 'locked') {
+      if (composer.get('surfaceMismatch')) {
+        return Promise.resolve();
+      }
+
+      if (expectedSurface !== undefined && !surfacesEqual(expectedSurface, surface)) {
+        return Promise.resolve();
+      }
+
+      if (style && !styleMatchesSurface(style, surface)) {
+        return Promise.resolve();
+      }
+    }
+
+    const plan = resolveUserPostingStyle(style, composer, { destinationPolicy });
 
     if (plan.blocked) {
       return Promise.resolve();
     }
 
-    const retryingDiscovery = plan.destination.action === 'group'
+    const retryingDiscovery = destinationPolicy !== 'locked'
+      && plan.destination.action === 'group'
       && composer.getIn(['userPostingStyle', 'destinationStatus']) === 'failed'
       && String(composer.getIn(['userPostingStyle', 'destinationAccountId'] || '')) === String(plan.destination.accountId || '');
 
@@ -149,9 +186,11 @@ export function commitUserPostingStyle(composerId, styleId) {
       snapshot: style,
       resetSuppressions: true,
       restoreParked: false,
+      selectionOrigin: selectionOrigin || (style ? 'manual' : 'none'),
+      evaluatedSurface: surface ? { kind: surface.get('kind'), key: surface.get('key') } : null,
     }, composerId));
 
-    if (plan.destination.action === 'group') {
+    if (destinationPolicy !== 'locked' && plan.destination.action === 'group') {
       return dispatch(loadUserPostingStyleDestination(composerId, {
         selectedId: plan.selectedId,
         accountId: plan.destination.accountId,
@@ -163,6 +202,32 @@ export function commitUserPostingStyle(composerId, styleId) {
   };
 }
 
+export function maybeAutoSelectPortablePostingStyle(composerId) {
+  return (dispatch, getState) => {
+    const composer = selectComposer(getState(), composerId);
+    const styles = getState().getIn(['userPostingStyles', 'styles']);
+    const style = selectPortableAutoStyle(styles, composer);
+
+    if (!composer || !style) {
+      return Promise.resolve();
+    }
+
+    const surface = composer.get('surface');
+    const attemptKey = `${surface.get('kind')}:${surface.get('key')}:${style.get('id')}`;
+
+    if (composer.getIn(['userPostingStyle', 'autoAttemptKey']) === attemptKey) {
+      return Promise.resolve();
+    }
+
+    dispatch(targetComposerAction({
+      type: USER_POSTING_STYLE_AUTO_ATTEMPT,
+      autoAttemptKey: attemptKey,
+    }, composerId));
+
+    return dispatch(commitUserPostingStyle(composerId, style.get('id'), { selectionOrigin: 'automatic' }));
+  };
+}
+
 export function retryUserPostingStyleDestination(composerId) {
   return (dispatch, getState) => {
     const composer = selectComposer(getState(), composerId);
@@ -170,7 +235,7 @@ export function retryUserPostingStyleDestination(composerId) {
     const accountId = snapshot && snapshot.getIn(['target', 'accountId']);
     const selectedId = composer && composer.getIn(['userPostingStyle', 'selectedId']);
 
-    if (!composer || composer.getIn(['userPostingStyle', 'destinationStatus']) !== 'failed' || !selectedId) {
+    if (!composer || destinationLocked(composer) || composer.getIn(['userPostingStyle', 'destinationStatus']) !== 'failed' || !selectedId) {
       return Promise.resolve();
     }
 
@@ -194,7 +259,7 @@ export function resolveUserPostingStyleDestination(composerId) {
   return (dispatch, getState) => {
     const composer = selectComposer(getState(), composerId);
 
-    if (!composer || composer.getIn(['userPostingStyle', 'destinationStatus']) !== 'needs_resolve') {
+    if (!composer || destinationLocked(composer) || composer.getIn(['userPostingStyle', 'destinationStatus']) !== 'needs_resolve') {
       return Promise.resolve();
     }
 

@@ -21,7 +21,7 @@ import PortableComposer from '../compose/portable_composer';
 import PortableComposerToggle from '../compose/components/portable_composer_toggle';
 import { captureVisibleStatusAnchor, columnNodeFromRef, scheduleStatusAnchorRestore } from '../compose/components/portable_composer_scroll';
 import { selectPortableComposerVisible } from 'mastodon/selectors/composer';
-import { applyComposerPostingContext } from '../../actions/composer';
+import { applyComposerSurface } from '../../actions/composer';
 import { fetchPostingContext } from '../../actions/posting_contexts';
 import { selectPostingContextForAccount } from '../../selectors/posting_contexts';
 import { changeSetting } from '../../actions/settings';
@@ -154,7 +154,7 @@ class GroupTimeline extends React.PureComponent {
     }
 
     if (isAdministrator && (idChanged || (prevProps.postingContext && !postingContext))) {
-      dispatch(applyComposerPostingContext(groupComposerId(id, columnId), postingContext, id));
+      dispatch(applyComposerSurface(groupComposerId(id, columnId), { kind: 'group', key: String(id) }, postingContext, id));
     }
 
     const mediaChanged = prevProps.onlyMedia !== onlyMedia || prevProps.withoutMedia !== withoutMedia;
@@ -266,6 +266,7 @@ class GroupTimeline extends React.PureComponent {
       <PortableComposer
         key={composerId}
         composerId={composerId}
+        surface={{ kind: 'group', key: String(id) }}
         postingContext={postingContext}
         postingContextAccountId={id}
       />
