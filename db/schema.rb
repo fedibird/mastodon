@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_09_143100) do
+ActiveRecord::Schema.define(version: 2026_10_09_160000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1266,6 +1266,20 @@ ActiveRecord::Schema.define(version: 2026_10_09_143100) do
     t.index ["token_digest"], name: "index_posting_identity_link_requests_on_token_digest", unique: true
   end
 
+  create_table "posting_identity_posts", force: :cascade do |t|
+    t.bigint "grantee_user_id", null: false
+    t.bigint "delegation_id", null: false
+    t.bigint "posting_account_id", null: false
+    t.bigint "status_id", null: false
+    t.datetime "posted_at", null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["delegation_id"], name: "index_posting_identity_posts_on_delegation_id"
+    t.index ["grantee_user_id"], name: "index_posting_identity_posts_on_grantee_user_id"
+    t.index ["posting_account_id"], name: "index_posting_identity_posts_on_posting_account_id"
+    t.index ["status_id"], name: "index_posting_identity_posts_on_status_id", unique: true
+  end
+
   create_table "posting_identity_request_allowances", force: :cascade do |t|
     t.bigint "grantor_user_id", null: false
     t.bigint "requester_user_id", null: false
@@ -1936,6 +1950,10 @@ ActiveRecord::Schema.define(version: 2026_10_09_143100) do
   add_foreign_key "posting_identity_delegations", "accounts", column: "posting_account_id", on_delete: :cascade
   add_foreign_key "posting_identity_delegations", "users", column: "grantee_user_id", on_delete: :cascade
   add_foreign_key "posting_identity_delegations", "users", column: "grantor_user_id", on_delete: :cascade
+  add_foreign_key "posting_identity_posts", "accounts", column: "posting_account_id"
+  add_foreign_key "posting_identity_posts", "posting_identity_delegations", column: "delegation_id"
+  add_foreign_key "posting_identity_posts", "statuses"
+  add_foreign_key "posting_identity_posts", "users", column: "grantee_user_id"
   add_foreign_key "posting_identity_link_requests", "users", column: "requester_user_id", on_delete: :cascade
   add_foreign_key "posting_identity_link_requests", "posting_identity_request_allowances", column: "request_allowance_id", on_delete: :nullify
   add_foreign_key "posting_identity_request_allowances", "users", column: "grantor_user_id", on_delete: :cascade

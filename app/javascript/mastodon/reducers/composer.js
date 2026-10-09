@@ -481,9 +481,52 @@ const enforceSessionSenderIdentity = state => {
   return state.set('senderIdentity', initialSenderIdentity());
 };
 
-// The resolver may describe a later switch. M1 does not perform it, so the
-// draft's text, media, style, destination, and idempotency key stay put.
-const applySenderIdentitySelection = state => state;
+// An approved switch keeps the draft text and the selected posting style.
+// Media, replies, and group surfaces are refused by the resolver, so this
+// does not discard them.
+const applySenderIdentitySelection = (state, action) => {
+  const decision = action.decision || {};
+
+  if (!decision.changing) {
+    return state;
+  }
+
+  if (!(decision.effectsApplied && decision.permitted && decision.toIdentityId)) {
+    if (!decision.reason || decision.reason === 'unchanged' || decision.reason === 'ready') {
+      return state;
+    }
+
+    return state.setIn(['senderIdentity', 'switchBlockReason'], decision.reason);
+  }
+
+  return state.withMutations(map => {
+    map.setIn(['senderIdentity', 'id'], decision.toIdentityId);
+    map.setIn(['senderIdentity', 'selectionOrigin'], 'explicit');
+    map.setIn(['senderIdentity', 'status'], 'ready');
+    map.setIn(['senderIdentity', 'changeEpoch'], (Number(map.getIn(['senderIdentity', 'changeEpoch'])) || 0) + 1);
+    map.setIn(['senderIdentity', 'switchBlockReason'], null);
+
+    if (decision.rotateIdempotencyKey && decision.nextIdempotencyKey) {
+      map.set('idempotencyKey', decision.nextIdempotencyKey);
+    }
+  });
+};
+
+const stripDelegatedSchedule = state => {
+  const identityId = state.getIn(['senderIdentity', 'id']);
+
+  if (!identityId || !String(identityId).startsWith('delegated:')) {
+    return state;
+  }
+
+  return state.merge({
+    expires: null,
+    expires_action: null,
+    default_expires: null,
+    scheduled: null,
+    scheduled_status_id: null,
+  });
+};
 
 const domParser = new DOMParser();
 
@@ -1026,10 +1069,10 @@ export default function composer(state = initialState, action) {
     return state.set('is_changing_upload', true);
   case COMPOSE_SUBMIT_SUCCESS:
   case SCHEDULED_STATUS_SUBMIT_SUCCESS:
-    return reapplySelectedStyle(clearStyleManualState(clearAll(state)).withMutations(map => {
+    return stripDelegatedSchedule(reapplySelectedStyle(clearStyleManualState(clearAll(state)).withMutations(map => {
       map.setIn(['userPostingStyle', 'styleInputLock'], false);
       map.setIn(['userPostingStyle', 'autoAttemptKey'], null);
-    }), { respectManual: false, resetSuppressions: true });
+    }), { respectManual: false, resetSuppressions: true }));
   case COMPOSE_SUBMIT_FAIL:
     return state.set('is_submitting', false);
   case COMPOSE_UPLOAD_CHANGE_FAIL:

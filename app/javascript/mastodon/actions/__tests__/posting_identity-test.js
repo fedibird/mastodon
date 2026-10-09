@@ -389,6 +389,24 @@ describe('composer sender identity', () => {
     expect(store.getState().getIn(['compose', 'text'])).toEqual('');
   });
 
+  it('keeps the draft and switches only the requested composer to a delegated sender', () => {
+    const delegated = readyIdentity('delegated:99').set('kind', 'delegated').setIn(['account', 'id'], '99').setIn(['account', 'acct'], 'author').setIn(['capabilities', 'media'], 'unavailable').setIn(['capabilities', 'reply'], 'unavailable').setIn(['capabilities', 'group'], 'unavailable').setIn(['capabilities', 'schedule'], 'unavailable');
+    const store = catalogState([readyIdentity('local:42'), delegated]);
+
+    store.dispatch(changeCompose('Keep this draft'));
+    store.dispatch(createComposer('portable:list-column:b'));
+    store.dispatch(selectComposerSenderIdentity('primary', 'delegated:99', { confirmed: true }));
+
+    expect(store.getState().getIn(['compose', 'text'])).toEqual('Keep this draft');
+    expect(store.getState().getIn(['compose', 'senderIdentity', 'id'])).toEqual('delegated:99');
+    expect(store.getState().getIn(['compose', 'idempotencyKey'])).not.toEqual(null);
+    expect(store.getState().getIn(['composers', 'byId', 'portable:list-column:b', 'senderIdentity', 'id'])).toEqual('local:42');
+    expect(selectComposerCanSendAsIdentity(store.getState(), 'primary')).toEqual(expect.objectContaining({
+      canSend: true,
+      canUpload: false,
+    }));
+  });
+
   it('sends the signed-in identity with media upload, thumbnail, and description updates', async () => {
     const post = jest.fn().mockResolvedValue({ status: 200, data: { id: 'm1', type: 'image' } });
     const put = jest.fn().mockResolvedValue({ data: { id: 'm1', type: 'image', description: 'alt' } });

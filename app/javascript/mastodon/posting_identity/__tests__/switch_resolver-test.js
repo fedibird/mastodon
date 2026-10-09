@@ -53,12 +53,36 @@ describe('resolveSenderIdentitySwitch', () => {
     });
 
     expect(moved.permitted).toBe(false);
-    expect(moved.reason).toEqual('not_enabled');
+    expect(moved.reason).toEqual('confirm_sender');
+    expect(moved.requiresConfirmation).toBe(true);
     expect(moved.effectsApplied).toBe(false);
     expect(moved.changing).toBe(true);
     expect(moved.preservedText).toEqual('Keep this draft');
     expect(moved.preservePostingStyle).toBe(true);
+    expect(moved.preservedText).toEqual('Keep this draft');
     expect(moved.rotateIdempotencyKey).toBe(true);
+
+    const confirmed = resolveSenderIdentitySwitch({
+      fromIdentityId: 'local:7',
+      toIdentity: ready('delegated:99', {
+        kind: 'delegated',
+        capabilities: {
+          post: 'supported',
+          media: 'unavailable',
+          reply: 'unavailable',
+          group: 'unavailable',
+          schedule: 'unavailable',
+        },
+      }),
+      sessionIdentityId: 'local:42',
+      draft: draft({ text: '' }),
+      nextIdempotencyKey: 'key-next',
+      confirmed: true,
+    });
+
+    expect(confirmed.permitted).toBe(true);
+    expect(confirmed.effectsApplied).toBe(true);
+    expect(confirmed.nextIdempotencyKey).toEqual('key-next');
     expect(moved.nextIdempotencyKey).toEqual('key-next');
     expect(moved.canSend).toBe(false);
     expect(same.effectsApplied).toBe(false);

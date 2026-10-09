@@ -4,7 +4,8 @@ import { me } from '../initial_state';
 export const LOCAL_POSTING_IDENTITY_KIND = 'local';
 export const LOCAL_POSTING_IDENTITY_PROVIDER = 'fedibird';
 export const KNOWN_SENDER_KINDS = ['local', 'delegated', 'mastodon', 'misskey', 'bluesky'];
-export const ENABLED_SENDER_KINDS = [LOCAL_POSTING_IDENTITY_KIND];
+export const DELEGATED_POSTING_IDENTITY_KIND = 'delegated';
+export const ENABLED_SENDER_KINDS = [LOCAL_POSTING_IDENTITY_KIND, DELEGATED_POSTING_IDENTITY_KIND];
 export const ENABLED_SENDER_PROVIDERS = [LOCAL_POSTING_IDENTITY_PROVIDER];
 export const POSTING_CAPABILITIES = ['post', 'media', 'reply', 'group', 'schedule'];
 
