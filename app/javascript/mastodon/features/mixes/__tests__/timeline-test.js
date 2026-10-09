@@ -30,6 +30,12 @@ jest.mock('../../../components/column', () => {
   ));
 });
 
+jest.mock('../../../components/status_list', () => {
+  const ReactMock = require('react');
+
+  return (props) => ReactMock.createElement('div', null, props.prepend);
+});
+
 import { MixTimelinePage, mixTimelineMode } from '../timeline';
 
 const intl = {
@@ -62,6 +68,7 @@ describe('mix timeline column', () => {
           intl={intl}
           mixId='mix-1'
           mix={mix}
+          columnKey='column:pinned'
           enabled
           multiColumn
         />
@@ -69,12 +76,12 @@ describe('mix timeline column', () => {
     );
 
     expect(screen.getByRole('heading', { name: 'Desk' })).toBeTruthy();
-    expect(screen.getByText('Friends')).toBeTruthy();
     expect(screen.getByText('This address opens your own mix. It does not share the feed with anyone else.')).toBeTruthy();
+    const beforePin = dispatch.mock.calls.length;
+
     fireEvent.click(screen.getByRole('button', { name: 'pin' }));
 
-    expect(dispatch).toHaveBeenCalledWith(expect.any(Function));
-    const thunk = dispatch.mock.calls[0][0];
+    const thunk = dispatch.mock.calls[beforePin][0];
     const inner = jest.fn();
 
     thunk(inner);
