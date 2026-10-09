@@ -5,6 +5,7 @@ import { STORE_HYDRATE } from '../actions/store';
 import { EMOJI_USE } from '../actions/emojis';
 import { LANGUAGE_USE } from '../actions/languages';
 import { LIST_DELETE_SUCCESS, LIST_FETCH_FAIL } from '../actions/lists';
+import { MIXES_REPLACE } from '../actions/mixes';
 import { List as ImmutableList, Map as ImmutableMap, fromJS } from 'immutable';
 import uuid from '../uuid';
 
@@ -203,6 +204,8 @@ const initialState = ImmutableMap({
       body: '',
     }),
   }),
+
+  mixes: ImmutableList(),
 });
 
 const defaultColumns = fromJS([
@@ -211,7 +214,29 @@ const defaultColumns = fromJS([
   { id: 'NOTIFICATIONS', uuid: uuid(), params: {} },
 ]);
 
-const hydrate = (state, settings) => state.mergeDeep(settings).set('saved', true).update('columns', (val = defaultColumns) => val);
+const mixList = (mixes) => (ImmutableList.isList(mixes) ? mixes : ImmutableList());
+
+const pruneMissingMixColumns = (state) => {
+  const columns = state.get('columns');
+
+  if (!columns) {
+    return state;
+  }
+
+  const kept = new Set(state.get('mixes', ImmutableList()).map(mix => String(mix.get('id'))).toArray());
+
+  return state.set('columns', columns.filter(column => column.get('id') !== 'MIX' || kept.has(String(column.getIn(['params', 'id'])))));
+};
+
+const hydrate = (state, settings) => {
+  const next = state.mergeDeep(settings).set('saved', true).update('columns', (val = defaultColumns) => val);
+
+  if (!settings || !settings.get) {
+    return next;
+  }
+
+  return pruneMissingMixColumns(next.set('mixes', mixList(settings.get('mixes'))));
+};
 
 const moveColumn = (state, uuid, direction) => {
   const columns  = state.get('columns');
@@ -272,6 +297,8 @@ export default function settings(state = initialState, action) {
     return updateFrequentLanguages(state, action.language);
   case SETTING_SAVE:
     return state.set('saved', true);
+  case MIXES_REPLACE:
+    return pruneMissingMixColumns(state.set('mixes', mixList(action.mixes))).set('saved', false);
   case LIST_FETCH_FAIL:
     return action.error.response.status === 404 ? filterDeadListColumns(state, action.id) : state;
   case LIST_DELETE_SUCCESS:

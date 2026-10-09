@@ -64,6 +64,9 @@ import {
   Mutes,
   PinnedStatuses,
   Lists,
+  Mixes,
+  MixEditor,
+  MixTimeline,
   Circles,
   Search,
   GroupDirectory,
@@ -201,6 +204,7 @@ class SwitchingColumnsArea extends React.PureComponent {
           <WrappedRoute path='/timelines/personal' component={PersonalTimeline} content={children} />
           <WrappedRoute path='/timelines/tag/:id' component={HashtagTimeline} content={children} />
           <WrappedRoute path='/timelines/list/:id' component={ListTimeline} content={children} />
+          <WrappedRoute path='/timelines/mixes/:id' component={MixTimeline} content={children} />
 
           <WrappedRoute path='/notifications' component={Notifications} content={children} />
           <WrappedRoute path='/favourites' component={FavouritedStatuses} content={children} />
@@ -240,6 +244,9 @@ class SwitchingColumnsArea extends React.PureComponent {
           <WrappedRoute path='/domain_blocks' component={DomainBlocks} content={children} />
           <WrappedRoute path='/mutes' component={Mutes} content={children} />
           <WrappedRoute path='/lists' component={Lists} content={children} />
+          <WrappedRoute path='/mixes/new' component={MixEditor} content={children} />
+          <WrappedRoute path='/mixes/:id/edit' component={MixEditor} content={children} />
+          <WrappedRoute path='/mixes' exact component={Mixes} content={children} />
           <WrappedRoute path='/circles' component={Circles} content={children} />
           <WrappedRoute path='/scheduled_statuses' component={ScheduledStatuses} content={children} />
           <WrappedRoute path='/emoji_detail/:shortcode_with_domain' component={EmojiDetail} content={children} />

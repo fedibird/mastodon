@@ -8827,6 +8827,85 @@ noscript {
   }
 }
 
+.mix-editor {
+  padding: 15px;
+
+  &__label,
+  &__notice,
+  &__error {
+    display: block;
+    margin: 12px 0 6px;
+  }
+
+  &__error,
+  &__notice {
+    color: $error-value-color;
+  }
+
+  &__source-form,
+  &__sources,
+  &__results {
+    margin: 12px 0;
+    padding: 0;
+  }
+
+  &__sources,
+  &__results {
+    list-style: none;
+  }
+
+  &__source {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid lighten($ui-base-color, 8%);
+  }
+
+  &__source-name {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    margin-right: 8px;
+  }
+
+  &__source-actions {
+    display: flex;
+    flex-wrap: wrap;
+    flex: 0 0 auto;
+
+    .button {
+      margin: 0 0 4px 4px;
+    }
+  }
+
+  &__flag {
+    display: flex;
+    align-items: center;
+    margin: 6px 0;
+
+    input {
+      margin-right: 8px;
+    }
+  }
+
+  &__actions {
+    display: flex;
+    flex-wrap: wrap;
+    margin-top: 16px;
+
+    .button {
+      margin: 0 8px 8px 0;
+    }
+  }
+
+  .setting-text,
+  select {
+    width: 100%;
+    margin-top: 4px;
+  }
+}
+
 .list-editor {
   background: $ui-base-color;
   flex-direction: column;
