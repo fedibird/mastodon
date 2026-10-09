@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_08_090000) do
+ActiveRecord::Schema.define(version: 2026_10_09_043000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1629,6 +1629,18 @@ ActiveRecord::Schema.define(version: 2026_10_08_090000) do
     t.index ["user_id"], name: "index_user_invite_requests_on_user_id"
   end
 
+  create_table "user_posting_context_assignments", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.string "surface_kind", limit: 16, null: false
+    t.string "surface_key", limit: 100, null: false
+    t.bigint "user_posting_context_id"
+    t.integer "lock_version", default: 0, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["user_id", "surface_kind", "surface_key"], name: "index_upca_on_user_id_and_surface", unique: true
+    t.index ["user_posting_context_id"], name: "index_upca_on_user_posting_context_id"
+  end
+
   create_table "user_posting_contexts", force: :cascade do |t|
     t.bigint "user_id", null: false
     t.string "name", limit: 80, null: false
@@ -1905,6 +1917,8 @@ ActiveRecord::Schema.define(version: 2026_10_08_090000) do
   add_foreign_key "tombstones", "accounts", on_delete: :cascade
   add_foreign_key "user_external_credentials", "users", on_delete: :cascade
   add_foreign_key "user_invite_requests", "users", on_delete: :cascade
+  add_foreign_key "user_posting_context_assignments", "user_posting_contexts", on_delete: :nullify
+  add_foreign_key "user_posting_context_assignments", "users", on_delete: :cascade
   add_foreign_key "user_posting_contexts", "accounts", column: "target_account_id", on_delete: :nullify
   add_foreign_key "user_posting_contexts", "users", on_delete: :cascade
   add_foreign_key "users", "accounts", name: "fk_50500f500d", on_delete: :cascade

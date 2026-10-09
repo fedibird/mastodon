@@ -4,7 +4,7 @@ import { applyComposerPostingContext, targetComposerAction } from './composer';
 import { fetchPostingContext } from './posting_contexts';
 import { isExistingPostEdit } from '../posting_context/materialize';
 import { normalizeUserPostingStyle, resolveUserPostingStyle } from '../posting_context/user_style_resolver';
-import { selectPortableAutoStyle, styleMatchesSurface, surfacesEqual } from '../posting_context/surface';
+import { selectPortableAutoStyle, styleMatchesSurface, surfaceCacheKey, surfacesEqual } from '../posting_context/surface';
 import { selectComposer } from '../selectors/composer';
 import { selectPostingContextDiscovery, selectPostingContextForAccount } from '../selectors/posting_contexts';
 
@@ -205,15 +205,23 @@ export function commitUserPostingStyle(composerId, styleId, { selectionOrigin, e
 export function maybeAutoSelectPortablePostingStyle(composerId) {
   return (dispatch, getState) => {
     const composer = selectComposer(getState(), composerId);
-    const styles = getState().getIn(['userPostingStyles', 'styles']);
-    const style = selectPortableAutoStyle(styles, composer);
+    const surface = composer && composer.get('surface');
+    const cacheKey = surfaceCacheKey(surface);
+    const assignment = cacheKey && getState().getIn(['userPostingContextAssignments', 'bySurface', cacheKey]);
 
-    if (!composer || !style) {
+    if (!composer || !surface || !assignment || assignment.get('status') !== 'ready') {
       return Promise.resolve();
     }
 
-    const surface = composer.get('surface');
-    const attemptKey = `${surface.get('kind')}:${surface.get('key')}:${style.get('id')}`;
+    const styles = getState().getIn(['userPostingStyles', 'styles']);
+    const style = selectPortableAutoStyle(styles, composer, assignment);
+
+    if (!style) {
+      return Promise.resolve();
+    }
+
+    const origin = assignment.get('assignmentStatus') === 'style' ? 'saved_default' : 'automatic';
+    const attemptKey = `${surface.get('kind')}:${surface.get('key')}:${origin}:${style.get('id')}`;
 
     if (composer.getIn(['userPostingStyle', 'autoAttemptKey']) === attemptKey) {
       return Promise.resolve();
@@ -224,7 +232,7 @@ export function maybeAutoSelectPortablePostingStyle(composerId) {
       autoAttemptKey: attemptKey,
     }, composerId));
 
-    return dispatch(commitUserPostingStyle(composerId, style.get('id'), { selectionOrigin: 'automatic' }));
+    return dispatch(commitUserPostingStyle(composerId, style.get('id'), { selectionOrigin: origin }));
   };
 }
 

@@ -96,6 +96,9 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
   # Destroyed with the user. user_posting_contexts.user_id also uses
   # ON DELETE CASCADE so a SQL-level user delete cannot orphan a style.
   has_many :user_posting_contexts, inverse_of: :user, dependent: :destroy
+  # Destroyed with the user. user_posting_context_assignments.user_id also uses
+  # ON DELETE CASCADE so a SQL-level user delete cannot orphan a place default.
+  has_many :user_posting_context_assignments, inverse_of: :user, dependent: :destroy
 
   has_one :invite_request, class_name: 'UserInviteRequest', inverse_of: :user, dependent: :destroy
   accepts_nested_attributes_for :invite_request, reject_if: ->(attributes) { attributes['text'].blank? && !Setting.require_invite_text }

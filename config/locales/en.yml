@@ -2208,6 +2208,11 @@ en:
     two_factor_authentication: Two-factor Auth
     user_posting_contexts: Posting style and purpose
     webauthn_authentication: Security keys
+  user_posting_context_assignments:
+    errors:
+      invalid: The place or posting style could not be saved.
+      style: Choose one of your enabled posting styles for this place.
+      surface: Choose a group, hashtag, or list that you can use.
   user_posting_contexts:
     advisory: Advisory tag from this posting style
     auto_language: Language will be detected when you post.
