@@ -37,11 +37,27 @@ RSpec.describe Settings::PostingIdentityApprovalsController do # rubocop:disable
       expect(form['method']).to eq('post')
       expect(form['data-remote']).to be_nil
       expect(form.at('input[name="authenticity_token"]')['value']).to be_present
+      token_field = form.at('.fields-group .input.with_label input#posting_identity_approval_token')
+
       expect(form.at('label[for="posting_identity_approval_token"]')).to be_present
-      expect(form.at('.fields-group .input.with_label input#posting_identity_approval_token')).to be_present
+      expect(token_field['required']).to eq('required')
+      expect(token_field['placeholder']).to eq('e.g. aB3xK9mQ_2pL8nR4sT6uV')
+      expect(token_field['autocomplete']).to eq('off')
       expect(form.at('.actions button.button[type="submit"]')).to be_present
     ensure
       ActionController::Base.allow_forgery_protection = previous
+    end
+
+    it 'shows the Japanese placeholder before a code is entered' do
+      sign_in Fabricate(:user, locale: 'ja'), scope: :user
+
+      get :new
+
+      field = Nokogiri::HTML(response.body).at('input#posting_identity_approval_token')
+
+      expect(field['placeholder']).to eq('例: aB3xK9mQ_2pL8nR4sT6uV')
+      expect(field['required']).to eq('required')
+      expect(field['value']).to be_blank
     end
   end
 

@@ -36,6 +36,7 @@ RSpec.describe Settings::PostingIdentityLinksController do # rubocop:disable Met
       expect(response.body).not_to include('hidden_allowance')
       expect(response.body).not_to include('Request a link')
       expect(response.body).to include('Accept link requests')
+      expect(Nokogiri::HTML(response.body).at('input#posting_identity_allowance_acct')['placeholder']).to eq('alice')
     end
 
     it 'titles the page in Japanese and gives an administrator the request form' do
@@ -49,8 +50,16 @@ RSpec.describe Settings::PostingIdentityLinksController do # rubocop:disable Met
       expect(document.at('h2').text).to include('連携アカウント')
       expect(form['method']).to eq('post')
       expect(form['data-remote']).to be_nil
+      request_acct = form.at('input#posting_identity_request_acct.string')
+      allowance_acct = document.at('input#posting_identity_allowance_acct')
+
       expect(form.at('label[for="posting_identity_request_acct"]')).to be_present
-      expect(form.at('input#posting_identity_request_acct.string')).to be_present
+      expect(request_acct['required']).to eq('required')
+      expect(request_acct['placeholder']).to eq('alice')
+      expect(request_acct['autocomplete']).to eq('off')
+      expect(allowance_acct['required']).to eq('required')
+      expect(allowance_acct['placeholder']).to eq('alice')
+      expect(allowance_acct['autocomplete']).to eq('off')
       expect(form.at('.fields-group .input.with_label')).to be_present
       expect(form.at('.input.boolean label.checkbox input#posting_identity_request_scope_media')).to be_present
       expect(form.at('label[for="posting_identity_request_scope_media"]')).to be_present

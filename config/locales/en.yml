@@ -2212,6 +2212,7 @@ en:
   posting_identity_links:
     acct_hint: An account on this server
     acct_label: Account to link
+    acct_placeholder: alice
     add_lead: Link an account so you can post as them from the composer you are using.
     add_title: Add another account
     allow_lead: Let another account use yours for posting. Accepting a request and approving posting permission are separate steps.
@@ -2239,6 +2240,7 @@ en:
     code_entry_title: Linking code you received
     code_hint: Share this code with that account. It works once and expires soon. It is not shown again.
     code_label: Linking code
+    code_placeholder: "e.g. aB3xK9mQ_2pL8nR4sT6uV"
     code_once: Linking code
     current_account: Signed in as
     description: Manage links for posting as another account, and permission for others to use your account.

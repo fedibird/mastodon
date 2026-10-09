@@ -28,7 +28,7 @@
             .label_input
               %label{ for: 'posting_identity_request_acct' }= t('posting_identity_links.acct_label')
               .label_input__wrapper
-                = text_field_tag :acct, params[:acct], id: 'posting_identity_request_acct', required: true, autocomplete: 'off', autocapitalize: 'off', spellcheck: false, class: 'string required'
+                = text_field_tag :acct, params[:acct], id: 'posting_identity_request_acct', required: true, placeholder: t('posting_identity_links.acct_placeholder'), autocomplete: 'off', autocapitalize: 'off', spellcheck: false, class: 'string required'
             %span.hint= t('posting_identity_links.acct_hint')
         .fields-group
           = hidden_field_tag 'scopes[]', 'post', id: 'posting_identity_request_scope_post'
@@ -97,7 +97,7 @@
           .label_input
             %label{ for: 'posting_identity_allowance_acct' }= t('posting_identity_links.allowance_acct_label')
             .label_input__wrapper
-              = text_field_tag :acct, nil, id: 'posting_identity_allowance_acct', required: true, autocomplete: 'off', autocapitalize: 'off', spellcheck: false, class: 'string required'
+              = text_field_tag :acct, nil, id: 'posting_identity_allowance_acct', required: true, placeholder: t('posting_identity_links.acct_placeholder'), autocomplete: 'off', autocapitalize: 'off', spellcheck: false, class: 'string required'
           %span.hint= t('posting_identity_links.acct_hint')
       .fields-group
         = hidden_field_tag 'scopes[]', 'post', id: 'posting_identity_allowance_scope_post'

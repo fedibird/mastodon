@@ -2141,6 +2141,7 @@ ja:
   posting_identity_links:
     acct_hint: このサーバーのアカウント
     acct_label: 連携するアカウント
+    acct_placeholder: alice
     add_lead: 操作している投稿欄から、別のアカウントとして投稿できるようにします。
     add_title: ほかのアカウントを追加する
     allow_lead: 自分のアカウントを、別のアカウントから投稿に使えるようにします。申請の受付と、投稿権限の承認は別の段階です。
@@ -2168,6 +2169,7 @@ ja:
     code_entry_title: 受け取った連携コード
     code_hint: このコードを相手のアカウントに渡してください。一度だけ使え、まもなく期限が切れます。再表示はしません。
     code_label: 連携コード
+    code_placeholder: "例: aB3xK9mQ_2pL8nR4sT6uV"
     code_once: 連携コード
     current_account: ログイン中
     description: ほかのアカウントとして投稿するための連携と、自分のアカウントの利用許可を管理します。
