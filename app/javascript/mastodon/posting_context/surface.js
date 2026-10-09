@@ -268,13 +268,21 @@ export function surfaceApplyDecision(state, action) {
   }
 
   const pending = state.get('surfaceMismatch') ? normalizeSurface(state.get('pendingSurface')) : null;
+  const pendingEpoch = Number(state.getIn(['pendingSurface', 'surfaceEpoch'])) || 0;
 
   if (pending && surfacesEqual(incoming, pending)) {
     return { mode: 'refresh-pending', incoming };
   }
 
+  // The column is showing the destination the draft already uses.
+  // A newer epoch is that return. An older response was ignored above,
+  // and an equal epoch is not treated as a new look at this surface.
   if (pending && current && surfacesEqual(incoming, current)) {
-    return { mode: 'refresh-held', incoming };
+    if (epoch <= pendingEpoch) {
+      return { mode: 'ignore' };
+    }
+
+    return { mode: 'release-held', incoming };
   }
 
   if (pending) {

@@ -178,6 +178,7 @@ export const initialState = ImmutableMap({
   userPostingStyle: initialUserPostingStyle(),
   surface: null,
   pendingSurface: null,
+  displayedSurface: null,
   surfaceMismatch: false,
   surfaceEpoch: 0,
 });
@@ -524,17 +525,28 @@ const stripCompatibleText = html => {
   return fragment.innerHTML;
 };
 
+const rememberDisplayedSurface = (map, incoming, epoch) => {
+  map.set('displayedSurface', ImmutableMap({
+    kind: incoming.kind,
+    key: incoming.key,
+    surfaceEpoch: epoch,
+  }));
+};
+
 const rememberSurface = (map, incoming, epoch) => {
   map.set('surface', ImmutableMap({ kind: incoming.kind, key: incoming.key }));
   map.set('pendingSurface', null);
   map.set('surfaceMismatch', false);
   map.set('surfaceEpoch', epoch);
   map.setIn(['userPostingStyle', 'destinationPolicy'], 'locked');
+  rememberDisplayedSurface(map, incoming, epoch);
 };
 
 const rememberPendingSurface = (map, action, incoming) => {
+  const epoch = action.surfaceEpoch || map.get('surfaceEpoch') || 0;
+
   map.set('surfaceMismatch', true);
-  map.set('surfaceEpoch', action.surfaceEpoch || map.get('surfaceEpoch') || 0);
+  map.set('surfaceEpoch', epoch);
   map.set('pendingSurface', ImmutableMap({
     kind: incoming.kind,
     key: incoming.key,
@@ -543,6 +555,7 @@ const rememberPendingSurface = (map, action, incoming) => {
     hasPostingContext: action.hasPostingContext !== false,
     surfaceEpoch: action.surfaceEpoch || 0,
   }));
+  rememberDisplayedSurface(map, incoming, epoch);
 };
 
 const releaseIncompatibleStyle = (state, incoming) => {
@@ -635,6 +648,12 @@ const reduceSurfaceContext = (state, action) => {
     return state.withMutations(map => rememberPendingSurface(map, action, decision.incoming));
   }
 
+  if (decision.mode === 'release-held') {
+    return state.withMutations(map => {
+      rememberSurface(map, decision.incoming, action.surfaceEpoch || 0);
+    });
+  }
+
   if (decision.mode === 'surface-only') {
     const released = decision.shift ? releaseIncompatibleStyle(state, decision.incoming) : state;
     const previousSignature = postingContextOutputSignature(released);
@@ -674,13 +693,6 @@ const reduceSurfaceContext = (state, action) => {
   const next = applyPostingContextFields(basis, action);
 
   return next.withMutations(map => {
-    if (decision.mode === 'refresh-held') {
-      map.set('surfaceMismatch', true);
-      map.set('pendingSurface', state.get('pendingSurface'));
-      map.set('surfaceEpoch', action.surfaceEpoch || map.get('surfaceEpoch') || 0);
-      return;
-    }
-
     rememberSurface(map, decision.incoming, action.surfaceEpoch || 0);
 
     if (decision.mode !== 'replace') {
@@ -721,8 +733,13 @@ export default function composer(state = initialState, action) {
     return reduceSurfaceContext(state, action);
   case COMPOSER_SURFACE_ACCEPT: {
     const pending = state.get('pendingSurface');
+    const displayed = state.get('displayedSurface');
 
-    if (!pending || !state.get('surfaceMismatch')) {
+    if (!pending || !state.get('surfaceMismatch') || !displayed) {
+      return state;
+    }
+
+    if (displayed.get('kind') !== pending.get('kind') || String(displayed.get('key')) !== String(pending.get('key'))) {
       return state;
     }
 

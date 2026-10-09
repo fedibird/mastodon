@@ -629,4 +629,143 @@ describe('portable posting styles', () => {
     expect(readyDraft.getIn(['context', 'resolvedAccountId'])).toEqual('456');
     expect(ready.canAttempt).toBe(true);
   });
+
+  const hashtagSurface = (name) => applyComposerSurface(
+    'portable:hashtag-column:a',
+    { kind: 'hashtag', key: name },
+    buildHashtagTimelinePostingContext(name),
+    null,
+  );
+
+  it('releases the pending destination when the draft returns to its original group', () => {
+    let drafted = composer(undefined, applyGroup('123'));
+    drafted = composer(drafted, { type: COMPOSE_CHANGE, text: 'Hello group' });
+    drafted = composer(drafted, { type: COMPOSE_POLL_ADD });
+    drafted = drafted.set('media_attachments', ImmutableList([ImmutableMap({ id: 'media-1' })]));
+    drafted = composer(drafted, { type: COMPOSE_VISIBILITY_CHANGE, value: 'public' });
+    drafted = composer(drafted, toggleComposerManagedHashtag('portable:group-column:123', 'memo'));
+    const moveToB = applyGroup('456', mitraGroupPostingContext);
+    const moved = composer(drafted, moveToB);
+    const returned = composer(moved, applyGroup('123'));
+
+    expect(moved.get('surfaceMismatch')).toBe(true);
+    expect(moved.getIn(['pendingSurface', 'key'])).toEqual('456');
+    expect(returned.get('surfaceMismatch')).toBe(false);
+    expect(returned.get('pendingSurface')).toBeNull();
+    expect(returned.getIn(['displayedSurface', 'key'])).toEqual('123');
+    expect(returned.get('text')).toEqual('Hello group');
+    expect(returned.get('poll')).not.toBeNull();
+    expect(returned.get('media_attachments').getIn([0, 'id'])).toEqual('media-1');
+    expect(returned.get('privacy')).toEqual('public');
+    expect(returned.getIn(['userPostingStyle', 'manualFields']).includes('privacy')).toBe(true);
+    expect(returned.getIn(['context', 'suppressions', 'hashtags']).includes('memo')).toBe(true);
+    expect(returned.get('posting_context_account_id')).toEqual('123');
+    expect(returned.getIn(['context', 'resolvedAccountId'])).toEqual('123');
+    expect(returned.getIn(['context', 'key'])).toEqual(groupPostingContext.key);
+    expect(returned.getIn(['context', 'managed', 'mentions', 0, 'acct'])).toEqual('group');
+    expect(returned.getIn(['context', 'protocol', 'activityPub', 'audience'])).toBeNull();
+
+    const accepted = composer(returned, acceptComposerSurface('portable:group-column:123'));
+    const replayed = composer(returned, moveToB);
+
+    expect(accepted).toBe(returned);
+    expect(replayed.get('surfaceMismatch')).toBe(false);
+    expect(replayed.get('pendingSurface')).toBeNull();
+    expect(replayed.get('posting_context_account_id')).toEqual('123');
+    expect(replayed.getIn(['context', 'key'])).toEqual(groupPostingContext.key);
+    expect(replayed.get('text')).toEqual('Hello group');
+  });
+
+  it('releases the pending destination when a group draft returns from a hashtag', () => {
+    let drafted = composer(undefined, applyGroup('123'));
+    drafted = composer(drafted, { type: COMPOSE_CHANGE, text: 'Hello group' });
+    const moved = composer(drafted, hashtagSurface('bar'));
+    const returned = composer(moved, applyGroup('123'));
+
+    expect(moved.get('surfaceMismatch')).toBe(true);
+    expect(moved.getIn(['pendingSurface', 'kind'])).toEqual('hashtag');
+    expect(returned.get('surfaceMismatch')).toBe(false);
+    expect(returned.get('pendingSurface')).toBeNull();
+    expect(returned.get('text')).toEqual('Hello group');
+    expect(returned.get('posting_context_account_id')).toEqual('123');
+    expect(returned.getIn(['context', 'key'])).toEqual(groupPostingContext.key);
+    expect(returned.getIn(['context', 'managed', 'mentions', 0, 'acct'])).toEqual('group');
+    expect(returned.getIn(['context', 'managed', 'hashtags']).size).toEqual(0);
+  });
+
+  it('restores the original hashtag when the draft returns to it', () => {
+    let drafted = composer(undefined, hashtagSurface('foo'));
+    drafted = composer(drafted, { type: COMPOSE_CHANGE, text: 'reading' });
+    const moved = composer(drafted, hashtagSurface('bar'));
+    const returned = composer(moved, hashtagSurface('foo'));
+
+    expect(moved.getIn(['pendingSurface', 'key'])).toEqual('bar');
+    expect(moved.getIn(['context', 'key'])).toEqual('builtin:hashtag:foo');
+    expect(returned.get('surfaceMismatch')).toBe(false);
+    expect(returned.get('pendingSurface')).toBeNull();
+    expect(returned.get('text')).toEqual('reading');
+    expect(returned.getIn(['surface', 'key'])).toEqual('foo');
+    expect(returned.getIn(['context', 'key'])).toEqual('builtin:hashtag:foo');
+    expect(returned.getIn(['context', 'managed', 'hashtags']).map(tag => tag.get('normalizedName')).toArray()).toEqual(['foo']);
+  });
+
+  it('keeps only the latest displayed group as the pending destination', () => {
+    let drafted = composer(undefined, applyGroup('123'));
+    drafted = composer(drafted, { type: COMPOSE_CHANGE, text: 'Hello group' });
+    const third = { ...groupPostingContext, key: 'builtin:fedibird-group:789' };
+    const moved = composer(drafted, applyGroup('456', mitraGroupPostingContext));
+    const refreshed = composer(moved, applyGroup('456', { ...mitraGroupPostingContext, key: 'protocol:refreshed-b' }));
+    const next = composer(refreshed, applyGroup('789', third));
+
+    expect(refreshed.get('surfaceMismatch')).toBe(true);
+    expect(refreshed.get('posting_context_account_id')).toEqual('123');
+    expect(refreshed.getIn(['context', 'key'])).toEqual(groupPostingContext.key);
+    expect(refreshed.getIn(['pendingSurface', 'key'])).toEqual('456');
+    expect(next.getIn(['pendingSurface', 'key'])).toEqual('789');
+    expect(next.getIn(['displayedSurface', 'key'])).toEqual('789');
+    expect(next.getIn(['surface', 'key'])).toEqual('123');
+    expect(next.get('posting_context_account_id')).toEqual('123');
+    expect(next.getIn(['context', 'key'])).toEqual(groupPostingContext.key);
+    expect(next.get('text')).toEqual('Hello group');
+  });
+
+  it('rechecks create capability for the original group after the pending destination is released', () => {
+    let drafted = composer(undefined, applyGroup('456', mitraGroupPostingContext));
+    drafted = composer(drafted, { type: COMPOSE_VISIBILITY_CHANGE, value: 'public' });
+    drafted = composer(drafted, { type: COMPOSE_CHANGE, text: 'Hello group' });
+    const moved = composer(drafted, applyGroup('123'));
+    const returned = composer(moved, applyGroup('456', mitraGroupPostingContext));
+    const now = 1_700_000_000_000;
+    const composerId = 'portable:group-column:456';
+    const base = ImmutableMap({
+      composers: ImmutableMap({ byId: ImmutableMap({ [composerId]: returned }) }),
+      relationships: ImmutableMap(),
+      posting_context_revalidations: ImmutableMap(),
+    });
+    const unconfirmed = selectComposerEffectiveCreateCapability(
+      base.set('posting_contexts', ImmutableMap()),
+      composerId,
+      now,
+    );
+    const discovery = fromJS({
+      status: 'resolved',
+      context: mitraGroupPostingContext,
+      discovery: { mechanism: 'test', adapter: 'mitra_group', authority: 'compatibility' },
+      viewerEvidence: {
+        permissions: { create: { status: 'allowed', source: 'fep-5219', viaRelationship: 'member', authority: 'protocol' } },
+      },
+      receivedAt: now,
+    });
+    const confirmed = selectComposerEffectiveCreateCapability(
+      base.set('posting_contexts', ImmutableMap({ 456: discovery })),
+      composerId,
+      now,
+    );
+
+    expect(returned.get('surfaceMismatch')).toBe(false);
+    expect(returned.get('posting_context_account_id')).toEqual('456');
+    expect(unconfirmed.canAttempt).toBe(false);
+    expect(unconfirmed.reason).toEqual('delivery_unresolved');
+    expect(confirmed.canAttempt).toBe(true);
+  });
 });
