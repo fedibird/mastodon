@@ -46,6 +46,10 @@ class PostingIdentityLinkRequest < ApplicationRecord
     expires_at <= Time.current
   end
 
+  def current_allowance?
+    request_allowance&.matches_request?(self) == true
+  end
+
   private
 
   def parties_stay_distinct

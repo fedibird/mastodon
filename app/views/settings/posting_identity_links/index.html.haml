@@ -32,15 +32,23 @@
 
   %section.posting-identity-links__section
     %h3= t('posting_identity_links.pending_title')
-    - pending = @pending.select(&:open?)
-    - if pending.empty?
+    - current_pending = @pending.select { |link_request| link_request.open? && link_request.current_allowance? }
+    - stale_pending = @pending.select { |link_request| link_request.open? && !link_request.current_allowance? }
+    - if current_pending.empty?
       %p= t('posting_identity_links.pending_empty')
     - else
       %ul.posting-identity-links__list
-        - pending.each do |link_request|
+        - current_pending.each do |link_request|
           %li
             %p= t('posting_identity_links.pending_item', acct: link_request.target_user.account.pretty_acct, scopes: posting_identity_scope_labels(link_request.scopes), expires_at: l(link_request.expires_at))
             = button_to t('posting_identity_links.cancel'), cancel_settings_posting_identity_link_path(link_request), method: :post
+    - if stale_pending.any?
+      %h3= t('posting_identity_links.stale_title')
+      %p= t('posting_identity_links.stale_hint')
+      %ul.posting-identity-links__list
+        - stale_pending.each do |link_request|
+          %li
+            %p= t('posting_identity_links.stale_item', acct: link_request.target_user.account.pretty_acct, scopes: posting_identity_scope_labels(link_request.scopes))
 
   %section.posting-identity-links__section
     %h3= t('posting_identity_links.linked_title')

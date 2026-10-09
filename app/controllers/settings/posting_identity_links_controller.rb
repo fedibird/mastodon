@@ -45,7 +45,7 @@ class Settings::PostingIdentityLinksController < Settings::BaseController
   def load_index
     @received = PostingIdentityDelegation.for_grantee(current_user).includes(:grantor_user, :posting_account).order(approved_at: :desc)
     @granted = PostingIdentityDelegation.for_grantor(current_user).includes(:grantee_user, :posting_account).order(approved_at: :desc)
-    @pending = PostingIdentityLinkRequest.where(requester_user_id: current_user.id).includes(:target_user).order(created_at: :desc)
+    @pending = PostingIdentityLinkRequest.where(requester_user_id: current_user.id).includes(:target_user, :request_allowance).order(created_at: :desc)
     @allowances = PostingIdentityRequestAllowance.where(grantor_user_id: current_user.id).includes(requester_user: :account).order(allowed_at: :desc)
   end
 end

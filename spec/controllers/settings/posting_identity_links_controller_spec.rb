@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe Settings::PostingIdentityLinksController do
+RSpec.describe Settings::PostingIdentityLinksController do # rubocop:disable Metrics/BlockLength
   render_views
 
   before { stub_webpacker_manifest }
@@ -63,6 +63,24 @@ RSpec.describe Settings::PostingIdentityLinksController do
       expect(response.body).to include(token)
       expect(response.body).to include(grantor.account.username)
       expect(response.body).not_to include(grantor.email)
+    end
+  end
+
+  describe 'GET #index stale requests' do
+    it 'separates an earlier generation from the request that can still be approved' do
+      Rails.cache.clear
+      PostingIdentity::RequestAllowance.permit!(grantor: grantor, acct: grantee.account.username, scopes: %w(post))
+      PostingIdentity::LinkRequestIssuer.call!(requester: grantee, acct: grantor.account.username, scopes: %w(post), ip: '203.0.113.70')
+      PostingIdentity::RequestAllowance.revoke!(grantor: grantor, allowance: PostingIdentityRequestAllowance.last)
+      PostingIdentity::RequestAllowance.permit!(grantor: grantor, acct: grantee.account.username, scopes: %w(post))
+      PostingIdentity::LinkRequestIssuer.call!(requester: grantee, acct: grantor.account.username, scopes: %w(post), ip: '203.0.113.71')
+      sign_in grantee, scope: :user
+
+      get :index
+
+      expect(response.body).to include('Open requests')
+      expect(response.body).to include('Requests that can no longer be approved')
+      expect(response.body).to include('earlier acceptance')
     end
   end
 

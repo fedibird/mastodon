@@ -69,12 +69,23 @@ RSpec.describe PostingIdentity::RequestAllowance do # rubocop:disable Metrics/Bl
     expect(PostingIdentityRequestAllowance.last.generation).to eq 2
     expect { PostingIdentity::Approval.call!(approver: grantor, token: issued.token) }.to raise_error(PostingIdentity::Error) { |error| expect(error.code).to eq :allowance_inactive }
 
-    issued.request.update!(canceled_at: Time.current)
     replacement = request!(ip: '203.0.113.21')
     delegation = PostingIdentity::Approval.call!(approver: grantor, token: replacement.token)
 
+    expect(issued.request.reload.canceled_at).to be_nil
+    expect(issued.request.consumed_at).to be_nil
+    expect(PostingIdentityLinkRequest.where(requester_user: grantee, target_user: grantor).count).to eq 2
     expect(delegation.grantee_user).to eq grantee
     expect(replacement.request.allowance_generation).to eq 2
+  end
+
+  it 'does not bump generation when the same active allowance is saved again' do
+    first = permit!(scopes: %w(post))
+    second = permit!(scopes: %w(post))
+
+    expect(second.id).to eq first.id
+    expect(second.generation).to eq 1
+    expect(second.updated_at).to eq first.reload.updated_at
   end
 
   it 'does not treat an allowance as a delegation, or an old request without one as approvable' do

@@ -35,7 +35,7 @@ class PostingIdentity::LinkRequestIssuer
     PostingIdentityRequestAllowance.transaction do
       allowance = PostingIdentityRequestAllowance.lock.find_by(grantor_user_id: target.id, requester_user_id: @requester.id)
       raise PostingIdentity::Error, :request_unavailable unless allowance&.active? && allowance&.covers?(normalized)
-      raise PostingIdentity::Error, :duplicate_request if open_request?(target)
+      raise PostingIdentity::Error, :duplicate_request if open_request?(target, allowance)
 
       hit_limit!("posting-identity-link:pair:#{@requester.id}:#{target.id}", PAIR_LIMIT, PAIR_WINDOW)
       token = PostingIdentityLinkRequest.generate_token
@@ -72,10 +72,14 @@ class PostingIdentity::LinkRequestIssuer
     account.user
   end
 
-  def open_request?(target)
+  # Only an unused, unexpired request from the current allowance generation
+  # blocks another code. An older generation stays on record and does not.
+  def open_request?(target, allowance)
     PostingIdentityLinkRequest.where(
       requester_user_id: @requester.id,
       target_user_id: target.id,
+      request_allowance_id: allowance.id,
+      allowance_generation: allowance.generation,
       consumed_at: nil,
       canceled_at: nil
     ).where('expires_at > ?', Time.current).exists?

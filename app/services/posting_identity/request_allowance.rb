@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 class PostingIdentity::RequestAllowance
+  INSERT_ATTEMPTS = 3
+
   # Letting A ask is not a posting grant. Only B can create or revoke the
   # allowance, and a later approval still has to match this generation.
   def self.permit!(grantor:, acct:, scopes:)
@@ -30,10 +32,17 @@ class PostingIdentity::RequestAllowance
     requester = local_requester!
     normalized = PostingIdentity::Scopes.normalize!(@scopes)
     record = nil
+    attempt = 0
 
-    PostingIdentityRequestAllowance.transaction do
-      record = PostingIdentityRequestAllowance.lock.find_by(grantor_user_id: @grantor.id, requester_user_id: requester.id)
-      record = write!(record, requester, normalized)
+    begin
+      attempt += 1
+      PostingIdentityRequestAllowance.transaction do
+        existing = PostingIdentityRequestAllowance.lock.find_by(grantor_user_id: @grantor.id, requester_user_id: requester.id)
+        record = write!(existing, requester, normalized)
+      end
+    rescue ActiveRecord::RecordNotUnique
+      retry if attempt < INSERT_ATTEMPTS
+      raise PostingIdentity::Error, :allowance_conflict
     end
 
     Rails.logger.info(
@@ -57,29 +66,34 @@ class PostingIdentity::RequestAllowance
   end
 
   def write!(record, requester, normalized)
+    return insert!(requester, normalized) if record.nil?
+    return record if record.active? && same_scopes?(record, normalized)
+
     now = Time.current
-    expires_at = PostingIdentityRequestAllowance::TTL.from_now
-
-    if record.nil?
-      return PostingIdentityRequestAllowance.create!(
-        grantor_user: @grantor,
-        requester_user: requester,
-        allowed_scopes: normalized,
-        allowed_at: now,
-        expires_at: expires_at,
-        generation: 1
-      )
-    end
-
     generation = record.generation
-    generation += 1 if record.revoked_at.present? || !record.expires_at.future? || Array(record.allowed_scopes).map(&:to_s).sort != normalized.sort
+    generation += 1 if record.revoked_at.present? || !record.expires_at.future? || !same_scopes?(record, normalized)
     record.update!(
       allowed_scopes: normalized,
       allowed_at: now,
-      expires_at: expires_at,
+      expires_at: PostingIdentityRequestAllowance::TTL.from_now,
       revoked_at: nil,
       generation: generation
     )
     record
+  end
+
+  def insert!(requester, normalized)
+    PostingIdentityRequestAllowance.create!(
+      grantor_user: @grantor,
+      requester_user: requester,
+      allowed_scopes: normalized,
+      allowed_at: Time.current,
+      expires_at: PostingIdentityRequestAllowance::TTL.from_now,
+      generation: 1
+    )
+  end
+
+  def same_scopes?(record, normalized)
+    Array(record.allowed_scopes).map(&:to_s).sort == normalized.sort
   end
 end
