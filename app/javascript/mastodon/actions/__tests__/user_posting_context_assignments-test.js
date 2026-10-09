@@ -13,7 +13,7 @@ jest.mock('../../api', () => ({
 
 import api from '../../api';
 import { COMPOSE_CHANGE, COMPOSE_POLL_ADD, COMPOSE_REPLY, COMPOSE_SUBMIT_SUCCESS, COMPOSE_VISIBILITY_CHANGE } from '../compose';
-import { acceptComposerSurface, applyComposerSurface, createComposer, targetComposerAction } from '../composer';
+import { COMPOSER_CONTEXT_APPLY, acceptComposerSurface, applyComposerSurface, createComposer, targetComposerAction } from '../composer';
 import {
   fetchUserPostingContextAssignment,
   resetGuardedPlaceDefault,
@@ -58,6 +58,47 @@ const payload = (status, styleId, revision, surface = { kind: 'group', key: '123
 
 const applyGroup = (composerId, accountId) => (
   composer(undefined, applyComposerSurface(composerId, { kind: 'group', key: String(accountId) }, groupPostingContext, String(accountId)))
+);
+
+const groupContextFor = accountId => ({
+  key: `builtin:fedibird-group:${accountId}`,
+  source: { id: 'builtin:fedibird-group', revision: 1 },
+  managed: {
+    hashtags: [],
+    mentions: [{
+      accountId: String(accountId),
+      acct: 'group',
+      enforcement: 'required',
+      ruleId: 'group-account-mention',
+    }],
+  },
+  requirements: {
+    followingAccounts: [{
+      accountId: String(accountId),
+      acct: 'group',
+      enforcement: 'required',
+      ruleId: 'group-follow',
+    }],
+  },
+  constraints: {
+    allowedVisibilities: ['public', 'unlisted'],
+  },
+});
+
+const holdGroup = (composerId, accountId) => (
+  composer(undefined, applyComposerSurface(composerId, { kind: 'group', key: String(accountId) }))
+);
+
+const resolveGroup = (composerId, accountId) => (
+  applyComposerSurface(composerId, { kind: 'group', key: String(accountId) }, groupContextFor(accountId), String(accountId))
+);
+
+const selectedIdOf = (store, composerId) => (
+  store.getState().getIn(['composers', 'byId', composerId, 'userPostingStyle', 'selectedId'])
+);
+
+const settledSurfaceOf = (store, composerId) => (
+  store.getState().getIn(['composers', 'byId', composerId, 'userPostingStyle', 'defaultsSettledSurface'])
 );
 
 const withStyles = styles => ({
@@ -212,6 +253,7 @@ describe('place posting-style defaults', () => {
     expect(assignmentOf(store, 'group', '123').get('failure')).toEqual('fetch');
     expect(assignmentOf(store, 'group', '123').get('assignmentStatus')).toBeNull();
     expect(store.getState().getIn(['composers', 'byId', composerId, 'userPostingStyle', 'selectedId'])).toBeNull();
+    expect(settledSurfaceOf(store, composerId)).toBeNull();
   });
 
   it('does not overwrite a draft, a manual choice, or another composer', async () => {
@@ -666,5 +708,248 @@ describe('place posting-style defaults', () => {
 
     expect(put).toHaveBeenCalledTimes(1);
     expect(remove).not.toHaveBeenCalled();
+  });
+
+  it('selects the saved default after group context resolves when the assignment and catalog arrived first', async () => {
+    const composerId = 'portable:group-column:123';
+    const store = buildStore({
+      composerId,
+      drafted: holdGroup(composerId, '123'),
+      styles: ImmutableList(),
+    });
+    api.mockReturnValue({
+      get: jest.fn(() => Promise.resolve({ data: payload('style', 'plain-1', 4) })),
+    });
+
+    await store.dispatch(fetchUserPostingContextAssignment({ kind: 'group', key: '123' }));
+    await store.dispatch(maybeAutoSelectPortablePostingStyle(composerId));
+    expect(selectedIdOf(store, composerId)).toBeNull();
+    expect(settledSurfaceOf(store, composerId)).toBeNull();
+
+    store.dispatch(withStyles(ImmutableList([groupStyle('1', '123'), plainStyle])));
+    await store.dispatch(maybeAutoSelectPortablePostingStyle(composerId));
+    expect(selectedIdOf(store, composerId)).toBeNull();
+    expect(settledSurfaceOf(store, composerId)).toBeNull();
+
+    store.dispatch(resolveGroup(composerId, '123'));
+    await store.dispatch(maybeAutoSelectPortablePostingStyle(composerId));
+
+    const next = store.getState().getIn(['composers', 'byId', composerId]);
+
+    expect(next.getIn(['userPostingStyle', 'selectedId'])).toEqual('plain-1');
+    expect(next.getIn(['userPostingStyle', 'selectionOrigin'])).toEqual('saved_default');
+    expect(next.get('privacy')).toEqual('public');
+    expect(next.getIn(['context', 'key'])).toEqual('builtin:fedibird-group:123');
+    expect(settledSurfaceOf(store, composerId)).toEqual('group:123');
+  });
+
+  it('selects the saved default after the assignment arrives when the catalog and group context were already ready', async () => {
+    const composerId = 'portable:group-column:123';
+    const store = buildStore({
+      composerId,
+      drafted: applyGroup(composerId, '123'),
+      styles: ImmutableList([groupStyle('1', '123'), plainStyle]),
+    });
+    api.mockReturnValue({
+      get: jest.fn(() => Promise.resolve({ data: payload('style', 'plain-1', 4) })),
+    });
+
+    await store.dispatch(maybeAutoSelectPortablePostingStyle(composerId));
+    expect(selectedIdOf(store, composerId)).toBeNull();
+    expect(settledSurfaceOf(store, composerId)).toBeNull();
+
+    await store.dispatch(fetchUserPostingContextAssignment({ kind: 'group', key: '123' }));
+    await store.dispatch(maybeAutoSelectPortablePostingStyle(composerId));
+
+    expect(selectedIdOf(store, composerId)).toEqual('plain-1');
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'userPostingStyle', 'selectionOrigin'])).toEqual('saved_default');
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'privacy'])).toEqual('public');
+  });
+
+  it('runs the single dedicated guess after a delayed group context when the place is unset', async () => {
+    const composerId = 'portable:group-column:123';
+    const store = buildStore({
+      composerId,
+      drafted: holdGroup(composerId, '123'),
+      styles: ImmutableList([groupStyle('1', '123')]),
+    });
+    api.mockReturnValue({
+      get: jest.fn(() => Promise.resolve({ data: payload('unset', null, null) })),
+    });
+
+    await store.dispatch(fetchUserPostingContextAssignment({ kind: 'group', key: '123' }));
+    await store.dispatch(maybeAutoSelectPortablePostingStyle(composerId));
+    expect(selectedIdOf(store, composerId)).toBeNull();
+    expect(settledSurfaceOf(store, composerId)).toBeNull();
+
+    store.dispatch(resolveGroup(composerId, '123'));
+    await store.dispatch(maybeAutoSelectPortablePostingStyle(composerId));
+
+    expect(selectedIdOf(store, composerId)).toEqual('1');
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'userPostingStyle', 'selectionOrigin'])).toEqual('automatic');
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'privacy'])).toEqual('unlisted');
+  });
+
+  it('does not overwrite text or visibility typed while group context was still unresolved', async () => {
+    const composerId = 'portable:group-column:123';
+    const store = buildStore({
+      composerId,
+      drafted: holdGroup(composerId, '123'),
+      styles: ImmutableList([groupStyle('1', '123'), plainStyle]),
+    });
+    api.mockReturnValue({
+      get: jest.fn(() => Promise.resolve({ data: payload('style', 'plain-1', 4) })),
+    });
+
+    await store.dispatch(fetchUserPostingContextAssignment({ kind: 'group', key: '123' }));
+    store.dispatch(targetComposerAction({ type: COMPOSE_CHANGE, text: 'drafting' }, composerId));
+    store.dispatch(targetComposerAction({ type: COMPOSE_VISIBILITY_CHANGE, value: 'unlisted' }, composerId));
+
+    const waiting = store.getState().getIn(['composers', 'byId', composerId]);
+
+    expect(waiting.getIn(['userPostingStyle', 'styleInputLock'])).toBe(true);
+    expect(settledSurfaceOf(store, composerId)).toBeNull();
+
+    store.dispatch(resolveGroup(composerId, '123'));
+    await store.dispatch(maybeAutoSelectPortablePostingStyle(composerId));
+
+    const next = store.getState().getIn(['composers', 'byId', composerId]);
+
+    expect(next.get('text')).toEqual('drafting');
+    expect(next.get('privacy')).toEqual('unlisted');
+    expect(next.getIn(['userPostingStyle', 'selectedId'])).toBeNull();
+    expect(next.getIn(['userPostingStyle', 'styleInputLock'])).toBe(true);
+    expect(next.get('posting_context_account_id')).toEqual('123');
+    expect(settledSurfaceOf(store, composerId)).toEqual('group:123');
+  });
+
+  it('does not auto-select none or unavailable after group context resolves', async () => {
+    for (const status of ['none', 'unavailable']) {
+      const composerId = 'portable:group-column:123';
+      const store = buildStore({
+        composerId,
+        drafted: holdGroup(composerId, '123'),
+        styles: ImmutableList([groupStyle('1', '123')]),
+      });
+      api.mockReturnValue({
+        get: jest.fn(() => Promise.resolve({ data: payload(status, status === 'unavailable' ? '1' : null, 2) })),
+      });
+
+      await store.dispatch(fetchUserPostingContextAssignment({ kind: 'group', key: '123' }));
+      await store.dispatch(maybeAutoSelectPortablePostingStyle(composerId));
+      expect(selectedIdOf(store, composerId)).toBeNull();
+      expect(settledSurfaceOf(store, composerId)).toBeNull();
+
+      store.dispatch(resolveGroup(composerId, '123'));
+      await store.dispatch(maybeAutoSelectPortablePostingStyle(composerId));
+      await store.dispatch(maybeAutoSelectPortablePostingStyle(composerId));
+
+      expect(selectedIdOf(store, composerId)).toBeNull();
+      expect(store.getState().getIn(['composers', 'byId', composerId, 'privacy'])).toBeNull();
+      expect(settledSurfaceOf(store, composerId)).toEqual('group:123');
+    }
+  });
+
+  it('does not apply an unresolved place onto the surface that replaced it', async () => {
+    const composerId = 'portable:group-column:moving';
+    const store = buildStore({
+      composerId,
+      drafted: holdGroup(composerId, '111'),
+      styles: ImmutableList([groupStyle('1', '111'), groupStyle('2', '222'), plainStyle]),
+    });
+    api.mockReturnValue({
+      get: jest.fn((_path, config) => {
+        const key = config && config.params && config.params.surface_key;
+
+        return Promise.resolve({
+          data: String(key) === '222'
+            ? payload('none', null, 1, { kind: 'group', key: '222' })
+            : payload('style', '1', 4, { kind: 'group', key: '111' }),
+        });
+      }),
+    });
+
+    await store.dispatch(fetchUserPostingContextAssignment({ kind: 'group', key: '111' }));
+    await store.dispatch(maybeAutoSelectPortablePostingStyle(composerId));
+    expect(selectedIdOf(store, composerId)).toBeNull();
+    expect(settledSurfaceOf(store, composerId)).toBeNull();
+
+    store.dispatch(resolveGroup(composerId, '222'));
+    store.dispatch(targetComposerAction({
+      type: COMPOSER_CONTEXT_APPLY,
+      surface: { kind: 'group', key: '111' },
+      hasPostingContext: true,
+      postingContext: groupContextFor('111'),
+      postingContextAccountId: '111',
+      surfaceEpoch: 0,
+    }, composerId));
+    await store.dispatch(maybeAutoSelectPortablePostingStyle(composerId));
+
+    let next = store.getState().getIn(['composers', 'byId', composerId]);
+
+    expect(next.getIn(['surface', 'key'])).toEqual('222');
+    expect(next.getIn(['context', 'key'])).toEqual('builtin:fedibird-group:222');
+    expect(next.get('posting_context_account_id')).toEqual('222');
+    expect(next.getIn(['userPostingStyle', 'selectedId'])).toBeNull();
+    expect(next.get('privacy')).toBeNull();
+
+    await store.dispatch(fetchUserPostingContextAssignment({ kind: 'group', key: '222' }));
+    await store.dispatch(maybeAutoSelectPortablePostingStyle(composerId));
+    next = store.getState().getIn(['composers', 'byId', composerId]);
+
+    expect(next.getIn(['surface', 'key'])).toEqual('222');
+    expect(next.getIn(['userPostingStyle', 'selectedId'])).toBeNull();
+    expect(next.get('privacy')).toBeNull();
+    expect(settledSurfaceOf(store, composerId)).toEqual('group:222');
+  });
+
+  it('does not reapply a saved or cleared place default onto a composer that already considered it', async () => {
+    const openId = 'portable:group-column:considered';
+    const savedId = 'portable:group-column:saved-later';
+    const clearedId = 'portable:group-column:cleared-later';
+    const store = buildStore({
+      composerId: openId,
+      drafted: applyGroup(openId, '123'),
+      styles: ImmutableList([groupStyle('1', '123'), plainStyle]),
+    });
+    api.mockReturnValue({
+      get: jest.fn(() => Promise.resolve({ data: payload('none', null, 2) })),
+      put: jest.fn(() => Promise.resolve({ data: payload('style', 'plain-1', 5) })),
+      delete: jest.fn(() => Promise.resolve({ data: payload('unset', null, null) })),
+    });
+
+    await store.dispatch(fetchUserPostingContextAssignment({ kind: 'group', key: '123' }));
+    await store.dispatch(maybeAutoSelectPortablePostingStyle(openId));
+    expect(selectedIdOf(store, openId)).toBeNull();
+    expect(settledSurfaceOf(store, openId)).toEqual('group:123');
+
+    await store.dispatch(saveUserPostingContextAssignment({ kind: 'group', key: '123' }, 'plain-1'));
+    await store.dispatch(maybeAutoSelectPortablePostingStyle(openId));
+
+    expect(assignmentOf(store, 'group', '123').get('assignmentStatus')).toEqual('style');
+    expect(selectedIdOf(store, openId)).toBeNull();
+    expect(store.getState().getIn(['composers', 'byId', openId, 'privacy'])).toBeNull();
+
+    store.dispatch(createComposer(savedId));
+    store.dispatch(applyComposerSurface(savedId, { kind: 'group', key: '123' }, groupPostingContext, '123'));
+    await store.dispatch(maybeAutoSelectPortablePostingStyle(savedId));
+
+    expect(selectedIdOf(store, savedId)).toEqual('plain-1');
+    expect(store.getState().getIn(['composers', 'byId', savedId, 'userPostingStyle', 'selectionOrigin'])).toEqual('saved_default');
+    expect(selectedIdOf(store, openId)).toBeNull();
+
+    await store.dispatch(resetUserPostingContextAssignment({ kind: 'group', key: '123' }));
+    await store.dispatch(maybeAutoSelectPortablePostingStyle(openId));
+    await store.dispatch(maybeAutoSelectPortablePostingStyle(savedId));
+
+    store.dispatch(createComposer(clearedId));
+    store.dispatch(applyComposerSurface(clearedId, { kind: 'group', key: '123' }, groupPostingContext, '123'));
+    await store.dispatch(maybeAutoSelectPortablePostingStyle(clearedId));
+
+    expect(assignmentOf(store, 'group', '123').get('assignmentStatus')).toEqual('unset');
+    expect(selectedIdOf(store, openId)).toBeNull();
+    expect(selectedIdOf(store, savedId)).toEqual('plain-1');
+    expect(selectedIdOf(store, clearedId)).toEqual('1');
+    expect(store.getState().getIn(['composers', 'byId', clearedId, 'userPostingStyle', 'selectionOrigin'])).toEqual('automatic');
   });
 });

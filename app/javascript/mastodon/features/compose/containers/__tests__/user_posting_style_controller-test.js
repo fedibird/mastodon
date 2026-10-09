@@ -121,4 +121,65 @@ describe('UserPostingStyleController place defaults', () => {
     expect(store.getState().getIn(['userPostingContextAssignments', 'bySurface', 'group:123', 'status'])).toEqual('failed');
     expect(store.getState().getIn(['userPostingContextAssignments', 'bySurface', 'group:456', 'status'])).toEqual('ready');
   });
+
+  it('selects the saved default when group context becomes ready', async () => {
+    const composerId = 'portable:group-column:123';
+    const store = createStore(reduce, ImmutableMap({
+      composers: composers(undefined, createComposer(composerId)),
+      userPostingStyles: userPostingStyles(undefined, { type: '@@INIT' }),
+      userPostingContextAssignments: userPostingContextAssignments(undefined, { type: '@@INIT' }),
+    }), applyMiddleware(thunk));
+
+    store.dispatch(applyComposerSurface(composerId, { kind: 'group', key: '123' }));
+
+    const get = jest.fn(path => (
+      String(path).includes('user_posting_context_assignments')
+        ? Promise.resolve({
+          data: {
+            surface: { kind: 'group', key: '123' },
+            status: 'style',
+            style_id: 'plain-1',
+            revision: 4,
+          },
+        })
+        : Promise.resolve({
+          data: [{
+            id: 'plain-1',
+            name: '共通',
+            revision: 1,
+            target: { kind: 'none', account_id: null, hashtag: null, label: null },
+            defaults: { visibility: 'public' },
+            managed: { hashtags: [] },
+          }],
+        })
+    ));
+
+    api.mockReturnValue({ get });
+
+    await act(async () => {
+      render(
+        <Provider store={store}>
+          <ComposerProvider composerId={composerId}>
+            <UserPostingStyleController />
+          </ComposerProvider>
+        </Provider>,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'userPostingStyle', 'selectedId'])).toBeNull();
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'userPostingStyle', 'defaultsSettledSurface'])).toBeNull();
+
+    await act(async () => {
+      store.dispatch(applyComposerSurface(composerId, { kind: 'group', key: '123' }, groupPostingContext, '123'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'userPostingStyle', 'selectedId'])).toEqual('plain-1');
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'userPostingStyle', 'selectionOrigin'])).toEqual('saved_default');
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'privacy'])).toEqual('public');
+  });
 });

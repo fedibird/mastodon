@@ -4,7 +4,7 @@ import { connect } from 'react-redux';
 import { fetchUserPostingContextAssignment } from '../../../actions/user_posting_context_assignments';
 import { fetchUserPostingStyles, maybeAutoSelectPortablePostingStyle, resolveUserPostingStyleDestination } from '../../../actions/user_posting_styles';
 import { isAdministrator } from '../../../initial_state';
-import { surfaceCacheKey } from '../../../posting_context/surface';
+import { portablePostingContextReady, surfaceCacheKey } from '../../../posting_context/surface';
 import { selectComposer } from '../../../selectors/composer';
 import { PRIMARY_COMPOSER_ID } from '../../../utils/composer';
 import { withComposerId } from '../composer_id_context';
@@ -30,6 +30,7 @@ const mapStateToProps = (state, { composerId }) => {
     surfaceKind: surface ? surface.get('kind') : null,
     surfaceKey: surface ? String(surface.get('key')) : null,
     contextKey: composer ? composer.getIn(['context', 'key']) : null,
+    postingContextReady: portablePostingContextReady(composer),
   };
 };
 
@@ -44,6 +45,7 @@ class UserPostingStyleController extends React.PureComponent {
     assignmentFetchStatus: PropTypes.string,
     surfaceKind: PropTypes.string,
     surfaceKey: PropTypes.string,
+    postingContextReady: PropTypes.bool,
     dispatch: PropTypes.func.isRequired,
     composerId: PropTypes.string,
   };
@@ -84,9 +86,9 @@ class UserPostingStyleController extends React.PureComponent {
   }
 
   autoSelectIfNeeded () {
-    const { portable, catalogStatus, assignmentFetchStatus, composerId, dispatch } = this.props;
+    const { portable, catalogStatus, assignmentFetchStatus, postingContextReady, composerId, dispatch } = this.props;
 
-    if (!portable || !isAdministrator || catalogStatus !== 'ready' || assignmentFetchStatus !== 'ready' || !composerId) {
+    if (!portable || !isAdministrator || catalogStatus !== 'ready' || assignmentFetchStatus !== 'ready' || !postingContextReady || !composerId) {
       return;
     }
 
