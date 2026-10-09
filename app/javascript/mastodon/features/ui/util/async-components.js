@@ -54,6 +54,18 @@ export function Lists () {
   return import(/* webpackChunkName: "features/lists" */'../../lists');
 }
 
+export function Mixes () {
+  return import(/* webpackChunkName: "features/mixes" */'../../mixes');
+}
+
+export function MixEditor () {
+  return import(/* webpackChunkName: "features/mixes" */'../../mixes/editor');
+}
+
+export function MixTimeline () {
+  return import(/* webpackChunkName: "features/mixes" */'../../mixes/timeline');
+}
+
 export function Status () {
   return import(/* webpackChunkName: "features/status" */'../../status');
 }

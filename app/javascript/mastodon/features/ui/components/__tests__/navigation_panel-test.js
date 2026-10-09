@@ -10,6 +10,8 @@ const flags = {
   enableFederatedTimeline: true,
   enableLocalTimeline: true,
   enablePersonalTimeline: false,
+  isAdministrator: false,
+  new_features_policy: 'default',
 };
 
 jest.mock('mastodon/initial_state', () => ({
@@ -33,6 +35,12 @@ jest.mock('mastodon/initial_state', () => ({
   },
   get enablePersonalTimeline () {
     return flags.enablePersonalTimeline;
+  },
+  get isAdministrator () {
+    return flags.isAdministrator;
+  },
+  get new_features_policy () {
+    return flags.new_features_policy;
   },
 }));
 
@@ -64,6 +72,8 @@ describe('NavigationPanel discovery links', () => {
     flags.trendsEnabled = true;
     flags.enableFederatedTimeline = true;
     flags.enableLocalTimeline = true;
+    flags.isAdministrator = false;
+    flags.new_features_policy = 'default';
   });
 
   it('places group directory, directory, and explore immediately after the federated timeline', () => {
@@ -110,5 +120,21 @@ describe('NavigationPanel discovery links', () => {
       '/directory',
       '/explore',
     ]);
+  });
+
+  it('shows Mix to administrators and beta testers', () => {
+    flags.isAdministrator = true;
+    renderPanel();
+
+    const adminLinks = hrefs();
+
+    expect(adminLinks).toContain('/mixes');
+    expect(adminLinks[adminLinks.indexOf('/lists') + 1]).toBe('/mixes');
+  });
+
+  it('hides Mix from accounts that are not administrators or beta testers', () => {
+    renderPanel();
+
+    expect(hrefs()).not.toContain('/mixes');
   });
 });

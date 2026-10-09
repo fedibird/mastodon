@@ -3,6 +3,7 @@ import { NavLink, withRouter } from 'react-router-dom';
 import { FormattedMessage } from 'react-intl';
 import Icon from 'mastodon/components/icon';
 import { profile_directory, trendsEnabled, showTrends, enableLimitedTimeline, enableFederatedTimeline, enableLocalTimeline, enablePersonalTimeline } from 'mastodon/initial_state';
+import { isMixEnabled } from 'mastodon/mix/availability';
 import NotificationsCounterIcon from './notifications_counter_icon';
 import FollowRequestsNavLink from './follow_requests_nav_link';
 import ScheduledStatusesNavLink from './scheduled_statuses_nav_link';
@@ -31,6 +32,7 @@ const NavigationPanel = () => (
     <NavLink className='column-link column-link--transparent' to='/bookmarks'><Icon className='column-link__icon' id='bookmark' fixedWidth /><FormattedMessage id='navigation_bar.bookmarks' defaultMessage='Bookmarks' /></NavLink>
     <NavLink className='column-link column-link--transparent' to='/emoji_reactions'><Icon className='column-link__icon' id='smile-o' fixedWidth /><FormattedMessage id='navigation_bar.emoji_reactions' defaultMessage='Emoji reactions' /></NavLink>
     <NavLink className='column-link column-link--transparent' to='/lists'><Icon className='column-link__icon' id='list-ul' fixedWidth /><FormattedMessage id='navigation_bar.lists' defaultMessage='Lists' /></NavLink>
+    {isMixEnabled() && <NavLink className='column-link column-link--transparent' to='/mixes' data-preview-title-id='column.mixes' data-preview-icon='random'><Icon className='column-link__icon' id='random' fixedWidth /><FormattedMessage id='navigation_bar.mixes' defaultMessage='Mix' /></NavLink>}
     <NavLink className='column-link column-link--transparent' to='/circles'><Icon className='column-link__icon' id='user-circle' fixedWidth /><FormattedMessage id='navigation_bar.circles' defaultMessage='Circles' /></NavLink>
 
     <ListPanel />
