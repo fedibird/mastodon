@@ -4,6 +4,7 @@ import { selectPostingContextRevalidation } from '../selectors/posting_context_r
 import { selectPostingContextDiscovery } from '../selectors/posting_contexts';
 import { selectComposerPostingContextCompliance } from './compliance';
 import { normalizeManagedHashtagName } from './managed_hashtags';
+import { managedMentionPlacement } from './managed_mentions';
 
 // Delivery support is keyed by the discovery adapter id.
 // Authority is copied from discovery and is never rewritten from permission
@@ -12,6 +13,8 @@ const SUPPORTED_DELIVERY_ADAPTERS = {
   fedibird_group: true,
   mitra_group: true,
   nodebb_group: true,
+  lemmy_group: true,
+  piefed_group: true,
 };
 
 const present = value => value !== null && value !== undefined && value !== '';
@@ -201,6 +204,7 @@ const ruleRecord = record => {
     acct: acctOf(record),
     enforcement: textOrNull(valueAt(record, 'enforcement')),
     ruleId: textOrNull(valueAt(record, 'ruleId')),
+    placement: managedMentionPlacement(record),
   };
 };
 

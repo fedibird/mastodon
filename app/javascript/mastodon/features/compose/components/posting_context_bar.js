@@ -13,6 +13,9 @@ const messages = defineMessages({
   audienceGroup: { id: 'compose_form.posting_context.audience_group', defaultMessage: 'Posting to group: @{acct}' },
   visibilityPublicOnly: { id: 'compose_form.posting_context.visibility.public_only', defaultMessage: 'This destination supports public posts only' },
   visibilityPublicUnlisted: { id: 'compose_form.posting_context.visibility.public_unlisted', defaultMessage: 'Visibility: Public or Unlisted' },
+  threadiverseLemmy: { id: 'compose_form.posting_context.threadiverse.lemmy', defaultMessage: 'The first line becomes the post title (100 characters max). The community mention is added automatically' },
+  threadiversePiefed: { id: 'compose_form.posting_context.threadiverse.piefed', defaultMessage: 'The community mention is added automatically' },
+  threadiverseWeakTitle: { id: 'compose_form.posting_context.threadiverse.weak_title', defaultMessage: 'An empty first line, or one with only a mention or hashtag, may not work as a title' },
   followSatisfied: { id: 'compose_form.posting_context.follow.satisfied', defaultMessage: '✓ Following @{acct}' },
   followUnknown: { id: 'compose_form.posting_context.follow.unknown', defaultMessage: 'Checking follow status for @{acct}…' },
   followRequested: { id: 'compose_form.posting_context.follow.requested', defaultMessage: 'Follow request to @{acct} is pending' },
@@ -137,6 +140,8 @@ class PostingContextBar extends React.PureComponent {
     onRecheck: PropTypes.func,
     onRefreshStatus: PropTypes.func,
     onWatch: PropTypes.func,
+    threadiverse: PropTypes.oneOf(['lemmy', 'piefed']),
+    weakTitle: PropTypes.bool,
   };
 
   componentDidMount () {
@@ -200,7 +205,7 @@ class PostingContextBar extends React.PureComponent {
   }
 
   render () {
-    const { intl, hashtags, suppressedHashtags, mentions, audience, visibility, followingAccounts, createNotice, canRecheck, revalidationNotice, revalidationActor, revalidationAffiliations, onToggle } = this.props;
+    const { intl, hashtags, suppressedHashtags, mentions, audience, visibility, followingAccounts, createNotice, canRecheck, revalidationNotice, revalidationActor, revalidationAffiliations, onToggle, threadiverse, weakTitle } = this.props;
     const hasHashtags = Boolean(hashtags && !hashtags.isEmpty());
     const requiredMentions = mentions ? mentions.filter(mention => mention.get('enforcement') === 'required' && mention.get('acct')) : null;
     const hasMentions = Boolean(requiredMentions && !requiredMentions.isEmpty());
@@ -214,8 +219,15 @@ class PostingContextBar extends React.PureComponent {
     const revalidationMessage = revalidationMessages[revalidationNotice];
     const showResume = revalidationNotice === 'interrupted' || revalidationNotice === 'timed_out';
     const showRecheck = Boolean(canRecheck && !showResume && revalidationNotice !== 'running');
+    let threadiverseMessage = null;
 
-    if (!hasHashtags && !hasMentions && !showAudience && !showVisibility && !showPublicOnly && !hasFollows && !createMessage && !showRecheck && !showResume && !revalidationMessage) {
+    if (threadiverse === 'lemmy') {
+      threadiverseMessage = messages.threadiverseLemmy;
+    } else if (threadiverse === 'piefed') {
+      threadiverseMessage = messages.threadiversePiefed;
+    }
+
+    if (!hasHashtags && !hasMentions && !showAudience && !showVisibility && !showPublicOnly && !hasFollows && !createMessage && !showRecheck && !showResume && !revalidationMessage && !threadiverseMessage && !weakTitle) {
       return null;
     }
 
@@ -273,6 +285,16 @@ class PostingContextBar extends React.PureComponent {
         {showPublicOnly && (
           <span className={classNames('compose-form__posting-context-visibility', { 'compose-form__posting-context-warning': !visibility.valid })}>
             {intl.formatMessage(messages.visibilityPublicOnly)}
+          </span>
+        )}
+        {threadiverseMessage && (
+          <span className='compose-form__posting-context-threadiverse'>
+            {intl.formatMessage(threadiverseMessage)}
+          </span>
+        )}
+        {weakTitle && (
+          <span className='compose-form__posting-context-threadiverse'>
+            {intl.formatMessage(messages.threadiverseWeakTitle)}
           </span>
         )}
         {hasFollows && followingAccounts.map(account => (

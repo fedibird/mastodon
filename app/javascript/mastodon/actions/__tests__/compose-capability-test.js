@@ -29,6 +29,7 @@ import { POSTING_CONTEXT_FETCH_SUCCESS } from '../posting_contexts';
 import { groupPostingContext } from '../../posting_context/fixtures/group_context_fixture';
 import { mitraGroupPostingContext } from '../../posting_context/fixtures/mitra_group_context_fixture';
 import { nodebbGroupPostingContext } from '../../posting_context/fixtures/nodebb_group_context_fixture';
+import { lemmyGroupPostingContext } from '../../posting_context/fixtures/threadiverse_group_context_fixture';
 import { buildHashtagTimelinePostingContext } from '../../posting_context/hashtag';
 import { selectComposerEffectiveCreateCapability } from '../../posting_context/create_capability';
 import composers from '../../reducers/composers';
@@ -383,5 +384,73 @@ describe('submit create capability', () => {
     expect(request.mock.calls[0][0].data.status).toEqual('Hello @category@nodebb.example');
     expect(request.mock.calls[0][0].data.audience_account_id).toEqual('456');
     expect(request.mock.calls[0][0].data.media_ids.toArray()).toEqual(['media-1']);
+  });
+
+  it('places a Lemmy community mention after the title on submit and keeps the draft text', async () => {
+    const request = jest.fn().mockResolvedValue({ data: statusResponse });
+    api.mockReturnValue({ request });
+    const store = makeStore();
+    const draft = 'Title line\n\nBody @bob@people.example';
+
+    store.dispatch(createComposer('composer-a'));
+    store.dispatch(targetComposerAction(changeComposeVisibility('unlisted'), 'composer-a'));
+    store.dispatch(targetComposerAction(changeCompose(draft), 'composer-a'));
+    store.dispatch(applyComposerPostingContext('composer-a', lemmyGroupPostingContext, '456'));
+    discover(store, '456', {
+      schema_version: 1,
+      account_id: '456',
+      status: 'resolved',
+      context: {
+        key: 'protocol:fep-1b12-lemmy:456',
+        source: { id: 'compat:lemmy-group-note', revision: 1 },
+        managed: {
+          hashtags: [],
+          mentions: [{
+            account_id: '456',
+            acct: 'technology@lemmy.example',
+            enforcement: 'required',
+            rule_id: 'lemmy-group-mention',
+            placement: 'after_title',
+          }],
+        },
+        requirements: { following_accounts: [] },
+        constraints: { allowed_visibilities: ['public'] },
+        protocol: {
+          activitypub: {
+            audience: {
+              account_id: '456',
+              acct: 'technology@lemmy.example',
+              enforcement: 'required',
+              rule_id: 'fep-1b12-group-audience',
+            },
+          },
+        },
+      },
+      discovery: {
+        mechanism: 'nodeinfo_software',
+        adapter: 'lemmy_group',
+        authority: 'compatibility',
+      },
+      viewer_evidence: permissions({
+        status: 'unknown',
+        source: 'fep-5219',
+        via_relationship: null,
+        authority: 'protocol',
+      }),
+    });
+
+    await store.dispatch(submitComposerWithCheck('composer-a', router, intl));
+
+    expect(request).not.toHaveBeenCalled();
+    expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'privacy'])).toEqual('unlisted');
+    expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'text'])).toEqual(draft);
+
+    store.dispatch(targetComposerAction(changeComposeVisibility('public'), 'composer-a'));
+    await store.dispatch(submitComposerWithCheck('composer-a', router, intl));
+
+    expect(request.mock.calls[0][0].data.status).toEqual('Title line\n@technology@lemmy.example\n\nBody @bob@people.example');
+    expect(request.mock.calls[0][0].data.visibility).toEqual('public');
+    expect(request.mock.calls[0][0].data.audience_account_id).toEqual('456');
+    expect(store.getState().getIn(['composers', 'byId', 'composer-a', 'text'])).toEqual(draft);
   });
 });

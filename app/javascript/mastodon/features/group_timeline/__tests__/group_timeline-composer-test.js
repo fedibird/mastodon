@@ -11,6 +11,7 @@ import settingsReducer from 'mastodon/reducers/settings';
 import { groupPostingContext } from '../../../posting_context/fixtures/group_context_fixture';
 import { mitraGroupPostingContext } from '../../../posting_context/fixtures/mitra_group_context_fixture';
 import { nodebbGroupPostingContext } from '../../../posting_context/fixtures/nodebb_group_context_fixture';
+import { lemmyGroupPostingContext } from '../../../posting_context/fixtures/threadiverse_group_context_fixture';
 
 jest.mock('react-intl', () => {
   const React = require('react');
@@ -498,6 +499,34 @@ describe('GroupTimeline portable composer', () => {
       },
     ]);
     expect(props.prepend.props.postingContext.protocol.activityPub.audience.accountId).toEqual('456');
+  });
+
+  it('prepends a Lemmy community context with an after-title mention', () => {
+    const GroupTimeline = loadTimeline({ isAdministrator: true });
+    const account = ImmutableMap({
+      id: '456',
+      username: 'technology',
+      acct: 'technology@lemmy.example',
+      group: true,
+      display_name: 'Technology',
+    });
+    const props = renderTimeline(GroupTimeline, {
+      account,
+      discovery: discoveryRecord('resolved', lemmyGroupPostingContext),
+      visibility: { 'portable:group-route:456': true },
+    }).props;
+
+    expect(props.prepend.props.postingContext.key).toEqual('protocol:fep-1b12-lemmy:456');
+    expect(props.prepend.props.postingContext.managed.mentions).toEqual([
+      {
+        accountId: '456',
+        acct: 'technology@lemmy.example',
+        enforcement: 'required',
+        ruleId: 'lemmy-group-mention',
+        placement: 'after_title',
+      },
+    ]);
+    expect(props.prepend.props.postingContext.constraints.allowedVisibilities).toEqual(['public']);
   });
 
   it('keeps the composer mounted while a resolved context is refreshing', () => {

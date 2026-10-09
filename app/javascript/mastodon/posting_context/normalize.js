@@ -1,3 +1,5 @@
+import { managedMentionPlacement } from './managed_mentions';
+
 // This normalizes Fedibird's REST discovery response into the internal
 // Composer Posting Context descriptor.
 //
@@ -8,6 +10,11 @@ const normalizeManagedRecord = (record) => ({
   acct: record.acct,
   enforcement: record.enforcement,
   ruleId: record.rule_id,
+});
+
+const normalizeMentionRecord = (record) => ({
+  ...normalizeManagedRecord(record),
+  placement: managedMentionPlacement(record),
 });
 
 const normalizeHashtag = (hashtag) => ({
@@ -58,7 +65,7 @@ export function normalizePostingContext(context) {
     } : null,
     managed: {
       hashtags: (hashtags || []).map(normalizeHashtag),
-      mentions: (mentions || []).map(normalizeManagedRecord),
+      mentions: (mentions || []).map(normalizeMentionRecord),
     },
     requirements: {
       followingAccounts: (followingAccounts || []).map(normalizeManagedRecord),

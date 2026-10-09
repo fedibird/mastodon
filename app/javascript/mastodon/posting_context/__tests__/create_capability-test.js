@@ -11,6 +11,7 @@ import composers from '../../reducers/composers';
 import { groupPostingContext } from '../fixtures/group_context_fixture';
 import { mitraGroupPostingContext } from '../fixtures/mitra_group_context_fixture';
 import { nodebbGroupPostingContext, nodebbGroupPostingContextFor } from '../fixtures/nodebb_group_context_fixture';
+import { lemmyGroupPostingContext, lemmyGroupPostingContextFor, piefedGroupPostingContext, piefedGroupPostingContextFor } from '../fixtures/threadiverse_group_context_fixture';
 import { buildHashtagTimelinePostingContext } from '../hashtag';
 import { createCapabilityNotice, selectComposerEffectiveCreateCapability } from '../create_capability';
 
@@ -849,5 +850,72 @@ describe('selectComposerEffectiveCreateCapability', () => {
     expect(failed.permission.confirmed).toBe(false);
     expect(failed.canAttempt).toBe(true);
     expect(createCapabilityNotice(failed)).not.toBe('allowed_compatibility');
+  });
+
+  it.each([
+    ['lemmy_group', lemmyGroupPostingContext, lemmyGroupPostingContextFor],
+    ['piefed_group', piefedGroupPostingContext, piefedGroupPostingContextFor],
+  ])('attempts a public %s post when create is unknown and blocks unlisted without rewriting it', (adapter, context, contextFor) => {
+    const discovery = (evidence, extras = {}) => discoveryRecord({
+      adapter,
+      authority: 'compatibility',
+      viewerEvidence: evidence,
+      ...extras,
+    });
+    const state = primaryState({
+      postingContext: context,
+      accountId: '456',
+      discovery: discovery(viewerEvidence(permissionEvidence('unknown'))),
+    });
+    const capability = capabilityFor(state);
+    const unlisted = primaryState({
+      postingContext: context,
+      accountId: '456',
+      privacy: 'unlisted',
+      discovery: discovery(viewerEvidence(permissionEvidence('unknown'))),
+    });
+    const blocked = capabilityFor(unlisted);
+    const mismatched = capabilityFor(primaryState({
+      postingContext: context,
+      accountId: '456',
+      discovery: discovery(viewerEvidence(permissionEvidence('unknown')), {
+        context: contextFor('789', 'other@example'),
+      }),
+      discoveryAccountId: '789',
+    }).setIn(['compose', 'posting_context_account_id'], '789'));
+    const completed = capabilityFor(primaryState({
+      postingContext: context,
+      accountId: '456',
+      discovery: discovery(viewerEvidence(permissionEvidence('unknown'))),
+    }).set('posting_context_revalidations', fromJS({
+      '456': { state: 'completed', explicit: true, actor: 'refreshed', affiliations: 'refreshed' },
+    })));
+    const moved = {
+      ...context,
+      managed: {
+        ...context.managed,
+        mentions: [{ ...context.managed.mentions[0], placement: 'prepend' }],
+      },
+    };
+    const placementMismatch = capabilityFor(primaryState({
+      postingContext: context,
+      accountId: '456',
+      discovery: discovery(viewerEvidence(permissionEvidence('unknown')), { context: moved }),
+    }));
+
+    expect(capability.delivery).toEqual({ status: 'supported', authority: 'compatibility', adapter });
+    expect(capability.permission.status).toBe('unknown');
+    expect(capability.compliance.visibility.allowed).toEqual(['public']);
+    expect(capability.canAttempt).toBe(true);
+    expect(createCapabilityNotice(capability)).toBe('unknown_compatibility');
+    expect(unlisted.getIn(['compose', 'privacy'])).toBe('unlisted');
+    expect(blocked.canAttempt).toBe(false);
+    expect(blocked.reason).toBe('compliance');
+    expect(mismatched.reason).toBe('target_mismatch');
+    expect(completed.permission.status).toBe('unknown');
+    expect(completed.permission.confirmed).toBe(false);
+    expect(completed.canAttempt).toBe(true);
+    expect(placementMismatch.reason).toBe('target_mismatch');
+    expect(placementMismatch.canAttempt).toBe(false);
   });
 });

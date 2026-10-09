@@ -70,6 +70,7 @@ import { USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DESTINATION, USER_POSTING
 import { Map as ImmutableMap, List as ImmutableList, Set as ImmutableSet, OrderedSet as ImmutableOrderedSet, fromJS } from 'immutable';
 import uuid from '../uuid';
 import { normalizeManagedHashtagName } from '../posting_context/managed_hashtags';
+import { managedMentionPlacement } from '../posting_context/managed_mentions';
 import { isExistingPostEdit, postingContextOutputSignature } from '../posting_context/materialize';
 import {
   abandonStyleDestination,
@@ -230,6 +231,7 @@ const managedMentionRecord = mention => ImmutableMap({
   acct: mention && mention.acct ? String(mention.acct).replace(/^@+/u, '') : null,
   enforcement: (mention && mention.enforcement) || 'required',
   ruleId: (mention && mention.ruleId) || null,
+  placement: managedMentionPlacement(mention),
 });
 
 const followingAccountRecord = requirement => ImmutableMap({
