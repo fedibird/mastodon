@@ -66,7 +66,7 @@ import {
 import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { REDRAFT } from '../actions/statuses';
 import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE, COMPOSER_SURFACE_ACCEPT } from '../actions/composer';
-import { USER_POSTING_STYLE_AUTO_ATTEMPT, USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DESTINATION, USER_POSTING_STYLE_DESTINATION_RETRY, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../actions/user_posting_styles';
+import { USER_POSTING_STYLE_AUTO_ATTEMPT, USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DEFAULTS_SETTLED, USER_POSTING_STYLE_DESTINATION, USER_POSTING_STYLE_DESTINATION_RETRY, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../actions/user_posting_styles';
 import { Map as ImmutableMap, List as ImmutableList, Set as ImmutableSet, OrderedSet as ImmutableOrderedSet, fromJS } from 'immutable';
 import uuid from '../uuid';
 import { normalizeManagedHashtagName } from '../posting_context/managed_hashtags';
@@ -757,6 +757,8 @@ export default function composer(state = initialState, action) {
   }
   case USER_POSTING_STYLE_AUTO_ATTEMPT:
     return state.setIn(['userPostingStyle', 'autoAttemptKey'], action.autoAttemptKey);
+  case USER_POSTING_STYLE_DEFAULTS_SETTLED:
+    return state.setIn(['userPostingStyle', 'defaultsSettledSurface'], action.surfaceKey || null);
   case USER_POSTING_STYLE_COMMIT:
     return commitUserPostingStyle(state, action);
   case USER_POSTING_STYLE_DESTINATION:

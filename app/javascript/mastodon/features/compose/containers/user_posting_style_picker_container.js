@@ -4,10 +4,10 @@ import { connect } from 'react-redux';
 import { injectIntl, defineMessages } from 'react-intl';
 import { List as ImmutableList } from 'immutable';
 import { openModal } from '../../../actions/modal';
-import { fetchUserPostingContextAssignment, resetUserPostingContextAssignment, saveUserPostingContextAssignment } from '../../../actions/user_posting_context_assignments';
+import { fetchUserPostingContextAssignment, resetGuardedPlaceDefault, saveGuardedPlaceDefault } from '../../../actions/user_posting_context_assignments';
 import { commitUserPostingStyle, fetchUserPostingStyles, retryUserPostingStyleDestination } from '../../../actions/user_posting_styles';
 import { selectComposerPostingContextCompliance } from '../../../posting_context/compliance';
-import { selectPortablePostingStyleCandidates, styleMatchesSurface, surfaceCacheKey } from '../../../posting_context/surface';
+import { placeDefaultWriteSurface, selectPortablePostingStyleCandidates, styleMatchesSurface, surfaceCacheKey } from '../../../posting_context/surface';
 import { resolveUserPostingStyle } from '../../../posting_context/user_style_resolver';
 import { PORTABLE_COMPOSER_MODE_SIMPLE, selectComposer, selectPortableComposerDisplayMode } from '../../../selectors/composer';
 import { PRIMARY_COMPOSER_ID } from '../../../utils/composer';
@@ -68,6 +68,7 @@ const mapStateToProps = (state, { composerId }) => {
     assignmentStatus: assignment ? assignment.get('assignmentStatus') : null,
     assignmentStyleId: assignment ? assignment.get('styleId') : null,
     assignmentFailure: assignment ? assignment.get('failure') : null,
+    defaultsBlocked: portable && !placeDefaultWriteSurface(composer),
   };
 };
 
@@ -114,40 +115,13 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => {
       dispatch(fetchUserPostingStyles({ force: true }));
     },
     onSaveDefault (styleId) {
-      dispatch((_, getState) => {
-        const composer = selectComposer(getState(), composerId);
-        const surface = composer && composer.get('surface');
-
-        if (!surface) {
-          return;
-        }
-
-        dispatch(saveUserPostingContextAssignment({ kind: surface.get('kind'), key: surface.get('key') }, styleId));
-      });
+      dispatch(saveGuardedPlaceDefault(composerId, styleId));
     },
     onUseNoStyle () {
-      dispatch((_, getState) => {
-        const composer = selectComposer(getState(), composerId);
-        const surface = composer && composer.get('surface');
-
-        if (!surface) {
-          return;
-        }
-
-        dispatch(saveUserPostingContextAssignment({ kind: surface.get('kind'), key: surface.get('key') }, null));
-      });
+      dispatch(saveGuardedPlaceDefault(composerId, null));
     },
     onResetDefault () {
-      dispatch((_, getState) => {
-        const composer = selectComposer(getState(), composerId);
-        const surface = composer && composer.get('surface');
-
-        if (!surface) {
-          return;
-        }
-
-        dispatch(resetUserPostingContextAssignment({ kind: surface.get('kind'), key: surface.get('key') }));
-      });
+      dispatch(resetGuardedPlaceDefault(composerId));
     },
     onRetryAssignment () {
       dispatch((_, getState) => {

@@ -244,6 +244,7 @@
   "compose_form.posting_style.confirm_message": "書きかけの投稿です。投稿先や公開範囲が変わることがあります。適用しますか？",
   "compose_form.posting_style.conflict": "公開範囲が投稿先の条件と合わないため投稿できません",
   "compose_form.posting_style.default_auto": "自動選択に戻す",
+  "compose_form.posting_style.default_blocked": "投稿先がまだ確定していないので、この場所の既定は変更できません。",
   "compose_form.posting_style.default_failed": "この場所の既定を保存できませんでした。",
   "compose_form.posting_style.default_label": "この場所の既定",
   "compose_form.posting_style.default_load_failed": "この場所の既定を読み込めませんでした。",

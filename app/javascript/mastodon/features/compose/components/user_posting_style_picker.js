@@ -29,6 +29,7 @@ const messages = defineMessages({
   defaultFailed: { id: 'compose_form.posting_style.default_failed', defaultMessage: 'Couldn’t save the default for this place.' },
   defaultLoadFailed: { id: 'compose_form.posting_style.default_load_failed', defaultMessage: 'Couldn’t load the default for this place.' },
   defaultRetry: { id: 'compose_form.posting_style.default_retry', defaultMessage: 'Reload the default for this place' },
+  defaultBlocked: { id: 'compose_form.posting_style.default_blocked', defaultMessage: 'This draft’s destination isn’t confirmed, so the default for this place can’t be changed.' },
   unapplied: { id: 'compose_form.posting_style.unapplied', defaultMessage: 'Not applied: {fields}' },
   conflict: { id: 'compose_form.posting_style.conflict', defaultMessage: 'Can’t post because visibility does not meet the destination' },
   fieldPrivacy: { id: 'compose_form.posting_style.field.privacy', defaultMessage: 'visibility' },
@@ -87,6 +88,7 @@ class UserPostingStylePicker extends React.PureComponent {
     assignmentStatus: PropTypes.string,
     assignmentStyleId: PropTypes.string,
     assignmentFailure: PropTypes.string,
+    defaultsBlocked: PropTypes.bool,
   };
 
   state = {
@@ -219,9 +221,9 @@ class UserPostingStylePicker extends React.PureComponent {
   };
 
   handleSaveDefault = () => {
-    const { onSaveDefault, selectedId, assignmentFetchStatus } = this.props;
+    const { onSaveDefault, selectedId, assignmentFetchStatus, defaultsBlocked } = this.props;
 
-    if (!onSaveDefault || !selectedId || assignmentFetchStatus === 'saving') {
+    if (!onSaveDefault || !selectedId || assignmentFetchStatus === 'saving' || defaultsBlocked) {
       return;
     }
 
@@ -229,9 +231,9 @@ class UserPostingStylePicker extends React.PureComponent {
   };
 
   handleUseNoStyle = () => {
-    const { onUseNoStyle, assignmentFetchStatus } = this.props;
+    const { onUseNoStyle, assignmentFetchStatus, defaultsBlocked } = this.props;
 
-    if (!onUseNoStyle || assignmentFetchStatus === 'saving') {
+    if (!onUseNoStyle || assignmentFetchStatus === 'saving' || defaultsBlocked) {
       return;
     }
 
@@ -239,9 +241,9 @@ class UserPostingStylePicker extends React.PureComponent {
   };
 
   handleResetDefault = () => {
-    const { onResetDefault, assignmentFetchStatus } = this.props;
+    const { onResetDefault, assignmentFetchStatus, defaultsBlocked } = this.props;
 
-    if (!onResetDefault || assignmentFetchStatus === 'saving') {
+    if (!onResetDefault || assignmentFetchStatus === 'saving' || defaultsBlocked) {
       return;
     }
 
@@ -323,9 +325,33 @@ class UserPostingStylePicker extends React.PureComponent {
       && assignmentStyleId === selectedId;
   }
 
+  renderDefaultFailure () {
+    const { intl, assignmentFetchStatus, assignmentFailure, onRetryAssignment } = this.props;
+
+    if (assignmentFailure === 'save') {
+      return <p className='compose-form__style-notice'>{intl.formatMessage(messages.defaultFailed)}</p>;
+    }
+
+    if (assignmentFetchStatus !== 'failed') {
+      return null;
+    }
+
+    return (
+      <React.Fragment>
+        <p className='compose-form__style-notice'>{intl.formatMessage(messages.defaultLoadFailed)}</p>
+        {onRetryAssignment ? (
+          <button type='button' className='compose-form__style-retry' onClick={onRetryAssignment}>
+            {intl.formatMessage(messages.defaultRetry)}
+          </button>
+        ) : null}
+      </React.Fragment>
+    );
+  }
+
   renderDefaultActions () {
     const {
       intl,
+      compact,
       showDefaults,
       selectedId,
       assignmentFetchStatus,
@@ -333,8 +359,7 @@ class UserPostingStylePicker extends React.PureComponent {
       onSaveDefault,
       onUseNoStyle,
       onResetDefault,
-      onRetryAssignment,
-      assignmentFailure,
+      defaultsBlocked,
     } = this.props;
 
     if (!showDefaults || !onSaveDefault || !onUseNoStyle || !onResetDefault) {
@@ -345,35 +370,36 @@ class UserPostingStylePicker extends React.PureComponent {
       return null;
     }
 
+    const failure = this.renderDefaultFailure();
+
+    // Simple mode keeps the text area clear. The three saved-default
+    // actions appear in the open style menu, separate from its radios.
+    if (compact && !this.state.open) {
+      return failure;
+    }
+
     const saving = assignmentFetchStatus === 'saving';
     const ready = assignmentFetchStatus === 'ready';
     const known = ready || assignmentFetchStatus === 'failed';
+    const blocked = Boolean(defaultsBlocked);
     const usePressed = this.savedStyleMatches();
     const nonePressed = ready && assignmentStatus === 'none';
     const autoPressed = ready && assignmentStatus === 'unset';
 
     return (
       <div className='compose-form__style-defaults' role='group' aria-label={intl.formatMessage(messages.defaultLabel)} data-posting-style-defaults='true'>
+        <p className='compose-form__style-default-heading'>{intl.formatMessage(messages.defaultLabel)}</p>
+        {blocked ? <p className='compose-form__style-default-status'>{intl.formatMessage(messages.defaultBlocked)}</p> : null}
         {saving ? <p className='compose-form__style-default-status'>{intl.formatMessage(messages.defaultSaving)}</p> : null}
-        {ready && usePressed ? <p className='compose-form__style-default-status'>{intl.formatMessage(messages.defaultSaved)}</p> : null}
-        {ready && assignmentStatus === 'none' ? <p className='compose-form__style-default-status'>{intl.formatMessage(messages.defaultNoneSaved)}</p> : null}
-        {ready && assignmentStatus === 'unavailable' ? <p className='compose-form__style-default-status'>{intl.formatMessage(messages.defaultUnavailable)}</p> : null}
-        {assignmentFailure === 'save' ? <p className='compose-form__style-notice'>{intl.formatMessage(messages.defaultFailed)}</p> : null}
-        {assignmentFetchStatus === 'failed' && assignmentFailure !== 'save' ? (
-          <React.Fragment>
-            <p className='compose-form__style-notice'>{intl.formatMessage(messages.defaultLoadFailed)}</p>
-            {onRetryAssignment ? (
-              <button type='button' className='compose-form__style-retry' onClick={onRetryAssignment}>
-                {intl.formatMessage(messages.defaultRetry)}
-              </button>
-            ) : null}
-          </React.Fragment>
-        ) : null}
+        {!blocked && ready && usePressed ? <p className='compose-form__style-default-status'>{intl.formatMessage(messages.defaultSaved)}</p> : null}
+        {!blocked && ready && assignmentStatus === 'none' ? <p className='compose-form__style-default-status'>{intl.formatMessage(messages.defaultNoneSaved)}</p> : null}
+        {!blocked && ready && assignmentStatus === 'unavailable' ? <p className='compose-form__style-default-status'>{intl.formatMessage(messages.defaultUnavailable)}</p> : null}
+        {failure}
         <button
           type='button'
           className='compose-form__style-default-action'
           aria-pressed={usePressed}
-          disabled={!known || saving || !selectedId || usePressed}
+          disabled={blocked || !known || saving || !selectedId || usePressed}
           onClick={this.handleSaveDefault}
         >
           {intl.formatMessage(messages.defaultUse)}
@@ -382,7 +408,7 @@ class UserPostingStylePicker extends React.PureComponent {
           type='button'
           className='compose-form__style-default-action'
           aria-pressed={nonePressed}
-          disabled={!known || saving || nonePressed}
+          disabled={blocked || !known || saving || nonePressed}
           onClick={this.handleUseNoStyle}
         >
           {intl.formatMessage(messages.defaultNone)}
@@ -391,7 +417,7 @@ class UserPostingStylePicker extends React.PureComponent {
           type='button'
           className='compose-form__style-default-action'
           aria-pressed={autoPressed}
-          disabled={!known || saving || autoPressed}
+          disabled={blocked || !known || saving || autoPressed}
           onClick={this.handleResetDefault}
         >
           {intl.formatMessage(messages.defaultAuto)}
@@ -467,7 +493,7 @@ class UserPostingStylePicker extends React.PureComponent {
         </button>
         {label ? <div className='compose-form__style-current-destination'>{intl.formatMessage(messages.destination, { label })}</div> : null}
         {this.state.open && (
-          <div className='compose-form__style-menu'>
+          <div className={classNames('compose-form__style-menu', { 'compose-form__style-menu--sectioned': compact })}>
             <div
               id={this.menuId}
               className='compose-form__style-options'
@@ -479,12 +505,14 @@ class UserPostingStylePicker extends React.PureComponent {
               {this.renderOption(null)}
               {this.props.styles && this.props.styles.map(style => this.renderOption(style))}
             </div>
+            {compact ? defaultActions : null}
             <a className='compose-form__style-settings' href='/settings/user_posting_contexts'>
               {intl.formatMessage(messages.settings)}
             </a>
           </div>
         )}
-        {defaultActions}
+        {compact && !this.state.open ? defaultActions : null}
+        {compact ? null : defaultActions}
         {this.renderNotices()}
       </div>
     );

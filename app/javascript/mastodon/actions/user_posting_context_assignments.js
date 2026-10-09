@@ -1,5 +1,6 @@
 import api from '../api';
-import { assignmentSurface, surfaceCacheKey, surfacesEqual } from '../posting_context/surface';
+import { assignmentSurface, placeDefaultWriteSurface, surfaceCacheKey, surfacesEqual } from '../posting_context/surface';
+import { selectComposer } from '../selectors/composer';
 
 export const USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_REQUEST = 'USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_REQUEST';
 export const USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_SUCCESS = 'USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_SUCCESS';
@@ -49,7 +50,9 @@ export function fetchUserPostingContextAssignment(surface, { force = false } = {
 
     const status = getState().getIn(['userPostingContextAssignments', 'bySurface', key, 'status']);
 
-    if (!force && (status === 'loading' || status === 'ready' || status === 'saving')) {
+    // A failed read stays failed until the user retries. Repeating the
+    // controller update must not issue the same GET again.
+    if (!force && (status === 'loading' || status === 'ready' || status === 'saving' || status === 'failed')) {
       return Promise.resolve();
     }
 
@@ -174,4 +177,30 @@ export function resetUserPostingContextAssignment(surface) {
       surface_key: requested.key,
     },
   }));
+}
+
+const guardedSurface = (getState, composerId) => placeDefaultWriteSurface(selectComposer(getState(), composerId));
+
+export function saveGuardedPlaceDefault(composerId, styleId) {
+  return (dispatch, getState) => {
+    const surface = guardedSurface(getState, composerId);
+
+    if (!surface) {
+      return Promise.resolve();
+    }
+
+    return dispatch(saveUserPostingContextAssignment(surface, styleId));
+  };
+}
+
+export function resetGuardedPlaceDefault(composerId) {
+  return (dispatch, getState) => {
+    const surface = guardedSurface(getState, composerId);
+
+    if (!surface) {
+      return Promise.resolve();
+    }
+
+    return dispatch(resetUserPostingContextAssignment(surface));
+  };
 }

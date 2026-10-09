@@ -16,6 +16,7 @@ export const USER_POSTING_STYLE_DESTINATION = 'USER_POSTING_STYLE_DESTINATION';
 export const USER_POSTING_STYLE_DESTINATION_RETRY = 'USER_POSTING_STYLE_DESTINATION_RETRY';
 export const USER_POSTING_STYLE_HASHTAG_TOGGLE = 'USER_POSTING_STYLE_HASHTAG_TOGGLE';
 export const USER_POSTING_STYLE_AUTO_ATTEMPT = 'USER_POSTING_STYLE_AUTO_ATTEMPT';
+export const USER_POSTING_STYLE_DEFAULTS_SETTLED = 'USER_POSTING_STYLE_DEFAULTS_SETTLED';
 
 const selectStyle = (state, styleId) => {
   const styles = state.getIn(['userPostingStyles', 'styles']);
@@ -209,21 +210,47 @@ export function maybeAutoSelectPortablePostingStyle(composerId) {
     const cacheKey = surfaceCacheKey(surface);
     const assignment = cacheKey && getState().getIn(['userPostingContextAssignments', 'bySurface', cacheKey]);
 
-    if (!composer || !surface || !assignment || assignment.get('status') !== 'ready') {
+    if (!composer || !surface || !assignment || assignment.get('status') !== 'ready' || composer.get('surfaceMismatch')) {
+      return Promise.resolve();
+    }
+
+    // A save makes the same place ready again. Composers that already
+    // considered this place keep their draft; a composer that has not
+    // considered it yet can still take the saved default.
+    if (composer.getIn(['userPostingStyle', 'defaultsSettledSurface']) === cacheKey) {
       return Promise.resolve();
     }
 
     const styles = getState().getIn(['userPostingStyles', 'styles']);
     const style = selectPortableAutoStyle(styles, composer, assignment);
+    const styleId = assignment.get('styleId');
+    const listed = Boolean(styles && styles.find && styleId && styles.find(item => item.get('id') === String(styleId)));
+
+    // The saved style may arrive with a later catalog read. Deciding now
+    // would freeze this composer before that style can be considered.
+    if (assignment.get('assignmentStatus') === 'style' && styleId && !listed) {
+      return Promise.resolve();
+    }
+
+    dispatch(targetComposerAction({
+      type: USER_POSTING_STYLE_DEFAULTS_SETTLED,
+      surfaceKey: cacheKey,
+    }, composerId));
 
     if (!style) {
+      return Promise.resolve();
+    }
+
+    const current = selectComposer(getState(), composerId);
+
+    if (!current) {
       return Promise.resolve();
     }
 
     const origin = assignment.get('assignmentStatus') === 'style' ? 'saved_default' : 'automatic';
     const attemptKey = `${surface.get('kind')}:${surface.get('key')}:${origin}:${style.get('id')}`;
 
-    if (composer.getIn(['userPostingStyle', 'autoAttemptKey']) === attemptKey) {
+    if (current.getIn(['userPostingStyle', 'autoAttemptKey']) === attemptKey) {
       return Promise.resolve();
     }
 

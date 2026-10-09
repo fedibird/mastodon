@@ -56,6 +56,32 @@ export function surfaceCacheKey(surface) {
   return normalized ? `${normalized.kind}:${normalized.key}` : null;
 }
 
+// The place whose default may be written. A draft whose displayed place
+// differs from the place it still belongs to is not safe to update.
+export function placeDefaultWriteSurface(composer) {
+  if (!composer || composer.get('surfaceMismatch')) {
+    return null;
+  }
+
+  const surface = assignmentSurface(composer.get('surface'));
+
+  if (!surface) {
+    return null;
+  }
+
+  const displayed = composer.get('displayedSurface');
+
+  if (displayed) {
+    const shown = assignmentSurface(displayed);
+
+    if (!shown || !surfacesEqual(shown, surface)) {
+      return null;
+    }
+  }
+
+  return surface;
+}
+
 export function surfacesEqual(left, right) {
   const first = normalizeSurface(left);
   const second = normalizeSurface(right);

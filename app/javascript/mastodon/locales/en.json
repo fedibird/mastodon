@@ -244,6 +244,7 @@
   "compose_form.posting_style.confirm_message": "The destination or visibility of this draft may change. Apply this posting style?",
   "compose_form.posting_style.conflict": "Can’t post because visibility does not meet the destination",
   "compose_form.posting_style.default_auto": "Return to automatic selection",
+  "compose_form.posting_style.default_blocked": "This draft’s destination isn’t confirmed, so the default for this place can’t be changed.",
   "compose_form.posting_style.default_failed": "Couldn’t save the default for this place.",
   "compose_form.posting_style.default_label": "Default for this place",
   "compose_form.posting_style.default_load_failed": "Couldn’t load the default for this place.",

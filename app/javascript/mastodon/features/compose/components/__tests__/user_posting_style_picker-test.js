@@ -282,9 +282,118 @@ describe('UserPostingStylePicker', () => {
 
     expect(screen.getByText('Couldn’t save the default for this place.')).toBeTruthy();
     expect(screen.queryByText('This place uses this style by default')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Always use this style here' }).getAttribute('role')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Always use this style here' })).not.toBeInTheDocument();
     expect(document.querySelector('.compose-form__style--compact')).toBeTruthy();
     expect(screen.getByRole('button', { name: /読書メモ/ })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /読書メモ/ }));
+
+    const failedSave = screen.getByRole('button', { name: 'Always use this style here' });
+
+    expect(failedSave.getAttribute('role')).toBeNull();
+    expect(failedSave.closest('[role="menu"]')).toBeNull();
+    expect(failedSave.closest('.compose-form__style-menu')).toBeTruthy();
+  });
+
+  it('keeps simple-mode default actions in the open menu and out of the radio group', () => {
+    const onSelect = jest.fn();
+    const onUseNoStyle = jest.fn();
+
+    render(
+      <UserPostingStylePicker
+        styles={styles}
+        selectedId='2'
+        snapshot={styles.get(1)}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        emptyLabel='place'
+        compact
+        onSelect={onSelect}
+        {...defaultProps}
+        assignmentStatus='style'
+        assignmentStyleId='2'
+        onUseNoStyle={onUseNoStyle}
+      />,
+    );
+
+    expect(screen.getByText('Default')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Always use this style here' })).not.toBeInTheDocument();
+    expect(document.querySelector('.compose-form__style-defaults')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /読書メモ/ }));
+
+    const useHere = screen.getByRole('button', { name: 'Always use this style here' });
+    const none = screen.getByRole('button', { name: 'Don’t use a style here' });
+    const menu = screen.getByRole('menu');
+
+    expect(useHere.closest('[role="menu"]')).toBeNull();
+    expect(useHere.closest('.compose-form__style-menu')).toBeTruthy();
+    expect(screen.getAllByRole('menuitemradio').some(item => item.textContent.includes('Always use this style here'))).toBe(false);
+    expect(document.activeElement.getAttribute('role')).toEqual('menuitemradio');
+
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+
+    expect(document.activeElement.getAttribute('role')).toEqual('menuitemradio');
+    expect(document.activeElement).not.toBe(useHere);
+
+    useHere.focus();
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+
+    expect(document.activeElement.getAttribute('role')).toEqual('menuitemradio');
+    expect(document.activeElement).not.toBe(useHere);
+
+    fireEvent.click(none);
+
+    expect(onUseNoStyle).toHaveBeenCalledTimes(1);
+    expect(onSelect).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Always use this style here' })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /読書メモ/ }));
+  });
+
+  it('blocks place-default changes while the destination is unconfirmed', () => {
+    const onSaveDefault = jest.fn();
+    const onUseNoStyle = jest.fn();
+    const onResetDefault = jest.fn();
+
+    render(
+      <UserPostingStylePicker
+        styles={styles}
+        selectedId='1'
+        snapshot={styles.get(0)}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        onSelect={jest.fn()}
+        {...defaultProps}
+        defaultsBlocked
+        onSaveDefault={onSaveDefault}
+        onUseNoStyle={onUseNoStyle}
+        onResetDefault={onResetDefault}
+      />,
+    );
+
+    expect(screen.getByText('This draft’s destination isn’t confirmed, so the default for this place can’t be changed.')).toBeTruthy();
+
+    const useHere = screen.getByRole('button', { name: 'Always use this style here' });
+    const none = screen.getByRole('button', { name: 'Don’t use a style here' });
+    const auto = screen.getByRole('button', { name: 'Return to automatic selection' });
+
+    expect(useHere).toBeDisabled();
+    expect(none).toBeDisabled();
+    expect(auto).toBeDisabled();
+
+    fireEvent.click(useHere);
+    fireEvent.click(none);
+    fireEvent.click(auto);
+
+    expect(onSaveDefault).not.toHaveBeenCalled();
+    expect(onUseNoStyle).not.toHaveBeenCalled();
+    expect(onResetDefault).not.toHaveBeenCalled();
   });
 
   it('offers a reload when the place default could not be loaded', () => {

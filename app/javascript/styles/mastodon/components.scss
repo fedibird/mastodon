@@ -699,6 +699,29 @@ body > [data-popper-placement] {
       max-width: 100%;
     }
 
+    &-menu &-defaults {
+      margin-top: 4px;
+      padding-top: 4px;
+      border-top: 1px solid $ui-base-color;
+    }
+
+    &-menu--sectioned {
+      overflow: hidden;
+      max-height: none;
+
+      .compose-form__style-options {
+        overflow: auto;
+        max-height: 12rem;
+      }
+    }
+
+    &-default-heading {
+      margin: 0;
+      color: $dark-text-color;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
     &-default-status {
       margin: 0;
       color: $dark-text-color;
@@ -914,6 +937,16 @@ body > [data-popper-placement] {
       .compose-form__style-default-status {
         color: $primary-text-color;
         font-size: 12px;
+      }
+
+      .compose-form__style-menu {
+        .compose-form__style-default-action,
+        .compose-form__style-default-status,
+        .compose-form__style-default-heading,
+        .compose-form__style-notice,
+        .compose-form__style-retry {
+          color: $inverted-text-color;
+        }
       }
     }
 
