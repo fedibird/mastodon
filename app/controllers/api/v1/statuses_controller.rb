@@ -83,10 +83,10 @@ class Api::V1::StatusesController < Api::BaseController
                                          status_reference_ids: delegated ? [] : Array(status_params[:status_reference_ids]).uniq.map(&:to_i),
                                          status_reference_urls: delegated ? [] : (status_params[:status_reference_urls] || []),
                                          searchability: status_params[:searchability],
-                                         audience_account_id: delegated ? nil : status_params[:audience_account_id],
-                                         allowed_mentions: delegated ? nil : status_params[:allowed_mentions]
+                                         audience_account_id: status_params[:audience_account_id],
+                                         allowed_mentions: delegated ? nil : status_params[:allowed_mentions],
+                                         posting_audit: delegated ? posting_audit_payload : nil
     )
-    PostingIdentity::PostAudit.record!(resolution: @posting_resolution, grantee: current_user, status: @status) if delegated
 
     render json: @status, serializer: @status.is_a?(ScheduledStatus) ? REST::ScheduledStatusSerializer : REST::StatusSerializer
   rescue PostStatusService::UnexpectedMentionsError => e
@@ -243,6 +243,14 @@ class Api::V1::StatusesController < Api::BaseController
   # Local posts keep idempotency:status:<account>:<key>. A delegated post
   # adds the grantee so it cannot collide with the account owner's own key
   # or with another person posting as the same account.
+  def posting_audit_payload
+    {
+      grantee_user_id: current_user.id,
+      delegation_id: @posting_resolution.delegation.id,
+      posting_account_id: @posting_resolution.account.id,
+    }
+  end
+
   def idempotency_for_sender
     raw = request.headers['Idempotency-Key'].presence
     return raw unless @posting_resolution.delegated?

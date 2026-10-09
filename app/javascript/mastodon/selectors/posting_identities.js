@@ -1,4 +1,5 @@
 import { isAdministrator, me } from '../initial_state';
+import { composerHasGroupDestination } from '../posting_identity/group_destination';
 import { sessionPostingIdentityId } from '../posting_identity/identity';
 import { selectComposer } from './composer';
 
@@ -124,7 +125,7 @@ export const selectComposerCanSendAsIdentity = (state, composerId) => {
         return deny('reply');
       }
 
-      if (composer.getIn(['surface', 'kind']) === 'group') {
+      if (composerHasGroupDestination(composer)) {
         return deny('group');
       }
 

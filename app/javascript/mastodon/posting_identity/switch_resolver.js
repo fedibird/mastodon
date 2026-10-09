@@ -1,3 +1,4 @@
+import { draftHasGroupDestination } from './group_destination';
 import { ENABLED_SENDER_KINDS, ENABLED_SENDER_PROVIDERS } from './identity';
 import { applyPostingStylePrecedence } from './style_precedence';
 
@@ -90,7 +91,7 @@ export function resolveSenderIdentitySwitch({
     reasons.push('quote');
   }
 
-  if (changing && source.groupId) {
+  if (changing && draftHasGroupDestination(source)) {
     reasons.push('group');
   }
 
@@ -181,6 +182,9 @@ export function composerSenderSwitchDraft(composer, viewerEvidence) {
     editingId: composer.get('id'),
     scheduled: composer.get('scheduled') || composer.get('scheduled_status_id'),
     groupId,
+    postingContextAccountId: composer.get('posting_context_account_id'),
+    resolvedAccountId: composer.getIn(['context', 'resolvedAccountId']),
+    activityPubAudience: composer.getIn(['context', 'protocol', 'activityPub', 'audience']),
     postingContext: {
       key: composer.getIn(['context', 'key']),
       locks: {},

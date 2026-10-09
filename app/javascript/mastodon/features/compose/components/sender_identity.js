@@ -67,6 +67,7 @@ class SenderIdentity extends React.PureComponent {
     compact: PropTypes.bool,
     choices: ImmutablePropTypes.list,
     selectedId: PropTypes.string,
+    sessionIdentityId: PropTypes.string,
     onSelect: PropTypes.func,
     blockReason: PropTypes.string,
     text: PropTypes.string,
@@ -115,14 +116,12 @@ class SenderIdentity extends React.PureComponent {
   };
 
   postableChoices () {
-    const { choices, current, selectedId } = this.props;
+    const { choices, sessionIdentityId } = this.props;
     const list = choices && choices.filter ? choices : null;
 
     if (!list) {
       return [];
     }
-
-    const currentId = (current && current.get('id')) || selectedId;
 
     const filtered = list.filter(item => {
       if (!item || item.get('authorization') !== 'ready') {
@@ -133,8 +132,8 @@ class SenderIdentity extends React.PureComponent {
         return item.getIn(['capabilities', 'post']) === 'supported';
       }
 
-      if (item.get('kind') === 'local' || !item.get('kind')) {
-        return item.get('id') === currentId || item.get('id') === selectedId;
+      if (item.get('kind') === 'local') {
+        return Boolean(sessionIdentityId) && item.get('id') === sessionIdentityId;
       }
 
       return false;
@@ -198,8 +197,10 @@ class SenderIdentity extends React.PureComponent {
     const authorization = current && current.get('authorization');
     const unavailable = authorization && authorization !== 'ready';
     const account = current && current.get('account') ? current.get('account') : current;
+    const { sessionIdentityId } = this.props;
     const choices = this.postableChoices();
-    const selectable = choices.length > 1;
+    const sessionChoice = choices.find(item => item.get('id') === sessionIdentityId);
+    const selectable = choices.length > 1 || Boolean(sessionChoice && selectedId && selectedId !== sessionIdentityId);
 
     return (
       <div

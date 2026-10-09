@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_09_160000) do
+ActiveRecord::Schema.define(version: 2026_10_09_171000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1950,10 +1950,9 @@ ActiveRecord::Schema.define(version: 2026_10_09_160000) do
   add_foreign_key "posting_identity_delegations", "accounts", column: "posting_account_id", on_delete: :cascade
   add_foreign_key "posting_identity_delegations", "users", column: "grantee_user_id", on_delete: :cascade
   add_foreign_key "posting_identity_delegations", "users", column: "grantor_user_id", on_delete: :cascade
-  add_foreign_key "posting_identity_posts", "accounts", column: "posting_account_id"
-  add_foreign_key "posting_identity_posts", "posting_identity_delegations", column: "delegation_id"
-  add_foreign_key "posting_identity_posts", "statuses"
-  add_foreign_key "posting_identity_posts", "users", column: "grantee_user_id"
+  add_foreign_key "posting_identity_posts", "accounts", column: "posting_account_id", on_delete: :cascade
+  add_foreign_key "posting_identity_posts", "posting_identity_delegations", column: "delegation_id", on_delete: :cascade
+  add_foreign_key "posting_identity_posts", "users", column: "grantee_user_id", on_delete: :cascade
   add_foreign_key "posting_identity_link_requests", "users", column: "requester_user_id", on_delete: :cascade
   add_foreign_key "posting_identity_link_requests", "posting_identity_request_allowances", column: "request_allowance_id", on_delete: :nullify
   add_foreign_key "posting_identity_request_allowances", "users", column: "grantor_user_id", on_delete: :cascade

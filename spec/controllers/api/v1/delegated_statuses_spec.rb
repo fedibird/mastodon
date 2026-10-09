@@ -159,6 +159,60 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
       end
     end
 
+    it 'lets the granting account delete the status without removing the audit identifier' do
+      delegate!
+      post :create, params: { status: 'Owned by B', visibility: 'public', posting_identity_id: "delegated:#{grantor.account.id}" }
+      status = grantor.account.statuses.last
+      audit = PostingIdentityPost.find_by!(status_id: status.id)
+      PostingIdentity::Revocation.call!(actor: grantor, delegation: audit.delegation.reload)
+
+      expect(PostingIdentityPost.find(audit.id).delegation_id).to eq audit.delegation_id
+
+      grantor_token = Fabricate(:accessible_access_token, resource_owner_id: grantor.id, scopes: 'write:statuses')
+      allow(controller).to receive(:doorkeeper_token) { grantor_token }
+      controller.instance_variable_set(:@current_user, nil)
+      controller.remove_instance_variable(:@current_account) if controller.instance_variable_defined?(:@current_account)
+
+      expect { delete :destroy, params: { id: status.id } }.not_to raise_error
+
+      expect(response).to have_http_status(200)
+      expect(Status.with_discarded.find_by(id: status.id)).to be_nil
+      expect(PostingIdentityPost.find(audit.id).status_id).to eq status.id
+      expect(PostingIdentityPost.column_names).not_to include('text')
+    end
+
+    it 'rolls the status back when the audit row cannot be saved and retries cleanly' do
+      delegate!
+      attempts = 0
+      published = 0
+      allow(PostingIdentity::PostAudit).to receive(:record!).and_wrap_original do |method, **kwargs|
+        attempts += 1
+        raise ActiveRecord::RecordNotSaved, 'audit failed' if attempts == 1
+
+        method.call(**kwargs)
+      end
+      allow(PublishStatusService).to receive(:new).and_wrap_original do |method, *args|
+        published += 1
+        method.call(*args)
+      end
+
+      expect do
+        expect do
+          post :create, params: { status: 'Needs an audit', visibility: 'public', posting_identity_id: "delegated:#{grantor.account.id}" }
+        end.to raise_error(ActiveRecord::RecordNotSaved)
+      end.not_to change(Status, :count)
+
+      expect(PostingIdentityPost.count).to eq 0
+      expect(published).to eq 0
+
+      post :create, params: { status: 'Needs an audit', visibility: 'public', posting_identity_id: "delegated:#{grantor.account.id}" }
+
+      expect(response).to have_http_status(200)
+      expect(grantor.account.statuses.count).to eq 1
+      expect(PostingIdentityPost.count).to eq 1
+      expect(published).to eq 1
+    end
+
     it 'does not let the operator edit or delete the delegated status' do
       delegate!
       post :create, params: { status: 'Owned by B', visibility: 'public', posting_identity_id: "delegated:#{grantor.account.id}" }
@@ -187,6 +241,7 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
       end.not_to change(Status, :count)
 
       expect(grantor.account.statuses.last.id).to eq first.id
+      expect(PostingIdentityPost.where(status_id: first.id).count).to eq 1
 
       post :create, params: { status: 'Own post', visibility: 'public' }
 

@@ -33,6 +33,7 @@ const mapStateToProps = (state, { composerId }) => {
     current,
     choices,
     selectedId: sender ? sender.get('id') : null,
+    sessionIdentityId: sessionId,
     text: composer ? composer.get('text') : '',
     blockReason: sender ? sender.get('switchBlockReason') : null,
     sendBlocked: (() => {
@@ -57,6 +58,7 @@ class SenderIdentityContainer extends React.PureComponent {
     compact: PropTypes.bool,
     choices: PropTypes.object,
     selectedId: PropTypes.string,
+    sessionIdentityId: PropTypes.string,
     text: PropTypes.string,
     blockReason: PropTypes.string,
     sendBlocked: PropTypes.string,
@@ -88,6 +90,7 @@ class SenderIdentityContainer extends React.PureComponent {
         current={this.props.current}
         choices={this.props.choices}
         selectedId={this.props.selectedId}
+        sessionIdentityId={this.props.sessionIdentityId}
         text={this.props.text}
         blockReason={blockReason}
         failed={this.props.failed}

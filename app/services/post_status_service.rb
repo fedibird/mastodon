@@ -164,18 +164,32 @@ class PostStatusService < BaseService
     explicit_mentions = @status.personal_visibility? ? nil : mention_service.prepare(@status, @circle)
     safeguard_mentions!(@status)
 
-    # Status, capability token, and mention rows commit together.
-    # A failed mention write rolls the status back with them.
+    # Status, capability token, mention rows, and a delegated audit row
+    # commit together. A failed mention or audit write rolls the status
+    # back before publish or distribution starts.
     ApplicationRecord.transaction do
       @status.save!
       @status.capability_tokens.create! if @status.limited_visibility?
       mention_service.persist_mentions!(@status) if explicit_mentions
+      record_posting_audit!
     end
 
     # Hashtags and references are part of the payload publish serializes.
     # Mention delivery waits until redirect semantics are prepared.
     ProcessHashtagsService.new.call(@status)
     ProcessStatusReferenceService.new.call(@status, status_reference_ids: (@options[:status_reference_ids] || []) + [@quote_id], urls: @options[:status_reference_urls])
+  end
+
+  def record_posting_audit!
+    payload = @options[:posting_audit]
+    return if payload.blank?
+
+    PostingIdentity::PostAudit.record!(
+      status: @status,
+      grantee_user_id: payload[:grantee_user_id],
+      delegation_id: payload[:delegation_id],
+      posting_account_id: payload[:posting_account_id]
+    )
   end
 
   def safeguard_mentions!(status)

@@ -23,7 +23,7 @@ import { changeCompose, changeComposerUpload, changeComposeVisibility, submitCom
 import { applyComposerPostingContext, COMPOSER_SENDER_IDENTITY_SELECT, createComposer, targetComposerAction } from '../composer';
 import { fetchPostingIdentities, POSTING_IDENTITIES_FETCH_SUCCESS, selectComposerSenderIdentity } from '../posting_identities';
 import compose from '../../reducers/compose';
-import composer from '../../reducers/composer';
+import composer, { initialState as composerInitialState } from '../../reducers/composer';
 import composers from '../../reducers/composers';
 import postingIdentities from '../../reducers/posting_identities';
 import { selectComposerCanSendAsIdentity, selectComposerSenderIdentity as selectSender } from '../../selectors/posting_identities';
@@ -405,6 +405,60 @@ describe('composer sender identity', () => {
       canSend: true,
       canUpload: false,
     }));
+
+    store.dispatch(selectComposerSenderIdentity('primary', 'local:42', { confirmed: true }));
+
+    expect(store.getState().getIn(['compose', 'text'])).toEqual('Keep this draft');
+    expect(store.getState().getIn(['compose', 'senderIdentity', 'id'])).toEqual('local:42');
+  });
+
+  it('refuses a delegated send while a group destination is applied and keeps the text', () => {
+    const delegated = readyIdentity('delegated:99').set('kind', 'delegated').setIn(['account', 'id'], '99').setIn(['capabilities', 'media'], 'unavailable');
+    const request = jest.fn();
+    const store = makeStore(ImmutableMap({
+      postingIdentities: ImmutableMap({
+        status: 'ready',
+        defaultIdentityId: 'local:42',
+        confirmedIdentityId: 'local:42',
+        identities: ImmutableList([readyIdentity('local:42'), delegated]),
+      }),
+      compose: composerInitialState
+        .set('text', 'Group draft')
+        .set('posting_context_account_id', '456')
+        .setIn(['context', 'resolvedAccountId'], '456')
+        .setIn(['context', 'protocol', 'activityPub', 'audience'], ImmutableMap({ accountId: '456' })),
+    }));
+
+    api.mockReturnValue({ request });
+    store.dispatch(selectComposerSenderIdentity('primary', 'delegated:99', { confirmed: true }));
+
+    expect(store.getState().getIn(['compose', 'senderIdentity', 'id'])).toEqual('local:42');
+    expect(store.getState().getIn(['compose', 'text'])).toEqual('Group draft');
+    expect(store.getState().getIn(['compose', 'senderIdentity', 'switchBlockReason'])).toEqual('group');
+
+    const selected = makeStore(ImmutableMap({
+      postingIdentities: ImmutableMap({
+        status: 'ready',
+        defaultIdentityId: 'local:42',
+        confirmedIdentityId: 'local:42',
+        identities: ImmutableList([readyIdentity('local:42'), delegated]),
+      }),
+      compose: composerInitialState
+        .set('text', 'Group draft')
+        .setIn(['senderIdentity', 'id'], 'delegated:99')
+        .set('posting_context_account_id', '456'),
+    }));
+
+    expect(selectComposerCanSendAsIdentity(selected.getState(), 'primary')).toEqual(expect.objectContaining({
+      canSend: false,
+      reason: 'group',
+    }));
+
+    return selected.dispatch(submitComposer('primary', router)).then(() => {
+      expect(request).not.toHaveBeenCalled();
+      expect(selected.getState().getIn(['compose', 'text'])).toEqual('Group draft');
+      expect(selected.getState().getIn(['compose', 'posting_context_account_id'])).toEqual('456');
+    });
   });
 
   it('sends the signed-in identity with media upload, thumbnail, and description updates', async () => {

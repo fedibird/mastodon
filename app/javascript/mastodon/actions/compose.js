@@ -19,6 +19,7 @@ import { materializeComposerText } from '../posting_context/materialize';
 import { composerActivityPubAudienceAccountId } from '../posting_context/protocol';
 import { selectComposer } from '../selectors/composer';
 import { fetchPostingIdentities } from './posting_identities';
+import { composerHasGroupDestination } from '../posting_identity/group_destination';
 import { sessionPostingIdentityId } from '../posting_identity/identity';
 import { selectComposerCanSendAsIdentity, selectComposerCanUploadAsIdentity } from '../selectors/posting_identities';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
@@ -400,6 +401,13 @@ export function submitComposer(composerId, routerHistory) {
       return Promise.resolve();
     }
 
+    const senderIdentityIdEarly = composer.getIn(['senderIdentity', 'id']);
+    const delegatedSender = typeof senderIdentityIdEarly === 'string' && senderIdentityIdEarly.startsWith('delegated:');
+
+    if (delegatedSender && (composerActivityPubAudienceAccountId(composer) || composerHasGroupDestination(composer))) {
+      return Promise.resolve();
+    }
+
     const status = materializeComposerText(composer);
     const media = composer.get('media_attachments');
     const scheduled = composer.get('scheduled');
@@ -513,7 +521,6 @@ export function submitComposer(composerId, routerHistory) {
       delete createData.expires_action;
       delete createData.circle_id;
       delete createData.status_reference_ids;
-      delete createData.audience_account_id;
     }
 
     return api(getState).request({

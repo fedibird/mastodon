@@ -14,10 +14,12 @@
 #  updated_at         :datetime         not null
 #
 class PostingIdentityPost < ApplicationRecord
+  # status_id stays after the status row is deleted. It is not a foreign key
+  # and this record does not store the status text.
   belongs_to :grantee_user, class_name: 'User'
   belongs_to :delegation, class_name: 'PostingIdentityDelegation'
   belongs_to :posting_account, class_name: 'Account'
-  belongs_to :status
+  belongs_to :status, optional: true
 
-  validates :posted_at, presence: true
+  validates :status_id, :posted_at, presence: true
 end
