@@ -19,7 +19,19 @@ describe('mix definitions', () => {
       version: 1,
       title: 'Morning',
       sources: [
-        { type: 'home', params: {} },
+        {
+          type: 'home',
+          params: {
+            shows: {
+              reblog: true,
+              reply: true,
+              private: true,
+              limited: true,
+              direct: true,
+              personal: true,
+            },
+          },
+        },
         { type: 'public', params: { onlyMedia: true } },
         { type: 'list', id: '4', title: 'Friends', params: {} },
       ],
@@ -75,5 +87,16 @@ describe('mix definitions', () => {
     expect(moved.sources.map(item => item.type)).toEqual(['public', 'home']);
     expect(removed.sources.map(item => item.type)).toEqual(['home']);
     expect(addDraftSource({ title: 'A', sources: [1, 2, 3, 4, 5, 6, 7, 8].map(id => source('account', { id: String(id) })) }, source('home')).error).toBe('sources_too_many');
+  });
+
+  it('issues a new id on create and keeps the stored id on update', () => {
+    const sources = [source('home'), source('public')];
+    const created = prepareMix({ id: 'forged', title: 'Desk', sources }, { idMode: 'create', createId: () => 'fresh' });
+    const updated = prepareMix({ id: 'forged', title: 'Desk', sources }, { idMode: 'update', id: 'kept' });
+    const missing = prepareMix({ title: 'Desk', sources }, { idMode: 'update' });
+
+    expect(created.mix.id).toBe('fresh');
+    expect(updated.mix.id).toBe('kept');
+    expect(missing.errors).toContain('id_blank');
   });
 });

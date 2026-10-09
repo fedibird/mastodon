@@ -11,6 +11,9 @@ export const toServerSideType = columnType => {
       return 'home';
     }
 
+    // Unknown ids, including a mix column id such as "mix:<uuid>", land here.
+    // A mix contains sources with different filter contexts, so P2 must not
+    // pass the mix timeline id to StatusList. Use filterContextForSource.
     return 'public';
   }
 };

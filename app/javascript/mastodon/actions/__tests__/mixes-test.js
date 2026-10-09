@@ -68,19 +68,21 @@ describe('mix setting actions', () => {
 
   it('refuses to save a mix unless the viewer is an administrator or beta tester', () => {
     const state = fromJS({ settings: { mixes: [], saved: true } });
-    const refused = run(createMix({ title: 'Desk', sources: [home, remote] }), state);
+    const refused = run(createMix({ id: 'forged', title: 'Desk', sources: [home, remote] }), state);
 
     expect(refused).toEqual({ ok: false, errors: ['unavailable'] });
     expect(mockPut).not.toHaveBeenCalled();
 
     flags.new_features_policy = 'tester';
-    const saved = run(createMix({ title: 'Desk', sources: [home, remote] }), state);
+    const saved = run(createMix({ id: 'forged', title: 'Desk', sources: [home, remote] }), state);
 
     expect(saved.ok).toBe(true);
+    expect(saved.mix.id).not.toBe('forged');
     expect(mockPut).toHaveBeenCalledWith('/api/web/settings', expect.any(Object));
     const payload = mockPut.mock.calls[0][1].data;
 
     expect(payload.mixes).toHaveLength(1);
+    expect(payload.mixes[0].id).toBe(saved.mix.id);
     expect(payload.mixes[0].title).toBe('Desk');
     expect(JSON.stringify(payload.mixes)).not.toContain('content');
     expect(payload.saved).toBeUndefined();
@@ -105,6 +107,7 @@ describe('mix setting actions', () => {
     };
 
     const updated = updateMix('mix-1', {
+      id: 'forged',
       title: 'Night',
       sources: [home, { type: 'list', id: '3', params: {} }],
     })(dispatch, () => state);
@@ -118,6 +121,15 @@ describe('mix setting actions', () => {
 
     expect(removed).toEqual({ ok: true });
     expect(replaced[replaced.length - 1]).toEqual([]);
+    expect(state.getIn(['settings', 'mixes']).toJS()).toEqual([]);
+
+    const resurrected = updateMix('mix-1', {
+      id: 'mix-1',
+      title: 'Night',
+      sources: [home, remote],
+    })(dispatch, () => state);
+
+    expect(resurrected).toEqual({ ok: false, errors: ['not_found'] });
     expect(state.getIn(['settings', 'mixes']).toJS()).toEqual([]);
   });
 

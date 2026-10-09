@@ -11,6 +11,7 @@ const errorMessage = (error) => ({
   sources_too_many: messages.sourcesTooMany,
   source_duplicate: messages.sourceDuplicate,
   unavailable: messages.unavailable,
+  not_found: messages.deleted,
 }[error] || messages.sourceInvalid);
 
 export default class MixEditorForm extends React.PureComponent {

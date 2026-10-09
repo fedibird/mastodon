@@ -24,7 +24,7 @@ export function createMix(draft) {
       return unavailable;
     }
 
-    const prepared = prepareMix(draft);
+    const prepared = prepareMix(draft, { idMode: 'create' });
 
     if (!prepared.ok) {
       return prepared;
@@ -41,17 +41,20 @@ export function updateMix(id, draft) {
       return unavailable;
     }
 
-    const prepared = prepareMix({ ...draft, id, version: draft && draft.version });
+    const mixes = mixesOf(getState);
+    const index = mixes.findIndex(mix => mix.get('id') === String(id));
+
+    if (index === -1) {
+      return { ok: false, errors: ['not_found'] };
+    }
+
+    const prepared = prepareMix(draft, { idMode: 'update', id: String(id) });
 
     if (!prepared.ok) {
       return prepared;
     }
 
-    const mixes = mixesOf(getState);
-    const index = mixes.findIndex(mix => mix.get('id') === String(id));
-    const next = index === -1 ? mixes.push(fromJS(prepared.mix)) : mixes.set(index, fromJS(prepared.mix));
-
-    commit(dispatch, next);
+    commit(dispatch, mixes.set(index, fromJS(prepared.mix)));
     return prepared;
   };
 }

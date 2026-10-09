@@ -109,6 +109,9 @@ class StatusList extends ImmutablePureComponent {
       return <RegenerationIndicator />;
     }
 
+    // timelineId becomes the filter context. A mix column id is unknown to
+    // toServerSideType and would be treated as public, so P2 must pass each
+    // status the filter context of its source instead of the mix id.
     let scrollableContent = (isLoading || statusIds.size > 0) ? (
       statusIds.map((statusId, index) => statusId === null ? (
         <LoadGap

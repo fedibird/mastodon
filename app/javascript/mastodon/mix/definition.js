@@ -59,11 +59,23 @@ export const prepareMix = (input, options = {}) => {
     sources.push(normalized.source);
   });
 
+  if (options.idMode === 'update' && !options.id) {
+    errors.push('id_blank');
+  }
+
   if (errors.length) {
     return fail(Array.from(new Set(errors)));
   }
 
-  const id = draft.id || options.id || (options.createId ? options.createId() : uuid());
+  // Create never keeps an id supplied by the draft. Update keeps the id of
+  // the mix that is already stored, which the caller passes in options.id.
+  let id = uuid();
+
+  if (options.idMode === 'update') {
+    id = String(options.id);
+  } else if (options.createId) {
+    id = options.createId();
+  }
 
   return {
     ok: true,

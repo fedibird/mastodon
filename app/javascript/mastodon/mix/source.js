@@ -20,6 +20,12 @@ export const SOURCE_TYPES = [
 const ID_TYPES = ['list', 'group', 'account'];
 const MEDIA_TYPES = ['personal', 'public', 'remote', 'domain', 'group'];
 const BOT_TYPES = ['public', 'remote', 'domain'];
+// Home, limited, and personal `shows` are the choices saved with the source.
+// They do not follow settings.home, settings.limited, or settings.personal,
+// so changing those columns later does not change an existing mix.
+// A missing flag is stored as true. reblog and reply are display filters.
+// private, limited, direct, and personal are visibility filters. Fetching
+// must use this snapshot, not getHomeVisibilities().
 const SHOW_KEYS = {
   home: ['reblog', 'reply', 'private', 'limited', 'direct', 'personal'],
   limited: ['reblog', 'reply', 'private', 'limited', 'direct', 'personal'],
@@ -95,24 +101,28 @@ const cleanTitle = (value) => {
 const fail = (error) => ({ ok: false, error });
 
 const normalizeShows = (input, allowed) => {
-  if (!isPresent(input)) {
-    return {};
-  }
-
-  const showsInput = toPlain(input);
+  const showsInput = isPresent(input) ? toPlain(input) : {};
 
   if (!showsInput || typeof showsInput !== 'object' || Array.isArray(showsInput)) {
     return fail('param_unsupported');
   }
 
-  const shows = {};
-  const keys = Object.keys(showsInput);
+  const provided = Object.keys(showsInput);
 
-  for (let i = 0; i < keys.length; i += 1) {
-    const key = keys[i];
-
-    if (allowed.indexOf(key) === -1) {
+  for (let i = 0; i < provided.length; i += 1) {
+    if (allowed.indexOf(provided[i]) === -1) {
       return fail('param_unsupported');
+    }
+  }
+
+  const shows = {};
+
+  for (let i = 0; i < allowed.length; i += 1) {
+    const key = allowed[i];
+
+    if (!Object.prototype.hasOwnProperty.call(showsInput, key)) {
+      shows[key] = true;
+      continue;
     }
 
     const value = asBoolean(showsInput[key]);
@@ -121,12 +131,10 @@ const normalizeShows = (input, allowed) => {
       return fail('param_unsupported');
     }
 
-    if (value === false) {
-      shows[key] = false;
-    }
+    shows[key] = value;
   }
 
-  return Object.keys(shows).length ? { shows } : {};
+  return { shows };
 };
 
 const normalizeDomain = (value) => {
@@ -250,9 +258,7 @@ export const normalizeSource = (input) => {
       return shows;
     }
 
-    if (shows.shows) {
-      source.params.shows = shows.shows;
-    }
+    source.params.shows = shows.shows;
   } else if (paramsInput.shows) {
     return fail('param_unsupported');
   }

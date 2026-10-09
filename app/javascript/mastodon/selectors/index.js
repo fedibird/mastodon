@@ -209,6 +209,9 @@ export const getAccountGallery = createSelector([
   return medias;
 });
 
+// Visibilities for the home column. They follow settings.home.shows and the
+// instance flags. A mix source keeps its own shows snapshot and must not use
+// this selector, or changing the home column would change that mix.
 export const getHomeVisibilities = createSelector(
   state => state.getIn(['settings', 'home', 'shows']),
   shows => (!enableLimitedTimeline ? [

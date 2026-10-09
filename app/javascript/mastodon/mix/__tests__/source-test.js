@@ -28,8 +28,32 @@ describe('mix source descriptors', () => {
     expect(sourceKey(publicSource)).not.toBe(bots);
     expect(sourceKey({ type: 'account', id: '42', params: {} })).not.toBe(replies);
     expect(replies).not.toBe(boosts);
-    expect(sourceKey(home)).toBe('v1|home|-|-');
-    expect(sourceKey({ type: 'home', title: '自宅', params: { shows: { reply: false } } })).toBe('v1|home|-|shows=reply:0');
+    expect(sourceKey(home)).toBe('v1|home|-|shows=direct:1,limited:1,personal:1,private:1,reblog:1,reply:1');
+    expect(sourceKey({ type: 'home', title: '自宅', params: { shows: { reply: false } } })).toBe('v1|home|-|shows=direct:1,limited:1,personal:1,private:1,reblog:1,reply:0');
+  });
+
+  it('stores a complete home show snapshot instead of following the home column', () => {
+    const untouched = normalizeSource({ type: 'home', params: {} });
+    const hiddenReplies = normalizeSource({ type: 'home', params: { shows: { reply: false, reblog: true } } });
+
+    expect(untouched.source.params.shows).toEqual({
+      reblog: true,
+      reply: true,
+      private: true,
+      limited: true,
+      direct: true,
+      personal: true,
+    });
+    expect(hiddenReplies.source.params.shows).toEqual({
+      reblog: true,
+      reply: false,
+      private: true,
+      limited: true,
+      direct: true,
+      personal: true,
+    });
+    expect(sourceKey(untouched.source)).not.toBe(sourceKey(hiddenReplies.source));
+    expect(JSON.stringify(untouched.source)).not.toContain('settings');
   });
 
   it('rejects empty, unknown, conflicting, and URL endpoint sources', () => {
