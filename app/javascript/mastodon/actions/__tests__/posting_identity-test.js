@@ -10,6 +10,7 @@ jest.mock('react-intl', () => ({
 jest.mock('../../initial_state', () => ({
   ...jest.requireActual('../../initial_state'),
   me: '42',
+  isAdministrator: true,
 }));
 
 jest.mock('../../api', () => ({
@@ -18,9 +19,9 @@ jest.mock('../../api', () => ({
 }));
 
 import api from '../../api';
-import { changeCompose, changeComposeVisibility, submitComposer, uploadToComposer } from '../compose';
-import { applyComposerPostingContext, createComposer, targetComposerAction } from '../composer';
-import { fetchPostingIdentities, selectComposerSenderIdentity } from '../posting_identities';
+import { changeCompose, changeComposerUpload, changeComposeVisibility, submitComposer, uploadComposerThumbnail, uploadToComposer } from '../compose';
+import { applyComposerPostingContext, COMPOSER_SENDER_IDENTITY_SELECT, createComposer, targetComposerAction } from '../composer';
+import { fetchPostingIdentities, POSTING_IDENTITIES_FETCH_SUCCESS, selectComposerSenderIdentity } from '../posting_identities';
 import compose from '../../reducers/compose';
 import composer from '../../reducers/composer';
 import composers from '../../reducers/composers';
@@ -68,6 +69,24 @@ const catalogState = (identities, status = 'ready', confirmedIdentityId = 'local
     identities: ImmutableList(identities),
   }),
 }));
+
+const grant = store => {
+  store.dispatch({
+    type: POSTING_IDENTITIES_FETCH_SUCCESS,
+    defaultIdentityId: 'local:42',
+    confirmedIdentityId: 'local:42',
+    identities: ImmutableList([readyIdentity('local:42')]),
+  });
+};
+
+const statusBody = {
+  id: 's1',
+  visibility: 'public',
+  in_reply_to_id: null,
+  scheduled_at: null,
+  tags: [],
+  account: { id: '42' },
+};
 
 describe('composer sender identity', () => {
   beforeEach(() => {
@@ -139,6 +158,22 @@ describe('composer sender identity', () => {
     expect(store.getState().getIn(['compose', 'context', 'key'])).toBeNull();
   });
 
+  it('does not post when the catalog account or capability does not match', () => {
+    const mismatched = readyIdentity('local:42').setIn(['account', 'id'], '999');
+    const unsupported = readyIdentity('local:42').setIn(['capabilities', 'post'], 'unavailable');
+    const mismatchStore = catalogState([mismatched]);
+    const unsupportedStore = catalogState([unsupported]);
+
+    expect(selectComposerCanSendAsIdentity(mismatchStore.getState(), 'primary')).toEqual(expect.objectContaining({
+      canSend: false,
+      reason: 'mismatch',
+    }));
+    expect(selectComposerCanSendAsIdentity(unsupportedStore.getState(), 'primary')).toEqual(expect.objectContaining({
+      canSend: false,
+      reason: 'unsupported',
+    }));
+  });
+
   it('does not post or upload for an unauthorized identity', async () => {
     const request = jest.fn();
     const post = jest.fn();
@@ -179,14 +214,117 @@ describe('composer sender identity', () => {
     expect(store.getState().getIn(['compose', 'userPostingStyle', 'selectedId'])).toBeNull();
   });
 
-  it('posts the primary composer through the current session', async () => {
-    const request = jest.fn().mockResolvedValue({
-      data: { id: 's1', visibility: 'public', in_reply_to_id: null, scheduled_at: null, tags: [], account: { id: '42' } },
-    });
+  it('does not post from an administrator composer before the catalog is ready', async () => {
+    const request = jest.fn();
 
     api.mockReturnValue({ request });
     const store = makeStore();
 
+    store.dispatch(createComposer('portable:group-column:9'));
+    store.dispatch(changeCompose('Hello session'));
+    store.dispatch(targetComposerAction(changeCompose('Portable hello'), 'portable:group-column:9'));
+
+    expect(selectComposerCanSendAsIdentity(store.getState(), 'primary')).toEqual(expect.objectContaining({
+      canSend: false,
+      reason: 'idle',
+    }));
+    expect(selectComposerCanSendAsIdentity(store.getState(), 'portable:group-column:9').canSend).toBe(false);
+
+    store.dispatch({
+      type: POSTING_IDENTITIES_FETCH_SUCCESS,
+      defaultIdentityId: null,
+      confirmedIdentityId: null,
+      identities: ImmutableList(),
+    });
+    store.dispatch({ type: 'POSTING_IDENTITIES_FETCH_REQUEST' });
+
+    expect(selectComposerCanSendAsIdentity(store.getState(), 'primary').reason).toEqual('loading');
+    expect(selectComposerCanSendAsIdentity(store.getState(), 'portable:group-column:9').canSend).toBe(false);
+
+    await store.dispatch(submitComposer('primary', router));
+    await store.dispatch(submitComposer('portable:group-column:9', router));
+    store.dispatch(uploadToComposer('primary', [new File(['x'], 'x.jpg', { type: 'image/jpeg' })]));
+
+    expect(request).not.toHaveBeenCalled();
+    expect(store.getState().getIn(['compose', 'text'])).toEqual('Hello session');
+    expect(store.getState().getIn(['composers', 'byId', 'portable:group-column:9', 'text'])).toEqual('Portable hello');
+  });
+
+  it('posts again after the catalog is confirmed', async () => {
+    const request = jest.fn().mockResolvedValue({ data: statusBody });
+    const get = jest.fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({
+        data: {
+          default_identity_id: 'local:42',
+          identities: [{
+            id: 'local:42',
+            kind: 'local',
+            provider: 'fedibird',
+            authorization: 'ready',
+            account: { id: '42', acct: 'admin', display_name: 'Admin' },
+            capabilities: {
+              post: 'supported',
+              media: 'supported',
+              reply: 'supported',
+              group: 'supported',
+              schedule: 'supported',
+            },
+          }],
+        },
+      });
+
+    api.mockReturnValue({ request, get });
+    const store = makeStore();
+
+    store.dispatch(changeCompose('Hello session'));
+    await store.dispatch(fetchPostingIdentities());
+
+    expect(store.getState().getIn(['postingIdentities', 'status'])).toEqual('failed');
+    expect(selectComposerCanSendAsIdentity(store.getState(), 'primary').canSend).toBe(false);
+
+    await store.dispatch(fetchPostingIdentities({ force: true }));
+    expect(selectComposerCanSendAsIdentity(store.getState(), 'primary')).toEqual(expect.objectContaining({
+      canSend: true,
+      canUpload: true,
+    }));
+
+    await store.dispatch(submitComposer('primary', router));
+
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not apply a described sender change to the draft', () => {
+    const store = catalogState([readyIdentity('local:42')]);
+
+    store.dispatch(changeCompose('Keep this draft'));
+
+    const idempotencyKey = store.getState().getIn(['compose', 'idempotencyKey']);
+    store.dispatch(targetComposerAction({
+      type: COMPOSER_SENDER_IDENTITY_SELECT,
+      decision: {
+        permitted: true,
+        changing: true,
+        discardMedia: true,
+        keptMediaIds: [],
+        rotateIdempotencyKey: true,
+        nextIdempotencyKey: 'replaced-key',
+        toIdentityId: 'local:42',
+      },
+    }, 'primary'));
+
+    expect(store.getState().getIn(['compose', 'text'])).toEqual('Keep this draft');
+    expect(store.getState().getIn(['compose', 'idempotencyKey'])).toEqual(idempotencyKey);
+    expect(store.getState().getIn(['compose', 'senderIdentity', 'id'])).toEqual('local:42');
+  });
+
+  it('posts the primary composer through the current session', async () => {
+    const request = jest.fn().mockResolvedValue({ data: statusBody });
+
+    api.mockReturnValue({ request });
+    const store = makeStore();
+
+    grant(store);
     store.dispatch(changeCompose('Hello session'));
     await store.dispatch(submitComposer('primary', router));
 
@@ -200,13 +338,12 @@ describe('composer sender identity', () => {
   });
 
   it('keeps a portable composer destination when the sender is the signed-in account', async () => {
-    const request = jest.fn().mockResolvedValue({
-      data: { id: 's1', visibility: 'public', in_reply_to_id: null, scheduled_at: null, tags: [], account: { id: '42' } },
-    });
+    const request = jest.fn().mockResolvedValue({ data: statusBody });
 
     api.mockReturnValue({ request });
     const store = makeStore();
 
+    grant(store);
     store.dispatch(changeCompose('Primary stays'));
     store.dispatch(createComposer('portable:group-column:123'));
     store.dispatch(targetComposerAction(changeCompose('Group hello'), 'portable:group-column:123'));
@@ -236,5 +373,29 @@ describe('composer sender identity', () => {
     expect(store.getState().getIn(['compose', 'text'])).toEqual('Primary stays');
     expect(store.getState().getIn(['composers', 'byId', 'portable:group-column:123', 'context', 'key'])).toEqual('builtin:fedibird-group:123');
     expect(store.getState().getIn(['composers', 'byId', 'portable:group-column:123', 'context', 'protocol', 'activityPub', 'audience', 'accountId'])).toEqual('123');
+  });
+
+  it('sends the signed-in identity with media upload, thumbnail, and description updates', async () => {
+    const post = jest.fn().mockResolvedValue({ status: 200, data: { id: 'm1', type: 'image' } });
+    const put = jest.fn().mockResolvedValue({ data: { id: 'm1', type: 'image', description: 'alt' } });
+
+    api.mockReturnValue({ post, put });
+    const store = makeStore();
+
+    grant(store);
+    await store.dispatch(uploadToComposer('primary', [new File(['x'], 'x.jpg', { type: 'image/jpeg' })]));
+    store.dispatch(uploadComposerThumbnail('primary', 'm1', new File(['t'], 't.jpg', { type: 'image/jpeg' })));
+    store.dispatch(changeComposerUpload('primary', 'm1', { description: 'alt' }));
+
+    expect(post).toHaveBeenCalledWith('/api/v2/media', expect.any(FormData), expect.any(Object));
+    expect(post.mock.calls[0][1].get('posting_identity_id')).toEqual('local:42');
+    expect(post.mock.calls[0][1].get('account_id')).toBeNull();
+    expect(put.mock.calls[0][0]).toEqual('/api/v1/media/m1');
+    expect(put.mock.calls[0][1].get('posting_identity_id')).toEqual('local:42');
+    expect(put.mock.calls[1][1]).toEqual(expect.objectContaining({
+      description: 'alt',
+      posting_identity_id: 'local:42',
+    }));
+    expect(put.mock.calls[1][1].account_id).toBeUndefined();
   });
 });

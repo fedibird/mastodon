@@ -13,6 +13,16 @@ RSpec.describe Api::V1::StatusesController, type: :controller do
   end
 
   describe 'POST #create sender identity' do
+    it 'posts as the authenticated account when the identity is omitted' do
+      post :create, params: { status: 'Hello world' }
+
+      status = user.account.statuses.last
+
+      expect(response).to have_http_status(200)
+      expect(status.text).to eq 'Hello world'
+      expect(status.account_id).to eq user.account.id
+    end
+
     it 'posts as the authenticated account when the identity matches' do
       post :create, params: { status: 'Hello world', posting_identity_id: "local:#{user.account.id}" }
 
@@ -23,7 +33,7 @@ RSpec.describe Api::V1::StatusesController, type: :controller do
       expect(status.account_id).to eq user.account.id
     end
 
-    it 'does not accept an account id or another identity' do
+    it 'rejects a client account_id as a Fedibird extension and does not post as another identity' do
       other = Fabricate(:account, username: 'bob')
 
       expect do

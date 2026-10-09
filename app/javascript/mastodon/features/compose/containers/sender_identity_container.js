@@ -1,8 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { connect } from 'react-redux';
-import { List as ImmutableList } from 'immutable';
-import { fetchPostingIdentities, selectComposerSenderIdentity } from '../../../actions/posting_identities';
+import { fetchPostingIdentities } from '../../../actions/posting_identities';
 import { isAdministrator, me } from '../../../initial_state';
 import { PORTABLE_COMPOSER_MODE_SIMPLE, selectPortableComposerDisplayMode } from '../../../selectors/composer';
 import { selectComposerSenderIdentity as selectSender } from '../../../selectors/posting_identities';
@@ -11,7 +10,6 @@ import SenderIdentity from '../components/sender_identity';
 
 const mapStateToProps = (state, { composerId }) => {
   const sender = selectSender(state, composerId);
-  const identities = state.getIn(['postingIdentities', 'identities'], ImmutableList());
   const catalogStatus = state.getIn(['postingIdentities', 'status'], 'idle');
   const sessionAccount = me ? state.getIn(['accounts', me]) : null;
   const current = sender && !sender.get('account') && sessionAccount ? sender.set('account', sessionAccount) : sender;
@@ -19,8 +17,6 @@ const mapStateToProps = (state, { composerId }) => {
   return {
     visible: isAdministrator && Boolean(sender),
     current,
-    choices: identities,
-    selectedId: sender ? sender.get('id') : null,
     failed: catalogStatus === 'failed',
     compact: selectPortableComposerDisplayMode(state, composerId) === PORTABLE_COMPOSER_MODE_SIMPLE,
   };
@@ -33,8 +29,6 @@ class SenderIdentityContainer extends React.PureComponent {
     composerId: PropTypes.string,
     visible: PropTypes.bool,
     current: PropTypes.object,
-    choices: PropTypes.object,
-    selectedId: PropTypes.string,
     failed: PropTypes.bool,
     compact: PropTypes.bool,
   };
@@ -44,10 +38,6 @@ class SenderIdentityContainer extends React.PureComponent {
       this.props.dispatch(fetchPostingIdentities());
     }
   }
-
-  handleSelect = identityId => {
-    this.props.dispatch(selectComposerSenderIdentity(this.props.composerId, identityId));
-  };
 
   handleRetry = () => {
     this.props.dispatch(fetchPostingIdentities({ force: true }));
@@ -61,11 +51,8 @@ class SenderIdentityContainer extends React.PureComponent {
     return (
       <SenderIdentity
         current={this.props.current}
-        choices={this.props.choices}
-        selectedId={this.props.selectedId}
         failed={this.props.failed}
         compact={this.props.compact}
-        onSelect={this.handleSelect}
         onRetry={this.handleRetry}
       />
     );

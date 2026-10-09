@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 import React from 'react';
 
@@ -50,9 +50,7 @@ describe('SenderIdentity', () => {
     expect(screen.getByTestId('sender-identity-current')).toBeTruthy();
   });
 
-  it('offers a choice only for identities that are ready to post', () => {
-    const onSelect = jest.fn();
-
+  it('does not offer a sender switch while only the signed-in identity can post', () => {
     render(
       <SenderIdentity
         current={identity('local:42', 'admin')}
@@ -62,26 +60,30 @@ describe('SenderIdentity', () => {
           identity('local:99', 'other', 'unavailable'),
         ])}
         selectedId='local:42'
-        onSelect={onSelect}
       />,
     );
 
+    expect(screen.queryByRole('button', { name: '@editor' })).toBeNull();
     expect(screen.queryByText('@other')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '@editor' }));
-    expect(onSelect).toHaveBeenCalledWith('local:77');
+    expect(screen.queryByText('@editor')).toBeNull();
+    expect(screen.getByTestId('sender-identity-current').textContent).toContain('@admin');
   });
 
-  it('stays visible in the compact composer', () => {
+  it('shows 投稿者 @acct compactly in simple mode', () => {
     render(
       <SenderIdentity
         compact
         current={identity('local:42', 'admin')}
-        choices={ImmutableList([identity('local:42', 'admin')])}
         selectedId='local:42'
       />,
     );
 
-    expect(screen.getByTestId('sender-identity').className).toContain('compose-form__sender--compact');
-    expect(screen.getByTestId('sender-identity').textContent).toContain('@admin');
+    const sender = screen.getByTestId('sender-identity');
+
+    expect(sender.className).toContain('compose-form__sender--compact');
+    expect(sender.textContent).toContain('Posting as');
+    expect(sender.textContent).toContain('@admin');
+    expect(sender.textContent).not.toContain('does not change the account you are logged in as');
+    expect(sender.getAttribute('title')).toContain('does not change the account you are logged in as');
   });
 });

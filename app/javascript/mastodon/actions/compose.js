@@ -594,6 +594,35 @@ export function submitScheduledStatusSuccess(status) {
   };
 };
 
+const postingIdentityIdFor = composer => {
+  const identityId = composer && composer.getIn(['senderIdentity', 'id']);
+
+  return identityId || null;
+};
+
+const appendPostingIdentity = (data, composer) => {
+  const identityId = postingIdentityIdFor(composer);
+
+  if (identityId) {
+    data.append('posting_identity_id', identityId);
+  }
+
+  return data;
+};
+
+const withPostingIdentity = (params, composer) => {
+  const identityId = postingIdentityIdFor(composer);
+
+  if (!identityId) {
+    return params;
+  }
+
+  return {
+    ...params,
+    posting_identity_id: identityId,
+  };
+};
+
 export function uploadToComposer(composerId, files) {
   return function (dispatch, getState) {
     const composer = selectComposer(getState(), composerId);
@@ -631,6 +660,7 @@ export function uploadToComposer(composerId, files) {
 
       const data = new FormData();
       data.append('file', file);
+      appendPostingIdentity(data, composer);
 
       api(getState).post('/api/v2/media', data, {
         onUploadProgress: function({ loaded }){
@@ -692,8 +722,10 @@ export const uploadComposerThumbnail = (composerId, id, file) => (dispatch, getS
 
   const total = file.size;
   const data = new FormData();
+  const composer = selectComposer(getState(), composerId);
 
   data.append('thumbnail', file);
+  appendPostingIdentity(data, composer);
 
   api(getState).put(`/api/v1/media/${id}`, data, {
     onUploadProgress: ({ loaded }) => {
@@ -778,7 +810,7 @@ export function changeComposerUpload(composerId, id, params) {
   return (dispatch, getState) => {
     const composer = selectComposer(getState(), composerId);
 
-    if (!composer) {
+    if (!composer || !selectComposerCanUploadAsIdentity(getState(), composerId).canUpload) {
       return;
     }
 
@@ -804,7 +836,7 @@ export function changeComposerUpload(composerId, id, params) {
       return;
     }
 
-    api(getState).put(`/api/v1/media/${id}`, params).then(response => {
+    api(getState).put(`/api/v1/media/${id}`, withPostingIdentity(params, composer)).then(response => {
       dispatchToComposer(dispatch, composerId, changeUploadComposeSuccess(response.data));
     }).catch(error => {
       dispatchToComposer(dispatch, composerId, changeUploadComposeFail(id, error));

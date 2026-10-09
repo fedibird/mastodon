@@ -1,5 +1,6 @@
-import { selectComposer } from './composer';
+import { isAdministrator, me } from '../initial_state';
 import { sessionPostingIdentityId } from '../posting_identity/identity';
+import { selectComposer } from './composer';
 
 const deny = reason => ({ canSend: false, canUpload: false, reason });
 
@@ -73,6 +74,14 @@ export const selectComposerCanSendAsIdentity = (state, composerId) => {
     return deny('mismatch');
   }
 
+  // Administrators post only after the catalog confirms the signed-in
+  // account. Idle, loading, and failed are not permission to send.
+  // A non-administrator does not fetch the catalog, so an idle catalog
+  // still uses the existing session.
+  if (isAdministrator && catalogStatus !== 'ready') {
+    return deny(catalogStatus || 'idle');
+  }
+
   if (catalogStatus === 'failed') {
     return deny('failed');
   }
@@ -90,6 +99,14 @@ export const selectComposerCanSendAsIdentity = (state, composerId) => {
 
     if (identity.get('authorization') !== 'ready') {
       return deny('unauthorized');
+    }
+
+    if (identity.get('id') !== (senderId || sessionId)) {
+      return deny('mismatch');
+    }
+
+    if (me && String(identity.getIn(['account', 'id'])) !== String(me)) {
+      return deny('mismatch');
     }
 
     if (!capabilityAllows(identity, 'post')) {

@@ -917,7 +917,9 @@ body > [data-popper-placement] {
 
     &--compact {
       padding: 0;
-      flex: 1 1 100%;
+      gap: 4px;
+      flex: 0 1 auto;
+      font-size: 12px;
     }
   }
 

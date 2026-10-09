@@ -5,9 +5,10 @@ const mediaOwner = (item, fromIdentityId) => (
   item && item.ownerIdentityId ? item.ownerIdentityId : fromIdentityId
 );
 
-// Pure description of a sender change. M1 permits a change only when the
-// target is the signed-in local account. The plan still says what a later
-// change must do, and callers must not apply a plan that is not permitted.
+// Pure description of a future sender change. M1 never permits the change
+// itself. effectsApplied stays false: discarding media, refreshing group
+// discovery, and rotating the idempotency key are instructions, not work
+// this resolver or the composer reducer has carried out.
 export function resolveSenderIdentitySwitch({
   fromIdentityId = null,
   toIdentity = null,
@@ -64,7 +65,13 @@ export function resolveSenderIdentitySwitch({
     reasons.push('edit_bound');
   }
 
-  if (toId && sessionIdentityId && toId !== sessionIdentityId) {
+  if (changing && source.scheduled) {
+    reasons.push('schedule_bound');
+  }
+
+  // A different sender, including a return to the session account, is not
+  // a switch M1 can perform.
+  if (changing) {
     reasons.push('not_enabled');
   }
 
@@ -77,10 +84,14 @@ export function resolveSenderIdentitySwitch({
   const refreshGroupDiscovery = changing && Boolean(source.groupId);
   const mustRevalidateReply = changing && Boolean(source.replyToId);
   const mustRevalidateQuote = changing && Boolean(source.quoteId);
-  const permitted = reasons.length === 0 && authorized && supported && sessionTarget;
+  const permitted = !changing && reasons.length === 0 && authorized && supported && sessionTarget;
+  const rotatedKey = nextIdempotencyKey && nextIdempotencyKey !== source.idempotencyKey
+    ? nextIdempotencyKey
+    : null;
 
   return {
     permitted,
+    effectsApplied: false,
     reason: reasons[0] || (changing ? 'ready' : 'unchanged'),
     changing,
     fromIdentityId,
@@ -93,7 +104,9 @@ export function resolveSenderIdentitySwitch({
     rejectedMediaIds: media.map(item => item.id).filter(id => !keptIds.includes(id)),
     discardMedia: changing && keptIds.length !== media.length,
     rotateIdempotencyKey: changing,
-    nextIdempotencyKey: changing ? nextIdempotencyKey : (source.idempotencyKey || null),
+    nextIdempotencyKey: changing ? rotatedKey : (source.idempotencyKey || null),
+    editBound: changing && Boolean(source.editingId),
+    scheduleBound: changing && Boolean(source.scheduled),
     discardViewerEvidence: changing,
     reuseViewerEvidence: !changing,
     reuseFollows: !changing,

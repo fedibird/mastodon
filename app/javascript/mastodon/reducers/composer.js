@@ -481,41 +481,9 @@ const enforceSessionSenderIdentity = state => {
   return state.set('senderIdentity', initialSenderIdentity());
 };
 
-const applySenderIdentitySelection = (state, action) => {
-  const decision = action.decision;
-  const sessionId = sessionPostingIdentityId();
-
-  if (!decision || decision.permitted !== true || decision.changing !== true) {
-    return state;
-  }
-
-  if (!sessionId || decision.toIdentityId !== sessionId) {
-    return state;
-  }
-
-  return state.withMutations(map => {
-    const needsRecheck = decision.mustRevalidateReply || decision.mustRevalidateQuote || decision.refreshGroupDiscovery;
-
-    map.set('senderIdentity', ImmutableMap({
-      id: sessionId,
-      selectionOrigin: 'selected',
-      status: needsRecheck ? 'unresolved' : 'ready',
-      changeEpoch: (state.getIn(['senderIdentity', 'changeEpoch']) || 0) + 1,
-    }));
-
-    if (decision.discardMedia) {
-      const kept = ImmutableSet(decision.keptMediaIds || []);
-
-      map.update('media_attachments', list => list.filter(item => kept.includes(item.get('id'))));
-      map.set('pending_media_attachments', 0);
-      map.set('is_uploading', false);
-    }
-
-    if (decision.rotateIdempotencyKey && decision.nextIdempotencyKey) {
-      map.set('idempotencyKey', decision.nextIdempotencyKey);
-    }
-  });
-};
+// The resolver may describe a later switch. M1 does not perform it, so the
+// draft's text, media, style, destination, and idempotency key stay put.
+const applySenderIdentitySelection = state => state;
 
 const domParser = new DOMParser();
 

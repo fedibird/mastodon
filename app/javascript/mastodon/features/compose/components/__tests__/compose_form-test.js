@@ -532,14 +532,14 @@ describe('ComposeForm display mode', () => {
   });
 });
 
-const senderIdentity = () => (
+const senderIdentity = (compact = false) => (
   <SenderIdentity
+    compact={compact}
     current={ImmutableMap({
       id: 'local:42',
       authorization: 'ready',
       account: ImmutableMap({ acct: 'admin', displayName: 'Admin' }),
     })}
-    choices={ImmutableList()}
     selectedId='local:42'
   />
 );
@@ -567,13 +567,17 @@ describe('ComposeForm sender identity', () => {
     renderForm({
       displayMode: 'simple',
       onDisplayModeChange: jest.fn(),
-      senderIdentity: senderIdentity(),
+      senderIdentity: senderIdentity(true),
     });
 
     const bar = document.querySelector('.compose-form__simple-bar');
+    const sender = screen.getByTestId('sender-identity');
 
-    expect(bar).toContainElement(screen.getByTestId('sender-identity'));
-    expect(screen.getByTestId('sender-identity').textContent).toContain('@admin');
+    expect(bar).toContainElement(sender);
+    expect(sender.className).toContain('compose-form__sender--compact');
+    expect(sender.textContent).toContain('Posting as');
+    expect(sender.textContent).toContain('@admin');
+    expect(sender.textContent).not.toContain('does not change the account you are logged in as');
     expect(screen.getByRole('button', { name: 'Toot!' })).toBeEnabled();
   });
 

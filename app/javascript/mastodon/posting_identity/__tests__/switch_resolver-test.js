@@ -52,13 +52,30 @@ describe('resolveSenderIdentitySwitch', () => {
       nextIdempotencyKey: 'key-next',
     });
 
-    expect(moved.permitted).toBe(true);
+    expect(moved.permitted).toBe(false);
+    expect(moved.reason).toEqual('not_enabled');
+    expect(moved.effectsApplied).toBe(false);
     expect(moved.changing).toBe(true);
     expect(moved.preservedText).toEqual('Keep this draft');
     expect(moved.preservePostingStyle).toBe(true);
     expect(moved.rotateIdempotencyKey).toBe(true);
     expect(moved.nextIdempotencyKey).toEqual('key-next');
     expect(moved.canSend).toBe(false);
+    expect(same.effectsApplied).toBe(false);
+  });
+
+  it('requires a new idempotency key when the sender would change', () => {
+    const repeated = resolveSenderIdentitySwitch({
+      fromIdentityId: 'local:7',
+      toIdentity: ready('local:42'),
+      sessionIdentityId: 'local:42',
+      draft: draft(),
+      nextIdempotencyKey: 'key-before',
+    });
+
+    expect(repeated.rotateIdempotencyKey).toBe(true);
+    expect(repeated.nextIdempotencyKey).toBeNull();
+    expect(repeated.effectsApplied).toBe(false);
   });
 
   it('does not keep media uploaded for another identity', () => {
@@ -79,6 +96,8 @@ describe('resolveSenderIdentitySwitch', () => {
     expect(plan.rejectedMediaIds).toEqual(['previous', 'unstamped']);
     expect(plan.keptMediaIds).toEqual(['already-session']);
     expect(plan.discardMedia).toBe(true);
+    expect(plan.effectsApplied).toBe(false);
+    expect(plan.permitted).toBe(false);
   });
 
   it('does not reuse group viewer follows or affiliations for the next sender', () => {
@@ -105,8 +124,52 @@ describe('resolveSenderIdentitySwitch', () => {
     expect(plan.reuseAffiliations).toBe(false);
     expect(plan.discardViewerEvidence).toBe(true);
     expect(plan.nextViewerIdentityId).toEqual('local:42');
+    expect(plan.mustRevalidateReply).toBe(false);
+    expect(plan.effectsApplied).toBe(false);
     expect(JSON.stringify(plan)).not.toContain('old-follow-token');
     expect(JSON.stringify(plan)).not.toContain('old-affiliation-token');
+  });
+
+  it('rechecks replies and quotes and keeps an edit or scheduled post on its sender', () => {
+    const reply = resolveSenderIdentitySwitch({
+      fromIdentityId: 'local:7',
+      toIdentity: ready('local:42'),
+      sessionIdentityId: 'local:42',
+      draft: draft({ replyToId: 'status-1', quoteId: 'status-2' }),
+      nextIdempotencyKey: 'key-next',
+    });
+    const editing = resolveSenderIdentitySwitch({
+      fromIdentityId: 'local:7',
+      toIdentity: ready('local:42'),
+      sessionIdentityId: 'local:42',
+      draft: draft({ editingId: 'status-9' }),
+      nextIdempotencyKey: 'key-next',
+    });
+    const scheduled = resolveSenderIdentitySwitch({
+      fromIdentityId: 'local:7',
+      toIdentity: ready('local:42'),
+      sessionIdentityId: 'local:42',
+      draft: draft({ scheduled: 'sched-1' }),
+      nextIdempotencyKey: 'key-next',
+    });
+    const uploading = resolveSenderIdentitySwitch({
+      fromIdentityId: 'local:7',
+      toIdentity: ready('local:42'),
+      sessionIdentityId: 'local:42',
+      draft: draft({ mediaUploading: true }),
+      nextIdempotencyKey: 'key-next',
+    });
+
+    expect(reply.mustRevalidateReply).toBe(true);
+    expect(reply.mustRevalidateQuote).toBe(true);
+    expect(reply.permitted).toBe(false);
+    expect(reply.effectsApplied).toBe(false);
+    expect(editing.reason).toEqual('edit_bound');
+    expect(editing.editBound).toBe(true);
+    expect(scheduled.reason).toEqual('schedule_bound');
+    expect(scheduled.scheduleBound).toBe(true);
+    expect(uploading.reason).toEqual('media_uploading');
+    expect(uploading.permitted).toBe(false);
   });
 
   it('refuses an unregistered, unauthorized, or unsupported identity', () => {

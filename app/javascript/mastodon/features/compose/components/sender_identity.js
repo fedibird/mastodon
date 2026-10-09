@@ -10,7 +10,6 @@ const messages = defineMessages({
   unavailable: { id: 'compose_form.sender_identity.unavailable', defaultMessage: 'Posting as this identity isn’t available.' },
   failed: { id: 'compose_form.sender_identity.failed', defaultMessage: 'Couldn’t confirm who this post is from.' },
   retry: { id: 'compose_form.sender_identity.retry', defaultMessage: 'Retry' },
-  choice: { id: 'compose_form.sender_identity.choice', defaultMessage: 'Post as {acct}' },
 });
 
 const accountField = (account, camel, snake) => {
@@ -32,20 +31,9 @@ class SenderIdentity extends React.PureComponent {
   static propTypes = {
     intl: PropTypes.object.isRequired,
     current: ImmutablePropTypes.map,
-    choices: ImmutablePropTypes.list,
-    selectedId: PropTypes.string,
     failed: PropTypes.bool,
-    onSelect: PropTypes.func,
     onRetry: PropTypes.func,
     compact: PropTypes.bool,
-  };
-
-  handleSelect = event => {
-    const identityId = event.currentTarget.getAttribute('data-identity-id');
-
-    if (this.props.onSelect && identityId) {
-      this.props.onSelect(identityId);
-    }
   };
 
   renderAvatar (account) {
@@ -73,11 +61,10 @@ class SenderIdentity extends React.PureComponent {
   }
 
   render () {
-    const { intl, current, choices, selectedId, failed, compact } = this.props;
-    const readyChoices = choices && choices.filter ? choices.filter(item => item.get('authorization') === 'ready') : null;
-    const several = Boolean(readyChoices && readyChoices.size > 1);
+    const { intl, current, failed, compact } = this.props;
     const authorization = current && current.get('authorization');
     const unavailable = authorization && authorization !== 'ready';
+    const account = current && current.get('account') ? current.get('account') : current;
 
     return (
       <div
@@ -86,28 +73,12 @@ class SenderIdentity extends React.PureComponent {
         title={intl.formatMessage(messages.hint)}
       >
         <span className='compose-form__sender-label'>{intl.formatMessage(messages.label)}</span>
-        {several ? (
-          <div className='compose-form__sender-choices' role='group' aria-label={intl.formatMessage(messages.label)}>
-            {readyChoices.map(choice => (
-              <button
-                key={choice.get('id')}
-                type='button'
-                className={classNames('compose-form__sender-choice', { active: choice.get('id') === selectedId })}
-                data-identity-id={choice.get('id')}
-                aria-pressed={choice.get('id') === selectedId}
-                title={intl.formatMessage(messages.choice, { acct: accountAcct(choice.get('account')) })}
-                onClick={this.handleSelect}
-              >
-                {this.renderIdentity(choice.get('account'))}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <span className='compose-form__sender-current' data-testid='sender-identity-current'>
-            {this.renderIdentity(current && current.get('account') ? current.get('account') : current)}
-          </span>
+        <span className='compose-form__sender-current' data-testid='sender-identity-current'>
+          {this.renderIdentity(account)}
+        </span>
+        {compact ? null : (
+          <p className='compose-form__sender-hint'>{intl.formatMessage(messages.hint)}</p>
         )}
-        <p className='compose-form__sender-hint'>{intl.formatMessage(messages.hint)}</p>
         {failed ? (
           <p className='compose-form__sender-status' role='status'>
             {intl.formatMessage(messages.failed)}
