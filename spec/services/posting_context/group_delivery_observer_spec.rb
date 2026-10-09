@@ -56,6 +56,16 @@ describe PostingContext::GroupDeliveryObserver do
     expect(record['terminal_failure_observed']).to be false
   end
 
+  it 'keeps HTTP 503 retryable when a Stoplight error is also present' do
+    record_event(response: double(code: 503), error: Stoplight::Error::RedLight.new('inbox'), request_started_at: Time.now.utc)
+
+    expect(record['last_attempt_outcome']).to eq 'http_retryable'
+    expect(record['last_http_status']).to eq 503
+    expect(record['http_2xx_observed']).to be false
+    expect(record['attempt_count']).to eq 1
+    expect(record['terminal_failure_observed']).to be false
+  end
+
   it 'does not count a Stoplight stop or a pre-send timeout or connection error' do
     record_event(error: Stoplight::Error::RedLight.new('inbox'))
 

@@ -108,8 +108,9 @@ prove the group inbox job is absent.
 | Condition | `last_attempt_outcome` | HTTP attempt |
 |---|---|---|
 | Response code 200–299 | `http_success` | Yes. The code alone decides 2xx |
-| Other response code that will not be retried, including 4xx and 501 | `http_unsalvageable` | Yes |
-| Retryable HTTP error with a response code, including 401, 408, 429, and 5xx | `http_retryable` | Yes |
+| 501, or a 4xx other than 401, 408, and 429 | `http_unsalvageable` | Yes. The code decides this even when another error is present |
+| 401 with no delivery error | `http_unsalvageable` | Yes. This is DeliveryWorker's terminal 401 for a permanently suspended source account |
+| 401, 408, 429, 5xx, or another code the worker retries | `http_retryable` | Yes. The code decides this even when the error is `Stoplight::Error::RedLight` |
 | Timeout after the HTTP client send started, with no response code | `timeout` | Yes. The previous response code is kept |
 | Connection or TLS failure after the send started, with no response code | `connection_failure` | Yes. The previous response code is kept |
 | Stoplight open before a response | `circuit_interruption` | No |
@@ -118,7 +119,8 @@ prove the group inbox job is absent.
 | No request and no classified error | `not_attempted` | No |
 
 A response code is used even if a Stoplight error is also present.
-That case is not recorded as an unattempted circuit stop.
+A 503 in that combination stays `http_retryable`. It is not recorded
+as an unattempted circuit stop or as `http_unsalvageable`.
 
 The send timestamp is set inside `Request#perform` immediately before
 `http_client.public_send`, after signature headers are built. Follow-import

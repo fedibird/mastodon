@@ -72,11 +72,25 @@ class PostingContext::GroupDeliveryObserver
       non_http('not_attempted')
     end
 
+    # 2xx is success from the code alone. Other codes follow
+    # JsonLdHelper#response_error_unsalvageable?: 501, and 4xx other
+    # than 401, 408, and 429, are terminal. DeliveryWorker also accepts
+    # a 401 without retry when the source account is permanently
+    # suspended, and that path does not raise. A retryable code such as
+    # 503 stays retryable when the error is a different class, including
+    # Stoplight::Error::RedLight.
     def classify_status(status, error)
       return http_result('http_success', status, http_2xx: true) if (200...300).cover?(status)
-      return http_result('http_retryable', status) if error.is_a?(Mastodon::UnexpectedResponseError)
+      return http_result('http_unsalvageable', status) if unsalvageable_http_status?(status, error)
 
-      http_result('http_unsalvageable', status)
+      http_result('http_retryable', status)
+    end
+
+    def unsalvageable_http_status?(status, error)
+      return true if status == 501
+      return true if (400...500).cover?(status) && ![401, 408, 429].include?(status)
+
+      status == 401 && error.nil?
     end
 
     def non_http(outcome)
