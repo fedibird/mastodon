@@ -4,10 +4,15 @@
 # admin to one saved remote Group actor. This is not a delivery result,
 # a remote acceptance signal, or a community-listing check.
 #
-# The record is created before the group inbox job is enqueued. HTTP 2xx
-# evidence is monotonic. A later retry, a duplicate job, or a stale
-# result does not clear it. Redis errors are swallowed by callers that
-# must not fail ActivityPub delivery.
+# The record is created before the group inbox job is enqueued.
+# queue_observed becomes true only after that job's push_bulk jid is
+# stored. False is not proof the job was never enqueued.
+# HTTP 2xx evidence is monotonic. A later retry, a duplicate job, or a
+# stale result does not clear it. last_http_status keeps the last code
+# that was actually received. terminal_failure_observed means one
+# delivery job exhausted Sidekiq retries, not every delivery of the
+# status. Redis errors are swallowed by callers that must not fail
+# ActivityPub delivery.
 class PostingContext::GroupFederationObservation
   SCHEMA_VERSION = 1
   TTL = 14.days.to_i
@@ -142,7 +147,7 @@ class PostingContext::GroupFederationObservation
         'http_2xx_observed' => false,
         'http_2xx_at' => '',
         'last_attempt_outcome' => 'not_attempted',
-        'terminal_failure' => false,
+        'terminal_failure_observed' => false,
         'last_request_started_at' => '',
       }
     end
@@ -163,7 +168,9 @@ class PostingContext::GroupFederationObservation
   end
 
   # Atomic merge. A missing key stays missing. HTTP 2xx is sticky.
+  # A newer attempt with no response code does not clear the last code.
   # An older request_started_at cannot replace a newer last outcome.
+  # terminal_failure_observed is one job's exhausted retries.
   MERGE_SCRIPT = <<~LUA
     local key = KEYS[1]
     local mode = ARGV[1]
@@ -182,7 +189,7 @@ class PostingContext::GroupFederationObservation
     if mode == 'queue' then
       data['queue_observed'] = true
     elseif mode == 'terminal' then
-      data['terminal_failure'] = true
+      data['terminal_failure_observed'] = true
     elseif mode == 'attempt' then
       local event = cjson.decode(ARGV[3])
       if event['http_attempt'] then
@@ -199,7 +206,9 @@ class PostingContext::GroupFederationObservation
       local stored = data['last_request_started_at']
       local incoming = event['request_started_at']
       local apply = true
-      if not event['http_attempt'] and not blank(stored) then
+      if event['outcome'] == 'not_attempted' and not blank(data['last_attempt_outcome']) and data['last_attempt_outcome'] ~= 'not_attempted' then
+        apply = false
+      elseif not event['http_attempt'] and not blank(stored) then
         apply = false
       elseif not blank(stored) and blank(incoming) then
         apply = false
@@ -210,10 +219,9 @@ class PostingContext::GroupFederationObservation
       if apply then
         data['last_attempt_outcome'] = event['outcome']
         if event['http_attempt'] then
-          if event['http_status'] == nil or event['http_status'] == cjson.null then
-            data['last_http_status'] = cjson.null
-          else
-            data['last_http_status'] = event['http_status']
+          local status = event['http_status']
+          if not blank(status) then
+            data['last_http_status'] = status
           end
         end
         if not blank(incoming) then

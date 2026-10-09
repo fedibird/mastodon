@@ -250,7 +250,7 @@ describe ActivityPub::DeliveryWorker do
       expect(observed_record['http_2xx_observed']).to be true
       expect(observed_record['http_2xx_at']).to match(/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z/)
       expect(observed_record['attempt_count']).to eq 1
-      expect(observed_record['terminal_failure']).to be false
+      expect(observed_record['terminal_failure_observed']).to be false
       expect(observed_record.values.join).not_to include(payload)
     end
 
@@ -262,7 +262,7 @@ describe ActivityPub::DeliveryWorker do
       expect(observed_record['last_attempt_outcome']).to eq 'http_unsalvageable'
       expect(observed_record['last_http_status']).to eq 404
       expect(observed_record['http_2xx_observed']).to be false
-      expect(observed_record['terminal_failure']).to be false
+      expect(observed_record['terminal_failure_observed']).to be false
       expect(observed_record['attempt_count']).to eq 1
     end
 
@@ -273,7 +273,7 @@ describe ActivityPub::DeliveryWorker do
 
       expect(observed_record['last_attempt_outcome']).to eq 'http_retryable'
       expect(observed_record['last_http_status']).to eq 503
-      expect(observed_record['terminal_failure']).to be false
+      expect(observed_record['terminal_failure_observed']).to be false
       expect(observed_record['attempt_count']).to eq 1
 
       stub_request(:post, inbox_url).to_raise(HTTP::TimeoutError.new('read timed out'))
@@ -281,7 +281,8 @@ describe ActivityPub::DeliveryWorker do
       expect { perform_observed }.to raise_error(HTTP::TimeoutError)
 
       expect(observed_record['last_attempt_outcome']).to eq 'timeout'
-      expect(observed_record['terminal_failure']).to be false
+      expect(observed_record['last_http_status']).to eq 503
+      expect(observed_record['terminal_failure_observed']).to be false
       expect(observed_record['attempt_count']).to eq 2
     end
 
@@ -298,16 +299,53 @@ describe ActivityPub::DeliveryWorker do
       expect { perform_observed }.to raise_error(Mastodon::UnexpectedResponseError)
 
       expect(observed_record['http_2xx_observed']).to be true
-      expect(observed_record['terminal_failure']).to be false
+      expect(observed_record['terminal_failure_observed']).to be false
       expect(observed_record['attempt_count']).to eq 2
 
       described_class.sidekiq_retries_exhausted_block.call(
         'args' => [payload, sender.id, inbox_url, { 'group_delivery_observation' => observation_key }]
       )
 
-      expect(observed_record['terminal_failure']).to be true
+      expect(observed_record['terminal_failure_observed']).to be true
       expect(observed_record['http_2xx_observed']).to be true
+      expect(observed_record['last_http_status']).to eq 500
+      expect(observed_record['last_attempt_outcome']).to eq 'http_retryable'
       expect(observed_record['http_2xx_at']).to be_present
+    end
+
+    it 'keeps the last HTTP code and 2xx evidence when a later attempt times out' do
+      stub_request(:post, inbox_url).to_return(status: 200)
+      perform_observed
+
+      stub_request(:post, inbox_url).to_raise(HTTP::TimeoutError.new('read timed out'))
+
+      expect { perform_observed }.to raise_error(HTTP::TimeoutError)
+
+      expect(observed_record['last_attempt_outcome']).to eq 'timeout'
+      expect(observed_record['last_http_status']).to eq 200
+      expect(observed_record['http_2xx_observed']).to be true
+      expect(observed_record['attempt_count']).to eq 2
+      expect(observed_record['terminal_failure_observed']).to be false
+
+      described_class.sidekiq_retries_exhausted_block.call(
+        'args' => [payload, sender.id, inbox_url, { 'group_delivery_observation' => observation_key }]
+      )
+
+      expect(observed_record['terminal_failure_observed']).to be true
+      expect(observed_record['last_http_status']).to eq 200
+      expect(observed_record['http_2xx_observed']).to be true
+      expect(observed_record['last_attempt_outcome']).to eq 'timeout'
+    end
+
+    it 'does not count an error raised before the HTTP client sends' do
+      allow_any_instance_of(Request).to receive(:headers).and_raise(OpenSSL::SSL::SSLError.new('sign'))
+
+      expect { perform_observed }.to raise_error(OpenSSL::SSL::SSLError)
+
+      expect(observed_record['attempt_count']).to eq 0
+      expect(observed_record['last_attempt_outcome']).to eq 'not_attempted'
+      expect(observed_record['last_http_status']).to be_nil
+      expect(observed_record['http_2xx_observed']).to be false
     end
 
     it 'records a circuit interruption without counting an HTTP attempt' do
@@ -318,7 +356,7 @@ describe ActivityPub::DeliveryWorker do
       expect(observed_record['last_attempt_outcome']).to eq 'circuit_interruption'
       expect(observed_record['attempt_count']).to eq 0
       expect(observed_record['last_http_status']).to be_nil
-      expect(observed_record['terminal_failure']).to be false
+      expect(observed_record['terminal_failure_observed']).to be false
     end
 
     it 'does not record an HTTP attempt when availability suppression skips the request' do
@@ -371,7 +409,7 @@ describe ActivityPub::DeliveryWorker do
       expect(observed_record['last_attempt_outcome']).to eq 'http_success'
       expect(observed_record['last_http_status']).to eq 200
       expect(observed_record['attempt_count']).to eq 2
-      expect(observed_record['terminal_failure']).to be false
+      expect(observed_record['terminal_failure_observed']).to be false
     end
   end
 end

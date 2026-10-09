@@ -37,9 +37,14 @@ class ActivityPub::DeliveryWorker
   HEADERS = { 'Content-Type' => 'application/activity+json' }.freeze
 
   def perform(json, source_account_id, inbox_url, options = {})
-    @options        = options.with_indifferent_access
-    started_at      = Time.now.utc
-    error           = nil
+    @options              = options.with_indifferent_access
+    @http_response        = nil
+    @delivery_request     = nil
+    @request_started_at   = nil
+    @request_finished_at  = nil
+    @delivery_skip_reason = nil
+    started_at            = Time.now.utc
+    error                 = nil
 
     begin
       unless @options[:bypass_availability] || DeliveryFailureTracker.available?(inbox_url)
@@ -83,7 +88,7 @@ class ActivityPub::DeliveryWorker
       response: @http_response,
       error: error,
       skip_reason: @delivery_skip_reason,
-      request_started_at: @request_started_at
+      request_started_at: @delivery_request&.http_request_started_at
     )
   rescue StandardError => e
     Rails.logger.warn("[ActivityPub::DeliveryWorker] group observation failed: #{e.class}")
@@ -131,8 +136,9 @@ class ActivityPub::DeliveryWorker
     light = Stoplight(@inbox_url) do
       request_pool.with(@host) do |http_client|
         @request_started_at = Time.now.utc
+        @delivery_request = build_request(http_client)
         begin
-          build_request(http_client).perform do |response|
+          @delivery_request.perform do |response|
             @http_response = response
             raise Mastodon::UnexpectedResponseError, response unless response_successful?(response) || response_error_unsalvageable?(response) || unsalvageable_authorization_failure?(response)
 

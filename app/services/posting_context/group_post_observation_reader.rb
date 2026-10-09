@@ -1,8 +1,17 @@
 # frozen_string_literal: true
 
 # Read-only console view of one status. Missing Redis data stays
-# unknown. A stored group Announce is evidence of redistribution, not
+# unknown. A record with no queue mark and no delivery-job evidence is
+# not_observed: that is lack of evidence, not proof the job was never
+# enqueued. A stored group Announce is evidence of redistribution, not
 # of the current community page. HTTP 2xx is not remote acceptance.
+#
+# Transport fields are independent. last_outcome is the latest attempt
+# that was allowed to replace the previous one. http_status is the last
+# HTTP response code received, including when a later attempt timed out.
+# http_2xx_observed stays true after a later error. terminal_failure_observed
+# means one delivery job exhausted Sidekiq retries, not every delivery
+# of the status.
 #
 # Nested Announce objects that wrap a Create activity are not rewritten
 # by this reader. If the existing Announce receiver did not store a
@@ -35,9 +44,23 @@ class PostingContext::GroupPostObservationReader
 
   def queue_state(record)
     return 'unknown' if record.nil?
-    return 'observed' if record['queue_observed'] == true
+    return 'observed' if queue_evidence?(record)
 
-    'not_queued'
+    'not_observed'
+  end
+
+  def queue_evidence?(record)
+    record['queue_observed'] == true || delivery_job_evidence?(record)
+  end
+
+  def delivery_job_evidence?(record)
+    record['attempt_count'].to_i.positive? ||
+      record['terminal_failure_observed'] == true ||
+      observed_attempt?(record['last_attempt_outcome'])
+  end
+
+  def observed_attempt?(outcome)
+    outcome.present? && outcome != 'not_attempted'
   end
 
   def transport(record)
@@ -47,7 +70,7 @@ class PostingContext::GroupPostObservationReader
         'http_status' => nil,
         'http_2xx_observed' => nil,
         'attempt_count' => nil,
-        'terminal_failure' => nil,
+        'terminal_failure_observed' => nil,
       }
     end
 
@@ -56,7 +79,7 @@ class PostingContext::GroupPostObservationReader
       'http_status' => presence(record['last_http_status']),
       'http_2xx_observed' => record['http_2xx_observed'] == true,
       'attempt_count' => record['attempt_count'].to_i,
-      'terminal_failure' => record['terminal_failure'] == true,
+      'terminal_failure_observed' => record['terminal_failure_observed'] == true,
     }
   end
 

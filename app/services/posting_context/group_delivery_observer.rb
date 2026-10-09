@@ -43,7 +43,7 @@ class PostingContext::GroupDeliveryObserver
     end
 
     def attempt_event(response:, error:, skip_reason:, request_started_at:)
-      classified = classify(response: response, error: error, skip_reason: skip_reason)
+      classified = classify(response: response, error: error, skip_reason: skip_reason, request_started_at: request_started_at)
       {
         'outcome' => classified[:outcome],
         'http_status' => classified[:http_status],
@@ -54,18 +54,29 @@ class PostingContext::GroupDeliveryObserver
       }
     end
 
-    def classify(response:, error:, skip_reason:)
+    # A response code is the attempt. Timeout and connection errors
+    # count only after the HTTP client send has started. Stoplight and
+    # other errors before that send are not attempts. 2xx is the code
+    # range only.
+    def classify(response:, error:, skip_reason:, request_started_at:)
+      status = http_status_from(response) || http_status_from(response_from(error))
+      return classify_status(status, error) if status
       return non_http('availability_suppression') if skip_reason == 'availability_suppression'
       return non_http('circuit_interruption') if stoplight_error?(error)
+      return non_http('not_attempted') if request_started_at.blank?
 
-      status = http_status_from(response) || http_status_from(response_from(error))
-      return http_result('timeout', status) if timeout_error?(error)
-      return http_result('connection_failure', status) if connection_error?(error)
-      return http_result('http_success', status, http_2xx: true) if status && (200...300).cover?(status)
-      return http_result('http_retryable', status) if error.is_a?(Mastodon::UnexpectedResponseError)
-      return http_result('http_unsalvageable', status) if status
+      return http_result('timeout', nil) if timeout_error?(error)
+      return http_result('connection_failure', nil) if connection_error?(error)
+      return http_result('http_retryable', nil) if error.is_a?(Mastodon::UnexpectedResponseError)
 
       non_http('not_attempted')
+    end
+
+    def classify_status(status, error)
+      return http_result('http_success', status, http_2xx: true) if (200...300).cover?(status)
+      return http_result('http_retryable', status) if error.is_a?(Mastodon::UnexpectedResponseError)
+
+      http_result('http_unsalvageable', status)
     end
 
     def non_http(outcome)

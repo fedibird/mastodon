@@ -15,7 +15,7 @@ below. Their normal delivery is not written to this observation record.
 | Stage | Meaning |
 |---|---|
 | Local status created | The status row exists on this server |
-| Delivery queued | The group actor inbox job was enqueued |
+| Delivery queue | `observed` when this record stored a push_bulk jid for the group inbox, or a delivery job has already run. `not_observed` when the record exists without that evidence. `unknown` when the record is missing. `not_observed` is not proof the job was never enqueued |
 | HTTP attempted | This server sent an HTTP request to that inbox |
 | HTTP 2xx observed | That response code was 200–299 |
 | Group Announce observed | Existing ActivityPub ingest stored a reblog of this status by that group |
@@ -73,13 +73,13 @@ Stored fields:
 | `target_account_id` | Remote group account id |
 | `adapter` | `mitra_group`, `nodebb_group`, `lemmy_group`, `piefed_group`, or null |
 | `activity_type` | `Create` for this distribution path |
-| `queue_observed` | True only after enqueue returns |
-| `attempt_count` | HTTP attempts. Suppression and circuit stops do not increment it |
-| `last_http_status` | Last HTTP status that is allowed to replace the previous one |
-| `http_2xx_observed` | Sticky. Later errors do not clear it |
+| `queue_observed` | True only after the group inbox job's push_bulk jid was stored. False is not proof enqueue failed |
+| `attempt_count` | HTTP attempts. Suppression, a Stoplight stop before the send, and other pre-send errors do not increment it |
+| `last_http_status` | Last HTTP response code actually received. A later timeout or connection error does not clear it |
+| `http_2xx_observed` | Sticky fact that some attempt returned 200–299. Later errors do not clear it |
 | `http_2xx_at` | UTC time of the first observed 2xx, `YYYY-MM-DDTHH:MM:SSZ` |
-| `last_attempt_outcome` | See the table below |
-| `terminal_failure` | True only after Sidekiq retries for that job are exhausted |
+| `last_attempt_outcome` | Latest attempt result that was allowed to replace the previous one. Independent of `last_http_status` |
+| `terminal_failure_observed` | True after Sidekiq retries for that one delivery job are exhausted. Not a verdict for every delivery job of the status |
 
 Not stored: post text, content warning, media, cookies, Authorization,
 HTTP signatures, inbox credentials, ActivityPub JSON, or raw exception
@@ -91,30 +91,48 @@ Only the job whose inbox is the group actor inbox receives
 delivery do not. If that inbox is also a follower inbox, delivery stays
 deduplicated and that single job carries the id.
 
+`push_bulk` comes from sidekiq-bulk 0.2.0, which calls Sidekiq 7.3
+`Client#push_bulk`. The return value is an array of job ids in the
+same order as the inbox list. A non-nil id means that payload was
+included in a `raw_push` that returned. Nil means client middleware
+declined that job. The observation mark is stored only when the id at
+the group inbox position is present. An exception does not return the
+array. Earlier batches of 1,000 jobs, and earlier sidekiq-bulk slices
+of 10,000, may already have been pushed, so a missing mark does not
+prove the group inbox job is absent.
+
 ### HTTP classification
 
 `@performed` is not success. Unsalvageable responses set it too.
 
-| Condition | `last_attempt_outcome` |
-|---|---|
-| 200–299 | `http_success` |
-| 4xx that will not be retried, including 501 | `http_unsalvageable` |
-| Retryable HTTP error, including 401, 408, 429, and 5xx | `http_retryable` |
-| Timeout | `timeout` |
-| Connection or TLS failure | `connection_failure` |
-| Stoplight open | `circuit_interruption` |
-| `DeliveryFailureTracker` skipped the request | `availability_suppression` |
-| No request and no classified error | `not_attempted` |
+| Condition | `last_attempt_outcome` | HTTP attempt |
+|---|---|---|
+| Response code 200–299 | `http_success` | Yes. The code alone decides 2xx |
+| Other response code that will not be retried, including 4xx and 501 | `http_unsalvageable` | Yes |
+| Retryable HTTP error with a response code, including 401, 408, 429, and 5xx | `http_retryable` | Yes |
+| Timeout after the HTTP client send started, with no response code | `timeout` | Yes. The previous response code is kept |
+| Connection or TLS failure after the send started, with no response code | `connection_failure` | Yes. The previous response code is kept |
+| Stoplight open before a response | `circuit_interruption` | No |
+| `DeliveryFailureTracker` skipped the request | `availability_suppression` | No |
+| Timeout, connection error, or other error before the HTTP client send | `not_attempted`, unless a last outcome was already recorded | No |
+| No request and no classified error | `not_attempted` | No |
 
-Sidekiq retry settings are unchanged. A 5xx or timeout on an
-intermediate attempt leaves `terminal_failure` false.
+A response code is used even if a Stoplight error is also present.
+That case is not recorded as an unattempted circuit stop.
+
+The send timestamp is set inside `Request#perform` immediately before
+`http_client.public_send`, after signature headers are built. Follow-import
+delivery tracking still uses the worker timestamp it used before this
+change. Sidekiq retry settings are unchanged. A 5xx or timeout on an
+intermediate attempt leaves `terminal_failure_observed` false.
 `availability_suppression` does not set `last_http_status` and does not
 increment `attempt_count`. A Redis or observer error must not fail a
 delivery that would otherwise succeed, and must not replace a retryable
 delivery error.
 
 An older `request_started_at` cannot replace a newer last outcome or
-clear `http_2xx_observed`.
+clear `http_2xx_observed`. A later retryable error or exhausted retries
+also leave `http_2xx_observed` set.
 
 ## Announce evidence
 
@@ -164,7 +182,7 @@ Example shape:
     "http_status": 202,
     "http_2xx_observed": true,
     "attempt_count": 1,
-    "terminal_failure": false
+    "terminal_failure_observed": false
   },
   "group_announce": {
     "observed": false,
@@ -175,11 +193,16 @@ Example shape:
 }
 ```
 
-`delivery_queue` is `unknown` when the key is missing, `not_queued`
-when the record exists but enqueue did not succeed, and `observed`
-after enqueue. `remote_acceptance` stays `unknown`.
-`community_listing` stays `not_verified` until a person fills it in
-outside this record. The reader does not add a Web UI or a public API.
+`delivery_queue` is `unknown` when the key is missing, `not_observed`
+when the record exists but neither a group-inbox jid nor a delivery
+job has been recorded, and `observed` when one of those has.
+`not_observed` does not mean the enqueue call failed.
+`remote_acceptance` stays `unknown`. `community_listing` stays
+`not_verified` until a person fills it in outside this record. The
+reader does not add a Web UI or a public API. `transport` keeps the
+last attempt result, the last received HTTP code, whether any 2xx was
+seen, and whether any one delivery job exhausted retries as separate
+fields.
 
 ## Manual interoperability procedure
 

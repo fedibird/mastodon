@@ -74,7 +74,7 @@ describe PostingContext::GroupPostObservationReader do
       'http_status' => nil,
       'http_2xx_observed' => nil,
       'attempt_count' => nil,
-      'terminal_failure' => nil
+      'terminal_failure_observed' => nil
     )
     expect(unknown['remote_acceptance']).to eq 'unknown'
     expect(unknown['group_announce']).to eq('observed' => false, 'evidence' => 'none')
@@ -103,7 +103,7 @@ describe PostingContext::GroupPostObservationReader do
       'http_status' => 202,
       'http_2xx_observed' => true,
       'attempt_count' => 1,
-      'terminal_failure' => false
+      'terminal_failure_observed' => false
     )
     expect(result['group_announce']['observed']).to be true
     expect(result['remote_acceptance']).to eq 'unknown'
