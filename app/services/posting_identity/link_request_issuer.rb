@@ -3,6 +3,8 @@
 class PostingIdentity::LinkRequestIssuer
   RATE_LIMIT = 10
   RATE_WINDOW = 10.minutes
+  PAIR_LIMIT = 3
+  PAIR_WINDOW = 30.minutes
 
   Result = Struct.new(:request, :token, keyword_init: true)
 
@@ -20,19 +22,37 @@ class PostingIdentity::LinkRequestIssuer
   def call!
     raise PostingIdentity::Error, :not_administrator unless tester?(@requester)
 
-    enforce_rate_limit!
-    target = local_target!
+    hit_limit!("posting-identity-link:user:#{@requester.id}", RATE_LIMIT, RATE_WINDOW)
+    hit_limit!("posting-identity-link:ip:#{@ip}", RATE_LIMIT, RATE_WINDOW) if @ip.present?
     normalized = PostingIdentity::Scopes.normalize!(@scopes)
-    token = PostingIdentityLinkRequest.generate_token
+    target = local_target
+    raise PostingIdentity::Error, :self_target if target&.id == @requester.id
+    raise PostingIdentity::Error, :request_unavailable unless target&.functional?
 
-    request = PostingIdentityLinkRequest.create!(
-      requester_user: @requester,
-      target_user: target,
-      token_digest: PostingIdentityLinkRequest.digest(token),
-      scopes: normalized,
-      expires_at: PostingIdentityLinkRequest::REQUEST_TTL.from_now
+    request = nil
+    token = nil
+
+    PostingIdentityRequestAllowance.transaction do
+      allowance = PostingIdentityRequestAllowance.lock.find_by(grantor_user_id: target.id, requester_user_id: @requester.id)
+      raise PostingIdentity::Error, :request_unavailable unless allowance&.active? && allowance&.covers?(normalized)
+      raise PostingIdentity::Error, :duplicate_request if open_request?(target)
+
+      hit_limit!("posting-identity-link:pair:#{@requester.id}:#{target.id}", PAIR_LIMIT, PAIR_WINDOW)
+      token = PostingIdentityLinkRequest.generate_token
+      request = PostingIdentityLinkRequest.create!(
+        requester_user: @requester,
+        target_user: target,
+        token_digest: PostingIdentityLinkRequest.digest(token),
+        scopes: normalized,
+        expires_at: PostingIdentityLinkRequest::REQUEST_TTL.from_now,
+        request_allowance: allowance,
+        allowance_generation: allowance.generation
+      )
+    end
+
+    Rails.logger.info(
+      "posting_identity_link_request issued id=#{request.id} requester_user_id=#{request.requester_user_id} target_user_id=#{request.target_user_id} request_allowance_id=#{request.request_allowance_id} allowance_generation=#{request.allowance_generation}"
     )
-
     Result.new(request: request, token: token)
   end
 
@@ -42,27 +62,31 @@ class PostingIdentity::LinkRequestIssuer
     user&.functional? && user&.can?(:administrator)
   end
 
-  def local_target!
+  def local_target
     username, domain = @acct.to_s.strip.delete_prefix('@').split('@', 2)
-    raise PostingIdentity::Error, :invalid_target if username.blank? || domain.present?
+    return nil if username.blank? || domain.present?
 
     account = Account.find_local(username)
-    target = account&.user
-    raise PostingIdentity::Error, :invalid_target unless account&.local? && account&.user
-    raise PostingIdentity::Error, :self_target if target.id == @requester.id
+    return nil unless account&.local? && account&.user
 
-    target
+    account.user
   end
 
-  def enforce_rate_limit!
-    keys = ["posting-identity-link:user:#{@requester.id}"]
-    keys << "posting-identity-link:ip:#{@ip}" if @ip.present?
+  def open_request?(target)
+    PostingIdentityLinkRequest.where(
+      requester_user_id: @requester.id,
+      target_user_id: target.id,
+      consumed_at: nil,
+      canceled_at: nil
+    ).where('expires_at > ?', Time.current).exists?
+  end
 
-    keys.each do |key|
-      count = Rails.cache.read(key).to_i
-      raise PostingIdentity::Error, :rate_limited if count >= RATE_LIMIT
-
-      Rails.cache.write(key, count + 1, expires_in: RATE_WINDOW)
+  def hit_limit!(key, limit, window)
+    count = Rails.cache.increment(key, 1, expires_in: window)
+    if count.nil?
+      Rails.cache.write(key, 1, expires_in: window)
+      count = 1
     end
+    raise PostingIdentity::Error, :rate_limited if count > limit
   end
 end

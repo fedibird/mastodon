@@ -225,6 +225,11 @@ Rails.application.routes.draw do
     resource :posting_identity_approval, only: [:new, :create] do
       post :preview
     end
+    resources :posting_identity_request_allowances, only: [:create] do
+      member do
+        post :revoke
+      end
+    end
     resources :posting_identity_grants, only: [] do
       member do
         post :revoke

@@ -21,6 +21,7 @@ class PostingIdentity::Approval
       request = locked_request
       assert_request!(request)
       assert_parties!(request)
+      assert_allowance!(request)
       release_expired_slot!(request)
       delegation = PostingIdentityDelegation.create!(
         grantor_user: request.target_user,
@@ -61,6 +62,13 @@ class PostingIdentity::Approval
 
     grantee = request.requester_user
     raise PostingIdentity::Error, :grantee_unavailable unless grantee&.functional? && grantee&.can?(:administrator)
+  end
+
+  def assert_allowance!(request)
+    raise PostingIdentity::Error, :allowance_inactive if request.request_allowance_id.nil? || request.allowance_generation.nil?
+
+    allowance = PostingIdentityRequestAllowance.lock.find_by(id: request.request_allowance_id)
+    raise PostingIdentity::Error, :allowance_inactive unless allowance&.matches_request?(request)
   end
 
   def release_expired_slot!(request)

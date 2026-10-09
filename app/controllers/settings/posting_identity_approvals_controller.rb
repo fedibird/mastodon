@@ -34,6 +34,7 @@ class Settings::PostingIdentityApprovalsController < Settings::BaseController
     raise PostingIdentity::Error, :consumed if request_record.consumed_at.present?
     raise PostingIdentity::Error, :canceled if request_record.canceled_at.present?
     raise PostingIdentity::Error, :expired if request_record.expired?
+    raise PostingIdentity::Error, :allowance_inactive unless request_record.request_allowance&.matches_request?(request_record)
 
     request_record
   end

@@ -12,12 +12,23 @@ RSpec.describe Settings::PostingIdentityLinksController do
 
   describe 'GET #index' do
     it 'shows the sending-account page to a non-administrator without a request form' do
+      stranger = Fabricate(:user, account: Fabricate(:account, username: 'hidden_allowance'))
+      PostingIdentity::RequestAllowance.permit!(grantor: grantor, acct: stranger.account.username, scopes: %w(post))
       sign_in grantor, scope: :user
 
       get :index
 
       expect(response).to have_http_status(200)
       expect(response.body).to include('People who can post as you')
+      expect(response.body).to include('Accounts allowed to request a link')
+      expect(response.body).to include('hidden_allowance')
+      expect(response.body).not_to include('Create a linking code')
+
+      sign_out :user
+      sign_in Fabricate(:user), scope: :user
+      get :index
+
+      expect(response.body).not_to include('hidden_allowance')
       expect(response.body).not_to include('Create a linking code')
     end
   end
@@ -35,6 +46,7 @@ RSpec.describe Settings::PostingIdentityLinksController do
 
     it 'shows the linking code once for an administrator tester' do
       sign_in grantee, scope: :user
+      PostingIdentity::RequestAllowance.permit!(grantor: grantor, acct: grantee.account.username, scopes: %w(post media))
 
       post :create, params: { acct: grantor.account.username, scopes: %w(post media) }
 
@@ -57,7 +69,8 @@ RSpec.describe Settings::PostingIdentityLinksController do
   describe 'POST #cancel' do
     it 'lets the requester cancel an open request' do
       sign_in grantee, scope: :user
-      issued = PostingIdentity::LinkRequestIssuer.call!(requester: grantee, acct: grantor.account.username, scopes: ['post'], ip: '203.0.113.90')
+      PostingIdentity::RequestAllowance.permit!(grantor: grantor, acct: grantee.account.username, scopes: %w(post))
+      issued = PostingIdentity::LinkRequestIssuer.call!(requester: grantee, acct: grantor.account.username, scopes: %w(post), ip: '203.0.113.90')
 
       post :cancel, params: { id: issued.request.id }
 

@@ -12,10 +12,11 @@ RSpec.describe Api::V1::Fedibird::PostingIdentitiesController do
   before do
     grantee.account.update!(username: 'catalog_owner', display_name: 'Catalog Owner')
     allow(controller).to receive(:doorkeeper_token) { token }
+    PostingIdentity::RequestAllowance.permit!(grantor: grantor, acct: grantee.account.username, scopes: %w(post))
     issued = PostingIdentity::LinkRequestIssuer.call!(
       requester: grantee,
       acct: grantor.account.username,
-      scopes: ['post'],
+      scopes: %w(post),
       ip: '203.0.113.77'
     )
     PostingIdentity::Approval.call!(approver: grantor, token: issued.token)

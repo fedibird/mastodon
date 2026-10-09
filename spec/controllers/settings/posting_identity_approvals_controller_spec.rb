@@ -9,7 +9,10 @@ RSpec.describe Settings::PostingIdentityApprovalsController do
 
   let(:grantee) { user_with_role('Owner') }
   let(:grantor) { Fabricate(:user, account: Fabricate(:account, username: 'approver')) }
-  let(:issued) { PostingIdentity::LinkRequestIssuer.call!(requester: grantee, acct: grantor.account.username, scopes: %w(post media), ip: '203.0.113.91') }
+  let(:issued) do
+    PostingIdentity::RequestAllowance.permit!(grantor: grantor, acct: grantee.account.username, scopes: %w(post media))
+    PostingIdentity::LinkRequestIssuer.call!(requester: grantee, acct: grantor.account.username, scopes: %w(post media), ip: '203.0.113.91')
+  end
 
   before { issued }
 

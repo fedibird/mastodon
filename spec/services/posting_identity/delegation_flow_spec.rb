@@ -8,7 +8,13 @@ RSpec.describe PostingIdentity::Approval do # rubocop:disable Metrics/BlockLengt
   let(:grantee) { user_with_role('Owner') }
   let(:grantor) { Fabricate(:user) }
 
-  def issue!(scopes: %w(post), acct: grantor.account.username, requester: grantee, ip: '203.0.113.10')
+  def issue!(scopes: %w(post), acct: nil, requester: grantee, ip: '203.0.113.10')
+    acct ||= grantor.account.username
+    target_name, domain = acct.to_s.strip.delete_prefix('@').split('@', 2)
+    target = domain.present? ? nil : Account.find_local(target_name)&.user
+    if target && target.id != requester.id && PostingIdentity::Scopes.valid?(scopes)
+      PostingIdentity::RequestAllowance.permit!(grantor: target, acct: requester.account.username, scopes: scopes)
+    end
     PostingIdentity::LinkRequestIssuer.call!(requester: requester, acct: acct, scopes: scopes, ip: ip)
   end
 
@@ -29,24 +35,27 @@ RSpec.describe PostingIdentity::Approval do # rubocop:disable Metrics/BlockLengt
     end
 
     it 'rejects another server, the requester, and unknown scopes' do
-      expect { issue!(acct: 'remote@example.com') }.to raise_error(PostingIdentity::Error) { |error| expect(error.code).to eq :invalid_target }
+      expect { issue!(acct: 'remote@example.com') }.to raise_error(PostingIdentity::Error) { |error| expect(error.code).to eq :request_unavailable }
       expect { issue!(acct: grantee.account.username) }.to raise_error(PostingIdentity::Error) { |error| expect(error.code).to eq :self_target }
       expect { issue!(scopes: ['reply']) }.to raise_error(PostingIdentity::Error) { |error| expect(error.code).to eq :invalid_scopes }
       expect { issue!(requester: grantor) }.to raise_error(PostingIdentity::Error) { |error| expect(error.code).to eq :not_administrator }
     end
 
     it 'rate limits a user and an ip separately' do
-      10.times { |index| issue!(ip: "203.0.113.#{index}") }
+      10.times do |index|
+        target = Fabricate(:user)
+        issue!(acct: target.account.username, ip: "203.0.113.#{index}")
+      end
 
-      expect { issue!(ip: '198.51.100.8') }.to raise_error(PostingIdentity::Error) { |error| expect(error.code).to eq :rate_limited }
+      expect { issue!(acct: Fabricate(:user).account.username, ip: '198.51.100.8') }.to raise_error(PostingIdentity::Error) { |error| expect(error.code).to eq :rate_limited }
 
       Rails.cache.clear
       10.times do
         requester = user_with_role('Owner')
-        issue!(requester: requester, acct: grantor.account.username, ip: '198.51.100.9')
+        issue!(requester: requester, ip: '198.51.100.9')
       end
 
-      expect { issue!(ip: '198.51.100.9') }.to raise_error(PostingIdentity::Error) { |error| expect(error.code).to eq :rate_limited }
+      expect { issue!(requester: user_with_role('Owner'), ip: '198.51.100.9') }.to raise_error(PostingIdentity::Error) { |error| expect(error.code).to eq :rate_limited }
     end
   end
 
@@ -74,6 +83,7 @@ RSpec.describe PostingIdentity::Approval do # rubocop:disable Metrics/BlockLengt
       travel 31.minutes do
         expect { described_class.call!(approver: grantor, token: expired.token) }.to raise_error(PostingIdentity::Error) { |error| expect(error.code).to eq :expired }
       end
+      expired.request.update!(canceled_at: Time.current)
 
       canceled = issue!(ip: '203.0.113.40')
       canceled.request.update!(canceled_at: Time.current)

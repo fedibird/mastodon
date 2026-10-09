@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_09_120000) do
+ActiveRecord::Schema.define(version: 2026_10_09_143100) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1258,9 +1258,27 @@ ActiveRecord::Schema.define(version: 2026_10_09_120000) do
     t.datetime "canceled_at"
     t.datetime "created_at", precision: 6, null: false
     t.datetime "updated_at", precision: 6, null: false
+    t.bigint "request_allowance_id"
+    t.integer "allowance_generation"
+    t.index ["request_allowance_id"], name: "index_posting_identity_link_requests_on_allowance_id"
     t.index ["requester_user_id"], name: "index_posting_identity_link_requests_on_requester_user_id"
     t.index ["target_user_id"], name: "index_posting_identity_link_requests_on_target_user_id"
     t.index ["token_digest"], name: "index_posting_identity_link_requests_on_token_digest", unique: true
+  end
+
+  create_table "posting_identity_request_allowances", force: :cascade do |t|
+    t.bigint "grantor_user_id", null: false
+    t.bigint "requester_user_id", null: false
+    t.string "allowed_scopes", default: [], null: false, array: true
+    t.datetime "allowed_at", null: false
+    t.datetime "expires_at", null: false
+    t.datetime "revoked_at"
+    t.integer "generation", default: 1, null: false
+    t.integer "lock_version", default: 0, null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["grantor_user_id", "requester_user_id"], name: "index_posting_identity_request_allowances_on_pair", unique: true
+    t.index ["requester_user_id"], name: "index_posting_identity_request_allowances_on_requester_user_id"
   end
 
   create_table "preview_card_providers", force: :cascade do |t|
@@ -1919,6 +1937,10 @@ ActiveRecord::Schema.define(version: 2026_10_09_120000) do
   add_foreign_key "posting_identity_delegations", "users", column: "grantee_user_id", on_delete: :cascade
   add_foreign_key "posting_identity_delegations", "users", column: "grantor_user_id", on_delete: :cascade
   add_foreign_key "posting_identity_link_requests", "users", column: "requester_user_id", on_delete: :cascade
+  add_foreign_key "posting_identity_link_requests", "posting_identity_request_allowances", column: "request_allowance_id", on_delete: :nullify
+  add_foreign_key "posting_identity_request_allowances", "users", column: "grantor_user_id", on_delete: :cascade
+  add_foreign_key "posting_identity_request_allowances", "users", column: "requester_user_id", on_delete: :cascade
+
   add_foreign_key "posting_identity_link_requests", "users", column: "target_user_id", on_delete: :cascade
   add_foreign_key "preview_card_trends", "preview_cards", on_delete: :cascade
   add_foreign_key "report_notes", "accounts", on_delete: :cascade

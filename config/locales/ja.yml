@@ -2140,6 +2140,15 @@ ja:
     webauthn_authentication: セキュリティキー
   posting_identity_links:
     acct_label: 依頼するローカルアカウント
+    allowance_acct_label: 申請を受け付けるローカルアカウント
+    allowance_empty: 連携申請を受け付ける相手はいません。
+    allowance_hint: 申請を受け付けても、投稿権限は付与されません。すでに承認した投稿権限を止めるには、下の撤回も必要です。
+    allowance_item: "%{acct} は %{expires_at} まで %{scopes} の申請ができます。"
+    allowance_revoke: 申請の受付をやめる
+    allowance_revoked: このアカウントからの新しい申請は受け付けません。すでに承認した投稿権限はそのままです。
+    allowance_saved: このアカウントからの連携申請を、表示の期限まで受け付けます。
+    allowance_submit: 連携申請を受け付ける
+    allowance_title: 連携申請を受け付ける相手
     approve_intro: 投稿を任されたコードを入力します。コードの確認だけでは承認になりません。
     approve_link: 連携コードを入力する
     approve_submit: この権限委譲を承認する
@@ -2154,8 +2163,10 @@ ja:
     current_account: あなたのアカウント
     description: 別のローカルアカウントに、そのアカウントとして投稿する許可を依頼します。あなたが渡した許可も確認できます。ログイン中のアカウントは切り替わりません。
     errors:
+      allowance_inactive: この申請は、現在の受付許可では承認できません。
       already_delegated: そのアカウントとはすでに連携しています。
       canceled: この申請は取り消されています。
+      duplicate_request: そのアカウントへの申請は、まだ有効なものが残っています。
       consumed: このコードはすでに使われています。
       expired: このコードの期限が切れています。
       grantor_unavailable: 許可を渡すアカウントは、いま委譲できません。
@@ -2168,6 +2179,7 @@ ja:
       not_owner: この権限委譲を変更できるアカウントではありません。
       not_target: 承認を依頼されたアカウントでログインしてください。
       rate_limited: 連携申請が多すぎます。しばらくしてからもう一度お試しください。
+      request_unavailable: このアカウントへの連携申請を作成できません。相手の設定を確認してください。
       self_target: 自分のアカウントには申請できません。
     expired_empty: 期限切れや終了した連携はありません。
     expired_item: "%{acct} · %{scopes} · %{expires_at} まで"

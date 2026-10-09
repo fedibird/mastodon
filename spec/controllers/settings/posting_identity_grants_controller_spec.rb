@@ -7,7 +7,8 @@ RSpec.describe Settings::PostingIdentityGrantsController do
   let(:grantor) { Fabricate(:user, account: Fabricate(:account, username: 'grant_owner')) }
 
   def delegation
-    issued = PostingIdentity::LinkRequestIssuer.call!(requester: grantee, acct: grantor.account.username, scopes: ['post'], ip: '203.0.113.93')
+    PostingIdentity::RequestAllowance.permit!(grantor: grantor, acct: grantee.account.username, scopes: %w(post))
+    issued = PostingIdentity::LinkRequestIssuer.call!(requester: grantee, acct: grantor.account.username, scopes: %w(post), ip: '203.0.113.93')
     PostingIdentity::Approval.call!(approver: grantor, token: issued.token)
   end
 
