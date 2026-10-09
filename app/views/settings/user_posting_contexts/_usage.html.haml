@@ -1,0 +1,15 @@
+- if usage.visible?
+  .user-posting-context-card__usage
+    - if usage.active_count.positive?
+      %p.user-posting-context-card__usage-count
+        = link_to t('user_posting_context_assignments.used_as_default', count: usage.active_count), settings_user_posting_context_assignments_path(user_posting_context_id: context.id), aria: { label: t('user_posting_context_assignments.used_as_default_for', count: usage.active_count, name: context.name) }
+      - if usage.labels.any?
+        %ul.user-posting-context-card__places
+          - usage.labels.each do |label|
+            %li{ dir: 'auto' }= label
+      - if usage.more?
+        %p.user-posting-context-card__usage-more
+          = link_to t('user_posting_context_assignments.see_all'), settings_user_posting_context_assignments_path(user_posting_context_id: context.id), aria: { label: t('user_posting_context_assignments.see_all_for', name: context.name) }
+    - if usage.unavailable_count.positive?
+      %p.user-posting-context-card__usage-unavailable
+        = link_to t('user_posting_context_assignments.unavailable_defaults'), settings_user_posting_context_assignments_path(user_posting_context_id: context.id), aria: { label: t('user_posting_context_assignments.unavailable_defaults_for', name: context.name) }

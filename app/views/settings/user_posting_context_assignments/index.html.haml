@@ -1,0 +1,18 @@
+- content_for :page_title do
+  = t('user_posting_context_assignments.title')
+
+%p= t('user_posting_context_assignments.description')
+
+- if @filter_style
+  %p{ dir: 'auto' }= t('user_posting_context_assignments.filtered_description', name: @filter_style.name)
+  %p= link_to t('user_posting_context_assignments.all_assignments'), settings_user_posting_context_assignments_path
+
+%p= link_to t('user_posting_context_assignments.back_to_styles'), settings_user_posting_contexts_path
+
+- if @assignments.empty?
+  %p.user-posting-assignment-empty{ role: 'status' }= t('user_posting_context_assignments.empty')
+- else
+  .user-posting-assignment-list
+    = render partial: 'assignment', collection: @assignments, as: :assignment
+
+= paginate @assignments, params: { user_posting_context_id: @filter_style&.id }

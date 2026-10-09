@@ -3,8 +3,9 @@
 
 %p= t('user_posting_contexts.description')
 
-%p
+%p.user-posting-context-index-actions
   = link_to t('user_posting_contexts.new'), new_settings_user_posting_context_path, class: 'button'
+  = link_to t('user_posting_context_assignments.open'), settings_user_posting_context_assignments_path
 
 - if @contexts.empty?
   %p.user-posting-context-empty{ role: 'status' }= t('user_posting_contexts.empty')

@@ -2138,10 +2138,45 @@ ja:
     user_posting_contexts: 投稿のスタイルと目的
     webauthn_authentication: セキュリティキー
   user_posting_context_assignments:
+    all_assignments: すべての既定設定
+    availability:
+      none: スタイルを使わない
+      style: このスタイルを使う
+      unavailable: 利用不可
+    back_to_styles: 投稿スタイルの一覧に戻る
+    decline_style: この場所ではスタイルを使わない
+    decline_style_hint: この場所の設定を残し、投稿スタイルを自動選択しないようにします。投稿スタイル自体は削除しません。
+    declined: この場所ではスタイルを使わない設定にしました。
+    description: グループ、ハッシュタグ、リストで使う既定の投稿スタイルを確認し、場所ごとに解除できます。
+    empty: 既定設定はまだありません。
     errors:
       invalid: この場所または投稿スタイルは保存できません。
       style: この場所で使える、自分の有効な投稿スタイルを選んでください。
       surface: 使えるグループ、ハッシュタグ、またはリストを選んでください。
+    filtered_description: 「%{name}」を既定にしている場所です。「スタイルを使わない」設定は、すべての既定設定から確認できます。
+    kinds:
+      group: グループ
+      hashtag: ハッシュタグ
+      list: リスト
+    missing_group: "グループ（ID: %{id}）"
+    missing_hashtag: "ハッシュタグ（ID: %{id}）"
+    missing_list: "リスト（ID: %{id}）"
+    missing_place: "場所（ID: %{id}）"
+    no_style: スタイルを使わない
+    open: 既定設定を管理
+    place_summary: "%{kind} · %{name}"
+    place_unavailable: 利用できない場所
+    released: この場所の既定を解除し、自動選択に戻しました。
+    return_to_automatic: 自動選択に戻す
+    return_to_automatic_hint: この場所の既定指定を削除し、未設定に戻します。「スタイルを使わない」とは別です。投稿スタイル自体は削除しません。
+    see_all: すべて見る
+    see_all_for: "%{name} を既定にしている場所をすべて見る"
+    stale: 別の変更が先に保存されたため、解除しませんでした。最新の設定を確認してください。
+    title: 場所ごとの既定設定
+    unavailable_defaults: 利用できない既定設定があります
+    unavailable_defaults_for: "%{name} の利用できない既定設定を確認"
+    used_as_default: "%{count}か所の既定として使用中"
+    used_as_default_for: "%{name} は%{count}か所の既定として使用中"
   user_posting_contexts:
     advisory: この投稿スタイルによる参考タグ
     auto_language: 投稿時に言語を自動判定します。
@@ -2162,6 +2197,7 @@ ja:
     delete: "%{name} を削除"
     delete_menu: 削除
     delete_confirm: 投稿スタイル「%{name}」を削除しますか？この操作は取り消せません。
+    delete_confirm_with_defaults: この投稿スタイル「%{name}」は%{count}か所で既定として指定されています。削除すると、それらの場所は「スタイルを使わない」設定になり、自動選択されなくなります。削除しますか？
     deleted: 投稿スタイルを削除しました。
     description: 投稿する目的や場所に合わせて、自分に合った投稿のしかたを用意できます。
     discovery:

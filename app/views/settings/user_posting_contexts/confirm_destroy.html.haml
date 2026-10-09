@@ -1,0 +1,14 @@
+- content_for :page_title do
+  = t('user_posting_contexts.delete', name: @context.name)
+
+%p{ dir: 'auto' }
+  - if @reference_count.positive?
+    = t('user_posting_contexts.delete_confirm_with_defaults', name: @context.name, count: @reference_count)
+  - else
+    = t('user_posting_contexts.delete_confirm', name: @context.name)
+
+= form_with url: settings_user_posting_context_path(@context), method: :delete, local: true, class: 'user-posting-assignment__form' do
+  %button.button.user-posting-assignment__danger{ type: 'submit' }= t('user_posting_contexts.delete_menu')
+
+%p
+  = link_to t('user_posting_contexts.back'), settings_user_posting_contexts_path

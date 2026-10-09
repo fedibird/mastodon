@@ -2209,10 +2209,45 @@ en:
     user_posting_contexts: Posting style and purpose
     webauthn_authentication: Security keys
   user_posting_context_assignments:
+    all_assignments: All place defaults
+    availability:
+      none: Do not use a posting style
+      style: Using this posting style
+      unavailable: Unavailable
+    back_to_styles: Back to posting styles
+    decline_style: Do not use a posting style here
+    decline_style_hint: Keeps a setting for this place so a posting style is not selected automatically. This does not delete the posting style.
+    declined: This place will not use a posting style.
+    description: Review the posting style used by default for each group, hashtag, and list, and clear a place when you want to.
+    empty: No place defaults yet.
     errors:
       invalid: The place or posting style could not be saved.
       style: Choose one of your enabled posting styles for this place.
       surface: Choose a group, hashtag, or list that you can use.
+    filtered_description: Places that use "%{name}" as the default. Settings that do not use a posting style are listed with all place defaults.
+    kinds:
+      group: Group
+      hashtag: Hashtag
+      list: List
+    missing_group: "Group (ID: %{id})"
+    missing_hashtag: "Hashtag (ID: %{id})"
+    missing_list: "List (ID: %{id})"
+    missing_place: "Place (ID: %{id})"
+    no_style: Do not use a posting style
+    open: Manage place defaults
+    place_summary: "%{kind} · %{name}"
+    place_unavailable: This place is no longer available
+    released: This place is back to automatic selection.
+    return_to_automatic: Return to automatic selection
+    return_to_automatic_hint: Removes the saved default for this place. This is not “do not use a posting style,” and it does not delete the posting style.
+    see_all: See all
+    see_all_for: See every place that uses %{name}
+    stale: Someone else changed this place first, so it was not cleared. The latest setting is shown below.
+    title: Place defaults
+    unavailable_defaults: Some saved defaults for this style cannot be used
+    unavailable_defaults_for: Review defaults for %{name} that cannot be used
+    used_as_default: Used as the default in %{count} places
+    used_as_default_for: "%{name} is used as the default in %{count} places"
   user_posting_contexts:
     advisory: Advisory tag from this posting style
     auto_language: Language will be detected when you post.
@@ -2233,6 +2268,7 @@ en:
     delete: Delete %{name}
     delete_menu: Delete
     delete_confirm: Delete the posting style "%{name}"? This cannot be undone.
+    delete_confirm_with_defaults: This posting style "%{name}" is the default in %{count} places. Deleting it turns those places into “do not use a posting style,” and they will no longer be selected automatically. Delete it?
     deleted: Posting style deleted.
     description: You can prepare a way of posting that fits your purpose and where you are posting.
     discovery:

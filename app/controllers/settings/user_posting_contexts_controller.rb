@@ -2,10 +2,11 @@
 
 class Settings::UserPostingContextsController < Settings::BaseController
   before_action :require_posting_style_access!
-  before_action :set_context, only: [:edit, :update, :destroy, :duplicate]
+  before_action :set_context, only: [:edit, :update, :destroy, :duplicate, :confirm_destroy]
 
   def index
     @contexts = current_user.user_posting_contexts.includes(:target_account).ordered
+    @card_usage = UserPostingContextAssignment::CardUsage.for_user(current_user)
   end
 
   def new
@@ -43,6 +44,10 @@ class Settings::UserPostingContextsController < Settings::BaseController
     @context.errors.add(:base, I18n.t('user_posting_contexts.errors.stale'))
     load_form
     render :edit, status: :conflict
+  end
+
+  def confirm_destroy
+    @reference_count = @context.user_posting_context_assignments.count
   end
 
   def destroy

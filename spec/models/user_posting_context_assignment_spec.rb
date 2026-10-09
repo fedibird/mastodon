@@ -251,4 +251,56 @@ RSpec.describe UserPostingContextAssignment, type: :model do
     expect(result.reload.user_posting_context_id).to eq(style.id)
     expect(finds).to be >= 2
   end
+
+  it 'counts style references in one grouped query' do
+    user = Fabricate(:user)
+    group = group_account
+    other = group_account('othersquad')
+    style = style_for(user, name: 'Common')
+    described_class.assign!(user: user, surface_kind: 'group', surface_key: group.id.to_s, style: style)
+    described_class.assign!(user: user, surface_kind: 'group', surface_key: other.id.to_s, style: style)
+    described_class.assign!(user: user, surface_kind: 'hashtag', surface_key: 'kept', style: nil)
+
+    expect(described_class.reference_counts_by_style(user)).to eq(style.id => 2)
+  end
+
+  it 'releases a missing place by row id and keeps a newer choice when the lock is stale' do
+    user = Fabricate(:user)
+    group = group_account
+    first = style_for(user, name: 'First', target_kind: 'group', target_account: group)
+    second = style_for(user, name: 'Second', target_kind: 'group', target_account: group)
+    record = described_class.assign!(user: user, surface_kind: 'group', surface_key: group.id.to_s, style: first)
+    stale = record.lock_version
+    described_class.assign!(user: user, surface_kind: 'group', surface_key: group.id.to_s, style: second)
+
+    expect { record.release!(stale) }.to raise_error(ActiveRecord::StaleObjectError)
+    expect(record.reload.user_posting_context_id).to eq(second.id)
+
+    missing = described_class.new(user: user, surface_kind: 'group', surface_key: '424242', user_posting_context: first)
+    missing.save!(validate: false)
+    missing.release!(missing.lock_version)
+
+    expect(described_class.exists?(missing.id)).to be false
+    expect(described_class.exists?(record.id)).to be true
+  end
+
+  it 'stores explicit none for a missing place without adding a row' do
+    user = Fabricate(:user)
+    style = style_for(user, name: 'Common')
+    missing = described_class.new(user: user, surface_kind: 'list', surface_key: '515151', user_posting_context: style)
+    missing.save!(validate: false)
+
+    missing.decline!(missing.lock_version)
+    missing.reload
+
+    expect(described_class.where(user: user).count).to eq(1)
+    expect(missing.user_posting_context_id).to be_nil
+    expect(missing.availability_status).to eq('none')
+
+    unchanged = missing.lock_version
+    missing.decline!(unchanged)
+
+    expect(missing.reload.lock_version).to eq(unchanged)
+    expect(missing.availability_status).to eq('none')
+  end
 end

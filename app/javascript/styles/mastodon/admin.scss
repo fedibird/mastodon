@@ -1265,10 +1265,25 @@ a.name-tag,
   overflow-wrap: anywhere;
 }
 
+.user-posting-context-index-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
 .user-posting-context-card {
   display: flex;
   align-items: flex-start;
   gap: 8px;
+}
+
+.user-posting-context-card__primary {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
 }
 
 .user-posting-context-card__main {
@@ -1332,6 +1347,27 @@ a.name-tag,
 .user-posting-context-card:has(.user-posting-context-card__menu[open]) {
   position: relative;
   z-index: 4;
+}
+
+.user-posting-context-card__usage {
+  min-width: 0;
+}
+
+.user-posting-context-card__usage-count,
+.user-posting-context-card__usage-more,
+.user-posting-context-card__usage-unavailable {
+  margin: 0 0 6px;
+}
+
+.user-posting-context-card__places {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    margin: 0 0 4px;
+    overflow-wrap: anywhere;
+  }
 }
 
 .user-posting-context-card__menu {
@@ -1525,6 +1561,67 @@ a.name-tag,
   color: $error-value-color;
 }
 
+.user-posting-assignment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.user-posting-assignment {
+  border: 1px solid lighten($ui-base-color, 14%);
+  background: lighten($ui-base-color, 4%);
+  border-radius: 8px;
+  padding: 16px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.user-posting-assignment__kind,
+.user-posting-assignment__hint,
+.user-posting-assignment__status {
+  margin: 0 0 8px;
+  color: $darker-text-color;
+}
+
+.user-posting-assignment__place {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+
+.user-posting-assignment__warning {
+  margin: 0 0 8px;
+  color: $error-value-color;
+}
+
+.user-posting-assignment__style {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  min-width: 0;
+  margin: 0 0 8px;
+}
+
+.user-posting-assignment__icon {
+  flex: 0 0 auto;
+}
+
+.user-posting-assignment__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.user-posting-assignment__form {
+  margin: 0;
+}
+
+.user-posting-assignment__danger {
+  background: $error-value-color;
+  color: $white;
+}
+
 @media screen and (max-width: 600px) {
   .user-posting-context-card__menu-panel {
     right: 0;
@@ -1540,5 +1637,9 @@ a.name-tag,
       width: 100%;
       margin-left: 0;
     }
+  }
+
+  .user-posting-assignment__form .button {
+    width: 100%;
   }
 }
