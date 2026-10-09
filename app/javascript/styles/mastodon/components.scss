@@ -839,6 +839,57 @@ body > [data-popper-placement] {
     }
   }
 
+  .compose-form__sender {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 0;
+    padding: 6px 10px 0;
+    color: $dark-text-color;
+    font-size: 13px;
+
+    &-label,
+    &-notice {
+      flex: 0 0 auto;
+    }
+
+    &-avatar {
+      width: 20px;
+      height: 20px;
+      border-radius: 4px;
+      object-fit: cover;
+    }
+
+    &-acct,
+    &-select {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    &-notice {
+      color: $warning-red;
+    }
+
+    &-retry {
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: $secondary-text-color;
+      cursor: pointer;
+      font: inherit;
+      text-decoration: underline;
+    }
+
+    &--compact {
+      flex: 1 1 100%;
+      padding: 0;
+    }
+  }
+
   .compose-form__capability-guard,
   .compose-form__surface-mismatch {
     display: flex;

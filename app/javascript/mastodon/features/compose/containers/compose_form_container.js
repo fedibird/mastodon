@@ -18,7 +18,9 @@ import { acceptComposerSurface, targetComposerAction } from '../../../actions/co
 import { selectComposerEffectiveCreateCapability } from '../../../posting_context/create_capability';
 import { materializeComposerText } from '../../../posting_context/materialize';
 import { selectComposer } from '../../../selectors/composer';
+import { selectComposerCanSendAsIdentity } from '../../../selectors/posting_identity';
 import { withComposerId } from '../composer_id_context';
+import SenderIdentityContainer from './sender_identity_container';
 import UserPostingStyleController from './user_posting_style_controller';
 import UserPostingStylePickerContainer from './user_posting_style_picker_container';
 import { injectIntl, defineMessages } from 'react-intl';
@@ -59,6 +61,7 @@ const mapStateToProps = (state, { composerId }) => {
     isEditing: !!composer.get('id'),
     lang: composer.get('language'),
     surfaceMismatch: composer.get('surfaceMismatch') === true,
+    canSendAsIdentity: selectComposerCanSendAsIdentity(state, composerId),
   };
 };
 
@@ -126,11 +129,13 @@ const ComposeFormWithPostingStyles = props => (
     {...props}
     styleController={<UserPostingStyleController />}
     stylePicker={<UserPostingStylePickerContainer />}
+    senderIdentity={<SenderIdentityContainer compact={props.displayMode === 'simple'} />}
   />
 );
 
 ComposeFormWithPostingStyles.propTypes = {
   composerId: PropTypes.string,
+  displayMode: PropTypes.string,
 };
 
 export default withComposerId(ComposeFormWithPostingStyles);

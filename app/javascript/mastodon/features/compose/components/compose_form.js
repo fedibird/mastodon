@@ -90,6 +90,7 @@ class ComposeForm extends ImmutablePureComponent {
     lang: PropTypes.string,
     styleController: PropTypes.node,
     stylePicker: PropTypes.node,
+    senderIdentity: PropTypes.node,
     onCancelEdit: PropTypes.func,
     onChange: PropTypes.func.isRequired,
     onSubmit: PropTypes.func.isRequired,
@@ -110,6 +111,7 @@ class ComposeForm extends ImmutablePureComponent {
     onAcceptSurface: PropTypes.func,
     displayMode: PropTypes.oneOf(['full', 'simple']),
     onDisplayModeChange: PropTypes.func,
+    canSendAsIdentity: PropTypes.bool,
   };
 
   static defaultProps = {
@@ -117,6 +119,7 @@ class ComposeForm extends ImmutablePureComponent {
     autoFocus: true,
     contextCompliant: true,
     canAttempt: true,
+    canSendAsIdentity: true,
     capabilityReason: null,
     surfaceMismatch: false,
     displayMode: 'full',
@@ -141,14 +144,14 @@ class ComposeForm extends ImmutablePureComponent {
   }
 
   canSubmit = () => {
-    const { isSubmitting, isChangingUpload, isUploading, isCircleUnselected, isEditing, anyMedia, prohibitedVisibilities, privacy, prohibitedWords, spoilerText, contextCompliant, canAttempt } = this.props;
+    const { isSubmitting, isChangingUpload, isUploading, isCircleUnselected, isEditing, anyMedia, prohibitedVisibilities, privacy, prohibitedWords, spoilerText, contextCompliant, canAttempt, canSendAsIdentity } = this.props;
     const composedText = this.composedText();
     const fulltext = this.getFulltextForCharacterCounting();
     const isOnlyWhitespace = fulltext.length !== 0 && fulltext.trim().length === 0;
     const noVisibility = !isEditing && prohibitedVisibilities?.includes(privacy);
     const ngWords = prohibitedWords.some( word => composedText.includes(word) || spoilerText?.includes(word) );
 
-    return !(isSubmitting || isUploading || isChangingUpload || isCircleUnselected || length(fulltext) > maxChars || (isOnlyWhitespace && !anyMedia) || noVisibility || ngWords || !contextCompliant || !canAttempt || this.props.surfaceMismatch);
+    return !(isSubmitting || isUploading || isChangingUpload || isCircleUnselected || length(fulltext) > maxChars || (isOnlyWhitespace && !anyMedia) || noVisibility || ngWords || !contextCompliant || !canAttempt || canSendAsIdentity === false || this.props.surfaceMismatch);
   }
 
   privacyLabel () {
@@ -453,6 +456,7 @@ class ComposeForm extends ImmutablePureComponent {
         {this.renderCapabilityGuard()}
         {simple && (
           <div className='compose-form__simple-bar'>
+            {this.props.senderIdentity}
             {this.props.stylePicker}
             {this.privacyLabel() ? <span className='compose-form__simple-privacy'>{this.privacyLabel()}</span> : null}
           </div>
@@ -489,6 +493,8 @@ class ComposeForm extends ImmutablePureComponent {
                 lang={this.props.lang}
               />
             </div>
+
+            {this.props.senderIdentity}
 
             {this.props.stylePicker}
 

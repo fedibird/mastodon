@@ -66,6 +66,7 @@ import {
 import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { REDRAFT } from '../actions/statuses';
 import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE, COMPOSER_SURFACE_ACCEPT } from '../actions/composer';
+import { COMPOSER_SENDER_IDENTITY_SELECT, POSTING_IDENTITIES_FETCH_FAIL, POSTING_IDENTITIES_FETCH_SUCCESS } from '../actions/posting_identities';
 import { USER_POSTING_STYLE_AUTO_ATTEMPT, USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DEFAULTS_SETTLED, USER_POSTING_STYLE_DESTINATION, USER_POSTING_STYLE_DESTINATION_RETRY, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../actions/user_posting_styles';
 import { Map as ImmutableMap, List as ImmutableList, Set as ImmutableSet, OrderedSet as ImmutableOrderedSet, fromJS } from 'immutable';
 import uuid from '../uuid';
@@ -91,6 +92,7 @@ import {
   toggleStyleHashtag,
 } from '../posting_context/user_style_state';
 import { me } from '../initial_state';
+import { initialSenderIdentity, localPostingIdentityId } from '../posting_identity/identity';
 import { unescapeHTML } from '../utils/html';
 import { format } from 'date-fns';
 
@@ -177,6 +179,7 @@ export const initialState = ImmutableMap({
     }),
   }),
   userPostingStyle: initialUserPostingStyle(),
+  senderIdentity: initialSenderIdentity(me),
   surface: null,
   pendingSurface: null,
   displayedSurface: null,
@@ -460,7 +463,7 @@ export const hydrateComposer = (state, hydratedState) => {
     state = state.set('prohibited_words', hydratedState.get('prohibited_words').toSet());
   }
 
-  return state;
+  return state.set('senderIdentity', initialSenderIdentity(me));
 };
 
 const domParser = new DOMParser();
@@ -723,10 +726,77 @@ const reduceSurfaceContext = (state, action) => {
   });
 };
 
+const senderIdentityList = identities => {
+  if (!identities) {
+    return ImmutableList();
+  }
+
+  if (ImmutableList.isList(identities)) {
+    return identities;
+  }
+
+  return ImmutableList(identities);
+};
+
+const confirmedSenderStatus = (match, sessionId) => {
+  if (!match || !sessionId || match.get('id') !== sessionId) {
+    return 'unresolved';
+  }
+
+  const granted = (
+    String(match.getIn(['account', 'id'])) === String(me) &&
+    match.get('authorization') === 'ready' &&
+    match.getIn(['capabilities', 'post']) === 'supported'
+  );
+
+  if (granted) {
+    return 'ready';
+  }
+
+  return match.get('authorization') || 'unresolved';
+};
+
+const confirmSenderIdentity = (state, identities) => {
+  const sender = state.get('senderIdentity') || initialSenderIdentity(me);
+  const sessionId = localPostingIdentityId(me);
+  const id = sender.get('id') || sessionId;
+  const match = senderIdentityList(identities).find(identity => identity.get && identity.get('id') === id);
+
+  return state.set('senderIdentity', sender.merge({
+    id: sessionId || id,
+    selectionOrigin: sender.get('selectionOrigin') || 'default',
+    status: confirmedSenderStatus(match, sessionId),
+    changeEpoch: sender.get('changeEpoch') || 0,
+  }));
+};
+
 export default function composer(state = initialState, action) {
   switch(action.type) {
   case COMPOSE_MOUNT:
     return state.set('mounted', state.get('mounted') + 1);
+  case POSTING_IDENTITIES_FETCH_SUCCESS:
+    return confirmSenderIdentity(state, action.identities);
+  case POSTING_IDENTITIES_FETCH_FAIL:
+    return state.set('senderIdentity', (state.get('senderIdentity') || initialSenderIdentity(me)).set('status', 'unresolved'));
+  case COMPOSER_SENDER_IDENTITY_SELECT: {
+    const sessionId = localPostingIdentityId(me);
+    const sender = state.get('senderIdentity') || initialSenderIdentity(me);
+
+    if (!sessionId || action.identityId !== sessionId || sender.get('status') !== 'ready') {
+      return state;
+    }
+
+    if (sender.get('id') === sessionId && sender.get('selectionOrigin') === 'selected') {
+      return state;
+    }
+
+    return state.set('senderIdentity', sender.merge({
+      id: sessionId,
+      selectionOrigin: 'selected',
+      status: 'ready',
+      changeEpoch: sender.get('changeEpoch') || 0,
+    }));
+  }
   case COMPOSE_UNMOUNT:
     return state
       .set('mounted', Math.max(state.get('mounted') - 1, 0))

@@ -420,6 +420,36 @@ describe('ComposeForm display mode', () => {
     expect(screen.getByRole('button', { name: 'Toot' })).toBeEnabled();
   });
 
+  it('shows the sender separately from the posting style in simple and full views', () => {
+    const simple = renderForm({
+      displayMode: 'simple',
+      onDisplayModeChange: jest.fn(),
+      senderIdentity: <div data-testid='sender-identity'>Admin (@admin)</div>,
+      stylePicker: <div data-testid='style-picker'>Usual settings</div>,
+    });
+    const simpleBar = document.querySelector('.compose-form__simple-bar');
+
+    expect(simpleBar.contains(screen.getByTestId('sender-identity'))).toBe(true);
+    expect(simpleBar.contains(screen.getByTestId('style-picker'))).toBe(true);
+    expect(screen.getByTestId('sender-identity')).not.toBe(screen.getByTestId('style-picker'));
+    simple.unmount();
+
+    renderForm({
+      senderIdentity: <div data-testid='sender-identity'>Admin (@admin)</div>,
+      stylePicker: <div data-testid='style-picker'>Usual settings</div>,
+    });
+
+    expect(screen.getByTestId('sender-identity')).toBeTruthy();
+    expect(screen.getByTestId('posting-context-bar')).toBeTruthy();
+    expect(document.querySelector('.compose-form__simple-bar')).toBeNull();
+  });
+
+  it('disables publish when the sender identity cannot post', () => {
+    renderForm({ text: 'hello', canSendAsIdentity: false });
+
+    expect(screen.getByRole('button', { name: 'Toot!' })).toBeDisabled();
+  });
+
   it('changes a posting style in simple mode without leaving simple mode', () => {
     const onDisplayModeChange = jest.fn();
     const onSelect = jest.fn();

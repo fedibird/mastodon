@@ -18,6 +18,7 @@ import { selectComposerEffectiveCreateCapability } from '../posting_context/crea
 import { materializeComposerText } from '../posting_context/materialize';
 import { composerActivityPubAudienceAccountId } from '../posting_context/protocol';
 import { selectComposer } from '../selectors/composer';
+import { selectComposerCanSendAsIdentity, selectComposerCanUploadAsIdentity } from '../selectors/posting_identity';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import { targetComposerAction } from './composer';
 
@@ -322,6 +323,10 @@ export function submitComposerWithCheck(composerId, routerHistory, intl) {
       return;
     }
 
+    if (!selectComposerCanSendAsIdentity(state, composerId)) {
+      return;
+    }
+
     if (composer.get('surfaceMismatch') || !selectComposerEffectiveCreateCapability(state, composerId).canAttempt) {
       return;
     }
@@ -382,6 +387,10 @@ export function submitComposer(composerId, routerHistory) {
     const composer = selectComposer(state, composerId);
 
     if (!composer) {
+      return Promise.resolve();
+    }
+
+    if (!selectComposerCanSendAsIdentity(state, composerId)) {
       return Promise.resolve();
     }
 
@@ -580,7 +589,7 @@ export function uploadToComposer(composerId, files) {
   return function (dispatch, getState) {
     const composer = selectComposer(getState(), composerId);
 
-    if (!composer) {
+    if (!composer || !selectComposerCanUploadAsIdentity(getState(), composerId)) {
       return;
     }
 
@@ -658,7 +667,7 @@ export const uploadComposeProcessing = () => ({
 });
 
 export const uploadComposerThumbnail = (composerId, id, file) => (dispatch, getState) => {
-  if (!selectComposer(getState(), composerId)) {
+  if (!selectComposer(getState(), composerId) || !selectComposerCanUploadAsIdentity(getState(), composerId)) {
     return;
   }
 

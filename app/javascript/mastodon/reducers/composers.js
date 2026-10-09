@@ -1,5 +1,6 @@
 import { Map as ImmutableMap, fromJS } from 'immutable';
 import { COMPOSER_CREATE, COMPOSER_DESTROY } from '../actions/composer';
+import { POSTING_IDENTITIES_FETCH_FAIL, POSTING_IDENTITIES_FETCH_SUCCESS } from '../actions/posting_identities';
 import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import composer, { hydrateComposer, initialState as initialComposerState } from './composer';
@@ -41,6 +42,13 @@ export default function composers(state = initialState, action) {
   case TIMELINE_DELETE:
   case TIMELINE_EXPIRE:
     return state.update('byId', byId => byId.map(instance => composer(instance, action)));
+  case POSTING_IDENTITIES_FETCH_SUCCESS:
+  case POSTING_IDENTITIES_FETCH_FAIL:
+    if (!action.meta || !action.meta.composerId) {
+      return state.update('byId', byId => byId.map(instance => composer(instance, action)));
+    }
+
+    break;
   default:
     break;
   }

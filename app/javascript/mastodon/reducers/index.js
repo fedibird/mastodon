@@ -29,6 +29,7 @@ import posting_contexts from './posting_contexts';
 import posting_context_revalidations from './posting_context_revalidations';
 import user_posting_styles from './user_posting_styles';
 import user_posting_context_assignments from './user_posting_context_assignments';
+import posting_identities from './posting_identities';
 import compose from './compose';
 import composers from './composers';
 import history from './history';
@@ -91,6 +92,7 @@ const reducers = {
   posting_context_revalidations,
   userPostingStyles: user_posting_styles,
   userPostingContextAssignments: user_posting_context_assignments,
+  postingIdentities: posting_identities,
   compose,
   composers,
   history,

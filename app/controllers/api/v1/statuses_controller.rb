@@ -66,6 +66,9 @@ class Api::V1::StatusesController < Api::BaseController
   def create
     raise Mastodon::NotPermittedError if current_user.setting_disable_post
 
+    # The posting account is the authenticated user. Do not accept a client
+    # account_id here. Another sender has to be resolved by
+    # PostingIdentity::SubmissionAccount before it can reach PostStatusService.
     @status = PostStatusService.new.call(current_user.account,
                                          text: status_params[:status],
                                          thread: @thread,

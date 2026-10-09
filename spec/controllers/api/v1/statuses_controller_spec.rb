@@ -97,6 +97,17 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
         end
       end
 
+      it 'ignores a client account_id and posts as the authenticated account' do
+        other = Fabricate(:account, username: 'other_sender')
+
+        post :create, params: { status: 'Hello world', account_id: other.id }
+
+        expect(response).to have_http_status(200)
+        expect(body_as_json[:account][:id]).to eq user.account_id.to_s
+        expect(Status.where(account_id: other.id)).to be_empty
+        expect(user.account.statuses.last.text).to eq 'Hello world'
+      end
+
       context 'with a remote group audience' do
         let(:scopes) { 'write:statuses' }
         let(:group) do
