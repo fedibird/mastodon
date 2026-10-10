@@ -8,7 +8,8 @@ import { classifyStreamStatus, streamChannelId, streamSubscriptions } from '../m
 import { filterContextForSource } from '../mix/filter_context';
 import { plainMix } from '../mix/definition';
 import { MIX_PAGE_SIZE, MIX_RECONCILE_BUDGET } from '../mix/merge';
-import { statusHiddenByRelationships } from '../mix/relationship_visibility';
+import { relationshipGeneration, relationshipsAfterGeneration, statusHiddenByRelationships } from '../mix/relationship_visibility';
+import { fetchRelationshipsSuccess } from './accounts';
 import { normalizeFilterResult } from './importer/normalizer';
 import { me } from '../initial_state';
 import {
@@ -265,6 +266,8 @@ export function reconcileMixSource(columnKey, sourceKey) {
 
       let page;
 
+      const generation = relationshipGeneration(getState().get('relationships'));
+
       try {
         page = await fetchReconcilePage(resolved, { sinceId, maxId: cursor }, getState);
       } catch (error) {
@@ -307,6 +310,11 @@ export function reconcileMixSource(columnKey, sourceKey) {
       }
 
       const visibleStatus = (status) => !statusHiddenByRelationships(getState().get('relationships'), status);
+      const relationships = relationshipsAfterGeneration(getState().get('relationships'), page.relationships, generation);
+
+      if (relationships.length && active()) {
+        dispatch(fetchRelationshipsSuccess(relationships));
+      }
 
       if (page.partial) {
         const partialIds = sinceId ? page.ids.filter(id => compareId(id, sinceId) > 0) : page.ids;
@@ -417,6 +425,10 @@ export function reconcileMixSource(columnKey, sourceKey) {
 }
 
 const handleStatus = (dispatch, getState, columnKey, sessionId, fingerprint, sourceKey, source, status) => {
+  if (statusHiddenByRelationships(getState().get('relationships'), status)) {
+    return;
+  }
+
   const decision = classifyStreamStatus(source, status, { me, delivered: true });
 
   if (decision !== 'accept') {
@@ -457,10 +469,25 @@ const handleEdit = (dispatch, getState, columnKey, sessionId, fingerprint, strea
 
   const column = readColumn(getState, columnKey);
   const decisions = [];
+  const hidden = statusHiddenByRelationships(getState().get('relationships'), status);
 
   streams.forEach(item => {
     const existing = memberOf(column, item.key, status.id);
     const delivered = item.key === receivedKey;
+
+    if (hidden) {
+      if (!existing) {
+        return;
+      }
+
+      decisions.push({
+        sourceKey: item.key,
+        decision: 'conceal',
+        delivered: false,
+        filterResults: null,
+      });
+      return;
+    }
 
     if (!existing && !delivered) {
       return;

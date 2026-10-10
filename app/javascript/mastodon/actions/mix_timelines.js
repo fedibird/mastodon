@@ -8,7 +8,7 @@ import { isMixEnabled } from '../mix/availability';
 import { plainMix } from '../mix/definition';
 import { resolveRequest, normalizePage, classifyFetchFailure, previousStatusesForImport, statusesForSharedImport } from '../mix/source_adapters';
 import { MIX_FETCH_BUDGET, MIX_FETCH_CONCURRENCY, MIX_PAGE_SIZE, MIX_PAGE_TARGET, nextFetchKeys } from '../mix/merge';
-import { idHiddenByRelationships, statusHiddenByRelationships } from '../mix/relationship_visibility';
+import { idHiddenByRelationships, relationshipGeneration, relationshipsAfterGeneration, statusHiddenByRelationships } from '../mix/relationship_visibility';
 
 export const MIX_TIMELINE_OPEN = 'MIX_TIMELINE_OPEN';
 export const MIX_TIMELINE_CLOSE = 'MIX_TIMELINE_CLOSE';
@@ -137,7 +137,7 @@ const fetchPage = (resolved, cursor, getState) => {
   });
 };
 
-const acceptPage = (dispatch, getState, columnKey, sessionId, fingerprint, key, cursor, page, scope) => {
+const acceptPage = (dispatch, getState, columnKey, sessionId, fingerprint, key, cursor, page, scope, generation) => {
   if (!stillCurrentScope(getState, columnKey, sessionId, fingerprint, scope)) {
     return;
   }
@@ -184,8 +184,10 @@ const acceptPage = (dispatch, getState, columnKey, sessionId, fingerprint, key, 
     return;
   }
 
-  if (visiblePage.relationships && visiblePage.relationships.length) {
-    dispatch(fetchRelationshipsSuccess(visiblePage.relationships));
+  const relationships = relationshipsAfterGeneration(getState().get('relationships'), visiblePage.relationships, generation);
+
+  if (relationships.length) {
+    dispatch(fetchRelationshipsSuccess(relationships));
   }
 
   if (!stillCurrentScope(getState, columnKey, sessionId, fingerprint, scope)) {
@@ -284,9 +286,10 @@ const pump = async (dispatch, getState, columnKey, sessionId, fingerprint, resol
         const cursor = sources && sources.getIn([key, 'cursor']);
 
         try {
+          const generation = relationshipGeneration(getState().get('relationships'));
           const page = await fetchPage(resolvedByKey[key], cursor, getState);
 
-          acceptPage(dispatch, getState, columnKey, sessionId, fingerprint, key, cursor, page, scope);
+          acceptPage(dispatch, getState, columnKey, sessionId, fingerprint, key, cursor, page, scope, generation);
         } catch (error) {
           failPage(dispatch, getState, columnKey, sessionId, fingerprint, key, error, scope);
         }
@@ -454,9 +457,10 @@ export function retryMixSource(columnKey, mix, sourceKey, { scope = null, splitI
     }, historyScope));
 
     try {
+      const generation = relationshipGeneration(getState().get('relationships'));
       const page = await fetchPage(resolved, source.get('cursor'), getState);
 
-      acceptPage(dispatch, getState, columnKey, sessionId, fingerprint, sourceKey, source.get('cursor'), page, historyScope);
+      acceptPage(dispatch, getState, columnKey, sessionId, fingerprint, sourceKey, source.get('cursor'), page, historyScope, generation);
     } catch (error) {
       failPage(dispatch, getState, columnKey, sessionId, fingerprint, sourceKey, error, historyScope);
     } finally {
@@ -501,9 +505,10 @@ const extendLoaded = async (dispatch, getState, columnKey, sessionId, fingerprin
       const cursor = sources && sources.getIn([key, 'cursor']);
 
       try {
+        const generation = relationshipGeneration(getState().get('relationships'));
         const page = await fetchPage(resolvedByKey[key], cursor, getState);
 
-        acceptPage(dispatch, getState, columnKey, sessionId, fingerprint, key, cursor, page, scope);
+        acceptPage(dispatch, getState, columnKey, sessionId, fingerprint, key, cursor, page, scope, generation);
       } catch (error) {
         failPage(dispatch, getState, columnKey, sessionId, fingerprint, key, error, scope);
       }

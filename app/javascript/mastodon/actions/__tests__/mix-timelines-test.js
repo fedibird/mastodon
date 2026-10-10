@@ -680,6 +680,10 @@ describe('mix timeline loading', () => {
         state = state.set('mix_timelines', mixTimelines(state.get('mix_timelines'), action));
       }
 
+      if (action.type === 'RELATIONSHIPS_FETCH_SUCCESS') {
+        state = state.set('relationships', relationships(state.get('relationships'), action));
+      }
+
       return action;
     };
 
@@ -920,5 +924,140 @@ describe('mix timeline loading', () => {
     })(dispatch, getState);
 
     expect(getState().getIn(['mix_timelines', 'column:hist', 'split', 'history', 'sources', publicKey, 'ids']).contains('15')).toBe(true);
+  });
+
+  const compactRacePage = () => ({
+    status: 200,
+    data: {
+      statuses: [
+        { id: '100', account: { id: '42' }, visibility: 'public' },
+      ],
+      accounts: [
+        { id: '42', username: 'alice' },
+      ],
+      relationships: [
+        { id: '42', blocking: false, muting: false },
+        { id: '7', following: true, blocking: false, muting: false },
+      ],
+    },
+    headers: {},
+  });
+
+  const relationshipAction = (kind, active) => ({
+    type: {
+      block: active ? 'ACCOUNT_BLOCK_SUCCESS' : 'ACCOUNT_UNBLOCK_SUCCESS',
+      mute: active ? 'ACCOUNT_MUTE_SUCCESS' : 'ACCOUNT_UNMUTE_SUCCESS',
+    }[kind],
+    relationship: {
+      id: '42',
+      blocking: kind === 'block' && active,
+      muting: kind === 'mute' && active,
+      following: true,
+    },
+    statuses: fromJS([]),
+  });
+
+  it.each(['block', 'mute'])('keeps a %s set during a single-view compact response', async (kind) => {
+    const waiting = [];
+
+    mockGet.mockImplementation(() => new Promise(resolve => waiting.push(resolve)));
+
+    const { dispatch, getState } = recordingHarness();
+    const publicKey = sourceKey({ type: 'public', params: {} });
+    const remoteKey = sourceKey({ type: 'remote', params: {} });
+    const pending = loadMixTimeline('column:race', deferredMix)(dispatch, getState);
+
+    for (let attempt = 0; attempt < 10 && waiting.length < 2; attempt += 1) {
+      await Promise.resolve();
+    }
+
+    dispatch(relationshipAction(kind, true));
+    waiting.splice(0).forEach(resolve => resolve(compactRacePage()));
+    await pending;
+
+    const relationship = getState().getIn(['relationships', '42']);
+    const column = getState().getIn(['mix_timelines', 'column:race']);
+    const single = mixTimelineView(column, getState().get('statuses'), null, null);
+
+    expect(relationship.get(kind === 'mute' ? 'muting' : 'blocking')).toBe(true);
+    expect(relationship.get('following')).toBe(true);
+    expect(getState().getIn(['relationships', '7', 'following'])).toBe(true);
+    expect(column.getIn(['sources', publicKey, 'ids']).contains('100')).toBe(false);
+    expect(column.getIn(['sources', remoteKey, 'ids']).contains('100')).toBe(false);
+    expect(single.statusIds.contains('100')).toBe(false);
+
+    dispatch(relationshipAction(kind, false));
+    mockGet.mockImplementation(() => Promise.resolve(compactRacePage()));
+    await retryMixSource('column:race', deferredMix, publicKey)(dispatch, getState);
+    await retryMixSource('column:race', deferredMix, remoteKey)(dispatch, getState);
+
+    expect(getState().getIn(['mix_timelines', 'column:race', 'sources', publicKey, 'ids']).contains('100')).toBe(true);
+    expect(getState().getIn(['mix_timelines', 'column:race', 'sources', remoteKey, 'ids']).contains('100')).toBe(true);
+  });
+
+  it.each(['block', 'mute'])('keeps a %s set during a history compact response', async (kind) => {
+    const { dispatch, getState } = recordingHarness();
+    const publicKey = sourceKey({ type: 'public', params: {} });
+    const remoteKey = sourceKey({ type: 'remote', params: {} });
+    const waiting = [];
+    let hold = false;
+
+    mockGet.mockImplementation((path, config) => {
+      const maxId = config && config.params && config.params.max_id;
+
+      if (!hold) {
+        if (!maxId) {
+          return Promise.resolve({
+            status: 200,
+            data: headPage(),
+            links: nextLink(path, '50'),
+          });
+        }
+
+        return Promise.resolve({
+          status: 200,
+          data: [{ id: '45', account: { id: '3' }, visibility: 'public' }],
+          headers: {},
+        });
+      }
+
+      return new Promise(resolve => waiting.push(resolve));
+    });
+
+    await loadMixTimeline('column:hist', deferredMix)(dispatch, getState);
+    createMixSplit('column:hist', 'split-a')(dispatch, getState);
+    hold = true;
+    const pending = loadMixTimeline('column:hist', deferredMix, {
+      extend: true,
+      scope: 'history',
+      splitId: 'split-a',
+    })(dispatch, getState);
+
+    for (let attempt = 0; attempt < 10 && waiting.length < 2; attempt += 1) {
+      await Promise.resolve();
+    }
+
+    dispatch(relationshipAction(kind, true));
+    waiting.forEach(resolve => resolve(compactRacePage()));
+    await pending;
+
+    const column = getState().getIn(['mix_timelines', 'column:hist']);
+    const history = mixTimelineView(column, getState().get('statuses'), null, null, 'history');
+    const live = mixTimelineView(column, getState().get('statuses'), null, null, 'live');
+    const single = mixTimelineView(column, getState().get('statuses'), null, null);
+
+    expect(getState().getIn(['relationships', '42', kind === 'mute' ? 'muting' : 'blocking'])).toBe(true);
+    expect(getState().getIn(['relationships', '42', 'following'])).toBe(true);
+    expect(column.getIn(['split', 'history', 'sources', publicKey, 'ids']).contains('100')).toBe(false);
+    expect(column.getIn(['split', 'history', 'sources', remoteKey, 'ids']).contains('100')).toBe(false);
+    expect(history.statusIds.contains('100')).toBe(false);
+    expect(live.statusIds.contains('100')).toBe(false);
+    expect(single.statusIds.contains('100')).toBe(false);
+
+    dispatch(relationshipAction(kind, false));
+    mockGet.mockImplementation(() => Promise.resolve(compactRacePage()));
+    await retryMixSource('column:hist', deferredMix, publicKey, { scope: 'history', splitId: 'split-a' })(dispatch, getState);
+
+    expect(getState().getIn(['mix_timelines', 'column:hist', 'split', 'history', 'sources', publicKey, 'ids']).contains('100')).toBe(true);
   });
 });

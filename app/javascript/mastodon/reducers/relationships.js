@@ -49,6 +49,8 @@ const setDomainBlocking = (state, accounts, blocking) => {
   });
 };
 
+const nextRelationshipGeneration = (count) => (typeof count === 'number' && !Number.isNaN(count) ? count : 0) + 1;
+
 const initialState = ImmutableMap({ updateCount: 0 });
 
 export default function relationships(state = initialState, action) {
@@ -73,7 +75,7 @@ export default function relationships(state = initialState, action) {
   case ACCOUNT_UNBLOCK_SUCCESS:
   case ACCOUNT_MUTE_SUCCESS:
   case ACCOUNT_UNMUTE_SUCCESS:
-    return normalizeRelationship(state, action.relationship).update('updateCount', x => x + 1);
+    return normalizeRelationship(state, action.relationship).update('updateCount', nextRelationshipGeneration);
   case ACCOUNT_FOLLOW_SUCCESS:
   case ACCOUNT_UNFOLLOW_SUCCESS:
   case ACCOUNT_SUBSCRIBE_SUCCESS:
@@ -85,9 +87,9 @@ export default function relationships(state = initialState, action) {
   case RELATIONSHIPS_FETCH_SUCCESS:
     return normalizeRelationships(state, action.relationships);
   case DOMAIN_BLOCK_SUCCESS:
-    return setDomainBlocking(state, action.accounts, true).update('updateCount', x => x + 1);
+    return setDomainBlocking(state, action.accounts, true).update('updateCount', nextRelationshipGeneration);
   case DOMAIN_UNBLOCK_SUCCESS:
-    return setDomainBlocking(state, action.accounts, false).update('updateCount', x => x + 1);
+    return setDomainBlocking(state, action.accounts, false).update('updateCount', nextRelationshipGeneration);
   default:
     return state;
   }

@@ -14,6 +14,60 @@ const accountIdOf = (account) => {
   return account.id ? String(account.id) : null;
 };
 
+export const relationshipGeneration = (relationships) => {
+  if (!relationships || !relationships.get) {
+    return 0;
+  }
+
+  const count = relationships.get('updateCount');
+
+  return typeof count === 'number' && !Number.isNaN(count) ? count : 0;
+};
+
+const PROTECTED_RELATIONSHIP_KEYS = ['blocking', 'muting', 'domain_blocking'];
+
+// A compact page can carry relationships captured before a block or mute.
+// Keep those explicit flags, and keep any local fields the page does not repeat.
+export const relationshipsAfterGeneration = (relationships, incoming, generation) => {
+  if (!incoming || !incoming.length) {
+    return [];
+  }
+
+  if (relationshipGeneration(relationships) === generation) {
+    return incoming;
+  }
+
+  return incoming.map(relationship => {
+    if (!relationship || relationship.id === undefined || relationship.id === null) {
+      return relationship;
+    }
+
+    const current = relationships && relationships.get && relationships.get(String(relationship.id));
+
+    if (!current || !current.get) {
+      return relationship;
+    }
+
+    const merged = { ...relationship };
+
+    PROTECTED_RELATIONSHIP_KEYS.forEach(key => {
+      if (current.has(key)) {
+        merged[key] = current.get(key);
+      }
+    });
+
+    current.forEach((value, key) => {
+      if (merged[key] !== undefined) {
+        return;
+      }
+
+      merged[key] = value && value.toJS ? value.toJS() : value;
+    });
+
+    return merged;
+  });
+};
+
 export const relationshipHidesAccount = (relationships, accountId) => {
   if (!relationships || !relationships.get || !accountId) {
     return false;

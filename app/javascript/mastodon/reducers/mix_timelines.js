@@ -463,6 +463,34 @@ export default function mixTimelines(state = initialState, action) {
         return (results || ImmutableMap()).merge(fromJS({ [action.id]: decision.filterResults }));
       };
 
+      if (decision.decision === 'conceal') {
+        const dropId = (ids) => (ids || ImmutableList()).filter(id => id !== action.id);
+        let concealed = next.updateIn([action.columnKey, 'pendingStatusIds'], ImmutableList(), dropId);
+        const sourcePath = [action.columnKey, 'sources', decision.sourceKey];
+        const livePath = [action.columnKey, 'live', decision.sourceKey];
+
+        if (concealed.getIn(sourcePath)) {
+          concealed = concealed.updateIn(sourcePath.concat(['ids']), ImmutableList(), dropId);
+        }
+
+        if (concealed.getIn(livePath)) {
+          concealed = concealed.updateIn(livePath.concat(['statusIds']), ImmutableList(), dropId);
+        }
+
+        const historyPath = [action.columnKey, 'split', 'history', 'sources', decision.sourceKey];
+        const frozenPath = [action.columnKey, 'split', 'history', 'frozenLive', decision.sourceKey];
+
+        if (concealed.getIn(historyPath)) {
+          concealed = concealed.updateIn(historyPath.concat(['ids']), ImmutableList(), dropId);
+        }
+
+        if (concealed.getIn(frozenPath)) {
+          concealed = concealed.updateIn(frozenPath.concat(['ids']), ImmutableList(), dropId);
+        }
+
+        return concealed;
+      }
+
       if (decision.decision === 'reject') {
         const removed = next
           .updateIn([action.columnKey, 'live', decision.sourceKey], initialLive, entry => entry.merge({
