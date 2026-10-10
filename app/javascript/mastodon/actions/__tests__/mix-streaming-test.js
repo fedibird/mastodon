@@ -1368,4 +1368,84 @@ describe('mix streaming', () => {
     expect(ids).not.toContain('100');
     expect(getState().getIn(['mix_timelines', 'column:a', 'sources', resolved[1].key, 'ids']).contains('100')).toBe(false);
   });
+
+  it.each(['block', 'mute'])('hides a compact string reblog during %s while reconciling', async (kind) => {
+    const { dispatch, getState, sent } = harness();
+    const resolved = openColumn(dispatch, 'column:a', 1, [
+      { type: 'public', params: {} },
+      { type: 'list', id: '4', params: {} },
+    ]);
+    const fingerprint = resolved.map(source => source.key).join('\n');
+
+    readyHistory(dispatch, 'column:a', resolved[0].key, fingerprint);
+    dispatch({
+      type: MIX_SOURCE_SUCCESS,
+      columnKey: 'column:a',
+      sourceKey: resolved[1].key,
+      sessionId: 1,
+      definitionFingerprint: fingerprint,
+      ids: ['10'],
+      cursor: null,
+      frontier: '10',
+      hasMore: false,
+      partial: false,
+      requestedCursor: null,
+    });
+    dispatch(openMixStream('column:a', mix));
+
+    let release;
+
+    mockGet.mockImplementation(() => new Promise(resolve => {
+      release = resolve;
+    }));
+
+    const pending = reconcileMixSource('column:a', resolved[0].key)(dispatch, getState);
+
+    await Promise.resolve();
+    dispatch({
+      type: kind === 'mute' ? 'ACCOUNT_MUTE_SUCCESS' : 'ACCOUNT_BLOCK_SUCCESS',
+      relationship: {
+        id: '42',
+        blocking: kind === 'block',
+        muting: kind === 'mute',
+      },
+      statuses: fromJS([]),
+    });
+    sent.length = 0;
+    release({
+      status: 200,
+      data: {
+        statuses: [
+          { id: '201', account: '9', reblog: '200', visibility: 'public' },
+          { id: '199', account: '8', reblog: '198', visibility: 'public' },
+        ],
+        referenced_statuses: [
+          { id: '200', account: '42', visibility: 'public' },
+          { id: '198', account: '7', visibility: 'public' },
+        ],
+        accounts: [
+          { id: '42' },
+          { id: '9' },
+          { id: '7' },
+          { id: '8' },
+        ],
+      },
+      headers: {},
+    });
+    await pending;
+
+    const ids = getState().getIn(['mix_timelines', 'column:a', 'live', resolved[0].key, 'statusIds']).toArray();
+    const imported = sent.filter(action => action.type === 'IMPORT_STATUSES').reduce((list, action) => {
+      (action.statuses || []).forEach(status => list.push(String(status.id)));
+      return list;
+    }, []);
+
+    expect(ids).toContain('199');
+    expect(ids).not.toContain('201');
+    expect(ids).not.toContain('200');
+    expect(imported).toEqual(expect.arrayContaining(['199', '198']));
+    expect(imported).not.toEqual(expect.arrayContaining(['201', '200']));
+    expect(getState().getIn(['mix_timelines', 'column:a', 'sources', resolved[0].key, 'frontier'])).toBe('10');
+    expect(getState().getIn(['mix_timelines', 'column:a', 'sources', resolved[0].key, 'gap'])).toBe(false);
+  });
 });

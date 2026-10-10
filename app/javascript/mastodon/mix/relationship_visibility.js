@@ -82,9 +82,59 @@ export const relationshipHidesAccount = (relationships, accountId) => {
   return relationship.get('blocking') === true || relationship.get('muting') === true;
 };
 
+const statusIdOf = (status) => {
+  if (!status || status.id === undefined || status.id === null) {
+    return null;
+  }
+
+  return String(status.id);
+};
+
+// Compact pages point reblog at an id. The original lives in referenced_statuses
+// or, failing that, in the statuses already stored. An unresolved id is not
+// treated as hidden.
+const originalStatus = (status, context) => {
+  const reblog = status.get ? status.get('reblog') : status.reblog;
+
+  if (!reblog) {
+    return null;
+  }
+
+  if (typeof reblog === 'object') {
+    return reblog;
+  }
+
+  const id = String(reblog);
+  const indexed = context && context.index && context.index.get(id);
+
+  if (indexed) {
+    return indexed;
+  }
+
+  const stored = context && context.statuses && context.statuses.get && context.statuses.get(id);
+
+  return stored || null;
+};
+
+export const statusIndex = (groups) => {
+  const index = new Map();
+
+  (groups || []).forEach(group => {
+    (group || []).forEach(status => {
+      const id = statusIdOf(status);
+
+      if (id && !index.has(id)) {
+        index.set(id, status);
+      }
+    });
+  });
+
+  return index;
+};
+
 // A block or mute hides that account's posts and boosts of them. It is not a
 // delete tombstone: clearing the relationship lets a later fetch show them.
-export const statusHiddenByRelationships = (relationships, status) => {
+export const statusHiddenByRelationships = (relationships, status, context) => {
   if (!status) {
     return false;
   }
@@ -95,22 +145,35 @@ export const statusHiddenByRelationships = (relationships, status) => {
     return true;
   }
 
-  const reblog = status.get ? status.get('reblog') : status.reblog;
+  const original = originalStatus(status, context);
 
-  if (!reblog || typeof reblog !== 'object') {
+  if (!original) {
     return false;
   }
 
-  const reblogAccount = reblog.get ? reblog.get('account') : reblog.account;
+  const reblogAccount = original.get ? original.get('account') : original.account;
 
   return relationshipHidesAccount(relationships, accountIdOf(reblogAccount));
 };
 
-export const idHiddenByRelationships = (relationships, statuses, id, pageStatuses) => {
+export const hiddenStatusIds = (relationships, storedStatuses, groups) => {
+  const index = statusIndex(groups);
+  const hidden = new Set();
+
+  index.forEach(status => {
+    if (statusHiddenByRelationships(relationships, status, { index, statuses: storedStatuses })) {
+      hidden.add(String(status.id));
+    }
+  });
+
+  return hidden;
+};
+
+export const idHiddenByRelationships = (relationships, statuses, id, pageStatuses, context) => {
   const fromPage = (pageStatuses || []).find(item => item && String(item.id) === String(id));
 
   if (fromPage) {
-    return statusHiddenByRelationships(relationships, fromPage);
+    return statusHiddenByRelationships(relationships, fromPage, context || { statuses });
   }
 
   const stored = statuses && statuses.get && statuses.get(id);

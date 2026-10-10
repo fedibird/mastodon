@@ -8,7 +8,7 @@ import { classifyStreamStatus, streamChannelId, streamSubscriptions } from '../m
 import { filterContextForSource } from '../mix/filter_context';
 import { plainMix } from '../mix/definition';
 import { MIX_PAGE_SIZE, MIX_RECONCILE_BUDGET } from '../mix/merge';
-import { relationshipGeneration, relationshipsAfterGeneration, statusHiddenByRelationships } from '../mix/relationship_visibility';
+import { hiddenStatusIds, relationshipGeneration, relationshipsAfterGeneration, statusHiddenByRelationships } from '../mix/relationship_visibility';
 import { fetchRelationshipsSuccess } from './accounts';
 import { normalizeFilterResult } from './importer/normalizer';
 import { me } from '../initial_state';
@@ -309,7 +309,8 @@ export function reconcileMixSource(columnKey, sourceKey) {
         return;
       }
 
-      const visibleStatus = (status) => !statusHiddenByRelationships(getState().get('relationships'), status);
+      const hidden = hiddenStatusIds(getState().get('relationships'), getState().get('statuses'), [page.statuses, page.referencedStatuses]);
+      const visibleStatus = (status) => status && !hidden.has(String(status.id));
       const relationships = relationshipsAfterGeneration(getState().get('relationships'), page.relationships, generation);
 
       if (relationships.length && active()) {

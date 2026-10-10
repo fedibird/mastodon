@@ -8,7 +8,7 @@ import { isMixEnabled } from '../mix/availability';
 import { plainMix } from '../mix/definition';
 import { resolveRequest, normalizePage, classifyFetchFailure, previousStatusesForImport, statusesForSharedImport } from '../mix/source_adapters';
 import { MIX_FETCH_BUDGET, MIX_FETCH_CONCURRENCY, MIX_PAGE_SIZE, MIX_PAGE_TARGET, nextFetchKeys } from '../mix/merge';
-import { idHiddenByRelationships, relationshipGeneration, relationshipsAfterGeneration, statusHiddenByRelationships } from '../mix/relationship_visibility';
+import { hiddenStatusIds, idHiddenByRelationships, relationshipGeneration, relationshipsAfterGeneration } from '../mix/relationship_visibility';
 
 export const MIX_TIMELINE_OPEN = 'MIX_TIMELINE_OPEN';
 export const MIX_TIMELINE_CLOSE = 'MIX_TIMELINE_CLOSE';
@@ -91,17 +91,15 @@ const stillCurrentScope = (getState, columnKey, sessionId, fingerprint, scope) =
 const withoutHiddenStatuses = (getState, page) => {
   const relationships = getState().get('relationships');
   const statuses = getState().get('statuses');
-  const pageStatuses = (page.statuses || []).concat(page.referencedStatuses || []);
-  const hidden = new Set();
-
-  pageStatuses.forEach(status => {
-    if (status && statusHiddenByRelationships(relationships, status)) {
-      hidden.add(String(status.id));
-    }
-  });
+  const hidden = hiddenStatusIds(relationships, statuses, [page.statuses, page.referencedStatuses]);
+  const context = { index: null, statuses };
 
   (page.ids || []).forEach(id => {
-    if (idHiddenByRelationships(relationships, statuses, id, page.statuses)) {
+    if (hidden.has(String(id))) {
+      return;
+    }
+
+    if (idHiddenByRelationships(relationships, statuses, id, page.statuses, context)) {
       hidden.add(String(id));
     }
   });
