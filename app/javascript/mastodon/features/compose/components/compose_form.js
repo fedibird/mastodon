@@ -58,6 +58,8 @@ const messages = defineMessages({
   privacyPersonal: { id: 'privacy.personal.short', defaultMessage: 'Personal' },
   surfaceMismatch: { id: 'compose_form.posting_style.surface_mismatch', defaultMessage: 'This draft still uses the previous destination. Posting stays off until you apply the destination shown here.' },
   surfaceAccept: { id: 'compose_form.posting_style.surface_accept', defaultMessage: 'Use this destination' },
+  mediaUnavailable: { id: 'upload_button.media_unavailable', defaultMessage: 'Image upload needs posting and media permission for this account.' },
+  mediaType: { id: 'upload_button.media_type', defaultMessage: 'Video and audio cannot be posted as this account.' },
 });
 
 export default @injectIntl
@@ -107,6 +109,8 @@ class ComposeForm extends ImmutablePureComponent {
     contextCompliant: PropTypes.bool,
     canAttempt: PropTypes.bool,
     canSendAsIdentity: PropTypes.bool,
+    canUploadMedia: PropTypes.bool,
+    mediaUploadReason: PropTypes.string,
     capabilityReason: PropTypes.string,
     surfaceMismatch: PropTypes.bool,
     onAcceptSurface: PropTypes.func,
@@ -120,6 +124,8 @@ class ComposeForm extends ImmutablePureComponent {
     contextCompliant: true,
     canAttempt: true,
     canSendAsIdentity: true,
+    canUploadMedia: true,
+    mediaUploadReason: null,
     capabilityReason: null,
     surfaceMismatch: false,
     displayMode: 'full',
@@ -183,6 +189,31 @@ class ComposeForm extends ImmutablePureComponent {
           </button>
         ) : null}
       </div>
+    );
+  }
+
+  renderMediaGrantNotice () {
+    if (!this.isSimpleMode() || this.props.canUploadMedia !== false) {
+      return null;
+    }
+
+    const reason = this.props.mediaUploadReason;
+    let message = null;
+
+    if (reason === 'media_type') {
+      message = messages.mediaType;
+    } else if (reason === 'media') {
+      message = messages.mediaUnavailable;
+    }
+
+    if (!message) {
+      return null;
+    }
+
+    return (
+      <p className='compose-form__upload-notice' role='status'>
+        {this.props.intl.formatMessage(message)}
+      </p>
     );
   }
 
@@ -454,6 +485,7 @@ class ComposeForm extends ImmutablePureComponent {
         {this.props.styleController}
         {this.renderSurfaceMismatch()}
         {this.renderCapabilityGuard()}
+        {this.renderMediaGrantNotice()}
         {simple && (
           <div className='compose-form__simple-bar'>
             {this.props.senderIdentity}

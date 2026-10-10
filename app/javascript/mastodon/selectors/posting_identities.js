@@ -133,10 +133,6 @@ export const selectComposerCanSendAsIdentity = (state, composerId) => {
         return deny('schedule');
       }
 
-      if (composer.get('media_attachments').size > 0 || composer.get('is_uploading')) {
-        return deny('media');
-      }
-
       if (composer.get('poll')) {
         return deny('poll');
       }
@@ -145,7 +141,28 @@ export const selectComposerCanSendAsIdentity = (state, composerId) => {
         return deny('edit_bound');
       }
 
-      return { canSend: true, canUpload: false, reason: null };
+      const mediaSupported = capabilityAllows(identity, 'media');
+      const attachments = composer.get('media_attachments');
+      const pendingMedia = attachments.size > 0 || composer.get('is_uploading') || composer.get('is_processing') || composer.get('pending_media_attachments') > 0;
+
+      if (attachments.some(item => item.get('type') && item.get('type') !== 'image')) {
+        return { canSend: false, canUpload: false, reason: 'media_type', stillImagesOnly: true };
+      }
+
+      if (pendingMedia && !mediaSupported) {
+        return { canSend: false, canUpload: false, reason: 'media', stillImagesOnly: false };
+      }
+
+      if (composer.get('is_uploading') || composer.get('is_processing') || composer.get('pending_media_attachments') > 0) {
+        return { canSend: false, canUpload: mediaSupported, reason: 'processing', stillImagesOnly: mediaSupported };
+      }
+
+      return {
+        canSend: true,
+        canUpload: mediaSupported,
+        reason: mediaSupported ? null : 'media',
+        stillImagesOnly: mediaSupported,
+      };
     }
 
     if (identity.get('id') !== (senderId || sessionId)) {
@@ -181,12 +198,17 @@ export const selectComposerCanSendAsIdentity = (state, composerId) => {
 export const selectComposerCanUploadAsIdentity = (state, composerId) => {
   const decision = selectComposerCanSendAsIdentity(state, composerId);
 
-  if (!decision.canSend || decision.canUpload === false) {
+  if (decision.canUpload === true) {
     return {
-      canUpload: false,
-      reason: decision.reason || 'unauthorized',
+      canUpload: true,
+      reason: null,
+      stillImagesOnly: decision.stillImagesOnly === true,
     };
   }
 
-  return { canUpload: true, reason: null };
+  return {
+    canUpload: false,
+    reason: decision.reason || 'unauthorized',
+    stillImagesOnly: false,
+  };
 };

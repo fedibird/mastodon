@@ -1059,6 +1059,21 @@ body > [data-popper-placement] {
   }
 
   @media screen and (max-width: 375px) {
+    .compose-form__modifiers .compose-form__upload {
+      flex-basis: 100%;
+      min-width: 0;
+    }
+
+    .compose-form__buttons-wrapper .compose-form__submit {
+      flex: 1 1 100%;
+      margin-inline-start: 0;
+    }
+
+    .compose-form__upload-notice,
+    .compose-form__sender-choice {
+      max-width: 100%;
+    }
+
     &--simple {
       .compose-form__simple-bar {
         gap: 6px;
@@ -1324,6 +1339,14 @@ body > [data-popper-placement] {
 
       .compose-form__upload-button-icon {
         line-height: 27px;
+      }
+
+      .compose-form__upload-notice {
+        flex: 1 1 100%;
+        margin: 0;
+        color: $secondary-text-color;
+        font-size: 12px;
+        line-height: 1.35;
       }
 
       .compose-form__sensitive-button {

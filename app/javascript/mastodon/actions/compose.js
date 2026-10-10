@@ -21,6 +21,7 @@ import { selectComposer } from '../selectors/composer';
 import { fetchPostingIdentities } from './posting_identities';
 import { composerHasGroupDestination } from '../posting_identity/group_destination';
 import { sessionPostingIdentityId } from '../posting_identity/identity';
+import { delegatedFileIsBlocked } from '../posting_identity/still_image';
 import { selectComposerCanSendAsIdentity, selectComposerCanUploadAsIdentity } from '../selectors/posting_identities';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import { targetComposerAction } from './composer';
@@ -47,6 +48,7 @@ export const COMPOSE_RESET           = 'COMPOSE_RESET';
 export const COMPOSE_UPLOAD_REQUEST    = 'COMPOSE_UPLOAD_REQUEST';
 export const COMPOSE_UPLOAD_SUCCESS    = 'COMPOSE_UPLOAD_SUCCESS';
 export const COMPOSE_UPLOAD_FAIL       = 'COMPOSE_UPLOAD_FAIL';
+export const COMPOSE_UPLOAD_DISCARD    = 'COMPOSE_UPLOAD_DISCARD';
 export const COMPOSE_UPLOAD_PROGRESS   = 'COMPOSE_UPLOAD_PROGRESS';
 export const COMPOSE_UPLOAD_PROCESSING = 'COMPOSE_UPLOAD_PROCESSING';
 export const COMPOSE_UPLOAD_UNDO       = 'COMPOSE_UPLOAD_UNDO';
@@ -117,6 +119,7 @@ export const COMPOSE_REFERENCE_CHECK_IGNORE  = 'COMPOSE_REFERENCE_CHECK_IGNORE';
 const messages = defineMessages({
   uploadErrorLimit: { id: 'upload_error.limit', defaultMessage: 'File upload limit exceeded.' },
   uploadErrorPoll:  { id: 'upload_error.poll', defaultMessage: 'File upload not allowed with polls.' },
+  uploadErrorDelegatedType: { id: 'upload_error.delegated_type', defaultMessage: 'This linked account can attach still images only.' },
   postReferenceMessage:  { id: 'confirmations.post_reference.message', defaultMessage: 'It contains references, do you want to post it?' },
   postReferenceConfirm:  { id: 'confirmations.post_reference.confirm', defaultMessage: 'Post' },
   missingAltTextTitle:     { id: 'confirmations.missing_alt_text.title', defaultMessage: 'Add alt text?' },
@@ -511,7 +514,6 @@ export function submitComposer(composerId, routerHistory) {
 
     if (delegatedSend) {
       delete createData.in_reply_to_id;
-      delete createData.media_ids;
       delete createData.poll;
       delete createData.quote_id;
       delete createData.scheduled_at;
@@ -658,6 +660,54 @@ const withPostingIdentity = (params, composer) => {
   };
 };
 
+const uploadEpoch = composer => Number(composer && composer.getIn(['senderIdentity', 'changeEpoch'])) || 0;
+
+const captureUploadSnapshot = (composer, composerId) => ({
+  composerId,
+  identityId: postingIdentityIdFor(composer),
+  changeEpoch: uploadEpoch(composer),
+  requestId: `${composerId}:${uploadEpoch(composer)}:${Date.now()}:${Math.random().toString(16).slice(2)}`,
+});
+
+const descriptionSnapshotCurrent = (state, snapshot) => {
+  const composer = selectComposer(state, snapshot.composerId);
+
+  if (!composer) {
+    return false;
+  }
+
+  return postingIdentityIdFor(composer) === snapshot.identityId && uploadEpoch(composer) === snapshot.changeEpoch;
+};
+
+const uploadSnapshotCurrent = (state, snapshot) => {
+  const composer = selectComposer(state, snapshot.composerId);
+
+  if (!composer) {
+    return false;
+  }
+
+  const requests = composer.get('uploadRequests');
+
+  if (!requests || !requests.has || !requests.has(snapshot.requestId)) {
+    return false;
+  }
+
+  return postingIdentityIdFor(composer) === snapshot.identityId && uploadEpoch(composer) === snapshot.changeEpoch;
+};
+
+const applyUploadResult = (dispatch, getState, snapshot, action) => {
+  if (!selectComposer(getState(), snapshot.composerId)) {
+    return;
+  }
+
+  if (!uploadSnapshotCurrent(getState(), snapshot)) {
+    dispatchToComposer(dispatch, snapshot.composerId, uploadComposeDiscard(snapshot.requestId));
+    return;
+  }
+
+  dispatchToComposer(dispatch, snapshot.composerId, action);
+};
+
 export function uploadToComposer(composerId, files) {
   return function (dispatch, getState) {
     const composer = selectComposer(getState(), composerId);
@@ -666,7 +716,14 @@ export function uploadToComposer(composerId, files) {
       return;
     }
 
-    if (!selectComposerCanUploadAsIdentity(getState(), composerId).canUpload) {
+    const uploadDecision = selectComposerCanUploadAsIdentity(getState(), composerId);
+
+    if (!uploadDecision.canUpload) {
+      return;
+    }
+
+    if (uploadDecision.stillImagesOnly && Array.from(files).some(delegatedFileIsBlocked)) {
+      dispatch(showAlert(undefined, messages.uploadErrorDelegatedType));
       return;
     }
 
@@ -688,17 +745,23 @@ export function uploadToComposer(composerId, files) {
       return;
     }
 
-    dispatchToComposer(dispatch, composerId, uploadComposeRequest());
+    const openedAt = captureUploadSnapshot(composer, composerId);
 
     for (const [i, file] of Array.from(files).entries()) {
       if (media.size + i >= maxAttachments) break;
 
+      const snapshot = { ...openedAt, requestId: `${openedAt.requestId}:${i}` };
       const data = new FormData();
       data.append('file', file);
       appendPostingIdentity(data, composer);
+      dispatchToComposer(dispatch, composerId, uploadComposeRequest(snapshot.requestId));
 
       api(getState).post('/api/v2/media', data, {
         onUploadProgress: function({ loaded }){
+          if (!uploadSnapshotCurrent(getState(), snapshot)) {
+            return;
+          }
+
           progress[i] = loaded;
           dispatchToComposer(
             dispatch,
@@ -706,33 +769,65 @@ export function uploadToComposer(composerId, files) {
             uploadComposeProgress(progress.reduce((a, v) => a + v, 0), total),
           );
         },
-      }).then(({ status, data }) => {
-        // If server-side processing of the media attachment has not completed yet,
-        // poll the server until it is, before showing the media attachment as uploaded
-
+      }).then(({ status, data: body }) => {
+        // Processing that is still running is polled with the same sender
+        // snapshot. A later response cannot land on another draft.
         if (status === 200) {
-          dispatchToComposer(dispatch, composerId, uploadComposeSuccess({ ...data, order: orderBase + i }, file));
+          applyUploadResult(dispatch, getState, snapshot, uploadComposeSuccess({ ...body, order: orderBase + i }, file, snapshot.identityId, snapshot.requestId));
         } else if (status === 202) {
-          dispatchToComposer(dispatch, composerId, uploadComposeProcessing());
+          applyUploadResult(dispatch, getState, snapshot, uploadComposeProcessing());
+          if (!uploadSnapshotCurrent(getState(), snapshot)) {
+            return;
+          }
 
           let tryCount = 1;
 
           const pollStatus = () => {
-            api(getState).get(`/api/v1/media/${data.id}`).then(response => {
+            if (!selectComposer(getState(), snapshot.composerId)) {
+              return;
+            }
+
+            if (!uploadSnapshotCurrent(getState(), snapshot)) {
+              applyUploadResult(dispatch, getState, snapshot, uploadComposeDiscard(snapshot.requestId));
+              return;
+            }
+
+            api(getState).get(`/api/v1/media/${body.id}`, {
+              params: { posting_identity_id: snapshot.identityId },
+            }).then(response => {
+              if (!uploadSnapshotCurrent(getState(), snapshot)) {
+                applyUploadResult(dispatch, getState, snapshot, uploadComposeDiscard(snapshot.requestId));
+                return;
+              }
+
               if (response.status === 200) {
-                dispatchToComposer(dispatch, composerId, uploadComposeSuccess({ ...response.data, order: orderBase + i }, file));
+                applyUploadResult(dispatch, getState, snapshot, uploadComposeSuccess({ ...response.data, order: orderBase + i }, file, snapshot.identityId, snapshot.requestId));
               } else if (response.status === 206) {
                 const retryAfter = (Math.log2(tryCount) || 1) * 1000;
                 tryCount += 1;
                 setTimeout(() => pollStatus(), retryAfter);
               }
-            }).catch(error => dispatchToComposer(dispatch, composerId, uploadComposeFail(error)));
+            }).catch(error => {
+              if (!selectComposer(getState(), snapshot.composerId) || !uploadSnapshotCurrent(getState(), snapshot)) {
+                applyUploadResult(dispatch, getState, snapshot, uploadComposeDiscard(snapshot.requestId));
+                return;
+              }
+
+              applyUploadResult(dispatch, getState, snapshot, uploadComposeFail(error, snapshot.requestId));
+            });
           };
 
           pollStatus();
         }
-      }).catch(error => dispatchToComposer(dispatch, composerId, uploadComposeFail(error)));
-    };
+      }).catch(error => {
+        if (!selectComposer(getState(), snapshot.composerId) || !uploadSnapshotCurrent(getState(), snapshot)) {
+          applyUploadResult(dispatch, getState, snapshot, uploadComposeDiscard(snapshot.requestId));
+          return;
+        }
+
+        applyUploadResult(dispatch, getState, snapshot, uploadComposeFail(error, snapshot.requestId));
+      });
+    }
   };
 };
 
@@ -742,6 +837,7 @@ export function uploadCompose(files) {
 
 export const uploadComposeProcessing = () => ({
   type: COMPOSE_UPLOAD_PROCESSING,
+  skipLoading: true,
 });
 
 export const uploadComposerThumbnail = (composerId, id, file) => (dispatch, getState) => {
@@ -753,23 +849,37 @@ export const uploadComposerThumbnail = (composerId, id, file) => (dispatch, getS
     return;
   }
 
+  const composer = selectComposer(getState(), composerId);
+  const snapshot = captureUploadSnapshot(composer, composerId);
+
   dispatchToComposer(dispatch, composerId, uploadThumbnailRequest());
 
   const total = file.size;
   const data = new FormData();
-  const composer = selectComposer(getState(), composerId);
 
   data.append('thumbnail', file);
   appendPostingIdentity(data, composer);
 
   api(getState).put(`/api/v1/media/${id}`, data, {
     onUploadProgress: ({ loaded }) => {
-      dispatchToComposer(dispatch, composerId, uploadThumbnailProgress(loaded, total));
+      if (descriptionSnapshotCurrent(getState(), snapshot)) {
+        dispatchToComposer(dispatch, composerId, uploadThumbnailProgress(loaded, total));
+      }
     },
-  }).then(({ data }) => {
-    dispatchToComposer(dispatch, composerId, uploadThumbnailSuccess(data));
+  }).then(({ data: body }) => {
+    if (!descriptionSnapshotCurrent(getState(), snapshot)) {
+      dispatchToComposer(dispatch, composerId, uploadThumbnailFail(null, true));
+      return;
+    }
+
+    dispatchToComposer(dispatch, composerId, uploadThumbnailSuccess(body));
   }).catch(error => {
-    dispatchToComposer(dispatch, composerId, uploadThumbnailFail(id, error));
+    if (!descriptionSnapshotCurrent(getState(), snapshot)) {
+      dispatchToComposer(dispatch, composerId, uploadThumbnailFail(null, true));
+      return;
+    }
+
+    dispatchToComposer(dispatch, composerId, uploadThumbnailFail(error));
   });
 };
 
@@ -793,9 +903,10 @@ export const uploadThumbnailSuccess = media => ({
   skipLoading: true,
 });
 
-export const uploadThumbnailFail = error => ({
+export const uploadThumbnailFail = (error, skipAlert = false) => ({
   type: THUMBNAIL_UPLOAD_FAIL,
   error,
+  skipAlert,
   skipLoading: true,
 });
 
@@ -849,6 +960,8 @@ export function changeComposerUpload(composerId, id, params) {
       return;
     }
 
+    const snapshot = captureUploadSnapshot(composer, composerId);
+
     dispatchToComposer(dispatch, composerId, changeUploadComposeRequest());
 
     const media = composer.get('media_attachments').find(item => item.get('id') === id);
@@ -872,9 +985,19 @@ export function changeComposerUpload(composerId, id, params) {
     }
 
     api(getState).put(`/api/v1/media/${id}`, withPostingIdentity(params, composer)).then(response => {
+      if (!descriptionSnapshotCurrent(getState(), snapshot)) {
+        dispatchToComposer(dispatch, composerId, changeUploadComposeFail(null, true));
+        return;
+      }
+
       dispatchToComposer(dispatch, composerId, changeUploadComposeSuccess(response.data));
     }).catch(error => {
-      dispatchToComposer(dispatch, composerId, changeUploadComposeFail(id, error));
+      if (!descriptionSnapshotCurrent(getState(), snapshot)) {
+        dispatchToComposer(dispatch, composerId, changeUploadComposeFail(null, true));
+        return;
+      }
+
+      dispatchToComposer(dispatch, composerId, changeUploadComposeFail(error));
     });
   };
 };
@@ -899,17 +1022,19 @@ export function changeUploadComposeSuccess(media, attached = false) {
   };
 };
 
-export function changeUploadComposeFail(error) {
+export function changeUploadComposeFail(error, skipAlert = false) {
   return {
     type: COMPOSE_UPLOAD_CHANGE_FAIL,
     error: error,
+    skipAlert,
     skipLoading: true,
   };
 };
 
-export function uploadComposeRequest() {
+export function uploadComposeRequest(requestId) {
   return {
     type: COMPOSE_UPLOAD_REQUEST,
+    requestId,
     skipLoading: true,
   };
 };
@@ -922,19 +1047,30 @@ export function uploadComposeProgress(loaded, total) {
   };
 };
 
-export function uploadComposeSuccess(media, file) {
+export function uploadComposeSuccess(media, file, ownerIdentityId, requestId) {
   return {
     type: COMPOSE_UPLOAD_SUCCESS,
     media: media,
     file: file,
+    ownerIdentityId,
+    requestId,
     skipLoading: true,
   };
 };
 
-export function uploadComposeFail(error) {
+export function uploadComposeFail(error, requestId) {
   return {
     type: COMPOSE_UPLOAD_FAIL,
     error: error,
+    requestId,
+    skipLoading: true,
+  };
+};
+
+export function uploadComposeDiscard(requestId) {
+  return {
+    type: COMPOSE_UPLOAD_DISCARD,
+    requestId,
     skipLoading: true,
   };
 };
