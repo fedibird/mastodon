@@ -9,13 +9,38 @@ import { selectComposerCanSendAsIdentity, selectComposerSenderIdentity as select
 import { withComposerId } from '../composer_id_context';
 import SenderIdentity from '../components/sender_identity';
 
-const mapStateToProps = (state, { composerId }) => {
+// The signed-in account fills in a sender only when that sender is the
+// session identity. A missing delegated identity must not borrow it.
+export const presentSenderIdentity = (sender, sessionAccount, sessionIdentityId) => {
+  if (!sender) {
+    return sender;
+  }
+
+  const selectedId = sender.get('id');
+  const delegated = typeof selectedId === 'string' && selectedId.startsWith('delegated:');
+
+  if (delegated) {
+    if (sender.get('authorization') === 'ready') {
+      return sender;
+    }
+
+    return sender.get('authorization') ? sender : sender.set('authorization', 'unavailable');
+  }
+
+  if (!sender.get('account') && sessionAccount && selectedId === sessionIdentityId) {
+    return sender.set('account', sessionAccount);
+  }
+
+  return sender;
+};
+
+export const mapStateToProps = (state, { composerId }) => {
   const sender = selectSender(state, composerId);
   const composer = selectComposer(state, composerId);
   const catalogStatus = state.getIn(['postingIdentities', 'status'], 'idle');
-  const sessionAccount = me ? state.getIn(['accounts', me]) : null;
-  const current = sender && !sender.get('account') && sessionAccount ? sender.set('account', sessionAccount) : sender;
   const sessionId = sessionPostingIdentityId();
+  const sessionAccount = me ? state.getIn(['accounts', me]) : null;
+  const current = presentSenderIdentity(sender, sessionAccount, sessionId);
   const choices = (state.getIn(['postingIdentities', 'identities']) || []).filter(identity => {
     if (!identity || identity.get('authorization') !== 'ready') {
       return false;

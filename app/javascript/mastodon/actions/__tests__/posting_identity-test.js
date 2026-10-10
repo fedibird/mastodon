@@ -19,7 +19,7 @@ jest.mock('../../api', () => ({
 }));
 
 import api from '../../api';
-import { changeCompose, changeComposerUpload, changeComposeVisibility, submitComposer, uploadComposerThumbnail, uploadToComposer } from '../compose';
+import { changeCompose, changeComposerUpload, changeComposeLanguage, changeComposeSpoilerness, changeComposeSpoilerText, changeComposeVisibility, submitComposer, uploadComposerThumbnail, uploadToComposer } from '../compose';
 import { applyComposerPostingContext, COMPOSER_SENDER_IDENTITY_SELECT, createComposer, targetComposerAction } from '../composer';
 import { fetchPostingIdentities, POSTING_IDENTITIES_FETCH_SUCCESS, selectComposerSenderIdentity } from '../posting_identities';
 import compose from '../../reducers/compose';
@@ -458,6 +458,66 @@ describe('composer sender identity', () => {
       expect(request).not.toHaveBeenCalled();
       expect(selected.getState().getIn(['compose', 'text'])).toEqual('Group draft');
       expect(selected.getState().getIn(['compose', 'posting_context_account_id'])).toEqual('456');
+    });
+  });
+
+  it('keeps an expired delegated sender until the signed-in account is chosen again', () => {
+    const delegated = readyIdentity('delegated:99').set('kind', 'delegated').setIn(['account', 'id'], '99').setIn(['account', 'acct'], 'author').setIn(['capabilities', 'media'], 'unavailable');
+    const request = jest.fn();
+    const store = catalogState([readyIdentity('local:42'), delegated]);
+    const portableId = 'portable:list-column:b';
+
+    api.mockReturnValue({ request });
+    store.dispatch(changeCompose('Keep this draft'));
+    store.dispatch(changeComposeVisibility('private'));
+    store.dispatch(changeComposeSpoilerness());
+    store.dispatch(changeComposeSpoilerText('cw'));
+    store.dispatch(changeComposeLanguage('ja'));
+    store.dispatch(createComposer(portableId));
+    store.dispatch(targetComposerAction(changeCompose('Portable draft'), portableId));
+    store.dispatch(targetComposerAction(changeComposeVisibility('unlisted'), portableId));
+    store.dispatch(selectComposerSenderIdentity('primary', 'delegated:99', { confirmed: true }));
+    store.dispatch(selectComposerSenderIdentity(portableId, 'delegated:99', { confirmed: true }));
+
+    store.dispatch({
+      type: POSTING_IDENTITIES_FETCH_SUCCESS,
+      defaultIdentityId: 'local:42',
+      confirmedIdentityId: 'local:42',
+      identities: ImmutableList([readyIdentity('local:42')]),
+    });
+
+    expect(store.getState().getIn(['compose', 'senderIdentity', 'id'])).toEqual('delegated:99');
+    expect(store.getState().getIn(['composers', 'byId', portableId, 'senderIdentity', 'id'])).toEqual('delegated:99');
+    expect(selectComposerCanSendAsIdentity(store.getState(), 'primary')).toEqual(expect.objectContaining({
+      canSend: false,
+      reason: 'unregistered',
+    }));
+    expect(selectComposerCanSendAsIdentity(store.getState(), portableId).canSend).toBe(false);
+
+    return store.dispatch(submitComposer('primary', router)).then(() => store.dispatch(submitComposer(portableId, router))).then(() => {
+      expect(request).not.toHaveBeenCalled();
+      expect(store.getState().getIn(['compose', 'senderIdentity', 'id'])).toEqual('delegated:99');
+      expect(store.getState().getIn(['compose', 'text'])).toEqual('Keep this draft');
+      expect(store.getState().getIn(['compose', 'privacy'])).toEqual('private');
+      expect(store.getState().getIn(['compose', 'spoiler'])).toBe(true);
+      expect(store.getState().getIn(['compose', 'spoiler_text'])).toEqual('cw');
+      expect(store.getState().getIn(['compose', 'language'])).toEqual('ja');
+      expect(store.getState().getIn(['composers', 'byId', portableId, 'text'])).toEqual('Portable draft');
+      expect(store.getState().getIn(['composers', 'byId', portableId, 'privacy'])).toEqual('unlisted');
+
+      store.dispatch(selectComposerSenderIdentity('primary', 'local:42', { confirmed: true }));
+      store.dispatch(selectComposerSenderIdentity(portableId, 'local:42', { confirmed: true }));
+
+      expect(store.getState().getIn(['compose', 'senderIdentity', 'id'])).toEqual('local:42');
+      expect(store.getState().getIn(['compose', 'text'])).toEqual('Keep this draft');
+      expect(store.getState().getIn(['compose', 'privacy'])).toEqual('private');
+      expect(store.getState().getIn(['compose', 'spoiler'])).toBe(true);
+      expect(store.getState().getIn(['compose', 'spoiler_text'])).toEqual('cw');
+      expect(store.getState().getIn(['compose', 'language'])).toEqual('ja');
+      expect(store.getState().getIn(['composers', 'byId', portableId, 'senderIdentity', 'id'])).toEqual('local:42');
+      expect(store.getState().getIn(['composers', 'byId', portableId, 'text'])).toEqual('Portable draft');
+      expect(store.getState().getIn(['composers', 'byId', portableId, 'privacy'])).toEqual('unlisted');
+      expect(selectComposerCanSendAsIdentity(store.getState(), 'primary').canSend).toBe(true);
     });
   });
 

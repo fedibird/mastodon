@@ -8,6 +8,7 @@ const messages = defineMessages({
   label: { id: 'compose_form.sender_identity.label', defaultMessage: 'Posting as' },
   hint: { id: 'compose_form.sender_identity.hint', defaultMessage: 'This does not change the account you are logged in as.' },
   unavailable: { id: 'compose_form.sender_identity.unavailable', defaultMessage: 'Posting as this identity isn’t available.' },
+  linkedUnavailable: { id: 'compose_form.sender_identity.linked_unavailable', defaultMessage: 'This linked account is not available right now.' },
   failed: { id: 'compose_form.sender_identity.failed', defaultMessage: 'Couldn’t confirm who this post is from.' },
   retry: { id: 'compose_form.sender_identity.retry', defaultMessage: 'Retry' },
   linked: { id: 'compose_form.sender_identity.linked', defaultMessage: 'Linked account' },
@@ -200,7 +201,12 @@ class SenderIdentity extends React.PureComponent {
     const { sessionIdentityId } = this.props;
     const choices = this.postableChoices();
     const sessionChoice = choices.find(item => item.get('id') === sessionIdentityId);
+    const selectedChoice = choices.find(item => item.get('id') === selectedId);
+    const delegatedSelected = typeof selectedId === 'string' && selectedId.startsWith('delegated:');
     const selectable = choices.length > 1 || Boolean(sessionChoice && selectedId && selectedId !== sessionIdentityId);
+    const currentAccount = selectedChoice ? selectedChoice.get('account') : (current && current.get('account'));
+    const currentAcct = accountAcct(currentAccount);
+    const unavailableMessage = delegatedSelected ? messages.linkedUnavailable : messages.unavailable;
 
     return (
       <div
@@ -226,7 +232,7 @@ class SenderIdentity extends React.PureComponent {
         )}
         {selectable ? (
           <span className='sr-only' data-testid='sender-identity-current'>
-            {accountAcct(choices.find(item => item.get('id') === selectedId)?.get('account') || account)}
+            {currentAcct ? `@${currentAcct}` : ''}
           </span>
         ) : null}
         {compact ? null : (
@@ -246,7 +252,7 @@ class SenderIdentity extends React.PureComponent {
           </p>
         ) : null}
         {unavailable && !failed ? (
-          <p className='compose-form__sender-status' role='status'>{intl.formatMessage(messages.unavailable)}</p>
+          <p className='compose-form__sender-status' role='status'>{intl.formatMessage(unavailableMessage)}</p>
         ) : null}
       </div>
     );

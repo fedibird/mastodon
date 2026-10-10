@@ -283,6 +283,7 @@
   "compose_form.sender_identity.label": "Posting as",
   "compose_form.sender_identity.retry": "Retry",
   "compose_form.sender_identity.unavailable": "Posting as this identity isn’t available.",
+  "compose_form.sender_identity.linked_unavailable": "This linked account is not available right now.",
   "compose_form.sender_identity.linked": "Linked account",
   "compose_form.sender_identity.confirm_switch": "Post as @{acct}? The text you are writing stays. This does not change the account you are logged in as.",
   "compose_form.sender_identity.blocked_media": "Remove attached media before posting as another account.",
