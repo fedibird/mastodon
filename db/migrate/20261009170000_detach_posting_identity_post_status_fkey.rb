@@ -11,8 +11,17 @@ class DetachPostingIdentityPostStatusFkey < ActiveRecord::Migration[6.1]
     replace_foreign_key(:posting_identity_delegations, :delegation_id)
   end
 
+  # Irreversible. 20261009160000 does not create a status foreign key.
+  # Databases that already ran an older copy of that migration lose the
+  # key here. Putting it back would fail once a status has been deleted
+  # and the audit row still holds that status_id.
   def down
-    add_foreign_key :posting_identity_posts, :statuses unless foreign_key_exists?(:posting_identity_posts, :statuses)
+    raise ActiveRecord::IrreversibleMigration, <<~MSG.squish
+      posting_identity_posts.status_id is an identifier, not a foreign key.
+      Rolling this migration back would restore a foreign key that a fresh
+      install never creates, and that foreign key cannot be validated after
+      RemoveStatusService has deleted the status.
+    MSG
   end
 
   private
