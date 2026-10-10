@@ -33,13 +33,16 @@ export const resolveStream = (source, constraintOverrides) => {
   }
 
   if (value.type === 'hashtag') {
-    const extra = (params.any && params.any.length) || (params.all && params.all.length) || (params.none && params.none.length);
+    const tags = [value.id].concat(params.any || []).map(tag => String(tag).toLowerCase()).filter((tag, index, all) => tag && all.indexOf(tag) === index);
+    const channels = tags.map(tag => ({ channel: 'hashtag', params: { tag } }));
+    const needsLocalFilter = (params.all && params.all.length) || (params.none && params.none.length);
 
     return {
       ...base,
-      mode: extra ? 'candidate' : 'supported',
-      channel: 'hashtag',
-      params: { tag: value.id },
+      mode: needsLocalFilter ? 'candidate' : 'supported',
+      channel: channels[0].channel,
+      params: channels[0].params,
+      channels,
     };
   }
 
@@ -63,16 +66,42 @@ export const resolveStream = (source, constraintOverrides) => {
 
   if (value.type === 'public' || value.type === 'remote') {
     const remote = value.type === 'remote' ? ':remote' : '';
+    const channel = `public${remote}${botSuffix(params)}${mediaSuffix(params)}`;
 
     return {
       ...base,
       mode: 'supported',
-      channel: `public${remote}${botSuffix(params)}${mediaSuffix(params)}`,
+      channel,
       params: {},
+      channels: [{ channel, params: {} }],
     };
   }
 
   return { ...base, mode: 'rest_only' };
+};
+
+const withChannels = (resolved) => {
+  if (!resolved || !resolved.ok || resolved.channels) {
+    return resolved;
+  }
+
+  if (!resolved.channel) {
+    return { ...resolved, channels: [] };
+  }
+
+  return { ...resolved, channels: [{ channel: resolved.channel, params: resolved.params || {} }] };
+};
+
+export const streamSubscriptions = (source, constraintOverrides) => withChannels(resolveStream(source, constraintOverrides));
+
+export const streamChannelId = (channel, params) => {
+  const keys = Object.keys(params || {}).sort();
+
+  if (!keys.length) {
+    return channel;
+  }
+
+  return `${channel}&${keys.map(key => `${key}=${params[key]}`).join('&')}`;
 };
 
 const botSuffix = (params) => (params.withoutBot ? ':nobot' : ':bot');
@@ -147,27 +176,23 @@ const matchesTagLists = (names, params) => {
   return true;
 };
 
-// accept: the payload belongs to this source.
-// reject: it does not.
-// unknown: the payload is not enough. Callers must not display it.
-export const classifyStreamStatus = (source, status, { me = null, constraints } = {}) => {
-  const normalized = normalizeSource(source);
+const PUBLIC_TYPES = ['public', 'remote', 'domain', 'hashtag'];
 
-  if (!normalized.ok || !status || !status.id) {
-    return 'unknown';
-  }
-
-  const value = normalized.source;
+// Display conditions only. List and group membership is not inferred from the body.
+const classifyDisplay = (value, status, me, flags) => {
   const params = value.params || {};
-  const flags = constraints || visibilityConstraints();
   const visibility = status.visibility_ex || status.visibility;
 
   if (value.type === 'account') {
     return 'unknown';
   }
 
-  if ((value.type === 'home' || value.type === 'limited' || value.type === 'personal') && !visibility) {
+  if ((value.type === 'home' || value.type === 'limited' || value.type === 'personal' || PUBLIC_TYPES.indexOf(value.type) !== -1) && !visibility) {
     return 'unknown';
+  }
+
+  if (PUBLIC_TYPES.indexOf(value.type) !== -1 && visibility !== 'public') {
+    return 'reject';
   }
 
   if (value.type === 'home' || value.type === 'limited') {
@@ -247,17 +272,46 @@ export const classifyStreamStatus = (source, status, { me = null, constraints } 
       return 'unknown';
     }
 
-    if (value.type === 'hashtag' && names.indexOf(String(value.id).toLowerCase()) === -1) {
-      return 'reject';
-    }
-
     if (params.tagged && names.indexOf(String(params.tagged).toLowerCase()) === -1) {
       return 'reject';
     }
 
-    if (!matchesTagLists(names, params)) {
+    const any = params.any || [];
+    const main = value.type === 'hashtag' ? [String(value.id).toLowerCase()] : [];
+    const alternatives = main.concat(any.map(tag => String(tag).toLowerCase()));
+
+    if (alternatives.length && !names.some(name => alternatives.indexOf(name) !== -1)) {
       return 'reject';
     }
+
+    if (!matchesTagLists(names, { ...params, any: [] })) {
+      return 'reject';
+    }
+  }
+
+  return 'accept';
+};
+
+// accept: membership evidence and display conditions both hold.
+// reject: a checked condition failed.
+// unknown: not enough evidence. Callers must not treat this as accept.
+export const classifyStreamStatus = (source, status, { me = null, constraints, delivered = false } = {}) => {
+  const normalized = normalizeSource(source);
+
+  if (!normalized.ok || !status || !status.id) {
+    return 'unknown';
+  }
+
+  const value = normalized.source;
+  const flags = constraints || visibilityConstraints();
+  const display = classifyDisplay(value, status, me, flags);
+
+  if (display !== 'accept') {
+    return display;
+  }
+
+  if (value.type === 'list' || value.type === 'group') {
+    return delivered ? 'accept' : 'unknown';
   }
 
   return 'accept';

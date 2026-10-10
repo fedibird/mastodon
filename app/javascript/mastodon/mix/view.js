@@ -78,6 +78,7 @@ export const mixTimelineView = (timeline, statuses, filters, me) => {
         filterResults: results && results.toJS ? results.toJS() : {},
         source: plain,
         syncState: entry.get('syncState'),
+        mode: entry.get('mode'),
       });
       contexts[key] = contexts[key] || filterContextForSource(plain);
       entry.get('statusIds').forEach(rememberStatus);
@@ -101,5 +102,9 @@ export const mixTimelineView = (timeline, statuses, filters, me) => {
     running: timeline.get('running'),
     pendingCount: pending && pending.size ? pending.size : 0,
     degraded: live.filter(source => source.syncState === 'degraded').map(source => source.key),
+    restOnly: live.filter(source => source.mode === 'rest_only').map(source => ({
+      key: source.key,
+      label: source.source ? (source.source.title || source.source.acct || source.source.id || source.source.type) : source.key,
+    })),
   };
 };

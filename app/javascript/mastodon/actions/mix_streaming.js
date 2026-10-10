@@ -4,10 +4,11 @@ import { importFetchedAccounts, importFetchedStatuses, importFilters } from './i
 import { normalizePage, previousStatusesForImport, statusesForSharedImport, classifyFetchFailure } from '../mix/source_adapters';
 import compareId from '../compare_id';
 import { resolveRequest } from '../mix/adapter';
-import { classifyStreamStatus, resolveStream } from '../mix/stream_adapters';
+import { classifyStreamStatus, streamChannelId, streamSubscriptions } from '../mix/stream_adapters';
 import { plainMix } from '../mix/definition';
 import { MIX_PAGE_SIZE, MIX_RECONCILE_BUDGET } from '../mix/merge';
 import { normalizeFilterResult } from './importer/normalizer';
+import { me } from '../initial_state';
 import {
   MIX_STREAM_READY,
   MIX_STREAM_CONNECT,
@@ -37,22 +38,38 @@ const importBodies = (dispatch, getState, columnKey, sessionId, fingerprint, bod
     return false;
   }
 
-  const previous = previousStatusesForImport(getState().get('statuses'), bodies);
-  const safe = statusesForSharedImport(bodies, previous);
   const accounts = [];
   const filters = [];
-
-  safe.forEach(status => {
-    if (status && status.account && typeof status.account === 'object') {
-      accounts.push(status.account);
+  const collectFilters = (status) => {
+    if (!status) {
+      return;
     }
 
-    (status && (status.filtered || status.filter_results) || []).forEach(result => {
+    (status.filtered || status.filter_results || []).forEach(result => {
       if (result && result.filter && typeof result.filter === 'object' && result.filter.id) {
         filters.push({ ...result.filter, id: String(result.filter.id) });
       }
     });
+
+    if (status.reblog) {
+      collectFilters(status.reblog);
+    }
+
+    if (status.quote) {
+      collectFilters(status.quote);
+    }
+  };
+
+  bodies.forEach(status => {
+    if (status && status.account && typeof status.account === 'object') {
+      accounts.push(status.account);
+    }
+
+    collectFilters(status);
   });
+
+  const previous = previousStatusesForImport(getState().get('statuses'), bodies);
+  const safe = statusesForSharedImport(bodies, previous);
 
   if (accounts.length) {
     dispatch(importFetchedAccounts(accounts));
@@ -320,10 +337,10 @@ export function reconcileMixSource(columnKey, sourceKey) {
   };
 }
 
-const handleStatus = (dispatch, getState, columnKey, sessionId, fingerprint, sourceKey, source, mode, status) => {
-  const decision = mode === 'supported' && classifyStreamStatus(source, status) !== 'reject' ? 'accept' : classifyStreamStatus(source, status);
+const handleStatus = (dispatch, getState, columnKey, sessionId, fingerprint, sourceKey, source, status) => {
+  const decision = classifyStreamStatus(source, status, { me, delivered: true });
 
-  if (decision === 'unknown') {
+  if (decision !== 'accept') {
     return;
   }
 
@@ -343,20 +360,43 @@ const handleStatus = (dispatch, getState, columnKey, sessionId, fingerprint, sou
   });
 };
 
-const handleEdit = (dispatch, getState, columnKey, sessionId, fingerprint, streams, status) => {
+const memberOf = (column, sourceKey, id) => {
+  const history = column && column.getIn(['sources', sourceKey, 'ids']);
+  const live = column && column.getIn(['live', sourceKey, 'statusIds']);
+
+  return !!((history && history.includes(id)) || (live && live.includes(id)));
+};
+
+const handleEdit = (dispatch, getState, columnKey, sessionId, fingerprint, streams, receivedKey, status) => {
   if (!importBodies(dispatch, getState, columnKey, sessionId, fingerprint, [status])) {
     return;
   }
 
-  const decisions = streams.map(item => {
-    const classified = classifyStreamStatus(item.source, status);
-    const decision = item.mode === 'supported' && classified !== 'reject' ? 'accept' : classified;
+  const column = readColumn(getState, columnKey);
+  const decisions = [];
 
-    return {
+  streams.forEach(item => {
+    const existing = memberOf(column, item.key, status.id);
+    const delivered = item.key === receivedKey;
+
+    if (!existing && !delivered) {
+      return;
+    }
+
+    const decision = existing
+      ? classifyStreamStatus(item.source, status, { me, delivered: item.source.type === 'list' || item.source.type === 'group' })
+      : classifyStreamStatus(item.source, status, { me, delivered: true });
+
+    decisions.push({
       sourceKey: item.key,
       decision,
+      delivered: delivered && !existing,
       filterResults: filterResultsFor(status),
-    };
+    });
+
+    if (decision === 'unknown') {
+      dispatch(reconcileMixSource(columnKey, item.key));
+    }
   });
 
   dispatch({
@@ -366,12 +406,6 @@ const handleEdit = (dispatch, getState, columnKey, sessionId, fingerprint, strea
     definitionFingerprint: fingerprint,
     id: status.id,
     decisions,
-  });
-
-  decisions.forEach(decision => {
-    if (decision.decision === 'unknown') {
-      dispatch(reconcileMixSource(columnKey, decision.sourceKey));
-    }
   });
 };
 
@@ -433,7 +467,7 @@ export function openMixStream(columnKey, mix) {
     dispatch(closeMixStream(columnKey));
 
     const streams = plain.sources.map(source => {
-      const resolved = resolveStream(source);
+      const resolved = streamSubscriptions(source);
 
       return resolved.ok ? resolved : null;
     }).filter(Boolean);
@@ -443,7 +477,11 @@ export function openMixStream(columnKey, mix) {
       columnKey,
       sessionId,
       definitionFingerprint: fingerprint,
-      sources: streams.map(stream => ({ key: stream.key, mode: stream.mode })),
+      sources: streams.map(stream => ({
+        key: stream.key,
+        mode: stream.mode,
+        channels: (stream.channels || []).map(item => streamChannelId(item.channel, item.params)),
+      })),
     });
 
     const record = { sessionId, fingerprint, generation: 0, stops: [] };
@@ -456,69 +494,70 @@ export function openMixStream(columnKey, mix) {
         return;
       }
 
-      const stop = dispatch(connectStream(stream.channel, stream.params, () => ({
-        onConnect () {
-          if (subscriptions.get(columnKey) !== record) {
-            return;
-          }
+      (stream.channels || []).forEach(subscription => {
+        const channelId = streamChannelId(subscription.channel, subscription.params);
+        const stop = dispatch(connectStream(subscription.channel, subscription.params, () => ({
+          onConnect () {
+            if (subscriptions.get(columnKey) !== record || !stillCurrent(getState, columnKey, sessionId, fingerprint)) {
+              return;
+            }
 
-          const current = readColumn(getState, columnKey);
-          const wasDown = current && current.getIn(['live', stream.key, 'syncState']) === 'disconnected';
+            const current = readColumn(getState, columnKey);
+            const wasDown = current && (current.getIn(['live', stream.key, 'syncState']) === 'disconnected' || current.getIn(['live', stream.key, 'syncState']) === 'reconnecting');
 
-          if (!stillCurrent(getState, columnKey, sessionId, fingerprint)) {
-            return;
-          }
+            dispatch({
+              type: MIX_STREAM_CONNECT,
+              columnKey,
+              sourceKey: stream.key,
+              channelId,
+              sessionId,
+              definitionFingerprint: fingerprint,
+            });
 
-          dispatch({
-            type: MIX_STREAM_CONNECT,
-            columnKey,
-            sourceKey: stream.key,
-            sessionId,
-            definitionFingerprint: fingerprint,
-            syncState: wasDown ? 'reconnecting' : 'connected',
-          });
+            const after = readColumn(getState, columnKey);
 
-          if (wasDown) {
-            dispatch(reconcileMixSource(columnKey, stream.key));
-          }
-        },
+            if (wasDown && after && after.getIn(['live', stream.key, 'syncState']) === 'connected') {
+              dispatch(reconcileMixSource(columnKey, stream.key));
+            }
+          },
 
-        onDisconnect () {
-          if (subscriptions.get(columnKey) !== record || !stillCurrent(getState, columnKey, sessionId, fingerprint)) {
-            return;
-          }
+          onDisconnect () {
+            if (subscriptions.get(columnKey) !== record || !stillCurrent(getState, columnKey, sessionId, fingerprint)) {
+              return;
+            }
 
-          dispatch({
-            type: MIX_STREAM_DISCONNECT,
-            columnKey,
-            sourceKey: stream.key,
-            sessionId,
-            definitionFingerprint: fingerprint,
-            disconnectedAt: Date.now(),
-            syncState: 'disconnected',
-          });
-        },
+            dispatch({
+              type: MIX_STREAM_DISCONNECT,
+              columnKey,
+              sourceKey: stream.key,
+              channelId,
+              sessionId,
+              definitionFingerprint: fingerprint,
+              disconnectedAt: Date.now(),
+            });
+          },
 
-        onReceive (data) {
-          if (subscriptions.get(columnKey) !== record || !stillCurrent(getState, columnKey, sessionId, fingerprint)) {
-            return;
-          }
+          onReceive (data) {
+            if (subscriptions.get(columnKey) !== record || !stillCurrent(getState, columnKey, sessionId, fingerprint)) {
+              return;
+            }
 
-          if (data.event === 'update') {
-            handleStatus(dispatch, getState, columnKey, sessionId, fingerprint, stream.key, stream.source, stream.mode, JSON.parse(data.payload));
-          } else if (data.event === 'status.update') {
-            handleEdit(dispatch, getState, columnKey, sessionId, fingerprint, streams.filter(item => item.mode !== 'rest_only'), JSON.parse(data.payload));
-          } else if (data.event === 'delete') {
-            handleRemove(dispatch, getState, columnKey, sessionId, fingerprint, data.payload, 'delete');
-          } else if (data.event === 'expire') {
-            handleRemove(dispatch, getState, columnKey, sessionId, fingerprint, data.payload, 'expire');
-          }
-        },
-      })));
+            if (data.event === 'update') {
+              handleStatus(dispatch, getState, columnKey, sessionId, fingerprint, stream.key, stream.source, JSON.parse(data.payload));
+            } else if (data.event === 'status.update') {
+              handleEdit(dispatch, getState, columnKey, sessionId, fingerprint, streams.filter(item => item.mode !== 'rest_only'), stream.key, JSON.parse(data.payload));
+            } else if (data.event === 'delete') {
+              handleRemove(dispatch, getState, columnKey, sessionId, fingerprint, data.payload, 'delete');
+            } else if (data.event === 'expire') {
+              handleRemove(dispatch, getState, columnKey, sessionId, fingerprint, data.payload, 'expire');
+            }
+          },
+        })));
 
-      if (typeof stop === 'function') {
-        record.stops.push(stop);
-      }
+        if (typeof stop === 'function') {
+          record.stops.push(stop);
+        }
+      });
     });
   };
 }

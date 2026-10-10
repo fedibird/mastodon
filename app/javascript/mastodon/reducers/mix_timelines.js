@@ -48,6 +48,7 @@ const initialLive = ImmutableMap({
   lastReconciledId: null,
   retryAt: null,
   mode: 'rest_only',
+  channels: ImmutableMap(),
 });
 
 const initialState = ImmutableMap();
@@ -284,7 +285,12 @@ export default function mixTimelines(state = initialState, action) {
     }
 
     return state.updateIn([action.columnKey, 'live'], ImmutableMap(), live => (action.sources || []).reduce((map, source) => {
-      return map.update(source.key, initialLive, entry => entry.set('mode', source.mode));
+      const channels = (source.channels || []).reduce((states, channelId) => states.set(channelId, 'idle'), ImmutableMap());
+
+      return map.update(source.key, initialLive, entry => entry.merge({
+        mode: source.mode,
+        channels,
+      }));
     }, live));
   case MIX_STREAM_CONNECT:
   case MIX_STREAM_DISCONNECT:
@@ -294,26 +300,38 @@ export default function mixTimelines(state = initialState, action) {
     }
 
     return state.updateIn([action.columnKey, 'live', action.sourceKey], initialLive, entry => {
-      let connected = entry.get('connected');
+      let channels = entry.get('channels') || ImmutableMap();
 
-      if (action.type === MIX_STREAM_CONNECT) {
-        connected = true;
-      } else if (action.type === MIX_STREAM_DISCONNECT) {
-        connected = false;
+      if (action.channelId) {
+        channels = channels.set(action.channelId, action.type === MIX_STREAM_DISCONNECT ? 'disconnected' : 'connected');
       }
 
+      const channelStates = channels.valueSeq().toArray();
+      let connected = entry.get('connected');
       let syncState = action.syncState;
 
-      if (!syncState && action.type === MIX_STREAM_CONNECT) {
-        syncState = 'connected';
-      } else if (!syncState) {
-        syncState = 'disconnected';
+      if (channelStates.length) {
+        connected = channelStates.every(item => item === 'connected');
+        if (channelStates.some(item => item === 'disconnected')) {
+          syncState = syncState || 'disconnected';
+        } else if (connected) {
+          syncState = syncState || 'connected';
+        } else {
+          syncState = syncState || 'idle';
+        }
+      } else if (action.type === MIX_STREAM_CONNECT) {
+        connected = true;
+        syncState = syncState || 'connected';
+      } else if (action.type === MIX_STREAM_DISCONNECT) {
+        connected = false;
+        syncState = syncState || 'disconnected';
       }
 
       return entry.merge({
+        channels,
         connected,
         disconnectedAt: action.type === MIX_STREAM_DISCONNECT ? (action.disconnectedAt || Date.now()) : entry.get('disconnectedAt'),
-        syncState,
+        syncState: syncState || entry.get('syncState'),
         lastReconciledId: action.lastReconciledId === undefined ? entry.get('lastReconciledId') : action.lastReconciledId,
         retryAt: action.retryAt === undefined ? entry.get('retryAt') : action.retryAt,
       });
@@ -353,24 +371,33 @@ export default function mixTimelines(state = initialState, action) {
     }
 
     return (action.decisions || []).reduce((next, decision) => {
-      return next.updateIn([action.columnKey, 'live', decision.sourceKey], initialLive, entry => {
-        const results = entry.get('filterResults').merge(fromJS({ [action.id]: decision.filterResults || [] }));
+      const resultsFor = (entry) => entry.get('filterResults').merge(fromJS({ [action.id]: decision.filterResults || [] }));
 
-        if (decision.decision === 'accept') {
+      if (decision.decision === 'reject') {
+        return next
+          .updateIn([action.columnKey, 'live', decision.sourceKey], initialLive, entry => entry.merge({
+            statusIds: entry.get('statusIds').filter(id => id !== action.id),
+            filterResults: resultsFor(entry),
+          }))
+          .updateIn([action.columnKey, 'sources', decision.sourceKey, 'ids'], ImmutableList(), ids => ids.filter(id => id !== action.id))
+          .updateIn([action.columnKey, 'pendingStatusIds'], ImmutableList(), ids => ids.filter(id => id !== action.id));
+      }
+
+      if (decision.decision === 'accept' && decision.delivered) {
+        return next.updateIn([action.columnKey, 'live', decision.sourceKey], initialLive, entry => {
           const ids = entry.get('statusIds').includes(action.id) ? entry.get('statusIds') : entry.get('statusIds').push(action.id);
 
-          return entry.merge({ statusIds: ids, filterResults: results });
-        }
-
-        if (decision.decision !== 'reject') {
-          return entry.merge({ filterResults: results });
-        }
-
-        return entry.merge({
-          statusIds: entry.get('statusIds').filter(id => id !== action.id),
-          filterResults: results,
+          return entry.merge({ statusIds: ids, filterResults: resultsFor(entry) });
         });
-      });
+      }
+
+      if (decision.decision === 'accept') {
+        return next.updateIn([action.columnKey, 'live', decision.sourceKey], initialLive, entry => entry.merge({
+          filterResults: resultsFor(entry),
+        }));
+      }
+
+      return next;
     }, state);
   case MIX_STREAM_REMOVE: {
     if (!sameSession(state, action)) {

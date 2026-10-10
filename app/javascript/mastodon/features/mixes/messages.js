@@ -25,6 +25,8 @@ export default defineMessages({
   incomplete: { id: 'mixes.incomplete', defaultMessage: '{name} is only partly loaded.' },
   pendingPosts: { id: 'mixes.pending_posts', defaultMessage: '{count} new posts' },
   streamDegraded: { id: 'mixes.stream_degraded', defaultMessage: '{name} could not catch up after reconnecting.' },
+  restOnly: { id: 'mixes.rest_only', defaultMessage: '{name} is not live. Refresh to check for new posts.' },
+  refreshRest: { id: 'mixes.refresh_rest', defaultMessage: 'Refresh {name}' },
   sourceForbidden: { id: 'mixes.source_forbidden', defaultMessage: '{name} cannot be viewed.' },
   sourceMissing: { id: 'mixes.source_missing', defaultMessage: '{name} was not found.' },
   sourceUnavailable: { id: 'mixes.source_unavailable', defaultMessage: '{name} could not be loaded.' },

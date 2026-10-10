@@ -10,7 +10,7 @@ import ColumnHeader from '../../components/column_header';
 import StatusList from '../../components/status_list';
 import { addColumn, changeColumnParams, moveColumn, removeColumn } from '../../actions/columns';
 import { closeMixTimeline, loadMixTimeline, mixColumnKey, retryMixSource } from '../../actions/mix_timelines';
-import { closeMixStream, openMixStream, pinMixStream, revealMixStream } from '../../actions/mix_streaming';
+import { closeMixStream, openMixStream, pinMixStream, reconcileMixSource, revealMixStream } from '../../actions/mix_streaming';
 import { defaultColumnWidth, me } from 'mastodon/initial_state';
 import { isMixEnabled } from 'mastodon/mix/availability';
 import { plainMix } from 'mastodon/mix/definition';
@@ -91,6 +91,7 @@ export class MixTimelinePage extends React.PureComponent {
       errors: PropTypes.array,
       pendingCount: PropTypes.number,
       degraded: PropTypes.array,
+      restOnly: PropTypes.array,
     }),
     enabled: PropTypes.bool,
     multiColumn: PropTypes.bool,
@@ -146,6 +147,14 @@ export class MixTimelinePage extends React.PureComponent {
 
   handleReveal = () => {
     this.props.dispatch(revealMixStream(this.props.columnKey));
+  };
+
+  handleRefreshRest = (event) => {
+    const sourceKey = event.currentTarget.getAttribute('data-source-key');
+
+    if (sourceKey) {
+      this.props.dispatch(reconcileMixSource(this.props.columnKey, sourceKey));
+    }
   };
 
   contextTypeForId = (id) => {
@@ -226,6 +235,16 @@ export class MixTimelinePage extends React.PureComponent {
       });
     }
 
+    if (view && view.restOnly && view.restOnly.length) {
+      view.restOnly.forEach(item => {
+        notices.push({
+          key: `rest-${item.key}`,
+          text: intl.formatMessage(messages.restOnly, { name: item.label || item.key }),
+          refresh: item.key,
+        });
+      });
+    }
+
     if (view && view.degraded && view.degraded.length) {
       view.degraded.forEach(key => {
         notices.push({
@@ -267,6 +286,11 @@ export class MixTimelinePage extends React.PureComponent {
         {notice.reveal && (
           <button type='button' className='button button-secondary' onClick={this.handleReveal}>
             {notice.text}
+          </button>
+        )}
+        {notice.refresh && (
+          <button type='button' className='button button-secondary' data-source-key={notice.refresh} onClick={this.handleRefreshRest}>
+            {intl.formatMessage(messages.refreshRest, { name: notice.refresh })}
           </button>
         )}
       </p>

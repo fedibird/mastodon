@@ -628,6 +628,8 @@
   "mixes.incomplete": "{name}は一部しか読み込めていません。",
   "mixes.pending_posts": "新しい投稿が{count}件あります",
   "mixes.stream_degraded": "{name}は再接続後の差分を埋められませんでした。",
+  "mixes.rest_only": "{name}はリアルタイムでは更新されません。新しい投稿は再取得で確認します。",
+  "mixes.refresh_rest": "{name}を再取得",
   "mixes.source_forbidden": "{name}は閲覧できません。",
   "mixes.source_missing": "{name}は見つかりません。",
   "mixes.source_unavailable": "{name}を読み込めませんでした。",

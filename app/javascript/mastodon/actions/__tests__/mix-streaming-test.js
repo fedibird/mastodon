@@ -20,6 +20,9 @@ jest.mock('../../initial_state', () => ({
   get new_features_policy () {
     return 'tester';
   },
+  get me () {
+    return '1';
+  },
 }));
 
 jest.mock('../../stream', () => ({
@@ -67,10 +70,13 @@ const harness = () => {
     statuses: {},
     mix_timelines: {},
   });
+  const sent = [];
   const dispatch = (action) => {
     if (typeof action === 'function') {
       return action(dispatch, () => state);
     }
+
+    sent.push(action);
 
     if (action.type && action.type.indexOf('MIX_') === 0) {
       state = state.set('mix_timelines', mixTimelines(state.get('mix_timelines'), action));
@@ -85,6 +91,7 @@ const harness = () => {
     setStatuses (statuses) {
       state = state.set('statuses', statuses);
     },
+    sent,
   };
 };
 
@@ -288,11 +295,11 @@ describe('mix streaming', () => {
 
     hashtag.handlers.onReceive({
       event: 'update',
-      payload: JSON.stringify({ id: '300', account: { id: '2' }, tags: [{ name: 'ruby' }, { name: 'web' }] }),
+      payload: JSON.stringify({ id: '300', visibility: 'public', account: { id: '2' }, tags: [{ name: 'ruby' }, { name: 'web' }] }),
     });
     hashtag.handlers.onReceive({
       event: 'status.update',
-      payload: JSON.stringify({ id: '300', account: { id: '2' }, tags: [{ name: 'python' }] }),
+      payload: JSON.stringify({ id: '300', visibility: 'public', account: { id: '2' }, tags: [{ name: 'python' }] }),
     });
 
     const ids = getState().getIn(['mix_timelines', 'column:tag', 'live']).valueSeq().flatMap(entry => entry.get('statusIds')).toArray();
@@ -437,5 +444,180 @@ describe('mix streaming', () => {
     release({ status: 200, data: [{ id: '12', account: { id: '2' } }], headers: {} });
     await pending;
     expect(getState().getIn(['mix_timelines', 'column:a', 'live']).valueSeq().flatMap(entry => entry.get('statusIds')).toArray()).not.toContain('12');
+  });
+
+  it('does not grant list membership from a public status.update, and ignores a private post', () => {
+    const { dispatch, getState } = harness();
+    const sources = [
+      { type: 'public', params: {} },
+      { type: 'list', id: '4', params: {} },
+    ];
+    const resolved = openColumn(dispatch, 'column:a', 1, sources);
+
+    dispatch(openMixStream('column:a', mix));
+    const publicStream = connections.find(row => row.channel === 'public:bot');
+
+    publicStream.handlers.onReceive({
+      event: 'status.update',
+      payload: JSON.stringify({ id: '300', visibility: 'public', account: { id: '2' } }),
+    });
+    expect(getState().getIn(['mix_timelines', 'column:a', 'live', resolved[0].key, 'statusIds']).toArray()).toEqual(['300']);
+    expect(getState().getIn(['mix_timelines', 'column:a', 'live', resolved[1].key, 'statusIds']).toArray()).toEqual([]);
+
+    publicStream.handlers.onReceive({
+      event: 'update',
+      payload: JSON.stringify({ id: '200', visibility: 'private', account: { id: '2' } }),
+    });
+    expect(getState().getIn(['mix_timelines', 'column:a', 'live', resolved[0].key, 'statusIds']).toArray()).not.toContain('200');
+  });
+
+  it('does not accept an unknown payload from a supported channel', () => {
+    const mediaMix = fromJS({
+      id: 'mix-1',
+      version: 1,
+      title: 'Desk',
+      sources: [
+        { type: 'public', params: { onlyMedia: true } },
+        { type: 'list', id: '4', params: {} },
+      ],
+    });
+    const { dispatch, getState } = harness();
+    const resolved = openColumn(dispatch, 'column:media', 1, mediaMix.get('sources').toJS());
+
+    dispatch(openMixStream('column:media', mediaMix));
+    const mediaStream = connections.find(row => row.channel === 'public:bot:media');
+
+    mediaStream.handlers.onReceive({
+      event: 'update',
+      payload: JSON.stringify({ id: '300', visibility: 'public', account: { id: '2' } }),
+    });
+    expect(getState().getIn(['mix_timelines', 'column:media', 'live', resolved[0].key, 'statusIds']).toArray()).toEqual([]);
+  });
+
+  it('imports filter definitions from the raw streaming payload and keeps hide or warn', () => {
+    const { dispatch, getState, sent } = harness();
+    const resolved = openColumn(dispatch, 'column:a', 1, [
+      { type: 'public', params: {} },
+      { type: 'list', id: '4', params: {} },
+    ]);
+
+    dispatch(openMixStream('column:a', mix));
+    connections.find(row => row.channel === 'public:bot').handlers.onReceive({
+      event: 'update',
+      payload: JSON.stringify({
+        id: '300',
+        visibility: 'public',
+        account: { id: '2' },
+        filtered: [{ filter: { id: '9', title: 'Spoilers', filter_action: 'warn', context: ['public'] }, keyword_matches: ['x'] }],
+      }),
+    });
+
+    const imported = sent.filter(action => action.type === 'FILTERS_IMPORT');
+
+    expect(imported[0].filters[0]).toMatchObject({ id: '9', title: 'Spoilers', filter_action: 'warn' });
+    const warned = mixTimelineView(getState().getIn(['mix_timelines', 'column:a']), fromJS({}), fromJS({
+      '9': { id: '9', title: 'Spoilers', filter_action: 'warn', context: ['public'] },
+    }), '1');
+
+    expect(warned.warningsById['300']).toEqual(['Spoilers']);
+
+    connections.find(row => row.channel === 'public:bot').handlers.onReceive({
+      event: 'update',
+      payload: JSON.stringify({
+        id: '200',
+        visibility: 'public',
+        account: { id: '2' },
+        filtered: [{ filter: { id: '2', title: 'spam', filter_action: 'hide', context: ['public'] }, keyword_matches: ['y'] }],
+      }),
+    });
+    const hidden = mixTimelineView(getState().getIn(['mix_timelines', 'column:a']), fromJS({}), fromJS({
+      '2': { id: '2', title: 'spam', filter_action: 'hide', context: ['public'] },
+    }), '1');
+
+    expect(hidden.statusIds.toArray()).not.toContain('200');
+    expect(getState().getIn(['mix_timelines', 'column:a', 'live', resolved[0].key, 'filterResults', '200', 0, 'filter'])).toBe('2');
+  });
+
+  it('drops a changed tag from REST history without moving the cursor, and keeps another source', () => {
+    const tagged = fromJS({
+      id: 'mix-1',
+      version: 1,
+      title: 'Desk',
+      sources: [
+        { type: 'hashtag', id: 'ruby', params: {} },
+        { type: 'public', params: {} },
+      ],
+    });
+    const { dispatch, getState } = harness();
+    const resolved = openColumn(dispatch, 'column:tag', 1, tagged.get('sources').toJS());
+    const fingerprint = resolved.map(source => source.key).join('\n');
+
+    [0, 1].forEach(index => {
+      dispatch({
+        type: MIX_SOURCE_SUCCESS,
+        columnKey: 'column:tag',
+        sourceKey: resolved[index].key,
+        sessionId: 1,
+        definitionFingerprint: fingerprint,
+        ids: ['500'],
+        cursor: '500',
+        frontier: '500',
+        hasMore: true,
+        partial: false,
+        requestedCursor: '600',
+      });
+    });
+    dispatch(openMixStream('column:tag', tagged));
+    const hashtag = connections.find(row => row.channel === 'hashtag' && row.params.tag === 'ruby');
+
+    hashtag.handlers.onReceive({
+      event: 'status.update',
+      payload: JSON.stringify({ id: '500', visibility: 'public', account: { id: '2' }, tags: [{ name: 'python' }] }),
+    });
+
+    expect(getState().getIn(['mix_timelines', 'column:tag', 'sources', resolved[0].key, 'ids']).toArray()).toEqual([]);
+    expect(getState().getIn(['mix_timelines', 'column:tag', 'sources', resolved[0].key, 'cursor'])).toBe('500');
+    expect(getState().getIn(['mix_timelines', 'column:tag', 'sources', resolved[0].key, 'frontier'])).toBe('500');
+    expect(getState().getIn(['mix_timelines', 'column:tag', 'sources', resolved[0].key, 'gap'])).toBe(false);
+    expect(getState().getIn(['mix_timelines', 'column:tag', 'sources', resolved[1].key, 'ids']).toArray()).toEqual(['500']);
+    const view = mixTimelineView(getState().getIn(['mix_timelines', 'column:tag']), fromJS({}), null, '1');
+
+    expect(view.statusIds.toArray()).toContain('500');
+    expect(view.sourceKeysById['500']).toEqual([resolved[1].key]);
+  });
+
+  it('unsubscribes every hashtag channel when the definition changes', () => {
+    const tagged = fromJS({
+      id: 'mix-1',
+      version: 1,
+      title: 'Desk',
+      sources: [
+        { type: 'hashtag', id: 'ruby', params: { any: ['web'] } },
+        { type: 'public', params: {} },
+      ],
+    });
+    const { dispatch } = harness();
+
+    openColumn(dispatch, 'column:tag', 1, tagged.get('sources').toJS());
+    dispatch(openMixStream('column:tag', tagged));
+    const hashtags = connections.filter(row => row.channel === 'hashtag');
+
+    expect(hashtags.map(row => row.params.tag).sort()).toEqual(['ruby', 'web']);
+    hashtags.forEach(row => row.handlers.onConnect());
+    hashtags[0].handlers.onDisconnect();
+    const replaced = fromJS({
+      id: 'mix-1',
+      version: 1,
+      title: 'Desk',
+      sources: [
+        { type: 'hashtag', id: 'python', params: {} },
+        { type: 'public', params: {} },
+      ],
+    });
+
+    openColumn(dispatch, 'column:tag', 2, replaced.get('sources').toJS());
+    dispatch(openMixStream('column:tag', replaced));
+    expect(hashtags.every(row => row.stopped)).toBe(true);
+    expect(connections.filter(row => row.channel === 'hashtag' && !row.stopped).map(row => row.params.tag)).toEqual(['python']);
   });
 });

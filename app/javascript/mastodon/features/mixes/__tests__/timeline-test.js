@@ -273,4 +273,36 @@ describe('mix timeline column', () => {
 
     expect(dispatch.mock.calls.slice(beforeRetry).map(call => typeof call[0])).toEqual(['function']);
   });
+
+  it('says an account source is not live until it is refreshed', () => {
+    render(
+      <MemoryRouter>
+        <MixTimelinePage
+          dispatch={jest.fn()}
+          intl={intl}
+          mixId='mix-1'
+          mix={savedMix}
+          columnKey='column:account'
+          enabled
+          multiColumn
+          view={{
+            statusIds: fromJS([]),
+            contextById: {},
+            warningsById: {},
+            orderGuaranteed: true,
+            waiting: false,
+            hasMore: false,
+            running: false,
+            suspended: [],
+            errors: [],
+            degraded: [],
+            restOnly: [{ key: 'account-key', label: 'ada' }],
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('ada is not live. Refresh to check for new posts.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Refresh account-key' }).getAttribute('data-source-key')).toBe('account-key');
+  });
 });
