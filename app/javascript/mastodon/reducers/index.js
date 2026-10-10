@@ -40,6 +40,7 @@ import height_cache from './height_cache';
 import custom_emojis from './custom_emojis';
 import custom_emojis_detail from './custom_emojis_detail';
 import lists from './lists';
+import mix_timelines from './mix_timelines';
 import listEditor from './list_editor';
 import listAdder from './list_adder';
 import circles from './circles';
@@ -104,6 +105,7 @@ const reducers = {
   custom_emojis_detail,
   identity_proofs,
   lists,
+  mix_timelines,
   listEditor,
   listAdder,
   circles,

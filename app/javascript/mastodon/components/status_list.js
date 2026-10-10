@@ -33,6 +33,8 @@ class StatusList extends ImmutablePureComponent {
     emptyMessage: PropTypes.node,
     alwaysPrepend: PropTypes.bool,
     timelineId: PropTypes.string,
+    contextTypeForId: PropTypes.func,
+    warningTitlesForId: PropTypes.func,
     showCard: PropTypes.bool,
     trackIntersection: PropTypes.bool,
   };
@@ -102,8 +104,10 @@ class StatusList extends ImmutablePureComponent {
   }
 
   render () {
-    const { statusIds, featuredStatusIds, onLoadMore, timelineId, showCard, trackIntersection, ...other }  = this.props;
+    const { statusIds, featuredStatusIds, onLoadMore, timelineId, contextTypeForId, warningTitlesForId, showCard, trackIntersection, ...other } = this.props;
     const { isLoading, isPartial } = other;
+    const contextTypeFor = (statusId) => contextTypeForId ? (contextTypeForId(statusId) || timelineId) : timelineId;
+    const warningTitlesFor = (statusId) => warningTitlesForId ? warningTitlesForId(statusId) : undefined;
 
     if (isPartial) {
       return <RegenerationIndicator />;
@@ -126,7 +130,8 @@ class StatusList extends ImmutablePureComponent {
           id={statusId}
           onMoveUp={this.handleMoveUp}
           onMoveDown={this.handleMoveDown}
-          contextType={timelineId}
+          contextType={contextTypeFor(statusId)}
+          warningTitles={warningTitlesFor(statusId)}
           scrollKey={this.props.scrollKey}
           showThread
           showCard={showCard}
@@ -142,7 +147,7 @@ class StatusList extends ImmutablePureComponent {
           featured
           onMoveUp={this.handleMoveUp}
           onMoveDown={this.handleMoveDown}
-          contextType={timelineId}
+          contextType={contextTypeFor(statusId)}
           showThread
           showCard={showCard}
         />

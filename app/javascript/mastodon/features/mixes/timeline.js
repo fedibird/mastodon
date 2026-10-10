@@ -2,16 +2,20 @@ import React from 'react';
 import { connect } from 'react-redux';
 import { Link } from 'react-router-dom';
 import PropTypes from 'prop-types';
-import { injectIntl } from 'react-intl';
+import { FormattedMessage, injectIntl } from 'react-intl';
 import { List as ImmutableList } from 'immutable';
+import ImmutablePropTypes from 'react-immutable-proptypes';
 import Column from '../../components/column';
 import ColumnHeader from '../../components/column_header';
+import StatusList from '../../components/status_list';
 import { addColumn, changeColumnParams, moveColumn, removeColumn } from '../../actions/columns';
-import { defaultColumnWidth } from 'mastodon/initial_state';
+import { closeMixTimeline, loadMixTimeline, mixColumnKey, retryMixSource } from '../../actions/mix_timelines';
+import { defaultColumnWidth, me } from 'mastodon/initial_state';
 import { isMixEnabled } from 'mastodon/mix/availability';
 import { plainMix } from 'mastodon/mix/definition';
+import { sourceKey } from 'mastodon/mix/source';
+import { mixTimelineView } from 'mastodon/mix/view';
 import messages from './messages';
-import SourceList from './components/source_list';
 
 const findMix = (state, id) => {
   if (!id) {
@@ -21,15 +25,31 @@ const findMix = (state, id) => {
   return state.getIn(['settings', 'mixes'], ImmutableList()).find(item => item && item.get('id') === String(id)) || null;
 };
 
+const mixSignature = (mix) => {
+  const plain = plainMix(mix);
+
+  if (!plain) {
+    return '';
+  }
+
+  return plain.sources.map(source => sourceKey(source)).filter(Boolean).join('\n');
+};
+
 const mapStateToProps = (state, { columnId, params }) => {
   const mixId = params && params.id ? String(params.id) : null;
   const columns = state.getIn(['settings', 'columns']);
   const index = columns && columnId ? columns.findIndex(column => column.get('uuid') === columnId) : -1;
   const columnWidth = index >= 0 ? columns.get(index).getIn(['params', 'columnWidth']) : null;
+  const mix = findMix(state, mixId);
+  const columnKey = mixColumnKey(columnId, mixId);
+  const timeline = state.getIn(['mix_timelines', columnKey]);
 
   return {
     mixId,
-    mix: findMix(state, mixId),
+    mix,
+    signature: mixSignature(mix),
+    columnKey,
+    view: mixTimelineView(timeline, state.get('statuses'), state.get('filters'), me),
     enabled: isMixEnabled(),
     columnWidth: columnWidth || defaultColumnWidth,
   };
@@ -56,9 +76,77 @@ export class MixTimelinePage extends React.PureComponent {
     columnId: PropTypes.string,
     mixId: PropTypes.string,
     mix: PropTypes.object,
+    signature: PropTypes.string,
+    columnKey: PropTypes.string,
+    view: PropTypes.shape({
+      statusIds: ImmutablePropTypes.list,
+      contextById: PropTypes.object,
+      warningsById: PropTypes.object,
+      orderGuaranteed: PropTypes.bool,
+      waiting: PropTypes.bool,
+      hasMore: PropTypes.bool,
+      running: PropTypes.bool,
+      suspended: PropTypes.array,
+      errors: PropTypes.array,
+    }),
     enabled: PropTypes.bool,
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
+  };
+
+  componentDidMount () {
+    this.loadTimeline();
+  }
+
+  componentDidUpdate (prevProps) {
+    if (prevProps.columnKey && prevProps.columnKey !== this.props.columnKey) {
+      this.props.dispatch(closeMixTimeline(prevProps.columnKey));
+    }
+
+    if (!this.props.mix && prevProps.mix && prevProps.columnKey) {
+      this.props.dispatch(closeMixTimeline(prevProps.columnKey));
+      return;
+    }
+
+    if (prevProps.columnKey !== this.props.columnKey || prevProps.signature !== this.props.signature) {
+      this.loadTimeline();
+    }
+  }
+
+  componentWillUnmount () {
+    if (this.props.columnKey) {
+      this.props.dispatch(closeMixTimeline(this.props.columnKey));
+    }
+  }
+
+  loadTimeline () {
+    if (this.props.mix && this.props.columnKey) {
+      this.props.dispatch(loadMixTimeline(this.props.columnKey, this.props.mix));
+    }
+  }
+
+  handleLoadMore = () => {
+    this.props.dispatch(loadMixTimeline(this.props.columnKey, this.props.mix, { extend: true }));
+  };
+
+  contextTypeForId = (id) => {
+    const contexts = this.props.view && this.props.view.contextById;
+
+    return contexts ? contexts[id] : null;
+  };
+
+  warningTitlesForId = (id) => {
+    const warnings = this.props.view && this.props.view.warningsById;
+
+    return warnings && warnings[id] ? warnings[id] : [];
+  };
+
+  handleRetry = (event) => {
+    const sourceKey = event.currentTarget.getAttribute('data-source-key');
+
+    if (sourceKey) {
+      this.props.dispatch(retryMixSource(this.props.columnKey, this.props.mix, sourceKey));
+    }
   };
 
   handlePin = () => {
@@ -92,10 +180,56 @@ export class MixTimelinePage extends React.PureComponent {
   };
 
   render () {
-    const { intl, columnId, mixId, mix, enabled, multiColumn, columnWidth } = this.props;
+    const { intl, columnId, mixId, mix, enabled, multiColumn, columnWidth, view } = this.props;
     const mode = mixTimelineMode({ enabled, mix });
     const plain = mode === 'ready' ? plainMix(mix) : null;
     const title = plain ? plain.title : intl.formatMessage(messages.heading);
+    const statusIds = view && view.statusIds ? view.statusIds : ImmutableList();
+    const notices = [];
+
+    if (view && view.suspended && view.suspended.length) {
+      view.suspended.forEach(item => {
+        notices.push({
+          key: item.key,
+          text: intl.formatMessage(messages.incomplete, { name: item.label || item.key }),
+          retry: true,
+        });
+      });
+    } else if (view && !view.orderGuaranteed && !view.waiting && view.errors.length) {
+      notices.push({ key: 'order', text: intl.formatMessage(messages.orderPartial) });
+    }
+
+    if (view) {
+      view.errors.forEach(item => {
+        const name = item.label || item.key;
+        let message = messages.sourceUnavailable;
+
+        if (item.error === 'forbidden') {
+          message = messages.sourceForbidden;
+        } else if (item.error === 'not_found') {
+          message = messages.sourceMissing;
+        }
+
+        const rateLimited = item.error === 'rate_limit' && item.retryAt && item.retryAt > Date.now();
+
+        notices.push({
+          key: item.key,
+          text: intl.formatMessage(message, { name }),
+          retry: item.error === 'server' || (item.error === 'rate_limit' && !rateLimited),
+        });
+      });
+    }
+
+    const noticeNodes = notices.map(notice => (
+      <p key={notice.key || notice.text} className='mix-editor__notice'>
+        {notice.text || notice}
+        {notice.retry && (
+          <button type='button' className='button button-secondary' data-source-key={notice.key} onClick={this.handleRetry}>
+            {intl.formatMessage(messages.retrySource, { name: notice.key })}
+          </button>
+        )}
+      </p>
+    ));
 
     let body;
 
@@ -105,12 +239,23 @@ export class MixTimelinePage extends React.PureComponent {
       body = <p className='mix-editor__notice'>{intl.formatMessage(messages.deleted)}</p>;
     } else {
       body = (
-        <div className='scrollable mix-editor'>
-          <p>{intl.formatMessage(messages.notMerged)}</p>
-          <p>{intl.formatMessage(messages.notShared)}</p>
-          <SourceList sources={plain.sources} intl={intl} />
-          <Link className='button button-secondary' to={`/mixes/${mixId}/edit`}>{intl.formatMessage(messages.edit)}</Link>
-        </div>
+        <StatusList
+          statusIds={statusIds}
+          scrollKey={`mix-${this.props.columnKey}`}
+          hasMore={!!(view && view.hasMore)}
+          isLoading={!!(view && (view.waiting || view.running))}
+          onLoadMore={this.handleLoadMore}
+          contextTypeForId={this.contextTypeForId}
+          warningTitlesForId={this.warningTitlesForId}
+          emptyMessage={<FormattedMessage id='mixes.empty_timeline' defaultMessage='No posts in this mix yet.' />}
+          prepend={(
+            <div className='mix-editor'>
+              <p>{intl.formatMessage(messages.notShared)}</p>
+              {noticeNodes}
+              <Link className='button button-secondary' to={`/mixes/${mixId}/edit`}>{intl.formatMessage(messages.edit)}</Link>
+            </div>
+          )}
+        />
       );
     }
 
