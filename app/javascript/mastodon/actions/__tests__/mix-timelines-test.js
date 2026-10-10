@@ -32,6 +32,7 @@ import mixTimelines from '../../reducers/mix_timelines';
 import { closeMixTimeline, loadMixTimeline, retryMixSource } from '../mix_timelines';
 import { MIX_FETCH_BUDGET } from '../../mix/merge';
 import { sourceKey } from '../../mix/source';
+import { mixTimelineView } from '../../mix/view';
 
 const mix = fromJS({
   id: 'mix-1',
@@ -185,14 +186,26 @@ describe('mix timeline loading', () => {
   const remoteCall = (call) => !!(call[1] && call[1].params && call[1].params.remote);
 
   it('follows a 206 page only when it includes a next cursor, and stops at the request budget', async () => {
+    let heads = 0;
+
     mockGet.mockImplementation((path, config) => {
       const maxId = config && config.params && config.params.max_id;
 
       if (!maxId) {
+        heads += 1;
+
+        if (heads <= 2) {
+          return Promise.resolve({
+            status: 206,
+            data: [{ id: '800', account: '2' }],
+            links: nextLink(path, '400'),
+          });
+        }
+
         return Promise.resolve({
-          status: 206,
-          data: [{ id: '800', account: '2' }],
-          links: nextLink(path, '400'),
+          status: 200,
+          data: [{ id: '800', account: '2' }, { id: '400', account: '2' }],
+          headers: {},
         });
       }
 
@@ -209,8 +222,9 @@ describe('mix timeline loading', () => {
 
     const sources = getState().getIn(['mix_timelines', 'column:next', 'sources']);
 
-    expect(mockGet).toHaveBeenCalledTimes(4);
+    expect(mockGet).toHaveBeenCalledTimes(6);
     expect(sources.every(source => source.get('suspended') === false)).toBe(true);
+    expect(sources.every(source => source.get('gap') === false)).toBe(true);
     expect(sources.every(source => source.get('frontier') === '400')).toBe(true);
     expect(sources.every(source => source.get('ids').toArray().join(',') === '800,400')).toBe(true);
 
@@ -265,8 +279,9 @@ describe('mix timeline loading', () => {
 
     expect(mockGet).toHaveBeenCalledTimes(1);
     expect(remoteCall(mockGet.mock.calls[0])).toBe(false);
-    expect(getState().getIn(['mix_timelines', 'column:partial', 'sources', publicKey, 'ids']).toArray()).toEqual(['500', '300']);
+    expect(getState().getIn(['mix_timelines', 'column:partial', 'sources', publicKey, 'ids']).toArray()).toEqual(['300']);
     expect(getState().getIn(['mix_timelines', 'column:partial', 'sources', publicKey, 'suspended'])).toBe(false);
+    expect(getState().getIn(['mix_timelines', 'column:partial', 'sources', publicKey, 'gap'])).toBe(false);
     expect(getState().getIn(['mix_timelines', 'column:partial', 'sources', publicKey, 'frontier'])).toBe('300');
     expect(getState().getIn(['mix_timelines', 'column:partial', 'sources', remoteKey, 'suspended'])).toBe(true);
     expect(getState().getIn(['mix_timelines', 'column:partial', 'sources', remoteKey, 'ids']).toArray()).toEqual(['500']);
@@ -278,8 +293,152 @@ describe('mix timeline loading', () => {
     expect(remoteCall(mockGet.mock.calls[0])).toBe(true);
     expect(getState().getIn(['mix_timelines', 'column:partial', 'sources', remoteKey, 'suspended'])).toBe(true);
     expect(getState().getIn(['mix_timelines', 'column:partial', 'sources', remoteKey, 'ids']).toArray()).toEqual(['500', '450']);
-    expect(getState().getIn(['mix_timelines', 'column:partial', 'sources', publicKey, 'ids']).toArray()).toEqual(['500', '300']);
+    expect(getState().getIn(['mix_timelines', 'column:partial', 'sources', publicKey, 'ids']).toArray()).toEqual(['300']);
     expect(mockGet).toHaveBeenCalledTimes(1);
+  });
+
+  const rebuildMix = fromJS({
+    id: 'mix-1',
+    version: 1,
+    title: 'Desk',
+    sources: [
+      { type: 'home', params: {} },
+      { type: 'public', params: {} },
+    ],
+  });
+
+  const homeEntry = (state, columnKey) => {
+    let found = null;
+
+    state.getIn(['mix_timelines', columnKey, 'sources']).forEach((source, key) => {
+      if (source.getIn(['descriptor', 'type']) === 'home') {
+        found = { key, source };
+      }
+    });
+
+    return found;
+  };
+
+  it('does not treat a 200 after 206 as complete until the source is reread from the start', async () => {
+    let homeHeads = 0;
+    let releaseReread;
+    const reread = new Promise(resolve => {
+      releaseReread = resolve;
+    });
+
+    mockGet.mockImplementation((path, config) => {
+      const maxId = config && config.params && config.params.max_id;
+
+      if (path === '/api/v1/timelines/home') {
+        if (!maxId) {
+          homeHeads += 1;
+
+          if (homeHeads === 1) {
+            return Promise.resolve({
+              status: 206,
+              data: [{ id: '100', account: '2' }, { id: '80', account: '2' }],
+              links: nextLink(path, '80'),
+            });
+          }
+
+          return reread.then(() => Promise.resolve({
+            status: 200,
+            data: [
+              { id: '100', account: '2' },
+              { id: '90', account: '2' },
+              { id: '80', account: '2' },
+              { id: '70', account: '2' },
+              { id: '60', account: '2' },
+            ],
+            headers: {},
+          }));
+        }
+
+        return Promise.resolve({
+          status: 200,
+          data: [{ id: '70', account: '2' }, { id: '60', account: '2' }],
+          headers: {},
+        });
+      }
+
+      return Promise.resolve({ status: 200, data: [{ id: '100', account: '2' }], headers: {} });
+    });
+
+    const { dispatch, getState } = harness();
+    const pending = loadMixTimeline('column:rebuild', rebuildMix)(dispatch, getState);
+
+    for (let attempt = 0; attempt < 30 && homeHeads < 2; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+
+    const homeCalls = mockGet.mock.calls.filter(call => call[0] === '/api/v1/timelines/home');
+    const midway = homeEntry(getState(), 'column:rebuild').source;
+    const midwayView = mixTimelineView(getState().getIn(['mix_timelines', 'column:rebuild']), getState().get('statuses'), null, null);
+
+    expect(homeHeads).toBe(2);
+    expect(homeCalls.map(call => (call[1].params.max_id || null))).toEqual([null, '80', null]);
+    expect(midway.get('ids').toArray()).toEqual(['100', '80', '70', '60']);
+    expect(midway.get('gap')).toBe(true);
+    expect(midway.get('frontier')).toBe(null);
+    expect(midwayView.orderGuaranteed).toBe(false);
+    expect(midwayView.statusIds.toArray()).toEqual(['100', '80', '70', '60']);
+
+    releaseReread();
+    await pending;
+
+    const rebuilt = homeEntry(getState(), 'column:rebuild').source;
+    const rebuiltView = mixTimelineView(getState().getIn(['mix_timelines', 'column:rebuild']), getState().get('statuses'), null, null);
+
+    expect(rebuilt.get('ids').toArray()).toEqual(['100', '90', '80', '70', '60']);
+    expect(rebuilt.get('gap')).toBe(false);
+    expect(rebuilt.get('frontier')).toBe('60');
+    expect(rebuiltView.orderGuaranteed).toBe(true);
+    expect(rebuiltView.statusIds.toArray()).toEqual(['100', '90', '80', '70', '60']);
+    expect(mockGet.mock.calls.filter(call => call[0] === '/api/v1/timelines/home')).toHaveLength(3);
+  });
+
+  it('stops rereading when the rebuilt page is still partial', async () => {
+    let homeHeads = 0;
+
+    mockGet.mockImplementation((path, config) => {
+      const maxId = config && config.params && config.params.max_id;
+
+      if (path === '/api/v1/timelines/home') {
+        if (!maxId) {
+          homeHeads += 1;
+
+          return Promise.resolve({
+            status: 206,
+            data: [{ id: '100', account: '2' }, { id: '80', account: '2' }],
+            links: nextLink(path, '80'),
+          });
+        }
+
+        return Promise.resolve({
+          status: 200,
+          data: [{ id: '70', account: '2' }, { id: '60', account: '2' }],
+          headers: {},
+        });
+      }
+
+      return Promise.resolve({ status: 200, data: [{ id: '100', account: '2' }], headers: {} });
+    });
+
+    const { dispatch, getState } = harness();
+
+    await loadMixTimeline('column:stuck', rebuildMix)(dispatch, getState);
+
+    const stuck = homeEntry(getState(), 'column:stuck');
+    const stuckView = mixTimelineView(getState().getIn(['mix_timelines', 'column:stuck']), getState().get('statuses'), null, null);
+
+    expect(homeHeads).toBe(2);
+    expect(mockGet.mock.calls.filter(call => call[0] === '/api/v1/timelines/home')).toHaveLength(3);
+    expect(stuck.source.get('ids').toArray()).toEqual(['100', '80', '70', '60']);
+    expect(stuck.source.get('gap')).toBe(true);
+    expect(stuck.source.get('suspended')).toBe(true);
+    expect(stuck.source.get('frontier')).toBe(null);
+    expect(stuckView.orderGuaranteed).toBe(false);
+    expect(stuckView.suspended.map(item => item.key)).toContain(stuck.key);
   });
 
   it('retries only the requested failed source and keeps a future rate limit', async () => {

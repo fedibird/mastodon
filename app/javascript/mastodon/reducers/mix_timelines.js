@@ -1,6 +1,7 @@
 import { Map as ImmutableMap, List as ImmutableList, fromJS } from 'immutable';
 import { STORE_HYDRATE } from '../actions/store';
 import { ACCOUNT_BLOCK_SUCCESS, ACCOUNT_MUTE_SUCCESS } from '../actions/accounts';
+import { MIX_REREAD_LIMIT } from '../mix/merge';
 import {
   MIX_TIMELINE_OPEN,
   MIX_TIMELINE_CLOSE,
@@ -20,6 +21,9 @@ const initialSource = ImmutableMap({
   error: null,
   partial: false,
   suspended: false,
+  gap: false,
+  reread: false,
+  rereads: 0,
   retryAt: null,
   filterResults: ImmutableMap(),
 });
@@ -27,6 +31,97 @@ const initialSource = ImmutableMap({
 const initialState = ImmutableMap();
 
 const currentSession = (state, columnKey) => state.getIn([columnKey, 'sessionId']);
+
+const appendIds = (source, incoming) => {
+  const seen = new Set(source.get('ids').toArray());
+
+  return source.get('ids').withMutations(list => {
+    (incoming || []).forEach(id => {
+      if (!seen.has(id)) {
+        seen.add(id);
+        list.push(id);
+      }
+    });
+  });
+};
+
+// A 200 that continues after 206 only shows that rebuilding has stopped.
+// The rows already fetched can still be missing, so the source is reread
+// once from the head. Another 206 keeps the source incomplete.
+const settlePage = (source, action) => {
+  const pagePartial = !!action.partial;
+  const fromHead = !action.requestedCursor;
+  const gap = !!source.get('gap');
+  const rereads = source.get('rereads') || 0;
+  const replace = fromHead && !pagePartial && (gap || source.get('reread'));
+  const ids = replace ? ImmutableList(action.ids || []) : appendIds(source, action.ids);
+  const stored = source.get('filterResults') || ImmutableMap();
+  const filterResults = action.clear ? ImmutableMap() : stored.merge(fromJS(action.filterResults || {}));
+  const base = {
+    ids,
+    loading: false,
+    loaded: true,
+    error: null,
+    retryAt: null,
+    filterResults,
+  };
+
+  if (pagePartial) {
+    const rereadStillPartial = fromHead && (gap || source.get('reread'));
+
+    return source.merge({
+      ...base,
+      cursor: rereadStillPartial ? null : action.cursor,
+      frontier: null,
+      hasMore: true,
+      partial: true,
+      suspended: rereadStillPartial ? true : !!action.suspended,
+      gap: true,
+      reread: false,
+      rereads,
+    });
+  }
+
+  if (gap && !fromHead) {
+    if (rereads >= MIX_REREAD_LIMIT) {
+      return source.merge({
+        ...base,
+        cursor: null,
+        frontier: null,
+        hasMore: true,
+        partial: true,
+        suspended: true,
+        gap: true,
+        reread: false,
+        rereads,
+      });
+    }
+
+    return source.merge({
+      ...base,
+      cursor: null,
+      frontier: null,
+      hasMore: true,
+      partial: true,
+      suspended: false,
+      gap: true,
+      reread: true,
+      rereads: rereads + 1,
+    });
+  }
+
+  return source.merge({
+    ...base,
+    cursor: action.cursor,
+    frontier: action.frontier,
+    hasMore: action.hasMore,
+    partial: false,
+    suspended: false,
+    gap: false,
+    reread: false,
+    rereads: 0,
+  });
+};
 
 const removeIds = (state, ids) => {
   if (!ids || !ids.length) {
@@ -103,30 +198,7 @@ export default function mixTimelines(state = initialState, action) {
     }
 
     return state.updateIn([action.columnKey, 'sources', action.sourceKey], initialSource, source => {
-      const seen = new Set(source.get('ids').toArray());
-      const ids = source.get('ids').withMutations(list => {
-        action.ids.forEach(id => {
-          if (!seen.has(id)) {
-            seen.add(id);
-            list.push(id);
-          }
-        });
-      });
-      const results = (source.get('filterResults') || ImmutableMap()).merge(fromJS(action.filterResults || {}));
-
-      return source.merge({
-        ids,
-        cursor: action.cursor,
-        frontier: action.partial ? source.get('frontier') : action.frontier,
-        hasMore: action.hasMore,
-        loading: false,
-        loaded: true,
-        error: null,
-        partial: !!action.partial,
-        suspended: !!action.suspended,
-        retryAt: null,
-        filterResults: action.clear ? ImmutableMap() : results,
-      });
+      return settlePage(source, action);
     }).updateIn([action.columnKey, 'metrics'], ImmutableMap(), metrics => metrics.merge({
       requests: metrics.get('requests', 0) + 1,
       fetched: metrics.get('fetched', 0) + action.ids.length,

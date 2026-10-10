@@ -126,6 +126,7 @@ const acceptPage = (dispatch, getState, columnKey, sessionId, fingerprint, key, 
     hasMore: page.hasMore,
     partial: page.partial,
     suspended: page.suspended,
+    requestedCursor: cursor || null,
     extra: !!cursor,
   });
 };

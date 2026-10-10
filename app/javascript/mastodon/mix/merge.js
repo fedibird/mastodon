@@ -5,10 +5,16 @@ export const MIX_FETCH_CONCURRENCY = 3;
 export const MIX_FETCH_BUDGET = 16;
 export const MIX_PAGE_SIZE = 40;
 export const MIX_PAGE_TARGET = 40;
+// A 206 page can omit rows. One later 200 schedules a single reread from the head.
+export const MIX_REREAD_LIMIT = 1;
 
 const newer = (left, right) => compareId(left, right) > 0;
 
 const frontierOf = (source) => {
+  if (source.gap) {
+    return null;
+  }
+
   if (source.frontier) {
     return source.frontier;
   }
@@ -76,7 +82,7 @@ export const safePrefix = (sources) => {
     };
   }
 
-  const incomplete = list.filter(source => !source.error && source.hasMore);
+  const incomplete = list.filter(source => !source.error && (source.hasMore || source.gap));
   let limit = null;
   let blocked = false;
 

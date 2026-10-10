@@ -290,9 +290,9 @@ export const normalizePage = ({ status, data, nextUri, path, origin } = {}) => {
     filterResults[item.id] = storedFilterResults(item);
   });
 
-  // 206 is incomplete even when the server omits Link next. Do not treat it
-  // as the end of the source, and do not confirm a frontier from it.
-  // Without a next cursor the same request must not be repeated automatically.
+  // 206 means the feed was still being rebuilt, so this page can omit rows.
+  // It is not a confirmed frontier. Without a next cursor the same request
+  // must not be repeated automatically. A later 200 does not close the gap.
   const hasMore = partial || !!nextUri;
 
   return {

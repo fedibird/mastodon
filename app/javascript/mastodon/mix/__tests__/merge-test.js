@@ -178,6 +178,9 @@ describe('mix merge', () => {
 
     expect(view.ids).toEqual(['500', '450', '400']);
     expect(view.orderGuaranteed).toBe(false);
+    expect(safePrefix([
+      source('home', ['100', '80', '70', '60'], { hasMore: false, partial: false, frontier: '60', gap: true }),
+    ]).orderGuaranteed).toBe(false);
 
     const held = buildMixView([
       source('public', ['500'], {
