@@ -69,8 +69,17 @@ class MixSourceBadges extends React.PureComponent {
     this.buttonRefs[node.getAttribute('data-source-key')] = node;
   };
 
+  handleBadgeKeyDown = (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      this.openedViaKeyboard = true;
+    }
+  };
+
   handleBadgeClick = (event) => {
-    this.handleToggle(event.currentTarget.getAttribute('data-source-key'));
+    const viaKeyboard = this.openedViaKeyboard;
+
+    this.openedViaKeyboard = false;
+    this.handleToggle(event.currentTarget.getAttribute('data-source-key'), viaKeyboard);
   };
 
   handleCloseClick = () => {
@@ -81,7 +90,8 @@ class MixSourceBadges extends React.PureComponent {
     this.closeMenu(false);
   };
 
-  openMenu = (key) => {
+  openMenu = (key, viaKeyboard) => {
+    this.focusMenuOnOpen = !!viaKeyboard;
     this.setState({ openKey: key });
   };
 
@@ -105,6 +115,56 @@ class MixSourceBadges extends React.PureComponent {
     document.removeEventListener('keydown', this.handleDocumentKeyDown, false);
   };
 
+  applyRef = (ref, node) => {
+    if (!ref) {
+      return;
+    }
+
+    if (typeof ref === 'function') {
+      ref(node);
+      return;
+    }
+
+    ref.current = node;
+  };
+
+  syncPopperRef = (next) => {
+    if (next === this.popperRef) {
+      return;
+    }
+
+    if (this.menuNode) {
+      this.applyRef(this.popperRef, null);
+      this.applyRef(next, this.menuNode);
+    }
+
+    this.popperRef = next;
+  };
+
+  composeMenuRef = (node) => {
+    this.applyRef(this.popperRef, node);
+    this.handleMenuMount(node);
+  };
+
+  focusFirstMenuItem = () => {
+    if (!this.focusMenuOnOpen || !this.menuNode) {
+      return;
+    }
+
+    this.focusMenuOnOpen = false;
+    const item = this.menuNode.querySelector('a[href], button');
+
+    if (item) {
+      item.focus();
+    }
+  };
+
+  componentDidUpdate (prevProps, prevState) {
+    if (this.state.openKey && this.state.openKey !== prevState.openKey) {
+      this.focusFirstMenuItem();
+    }
+  }
+
   handleMenuMount = (node) => {
     this.menuNode = node;
 
@@ -113,24 +173,28 @@ class MixSourceBadges extends React.PureComponent {
       return;
     }
 
-    if (this.menuListening) {
-      return;
+    if (!this.menuListening) {
+      this.menuListening = true;
+      document.addEventListener('click', this.handleDocumentClick, false);
+      document.addEventListener('keydown', this.handleDocumentKeyDown, false);
     }
 
-    this.menuListening = true;
-    document.addEventListener('click', this.handleDocumentClick, false);
-    document.addEventListener('keydown', this.handleDocumentKeyDown, false);
+    this.focusFirstMenuItem();
   };
 
   handleDocumentClick = (event) => {
-    const anchor = this.buttonRefs[this.state.openKey];
-
     if (this.menuNode && this.menuNode.contains(event.target)) {
       return;
     }
 
-    if (anchor && anchor.contains(event.target)) {
-      return;
+    const badges = Object.keys(this.buttonRefs);
+
+    for (let i = 0; i < badges.length; i += 1) {
+      const anchor = this.buttonRefs[badges[i]];
+
+      if (anchor && anchor.contains(event.target)) {
+        return;
+      }
     }
 
     this.closeMenu(false);
@@ -145,13 +209,13 @@ class MixSourceBadges extends React.PureComponent {
 
   findTarget = () => this.buttonRefs[this.state.openKey] || null;
 
-  handleToggle = (key) => {
+  handleToggle = (key, viaKeyboard) => {
     if (this.state.openKey === key) {
       this.closeMenu(false);
       return;
     }
 
-    this.openMenu(key);
+    this.openMenu(key, viaKeyboard);
   };
 
   handleExpand = () => {
@@ -166,16 +230,18 @@ class MixSourceBadges extends React.PureComponent {
     }
 
     const { intl } = this.props;
-    const style = { ...props.style, ...MENU_STYLE };
+    const { ref: popperRef, style, ...overlayProps } = props;
+
+    this.syncPopperRef(popperRef);
 
     return (
       <div
-        {...props}
+        {...overlayProps}
         className={`status__mix-sources__menu ${placement || ''}`}
-        style={style}
+        style={{ ...style, ...MENU_STYLE }}
         role='dialog'
         aria-label={badge.fullLabel}
-        ref={this.handleMenuMount}
+        ref={this.composeMenuRef}
       >
         <p className='status__mix-sources__menu-type'>{badge.typeLabel}</p>
         <p className='status__mix-sources__menu-name'>{badge.fullLabel}</p>
@@ -226,6 +292,7 @@ class MixSourceBadges extends React.PureComponent {
                 data-source-key={badge.key}
                 aria-expanded={this.state.openKey === badge.key ? 'true' : 'false'}
                 ref={this.handleBadgeRef}
+                onKeyDown={this.handleBadgeKeyDown}
                 onClick={this.handleBadgeClick}
               >
                 <Icon id={badge.icon} className='status__mix-sources__icon' />

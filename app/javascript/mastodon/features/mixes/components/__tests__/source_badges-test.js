@@ -84,6 +84,44 @@ describe('mix source badge component', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Alpha' }));
   });
 
+  const openWithKeyboard = (name) => {
+    const button = screen.getByRole('button', { name });
+
+    fireEvent.keyDown(button, { key: 'Enter' });
+    fireEvent.click(button);
+    return button;
+  };
+
+  it('moves focus into the menu from the keyboard and returns it on close', () => {
+    renderBadges([badges[1], badge('plain', 'Plain')]);
+
+    const alpha = openWithKeyboard('Alpha');
+
+    expect(document.activeElement).toBe(screen.getByRole('link', { name: 'Open original timeline' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close source details' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(alpha);
+
+    openWithKeyboard('Plain');
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close source details' }));
+    expect(screen.queryByRole('link', { name: 'Open original timeline' })).toBeNull();
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    });
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Plain' }));
+  });
+
+  it('does not move focus when a pointer opens the menu', () => {
+    renderBadges([badges[1]]);
+    const button = screen.getByRole('button', { name: 'Alpha' });
+
+    button.focus();
+    fireEvent.click(button);
+    expect(document.activeElement).toBe(button);
+    expect(screen.getByRole('link', { name: 'Open original timeline' })).toBeTruthy();
+  });
+
   it('collapses sources after the third and expands the rest', () => {
     renderBadges(badges);
 
