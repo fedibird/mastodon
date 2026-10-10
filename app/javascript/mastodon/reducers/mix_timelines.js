@@ -19,6 +19,11 @@ import {
   MIX_STREAM_SYNC,
   MIX_STREAM_PIN,
   MIX_STREAM_REVEAL,
+  MIX_SPLIT_CREATE,
+  MIX_SPLIT_DESTROY,
+  MIX_SPLIT_ANCHOR,
+  MIX_SPLIT_CLEAR_ANCHOR,
+  MIX_DISPLAY_HISTORY,
 } from '../actions/mix_timelines';
 
 const initialSource = ImmutableMap({
@@ -53,6 +58,23 @@ const initialLive = ImmutableMap({
 });
 
 const initialState = ImmutableMap();
+const ANCHORS = '__anchors';
+
+const isColumn = (timeline) => !!(timeline && timeline.get && timeline.get('sources'));
+
+const mapColumns = (state, updater) => {
+  let next = state;
+
+  state.forEach((timeline, key) => {
+    if (key === ANCHORS || !isColumn(timeline)) {
+      return;
+    }
+
+    next = next.set(key, updater(timeline));
+  });
+
+  return next;
+};
 
 const newerId = (left, right) => {
   if (!left) {
@@ -180,10 +202,20 @@ const removeIds = (state, ids) => {
 
   const blocked = new Set(ids);
 
-  return state.map(timeline => timeline
-    .update('sources', sources => sources.map(source => source.update('ids', list => list.filter(id => !blocked.has(id)))))
-    .update('live', live => (live || ImmutableMap()).map(entry => entry.update('statusIds', list => withoutIds(list, blocked))))
-    .update('pendingStatusIds', list => withoutIds(list, blocked)));
+  return mapColumns(state, timeline => {
+    let next = timeline
+      .update('sources', sources => sources.map(source => source.update('ids', list => list.filter(id => !blocked.has(id)))))
+      .update('live', live => (live || ImmutableMap()).map(entry => entry.update('statusIds', list => withoutIds(list, blocked))))
+      .update('pendingStatusIds', list => withoutIds(list, blocked));
+
+    if (!next.get('split')) {
+      return next;
+    }
+
+    return next
+      .updateIn(['split', 'history', 'sources'], sources => (sources || ImmutableMap()).map(source => source.update('ids', list => list.filter(id => !blocked.has(id)))))
+      .updateIn(['split', 'history', 'frozenLive'], live => (live || ImmutableMap()).map(entry => entry.update('ids', list => withoutIds(list, blocked))));
+  });
 };
 
 const idsForRelationship = (statuses, relationship) => {
@@ -236,12 +268,30 @@ export default function mixTimelines(state = initialState, action) {
   case MIX_TIMELINE_CLOSE:
     return state.delete(action.columnKey);
   case MIX_TIMELINE_DONE:
+    if (action.scope === 'history') {
+      if (!historyOpen(state, action)) {
+        return state;
+      }
+
+      return state.setIn([action.columnKey, 'split', 'history', 'running'], false);
+    }
+
     if (currentSession(state, action.columnKey) !== action.sessionId || state.getIn([action.columnKey, 'definitionFingerprint']) !== action.definitionFingerprint) {
       return state;
     }
 
     return state.setIn([action.columnKey, 'running'], false);
   case MIX_SOURCE_REQUEST:
+    if (action.scope === 'history') {
+      if (!historyOpen(state, action)) {
+        return state;
+      }
+
+      return state
+        .setIn([action.columnKey, 'split', 'history', 'running'], true)
+        .setIn([action.columnKey, 'split', 'history', 'sources', action.sourceKey, 'loading'], true);
+    }
+
     if (currentSession(state, action.columnKey) !== action.sessionId || state.getIn([action.columnKey, 'definitionFingerprint']) !== action.definitionFingerprint) {
       return state;
     }
@@ -250,6 +300,19 @@ export default function mixTimelines(state = initialState, action) {
       .setIn([action.columnKey, 'running'], true)
       .setIn([action.columnKey, 'sources', action.sourceKey, 'loading'], true);
   case MIX_SOURCE_SUCCESS:
+    if (action.scope === 'history') {
+      if (!historyOpen(state, action)) {
+        return state;
+      }
+
+      const blockedHistory = new Set((state.getIn([action.columnKey, 'deletedStatusIds']) || ImmutableList()).toArray());
+      const historyIds = (action.ids || []).filter(id => !blockedHistory.has(id));
+
+      return state.updateIn([action.columnKey, 'split', 'history', 'sources', action.sourceKey], initialSource, source => {
+        return settlePage(source, { ...action, ids: historyIds });
+      });
+    }
+
     if (currentSession(state, action.columnKey) !== action.sessionId || state.getIn([action.columnKey, 'definitionFingerprint']) !== action.definitionFingerprint) {
       return state;
     }
@@ -265,6 +328,24 @@ export default function mixTimelines(state = initialState, action) {
       extraPages: metrics.get('extraPages', 0) + (action.extra ? 1 : 0),
     }));
   case MIX_SOURCE_FAIL:
+    if (action.scope === 'history') {
+      if (!historyOpen(state, action)) {
+        return state;
+      }
+
+      return state.updateIn([action.columnKey, 'split', 'history', 'sources', action.sourceKey], initialSource, source => source.merge({
+        ids: action.clear ? ImmutableList() : source.get('ids'),
+        filterResults: action.clear ? ImmutableMap() : source.get('filterResults'),
+        frontier: action.clear ? null : source.get('frontier'),
+        loading: false,
+        loaded: true,
+        hasMore: action.error === 'forbidden' || action.error === 'not_found' || action.error === 'stalled' || action.error === 'order' ? false : source.get('hasMore'),
+        error: action.error,
+        suspended: false,
+        retryAt: action.retryAt || null,
+      }));
+    }
+
     if (currentSession(state, action.columnKey) !== action.sessionId || state.getIn([action.columnKey, 'definitionFingerprint']) !== action.definitionFingerprint) {
       return state;
     }
@@ -382,8 +463,36 @@ export default function mixTimelines(state = initialState, action) {
         return (results || ImmutableMap()).merge(fromJS({ [action.id]: decision.filterResults }));
       };
 
+      if (decision.decision === 'conceal') {
+        const dropId = (ids) => (ids || ImmutableList()).filter(id => id !== action.id);
+        let concealed = next.updateIn([action.columnKey, 'pendingStatusIds'], ImmutableList(), dropId);
+        const sourcePath = [action.columnKey, 'sources', decision.sourceKey];
+        const livePath = [action.columnKey, 'live', decision.sourceKey];
+
+        if (concealed.getIn(sourcePath)) {
+          concealed = concealed.updateIn(sourcePath.concat(['ids']), ImmutableList(), dropId);
+        }
+
+        if (concealed.getIn(livePath)) {
+          concealed = concealed.updateIn(livePath.concat(['statusIds']), ImmutableList(), dropId);
+        }
+
+        const historyPath = [action.columnKey, 'split', 'history', 'sources', decision.sourceKey];
+        const frozenPath = [action.columnKey, 'split', 'history', 'frozenLive', decision.sourceKey];
+
+        if (concealed.getIn(historyPath)) {
+          concealed = concealed.updateIn(historyPath.concat(['ids']), ImmutableList(), dropId);
+        }
+
+        if (concealed.getIn(frozenPath)) {
+          concealed = concealed.updateIn(frozenPath.concat(['ids']), ImmutableList(), dropId);
+        }
+
+        return concealed;
+      }
+
       if (decision.decision === 'reject') {
-        return next
+        const removed = next
           .updateIn([action.columnKey, 'live', decision.sourceKey], initialLive, entry => entry.merge({
             statusIds: entry.get('statusIds').filter(id => id !== action.id),
             filterResults: mergeResults(entry.get('filterResults')),
@@ -394,6 +503,28 @@ export default function mixTimelines(state = initialState, action) {
             revokedIds: rememberTombstones(source.get('revokedIds'), [action.id]),
           }))
           .updateIn([action.columnKey, 'pendingStatusIds'], ImmutableList(), ids => ids.filter(id => id !== action.id));
+        const historyPath = [action.columnKey, 'split', 'history', 'sources', decision.sourceKey];
+
+        if (!removed.getIn(historyPath)) {
+          return removed;
+        }
+
+        const withoutHistory = removed
+          .updateIn(historyPath, source => source.merge({
+            ids: source.get('ids').filter(id => id !== action.id),
+            filterResults: mergeResults(source.get('filterResults')),
+            revokedIds: rememberTombstones(source.get('revokedIds'), [action.id]),
+          }));
+        const frozenPath = [action.columnKey, 'split', 'history', 'frozenLive', decision.sourceKey];
+
+        if (!withoutHistory.getIn(frozenPath)) {
+          return withoutHistory;
+        }
+
+        return withoutHistory.updateIn(frozenPath, entry => entry.merge({
+          ids: (entry.get('ids') || ImmutableList()).filter(id => id !== action.id),
+          filterResults: mergeResults(entry.get('filterResults')),
+        }));
       }
 
       if (decision.decision === 'accept' && decision.delivered) {
@@ -407,11 +538,25 @@ export default function mixTimelines(state = initialState, action) {
       }
 
       if (decision.decision === 'accept') {
-        return next
+        const updated = next
           .updateIn([action.columnKey, 'live', decision.sourceKey], initialLive, entry => entry.merge({
             filterResults: mergeResults(entry.get('filterResults')),
           }))
           .updateIn([action.columnKey, 'sources', decision.sourceKey, 'filterResults'], ImmutableMap(), results => mergeResults(results));
+        const historyResults = [action.columnKey, 'split', 'history', 'sources', decision.sourceKey, 'filterResults'];
+
+        if (!updated.getIn([action.columnKey, 'split', 'history', 'sources', decision.sourceKey])) {
+          return updated;
+        }
+
+        let withHistory = updated.updateIn(historyResults, ImmutableMap(), results => mergeResults(results));
+        const frozenResults = [action.columnKey, 'split', 'history', 'frozenLive', decision.sourceKey];
+
+        if (!withHistory.getIn(frozenResults)) {
+          return withHistory;
+        }
+
+        return withHistory.updateIn(frozenResults.concat(['filterResults']), ImmutableMap(), results => mergeResults(results));
       }
 
       return next;
@@ -423,7 +568,7 @@ export default function mixTimelines(state = initialState, action) {
 
     const removed = [action.id].concat(action.references || []).concat(action.quotes || []).filter(Boolean);
 
-    return removeIds(state, removed).map(timeline => timeline.update('deletedStatusIds', ImmutableList(), existing => rememberTombstones(existing, removed)));
+    return mapColumns(removeIds(state, removed), timeline => timeline.update('deletedStatusIds', ImmutableList(), existing => rememberTombstones(existing, removed)));
   }
   case MIX_STREAM_PIN:
     if (!sameSession(state, action)) {
@@ -437,6 +582,87 @@ export default function mixTimelines(state = initialState, action) {
     }
 
     return state.setIn([action.columnKey, 'pendingStatusIds'], ImmutableList());
+  case MIX_SPLIT_CREATE: {
+    if (!sameSession(state, action) || state.getIn([action.columnKey, 'split', 'id'])) {
+      return state;
+    }
+
+    const openSources = state.getIn([action.columnKey, 'sources']);
+    const initialLoad = openSources && openSources.some(source => !source.get('loaded') && !source.get('error'));
+
+    if (initialLoad) {
+      return state;
+    }
+
+    return state.setIn([action.columnKey, 'split'], ImmutableMap({
+      id: action.splitId,
+      boundaryId: action.boundaryId || null,
+      createdAt: Date.now(),
+      returnAnchor: null,
+      history: ImmutableMap({
+        sources: state.getIn([action.columnKey, 'sources']),
+        frozenLive: fromJS(action.frozenLive || {}),
+        running: false,
+      }),
+    }));
+  }
+  case MIX_SPLIT_DESTROY: {
+    if (!sameSession(state, action) || state.getIn([action.columnKey, 'split', 'id']) !== action.splitId) {
+      return state;
+    }
+
+    if (action.keep === 'live') {
+      return state
+        .deleteIn([action.columnKey, 'split'])
+        .setIn([action.columnKey, 'displayMode'], 'live')
+        .setIn([action.columnKey, 'pinnedToTop'], !!action.liveAtTop)
+        .setIn([action.columnKey, 'pendingStatusIds'], ImmutableList());
+    }
+
+    const historySources = state.getIn([action.columnKey, 'split', 'history', 'sources']);
+    const frozen = state.getIn([action.columnKey, 'split', 'history', 'frozenLive']) || ImmutableMap();
+    const kept = new Set();
+
+    historySources.forEach(source => source.get('ids').forEach(id => kept.add(id)));
+    frozen.forEach(entry => (entry.get('ids') || ImmutableList()).forEach(id => kept.add(id)));
+
+    const pendingIds = [];
+    const seenPending = new Set();
+
+    (state.getIn([action.columnKey, 'live']) || ImmutableMap()).forEach(entry => {
+      (entry.get('statusIds') || ImmutableList()).forEach(id => {
+        if (!kept.has(id) && !seenPending.has(id)) {
+          seenPending.add(id);
+          pendingIds.push(id);
+        }
+      });
+    });
+
+    return state
+      .setIn([action.columnKey, 'sources'], historySources)
+      .setIn([action.columnKey, 'pendingStatusIds'], ImmutableList(pendingIds))
+      .setIn([action.columnKey, 'displayMode'], null)
+      .setIn([action.columnKey, 'pinnedToTop'], pendingIds.length === 0 && action.historyAtTop === true)
+      .deleteIn([action.columnKey, 'split']);
+  }
+  case MIX_SPLIT_ANCHOR:
+    if (!action.columnKey || !action.anchor) {
+      return state;
+    }
+
+    return state.setIn([ANCHORS, action.columnKey], fromJS(action.anchor));
+  case MIX_SPLIT_CLEAR_ANCHOR:
+    if (!action.columnKey) {
+      return state;
+    }
+
+    return state.deleteIn([ANCHORS, action.columnKey]);
+  case MIX_DISPLAY_HISTORY:
+    if (!sameSession(state, action)) {
+      return state;
+    }
+
+    return state.setIn([action.columnKey, 'displayMode'], null);
   case ACCOUNT_BLOCK_SUCCESS:
   case ACCOUNT_MUTE_SUCCESS:
     return removeIds(state, idsForRelationship(action.statuses, action.relationship));
@@ -447,4 +673,8 @@ export default function mixTimelines(state = initialState, action) {
 
 const sameSession = (state, action) => {
   return currentSession(state, action.columnKey) === action.sessionId && state.getIn([action.columnKey, 'definitionFingerprint']) === action.definitionFingerprint;
+};
+
+const historyOpen = (state, action) => {
+  return action.scope === 'history' && state.getIn([action.columnKey, 'split', 'id']) === action.splitId && sameSession(state, action);
 };
