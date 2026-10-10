@@ -29,7 +29,7 @@ const mockGet = jest.fn();
 
 import { fromJS } from 'immutable';
 import mixTimelines from '../../reducers/mix_timelines';
-import { closeMixTimeline, loadMixTimeline, retryMixSource } from '../mix_timelines';
+import { closeMixTimeline, createMixSplit, destroyMixSplit, loadMixTimeline, retryMixSource } from '../mix_timelines';
 import { MIX_FETCH_BUDGET } from '../../mix/merge';
 import { sourceKey } from '../../mix/source';
 import { mixTimelineView } from '../../mix/view';
@@ -510,5 +510,130 @@ describe('mix timeline loading', () => {
     expect(getState().get('mix_timelines').has('column:one')).toBe(false);
     expect(current.valueSeq().every(source => source.get('error') === null)).toBe(true);
     expect(current.valueSeq().flatMap(source => source.get('ids')).toArray()).toEqual(['200', '200']);
+  });
+
+  const headPage = () => {
+    const data = [];
+
+    for (let value = 90; value >= 51; value -= 1) {
+      data.push({ id: String(value), account: '2' });
+    }
+
+    return data;
+  };
+
+  it('pages history on each source cursor without moving the live cursors', async () => {
+    const publicKey = sourceKey({ type: 'public', params: {} });
+    const remoteKey = sourceKey({ type: 'remote', params: {} });
+
+    mockGet.mockImplementation((path, config) => {
+      const maxId = config && config.params && config.params.max_id;
+
+      if (!maxId) {
+        return Promise.resolve({
+          status: 200,
+          data: headPage(),
+          links: nextLink(path, '50'),
+        });
+      }
+
+      const id = config.params.remote ? '30' : '40';
+
+      return Promise.resolve({
+        status: 200,
+        data: [{ id, account: '2' }],
+        headers: {},
+      });
+    });
+
+    const { dispatch, getState } = harness();
+
+    await loadMixTimeline('column:hist', deferredMix)(dispatch, getState);
+    createMixSplit('column:hist', 'split-h')(dispatch, getState);
+    await loadMixTimeline('column:hist', deferredMix, { extend: true, scope: 'history', splitId: 'split-h' })(dispatch, getState);
+
+    const column = getState().getIn(['mix_timelines', 'column:hist']);
+    const history = mixTimelineView(column, null, null, null, 'history');
+    const live = mixTimelineView(column, null, null, null, 'live');
+    const recent = headPage().map(item => item.id);
+
+    expect(column.getIn(['sources', publicKey, 'cursor'])).toBe('50');
+    expect(column.getIn(['sources', remoteKey, 'cursor'])).toBe('50');
+    expect(column.getIn(['split', 'history', 'sources', publicKey, 'ids']).last()).toBe('40');
+    expect(column.getIn(['split', 'history', 'sources', remoteKey, 'ids']).last()).toBe('30');
+    expect(history.statusIds.take(40).toArray()).toEqual(recent);
+    expect(history.statusIds.slice(40).toArray()).toEqual(['40', '30']);
+    expect(live.statusIds.toArray()).toEqual(recent);
+    expect(live.statusIds.contains('40')).toBe(false);
+    expect(history.orderGuaranteed).toBe(true);
+  });
+
+  it('ignores a late history page after the split closes and keeps a 429 on history', async () => {
+    const publicKey = sourceKey({ type: 'public', params: {} });
+    const remoteKey = sourceKey({ type: 'remote', params: {} });
+    const waiting = [];
+    let hold = false;
+
+    mockGet.mockImplementation((path, config) => {
+      const maxId = config && config.params && config.params.max_id;
+
+      if (!maxId) {
+        return Promise.resolve({
+          status: 200,
+          data: headPage(),
+          links: nextLink(path, '50'),
+        });
+      }
+
+      if (!hold) {
+        return Promise.resolve({
+          status: 200,
+          data: [{ id: '45', account: '2' }],
+          headers: {},
+        });
+      }
+
+      if (config.params.remote) {
+        return Promise.reject({ response: { status: 429, headers: { 'retry-after': '8' } } });
+      }
+
+      return new Promise(resolve => waiting.push(resolve));
+    });
+
+    const { dispatch, getState } = harness();
+
+    await loadMixTimeline('column:hist', deferredMix)(dispatch, getState);
+    createMixSplit('column:hist', 'split-h')(dispatch, getState);
+    hold = true;
+    const historyLoad = loadMixTimeline('column:hist', deferredMix, { extend: true, scope: 'history', splitId: 'split-h' })(dispatch, getState);
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await Promise.resolve();
+
+      if (waiting.length > 0 && getState().getIn(['mix_timelines', 'column:hist', 'split', 'history', 'sources', remoteKey, 'error']) === 'rate_limit') {
+        break;
+      }
+    }
+
+    expect(waiting.length).toBe(1);
+    expect(getState().getIn(['mix_timelines', 'column:hist', 'split', 'history', 'sources', remoteKey, 'error'])).toBe('rate_limit');
+    expect(getState().getIn(['mix_timelines', 'column:hist', 'sources', remoteKey, 'error'])).toBe(null);
+    expect(mixTimelineView(getState().getIn(['mix_timelines', 'column:hist']), null, null, null, 'history').orderGuaranteed).toBe(false);
+
+    destroyMixSplit('column:hist', 'split-h', { keep: 'live' })(dispatch, getState);
+    waiting[0]({
+      status: 200,
+      data: [{ id: '10', account: '2' }],
+      headers: {},
+    });
+    await historyLoad;
+
+    const column = getState().getIn(['mix_timelines', 'column:hist']);
+
+    expect(column.get('split')).toBeUndefined();
+    expect(column.getIn(['sources', publicKey, 'cursor'])).toBe('50');
+    expect(column.getIn(['sources', publicKey, 'ids']).contains('10')).toBe(false);
+    expect(column.getIn(['sources', remoteKey, 'error'])).toBe(null);
+    expect(mixTimelineView(column, null, null, null).statusIds.contains('10')).toBe(false);
   });
 });

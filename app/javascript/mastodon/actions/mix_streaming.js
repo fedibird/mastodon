@@ -436,10 +436,14 @@ const handleStatus = (dispatch, getState, columnKey, sessionId, fingerprint, sou
 };
 
 const memberOf = (column, sourceKey, id) => {
-  const history = column && column.getIn(['sources', sourceKey, 'ids']);
-  const live = column && column.getIn(['live', sourceKey, 'statusIds']);
+  const lists = [
+    column && column.getIn(['sources', sourceKey, 'ids']),
+    column && column.getIn(['live', sourceKey, 'statusIds']),
+    column && column.getIn(['split', 'history', 'sources', sourceKey, 'ids']),
+    column && column.getIn(['split', 'history', 'frozenLive', sourceKey, 'ids']),
+  ];
 
-  return !!((history && history.includes(id)) || (live && live.includes(id)));
+  return lists.some(list => list && list.includes && list.includes(id));
 };
 
 const handleEdit = (dispatch, getState, columnKey, sessionId, fingerprint, streams, receivedKey, status) => {
