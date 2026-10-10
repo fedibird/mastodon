@@ -1,4 +1,4 @@
-import { classifyFetchError, normalizePage, resolveRequest, resolveSource } from '../adapter';
+import { classifyFetchError, cursorFromNextUri, normalizePage, resolveRequest, resolveSource, statusesForSharedImport } from '../adapter';
 
 describe('mix source adapter', () => {
   it('selects a known endpoint and encodes ids', () => {
@@ -58,10 +58,61 @@ describe('mix source adapter', () => {
       frontier: '400',
       filterResults: { '500': [{ filter: '1' }] },
     });
-    expect(compact.statuses[0].filtered).toBeUndefined();
+    expect(compact.statuses[0].filtered).toEqual([{ filter: '1' }]);
+    expect(statusesForSharedImport(compact.statuses, {})[0].filtered).toBeUndefined();
     expect(partial.ok).toBe(false);
     expect(partial.error).toBe('foreign_link');
     expect(unordered).toMatchObject({ ok: false, error: 'order' });
+    expect(cursorFromNextUri('https://example.com.evil/api/v1/timelines/home?max_id=400', {
+      origin: 'https://example.com',
+      path: '/api/v1/timelines/home',
+    }).error).toBe('foreign_link');
+    expect(cursorFromNextUri('https://example.com/api/v1/timelines/public?max_id=400', {
+      origin: 'https://example.com',
+      path: '/api/v1/timelines/home',
+    }).error).toBe('endpoint');
+    expect(normalizePage({
+      status: 200,
+      data: [{ id: '500' }],
+      path: '/api/v1/timelines/public',
+      origin: 'https://example.com',
+    })).toMatchObject({ ok: true, partial: false, hasMore: false, frontier: '500' });
+    expect(normalizePage({
+      status: 206,
+      data: [{ id: '500' }, { id: '400' }],
+      nextUri: 'https://example.com/api/v1/timelines/public?max_id=400',
+      path: '/api/v1/timelines/public',
+      origin: 'https://example.com',
+    })).toMatchObject({ ok: true, partial: true, hasMore: true, frontier: null, cursor: '400' });
+    expect(normalizePage({
+      status: 206,
+      data: [{ id: '500' }],
+      path: '/api/v1/timelines/public',
+      origin: 'https://example.com',
+    })).toMatchObject({ ok: true, partial: true, hasMore: true, frontier: null, cursor: null });
+    const withObject = normalizePage({
+      status: 200,
+      data: [{
+        id: '500',
+        filtered: [{ filter: { id: 9, title: 'Spoilers', filter_action: 'warn', context: ['home'] }, keyword_matches: ['x'] }],
+      }],
+      path: '/api/v1/timelines/public',
+      origin: 'https://example.com',
+    });
+    const withId = normalizePage({
+      status: 200,
+      data: [{ id: '500', filtered: [{ filter: '9', keyword_matches: ['x'] }] }],
+      path: '/api/v1/timelines/public',
+      origin: 'https://example.com',
+    });
+
+    expect(withObject.filterResults['500']).toEqual([{ filter: '9', keyword_matches: ['x'] }]);
+    expect(withId.filterResults['500']).toEqual([{ filter: '9', keyword_matches: ['x'] }]);
+    expect(withObject.filters[0]).toMatchObject({ id: '9', title: 'Spoilers', filter_action: 'warn' });
+    expect(statusesForSharedImport(
+      [{ id: '500', filtered: [] }],
+      { '500': { id: '500', filtered: [{ filter: '2' }] } },
+    )[0].filtered).toEqual([{ filter: '2' }]);
     expect(resolveRequest({
       type: 'home',
       params: { shows: { direct: true, personal: true, private: true, limited: true, reblog: true, reply: true } },

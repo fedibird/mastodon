@@ -93,13 +93,16 @@ export const safePrefix = (sources) => {
     }
   });
 
-  const ids = blocked ? [] : known.filter(id => limit === null || compareId(id, limit) >= 0);
+  // An unknown frontier, including a 206 page, must not be reported as a
+  // finished source. Known ids can still be shown, without an order guarantee.
+  const ids = blocked ? known : known.filter(id => limit === null || compareId(id, limit) >= 0);
 
   return {
     ids,
     membership: membership(usable),
     orderGuaranteed: failed.length === 0 && !blocked,
     waiting: false,
+    partial: blocked,
   };
 };
 

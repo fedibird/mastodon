@@ -1,9 +1,10 @@
+import { Map as ImmutableMap } from 'immutable';
 import api, { getLinks } from '../api';
 import { fetchRelationshipsSuccess } from './accounts';
-import { importFetchedAccounts, importFetchedStatuses } from './importer';
+import { importFetchedAccounts, importFetchedStatuses, importFilters } from './importer';
 import { isMixEnabled } from '../mix/availability';
 import { plainMix } from '../mix/definition';
-import { resolveRequest, normalizePage, classifyFetchFailure } from '../mix/source_adapters';
+import { resolveRequest, normalizePage, classifyFetchFailure, statusesForSharedImport } from '../mix/source_adapters';
 import { MIX_FETCH_BUDGET, MIX_FETCH_CONCURRENCY, MIX_PAGE_SIZE, MIX_PAGE_TARGET, nextFetchKeys } from '../mix/merge';
 
 export const MIX_TIMELINE_OPEN = 'MIX_TIMELINE_OPEN';
@@ -12,6 +13,13 @@ export const MIX_TIMELINE_DONE = 'MIX_TIMELINE_DONE';
 export const MIX_SOURCE_REQUEST = 'MIX_SOURCE_REQUEST';
 export const MIX_SOURCE_SUCCESS = 'MIX_SOURCE_SUCCESS';
 export const MIX_SOURCE_FAIL = 'MIX_SOURCE_FAIL';
+
+let mixSessionSerial = 0;
+
+export const issueMixSessionId = () => {
+  mixSessionSerial += 1;
+  return mixSessionSerial;
+};
 
 const readColumn = (getState, columnKey) => getState().getIn(['mix_timelines', columnKey]);
 
@@ -48,6 +56,7 @@ const fetchPage = (resolved, cursor, getState) => {
       status: response.status,
       data: response.data,
       nextUri: next && next.uri,
+      path: request.path,
     });
   });
 };
@@ -83,7 +92,15 @@ const acceptPage = (dispatch, getState, columnKey, sessionId, fingerprint, key, 
     return;
   }
 
-  const bodies = page.statuses.concat(page.referencedStatuses || []);
+  const previousById = {};
+
+  getState().get('statuses', ImmutableMap()).forEach(status => {
+    if (status && status.get) {
+      previousById[status.get('id')] = status.toJS();
+    }
+  });
+
+  const bodies = statusesForSharedImport(page.statuses.concat(page.referencedStatuses || []), previousById);
 
   if (page.accounts && page.accounts.length) {
     dispatch(importFetchedAccounts(page.accounts));
@@ -91,6 +108,14 @@ const acceptPage = (dispatch, getState, columnKey, sessionId, fingerprint, key, 
 
   if (page.relationships && page.relationships.length) {
     dispatch(fetchRelationshipsSuccess(page.relationships));
+  }
+
+  if (page.filters && page.filters.length) {
+    dispatch(importFilters(page.filters));
+  }
+
+  if (!stillCurrent(getState, columnKey, sessionId, fingerprint)) {
+    return;
   }
 
   dispatch(importFetchedStatuses(bodies));
@@ -222,10 +247,10 @@ export function loadMixTimeline(columnKey, mix, { extend = false } = {}) {
     const fingerprint = resolved.map(source => source.key).join('\n');
     const current = readColumn(getState, columnKey);
     const same = current && current.get('definitionFingerprint') === fingerprint && current.get('mixId') === plain.id;
-    let sessionId = current ? current.get('sessionId') : 0;
+    let sessionId = current ? current.get('sessionId') : null;
 
     if (!same) {
-      sessionId += 1;
+      sessionId = issueMixSessionId();
       dispatch({
         type: MIX_TIMELINE_OPEN,
         columnKey,

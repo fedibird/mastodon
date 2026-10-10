@@ -6,4 +6,5 @@ export {
   cursorFromNextUri,
   classifyFetchError,
   classifyFetchFailure,
+  statusesForSharedImport,
 } from './adapter';

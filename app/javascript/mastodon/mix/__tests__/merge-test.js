@@ -159,6 +159,25 @@ describe('mix merge', () => {
     expect(both.warningsById['500']).toEqual([]);
     expect(warned.ids).toEqual(['500']);
     expect(warned.warningsById['500']).toEqual(['Spoilers']);
+
+    const removed = buildMixView([
+      source('home', ['500'], {
+        descriptor: { type: 'home', params: { shows: { reply: true, reblog: true } } },
+        filterResults: { '500': [{ filter: 'f1' }] },
+      }),
+    ], { '500': status }, { filters: [], contexts: { home: 'home' } });
+
+    expect(removed.ids).toEqual(['500']);
+  });
+
+  it('shows posts from a partial page without calling the source finished', () => {
+    const view = safePrefix([
+      source('public', ['500', '400'], { hasMore: true, partial: true, frontier: null }),
+      source('list', ['450'], { hasMore: false }),
+    ]);
+
+    expect(view.ids).toEqual(['500', '450', '400']);
+    expect(view.orderGuaranteed).toBe(false);
   });
 
   it('fetches the sources that limit the prefix and stops at the budget', () => {

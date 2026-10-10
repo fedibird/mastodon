@@ -1,4 +1,5 @@
 import compareId from '../compare_id';
+import { normalizeFilterResult } from '../actions/importer/normalizer';
 import { enableLimitedTimeline, hideDirectFromTimeline, hidePersonalFromTimeline } from '../initial_state';
 import { filterContextForSource } from './filter_context';
 import { normalizeSource, sourceKey } from './source';
@@ -185,33 +186,81 @@ const descendingIds = (ids) => {
   return true;
 };
 
-export const cursorFromNextUri = (uri) => {
+const pageOrigin = (origin) => {
+  if (origin) {
+    return origin;
+  }
+
+  if (typeof window !== 'undefined' && window.location && window.location.origin) {
+    return window.location.origin;
+  }
+
+  return '';
+};
+
+// Same-origin is the URL origin, not a string prefix. The link is never fetched.
+export const cursorFromNextUri = (uri, { path, origin } = {}) => {
   if (!uri) {
     return { cursor: null };
   }
 
-  if (/^https?:\/\//i.test(uri)) {
-    const origin = typeof window !== 'undefined' && window.location ? window.location.origin : '';
-
-    if (!origin || uri.indexOf(origin) !== 0) {
-      return { error: 'foreign_link' };
-    }
-  }
-
-  const match = String(uri).match(/[?&]max_id=([^&#]+)/);
-
-  if (!match) {
-    return { error: 'cursor' };
-  }
+  const base = pageOrigin(origin);
+  let url;
 
   try {
-    return { cursor: decodeURIComponent(match[1]) };
+    url = new URL(uri, base ? `${base}/` : undefined);
   } catch (ignored) {
     return { error: 'cursor' };
   }
+
+  if (!base || url.origin !== base) {
+    return { error: 'foreign_link' };
+  }
+
+  if (path && url.pathname !== path) {
+    return { error: 'endpoint' };
+  }
+
+  const maxId = url.searchParams.get('max_id');
+
+  if (!maxId || !/^[0-9]+$/.test(maxId)) {
+    return { error: 'cursor' };
+  }
+
+  return { cursor: maxId };
 };
 
-export const normalizePage = ({ status, data, nextUri } = {}) => {
+const storedFilterResults = (item) => {
+  const results = item.filtered || item.filter_results || [];
+
+  return results.map(normalizeFilterResult).filter(result => result && result.filter);
+};
+
+const filterDefinitions = (items) => {
+  const filters = [];
+  const seen = new Set();
+
+  items.forEach(item => {
+    (item.filtered || item.filter_results || []).forEach(result => {
+      if (!result || !result.filter || typeof result.filter !== 'object' || !result.filter.id) {
+        return;
+      }
+
+      const id = String(result.filter.id);
+
+      if (seen.has(id)) {
+        return;
+      }
+
+      seen.add(id);
+      filters.push({ ...result.filter, id });
+    });
+  });
+
+  return filters;
+};
+
+export const normalizePage = ({ status, data, nextUri, path, origin } = {}) => {
   const parsed = pageStatuses(data);
 
   if (!parsed) {
@@ -224,7 +273,7 @@ export const normalizePage = ({ status, data, nextUri } = {}) => {
     return { ok: false, error: 'order', ids };
   }
 
-  const link = cursorFromNextUri(nextUri);
+  const link = cursorFromNextUri(nextUri, { path, origin });
   const partial = status === 206;
 
   if (nextUri && link.error) {
@@ -238,36 +287,57 @@ export const normalizePage = ({ status, data, nextUri } = {}) => {
       return;
     }
 
-    filterResults[item.id] = item.filtered || item.filter_results || [];
+    filterResults[item.id] = storedFilterResults(item);
   });
 
-  const strip = (item) => {
-    if (!item) {
-      return item;
-    }
-
-    const copy = { ...item };
-
-    delete copy.filtered;
-    delete copy.filter_results;
-    return copy;
-  };
+  // 206 is incomplete even when the server omits Link next. Do not treat it
+  // as the end of the source, and do not confirm a frontier from it.
+  const hasMore = partial || !!nextUri;
 
   return {
     ok: true,
     partial,
     compact: parsed.compact,
     ids,
-    statuses: parsed.statuses.map(strip),
-    referencedStatuses: parsed.referencedStatuses.map(strip),
+    statuses: parsed.statuses,
+    referencedStatuses: parsed.referencedStatuses,
     accounts: parsed.accounts,
     relationships: parsed.relationships,
+    filters: filterDefinitions(parsed.statuses),
     filterResults,
     cursor: link.cursor,
-    hasMore: !!nextUri,
+    hasMore,
     frontier: partial || !ids.length ? null : ids[ids.length - 1],
   };
 };
+
+// Mix pages must not erase filtered results already stored for a status.
+export const statusesForSharedImport = (statuses, previousById = {}) => (statuses || []).map(status => {
+  if (!status || !status.id) {
+    return status;
+  }
+
+  const copy = { ...status };
+
+  delete copy.filtered;
+  delete copy.filter_results;
+
+  const previous = previousById[status.id];
+
+  if (previous && previous.filtered) {
+    copy.filtered = previous.filtered;
+  }
+
+  if (copy.reblog && copy.reblog.id) {
+    copy.reblog = statusesForSharedImport([copy.reblog], previousById)[0];
+  }
+
+  if (copy.quote && copy.quote.id) {
+    copy.quote = statusesForSharedImport([copy.quote], previousById)[0];
+  }
+
+  return copy;
+});
 
 export const classifyFetchFailure = (error) => {
   const status = error && error.response && error.response.status;

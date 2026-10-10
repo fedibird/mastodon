@@ -14,6 +14,7 @@ const plainFilters = (filters) => {
 
     list.push({
       id: filter.get('id'),
+      title: filter.get('title'),
       filter_action: filter.get('filter_action'),
       context: context && context.toArray ? context.toArray() : context,
     });
