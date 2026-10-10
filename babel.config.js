@@ -50,7 +50,7 @@ module.exports = (api) => {
         '@babel/transform-runtime',
         {
           helpers: true,
-          regenerator: false,
+          regenerator: true,
           useESModules: true,
         },
       ],
