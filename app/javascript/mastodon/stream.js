@@ -200,7 +200,9 @@ export const connectStream = (channelName, params, callbacks) => (dispatch, getS
 
 const KNOWN_EVENT_TYPES = [
   'update',
+  'status.update',
   'delete',
+  'expire',
   'notification',
   'conversation',
   'filters_changed',

@@ -5,6 +5,8 @@ export const MIX_FETCH_CONCURRENCY = 3;
 export const MIX_FETCH_BUDGET = 16;
 export const MIX_PAGE_SIZE = 40;
 export const MIX_PAGE_TARGET = 40;
+export const MIX_RECONCILE_BUDGET = 4;
+export const MIX_TOMBSTONE_LIMIT = 200;
 // A 206 page can omit rows. One later 200 schedules a single reread from the head.
 export const MIX_REREAD_LIMIT = 1;
 
@@ -212,14 +214,63 @@ const matchingFilters = (results, context, filters, action) => (results || []).m
   return (filters || []).find(item => item.id === result.filter && item.filter_action === action && (item.context || []).indexOf(context) !== -1);
 }).filter(Boolean);
 
-export const buildMixView = (sources, statusesById, { me = null, filters = [], contexts = {} } = {}) => {
+const rememberSource = (sourceKeysById, id, key) => {
+  const keys = sourceKeysById[id] || [];
+
+  if (keys.indexOf(key) === -1) {
+    keys.push(key);
+  }
+
+  sourceKeysById[id] = keys;
+};
+
+const considerId = (id, key, source, results, statusesById, options, visible, contextById, sourceKeysById, warningsById) => {
+  const { me, filters, contexts, tombstones } = options;
+
+  if (tombstones && tombstones.indexOf(id) !== -1) {
+    return;
+  }
+
+  if (!source) {
+    return;
+  }
+
+  const status = statusesById[id];
+
+  if (status && !passesShows(status, source, me)) {
+    return;
+  }
+
+  const context = contexts[key];
+  const choiceResults = results || [];
+
+  if (context && matchingFilters(choiceResults, context, filters, 'hide').length) {
+    return;
+  }
+
+  rememberSource(sourceKeysById, id, key);
+
+  if (visible.indexOf(id) === -1) {
+    visible.push(id);
+    contextById[id] = context || null;
+    warningsById[id] = context ? matchingFilters(choiceResults, context, filters, 'warn').map(filter => filter.title) : [];
+  }
+};
+
+export const buildMixView = (sources, statusesById, { me = null, filters = [], contexts = {}, live = [], tombstones = [], pending = [] } = {}) => {
   const prefix = safePrefix(sources);
   const visible = [];
   const contextById = {};
   const sourceKeysById = {};
   const warningsById = {};
+  const options = { me, filters, contexts, tombstones };
+  const held = new Set(pending || []);
 
   prefix.ids.forEach(id => {
+    if (tombstones && tombstones.indexOf(id) !== -1) {
+      return;
+    }
+
     const status = statusesById[id];
     const keys = prefix.membership.get(id) || [];
     const visibleKeys = keys.filter(key => {
@@ -258,6 +309,20 @@ export const buildMixView = (sources, statusesById, { me = null, filters = [], c
       warningsById[id] = matchingFilters(shown.results, shown.context, filters, 'warn').map(filter => filter.title);
     }
   });
+
+  (live || []).forEach(source => {
+    (source.ids || []).forEach(id => {
+      if (held.has(id)) {
+        return;
+      }
+
+      const record = sources.find(item => item.key === source.key) || source;
+
+      considerId(id, source.key, record.source || source.source, (source.filterResults && source.filterResults[id]) || [], statusesById, options, visible, contextById, sourceKeysById, warningsById);
+    });
+  });
+
+  visible.sort((left, right) => compareId(right, left));
 
   const hasMore = (sources || []).some(source => source.hasMore && !source.error && !source.suspended);
   const suspended = (sources || []).filter(source => source.suspended).map(source => ({

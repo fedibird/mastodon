@@ -226,7 +226,7 @@ describe('mix timeline column', () => {
     );
 
     expect(dispatch).toHaveBeenCalledWith({ type: 'MIX_TIMELINE_CLOSE', columnKey: 'route:mix-1' });
-    expect(dispatch.mock.calls.filter(call => typeof call[0] === 'function')).toHaveLength(0);
+    expect(dispatch.mock.calls.filter(call => typeof call[0] === 'function')).toHaveLength(1);
     expect(screen.getByText('This mix was deleted.')).toBeTruthy();
   });
 

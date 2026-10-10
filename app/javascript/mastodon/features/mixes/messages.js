@@ -23,6 +23,8 @@ export default defineMessages({
   notShared: { id: 'mixes.not_shared', defaultMessage: 'This address opens your own mix. It does not share the feed with anyone else.' },
   orderPartial: { id: 'mixes.order_partial', defaultMessage: 'Some sources failed, so this order may be incomplete.' },
   incomplete: { id: 'mixes.incomplete', defaultMessage: '{name} is only partly loaded.' },
+  pendingPosts: { id: 'mixes.pending_posts', defaultMessage: '{count} new posts' },
+  streamDegraded: { id: 'mixes.stream_degraded', defaultMessage: '{name} could not catch up after reconnecting.' },
   sourceForbidden: { id: 'mixes.source_forbidden', defaultMessage: '{name} cannot be viewed.' },
   sourceMissing: { id: 'mixes.source_missing', defaultMessage: '{name} was not found.' },
   sourceUnavailable: { id: 'mixes.source_unavailable', defaultMessage: '{name} could not be loaded.' },

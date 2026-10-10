@@ -1,7 +1,8 @@
 import { Map as ImmutableMap, List as ImmutableList, fromJS } from 'immutable';
+import compareId from '../compare_id';
 import { STORE_HYDRATE } from '../actions/store';
 import { ACCOUNT_BLOCK_SUCCESS, ACCOUNT_MUTE_SUCCESS } from '../actions/accounts';
-import { MIX_REREAD_LIMIT } from '../mix/merge';
+import { MIX_REREAD_LIMIT, MIX_TOMBSTONE_LIMIT } from '../mix/merge';
 import {
   MIX_TIMELINE_OPEN,
   MIX_TIMELINE_CLOSE,
@@ -9,6 +10,15 @@ import {
   MIX_SOURCE_REQUEST,
   MIX_SOURCE_SUCCESS,
   MIX_SOURCE_FAIL,
+  MIX_STREAM_READY,
+  MIX_STREAM_CONNECT,
+  MIX_STREAM_DISCONNECT,
+  MIX_STREAM_STATUS,
+  MIX_STREAM_EDIT,
+  MIX_STREAM_REMOVE,
+  MIX_STREAM_SYNC,
+  MIX_STREAM_PIN,
+  MIX_STREAM_REVEAL,
 } from '../actions/mix_timelines';
 
 const initialSource = ImmutableMap({
@@ -28,7 +38,43 @@ const initialSource = ImmutableMap({
   filterResults: ImmutableMap(),
 });
 
+const initialLive = ImmutableMap({
+  statusIds: ImmutableList(),
+  filterResults: ImmutableMap(),
+  connected: false,
+  disconnectedAt: null,
+  syncState: 'idle',
+  lastReceivedId: null,
+  lastReconciledId: null,
+  retryAt: null,
+  mode: 'rest_only',
+});
+
 const initialState = ImmutableMap();
+
+const newerId = (left, right) => {
+  if (!left) {
+    return right || null;
+  }
+
+  if (!right) {
+    return left;
+  }
+
+  return compareId(left, right) >= 0 ? left : right;
+};
+
+const withoutIds = (list, blocked) => (list || ImmutableList()).filter(id => !blocked.has(id));
+
+const rememberTombstones = (existing, ids) => {
+  const next = (existing || ImmutableList()).concat(ids.filter(id => !existing || !existing.includes(id)));
+
+  if (next.size <= MIX_TOMBSTONE_LIMIT) {
+    return next;
+  }
+
+  return next.slice(next.size - MIX_TOMBSTONE_LIMIT);
+};
 
 const currentSession = (state, columnKey) => state.getIn([columnKey, 'sessionId']);
 
@@ -130,7 +176,10 @@ const removeIds = (state, ids) => {
 
   const blocked = new Set(ids);
 
-  return state.map(timeline => timeline.update('sources', sources => sources.map(source => source.update('ids', list => list.filter(id => !blocked.has(id))))));
+  return state.map(timeline => timeline
+    .update('sources', sources => sources.map(source => source.update('ids', list => list.filter(id => !blocked.has(id)))))
+    .update('live', live => (live || ImmutableMap()).map(entry => entry.update('statusIds', list => withoutIds(list, blocked))))
+    .update('pendingStatusIds', list => withoutIds(list, blocked)));
 };
 
 const idsForRelationship = (statuses, relationship) => {
@@ -175,6 +224,10 @@ export default function mixTimelines(state = initialState, action) {
         (map, source) => map.set(source.key, initialSource.set('descriptor', fromJS(source.descriptor))),
         ImmutableMap(),
       ),
+      live: ImmutableMap(),
+      pendingStatusIds: ImmutableList(),
+      deletedStatusIds: ImmutableList(),
+      pinnedToTop: true,
     }));
   case MIX_TIMELINE_CLOSE:
     return state.delete(action.columnKey);
@@ -197,8 +250,11 @@ export default function mixTimelines(state = initialState, action) {
       return state;
     }
 
+    const blocked = new Set((state.getIn([action.columnKey, 'deletedStatusIds']) || ImmutableList()).toArray());
+    const visibleIds = (action.ids || []).filter(id => !blocked.has(id));
+
     return state.updateIn([action.columnKey, 'sources', action.sourceKey], initialSource, source => {
-      return settlePage(source, action);
+      return settlePage(source, { ...action, ids: visibleIds });
     }).updateIn([action.columnKey, 'metrics'], ImmutableMap(), metrics => metrics.merge({
       requests: metrics.get('requests', 0) + 1,
       fetched: metrics.get('fetched', 0) + action.ids.length,
@@ -222,6 +278,121 @@ export default function mixTimelines(state = initialState, action) {
     })).updateIn([action.columnKey, 'metrics'], ImmutableMap(), metrics => metrics.merge({
       requests: metrics.get('requests', 0) + 1,
     }));
+  case MIX_STREAM_READY:
+    if (!sameSession(state, action)) {
+      return state;
+    }
+
+    return state.updateIn([action.columnKey, 'live'], ImmutableMap(), live => (action.sources || []).reduce((map, source) => {
+      return map.update(source.key, initialLive, entry => entry.set('mode', source.mode));
+    }, live));
+  case MIX_STREAM_CONNECT:
+  case MIX_STREAM_DISCONNECT:
+  case MIX_STREAM_SYNC:
+    if (!sameSession(state, action)) {
+      return state;
+    }
+
+    return state.updateIn([action.columnKey, 'live', action.sourceKey], initialLive, entry => {
+      let connected = entry.get('connected');
+
+      if (action.type === MIX_STREAM_CONNECT) {
+        connected = true;
+      } else if (action.type === MIX_STREAM_DISCONNECT) {
+        connected = false;
+      }
+
+      let syncState = action.syncState;
+
+      if (!syncState && action.type === MIX_STREAM_CONNECT) {
+        syncState = 'connected';
+      } else if (!syncState) {
+        syncState = 'disconnected';
+      }
+
+      return entry.merge({
+        connected,
+        disconnectedAt: action.type === MIX_STREAM_DISCONNECT ? (action.disconnectedAt || Date.now()) : entry.get('disconnectedAt'),
+        syncState,
+        lastReconciledId: action.lastReconciledId === undefined ? entry.get('lastReconciledId') : action.lastReconciledId,
+        retryAt: action.retryAt === undefined ? entry.get('retryAt') : action.retryAt,
+      });
+    });
+  case MIX_STREAM_STATUS:
+    if (!sameSession(state, action) || !action.id) {
+      return state;
+    }
+
+    if ((state.getIn([action.columnKey, 'deletedStatusIds']) || ImmutableList()).includes(action.id)) {
+      return state;
+    }
+
+    if (action.decision === 'reject' || action.decision === 'unknown') {
+      return state.updateIn([action.columnKey, 'live', action.sourceKey], initialLive, entry => entry.update('statusIds', list => list.filter(id => id !== action.id)));
+    }
+
+    return state.updateIn([action.columnKey, 'live', action.sourceKey], initialLive, entry => {
+      const ids = entry.get('statusIds').includes(action.id) ? entry.get('statusIds') : entry.get('statusIds').push(action.id);
+      const results = entry.get('filterResults').merge(fromJS({ [action.id]: action.filterResults || [] }));
+
+      return entry.merge({
+        statusIds: ids,
+        filterResults: results,
+        lastReceivedId: newerId(entry.get('lastReceivedId'), action.id),
+      });
+    }).updateIn([action.columnKey, 'pendingStatusIds'], ImmutableList(), pending => {
+      if (state.getIn([action.columnKey, 'pinnedToTop']) || pending.includes(action.id)) {
+        return pending;
+      }
+
+      return pending.push(action.id);
+    });
+  case MIX_STREAM_EDIT:
+    if (!sameSession(state, action) || !action.id) {
+      return state;
+    }
+
+    return (action.decisions || []).reduce((next, decision) => {
+      return next.updateIn([action.columnKey, 'live', decision.sourceKey], initialLive, entry => {
+        const results = entry.get('filterResults').merge(fromJS({ [action.id]: decision.filterResults || [] }));
+
+        if (decision.decision === 'accept') {
+          const ids = entry.get('statusIds').includes(action.id) ? entry.get('statusIds') : entry.get('statusIds').push(action.id);
+
+          return entry.merge({ statusIds: ids, filterResults: results });
+        }
+
+        if (decision.decision !== 'reject') {
+          return entry.merge({ filterResults: results });
+        }
+
+        return entry.merge({
+          statusIds: entry.get('statusIds').filter(id => id !== action.id),
+          filterResults: results,
+        });
+      });
+    }, state);
+  case MIX_STREAM_REMOVE: {
+    if (!sameSession(state, action)) {
+      return state;
+    }
+
+    const removed = [action.id].concat(action.references || []).concat(action.quotes || []).filter(Boolean);
+
+    return removeIds(state, removed).map(timeline => timeline.update('deletedStatusIds', ImmutableList(), existing => rememberTombstones(existing, removed)));
+  }
+  case MIX_STREAM_PIN:
+    if (!sameSession(state, action)) {
+      return state;
+    }
+
+    return state.setIn([action.columnKey, 'pinnedToTop'], action.pinned !== false).updateIn([action.columnKey, 'pendingStatusIds'], ImmutableList(), pending => (action.pinned === false ? pending : ImmutableList()));
+  case MIX_STREAM_REVEAL:
+    if (!sameSession(state, action)) {
+      return state;
+    }
+
+    return state.setIn([action.columnKey, 'pendingStatusIds'], ImmutableList());
   case ACCOUNT_BLOCK_SUCCESS:
   case ACCOUNT_MUTE_SUCCESS:
     return removeIds(state, idsForRelationship(action.statuses, action.relationship));
@@ -229,3 +400,7 @@ export default function mixTimelines(state = initialState, action) {
     return state;
   }
 }
+
+const sameSession = (state, action) => {
+  return currentSession(state, action.columnKey) === action.sessionId && state.getIn([action.columnKey, 'definitionFingerprint']) === action.definitionFingerprint;
+};
