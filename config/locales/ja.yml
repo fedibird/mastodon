@@ -2172,6 +2172,7 @@ ja:
     code_placeholder: "例: aB3xK9mQ_2pL8nR4sT6uV"
     code_once: 連携コード
     current_account: ログイン中
+    delegated_unsupported: この連携アカウントからできるのは、公開・未収載・フォロワー限定の新しいテキスト投稿だけです。
     description: ほかのアカウントとして投稿するための連携と、自分のアカウントの利用許可を管理します。
     errors:
       allowance_conflict: 受付許可を保存できませんでした。もう一度お試しください。

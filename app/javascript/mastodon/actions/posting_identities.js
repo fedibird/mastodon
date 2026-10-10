@@ -74,7 +74,7 @@ export function fetchPostingIdentities({ force = false } = {}) {
   };
 }
 
-export function selectComposerSenderIdentity(composerId, identityId) {
+export function selectComposerSenderIdentity(composerId, identityId, { confirmed = false } = {}) {
   return (dispatch, getState) => {
     const state = getState();
     const composer = selectComposer(state, composerId);
@@ -94,6 +94,7 @@ export function selectComposerSenderIdentity(composerId, identityId) {
       sessionIdentityId: sessionPostingIdentityId(),
       nextIdempotencyKey: uuid(),
       switching: composer.getIn(['senderIdentity', 'status']) === 'switching',
+      confirmed,
     });
 
     return dispatch(targetComposerAction({

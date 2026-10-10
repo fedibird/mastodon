@@ -1,4 +1,5 @@
 import { isAdministrator, me } from '../initial_state';
+import { composerHasGroupDestination } from '../posting_identity/group_destination';
 import { sessionPostingIdentityId } from '../posting_identity/identity';
 import { selectComposer } from './composer';
 
@@ -66,12 +67,18 @@ export const selectComposerCanSendAsIdentity = (state, composerId) => {
     return deny(senderStatus || 'unresolved');
   }
 
-  if (sessionId && senderId !== sessionId) {
+  const delegatedSender = typeof senderId === 'string' && senderId.startsWith('delegated:');
+
+  if (!delegatedSender && sessionId && senderId !== sessionId) {
     return deny('mismatch');
   }
 
-  if (!sessionId && senderId) {
+  if (!delegatedSender && !sessionId && senderId) {
     return deny('mismatch');
+  }
+
+  if (delegatedSender && (!isAdministrator || catalogStatus !== 'ready')) {
+    return deny(catalogStatus === 'failed' ? 'failed' : 'unresolved');
   }
 
   // Administrators post only after the catalog confirms the signed-in
@@ -101,16 +108,52 @@ export const selectComposerCanSendAsIdentity = (state, composerId) => {
       return deny('unauthorized');
     }
 
+    if (!capabilityAllows(identity, 'post')) {
+      return deny('unsupported');
+    }
+
+    if (identity.get('kind') === 'delegated') {
+      if (!isAdministrator || identity.get('provider') !== 'fedibird') {
+        return deny('unsupported');
+      }
+
+      if (identity.get('id') !== senderId) {
+        return deny('mismatch');
+      }
+
+      if (composer.get('in_reply_to') || composer.get('quote_from')) {
+        return deny('reply');
+      }
+
+      if (composerHasGroupDestination(composer)) {
+        return deny('group');
+      }
+
+      if (composer.get('scheduled') || composer.get('scheduled_status_id') || composer.get('expires')) {
+        return deny('schedule');
+      }
+
+      if (composer.get('media_attachments').size > 0 || composer.get('is_uploading')) {
+        return deny('media');
+      }
+
+      if (composer.get('poll')) {
+        return deny('poll');
+      }
+
+      if (composer.get('id')) {
+        return deny('edit_bound');
+      }
+
+      return { canSend: true, canUpload: false, reason: null };
+    }
+
     if (identity.get('id') !== (senderId || sessionId)) {
       return deny('mismatch');
     }
 
     if (me && String(identity.getIn(['account', 'id'])) !== String(me)) {
       return deny('mismatch');
-    }
-
-    if (!capabilityAllows(identity, 'post')) {
-      return deny('unsupported');
     }
 
     if (composer.get('in_reply_to') && !capabilityAllows(identity, 'reply')) {

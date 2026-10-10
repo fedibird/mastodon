@@ -21,9 +21,13 @@ jest.mock('react-intl', () => {
 
 import SenderIdentity from '../sender_identity';
 
-const identity = (id, acct, authorization = 'ready') => ImmutableMap({
+const identity = (id, acct, authorization = 'ready', kind = 'local') => ImmutableMap({
   id,
+  kind,
   authorization,
+  capabilities: ImmutableMap({
+    post: authorization === 'ready' ? 'supported' : 'unavailable',
+  }),
   account: ImmutableMap({
     id,
     acct,
@@ -39,6 +43,7 @@ describe('SenderIdentity', () => {
         current={identity('local:42', 'admin')}
         choices={ImmutableList([identity('local:42', 'admin'), identity('local:99', 'other', 'unavailable')])}
         selectedId='local:42'
+        sessionIdentityId='local:42'
       />,
     );
 
@@ -60,6 +65,7 @@ describe('SenderIdentity', () => {
           identity('local:99', 'other', 'unavailable'),
         ])}
         selectedId='local:42'
+        sessionIdentityId='local:42'
       />,
     );
 
@@ -85,5 +91,97 @@ describe('SenderIdentity', () => {
     expect(sender.textContent).toContain('@admin');
     expect(sender.textContent).not.toContain('does not change the account you are logged in as');
     expect(sender.getAttribute('title')).toContain('does not change the account you are logged in as');
+  });
+
+  it('keeps the signed-in account available while a linked account is selected', () => {
+    const onSelect = jest.fn();
+
+    render(
+      <SenderIdentity
+        compact
+        current={identity('delegated:99', 'author', 'ready', 'delegated')}
+        choices={ImmutableList([
+          identity('local:42', 'admin'),
+          identity('delegated:99', 'author', 'ready', 'delegated'),
+        ])}
+        selectedId='delegated:99'
+        sessionIdentityId='local:42'
+        onSelect={onSelect}
+      />,
+    );
+
+    expect(screen.getByRole('radio', { name: /@admin/ })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: /@author/ })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: /Linked account/ })).toBeTruthy();
+
+    screen.getByRole('radio', { name: /@admin/ }).click();
+
+    expect(onSelect).toHaveBeenCalledWith('local:42', { confirmed: true });
+  });
+
+  it('still offers the signed-in account after the linked account leaves the catalog', () => {
+    render(
+      <SenderIdentity
+        current={identity('delegated:99', 'author', 'unavailable', 'delegated')}
+        choices={ImmutableList([
+          identity('local:42', 'admin'),
+          identity('delegated:99', 'author', 'unavailable', 'delegated'),
+        ])}
+        selectedId='delegated:99'
+        sessionIdentityId='local:42'
+        text='Keep this draft'
+      />,
+    );
+
+    expect(screen.getByRole('radio', { name: /@admin/ })).toBeTruthy();
+    expect(screen.queryByRole('radio', { name: /@author/ })).toBeNull();
+    expect(screen.getByText('This linked account is not available right now.')).toBeTruthy();
+    expect(screen.getByTestId('sender-identity-current').textContent).toContain('@author');
+    expect(screen.getByTestId('sender-identity-current').textContent).not.toContain('@admin');
+  });
+
+  it('does not present a missing linked account as the signed-in account', () => {
+    const missing = ImmutableMap({
+      id: 'delegated:99',
+      kind: 'delegated',
+      authorization: 'unavailable',
+      selectionOrigin: 'explicit',
+      status: 'ready',
+    });
+
+    const { rerender } = render(
+      <SenderIdentity
+        current={missing}
+        choices={ImmutableList([identity('local:42', 'admin')])}
+        selectedId='delegated:99'
+        sessionIdentityId='local:42'
+        text='Keep this draft'
+      />,
+    );
+
+    expect(screen.getByText('This linked account is not available right now.')).toBeTruthy();
+    expect(screen.getByTestId('sender-identity-current').textContent).not.toContain('@admin');
+    expect(screen.getByTestId('sender-identity-current').textContent).not.toContain('admin');
+    expect(screen.getByRole('radio', { name: /@admin/ })).toBeTruthy();
+    expect(screen.getByTestId('sender-identity').textContent).toContain('does not change the account you are logged in as');
+
+    rerender(
+      <SenderIdentity
+        compact
+        current={missing}
+        choices={ImmutableList([identity('local:42', 'admin')])}
+        selectedId='delegated:99'
+        sessionIdentityId='local:42'
+        text='Keep this draft'
+      />,
+    );
+
+    const sender = screen.getByTestId('sender-identity');
+
+    expect(sender.className).toContain('compose-form__sender--compact');
+    expect(screen.getByText('This linked account is not available right now.')).toBeTruthy();
+    expect(screen.getByTestId('sender-identity-current').textContent).not.toContain('@admin');
+    expect(sender.textContent).not.toContain('does not change the account you are logged in as');
+    expect(screen.getByRole('radio', { name: /@admin/ })).toBeTruthy();
   });
 });

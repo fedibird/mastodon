@@ -10,10 +10,7 @@ class Api::V1::StatusesController < Api::BaseController
   before_action :set_statuses, only:         [:index]
   before_action :set_updated_statuses, only: [:updated]
   before_action :set_status, only:           [:show, :context]
-  before_action :set_thread, only:           [:create]
-  before_action :set_circle, only:           [:create]
-  before_action :set_schedule, only:         [:create]
-  before_action :set_expire, only:           [:create]
+  before_action :prepare_status_create, only: [:create]
 
   override_rate_limit_headers :create, family: :statuses
   override_rate_limit_headers :update, family: :statuses
@@ -64,31 +61,31 @@ class Api::V1::StatusesController < Api::BaseController
   end
 
   def create
-    raise Mastodon::NotPermittedError if current_user.setting_disable_post
-
-    sender = session_sender_account!
+    sender = @posting_resolution.account
+    delegated = @posting_resolution.delegated?
     @status = PostStatusService.new.call(sender,
                                          text: status_params[:status],
-                                         thread: @thread,
-                                         circle: @circle,
-                                         media_ids: status_params[:media_ids],
+                                         thread: delegated ? nil : @thread,
+                                         circle: delegated ? nil : @circle,
+                                         media_ids: delegated ? [] : status_params[:media_ids],
                                          sensitive: status_params[:sensitive],
                                          spoiler_text: status_params[:spoiler_text],
-                                         visibility: status_params[:visibility],
+                                         visibility: delegated ? PostingIdentity::DelegatedTextPost.resolved_visibility(@posting_resolution, status_params) : status_params[:visibility],
                                          language: status_params[:language],
-                                         scheduled_at: @scheduled_at,
-                                         expires_at: @expires_at,
-                                         expires_action: status_params[:expires_action],
+                                         scheduled_at: delegated ? nil : @scheduled_at,
+                                         expires_at: delegated ? nil : @expires_at,
+                                         expires_action: delegated ? nil : status_params[:expires_action],
                                          application: doorkeeper_token.application,
-                                         poll: status_params[:poll],
-                                         idempotency: request.headers['Idempotency-Key'],
+                                         poll: delegated ? nil : status_params[:poll],
+                                         idempotency: idempotency_for_sender,
                                          with_rate_limit: true,
-                                         quote_id: status_params[:quote_id].presence,
-                                         status_reference_ids: (Array(status_params[:status_reference_ids]).uniq.map(&:to_i)),
-                                         status_reference_urls: status_params[:status_reference_urls] || [],
+                                         quote_id: delegated ? nil : status_params[:quote_id].presence,
+                                         status_reference_ids: delegated ? [] : Array(status_params[:status_reference_ids]).uniq.map(&:to_i),
+                                         status_reference_urls: delegated ? [] : (status_params[:status_reference_urls] || []),
                                          searchability: status_params[:searchability],
                                          audience_account_id: status_params[:audience_account_id],
-                                         allowed_mentions: status_params[:allowed_mentions]
+                                         allowed_mentions: delegated ? nil : status_params[:allowed_mentions],
+                                         posting_audit: delegated ? posting_audit_payload : nil
     )
 
     render json: @status, serializer: @status.is_a?(ScheduledStatus) ? REST::ScheduledStatusSerializer : REST::StatusSerializer
@@ -216,8 +213,54 @@ class Api::V1::StatusesController < Api::BaseController
     params.permit(:updated_at, d: [:id, :updated_at])
   end
 
-  # Client-supplied account ids are not a sender. SendGuard re-checks the
-  # named posting identity and always returns the authenticated account.
+  # Unsupported delegated shapes are rejected before reply, circle, schedule,
+  # and expiry lookups. Those lookups use the signed-in account, and expiry
+  # also copies that user's default lifetime.
+  def prepare_status_create
+    raise Mastodon::NotPermittedError if current_user.setting_disable_post
+
+    @posting_resolution = PostingIdentity::SendGuard.resolve!(
+      user: current_user,
+      account_id: params[:account_id],
+      posting_identity_id: params[:posting_identity_id],
+      purpose: :create
+    )
+
+    if @posting_resolution.delegated?
+      PostingIdentity::DelegatedTextPost.authorize!(resolution: @posting_resolution, params: status_params)
+      @thread = nil
+      @circle = nil
+      @scheduled_at = nil
+      @expires_at = nil
+    else
+      set_thread
+      set_circle
+      set_schedule
+      set_expire
+    end
+  end
+
+  # Local posts keep idempotency:status:<account>:<key>. A delegated post
+  # adds the grantee so it cannot collide with the account owner's own key
+  # or with another person posting as the same account.
+  def posting_audit_payload
+    {
+      grantee_user_id: current_user.id,
+      delegation_id: @posting_resolution.delegation.id,
+      posting_account_id: @posting_resolution.account.id,
+    }
+  end
+
+  def idempotency_for_sender
+    raw = request.headers['Idempotency-Key'].presence
+    return raw unless @posting_resolution.delegated?
+    return nil if raw.nil?
+
+    "delegated:grantee:#{current_user.id}:#{raw}"
+  end
+
+  # Client-supplied account ids are not a sender. Edits keep the signed-in
+  # account; a delegated id is rejected by purpose :session.
   def session_sender_account!
     PostingIdentity::SendGuard.call!(
       user: current_user,

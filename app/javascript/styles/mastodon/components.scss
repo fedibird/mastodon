@@ -915,11 +915,30 @@ body > [data-popper-placement] {
       text-decoration: underline;
     }
 
+    &-choices {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    &-kind {
+      color: $darker-text-color;
+      font-size: 11px;
+    }
+
     &--compact {
       padding: 0;
       gap: 4px;
       flex: 0 1 auto;
       font-size: 12px;
+    }
+
+    @media screen and (max-width: 375px) {
+      &-choice {
+        flex: 1 1 100%;
+      }
     }
   }
 

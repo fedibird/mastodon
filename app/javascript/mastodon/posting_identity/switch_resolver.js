@@ -1,3 +1,4 @@
+import { draftHasGroupDestination } from './group_destination';
 import { ENABLED_SENDER_KINDS, ENABLED_SENDER_PROVIDERS } from './identity';
 import { applyPostingStylePrecedence } from './style_precedence';
 
@@ -16,6 +17,7 @@ export function resolveSenderIdentitySwitch({
   sessionIdentityId = null,
   nextIdempotencyKey = null,
   switching = false,
+  confirmed = false,
 } = {}) {
   const source = draft || {};
   const toId = toIdentity && toIdentity.id ? String(toIdentity.id) : null;
@@ -26,6 +28,10 @@ export function resolveSenderIdentitySwitch({
     && ENABLED_SENDER_KINDS.includes(toIdentity.kind)
     && ENABLED_SENDER_PROVIDERS.includes(toIdentity.provider);
   const sessionTarget = Boolean(toId) && toId === sessionIdentityId;
+  const postSupported = Boolean(toIdentity) && toIdentity.capabilities && toIdentity.capabilities.post === 'supported';
+  const delegatedTarget = Boolean(toIdentity) && toIdentity.kind === 'delegated' && postSupported;
+  const localSessionTarget = Boolean(toIdentity) && toIdentity.kind === 'local' && sessionTarget;
+  const targetAllowed = !changing || delegatedTarget || localSessionTarget;
   const media = Array.isArray(source.media) ? source.media : [];
   const keptMedia = changing
     ? media.filter(item => {
@@ -61,6 +67,14 @@ export function resolveSenderIdentitySwitch({
     reasons.push('media_uploading');
   }
 
+  if (changing && media.length > 0) {
+    reasons.push('media');
+  }
+
+  if (changing && source.poll) {
+    reasons.push('poll');
+  }
+
   if (changing && source.editingId) {
     reasons.push('edit_bound');
   }
@@ -69,10 +83,39 @@ export function resolveSenderIdentitySwitch({
     reasons.push('schedule_bound');
   }
 
-  // A different sender, including a return to the session account, is not
-  // a switch M1 can perform.
-  if (changing) {
+  if (changing && source.replyToId) {
+    reasons.push('reply');
+  }
+
+  if (changing && source.quoteId) {
+    reasons.push('quote');
+  }
+
+  if (changing && draftHasGroupDestination(source)) {
+    reasons.push('group');
+  }
+
+  if (changing && source.submitting) {
+    reasons.push('submitting');
+  }
+
+  if (changing && !targetAllowed) {
     reasons.push('not_enabled');
+  }
+
+  const textPresent = typeof source.text === 'string' && source.text.trim() !== '';
+  const confirmSender = changing && targetAllowed && reasons.length === 0 && textPresent && confirmed !== true;
+
+  if (confirmSender) {
+    reasons.push('confirm_sender');
+  }
+
+  const rotatedKey = nextIdempotencyKey && nextIdempotencyKey !== source.idempotencyKey
+    ? nextIdempotencyKey
+    : null;
+
+  if (changing && targetAllowed && reasons.length === 0 && !rotatedKey) {
+    reasons.push('idempotency');
   }
 
   const style = applyPostingStylePrecedence({
@@ -84,14 +127,12 @@ export function resolveSenderIdentitySwitch({
   const refreshGroupDiscovery = changing && Boolean(source.groupId);
   const mustRevalidateReply = changing && Boolean(source.replyToId);
   const mustRevalidateQuote = changing && Boolean(source.quoteId);
-  const permitted = !changing && reasons.length === 0 && authorized && supported && sessionTarget;
-  const rotatedKey = nextIdempotencyKey && nextIdempotencyKey !== source.idempotencyKey
-    ? nextIdempotencyKey
-    : null;
+  const permitted = reasons.length === 0 && authorized && supported && (changing ? targetAllowed : sessionTarget);
 
   return {
     permitted,
-    effectsApplied: false,
+    effectsApplied: permitted && changing,
+    requiresConfirmation: confirmSender,
     reason: reasons[0] || (changing ? 'ready' : 'unchanged'),
     changing,
     fromIdentityId,
@@ -141,6 +182,9 @@ export function composerSenderSwitchDraft(composer, viewerEvidence) {
     editingId: composer.get('id'),
     scheduled: composer.get('scheduled') || composer.get('scheduled_status_id'),
     groupId,
+    postingContextAccountId: composer.get('posting_context_account_id'),
+    resolvedAccountId: composer.getIn(['context', 'resolvedAccountId']),
+    activityPubAudience: composer.getIn(['context', 'protocol', 'activityPub', 'audience']),
     postingContext: {
       key: composer.getIn(['context', 'key']),
       locks: {},
@@ -153,5 +197,6 @@ export function composerSenderSwitchDraft(composer, viewerEvidence) {
     manual: {},
     idempotencyKey: composer.get('idempotencyKey'),
     senderStatus: composer.getIn(['senderIdentity', 'status']),
+    submitting: composer.get('is_submitting') === true,
   };
 }

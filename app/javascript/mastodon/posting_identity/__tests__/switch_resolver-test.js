@@ -53,12 +53,74 @@ describe('resolveSenderIdentitySwitch', () => {
     });
 
     expect(moved.permitted).toBe(false);
-    expect(moved.reason).toEqual('not_enabled');
+    expect(moved.reason).toEqual('confirm_sender');
+    expect(moved.requiresConfirmation).toBe(true);
     expect(moved.effectsApplied).toBe(false);
     expect(moved.changing).toBe(true);
     expect(moved.preservedText).toEqual('Keep this draft');
     expect(moved.preservePostingStyle).toBe(true);
+    expect(moved.preservedText).toEqual('Keep this draft');
     expect(moved.rotateIdempotencyKey).toBe(true);
+
+    const confirmed = resolveSenderIdentitySwitch({
+      fromIdentityId: 'local:7',
+      toIdentity: ready('delegated:99', {
+        kind: 'delegated',
+        capabilities: {
+          post: 'supported',
+          media: 'unavailable',
+          reply: 'unavailable',
+          group: 'unavailable',
+          schedule: 'unavailable',
+        },
+      }),
+      sessionIdentityId: 'local:42',
+      draft: draft({ text: '' }),
+      nextIdempotencyKey: 'key-next',
+      confirmed: true,
+    });
+
+    expect(confirmed.permitted).toBe(true);
+    expect(confirmed.effectsApplied).toBe(true);
+    expect(confirmed.nextIdempotencyKey).toEqual('key-next');
+
+    const groupStyle = resolveSenderIdentitySwitch({
+      fromIdentityId: 'local:42',
+      toIdentity: ready('delegated:99', { kind: 'delegated' }),
+      sessionIdentityId: 'local:42',
+      draft: draft({
+        text: 'Keep the group draft',
+        groupId: null,
+        postingContextAccountId: '456',
+      }),
+      nextIdempotencyKey: 'key-next',
+      confirmed: true,
+    });
+    const audienceOnly = resolveSenderIdentitySwitch({
+      fromIdentityId: 'local:42',
+      toIdentity: ready('delegated:99', { kind: 'delegated' }),
+      sessionIdentityId: 'local:42',
+      draft: draft({
+        groupId: null,
+        activityPubAudience: { accountId: '456' },
+      }),
+      nextIdempotencyKey: 'key-next',
+      confirmed: true,
+    });
+    const hashtag = resolveSenderIdentitySwitch({
+      fromIdentityId: 'local:42',
+      toIdentity: ready('delegated:99', { kind: 'delegated' }),
+      sessionIdentityId: 'local:42',
+      draft: draft({ text: '', groupId: null }),
+      nextIdempotencyKey: 'key-next',
+      confirmed: true,
+    });
+
+    expect(groupStyle.permitted).toBe(false);
+    expect(groupStyle.reason).toEqual('group');
+    expect(groupStyle.preservedText).toEqual('Keep the group draft');
+    expect(audienceOnly.reason).toEqual('group');
+    expect(hashtag.permitted).toBe(true);
     expect(moved.nextIdempotencyKey).toEqual('key-next');
     expect(moved.canSend).toBe(false);
     expect(same.effectsApplied).toBe(false);

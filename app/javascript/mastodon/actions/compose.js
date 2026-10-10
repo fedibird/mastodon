@@ -18,6 +18,9 @@ import { selectComposerEffectiveCreateCapability } from '../posting_context/crea
 import { materializeComposerText } from '../posting_context/materialize';
 import { composerActivityPubAudienceAccountId } from '../posting_context/protocol';
 import { selectComposer } from '../selectors/composer';
+import { fetchPostingIdentities } from './posting_identities';
+import { composerHasGroupDestination } from '../posting_identity/group_destination';
+import { sessionPostingIdentityId } from '../posting_identity/identity';
 import { selectComposerCanSendAsIdentity, selectComposerCanUploadAsIdentity } from '../selectors/posting_identities';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import { targetComposerAction } from './composer';
@@ -398,6 +401,13 @@ export function submitComposer(composerId, routerHistory) {
       return Promise.resolve();
     }
 
+    const senderIdentityIdEarly = composer.getIn(['senderIdentity', 'id']);
+    const delegatedSender = typeof senderIdentityIdEarly === 'string' && senderIdentityIdEarly.startsWith('delegated:');
+
+    if (delegatedSender && (composerActivityPubAudienceAccountId(composer) || composerHasGroupDestination(composer))) {
+      return Promise.resolve();
+    }
+
     const status = materializeComposerText(composer);
     const media = composer.get('media_attachments');
     const scheduled = composer.get('scheduled');
@@ -497,6 +507,22 @@ export function submitComposer(composerId, routerHistory) {
       createData.posting_identity_id = senderIdentityId;
     }
 
+    const delegatedSend = !editing && typeof senderIdentityId === 'string' && senderIdentityId.startsWith('delegated:');
+
+    if (delegatedSend) {
+      delete createData.in_reply_to_id;
+      delete createData.media_ids;
+      delete createData.poll;
+      delete createData.quote_id;
+      delete createData.scheduled_at;
+      delete createData.scheduled_in;
+      delete createData.expires_at;
+      delete createData.expires_in;
+      delete createData.expires_action;
+      delete createData.circle_id;
+      delete createData.status_reference_ids;
+    }
+
     return api(getState).request({
       url: editing ? `/api/v1/statuses/${statusId}` : '/api/v1/statuses',
       method: editing ? 'put' : 'post',
@@ -539,19 +565,22 @@ export function submitComposer(composerId, routerHistory) {
         }
       };
 
-      if (homeVisibilities.length || homeVisibilities.includes(response.data.visibility)) {
+      const sessionSenderId = sessionPostingIdentityId();
+      const postedAsSomeoneElse = senderIdentityId && senderIdentityId !== sessionSenderId;
+
+      if (!postedAsSomeoneElse && (homeVisibilities.length || homeVisibilities.includes(response.data.visibility))) {
         insertIfOnline('home');
       }
 
-      if (limitedVisibilities.includes(response.data.visibility)) {
+      if (!postedAsSomeoneElse && limitedVisibilities.includes(response.data.visibility)) {
         insertIfOnline('limited');
       }
 
-      if (['personal'].includes(response.data.visibility)) {
+      if (!postedAsSomeoneElse && ['personal'].includes(response.data.visibility)) {
         insertIfOnline('personal');
       }
 
-      if (response.data.in_reply_to_id === null && response.data.visibility === 'public') {
+      if (!postedAsSomeoneElse && response.data.in_reply_to_id === null && response.data.visibility === 'public') {
         if (enableFederatedTimeline) {
           insertIfOnline('public');
         }
@@ -559,6 +588,12 @@ export function submitComposer(composerId, routerHistory) {
       }
     }).catch(function (error) {
       dispatchToComposer(dispatch, composerId, submitComposeFail(error));
+
+      const status = error && error.response && error.response.status;
+
+      if (status === 403 || status === 422) {
+        dispatch(fetchPostingIdentities({ force: true }));
+      }
     });
   };
 };
