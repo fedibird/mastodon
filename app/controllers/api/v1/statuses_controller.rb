@@ -67,7 +67,7 @@ class Api::V1::StatusesController < Api::BaseController
                                          text: status_params[:status],
                                          thread: delegated ? nil : @thread,
                                          circle: delegated ? nil : @circle,
-                                         media_ids: delegated ? [] : status_params[:media_ids],
+                                         media_ids: status_params[:media_ids],
                                          sensitive: status_params[:sensitive],
                                          spoiler_text: status_params[:spoiler_text],
                                          visibility: delegated ? PostingIdentity::DelegatedTextPost.resolved_visibility(@posting_resolution, status_params) : status_params[:visibility],

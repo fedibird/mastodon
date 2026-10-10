@@ -14,6 +14,7 @@ import {
   COMPOSE_UPLOAD_REQUEST,
   COMPOSE_UPLOAD_SUCCESS,
   COMPOSE_UPLOAD_FAIL,
+  COMPOSE_UPLOAD_DISCARD,
   COMPOSE_UPLOAD_UNDO,
   COMPOSE_UPLOAD_PROGRESS,
   COMPOSE_UPLOAD_PROCESSING,
@@ -123,6 +124,7 @@ export const initialState = ImmutableMap({
   thumbnailProgress: 0,
   media_attachments: ImmutableList(),
   pending_media_attachments: 0,
+  uploadRequests: ImmutableSet(),
   poll: null,
   poll_max_options: 4,
   suggestion_token: null,
@@ -335,6 +337,10 @@ const clearAll = state => {
     map.set('circle_id', null);
     map.set('sensitive', false);
     map.update('media_attachments', list => list.clear());
+    map.set('pending_media_attachments', 0);
+    map.set('uploadRequests', ImmutableSet());
+    map.set('is_uploading', false);
+    map.set('is_processing', false);
     map.set('poll', null);
     map.set('idempotencyKey', uuid());
     map.set('dirty', false);
@@ -348,6 +354,24 @@ const clearAll = state => {
     map.set('ignore_reference_check', false);
     clearScheduledDraftProvenance(map);
     clearManagedHashtagSuppressions(map);
+  });
+};
+
+const discardUploadRequest = (state, requestId) => {
+  const requests = state.get('uploadRequests') || ImmutableSet();
+
+  if (!requestId || !requests.has(requestId)) {
+    return state;
+  }
+
+  return state.withMutations(map => {
+    map.set('uploadRequests', requests.delete(requestId));
+    map.update('pending_media_attachments', n => Math.max(0, (n || 0) - 1));
+
+    if (map.get('uploadRequests').size === 0) {
+      map.set('is_uploading', false);
+      map.set('is_processing', false);
+    }
   });
 };
 
@@ -1078,13 +1102,25 @@ export default function composer(state = initialState, action) {
   case COMPOSE_UPLOAD_CHANGE_FAIL:
     return state.set('is_changing_upload', false);
   case COMPOSE_UPLOAD_REQUEST:
-    return state.set('is_uploading', true).update('pending_media_attachments', n => n + 1);
+    return state.set('is_uploading', true).update('pending_media_attachments', n => n + 1).update('uploadRequests', set => (
+      action.requestId ? (set || ImmutableSet()).add(action.requestId) : (set || ImmutableSet())
+    ));
   case COMPOSE_UPLOAD_PROCESSING:
     return state.set('is_processing', true);
-  case COMPOSE_UPLOAD_SUCCESS:
-    return appendMedia(state, fromJS(action.media), action.file);
+  case COMPOSE_UPLOAD_SUCCESS: {
+    const uploaded = fromJS(action.media);
+    const withOwner = action.ownerIdentityId ? uploaded.set('ownerIdentityId', action.ownerIdentityId) : uploaded;
+
+    return appendMedia(
+      state.update('uploadRequests', set => (set || ImmutableSet()).delete(action.requestId)),
+      withOwner,
+      action.file,
+    );
+  }
+  case COMPOSE_UPLOAD_DISCARD:
+    return discardUploadRequest(state, action.requestId);
   case COMPOSE_UPLOAD_FAIL:
-    return state.set('is_uploading', false).set('is_processing', false).update('pending_media_attachments', n => n - 1);
+    return discardUploadRequest(state, action.requestId);
   case COMPOSE_UPLOAD_UNDO:
     return removeMedia(state, action.media_id);
   case COMPOSE_UPLOAD_PROGRESS:

@@ -18,7 +18,7 @@ import { acceptComposerSurface, targetComposerAction } from '../../../actions/co
 import { selectComposerEffectiveCreateCapability } from '../../../posting_context/create_capability';
 import { materializeComposerText } from '../../../posting_context/materialize';
 import { selectComposer } from '../../../selectors/composer';
-import { selectComposerCanSendAsIdentity } from '../../../selectors/posting_identities';
+import { selectComposerCanSendAsIdentity, selectComposerCanUploadAsIdentity } from '../../../selectors/posting_identities';
 import { withComposerId } from '../composer_id_context';
 import SenderIdentityContainer from './sender_identity_container';
 import UserPostingStyleController from './user_posting_style_controller';
@@ -41,6 +41,8 @@ const mapStateToProps = (state, { composerId }) => {
     contextCompliant: capability.compliance.valid,
     canAttempt: capability.canAttempt,
     canSendAsIdentity: selectComposerCanSendAsIdentity(state, composerId).canSend,
+    canUploadMedia: selectComposerCanUploadAsIdentity(state, composerId).canUpload,
+    mediaUploadReason: selectComposerCanUploadAsIdentity(state, composerId).reason,
     capabilityReason: capability.reason,
     suggestions: composer.get('suggestions'),
     spoiler: composer.get('spoiler'),

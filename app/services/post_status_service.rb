@@ -264,6 +264,16 @@ class PostStatusService < BaseService
   end
 
   def validate_media!
+    if @options[:posting_audit].present?
+      @media = PostingIdentity::DelegatedMedia.collect!(
+        account: @account,
+        media_ids: @options[:media_ids],
+        audit: @options[:posting_audit]
+      )
+      @options[:media_ids] = @media.map { |item| item.id.to_s }
+      return
+    end
+
     if @options[:media_ids].blank? || !@options[:media_ids].is_a?(Enumerable)
       @media = []
       return

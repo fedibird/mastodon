@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_09_171000) do
+ActiveRecord::Schema.define(version: 2026_10_10_150000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1266,6 +1266,19 @@ ActiveRecord::Schema.define(version: 2026_10_09_171000) do
     t.index ["token_digest"], name: "index_posting_identity_link_requests_on_token_digest", unique: true
   end
 
+  create_table "posting_identity_media", force: :cascade do |t|
+    t.bigint "grantee_user_id", null: false
+    t.bigint "delegation_id", null: false
+    t.bigint "posting_account_id", null: false
+    t.bigint "media_attachment_id", null: false
+    t.datetime "created_at", precision: 6, null: false
+    t.datetime "updated_at", precision: 6, null: false
+    t.index ["delegation_id"], name: "index_posting_identity_media_on_delegation_id"
+    t.index ["grantee_user_id"], name: "index_posting_identity_media_on_grantee_user_id"
+    t.index ["media_attachment_id"], name: "index_posting_identity_media_on_media_attachment_id", unique: true
+    t.index ["posting_account_id"], name: "index_posting_identity_media_on_posting_account_id"
+  end
+
   create_table "posting_identity_posts", force: :cascade do |t|
     t.bigint "grantee_user_id", null: false
     t.bigint "delegation_id", null: false
@@ -1950,6 +1963,9 @@ ActiveRecord::Schema.define(version: 2026_10_09_171000) do
   add_foreign_key "posting_identity_delegations", "accounts", column: "posting_account_id", on_delete: :cascade
   add_foreign_key "posting_identity_delegations", "users", column: "grantee_user_id", on_delete: :cascade
   add_foreign_key "posting_identity_delegations", "users", column: "grantor_user_id", on_delete: :cascade
+  add_foreign_key "posting_identity_media", "accounts", column: "posting_account_id", on_delete: :cascade
+  add_foreign_key "posting_identity_media", "posting_identity_delegations", column: "delegation_id", on_delete: :cascade
+  add_foreign_key "posting_identity_media", "users", column: "grantee_user_id", on_delete: :cascade
   add_foreign_key "posting_identity_posts", "accounts", column: "posting_account_id", on_delete: :cascade
   add_foreign_key "posting_identity_posts", "posting_identity_delegations", column: "delegation_id", on_delete: :cascade
   add_foreign_key "posting_identity_posts", "users", column: "grantee_user_id", on_delete: :cascade

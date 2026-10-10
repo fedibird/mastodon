@@ -1,14 +1,17 @@
 # frozen_string_literal: true
 
 class PostingIdentity::Delegated
-  # A catalog entry can say post is supported. Media, replies, groups, and
-  # schedules stay unavailable in M3-1 even when the grant lists media.
-  # The catalog is not checked again at send time.
+  # post is the text capability. media is listed only together with post.
+  # Replies, groups, and schedules stay unavailable. The catalog describes
+  # the grant at read time and is checked again when a file or status is saved.
   def self.build(delegation)
     account = delegation.posting_account
-    post_ready = Array(delegation.scopes).map(&:to_s).include?('post')
+    scopes = Array(delegation.scopes).map(&:to_s)
+    post_ready = scopes.include?('post')
+    media_ready = post_ready && scopes.include?('media')
     capabilities = PostingIdentity::CAPABILITIES.index_with { PostingIdentity::CAPABILITY_UNAVAILABLE }
     capabilities['post'] = PostingIdentity::CAPABILITY_SUPPORTED if post_ready
+    capabilities['media'] = PostingIdentity::CAPABILITY_SUPPORTED if media_ready
 
     PostingIdentity::Record.new(
       id: PostingIdentity.delegated_id(account),
