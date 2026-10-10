@@ -117,7 +117,7 @@ export const nextFetchKeys = (sources, { budget = MIX_FETCH_BUDGET, target = MIX
     return pending.slice(0, budget).map(source => source.key);
   }
 
-  const emptyOpen = (sources || []).filter(source => source.loaded && source.hasMore && !source.error && !source.loading && !source.ids.length);
+  const emptyOpen = (sources || []).filter(source => source.loaded && source.hasMore && !source.error && !source.loading && !source.suspended && !source.ids.length);
 
   if (emptyOpen.length) {
     return emptyOpen.slice(0, budget).map(source => source.key);
@@ -139,7 +139,7 @@ export const nextFetchKeys = (sources, { budget = MIX_FETCH_BUDGET, target = MIX
     return [];
   }
 
-  const incomplete = (sources || []).filter(source => source.loaded && source.hasMore && !source.error && !source.loading && source.ids.length);
+  const incomplete = (sources || []).filter(source => source.loaded && source.hasMore && !source.error && !source.loading && !source.suspended && source.ids.length);
 
   if (!incomplete.length) {
     return [];
@@ -253,10 +253,15 @@ export const buildMixView = (sources, statusesById, { me = null, filters = [], c
     }
   });
 
-  const hasMore = (sources || []).some(source => source.hasMore && !source.error);
+  const hasMore = (sources || []).some(source => source.hasMore && !source.error && !source.suspended);
+  const suspended = (sources || []).filter(source => source.suspended).map(source => ({
+    key: source.key,
+    label: source.source ? sourceIdentityLabel(source.source) : source.key,
+  }));
   const errors = (sources || []).filter(source => source.error).map(source => ({
     key: source.key,
     error: source.error,
+    retryAt: source.retryAt || null,
     label: source.source ? sourceIdentityLabel(source.source) : source.key,
   }));
 
@@ -268,6 +273,7 @@ export const buildMixView = (sources, statusesById, { me = null, filters = [], c
     orderGuaranteed: prefix.orderGuaranteed,
     waiting: prefix.waiting,
     hasMore: hasMore || prefix.waiting,
+    suspended,
     errors,
   };
 };

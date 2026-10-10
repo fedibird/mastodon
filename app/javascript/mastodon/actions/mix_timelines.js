@@ -1,10 +1,9 @@
-import { Map as ImmutableMap } from 'immutable';
 import api, { getLinks } from '../api';
 import { fetchRelationshipsSuccess } from './accounts';
 import { importFetchedAccounts, importFetchedStatuses, importFilters } from './importer';
 import { isMixEnabled } from '../mix/availability';
 import { plainMix } from '../mix/definition';
-import { resolveRequest, normalizePage, classifyFetchFailure, statusesForSharedImport } from '../mix/source_adapters';
+import { resolveRequest, normalizePage, classifyFetchFailure, previousStatusesForImport, statusesForSharedImport } from '../mix/source_adapters';
 import { MIX_FETCH_BUDGET, MIX_FETCH_CONCURRENCY, MIX_PAGE_SIZE, MIX_PAGE_TARGET, nextFetchKeys } from '../mix/merge';
 
 export const MIX_TIMELINE_OPEN = 'MIX_TIMELINE_OPEN';
@@ -33,6 +32,7 @@ const sourceSnapshot = (column) => column.get('sources').entrySeq().map(([key, s
   cursor: source.get('cursor'),
   frontier: source.get('frontier'),
   partial: source.get('partial'),
+  suspended: source.get('suspended'),
   retryAt: source.get('retryAt'),
 })).toArray();
 
@@ -92,15 +92,9 @@ const acceptPage = (dispatch, getState, columnKey, sessionId, fingerprint, key, 
     return;
   }
 
-  const previousById = {};
-
-  getState().get('statuses', ImmutableMap()).forEach(status => {
-    if (status && status.get) {
-      previousById[status.get('id')] = status.toJS();
-    }
-  });
-
-  const bodies = statusesForSharedImport(page.statuses.concat(page.referencedStatuses || []), previousById);
+  const bodiesInPage = page.statuses.concat(page.referencedStatuses || []);
+  const previousById = previousStatusesForImport(getState().get('statuses'), bodiesInPage);
+  const bodies = statusesForSharedImport(bodiesInPage, previousById);
 
   if (page.accounts && page.accounts.length) {
     dispatch(importFetchedAccounts(page.accounts));
@@ -131,6 +125,7 @@ const acceptPage = (dispatch, getState, columnKey, sessionId, fingerprint, key, 
     frontier: page.frontier,
     hasMore: page.hasMore,
     partial: page.partial,
+    suspended: page.suspended,
     extra: !!cursor,
   });
 };
@@ -289,6 +284,58 @@ export function loadMixTimeline(columnKey, mix, { extend = false } = {}) {
     }
 
     return pump(dispatch, getState, columnKey, sessionId, fingerprint, resolvedByKey);
+  };
+}
+
+export function retryMixSource(columnKey, mix, sourceKey) {
+  return async (dispatch, getState) => {
+    const column = readColumn(getState, columnKey);
+    const source = column && column.getIn(['sources', sourceKey]);
+
+    if (!column || !source || column.get('running') || source.get('loading')) {
+      return;
+    }
+
+    const retryAt = source.get('retryAt');
+
+    if (source.get('error') === 'rate_limit' && retryAt && retryAt > Date.now()) {
+      return;
+    }
+
+    const plain = plainMix(mix);
+    const resolved = plain && plain.sources.map(item => resolveRequest(item)).find(item => item.ok && item.key === sourceKey);
+
+    if (!resolved) {
+      return;
+    }
+
+    const sessionId = column.get('sessionId');
+    const fingerprint = column.get('definitionFingerprint');
+
+    dispatch({
+      type: MIX_SOURCE_REQUEST,
+      columnKey,
+      sourceKey,
+      sessionId,
+      definitionFingerprint: fingerprint,
+    });
+
+    try {
+      const page = await fetchPage(resolved, source.get('cursor'), getState);
+
+      acceptPage(dispatch, getState, columnKey, sessionId, fingerprint, sourceKey, source.get('cursor'), page);
+    } catch (error) {
+      failPage(dispatch, getState, columnKey, sessionId, fingerprint, sourceKey, error);
+    } finally {
+      if (stillCurrent(getState, columnKey, sessionId, fingerprint)) {
+        dispatch({
+          type: MIX_TIMELINE_DONE,
+          columnKey,
+          sessionId,
+          definitionFingerprint: fingerprint,
+        });
+      }
+    }
   };
 }
 

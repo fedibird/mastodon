@@ -9,7 +9,7 @@ import Column from '../../components/column';
 import ColumnHeader from '../../components/column_header';
 import StatusList from '../../components/status_list';
 import { addColumn, changeColumnParams, moveColumn, removeColumn } from '../../actions/columns';
-import { closeMixTimeline, loadMixTimeline, mixColumnKey } from '../../actions/mix_timelines';
+import { closeMixTimeline, loadMixTimeline, mixColumnKey, retryMixSource } from '../../actions/mix_timelines';
 import { defaultColumnWidth, me } from 'mastodon/initial_state';
 import { isMixEnabled } from 'mastodon/mix/availability';
 import { plainMix } from 'mastodon/mix/definition';
@@ -86,6 +86,7 @@ export class MixTimelinePage extends React.PureComponent {
       waiting: PropTypes.bool,
       hasMore: PropTypes.bool,
       running: PropTypes.bool,
+      suspended: PropTypes.array,
       errors: PropTypes.array,
     }),
     enabled: PropTypes.bool,
@@ -98,6 +99,15 @@ export class MixTimelinePage extends React.PureComponent {
   }
 
   componentDidUpdate (prevProps) {
+    if (prevProps.columnKey && prevProps.columnKey !== this.props.columnKey) {
+      this.props.dispatch(closeMixTimeline(prevProps.columnKey));
+    }
+
+    if (!this.props.mix && prevProps.mix && prevProps.columnKey) {
+      this.props.dispatch(closeMixTimeline(prevProps.columnKey));
+      return;
+    }
+
     if (prevProps.columnKey !== this.props.columnKey || prevProps.signature !== this.props.signature) {
       this.loadTimeline();
     }
@@ -135,7 +145,7 @@ export class MixTimelinePage extends React.PureComponent {
     const sourceKey = event.currentTarget.getAttribute('data-source-key');
 
     if (sourceKey) {
-      this.props.dispatch(loadMixTimeline(this.props.columnKey, this.props.mix, { extend: true }));
+      this.props.dispatch(retryMixSource(this.props.columnKey, this.props.mix, sourceKey));
     }
   };
 
@@ -177,7 +187,15 @@ export class MixTimelinePage extends React.PureComponent {
     const statusIds = view && view.statusIds ? view.statusIds : ImmutableList();
     const notices = [];
 
-    if (view && !view.orderGuaranteed && !view.waiting && view.errors.length) {
+    if (view && view.suspended && view.suspended.length) {
+      view.suspended.forEach(item => {
+        notices.push({
+          key: item.key,
+          text: intl.formatMessage(messages.incomplete, { name: item.label || item.key }),
+          retry: true,
+        });
+      });
+    } else if (view && !view.orderGuaranteed && !view.waiting && view.errors.length) {
       notices.push({ key: 'order', text: intl.formatMessage(messages.orderPartial) });
     }
 
@@ -192,10 +210,12 @@ export class MixTimelinePage extends React.PureComponent {
           message = messages.sourceMissing;
         }
 
+        const rateLimited = item.error === 'rate_limit' && item.retryAt && item.retryAt > Date.now();
+
         notices.push({
           key: item.key,
           text: intl.formatMessage(message, { name }),
-          retry: item.error === 'server' || item.error === 'rate_limit',
+          retry: item.error === 'server' || (item.error === 'rate_limit' && !rateLimited),
         });
       });
     }

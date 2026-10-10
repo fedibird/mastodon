@@ -292,11 +292,13 @@ export const normalizePage = ({ status, data, nextUri, path, origin } = {}) => {
 
   // 206 is incomplete even when the server omits Link next. Do not treat it
   // as the end of the source, and do not confirm a frontier from it.
+  // Without a next cursor the same request must not be repeated automatically.
   const hasMore = partial || !!nextUri;
 
   return {
     ok: true,
     partial,
+    suspended: partial && !link.cursor,
     compact: parsed.compact,
     ids,
     statuses: parsed.statuses,
@@ -309,6 +311,40 @@ export const normalizePage = ({ status, data, nextUri, path, origin } = {}) => {
     hasMore,
     frontier: partial || !ids.length ? null : ids[ids.length - 1],
   };
+};
+
+const nestedStatusIds = (status, ids) => {
+  if (!status || !status.id || ids.indexOf(status.id) !== -1) {
+    return;
+  }
+
+  ids.push(status.id);
+
+  if (status.reblog) {
+    nestedStatusIds(status.reblog, ids);
+  }
+
+  if (status.quote) {
+    nestedStatusIds(status.quote, ids);
+  }
+};
+
+export const previousStatusesForImport = (statuses, bodies) => {
+  const ids = [];
+
+  (bodies || []).forEach(status => nestedStatusIds(status, ids));
+
+  const previous = {};
+
+  ids.forEach(id => {
+    const status = statuses && statuses.get ? statuses.get(id) : null;
+
+    if (status && status.toJS) {
+      previous[id] = status.toJS();
+    }
+  });
+
+  return previous;
 };
 
 // Mix pages must not erase filtered results already stored for a status.

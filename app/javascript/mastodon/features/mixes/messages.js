@@ -22,6 +22,7 @@ export default defineMessages({
   notMerged: { id: 'mixes.not_merged', defaultMessage: 'The merged timeline is not loaded yet. This column keeps the mix definition only.' },
   notShared: { id: 'mixes.not_shared', defaultMessage: 'This address opens your own mix. It does not share the feed with anyone else.' },
   orderPartial: { id: 'mixes.order_partial', defaultMessage: 'Some sources failed, so this order may be incomplete.' },
+  incomplete: { id: 'mixes.incomplete', defaultMessage: '{name} is only partly loaded.' },
   sourceForbidden: { id: 'mixes.source_forbidden', defaultMessage: '{name} cannot be viewed.' },
   sourceMissing: { id: 'mixes.source_missing', defaultMessage: '{name} was not found.' },
   sourceUnavailable: { id: 'mixes.source_unavailable', defaultMessage: '{name} could not be loaded.' },

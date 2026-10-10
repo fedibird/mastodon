@@ -7,4 +7,5 @@ export {
   classifyFetchError,
   classifyFetchFailure,
   statusesForSharedImport,
+  previousStatusesForImport,
 } from './adapter';

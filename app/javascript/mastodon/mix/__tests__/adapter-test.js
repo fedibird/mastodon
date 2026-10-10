@@ -1,4 +1,4 @@
-import { classifyFetchError, cursorFromNextUri, normalizePage, resolveRequest, resolveSource, statusesForSharedImport } from '../adapter';
+import { classifyFetchError, cursorFromNextUri, normalizePage, previousStatusesForImport, resolveRequest, resolveSource, statusesForSharedImport } from '../adapter';
 
 describe('mix source adapter', () => {
   it('selects a known endpoint and encodes ids', () => {
@@ -83,13 +83,13 @@ describe('mix source adapter', () => {
       nextUri: 'https://example.com/api/v1/timelines/public?max_id=400',
       path: '/api/v1/timelines/public',
       origin: 'https://example.com',
-    })).toMatchObject({ ok: true, partial: true, hasMore: true, frontier: null, cursor: '400' });
+    })).toMatchObject({ ok: true, partial: true, suspended: false, hasMore: true, frontier: null, cursor: '400' });
     expect(normalizePage({
       status: 206,
       data: [{ id: '500' }],
       path: '/api/v1/timelines/public',
       origin: 'https://example.com',
-    })).toMatchObject({ ok: true, partial: true, hasMore: true, frontier: null, cursor: null });
+    })).toMatchObject({ ok: true, partial: true, suspended: true, hasMore: true, frontier: null, cursor: null });
     const withObject = normalizePage({
       status: 200,
       data: [{
@@ -113,6 +113,28 @@ describe('mix source adapter', () => {
       [{ id: '500', filtered: [] }],
       { '500': { id: '500', filtered: [{ filter: '2' }] } },
     )[0].filtered).toEqual([{ filter: '2' }]);
+
+    const seen = [];
+    const previous = previousStatusesForImport({
+      get (id) {
+        if (id !== '500' && id !== '9' && id !== '8') {
+          return null;
+        }
+
+        return {
+          toJS () {
+            seen.push(id);
+            return { id, filtered: [{ filter: id === '9' ? 'nested' : 'keep' }] };
+          },
+        };
+      },
+    }, [{ id: '500', reblog: { id: '9' }, quote: { id: '8' } }, { id: '1' }]);
+    const imported = statusesForSharedImport([{ id: '500', reblog: { id: '9', filtered: [] }, quote: { id: '8', filtered: [] }, filtered: [] }], previous);
+
+    expect(seen.sort()).toEqual(['500', '8', '9']);
+    expect(previous['1']).toBeUndefined();
+    expect(imported[0].filtered).toEqual([{ filter: 'keep' }]);
+    expect(imported[0].reblog.filtered).toEqual([{ filter: 'nested' }]);
     expect(resolveRequest({
       type: 'home',
       params: { shows: { direct: true, personal: true, private: true, limited: true, reblog: true, reply: true } },

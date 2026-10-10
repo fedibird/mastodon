@@ -47,6 +47,7 @@ export const mixTimelineView = (timeline, statuses, filters, me) => {
       error: source.get('error'),
       frontier: source.get('frontier'),
       partial: source.get('partial'),
+      suspended: source.get('suspended'),
       filterResults: results && results.toJS ? results.toJS() : {},
       source: plain,
     });

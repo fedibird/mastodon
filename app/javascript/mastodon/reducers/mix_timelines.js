@@ -19,6 +19,7 @@ const initialSource = ImmutableMap({
   loaded: false,
   error: null,
   partial: false,
+  suspended: false,
   retryAt: null,
   filterResults: ImmutableMap(),
 });
@@ -122,6 +123,7 @@ export default function mixTimelines(state = initialState, action) {
         loaded: true,
         error: null,
         partial: !!action.partial,
+        suspended: !!action.suspended,
         retryAt: null,
         filterResults: action.clear ? ImmutableMap() : results,
       });
@@ -143,6 +145,7 @@ export default function mixTimelines(state = initialState, action) {
       loaded: true,
       hasMore: action.error === 'forbidden' || action.error === 'not_found' || action.error === 'stalled' || action.error === 'order' ? false : source.get('hasMore'),
       error: action.error,
+      suspended: false,
       retryAt: action.retryAt || null,
     })).updateIn([action.columnKey, 'metrics'], ImmutableMap(), metrics => metrics.merge({
       requests: metrics.get('requests', 0) + 1,

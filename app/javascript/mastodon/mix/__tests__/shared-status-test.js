@@ -15,7 +15,7 @@ jest.mock('../../actions/statuses', () => ({
 import { importFetchedStatuses } from '../../actions/importer';
 import filtersReducer from '../../reducers/filters';
 import statusesReducer from '../../reducers/statuses';
-import { statusesForSharedImport } from '../adapter';
+import { previousStatusesForImport, statusesForSharedImport } from '../adapter';
 import { buildMixView } from '../merge';
 
 const account = {
@@ -75,13 +75,9 @@ describe('mix imports leave an existing home filter in place', () => {
       }],
     }]);
 
-    const previous = {};
+    state = state.setIn(['statuses', '999'], fromJS({ id: '999', filtered: [{ filter: 'leave-alone' }] }));
 
-    state.get('statuses').forEach(status => {
-      previous[status.get('id')] = status.toJS();
-    });
-
-    const mixBodies = statusesForSharedImport([{
+    const mixStatus = {
       id: '500',
       content: '<p>hidden at home</p>',
       spoiler_text: '',
@@ -90,7 +86,13 @@ describe('mix imports leave an existing home filter in place', () => {
       mentions: [],
       account,
       filtered: [],
-    }], previous);
+    };
+    const previous = previousStatusesForImport(state.get('statuses'), [mixStatus]);
+
+    expect(previous['999']).toBeUndefined();
+    expect(previous['500'].filtered[0].filter).toBe('2');
+
+    const mixBodies = statusesForSharedImport([mixStatus], previous);
 
     state = runImport(state, mixBodies);
 

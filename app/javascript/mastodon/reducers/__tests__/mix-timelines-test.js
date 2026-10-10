@@ -90,6 +90,34 @@ describe('mix timeline state', () => {
 
     expect(state.getIn(['route:mix-1', 'sources', 'src', 'ids']).size).toBe(0);
     expect(state.getIn(['route:mix-1', 'sources', 'src', 'error'])).toBe('forbidden');
+    expect(state.getIn(['route:mix-1', 'sources', 'src', 'suspended'])).toBe(false);
+
+    state = reducer(state, {
+      type: MIX_SOURCE_SUCCESS,
+      columnKey: 'route:mix-1',
+      sourceKey: 'src',
+      sessionId: 1,
+      definitionFingerprint: 'src',
+      ids: ['500'],
+      cursor: null,
+      frontier: null,
+      hasMore: true,
+      partial: true,
+      suspended: true,
+    });
+    state = reducer(state, {
+      type: MIX_SOURCE_FAIL,
+      columnKey: 'route:mix-1',
+      sourceKey: 'src',
+      sessionId: 1,
+      definitionFingerprint: 'src',
+      error: 'server',
+      clear: false,
+    });
+
+    expect(state.getIn(['route:mix-1', 'sources', 'src', 'ids']).toArray()).toEqual(['500']);
+    expect(state.getIn(['route:mix-1', 'sources', 'src', 'suspended'])).toBe(false);
+    expect(state.getIn(['route:mix-1', 'sources', 'src', 'error'])).toBe('server');
   });
 
   it('drops fetch state on hydrate and removes blocked statuses', () => {

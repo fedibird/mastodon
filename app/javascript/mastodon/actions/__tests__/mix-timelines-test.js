@@ -18,7 +18,7 @@ jest.mock('../../api', () => ({
   default: () => ({
     get: (...args) => mockGet(...args),
   }),
-  getLinks: () => ({ refs: [] }),
+  getLinks: (response) => (response && response.links) || { refs: [] },
 }));
 
 jest.mock('../importer', () => ({
@@ -29,7 +29,9 @@ const mockGet = jest.fn();
 
 import { fromJS } from 'immutable';
 import mixTimelines from '../../reducers/mix_timelines';
-import { closeMixTimeline, loadMixTimeline } from '../mix_timelines';
+import { closeMixTimeline, loadMixTimeline, retryMixSource } from '../mix_timelines';
+import { MIX_FETCH_BUDGET } from '../../mix/merge';
+import { sourceKey } from '../../mix/source';
 
 const mix = fromJS({
   id: 'mix-1',
@@ -174,5 +176,180 @@ describe('mix timeline loading', () => {
 
     expect(sources.valueSeq().every(source => source.get('error') === null)).toBe(true);
     expect(sources.valueSeq().flatMap(source => source.get('ids')).toArray()).toContain('200');
+  });
+
+  const nextLink = (path, maxId) => ({
+    refs: [{ rel: 'next', uri: `${window.location.origin}${path}?max_id=${maxId}` }],
+  });
+
+  const remoteCall = (call) => !!(call[1] && call[1].params && call[1].params.remote);
+
+  it('follows a 206 page only when it includes a next cursor, and stops at the request budget', async () => {
+    mockGet.mockImplementation((path, config) => {
+      const maxId = config && config.params && config.params.max_id;
+
+      if (!maxId) {
+        return Promise.resolve({
+          status: 206,
+          data: [{ id: '800', account: '2' }],
+          links: nextLink(path, '400'),
+        });
+      }
+
+      return Promise.resolve({
+        status: 200,
+        data: [{ id: '400', account: '2' }],
+        headers: {},
+      });
+    });
+
+    const { dispatch, getState } = harness();
+
+    await loadMixTimeline('column:next', deferredMix)(dispatch, getState);
+
+    const sources = getState().getIn(['mix_timelines', 'column:next', 'sources']);
+
+    expect(mockGet).toHaveBeenCalledTimes(4);
+    expect(sources.every(source => source.get('suspended') === false)).toBe(true);
+    expect(sources.every(source => source.get('frontier') === '400')).toBe(true);
+    expect(sources.every(source => source.get('ids').toArray().join(',') === '800,400')).toBe(true);
+
+    mockGet.mockReset();
+    let cursor = 900;
+
+    mockGet.mockImplementation((path) => {
+      cursor -= 1;
+
+      return Promise.resolve({
+        status: 206,
+        data: [{ id: String(1000 + cursor), account: '2' }],
+        links: nextLink(path, String(cursor)),
+      });
+    });
+
+    await loadMixTimeline('column:budget', deferredMix)(dispatch, getState);
+    expect(mockGet).toHaveBeenCalledTimes(MIX_FETCH_BUDGET);
+  });
+
+  it('stops after a 206 page with no next link and completes that source on an explicit retry', async () => {
+    mockGet.mockImplementation(() => Promise.resolve({
+      status: 206,
+      data: [{ id: '500', account: '2' }],
+      headers: {},
+    }));
+
+    const { dispatch, getState } = harness();
+    const publicKey = sourceKey({ type: 'public', params: {} });
+    const remoteKey = sourceKey({ type: 'remote', params: {} });
+
+    await loadMixTimeline('column:partial', deferredMix)(dispatch, getState);
+
+    expect(mockGet).toHaveBeenCalledTimes(2);
+    expect(getState().getIn(['mix_timelines', 'column:partial', 'sources']).every(source => source.get('suspended') === true)).toBe(true);
+    expect(getState().getIn(['mix_timelines', 'column:partial', 'sources']).every(source => source.get('frontier') === null)).toBe(true);
+    expect(getState().getIn(['mix_timelines', 'column:partial', 'sources', publicKey, 'ids']).toArray()).toEqual(['500']);
+
+    mockGet.mockClear();
+    await loadMixTimeline('column:partial', deferredMix, { extend: true })(dispatch, getState);
+    expect(mockGet).not.toHaveBeenCalled();
+
+    mockGet.mockImplementation((path, config) => {
+      if (config && config.params && config.params.remote) {
+        return Promise.resolve({ status: 206, data: [{ id: '450', account: '2' }], headers: {} });
+      }
+
+      return Promise.resolve({ status: 200, data: [{ id: '300', account: '2' }], headers: {} });
+    });
+
+    await retryMixSource('column:partial', deferredMix, publicKey)(dispatch, getState);
+
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    expect(remoteCall(mockGet.mock.calls[0])).toBe(false);
+    expect(getState().getIn(['mix_timelines', 'column:partial', 'sources', publicKey, 'ids']).toArray()).toEqual(['500', '300']);
+    expect(getState().getIn(['mix_timelines', 'column:partial', 'sources', publicKey, 'suspended'])).toBe(false);
+    expect(getState().getIn(['mix_timelines', 'column:partial', 'sources', publicKey, 'frontier'])).toBe('300');
+    expect(getState().getIn(['mix_timelines', 'column:partial', 'sources', remoteKey, 'suspended'])).toBe(true);
+    expect(getState().getIn(['mix_timelines', 'column:partial', 'sources', remoteKey, 'ids']).toArray()).toEqual(['500']);
+
+    mockGet.mockClear();
+    await retryMixSource('column:partial', deferredMix, remoteKey)(dispatch, getState);
+
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    expect(remoteCall(mockGet.mock.calls[0])).toBe(true);
+    expect(getState().getIn(['mix_timelines', 'column:partial', 'sources', remoteKey, 'suspended'])).toBe(true);
+    expect(getState().getIn(['mix_timelines', 'column:partial', 'sources', remoteKey, 'ids']).toArray()).toEqual(['500', '450']);
+    expect(getState().getIn(['mix_timelines', 'column:partial', 'sources', publicKey, 'ids']).toArray()).toEqual(['500', '300']);
+    expect(mockGet).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries only the requested failed source and keeps a future rate limit', async () => {
+    mockGet.mockImplementation((path, config) => {
+      if (config && config.params && config.params.remote) {
+        return Promise.reject({ response: { status: 429, headers: { 'retry-after': '120' } } });
+      }
+
+      return Promise.reject({ response: { status: 500 } });
+    });
+
+    const { dispatch, getState } = harness();
+    const publicKey = sourceKey({ type: 'public', params: {} });
+    const remoteKey = sourceKey({ type: 'remote', params: {} });
+
+    await loadMixTimeline('column:failed', deferredMix)(dispatch, getState);
+
+    const retryAt = getState().getIn(['mix_timelines', 'column:failed', 'sources', remoteKey, 'retryAt']);
+
+    expect(mockGet).toHaveBeenCalledTimes(2);
+    expect(getState().getIn(['mix_timelines', 'column:failed', 'sources', publicKey, 'error'])).toBe('server');
+    expect(getState().getIn(['mix_timelines', 'column:failed', 'sources', remoteKey, 'error'])).toBe('rate_limit');
+    expect(retryAt).toBeGreaterThan(Date.now());
+
+    mockGet.mockReset();
+    mockGet.mockImplementation(() => Promise.resolve({ status: 200, data: [{ id: '300', account: '2' }], headers: {} }));
+    await retryMixSource('column:failed', deferredMix, publicKey)(dispatch, getState);
+
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    expect(remoteCall(mockGet.mock.calls[0])).toBe(false);
+    expect(getState().getIn(['mix_timelines', 'column:failed', 'sources', publicKey, 'ids']).toArray()).toEqual(['300']);
+    expect(getState().getIn(['mix_timelines', 'column:failed', 'sources', publicKey, 'error'])).toBe(null);
+    expect(getState().getIn(['mix_timelines', 'column:failed', 'sources', remoteKey, 'error'])).toBe('rate_limit');
+    expect(getState().getIn(['mix_timelines', 'column:failed', 'sources', remoteKey, 'retryAt'])).toBe(retryAt);
+
+    mockGet.mockClear();
+    await retryMixSource('column:failed', deferredMix, remoteKey)(dispatch, getState);
+    expect(mockGet).not.toHaveBeenCalled();
+    expect(getState().getIn(['mix_timelines', 'column:failed', 'sources', remoteKey, 'retryAt'])).toBe(retryAt);
+    expect(getState().getIn(['mix_timelines', 'column:failed', 'sources', publicKey, 'ids']).toArray()).toEqual(['300']);
+  });
+
+  it('does not apply a late success or failure to the column that replaced it', async () => {
+    const waiting = [];
+    let hold = true;
+
+    mockGet.mockImplementation(() => {
+      if (hold) {
+        return new Promise((resolve, reject) => waiting.push({ resolve, reject }));
+      }
+
+      return Promise.resolve(page('200'));
+    });
+
+    const { dispatch, getState } = harness();
+    const first = loadMixTimeline('column:one', deferredMix)(dispatch, getState);
+
+    await Promise.resolve();
+    expect(waiting.length).toBe(2);
+    dispatch(closeMixTimeline('column:one'));
+    hold = false;
+    await loadMixTimeline('column:two', deferredMix)(dispatch, getState);
+    waiting[0].resolve(page('100'));
+    waiting[1].reject({ response: { status: 500 } });
+    await first;
+
+    const current = getState().getIn(['mix_timelines', 'column:two', 'sources']);
+
+    expect(getState().get('mix_timelines').has('column:one')).toBe(false);
+    expect(current.valueSeq().every(source => source.get('error') === null)).toBe(true);
+    expect(current.valueSeq().flatMap(source => source.get('ids')).toArray()).toEqual(['200', '200']);
   });
 });

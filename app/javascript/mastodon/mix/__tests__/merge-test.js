@@ -98,7 +98,7 @@ describe('mix merge', () => {
     ]).ids).toEqual(['500', '450', '400']);
     expect(forbidden.ids).toEqual(['500']);
     expect(forbidden.orderGuaranteed).toBe(false);
-    expect(forbidden.errors).toEqual([{ key: 'home', error: 'forbidden', label: 'Home' }]);
+    expect(forbidden.errors).toEqual([{ key: 'home', error: 'forbidden', label: 'Home', retryAt: null }]);
   });
 
   it('uses the home snapshot to hide replies without reading home settings', () => {
@@ -178,6 +178,23 @@ describe('mix merge', () => {
 
     expect(view.ids).toEqual(['500', '450', '400']);
     expect(view.orderGuaranteed).toBe(false);
+
+    const held = buildMixView([
+      source('public', ['500'], {
+        hasMore: true,
+        partial: true,
+        suspended: true,
+        frontier: null,
+        descriptor: { type: 'public', params: {} },
+      }),
+    ], {
+      '500': { id: '500', account: '2' },
+    }, { contexts: { public: 'public' } });
+
+    expect(held.ids).toEqual(['500']);
+    expect(held.orderGuaranteed).toBe(false);
+    expect(held.hasMore).toBe(false);
+    expect(held.suspended).toEqual([{ key: 'public', label: 'public' }]);
   });
 
   it('fetches the sources that limit the prefix and stops at the budget', () => {
@@ -195,6 +212,12 @@ describe('mix merge', () => {
     ];
 
     expect(nextFetchKeys(skewed, { budget: 8, target: 20 })).toEqual(['dense']);
+    expect(nextFetchKeys([
+      source('partial', ['500'], { hasMore: true, partial: true, suspended: true, frontier: null }),
+    ], { budget: 8, target: 20 })).toEqual([]);
+    expect(nextFetchKeys([
+      source('partial', ['500'], { hasMore: true, partial: true, suspended: false, frontier: null }),
+    ], { budget: 8, target: 20 })).toEqual(['partial']);
     expect(nextFetchKeys(skewed, { budget: 0, target: 20 })).toEqual([]);
     expect(nextFetchKeys([
       source('done', ['500', '400', '300', '200']),
