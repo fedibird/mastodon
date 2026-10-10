@@ -744,9 +744,9 @@ describe('mix streaming', () => {
     });
     dispatch(openMixStream('column:a', mix));
 
-    let releaseFirst;
-    const first = new Promise(resolve => {
-      releaseFirst = resolve;
+    let rejectFirst;
+    const first = new Promise((resolve, reject) => {
+      rejectFirst = reject;
     });
     let started = 0;
 
@@ -768,11 +768,7 @@ describe('mix streaming', () => {
     const newer = reconcileMixSource('column:a', resolved[0].key)(dispatch, getState);
 
     await newer;
-    releaseFirst({
-      status: 500,
-      data: [{ id: '99', visibility: 'public', account: { id: '2' } }],
-      headers: {},
-    });
+    rejectFirst({ response: { status: 500 } });
     await older;
 
     const ids = getState().getIn(['mix_timelines', 'column:a', 'live', resolved[0].key, 'statusIds']).toArray();
@@ -780,6 +776,7 @@ describe('mix streaming', () => {
     expect(ids).toEqual(['30']);
     expect(ids).not.toContain('99');
     expect(getState().getIn(['mix_timelines', 'column:a', 'live', resolved[0].key, 'syncState'])).toBe('connected');
+    expect(getState().getIn(['mix_timelines', 'column:a', 'live', resolved[0].key, 'lastReconciledId'])).toBe('30');
   });
 
   it('hides and warns a history-only post from the edited filter result', () => {
@@ -948,6 +945,230 @@ describe('mix streaming', () => {
 
     expect(getState().getIn(['mix_timelines', 'column:tag', 'sources', tagResolved[0].key, 'ids']).toArray()).toEqual(['300']);
     expect(getState().getIn(['mix_timelines', 'column:tag', 'sources', tagResolved[0].key, 'cursor'])).toBe('300');
+    expect(getState().getIn(['timelines', 'home', 'items']).toArray()).toEqual(['existing']);
+  });
+
+  const readyHistory = (dispatch, columnKey, sourceKey, fingerprint) => {
+    dispatch({
+      type: MIX_SOURCE_SUCCESS,
+      columnKey,
+      sourceKey,
+      sessionId: 1,
+      definitionFingerprint: fingerprint,
+      ids: ['10'],
+      cursor: null,
+      frontier: '10',
+      hasMore: false,
+      partial: false,
+      requestedCursor: null,
+    });
+  };
+
+  it('keeps the confirmed boundary when a later reconcile page is rate limited', async () => {
+    const { dispatch, getState } = harness();
+    const resolved = openColumn(dispatch, 'column:a', 1, [
+      { type: 'public', params: {} },
+      { type: 'list', id: '4', params: {} },
+    ]);
+    const fingerprint = resolved.map(source => source.key).join('\n');
+    const descending = (start, end) => {
+      const ids = [];
+
+      for (let value = start; value >= end; value -= 1) {
+        ids.push(String(value));
+      }
+
+      return ids;
+    };
+
+    readyHistory(dispatch, 'column:a', resolved[0].key, fingerprint);
+    dispatch({
+      type: MIX_SOURCE_SUCCESS,
+      columnKey: 'column:a',
+      sourceKey: resolved[1].key,
+      sessionId: 1,
+      definitionFingerprint: fingerprint,
+      ids: [],
+      cursor: null,
+      frontier: null,
+      hasMore: false,
+      partial: false,
+      requestedCursor: null,
+    });
+    dispatch(openMixStream('column:a', mix));
+
+    let attempt = 0;
+
+    mockGet.mockImplementation((path, config) => {
+      attempt += 1;
+      expect(config.params.since_id).toBe('10');
+
+      if (attempt === 1) {
+        return Promise.resolve({
+          status: 200,
+          data: descending(90, 51).map(id => ({ id, visibility: 'public', account: { id: '2' } })),
+          links: { refs: [{ rel: 'next', uri: `${window.location.origin}${path}?max_id=51` }] },
+        });
+      }
+
+      if (attempt === 2) {
+        return Promise.reject({ response: { status: 429, headers: { 'retry-after': '30' } } });
+      }
+
+      return Promise.resolve({
+        status: 200,
+        data: descending(90, 11).map(id => ({ id, visibility: 'public', account: { id: '2' } })),
+        headers: {},
+      });
+    });
+
+    await reconcileMixSource('column:a', resolved[0].key)(dispatch, getState);
+
+    const live = () => getState().getIn(['mix_timelines', 'column:a', 'live', resolved[0].key]);
+
+    expect(live().get('syncState')).toBe('degraded');
+    expect(live().get('lastReconciledId')).toBe(null);
+    expect(live().get('statusIds').toArray()).toContain('90');
+    expect(getState().getIn(['mix_timelines', 'column:a', 'sources', resolved[0].key, 'frontier'])).toBe('10');
+
+    dispatch({
+      type: 'MIX_STREAM_SYNC',
+      columnKey: 'column:a',
+      sourceKey: resolved[0].key,
+      sessionId: 1,
+      definitionFingerprint: fingerprint,
+      syncState: 'degraded',
+      retryAt: null,
+    });
+    await reconcileMixSource('column:a', resolved[0].key)(dispatch, getState);
+
+    expect(live().get('syncState')).toBe('connected');
+    expect(live().get('lastReconciledId')).toBe('90');
+    expect(attempt).toBe(3);
+  });
+
+  it('shows a partial reconcile page without moving the confirmed boundary', async () => {
+    const { dispatch, getState } = harness();
+    const resolved = openColumn(dispatch, 'column:a', 1, [
+      { type: 'public', params: {} },
+      { type: 'list', id: '4', params: {} },
+    ]);
+    const fingerprint = resolved.map(source => source.key).join('\n');
+
+    readyHistory(dispatch, 'column:a', resolved[0].key, fingerprint);
+    dispatch({
+      type: MIX_SOURCE_SUCCESS,
+      columnKey: 'column:a',
+      sourceKey: resolved[1].key,
+      sessionId: 1,
+      definitionFingerprint: fingerprint,
+      ids: [],
+      cursor: null,
+      frontier: null,
+      hasMore: false,
+      partial: false,
+      requestedCursor: null,
+    });
+    dispatch(openMixStream('column:a', mix));
+    mockGet.mockResolvedValueOnce({
+      status: 206,
+      data: [
+        { id: '90', visibility: 'public', account: { id: '2' } },
+        { id: '80', visibility: 'public', account: { id: '2' } },
+      ],
+      headers: {},
+    });
+    await reconcileMixSource('column:a', resolved[0].key)(dispatch, getState);
+
+    const live = getState().getIn(['mix_timelines', 'column:a', 'live', resolved[0].key]);
+
+    expect(live.get('statusIds').toArray()).toEqual(['90', '80']);
+    expect(live.get('syncState')).toBe('degraded');
+    expect(live.get('lastReconciledId')).toBe(null);
+
+    mockGet.mockResolvedValueOnce({ status: 200, data: [], headers: {} });
+    await reconcileMixSource('column:a', resolved[0].key)(dispatch, getState);
+    expect(mockGet.mock.calls[mockGet.mock.calls.length - 1][1].params.since_id).toBe('10');
+    expect(getState().getIn(['mix_timelines', 'column:a', 'sources', resolved[0].key, 'gap'])).toBe(false);
+  });
+
+  it('does not let a streamed id skip a failed reconcile gap', async () => {
+    const { dispatch, getState } = harness();
+    const resolved = openColumn(dispatch, 'column:a', 1, [
+      { type: 'public', params: {} },
+      { type: 'list', id: '4', params: {} },
+    ]);
+    const fingerprint = resolved.map(source => source.key).join('\n');
+
+    readyHistory(dispatch, 'column:a', resolved[0].key, fingerprint);
+    dispatch({
+      type: MIX_SOURCE_SUCCESS,
+      columnKey: 'column:a',
+      sourceKey: resolved[1].key,
+      sessionId: 1,
+      definitionFingerprint: fingerprint,
+      ids: [],
+      cursor: null,
+      frontier: null,
+      hasMore: false,
+      partial: false,
+      requestedCursor: null,
+    });
+    dispatch(openMixStream('column:a', mix));
+    mockGet.mockRejectedValueOnce({ response: { status: 500 } });
+    await reconcileMixSource('column:a', resolved[0].key)(dispatch, getState);
+    connections.find(row => row.channel === 'public:bot').handlers.onReceive({
+      event: 'update',
+      payload: JSON.stringify({ id: '100', visibility: 'public', account: { id: '2' } }),
+    });
+
+    expect(getState().getIn(['mix_timelines', 'column:a', 'live', resolved[0].key, 'lastReceivedId'])).toBe('100');
+    expect(getState().getIn(['mix_timelines', 'column:a', 'live', resolved[0].key, 'lastReconciledId'])).toBe(null);
+
+    mockGet.mockResolvedValueOnce({ status: 200, data: [{ id: '20', visibility: 'public', account: { id: '2' } }], headers: {} });
+    await reconcileMixSource('column:a', resolved[0].key)(dispatch, getState);
+    expect(mockGet.mock.calls[mockGet.mock.calls.length - 1][1].params.since_id).toBe('10');
+    expect(getState().getIn(['mix_timelines', 'column:a', 'live', resolved[0].key, 'statusIds']).toArray()).toEqual(expect.arrayContaining(['100', '20']));
+  });
+
+  it('does not reconcile a rest-only source until its history boundary exists', async () => {
+    const accountMix = fromJS({
+      id: 'mix-1',
+      version: 1,
+      title: 'Desk',
+      sources: [
+        { type: 'account', id: '42', params: {} },
+        { type: 'public', params: {} },
+      ],
+    });
+    const { dispatch, getState } = harness();
+    const resolved = openColumn(dispatch, 'column:account', 1, accountMix.get('sources').toJS());
+
+    mockGet.mockClear();
+    dispatch(openMixStream('column:account', accountMix));
+    await Promise.resolve();
+    expect(mockGet).not.toHaveBeenCalled();
+
+    await reconcileMixSource('column:account', resolved[0].key)(dispatch, getState);
+    expect(mockGet).not.toHaveBeenCalled();
+
+    dispatch({
+      type: MIX_SOURCE_SUCCESS,
+      columnKey: 'column:account',
+      sourceKey: resolved[0].key,
+      sessionId: 1,
+      definitionFingerprint: resolved.map(source => source.key).join('\n'),
+      ids: ['10'],
+      cursor: null,
+      frontier: '10',
+      hasMore: false,
+      partial: false,
+      requestedCursor: null,
+    });
+    mockGet.mockResolvedValue({ status: 200, data: [], headers: {} });
+    await reconcileMixSource('column:account', resolved[0].key)(dispatch, getState);
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    expect(mockGet.mock.calls[0][1].params.since_id).toBe('10');
     expect(getState().getIn(['timelines', 'home', 'items']).toArray()).toEqual(['existing']);
   });
 });

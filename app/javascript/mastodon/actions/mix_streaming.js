@@ -156,25 +156,13 @@ const relatedIds = (getState, id) => {
   return { references, quotes };
 };
 
-const newerBoundary = (left, right) => {
-  if (!left) {
-    return right || null;
-  }
-
-  if (!right) {
-    return left;
-  }
-
-  return compareId(left, right) >= 0 ? left : right;
-};
-
+// The confirmed boundary is the newest id whose newer range has been
+// fully checked. lastReceivedId can sit above a gap, so it is not a since_id.
 const boundaryId = (column, sourceKey) => {
   const reconciled = column.getIn(['live', sourceKey, 'lastReconciledId']);
-  const received = column.getIn(['live', sourceKey, 'lastReceivedId']);
-  const live = newerBoundary(reconciled, received);
 
-  if (live) {
-    return live;
+  if (reconciled) {
+    return reconciled;
   }
 
   const history = column.getIn(['sources', sourceKey, 'ids']);
@@ -239,7 +227,14 @@ export function reconcileMixSource(columnKey, sourceKey) {
       return;
     }
 
+    const historyLoaded = column.getIn(['sources', sourceKey, 'loaded']);
     const sinceId = boundaryId(column, sourceKey);
+
+    // The opening REST load owns the first page. Do not start a gap fill
+    // before that load has a boundary to continue from.
+    if (!sinceId && !historyLoaded) {
+      return;
+    }
     let cursor = null;
     let pages = 0;
     let newestKept = null;
@@ -571,7 +566,6 @@ export function openMixStream(columnKey, mix) {
 
     streams.forEach(stream => {
       if (stream.mode === 'rest_only') {
-        dispatch(reconcileMixSource(columnKey, stream.key));
         return;
       }
 
