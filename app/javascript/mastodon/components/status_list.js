@@ -26,6 +26,8 @@ class StatusList extends ImmutablePureComponent {
     onScrollToTop: PropTypes.func,
     onScroll: PropTypes.func,
     trackScroll: PropTypes.bool,
+    sourceBadgesForId: PropTypes.func,
+    badgeRevision: PropTypes.string,
     isLoading: PropTypes.bool,
     isPartial: PropTypes.bool,
     hasMore: PropTypes.bool,
@@ -104,7 +106,9 @@ class StatusList extends ImmutablePureComponent {
   }
 
   render () {
-    const { statusIds, featuredStatusIds, onLoadMore, timelineId, contextTypeForId, warningTitlesForId, showCard, trackIntersection, ...other } = this.props;
+    const { statusIds, featuredStatusIds, onLoadMore, timelineId, contextTypeForId, warningTitlesForId, sourceBadgesForId, badgeRevision, showCard, trackIntersection, ...other } = this.props;
+
+    void badgeRevision;
     const { isLoading, isPartial } = other;
     const contextTypeFor = (statusId) => contextTypeForId ? (contextTypeForId(statusId) || timelineId) : timelineId;
     const warningTitlesFor = (statusId) => warningTitlesForId ? warningTitlesForId(statusId) : undefined;
@@ -132,6 +136,7 @@ class StatusList extends ImmutablePureComponent {
           onMoveDown={this.handleMoveDown}
           contextType={contextTypeFor(statusId)}
           warningTitles={warningTitlesFor(statusId)}
+          sourceBadges={sourceBadgesForId ? sourceBadgesForId(statusId) : undefined}
           scrollKey={this.props.scrollKey}
           showThread
           showCard={showCard}
@@ -148,6 +153,7 @@ class StatusList extends ImmutablePureComponent {
           onMoveUp={this.handleMoveUp}
           onMoveDown={this.handleMoveDown}
           contextType={contextTypeFor(statusId)}
+          sourceBadges={sourceBadgesForId ? sourceBadgesForId(statusId) : undefined}
           showThread
           showCard={showCard}
         />

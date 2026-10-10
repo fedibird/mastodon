@@ -17,6 +17,7 @@ import { defaultColumnWidth, me } from 'mastodon/initial_state';
 import { isMixEnabled } from 'mastodon/mix/availability';
 import { plainMix } from 'mastodon/mix/definition';
 import { sourceKey } from 'mastodon/mix/source';
+import { sourceBadges } from 'mastodon/mix/source_badges';
 import { mixTimelineView } from 'mastodon/mix/view';
 import messages from './messages';
 
@@ -60,6 +61,8 @@ const mapStateToProps = (state, { columnId, params }) => {
     splitRatio: state.getIn(['settings', 'mixTimeline', 'splitRatio'], 35),
     enabled: isMixEnabled(),
     columnWidth: columnWidth || defaultColumnWidth,
+    lists: state.get('lists'),
+    accounts: state.get('accounts'),
   };
 };
 
@@ -111,7 +114,89 @@ export class MixTimelinePage extends React.PureComponent {
     enabled: PropTypes.bool,
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
+    lists: PropTypes.object,
+    accounts: PropTypes.object,
   };
+
+  emptyBadges = [];
+
+  badgeCache = new Map();
+
+  badgesForSingle = (id) => this.lookupBadges('single', id);
+
+  badgesForLive = (id) => this.lookupBadges('live', id);
+
+  badgesForHistory = (id) => this.lookupBadges('history', id);
+
+  viewForPane (pane) {
+    if (pane === 'live') {
+      return this.props.liveView;
+    }
+
+    if (pane === 'history') {
+      return this.props.historyView;
+    }
+
+    return this.props.view;
+  }
+
+  lookupBadges (pane, id) {
+    const view = this.viewForPane(pane);
+    const keys = view && view.sourceKeysById && view.sourceKeysById[id];
+
+    if (!this.props.mix || !keys || !keys.length) {
+      return this.emptyBadges;
+    }
+
+    const warnings = (view.sourceWarningsById && view.sourceWarningsById[id]) || {};
+    const plain = plainMix(this.props.mix);
+    const titles = plain ? plain.sources.map(source => source.title || '').join('\n') : '';
+    const token = `${pane}\n${keys.join('\n')}\n${JSON.stringify(warnings)}\n${titles}\n${this.nameToken(plain)}`;
+    const cacheKey = `${pane}:${id}`;
+    const hit = this.badgeCache.get(cacheKey);
+
+    if (hit && hit.token === token) {
+      return hit.value;
+    }
+
+    const value = sourceBadges(plain ? plain.sources : [], keys, {
+      formatMessage: (message, values) => this.props.intl.formatMessage(message, values),
+      lists: this.props.lists,
+      accounts: this.props.accounts,
+      warningsByKey: warnings,
+    });
+
+    this.badgeCache.set(cacheKey, { token, value });
+    return value;
+  }
+
+  nameToken (plain) {
+    if (!plain) {
+      return '';
+    }
+
+    return plain.sources.map(source => {
+      if (source.type === 'list' && this.props.lists && this.props.lists.get) {
+        const list = this.props.lists.get(String(source.id || ''));
+
+        return list && list.get ? list.get('title') : '';
+      }
+
+      if (source.type === 'account' && this.props.accounts && this.props.accounts.get) {
+        const account = this.props.accounts.get(String(source.id || ''));
+
+        return account && account.get ? (account.get('display_name') || account.get('acct') || '') : '';
+      }
+
+      return '';
+    }).join('\n');
+  }
+
+  badgeRevision () {
+    const views = [this.props.view, this.props.liveView, this.props.historyView];
+
+    return views.map(view => (view ? `${JSON.stringify(view.sourceKeysById || {})}\n${JSON.stringify(view.sourceWarningsById || {})}` : '')).join('|') + this.nameToken(plainMix(this.props.mix));
+  }
 
   componentDidMount () {
     this.loadTimeline();
@@ -384,6 +469,8 @@ export class MixTimelinePage extends React.PureComponent {
           onScroll={this.handleScroll}
           contextTypeForId={this.contextTypeFor(view)}
           warningTitlesForId={this.warningTitlesFor(view)}
+          sourceBadgesForId={this.badgesForSingle}
+          badgeRevision={this.badgeRevision()}
           emptyMessage={<FormattedMessage id='mixes.empty_timeline' defaultMessage='No posts in this mix yet.' />}
           prepend={(
             <div className='mix-editor'>
@@ -408,6 +495,8 @@ export class MixTimelinePage extends React.PureComponent {
         trackIntersection={extra.trackIntersection}
         contextTypeForId={this.contextTypeFor(extra.view)}
         warningTitlesForId={this.warningTitlesFor(extra.view)}
+        sourceBadgesForId={extra.badgesFor}
+        badgeRevision={this.badgeRevision()}
         emptyMessage={<FormattedMessage id='mixes.empty_timeline' defaultMessage='No posts in this mix yet.' />}
         prepend={extra.prepend}
       />
@@ -464,6 +553,7 @@ export class MixTimelinePage extends React.PureComponent {
                     {list(liveView ? liveView.statusIds : ImmutableList(), {
                       key: 'live',
                       view: liveView,
+                      badgesFor: this.badgesForLive,
                       hasMore: false,
                       isLoading: false,
                       trackIntersection: false,
@@ -475,6 +565,7 @@ export class MixTimelinePage extends React.PureComponent {
                     {list(historyView ? historyView.statusIds : ImmutableList(), {
                       key: 'history',
                       view: historyView,
+                      badgesFor: this.badgesForHistory,
                       hasMore: !!(historyView && historyView.hasMore),
                       isLoading: !!(historyView && (historyView.waiting || historyView.running)),
                       trackIntersection: true,

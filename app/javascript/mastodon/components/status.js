@@ -22,6 +22,7 @@ import EmojiReactionsBar from 'mastodon/components/emoji_reactions_bar';
 import PictureInPicturePlaceholder from 'mastodon/components/picture_in_picture_placeholder';
 import { displayMedia, enableReaction, compactReaction, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy } from 'mastodon/initial_state';
 import { List as ImmutableList } from 'immutable';
+import MixSourceBadges from 'mastodon/features/mixes/components/source_badges';
 import { attachmentAccessibility, galleryTranslationProps, statusTranslationView, translationDisplayStatus, TRANSLATION_MODE_BILINGUAL, TRANSLATION_MODE_ORIGINAL, TRANSLATION_MODE_TRANSLATED } from 'mastodon/utils/translation_view';
 import { translationRequestStatus } from 'mastodon/utils/translation_languages';
 
@@ -221,6 +222,7 @@ class Status extends ImmutablePureComponent {
     removeEmojiReaction: PropTypes.func.isRequired,
     emojiReactioned: PropTypes.bool,
     reactionLimitReached: PropTypes.bool,
+    sourceBadges: PropTypes.array,
   };
 
   static defaultProps = {
@@ -239,6 +241,7 @@ class Status extends ImmutablePureComponent {
     'referenced',
     'contextReferenced',
     'quote_muted',
+    'sourceBadges',
   ];
 
   state = {
@@ -563,7 +566,7 @@ class Status extends ImmutablePureComponent {
 
     const { intl, hidden, featured, otherAccounts, unread, showThread, showCard, scrollKey, pictureInPicture, contextType, quote_muted, referenced, contextReferenced, reactionLimitReached } = this.props;
 
-    let { status, account, ...other } = this.props;
+    let { status, account, sourceBadges, ...other } = this.props;
 
     if (status === null) {
       return null;
@@ -980,6 +983,8 @@ class Status extends ImmutablePureComponent {
                 <DisplayName account={status.get('account')} others={otherAccounts} />
               </a>
             </div>
+
+            {sourceBadges && sourceBadges.length > 0 && <MixSourceBadges badges={sourceBadges} />}
 
             <StatusContent status={status} translationWrapper={this.props.status} onClick={this.handleClick} expanded={!status.get('hidden')} showThread={showThread} onExpandedToggle={this.handleExpandedToggle} collapsable onCollapsedToggle={this.handleCollapsedToggle} onTranslate={this.props.onTranslate && this.handleTranslate} />
 
