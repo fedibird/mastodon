@@ -82,6 +82,36 @@ const unsubscribe = ({ channelName, params, onDisconnect }) => {
   onDisconnect();
 };
 
+// Group feeds are separate channels for the same id when tagged differs.
+export const subscriptionMatchesStream = (channelName, params, stream) => {
+  const streamChannelName = stream[0];
+
+  if (stream.length === 1) {
+    return channelName === streamChannelName;
+  }
+
+  const streamIdentifier = stream[1];
+
+  if (channelName.startsWith('hashtag')) {
+    return channelName === streamChannelName && params.tag === streamIdentifier;
+  } else if (channelName.startsWith('list')) {
+    return channelName === streamChannelName && params.list === streamIdentifier;
+  } else if (channelName.startsWith('public:domain')) {
+    return channelName === streamChannelName && params.domain === streamIdentifier;
+  } else if (channelName.startsWith('group')) {
+    if (channelName !== streamChannelName || params.id !== streamIdentifier) {
+      return false;
+    }
+
+    const messageTag = stream.length > 2 && stream[2] ? String(stream[2]).toLowerCase() : '';
+    const subscriptionTag = params.tagged ? String(params.tagged).toLowerCase() : '';
+
+    return messageTag === subscriptionTag;
+  }
+
+  return false;
+};
+
 const sharedCallbacks = {
   connected () {
     subscriptions.forEach(subscription => subscribe(subscription));
@@ -90,27 +120,7 @@ const sharedCallbacks = {
   received (data) {
     const { stream } = data;
 
-    subscriptions.filter(({ channelName, params }) => {
-      const streamChannelName = stream[0];
-
-      if (stream.length === 1) {
-        return channelName === streamChannelName;
-      }
-
-      const streamIdentifier = stream[1];
-
-      if (channelName.startsWith('hashtag')) {
-        return channelName === streamChannelName && params.tag === streamIdentifier;
-      } else if (channelName.startsWith('list')) {
-        return channelName === streamChannelName && params.list === streamIdentifier;
-      } else if (channelName.startsWith('public:domain')) {
-        return channelName === streamChannelName && params.domain === streamIdentifier;
-      } else if (channelName.startsWith('group')) {
-        return channelName === streamChannelName && params.id === streamIdentifier;
-      }
-
-      return false;
-    }).forEach(subscription => {
+    subscriptions.filter(({ channelName, params }) => subscriptionMatchesStream(channelName, params, stream)).forEach(subscription => {
       subscription.onReceive(data);
     });
   },

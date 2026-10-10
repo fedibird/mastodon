@@ -5,6 +5,7 @@ import { normalizePage, previousStatusesForImport, statusesForSharedImport, clas
 import compareId from '../compare_id';
 import { resolveRequest } from '../mix/adapter';
 import { classifyStreamStatus, streamChannelId, streamSubscriptions } from '../mix/stream_adapters';
+import { filterContextForSource } from '../mix/filter_context';
 import { plainMix } from '../mix/definition';
 import { MIX_PAGE_SIZE, MIX_RECONCILE_BUDGET } from '../mix/merge';
 import { normalizeFilterResult } from './importer/normalizer';
@@ -32,6 +33,49 @@ const stillCurrent = (getState, columnKey, sessionId, fingerprint) => {
 };
 
 const filterResultsFor = (status) => (status.filtered || status.filter_results || []).map(normalizeFilterResult).filter(result => result && result.filter);
+
+const applicableFilterResults = (status, source) => {
+  const context = filterContextForSource(source);
+  const raw = (status && (status.filtered || status.filter_results)) || [];
+
+  if (!raw.length) {
+    return { known: true, replace: true, results: [] };
+  }
+
+  let unknown = false;
+  const results = [];
+
+  raw.forEach(result => {
+    if (!result || !result.filter) {
+      return;
+    }
+
+    if (typeof result.filter !== 'object') {
+      unknown = true;
+      return;
+    }
+
+    const contexts = result.filter.context || [];
+
+    if (context && contexts.indexOf(context) !== -1) {
+      const normalized = normalizeFilterResult(result);
+
+      if (normalized && normalized.filter) {
+        results.push(normalized);
+      }
+    }
+  });
+
+  if (unknown) {
+    return { known: false, replace: false, results: [] };
+  }
+
+  if (!results.length) {
+    return { known: true, replace: false, results: [] };
+  }
+
+  return { known: true, replace: true, results };
+};
 
 const importBodies = (dispatch, getState, columnKey, sessionId, fingerprint, bodies) => {
   if (!stillCurrent(getState, columnKey, sessionId, fingerprint)) {
@@ -112,8 +156,22 @@ const relatedIds = (getState, id) => {
   return { references, quotes };
 };
 
+const newerBoundary = (left, right) => {
+  if (!left) {
+    return right || null;
+  }
+
+  if (!right) {
+    return left;
+  }
+
+  return compareId(left, right) >= 0 ? left : right;
+};
+
 const boundaryId = (column, sourceKey) => {
-  const live = column.getIn(['live', sourceKey, 'lastReceivedId']) || column.getIn(['live', sourceKey, 'lastReconciledId']);
+  const reconciled = column.getIn(['live', sourceKey, 'lastReconciledId']);
+  const received = column.getIn(['live', sourceKey, 'lastReceivedId']);
+  const live = newerBoundary(reconciled, received);
 
   if (live) {
     return live;
@@ -145,7 +203,7 @@ const fetchReconcilePage = (resolved, { sinceId, maxId }, getState) => {
 
   const params = { ...request.params, limit: MIX_PAGE_SIZE };
 
-  if (sinceId && !maxId) {
+  if (sinceId) {
     params.since_id = sinceId;
   }
 
@@ -184,7 +242,15 @@ export function reconcileMixSource(columnKey, sourceKey) {
     const sinceId = boundaryId(column, sourceKey);
     let cursor = null;
     let pages = 0;
+    let newestKept = null;
     const generation = record.generation;
+
+    record.runs = record.runs || {};
+    const run = (record.runs[sourceKey] || 0) + 1;
+
+    record.runs[sourceKey] = run;
+
+    const active = () => record.runs[sourceKey] === run && record.generation === generation && stillCurrent(getState, columnKey, sessionId, fingerprint);
 
     dispatch({
       type: MIX_STREAM_SYNC,
@@ -197,7 +263,7 @@ export function reconcileMixSource(columnKey, sourceKey) {
     });
 
     while (pages < MIX_RECONCILE_BUDGET) {
-      if (record.generation !== generation || !stillCurrent(getState, columnKey, sessionId, fingerprint)) {
+      if (!active()) {
         return;
       }
 
@@ -206,7 +272,7 @@ export function reconcileMixSource(columnKey, sourceKey) {
       try {
         page = await fetchReconcilePage(resolved, { sinceId, maxId: cursor }, getState);
       } catch (error) {
-        if (record.generation !== generation || !stillCurrent(getState, columnKey, sessionId, fingerprint)) {
+        if (!active()) {
           return;
         }
 
@@ -227,7 +293,7 @@ export function reconcileMixSource(columnKey, sourceKey) {
 
       pages += 1;
 
-      if (record.generation !== generation || !stillCurrent(getState, columnKey, sessionId, fingerprint)) {
+      if (!active()) {
         return;
       }
 
@@ -245,9 +311,12 @@ export function reconcileMixSource(columnKey, sourceKey) {
       }
 
       if (page.partial) {
-        if (page.statuses.length) {
-          importBodies(dispatch, getState, columnKey, sessionId, fingerprint, page.statuses.concat(page.referencedStatuses || []));
-          page.statuses.forEach(status => {
+        const partialIds = sinceId ? page.ids.filter(id => compareId(id, sinceId) > 0) : page.ids;
+        const partialStatuses = page.statuses.filter(status => partialIds.indexOf(status.id) !== -1);
+
+        if (partialStatuses.length) {
+          importBodies(dispatch, getState, columnKey, sessionId, fingerprint, partialStatuses.concat(page.referencedStatuses || []));
+          partialStatuses.forEach(status => {
             dispatch({
               type: MIX_STREAM_STATUS,
               columnKey,
@@ -273,11 +342,21 @@ export function reconcileMixSource(columnKey, sourceKey) {
         return;
       }
 
-      if (page.statuses.length && !importBodies(dispatch, getState, columnKey, sessionId, fingerprint, page.statuses.concat(page.referencedStatuses || []))) {
+      const keptIds = sinceId ? page.ids.filter(id => compareId(id, sinceId) > 0) : page.ids.slice();
+      const kept = page.statuses.filter(status => keptIds.indexOf(status.id) !== -1);
+      const sawBoundary = !!sinceId && page.ids.some(id => compareId(id, sinceId) <= 0);
+
+      keptIds.forEach(id => {
+        if (!newestKept || compareId(id, newestKept) > 0) {
+          newestKept = id;
+        }
+      });
+
+      if (kept.length && !importBodies(dispatch, getState, columnKey, sessionId, fingerprint, kept.concat(page.referencedStatuses || []))) {
         return;
       }
 
-      page.statuses.forEach(status => {
+      kept.forEach(status => {
         dispatch({
           type: MIX_STREAM_STATUS,
           columnKey,
@@ -290,9 +369,10 @@ export function reconcileMixSource(columnKey, sourceKey) {
         });
       });
 
-      const reached = !sinceId || page.ids.some(id => id === sinceId) || !page.hasMore;
+      const cursorAdvanced = !cursor || (page.cursor && compareId(String(page.cursor), String(cursor)) < 0);
+      const finished = !page.hasMore || sawBoundary;
 
-      if (reached || !page.cursor) {
+      if (finished) {
         dispatch({
           type: MIX_STREAM_SYNC,
           columnKey,
@@ -301,13 +381,13 @@ export function reconcileMixSource(columnKey, sourceKey) {
           definitionFingerprint: fingerprint,
           syncState: 'connected',
           connected: true,
-          lastReconciledId: sinceId,
+          lastReconciledId: newestKept || sinceId,
           retryAt: null,
         });
         return;
       }
 
-      if (page.cursor === cursor) {
+      if (!page.cursor || !cursorAdvanced) {
         dispatch({
           type: MIX_STREAM_SYNC,
           columnKey,
@@ -323,7 +403,7 @@ export function reconcileMixSource(columnKey, sourceKey) {
       cursor = page.cursor;
     }
 
-    if (stillCurrent(getState, columnKey, sessionId, fingerprint) && record.generation === generation) {
+    if (active()) {
       dispatch({
         type: MIX_STREAM_SYNC,
         columnKey,
@@ -386,15 +466,16 @@ const handleEdit = (dispatch, getState, columnKey, sessionId, fingerprint, strea
     const decision = existing
       ? classifyStreamStatus(item.source, status, { me, delivered: item.source.type === 'list' || item.source.type === 'group' })
       : classifyStreamStatus(item.source, status, { me, delivered: true });
+    const applicable = applicableFilterResults(status, item.source);
 
     decisions.push({
       sourceKey: item.key,
       decision,
       delivered: delivered && !existing,
-      filterResults: filterResultsFor(status),
+      filterResults: applicable.known && applicable.replace ? applicable.results : null,
     });
 
-    if (decision === 'unknown') {
+    if (decision === 'unknown' || !applicable.known) {
       dispatch(reconcileMixSource(columnKey, item.key));
     }
   });

@@ -36,6 +36,7 @@ const initialSource = ImmutableMap({
   rereads: 0,
   retryAt: null,
   filterResults: ImmutableMap(),
+  revokedIds: ImmutableList(),
 });
 
 const initialLive = ImmutableMap({
@@ -101,7 +102,9 @@ const settlePage = (source, action) => {
   const gap = !!source.get('gap');
   const rereads = source.get('rereads') || 0;
   const replace = fromHead && !pagePartial && (gap || source.get('reread'));
-  const ids = replace ? ImmutableList(action.ids || []) : appendIds(source, action.ids);
+  const revoked = new Set((source.get('revokedIds') || ImmutableList()).toArray());
+  const incoming = (action.ids || []).filter(id => !revoked.has(id));
+  const ids = replace ? ImmutableList(incoming) : appendIds(source, incoming);
   const stored = source.get('filterResults') || ImmutableMap();
   const filterResults = action.clear ? ImmutableMap() : stored.merge(fromJS(action.filterResults || {}));
   const base = {
@@ -358,7 +361,7 @@ export default function mixTimelines(state = initialState, action) {
         filterResults: results,
         lastReceivedId: newerId(entry.get('lastReceivedId'), action.id),
       });
-    }).updateIn([action.columnKey, 'pendingStatusIds'], ImmutableList(), pending => {
+    }).updateIn([action.columnKey, 'sources', action.sourceKey, 'revokedIds'], ImmutableList(), ids => ids.filter(id => id !== action.id)).updateIn([action.columnKey, 'pendingStatusIds'], ImmutableList(), pending => {
       if (state.getIn([action.columnKey, 'pinnedToTop']) || pending.includes(action.id)) {
         return pending;
       }
@@ -371,30 +374,44 @@ export default function mixTimelines(state = initialState, action) {
     }
 
     return (action.decisions || []).reduce((next, decision) => {
-      const resultsFor = (entry) => entry.get('filterResults').merge(fromJS({ [action.id]: decision.filterResults || [] }));
+      const mergeResults = (results) => {
+        if (decision.filterResults === null || decision.filterResults === undefined) {
+          return results || ImmutableMap();
+        }
+
+        return (results || ImmutableMap()).merge(fromJS({ [action.id]: decision.filterResults }));
+      };
 
       if (decision.decision === 'reject') {
         return next
           .updateIn([action.columnKey, 'live', decision.sourceKey], initialLive, entry => entry.merge({
             statusIds: entry.get('statusIds').filter(id => id !== action.id),
-            filterResults: resultsFor(entry),
+            filterResults: mergeResults(entry.get('filterResults')),
           }))
-          .updateIn([action.columnKey, 'sources', decision.sourceKey, 'ids'], ImmutableList(), ids => ids.filter(id => id !== action.id))
+          .updateIn([action.columnKey, 'sources', decision.sourceKey], initialSource, source => source.merge({
+            ids: source.get('ids').filter(id => id !== action.id),
+            filterResults: mergeResults(source.get('filterResults')),
+            revokedIds: rememberTombstones(source.get('revokedIds'), [action.id]),
+          }))
           .updateIn([action.columnKey, 'pendingStatusIds'], ImmutableList(), ids => ids.filter(id => id !== action.id));
       }
 
       if (decision.decision === 'accept' && decision.delivered) {
-        return next.updateIn([action.columnKey, 'live', decision.sourceKey], initialLive, entry => {
-          const ids = entry.get('statusIds').includes(action.id) ? entry.get('statusIds') : entry.get('statusIds').push(action.id);
+        return next
+          .updateIn([action.columnKey, 'live', decision.sourceKey], initialLive, entry => {
+            const ids = entry.get('statusIds').includes(action.id) ? entry.get('statusIds') : entry.get('statusIds').push(action.id);
 
-          return entry.merge({ statusIds: ids, filterResults: resultsFor(entry) });
-        });
+            return entry.merge({ statusIds: ids, filterResults: mergeResults(entry.get('filterResults')) });
+          })
+          .updateIn([action.columnKey, 'sources', decision.sourceKey, 'revokedIds'], ImmutableList(), ids => ids.filter(id => id !== action.id));
       }
 
       if (decision.decision === 'accept') {
-        return next.updateIn([action.columnKey, 'live', decision.sourceKey], initialLive, entry => entry.merge({
-          filterResults: resultsFor(entry),
-        }));
+        return next
+          .updateIn([action.columnKey, 'live', decision.sourceKey], initialLive, entry => entry.merge({
+            filterResults: mergeResults(entry.get('filterResults')),
+          }))
+          .updateIn([action.columnKey, 'sources', decision.sourceKey, 'filterResults'], ImmutableMap(), results => mergeResults(results));
       }
 
       return next;

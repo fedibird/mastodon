@@ -620,4 +620,334 @@ describe('mix streaming', () => {
     expect(hashtags.every(row => row.stopped)).toBe(true);
     expect(connections.filter(row => row.channel === 'hashtag' && !row.stopped).map(row => row.params.tag)).toEqual(['python']);
   });
+
+  it('keeps since_id while paging a long reconnect gap and advances the reconciled boundary', async () => {
+    const { dispatch, getState } = harness();
+    const resolved = openColumn(dispatch, 'column:a', 1, [
+      { type: 'public', params: {} },
+      { type: 'list', id: '4', params: {} },
+    ]);
+    const fingerprint = resolved.map(source => source.key).join('\n');
+    const descending = (start, end) => {
+      const ids = [];
+
+      for (let value = start; value >= end; value -= 1) {
+        ids.push(String(value));
+      }
+
+      return ids;
+    };
+
+    dispatch({
+      type: MIX_SOURCE_SUCCESS,
+      columnKey: 'column:a',
+      sourceKey: resolved[0].key,
+      sessionId: 1,
+      definitionFingerprint: fingerprint,
+      ids: ['10'],
+      cursor: null,
+      frontier: '10',
+      hasMore: false,
+      partial: false,
+      requestedCursor: null,
+    });
+    dispatch({
+      type: MIX_SOURCE_SUCCESS,
+      columnKey: 'column:a',
+      sourceKey: resolved[1].key,
+      sessionId: 1,
+      definitionFingerprint: fingerprint,
+      ids: [],
+      cursor: null,
+      frontier: null,
+      hasMore: false,
+      partial: false,
+      requestedCursor: null,
+    });
+    dispatch(openMixStream('column:a', mix));
+    const calls = [];
+
+    mockGet.mockImplementation((path, config) => {
+      const sinceId = config.params.since_id;
+      const maxId = config.params.max_id;
+
+      calls.push({ sinceId, maxId });
+
+      if (!maxId) {
+        return Promise.resolve({
+          status: 200,
+          data: descending(90, 51).map(id => ({ id, visibility: 'public', account: { id: '2' } })),
+          links: { refs: [{ rel: 'next', uri: `${window.location.origin}${path}?max_id=51` }] },
+        });
+      }
+
+      return Promise.resolve({
+        status: 200,
+        data: descending(50, 9).map(id => ({ id, visibility: 'public', account: { id: '2' } })),
+        headers: {},
+      });
+    });
+
+    await reconcileMixSource('column:a', resolved[0].key)(dispatch, getState);
+
+    const liveIds = getState().getIn(['mix_timelines', 'column:a', 'live', resolved[0].key, 'statusIds']).toArray();
+
+    expect(calls.map(call => call.sinceId)).toEqual(['10', '10']);
+    expect(calls[1].maxId).toBe('51');
+    expect(liveIds).toContain('90');
+    expect(liveIds).toContain('11');
+    expect(liveIds).not.toContain('10');
+    expect(liveIds).not.toContain('9');
+    expect(getState().getIn(['mix_timelines', 'column:a', 'live', resolved[0].key, 'syncState'])).toBe('connected');
+    expect(getState().getIn(['mix_timelines', 'column:a', 'live', resolved[0].key, 'lastReconciledId'])).toBe('90');
+    expect(getState().getIn(['mix_timelines', 'column:a', 'sources', resolved[0].key, 'frontier'])).toBe('10');
+
+    mockGet.mockClear();
+    mockGet.mockResolvedValue({ status: 200, data: [], headers: {} });
+    await reconcileMixSource('column:a', resolved[0].key)(dispatch, getState);
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    expect(mockGet.mock.calls[0][1].params.since_id).toBe('90');
+  });
+
+  it('ignores an older reconcile after a newer one starts', async () => {
+    const { dispatch, getState } = harness();
+    const resolved = openColumn(dispatch, 'column:a', 1, [
+      { type: 'public', params: {} },
+      { type: 'list', id: '4', params: {} },
+    ]);
+
+    dispatch({
+      type: MIX_SOURCE_SUCCESS,
+      columnKey: 'column:a',
+      sourceKey: resolved[0].key,
+      sessionId: 1,
+      definitionFingerprint: resolved.map(source => source.key).join('\n'),
+      ids: ['10'],
+      cursor: null,
+      frontier: '10',
+      hasMore: false,
+      partial: false,
+      requestedCursor: null,
+    });
+    dispatch({
+      type: MIX_SOURCE_SUCCESS,
+      columnKey: 'column:a',
+      sourceKey: resolved[1].key,
+      sessionId: 1,
+      definitionFingerprint: resolved.map(source => source.key).join('\n'),
+      ids: [],
+      cursor: null,
+      frontier: null,
+      hasMore: false,
+      partial: false,
+      requestedCursor: null,
+    });
+    dispatch(openMixStream('column:a', mix));
+
+    let releaseFirst;
+    const first = new Promise(resolve => {
+      releaseFirst = resolve;
+    });
+    let started = 0;
+
+    mockGet.mockImplementation(() => {
+      started += 1;
+
+      if (started === 1) {
+        return first;
+      }
+
+      return Promise.resolve({
+        status: 200,
+        data: [{ id: '30', visibility: 'public', account: { id: '2' } }],
+        headers: {},
+      });
+    });
+
+    const older = reconcileMixSource('column:a', resolved[0].key)(dispatch, getState);
+    const newer = reconcileMixSource('column:a', resolved[0].key)(dispatch, getState);
+
+    await newer;
+    releaseFirst({
+      status: 500,
+      data: [{ id: '99', visibility: 'public', account: { id: '2' } }],
+      headers: {},
+    });
+    await older;
+
+    const ids = getState().getIn(['mix_timelines', 'column:a', 'live', resolved[0].key, 'statusIds']).toArray();
+
+    expect(ids).toEqual(['30']);
+    expect(ids).not.toContain('99');
+    expect(getState().getIn(['mix_timelines', 'column:a', 'live', resolved[0].key, 'syncState'])).toBe('connected');
+  });
+
+  it('hides and warns a history-only post from the edited filter result', () => {
+    const { dispatch, getState } = harness();
+    const resolved = openColumn(dispatch, 'column:a', 1, [
+      { type: 'public', params: {} },
+      { type: 'list', id: '4', params: {} },
+    ]);
+    const fingerprint = resolved.map(source => source.key).join('\n');
+
+    dispatch({
+      type: MIX_SOURCE_SUCCESS,
+      columnKey: 'column:a',
+      sourceKey: resolved[0].key,
+      sessionId: 1,
+      definitionFingerprint: fingerprint,
+      ids: ['500'],
+      cursor: '400',
+      frontier: '400',
+      hasMore: true,
+      partial: false,
+      requestedCursor: '600',
+    });
+    dispatch({
+      type: MIX_SOURCE_SUCCESS,
+      columnKey: 'column:a',
+      sourceKey: resolved[1].key,
+      sessionId: 1,
+      definitionFingerprint: fingerprint,
+      ids: [],
+      cursor: null,
+      frontier: null,
+      hasMore: false,
+      partial: false,
+      requestedCursor: null,
+    });
+    dispatch(openMixStream('column:a', mix));
+    const filtersFor = (id, title, action) => fromJS({
+      [id]: { id, title, filter_action: action, context: ['public'] },
+    });
+    const receive = (id, title, action) => {
+      connections.find(row => row.channel === 'public:bot').handlers.onReceive({
+        event: 'status.update',
+        payload: JSON.stringify({
+          id: '500',
+          visibility: 'public',
+          account: { id: '2' },
+          filtered: [{ filter: { id, title, filter_action: action, context: ['public'] }, keyword_matches: ['x'] }],
+        }),
+      });
+    };
+
+    receive('2', 'spam', 'hide');
+
+    const hidden = mixTimelineView(getState().getIn(['mix_timelines', 'column:a']), fromJS({}), filtersFor('2', 'spam', 'hide'), '1');
+
+    expect(hidden.statusIds.toArray()).not.toContain('500');
+    expect(getState().getIn(['mix_timelines', 'column:a', 'sources', resolved[0].key, 'ids']).toArray()).toEqual(['500']);
+    expect(getState().getIn(['mix_timelines', 'column:a', 'sources', resolved[0].key, 'cursor'])).toBe('400');
+    expect(getState().getIn(['mix_timelines', 'column:a', 'sources', resolved[0].key, 'frontier'])).toBe('400');
+    expect(getState().getIn(['mix_timelines', 'column:a', 'sources', resolved[0].key, 'filterResults', '500', 0, 'filter'])).toBe('2');
+
+    receive('9', 'Spoilers', 'warn');
+
+    const warned = mixTimelineView(getState().getIn(['mix_timelines', 'column:a']), fromJS({}), filtersFor('9', 'Spoilers', 'warn'), '1');
+
+    expect(warned.statusIds.toArray()).toContain('500');
+    expect(warned.warningsById['500']).toEqual(['Spoilers']);
+  });
+
+  it('keeps home and public filter results separate and blocks a revoked id from a late page', () => {
+    const homeMix = fromJS({
+      id: 'mix-1',
+      version: 1,
+      title: 'Desk',
+      sources: [
+        { type: 'home', params: { shows: { reblog: true, reply: true, private: true, limited: true, direct: true, personal: true } } },
+        { type: 'public', params: {} },
+      ],
+    });
+    const { dispatch, getState } = harness();
+    const resolved = openColumn(dispatch, 'column:home', 1, homeMix.get('sources').toJS());
+    const fingerprint = resolved.map(source => source.key).join('\n');
+
+    resolved.forEach(source => {
+      dispatch({
+        type: MIX_SOURCE_SUCCESS,
+        columnKey: 'column:home',
+        sourceKey: source.key,
+        sessionId: 1,
+        definitionFingerprint: fingerprint,
+        ids: ['500'],
+        cursor: '500',
+        frontier: '500',
+        hasMore: false,
+        partial: false,
+        requestedCursor: null,
+      });
+    });
+    dispatch(openMixStream('column:home', homeMix));
+    const homeStream = connections.find(row => row.channel === 'user');
+
+    homeStream.handlers.onReceive({
+      event: 'status.update',
+      payload: JSON.stringify({
+        id: '500',
+        visibility: 'public',
+        account: { id: '2' },
+        filtered: [{ filter: { id: '2', title: 'home-only', filter_action: 'hide', context: ['home'] }, keyword_matches: ['x'] }],
+      }),
+    });
+
+    expect(getState().getIn(['mix_timelines', 'column:home', 'sources', resolved[0].key, 'filterResults', '500', 0, 'filter'])).toBe('2');
+    expect(getState().getIn(['mix_timelines', 'column:home', 'sources', resolved[1].key, 'filterResults', '500'])).toBeUndefined();
+
+    const shown = mixTimelineView(getState().getIn(['mix_timelines', 'column:home']), fromJS({}), fromJS({
+      '2': { id: '2', title: 'home-only', filter_action: 'hide', context: ['home'] },
+    }), '1');
+
+    expect(shown.statusIds.toArray()).toContain('500');
+    expect(shown.contextById['500']).toBe('public');
+
+    const hashtagMix = fromJS({
+      id: 'mix-2',
+      version: 1,
+      title: 'Tags',
+      sources: [
+        { type: 'hashtag', id: 'ruby', params: {} },
+        { type: 'public', params: {} },
+      ],
+    });
+    const tagResolved = openColumn(dispatch, 'column:tag', 1, hashtagMix.get('sources').toJS());
+    const tagFingerprint = tagResolved.map(source => source.key).join('\n');
+
+    dispatch({
+      type: MIX_SOURCE_SUCCESS,
+      columnKey: 'column:tag',
+      sourceKey: tagResolved[0].key,
+      sessionId: 1,
+      definitionFingerprint: tagFingerprint,
+      ids: ['500'],
+      cursor: '400',
+      frontier: '400',
+      hasMore: true,
+      partial: false,
+      requestedCursor: '600',
+    });
+    dispatch(openMixStream('column:tag', hashtagMix));
+    connections.find(row => row.channel === 'hashtag' && row.params.tag === 'ruby').handlers.onReceive({
+      event: 'status.update',
+      payload: JSON.stringify({ id: '500', visibility: 'public', account: { id: '2' }, tags: [{ name: 'python' }] }),
+    });
+    dispatch({
+      type: MIX_SOURCE_SUCCESS,
+      columnKey: 'column:tag',
+      sourceKey: tagResolved[0].key,
+      sessionId: 1,
+      definitionFingerprint: tagFingerprint,
+      ids: ['500', '300'],
+      cursor: '300',
+      frontier: '300',
+      hasMore: true,
+      partial: false,
+      requestedCursor: '400',
+    });
+
+    expect(getState().getIn(['mix_timelines', 'column:tag', 'sources', tagResolved[0].key, 'ids']).toArray()).toEqual(['300']);
+    expect(getState().getIn(['mix_timelines', 'column:tag', 'sources', tagResolved[0].key, 'cursor'])).toBe('300');
+    expect(getState().getIn(['timelines', 'home', 'items']).toArray()).toEqual(['existing']);
+  });
 });
