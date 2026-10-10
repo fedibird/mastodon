@@ -1,4 +1,5 @@
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
+import compareId from '../compare_id';
 import { filterContextForSource } from './filter_context';
 import { buildMixView } from './merge';
 
@@ -41,6 +42,33 @@ const loadedSourcesForLive = (sources) => {
   }));
 };
 
+const newestUniqueIds = (lists) => {
+  const seen = new Set();
+  const ids = [];
+
+  lists.forEach(list => {
+    if (!list || !list.forEach) {
+      return;
+    }
+
+    list.forEach(id => {
+      if (id && !seen.has(id)) {
+        seen.add(id);
+        ids.push(id);
+      }
+    });
+  });
+
+  // Filters can hide some of the newest rows, so keep a window above the
+  // 40 displayed posts instead of scanning every id received so far.
+  if (ids.length > MIX_LIVE_LIMIT * 5) {
+    ids.sort((left, right) => compareId(right, left));
+    return ids.slice(0, MIX_LIVE_LIMIT * 5);
+  }
+
+  return ids;
+};
+
 const unionLive = (current, seed) => {
   const merged = ImmutableMap().asMutable();
 
@@ -52,12 +80,11 @@ const unionLive = (current, seed) => {
     map.forEach((entry, key) => {
       const existing = merged.get(key);
       const incoming = entry.get('statusIds') || entry.get('ids') || ImmutableList();
-      const ids = (existing ? existing.get('ids') : ImmutableList()).concat(incoming);
-      const unique = ids.filter((id, index) => ids.indexOf(id) === index);
+      const unique = newestUniqueIds([existing ? existing.get('ids') : null, incoming]);
 
       merged.set(key, ImmutableMap({
-        statusIds: unique,
-        ids: unique,
+        statusIds: ImmutableList(unique),
+        ids: ImmutableList(unique),
         filterResults: (existing ? existing.get('filterResults') : ImmutableMap()).merge(entry.get('filterResults') || ImmutableMap()),
         mode: entry.get('mode') || (existing && existing.get('mode')),
         syncState: entry.get('syncState') || (existing && existing.get('syncState')),

@@ -614,7 +614,7 @@ export default function mixTimelines(state = initialState, action) {
       .setIn([action.columnKey, 'sources'], historySources)
       .setIn([action.columnKey, 'pendingStatusIds'], ImmutableList(pendingIds))
       .setIn([action.columnKey, 'displayMode'], null)
-      .setIn([action.columnKey, 'pinnedToTop'], pendingIds.length === 0)
+      .setIn([action.columnKey, 'pinnedToTop'], pendingIds.length === 0 && action.historyAtTop === true)
       .deleteIn([action.columnKey, 'split']);
   }
   case MIX_SPLIT_ANCHOR:

@@ -371,6 +371,8 @@ class TimelineSplitControllerCore extends React.Component {
       return;
     }
 
+    const historyAtTop = this.captureScrollTop('history') <= 1;
+
     this.scrollAnchorApplied = false;
 
     if (this.props.splitBlocked) {
@@ -386,6 +388,7 @@ class TimelineSplitControllerCore extends React.Component {
 
     this.props.onDestroy(this.getSplitTimelineId(), {
       keep: TIMELINE_SPLIT_KEEP_HISTORY,
+      historyAtTop,
     });
   }
 

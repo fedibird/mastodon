@@ -169,6 +169,7 @@ describe('mix live history split', () => {
     expect(keptHistory.getIn(['column:a', 'split'])).toBeUndefined();
     expect(keptHistory.getIn(['column:a', 'sources', 'public', 'ids']).toArray()).toEqual(['40']);
     expect(keptHistory.getIn(['column:a', 'pendingStatusIds']).toArray()).toEqual(['100']);
+    expect(keptHistory.getIn(['column:a', 'pinnedToTop'])).toBe(false);
     expect(keptHistory.getIn(['column:a', 'live', 'public', 'statusIds']).toArray()).toEqual(['90', '100']);
 
     const keptLive = reducer(state, {
@@ -512,5 +513,56 @@ describe('mix live history split', () => {
 
     state = reducer(state, { type: MIX_SPLIT_CLEAR_ANCHOR, columnKey: 'column:a' });
     expect(state.getIn(['__anchors', 'column:a'])).toBeUndefined();
+  });
+
+  it('keeps the reading position unpinned unless history was at the top with no fresh posts', () => {
+    const split = (extraLive) => {
+      let state = succeed(succeed(open(), 'public', ['40'], { hasMore: false }), 'list', ['35'], { hasMore: false });
+
+      state = reducer(state, {
+        type: MIX_SPLIT_CREATE,
+        columnKey: 'column:a',
+        splitId: 'split-1',
+        sessionId: 1,
+        definitionFingerprint: fingerprint,
+        frozenLive: {},
+      });
+
+      if (extraLive) {
+        state = reducer(state, {
+          type: MIX_STREAM_STATUS,
+          columnKey: 'column:a',
+          sourceKey: 'public',
+          sessionId: 1,
+          definitionFingerprint: fingerprint,
+          id: '100',
+          decision: 'accept',
+          filterResults: [],
+        });
+      }
+
+      return state;
+    };
+
+    const closeHistory = (state, historyAtTop) => reducer(state, {
+      type: MIX_SPLIT_DESTROY,
+      columnKey: 'column:a',
+      splitId: 'split-1',
+      keep: 'history',
+      historyAtTop,
+      sessionId: 1,
+      definitionFingerprint: fingerprint,
+    });
+
+    const atTop = closeHistory(split(false), true);
+    const midway = closeHistory(split(false), false);
+    const withFresh = closeHistory(split(true), true);
+
+    expect(atTop.getIn(['column:a', 'pinnedToTop'])).toBe(true);
+    expect(atTop.getIn(['column:a', 'pendingStatusIds']).toArray()).toEqual([]);
+    expect(midway.getIn(['column:a', 'pinnedToTop'])).toBe(false);
+    expect(midway.getIn(['column:a', 'pendingStatusIds']).toArray()).toEqual([]);
+    expect(withFresh.getIn(['column:a', 'pinnedToTop'])).toBe(false);
+    expect(withFresh.getIn(['column:a', 'pendingStatusIds']).toArray()).toEqual(['100']);
   });
 });

@@ -8,6 +8,7 @@ import { isMixEnabled } from '../mix/availability';
 import { plainMix } from '../mix/definition';
 import { resolveRequest, normalizePage, classifyFetchFailure, previousStatusesForImport, statusesForSharedImport } from '../mix/source_adapters';
 import { MIX_FETCH_BUDGET, MIX_FETCH_CONCURRENCY, MIX_PAGE_SIZE, MIX_PAGE_TARGET, nextFetchKeys } from '../mix/merge';
+import { idHiddenByRelationships, statusHiddenByRelationships } from '../mix/relationship_visibility';
 
 export const MIX_TIMELINE_OPEN = 'MIX_TIMELINE_OPEN';
 export const MIX_TIMELINE_CLOSE = 'MIX_TIMELINE_CLOSE';
@@ -73,10 +74,48 @@ const sourceSnapshot = (column, scope) => sourcesIn(column, scope).entrySeq().ma
   retryAt: source.get('retryAt'),
 })).toArray();
 
-const stillCurrent = (getState, columnKey, sessionId, fingerprint) => {
+const stillCurrentScope = (getState, columnKey, sessionId, fingerprint, scope) => {
   const column = readColumn(getState, columnKey);
 
-  return !!column && column.get('sessionId') === sessionId && column.get('definitionFingerprint') === fingerprint;
+  if (!column || column.get('sessionId') !== sessionId || column.get('definitionFingerprint') !== fingerprint) {
+    return false;
+  }
+
+  if (scope && scope.history) {
+    return column.getIn(['split', 'id']) === scope.splitId;
+  }
+
+  return true;
+};
+
+const withoutHiddenStatuses = (getState, page) => {
+  const relationships = getState().get('relationships');
+  const statuses = getState().get('statuses');
+  const pageStatuses = (page.statuses || []).concat(page.referencedStatuses || []);
+  const hidden = new Set();
+
+  pageStatuses.forEach(status => {
+    if (status && statusHiddenByRelationships(relationships, status)) {
+      hidden.add(String(status.id));
+    }
+  });
+
+  (page.ids || []).forEach(id => {
+    if (idHiddenByRelationships(relationships, statuses, id, page.statuses)) {
+      hidden.add(String(id));
+    }
+  });
+
+  if (!hidden.size) {
+    return page;
+  }
+
+  return {
+    ...page,
+    ids: (page.ids || []).filter(id => !hidden.has(String(id))),
+    statuses: (page.statuses || []).filter(status => status && !hidden.has(String(status.id))),
+    referencedStatuses: (page.referencedStatuses || []).filter(status => status && !hidden.has(String(status.id))),
+  };
 };
 
 const fetchPage = (resolved, cursor, getState) => {
@@ -99,7 +138,7 @@ const fetchPage = (resolved, cursor, getState) => {
 };
 
 const acceptPage = (dispatch, getState, columnKey, sessionId, fingerprint, key, cursor, page, scope) => {
-  if (!stillCurrent(getState, columnKey, sessionId, fingerprint)) {
+  if (!stillCurrentScope(getState, columnKey, sessionId, fingerprint, scope)) {
     return;
   }
 
@@ -131,40 +170,59 @@ const acceptPage = (dispatch, getState, columnKey, sessionId, fingerprint, key, 
     return;
   }
 
-  const bodiesInPage = page.statuses.concat(page.referencedStatuses || []);
-  const previousById = previousStatusesForImport(getState().get('statuses'), bodiesInPage);
-  const bodies = statusesForSharedImport(bodiesInPage, previousById);
+  const visiblePage = withoutHiddenStatuses(getState, page);
 
-  if (page.accounts && page.accounts.length) {
-    dispatch(importFetchedAccounts(page.accounts));
-  }
-
-  if (page.relationships && page.relationships.length) {
-    dispatch(fetchRelationshipsSuccess(page.relationships));
-  }
-
-  if (page.filters && page.filters.length) {
-    dispatch(importFilters(page.filters));
-  }
-
-  if (!stillCurrent(getState, columnKey, sessionId, fingerprint)) {
+  if (!stillCurrentScope(getState, columnKey, sessionId, fingerprint, scope)) {
     return;
   }
 
+  if (visiblePage.accounts && visiblePage.accounts.length) {
+    dispatch(importFetchedAccounts(visiblePage.accounts));
+  }
+
+  if (!stillCurrentScope(getState, columnKey, sessionId, fingerprint, scope)) {
+    return;
+  }
+
+  if (visiblePage.relationships && visiblePage.relationships.length) {
+    dispatch(fetchRelationshipsSuccess(visiblePage.relationships));
+  }
+
+  if (!stillCurrentScope(getState, columnKey, sessionId, fingerprint, scope)) {
+    return;
+  }
+
+  if (visiblePage.filters && visiblePage.filters.length) {
+    dispatch(importFilters(visiblePage.filters));
+  }
+
+  if (!stillCurrentScope(getState, columnKey, sessionId, fingerprint, scope)) {
+    return;
+  }
+
+  const bodiesInPage = visiblePage.statuses.concat(visiblePage.referencedStatuses || []);
+  const previousById = previousStatusesForImport(getState().get('statuses'), bodiesInPage);
+  const bodies = statusesForSharedImport(bodiesInPage, previousById);
+
   dispatch(importFetchedStatuses(bodies));
+
+  if (!stillCurrentScope(getState, columnKey, sessionId, fingerprint, scope)) {
+    return;
+  }
+
   dispatch({
     type: MIX_SOURCE_SUCCESS,
     columnKey,
     sourceKey: key,
     sessionId,
     definitionFingerprint: fingerprint,
-    ids: page.ids,
-    filterResults: page.filterResults,
-    cursor: page.cursor,
-    frontier: page.frontier,
-    hasMore: page.hasMore,
-    partial: page.partial,
-    suspended: page.suspended,
+    ids: visiblePage.ids,
+    filterResults: visiblePage.filterResults,
+    cursor: visiblePage.cursor,
+    frontier: visiblePage.frontier,
+    hasMore: visiblePage.hasMore,
+    partial: visiblePage.partial,
+    suspended: visiblePage.suspended,
     requestedCursor: cursor || null,
     extra: !!cursor,
     ...stamp({}, scope),
@@ -172,7 +230,7 @@ const acceptPage = (dispatch, getState, columnKey, sessionId, fingerprint, key, 
 };
 
 const failPage = (dispatch, getState, columnKey, sessionId, fingerprint, key, error, scope) => {
-  if (!stillCurrent(getState, columnKey, sessionId, fingerprint)) {
+  if (!stillCurrentScope(getState, columnKey, sessionId, fingerprint, scope)) {
     return;
   }
 
@@ -195,7 +253,7 @@ const pump = async (dispatch, getState, columnKey, sessionId, fingerprint, resol
   let budget = MIX_FETCH_BUDGET;
 
   try {
-    while (budget > 0 && stillCurrent(getState, columnKey, sessionId, fingerprint)) {
+    while (budget > 0 && stillCurrentScope(getState, columnKey, sessionId, fingerprint, scope)) {
       const keys = nextFetchKeys(sourceSnapshot(readColumn(getState, columnKey), scope), {
         budget,
         target: MIX_PAGE_TARGET,
@@ -235,7 +293,7 @@ const pump = async (dispatch, getState, columnKey, sessionId, fingerprint, resol
       }));
     }
   } finally {
-    if (stillCurrent(getState, columnKey, sessionId, fingerprint)) {
+    if (stillCurrentScope(getState, columnKey, sessionId, fingerprint, scope)) {
       dispatch(stamp({
         type: MIX_TIMELINE_DONE,
         columnKey,
@@ -402,7 +460,7 @@ export function retryMixSource(columnKey, mix, sourceKey, { scope = null, splitI
     } catch (error) {
       failPage(dispatch, getState, columnKey, sessionId, fingerprint, sourceKey, error, historyScope);
     } finally {
-      if (stillCurrent(getState, columnKey, sessionId, fingerprint)) {
+      if (stillCurrentScope(getState, columnKey, sessionId, fingerprint, historyScope)) {
         dispatch(stamp({
           type: MIX_TIMELINE_DONE,
           columnKey,
@@ -422,7 +480,7 @@ const extendLoaded = async (dispatch, getState, columnKey, sessionId, fingerprin
     retry: true,
   }).slice(0, MIX_FETCH_CONCURRENCY);
 
-  if (!keys.length || !stillCurrent(getState, columnKey, sessionId, fingerprint)) {
+  if (!keys.length || !stillCurrentScope(getState, columnKey, sessionId, fingerprint, scope)) {
     return;
   }
 
@@ -451,7 +509,7 @@ const extendLoaded = async (dispatch, getState, columnKey, sessionId, fingerprin
       }
     }));
   } finally {
-    if (stillCurrent(getState, columnKey, sessionId, fingerprint)) {
+    if (stillCurrentScope(getState, columnKey, sessionId, fingerprint, scope)) {
       dispatch(stamp({
         type: MIX_TIMELINE_DONE,
         columnKey,
@@ -498,7 +556,7 @@ export function createMixSplit(columnKey, splitId) {
   };
 }
 
-export function destroyMixSplit(columnKey, splitId, { keep = 'history', liveAtTop = false } = {}) {
+export function destroyMixSplit(columnKey, splitId, { keep = 'history', liveAtTop = false, historyAtTop = false } = {}) {
   return (dispatch, getState) => {
     const column = readColumn(getState, columnKey);
 
@@ -512,6 +570,7 @@ export function destroyMixSplit(columnKey, splitId, { keep = 'history', liveAtTo
       splitId,
       keep,
       liveAtTop,
+      historyAtTop,
       sessionId: column.get('sessionId'),
       definitionFingerprint: column.get('definitionFingerprint'),
     });

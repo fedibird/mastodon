@@ -477,7 +477,7 @@ export class MixTimelinePage extends React.PureComponent {
                       view: historyView,
                       hasMore: !!(historyView && historyView.hasMore),
                       isLoading: !!(historyView && (historyView.waiting || historyView.running)),
-                      trackIntersection: false,
+                      trackIntersection: true,
                       onLoadMore: this.handleLoadHistory,
                       prepend: this.renderNotices(historyView, 'history'),
                     })}

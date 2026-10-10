@@ -8,6 +8,7 @@ import { classifyStreamStatus, streamChannelId, streamSubscriptions } from '../m
 import { filterContextForSource } from '../mix/filter_context';
 import { plainMix } from '../mix/definition';
 import { MIX_PAGE_SIZE, MIX_RECONCILE_BUDGET } from '../mix/merge';
+import { statusHiddenByRelationships } from '../mix/relationship_visibility';
 import { normalizeFilterResult } from './importer/normalizer';
 import { me } from '../initial_state';
 import {
@@ -305,12 +306,14 @@ export function reconcileMixSource(columnKey, sourceKey) {
         return;
       }
 
+      const visibleStatus = (status) => !statusHiddenByRelationships(getState().get('relationships'), status);
+
       if (page.partial) {
         const partialIds = sinceId ? page.ids.filter(id => compareId(id, sinceId) > 0) : page.ids;
-        const partialStatuses = page.statuses.filter(status => partialIds.indexOf(status.id) !== -1);
+        const partialStatuses = page.statuses.filter(status => partialIds.indexOf(status.id) !== -1 && visibleStatus(status));
 
         if (partialStatuses.length) {
-          importBodies(dispatch, getState, columnKey, sessionId, fingerprint, partialStatuses.concat(page.referencedStatuses || []));
+          importBodies(dispatch, getState, columnKey, sessionId, fingerprint, partialStatuses.concat((page.referencedStatuses || []).filter(visibleStatus)));
           partialStatuses.forEach(status => {
             dispatch({
               type: MIX_STREAM_STATUS,
@@ -338,16 +341,17 @@ export function reconcileMixSource(columnKey, sourceKey) {
       }
 
       const keptIds = sinceId ? page.ids.filter(id => compareId(id, sinceId) > 0) : page.ids.slice();
-      const kept = page.statuses.filter(status => keptIds.indexOf(status.id) !== -1);
+      const kept = page.statuses.filter(status => keptIds.indexOf(status.id) !== -1 && visibleStatus(status));
+      const referenced = (page.referencedStatuses || []).filter(visibleStatus);
       const sawBoundary = !!sinceId && page.ids.some(id => compareId(id, sinceId) <= 0);
 
-      keptIds.forEach(id => {
-        if (!newestKept || compareId(id, newestKept) > 0) {
-          newestKept = id;
+      kept.forEach(status => {
+        if (!newestKept || compareId(status.id, newestKept) > 0) {
+          newestKept = status.id;
         }
       });
 
-      if (kept.length && !importBodies(dispatch, getState, columnKey, sessionId, fingerprint, kept.concat(page.referencedStatuses || []))) {
+      if (kept.length && !importBodies(dispatch, getState, columnKey, sessionId, fingerprint, kept.concat(referenced))) {
         return;
       }
 
