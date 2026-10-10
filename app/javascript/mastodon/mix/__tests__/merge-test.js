@@ -157,6 +157,7 @@ describe('mix merge', () => {
     expect(both.ids).toEqual(['500']);
     expect(both.contextById['500']).toBe('public');
     expect(both.warningsById['500']).toEqual([]);
+    expect(both.sourceKeysById['500']).toEqual(['public']);
     expect(warned.ids).toEqual(['500']);
     expect(warned.warningsById['500']).toEqual(['Spoilers']);
 
@@ -226,5 +227,47 @@ describe('mix merge', () => {
       source('done', ['500', '400', '300', '200']),
       source('also', ['450', '250']),
     ], { budget: 8, target: 2 })).toEqual([]);
+  });
+
+  it('keeps only visible sources in sourceKeysById', () => {
+    const status = { id: '500', visibility: 'public', account: '2', reblog: null };
+    const filters = [
+      { id: 'hide-home', filter_action: 'hide', title: 'Home hide', context: ['home'] },
+      { id: 'warn-tag', filter_action: 'warn', title: 'Spoilers', context: ['public'] },
+    ];
+    const contexts = { home: 'home', tag: 'public', news: 'public' };
+    const view = buildMixView([
+      source('home', ['500'], {
+        descriptor: { type: 'home', params: { shows: { reply: true, reblog: true } } },
+        filterResults: { '500': [{ filter: 'hide-home' }] },
+      }),
+      source('tag', ['500'], {
+        descriptor: { type: 'hashtag', id: 'fediverse', params: {} },
+        filterResults: { '500': [{ filter: 'warn-tag' }] },
+      }),
+      source('news', ['500'], {
+        descriptor: { type: 'list', id: '4', title: 'News', params: {} },
+        filterResults: { '500': [] },
+      }),
+    ], { '500': status }, { filters, contexts });
+
+    expect(view.ids).toEqual(['500']);
+    expect(view.sourceKeysById['500']).toEqual(['tag', 'news']);
+    expect(view.sourceWarningsById['500']).toEqual({ tag: ['Spoilers'], news: [] });
+    expect(view.warningsById['500']).toEqual(['Spoilers']);
+    expect(view.contextById['500']).toBe('public');
+
+    const repliesOff = buildMixView([
+      source('home', ['500'], { descriptor: { type: 'home', params: { shows: { reply: false, reblog: true } } } }),
+    ], { '500': { ...status, account: '3', in_reply_to_id: '1', in_reply_to_account_id: '9' } }, { me: '2', contexts });
+
+    expect(repliesOff.ids).toEqual([]);
+
+    const removed = buildMixView([
+      source('news', ['500'], { descriptor: { type: 'list', id: '4', params: {} } }),
+    ], { '500': status }, { tombstones: ['500'], contexts });
+
+    expect(removed.ids).toEqual([]);
+    expect(removed.sourceKeysById['500']).toBeUndefined();
   });
 });
