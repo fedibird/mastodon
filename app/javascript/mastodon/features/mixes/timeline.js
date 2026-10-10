@@ -17,7 +17,7 @@ import { defaultColumnWidth, me } from 'mastodon/initial_state';
 import { isMixEnabled } from 'mastodon/mix/availability';
 import { plainMix } from 'mastodon/mix/definition';
 import { sourceKey } from 'mastodon/mix/source';
-import { sourceBadges } from 'mastodon/mix/source_badges';
+import { badgeRevisionToken, mixBadgeIdentity, paneBadgeToken, sourceBadges, storeBadge } from 'mastodon/mix/source_badges';
 import { mixTimelineView } from 'mastodon/mix/view';
 import messages from './messages';
 
@@ -140,6 +140,17 @@ export class MixTimelinePage extends React.PureComponent {
     return this.props.view;
   }
 
+  badgeIdentity () {
+    const plain = plainMix(this.props.mix);
+
+    return mixBadgeIdentity({
+      sources: plain ? plain.sources : [],
+      lists: this.props.lists,
+      accounts: this.props.accounts,
+      locale: this.props.intl && this.props.intl.locale,
+    });
+  }
+
   lookupBadges (pane, id) {
     const view = this.viewForPane(pane);
     const keys = view && view.sourceKeysById && view.sourceKeysById[id];
@@ -149,9 +160,8 @@ export class MixTimelinePage extends React.PureComponent {
     }
 
     const warnings = (view.sourceWarningsById && view.sourceWarningsById[id]) || {};
-    const plain = plainMix(this.props.mix);
-    const titles = plain ? plain.sources.map(source => source.title || '').join('\n') : '';
-    const token = `${pane}\n${keys.join('\n')}\n${JSON.stringify(warnings)}\n${titles}\n${this.nameToken(plain)}`;
+    const identity = this.badgeIdentity();
+    const token = paneBadgeToken({ pane, keys, warnings, identity });
     const cacheKey = `${pane}:${id}`;
     const hit = this.badgeCache.get(cacheKey);
 
@@ -159,6 +169,7 @@ export class MixTimelinePage extends React.PureComponent {
       return hit.value;
     }
 
+    const plain = plainMix(this.props.mix);
     const value = sourceBadges(plain ? plain.sources : [], keys, {
       formatMessage: (message, values) => this.props.intl.formatMessage(message, values),
       lists: this.props.lists,
@@ -166,36 +177,14 @@ export class MixTimelinePage extends React.PureComponent {
       warningsByKey: warnings,
     });
 
-    this.badgeCache.set(cacheKey, { token, value });
-    return value;
-  }
-
-  nameToken (plain) {
-    if (!plain) {
-      return '';
-    }
-
-    return plain.sources.map(source => {
-      if (source.type === 'list' && this.props.lists && this.props.lists.get) {
-        const list = this.props.lists.get(String(source.id || ''));
-
-        return list && list.get ? list.get('title') : '';
-      }
-
-      if (source.type === 'account' && this.props.accounts && this.props.accounts.get) {
-        const account = this.props.accounts.get(String(source.id || ''));
-
-        return account && account.get ? (account.get('display_name') || account.get('acct') || '') : '';
-      }
-
-      return '';
-    }).join('\n');
+    return storeBadge(this.badgeCache, cacheKey, { token, value });
   }
 
   badgeRevision () {
-    const views = [this.props.view, this.props.liveView, this.props.historyView];
-
-    return views.map(view => (view ? `${JSON.stringify(view.sourceKeysById || {})}\n${JSON.stringify(view.sourceWarningsById || {})}` : '')).join('|') + this.nameToken(plainMix(this.props.mix));
+    return badgeRevisionToken({
+      views: [this.props.view, this.props.liveView, this.props.historyView],
+      identity: this.badgeIdentity(),
+    });
   }
 
   componentDidMount () {

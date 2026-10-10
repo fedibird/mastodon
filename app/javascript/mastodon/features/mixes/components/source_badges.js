@@ -2,6 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { defineMessages, injectIntl } from 'react-intl';
 import { Link } from 'react-router-dom';
+import Overlay from 'react-overlays/Overlay';
 import Icon from 'mastodon/components/icon';
 
 const VISIBLE_COUNT = 3;
@@ -10,9 +11,37 @@ const messages = defineMessages({
   shownVia: { id: 'mixes.shown_via', defaultMessage: 'Shown via' },
   more: { id: 'mixes.sources_more', defaultMessage: '{count} more' },
   openTimeline: { id: 'mixes.open_timeline', defaultMessage: 'Open original timeline' },
+  settingsDiffer: { id: 'mixes.timeline_settings_differ', defaultMessage: 'The regular timeline uses your current settings, not this saved mix.' },
   warnings: { id: 'mixes.source_warnings', defaultMessage: 'Filter warnings' },
   close: { id: 'mixes.close_source', defaultMessage: 'Close source details' },
 });
+
+const POPPER_CONFIG = {
+  strategy: 'fixed',
+  modifiers: [
+    {
+      name: 'preventOverflow',
+      options: {
+        boundary: 'viewport',
+        altAxis: true,
+        padding: 8,
+      },
+    },
+    {
+      name: 'flip',
+      options: {
+        boundary: 'viewport',
+        padding: 8,
+        fallbackPlacements: ['top-start', 'bottom-start'],
+      },
+    },
+  ],
+};
+
+const MENU_STYLE = {
+  width: '18em',
+  maxWidth: 'calc(100vw - 16px)',
+};
 
 class MixSourceBadges extends React.PureComponent {
 
@@ -29,7 +58,7 @@ class MixSourceBadges extends React.PureComponent {
   buttonRefs = {};
 
   componentWillUnmount () {
-    document.removeEventListener('keydown', this.handleDocumentKeyDown);
+    this.clearMenuListeners();
   }
 
   handleBadgeRef = (node) => {
@@ -54,18 +83,57 @@ class MixSourceBadges extends React.PureComponent {
 
   openMenu = (key) => {
     this.setState({ openKey: key });
-    document.addEventListener('keydown', this.handleDocumentKeyDown);
   };
 
   closeMenu = (restoreFocus) => {
     const key = this.state.openKey;
 
     this.setState({ openKey: null });
-    document.removeEventListener('keydown', this.handleDocumentKeyDown);
 
     if (restoreFocus && key && this.buttonRefs[key]) {
       this.buttonRefs[key].focus();
     }
+  };
+
+  clearMenuListeners = () => {
+    if (!this.menuListening) {
+      return;
+    }
+
+    this.menuListening = false;
+    document.removeEventListener('click', this.handleDocumentClick, false);
+    document.removeEventListener('keydown', this.handleDocumentKeyDown, false);
+  };
+
+  handleMenuMount = (node) => {
+    this.menuNode = node;
+
+    if (!node) {
+      this.clearMenuListeners();
+      return;
+    }
+
+    if (this.menuListening) {
+      return;
+    }
+
+    this.menuListening = true;
+    document.addEventListener('click', this.handleDocumentClick, false);
+    document.addEventListener('keydown', this.handleDocumentKeyDown, false);
+  };
+
+  handleDocumentClick = (event) => {
+    const anchor = this.buttonRefs[this.state.openKey];
+
+    if (this.menuNode && this.menuNode.contains(event.target)) {
+      return;
+    }
+
+    if (anchor && anchor.contains(event.target)) {
+      return;
+    }
+
+    this.closeMenu(false);
   };
 
   handleDocumentKeyDown = (event) => {
@@ -74,6 +142,8 @@ class MixSourceBadges extends React.PureComponent {
       this.closeMenu(true);
     }
   };
+
+  findTarget = () => this.buttonRefs[this.state.openKey] || null;
 
   handleToggle = (key) => {
     if (this.state.openKey === key) {
@@ -88,16 +158,33 @@ class MixSourceBadges extends React.PureComponent {
     this.setState({ expanded: true });
   };
 
-  renderMenu (badge) {
+  renderOverlay = ({ props, placement }) => {
+    const badge = (this.props.badges || []).find(item => item.key === this.state.openKey);
+
+    if (!badge) {
+      return null;
+    }
+
     const { intl } = this.props;
+    const style = { ...props.style, ...MENU_STYLE };
 
     return (
-      <div className='status__mix-sources__menu' role='dialog' aria-label={badge.fullLabel}>
+      <div
+        {...props}
+        className={`status__mix-sources__menu ${placement || ''}`}
+        style={style}
+        role='dialog'
+        aria-label={badge.fullLabel}
+        ref={this.handleMenuMount}
+      >
         <p className='status__mix-sources__menu-type'>{badge.typeLabel}</p>
         <p className='status__mix-sources__menu-name'>{badge.fullLabel}</p>
         {badge.conditions.map(line => (
           <p key={line} className='status__mix-sources__menu-detail'>{line}</p>
         ))}
+        {badge.settingsDiffer && (
+          <p className='status__mix-sources__menu-note'>{intl.formatMessage(messages.settingsDiffer)}</p>
+        )}
         {badge.warningTitles.length > 0 && (
           <div className='status__mix-sources__menu-warn'>
             <p>{intl.formatMessage(messages.warnings)}</p>
@@ -114,7 +201,7 @@ class MixSourceBadges extends React.PureComponent {
         </button>
       </div>
     );
-  }
+  };
 
   render () {
     const { intl, badges } = this.props;
@@ -144,7 +231,6 @@ class MixSourceBadges extends React.PureComponent {
                 <Icon id={badge.icon} className='status__mix-sources__icon' />
                 <span className='status__mix-sources__badge-label'>{badge.label}</span>
               </button>
-              {this.state.openKey === badge.key && this.renderMenu(badge)}
             </li>
           ))}
           {!this.state.expanded && hiddenCount > 0 && (
@@ -155,6 +241,16 @@ class MixSourceBadges extends React.PureComponent {
             </li>
           )}
         </ul>
+        <Overlay
+          show={!!this.state.openKey}
+          placement='bottom-start'
+          flip
+          offset={[0, 4]}
+          target={this.findTarget}
+          popperConfig={POPPER_CONFIG}
+        >
+          {this.renderOverlay}
+        </Overlay>
       </div>
     );
   }

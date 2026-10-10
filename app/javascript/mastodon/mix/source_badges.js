@@ -63,26 +63,34 @@ const hasNarrowingParams = (source) => {
   });
 };
 
+// Home, limited, and personal columns follow the account's current settings.
+// A mix stores its own snapshot, so those routes are not the same feed.
+const ACCOUNT_SETTING_TYPES = {
+  home: true,
+  limited: true,
+  personal: true,
+};
+
+export const usesAccountTimelineSettings = (source) => {
+  const normalized = normalizeSource(source);
+
+  return !!(normalized.ok && ACCOUNT_SETTING_TYPES[normalized.source.type]);
+};
+
 // Link only when the column URL is the whole source. Extra tag, media,
 // bot, or visibility filters are not represented by that URL.
 export const sourceTimelinePath = (source) => {
   const normalized = normalizeSource(source);
 
-  if (!normalized.ok || hasNarrowingParams(normalized.source)) {
+  if (!normalized.ok || hasNarrowingParams(normalized.source) || usesAccountTimelineSettings(normalized.source)) {
     return null;
   }
 
   const plain = normalized.source;
 
   switch (plain.type) {
-  case 'home':
-    return '/timelines/home';
   case 'public':
     return '/timelines/public';
-  case 'limited':
-    return '/timelines/limited';
-  case 'personal':
-    return '/timelines/personal';
   case 'domain':
     return plain.domain ? `/timelines/public/domain/${encodeURIComponent(plain.domain)}` : null;
   case 'hashtag':
@@ -231,8 +239,72 @@ export const sourceBadges = (mixSources, keys, { formatMessage, lists, accounts,
       conditions,
       warningTitles: (warningsByKey && warningsByKey[key]) || [],
       href: sourceTimelinePath(source),
+      settingsDiffer: usesAccountTimelineSettings(source),
     });
 
     return badges;
   }, []);
+};
+
+export const BADGE_CACHE_LIMIT = 200;
+
+const recordName = (collection, id, field) => {
+  if (!collection || !collection.get || !id) {
+    return '';
+  }
+
+  const record = collection.get(String(id));
+
+  if (!record || !record.get) {
+    return '';
+  }
+
+  return record.get(field) || record.get('title') || record.get('display_name') || record.get('acct') || '';
+};
+
+// Shared by the per-status cache and the list revision so a title, name,
+// order, warning, or locale change expires both.
+export const mixBadgeIdentity = ({ sources, lists, accounts, locale } = {}) => {
+  const rows = (sources || []).map(source => [
+    sourceKey(source) || '',
+    source.type || '',
+    source.id || '',
+    source.title || '',
+    source.type === 'list' ? recordName(lists, source.id, 'title') : '',
+    source.type === 'account' ? recordName(accounts, source.id, 'display_name') : '',
+  ].join('\t'));
+
+  return `${locale || ''}\n${rows.join('\n')}`;
+};
+
+export const paneBadgeToken = ({ pane, keys, warnings, identity }) => (
+  `${pane || ''}\n${(keys || []).join('\n')}\n${JSON.stringify(warnings || {})}\n${identity || ''}`
+);
+
+export const badgeRevisionToken = ({ views, identity }) => {
+  const panes = (views || []).map(view => {
+    if (!view) {
+      return '';
+    }
+
+    return `${JSON.stringify(view.sourceKeysById || {})}\n${JSON.stringify(view.sourceWarningsById || {})}`;
+  });
+
+  return `${panes.join('|')}\n${identity || ''}`;
+};
+
+export const storeBadge = (cache, key, entry, limit = BADGE_CACHE_LIMIT) => {
+  if (cache.has(key)) {
+    cache.delete(key);
+  }
+
+  cache.set(key, entry);
+
+  while (cache.size > limit) {
+    const oldest = cache.keys().next().value;
+
+    cache.delete(oldest);
+  }
+
+  return entry.value;
 };

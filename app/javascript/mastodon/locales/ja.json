@@ -632,6 +632,7 @@
   "mixes.shown_via": "表示ソース",
   "mixes.sources_more": "ほか{count}件",
   "mixes.open_timeline": "元のタイムラインを開く",
+  "mixes.timeline_settings_differ": "通常のタイムラインは、このミックスに保存した条件ではなく、いまの設定で開きます。",
   "mixes.source_warnings": "フィルター警告",
   "mixes.close_source": "ソースの詳細を閉じる",
   "mixes.rest_only": "{name}はリアルタイムでは更新されません。新しい投稿は再取得で確認します。",

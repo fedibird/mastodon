@@ -2315,12 +2315,8 @@ body > [data-popper-placement] {
   }
 
   &__menu {
-    position: absolute;
-    z-index: 2;
-    left: 0;
-    top: calc(100% + 4px);
-    width: min(18em, calc(100vw - 32px));
-    max-width: 100%;
+    z-index: 3;
+    box-sizing: border-box;
     padding: 8px;
     border: 1px solid rgba($primary-text-color, 0.2);
     border-radius: 8px;
