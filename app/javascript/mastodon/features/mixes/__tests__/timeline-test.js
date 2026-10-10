@@ -226,7 +226,7 @@ describe('mix timeline column', () => {
     );
 
     expect(dispatch).toHaveBeenCalledWith({ type: 'MIX_TIMELINE_CLOSE', columnKey: 'route:mix-1' });
-    expect(dispatch.mock.calls.filter(call => typeof call[0] === 'function')).toHaveLength(0);
+    expect(dispatch.mock.calls.filter(call => typeof call[0] === 'function')).toHaveLength(1);
     expect(screen.getByText('This mix was deleted.')).toBeTruthy();
   });
 
@@ -272,5 +272,37 @@ describe('mix timeline column', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry source-public' }));
 
     expect(dispatch.mock.calls.slice(beforeRetry).map(call => typeof call[0])).toEqual(['function']);
+  });
+
+  it('says an account source is not live until it is refreshed', () => {
+    render(
+      <MemoryRouter>
+        <MixTimelinePage
+          dispatch={jest.fn()}
+          intl={intl}
+          mixId='mix-1'
+          mix={savedMix}
+          columnKey='column:account'
+          enabled
+          multiColumn
+          view={{
+            statusIds: fromJS([]),
+            contextById: {},
+            warningsById: {},
+            orderGuaranteed: true,
+            waiting: false,
+            hasMore: false,
+            running: false,
+            suspended: [],
+            errors: [],
+            degraded: [],
+            restOnly: [{ key: 'account-key', label: 'ada' }],
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('ada is not live. Refresh to check for new posts.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Refresh account-key' }).getAttribute('data-source-key')).toBe('account-key');
   });
 });

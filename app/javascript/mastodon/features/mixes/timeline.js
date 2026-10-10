@@ -10,6 +10,7 @@ import ColumnHeader from '../../components/column_header';
 import StatusList from '../../components/status_list';
 import { addColumn, changeColumnParams, moveColumn, removeColumn } from '../../actions/columns';
 import { closeMixTimeline, loadMixTimeline, mixColumnKey, retryMixSource } from '../../actions/mix_timelines';
+import { closeMixStream, openMixStream, pinMixStream, reconcileMixSource, revealMixStream } from '../../actions/mix_streaming';
 import { defaultColumnWidth, me } from 'mastodon/initial_state';
 import { isMixEnabled } from 'mastodon/mix/availability';
 import { plainMix } from 'mastodon/mix/definition';
@@ -88,6 +89,9 @@ export class MixTimelinePage extends React.PureComponent {
       running: PropTypes.bool,
       suspended: PropTypes.array,
       errors: PropTypes.array,
+      pendingCount: PropTypes.number,
+      degraded: PropTypes.array,
+      restOnly: PropTypes.array,
     }),
     enabled: PropTypes.bool,
     multiColumn: PropTypes.bool,
@@ -100,10 +104,12 @@ export class MixTimelinePage extends React.PureComponent {
 
   componentDidUpdate (prevProps) {
     if (prevProps.columnKey && prevProps.columnKey !== this.props.columnKey) {
+      this.props.dispatch(closeMixStream(prevProps.columnKey));
       this.props.dispatch(closeMixTimeline(prevProps.columnKey));
     }
 
     if (!this.props.mix && prevProps.mix && prevProps.columnKey) {
+      this.props.dispatch(closeMixStream(prevProps.columnKey));
       this.props.dispatch(closeMixTimeline(prevProps.columnKey));
       return;
     }
@@ -115,6 +121,7 @@ export class MixTimelinePage extends React.PureComponent {
 
   componentWillUnmount () {
     if (this.props.columnKey) {
+      this.props.dispatch(closeMixStream(this.props.columnKey));
       this.props.dispatch(closeMixTimeline(this.props.columnKey));
     }
   }
@@ -122,11 +129,32 @@ export class MixTimelinePage extends React.PureComponent {
   loadTimeline () {
     if (this.props.mix && this.props.columnKey) {
       this.props.dispatch(loadMixTimeline(this.props.columnKey, this.props.mix));
+      this.props.dispatch(openMixStream(this.props.columnKey, this.props.mix));
     }
   }
 
   handleLoadMore = () => {
     this.props.dispatch(loadMixTimeline(this.props.columnKey, this.props.mix, { extend: true }));
+  };
+
+  handleScrollToTop = () => {
+    this.props.dispatch(pinMixStream(this.props.columnKey, true));
+  };
+
+  handleScroll = () => {
+    this.props.dispatch(pinMixStream(this.props.columnKey, false));
+  };
+
+  handleReveal = () => {
+    this.props.dispatch(revealMixStream(this.props.columnKey));
+  };
+
+  handleRefreshRest = (event) => {
+    const sourceKey = event.currentTarget.getAttribute('data-source-key');
+
+    if (sourceKey) {
+      this.props.dispatch(reconcileMixSource(this.props.columnKey, sourceKey));
+    }
   };
 
   contextTypeForId = (id) => {
@@ -199,6 +227,33 @@ export class MixTimelinePage extends React.PureComponent {
       notices.push({ key: 'order', text: intl.formatMessage(messages.orderPartial) });
     }
 
+    if (view && view.pendingCount) {
+      notices.push({
+        key: 'pending',
+        text: intl.formatMessage(messages.pendingPosts, { count: view.pendingCount }),
+        reveal: true,
+      });
+    }
+
+    if (view && view.restOnly && view.restOnly.length) {
+      view.restOnly.forEach(item => {
+        notices.push({
+          key: `rest-${item.key}`,
+          text: intl.formatMessage(messages.restOnly, { name: item.label || item.key }),
+          refresh: item.key,
+        });
+      });
+    }
+
+    if (view && view.degraded && view.degraded.length) {
+      view.degraded.forEach(key => {
+        notices.push({
+          key: `degraded-${key}`,
+          text: intl.formatMessage(messages.streamDegraded, { name: key }),
+        });
+      });
+    }
+
     if (view) {
       view.errors.forEach(item => {
         const name = item.label || item.key;
@@ -222,10 +277,20 @@ export class MixTimelinePage extends React.PureComponent {
 
     const noticeNodes = notices.map(notice => (
       <p key={notice.key || notice.text} className='mix-editor__notice'>
-        {notice.text || notice}
+        {notice.reveal ? null : (notice.text || notice)}
         {notice.retry && (
           <button type='button' className='button button-secondary' data-source-key={notice.key} onClick={this.handleRetry}>
             {intl.formatMessage(messages.retrySource, { name: notice.key })}
+          </button>
+        )}
+        {notice.reveal && (
+          <button type='button' className='button button-secondary' onClick={this.handleReveal}>
+            {notice.text}
+          </button>
+        )}
+        {notice.refresh && (
+          <button type='button' className='button button-secondary' data-source-key={notice.refresh} onClick={this.handleRefreshRest}>
+            {intl.formatMessage(messages.refreshRest, { name: notice.refresh })}
           </button>
         )}
       </p>
@@ -245,6 +310,8 @@ export class MixTimelinePage extends React.PureComponent {
           hasMore={!!(view && view.hasMore)}
           isLoading={!!(view && (view.waiting || view.running))}
           onLoadMore={this.handleLoadMore}
+          onScrollToTop={this.handleScrollToTop}
+          onScroll={this.handleScroll}
           contextTypeForId={this.contextTypeForId}
           warningTitlesForId={this.warningTitlesForId}
           emptyMessage={<FormattedMessage id='mixes.empty_timeline' defaultMessage='No posts in this mix yet.' />}
