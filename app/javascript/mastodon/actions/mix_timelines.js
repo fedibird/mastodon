@@ -1,9 +1,10 @@
 import api, { getLinks } from '../api';
-import { importFetchedStatuses } from './importer';
+import { fetchRelationshipsSuccess } from './accounts';
+import { importFetchedAccounts, importFetchedStatuses } from './importer';
 import { isMixEnabled } from '../mix/availability';
 import { plainMix } from '../mix/definition';
-import { resolveSource, classifyFetchError, cursorFromNextLink } from '../mix/adapter';
-import { MIX_FETCH_BUDGET, MIX_FETCH_CONCURRENCY, MIX_PAGE_TARGET, nextFetchKeys } from '../mix/merge';
+import { resolveRequest, normalizePage, classifyFetchFailure } from '../mix/source_adapters';
+import { MIX_FETCH_BUDGET, MIX_FETCH_CONCURRENCY, MIX_PAGE_SIZE, MIX_PAGE_TARGET, nextFetchKeys } from '../mix/merge';
 
 export const MIX_TIMELINE_OPEN = 'MIX_TIMELINE_OPEN';
 export const MIX_TIMELINE_CLOSE = 'MIX_TIMELINE_CLOSE';
@@ -21,41 +22,118 @@ const sourceSnapshot = (column) => column.get('sources').entrySeq().map(([key, s
   loaded: source.get('loaded'),
   loading: source.get('loading'),
   error: source.get('error'),
-  next: source.get('next'),
+  cursor: source.get('cursor'),
+  frontier: source.get('frontier'),
+  partial: source.get('partial'),
+  retryAt: source.get('retryAt'),
 })).toArray();
 
-const stillCurrent = (getState, columnKey, generation) => {
+const stillCurrent = (getState, columnKey, sessionId, fingerprint) => {
   const column = readColumn(getState, columnKey);
 
-  return !!column && column.get('generation') === generation;
+  return !!column && column.get('sessionId') === sessionId && column.get('definitionFingerprint') === fingerprint;
 };
 
 const fetchPage = (resolved, cursor, getState) => {
-  const params = { ...resolved.params, limit: MIX_PAGE_TARGET };
+  const request = resolveRequest(resolved.source, cursor);
 
-  if (cursor) {
-    params.max_id = cursor;
+  if (!request.ok) {
+    return Promise.reject({ response: { status: 404 } });
   }
 
-  return api(getState).get(resolved.path, { params }).then(response => {
-    const data = Array.isArray(response.data) ? response.data : [];
+  return api(getState).get(request.path, { params: { ...request.params, limit: MIX_PAGE_SIZE } }).then(response => {
     const next = getLinks(response).refs.find(link => link.rel === 'next');
-    const ids = data.map(status => status.id).filter(Boolean);
 
-    return {
-      statuses: data,
-      ids,
-      next: next ? cursorFromNextLink(next, ids[ids.length - 1]) : null,
-      hasMore: !!next,
-    };
+    return normalizePage({
+      status: response.status,
+      data: response.data,
+      nextUri: next && next.uri,
+    });
   });
 };
 
-const pump = async (dispatch, getState, columnKey, generation, resolvedByKey) => {
+const acceptPage = (dispatch, getState, columnKey, sessionId, fingerprint, key, cursor, page) => {
+  if (!stillCurrent(getState, columnKey, sessionId, fingerprint)) {
+    return;
+  }
+
+  if (!page.ok) {
+    dispatch({
+      type: MIX_SOURCE_FAIL,
+      columnKey,
+      sourceKey: key,
+      sessionId,
+      definitionFingerprint: fingerprint,
+      error: page.error,
+      clear: false,
+    });
+    return;
+  }
+
+  if (page.hasMore && cursor && page.cursor === cursor) {
+    dispatch({
+      type: MIX_SOURCE_FAIL,
+      columnKey,
+      sourceKey: key,
+      sessionId,
+      definitionFingerprint: fingerprint,
+      error: 'stalled',
+      clear: false,
+    });
+    return;
+  }
+
+  const bodies = page.statuses.concat(page.referencedStatuses || []);
+
+  if (page.accounts && page.accounts.length) {
+    dispatch(importFetchedAccounts(page.accounts));
+  }
+
+  if (page.relationships && page.relationships.length) {
+    dispatch(fetchRelationshipsSuccess(page.relationships));
+  }
+
+  dispatch(importFetchedStatuses(bodies));
+  dispatch({
+    type: MIX_SOURCE_SUCCESS,
+    columnKey,
+    sourceKey: key,
+    sessionId,
+    definitionFingerprint: fingerprint,
+    ids: page.ids,
+    filterResults: page.filterResults,
+    cursor: page.cursor,
+    frontier: page.frontier,
+    hasMore: page.hasMore,
+    partial: page.partial,
+    extra: !!cursor,
+  });
+};
+
+const failPage = (dispatch, getState, columnKey, sessionId, fingerprint, key, error) => {
+  if (!stillCurrent(getState, columnKey, sessionId, fingerprint)) {
+    return;
+  }
+
+  const failure = classifyFetchFailure(error);
+
+  dispatch({
+    type: MIX_SOURCE_FAIL,
+    columnKey,
+    sourceKey: key,
+    sessionId,
+    definitionFingerprint: fingerprint,
+    error: failure.kind,
+    retryAt: failure.retryAt || null,
+    clear: failure.kind === 'forbidden' || failure.kind === 'not_found',
+  });
+};
+
+const pump = async (dispatch, getState, columnKey, sessionId, fingerprint, resolvedByKey) => {
   let budget = MIX_FETCH_BUDGET;
 
   try {
-    while (budget > 0 && stillCurrent(getState, columnKey, generation)) {
+    while (budget > 0 && stillCurrent(getState, columnKey, sessionId, fingerprint)) {
       const keys = nextFetchKeys(sourceSnapshot(readColumn(getState, columnKey)), {
         budget,
         target: MIX_PAGE_TARGET,
@@ -73,57 +151,46 @@ const pump = async (dispatch, getState, columnKey, generation, resolvedByKey) =>
           type: MIX_SOURCE_REQUEST,
           columnKey,
           sourceKey: key,
-          generation,
+          sessionId,
+          definitionFingerprint: fingerprint,
         });
       });
       budget -= batch.length;
 
       await Promise.all(batch.map(async (key) => {
         const column = readColumn(getState, columnKey);
-        const cursor = column && column.getIn(['sources', key, 'next']);
+        const cursor = column && column.getIn(['sources', key, 'cursor']);
 
         try {
           const page = await fetchPage(resolvedByKey[key], cursor, getState);
 
-          if (!stillCurrent(getState, columnKey, generation)) {
-            return;
-          }
-
-          dispatch(importFetchedStatuses(page.statuses));
-          dispatch({
-            type: MIX_SOURCE_SUCCESS,
-            columnKey,
-            sourceKey: key,
-            generation,
-            ids: page.ids,
-            next: page.next,
-            hasMore: page.hasMore,
-          });
+          acceptPage(dispatch, getState, columnKey, sessionId, fingerprint, key, cursor, page);
         } catch (error) {
-          if (!stillCurrent(getState, columnKey, generation)) {
-            return;
-          }
-
-          const kind = classifyFetchError(error);
-
-          dispatch({
-            type: MIX_SOURCE_FAIL,
-            columnKey,
-            sourceKey: key,
-            generation,
-            error: kind,
-            clear: kind === 'forbidden' || kind === 'not_found',
-          });
+          failPage(dispatch, getState, columnKey, sessionId, fingerprint, key, error);
         }
       }));
     }
   } finally {
-    if (stillCurrent(getState, columnKey, generation)) {
+    if (stillCurrent(getState, columnKey, sessionId, fingerprint)) {
       dispatch({
         type: MIX_TIMELINE_DONE,
         columnKey,
-        generation,
+        sessionId,
+        definitionFingerprint: fingerprint,
       });
+
+      if (process.env.NODE_ENV === 'development') {
+        const column = readColumn(getState, columnKey);
+
+        if (column) {
+          console.warn('mix fetch', {
+            sources: column.get('sources').size,
+            requests: column.getIn(['metrics', 'requests']),
+            fetched: column.getIn(['metrics', 'fetched']),
+            extraPages: column.getIn(['metrics', 'extraPages']),
+          });
+        }
+      }
     }
   }
 };
@@ -150,24 +217,36 @@ export function loadMixTimeline(columnKey, mix, { extend = false } = {}) {
       return Promise.resolve();
     }
 
-    const resolved = plain.sources.map(resolveSource).filter(source => source.ok);
-    const signature = resolved.map(source => source.key).join('\n');
+    const attempts = plain.sources.map(source => resolveRequest(source));
+    const resolved = attempts.filter(source => source.ok && source.key);
+    const fingerprint = resolved.map(source => source.key).join('\n');
     const current = readColumn(getState, columnKey);
-    const same = current && current.get('signature') === signature && current.get('mixId') === plain.id;
-    let generation = current ? current.get('generation') : 0;
+    const same = current && current.get('definitionFingerprint') === fingerprint && current.get('mixId') === plain.id;
+    let sessionId = current ? current.get('sessionId') : 0;
 
     if (!same) {
-      generation += 1;
+      sessionId += 1;
       dispatch({
         type: MIX_TIMELINE_OPEN,
         columnKey,
         mixId: plain.id,
-        signature,
-        generation,
+        definitionFingerprint: fingerprint,
+        sessionId,
         sources: resolved.map(source => ({
           key: source.key,
           descriptor: source.source,
         })),
+      });
+      attempts.filter(source => !source.ok && source.key).forEach(source => {
+        dispatch({
+          type: MIX_SOURCE_FAIL,
+          columnKey,
+          sourceKey: source.key,
+          sessionId,
+          definitionFingerprint: fingerprint,
+          error: source.error,
+          clear: true,
+        });
       });
     } else if (!extend) {
       return Promise.resolve();
@@ -181,22 +260,22 @@ export function loadMixTimeline(columnKey, mix, { extend = false } = {}) {
     }, {});
 
     if (extend && same) {
-      return extendLoaded(dispatch, getState, columnKey, generation, resolvedByKey);
+      return extendLoaded(dispatch, getState, columnKey, sessionId, fingerprint, resolvedByKey);
     }
 
-    return pump(dispatch, getState, columnKey, generation, resolvedByKey);
+    return pump(dispatch, getState, columnKey, sessionId, fingerprint, resolvedByKey);
   };
 }
 
-const extendLoaded = async (dispatch, getState, columnKey, generation, resolvedByKey) => {
+const extendLoaded = async (dispatch, getState, columnKey, sessionId, fingerprint, resolvedByKey) => {
   const keys = nextFetchKeys(sourceSnapshot(readColumn(getState, columnKey)), {
-    budget: MIX_FETCH_CONCURRENCY,
+    budget: MIX_FETCH_BUDGET,
     target: MIX_PAGE_TARGET,
     extend: true,
     retry: true,
-  });
+  }).slice(0, MIX_FETCH_CONCURRENCY);
 
-  if (!keys.length || !stillCurrent(getState, columnKey, generation)) {
+  if (!keys.length || !stillCurrent(getState, columnKey, sessionId, fingerprint)) {
     return;
   }
 
@@ -205,55 +284,31 @@ const extendLoaded = async (dispatch, getState, columnKey, generation, resolvedB
       type: MIX_SOURCE_REQUEST,
       columnKey,
       sourceKey: key,
-      generation,
+      sessionId,
+      definitionFingerprint: fingerprint,
     });
   });
 
   try {
     await Promise.all(keys.map(async (key) => {
       const column = readColumn(getState, columnKey);
-      const cursor = column && column.getIn(['sources', key, 'next']);
+      const cursor = column && column.getIn(['sources', key, 'cursor']);
 
       try {
         const page = await fetchPage(resolvedByKey[key], cursor, getState);
 
-        if (!stillCurrent(getState, columnKey, generation)) {
-          return;
-        }
-
-        dispatch(importFetchedStatuses(page.statuses));
-        dispatch({
-          type: MIX_SOURCE_SUCCESS,
-          columnKey,
-          sourceKey: key,
-          generation,
-          ids: page.ids,
-          next: page.next,
-          hasMore: page.hasMore,
-        });
+        acceptPage(dispatch, getState, columnKey, sessionId, fingerprint, key, cursor, page);
       } catch (error) {
-        if (!stillCurrent(getState, columnKey, generation)) {
-          return;
-        }
-
-        const kind = classifyFetchError(error);
-
-        dispatch({
-          type: MIX_SOURCE_FAIL,
-          columnKey,
-          sourceKey: key,
-          generation,
-          error: kind,
-          clear: kind === 'forbidden' || kind === 'not_found',
-        });
+        failPage(dispatch, getState, columnKey, sessionId, fingerprint, key, error);
       }
     }));
   } finally {
-    if (stillCurrent(getState, columnKey, generation)) {
+    if (stillCurrent(getState, columnKey, sessionId, fingerprint)) {
       dispatch({
         type: MIX_TIMELINE_DONE,
         columnKey,
-        generation,
+        sessionId,
+        definitionFingerprint: fingerprint,
       });
     }
   }

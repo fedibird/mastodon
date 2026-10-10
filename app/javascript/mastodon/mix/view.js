@@ -35,6 +35,8 @@ export const mixTimelineView = (timeline, statuses, filters, me) => {
     const descriptor = source.get('descriptor');
     const plain = descriptor && descriptor.toJS ? descriptor.toJS() : null;
 
+    const results = source.get('filterResults');
+
     sources.push({
       key,
       ids: source.get('ids').toArray(),
@@ -42,6 +44,9 @@ export const mixTimelineView = (timeline, statuses, filters, me) => {
       loaded: source.get('loaded'),
       loading: source.get('loading'),
       error: source.get('error'),
+      frontier: source.get('frontier'),
+      partial: source.get('partial'),
+      filterResults: results && results.toJS ? results.toJS() : {},
       source: plain,
     });
     contexts[key] = filterContextForSource(plain);

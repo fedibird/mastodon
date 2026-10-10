@@ -81,6 +81,7 @@ export class MixTimelinePage extends React.PureComponent {
     view: PropTypes.shape({
       statusIds: ImmutablePropTypes.list,
       contextById: PropTypes.object,
+      warningsById: PropTypes.object,
       orderGuaranteed: PropTypes.bool,
       waiting: PropTypes.bool,
       hasMore: PropTypes.bool,
@@ -124,6 +125,20 @@ export class MixTimelinePage extends React.PureComponent {
     return contexts ? contexts[id] : null;
   };
 
+  warningTitlesForId = (id) => {
+    const warnings = this.props.view && this.props.view.warningsById;
+
+    return warnings && warnings[id] ? warnings[id] : [];
+  };
+
+  handleRetry = (event) => {
+    const sourceKey = event.currentTarget.getAttribute('data-source-key');
+
+    if (sourceKey) {
+      this.props.dispatch(loadMixTimeline(this.props.columnKey, this.props.mix, { extend: true }));
+    }
+  };
+
   handlePin = () => {
     const { columnId, dispatch, mixId } = this.props;
 
@@ -163,7 +178,7 @@ export class MixTimelinePage extends React.PureComponent {
     const notices = [];
 
     if (view && !view.orderGuaranteed && !view.waiting && view.errors.length) {
-      notices.push(intl.formatMessage(messages.orderPartial));
+      notices.push({ key: 'order', text: intl.formatMessage(messages.orderPartial) });
     }
 
     if (view) {
@@ -177,12 +192,23 @@ export class MixTimelinePage extends React.PureComponent {
           message = messages.sourceMissing;
         }
 
-        notices.push(intl.formatMessage(message, { name }));
+        notices.push({
+          key: item.key,
+          text: intl.formatMessage(message, { name }),
+          retry: item.error === 'server' || item.error === 'rate_limit',
+        });
       });
     }
 
     const noticeNodes = notices.map(notice => (
-      <p key={notice} className='mix-editor__notice'>{notice}</p>
+      <p key={notice.key || notice.text} className='mix-editor__notice'>
+        {notice.text || notice}
+        {notice.retry && (
+          <button type='button' className='button button-secondary' data-source-key={notice.key} onClick={this.handleRetry}>
+            {intl.formatMessage(messages.retrySource, { name: notice.key })}
+          </button>
+        )}
+      </p>
     ));
 
     let body;
@@ -200,6 +226,7 @@ export class MixTimelinePage extends React.PureComponent {
           isLoading={!!(view && (view.waiting || view.running))}
           onLoadMore={this.handleLoadMore}
           contextTypeForId={this.contextTypeForId}
+          warningTitlesForId={this.warningTitlesForId}
           emptyMessage={<FormattedMessage id='mixes.empty_timeline' defaultMessage='No posts in this mix yet.' />}
           prepend={(
             <div className='mix-editor'>

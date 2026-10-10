@@ -104,10 +104,16 @@ const makeMapStateToProps = () => {
 const mergeProps = ({ status, pictureInPicture, referenced, contextReferenced, emojiReactions }, dispatchProps, ownProps) => {
   const myCount = emojiReactions.count((emojiReaction) => emojiReaction.get('account_ids', ImmutableList()).includes(me));
 
+  let renderedStatus = status;
+
+  if (renderedStatus && ownProps.warningTitles) {
+    renderedStatus = renderedStatus.set('matched_filters', ImmutableList(ownProps.warningTitles));
+  }
+
   return {
     ...ownProps,
     ...dispatchProps,
-    status,
+    status: renderedStatus,
     pictureInPicture,
     referenced,
     contextReferenced,

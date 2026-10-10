@@ -34,6 +34,7 @@ class StatusList extends ImmutablePureComponent {
     alwaysPrepend: PropTypes.bool,
     timelineId: PropTypes.string,
     contextTypeForId: PropTypes.func,
+    warningTitlesForId: PropTypes.func,
     showCard: PropTypes.bool,
     trackIntersection: PropTypes.bool,
   };
@@ -103,9 +104,10 @@ class StatusList extends ImmutablePureComponent {
   }
 
   render () {
-    const { statusIds, featuredStatusIds, onLoadMore, timelineId, contextTypeForId, showCard, trackIntersection, ...other } = this.props;
+    const { statusIds, featuredStatusIds, onLoadMore, timelineId, contextTypeForId, warningTitlesForId, showCard, trackIntersection, ...other } = this.props;
     const { isLoading, isPartial } = other;
     const contextTypeFor = (statusId) => contextTypeForId ? (contextTypeForId(statusId) || timelineId) : timelineId;
+    const warningTitlesFor = (statusId) => warningTitlesForId ? warningTitlesForId(statusId) : undefined;
 
     if (isPartial) {
       return <RegenerationIndicator />;
@@ -129,6 +131,7 @@ class StatusList extends ImmutablePureComponent {
           onMoveUp={this.handleMoveUp}
           onMoveDown={this.handleMoveDown}
           contextType={contextTypeFor(statusId)}
+          warningTitles={warningTitlesFor(statusId)}
           scrollKey={this.props.scrollKey}
           showThread
           showCard={showCard}

@@ -2,10 +2,23 @@ import compareId from '../compare_id';
 import { sourceIdentityLabel } from './source';
 
 export const MIX_FETCH_CONCURRENCY = 3;
-export const MIX_FETCH_BUDGET = 8;
-export const MIX_PAGE_TARGET = 20;
+export const MIX_FETCH_BUDGET = 16;
+export const MIX_PAGE_SIZE = 40;
+export const MIX_PAGE_TARGET = 40;
 
 const newer = (left, right) => compareId(left, right) > 0;
+
+const frontierOf = (source) => {
+  if (source.frontier) {
+    return source.frontier;
+  }
+
+  if (source.partial || !source.ids.length) {
+    return null;
+  }
+
+  return source.ids[source.ids.length - 1];
+};
 
 const mergeIds = (groups) => {
   const seen = new Set();
@@ -68,12 +81,12 @@ export const safePrefix = (sources) => {
   let blocked = false;
 
   incomplete.forEach(source => {
-    if (!source.ids.length) {
+    const frontier = frontierOf(source);
+
+    if (!frontier) {
       blocked = true;
       return;
     }
-
-    const frontier = source.ids[source.ids.length - 1];
 
     if (limit === null || newer(frontier, limit)) {
       limit = frontier;
@@ -90,7 +103,7 @@ export const safePrefix = (sources) => {
   };
 };
 
-export const nextFetchKeys = (sources, { budget = MIX_FETCH_BUDGET, target = MIX_PAGE_TARGET, extend = false, retry = false } = {}) => {
+export const nextFetchKeys = (sources, { budget = MIX_FETCH_BUDGET, target = MIX_PAGE_TARGET, extend = false, retry = false, now = Date.now() } = {}) => {
   if (budget <= 0) {
     return [];
   }
@@ -108,7 +121,9 @@ export const nextFetchKeys = (sources, { budget = MIX_FETCH_BUDGET, target = MIX
   }
 
   if (retry) {
-    const soft = (sources || []).filter(source => !source.loading && (source.error === 'server' || source.error === 'unavailable'));
+    const soft = (sources || []).filter(source => !source.loading && (
+      source.error === 'server' || (source.error === 'rate_limit' && (!source.retryAt || source.retryAt <= now))
+    ));
 
     if (soft.length) {
       return soft.slice(0, budget).map(source => source.key);
@@ -131,28 +146,31 @@ export const nextFetchKeys = (sources, { budget = MIX_FETCH_BUDGET, target = MIX
     return [];
   }
 
-  let limit = incomplete[0].ids[incomplete[0].ids.length - 1];
+  const unknown = incomplete.filter(source => !frontierOf(source));
+
+  if (unknown.length) {
+    return unknown.slice(0, budget).map(source => source.key);
+  }
+
+  let limit = frontierOf(incomplete[0]);
 
   incomplete.forEach(source => {
-    const frontier = source.ids[source.ids.length - 1];
+    const frontier = frontierOf(source);
 
     if (newer(frontier, limit)) {
       limit = frontier;
     }
   });
 
-  return incomplete.filter(source => compareId(source.ids[source.ids.length - 1], limit) === 0).slice(0, budget).map(source => source.key);
+  return incomplete.filter(source => compareId(frontierOf(source), limit) === 0).slice(0, budget).map(source => source.key);
 };
 
 const passesShows = (status, source, me) => {
   const params = source.params || {};
   const shows = params.shows || {};
+  const accountId = status.account && status.account.id ? status.account.id : status.account;
 
-  if (shows.reblog === false && status.reblog && status.account !== me) {
-    return false;
-  }
-
-  if (shows.reply === false && status.in_reply_to_id && status.in_reply_to_account_id !== me) {
+  if ((source.type === 'home' || source.type === 'limited') && shows[status.visibility] === false) {
     return false;
   }
 
@@ -160,28 +178,37 @@ const passesShows = (status, source, me) => {
     return false;
   }
 
-  if ((source.type === 'home' || source.type === 'limited') && shows[status.visibility] === false) {
+  if (accountId === me) {
+    return true;
+  }
+
+  if (shows.reblog === false && status.reblog) {
+    return false;
+  }
+
+  if (shows.reply === false && status.in_reply_to_id && status.in_reply_to_account_id !== me) {
     return false;
   }
 
   return true;
 };
 
-const hiddenByFilters = (status, context, filters) => {
-  const results = status.filtered || [];
+const resultsFor = (source, id) => {
+  const stored = source.filterResults && source.filterResults[id];
 
-  return results.some(result => {
-    const filter = (filters || []).find(item => item.id === result.filter);
-
-    return filter && filter.filter_action === 'hide' && (filter.context || []).indexOf(context) !== -1;
-  });
+  return stored || [];
 };
+
+const matchingFilters = (results, context, filters, action) => (results || []).map(result => {
+  return (filters || []).find(item => item.id === result.filter && item.filter_action === action && (item.context || []).indexOf(context) !== -1);
+}).filter(Boolean);
 
 export const buildMixView = (sources, statusesById, { me = null, filters = [], contexts = {} } = {}) => {
   const prefix = safePrefix(sources);
   const visible = [];
   const contextById = {};
   const sourceKeysById = {};
+  const warningsById = {};
 
   prefix.ids.forEach(id => {
     const status = statusesById[id];
@@ -204,16 +231,23 @@ export const buildMixView = (sources, statusesById, { me = null, filters = [], c
       return;
     }
 
-    const available = visibleKeys.map(key => contexts[key]).filter(Boolean);
-    const shown = available.find(context => !status || !hiddenByFilters(status, context, filters));
+    const choices = visibleKeys.map(key => ({
+      key,
+      context: contexts[key],
+      results: resultsFor(sources.find(item => item.key === key) || {}, id),
+    })).filter(choice => choice.context);
+    const shown = choices.find(choice => matchingFilters(choice.results, choice.context, filters, 'hide').length === 0);
 
-    if (status && available.length && !shown) {
+    if (choices.length && !shown) {
       return;
     }
 
     visible.push(id);
     sourceKeysById[id] = visibleKeys;
-    contextById[id] = shown || available[0] || null;
+    contextById[id] = shown ? shown.context : null;
+    if (shown) {
+      warningsById[id] = matchingFilters(shown.results, shown.context, filters, 'warn').map(filter => filter.title);
+    }
   });
 
   const hasMore = (sources || []).some(source => source.hasMore && !source.error);
@@ -227,6 +261,7 @@ export const buildMixView = (sources, statusesById, { me = null, filters = [], c
     ids: visible,
     contextById,
     sourceKeysById,
+    warningsById,
     orderGuaranteed: prefix.orderGuaranteed,
     waiting: prefix.waiting,
     hasMore: hasMore || prefix.waiting,

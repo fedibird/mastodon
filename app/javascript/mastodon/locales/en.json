@@ -628,6 +628,7 @@
   "mixes.source_forbidden": "{name} cannot be viewed.",
   "mixes.source_missing": "{name} was not found.",
   "mixes.source_unavailable": "{name} could not be loaded.",
+  "mixes.retry_source": "Retry {name}",
   "mixes.empty_timeline": "No posts in this mix yet.",
   "mixes.remove_source": "Remove source",
   "mixes.save": "Save",

@@ -16,8 +16,8 @@ const open = (columnKey, keys) => ({
   type: MIX_TIMELINE_OPEN,
   columnKey,
   mixId: 'mix-1',
-  signature: keys.join('\n'),
-  generation: 1,
+  definitionFingerprint: keys.join('\n'),
+  sessionId: 1,
   sources: keys.map(key => ({ key, descriptor: { type: 'public', params: {} } })),
 });
 
@@ -29,15 +29,17 @@ describe('mix timeline state', () => {
       type: MIX_SOURCE_SUCCESS,
       columnKey: 'column:one',
       sourceKey: 'src',
-      generation: 1,
+      sessionId: 1,
+      definitionFingerprint: 'src',
       ids: ['500', '400'],
-      next: '400',
+      cursor: '400',
+      frontier: '400',
       hasMore: true,
     });
 
     expect(state.getIn(['column:one', 'sources', 'src', 'ids']).toArray()).toEqual(['500', '400']);
     expect(state.getIn(['column:two', 'sources', 'src', 'ids']).toArray()).toEqual([]);
-    expect(state.getIn(['column:one', 'sources', 'src', 'next'])).toBe('400');
+    expect(state.getIn(['column:one', 'sources', 'src', 'cursor'])).toBe('400');
     expect(state.getIn(['column:two', 'sources', 'src', 'hasMore'])).toBe(true);
   });
 
@@ -48,25 +50,40 @@ describe('mix timeline state', () => {
       type: MIX_SOURCE_SUCCESS,
       columnKey: 'route:mix-1',
       sourceKey: 'src',
-      generation: 1,
+      sessionId: 1,
+      definitionFingerprint: 'src',
       ids: ['500'],
-      next: '500',
+      cursor: '500',
+      frontier: '500',
       hasMore: true,
+      filterResults: { '500': [{ filter: 'home-filter' }] },
     });
     state = reducer(state, {
       type: MIX_SOURCE_SUCCESS,
       columnKey: 'route:mix-1',
       sourceKey: 'src',
-      generation: 0,
+      sessionId: 0,
+      definitionFingerprint: 'src',
       ids: ['100'],
-      next: null,
+      cursor: null,
+      frontier: '100',
       hasMore: false,
     });
     state = reducer(state, {
       type: MIX_SOURCE_FAIL,
       columnKey: 'route:mix-1',
       sourceKey: 'src',
-      generation: 1,
+      sessionId: 1,
+      definitionFingerprint: 'old',
+      error: 'server',
+      clear: false,
+    });
+    state = reducer(state, {
+      type: MIX_SOURCE_FAIL,
+      columnKey: 'route:mix-1',
+      sourceKey: 'src',
+      sessionId: 1,
+      definitionFingerprint: 'src',
       error: 'forbidden',
       clear: true,
     });
@@ -82,9 +99,11 @@ describe('mix timeline state', () => {
       type: MIX_SOURCE_SUCCESS,
       columnKey: 'column:one',
       sourceKey: 'src',
-      generation: 1,
+      sessionId: 1,
+      definitionFingerprint: 'src',
       ids: ['500', '400'],
-      next: null,
+      cursor: null,
+      frontier: '400',
       hasMore: false,
     });
     state = reducer(state, {

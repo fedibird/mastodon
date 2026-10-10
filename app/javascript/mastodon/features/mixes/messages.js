@@ -25,6 +25,7 @@ export default defineMessages({
   sourceForbidden: { id: 'mixes.source_forbidden', defaultMessage: '{name} cannot be viewed.' },
   sourceMissing: { id: 'mixes.source_missing', defaultMessage: '{name} was not found.' },
   sourceUnavailable: { id: 'mixes.source_unavailable', defaultMessage: '{name} could not be loaded.' },
+  retrySource: { id: 'mixes.retry_source', defaultMessage: 'Retry {name}' },
   emptyTimeline: { id: 'mixes.empty_timeline', defaultMessage: 'No posts in this mix yet.' },
   sourceCount: { id: 'mixes.source_count', defaultMessage: '{count} sources' },
   noLists: { id: 'mixes.no_lists', defaultMessage: 'You have no lists yet.' },

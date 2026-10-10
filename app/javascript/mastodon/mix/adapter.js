@@ -1,35 +1,74 @@
+import compareId from '../compare_id';
+import { enableLimitedTimeline, hideDirectFromTimeline, hidePersonalFromTimeline } from '../initial_state';
 import { filterContextForSource } from './filter_context';
 import { normalizeSource, sourceKey } from './source';
 
 const encodePath = (value) => encodeURIComponent(value);
 
-const visibilityList = (shows, home) => {
+export const visibilityConstraints = (overrides = {}) => ({
+  enableLimitedTimeline: Object.prototype.hasOwnProperty.call(overrides, 'enableLimitedTimeline') ? overrides.enableLimitedTimeline === true : enableLimitedTimeline === true,
+  hideDirectFromTimeline: Object.prototype.hasOwnProperty.call(overrides, 'hideDirectFromTimeline') ? overrides.hideDirectFromTimeline === true : hideDirectFromTimeline === true,
+  hidePersonalFromTimeline: Object.prototype.hasOwnProperty.call(overrides, 'hidePersonalFromTimeline') ? overrides.hidePersonalFromTimeline === true : hidePersonalFromTimeline === true,
+});
+
+const allowedByInstance = (key, constraints) => {
+  if (key === 'direct' && constraints.hideDirectFromTimeline) {
+    return false;
+  }
+
+  if (key === 'personal' && constraints.hidePersonalFromTimeline) {
+    return false;
+  }
+
+  return true;
+};
+
+const visibilityList = (shows, home, constraints) => {
   const keys = home ? ['public', 'unlisted', 'private', 'limited', 'direct', 'personal'] : ['private', 'limited', 'direct', 'personal'];
 
-  return keys.filter(key => key === 'public' || key === 'unlisted' || !shows || shows[key] !== false);
+  return keys.filter(key => {
+    if ((key === 'public' || key === 'unlisted') && home) {
+      return true;
+    }
+
+    if (shows && shows[key] === false) {
+      return false;
+    }
+
+    return allowedByInstance(key, constraints);
+  });
 };
 
 // Known endpoints only. The descriptor cannot supply a URL.
-export const resolveSource = (source) => {
+export const resolveRequest = (source, cursor, constraintOverrides) => {
   const normalized = normalizeSource(source);
 
   if (!normalized.ok) {
     return normalized;
   }
 
+  const constraints = visibilityConstraints(constraintOverrides || {});
   const value = normalized.source;
   const params = value.params || {};
   let path = null;
-  const query = {};
+  const query = { compact: true };
+
+  if (cursor) {
+    query.max_id = cursor;
+  }
 
   switch (value.type) {
   case 'home':
     path = '/api/v1/timelines/home';
-    query.visibilities = visibilityList(params.shows, true);
+    query.visibilities = visibilityList(params.shows, true, constraints);
     break;
   case 'limited':
+    if (!constraints.enableLimitedTimeline) {
+      return { ok: false, error: 'unavailable', key: sourceKey(value), source: value };
+    }
+
     path = '/api/v1/timelines/home';
-    query.visibilities = visibilityList(params.shows, false);
+    query.visibilities = visibilityList(params.shows, false, constraints);
     break;
   case 'personal':
     path = '/api/v1/timelines/personal';
@@ -103,43 +142,160 @@ export const resolveSource = (source) => {
     source: value,
     path,
     params: query,
-    filterContext: filterContextForSource(value),
+    filterContext: filterContext(value),
     paging: 'max_id',
   };
 };
 
-export const classifyFetchError = (error) => {
-  const status = error && error.response && error.response.status;
+export const resolveSource = (source) => resolveRequest(source);
 
-  if (status === 401 || status === 403) {
-    return 'forbidden';
+export const filterContext = (source) => filterContextForSource(source);
+
+const pageStatuses = (data) => {
+  if (Array.isArray(data)) {
+    return {
+      compact: false,
+      statuses: data,
+      referencedStatuses: [],
+      accounts: [],
+      relationships: [],
+    };
   }
 
-  if (status === 404) {
-    return 'not_found';
+  if (data && Array.isArray(data.statuses)) {
+    return {
+      compact: true,
+      statuses: data.statuses,
+      referencedStatuses: data.referenced_statuses || [],
+      accounts: data.accounts || [],
+      relationships: data.relationships || [],
+    };
   }
 
-  if (status >= 500) {
-    return 'server';
-  }
-
-  return 'unavailable';
+  return null;
 };
 
-export const cursorFromNextLink = (next, fallbackId) => {
-  if (!next || !next.uri) {
-    return fallbackId || null;
+const descendingIds = (ids) => {
+  for (let i = 1; i < ids.length; i += 1) {
+    if (compareId(ids[i - 1], ids[i]) <= 0) {
+      return false;
+    }
   }
 
-  const match = String(next.uri).match(/[?&]max_id=([^&]+)/);
+  return true;
+};
+
+export const cursorFromNextUri = (uri) => {
+  if (!uri) {
+    return { cursor: null };
+  }
+
+  if (/^https?:\/\//i.test(uri)) {
+    const origin = typeof window !== 'undefined' && window.location ? window.location.origin : '';
+
+    if (!origin || uri.indexOf(origin) !== 0) {
+      return { error: 'foreign_link' };
+    }
+  }
+
+  const match = String(uri).match(/[?&]max_id=([^&#]+)/);
 
   if (!match) {
-    return fallbackId || null;
+    return { error: 'cursor' };
   }
 
   try {
-    return decodeURIComponent(match[1]);
+    return { cursor: decodeURIComponent(match[1]) };
   } catch (ignored) {
-    return fallbackId || null;
+    return { error: 'cursor' };
   }
 };
+
+export const normalizePage = ({ status, data, nextUri } = {}) => {
+  const parsed = pageStatuses(data);
+
+  if (!parsed) {
+    return { ok: false, error: 'response' };
+  }
+
+  const ids = parsed.statuses.map(item => item && item.id).filter(Boolean);
+
+  if (!descendingIds(ids)) {
+    return { ok: false, error: 'order', ids };
+  }
+
+  const link = cursorFromNextUri(nextUri);
+  const partial = status === 206;
+
+  if (nextUri && link.error) {
+    return { ok: false, error: link.error, ids, partial };
+  }
+
+  const filterResults = {};
+
+  parsed.statuses.forEach(item => {
+    if (!item || !item.id) {
+      return;
+    }
+
+    filterResults[item.id] = item.filtered || item.filter_results || [];
+  });
+
+  const strip = (item) => {
+    if (!item) {
+      return item;
+    }
+
+    const copy = { ...item };
+
+    delete copy.filtered;
+    delete copy.filter_results;
+    return copy;
+  };
+
+  return {
+    ok: true,
+    partial,
+    compact: parsed.compact,
+    ids,
+    statuses: parsed.statuses.map(strip),
+    referencedStatuses: parsed.referencedStatuses.map(strip),
+    accounts: parsed.accounts,
+    relationships: parsed.relationships,
+    filterResults,
+    cursor: link.cursor,
+    hasMore: !!nextUri,
+    frontier: partial || !ids.length ? null : ids[ids.length - 1],
+  };
+};
+
+export const classifyFetchFailure = (error) => {
+  const status = error && error.response && error.response.status;
+  const headers = error && error.response && error.response.headers;
+
+  if (status === 401 || status === 403) {
+    return { kind: 'forbidden' };
+  }
+
+  if (status === 404) {
+    return { kind: 'not_found' };
+  }
+
+  if (status === 429) {
+    const header = headers && (headers['retry-after'] || headers['Retry-After']);
+    const seconds = parseInt(header, 10);
+
+    return {
+      kind: 'rate_limit',
+      retryAt: Date.now() + ((Number.isFinite(seconds) ? seconds : 60) * 1000),
+    };
+  }
+
+  if (status >= 500) {
+    return { kind: 'server' };
+  }
+
+  return { kind: 'unavailable' };
+};
+
+export const classifyFetchError = (error) => classifyFetchFailure(error).kind;

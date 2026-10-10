@@ -628,6 +628,7 @@
   "mixes.source_forbidden": "{name}は閲覧できません。",
   "mixes.source_missing": "{name}は見つかりません。",
   "mixes.source_unavailable": "{name}を読み込めませんでした。",
+  "mixes.retry_source": "{name}を再試行",
   "mixes.empty_timeline": "このミックスにはまだ投稿がありません。",
   "mixes.remove_source": "ソースを削除",
   "mixes.save": "保存",

@@ -112,22 +112,53 @@ describe('mix merge', () => {
     }, { me: '1' });
 
     expect(view.ids).toEqual(['400']);
+
+    const ownReply = buildMixView([
+      source('home', ['500'], {
+        descriptor: { type: 'home', params: { shows: { reply: false, reblog: false, private: true, direct: true, limited: true, personal: true } } },
+      }),
+    ], {
+      '500': { id: '500', visibility: 'public', reblog: { id: '9' }, account: '1' },
+    }, { me: '1' });
+
+    expect(ownReply.ids).toEqual(['500']);
   });
 
   it('hides a status only when every source context would hide it', () => {
     const filters = [{ id: 'f1', filter_action: 'hide', context: ['home'] }];
     const status = { id: '500', filtered: [{ filter: 'f1' }], account: '2' };
     const homeOnly = buildMixView([
-      source('home', ['500'], { descriptor: { type: 'home', params: { shows: { reply: true, reblog: true } } } }),
+      source('home', ['500'], {
+        descriptor: { type: 'home', params: { shows: { reply: true, reblog: true } } },
+        filterResults: { '500': [{ filter: 'f1' }] },
+      }),
     ], { '500': status }, { filters, contexts: { home: 'home' } });
     const both = buildMixView([
-      source('home', ['500'], { descriptor: { type: 'home', params: { shows: { reply: true, reblog: true } } } }),
-      source('public', ['500'], { descriptor: { type: 'public', params: {} } }),
-    ], { '500': status }, { filters, contexts: { home: 'home', public: 'public' } });
+      source('home', ['500'], {
+        descriptor: { type: 'home', params: { shows: { reply: true, reblog: true } } },
+        filterResults: { '500': [{ filter: 'f1' }] },
+      }),
+      source('public', ['500'], {
+        descriptor: { type: 'public', params: {} },
+        filterResults: { '500': [] },
+      }),
+    ], { '500': { ...status, filtered: [{ filter: 'other' }] } }, { filters, contexts: { home: 'home', public: 'public' } });
+    const warned = buildMixView([
+      source('public', ['500'], {
+        descriptor: { type: 'public', params: {} },
+        filterResults: { '500': [{ filter: 'f2' }] },
+      }),
+    ], { '500': status }, {
+      filters: [{ id: 'f2', filter_action: 'warn', title: 'Spoilers', context: ['public'] }],
+      contexts: { public: 'public' },
+    });
 
     expect(homeOnly.ids).toEqual([]);
     expect(both.ids).toEqual(['500']);
     expect(both.contextById['500']).toBe('public');
+    expect(both.warningsById['500']).toEqual([]);
+    expect(warned.ids).toEqual(['500']);
+    expect(warned.warningsById['500']).toEqual(['Spoilers']);
   });
 
   it('fetches the sources that limit the prefix and stops at the budget', () => {

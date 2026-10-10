@@ -12,16 +12,20 @@ import {
 
 const initialSource = ImmutableMap({
   ids: ImmutableList(),
-  next: null,
+  cursor: null,
+  frontier: null,
   hasMore: true,
   loading: false,
   loaded: false,
   error: null,
+  partial: false,
+  retryAt: null,
+  filterResults: ImmutableMap(),
 });
 
 const initialState = ImmutableMap();
 
-const currentGeneration = (state, columnKey) => state.getIn([columnKey, 'generation']);
+const currentSession = (state, columnKey) => state.getIn([columnKey, 'sessionId']);
 
 const removeIds = (state, ids) => {
   if (!ids || !ids.length) {
@@ -67,9 +71,10 @@ export default function mixTimelines(state = initialState, action) {
   case MIX_TIMELINE_OPEN:
     return state.set(action.columnKey, ImmutableMap({
       mixId: action.mixId,
-      signature: action.signature,
-      generation: action.generation,
+      definitionFingerprint: action.definitionFingerprint,
+      sessionId: action.sessionId,
       running: true,
+      metrics: ImmutableMap({ requests: 0, fetched: 0, extraPages: 0 }),
       sources: action.sources.reduce(
         (map, source) => map.set(source.key, initialSource.set('descriptor', fromJS(source.descriptor))),
         ImmutableMap(),
@@ -78,13 +83,13 @@ export default function mixTimelines(state = initialState, action) {
   case MIX_TIMELINE_CLOSE:
     return state.delete(action.columnKey);
   case MIX_TIMELINE_DONE:
-    if (currentGeneration(state, action.columnKey) !== action.generation) {
+    if (currentSession(state, action.columnKey) !== action.sessionId || state.getIn([action.columnKey, 'definitionFingerprint']) !== action.definitionFingerprint) {
       return state;
     }
 
     return state.setIn([action.columnKey, 'running'], false);
   case MIX_SOURCE_REQUEST:
-    if (currentGeneration(state, action.columnKey) !== action.generation) {
+    if (currentSession(state, action.columnKey) !== action.sessionId || state.getIn([action.columnKey, 'definitionFingerprint']) !== action.definitionFingerprint) {
       return state;
     }
 
@@ -92,7 +97,7 @@ export default function mixTimelines(state = initialState, action) {
       .setIn([action.columnKey, 'running'], true)
       .setIn([action.columnKey, 'sources', action.sourceKey, 'loading'], true);
   case MIX_SOURCE_SUCCESS:
-    if (currentGeneration(state, action.columnKey) !== action.generation) {
+    if (currentSession(state, action.columnKey) !== action.sessionId || state.getIn([action.columnKey, 'definitionFingerprint']) !== action.definitionFingerprint) {
       return state;
     }
 
@@ -106,27 +111,41 @@ export default function mixTimelines(state = initialState, action) {
           }
         });
       });
+      const results = (source.get('filterResults') || ImmutableMap()).merge(fromJS(action.filterResults || {}));
 
       return source.merge({
         ids,
-        next: action.next,
+        cursor: action.cursor,
+        frontier: action.partial ? source.get('frontier') : action.frontier,
         hasMore: action.hasMore,
         loading: false,
         loaded: true,
         error: null,
+        partial: !!action.partial,
+        retryAt: null,
+        filterResults: action.clear ? ImmutableMap() : results,
       });
-    });
+    }).updateIn([action.columnKey, 'metrics'], ImmutableMap(), metrics => metrics.merge({
+      requests: metrics.get('requests', 0) + 1,
+      fetched: metrics.get('fetched', 0) + action.ids.length,
+      extraPages: metrics.get('extraPages', 0) + (action.extra ? 1 : 0),
+    }));
   case MIX_SOURCE_FAIL:
-    if (currentGeneration(state, action.columnKey) !== action.generation) {
+    if (currentSession(state, action.columnKey) !== action.sessionId || state.getIn([action.columnKey, 'definitionFingerprint']) !== action.definitionFingerprint) {
       return state;
     }
 
     return state.updateIn([action.columnKey, 'sources', action.sourceKey], initialSource, source => source.merge({
       ids: action.clear ? ImmutableList() : source.get('ids'),
+      filterResults: action.clear ? ImmutableMap() : source.get('filterResults'),
+      frontier: action.clear ? null : source.get('frontier'),
       loading: false,
       loaded: true,
-      hasMore: action.error === 'forbidden' || action.error === 'not_found' ? false : source.get('hasMore'),
+      hasMore: action.error === 'forbidden' || action.error === 'not_found' || action.error === 'stalled' || action.error === 'order' ? false : source.get('hasMore'),
       error: action.error,
+      retryAt: action.retryAt || null,
+    })).updateIn([action.columnKey, 'metrics'], ImmutableMap(), metrics => metrics.merge({
+      requests: metrics.get('requests', 0) + 1,
     }));
   case ACCOUNT_BLOCK_SUCCESS:
   case ACCOUNT_MUTE_SUCCESS:
