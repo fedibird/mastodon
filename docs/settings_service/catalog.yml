@@ -6891,7 +6891,7 @@ entries:
     Unchecked Simple Form booleans submit 0.
   availability: permitted but the notifications form does not render it
   read_policy: general
-  write_policy: general
+  write_policy: not_writable
   side_effects:
   - email_delivery
   - settings_cache_write_skipped_for_hash_read
@@ -6910,7 +6910,9 @@ entries:
     Form inputs=0. Email lookup uses notification.type, so the followed notification
     reads notification_emails.followed. The form checkbox uses that key, but it is
     not permitted. followed_message is a different name and collides with the account
-    profile field.
+    profile field. write_policy not_writable is the future API recommendation. write_sources
+    still records the current Rails permit list, which accepts this key even though
+    no form submits it.
 - key: user.notification_emails.mention
   category: notifications
   owner: user
@@ -9647,7 +9649,8 @@ entries:
   storage: web_settings.data JSON, one row per user. The server accepts params[:data]
     with no schema.
   legacy_keys:
-    route: PATCH /api/web/settings
+    rails_route: PUT and PATCH /api/web/settings
+    webui_method: PUT
     redux: state.settings
     initial_state: settings
   raw_type: json
@@ -9658,7 +9661,8 @@ entries:
   - InitialState settings, which is the Web::Setting JSON merged over four about-page
     site flags
   write_sources:
-  - api.web.settings session + CSRF, debounced from actions/settings.js
+  - PUT /api/web/settings from app/javascript/mastodon/actions/settings.js. Rails
+    resource :settings update also accepts PATCH on the same action. Session and CSRF.
   normalization: No server normalization. A request spec shows a JSON boolean arriving
     as the string true. The saved flag is stripped before PUT.
   availability: signed-in WebUI session
@@ -9675,12 +9679,15 @@ entries:
   source_refs:
   - app/controllers/api/web/settings_controller.rb:7
   - app/javascript/mastodon/actions/settings.js:23
+  - config/routes.rb:864
   - app/helpers/application_helper.rb:207
   - app/javascript/mastodon/reducers/settings.js:12
   audit_status: verified
   notes: D3 keeps Web::Setting. InitialState key settings is this blob, not User.settings.
-    Completeness of the Redux leaf schema is not claimed; the server schema is open.
-    Group keys below are the top-level keys of the reducer initialState.
+    The WebUI sends PUT. The Rails update route accepts PUT and PATCH and does not
+    change behavior between them. Completeness of the Redux leaf schema is not claimed;
+    the server schema is open. Group keys below are the top-level keys of the reducer
+    initialState.
 - key: client.web_settings.saved
   category: client
   owner: client
@@ -9694,7 +9701,7 @@ entries:
   read_sources:
   - redux settings after STORE_HYDRATE
   write_sources:
-  - api.web.settings
+  - PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH
   normalization: client-defined
   availability: signed-in WebUI
   read_policy: exclude
@@ -9726,7 +9733,7 @@ entries:
   read_sources:
   - redux settings after STORE_HYDRATE
   write_sources:
-  - api.web.settings
+  - PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH
   normalization: client-defined
   availability: signed-in WebUI
   read_policy: exclude
@@ -9758,7 +9765,7 @@ entries:
   read_sources:
   - redux settings after STORE_HYDRATE
   write_sources:
-  - api.web.settings
+  - PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH
   normalization: client-defined
   availability: signed-in WebUI
   read_policy: exclude
@@ -9790,7 +9797,7 @@ entries:
   read_sources:
   - redux settings after STORE_HYDRATE
   write_sources:
-  - api.web.settings
+  - PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH
   normalization: client-defined
   availability: signed-in WebUI
   read_policy: exclude
@@ -9822,7 +9829,7 @@ entries:
   read_sources:
   - redux settings after STORE_HYDRATE
   write_sources:
-  - api.web.settings
+  - PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH
   normalization: client-defined
   availability: signed-in WebUI
   read_policy: exclude
@@ -9854,7 +9861,7 @@ entries:
   read_sources:
   - redux settings after STORE_HYDRATE
   write_sources:
-  - api.web.settings
+  - PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH
   normalization: client-defined
   availability: signed-in WebUI
   read_policy: exclude
@@ -9886,7 +9893,7 @@ entries:
   read_sources:
   - redux settings after STORE_HYDRATE
   write_sources:
-  - api.web.settings
+  - PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH
   normalization: client-defined
   availability: signed-in WebUI
   read_policy: exclude
@@ -9918,7 +9925,7 @@ entries:
   read_sources:
   - redux settings after STORE_HYDRATE
   write_sources:
-  - api.web.settings
+  - PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH
   normalization: client-defined
   availability: signed-in WebUI
   read_policy: exclude
@@ -9950,7 +9957,7 @@ entries:
   read_sources:
   - redux settings after STORE_HYDRATE
   write_sources:
-  - api.web.settings
+  - PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH
   normalization: client-defined
   availability: signed-in WebUI
   read_policy: exclude
@@ -9982,7 +9989,7 @@ entries:
   read_sources:
   - redux settings after STORE_HYDRATE
   write_sources:
-  - api.web.settings
+  - PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH
   normalization: client-defined
   availability: signed-in WebUI
   read_policy: exclude
@@ -10014,7 +10021,7 @@ entries:
   read_sources:
   - redux settings after STORE_HYDRATE
   write_sources:
-  - api.web.settings
+  - PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH
   normalization: client-defined
   availability: signed-in WebUI
   read_policy: exclude
@@ -10046,7 +10053,7 @@ entries:
   read_sources:
   - redux settings after STORE_HYDRATE
   write_sources:
-  - api.web.settings
+  - PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH
   normalization: client-defined
   availability: signed-in WebUI
   read_policy: exclude
@@ -10078,7 +10085,7 @@ entries:
   read_sources:
   - redux settings after STORE_HYDRATE
   write_sources:
-  - api.web.settings
+  - PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH
   normalization: client-defined
   availability: signed-in WebUI
   read_policy: exclude
@@ -10110,7 +10117,7 @@ entries:
   read_sources:
   - redux settings after STORE_HYDRATE
   write_sources:
-  - api.web.settings
+  - PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH
   normalization: client-defined
   availability: signed-in WebUI
   read_policy: exclude
@@ -10142,7 +10149,7 @@ entries:
   read_sources:
   - redux settings after STORE_HYDRATE
   write_sources:
-  - api.web.settings
+  - PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH
   normalization: client-defined
   availability: signed-in WebUI
   read_policy: exclude
@@ -10174,7 +10181,7 @@ entries:
   read_sources:
   - redux settings after STORE_HYDRATE
   write_sources:
-  - api.web.settings
+  - PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH
   normalization: client-defined
   availability: signed-in WebUI
   read_policy: exclude
@@ -10206,7 +10213,7 @@ entries:
   read_sources:
   - redux settings after STORE_HYDRATE
   write_sources:
-  - api.web.settings
+  - PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH
   normalization: client-defined
   availability: signed-in WebUI
   read_policy: exclude
@@ -10238,7 +10245,7 @@ entries:
   read_sources:
   - redux settings after STORE_HYDRATE
   write_sources:
-  - api.web.settings
+  - PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH
   normalization: client-defined
   availability: signed-in WebUI
   read_policy: exclude
@@ -10270,7 +10277,7 @@ entries:
   read_sources:
   - redux settings after STORE_HYDRATE
   write_sources:
-  - api.web.settings
+  - PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH
   normalization: client-defined
   availability: signed-in WebUI
   read_policy: exclude
@@ -10302,7 +10309,7 @@ entries:
   read_sources:
   - redux settings after STORE_HYDRATE
   write_sources:
-  - api.web.settings
+  - PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH
   normalization: client-defined
   availability: signed-in WebUI
   read_policy: exclude
@@ -10821,9 +10828,10 @@ open_questions:
     code paths, not row counts.
 - id: web_settings_json_schema_open
   status: unresolved
-  notes: PATCH /api/web/settings persists params[:data] without a permit list or schema.
-    The Redux initialState is a client convention. Saved documents may contain keys
-    this catalog does not list.
+  notes: The WebUI sends PUT /api/web/settings. Rails resource update accepts PATCH
+    on the same action. Either method persists params[:data] without a permit list
+    or schema. The Redux initialState is a client convention. Saved documents may
+    contain keys this catalog does not list.
 - id: show_target_has_no_active_ui
   status: unresolved
   notes: show_target is permitted, delegated, defaulted, and copied into InitialState,
@@ -10831,9 +10839,11 @@ open_questions:
     were found. A dynamic or non-import use would not show up in the import scan.
 extractor_limits:
 - Haml inputs are detected with a line regex, not a Haml parser. Inputs built outside
-  f.input or ff.input are invisible.
-- A form input is conditional when a line containing "- if" appears in the previous
-  12 lines. That window can miss or over-attribute a condition.
+  .input :name are invisible, including inputs rendered from a partial or a helper.
+- A form input is conditional while an indentation stack still holds a shallower "-
+  if" or "- unless" line. The condition is not evaluated. The parser misses a condition
+  in another file, a condition that is not written as "- if" or "- unless", and a
+  commented parent whose child line is not itself a comment.
 - Commented inputs are only those whose own line is a Haml comment. A commented parent
   block with an uncommented child would be counted as active.
 - UserSettingsDecorator key lists are read from %w arrays only.

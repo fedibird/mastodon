@@ -23,7 +23,9 @@ P0 で承認済みの決定である。この監査は決定を再設計しな�
 
 ## D3. Web::Setting は当面維持する
 
-`web_settings.data` は WebUI の Redux 状態である。`User.settings` に吸収しない。`PATCH /api/web/settings` はセッショントークンと CSRF のままとする。
+`web_settings.data` は WebUI の Redux 状態である。`User.settings` に吸収しない。
+
+`config/routes.rb` の `namespace :web` にある `resource :settings, only: [:update]` は、Rails の update として PUT と PATCH を同じアクションへ届ける。現行 WebUI は `app/javascript/mastodon/actions/settings.js` から `PUT /api/web/settings` を送る。セッショントークンと CSRF は変わらない。この監査はルートもクライアントも変えない。
 
 InitialState の `settings` キーはこの JSON であり、ユーザー設定ではない。サーバーは形を検証しない。
 

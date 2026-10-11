@@ -184,7 +184,7 @@ module SettingsServiceCatalog
         'normalization' => 'UserSettingsDecorator merges only submitted keys and casts each value with ActiveModel::Type::Boolean. Omitted keys stay at the previously stored value. Unchecked Simple Form booleans submit 0.',
         'availability' => nested_availability(group, child, forms),
         'read_policy' => 'general',
-        'write_policy' => group == 'interactions' ? 'high_risk' : 'general',
+        'write_policy' => nested_write_policy(group, in_yaml, forms),
         'side_effects' => group == 'notification_emails' ? ['email_delivery', 'settings_cache_write_skipped_for_hash_read'] : ['notification_and_delivery_filter', 'settings_cache_write_skipped_for_hash_read'],
         'apply_hint' => 'live',
         'client_reference' => ['none'],
@@ -313,12 +313,17 @@ module SettingsServiceCatalog
         'owner' => 'client',
         'disposition' => 'client',
         'storage' => 'web_settings.data JSON, one row per user. The server accepts params[:data] with no schema.',
-        'legacy_keys' => { 'route' => 'PATCH /api/web/settings', 'redux' => 'state.settings', 'initial_state' => 'settings' },
+        'legacy_keys' => {
+          'rails_route' => 'PUT and PATCH /api/web/settings',
+          'webui_method' => 'PUT',
+          'redux' => 'state.settings',
+          'initial_state' => 'settings',
+        },
         'raw_type' => 'json',
         'effective_type' => 'immutable map in Redux',
         'default_source' => 'app/javascript/mastodon/reducers/settings.js initialState, merged over the saved JSON on STORE_HYDRATE',
         'read_sources' => ['InitialState settings, which is the Web::Setting JSON merged over four about-page site flags'],
-        'write_sources' => ['api.web.settings session + CSRF, debounced from actions/settings.js'],
+        'write_sources' => ['PUT /api/web/settings from app/javascript/mastodon/actions/settings.js. Rails resource :settings update also accepts PATCH on the same action. Session and CSRF.'],
         'normalization' => 'No server normalization. A request spec shows a JSON boolean arriving as the string true. The saved flag is stripped before PUT.',
         'availability' => 'signed-in WebUI session',
         'read_policy' => 'exclude',
@@ -328,9 +333,15 @@ module SettingsServiceCatalog
         'client_reference' => ['redux_settings'],
         'configured_vs_effective' => 'client_owned',
         'form_status' => 'absent',
-        'source_refs' => ['app/controllers/api/web/settings_controller.rb:7', 'app/javascript/mastodon/actions/settings.js:23', 'app/helpers/application_helper.rb:207', 'app/javascript/mastodon/reducers/settings.js:12'],
+        'source_refs' => [
+          'app/controllers/api/web/settings_controller.rb:7',
+          "app/javascript/mastodon/actions/settings.js:#{read_line('app/javascript/mastodon/actions/settings.js', "api().put('/api/web/settings'")}",
+          "config/routes.rb:#{read_line('config/routes.rb', 'resource :settings, only: [:update]')}",
+          'app/helpers/application_helper.rb:207',
+          'app/javascript/mastodon/reducers/settings.js:12',
+        ],
         'audit_status' => 'verified',
-        'notes' => 'D3 keeps Web::Setting. InitialState key settings is this blob, not User.settings. Completeness of the Redux leaf schema is not claimed; the server schema is open. Group keys below are the top-level keys of the reducer initialState.',
+        'notes' => 'D3 keeps Web::Setting. InitialState key settings is this blob, not User.settings. The WebUI sends PUT. The Rails update route accepts PUT and PATCH and does not change behavior between them. Completeness of the Redux leaf schema is not claimed; the server schema is open. Group keys below are the top-level keys of the reducer initialState.',
       }
       groups = @facts[:reducer_groups].map do |group|
         {
@@ -344,7 +355,7 @@ module SettingsServiceCatalog
           'effective_type' => 'redux value',
           'default_source' => "reducers/settings.js initialState.#{group['key']}",
           'read_sources' => ['redux settings after STORE_HYDRATE'],
-          'write_sources' => ['api.web.settings'],
+          'write_sources' => ['PUT /api/web/settings from the WebUI; the Rails update route also accepts PATCH'],
           'normalization' => 'client-defined',
           'availability' => 'signed-in WebUI',
           'read_policy' => 'exclude',
@@ -512,7 +523,7 @@ module SettingsServiceCatalog
         {
           'id' => 'web_settings_json_schema_open',
           'status' => 'unresolved',
-          'notes' => 'PATCH /api/web/settings persists params[:data] without a permit list or schema. The Redux initialState is a client convention. Saved documents may contain keys this catalog does not list.',
+          'notes' => 'The WebUI sends PUT /api/web/settings. Rails resource update accepts PATCH on the same action. Either method persists params[:data] without a permit list or schema. The Redux initialState is a client convention. Saved documents may contain keys this catalog does not list.',
         },
         {
           'id' => 'show_target_has_no_active_ui',
@@ -524,8 +535,8 @@ module SettingsServiceCatalog
 
     def extractor_limits
       [
-        'Haml inputs are detected with a line regex, not a Haml parser. Inputs built outside f.input or ff.input are invisible.',
-        'A form input is conditional when a line containing "- if" appears in the previous 12 lines. That window can miss or over-attribute a condition.',
+        'Haml inputs are detected with a line regex, not a Haml parser. Inputs built outside .input :name are invisible, including inputs rendered from a partial or a helper.',
+        'A form input is conditional while an indentation stack still holds a shallower "- if" or "- unless" line. The condition is not evaluated. The parser misses a condition in another file, a condition that is not written as "- if" or "- unless", and a commented parent whose child line is not itself a comment.',
         'Commented inputs are only those whose own line is a Haml comment. A commented parent block with an uncommented child would be counted as active.',
         'UserSettingsDecorator key lists are read from %w arrays only.',
         'JavaScript use is counted from static import { name } from an initial_state module. Re-exports, require, and string lookups are not followed. Import count zero means no such import was found, not that a runtime lookup is impossible.',
@@ -894,6 +905,7 @@ module SettingsServiceCatalog
       parts = ["Nested key of #{group}. YAML present=#{in_yaml} default=#{yaml_value.inspect}. Permitted=#{in_permit}. Form inputs=#{forms.size}."]
       parts << 'Recommendation only: write_policy high_risk for interactions because NotifyService drops notifications and some direct messages when the flag is set.' if group == 'interactions'
       parts << 'Email lookup uses notification.type, so the followed notification reads notification_emails.followed. The form checkbox uses that key, but it is not permitted. followed_message is a different name and collides with the account profile field.' if child == 'followed' || child == 'followed_message'
+      parts << 'write_policy not_writable is the future API recommendation. write_sources still records the current Rails permit list, which accepts this key even though no form submits it.' if child == 'followed_message'
       parts << 'Staff-only inputs are omitted for other users, and the decorator merges only submitted keys, so a hidden key is left unchanged.' if %w[report pending_account trends].include?(child) && group == 'notification_emails'
       parts << 'must_be_dm_to_send_email gates email only. The other interaction flags gate notification creation.' if child == 'must_be_dm_to_send_email'
       parts.join(' ')
@@ -971,9 +983,15 @@ module SettingsServiceCatalog
       end
     end
 
+    def nested_write_policy(group, in_yaml, forms)
+      return 'not_writable' if nested_disposition(group, in_yaml, forms) == 'retained_inactive'
+      return 'high_risk' if group == 'interactions'
+
+      'general'
+    end
+
     def read_line(path, snippet)
-      text = path == 'app/models/user.rb' ? Extract.new(@root).send(:read, path) : File.read(File.join(@root, path))
-      text.lines.index { |line| line.include?(snippet) } + 1
+      File.readlines(File.join(@root, path)).index { |line| line.include?(snippet) } + 1
     end
   end
 end

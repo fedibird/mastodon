@@ -50,7 +50,7 @@
 
 ## 2. Rails フォーム別の入力項目数
 
-パーサは `f.input` / `ff.input` / `fields_f.input` の行だけを数える。Haml コメントの行は commented である。条件付きは、その行より浅い `- if` / `- unless` が残っている場合である。条件付き件数は active に含まれる。
+パーサは `f.input` / `ff.input` / `fields_f.input` の行だけを数える。Haml コメントの行は commented である。条件付きは、インデントスタック上にその行より浅い `- if` または `- unless` が残っている場合である。条件式そのものは評価しない。別ファイルの条件、`- if` / `- unless` 以外の書き方、コメント行ではない子を持つコメント親は検出できない。条件付き件数は active に含まれる。
 
 | 画面 | active | うち条件付き | commented |
 | --- | ---: | ---: | ---: |
@@ -103,7 +103,7 @@ InitialState の `settings` は `Web::Setting` の JSON に、about ページ用
 | --- | --- | --- |
 | `GET /api/v1/preferences` | `read` または `read:accounts` | `posting:default:visibility`（有効な default_privacy）、`posting:default:sensitive`、`posting:default:language`（**preferred_posting_language**）、`reading:expand:media`（display_media の文字列）、`reading:expand:spoilers`、`reading:autoplay:gifs`（自動再生 4 フラグの AND） |
 | `GET/PATCH /api/v1/accounts/verify_credentials` と update_credentials の `source` | 参照は `profile` / `read` / `read:accounts`、更新は `write` / `write:accounts` | `privacy`（有効値）、`sensitive`、`language`（**保存された default_language**。nil があり得る） |
-| `PATCH /api/web/settings` | セッション + CSRF | `web_settings.data` 全体。スキーマなし |
+| `PUT /api/web/settings`（WebUI が送信。Rails の `resource :settings` update は PATCH も同じアクション） | セッション + CSRF | `web_settings.data` 全体。スキーマなし |
 | `api/v1/fedibird/*` | 各コントローラの既存スコープ | ユーザー設定の preference キーは読んでいない。翻訳言語、投稿アイデンティティ、投稿コンテキストである |
 
 資格情報の `show` は、公式 iOS / Android かつ `unlocked_for_official_app` のとき、応答直前にメモリ上の `account.locked` を false にする。行は更新しない。`accounts#show` にも同じマスクがある。
@@ -165,7 +165,7 @@ InitialState の `settings` は `Web::Setting` の JSON に、about ページ用
 - **translation_preferred_mode**。許容は `translated`、`bilingual`、`both`。それ以外の読み書きは `translated`。表示モード `original` は設定ではない。
 - **検索対象が二つ**。ユーザー設定の既定は YAML 上 `public` で、検索 UI の `search.default_searchability` になる。アカウント列の既定は DB 上 `direct` で、コンポーザーの `compose.default_searchability` になる。コンポーザー reducer の hydrate 前初期値は `private` である。
 - **notification_emails.followed**。YAML 既定 false、フォームあり、許可パラメータに無い。通知タイプ `:followed` のメール判定はこのキーを読む。チェックボックスは strong parameters で落ちる。
-- **notification_emails.followed_message**。許可パラメータにだけある。YAML にもフォームにも無い。プロフィールの `followed_message` とは別物である。
+- **notification_emails.followed_message**。許可パラメータにだけある。YAML にもフォームにも無い。プロフィールの `followed_message` とは別物である。将来 API の `write_policy` は `not_writable` である。現行 Rails が許可リストで受け付ける事実は `write_sources` に残す。`enable_local_timeline` と `show_target` も同様に、推奨は `not_writable`、現行の許可は `write_sources` に残る。参照の無い site キー（`disallowed_hashtags`、`enable_personal_account`、`min_invite_role`）も `write_policy` は `not_writable` で、管理フォームが無いことは `write_sources` に書いてある。
 - **hide_personal_from_account**。decorator、フォーム、delegate、InitialState にある。`settings.yml` に無い。未保存の getter は nil で、呼び出し側では偽として扱われる。
 - **enable_local_timeline**。YAML 既定 true、フォームはコメント、InitialState は false、JS はログイン中にその false を使う。
 - **enable_personal_account**。YAML にだけある。`enable_personal_timeline` とは別キーで、app 配下に `Setting.enable_personal_account` は見つからなかった。

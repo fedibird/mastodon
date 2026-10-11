@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require 'shellwords'
 require 'yaml'
 
 # Static extraction for the settings-service audit.
@@ -32,12 +31,6 @@ module SettingsServiceCatalog
     private
 
     def read(relative)
-      # Line numbers must match HEAD. The worktree may contain unrelated schema
-      # annotation edits that are not part of this audit.
-      if relative == 'app/models/user.rb'
-        head = `git -C #{Shellwords.escape(@root)} show HEAD:#{relative}`
-        return head if $?.success? && !head.empty?
-      end
       File.read(File.join(@root, relative))
     end
 

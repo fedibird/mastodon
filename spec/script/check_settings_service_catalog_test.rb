@@ -91,6 +91,56 @@ class CheckSettingsServiceCatalogTest < Minitest::Test
     assert_match(/missing read_policy/, output)
   end
 
+  def test_extract_reads_the_worktree_user_model
+    source = File.read(File.join(ROOT, 'script/settings_service_catalog/extract.rb'))
+    refute_match(/git show HEAD/, source)
+  end
+
+  def test_user_delegate_change_is_detected
+    path = File.join(ROOT, 'app/models/user.rb')
+    original = File.binread(path)
+    updated = original.sub('delegate :auto_play_avatar,', 'delegate :auto_play_avatar, :audit_probe_setting,')
+    flunk('delegate site was not found') if updated == original
+    File.binwrite(path, updated)
+    output, status = run_check(CATALOG)
+    refute status.success?, output
+    assert_match(/audit_probe_setting/, output)
+  ensure
+    File.binwrite(path, original) if original
+  end
+
+  def test_rewritten_disposition_fails_consistency
+    catalog = YAML.safe_load(File.read(CATALOG), aliases: true)
+    entry(catalog, 'user.default_sensitive')['disposition'] = 'candidate_high_risk'
+    stats = catalog['meta']['stats']['by_disposition']
+    stats['candidate_general'] -= 1
+    stats['candidate_high_risk'] += 1
+    output, status = run_check(write_catalog(catalog))
+    refute status.success?, output
+    assert_match(/catalog drift user\.default_sensitive fields: disposition/, output)
+  end
+
+  def test_generated_catalog_mismatch_is_detected
+    catalog = YAML.safe_load(File.read(CATALOG), aliases: true)
+    entry(catalog, 'user.default_privacy')['notes'] += ' catalog drift probe'
+    output, status = run_check(write_catalog(catalog))
+    refute status.success?, output
+    assert_match(/catalog drift user\.default_privacy/, output)
+  end
+
+  def test_inactive_write_policy_general_fails
+    catalog = YAML.safe_load(File.read(CATALOG), aliases: true)
+    item = entry(catalog, 'user.notification_emails.followed_message')
+    assert_equal 'retained_inactive', item['disposition']
+    assert_equal 'not_writable', item['write_policy']
+    assert_includes item['write_sources'], 'permitted nested key'
+    assert_equal 'unresolved', item['audit_status']
+    item['write_policy'] = 'general'
+    output, status = run_check(write_catalog(catalog))
+    refute status.success?, output
+    assert_match(/user\.notification_emails\.followed_message retained_inactive write_policy must be not_writable/, output)
+  end
+
   private
 
   def entry(catalog, key)

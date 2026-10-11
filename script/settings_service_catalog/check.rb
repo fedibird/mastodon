@@ -2,6 +2,7 @@
 
 require 'yaml'
 require_relative 'extract'
+require_relative 'build'
 
 module SettingsServiceCatalog
   class Check
@@ -19,9 +20,10 @@ module SettingsServiceCatalog
     ].freeze
     POLICIES = %w[general high_risk exclude admin not_writable session_web unresolved].freeze
 
-    def initialize(root:, catalog_path:)
+    def initialize(root:, catalog_path:, skip_generated: false)
       @root = root
       @catalog_path = catalog_path
+      @skip_generated = skip_generated
       @errors = []
       @warnings = []
     end
@@ -35,10 +37,13 @@ module SettingsServiceCatalog
       @errors << "duplicate keys: #{duplicate.join(', ')}" unless duplicate.empty?
 
       entries.each { |entry| validate_entry(entry) }
+      validate_source_refs(entries)
       validate_coverage(entries, facts)
       validate_open_questions(catalog, facts)
-      validate_stats(catalog, entries)
+      validate_stats(catalog, entries, facts)
+      validate_inactive_write_policy(entries)
       validate_limits(catalog)
+      validate_generated(catalog) unless @skip_generated
 
       {
         'ok' => @errors.empty?,
@@ -165,18 +170,104 @@ module SettingsServiceCatalog
       @errors << 'database sampling limit must stay visible' unless ids.include?('production_stored_values_not_sampled')
     end
 
-    def validate_stats(catalog, entries)
+    def validate_stats(catalog, entries, facts)
       stats = catalog.dig('meta', 'stats') || {}
       @errors << 'meta.stats.entries drift' unless stats['entries'] == entries.size
-      actual = entries.group_by { |entry| entry['audit_status'] }.transform_values(&:size)
-      @errors << 'meta.stats.by_audit_status drift' unless stats['by_audit_status'] == actual
+      @errors << 'meta.stats.by_audit_status drift' unless stats['by_audit_status'] == tally(entries, 'audit_status')
+      @errors << 'meta.stats.by_disposition drift' unless stats['by_disposition'] == tally(entries, 'disposition')
+      @errors << 'meta.stats.by_owner drift' unless stats['by_owner'] == tally(entries, 'owner')
+      @errors << 'meta.stats.form_inputs drift' unless stats['form_inputs'] == form_input_stats(facts)
       @errors << 'meta.not_runtime_contract must stay true' unless catalog.dig('meta', 'not_runtime_contract') == true
+    end
+
+    def validate_inactive_write_policy(entries)
+      entries.each do |entry|
+        next unless entry['disposition'] == 'retained_inactive'
+        next if entry['write_policy'] == 'not_writable'
+
+        @errors << "#{entry['key']} retained_inactive write_policy must be not_writable, found #{entry['write_policy']}"
+      end
+    end
+
+    def validate_source_refs(entries)
+      entries.each do |entry|
+        Array(entry['source_refs']).each do |ref|
+          path, line = split_source_ref(ref)
+          full = File.join(@root, path)
+          unless File.file?(full)
+            @errors << "#{entry['key']} source_ref missing file #{path}"
+            next
+          end
+          next if line.nil?
+
+          lines = File.readlines(full)
+          if line < 1 || line > lines.size
+            @errors << "#{entry['key']} source_ref #{ref} is outside #{path} (#{lines.size} lines)"
+          elsif lines[line - 1].strip.empty?
+            @errors << "#{entry['key']} source_ref #{ref} points at a blank line"
+          end
+        end
+      end
+    end
+
+    def validate_generated(catalog)
+      generated = canonicalize(Build.new(@root).document)
+      committed = canonicalize(catalog)
+      return if generated == committed
+
+      @errors.concat(catalog_drift(committed, generated))
     end
 
     def validate_limits(catalog)
       limits = catalog['extractor_limits']
       @errors << 'extractor limits were omitted' unless limits.is_a?(Array) && limits.size >= 3
+      joined = Array(limits).join("\n")
+      @errors << 'extractor_limits still describes the old 12-line condition window' if joined.include?('12 lines')
+      @errors << 'extractor_limits must describe the indentation stack' unless joined.include?('indentation stack')
       @warnings << 'static extraction is incomplete by design; unresolved questions are listed and are not successes' if limits.is_a?(Array)
+    end
+
+    def tally(entries, field)
+      entries.group_by { |entry| entry[field] }.transform_values(&:size)
+    end
+
+    def form_input_stats(facts)
+      facts[:forms].transform_values do |fields|
+        {
+          'active' => fields.count { |field| !field['commented'] },
+          'commented' => fields.count { |field| field['commented'] },
+          'conditional' => fields.count { |field| field['conditional'] },
+        }
+      end
+    end
+
+    def split_source_ref(ref)
+      return [ref, nil] unless ref =~ /\A(.+):(\d+)\z/
+
+      [Regexp.last_match(1), Regexp.last_match(2).to_i]
+    end
+
+    def canonicalize(document)
+      YAML.safe_load(YAML.dump(document), aliases: true)
+    end
+
+    def catalog_drift(committed, generated)
+      errors = []
+      committed_entries = Array(committed['entries']).to_h { |entry| [entry['key'], entry] }
+      generated_entries = Array(generated['entries']).to_h { |entry| [entry['key'], entry] }
+      (committed_entries.keys - generated_entries.keys).each { |key| errors << "generator dropped #{key}" }
+      (generated_entries.keys - committed_entries.keys).each { |key| errors << "generator added #{key} missing from catalog" }
+      (committed_entries.keys & generated_entries.keys).each do |key|
+        next if committed_entries[key] == generated_entries[key]
+
+        fields = (committed_entries[key].keys | generated_entries[key].keys).reject { |field| committed_entries[key][field] == generated_entries[key][field] }
+        errors << "catalog drift #{key} fields: #{fields.join(', ')}"
+      end
+      %w[open_questions extractor_limits].each do |section|
+        errors << "catalog drift #{section}" unless committed[section] == generated[section]
+      end
+      errors << 'catalog drift meta' unless committed['meta'] == generated['meta']
+      errors.first(40)
     end
 
     def hash_keys(facts, group)
