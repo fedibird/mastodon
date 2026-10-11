@@ -9126,10 +9126,22 @@ noscript {
       &.active {
         border-color: $highlight-text-color;
         background: $highlight-text-color;
+
+        &::after {
+          content: '';
+          position: absolute;
+          left: 5px;
+          top: 1px;
+          width: 4px;
+          height: 8px;
+          border: solid $primary-text-color;
+          border-width: 0 2px 2px 0;
+          transform: rotate(45deg);
+        }
       }
     }
 
-    &:hover .checkbox {
+    &:hover .checkbox:not(.active) {
       border-color: lighten($ui-primary-color, 8%);
     }
   }
@@ -9270,8 +9282,7 @@ noscript {
     margin: 0 0 8px;
   }
 
-  &__sources,
-  &__notices {
+  &__sources {
     margin: 0 0 12px;
     padding: 0;
     list-style: none;
@@ -9308,15 +9319,6 @@ noscript {
   &__edit {
     margin: 0 0 12px;
     text-transform: none;
-  }
-
-  &__notices {
-    color: $darker-text-color;
-    font-size: 12px;
-
-    li + li {
-      margin-top: 4px;
-    }
   }
 }
 

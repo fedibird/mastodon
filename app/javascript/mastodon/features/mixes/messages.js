@@ -23,8 +23,6 @@ export default defineMessages({
   aboutMixBody: { id: 'mixes.about_body', defaultMessage: 'A timeline that brings together posts from the sources you choose, such as other servers and Home.' },
   includedSources: { id: 'mixes.included_sources', defaultMessage: 'Included display sources' },
   mixInfo: { id: 'mixes.mix_info', defaultMessage: 'Mix information' },
-  noticeFiltered: { id: 'mixes.notice_filtered', defaultMessage: 'Aggressive or discriminatory speech, advertising, and NSFW posts are not shown.' },
-  noticeScope: { id: 'mixes.notice_scope', defaultMessage: 'Only posts that follow the visibility and rules of the servers included in this mix are shown.' },
   sourceSummary: { id: 'mixes.source_summary', defaultMessage: '{count} sources in one timeline' },
   unavailable: { id: 'mixes.unavailable', defaultMessage: 'Mix is available to administrators and beta testers.' },
   deleted: { id: 'mixes.deleted', defaultMessage: 'This mix was deleted.' },

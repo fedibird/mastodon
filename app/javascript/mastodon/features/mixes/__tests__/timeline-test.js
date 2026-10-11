@@ -111,8 +111,8 @@ describe('mix timeline column', () => {
     expect(screen.getByText('Home')).toBeTruthy();
     expect(screen.getByText('Friends')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Edit mix' }).getAttribute('href')).toBe('/mixes/mix-1/edit');
-    expect(screen.getByText('Aggressive or discriminatory speech, advertising, and NSFW posts are not shown.')).toBeTruthy();
-    expect(screen.getByText('Only posts that follow the visibility and rules of the servers included in this mix are shown.')).toBeTruthy();
+    expect(screen.queryByText('Aggressive or discriminatory speech, advertising, and NSFW posts are not shown.')).toBeNull();
+    expect(screen.queryByText('Only posts that follow the visibility and rules of the servers included in this mix are shown.')).toBeNull();
     expect(screen.getByText('This address opens your own mix. It does not share the feed with anyone else.')).toBeTruthy();
     const beforePin = dispatch.mock.calls.length;
 

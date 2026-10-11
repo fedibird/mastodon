@@ -157,6 +157,20 @@ describe('mix source form', () => {
     expect(screen.getByLabelText('Hashtag')).toHaveValue('');
   });
 
+  it('marks a display-source option when its checkbox is selected', () => {
+    const { container } = render(<SourceForm intl={intl} onAddSource={acceptSource} onSearch={emptySearch} />);
+    const input = screen.getByLabelText('Hide boosts');
+
+    expect(input.checked).toBe(false);
+    expect(container.querySelector('.mix-editor__flag .checkbox.active')).toBeNull();
+
+    fireEvent.click(input);
+
+    expect(input.checked).toBe(true);
+    expect(input.nextElementSibling.classList.contains('checkbox')).toBe(true);
+    expect(input.nextElementSibling.classList.contains('active')).toBe(true);
+  });
+
   it('does not keep showing search results after the source type changes', async () => {
     let resolveSearch;
     const onSearch = jest.fn(() => new Promise(resolve => {

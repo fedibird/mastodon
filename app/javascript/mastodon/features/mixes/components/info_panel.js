@@ -64,11 +64,6 @@ export default class MixInfoPanel extends React.PureComponent {
             {intl.formatMessage(messages.edit)}
           </Link>
         )}
-
-        <ul className='mix-info__notices'>
-          <li>{intl.formatMessage(messages.noticeFiltered)}</li>
-          <li>{intl.formatMessage(messages.noticeScope)}</li>
-        </ul>
       </div>
     );
   }

@@ -641,8 +641,6 @@
   "mixes.included_sources": "含まれる表示ソース",
   "mixes.incomplete": "{name}は一部しか読み込めていません。",
   "mixes.mix_info": "ミックスの情報",
-  "mixes.notice_filtered": "攻撃的、差別的な言動、広告、NSFWは表示されません。",
-  "mixes.notice_scope": "このミックスに含まれるサーバーの公開範囲・ルールに従った投稿のみが表示されます。",
   "mixes.pending_posts": "新しい投稿が{count}件あります",
   "mixes.stream_degraded": "{name}は再接続後の差分を埋められませんでした。",
   "mixes.stream_offline": "{name}は再接続しています。",
