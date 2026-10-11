@@ -8967,6 +8967,29 @@ noscript {
     color: $dark-text-color;
     font-size: 13px;
     line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  &__back {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    margin: 0 0 12px;
+    color: $dark-text-color;
+    font-size: 13px;
+    line-height: 1.4;
+    text-decoration: none;
+
+    &:hover,
+    &:focus {
+      color: $highlight-text-color;
+      text-decoration: underline;
+    }
+  }
+
+  &__back-icon {
+    flex: 0 0 auto;
   }
 
   &__label,

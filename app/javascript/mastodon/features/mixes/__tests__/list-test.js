@@ -52,7 +52,11 @@ describe('mix list', () => {
     expect(edit.getAttribute('href')).toBe('/mixes/mix-1/edit');
     expect(edit.querySelector('.fa-pencil')).toBeTruthy();
     expect(edit.textContent.trim()).toBe('');
-    expect(screen.getByRole('link', { name: 'New mix' }).getAttribute('href')).toBe('/mixes/new');
+    const intro = screen.getByText('A mix combines several columns into one timeline.');
+    const create = screen.getByRole('link', { name: 'New mix' });
+
+    expect(intro.compareDocumentPosition(create) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(create.getAttribute('href')).toBe('/mixes/new');
   });
 
   it('hides saved mixes from viewers who cannot use the feature', () => {

@@ -38,6 +38,7 @@ export class MixList extends React.PureComponent {
         {!enabled && <p className='mix-editor__notice'>{intl.formatMessage(messages.unavailable)}</p>}
         {enabled && (
           <div className='mix-editor'>
+            <p className='mix-editor__intro'>{intl.formatMessage(messages.editorIntro)}</p>
             <Link className='button mix-list__create' to='/mixes/new'>{intl.formatMessage(messages.create)}</Link>
             <h2 className='mix-editor__label'>{intl.formatMessage(messages.subheading)}</h2>
             {items.isEmpty() && <p>{intl.formatMessage(messages.empty)}</p>}
