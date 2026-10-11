@@ -123,13 +123,13 @@ describe('mix list', () => {
     expect(screen.getByRole('link', { name: /Wide/ }).getAttribute('href')).toBe('/timelines/mixes/mix-8');
   });
 
-  it('hides saved mixes from viewers who cannot use the feature', () => {
+  it('shows the empty list and the create button for any signed-in viewer', () => {
     renderList({
-      enabled: false,
-      mixes: fromJS([{ id: 'mix-1', title: 'Desk', version: 1, sources: [] }]),
+      mixes: fromJS([]),
     });
 
-    expect(screen.getByText('Mix is available to administrators and beta testers.')).toBeTruthy();
-    expect(screen.queryByRole('link', { name: 'Desk' })).toBeNull();
+    expect(screen.getByText('You don\'t have any mixes yet. When you create one, it will show up here.')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'New mix' }).getAttribute('href')).toBe('/mixes/new');
+    expect(screen.queryByText('Mix is available to administrators and beta testers.')).toBeNull();
   });
 });

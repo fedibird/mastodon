@@ -42,6 +42,7 @@ const messages = defineMessages({
   limited_timeline: { id: 'navigation_bar.limited_timeline', defaultMessage: 'Limited home' },
   personal_timeline: { id: 'navigation_bar.personal_timeline', defaultMessage: 'Personal' },
   lists: { id: 'navigation_bar.lists', defaultMessage: 'Lists' },
+  mixes: { id: 'navigation_bar.mixes', defaultMessage: 'Mix' },
   circles: { id: 'navigation_bar.circles', defaultMessage: 'Circles' },
   discover: { id: 'navigation_bar.discover', defaultMessage: 'Discover' },
   personal: { id: 'navigation_bar.personal', defaultMessage: 'Personal' },
@@ -248,10 +249,11 @@ class GettingStarted extends ImmutablePureComponent {
       <ColumnLink key='favourites' icon='star' text={intl.formatMessage(messages.favourites)} to='/favourites' />,
       <ColumnLink key='emoji_reactions' icon='smile-o' text={intl.formatMessage(messages.emoji_reactions)} to='/emoji_reactions' />,
       <ColumnLink key='lists' icon='list-ul' text={intl.formatMessage(messages.lists)} to='/lists' />,
+      <ColumnLink key='mixes' icon='random' text={intl.formatMessage(messages.mixes)} to='/mixes' />,
       <ColumnLink key='circles' icon='user-circle' text={intl.formatMessage(messages.circles)} to='/circles' />,
     );
 
-    height += 48*6;
+    height += 48*7;
 
     if (myAccount.get('locked') || unreadFollowRequests > 0) {
       navItems.push(<ColumnLink key='follow_requests' icon='user-plus' text={intl.formatMessage(messages.follow_requests)} badge={badgeDisplay(unreadFollowRequests, 40)} to='/follow_requests' />);

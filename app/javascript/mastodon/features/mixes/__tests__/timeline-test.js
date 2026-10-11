@@ -66,10 +66,9 @@ const savedMix = fromJS({
 });
 
 describe('mix timeline column', () => {
-  it('distinguishes loading states for an unavailable, deleted, and saved mix', () => {
-    expect(mixTimelineMode({ enabled: false, mix: null })).toBe('unavailable');
-    expect(mixTimelineMode({ enabled: true, mix: null })).toBe('deleted');
-    expect(mixTimelineMode({ enabled: true, mix: fromJS({ id: 'mix-1' }) })).toBe('ready');
+  it('distinguishes a missing mix from a saved mix', () => {
+    expect(mixTimelineMode({ mix: null })).toBe('deleted');
+    expect(mixTimelineMode({ mix: fromJS({ id: 'mix-1' }) })).toBe('ready');
   });
 
   it('pins the mix id without using it as the column uuid', () => {
