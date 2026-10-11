@@ -25,7 +25,7 @@ export default defineMessages({
   includedSources: { id: 'mixes.included_sources', defaultMessage: 'Included display sources' },
   mixInfo: { id: 'mixes.mix_info', defaultMessage: 'Mix information' },
   settings: { id: 'mixes.settings', defaultMessage: 'Mix settings' },
-  unavailable: { id: 'mixes.unavailable', defaultMessage: 'Mix is available to administrators and beta testers.' },
+  splitUnavailable: { id: 'timeline.split_mix_unavailable', defaultMessage: 'Another mix timeline is already split' },
   deleted: { id: 'mixes.deleted', defaultMessage: 'This mix was deleted.' },
   notMerged: { id: 'mixes.not_merged', defaultMessage: 'The merged timeline is not loaded yet. This column keeps the mix definition only.' },
   notShared: { id: 'mixes.not_shared', defaultMessage: 'This address opens your own mix. It does not share the feed with anyone else.' },

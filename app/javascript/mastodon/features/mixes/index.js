@@ -9,7 +9,6 @@ import Column from '../ui/components/column';
 import ColumnBackButtonSlim from '../../components/column_back_button_slim';
 import Icon from 'mastodon/components/icon';
 import { defaultColumnWidth } from 'mastodon/initial_state';
-import { isMixEnabled } from 'mastodon/mix/availability';
 import { describeMixSource } from 'mastodon/mix/source_badges';
 import messages from './messages';
 
@@ -17,7 +16,6 @@ const mapStateToProps = state => ({
   mixes: state.getIn(['settings', 'mixes'], ImmutableList()),
   lists: state.get('lists'),
   accounts: state.get('accounts'),
-  enabled: isMixEnabled(),
   columnWidth: defaultColumnWidth,
 });
 
@@ -95,35 +93,31 @@ export class MixList extends React.PureComponent {
     mixes: ImmutablePropTypes.list,
     lists: PropTypes.object,
     accounts: PropTypes.object,
-    enabled: PropTypes.bool,
     intl: PropTypes.object.isRequired,
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
   };
 
   render () {
-    const { mixes, lists, accounts, enabled, intl, multiColumn, columnWidth } = this.props;
+    const { mixes, lists, accounts, intl, multiColumn, columnWidth } = this.props;
     const items = mixes || ImmutableList();
 
     return (
       <Column bindToDocument={!multiColumn} icon='random' heading={intl.formatMessage(messages.heading)} columnWidth={columnWidth}>
         <ColumnBackButtonSlim />
-        {!enabled && <p className='mix-editor__notice'>{intl.formatMessage(messages.unavailable)}</p>}
-        {enabled && (
-          <div className='mix-editor'>
-            <p className='mix-editor__intro'>{intl.formatMessage(messages.editorIntro)}</p>
-            <Link className='button mix-list__create' to='/mixes/new'>{intl.formatMessage(messages.create)}</Link>
-            <h2 className='mix-editor__label'>{intl.formatMessage(messages.subheading)}</h2>
-            {items.isEmpty() && <p>{intl.formatMessage(messages.empty)}</p>}
-            {!items.isEmpty() && (
-              <ul className='mix-list__items'>
-                {items.map(mix => mix && (
-                  <MixListItem key={mix.get('id')} mix={mix} intl={intl} lists={lists} accounts={accounts} />
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
+        <div className='mix-editor'>
+          <p className='mix-editor__intro'>{intl.formatMessage(messages.editorIntro)}</p>
+          <Link className='button mix-list__create' to='/mixes/new'>{intl.formatMessage(messages.create)}</Link>
+          <h2 className='mix-editor__label'>{intl.formatMessage(messages.subheading)}</h2>
+          {items.isEmpty() && <p>{intl.formatMessage(messages.empty)}</p>}
+          {!items.isEmpty() && (
+            <ul className='mix-list__items'>
+              {items.map(mix => mix && (
+                <MixListItem key={mix.get('id')} mix={mix} intl={intl} lists={lists} accounts={accounts} />
+              ))}
+            </ul>
+          )}
+        </div>
       </Column>
     );
   }

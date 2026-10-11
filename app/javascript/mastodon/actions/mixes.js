@@ -1,14 +1,11 @@
 import { List as ImmutableList, fromJS } from 'immutable';
 import api from '../api';
-import { isMixEnabled } from '../mix/availability';
 import { prepareMix } from '../mix/definition';
 import { saveSettings } from './settings';
 
 export const MIXES_REPLACE = 'MIXES_REPLACE';
 
 const mixesOf = (getState) => getState().getIn(['settings', 'mixes'], ImmutableList());
-
-const unavailable = { ok: false, errors: ['unavailable'] };
 
 const commit = (dispatch, mixes) => {
   dispatch({
@@ -20,10 +17,6 @@ const commit = (dispatch, mixes) => {
 
 export function createMix(draft) {
   return (dispatch, getState) => {
-    if (!isMixEnabled()) {
-      return unavailable;
-    }
-
     const prepared = prepareMix(draft, { idMode: 'create' });
 
     if (!prepared.ok) {
@@ -37,10 +30,6 @@ export function createMix(draft) {
 
 export function updateMix(id, draft) {
   return (dispatch, getState) => {
-    if (!isMixEnabled()) {
-      return unavailable;
-    }
-
     const mixes = mixesOf(getState);
     const index = mixes.findIndex(mix => mix.get('id') === String(id));
 
@@ -61,10 +50,6 @@ export function updateMix(id, draft) {
 
 export function deleteMix(id) {
   return (dispatch, getState) => {
-    if (!isMixEnabled()) {
-      return unavailable;
-    }
-
     commit(dispatch, mixesOf(getState).filter(mix => mix.get('id') !== String(id)));
     return { ok: true };
   };
@@ -82,7 +67,7 @@ export function searchMixSources(type, query) {
   return (dispatch, getState) => {
     const q = String(query || '').trim();
 
-    if (!isMixEnabled() || !q) {
+    if (!q) {
       return Promise.resolve([]);
     }
 

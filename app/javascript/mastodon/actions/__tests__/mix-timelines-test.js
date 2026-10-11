@@ -49,6 +49,8 @@ const mix = fromJS({
 
 describe('mix timeline loading', () => {
   beforeEach(() => {
+    flags.isAdministrator = false;
+    flags.new_features_policy = 'conservative';
     mockGet.mockReset();
   });
 

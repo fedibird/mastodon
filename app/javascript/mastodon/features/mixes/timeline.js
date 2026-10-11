@@ -15,7 +15,6 @@ import { clearMixSplitAnchor, closeMixTimeline, createMixSplit, destroyMixSplit,
 import { closeMixStream, openMixStream, pinMixStream, reconcileMixSource, revealMixStream } from '../../actions/mix_streaming';
 import TimelineSplitControllerCore from '../ui/components/timeline_split_controller_core';
 import { defaultColumnWidth, me } from 'mastodon/initial_state';
-import { isMixEnabled } from 'mastodon/mix/availability';
 import { plainMix } from 'mastodon/mix/definition';
 import { sourceKey } from 'mastodon/mix/source';
 import { badgeRevisionToken, mixBadgeIdentity, paneBadgeToken, sourceBadges, storeBadge } from 'mastodon/mix/source_badges';
@@ -62,18 +61,13 @@ const mapStateToProps = (state, { columnId, params }) => {
     splitId: timeline ? timeline.getIn(['split', 'id']) : null,
     splitReturnAnchor: state.getIn(['mix_timelines', '__anchors', columnKey]) || null,
     splitRatio: state.getIn(['settings', 'mixTimeline', 'splitRatio'], 35),
-    enabled: isMixEnabled(),
     columnWidth: columnWidth || defaultColumnWidth,
     lists: state.get('lists'),
     accounts: state.get('accounts'),
   };
 };
 
-export const mixTimelineMode = ({ enabled, mix }) => {
-  if (!enabled) {
-    return 'unavailable';
-  }
-
+export const mixTimelineMode = ({ mix }) => {
   if (!mix) {
     return 'deleted';
   }
@@ -114,7 +108,6 @@ export class MixTimelinePage extends React.PureComponent {
       incomplete: PropTypes.array,
       restOnly: PropTypes.array,
     }),
-    enabled: PropTypes.bool,
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
     lists: PropTypes.object,
@@ -503,8 +496,8 @@ export class MixTimelinePage extends React.PureComponent {
   };
 
   render () {
-    const { intl, columnId, mixId, mix, enabled, multiColumn, columnWidth, view, liveView, historyView } = this.props;
-    const mode = mixTimelineMode({ enabled, mix });
+    const { intl, columnId, mixId, mix, multiColumn, columnWidth, view, liveView, historyView } = this.props;
+    const mode = mixTimelineMode({ mix });
     const plain = mode === 'ready' ? plainMix(mix) : null;
     const title = plain ? plain.title : intl.formatMessage(messages.heading);
     const statusIds = view && view.statusIds ? view.statusIds : ImmutableList();
@@ -512,9 +505,7 @@ export class MixTimelinePage extends React.PureComponent {
 
     let body;
 
-    if (mode === 'unavailable') {
-      body = <p className='mix-editor__notice'>{intl.formatMessage(messages.unavailable)}</p>;
-    } else if (mode === 'deleted') {
+    if (mode === 'deleted') {
       body = <p className='mix-editor__notice'>{intl.formatMessage(messages.deleted)}</p>;
     } else {
       body = (
@@ -568,7 +559,7 @@ export class MixTimelinePage extends React.PureComponent {
         splitReturnAnchor={this.props.splitReturnAnchor}
         splitBlocked={!view || !!view.waiting}
         anchorHold={!!(view && view.waiting)}
-        unavailableMessage={messages.unavailable}
+        unavailableMessage={messages.splitUnavailable}
         onSplitRatioCommit={this.handleSplitRatio}
         onCreate={this.handleCreateSplit}
         onDestroy={this.handleDestroySplit}
