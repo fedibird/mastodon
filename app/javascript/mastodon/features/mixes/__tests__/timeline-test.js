@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { createMemoryHistory } from 'history';
 import { fromJS } from 'immutable';
 import React from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Router } from 'react-router-dom';
 
 jest.mock('react-intl', () => ({
   defineMessages: messages => messages,
@@ -15,6 +16,8 @@ jest.mock('../../../components/column_header', () => {
   const ColumnHeader = (props) => (
     ReactMock.createElement('div', null,
       ReactMock.createElement('h1', null, props.title),
+      props.extraButton,
+      props.appendContent,
       props.onPin && ReactMock.createElement('button', { type: 'button', onClick: props.onPin }, props.pinned ? 'unpin' : 'pin'),
     )
   );
@@ -96,6 +99,20 @@ describe('mix timeline column', () => {
     );
 
     expect(screen.getByRole('heading', { name: 'Desk' })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Edit mix' })).toBeNull();
+    expect(screen.queryByText('About this mix')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mix information' }));
+
+    expect(screen.getByRole('button', { name: 'Mix information' }).getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByText('About this mix')).toBeTruthy();
+    expect(screen.getByText('A timeline that brings together posts from the sources you choose, such as other servers and Home.')).toBeTruthy();
+    expect(screen.getByText('Included display sources')).toBeTruthy();
+    expect(screen.getByText('Home')).toBeTruthy();
+    expect(screen.getByText('Friends')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Edit mix' }).getAttribute('href')).toBe('/mixes/mix-1/edit');
+    expect(screen.getByText('Aggressive or discriminatory speech, advertising, and NSFW posts are not shown.')).toBeTruthy();
+    expect(screen.getByText('Only posts that follow the visibility and rules of the servers included in this mix are shown.')).toBeTruthy();
     expect(screen.getByText('This address opens your own mix. It does not share the feed with anyone else.')).toBeTruthy();
     const beforePin = dispatch.mock.calls.length;
 
@@ -304,5 +321,97 @@ describe('mix timeline column', () => {
 
     expect(screen.getByText('ada is not live. Refresh to check for new posts.')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Refresh account-key' }).getAttribute('data-source-key')).toBe('account-key');
+  });
+
+  it('opens mix information only for the first view after creation', () => {
+    const replace = jest.fn();
+    const dispatch = jest.fn();
+    const location = {
+      pathname: '/timelines/mixes/mix-1',
+      search: '',
+      hash: '',
+      state: { openInfoOnFirstView: true },
+    };
+
+    const { rerender } = render(
+      <MemoryRouter>
+        <MixTimelinePage
+          dispatch={dispatch}
+          intl={intl}
+          history={{ replace }}
+          location={location}
+          mixId='mix-1'
+          mix={savedMix}
+          columnKey='route:mix-1'
+          enabled
+          multiColumn
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('About this mix')).toBeTruthy();
+    expect(replace).toHaveBeenCalledWith(expect.objectContaining({
+      pathname: '/timelines/mixes/mix-1',
+      state: { openInfoOnFirstView: false },
+    }));
+
+    rerender(
+      <MemoryRouter>
+        <MixTimelinePage
+          dispatch={dispatch}
+          intl={intl}
+          history={{ replace }}
+          location={{ ...location, state: { openInfoOnFirstView: false } }}
+          mixId='mix-1'
+          mix={savedMix}
+          columnKey='route:mix-1'
+          enabled
+          multiColumn
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('About this mix')).toBeTruthy();
+
+    rerender(
+      <MemoryRouter>
+        <MixTimelinePage
+          dispatch={dispatch}
+          intl={intl}
+          location={{ pathname: '/timelines/mixes/mix-2', state: null }}
+          mixId='mix-2'
+          mix={savedMix}
+          columnKey='route:mix-2'
+          enabled
+          multiColumn
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText('About this mix')).toBeNull();
+  });
+
+  it('clears the first-view flag through the router when history is not passed in', () => {
+    const history = createMemoryHistory({
+      initialEntries: [{ pathname: '/timelines/mixes/mix-1', state: { openInfoOnFirstView: true } }],
+    });
+
+    render(
+      <Router history={history}>
+        <MixTimelinePage
+          dispatch={jest.fn()}
+          intl={intl}
+          location={history.location}
+          mixId='mix-1'
+          mix={savedMix}
+          columnKey='route:mix-1'
+          enabled
+          multiColumn
+        />
+      </Router>,
+    );
+
+    expect(screen.getByText('About this mix')).toBeTruthy();
+    expect(history.location.state.openInfoOnFirstView).toBe(false);
   });
 });

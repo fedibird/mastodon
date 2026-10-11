@@ -168,6 +168,26 @@ export const moveDraftSource = (draft, index, direction) => {
   };
 };
 
+export const reorderDraftSource = (draft, fromIndex, toIndex) => {
+  const current = draft || emptyMixDraft();
+  const sources = current.sources.slice();
+  const from = Number(fromIndex);
+  const to = Number(toIndex);
+
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from === to || from < 0 || to < 0 || from >= sources.length || to >= sources.length) {
+    return current;
+  }
+
+  const [moved] = sources.splice(from, 1);
+
+  sources.splice(to, 0, moved);
+
+  return {
+    title: current.title,
+    sources,
+  };
+};
+
 export const retitleDraft = (draft, title) => ({
   title,
   sources: (draft && draft.sources) || [],

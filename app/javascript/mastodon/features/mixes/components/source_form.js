@@ -1,5 +1,6 @@
 import React from 'react';
 import PropTypes from 'prop-types';
+import classNames from 'classnames';
 import { SOURCE_TYPES } from 'mastodon/mix/source';
 import messages from '../messages';
 
@@ -58,7 +59,8 @@ class FlagToggle extends React.PureComponent {
     return (
       <label className='mix-editor__flag' htmlFor={`mix-source-${name}`}>
         <input id={`mix-source-${name}`} type='checkbox' checked={!!checked} onChange={this.handleChange} />
-        {label}
+        <span className={classNames('checkbox', { active: !!checked })} aria-hidden='true' />
+        <span className='mix-editor__flag-label'>{label}</span>
       </label>
     );
   }
@@ -352,7 +354,7 @@ export default class SourceForm extends React.PureComponent {
         {BOT_TYPES.indexOf(type) !== -1 && this.renderFlags(['withoutBot'])}
         {shows.length > 0 && this.renderFlags(shows)}
 
-        <button type='button' className='button' onClick={this.handleAdd}>{intl.formatMessage(messages.addSource)}</button>
+        <button type='button' className='button mix-editor__add' onClick={this.handleAdd}>{intl.formatMessage(messages.addSource)}</button>
       </fieldset>
     );
   }

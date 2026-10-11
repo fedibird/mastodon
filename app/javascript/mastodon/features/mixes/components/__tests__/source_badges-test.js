@@ -71,8 +71,11 @@ describe('mix source badge component', () => {
   it('shows one source and opens its details from the keyboard', () => {
     renderBadges([badges[1]]);
 
-    expect(screen.getByText('Shown via')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Alpha' }));
+    const badge = screen.getByRole('button', { name: 'Alpha' });
+
+    expect(screen.queryByText('Shown via')).toBeNull();
+    expect(badge.closest('.status__mix-sources').classList.contains('status__mix-sources--inline-end')).toBe(true);
+    fireEvent.click(badge);
     expect(screen.getByText('Spoilers')).toBeTruthy();
     expect(screen.getByText('Media only')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Open original timeline' }).getAttribute('href')).toBe('/timelines/home');

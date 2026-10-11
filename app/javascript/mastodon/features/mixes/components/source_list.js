@@ -1,20 +1,10 @@
 import React from 'react';
 import PropTypes from 'prop-types';
-import { normalizeSource, sourceIdentityLabel, sourceKey } from 'mastodon/mix/source';
+import classNames from 'classnames';
+import Icon from 'mastodon/components/icon';
+import { normalizeSource, sourceKey } from 'mastodon/mix/source';
+import { describeMixSource } from 'mastodon/mix/source_badges';
 import messages from '../messages';
-
-const TYPE_MESSAGE = {
-  home: messages.home,
-  limited: messages.limited,
-  personal: messages.personal,
-  public: messages.public,
-  remote: messages.remote,
-  domain: messages.domainType,
-  hashtag: messages.hashtagType,
-  list: messages.listType,
-  group: messages.group,
-  account: messages.account,
-};
 
 const conditionText = (intl, params) => {
   const parts = [];
@@ -84,45 +74,88 @@ class SourceRow extends React.PureComponent {
     source: PropTypes.object.isRequired,
     intl: PropTypes.object.isRequired,
     editable: PropTypes.bool,
-    disableUp: PropTypes.bool,
-    disableDown: PropTypes.bool,
+    dragging: PropTypes.bool,
+    over: PropTypes.bool,
     onRemove: PropTypes.func,
-    onMove: PropTypes.func,
+    onReorder: PropTypes.func,
+    onDragStart: PropTypes.func,
+    onDragOver: PropTypes.func,
+    onDrop: PropTypes.func,
+    onDragEnd: PropTypes.func,
   };
 
   handleRemove = () => {
     this.props.onRemove(this.props.index);
   };
 
-  handleMoveUp = () => {
-    this.props.onMove(this.props.index, -1);
+  handleKeyDown = (event) => {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') {
+      return;
+    }
+
+    event.preventDefault();
+    const next = event.key === 'ArrowUp' ? this.props.index - 1 : this.props.index + 1;
+
+    this.props.onReorder(this.props.index, next);
   };
 
-  handleMoveDown = () => {
-    this.props.onMove(this.props.index, 1);
+  handleDragStart = (event) => {
+    event.stopPropagation();
+    this.props.onDragStart(event, this.props.index);
+  };
+
+  handleDragOver = (event) => {
+    this.props.onDragOver(event, this.props.index);
+  };
+
+  handleDrop = (event) => {
+    this.props.onDrop(event, this.props.index);
   };
 
   render () {
-    const { source, intl, editable, disableUp, disableDown } = this.props;
+    const { source, intl, editable, dragging, over, index } = this.props;
     const normalized = normalizeSource(source);
     const value = normalized.ok ? normalized.source : source;
-    const type = TYPE_MESSAGE[value.type] ? intl.formatMessage(TYPE_MESSAGE[value.type]) : value.type;
-    const name = normalized.ok ? sourceIdentityLabel(value) : '';
+    const row = describeMixSource(value, {
+      formatMessage: (message, values) => intl.formatMessage(message, values),
+    });
+    const label = row ? row.label : (value.type || '');
     const detail = normalized.ok ? conditionText(intl, value.params || {}) : '';
 
     return (
-      <li className='mix-editor__source'>
-        <span className='mix-editor__source-name'>
-          <span className='mix-editor__source-type'>{type}</span>
-          {name && name !== value.type ? <span>{name}</span> : null}
-          {detail ? <span className='mix-editor__source-detail'>{detail}</span> : null}
-        </span>
+      <li
+        className={classNames('mix-editor__source', { 'is-dragging': dragging, 'is-over': over })}
+        draggable={editable ? 'true' : undefined}
+        onDragStart={editable ? this.handleDragStart : undefined}
+        onDragOver={editable ? this.handleDragOver : undefined}
+        onDrop={editable ? this.handleDrop : undefined}
+        onDragEnd={editable ? this.props.onDragEnd : undefined}
+      >
         {editable && (
-          <span className='mix-editor__source-actions'>
-            <button type='button' className='button button-secondary' onClick={this.handleMoveUp} disabled={disableUp}>{intl.formatMessage(messages.moveUp)}</button>
-            <button type='button' className='button button-secondary' onClick={this.handleMoveDown} disabled={disableDown}>{intl.formatMessage(messages.moveDown)}</button>
-            <button type='button' className='button button-secondary' onClick={this.handleRemove}>{intl.formatMessage(messages.removeSource)}</button>
+          <button
+            type='button'
+            className='icon-button mix-editor__handle'
+            draggable='true'
+            data-handle-index={index}
+            aria-label={intl.formatMessage(messages.reorderSource)}
+            onKeyDown={this.handleKeyDown}
+            onDragStart={this.handleDragStart}
+          >
+            <Icon id='bars' fixedWidth aria-hidden='true' />
+          </button>
+        )}
+        <div className='mix-editor__source-main'>
+          <span className='mix-editor__source-heading'>
+            {row && <Icon id={row.icon} className='mix-editor__source-icon' fixedWidth aria-hidden='true' />}
+            <span className='mix-editor__source-label'>{label}</span>
+            {row && row.showChip && <span className='mix-editor__source-chip'>{row.typeLabel}</span>}
           </span>
+          {detail ? <span className='mix-editor__source-detail'>{detail}</span> : null}
+        </div>
+        {editable && (
+          <button type='button' className='icon-button mix-editor__remove' aria-label={intl.formatMessage(messages.removeSource)} onClick={this.handleRemove}>
+            <Icon id='times' aria-hidden='true' />
+          </button>
         )}
       </li>
     );
@@ -137,18 +170,98 @@ export default class SourceList extends React.PureComponent {
     intl: PropTypes.object.isRequired,
     editable: PropTypes.bool,
     onRemove: PropTypes.func,
-    onMove: PropTypes.func,
+    onReorder: PropTypes.func,
+  };
+
+  state = {
+    dragging: null,
+    over: null,
+  };
+
+  dragFrom = null;
+
+  focusIndex = null;
+
+  setListRef = (node) => {
+    this.listNode = node;
+  };
+
+  componentDidUpdate () {
+    if (this.focusIndex === null || !this.listNode) {
+      return;
+    }
+
+    const node = this.listNode.querySelector(`[data-handle-index="${this.focusIndex}"]`);
+
+    this.focusIndex = null;
+
+    if (node) {
+      node.focus();
+    }
+  }
+
+  handleDragStart = (event, index) => {
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+
+      try {
+        event.dataTransfer.setData('text/plain', String(index));
+      } catch (error) {
+        // Some browsers throw when the drag payload is set during tests.
+      }
+    }
+
+    this.dragFrom = index;
+    this.setState({ dragging: index, over: index });
+  };
+
+  handleDragOver = (event, index) => {
+    event.preventDefault();
+
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'move';
+    }
+
+    if (this.state.over !== index) {
+      this.setState({ over: index });
+    }
+  };
+
+  handleDrop = (event, index) => {
+    event.preventDefault();
+    const from = this.dragFrom;
+
+    this.dragFrom = null;
+    this.setState({ dragging: null, over: null });
+
+    if (from !== null && from !== index && this.props.onReorder) {
+      this.props.onReorder(from, index);
+    }
+  };
+
+  handleDragEnd = () => {
+    this.dragFrom = null;
+    this.setState({ dragging: null, over: null });
+  };
+
+  handleReorder = (from, to) => {
+    if (!this.props.onReorder || to < 0 || to >= this.props.sources.length || from === to) {
+      return;
+    }
+
+    this.focusIndex = to;
+    this.props.onReorder(from, to);
   };
 
   render () {
-    const { sources, intl, editable, onRemove, onMove } = this.props;
+    const { sources, intl, editable, onRemove } = this.props;
 
     if (!sources.length) {
       return null;
     }
 
     return (
-      <ol className='mix-editor__sources'>
+      <ol className='mix-editor__sources' ref={this.setListRef}>
         {sources.map((source, index) => (
           <SourceRow
             key={sourceKey(source) || `invalid:${index}`}
@@ -156,10 +269,14 @@ export default class SourceList extends React.PureComponent {
             source={source}
             intl={intl}
             editable={editable}
-            disableUp={index === 0}
-            disableDown={index === sources.length - 1}
+            dragging={this.state.dragging === index}
+            over={this.state.over === index && this.state.dragging !== index}
             onRemove={onRemove}
-            onMove={onMove}
+            onReorder={this.handleReorder}
+            onDragStart={this.handleDragStart}
+            onDragOver={this.handleDragOver}
+            onDrop={this.handleDrop}
+            onDragEnd={this.handleDragEnd}
           />
         ))}
       </ol>
