@@ -7,6 +7,7 @@ export default defineMessages({
   create: { id: 'mixes.new', defaultMessage: 'New mix' },
   edit: { id: 'mixes.edit', defaultMessage: 'Edit mix' },
   editorIntro: { id: 'mixes.editor_intro', defaultMessage: 'A mix combines several columns into one timeline.' },
+  backToList: { id: 'mixes.back_to_list', defaultMessage: 'Back to mixes' },
   delete: { id: 'mixes.delete', defaultMessage: 'Delete mix' },
   deleteConfirm: { id: 'mixes.delete_confirm', defaultMessage: 'Delete this mix' },
   save: { id: 'mixes.save', defaultMessage: 'Save' },

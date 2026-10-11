@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
+import { MemoryRouter } from 'react-router-dom';
 
 jest.mock('react-intl', () => ({
   defineMessages: messages => messages,
@@ -16,6 +17,8 @@ const acceptSource = () => true;
 const rejectSource = () => false;
 const emptySearch = () => Promise.resolve([]);
 
+const renderEditor = (element) => render(<MemoryRouter>{element}</MemoryRouter>);
+
 describe('mix editor form', () => {
   it('renames, reorders, removes, and saves the draft shown on screen', () => {
     const onTitleChange = jest.fn();
@@ -29,7 +32,7 @@ describe('mix editor form', () => {
       { type: 'public', title: 'Federated photos', params: { onlyMedia: true } },
     ];
 
-    render(
+    renderEditor(
       <MixEditorForm
         intl={intl}
         title='Desk'
@@ -69,7 +72,7 @@ describe('mix editor form', () => {
   });
 
   it('shows a validation error without saving an incomplete mix', () => {
-    render(
+    renderEditor(
       <MixEditorForm
         intl={intl}
         title=''
@@ -95,7 +98,7 @@ describe('mix editor form', () => {
       { type: 'home', params: {} },
       { type: 'public', params: {} },
     ];
-    const { container } = render(
+    const { container } = renderEditor(
       <MixEditorForm
         intl={intl}
         title='Desk'

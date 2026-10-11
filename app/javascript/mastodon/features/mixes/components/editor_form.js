@@ -1,5 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
+import { Link } from 'react-router-dom';
+import Icon from 'mastodon/components/icon';
 import messages from '../messages';
 import SourceForm from './source_form';
 import SourceList from './source_list';
@@ -69,6 +71,10 @@ export default class MixEditorForm extends React.PureComponent {
 
     return (
       <form className='mix-editor' onSubmit={this.handleSubmit}>
+        <Link className='mix-editor__back' to='/mixes'>
+          <Icon id='chevron-left' className='mix-editor__back-icon' aria-hidden='true' />
+          {intl.formatMessage(messages.backToList)}
+        </Link>
         <p className='mix-editor__intro'>{intl.formatMessage(messages.editorIntro)}</p>
         <label className='mix-editor__label' htmlFor='mix-name'>{intl.formatMessage(messages.name)}</label>
         <input id='mix-name' className='setting-text' value={title} onChange={this.handleTitle} maxLength={100} />

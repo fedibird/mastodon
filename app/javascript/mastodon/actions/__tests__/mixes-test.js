@@ -117,6 +117,16 @@ describe('mix setting actions', () => {
     expect(updated.mix.title).toBe('Night');
     expect(replaced[replaced.length - 1][0].sources[1]).toEqual({ type: 'list', id: '3', params: {} });
 
+    const kept = updateMix('mix-1', {
+      title: 'Desk',
+      sources: [home, { type: 'limited', params: { shows: { reblog: false } } }],
+    })(dispatch, () => state);
+
+    expect(kept.ok).toBe(true);
+    expect(kept.mix.id).toBe('mix-1');
+    expect(kept.mix.sources.map(source => source.type)).toEqual(['home', 'limited']);
+    expect(state.getIn(['settings', 'mixes', 0, 'sources']).toJS()).toEqual(kept.mix.sources);
+
     const removed = deleteMix('mix-1')(dispatch, () => state);
 
     expect(removed).toEqual({ ok: true });

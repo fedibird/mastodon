@@ -4,6 +4,9 @@ import classNames from 'classnames';
 import { SOURCE_TYPES } from 'mastodon/mix/source';
 import messages from '../messages';
 
+// Limited stays a valid saved source. Home already filters limited posts,
+// so the add-source menu no longer offers it as a new choice.
+const ADDABLE_SOURCE_TYPES = SOURCE_TYPES.filter(type => type !== 'limited');
 const SEARCH_TYPES = ['hashtag', 'account', 'group'];
 const MEDIA_TYPES = ['personal', 'public', 'remote', 'domain', 'group'];
 const BOT_TYPES = ['public', 'remote', 'domain'];
@@ -278,7 +281,7 @@ export default class SourceForm extends React.PureComponent {
 
         <label className='mix-editor__label' htmlFor='mix-source-type'>{intl.formatMessage(messages.sourceType)}</label>
         <select id='mix-source-type' value={type} onChange={this.handleType}>
-          {SOURCE_TYPES.map(sourceType => (
+          {ADDABLE_SOURCE_TYPES.map(sourceType => (
             <option key={sourceType} value={sourceType}>{this.typeLabel(sourceType)}</option>
           ))}
         </select>
