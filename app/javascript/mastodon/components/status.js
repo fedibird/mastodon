@@ -982,9 +982,8 @@ class Status extends ImmutablePureComponent {
 
                 <DisplayName account={status.get('account')} others={otherAccounts} />
               </a>
+              {sourceBadges && sourceBadges.length > 0 && <MixSourceBadges badges={sourceBadges} />}
             </div>
-
-            {sourceBadges && sourceBadges.length > 0 && <MixSourceBadges badges={sourceBadges} />}
 
             <StatusContent status={status} translationWrapper={this.props.status} onClick={this.handleClick} expanded={!status.get('hidden')} showThread={showThread} onExpandedToggle={this.handleExpandedToggle} collapsable onCollapsedToggle={this.handleCollapsedToggle} onTranslate={this.props.onTranslate && this.handleTranslate} />
 

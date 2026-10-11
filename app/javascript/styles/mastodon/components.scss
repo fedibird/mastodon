@@ -2255,27 +2255,29 @@ body > [data-popper-placement] {
   font-size: var(--info-font-size, 15px);
 }
 
+.status__info > .status__mix-sources {
+  clear: both;
+  width: 100%;
+  margin: 2px 0 4px;
+}
+
 .status__mix-sources {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
+  justify-content: flex-end;
   gap: 4px;
-  margin: 0 10px 6px;
+  margin: 0 0 6px;
   max-width: 100%;
   min-width: 0;
   font-size: 12px;
   line-height: 1.3;
 
-  &__label {
-    flex: 0 0 auto;
-    color: $darker-text-color;
-    padding-top: 4px;
-  }
-
   &__list {
     display: flex;
     flex: 1 1 auto;
     flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 4px;
     margin: 0;
     padding: 0;
@@ -8960,6 +8962,13 @@ noscript {
 .mix-editor {
   padding: 15px;
 
+  &__intro {
+    margin: 0 0 12px;
+    color: $dark-text-color;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
   &__label,
   &__notice,
   &__error {
@@ -8979,6 +8988,22 @@ noscript {
     padding: 0;
   }
 
+  &__source-form {
+    border: 0;
+    border-top: 1px solid lighten($ui-base-color, 8%);
+    padding-top: 8px;
+
+    legend {
+      padding: 0;
+      font-size: 14px;
+      font-weight: 700;
+    }
+  }
+
+  &__add {
+    margin-top: 12px;
+  }
+
   &__sources,
   &__results {
     list-style: none;
@@ -8986,53 +9011,314 @@ noscript {
 
   &__source {
     display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    padding: 8px 0;
-    border-bottom: 1px solid lighten($ui-base-color, 8%);
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    padding: 8px;
+    border: 1px solid lighten($ui-base-color, 8%);
+    border-radius: 4px;
+    background: lighten($ui-base-color, 4%);
+    cursor: grab;
+
+    &.is-dragging {
+      opacity: 0.55;
+    }
+
+    &.is-over {
+      border-color: $highlight-text-color;
+    }
   }
 
-  &__source-name {
-    display: flex;
-    flex-direction: column;
+  &__handle,
+  &__remove {
+    flex: 0 0 auto;
+    width: 32px;
+    height: 32px;
+    color: $darker-text-color;
+  }
+
+  &__handle {
+    cursor: grab;
+  }
+
+  &__source-main {
     flex: 1 1 auto;
-    margin-right: 8px;
+    min-width: 0;
   }
 
-  &__source-actions {
+  &__source-heading {
     display: flex;
     flex-wrap: wrap;
-    flex: 0 0 auto;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
 
-    .button {
-      margin: 0 0 4px 4px;
-    }
+  &__source-icon {
+    flex: 0 0 auto;
+    color: $darker-text-color;
+  }
+
+  &__source-label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: $primary-text-color;
+  }
+
+  &__source-chip {
+    flex: 0 0 auto;
+    border: 1px solid rgba($primary-text-color, 0.2);
+    border-radius: 999px;
+    padding: 0 6px;
+    color: $darker-text-color;
+    font-size: 11px;
+    line-height: 16px;
+  }
+
+  &__source-detail {
+    display: block;
+    margin-top: 2px;
+    color: $darker-text-color;
+    font-size: 12px;
+    overflow-wrap: anywhere;
   }
 
   &__flag {
+    position: relative;
     display: flex;
-    align-items: center;
-    margin: 6px 0;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 8px 0;
+    color: $primary-text-color;
+    font-size: 14px;
+    line-height: 18px;
+    cursor: pointer;
 
     input {
-      margin-right: 8px;
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      margin: 0;
+      opacity: 0;
+      cursor: pointer;
+
+      &:focus + .checkbox {
+        box-shadow: 0 0 0 2px rgba($highlight-text-color, 0.45);
+      }
+
+      &:disabled + .checkbox,
+      &:disabled ~ .mix-editor__flag-label {
+        opacity: 0.5;
+      }
     }
+
+    .checkbox {
+      position: relative;
+      box-sizing: border-box;
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      flex: 0 0 auto;
+      border: 1px solid $ui-primary-color;
+      border-radius: 4px;
+      background: transparent;
+
+      &.active {
+        border-color: $highlight-text-color;
+        background: $highlight-text-color;
+
+        &::after {
+          content: '';
+          position: absolute;
+          left: 5px;
+          top: 1px;
+          width: 4px;
+          height: 8px;
+          border: solid $primary-text-color;
+          border-width: 0 2px 2px 0;
+          transform: rotate(45deg);
+        }
+      }
+    }
+
+    &:hover .checkbox:not(.active) {
+      border-color: lighten($ui-primary-color, 8%);
+    }
+  }
+
+  &__flag-label {
+    min-width: 0;
   }
 
   &__actions {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     margin-top: 16px;
 
-    .button {
+    .button,
+    .button.button-secondary {
+      box-sizing: border-box;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 36px;
       margin: 0 8px 8px 0;
+      padding: 0 16px;
+      font-size: 14px;
+      line-height: 1.2;
+      text-transform: none;
+    }
+  }
+
+  &__danger {
+    color: $error-red;
+    border-color: $error-red;
+
+    &:hover,
+    &:focus,
+    &:active {
+      color: $error-red;
+      border-color: lighten($error-red, 8%);
+      background: rgba($error-red, 0.08);
     }
   }
 
   .setting-text,
   select {
+    box-sizing: border-box;
     width: 100%;
     margin-top: 4px;
+  }
+
+  .setting-text:focus {
+    box-shadow: 0 0 0 2px rgba($highlight-text-color, 0.45);
+  }
+
+  select {
+    appearance: none;
+    height: 36px;
+    padding: 0 30px 0 10px;
+    border: 1px solid darken($simple-background-color, 14%);
+    border-radius: 4px;
+    color: $inverted-text-color;
+    background: $simple-background-color url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14.933 18.467' height='19.698' width='15.929'><path d='M3.467 14.967l-3.393-3.5H14.86l-3.392 3.5c-1.866 1.925-3.666 3.5-4 3.5-.335 0-2.135-1.575-4-3.5zm.266-11.234L7.467 0 11.2 3.733l3.733 3.734H0l3.733-3.734z' fill='#{hex-color(darken($simple-background-color, 28%))}'/></svg>") no-repeat right 8px center / auto 16px;
+    font-family: inherit;
+    font-size: 14px;
+
+    &:focus {
+      border-color: $highlight-text-color;
+      box-shadow: 0 0 0 2px rgba($highlight-text-color, 0.45);
+      outline: 0;
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+  }
+}
+
+.mix-list {
+  &__create {
+    display: block;
+    margin: 0 0 4px;
+    text-align: center;
+  }
+
+  &__items {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  &__link {
+    display: flex;
+    align-items: flex-start;
+  }
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  &__summary {
+    margin-top: 2px;
+    color: $dark-text-color;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.3;
+  }
+
+  &__edit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 48px;
+    padding: 0 8px;
+  }
+}
+
+.mix-info {
+  box-sizing: border-box;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 12px 15px 8px;
+  border-bottom: 1px solid lighten($ui-base-color, 8%);
+  background: lighten($ui-base-color, 4%);
+  color: $dark-text-color;
+  font-size: 13px;
+  line-height: 1.45;
+
+  h2 {
+    margin: 0 0 4px;
+    color: $primary-text-color;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  p {
+    margin: 0 0 8px;
+  }
+
+  &__sources {
+    margin: 0 0 12px;
+    padding: 0;
+    list-style: none;
+  }
+
+  &__source {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 4px 0;
+  }
+
+  &__icon {
+    flex: 0 0 auto;
+    color: $darker-text-color;
+  }
+
+  &__label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: $primary-text-color;
+  }
+
+  &__chip {
+    flex: 0 0 auto;
+    border: 1px solid rgba($primary-text-color, 0.2);
+    border-radius: 999px;
+    padding: 0 6px;
+    font-size: 11px;
+    line-height: 16px;
+  }
+
+  &__edit {
+    margin: 0 0 12px;
+    text-transform: none;
   }
 }
 

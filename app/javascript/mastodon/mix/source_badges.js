@@ -201,6 +201,28 @@ const displayName = (source, formatMessage, lists, accounts) => {
   return identity;
 };
 
+export const describeMixSource = (input, { formatMessage, lists, accounts } = {}) => {
+  const normalized = normalizeSource(input);
+
+  if (!normalized.ok || !formatMessage) {
+    return null;
+  }
+
+  const source = normalized.source;
+  const label = displayName(source, formatMessage, lists, accounts);
+  const chipMessage = source.type === 'domain' ? messages.server : TYPE_MESSAGE[source.type];
+  const typeLabel = chipMessage ? formatMessage(chipMessage) : source.type;
+
+  return {
+    key: sourceKey(source),
+    type: source.type,
+    icon: TYPE_ICON[source.type] || 'asterisk',
+    label,
+    typeLabel,
+    showChip: label !== typeLabel,
+  };
+};
+
 // Badges follow the saved mix order. Keys that are not in that definition
 // are omitted instead of being parsed out of the sourceKey string.
 export const sourceBadges = (mixSources, keys, { formatMessage, lists, accounts, warningsByKey } = {}) => {

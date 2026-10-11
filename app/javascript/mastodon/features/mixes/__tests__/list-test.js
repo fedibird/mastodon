@@ -12,7 +12,17 @@ jest.mock('react-intl', () => ({
 import { MixList } from '../index';
 
 const intl = {
-  formatMessage: (message) => message.defaultMessage,
+  formatMessage: (message, values) => {
+    let text = message.defaultMessage;
+
+    if (values) {
+      Object.keys(values).forEach(key => {
+        text = text.split(`{${key}}`).join(String(values[key]));
+      });
+    }
+
+    return text;
+  },
 };
 
 const renderList = (props) => render(
@@ -30,12 +40,18 @@ describe('mix list', () => {
   it('links each mix to its timeline and editor without offering the feature when disabled', () => {
     renderList({
       mixes: fromJS([
-        { id: 'mix-1', title: 'Desk', version: 1, sources: [] },
+        { id: 'mix-1', title: 'Desk', version: 1, sources: [{ type: 'home' }, { type: 'domain', domain: 'mstdn.jp' }, { type: 'public' }] },
       ]),
     });
 
-    expect(screen.getByRole('link', { name: 'Desk' }).getAttribute('href')).toBe('/timelines/mixes/mix-1');
-    expect(screen.getByRole('link', { name: 'Edit mix' }).getAttribute('href')).toBe('/mixes/mix-1/edit');
+    const open = screen.getByRole('link', { name: /Desk/ });
+    const edit = screen.getByRole('link', { name: 'Edit mix' });
+
+    expect(open.getAttribute('href')).toBe('/timelines/mixes/mix-1');
+    expect(open.textContent).toContain('3 sources in one timeline');
+    expect(edit.getAttribute('href')).toBe('/mixes/mix-1/edit');
+    expect(edit.querySelector('.fa-pencil')).toBeTruthy();
+    expect(edit.textContent.trim()).toBe('');
     expect(screen.getByRole('link', { name: 'New mix' }).getAttribute('href')).toBe('/mixes/new');
   });
 

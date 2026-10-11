@@ -8,7 +8,6 @@ import Icon from 'mastodon/components/icon';
 const VISIBLE_COUNT = 3;
 
 const messages = defineMessages({
-  shownVia: { id: 'mixes.shown_via', defaultMessage: 'Shown via' },
   more: { id: 'mixes.sources_more', defaultMessage: '{count} more' },
   openTimeline: { id: 'mixes.open_timeline', defaultMessage: 'Open original timeline' },
   settingsDiffer: { id: 'mixes.timeline_settings_differ', defaultMessage: 'The regular timeline uses your current settings, not this saved mix.' },
@@ -280,8 +279,7 @@ class MixSourceBadges extends React.PureComponent {
     const shown = this.state.expanded || hiddenCount <= 0 ? badges : badges.slice(0, VISIBLE_COUNT);
 
     return (
-      <div className='status__mix-sources'>
-        <span className='status__mix-sources__label'>{intl.formatMessage(messages.shownVia)}</span>
+      <div className='status__mix-sources status__mix-sources--inline-end'>
         <ul className='status__mix-sources__list'>
           {shown.map(badge => (
             <li key={badge.key} className='status__mix-sources__item'>

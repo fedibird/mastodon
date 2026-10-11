@@ -8,9 +8,10 @@ import Column from '../../components/column';
 import ColumnHeader from '../../components/column_header';
 import { defaultColumnWidth } from 'mastodon/initial_state';
 import { isMixEnabled } from 'mastodon/mix/availability';
-import { addDraftSource, emptyMixDraft, moveDraftSource, plainMix, removeDraftSource, retitleDraft } from 'mastodon/mix/definition';
+import { addDraftSource, emptyMixDraft, plainMix, removeDraftSource, reorderDraftSource, retitleDraft } from 'mastodon/mix/definition';
 import { createMix, deleteMix, searchMixSources, updateMix } from '../../actions/mixes';
 import { fetchLists } from '../../actions/lists';
+import { mixTimelineLocation } from './info_state';
 import messages from './messages';
 import MixEditorForm from './components/editor_form';
 
@@ -106,9 +107,9 @@ export class MixEditorPage extends React.PureComponent {
     }));
   };
 
-  handleMoveSource = (index, direction) => {
+  handleReorderSource = (fromIndex, toIndex) => {
     this.setState(state => ({
-      draft: moveDraftSource(state.draft, index, direction),
+      draft: reorderDraftSource(state.draft, fromIndex, toIndex),
       confirmingDelete: false,
     }));
   };
@@ -124,7 +125,7 @@ export class MixEditorPage extends React.PureComponent {
       return;
     }
 
-    history.push(`/timelines/mixes/${result.mix.id}`);
+    history.push(mixTimelineLocation(result.mix.id, !mixId));
   };
 
   handleCancel = () => {
@@ -181,7 +182,7 @@ export class MixEditorPage extends React.PureComponent {
             onTitleChange={this.handleTitleChange}
             onAddSource={this.handleAddSource}
             onRemoveSource={this.handleRemoveSource}
-            onMoveSource={this.handleMoveSource}
+            onReorderSource={this.handleReorderSource}
             onSave={this.handleSave}
             onCancel={this.handleCancel}
             onDelete={this.handleDelete}
