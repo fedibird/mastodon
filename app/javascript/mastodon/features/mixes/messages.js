@@ -24,7 +24,7 @@ export default defineMessages({
   aboutMixBody: { id: 'mixes.about_body', defaultMessage: 'A timeline that brings together posts from the sources you choose, such as other servers and Home.' },
   includedSources: { id: 'mixes.included_sources', defaultMessage: 'Included display sources' },
   mixInfo: { id: 'mixes.mix_info', defaultMessage: 'Mix information' },
-  sourceSummary: { id: 'mixes.source_summary', defaultMessage: '{count} sources in one timeline' },
+  settings: { id: 'mixes.settings', defaultMessage: 'Mix settings' },
   unavailable: { id: 'mixes.unavailable', defaultMessage: 'Mix is available to administrators and beta testers.' },
   deleted: { id: 'mixes.deleted', defaultMessage: 'This mix was deleted.' },
   notMerged: { id: 'mixes.not_merged', defaultMessage: 'The merged timeline is not loaded yet. This column keeps the mix definition only.' },
