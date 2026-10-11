@@ -9255,31 +9255,108 @@ noscript {
     list-style: none;
   }
 
+  &__item {
+    display: flex;
+    align-items: flex-start;
+    background: lighten($ui-base-color, 8%);
+
+    & + & {
+      border-top: 1px solid $ui-base-color;
+    }
+  }
+
   &__link {
     display: flex;
     align-items: flex-start;
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 12px 8px 12px 15px;
+    color: $primary-text-color;
+    font-size: 16px;
+    text-decoration: none;
+
+    &:hover,
+    &:focus,
+    &:active {
+      background: lighten($ui-base-color, 11%);
+    }
+
+    &:focus {
+      outline: 2px solid $highlight-text-color;
+      outline-offset: -2px;
+    }
   }
 
   &__text {
     display: flex;
+    flex: 1 1 auto;
     flex-direction: column;
     min-width: 0;
   }
 
-  &__summary {
-    margin-top: 2px;
-    color: $dark-text-color;
-    font-size: 12px;
-    font-weight: 400;
-    line-height: 1.3;
+  &__title {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
-  &__edit {
+  &__sources {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    max-width: 100%;
+    min-width: 0;
+    margin-top: 6px;
+  }
+
+  &__source {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    min-width: 0;
+    padding: 1px 8px;
+    border: 1px solid rgba($primary-text-color, 0.2);
+    border-radius: 999px;
+    background: rgba($primary-text-color, 0.06);
+    color: $darker-text-color;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 16px;
+  }
+
+  &__source-icon {
+    flex: 0 0 auto;
+    font-size: 11px;
+  }
+
+  &__source-label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  &__settings {
     display: flex;
     align-items: center;
     justify-content: center;
-    min-width: 48px;
-    padding: 0 8px;
+    flex: 0 0 auto;
+    width: 40px;
+    height: 40px;
+    margin: 6px 6px 0 0;
+    border-radius: 4px;
+    color: $darker-text-color;
+    text-decoration: none;
+
+    &:hover,
+    &:focus,
+    &:active {
+      color: $primary-text-color;
+      background: rgba($primary-text-color, 0.08);
+    }
+
+    &:focus {
+      outline: 2px solid $highlight-text-color;
+      outline-offset: 1px;
+    }
   }
 }
 
