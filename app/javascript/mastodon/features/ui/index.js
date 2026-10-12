@@ -17,8 +17,9 @@ import { selectComposer } from '../../selectors/composer';
 import { selectComposerCanUploadAsIdentity } from '../../selectors/posting_identities';
 import {
   clearColumnDropHighlight,
-  composerUploadRejectionMessage,
+  composerFileDropAlert,
   dragFeedback,
+  fileDropBlockFromComposer,
   isExternalFileDrag,
   planDocumentFileDrop,
   syncColumnDropHighlight,
@@ -339,7 +340,7 @@ class UI extends React.PureComponent {
   syncDragFeedback = (event) => {
     this.props.dispatch((_, getState) => {
       const feedback = dragFeedback(event.target, event.dataTransfer, {
-        canUploadPrimary: this.props.canUploadMore,
+        canUploadPrimary: this.composerCanAcceptFiles('primary', getState),
         composerCanAccept: composerId => this.composerCanAcceptFiles(composerId, getState),
       });
 
@@ -353,12 +354,19 @@ class UI extends React.PureComponent {
     });
   }
 
-  composerCanAcceptFiles = (composerId, getState) => {
+  composerDropBlock = (composerId, getState, incomingMimeTypes = null) => {
     const state = getState();
-    const composer = selectComposer(state, composerId);
 
-    return Boolean(composer && selectComposerCanUploadAsIdentity(state, composerId).canUpload);
+    return fileDropBlockFromComposer(
+      selectComposer(state, composerId),
+      selectComposerCanUploadAsIdentity(state, composerId),
+      incomingMimeTypes,
+    );
   }
+
+  composerCanAcceptFiles = (composerId, getState, incomingMimeTypes = null) => (
+    this.composerDropBlock(composerId, getState, incomingMimeTypes) === null
+  )
 
   handleDragEnter = (e) => {
     e.preventDefault();
@@ -407,9 +415,10 @@ class UI extends React.PureComponent {
     const files = e.dataTransfer && e.dataTransfer.files;
 
     this.props.dispatch((dispatch, getState) => {
+      const incomingMimeTypes = files && files.length ? Array.from(files).map(file => file && file.type) : null;
       const plan = planDocumentFileDrop(e, {
-        primaryCanAccept: this.props.canUploadMore,
-        composerCanAccept: composerId => this.composerCanAcceptFiles(composerId, getState),
+        primaryCanAccept: this.composerCanAcceptFiles('primary', getState, incomingMimeTypes),
+        composerCanAccept: composerId => this.composerCanAcceptFiles(composerId, getState, incomingMimeTypes),
       });
 
       if (!files || files.length < 1) {
@@ -417,8 +426,8 @@ class UI extends React.PureComponent {
       }
 
       if (plan.action === 'reject') {
-        dispatch(showAlert(undefined, composerUploadRejectionMessage(
-          selectComposerCanUploadAsIdentity(getState(), plan.composerId).reason,
+        dispatch(showAlert(undefined, composerFileDropAlert(
+          this.composerDropBlock(plan.composerId, getState, incomingMimeTypes),
         )));
         return;
       }

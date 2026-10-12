@@ -77,6 +77,46 @@ export function attachmentUploadBlocked ({
   return existingTypes.length > 0 || pending > 0 || incomingMimeTypes.length > 1;
 }
 
+export function composerFileDropBlock ({
+  canUpload = true,
+  permissionReason = null,
+  existingTypes = [],
+  mediaCount = 0,
+  pending = 0,
+  pendingExclusive = 0,
+  maxAttachments = Infinity,
+  hasPoll = false,
+  allowPollImage = true,
+  incomingMimeTypes = null,
+} = {}) {
+  if (canUpload === false) {
+    return permissionReason || 'unauthorized';
+  }
+
+  if (!allowPollImage && hasPoll) {
+    return 'poll_image';
+  }
+
+  if (pendingExclusive > 0 || existingTypes.some(isExclusiveAttachmentType)) {
+    return 'video';
+  }
+
+  if (Array.isArray(incomingMimeTypes) && attachmentUploadBlocked({
+    existingTypes,
+    pending,
+    pendingExclusive,
+    incomingMimeTypes,
+  })) {
+    return 'video';
+  }
+
+  if ((mediaCount || 0) + (pending || 0) >= maxAttachments) {
+    return 'limit';
+  }
+
+  return null;
+}
+
 export function visibleMediaWindow (ids, { summary = false, expanded = false, limit = COMPACT_MEDIA_PREVIEW_LIMIT } = {}) {
   const list = Array.isArray(ids) ? ids : [];
 

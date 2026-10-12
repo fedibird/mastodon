@@ -12,7 +12,7 @@ import { getHomeVisibilities, getLimitedVisibilities } from 'mastodon/selectors'
 import { openModal } from './modal';
 import { addYears, addMonths, addDays, addHours, addMinutes, addSeconds, millisecondsToSeconds, set, formatISO, format } from 'date-fns';
 import { Set as ImmutableSet } from 'immutable';
-import { postReferenceModal, missingAltTextModal, enableFederatedTimeline, allowPollImage, maxAttachments, disablePost } from '../initial_state';
+import { postReferenceModal, missingAltTextModal, enableFederatedTimeline, maxAttachments, disablePost } from '../initial_state';
 import { deleteScheduledStatus } from './scheduled_statuses';
 import { selectComposerEffectiveCreateCapability } from '../posting_context/create_capability';
 import { materializeComposerText } from '../posting_context/materialize';
@@ -22,7 +22,8 @@ import { fetchPostingIdentities } from './posting_identities';
 import { composerHasGroupDestination } from '../posting_identity/group_destination';
 import { sessionPostingIdentityId } from '../posting_identity/identity';
 import { selectComposerCanSendAsIdentity, selectComposerCanUploadAsIdentity } from '../selectors/posting_identities';
-import { attachmentUploadBlocked, isExclusiveFile } from '../features/compose/composer_media';
+import { isExclusiveFile } from '../features/compose/composer_media';
+import { composerFileDropAlert, fileDropBlockFromComposer } from '../features/compose/composer_drop';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import { targetComposerAction } from './composer';
 
@@ -669,40 +670,19 @@ export function uploadToComposer(composerId, files) {
       return;
     }
 
-    if (!selectComposerCanUploadAsIdentity(getState(), composerId).canUpload) {
-      dispatch(showAlert(undefined, messages.uploadErrorIdentity));
+    const permission = selectComposerCanUploadAsIdentity(getState(), composerId);
+    const media = composer.get('media_attachments');
+    const incomingMimeTypes = Array.from(files).map(file => file && file.type);
+    const block = fileDropBlockFromComposer(composer, permission, incomingMimeTypes);
+
+    if (block) {
+      dispatch(showAlert(undefined, composerFileDropAlert(block)));
       return;
     }
 
-    const uploadLimit = maxAttachments;
-    const media = composer.get('media_attachments');
-    const pending = composer.get('pending_media_attachments');
-    const poll = composer.get('poll');
     const progress = new Array(files.length).fill(0);
     const orderBase = Date.now();
     let total = Array.from(files).reduce((a, v) => a + v.size, 0);
-
-    const incomingMimeTypes = Array.from(files).map(file => file && file.type);
-
-    if (attachmentUploadBlocked({
-      existingTypes: media.map(item => item.get('type')).toArray(),
-      pending,
-      pendingExclusive: composer.get('pending_exclusive_attachments') || 0,
-      incomingMimeTypes,
-    })) {
-      dispatch(showAlert(undefined, messages.uploadErrorVideo));
-      return;
-    }
-
-    if (files.length + media.size + pending > uploadLimit) {
-      dispatch(showAlert(undefined, messages.uploadErrorLimit));
-      return;
-    }
-
-    if (!allowPollImage && poll) {
-      dispatch(showAlert(undefined, messages.uploadErrorPoll));
-      return;
-    }
 
     const queue = [];
 

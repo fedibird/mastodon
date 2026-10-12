@@ -1,6 +1,8 @@
+import { composerFileDropBlock } from '../composer_media';
 import {
   clearColumnDropHighlight,
   composerIdFromEventTarget,
+  composerFileDropAlert,
   composerUploadRejectionMessage,
   dropAlreadyHandled,
   dragFeedback,
@@ -208,5 +210,57 @@ describe('composer file drop routing', () => {
     expect(composerUploadRejectionMessage('missing').id).toBe('compose_form.upload_blocked');
     expect(composerUploadRejectionMessage('media').id).toBe('compose_form.upload_blocked.media');
     expect(composerUploadRejectionMessage('something-else').id).toBe('upload_error.identity');
+  });
+
+  it('matches drag feedback to attachment limits without guessing an unknown file type', () => {
+    document.body.innerHTML = `
+      <div class="column" data-drop-composer-id="portable:list:full" id="full-column"><article id="full-status"></article></div>
+      <div class="column" data-drop-composer-id="portable:list:open" id="open-column"><article id="open-status"></article></div>
+    `;
+    const blocks = {
+      'portable:list:full': composerFileDropBlock({ mediaCount: 4, maxAttachments: 4 }),
+      'portable:list:open': composerFileDropBlock({ existingTypes: ['image'], mediaCount: 1, pending: 1, maxAttachments: 4 }),
+    };
+    const canAccept = composerId => blocks[composerId] === null;
+    const drag = { types: ['Files'] };
+
+    expect(blocks['portable:list:full']).toBe('limit');
+    expect(blocks['portable:list:open']).toBeNull();
+    expect(composerFileDropBlock({ existingTypes: ['video'], mediaCount: 1, maxAttachments: 4 })).toBe('video');
+    expect(composerFileDropBlock({ pendingExclusive: 1, pending: 1, maxAttachments: 4 })).toBe('video');
+    expect(composerFileDropBlock({ hasPoll: true, allowPollImage: false, maxAttachments: 4 })).toBe('poll_image');
+    expect(dragFeedback(document.getElementById('full-status'), drag, { canUploadPrimary: true, composerCanAccept: canAccept })).toEqual({
+      overlay: false,
+      columnId: null,
+      blocked: true,
+    });
+    expect(dragFeedback(document.getElementById('open-status'), drag, { canUploadPrimary: false, composerCanAccept: canAccept })).toEqual({
+      overlay: false,
+      columnId: 'portable:list:open',
+      blocked: false,
+    });
+
+    const droppedVideo = composerFileDropBlock({
+      existingTypes: ['image'],
+      mediaCount: 1,
+      pending: 1,
+      maxAttachments: 4,
+      incomingMimeTypes: ['video/mp4'],
+    });
+    const plan = planDocumentFileDrop({
+      target: document.getElementById('open-status'),
+      dataTransfer: { types: ['Files'], files: [{ type: 'video/mp4' }] },
+    }, {
+      primaryCanAccept: true,
+      composerCanAccept: () => droppedVideo === null,
+    });
+
+    expect(droppedVideo).toBe('video');
+    expect(plan.action).toBe('reject');
+    expect(plan.action).not.toBe('upload-primary');
+    expect(composerFileDropAlert('limit').id).toBe('upload_error.limit');
+    expect(composerFileDropAlert('video').id).toBe('upload_error.video_exclusive');
+    expect(composerFileDropAlert('poll_image').id).toBe('upload_error.poll');
+    expect(composerFileDropAlert('missing').id).toBe('compose_form.upload_blocked');
   });
 });

@@ -1,3 +1,6 @@
+import { composerFileDropBlock } from './composer_media';
+import { allowPollImage, maxAttachments } from '../../initial_state';
+
 export function isExternalFileDrag (dataTransfer) {
   if (!dataTransfer || !dataTransfer.types) {
     return false;
@@ -75,6 +78,46 @@ const uploadRejectionMessages = {
   mismatch: { id: 'compose_form.upload_blocked.mismatch', defaultMessage: 'This posting account doesn’t match the signed-in account.' },
   edit_bound: { id: 'compose_form.upload_blocked.edit', defaultMessage: 'Finish or discard this edit before attaching media as this posting account.' },
 };
+
+export function fileDropBlockFromComposer (composer, permission, incomingMimeTypes = null, {
+  maxAttachmentCount = maxAttachments,
+  pollImagesAllowed = allowPollImage,
+} = {}) {
+  if (!composer || !composer.get) {
+    return 'missing';
+  }
+
+  const media = composer.get('media_attachments');
+
+  return composerFileDropBlock({
+    canUpload: !permission || permission.canUpload !== false,
+    permissionReason: permission && permission.reason,
+    existingTypes: media && media.map ? media.map(item => item.get('type')).toArray() : [],
+    mediaCount: media && media.size ? media.size : 0,
+    pending: composer.get('pending_media_attachments') || 0,
+    pendingExclusive: composer.get('pending_exclusive_attachments') || 0,
+    maxAttachments: maxAttachmentCount,
+    hasPoll: Boolean(composer.get('poll')),
+    allowPollImage: pollImagesAllowed,
+    incomingMimeTypes,
+  });
+}
+
+export function composerFileDropAlert (reason) {
+  if (reason === 'poll_image') {
+    return { id: 'upload_error.poll', defaultMessage: 'File upload not allowed with polls.' };
+  }
+
+  if (reason === 'video') {
+    return { id: 'upload_error.video_exclusive', defaultMessage: 'A video or audio file can’t be combined with other attachments.' };
+  }
+
+  if (reason === 'limit') {
+    return { id: 'upload_error.limit', defaultMessage: 'File upload limit exceeded.' };
+  }
+
+  return composerUploadRejectionMessage(reason);
+}
 
 export function composerUploadRejectionMessage (reason) {
   return uploadRejectionMessages[reason] || {

@@ -20,7 +20,7 @@ jest.mock('react-intl', () => {
 });
 
 import ComposerMediaGallery from '../components/composer_media_gallery';
-import { attachmentUploadBlocked, moveMediaIds, summaryThumbCount, visibleMediaWindow } from '../composer_media';
+import { attachmentUploadBlocked, composerFileDropBlock, moveMediaIds, summaryThumbCount, visibleMediaWindow } from '../composer_media';
 
 const media = (id, type = 'image') => ImmutableMap({
   id,
@@ -88,6 +88,25 @@ describe('composer media order', () => {
     expect(attachmentUploadBlocked({ pendingExclusive: 1, incomingMimeTypes: ['image/png'] })).toBe(true);
     expect(attachmentUploadBlocked({ pending: 1, pendingExclusive: 0, incomingMimeTypes: ['image/jpeg'] })).toBe(false);
     expect(attachmentUploadBlocked({ existingTypes: ['image'], pending: 1, incomingMimeTypes: ['image/png'] })).toBe(false);
+    expect(composerFileDropBlock({ mediaCount: 4, maxAttachments: 4 })).toBe('limit');
+    expect(composerFileDropBlock({ mediaCount: 3, pending: 1, maxAttachments: 4 })).toBe('limit');
+    expect(composerFileDropBlock({ existingTypes: ['video'], mediaCount: 1, maxAttachments: 4 })).toBe('video');
+    expect(composerFileDropBlock({ existingTypes: ['audio'], mediaCount: 1, maxAttachments: 4 })).toBe('video');
+    expect(composerFileDropBlock({ pending: 1, pendingExclusive: 1, maxAttachments: 4 })).toBe('video');
+    expect(composerFileDropBlock({ hasPoll: true, allowPollImage: false, maxAttachments: 4 })).toBe('poll_image');
+    expect(composerFileDropBlock({ hasPoll: true, allowPollImage: true, mediaCount: 1, existingTypes: ['image'], maxAttachments: 4 })).toBeNull();
+    expect(composerFileDropBlock({ existingTypes: ['image'], mediaCount: 1, pending: 1, maxAttachments: 4 })).toBeNull();
+    expect(composerFileDropBlock({
+      existingTypes: ['image'],
+      mediaCount: 1,
+      pending: 1,
+      maxAttachments: 4,
+      incomingMimeTypes: ['video/mp4'],
+    })).toBe('video');
+    expect(composerFileDropBlock({ canUpload: false, permissionReason: 'unauthorized', maxAttachments: 4 })).toBe('unauthorized');
+    expect(composerFileDropBlock({ existingTypes: ['image'], mediaCount: 2, maxAttachments: 4 })).toBeNull();
+    expect(composerFileDropBlock({ mediaCount: 4, maxAttachments: 4 })).toBe('limit');
+    expect(composerFileDropBlock({ mediaCount: 0, maxAttachments: 4 })).toBeNull();
   });
 });
 
