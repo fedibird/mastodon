@@ -13,7 +13,6 @@ const messages = defineMessages({
   close: { id: 'upload_form.hide_attachments', defaultMessage: 'Hide the full attachment list' },
   reorder: { id: 'upload_form.reorder', defaultMessage: 'Drag to reorder, or press the arrow keys.' },
   videoOnly: { id: 'upload_form.video_only', defaultMessage: 'Only one video or audio file can be attached.' },
-  imagesBlockVideo: { id: 'upload_form.images_block_video', defaultMessage: 'Video and audio can’t be added while images are attached.' },
 });
 
 const DRAG_THRESHOLD = 8;
@@ -442,16 +441,11 @@ class ComposerMediaGallery extends React.PureComponent {
     event.stopPropagation();
   };
 
-  mediaConstraint (media, summary) {
+  mediaConstraint (media) {
     const exclusive = media.some(item => ['video', 'audio', 'gifv'].includes(item.get('type')));
-    const images = media.some(item => item.get('type') === 'image');
 
     if (exclusive) {
       return messages.videoOnly;
-    }
-
-    if (!summary && images) {
-      return messages.imagesBlockVideo;
     }
 
     return null;
@@ -471,7 +465,7 @@ class ComposerMediaGallery extends React.PureComponent {
       limit: this.props.summary && this.state.previewLimit !== null ? this.state.previewLimit : undefined,
     });
     const visible = windowed.visible.map(id => media.find(item => item.get('id') === id)).filter(Boolean);
-    const constraint = this.mediaConstraint(media, summary && !this.state.expanded);
+    const constraint = this.mediaConstraint(media);
 
     return (
       <div data-testid='composer-media' ref={this.setRootNode}>

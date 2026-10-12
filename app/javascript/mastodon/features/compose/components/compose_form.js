@@ -627,27 +627,6 @@ class ComposeForm extends ImmutablePureComponent {
     );
   }
 
-  renderModeToggle () {
-    if (typeof this.props.onDisplayModeChange !== 'function') {
-      return null;
-    }
-
-    const simple = this.isSimpleMode();
-
-    const label = this.props.intl.formatMessage(simple ? messages.fullMode : messages.simpleMode);
-
-    return (
-      <button
-        type='button'
-        className='compose-form__menu-row'
-        onClick={simple ? this.handleFullModeClick : this.handleSimpleModeClick}
-      >
-        <Icon id={simple ? 'expand' : 'compress'} fixedWidth aria-hidden='true' />
-        <span>{label}</span>
-      </button>
-    );
-  }
-
   renderSimpleBadge (icon, title) {
     return (
       <IconButton
@@ -662,6 +641,8 @@ class ComposeForm extends ImmutablePureComponent {
 
   renderHeader () {
     const { intl } = this.props;
+    const portable = this.isPortableComposer();
+    const simple = this.isSimpleMode();
 
     return (
       <div className='compose-form__header'>
@@ -669,12 +650,12 @@ class ComposeForm extends ImmutablePureComponent {
         <div className='compose-form__header-audience'>
           <PrivacyDropdownContainer disabled={this.props.isEditing} showLabel />
         </div>
-        {this.isSimpleMode() && (
+        {portable && (
           <IconButton
             className='compose-form__header-expand'
-            icon='expand'
-            title={intl.formatMessage(messages.fullMode)}
-            onClick={this.handleFullModeClick}
+            icon={simple ? 'expand' : 'compress'}
+            title={intl.formatMessage(simple ? messages.fullMode : messages.simpleMode)}
+            onClick={simple ? this.handleFullModeClick : this.handleSimpleModeClick}
             inverted
           />
         )}
@@ -702,7 +683,6 @@ class ComposeForm extends ImmutablePureComponent {
           <LanguageDropdownContainer />
           {!this.props.isEditing && (
             <ComposerOverflowMenu closeToken={this.state.overflowClose} label={intl.formatMessage(messages.more)}>
-              {this.renderModeToggle()}
               <DateTimeButtonContainer presentation='menu' onMenuClose={this.requestOverflowClose} />
               <button type='button' className='compose-form__menu-row' onClick={this.openSearchabilityMenu}>
                 <Icon id='search' fixedWidth aria-hidden='true' />
@@ -790,6 +770,21 @@ class ComposeForm extends ImmutablePureComponent {
     return <div className='compose-form__simple-badges'>{badges}</div>;
   }
 
+  renderCharacterCount () {
+    const simple = this.isSimpleMode();
+
+    if (simple && !this.searchabilityChanged()) {
+      return null;
+    }
+
+    return (
+      <div className='compose-form__count-anchor' data-testid='character-count'>
+        {this.renderSearchabilityLabel()}
+        <CharacterCounter max={maxChars} text={this.getFulltextForCharacterCounting()} />
+      </div>
+    );
+  }
+
   render () {
     const { intl } = this.props;
     const publishText = this.publishLabel();
@@ -797,23 +792,12 @@ class ComposeForm extends ImmutablePureComponent {
     const portable = this.isPortableComposer();
     const mediaAreaOpen = this.mediaAreaOpen();
     const searchabilityChanged = this.searchabilityChanged();
-    const showCount = !simple || searchabilityChanged;
     const simpleBadges = simple ? this.renderSimpleBadges() : null;
-    const overlay = showCount || !simple ? (
-      <Fragment>
-        {!simple && (
-          <div className='compose-form__emoji-anchor'>
-            <EmojiPickerDropdownContainer onPickEmoji={this.handleEmojiPick} />
-          </div>
-        )}
-        {showCount && (
-          <div className='compose-form__count-anchor' data-testid='character-count'>
-            {this.renderSearchabilityLabel()}
-            <CharacterCounter max={maxChars} text={this.getFulltextForCharacterCounting()} />
-          </div>
-        )}
-      </Fragment>
-    ) : null;
+    const overlay = simple ? null : (
+      <div className='compose-form__emoji-anchor'>
+        <EmojiPickerDropdownContainer onPickEmoji={this.handleEmojiPick} />
+      </div>
+    );
     const modifiers = simple ? null : (
       <div className='compose-form__modifiers'>
         <UploadFormContainer />
@@ -859,6 +843,7 @@ class ComposeForm extends ImmutablePureComponent {
 
         <div className='compose-form__body'>
           {this.renderTextarea(modifiers, overlay)}
+          {simple && this.renderCharacterCount()}
           {simple && !mediaAreaOpen && (
             <div className='compose-form__compact-publish'>
               {this.renderIconPublish()}
@@ -874,7 +859,12 @@ class ComposeForm extends ImmutablePureComponent {
         </div>
 
         {!simple && !this.props.isEditing && <CircleDropdownContainer key='circle' />}
-        {!simple && this.renderFooter(publishText)}
+        {!simple && (
+          <div className='compose-form__end'>
+            {this.renderCharacterCount()}
+            {this.renderFooter(publishText)}
+          </div>
+        )}
         {!simple && !this.props.isEditing && <ReferenceStack key='references' />}
       </div>
     );

@@ -630,7 +630,7 @@ class UserPostingStylePicker extends React.PureComponent {
             <div className='compose-form__style-context'>{contextDetails}</div>
           </React.Fragment>
         ) : null}
-        <a className='compose-form__style-settings compose-form__menu-row' href='/settings/user_posting_contexts'>
+        <a className='compose-form__style-settings compose-form__style-settings-button' href='/settings/user_posting_contexts'>
           <Icon id='gear' fixedWidth aria-hidden='true' />
           <span>{intl.formatMessage(messages.settings)}</span>
           <Icon id='chevron-right' fixedWidth aria-hidden='true' />

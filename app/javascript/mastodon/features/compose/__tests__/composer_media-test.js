@@ -1,5 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import fs from 'fs';
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
+import path from 'path';
 import React from 'react';
 
 jest.mock('react-intl', () => {
@@ -180,7 +182,15 @@ describe('ComposerMediaGallery', () => {
 
     expect(screen.getAllByRole('button', { name: /alt$/ })).toHaveLength(7);
     expect(screen.queryByRole('button', { name: 'Show 3 more attachments' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Hide the full attachment list' })).toBeTruthy();
+    expect(screen.queryByText(/can’t be added while images are attached/)).toBeNull();
     expect(document.querySelector('.compose-form__media-handle')).toBeNull();
+  });
+
+  it('uses the Japanese label for closing the attachment list', () => {
+    const ja = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../locales/ja.json'), 'utf8'));
+
+    expect(ja['upload_form.hide_attachments']).toBe('添付一覧を閉じる');
   });
 
   it('shows every full-size thumbnail without a summary card', () => {
@@ -189,7 +199,8 @@ describe('ComposerMediaGallery', () => {
 
     expect(screen.getAllByRole('button', { name: /alt$/ })).toHaveLength(5);
     expect(screen.queryByText('+1')).toBeNull();
-    expect(screen.getByRole('status').textContent).toContain('can’t be added while images are attached');
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByText(/can’t be added while images are attached/)).toBeNull();
   });
 
   it('drops a dragged attachment onto a new index and restores on cancel', () => {

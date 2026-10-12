@@ -1038,6 +1038,7 @@
   "upload_form.audio_description": "聴取が難しいユーザーへの説明",
   "upload_form.description": "閲覧が難しいユーザーへの説明",
   "upload_form.edit": "編集",
+  "upload_form.hide_attachments": "添付一覧を閉じる",
   "upload_form.images_block_video": "画像があるあいだは、動画や音声を追加できません。",
   "upload_form.move_backward": "前へ移動",
   "upload_form.move_forward": "後へ移動",

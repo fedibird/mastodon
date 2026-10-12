@@ -61,7 +61,11 @@ describe('UserPostingStylePicker', () => {
     expect(screen.getByRole('menuitemradio', { name: /サークル告知/ })).toBeTruthy();
     expect(screen.getByText('サークル向けの告知')).toBeTruthy();
     expect(screen.getByText('Destination localsquad')).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'Posting style settings' }).getAttribute('href')).toEqual('/settings/user_posting_contexts');
+    const settings = screen.getByRole('link', { name: 'Posting style settings' });
+
+    expect(settings.getAttribute('href')).toEqual('/settings/user_posting_contexts');
+    expect(settings.className).toContain('compose-form__style-settings-button');
+    expect(settings.querySelector('.fa-gear')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('menuitemradio', { name: /読書メモ/ }));
 

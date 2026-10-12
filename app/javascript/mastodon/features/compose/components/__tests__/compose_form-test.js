@@ -197,6 +197,9 @@ describe('ComposeForm visibility controls', () => {
     expect(buttons).toContainElement(screen.getByTestId('spoiler-button'));
     expect(document.querySelector('.compose-form__emoji-anchor')).toContainElement(screen.getByTestId('emoji-picker'));
     expect(counter).toContainElement(screen.getByText('498'));
+    expect(document.querySelector('.autosuggest-textarea')).not.toContainElement(counter);
+    expect(document.querySelector('.compose-form__end')).toContainElement(counter);
+    expect(counter.compareDocumentPosition(publish) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(submit).not.toContainElement(counter);
     expect(submit.querySelector('.character-counter')).toBeNull();
     expect(header.compareDocumentPosition(spoiler) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -268,8 +271,12 @@ describe('ComposeForm display mode', () => {
 
     renderForm({ displayMode: 'full', onDisplayModeChange });
 
+    const toggle = screen.getByRole('button', { name: 'Switch to simple view' });
+
+    expect(document.querySelector('.compose-form__header')).toContainElement(toggle);
     fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Switch to simple view' }));
+    expect(screen.getByTestId('composer-overflow-menu')).not.toContainElement(toggle);
+    fireEvent.click(toggle);
 
     expect(onDisplayModeChange).toHaveBeenCalledWith('simple');
     expect(document.querySelector('.character-counter')).toBeTruthy();

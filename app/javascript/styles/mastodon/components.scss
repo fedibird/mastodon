@@ -445,6 +445,16 @@ body > [data-popper-placement] {
 
   .compose-form__autosuggest-wrapper {
     position: relative;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .autosuggest-textarea > label {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
   }
 
   .autosuggest-textarea,
@@ -473,6 +483,8 @@ body > [data-popper-placement] {
     display: block;
     box-sizing: border-box;
     width: 100%;
+    max-width: 100%;
+    min-width: 0;
     margin: 0;
     color: $inverted-text-color;
     background: $simple-background-color;
@@ -777,8 +789,8 @@ body > [data-popper-placement] {
 
   @at-root .compose-form__posting-context {
     display: flex;
-    align-items: center;
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: stretch;
     gap: 6px;
     padding: 0 10px 6px;
     background: $simple-background-color;
@@ -786,8 +798,18 @@ body > [data-popper-placement] {
     font-size: 14px;
 
     &-label {
+      flex: none;
+      width: 100%;
       color: $dark-text-color;
       font-size: 14px;
+    }
+
+    &-badges {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-width: 0;
     }
 
     &-tag {
@@ -1159,23 +1181,31 @@ body > [data-popper-placement] {
     }
   }
 
-  .compose-form__emoji-anchor,
-  .compose-form__count-anchor {
+  .compose-form__emoji-anchor {
     position: absolute;
     z-index: 2;
+    top: 4px;
+    inset-inline-end: 4px;
   }
 
-  .compose-form__emoji-anchor {
-    top: 4px;
-    right: 4px;
+  .compose-form__end {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    min-width: 0;
+    max-width: 100%;
   }
 
   .compose-form__count-anchor {
-    inset-inline-end: 8px;
-    bottom: 4px;
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 8px;
+    width: max-content;
+    max-width: 100%;
+    margin-inline-start: auto;
+    padding-inline: 10px;
+    padding-bottom: 2px;
     pointer-events: none;
   }
 
@@ -1194,6 +1224,8 @@ body > [data-popper-placement] {
 
   .compose-form__body {
     position: relative;
+    width: 100%;
+    max-width: 100%;
     min-width: 0;
   }
 
@@ -1472,12 +1504,39 @@ body > [data-popper-placement] {
     }
 
     .compose-portal-menu .compose-form__style-settings {
-      justify-content: flex-start;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 8px;
+      box-sizing: border-box;
+      width: calc(100% - 16px);
+      margin: 8px;
+      padding: 8px 12px;
+      border: 1px solid $ui-base-color;
+      border-radius: 6px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: start;
       text-decoration: none;
+      cursor: pointer;
+    }
+
+    .compose-portal-menu .compose-form__style-settings:hover,
+    .compose-portal-menu .compose-form__style-settings:focus {
+      background: rgba($inverted-text-color, 0.08);
+      border-color: $highlight-text-color;
+      outline: 0;
+      box-shadow: 0 0 0 2px rgba($highlight-text-color, 0.35);
     }
 
     .compose-portal-menu .compose-form__style-settings .fa-chevron-right {
-      margin-left: auto;
+      margin-inline-start: auto;
+    }
+
+    .compose-portal-menu .compose-form__style-context .compose-form__posting-context {
+      padding: 4px 8px 8px;
+      background: transparent;
     }
 
     .compose-portal-menu .compose-form__sender-menu-item {
@@ -1549,25 +1608,32 @@ body > [data-popper-placement] {
   }
 
   &:not(.compose-form--simple) .autosuggest-textarea__textarea {
-    padding-right: 44px;
-    padding-bottom: 28px;
+    padding-inline-end: 40px;
+    padding-bottom: 10px;
   }
 
   &--simple .autosuggest-textarea__textarea {
     resize: none;
+    padding-inline-end: 10px;
     padding-bottom: 8px;
   }
 
   &.compose-form--compact-publish .autosuggest-textarea__textarea {
-    padding-inline-end: 48px;
+    padding-inline-end: 10px;
+    padding-bottom: 44px;
   }
 
-  &.compose-form--compact-publish .compose-form__count-anchor {
-    inset-inline-end: 46px;
+  &.compose-form--simple .compose-form__count-anchor {
+    position: absolute;
+    z-index: 2;
+    inset-inline-end: 8px;
+    bottom: 46px;
+    margin: 0;
+    padding: 0;
   }
 
-  &.compose-form--searchability-note .autosuggest-textarea__textarea {
-    padding-inline-end: 11rem;
+  &.compose-form--compact-publish.compose-form--searchability-note .autosuggest-textarea__textarea {
+    padding-bottom: 68px;
   }
 
   @media screen and (max-width: 420px) {
@@ -1724,7 +1790,6 @@ body > [data-popper-placement] {
     min-height: var(--composer-min-height, 100px);
     border-radius: 0;
     padding-bottom: 0;
-    padding-right: 10px + 22px;
     resize: none;
     scrollbar-color: initial;
 

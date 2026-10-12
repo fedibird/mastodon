@@ -1038,6 +1038,7 @@
   "upload_form.audio_description": "Describe for people with hearing loss",
   "upload_form.description": "Describe for the visually impaired",
   "upload_form.edit": "Edit",
+  "upload_form.hide_attachments": "Hide the full attachment list",
   "upload_form.images_block_video": "Video and audio can’t be added while images are attached.",
   "upload_form.move_backward": "Move earlier",
   "upload_form.move_forward": "Move later",
