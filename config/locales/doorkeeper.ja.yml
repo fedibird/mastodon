@@ -168,6 +168,7 @@ ja:
       read:mutes: ミュートの読み取り
       read:notifications: 通知の読み取り
       read:preferences: 設定の読み取り
+      write:preferences: 設定の変更
       read:reports: 通報の読み取り
       read:search: あなたの代わりに検索
       read:statuses: すべての投稿の読み取り
