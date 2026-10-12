@@ -396,7 +396,7 @@ module SettingsServiceCatalog
           'client_reference' => ['redux_compose_default_language'],
           'configured_vs_effective' => 'distinct',
           'form_status' => 'absent',
-          'source_refs' => ["app/models/user.rb:#{read_line('app/models/user.rb', 'def preferred_posting_language')}", 'app/helpers/languages_helper.rb:266', 'app/serializers/rest/preferences_serializer.rb:20', 'app/serializers/rest/credential_account_serializer.rb:18', 'app/serializers/initial_state_serializer.rb:171'],
+          'source_refs' => ["app/models/user.rb:#{read_line('app/models/user.rb', 'def preferred_posting_language')}", 'app/helpers/languages_helper.rb:266', 'app/serializers/rest/preferences_serializer.rb:20', 'app/serializers/rest/credential_account_serializer.rb:18', "app/serializers/initial_state_serializer.rb:#{read_line('app/serializers/initial_state_serializer.rb', "preference_effective('preferred_posting_language')")}"],
           'audit_status' => 'verified',
           'notes' => 'Preferences API and InitialState compose use this cascade. Credentials source.language and the Rails form use setting_default_language, the raw stored value, which can be nil. Those three are not synonyms.',
         },

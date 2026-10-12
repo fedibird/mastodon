@@ -182,6 +182,12 @@ module SettingsServiceCatalog
         section = 'other' if line.match?(/\A  def [a-z]/) && !line.match?(/\A  def (meta|compose|search)\b/)
         if line =~ /store\[:enable_local_timeline\]\s*=\s*false/
           refs << { 'var' => 'enable_local_timeline', 'line' => index + 1, 'literal' => false, 'text' => line.strip, 'section' => section }
+        elsif line =~ /preference_effective\('([A-Za-z0-9_]+)'\)/
+          # preferred_posting_language is derived. The compose line is recorded on that
+          # derived catalog entry, not as a stored user setting.
+          unless $1 == 'preferred_posting_language'
+            refs << { 'var' => $1, 'line' => index + 1, 'literal' => nil, 'text' => line.strip, 'section' => section }
+          end
         elsif line =~ /setting_([A-Za-z0-9_]+)/
           refs << { 'var' => $1, 'line' => index + 1, 'literal' => nil, 'text' => line.strip, 'section' => section }
         elsif line =~ /store\[:([A-Za-z0-9_]+)\]\s*=/
