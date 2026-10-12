@@ -93,6 +93,37 @@ describe('SenderIdentity', () => {
     expect(sender.getAttribute('title')).toContain('does not change the account you are logged in as');
   });
 
+  it('stacks the signed-in account on the posting account in the toolbar', () => {
+    render(
+      <SenderIdentity
+        header
+        current={identity('delegated:99', 'author', 'ready', 'delegated')}
+        choices={ImmutableList([
+          identity('local:42', 'admin'),
+          identity('delegated:99', 'author', 'ready', 'delegated'),
+        ])}
+        catalog={ImmutableList([
+          identity('local:42', 'admin'),
+          identity('delegated:99', 'author', 'ready', 'delegated'),
+        ])}
+        selectedId='delegated:99'
+        sessionIdentityId='local:42'
+        onSelect={jest.fn()}
+      />,
+    );
+
+    const stack = document.querySelector('.compose-form__sender-stack');
+    const base = stack.querySelector('.compose-form__sender-stack-base');
+    const self = stack.querySelector('.compose-form__sender-stack-self');
+
+    expect(base.getAttribute('src')).toBe('/avatars/author.png');
+    expect(self.getAttribute('src')).toBe('/avatars/admin.png');
+
+    fireEvent.click(screen.getByRole('button', { name: /Choose posting account/ }));
+
+    expect(screen.getByRole('menuitemradio', { name: /@author@example.test/ })).toBeTruthy();
+  });
+
   it('keeps the signed-in account available while a linked account is selected', () => {
     const onSelect = jest.fn();
 
@@ -210,7 +241,8 @@ describe('SenderIdentity', () => {
 
     const button = screen.getByRole('button', { name: 'Choose posting account' });
 
-    expect(button.querySelector('img')).toBeNull();
+    expect(button.querySelector('.compose-form__sender-stack-base')).toBeNull();
+    expect(button.querySelector('.compose-form__sender-stack-self').getAttribute('src')).toBe('/avatars/admin.png');
     expect(screen.getByTestId('sender-identity-current').textContent).not.toContain('@admin');
     expect(screen.getByText('This linked account is not available right now.')).toBeTruthy();
 

@@ -10,7 +10,7 @@ import { selectComposerPostingContextCompliance } from '../../../posting_context
 import { placeDefaultWriteSurface, selectPortablePostingStyleCandidates, styleMatchesSurface, surfaceCacheKey } from '../../../posting_context/surface';
 import { resolveUserPostingStyle } from '../../../posting_context/user_style_resolver';
 import { PORTABLE_COMPOSER_MODE_SIMPLE, selectComposer, selectPortableComposerDisplayMode } from '../../../selectors/composer';
-import { showComposerPostingStyleSelector } from '../../../initial_state';
+import { isAdministrator, showComposerPostingStyleSelector } from '../../../initial_state';
 import { PRIMARY_COMPOSER_ID } from '../../../utils/composer';
 import { withComposerId } from '../composer_id_context';
 import UserPostingStylePicker, { IntlUserPostingStyleCatalogNotice } from '../components/user_posting_style_picker';
@@ -32,6 +32,17 @@ const findStyle = (state, styleId) => {
 
 const mapStateToProps = (state, { composerId }) => {
   const composer = selectComposer(state, composerId);
+
+  if (!isAdministrator || showComposerPostingStyleSelector === false) {
+    return {
+      visible: false,
+      catalogFailed: false,
+      catalogLoading: false,
+      styles: ImmutableList(),
+      stylePermitted: false,
+    };
+  }
+
   const catalogStatus = state.getIn(['userPostingStyles', 'status']);
   const editing = Boolean(composer && (composer.get('id') || composer.get('scheduled_status_id')));
   const surface = composer && composer.get('surface');
@@ -154,7 +165,11 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => {
   };
 };
 
-const VisiblePicker = ({ visible, catalogFailed, catalogLoading, onRetryCatalog, contextDetails, header, ...props }) => {
+const VisiblePicker = ({ visible, catalogFailed, catalogLoading, onRetryCatalog, contextDetails, header, stylePermitted, ...props }) => {
+  if (stylePermitted === false) {
+    return null;
+  }
+
   if (header && (visible || catalogFailed || catalogLoading)) {
     return (
       <UserPostingStylePicker
@@ -191,6 +206,7 @@ VisiblePicker.propTypes = {
   onRetryCatalog: PropTypes.func,
   contextDetails: PropTypes.node,
   header: PropTypes.bool,
+  stylePermitted: PropTypes.bool,
 };
 
 export default withComposerId(injectIntl(connect(mapStateToProps, mapDispatchToProps)(VisiblePicker)));

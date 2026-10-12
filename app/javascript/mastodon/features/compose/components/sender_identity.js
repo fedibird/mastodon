@@ -207,14 +207,33 @@ class SenderIdentity extends React.PureComponent {
     return filtered.toArray ? filtered.toArray() : filtered;
   }
 
-  renderAvatar (account) {
+  renderAvatar (account, className = 'compose-form__sender-avatar') {
     const src = accountAvatar(account);
 
     if (!src) {
       return null;
     }
 
-    return <img className='compose-form__sender-avatar' src={src} alt='' />;
+    return <img className={className} src={src} alt='' />;
+  }
+
+  renderAvatarControl (account) {
+    const { selectedId, sessionIdentityId } = this.props;
+    const delegated = typeof selectedId === 'string' && selectedId.startsWith('delegated:');
+    const session = this.postableChoices().find(item => item.get('id') === sessionIdentityId);
+    const sessionAccount = session && session.get('account');
+    const posting = this.renderAvatar(account) || <Icon id='user-times' fixedWidth aria-hidden='true' />;
+
+    if (!delegated || !sessionAccount) {
+      return posting;
+    }
+
+    return (
+      <span className='compose-form__sender-stack'>
+        {this.renderAvatar(account, 'compose-form__sender-avatar compose-form__sender-stack-base') || posting}
+        {this.renderAvatar(sessionAccount, 'compose-form__sender-avatar compose-form__sender-stack-self')}
+      </span>
+    );
   }
 
   renderIdentity (account) {
@@ -330,7 +349,7 @@ class SenderIdentity extends React.PureComponent {
           title={intl.formatMessage(messages.hint)}
           onClick={this.handleToggle}
         >
-          {this.renderAvatar(account) || <Icon id='user-times' fixedWidth aria-hidden='true' />}
+          {this.renderAvatarControl(account)}
           {(unavailable || failed || blockReason) ? <span className='compose-form__sender-badge' aria-hidden='true'>!</span> : null}
         </button>
         <span className='sr-only' data-testid='sender-identity-current'>

@@ -4,12 +4,19 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import { List as ImmutableList } from 'immutable';
 import { defineMessages, injectIntl } from 'react-intl';
 import classNames from 'classnames';
+import Overlay from 'react-overlays/Overlay';
 import CustomEmojiText from 'mastodon/components/custom_emoji_text';
+import Icon from 'mastodon/components/icon';
+import { createOverlayRefBridge } from '../overlay_ref';
 
 const messages = defineMessages({
   label: { id: 'compose_form.posting_style.label', defaultMessage: 'Posting style' },
   usual: { id: 'compose_form.posting_style.usual', defaultMessage: 'Usual settings' },
   placeOnly: { id: 'compose_form.posting_style.place_only', defaultMessage: 'This place only' },
+  none: { id: 'compose_form.posting_style.none', defaultMessage: 'No style' },
+  noneHint: { id: 'compose_form.posting_style.none_hint', defaultMessage: 'Don’t apply a posting style' },
+  defaultStar: { id: 'compose_form.posting_style.default_star', defaultMessage: 'Save as the default for this place' },
+  defaultStarOn: { id: 'compose_form.posting_style.default_star_on', defaultMessage: 'Remove the default for this place' },
   settings: { id: 'compose_form.posting_style.settings', defaultMessage: 'Posting style settings' },
   destination: { id: 'compose_form.posting_style.destination', defaultMessage: 'Destination {label}' },
   pending: { id: 'compose_form.posting_style.pending', defaultMessage: 'Checking the destination' },
@@ -132,6 +139,8 @@ class UserPostingStylePicker extends React.PureComponent {
 
   trigger = null;
 
+  menuBridge = createOverlayRefBridge();
+
   constructor (props) {
     super(props);
     pickerSequence += 1;
@@ -147,12 +156,20 @@ class UserPostingStylePicker extends React.PureComponent {
     this.trigger = node;
   };
 
+  menuNode () {
+    return this.menuBridge.getNode();
+  }
+
+  findTrigger = () => this.trigger;
+
   componentDidUpdate (_prevProps, prevState) {
-    if (!this.state.open || prevState.open || !this.root) {
+    const menu = this.menuNode();
+
+    if (!this.state.open || prevState.open || !menu) {
       return;
     }
 
-    const selected = this.root.querySelector('.compose-form__style-option.active') || this.root.querySelector('.compose-form__style-option');
+    const selected = menu.querySelector('.compose-form__style-option.active') || menu.querySelector('.compose-form__style-option');
 
     if (selected) {
       selected.focus();
@@ -168,11 +185,13 @@ class UserPostingStylePicker extends React.PureComponent {
   };
 
   focusOption = offset => {
-    if (!this.root) {
+    const menu = this.menuNode();
+
+    if (!menu) {
       return;
     }
 
-    const options = Array.from(this.root.querySelectorAll('.compose-form__style-option'));
+    const options = Array.from(menu.querySelectorAll('.compose-form__style-option'));
 
     if (options.length === 0) {
       return;
@@ -208,8 +227,9 @@ class UserPostingStylePicker extends React.PureComponent {
     }
 
     const option = event.target.closest('.compose-form__style-option');
+    const menu = this.menuNode();
 
-    if (!option || !this.root || !this.root.contains(option)) {
+    if (!option || !menu || !menu.contains(option)) {
       return;
     }
 
@@ -228,7 +248,17 @@ class UserPostingStylePicker extends React.PureComponent {
   }
 
   handleDocumentClick = event => {
-    if (!this.state.open || !this.root || this.root.contains(event.target)) {
+    if (!this.state.open) {
+      return;
+    }
+
+    if (this.root && this.root.contains(event.target)) {
+      return;
+    }
+
+    const menu = this.menuNode();
+
+    if (menu && menu.contains(event.target)) {
       return;
     }
 
@@ -297,6 +327,82 @@ class UserPostingStylePicker extends React.PureComponent {
     return styles && styles.find(style => style.get('id') === selectedId);
   }
 
+  isPlaceDefault (styleId) {
+    const { assignmentFetchStatus, assignmentStatus, assignmentStyleId } = this.props;
+
+    if (assignmentFetchStatus !== 'ready') {
+      return false;
+    }
+
+    if (!styleId) {
+      return assignmentStatus === 'none';
+    }
+
+    return assignmentStatus === 'style' && assignmentStyleId === styleId;
+  }
+
+  handleStarClick = event => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const { onSaveDefault, onUseNoStyle, onResetDefault, defaultsBlocked, assignmentFetchStatus } = this.props;
+
+    if (defaultsBlocked || assignmentFetchStatus === 'saving' || assignmentFetchStatus === 'failed') {
+      return;
+    }
+
+    const styleId = event.currentTarget.getAttribute('data-style-id') || '';
+
+    if (this.isPlaceDefault(styleId)) {
+      if (onResetDefault) {
+        onResetDefault();
+      }
+
+      return;
+    }
+
+    if (styleId) {
+      if (onSaveDefault) {
+        onSaveDefault(styleId);
+      }
+
+      return;
+    }
+
+    if (onUseNoStyle) {
+      onUseNoStyle();
+    }
+  };
+
+  renderStar (styleId) {
+    const { intl, showDefaults, onSaveDefault, onUseNoStyle, onResetDefault, defaultsBlocked, assignmentFetchStatus } = this.props;
+
+    if (this.props.showStyleControls === false || !showDefaults || !onSaveDefault || !onUseNoStyle || !onResetDefault) {
+      return null;
+    }
+
+    if (!assignmentFetchStatus || assignmentFetchStatus === 'idle' || assignmentFetchStatus === 'failed') {
+      return null;
+    }
+
+    const pressed = this.isPlaceDefault(styleId);
+    const disabled = Boolean(defaultsBlocked) || assignmentFetchStatus === 'saving';
+
+    return (
+      <button
+        type='button'
+        className='compose-form__style-star'
+        data-style-id={styleId || ''}
+        aria-pressed={pressed}
+        aria-label={intl.formatMessage(pressed ? messages.defaultStarOn : messages.defaultStar)}
+        disabled={disabled}
+        onClick={this.handleStarClick}
+      >
+        <span aria-hidden='true'>{pressed ? '★' : '☆'}</span>
+      </button>
+    );
+  }
+
   renderOption (style) {
     const { intl, selectedId } = this.props;
     const id = style ? style.get('id') : null;
@@ -304,37 +410,34 @@ class UserPostingStylePicker extends React.PureComponent {
     const purpose = style ? style.get('purpose') : '';
     const icon = style ? style.get('icon') : '';
     const name = style ? style.get('name') : this.emptyOptionLabel();
+    const selected = selectedId === id || (!selectedId && !style);
 
     return (
-      <button
-        key={id || 'usual'}
-        type='button'
-        role='menuitemradio'
-        data-style-id={id || ''}
-        aria-checked={selectedId === id || (!selectedId && !style)}
-        className={classNames('compose-form__style-option', { active: selectedId === id || (!selectedId && !style) })}
-        onClick={this.handleSelect}
-      >
-        <span className='compose-form__style-option-main'>
-          <StyleIcon icon={icon} customEmojis={this.props.customEmojis} />
-          <span className='compose-form__style-name'>{name}</span>
-          {(selectedId === id || (!selectedId && !style)) ? <span className='compose-form__style-mark' aria-hidden='true'>✓</span> : null}
-          {style && this.props.assignmentStyleId && this.props.assignmentStyleId === id ? <span className='compose-form__style-mark' aria-hidden='true'>★</span> : null}
-        </span>
-        {purpose ? <span className='compose-form__style-purpose'>{purpose}</span> : null}
-        {label ? <span className='compose-form__style-destination'>{intl.formatMessage(messages.destination, { label })}</span> : null}
-      </button>
+      <div className='compose-form__style-row' key={id || 'none'}>
+        <button
+          type='button'
+          role='menuitemradio'
+          data-style-id={id || ''}
+          aria-checked={selected}
+          className={classNames('compose-form__style-option', { active: selected })}
+          onClick={this.handleSelect}
+        >
+          <span className='compose-form__style-option-main'>
+            {style ? <StyleIcon icon={icon} customEmojis={this.props.customEmojis} /> : <Icon id='circle-o' fixedWidth aria-hidden='true' />}
+            <span className='compose-form__style-name'>{name}</span>
+            {selected ? <span className='compose-form__style-mark' aria-hidden='true'>✓</span> : null}
+          </span>
+          {style ? null : <span className='compose-form__style-purpose'>{intl.formatMessage(messages.noneHint)}</span>}
+          {purpose ? <span className='compose-form__style-purpose'>{purpose}</span> : null}
+          {label ? <span className='compose-form__style-destination'>{intl.formatMessage(messages.destination, { label })}</span> : null}
+        </button>
+        {this.renderStar(id || '')}
+      </div>
     );
   }
 
   emptyOptionLabel () {
-    const { intl, emptyLabel } = this.props;
-
-    if (emptyLabel === 'place') {
-      return intl.formatMessage(messages.placeOnly);
-    }
-
-    return intl.formatMessage(messages.usual);
+    return this.props.intl.formatMessage(messages.none);
   }
 
   failureMessage () {
@@ -388,9 +491,7 @@ class UserPostingStylePicker extends React.PureComponent {
       intl,
       compact,
       showDefaults,
-      selectedId,
       assignmentFetchStatus,
-      assignmentStatus,
       onSaveDefault,
       onUseNoStyle,
       onResetDefault,
@@ -414,49 +515,17 @@ class UserPostingStylePicker extends React.PureComponent {
     }
 
     const saving = assignmentFetchStatus === 'saving';
-    const ready = assignmentFetchStatus === 'ready';
-    const known = ready || assignmentFetchStatus === 'failed';
     const blocked = Boolean(defaultsBlocked);
-    const usePressed = this.savedStyleMatches();
-    const nonePressed = ready && assignmentStatus === 'none';
-    const autoPressed = ready && assignmentStatus === 'unset';
+
+    if (!blocked && !saving && !failure) {
+      return null;
+    }
 
     return (
-      <div className='compose-form__style-defaults' role='group' aria-label={intl.formatMessage(messages.defaultLabel)} data-posting-style-defaults='true'>
-        <p className='compose-form__style-default-heading'>{intl.formatMessage(messages.defaultLabel)}</p>
+      <div className='compose-form__style-defaults'>
         {blocked ? <p className='compose-form__style-default-status'>{intl.formatMessage(messages.defaultBlocked)}</p> : null}
         {saving ? <p className='compose-form__style-default-status'>{intl.formatMessage(messages.defaultSaving)}</p> : null}
-        {!blocked && ready && usePressed ? <p className='compose-form__style-default-status'>{intl.formatMessage(messages.defaultSaved)}</p> : null}
-        {!blocked && ready && assignmentStatus === 'none' ? <p className='compose-form__style-default-status'>{intl.formatMessage(messages.defaultNoneSaved)}</p> : null}
-        {!blocked && ready && assignmentStatus === 'unavailable' ? <p className='compose-form__style-default-status'>{intl.formatMessage(messages.defaultUnavailable)}</p> : null}
         {failure}
-        <button
-          type='button'
-          className='compose-form__style-default-action'
-          aria-pressed={usePressed}
-          disabled={blocked || !known || saving || !selectedId || usePressed}
-          onClick={this.handleSaveDefault}
-        >
-          {intl.formatMessage(messages.defaultUse)}
-        </button>
-        <button
-          type='button'
-          className='compose-form__style-default-action'
-          aria-pressed={nonePressed}
-          disabled={blocked || !known || saving || nonePressed}
-          onClick={this.handleUseNoStyle}
-        >
-          {intl.formatMessage(messages.defaultNone)}
-        </button>
-        <button
-          type='button'
-          className='compose-form__style-default-action'
-          aria-pressed={autoPressed}
-          disabled={blocked || !known || saving || autoPressed}
-          onClick={this.handleResetDefault}
-        >
-          {intl.formatMessage(messages.defaultAuto)}
-        </button>
       </div>
     );
   }
@@ -508,6 +577,78 @@ class UserPostingStylePicker extends React.PureComponent {
     );
   }
 
+  renderStylePanel = ({ props }) => {
+    const { ref: popperRef, style, ...overlayProps } = props;
+
+    this.menuBridge.syncPopperRef(popperRef);
+
+    return (
+      <div
+        {...overlayProps}
+        ref={this.menuBridge.compose}
+        style={{ ...style, width: 'min(22rem, calc(100vw - 16px))' }}
+        className='compose-form__style-menu compose-form__style-menu--sectioned compose-form__style-overlay'
+      >
+        {this.styleMenuBody}
+      </div>
+    );
+  };
+
+  renderStyleOverlay (controls, catalogProblem, catalogPending, contextDetails) {
+    if (!this.state.open) {
+      return null;
+    }
+
+    const { intl } = this.props;
+
+    this.styleMenuBody = (
+      <React.Fragment>
+        {controls ? (
+          <div
+            id={this.menuId}
+            className='compose-form__style-options'
+            role='menu'
+            tabIndex={-1}
+            aria-labelledby={this.labelId}
+            onKeyDown={this.handleMenuKey}
+          >
+            {this.renderOption(null)}
+            {this.props.styles && this.props.styles.map(style => this.renderOption(style))}
+          </div>
+        ) : null}
+        {catalogProblem ? (
+          <div data-posting-style-catalog='failed'>
+            <p className='compose-form__style-notice'>{intl.formatMessage(messages.catalogFailed)}</p>
+            {this.props.onRetryCatalog ? (
+              <button type='button' className='compose-form__style-retry' onClick={this.props.onRetryCatalog}>
+                {intl.formatMessage(messages.catalogRetry)}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {catalogPending ? <p className='compose-form__style-notice'>{intl.formatMessage(messages.catalogLoading)}</p> : null}
+        {this.renderNotices()}
+        {contextDetails ? (
+          <React.Fragment>
+            <div className='compose-form__style-separator' />
+            <div className='compose-form__style-context'>{contextDetails}</div>
+          </React.Fragment>
+        ) : null}
+        <a className='compose-form__style-settings compose-form__menu-row' href='/settings/user_posting_contexts'>
+          <Icon id='gear' fixedWidth aria-hidden='true' />
+          <span>{intl.formatMessage(messages.settings)}</span>
+          <Icon id='chevron-right' fixedWidth aria-hidden='true' />
+        </a>
+      </React.Fragment>
+    );
+
+    return (
+      <Overlay show placement='bottom' flip target={this.findTrigger} popperConfig={{ strategy: 'fixed' }}>
+        {this.renderStylePanel}
+      </Overlay>
+    );
+  }
+
   renderHeader () {
     const { intl, contextDetails, placeLabel } = this.props;
     const controls = this.props.showStyleControls !== false && !this.props.catalogFailed && !this.props.catalogLoading;
@@ -537,7 +678,7 @@ class UserPostingStylePicker extends React.PureComponent {
           className='compose-form__style-button'
           aria-expanded={this.state.open}
           aria-haspopup='menu'
-          aria-controls={this.menuId}
+          aria-controls={this.state.open ? this.menuId : undefined}
           ref={this.setTrigger}
           onClick={this.handleToggle}
         >
@@ -555,42 +696,8 @@ class UserPostingStylePicker extends React.PureComponent {
             {notices.join(' ')}
           </span>
         ) : null}
-        <div className={classNames('compose-form__style-menu', 'compose-form__style-menu--sectioned')} hidden={!this.state.open}>
-          {controls && (
-            <div
-              id={this.menuId}
-              className='compose-form__style-options'
-              role='menu'
-              tabIndex={-1}
-              aria-labelledby={this.labelId}
-              onKeyDown={this.handleMenuKey}
-            >
-              {this.renderOption(null)}
-              {this.props.styles && this.props.styles.map(style => this.renderOption(style))}
-            </div>
-          )}
-          {this.state.open && catalogProblem ? (
-            <div data-posting-style-catalog='failed'>
-              <p className='compose-form__style-notice'>{intl.formatMessage(messages.catalogFailed)}</p>
-              {this.props.onRetryCatalog ? (
-                <button type='button' className='compose-form__style-retry' onClick={this.props.onRetryCatalog}>
-                  {intl.formatMessage(messages.catalogRetry)}
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-          {this.state.open && catalogPending ? (
-            <p className='compose-form__style-notice'>{intl.formatMessage(messages.catalogLoading)}</p>
-          ) : null}
-          {this.state.open ? defaultActions : null}
-          {this.state.open ? this.renderNotices() : null}
-          <div className='compose-form__style-context' hidden={!this.state.open}>{contextDetails}</div>
-          {this.state.open ? (
-            <a className='compose-form__style-settings' href='/settings/user_posting_contexts'>
-              {intl.formatMessage(messages.settings)}
-            </a>
-          ) : null}
-        </div>
+        {defaultActions}
+        {this.renderStyleOverlay(controls, catalogProblem, catalogPending, contextDetails)}
       </div>
     );
   }
@@ -615,7 +722,7 @@ class UserPostingStylePicker extends React.PureComponent {
           className='compose-form__style-button'
           aria-expanded={this.state.open}
           aria-haspopup='menu'
-          aria-controls={this.menuId}
+          aria-controls={this.state.open ? this.menuId : undefined}
           ref={this.setTrigger}
           onClick={this.handleToggle}
         >
@@ -625,28 +732,9 @@ class UserPostingStylePicker extends React.PureComponent {
           {compact ? <span className='compose-form__style-caret' aria-hidden='true'>▾</span> : null}
         </button>
         {label ? <div className='compose-form__style-current-destination'>{intl.formatMessage(messages.destination, { label })}</div> : null}
-        {this.state.open && (
-          <div className={classNames('compose-form__style-menu', { 'compose-form__style-menu--sectioned': compact })}>
-            <div
-              id={this.menuId}
-              className='compose-form__style-options'
-              role='menu'
-              tabIndex={-1}
-              aria-labelledby={this.labelId}
-              onKeyDown={this.handleMenuKey}
-            >
-              {this.renderOption(null)}
-              {this.props.styles && this.props.styles.map(style => this.renderOption(style))}
-            </div>
-            {compact ? defaultActions : null}
-            <a className='compose-form__style-settings' href='/settings/user_posting_contexts'>
-              {intl.formatMessage(messages.settings)}
-            </a>
-          </div>
-        )}
-        {compact && !this.state.open ? defaultActions : null}
-        {compact ? null : defaultActions}
-        {this.renderNotices()}
+        {defaultActions}
+        {this.state.open ? null : this.renderNotices()}
+        {this.renderStyleOverlay(true, false, false, null)}
       </div>
     );
   }

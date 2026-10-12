@@ -16,6 +16,7 @@ const messages = defineMessages({
   direct_short: { id: 'searchability.direct.short', defaultMessage: 'Reacted-users-only' },
   direct_long: { id: 'searchability.direct.long', defaultMessage: 'Searchable for reacted users only' },
   change_searchability: { id: 'searchability.change', defaultMessage: 'Adjust status searchability' },
+  menu: { id: 'compose_form.overflow.searchability', defaultMessage: 'Search visibility' },
 });
 
 const listenerOptions = supportsPassiveEvents ? { passive: true } : false;
@@ -143,6 +144,7 @@ class SearchabilityDropdown extends React.PureComponent {
     prohibitedVisibilities: ImmutablePropTypes.set,
     onChange: PropTypes.func.isRequired,
     noDirect: PropTypes.bool,
+    presentation: PropTypes.oneOf(['menu']),
     container: PropTypes.func,
     intl: PropTypes.object.isRequired,
   };
@@ -235,9 +237,48 @@ class SearchabilityDropdown extends React.PureComponent {
     this.setState({ placement: state.placement });
   }
 
+  renderMenuOptions () {
+    return this.options.map(item => (
+      <button
+        key={item.value}
+        type='button'
+        className='compose-form__menu-row'
+        data-index={item.value}
+        onClick={this.handleMenuChoice}
+      >
+        <Icon id={item.icon} fixedWidth aria-hidden='true' />
+        <span>{item.text}</span>
+      </button>
+    ));
+  }
+
+  handleMenuChoice = event => {
+    event.preventDefault();
+    this.props.onChange(event.currentTarget.getAttribute('data-index'));
+    this.handleClose();
+  };
+
   render () {
-    const { value, container, intl } = this.props;
+    const { value, container, intl, presentation } = this.props;
     const { open, placement } = this.state;
+
+    if (presentation === 'menu') {
+      const touching = this.props.isUserTouching && this.props.isUserTouching();
+
+      return (
+        <div className='compose-form__searchability-menu'>
+          <button type='button' className='compose-form__menu-row' aria-expanded={open} onClick={this.handleToggle}>
+            <span aria-hidden='true'>🔎</span>
+            <span>{intl.formatMessage(messages.menu)}</span>
+          </button>
+          {open && !touching ? (
+            <div role='listbox'>
+              {this.renderMenuOptions()}
+            </div>
+          ) : null}
+        </div>
+      );
+    }
 
     const valueOption = this.options.find(item => item.value === value);
 

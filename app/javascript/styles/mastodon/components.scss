@@ -966,8 +966,9 @@ body > [data-popper-placement] {
   .compose-form__header {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     flex-wrap: nowrap;
-    gap: 4px;
+    gap: 8px;
     min-width: 0;
     max-width: 100%;
     min-height: 32px;
@@ -1032,6 +1033,32 @@ body > [data-popper-placement] {
   .compose-form__sender-avatar {
     display: block;
     object-fit: cover;
+  }
+
+  .compose-form__sender-stack {
+    position: relative;
+    display: inline-block;
+    width: 28px;
+    height: 28px;
+  }
+
+  .compose-form__sender-stack-base {
+    width: 28px;
+    height: 28px;
+  }
+
+  .compose-form__sender-stack-self {
+    position: absolute;
+    right: -3px;
+    bottom: -3px;
+    width: 14px;
+    height: 14px;
+    border: 1px solid $simple-background-color;
+    border-radius: 4px;
+  }
+
+  .compose-form__toolbar-account {
+    flex: 0 0 auto;
   }
 
   .compose-form__sender-badge,
@@ -1292,14 +1319,88 @@ body > [data-popper-placement] {
     overflow: visible;
   }
 
-  .compose-form__overflow-panel {
+  .compose-form__overflow-panel,
+  .compose-form__style-overlay {
     z-index: 6;
     display: flex;
+    flex-direction: column;
+    width: min(22rem, calc(100vw - 16px));
+    min-width: min(16rem, calc(100vw - 16px));
     padding: 4px;
     border: 1px solid $ui-base-color;
     border-radius: 4px;
     background: $simple-background-color;
     box-shadow: 0 8px 24px rgba($black, 0.24);
+  }
+
+  .compose-form__menu-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+  }
+
+  .compose-form__style-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .compose-form__style-option {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .compose-form__style-star {
+    flex: 0 0 auto;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .compose-form__style-separator {
+    height: 1px;
+    margin: 4px 8px;
+    background: $ui-base-color;
+  }
+
+  .compose-form__style-settings {
+    justify-content: flex-start;
+    text-decoration: none;
+  }
+
+  .compose-form__style-settings .fa-chevron-right {
+    margin-left: auto;
+  }
+
+  .compose-form__style-context .compose-form__posting-context-tag,
+  .compose-form__style-context .compose-form__posting-context-mention,
+  .compose-form__style-context .compose-form__posting-context-audience {
+    display: inline-flex;
+    align-items: center;
+    margin: 2px;
+    padding: 2px 8px;
+    border: 1px solid $ui-base-color;
+    border-radius: 999px;
+  }
+
+  .compose-form__style-context .compose-form__posting-context-tag--suppressed {
+    opacity: 0.45;
+    background: transparent;
+  }
+
+  .compose-form__style-context .compose-form__posting-context-tag--required,
+  .compose-form__style-context .compose-form__posting-context-mention {
+    opacity: 1;
   }
 
   .compose-form__preflight {
@@ -1349,10 +1450,9 @@ body > [data-popper-placement] {
     }
   }
 
-  @media screen and (min-width: 421px) {
-    .compose-form__overflow {
-      display: none;
-    }
+  .compose-form__buttons .dropdown-button__label {
+    font-weight: 700;
+    letter-spacing: 0.04em;
   }
 
     &--simple {

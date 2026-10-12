@@ -49,7 +49,7 @@ jest.mock('../../containers/privacy_dropdown_container', () => {
 
   return PrivacyDropdownContainerMock;
 });
-jest.mock('../../containers/searchability_dropdown_container', () => () => null);
+jest.mock('../../containers/searchability_dropdown_container', () => () => <div data-testid='searchability-dropdown' />);
 jest.mock('../../containers/circle_dropdown_container', () => () => <div data-testid='circle-dropdown' />);
 jest.mock('../../containers/datetime_form_container', () => () => null);
 jest.mock('../../containers/expires_indicator_container', () => () => null);
@@ -167,16 +167,16 @@ describe('ComposeForm visibility controls', () => {
     const counter = screen.getByTestId('character-count');
 
     expect(header).toContainElement(privacy);
-    expect(header).toContainElement(language);
+    expect(header).not.toContainElement(language);
     expect(header.children.length).toBeGreaterThan(0);
     expect(getComputedStyle(header).flexWrap || 'nowrap').not.toBe('wrap');
     expect(privacy).toHaveAttribute('data-show-label', 'true');
     expect(privacy).toHaveAttribute('data-disabled', 'false');
     expect(buttons).not.toContainElement(privacy);
-    expect(buttons).not.toContainElement(language);
+    expect(buttons).toContainElement(language);
     expect(buttons).not.toContainElement(screen.getByTestId('emoji-picker'));
     expect(buttons).toContainElement(screen.getByTestId('upload-button'));
-    expect(buttons).toContainElement(screen.getByTestId('poll-button'));
+    expect(buttons).toContainElement(screen.getByTestId('spoiler-button'));
     expect(document.querySelector('.compose-form__emoji-anchor')).toContainElement(screen.getByTestId('emoji-picker'));
     expect(counter).toContainElement(screen.getByText('498'));
     expect(submit).not.toContainElement(counter);
@@ -223,7 +223,6 @@ describe('ComposeForm visibility controls', () => {
 
 const advancedControls = [
   'upload-button',
-  'poll-button',
   'spoiler-button',
   'emoji-picker',
   'circle-dropdown',
@@ -251,6 +250,7 @@ describe('ComposeForm display mode', () => {
 
     renderForm({ displayMode: 'full', onDisplayModeChange });
 
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     fireEvent.click(screen.getByRole('button', { name: 'Switch to simple view' }));
 
     expect(onDisplayModeChange).toHaveBeenCalledWith('simple');
@@ -266,14 +266,15 @@ describe('ComposeForm display mode', () => {
 
     expect(document.querySelector('.compose-form__header')).toBeTruthy();
     expect(screen.getByTestId('privacy-dropdown')).toBeTruthy();
-    expect(screen.getByTestId('language-dropdown')).toBeTruthy();
+    expect(document.querySelector('.compose-form__header')).not.toContainElement(screen.getByTestId('language-dropdown'));
+    expect(document.querySelector('.compose-form__buttons')).toContainElement(screen.getByTestId('language-dropdown'));
     expect(screen.getByTestId('upload-form')).toBeTruthy();
     expect(screen.getAllByRole('textbox')).toHaveLength(1);
-    expect(screen.getAllByRole('button', { name: 'Show full composer' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: 'Toot!' })).toHaveLength(1);
-    expect(screen.getAllByRole('button')).toHaveLength(2);
     expect(document.querySelectorAll('.character-counter')).toHaveLength(0);
-    expect(document.querySelector('.compose-form__buttons-wrapper')).toBeNull();
+    expect(document.querySelector('.compose-form__buttons-wrapper')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(screen.getByRole('button', { name: 'Show full composer' })).toBeTruthy();
     advancedControls.forEach(id => {
       expect(screen.queryByTestId(id)).toBeNull();
     });
@@ -506,6 +507,7 @@ describe('ComposeForm display mode', () => {
     expect(onPaste).toHaveBeenCalledWith(expect.any(Object));
     expect(document.querySelector('.compose-form--simple')).toBeTruthy();
     expect(document.querySelector('[data-composer-id="portable:hashtag:1"]')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     expect(screen.getByRole('button', { name: 'Show full composer' })).toBeTruthy();
   });
 
@@ -578,9 +580,15 @@ describe('ComposeForm display mode', () => {
 
     const menu = screen.getByTestId('composer-overflow-menu');
     const buttons = document.querySelector('.compose-form__buttons');
+    const header = document.querySelector('.compose-form__header');
 
     expect(menu).toBeTruthy();
     expect(buttons).not.toContainElement(menu);
+    expect(header).not.toContainElement(screen.getByTestId('searchability-dropdown'));
+    expect(header).not.toContainElement(screen.getByTestId('poll-button'));
+    expect(menu).toContainElement(screen.getByTestId('searchability-dropdown'));
+    expect(menu).toContainElement(screen.getByTestId('poll-button'));
+    expect(screen.queryByRole('button', { name: 'Destination details' })).toBeNull();
   });
 
   it('leaves a text paste on the simple composer', () => {
@@ -600,6 +608,7 @@ describe('ComposeForm display mode', () => {
 
     expect(onDisplayModeChange).not.toHaveBeenCalled();
     expect(onPaste).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     expect(screen.getByRole('button', { name: 'Show full composer' })).toBeTruthy();
   });
 });
@@ -627,11 +636,12 @@ describe('ComposeForm sender identity', () => {
     const identity = screen.getByTestId('sender-identity');
     const style = screen.getByTestId('style-picker');
 
-    expect(header).toContainElement(identity);
+    expect(header).not.toContainElement(identity);
+    expect(document.querySelector('.compose-form__buttons')).toContainElement(identity);
     expect(header).toContainElement(style);
     expect(identity.textContent).toContain('Posting as');
     expect(identity.textContent).toContain('@admin');
-    expect(identity.compareDocumentPosition(style) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(style.compareDocumentPosition(identity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(style).not.toContainElement(identity);
   });
 
@@ -645,7 +655,8 @@ describe('ComposeForm sender identity', () => {
     const header = document.querySelector('.compose-form__header');
     const sender = screen.getByTestId('sender-identity');
 
-    expect(header).toContainElement(sender);
+    expect(header).not.toContainElement(sender);
+    expect(document.querySelector('.compose-form__buttons')).toContainElement(sender);
     expect(sender.className).toContain('compose-form__sender--compact');
     expect(sender.textContent).toContain('Posting as');
     expect(sender.textContent).toContain('@admin');

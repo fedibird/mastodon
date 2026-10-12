@@ -73,7 +73,14 @@ export default class ComposerOverflowMenu extends React.PureComponent {
 
   handleDocumentKey = (event) => {
     if (event.key === 'Escape' && this.state.open) {
-      this.setState({ open: false });
+      event.preventDefault();
+      this.setState({ open: false }, () => {
+        const button = this.target && this.target.querySelector('button');
+
+        if (button) {
+          button.focus();
+        }
+      });
     }
   };
 

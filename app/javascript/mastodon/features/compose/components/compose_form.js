@@ -13,6 +13,7 @@ import UploadButtonContainer from '../containers/upload_button_container';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import SpoilerButtonContainer from '../containers/spoiler_button_container';
 import PrivacyDropdownContainer from '../containers/privacy_dropdown_container';
+import SearchabilityDropdownContainer from '../containers/searchability_dropdown_container';
 import CircleDropdownContainer from '../containers/circle_dropdown_container';
 import DateTimeFormContainer from '../containers/datetime_form_container';
 import ExpiresIndicatorContainer from '../containers/expires_indicator_container';
@@ -564,13 +565,10 @@ class ComposeForm extends ImmutablePureComponent {
   renderHeader () {
     return (
       <div className='compose-form__header'>
-        <div className='compose-form__header-account'>{this.props.senderIdentity}</div>
         <div className='compose-form__header-context'>{this.props.stylePicker}</div>
         <div className='compose-form__header-audience'>
           <PrivacyDropdownContainer disabled={this.props.isEditing} showLabel />
-          <LanguageDropdownContainer />
         </div>
-        {this.renderModeToggle()}
       </div>
     );
   }
@@ -583,30 +581,29 @@ class ComposeForm extends ImmutablePureComponent {
     this.props.onPickEmoji(position, data, needsSpace);
   }
 
-  renderFooter (publishText) {
+  renderFooter (publishText, simple) {
     const { intl } = this.props;
 
     return (
       <div className='compose-form__buttons-wrapper'>
         <div className='compose-form__buttons'>
-          <UploadButtonContainer />
-          <PollButtonContainer />
-          <SpoilerButtonContainer />
-          {!this.props.isEditing && (
-            <div className='compose-form__buttons-secondary'>
-              <DateTimeButtonContainer />
-            </div>
-          )}
+          <div className='compose-form__toolbar-account'>{this.props.senderIdentity}</div>
+          {simple ? null : <UploadButtonContainer />}
+          {simple ? null : <SpoilerButtonContainer />}
+          <LanguageDropdownContainer />
           {!this.props.isEditing && (
             <ComposerOverflowMenu label={intl.formatMessage(messages.more)}>
-              <DateTimeButtonContainer />
+              {this.renderModeToggle()}
+              <DateTimeButtonContainer presentation='menu' />
+              <SearchabilityDropdownContainer presentation='menu' />
+              <PollButtonContainer presentation='menu' />
             </ComposerOverflowMenu>
           )}
         </div>
 
         <div className='compose-form__submit'>
           <div className='compose-form__preflight' data-composer-preflight='true' />
-          {this.renderPublishButton(publishText)}
+          {simple ? this.renderIconPublish() : this.renderPublishButton(publishText)}
         </div>
       </div>
     );
@@ -731,13 +728,12 @@ class ComposeForm extends ImmutablePureComponent {
             <div className={classNames('compose-form__simple-row', { 'compose-form__simple-row--overlay': !this.props.anyMedia })}>
               <UploadFormContainer summary />
               {this.renderSimpleBadges()}
-              {this.renderIconPublish()}
             </div>
           )}
         </div>
 
         {!simple && !this.props.isEditing && <CircleDropdownContainer key='circle' />}
-        {!simple && this.renderFooter(publishText)}
+        {this.renderFooter(publishText, simple)}
         {!simple && !this.props.isEditing && <ReferenceStack key='references' />}
       </div>
     );

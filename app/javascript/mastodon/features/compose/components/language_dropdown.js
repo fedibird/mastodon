@@ -5,7 +5,6 @@ import classNames from 'classnames';
 import Overlay from 'react-overlays/Overlay';
 import LanguageDropdownMenu from 'mastodon/components/language_dropdown_menu';
 import Icon from 'mastodon/components/icon';
-import { languages as preloadedLanguages } from 'mastodon/initial_state';
 
 const messages = defineMessages({
   changeLanguage: { id: 'compose.language.change', defaultMessage: 'Change language' },
@@ -46,11 +45,7 @@ class LanguageDropdown extends React.PureComponent {
   };
 
   languageLabel () {
-    const { value, languages } = this.props;
-    const available = languages || preloadedLanguages || [];
-    const current = available.find(language => language[0] === value);
-
-    return (current && current[2]) || value || '';
+    return (this.props.value || '').toUpperCase();
   }
 
   handleClose = (language) => {
