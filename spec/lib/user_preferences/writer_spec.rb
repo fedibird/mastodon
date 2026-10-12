@@ -137,22 +137,65 @@ RSpec.describe UserPreferences::Writer do
     end
 
     it 'does not touch updated_at or cache when the stored value is sent again' do
-      described_class.new(user).apply(updates: { 'content_font_size' => 18, 'default_language' => 'zh-CN' })
+      described_class.new(user).apply(
+        updates: { 'content_font_size' => 18, 'default_language' => 'zh-CN', 'default_sensitive' => false }
+      )
       font = stored(user, 'content_font_size')
       language = stored(user, 'default_language')
-      font.update_columns(updated_at: 2.hours.ago)
-      language.update_columns(updated_at: 2.hours.ago)
+      sensitive = stored(user, 'default_sensitive')
+      [font, language, sensitive].each { |record| record.update_columns(updated_at: 2.hours.ago) }
       font_stamp = font.reload.updated_at
       language_stamp = language.reload.updated_at
+      sensitive_stamp = sensitive.reload.updated_at
       expect(Rails.cache).not_to receive(:delete)
 
-      result = described_class.new(user).apply(updates: { 'content_font_size' => 18, 'default_language' => 'zh-CN' })
+      result = described_class.new(user).apply(
+        updates: { 'content_font_size' => 18, 'default_language' => 'zh-CN', 'default_sensitive' => false }
+      )
 
-      expect(result.unchanged_keys).to eq %w(content_font_size default_language)
+      expect(result.unchanged_keys).to eq %w(content_font_size default_language default_sensitive)
       expect(result.changed_keys).to eq []
       expect(font.reload.updated_at).to eq font_stamp
       expect(language.reload.updated_at).to eq language_stamp
+      expect(sensitive.reload.updated_at).to eq sensitive_stamp
       expect(language.value).to eq 'zh-CN'
+      expect(sensitive.value).to be false
+    end
+
+    it 'replaces a stored float or numeric string with an integer of the same magnitude' do
+      float_row = Setting.unscoped.new(thing_type: 'User', thing_id: user.id, var: 'content_font_size')
+      float_row.value = 18.0
+      float_row.save!
+      string_row = Setting.unscoped.new(thing_type: 'User', thing_id: user.id, var: 'info_font_size')
+      string_row.value = '18'
+      string_row.save!
+
+      result = described_class.new(user).apply(updates: { 'content_font_size' => 18, 'info_font_size' => 18 })
+
+      expect(result.before['content_font_size']).to eq(state: :present, configured: 18.0)
+      expect(result.before['info_font_size']).to eq(state: :present, configured: '18')
+      expect(result.changed_keys).to eq %w(content_font_size info_font_size)
+      expect(result.after['content_font_size']).to eq(state: :present, configured: 18)
+      expect(result.after['info_font_size']).to eq(state: :present, configured: 18)
+      expect(result.after['content_font_size'][:configured]).to be_a(Integer)
+      expect(result.cache_deleted).to eq('content_font_size' => true, 'info_font_size' => true)
+      expect(stored(user, 'content_font_size').value).to eq 18
+      expect(stored(user, 'content_font_size').value).to be_a(Integer)
+      expect(stored(user, 'info_font_size').value).to eq 18
+      expect(stored(user, 'info_font_size').value).to be_a(Integer)
+
+      font = stored(user, 'content_font_size')
+      font.update_columns(updated_at: 2.hours.ago)
+      stamp = font.reload.updated_at
+      expect(Rails.cache).not_to receive(:delete)
+
+      resend = described_class.new(user).apply(updates: { 'content_font_size' => 18 })
+
+      expect(resend.unchanged_keys).to eq ['content_font_size']
+      expect(resend.changed_keys).to eq []
+      expect(resend.cache_deleted).to eq({})
+      expect(font.reload.updated_at).to eq stamp
+      expect(font.value).to be_a(Integer)
     end
 
     it 'leaves keys that were not in the request untouched' do

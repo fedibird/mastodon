@@ -27,7 +27,8 @@ class UserPreferences::ChangeSet
 
   def add_update(key, value, stored)
     remember(key, stored)
-    if stored[:state] != :absent && stored[:configured] == value
+    # 18.0 == 18 in Ruby. A stored Float or numeric string is still a different value.
+    if stored[:state] != :absent && stored[:configured].eql?(value)
       @unchanged_keys << key
       @after[key] = snapshot(stored[:state], stored[:configured])
       return
