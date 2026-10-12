@@ -2,7 +2,7 @@
 
 この文書は P2-1 以降の Writer を分割するための実装契約である。本番の Controller、`UserSettingsDecorator`、`Settings::ScopedSettings`、DB、キャッシュ、ActivityPub はこの PR では変えない。
 
-基準は `origin/fedibird` の `f2893228e6cc14a52e03d1ac8fb8d918b5fd7d2b`（#420 の squash merge）である。P1 の Reader、Schema、読み取り API を前提にする。`docs/settings_service/catalog.yml` は再生成しない。production はカタログを読まない。
+この契約を書いた時点の PR base は `f2893228e6cc14a52e03d1ac8fb8d918b5fd7d2b`（#420 の squash merge）である。その後 `origin/fedibird` は `8186cf1e480fd065171904694a4236fb823d09e4`（#415）まで進んだ。#415 は `show_composer_posting_style_selector` を足しているが、P1-0 カタログには無い。その監査追従は別 PR とし、この PR ではカタログを再生成しない。production はカタログを読まない。P1 の Reader、Schema、読み取り API を前提にする。
 
 D1 から D5 は変えない。User 設定はユーザーに 1 組である。Web::Setting は別物のままである。revision と `preferences_changed` は後続 PR である。
 
@@ -152,14 +152,24 @@ reset の候補は次の POST である。PATCH の値マップには混ぜな�
 
 キー名は P1-3 の `api_key_candidate` と揃える。実装は P2-3 まで行わない。P2-2 の PATCH は `reset` フィールドを知らない。
 
-同じ値をもう一度 PATCH することは成功である。保存値がすでにその値なら行を更新しない。`updated_at` も動かさない。再送で副作用を増やさないためである。
+no-op は、すでに保存行があり、その保存値が再送した値と等しいときだけである。`updated_at` も動かさない。
+
+未保存（state `:absent`）のキーへ明示的な既定値を送ったときは、YAML 既定や有効値と一致していても行を新規作成する。例として、行が無い `default_sensitive` に `false` を送ると `false` の行ができる。これは no-op ではない。
+
+state は混ぜない。
+
+- `:absent` は行が無い。
+- `:nil` は行があり、YAML の値が nil である。
+- `:present` は行があり、値が nil ではない。`false` と `""` は `:present` である。
+
+reset は行削除であり、nil の保存でも既定値の書き込みでもない。すでに `:absent` のキーへの reset は削除する行が無いので no-op である。`:nil` の行への reset は行を消す変更であり、nil のまま残すことではない。
 
 ## 4. 読める値と書ける値
 
 古い行は Reader が今までどおり読む。Writer はそれを修復しない。次の値は読んでよいが、一般 API からは書けない。
 
 - `default_privacy` の `direct`、`limited`、空文字列、未知文字列。フォームの選択肢は `direct` と `limited` を除く。Credentials は検査せず保存できる。その差は Credentials を Writer に載せるときに別 PR で決める。
-- `default_language` の `nil`、`""`、`ja-JP`、`invalid`。派生言語だけが地域と無効値を落とす。`source.language` は保存値のままである。
+- `default_language` の `nil`、`""`、`ja-JP`、`invalid`。`ja-JP` は `valid_locale?` が偽である。`zh-CN` のように `SUPPORTED_LOCALES` にある地域付きコードは、下の許可集合に入り、ここでは拒否しない。派生言語だけが地域を剥がす。`source.language` は保存値のままである。
 - `show_translation_bar` の `true`、`false`、`nil`、未知文字列。有効値は読むときに正規化する。保存し直さない。
 - `translation_preferred_mode` の `original` と未知文字列。有効値は `translated` になる。保存し直さない。
 - 文字サイズの `"18"`、`"invalid"`、範囲外の整数。`public_value` は `\A-?\d+\z` の文字列だけを整数にする。互換 JSON は `effective` を使い、文字列の `"18"` を整数にしない。
@@ -167,7 +177,24 @@ reset の候補は次の POST である。PATCH の値マップには混ぜな�
 新しい一般 API の検査は次のとおりである。
 
 - privacy は `Status.selectable_visibilities` の要素だけである。locked による補完は書き込まない。
-- language は `valid_locale?` が真のコードだけである。地域タグは拒否する。検出へ戻すのは reset である。
+- language は、送信された文字列そのものに対する `LanguagesHelper#valid_locale?` が真のときだけ保存する。`valid_locale_or_nil` は使わない。あれは `ja-JP` を `ja` に剥がし、`zh-CN` も `zh` に落とす読み取り用である。Writer は地域を剥がさないし、ハイフンを補わないし、大小文字も変えない。検出へ戻すのは reset である。根拠は `LanguagesHelper::SUPPORTED_LOCALES`（`ISO_639_1`、`ISO_639_1_REGIONAL`、`ISO_639_3`）である。フォームの `filterable_languages` は表示用の部分集合であり、Writer の許可集合にはしない。
+
+`default_language` の許否は次のとおりである。
+
+| 入力 | 一般 API | 理由 |
+| --- | --- | --- |
+| `ja` | 許可 | `valid_locale?` が真 |
+| `en` | 許可 | 同じ |
+| `de` | 許可 | 同じ |
+| `zh` | 許可 | `ISO_639_1` にある |
+| `zh-CN` | 許可 | `ISO_639_1_REGIONAL` にあり、`valid_locale?` が真。文字列のまま保存する |
+| `zh-TW` | 許可 | 同じ |
+| `zh-HK` | 許可 | 同じ |
+| `zh-YUE` | 許可 | 同じ。広東語として既存の対応ロケールである |
+| `ja-JP` | 拒否 | `SUPPORTED_LOCALES` に無い。`ja` へは変えない |
+| `invalid` | 拒否 | 対応ロケールではない |
+| 空文字列 | 拒否 | 未保存への reset ではない |
+| `null` | 拒否 | 行削除でも nil 保存でもない |
 - translation bar は `always`、`target`、`never` だけである。boolean と未知文字列は拒否する。ポリシーから値を生成して保存しない。
 - mode は `translated`、`bilingual`、`both` だけである。`original` は拒否する。
 - policy は `conservative`、`default`、`tester` だけである。
@@ -186,16 +213,40 @@ reset の候補は次の POST である。PATCH の値マップには混ぜな�
 
 DB の行を正とする。キャッシュは配信の都合であり、正ではない。
 
-1. 同じキーを二つのクライアントが書くと、後からコミットした行が残る。楽観ロックは P2-1 には無い。失ったクライアントは、次の GET で Reader の値を見る。revision を入れる PR で、`If-Match` による拒否を足せる。
-2. 別のキーは別の行である。Writer はリクエストに含まれるキーだけを更新する。もう一方のキーは失わない。Credentials の省略キー補完は、並行した privacy の更新を上書きし得る。一般 API はその補完をしない。
-3. ポリシーとバーを同じリクエストで書くときは、節 4 の適用後の値で検査する。バーをポリシーから生成して保存しない。
-4. Rails フォームと一般 API が同じキーを書くと、後からコミットした方が残る。フォームは decorator の正規化のままである。同じ PR でフォームを Writer に切り替えない。
-5. DB コミットのあとキャッシュ操作が失敗しても、DB は戻さない。Reader は新しい値を返す。getter は古いキャッシュを返すことがある。
-6. 複数キーの途中失敗は、現行では先行キーが残る。Writer は検査を全部終えてから 1 トランザクションで書き、失敗したら全部戻す。
-7. 9 キーの Writer は User 列を書かない。locale の失敗で設定が残る現行の preferences 画面は、そのままである。
-8. 9 キーの成功では ActivityPub を積まない。積まないので、enqueue 失敗で設定だけ残る、という形にはならない。
+Writer 同士は、対象 User 行の `lock!`（`SELECT ... FOR UPDATE`）で直列化する。設定行がまだ無くても、ロック対象は User 行なので競合を取りこぼさない。一意制約 `(thing_type, thing_id, var)` は最後の砦であり、通常の Writer 同士はこのロックのあとで直列に読むので、同じ未保存キーへの並行 INSERT にはならない。
 
-未保存キーへの同時 INSERT は一意制約に当たることがある。そのときはトランザクション全体を 1 回だけやり直す。2 回目も失敗したら 409 とする。値の再送で保存値がすでに一致するときは更新しないので、やり直し後もべき等である。
+変更前の保存状態は、ロックを取ったあと、同じトランザクションの中で `Setting.unscoped` から読む。ロック前の Reader 結果や getter のキャッシュは変更前の値に使わない。
+
+`WriteResult` はリクエストに含まれるキーについて、次を別々に持つ。
+
+- `before`: ロック後に読んだ state と configured。`:absent`、`:nil`、`:present` を区別する。
+- `after`: このトランザクションが残す state と configured。
+- `changed_keys`: state または configured が変わったキー。未保存への明示的な既定値の INSERT はここである。
+- `unchanged_keys`: すでにその保存結果になっているキー。既存行への同値再送と、すでに `:absent` の reset がここである。`updated_at` は動かさない。
+
+期待結果は次のとおりである。
+
+| 状況 | 結果 |
+| --- | --- |
+| 別キーを二つの Writer が同時に書く | 両方の行が残る。後からロックを取った側は、先にコミットした相手のキーを読んでも上書きしない |
+| 同じキーを二つの Writer が違う値で書く | 後からロックを取りコミットした値が残る |
+| 同じ未保存キーを二つの Writer が INSERT する | 先にコミットした行を、後続がロック後に読む。同値なら no-op、違う値なら UPDATE である。二つの INSERT にはしない |
+| 既存行へ同じ値を再送する | `unchanged_keys`。行も `updated_at` も変わらない |
+| 未保存キーへ、有効値と同じ既定値を送る | `changed_keys`。行を作る |
+| 既存の `:nil` 行へ値を書く | `changed_keys`。`:absent` とは扱わない |
+| 既存行の reset | `changed_keys`。行は消える。nil は残さない |
+| 行が無いキーの reset | `unchanged_keys` |
+
+ポリシーとバーを同じリクエストで書くときは、節 4 の適用後の値で検査する。バーをポリシーから生成して保存しない。
+
+移行期間の制約として、`UserSettingsDecorator` と `ScopedSettings#[]=` はこの User 行ロックを取らない。フォームや Credentials と Writer が同じキーを書くと、後からコミットした方がそのキーを残す。P2-1 で decorator にロックを足さない。P2-6 で同じロックに乗せるまでは、この差を残す。
+
+そのほかの境界は次のとおりである。
+
+1. 複数キーの途中失敗は、現行では先行キーが残る。Writer は検査を全部終えてから 1 トランザクションで書き、失敗したら全部戻す。
+2. 9 キーの Writer は User 列を書かない。locale の失敗で設定が残る現行の preferences 画面は、そのままである。
+3. 9 キーの成功では ActivityPub を積まない。
+4. DB コミットのあとキャッシュ削除が失敗しても、DB は戻さない。節 6 のとおりである。
 
 ## 6. キャッシュ
 
@@ -208,16 +259,50 @@ DB の行を正とする。キャッシュは配信の都合であり、正で�
 | revision をキーに含める | 後続 PR で getter まで揃える本方式である。古い write は古い revision のキーに当たり、読み手は見ない |
 | Reader の DB 直接参照を続ける | 続ける。キャッシュを修復するために Reader へ write を入れない |
 
+### 6.1 Rails 6.1 のコミット後処理
+
+このアプリの Rails は 6.1.7 である。`ActiveRecord.after_all_transactions_commit` は無い。キャッシュ削除は、`transaction` ブロックの次の行に書かない。joined なブロックが戻った時点は、外側の COMMIT より前である。
+
+P2-1 は、`before_committed!`、`committed!(should_run_callbacks:)`、`rolledback!(force_restore_state:, should_run_callbacks:)`、`trigger_transactional_callbacks?` を実装したオブジェクトを `User.connection.add_transaction_record` で現在のトランザクションへ登録する。Rails 6.1 の `TransactionManager#begin_transaction` は `run_commit_callbacks = !current_transaction.joinable?` である。
+
+- 外側が無いときの `User.transaction` は `RealTransaction` である。`commit` は PostgreSQL の COMMIT であり、そのあと `commit_records` が `committed!` を呼ぶ。本番の成功経路はここだけが cache.delete を実行する。
+- 親が joinable な `SavepointTransaction` の `commit` は `RELEASE SAVEPOINT` である。`run_commit_callbacks` は偽なので、ここでは callback を走らせず、レコードを親へ移す。cache.delete は最外側の COMMIT まで待つ。親が ROLLBACK すると `rolledback!` が走り、cache.delete はしない。
+- 親が joinable ではないとき、内側の savepoint は `run_commit_callbacks` が真になる。`RELEASE SAVEPOINT` の時点で `committed!` が走る。RSpec の transactional fixtures は `begin_transaction joinable: false` なので、このテスト専用の経路である。fixture トランザクション自体の COMMIT ではない。
+
+ROLLBACK では cache.delete しない。SAVEPOINT の解放だけでは、親が joinable な本番トランザクションにおいて cache.delete しない。
+
+### 6.2 Writer は joinable な開いたトランザクションに入らない
+
+`connection.transaction_open?` かつ `current_transaction.joinable?` のとき、Writer はロックも書き込みもせず `UserPreferences::OpenTransaction` を上げる。呼び出し側は `ActiveRecord::Base.transaction` で Writer を包まない。包むと、ブロック終了が COMMIT だと誤認してキャッシュを先に消す実装や、外側の ROLLBACK で設定だけ戻る実装が混ざる。
+
+joinable ではない開いたトランザクションは拒否しない。テストの fixture トランザクションがそれであり、拒否すると通常の RSpec から Writer を呼べなくなる。本番のリクエストに、最初から開いた joinable トランザクションは無い。
+
+### 6.3 delete の失敗
+
+COMMIT より後の cache.delete 失敗では DB を戻さない。戻しようが無く、例外をリクエストへ返すとクライアントの再送が別の更新とぶつかる。
+
+callback の中で例外を握る。1 キーあたり 3 回まで delete を試し、各失敗は warn で user id、var、例外クラスとメッセージを残す。3 回とも失敗したら error で残し、それ以上は投げない。`WriteResult` のそのキーは `cache_deleted: false` である。成功したキーは `true` である。HTTP は成功のままである。no-op で行を触っていないキーは delete しない。
+
 P2-1 の保証は次のとおりである。
 
 - 正は DB の保存値である。
-- トランザクションが戻った値はキャッシュへ書かない。キャッシュ操作は `after_commit` だけである。現行の `[]=` は 1 文ごとの `update!` の直後に write するので、複数キーの外側トランザクションに入れるとコミット前にキャッシュがdirtyになる。Writer は `[]=` を呼ばない。
+- ROLLBACK と、joinable な親の RELEASE SAVEPOINT ではキャッシュを消さない。
+- Writer は `ScopedSettings#[]=` を呼ばない。`[]=` は `update!` の直後に `Rails.cache.write` する。
 - リクエストに無いキーの行もキャッシュも触らない。
-- 読み取りは保存状態を変えない。GET は今までどおりである。
+- 読み取りは保存状態を変えない。
 - キャッシュが一致しているとき、既存 getter と Reader の有効値は P1 と同じである。一致していないとき、getter はキャッシュ、Reader は DB である。P2-1 はこの差を自動修復しない。
-- revision はキャッシュキーと変更通知の同じ番号にする。P2-1 では列も番号も増やす。delete は、revision が入るまでの暫定である。
+- revision はキャッシュキーと変更通知の同じ番号にする。P2-1 では列も番号も増えない。delete は revision までの暫定であり、delete のあと古い `[]=` が write する穴は残る。
 
-コミット後の delete に失敗しても HTTP は成功のままにする。DB はすでに正であり、クライアントに再送させると別の更新とぶつかる。失敗はログに残し、短い回数だけ delete をやり直す。それでも残る getter の古さは、revision 方式で閉じる。
+### 6.4 P2-1 の RSpec
+
+- 成功時、cache.delete は `committed!` の中だけで呼ばれる。トランザクションの途中では呼ばれない。
+- Writer のトランザクションが例外で戻ると、cache.delete は呼ばれず、書いた行も残らない。
+- joinable な外側トランザクションの中では `OpenTransaction` になり、行も delete も無い。
+- `use_transactional_tests = false` の例で、Writer が戻ったあと別コネクションから行が見える。これは PostgreSQL の COMMIT である。そのあと無関係なトランザクションを ROLLBACK しても、その行は残る。
+- transactional fixtures の例では、delete が savepoint 解放時に走ることをコメントと assertion の位置で固定する。fixture トランザクションの COMMIT とは書かない。
+- cache.delete が 2 回失敗して 3 回目に成功すると、行は残り、warn が 2 回残り、`cache_deleted` は true である。
+- 3 回とも失敗すると、例外は呼び出し元へ出ず、行は残り、`cache_deleted` は false で、error ログが残る。
+- ROLLBACK の例では delete の失敗ログは出ない。delete 自体を呼ばないためである。
 
 ## 7. 副作用の境界
 
@@ -236,9 +321,9 @@ P2-1 の保証は次のとおりである。
 | クラス | 責務 |
 | --- | --- |
 | `UserPreferences::WriteContract` | 9 キーの定数、型、選択肢、範囲。未知キーと派生キーを拒否する |
-| `UserPreferences::ChangeSet` | 省略、値の設定、reset を操作に分ける。変更前は Reader の configured state を使う |
-| `UserPreferences::Writer` | 検査、1 トランザクションの UPSERT または DELETE、`after_commit` の cache delete、結果を返す |
-| `UserPreferences::WriteResult` | 変更したキー、変更前後の保存値、状態。HTTP の形にはしない |
+| `UserPreferences::ChangeSet` | 省略、値の設定、reset を操作に分ける。変更前はロック後の configured state である |
+| `UserPreferences::Writer` | 開いた joinable トランザクションを拒否し、User 行をロックし、1 トランザクションで UPSERT または DELETE し、COMMIT 後の callback で cache delete する |
+| `UserPreferences::WriteResult` | `before`、`after`、`changed_keys`、`unchanged_keys`、キーごとの `cache_deleted`。HTTP の形にはしない |
 
 DB 更新は `Setting.unscoped` をこのトランザクションの中で使う。`ScopedSettings#[]=` は使わない。
 
@@ -256,12 +341,12 @@ HTTP もフォームも変えない。節 8 の 4 クラスと spec だけを足
 
 - 9 キー以外、派生キー、Schema では general だが定数に無いキーを拒否する。
 - 省略は無変更、`null` は拒否、`false` と空文字列と明示的既定値と reset を区別する。
-- 節 4 の拒否と、古い行を修復しないことを固定する。
+- 節 4 の言語表を固定する。`ja-JP` は拒否し、`zh-CN`、`zh-TW`、`zh-HK`、`zh-YUE` は文字列のまま許可する。`valid_locale_or_nil` で地域を剥がさない。
+- 未保存への既定値は INSERT する。既存行への同値再送だけを no-op にする。`:absent`、`:nil`、`:present` を取り違えない。
+- 節 5 の User 行ロックと、節 6.4 の COMMIT、SAVEPOINT、ROLLBACK、delete 失敗を固定する。
 - ポリシーだけの更新がバー行を変えない。同時更新でもバーをポリシーから生成しない。
-- 2 キーの途中失敗で両方戻る。キャッシュ write が無く、delete は commit 後だけである。
-- 戻したトランザクションはキャッシュを触らない。
-- 同じ値の再送は行を更新しない。同時 INSERT の一意制約は 1 回やり直す。
-- リクエスト外のキーが残る。
+- 2 キーの途中失敗で両方戻る。キャッシュ write が無く、delete は COMMIT 後の callback だけである。
+- リクエスト外のキーが残る。decorator はロックしないままである。
 - Reader と getter は、キャッシュが一致するとき P1 と同じである。DB だけ変えた差は残す。
 - ActivityPub を積まない。`users.locale` を変えない。
 
@@ -300,7 +385,7 @@ Rails フォームと Credentials を Writer に載せる専用 PR とする。�
 
 ## 10. この PR で決めたことと、実装時に残すこと
 
-決めたことは、9 キーの許可リスト、PATCH と `null` と reset の差、書ける値と読めるだけの値、DB を正とすること、`[]=` を使わないこと、コミット後の delete を暫定とすること、ActivityPub を 9 キーに付けないこと、節 9 の PR 順である。
+決めたことは、9 キーの許可リスト、PATCH と `null` と reset と no-op の差、`valid_locale?` による言語の許可集合、User 行ロック、joinable な外側トランザクションの拒否、Rails 6.1 の COMMIT 後 callback、delete 失敗を DB へ戻さないこと、ActivityPub を 9 キーに付けないこと、節 9 の PR 順である。#415 の `show_composer_posting_style_selector` はカタログ未登録であり、この PR のカタログ差分には入れない。
 
 実装時に残すのは次だけである。
 
