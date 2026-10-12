@@ -260,8 +260,8 @@ class ListTimeline extends React.PureComponent {
           onLoadMore={this.handleLoadMore}
           emptyMessage={emptyMessage}
           bindToDocument={!multiColumn}
-          prepend={portableComposer}
-          alwaysPrepend={!!portableComposer}
+          prepend={null}
+          alwaysPrepend={false}
         />
       );
     } else {
@@ -279,8 +279,8 @@ class ListTimeline extends React.PureComponent {
               scrollKey={`list_timeline-${columnId}-live`}
               emptyMessage={emptyMessage}
               bindToDocument={false}
-              prepend={portableComposer}
-              alwaysPrepend={!!portableComposer}
+              prepend={null}
+              alwaysPrepend={false}
             />
           </div>
 
@@ -346,6 +346,10 @@ class ListTimeline extends React.PureComponent {
             </div>
           )}
         </ColumnHeader>
+
+        {portableComposer ? (
+          <div className='column-portable-composer'>{portableComposer}</div>
+        ) : null}
 
         {timeline}
       </Column>

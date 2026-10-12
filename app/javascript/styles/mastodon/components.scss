@@ -1166,9 +1166,25 @@ body > [data-popper-placement] {
   }
 
   .compose-form__count-anchor {
-    right: 8px;
+    inset-inline-end: 8px;
     bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
     pointer-events: none;
+  }
+
+  .compose-form__searchability-label {
+    font-size: 12px;
+    line-height: 16px;
+    white-space: nowrap;
+  }
+
+  .compose-form__compact-publish {
+    position: absolute;
+    z-index: 2;
+    inset-inline-end: 6px;
+    bottom: 6px;
   }
 
   .compose-form__body {
@@ -1222,28 +1238,36 @@ body > [data-popper-placement] {
     align-items: center;
   }
 
-  .compose-form__media-handle {
-    position: static;
+  .compose-form__media-remove {
+    position: absolute;
+    z-index: 1;
+    top: 2px;
+    inset-inline-end: 2px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
-    margin-top: 2px;
+    width: 16px;
+    height: 16px;
     padding: 0;
     border: 0;
-    border-radius: 4px;
-    background: rgba($black, 0.55);
+    border-radius: 8px;
+    background: rgba($black, 0.65);
     color: $white;
-    font-size: 12px;
-    line-height: 12px;
-    cursor: grab;
-    touch-action: none;
+    font-size: 10px;
+    line-height: 10px;
+    cursor: pointer;
 
     .fa {
-      font-size: 12px;
-      line-height: 12px;
+      font-size: 10px;
+      line-height: 10px;
     }
+  }
+
+  .compose-form__media-constraint {
+    margin: 4px 0 0;
+    color: $darker-text-color;
+    font-size: 12px;
+    line-height: 16px;
   }
 
   .compose-form__media--full {
@@ -1328,8 +1352,28 @@ body > [data-popper-placement] {
   }
 
   .compose-form__buttons .language-dropdown {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     min-width: 0;
+  }
+
+  .compose-form__publish-icon.icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: $ui-highlight-color;
+    color: $primary-text-color;
+
+    &:hover,
+    &:focus,
+    &:active {
+      background: lighten($ui-highlight-color, 10%);
+      color: $primary-text-color;
+    }
   }
 
   @at-root {
@@ -1353,7 +1397,8 @@ body > [data-popper-placement] {
 
     .compose-portal-menu.compose-form__sender-menu,
     .compose-portal-menu.compose-form__style-menu,
-    .compose-portal-menu.compose-form__overflow-panel {
+    .compose-portal-menu.compose-form__overflow-panel,
+    .compose-portal-menu.compose-form__searchability-menu {
       position: fixed;
       top: auto;
       right: auto;
@@ -1500,7 +1545,19 @@ body > [data-popper-placement] {
 
   &--simple .autosuggest-textarea__textarea {
     resize: none;
-    padding-bottom: 28px;
+    padding-bottom: 8px;
+  }
+
+  &.compose-form--compact-publish .autosuggest-textarea__textarea {
+    padding-inline-end: 48px;
+  }
+
+  &.compose-form--compact-publish .compose-form__count-anchor {
+    inset-inline-end: 46px;
+  }
+
+  &.compose-form--searchability-note .autosuggest-textarea__textarea {
+    padding-inline-end: 11rem;
   }
 
   @media screen and (max-width: 420px) {
@@ -4969,6 +5026,17 @@ body.app-body.layout-single-column.status-timeline-split {
     font-weight: 400;
     color: $darker-text-color;
   }
+}
+
+.column-portable-composer {
+  flex: 0 0 auto;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-width: 0;
+  max-height: min(50vh, 100%);
+  overflow: auto;
+  background: lighten($ui-base-color, 13%);
 }
 
 .portable-composer {

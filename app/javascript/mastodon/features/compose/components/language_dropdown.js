@@ -4,7 +4,6 @@ import { injectIntl, defineMessages } from 'react-intl';
 import classNames from 'classnames';
 import Overlay from 'react-overlays/Overlay';
 import LanguageDropdownMenu from 'mastodon/components/language_dropdown_menu';
-import Icon from 'mastodon/components/icon';
 
 const messages = defineMessages({
   changeLanguage: { id: 'compose.language.change', defaultMessage: 'Change language' },
@@ -91,13 +90,13 @@ class LanguageDropdown extends React.PureComponent {
         <div className='privacy-dropdown__value' ref={this.setTargetRef}>
           <button
             type='button'
-            className={classNames('dropdown-button', { active: open })}
+            className={classNames('text-icon-button', { active: open })}
             title={intl.formatMessage(messages.changeLanguage)}
+            aria-label={intl.formatMessage(messages.changeLanguage)}
             aria-expanded={open}
             onClick={this.handleToggle}
           >
-            <Icon id='language' fixedWidth aria-hidden='true' />
-            <span className='dropdown-button__label'>{this.languageLabel()}</span>
+            {this.languageLabel()}
           </button>
         </div>
 

@@ -61,6 +61,10 @@ const messages = defineMessages({
   surfaceMismatch: { id: 'compose_form.posting_style.surface_mismatch', defaultMessage: 'This draft still uses the previous destination. Posting stays off until you apply the destination shown here.' },
   surfaceAccept: { id: 'compose_form.posting_style.surface_accept', defaultMessage: 'Use this destination' },
   more: { id: 'compose_form.more_actions', defaultMessage: 'More actions' },
+  searchPublic: { id: 'searchability.public.short', defaultMessage: 'Public' },
+  searchPrivate: { id: 'searchability.private.short', defaultMessage: 'Followers-only' },
+  searchDirect: { id: 'searchability.direct.short', defaultMessage: 'Reacted-users-only' },
+  searchMenu: { id: 'compose_form.overflow.searchability', defaultMessage: 'Search visibility' },
   uploadBlocked: { id: 'compose_form.upload_blocked', defaultMessage: 'This posting account can’t attach media here.' },
   uploadBlockedMedia: { id: 'compose_form.upload_blocked.media', defaultMessage: 'This posting account can’t attach media.' },
   uploadBlockedReply: { id: 'compose_form.upload_blocked.reply', defaultMessage: 'Replies and quotes can’t include media from this posting account.' },
@@ -142,6 +146,8 @@ class ComposeForm extends ImmutablePureComponent {
     onPickEmoji: PropTypes.func.isRequired,
     showSearch: PropTypes.bool,
     anyMedia: PropTypes.bool,
+    searchability: PropTypes.string,
+    defaultSearchability: PropTypes.string,
     singleColumn: PropTypes.bool,
     autoFocus: PropTypes.bool,
     contextCompliant: PropTypes.bool,
@@ -165,6 +171,7 @@ class ComposeForm extends ImmutablePureComponent {
     fileHover: false,
     uploadNotice: null,
     overflowClose: 0,
+    searchabilityOpen: false,
   };
 
   static defaultProps = {
@@ -420,6 +427,89 @@ class ComposeForm extends ImmutablePureComponent {
     );
   }
 
+  publishAccessibleName () {
+    const { intl } = this.props;
+    let name;
+
+    if (this.props.isEditing) {
+      name = intl.formatMessage(messages.saveChanges);
+    } else if (this.props.privacy !== 'public' && this.props.privacy !== 'unlisted') {
+      name = intl.formatMessage(messages.publish);
+    } else if (this.props.privacy !== 'unlisted') {
+      name = intl.formatMessage(messages.publishLoud, { publish: intl.formatMessage(messages.publish) });
+    } else {
+      name = intl.formatMessage(messages.publish);
+    }
+
+    if (!this.props.isEditing && this.props.isScheduledStatusEditting) {
+      if (this.props.isScheduled) {
+        return intl.formatMessage(messages.update);
+      }
+
+      return `${intl.formatMessage(messages.delete)}${intl.formatMessage(messages.and)}${name}`;
+    }
+
+    return name;
+  }
+
+  renderIconPublish () {
+    const limited = !this.props.isEditing && this.props.privacy !== 'public' && this.props.privacy !== 'unlisted';
+
+    return (
+      <IconButton
+        className={classNames('compose-form__publish-icon', { 'compose-form__publish-private': limited })}
+        icon='paper-plane'
+        title={this.publishAccessibleName()}
+        size={18}
+        style={{ width: 36, height: 36, lineHeight: '36px' }}
+        disabled={disablePost || !this.canSubmit()}
+        onClick={this.handleSubmit}
+      />
+    );
+  }
+
+  searchabilityChanged () {
+    const { searchability, defaultSearchability } = this.props;
+
+    return Boolean(searchability) && Boolean(defaultSearchability) && searchability !== defaultSearchability;
+  }
+
+  searchabilityLabel () {
+    const labels = {
+      public: messages.searchPublic,
+      private: messages.searchPrivate,
+      direct: messages.searchDirect,
+    };
+
+    return this.props.intl.formatMessage(labels[this.props.searchability] || messages.searchPrivate);
+  }
+
+  renderSearchabilityLabel () {
+    if (!this.searchabilityChanged()) {
+      return null;
+    }
+
+    return (
+      <span className='compose-form__searchability-label' data-testid='searchability-label'>
+        {this.searchabilityLabel()}
+      </span>
+    );
+  }
+
+  setFormNode = (node) => {
+    this.formNode = node;
+  };
+
+  openSearchabilityMenu = () => {
+    this.searchabilityReturn = this.formNode ? this.formNode.querySelector('.compose-form__overflow-button') : null;
+    this.requestOverflowClose();
+    this.setState({ searchabilityOpen: true });
+  };
+
+  closeSearchabilityMenu = () => {
+    this.setState({ searchabilityOpen: false });
+  };
+
   isSimpleMode () {
     return typeof this.props.onDisplayModeChange === 'function' && this.props.displayMode === PORTABLE_COMPOSER_MODE_SIMPLE;
   }
@@ -575,7 +665,7 @@ class ComposeForm extends ImmutablePureComponent {
     this.props.onPickEmoji(position, data, needsSpace);
   }
 
-  renderFooter (publishText, simple) {
+  renderFooter (publishText) {
     const { intl } = this.props;
 
     return (
@@ -583,16 +673,27 @@ class ComposeForm extends ImmutablePureComponent {
         <div className='compose-form__buttons'>
           <div className='compose-form__toolbar-account'>{this.props.senderIdentity}</div>
           <UploadButtonContainer />
-          <SpoilerButtonContainer onExpandComposer={simple ? this.handleFullModeClick : null} />
+          <SpoilerButtonContainer />
           <LanguageDropdownContainer />
           {!this.props.isEditing && (
             <ComposerOverflowMenu closeToken={this.state.overflowClose} label={intl.formatMessage(messages.more)}>
               {this.renderModeToggle()}
-              <DateTimeButtonContainer presentation='menu' />
-              <SearchabilityDropdownContainer presentation='menu' onMenuClose={this.requestOverflowClose} />
-              <PollButtonContainer presentation='menu' />
+              <DateTimeButtonContainer presentation='menu' onMenuClose={this.requestOverflowClose} />
+              <button type='button' className='compose-form__menu-row' onClick={this.openSearchabilityMenu}>
+                <Icon id='search' fixedWidth aria-hidden='true' />
+                <span>{intl.formatMessage(messages.searchMenu)}</span>
+              </button>
+              <PollButtonContainer presentation='menu' onMenuClose={this.requestOverflowClose} />
               {this.props.overflowContext}
             </ComposerOverflowMenu>
+          )}
+          {!this.props.isEditing && (
+            <SearchabilityDropdownContainer
+              presentation='detached'
+              open={this.state.searchabilityOpen}
+              onClose={this.closeSearchabilityMenu}
+              returnFocus={this.searchabilityReturn}
+            />
           )}
         </div>
 
@@ -668,16 +769,24 @@ class ComposeForm extends ImmutablePureComponent {
     const { intl } = this.props;
     const publishText = this.publishLabel();
     const simple = this.isSimpleMode();
-    const overlay = simple ? null : (
+    const searchabilityChanged = this.searchabilityChanged();
+    const showCount = !simple || searchabilityChanged;
+    const simpleBadges = simple ? this.renderSimpleBadges() : null;
+    const overlay = showCount || !simple ? (
       <Fragment>
-        <div className='compose-form__emoji-anchor'>
-          <EmojiPickerDropdownContainer onPickEmoji={this.handleEmojiPick} />
-        </div>
-        <div className='compose-form__count-anchor' data-testid='character-count'>
-          <CharacterCounter max={maxChars} text={this.getFulltextForCharacterCounting()} />
-        </div>
+        {!simple && (
+          <div className='compose-form__emoji-anchor'>
+            <EmojiPickerDropdownContainer onPickEmoji={this.handleEmojiPick} />
+          </div>
+        )}
+        {showCount && (
+          <div className='compose-form__count-anchor' data-testid='character-count'>
+            {this.renderSearchabilityLabel()}
+            <CharacterCounter max={maxChars} text={this.getFulltextForCharacterCounting()} />
+          </div>
+        )}
       </Fragment>
-    );
+    ) : null;
     const modifiers = simple ? null : (
       <div className='compose-form__modifiers'>
         <UploadFormContainer />
@@ -691,8 +800,11 @@ class ComposeForm extends ImmutablePureComponent {
       <div
         className={classNames('compose-form', {
           'compose-form--simple': simple,
+          'compose-form--compact-publish': simple && !this.props.anyMedia,
+          'compose-form--searchability-note': searchabilityChanged,
           'compose-form--file-hover': this.state.fileHover,
         })}
+        ref={this.setFormNode}
         data-composer-id={this.props.composerId || 'primary'}
         onDragEnter={this.handleComposerDragEnter}
         onDragOver={this.handleComposerDragOver}
@@ -719,16 +831,22 @@ class ComposeForm extends ImmutablePureComponent {
 
         <div className='compose-form__body'>
           {this.renderTextarea(modifiers, overlay)}
-          {simple && (
-            <div className={classNames('compose-form__simple-row', { 'compose-form__simple-row--overlay': !this.props.anyMedia })}>
-              <UploadFormContainer summary />
-              {this.renderSimpleBadges()}
+          {simple && !this.props.anyMedia && (
+            <div className='compose-form__compact-publish'>
+              {this.renderIconPublish()}
+            </div>
+          )}
+          {simple && (this.props.anyMedia || simpleBadges) && (
+            <div className='compose-form__simple-row'>
+              {this.props.anyMedia && <UploadFormContainer summary />}
+              {simpleBadges}
+              {this.props.anyMedia && this.renderIconPublish()}
             </div>
           )}
         </div>
 
         {!simple && !this.props.isEditing && <CircleDropdownContainer key='circle' />}
-        {this.renderFooter(publishText, simple)}
+        {!simple && this.renderFooter(publishText)}
         {!simple && !this.props.isEditing && <ReferenceStack key='references' />}
       </div>
     );

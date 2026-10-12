@@ -346,10 +346,11 @@ describe('ListTimeline split', () => {
     const live = container.querySelector('.timeline-split__pane--live .scrollable');
     const history = container.querySelector('.timeline-split__pane--history .scrollable');
 
-    expect(container.querySelectorAll('.timeline-split__pane--live [data-testid="portable-composer"]')).toHaveLength(1);
+    expect(container.querySelectorAll('.column-portable-composer [data-testid="portable-composer"]')).toHaveLength(1);
+    expect(container.querySelectorAll('.timeline-split [data-testid="portable-composer"]')).toHaveLength(0);
     expect(container.querySelectorAll('.timeline-split__pane--history [data-testid="portable-composer"]')).toHaveLength(0);
-    expect(live.getAttribute('data-prepend')).toBe('true');
-    expect(live.getAttribute('data-always-prepend')).toBe('true');
+    expect(live.getAttribute('data-prepend')).toBe('false');
+    expect(live.getAttribute('data-always-prepend')).toBe('false');
     expect(history.getAttribute('data-prepend')).toBe('false');
     expect(history.getAttribute('data-always-prepend')).toBe('false');
     expect(store.getState().getIn(['settings', 'portableComposerVisibility', composerId])).toBe(true);

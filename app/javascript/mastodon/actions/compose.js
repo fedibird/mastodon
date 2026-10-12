@@ -22,6 +22,7 @@ import { fetchPostingIdentities } from './posting_identities';
 import { composerHasGroupDestination } from '../posting_identity/group_destination';
 import { sessionPostingIdentityId } from '../posting_identity/identity';
 import { selectComposerCanSendAsIdentity, selectComposerCanUploadAsIdentity } from '../selectors/posting_identities';
+import { attachmentUploadBlocked } from '../features/compose/composer_media';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import { targetComposerAction } from './composer';
 
@@ -118,6 +119,7 @@ const messages = defineMessages({
   uploadErrorLimit: { id: 'upload_error.limit', defaultMessage: 'File upload limit exceeded.' },
   uploadErrorIdentity: { id: 'upload_error.identity', defaultMessage: 'This posting account can’t attach media to this post.' },
   uploadErrorPoll:  { id: 'upload_error.poll', defaultMessage: 'File upload not allowed with polls.' },
+  uploadErrorVideo: { id: 'upload_error.video_exclusive', defaultMessage: 'A video or audio file can’t be combined with other attachments.' },
   postReferenceMessage:  { id: 'confirmations.post_reference.message', defaultMessage: 'It contains references, do you want to post it?' },
   postReferenceConfirm:  { id: 'confirmations.post_reference.confirm', defaultMessage: 'Post' },
   missingAltTextTitle:     { id: 'confirmations.missing_alt_text.title', defaultMessage: 'Add alt text?' },
@@ -679,6 +681,15 @@ export function uploadToComposer(composerId, files) {
     const progress = new Array(files.length).fill(0);
     const orderBase = Date.now();
     let total = Array.from(files).reduce((a, v) => a + v.size, 0);
+
+    if (attachmentUploadBlocked({
+      existingTypes: media.map(item => item.get('type')).toArray(),
+      pending,
+      incomingMimeTypes: Array.from(files).map(file => file && file.type),
+    })) {
+      dispatch(showAlert(undefined, messages.uploadErrorVideo));
+      return;
+    }
 
     if (files.length + media.size + pending > uploadLimit) {
       dispatch(showAlert(undefined, messages.uploadErrorLimit));

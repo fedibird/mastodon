@@ -49,13 +49,23 @@ jest.mock('../../../components/column_back_button', () => () => null);
 jest.mock('../../../components/column_header', () => ({ children, extraButton }) => <div>{extraButton}{children}</div>);
 jest.mock('../../../components/icon', () => () => null);
 jest.mock('../../../components/radio_button', () => () => null);
+const mockPinnedComposers = [];
+
 jest.mock('../../compose/portable_composer', () => {
   const React = require('react');
 
-  return function PortableComposer ({ composerId }) {
-    return <div data-testid='portable-composer' data-composer-id={composerId} />;
+  return function PortableComposer (props) {
+    mockPinnedComposers.push(props);
+
+    return <div data-testid='portable-composer' data-composer-id={props.composerId} />;
   };
 });
+
+const pinnedComposer = (composerId) => {
+  const matches = mockPinnedComposers.filter(item => !composerId || item.composerId === composerId);
+
+  return matches[matches.length - 1];
+};
 
 const captured = [];
 
@@ -136,6 +146,10 @@ const renderTimeline = (ListTimeline, { columnId, id = '7', visibility, displayM
 };
 
 describe('ListTimeline portable composer', () => {
+  beforeEach(() => {
+    mockPinnedComposers.length = 0;
+  });
+
   afterEach(() => {
     cleanup();
   });
@@ -155,10 +169,12 @@ describe('ListTimeline portable composer', () => {
 
     expect(view.store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:list-route:7'])).toBe(true);
     expect(screen.getByRole('button', { name: 'Hide composer' }).getAttribute('aria-pressed')).toBe('true');
-    expect(shown.alwaysPrepend).toBe(true);
-    expect(shown.prepend.props.composerId).toEqual('portable:list-route:7');
-    expect(shown.prepend.props.postingContext).toBeUndefined();
-    expect(shown.prepend.key).toEqual('portable:list-route:7');
+    expect(shown.alwaysPrepend).toBeFalsy();
+    expect(shown.prepend).toBeFalsy();
+    expect(pinnedComposer().composerId).toEqual('portable:list-route:7');
+    expect(pinnedComposer().postingContext).toBeUndefined();
+    expect(document.querySelector('.column-portable-composer')).toContainElement(screen.getByTestId('portable-composer'));
+    expect(document.querySelector('[data-testid="status-list"]')).not.toContainElement(screen.getByTestId('portable-composer'));
 
     fireEvent.click(screen.getByRole('button', { name: 'Hide composer' }));
 
@@ -174,9 +190,10 @@ describe('ListTimeline portable composer', () => {
       visibility: { 'portable:list-column:col-1': true },
     }).props;
 
-    expect(props.alwaysPrepend).toBe(true);
-    expect(props.prepend.props.composerId).toEqual('portable:list-column:col-1');
-    expect(props.prepend.key).toEqual('portable:list-column:col-1');
+    expect(props.alwaysPrepend).toBeFalsy();
+    expect(props.prepend).toBeFalsy();
+    expect(pinnedComposer().composerId).toEqual('portable:list-column:col-1');
+    expect(document.querySelector('.column-portable-composer')).toContainElement(screen.getByTestId('portable-composer'));
   });
 
   it('keeps display mode when the composer is hidden and shown again', () => {
@@ -196,7 +213,8 @@ describe('ListTimeline portable composer', () => {
     expect(view.store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:list-column:a'])).toBe(true);
     expect(view.store.getState().getIn(['settings', 'portableComposerDisplayMode', 'portable:list-column:a'])).toBe('simple');
     expect(view.store.getState().getIn(['settings', 'portableComposerDisplayMode', 'portable:list-column:b'])).toBe('full');
-    expect(captured[captured.length - 1].prepend.props.composerId).toEqual('portable:list-column:a');
+    expect(pinnedComposer().composerId).toEqual('portable:list-column:a');
+    expect(captured[captured.length - 1].prepend).toBeFalsy();
   });
 
   it('keeps two list composer ids independent', () => {
@@ -207,7 +225,8 @@ describe('ListTimeline portable composer', () => {
     };
     const visible = renderTimeline(ListTimeline, { columnId: 'a', visibility });
 
-    expect(visible.props.prepend.props.composerId).toEqual('portable:list-column:a');
+    expect(pinnedComposer('portable:list-column:a').composerId).toEqual('portable:list-column:a');
+    expect(visible.props.prepend).toBeFalsy();
 
     cleanup();
     const hidden = renderTimeline(ListTimeline, { columnId: 'b', visibility });

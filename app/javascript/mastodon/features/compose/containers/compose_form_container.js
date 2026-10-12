@@ -63,6 +63,8 @@ const mapStateToProps = (state, { composerId }) => {
     isCircleUnselected: !composer.get('id') && composer.get('privacy') === 'limited' && composer.getIn(['reply_status', 'visibility']) !== 'limited' && !composer.get('circle_id'),
     showSearch: state.getIn(['search', 'submitted']) && !state.getIn(['search', 'hidden']),
     anyMedia: composer.get('media_attachments').size > 0,
+    searchability: composer.get('searchability'),
+    defaultSearchability: composer.get('default_searchability'),
     prohibitedVisibilities: composer.get('prohibited_visibilities'),
     prohibitedWords: composer.get('prohibited_words'),
     isScheduled: !!composer.get('scheduled'),

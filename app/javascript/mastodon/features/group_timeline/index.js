@@ -317,8 +317,8 @@ class GroupTimeline extends React.PureComponent {
           emptyMessage={emptyMessage}
           bindToDocument={!multiColumn}
           showCard={!withoutMedia}
-          prepend={portableComposer}
-          alwaysPrepend={!!portableComposer}
+          prepend={null}
+          alwaysPrepend={false}
         />
       );
     } else {
@@ -337,8 +337,8 @@ class GroupTimeline extends React.PureComponent {
               emptyMessage={emptyMessage}
               bindToDocument={false}
               showCard={!withoutMedia}
-              prepend={portableComposer}
-              alwaysPrepend={!!portableComposer}
+              prepend={null}
+              alwaysPrepend={false}
             />
           </div>
 
@@ -387,6 +387,10 @@ class GroupTimeline extends React.PureComponent {
         </ColumnHeader>
 
         {groupDetail}
+
+        {portableComposer ? (
+          <div className='column-portable-composer'>{portableComposer}</div>
+        ) : null}
 
         {timeline}
       </Column>

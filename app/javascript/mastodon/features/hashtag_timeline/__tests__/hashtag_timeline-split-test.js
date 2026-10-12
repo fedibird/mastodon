@@ -129,7 +129,8 @@ describe('HashtagTimeline split', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Split timeline' }));
 
-    expect(container.querySelectorAll('.timeline-split__pane--live [data-testid="portable-composer"]')).toHaveLength(1);
+    expect(container.querySelectorAll('.column-portable-composer [data-testid="portable-composer"]')).toHaveLength(1);
+    expect(container.querySelectorAll('.timeline-split [data-testid="portable-composer"]')).toHaveLength(0);
     expect(container.querySelectorAll('.timeline-split__pane--history [data-testid="portable-composer"]')).toHaveLength(0);
     expect(container.querySelector('.timeline-split__pane--history .scrollable').getAttribute('data-prepend')).toBe('false');
     expect(screen.getByRole('button', { name: 'Follow hashtag' })).toBeTruthy();

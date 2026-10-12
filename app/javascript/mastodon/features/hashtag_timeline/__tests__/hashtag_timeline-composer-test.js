@@ -51,15 +51,24 @@ jest.mock('mastodon/components/column', () => {
 jest.mock('mastodon/components/column_header', () => ({ children, extraButton }) => <div>{extraButton}{children}</div>);
 jest.mock('mastodon/components/icon', () => () => null);
 jest.mock('../containers/column_settings_container', () => () => null);
+const mockPinnedComposers = [];
+
 jest.mock('../../compose/portable_composer', () => {
   const React = require('react');
 
-  return function PortableComposer ({ composerId, postingContext }) {
-    const names = ((postingContext && postingContext.managed && postingContext.managed.hashtags) || []).map(tag => tag.normalizedName);
+  return function PortableComposer (props) {
+    mockPinnedComposers.push(props);
+    const names = ((props.postingContext && props.postingContext.managed && props.postingContext.managed.hashtags) || []).map(tag => tag.normalizedName);
 
-    return <div data-testid='portable-composer' data-composer-id={composerId} data-managed={names.join(' ')} />;
+    return <div data-testid='portable-composer' data-composer-id={props.composerId} data-managed={names.join(' ')} />;
   };
 });
+
+const pinnedComposer = (composerId) => {
+  const matches = mockPinnedComposers.filter(item => !composerId || item.composerId === composerId);
+
+  return matches[matches.length - 1];
+};
 
 const captured = [];
 
@@ -127,6 +136,10 @@ const renderTimeline = (HashtagTimeline, { columnId, id = 'foo', tags, visibilit
 };
 
 describe('HashtagTimeline portable composer', () => {
+  beforeEach(() => {
+    mockPinnedComposers.length = 0;
+  });
+
   afterEach(() => {
     cleanup();
   });
@@ -151,11 +164,13 @@ describe('HashtagTimeline portable composer', () => {
     const shown = captured[captured.length - 1];
 
     expect(view.store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:hashtag-route:foo'])).toBe(true);
-    expect(shown.alwaysPrepend).toBe(true);
-    expect(shown.prepend.props.composerId).toEqual('portable:hashtag-route:foo');
-    expect(shown.prepend.key).toEqual('portable:hashtag-route:foo');
-    expect(shown.prepend.props.postingContext.managed.hashtags.map(tag => tag.normalizedName)).toEqual(['foo']);
-    expect(shown.prepend.props.postingContext.key).toEqual('builtin:hashtag:foo');
+    expect(shown.alwaysPrepend).toBeFalsy();
+    expect(shown.prepend).toBeFalsy();
+    expect(pinnedComposer().composerId).toEqual('portable:hashtag-route:foo');
+    expect(pinnedComposer().postingContext.managed.hashtags.map(tag => tag.normalizedName)).toEqual(['foo']);
+    expect(pinnedComposer().postingContext.key).toEqual('builtin:hashtag:foo');
+    expect(document.querySelector('.column-portable-composer')).toContainElement(screen.getByTestId('portable-composer'));
+    expect(document.querySelector('[data-testid="status-list"]')).not.toContainElement(screen.getByTestId('portable-composer'));
     expect(screen.getByRole('button', { name: 'Follow hashtag' })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Hide composer' }));
@@ -178,9 +193,9 @@ describe('HashtagTimeline portable composer', () => {
       visibility: { 'portable:hashtag-column:col-1': true },
     });
 
-    expect(view.props.prepend.props.composerId).toEqual('portable:hashtag-column:col-1');
-    expect(view.props.prepend.key).toEqual('portable:hashtag-column:col-1');
-    expect(view.props.prepend.props.postingContext.managed.hashtags.map(tag => tag.normalizedName)).toEqual(['foo']);
+    expect(view.props.prepend).toBeFalsy();
+    expect(pinnedComposer().composerId).toEqual('portable:hashtag-column:col-1');
+    expect(pinnedComposer().postingContext.managed.hashtags.map(tag => tag.normalizedName)).toEqual(['foo']);
 
     view.rerender(
       <Provider store={view.store}>
@@ -190,8 +205,9 @@ describe('HashtagTimeline portable composer', () => {
 
     const filtered = captured[captured.length - 1];
 
-    expect(filtered.prepend.props.composerId).toEqual('portable:hashtag-column:col-1');
-    expect(filtered.prepend.props.postingContext.managed.hashtags.map(tag => tag.normalizedName)).toEqual(['foo']);
+    expect(filtered.prepend).toBeFalsy();
+    expect(pinnedComposer().composerId).toEqual('portable:hashtag-column:col-1');
+    expect(pinnedComposer().postingContext.managed.hashtags.map(tag => tag.normalizedName)).toEqual(['foo']);
     expect(view.store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:hashtag-column:col-1'])).toBe(true);
     expect(screen.getByRole('button', { name: 'Follow hashtag' })).toBeTruthy();
   });
@@ -204,7 +220,8 @@ describe('HashtagTimeline portable composer', () => {
     };
     const view = renderTimeline(HashtagTimeline, { id: 'ruby', visibility, tagRecord: false });
 
-    expect(view.props.prepend.props.composerId).toEqual('portable:hashtag-route:ruby');
+    expect(view.props.prepend).toBeFalsy();
+    expect(pinnedComposer('portable:hashtag-route:ruby').composerId).toEqual('portable:hashtag-route:ruby');
 
     view.rerender(
       <Provider store={view.store}>
@@ -222,7 +239,8 @@ describe('HashtagTimeline portable composer', () => {
       </Provider>,
     );
 
-    expect(captured[captured.length - 1].prepend.props.composerId).toEqual('portable:hashtag-route:ruby');
+    expect(captured[captured.length - 1].prepend).toBeFalsy();
+    expect(pinnedComposer('portable:hashtag-route:ruby').composerId).toEqual('portable:hashtag-route:ruby');
     expect(view.store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:hashtag-route:ruby'])).toBe(true);
     expect(view.store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:hashtag-route:javascript'])).toBe(false);
   });

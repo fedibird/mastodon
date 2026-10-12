@@ -3,22 +3,17 @@ import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import { defineMessages, injectIntl } from 'react-intl';
 import classNames from 'classnames';
-import Overlay from 'react-overlays/Overlay';
 import Icon from 'mastodon/components/icon';
 import { summaryThumbCount, visibleMediaWindow } from '../composer_media';
-import { createOverlayRefBridge } from '../overlay_ref';
 
 const messages = defineMessages({
-  edit: { id: 'upload_form.edit', defaultMessage: 'Edit' },
   undo: { id: 'upload_form.undo', defaultMessage: 'Delete' },
-  earlier: { id: 'upload_form.move_backward', defaultMessage: 'Move earlier' },
-  later: { id: 'upload_form.move_forward', defaultMessage: 'Move later' },
   attachment: { id: 'upload_form.attachment', defaultMessage: 'Attachment {index}' },
   more: { id: 'upload_form.show_more', defaultMessage: 'Show {count} more attachments' },
   close: { id: 'upload_form.hide_attachments', defaultMessage: 'Hide the full attachment list' },
   reorder: { id: 'upload_form.reorder', defaultMessage: 'Drag to reorder, or press the arrow keys.' },
-  handle: { id: 'upload_form.reorder_handle', defaultMessage: 'Drag to reorder' },
-  menu: { id: 'upload_form.media_menu', defaultMessage: 'Attachment options' },
+  videoOnly: { id: 'upload_form.video_only', defaultMessage: 'Only one video or audio file can be attached.' },
+  imagesBlockVideo: { id: 'upload_form.images_block_video', defaultMessage: 'Video and audio can’t be added while images are attached.' },
 });
 
 const DRAG_THRESHOLD = 8;
@@ -66,7 +61,6 @@ class ComposerMediaGallery extends React.PureComponent {
   };
 
   state = {
-    menuId: null,
     dragId: null,
     overIndex: null,
     expanded: false,
@@ -80,10 +74,6 @@ class ComposerMediaGallery extends React.PureComponent {
   suppressClick = false;
 
   suppressTimer = null;
-
-  thumbNodes = new Map();
-
-  menuBridge = createOverlayRefBridge();
 
   resizeObserver = null;
 
@@ -122,8 +112,7 @@ class ComposerMediaGallery extends React.PureComponent {
       return;
     }
 
-    const row = this.rootNode.parentElement;
-    const width = row.clientWidth;
+    const width = this.rootNode.clientWidth || this.rootNode.parentElement.clientWidth;
 
     if (!width) {
       return;
@@ -139,16 +128,6 @@ class ComposerMediaGallery extends React.PureComponent {
       this.setState({ previewLimit });
     }
   };
-
-  bindThumb = (node) => {
-    if (!node) {
-      return;
-    }
-
-    this.thumbNodes.set(node.getAttribute('data-media-id'), node);
-  };
-
-  findMenuTarget = () => this.thumbNodes.get(this.state.menuId) || null;
 
   clearSuppressTimer () {
     if (this.suppressTimer) {
@@ -243,7 +222,7 @@ class ComposerMediaGallery extends React.PureComponent {
 
     const id = event.currentTarget.getAttribute('data-media-id');
 
-    if (event.target.closest && event.target.closest('.compose-form__media-menu')) {
+    if (event.target.closest && event.target.closest('.compose-form__media-remove')) {
       return;
     }
 
@@ -301,7 +280,6 @@ class ComposerMediaGallery extends React.PureComponent {
     this.setState({
       dragId: this.pointer.id,
       overIndex,
-      menuId: null,
     });
   };
 
@@ -359,7 +337,7 @@ class ComposerMediaGallery extends React.PureComponent {
       return;
     }
 
-    this.setState(state => ({ menuId: state.menuId === id ? null : id }));
+    this.props.onEdit(id);
   };
 
   handleKeyDown = (event) => {
@@ -385,51 +363,25 @@ class ComposerMediaGallery extends React.PureComponent {
     }
   };
 
-  closeMenu = () => {
-    this.setState({ menuId: null });
-  };
-
-  handleEdit = (event) => {
-    const id = event.currentTarget.getAttribute('data-media-id');
-
-    event.stopPropagation();
-    this.closeMenu();
-    this.props.onEdit(id);
-  };
-
   handleRemove = (event) => {
-    const id = event.currentTarget.getAttribute('data-media-id');
-
     event.stopPropagation();
-    this.closeMenu();
-    this.props.onRemove(id);
-  };
-
-  handleMoveEarlier = (event) => {
-    event.stopPropagation();
-    this.props.onMoveBy(event.currentTarget.getAttribute('data-media-id'), -1);
-  };
-
-  handleMoveLater = (event) => {
-    event.stopPropagation();
-    this.props.onMoveBy(event.currentTarget.getAttribute('data-media-id'), 1);
+    this.props.onRemove(event.currentTarget.getAttribute('data-media-id'));
   };
 
   handleExpand = () => {
-    this.setState({ expanded: true, menuId: null });
+    this.setState({ expanded: true });
   };
 
   handleCollapse = () => {
-    this.setState({ expanded: false, menuId: null });
+    this.setState({ expanded: false });
   };
 
-  renderItem (media, index, size, showHandle) {
+  renderItem (media, index, size) {
     const { intl } = this.props;
     const id = media.get('id');
     const description = media.get('description') || '';
     const label = description || intl.formatMessage(messages.attachment, { index: index + 1 });
     const style = previewStyle(media);
-    const menuOpen = this.state.menuId === id;
     const dragging = this.state.dragId === id;
     const dropTarget = this.state.overIndex === index && this.state.dragId && this.state.dragId !== id;
 
@@ -443,32 +395,16 @@ class ComposerMediaGallery extends React.PureComponent {
         data-media-id={id}
         data-media-index={index}
       >
-        {showHandle && (
-          <button
-            type='button'
-            className='compose-form__media-handle'
-            aria-label={intl.formatMessage(messages.handle)}
-            title={intl.formatMessage(messages.reorder)}
-            data-media-id={id}
-            data-media-index={index}
-            data-media-size={size}
-            onPointerDown={this.handlePointerDown}
-            onKeyDown={this.handleKeyDown}
-          >
-            <Icon id='bars' fixedWidth aria-hidden='true' />
-          </button>
-        )}
         <button
           type='button'
           className='compose-form__media-thumb'
           aria-label={label}
-          aria-haspopup='menu'
-          aria-expanded={menuOpen}
+          title={intl.formatMessage(messages.reorder)}
           aria-keyshortcuts='ArrowLeft ArrowRight'
           data-media-id={id}
           data-media-index={index}
           data-media-size={size}
-          ref={this.bindThumb}
+          onPointerDown={this.handlePointerDown}
           onClick={this.handleThumbClick}
           onKeyDown={this.handleKeyDown}
         >
@@ -478,53 +414,38 @@ class ComposerMediaGallery extends React.PureComponent {
             <Icon id={typeIcon(media.get('type'))} fixedWidth aria-hidden='true' />
           )}
         </button>
-        {menuOpen && (
-          <Overlay show placement='bottom' flip target={this.findMenuTarget} popperConfig={{ strategy: 'fixed' }}>
-            {this.renderMediaMenu}
-          </Overlay>
-        )}
+        <button
+          type='button'
+          className='compose-form__media-remove'
+          aria-label={intl.formatMessage(messages.undo)}
+          data-media-id={id}
+          onPointerDown={this.stopRemovePointer}
+          onClick={this.handleRemove}
+        >
+          <Icon id='times' fixedWidth aria-hidden='true' />
+        </button>
       </div>
     );
   }
 
-  renderMediaMenu = ({ props, placement }) => {
-    const { ref: popperRef, style, ...overlayProps } = props;
-    const { intl, media } = this.props;
-    const id = this.state.menuId;
-    const ids = media.map(item => item.get('id')).toArray();
-    const index = ids.indexOf(id);
-    const size = ids.length;
-
-    this.menuBridge.syncPopperRef(popperRef);
-
-    return (
-      <div
-        {...overlayProps}
-        ref={this.menuBridge.compose}
-        style={style}
-        className={`compose-form__media-menu ${placement || ''}`}
-        role='menu'
-        aria-label={intl.formatMessage(messages.menu)}
-      >
-        <button type='button' role='menuitem' data-media-id={id} onClick={this.handleEdit}>
-          <Icon id='pencil' fixedWidth aria-hidden='true' />
-          {intl.formatMessage(messages.edit)}
-        </button>
-        <button type='button' role='menuitem' data-media-id={id} onClick={this.handleRemove}>
-          <Icon id='times' fixedWidth aria-hidden='true' />
-          {intl.formatMessage(messages.undo)}
-        </button>
-        <button type='button' role='menuitem' data-media-id={id} disabled={index === 0} onClick={this.handleMoveEarlier}>
-          <Icon id='arrow-left' fixedWidth aria-hidden='true' />
-          {intl.formatMessage(messages.earlier)}
-        </button>
-        <button type='button' role='menuitem' data-media-id={id} disabled={index >= size - 1} onClick={this.handleMoveLater}>
-          <Icon id='arrow-right' fixedWidth aria-hidden='true' />
-          {intl.formatMessage(messages.later)}
-        </button>
-      </div>
-    );
+  stopRemovePointer = (event) => {
+    event.stopPropagation();
   };
+
+  mediaConstraint (media, summary) {
+    const exclusive = media.some(item => ['video', 'audio', 'gifv'].includes(item.get('type')));
+    const images = media.some(item => item.get('type') === 'image');
+
+    if (exclusive) {
+      return messages.videoOnly;
+    }
+
+    if (!summary && images) {
+      return messages.imagesBlockVideo;
+    }
+
+    return null;
+  }
 
   render () {
     const { intl, media, summary } = this.props;
@@ -540,37 +461,40 @@ class ComposerMediaGallery extends React.PureComponent {
       limit: this.props.summary && this.state.previewLimit !== null ? this.state.previewLimit : undefined,
     });
     const visible = windowed.visible.map(id => media.find(item => item.get('id') === id)).filter(Boolean);
-    const showHandle = !summary || this.state.expanded;
+    const constraint = this.mediaConstraint(media, summary && !this.state.expanded);
 
     return (
-      <div
-        className={classNames('compose-form__media', {
-          'compose-form__media--summary': summary && !this.state.expanded,
-          'compose-form__media--full': !summary || this.state.expanded,
-          'is-reordering': Boolean(this.state.dragId),
-        })}
-        data-testid='composer-media'
-        ref={this.setRootNode}
-      >
-        {visible.map(item => this.renderItem(item, ids.indexOf(item.get('id')), ids.length, showHandle))}
-        {windowed.overflow > 0 && (
-          <button
-            type='button'
-            className='compose-form__media-more'
-            aria-label={intl.formatMessage(messages.more, { count: windowed.overflow })}
-            onClick={this.handleExpand}
-          >
-            {`+${windowed.overflow}`}
-          </button>
-        )}
-        {summary && this.state.expanded && (
-          <button
-            type='button'
-            className='compose-form__media-collapse'
-            onClick={this.handleCollapse}
-          >
-            {intl.formatMessage(messages.close)}
-          </button>
+      <div data-testid='composer-media' ref={this.setRootNode}>
+        <div
+          className={classNames('compose-form__media', {
+            'compose-form__media--summary': summary && !this.state.expanded,
+            'compose-form__media--full': !summary || this.state.expanded,
+            'is-reordering': Boolean(this.state.dragId),
+          })}
+        >
+          {visible.map(item => this.renderItem(item, ids.indexOf(item.get('id')), ids.length))}
+          {windowed.overflow > 0 && (
+            <button
+              type='button'
+              className='compose-form__media-more'
+              aria-label={intl.formatMessage(messages.more, { count: windowed.overflow })}
+              onClick={this.handleExpand}
+            >
+              {`+${windowed.overflow}`}
+            </button>
+          )}
+          {summary && this.state.expanded && (
+            <button
+              type='button'
+              className='compose-form__media-collapse'
+              onClick={this.handleCollapse}
+            >
+              {intl.formatMessage(messages.close)}
+            </button>
+          )}
+        </div>
+        {constraint && (
+          <p className='compose-form__media-constraint' role='status'>{intl.formatMessage(constraint)}</p>
         )}
       </div>
     );

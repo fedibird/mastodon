@@ -44,6 +44,34 @@ export function summaryThumbCount ({
   return Math.max(0, Math.min(cap, Math.floor((room - more) / thumb)));
 }
 
+const isExclusiveAttachmentType = (type) => type === 'video' || type === 'audio' || type === 'gifv';
+
+const isExclusiveFile = (mime) => (
+  typeof mime === 'string' && (mime.startsWith('video/') || mime.startsWith('audio/'))
+);
+
+export function attachmentUploadBlocked ({ existingTypes = [], pending = 0, incomingMimeTypes = [] } = {}) {
+  if (!incomingMimeTypes.length) {
+    return false;
+  }
+
+  if (existingTypes.some(isExclusiveAttachmentType)) {
+    return true;
+  }
+
+  const exclusiveIncoming = incomingMimeTypes.filter(isExclusiveFile);
+
+  if (!exclusiveIncoming.length) {
+    return false;
+  }
+
+  if (exclusiveIncoming.length > 1) {
+    return true;
+  }
+
+  return existingTypes.length > 0 || pending > 0 || incomingMimeTypes.length > 1;
+}
+
 export function visibleMediaWindow (ids, { summary = false, expanded = false, limit = COMPACT_MEDIA_PREVIEW_LIMIT } = {}) {
   const list = Array.isArray(ids) ? ids : [];
 

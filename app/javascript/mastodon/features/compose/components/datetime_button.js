@@ -2,6 +2,7 @@ import React from 'react';
 import IconButton from '../../../components/icon_button';
 import PropTypes from 'prop-types';
 import { defineMessages, injectIntl } from 'react-intl';
+import Icon from 'mastodon/components/icon';
 
 const messages = defineMessages({
   add_datetime: { id: 'datetime_button.add_datetime', defaultMessage: 'Add datetime' },
@@ -22,12 +23,17 @@ class DateTimeButton extends React.PureComponent {
     disabled: PropTypes.bool,
     active: PropTypes.bool,
     presentation: PropTypes.oneOf(['menu']),
+    onMenuClose: PropTypes.func,
     onClick: PropTypes.func.isRequired,
     intl: PropTypes.object.isRequired,
   };
 
   handleClick = () => {
     this.props.onClick();
+
+    if (this.props.onMenuClose) {
+      this.props.onMenuClose();
+    }
   }
 
   render () {
@@ -36,7 +42,7 @@ class DateTimeButton extends React.PureComponent {
     if (presentation === 'menu') {
       return (
         <button type='button' className='compose-form__menu-row' disabled={disabled} onClick={this.handleClick}>
-          <span aria-hidden='true'>📅</span>
+          <Icon id='calendar' fixedWidth aria-hidden='true' />
           <span>{intl.formatMessage(messages.menu)}</span>
         </button>
       );

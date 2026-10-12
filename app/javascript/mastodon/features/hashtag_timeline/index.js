@@ -314,8 +314,8 @@ class HashtagTimeline extends React.PureComponent {
           onLoadMore={this.handleLoadMore}
           emptyMessage={emptyMessage}
           bindToDocument={!multiColumn}
-          prepend={portableComposer}
-          alwaysPrepend={!!portableComposer}
+          prepend={null}
+          alwaysPrepend={false}
         />
       );
     } else {
@@ -333,8 +333,8 @@ class HashtagTimeline extends React.PureComponent {
               scrollKey={`hashtag_timeline-${columnId}-live`}
               emptyMessage={emptyMessage}
               bindToDocument={false}
-              prepend={portableComposer}
-              alwaysPrepend={!!portableComposer}
+              prepend={null}
+              alwaysPrepend={false}
             />
           </div>
 
@@ -381,6 +381,10 @@ class HashtagTimeline extends React.PureComponent {
         >
           {columnId && <ColumnSettingsContainer columnId={columnId} />}
         </ColumnHeader>
+
+        {portableComposer ? (
+          <div className='column-portable-composer'>{portableComposer}</div>
+        ) : null}
 
         {timeline}
       </Column>
