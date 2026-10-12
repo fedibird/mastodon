@@ -176,6 +176,37 @@ describe UserSettingsDecorator do
       expect(user.setting_show_translation_bar).to eq 'always'
     end
 
+    it 'normalizes the translation bar with the policy stored before this update' do
+      user.settings['new_features_policy'] = 'default'
+
+      settings.update(
+        'setting_show_translation_bar' => 'nope',
+        'setting_new_features_policy' => 'conservative'
+      )
+
+      expect(user.settings['show_translation_bar']).to eq 'target'
+      expect(user.settings['new_features_policy']).to eq 'conservative'
+    end
+
+    it 'does not delete a stored row when the submitted value is nil' do
+      user.settings['default_sensitive'] = true
+
+      settings.update('setting_default_sensitive' => nil)
+
+      expect(user.settings['default_sensitive']).to be true
+      expect(Setting.unscoped.where(thing_type: 'User', thing_id: user.id, var: 'default_sensitive')).to exist
+    end
+
+    it 'stores false and an empty privacy string' do
+      settings.update(
+        'setting_default_sensitive' => false,
+        'setting_default_privacy' => ''
+      )
+
+      expect(user.settings['default_sensitive']).to be false
+      expect(user.settings['default_privacy']).to eq ''
+    end
+
     it 'accepts both as a pre-translation action and normalizes unknown modes' do
       settings.update({ 'setting_translation_preferred_mode' => 'both' })
       expect(user.settings.translation_preferred_mode).to eq 'both'
