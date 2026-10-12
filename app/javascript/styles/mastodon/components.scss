@@ -1018,15 +1018,21 @@ body > [data-popper-placement] {
     border-radius: 4px;
   }
 
-  .compose-form__sender-avatar-button {
+  .compose-form__sender-avatar-button,
+  .compose-form__sender-avatar-static {
     position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    width: 28px;
+    height: 28px;
     padding: 0;
     border: 0;
     background: transparent;
     color: $primary-text-color;
+  }
+
+  .compose-form__sender-avatar-button {
     cursor: pointer;
   }
 
@@ -1074,6 +1080,13 @@ body > [data-popper-placement] {
 
   .compose-form__style-warning {
     position: static;
+  }
+
+  .compose-form__sender-menu {
+    position: fixed;
+    z-index: 7;
+    top: auto;
+    left: auto;
   }
 
   .compose-form__sender-menu,

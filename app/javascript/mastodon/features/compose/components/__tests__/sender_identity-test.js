@@ -248,9 +248,108 @@ describe('SenderIdentity', () => {
 
     fireEvent.click(button);
 
+    const menu = document.querySelector('.compose-form__sender-menu');
+
     expect(screen.getByRole('menuitemradio', { name: /@admin/ })).toBeTruthy();
     expect(screen.getByRole('menuitemradio', { name: /@author/ })).toBeDisabled();
     expect(screen.getByText('Authorization expired')).toBeTruthy();
     expect(screen.getByText('Server example.test')).toBeTruthy();
+    expect(menu).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(document.querySelector('.compose-form__sender-menu')).toBeNull();
+    expect(document.activeElement).toBe(button);
+  });
+
+  it('opens the account menu outside a footer that hides overflow', () => {
+    const { container } = render(
+      <div className='compose-form__buttons-wrapper'>
+        <div className='compose-form__buttons'>
+          <SenderIdentity
+            header
+            composerId='primary'
+            current={identity('local:42', 'admin')}
+            choices={ImmutableList([identity('local:42', 'admin')])}
+            catalog={ImmutableList([identity('local:42', 'admin')])}
+            selectedId='local:42'
+            sessionIdentityId='local:42'
+            onSelect={jest.fn()}
+          />
+        </div>
+      </div>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Choose posting account/ }));
+
+    const menu = document.querySelector('.compose-form__sender-menu');
+    const footer = container.querySelector('.compose-form__buttons-wrapper');
+
+    expect(menu).toBeTruthy();
+    expect(footer.contains(menu)).toBe(false);
+    expect(container.querySelector('.compose-form__buttons').contains(menu)).toBe(false);
+
+    fireEvent.mouseDown(document.body);
+
+    expect(document.querySelector('.compose-form__sender-menu')).toBeNull();
+  });
+
+  it('does not let one composer account menu own another composer', () => {
+    render(
+      <React.Fragment>
+        <SenderIdentity
+          header
+          composerId='primary'
+          current={identity('local:42', 'admin')}
+          choices={ImmutableList([identity('local:42', 'admin')])}
+          catalog={ImmutableList([identity('local:42', 'admin')])}
+          selectedId='local:42'
+          sessionIdentityId='local:42'
+          onSelect={jest.fn()}
+        />
+        <SenderIdentity
+          header
+          composerId='portable:list:9'
+          current={identity('local:7', 'editor')}
+          choices={ImmutableList([identity('local:7', 'editor')])}
+          catalog={ImmutableList([identity('local:7', 'editor')])}
+          selectedId='local:7'
+          sessionIdentityId='local:7'
+          onSelect={jest.fn()}
+        />
+      </React.Fragment>,
+    );
+
+    const [primaryButton, portableButton] = screen.getAllByRole('button', { name: /Choose posting account/ });
+
+    fireEvent.click(primaryButton);
+    expect(document.querySelector('[data-composer-id="primary"]')).toBeTruthy();
+
+    fireEvent.mouseDown(portableButton);
+    fireEvent.click(portableButton);
+
+    expect(document.querySelector('[data-composer-id="primary"]')).toBeNull();
+    expect(document.querySelector('[data-composer-id="portable:list:9"]')).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(document.querySelector('.compose-form__sender-menu')).toBeNull();
+    expect(document.activeElement).toBe(portableButton);
+  });
+
+  it('shows only the signed-in avatar when identity selection is unavailable', () => {
+    render(
+      <SenderIdentity
+        header
+        selectable={false}
+        current={identity('local:42', 'admin')}
+        selectedId='local:42'
+      />,
+    );
+
+    expect(document.querySelector('.compose-form__sender-avatar').getAttribute('src')).toBe('/avatars/admin.png');
+    expect(screen.queryByRole('button', { name: /Choose posting account/ })).toBeNull();
+    expect(screen.queryByRole('menuitemradio')).toBeNull();
+    expect(screen.getByTestId('sender-identity-current').textContent).toContain('@admin');
   });
 });
