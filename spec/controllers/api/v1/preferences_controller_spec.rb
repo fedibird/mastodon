@@ -29,5 +29,33 @@ RSpec.describe Api::V1::PreferencesController, type: :controller do
       expect(response).to have_http_status(200)
       expect(body_as_json[:'posting:default:language']).to eq 'ja'
     end
+
+    it 'accepts the read scope and keeps the six preference keys' do
+      allow(controller).to receive(:doorkeeper_token) do
+        Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: 'read')
+      end
+
+      get :index
+
+      expect(response).to have_http_status(200)
+      expect(body_as_json.keys).to eq [
+        :'posting:default:visibility',
+        :'posting:default:sensitive',
+        :'posting:default:language',
+        :'reading:expand:media',
+        :'reading:expand:spoilers',
+        :'reading:autoplay:gifs',
+      ]
+    end
+
+    it 'does not accept read:preferences alone' do
+      allow(controller).to receive(:doorkeeper_token) do
+        Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: 'read:preferences')
+      end
+
+      get :index
+
+      expect(response).to have_http_status(403)
+    end
   end
 end

@@ -111,9 +111,12 @@ describe('ComposerMediaGallery', () => {
     renderGallery(items, { summary: true });
 
     expect(screen.getAllByRole('button', { name: /alt$/ })).toHaveLength(4);
+    expect(screen.queryAllByRole('button', { name: 'Drag to reorder' })).toHaveLength(0);
+
     fireEvent.click(screen.getByRole('button', { name: 'Show 3 more attachments' }));
 
     expect(screen.getAllByRole('button', { name: /alt$/ })).toHaveLength(7);
+    expect(screen.getAllByRole('button', { name: 'Drag to reorder' })).toHaveLength(7);
   });
 
   it('drops a dragged attachment onto a new index and restores on cancel', () => {

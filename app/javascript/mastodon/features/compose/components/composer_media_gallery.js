@@ -423,7 +423,7 @@ class ComposerMediaGallery extends React.PureComponent {
     this.setState({ expanded: false, menuId: null });
   };
 
-  renderItem (media, index, size) {
+  renderItem (media, index, size, showHandle) {
     const { intl } = this.props;
     const id = media.get('id');
     const description = media.get('description') || '';
@@ -443,19 +443,21 @@ class ComposerMediaGallery extends React.PureComponent {
         data-media-id={id}
         data-media-index={index}
       >
-        <button
-          type='button'
-          className='compose-form__media-handle'
-          aria-label={intl.formatMessage(messages.handle)}
-          title={intl.formatMessage(messages.reorder)}
-          data-media-id={id}
-          data-media-index={index}
-          data-media-size={size}
-          onPointerDown={this.handlePointerDown}
-          onKeyDown={this.handleKeyDown}
-        >
-          <Icon id='bars' fixedWidth aria-hidden='true' />
-        </button>
+        {showHandle && (
+          <button
+            type='button'
+            className='compose-form__media-handle'
+            aria-label={intl.formatMessage(messages.handle)}
+            title={intl.formatMessage(messages.reorder)}
+            data-media-id={id}
+            data-media-index={index}
+            data-media-size={size}
+            onPointerDown={this.handlePointerDown}
+            onKeyDown={this.handleKeyDown}
+          >
+            <Icon id='bars' fixedWidth aria-hidden='true' />
+          </button>
+        )}
         <button
           type='button'
           className='compose-form__media-thumb'
@@ -538,6 +540,7 @@ class ComposerMediaGallery extends React.PureComponent {
       limit: this.props.summary && this.state.previewLimit !== null ? this.state.previewLimit : undefined,
     });
     const visible = windowed.visible.map(id => media.find(item => item.get('id') === id)).filter(Boolean);
+    const showHandle = !summary || this.state.expanded;
 
     return (
       <div
@@ -549,7 +552,7 @@ class ComposerMediaGallery extends React.PureComponent {
         data-testid='composer-media'
         ref={this.setRootNode}
       >
-        {visible.map(item => this.renderItem(item, ids.indexOf(item.get('id')), ids.length))}
+        {visible.map(item => this.renderItem(item, ids.indexOf(item.get('id')), ids.length, showHandle))}
         {windowed.overflow > 0 && (
           <button
             type='button'

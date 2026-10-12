@@ -95,6 +95,7 @@ Doorkeeper.configure do
                   :'read:lists',
                   :'read:mutes',
                   :'read:notifications',
+                  :'read:preferences',
                   :'read:search',
                   :'read:statuses',
                   :follow,
