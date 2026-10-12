@@ -38,6 +38,7 @@
     = f.input :setting_info_font_size, as: :range, input_html: { min: 10, max: 20, list: 'info_font_size_label' },  wrapper: :with_label, hint: false, fedibird_features: true
     = f.input :setting_composer_font_size, as: :range, input_html: { min: 10, max: 20, list: 'composer_font_size_label' }, wrapper: :with_label, false: true, fedibird_features: true
     = f.input :setting_composer_min_height, as: :range, input_html: { min: 20, max: 1200, list: 'composer_min_height_label' }, wrapper: :with_label, false: true, fedibird_features: true
+    = f.input :setting_show_composer_posting_style_selector, as: :boolean, wrapper: :with_label, hint: true, fedibird_features: true
 
   %h4= t 'appearance.emoji_size'
 

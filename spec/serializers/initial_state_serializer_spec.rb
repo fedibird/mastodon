@@ -240,6 +240,17 @@ RSpec.describe InitialStateSerializer do
     expect(serialize(user.account)[:meta][:translation_preferred_mode]).to eq 'translated'
   end
 
+  it 'shows composer posting style choices unless the user hides them' do
+    user = Fabricate(:user)
+
+    expect(serialize(user.account)[:meta][:show_composer_posting_style_selector]).to be true
+
+    user.settings.show_composer_posting_style_selector = false
+    user.save!
+
+    expect(serialize(user.account)[:meta][:show_composer_posting_style_selector]).to be false
+  end
+
   it 'exposes the account trends preference under new and legacy keys' do
     previous_trends_setting = Setting.trends
     Setting.trends = true

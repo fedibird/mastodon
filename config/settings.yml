@@ -84,6 +84,8 @@ defaults: &defaults
   info_font_size: 15
   composer_font_size: 14
   composer_min_height: 100
+  # Display only. Place defaults and posting-style resolution still run when this is off.
+  show_composer_posting_style_selector: true
   content_emoji_reaction_size: 16
   emoji_scale: 1
   emoji_size_in_single: 'large'

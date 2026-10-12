@@ -81,6 +81,7 @@ class InitialStateSerializer < ActiveModel::Serializer
       store[:show_reply_tree_button]                = object.current_account.user.setting_show_reply_tree_button
       store[:disable_joke_appearance]               = object.current_account.user.setting_disable_joke_appearance
       store[:new_features_policy]                   = object.current_account.user.setting_new_features_policy
+      store[:show_composer_posting_style_selector] = object.current_account.user.setting_show_composer_posting_style_selector
       store[:theme_instance_ticker]                 = object.current_account.user.setting_theme_instance_ticker
       store[:theme_public]                          = object.current_account.user.setting_theme_public
       store[:enable_status_reference]               = object.current_account.user.setting_enable_status_reference

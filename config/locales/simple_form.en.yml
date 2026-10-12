@@ -152,6 +152,7 @@ en:
         setting_show_follow_button_on_timeline: You can easily check the follow status and build a follow list quickly
         setting_show_navigation_panel: Show the navigation panel at the right end of the advanced UI
         setting_show_quote_button: Selects whether to display the button on the action bar. It does not enable/disable the citation function.
+        setting_show_composer_posting_style_selector: Hides the style choices in the composer only. Saved defaults for a place, visibility, and content warnings still apply.
         setting_show_reload_button: Show reload button at the top of the iPhone / iPad timeline
         setting_show_reply_tree_button: Blue marker for replies to another post, yellow marker for posts with replies, and green marker for both
         setting_show_share_button: If you are using a browser that supports sharing, the share button will be displayed on the action bar.
@@ -318,6 +319,7 @@ en:
         setting_compact_reaction: Compact display of reaction
         setting_composer_font_size: Composer font size
         setting_composer_min_height: Composer minimum height
+        setting_show_composer_posting_style_selector: Show posting style choices in the composer
         setting_confirm_domain_block: Require domain input for domain block
         setting_confirm_follow_from_bot: Require follow requests from bot
         setting_content_emoji_reaction_size: Emoji reaction size

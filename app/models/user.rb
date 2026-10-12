@@ -167,7 +167,7 @@ class User < ApplicationRecord # rubocop:disable Metrics/ClassLength
            :hexagon_avatar, :heart_avatar, :burst_avatar, :enable_empty_column,
            :content_font_size, :info_font_size, :content_emoji_reaction_size, :picker_emoji_size,
            :emoji_scale, :emoji_size_in_single, :emoji_size_in_multi, :emoji_size_in_mix, :emoji_size_in_other,       
-           :composer_font_size, :composer_min_height,
+           :composer_font_size, :composer_min_height, :show_composer_posting_style_selector,
            :enable_wide_emoji, :enable_wide_emoji_reaction,
            :hide_bot_on_public_timeline, :confirm_follow_from_bot,
            :default_search_searchability, :default_expires_in, :default_expires_action,
