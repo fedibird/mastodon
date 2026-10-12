@@ -12,7 +12,7 @@ import { getHomeVisibilities, getLimitedVisibilities } from 'mastodon/selectors'
 import { openModal } from './modal';
 import { addYears, addMonths, addDays, addHours, addMinutes, addSeconds, millisecondsToSeconds, set, formatISO, format } from 'date-fns';
 import { Set as ImmutableSet } from 'immutable';
-import { postReferenceModal, missingAltTextModal, enableFederatedTimeline, maxAttachments, disablePost } from '../initial_state';
+import { postReferenceModal, missingAltTextModal, enableFederatedTimeline, disablePost } from '../initial_state';
 import { deleteScheduledStatus } from './scheduled_statuses';
 import { selectComposerEffectiveCreateCapability } from '../posting_context/create_capability';
 import { materializeComposerText } from '../posting_context/materialize';
@@ -117,10 +117,6 @@ export const COMPOSE_REFERENCE_RESET  = 'COMPOSE_REFERENCE_RESET';
 export const COMPOSE_REFERENCE_CHECK_IGNORE  = 'COMPOSE_REFERENCE_CHECK_IGNORE';
 
 const messages = defineMessages({
-  uploadErrorLimit: { id: 'upload_error.limit', defaultMessage: 'File upload limit exceeded.' },
-  uploadErrorIdentity: { id: 'upload_error.identity', defaultMessage: 'This posting account can’t attach media to this post.' },
-  uploadErrorPoll:  { id: 'upload_error.poll', defaultMessage: 'File upload not allowed with polls.' },
-  uploadErrorVideo: { id: 'upload_error.video_exclusive', defaultMessage: 'A video or audio file can’t be combined with other attachments.' },
   postReferenceMessage:  { id: 'confirmations.post_reference.message', defaultMessage: 'It contains references, do you want to post it?' },
   postReferenceConfirm:  { id: 'confirmations.post_reference.confirm', defaultMessage: 'Post' },
   missingAltTextTitle:     { id: 'confirmations.missing_alt_text.title', defaultMessage: 'Add alt text?' },
@@ -671,7 +667,6 @@ export function uploadToComposer(composerId, files) {
     }
 
     const permission = selectComposerCanUploadAsIdentity(getState(), composerId);
-    const media = composer.get('media_attachments');
     const incomingMimeTypes = Array.from(files).map(file => file && file.type);
     const block = fileDropBlockFromComposer(composer, permission, incomingMimeTypes);
 
@@ -684,13 +679,7 @@ export function uploadToComposer(composerId, files) {
     const orderBase = Date.now();
     let total = Array.from(files).reduce((a, v) => a + v.size, 0);
 
-    const queue = [];
-
-    for (const [i, file] of Array.from(files).entries()) {
-      if (media.size + queue.length >= maxAttachments) break;
-
-      queue.push({ file, index: i });
-    }
+    const queue = Array.from(files).map((file, index) => ({ file, index }));
 
     if (!queue.length) {
       return;

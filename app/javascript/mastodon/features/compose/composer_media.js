@@ -110,7 +110,14 @@ export function composerFileDropBlock ({
     return 'video';
   }
 
-  if ((mediaCount || 0) + (pending || 0) >= maxAttachments) {
+  const occupied = (mediaCount || 0) + (pending || 0);
+  const incomingCount = Array.isArray(incomingMimeTypes) ? incomingMimeTypes.length : null;
+
+  if (incomingCount === null) {
+    if (occupied >= maxAttachments) {
+      return 'limit';
+    }
+  } else if (occupied + incomingCount > maxAttachments) {
     return 'limit';
   }
 

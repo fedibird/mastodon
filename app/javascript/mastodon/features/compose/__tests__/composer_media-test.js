@@ -107,6 +107,37 @@ describe('composer media order', () => {
     expect(composerFileDropBlock({ existingTypes: ['image'], mediaCount: 2, maxAttachments: 4 })).toBeNull();
     expect(composerFileDropBlock({ mediaCount: 4, maxAttachments: 4 })).toBe('limit');
     expect(composerFileDropBlock({ mediaCount: 0, maxAttachments: 4 })).toBeNull();
+    expect(composerFileDropBlock({
+      mediaCount: 0,
+      maxAttachments: 4,
+      incomingMimeTypes: ['image/png', 'image/png', 'image/png', 'image/png', 'image/png'],
+    })).toBe('limit');
+    expect(composerFileDropBlock({
+      existingTypes: ['image', 'image', 'image'],
+      mediaCount: 3,
+      maxAttachments: 4,
+      incomingMimeTypes: ['image/png', 'image/png'],
+    })).toBe('limit');
+    expect(composerFileDropBlock({
+      existingTypes: ['image', 'image'],
+      mediaCount: 2,
+      pending: 1,
+      maxAttachments: 4,
+      incomingMimeTypes: ['image/png', 'image/png'],
+    })).toBe('limit');
+    expect(composerFileDropBlock({
+      existingTypes: ['image', 'image'],
+      mediaCount: 2,
+      maxAttachments: 4,
+      incomingMimeTypes: ['image/png', 'image/png'],
+    })).toBeNull();
+    expect(composerFileDropBlock({
+      existingTypes: ['image', 'image', 'image'],
+      mediaCount: 3,
+      maxAttachments: 4,
+      incomingMimeTypes: ['image/png'],
+    })).toBeNull();
+    expect(composerFileDropBlock({ mediaCount: 3, maxAttachments: 4 })).toBeNull();
   });
 });
 
