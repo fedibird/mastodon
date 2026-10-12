@@ -16,8 +16,14 @@ export default class ComposerOverflowMenu extends React.PureComponent {
 
   target = null;
 
+  panel = null;
+
   setTarget = (node) => {
     this.target = node;
+  };
+
+  setPanel = (node) => {
+    this.panel = node;
   };
 
   findTarget = () => this.target;
@@ -33,13 +39,15 @@ export default class ComposerOverflowMenu extends React.PureComponent {
   }
 
   handleDocumentClick = (event) => {
-    if (!this.state.open || !this.target || this.target.contains(event.target)) {
+    if (!this.state.open) {
       return;
     }
 
-    const panel = document.querySelector('.compose-form__overflow-panel');
+    if (this.target && this.target.contains(event.target)) {
+      return;
+    }
 
-    if (panel && panel.contains(event.target)) {
+    if (this.panel && this.panel.contains(event.target)) {
       return;
     }
 
@@ -71,7 +79,7 @@ export default class ComposerOverflowMenu extends React.PureComponent {
         />
         <Overlay show={open} placement='top' flip target={this.findTarget} popperConfig={{ strategy: 'fixed' }}>
           {({ props, placement }) => (
-            <div {...props} className={`compose-form__overflow-panel ${placement || ''}`} data-testid='composer-overflow-menu'>
+            <div {...props} ref={this.setPanel} className={`compose-form__overflow-panel ${placement || ''}`} data-testid='composer-overflow-menu'>
               {this.props.children}
             </div>
           )}

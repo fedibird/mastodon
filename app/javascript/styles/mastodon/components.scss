@@ -1192,8 +1192,22 @@ body > [data-popper-placement] {
     touch-action: pan-y;
   }
 
-  .compose-form__media.is-reordering,
-  .compose-form__media-item.is-dragging {
+  .compose-form__media-handle {
+    position: absolute;
+    z-index: 1;
+    left: 0;
+    bottom: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 0;
+    border-radius: 2px;
+    background: rgba($black, 0.55);
+    color: $white;
+    cursor: grab;
     touch-action: none;
   }
 

@@ -67,8 +67,12 @@ describe('composer media order', () => {
     });
     expect(visibleMediaWindow(['a', 'b', 'c', 'd', 'e', 'f', 'g'], { summary: true, expanded: true }).overflow).toBe(0);
     expect(summaryThumbCount({ width: 0, itemCount: 7 })).toBe(4);
+    expect(summaryThumbCount({ width: 300, itemCount: 7 })).toBe(4);
+    expect(summaryThumbCount({ width: 2000, itemCount: 7 })).toBe(4);
+    expect(summaryThumbCount({ width: 2000, itemCount: 3 })).toBe(3);
     expect(summaryThumbCount({ width: 320, itemCount: 7, reserved: 180 })).toBe(2);
     expect(summaryThumbCount({ width: 120, itemCount: 7, reserved: 80 })).toBe(0);
+    expect(visibleMediaWindow(['a', 'b', 'c', 'd', 'e', 'f', 'g'], { summary: true }).overflow).toBe(3);
     expect(visibleMediaWindow(['a', 'b', 'c', 'd', 'e'], { summary: true, limit: 0 })).toEqual({
       visible: [],
       overflow: 5,
@@ -130,31 +134,32 @@ describe('ComposerMediaGallery', () => {
       fireEvent(node, event);
     };
 
+    const handle = first.querySelector('.compose-form__media-handle');
     const capture = jest.fn();
 
-    first.setPointerCapture = capture;
+    handle.setPointerCapture = capture;
 
-    point('pointerdown', first, 10, 10);
+    point('pointerdown', handle, 10, 10);
     expect(capture).not.toHaveBeenCalled();
 
-    point('pointermove', first, 12, 10);
+    point('pointermove', handle, 12, 10);
     expect(capture).not.toHaveBeenCalled();
 
-    point('pointermove', first, 90, 10);
+    point('pointermove', handle, 90, 10);
     expect(capture).toHaveBeenCalledWith(1);
 
     expect(first).toHaveClass('is-dragging');
     expect(third).toHaveClass('is-drop-target');
 
-    point('pointerup', first, 90, 10);
+    point('pointerup', handle, 90, 10);
 
     expect(onMoveTo).toHaveBeenCalledWith('a', 2);
     expect(first).not.toHaveClass('is-dragging');
 
     onMoveTo.mockClear();
-    point('pointerdown', first, 10, 10);
-    point('pointermove', first, 90, 10);
-    fireEvent(first, new Event('pointercancel', { bubbles: true }));
+    point('pointerdown', handle, 10, 10);
+    point('pointermove', handle, 90, 10);
+    fireEvent(handle, new Event('pointercancel', { bubbles: true }));
 
     expect(onMoveTo).not.toHaveBeenCalled();
     expect(first).not.toHaveClass('is-dragging');
@@ -191,5 +196,47 @@ describe('ComposerMediaGallery', () => {
 
     expect(onMoveTo).not.toHaveBeenCalled();
     expect(onEdit).toHaveBeenCalledWith('a');
+  });
+
+  it('opens the menu on the next click after a cancelled drag', () => {
+    const { onMoveTo } = renderGallery([media('a'), media('b'), media('c')]);
+    const handle = document.querySelector('.compose-form__media-handle');
+    const thumb = screen.getByRole('button', { name: 'a alt' });
+    const point = (type, node, x, y) => {
+      const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 });
+
+      Object.defineProperty(event, 'pointerId', { value: 4 });
+      fireEvent(node, event);
+    };
+
+    point('pointerdown', handle, 4, 4);
+    point('pointermove', handle, 40, 30);
+    fireEvent(handle, new Event('pointercancel', { bubbles: true }));
+
+    expect(onMoveTo).not.toHaveBeenCalled();
+    fireEvent.click(thumb);
+
+    expect(screen.getByRole('menu', { name: 'Attachment options' })).toBeTruthy();
+  });
+
+  it('renders the media menu outside an overflow-hidden upload wrapper', () => {
+    const { container } = render(
+      <div className='compose-form__upload-wrapper'>
+        <ComposerMediaGallery
+          summary
+          media={ImmutableList([media('a'), media('b')])}
+          onEdit={jest.fn()}
+          onRemove={jest.fn()}
+          onMoveTo={jest.fn()}
+          onMoveBy={jest.fn()}
+        />
+      </div>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'a alt' }));
+
+    const menu = screen.getByRole('menu', { name: 'Attachment options' });
+
+    expect(container.querySelector('.compose-form__upload-wrapper').contains(menu)).toBe(false);
   });
 });

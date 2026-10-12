@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import { defineMessages, injectIntl } from 'react-intl';
 import classNames from 'classnames';
+import Overlay from 'react-overlays/Overlay';
 import Icon from 'mastodon/components/icon';
 import { summaryThumbCount, visibleMediaWindow } from '../composer_media';
 
@@ -15,6 +16,7 @@ const messages = defineMessages({
   more: { id: 'upload_form.show_more', defaultMessage: 'Show {count} more attachments' },
   close: { id: 'upload_form.hide_attachments', defaultMessage: 'Hide the full attachment list' },
   reorder: { id: 'upload_form.reorder', defaultMessage: 'Drag to reorder, or press the arrow keys.' },
+  handle: { id: 'upload_form.reorder_handle', defaultMessage: 'Drag to reorder' },
   menu: { id: 'upload_form.media_menu', defaultMessage: 'Attachment options' },
 });
 
@@ -76,6 +78,10 @@ class ComposerMediaGallery extends React.PureComponent {
 
   suppressClick = false;
 
+  suppressTimer = null;
+
+  thumbNodes = new Map();
+
   resizeObserver = null;
 
   setRootNode = (node) => {
@@ -98,7 +104,9 @@ class ComposerMediaGallery extends React.PureComponent {
   componentWillUnmount () {
     this.releasePointer();
     this.unbindPointerListeners();
+    this.clearSuppressTimer();
     this.pointer = null;
+    this.suppressClick = false;
 
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
@@ -128,6 +136,32 @@ class ComposerMediaGallery extends React.PureComponent {
       this.setState({ previewLimit });
     }
   };
+
+  bindThumb = (node) => {
+    if (!node) {
+      return;
+    }
+
+    this.thumbNodes.set(node.getAttribute('data-media-id'), node);
+  };
+
+  findMenuTarget = () => this.thumbNodes.get(this.state.menuId) || null;
+
+  clearSuppressTimer () {
+    if (this.suppressTimer) {
+      clearTimeout(this.suppressTimer);
+      this.suppressTimer = null;
+    }
+  }
+
+  armClickSuppression () {
+    this.suppressClick = true;
+    this.clearSuppressTimer();
+    this.suppressTimer = setTimeout(() => {
+      this.suppressClick = false;
+      this.suppressTimer = null;
+    }, 0);
+  }
 
   bindPointerListeners () {
     document.addEventListener('pointermove', this.handlePointerMove);
@@ -281,8 +315,11 @@ class ComposerMediaGallery extends React.PureComponent {
     this.unbindPointerListeners();
     this.pointer = null;
 
-    if (moved) {
-      this.suppressClick = true;
+    if (commit && moved) {
+      this.armClickSuppression();
+    } else {
+      this.suppressClick = false;
+      this.clearSuppressTimer();
     }
 
     if (commit && moved && overIndex !== null && overIndex !== undefined) {
@@ -313,6 +350,7 @@ class ComposerMediaGallery extends React.PureComponent {
 
     if (this.suppressClick) {
       this.suppressClick = false;
+      this.clearSuppressTimer();
       event.preventDefault();
       event.stopPropagation();
       return;
@@ -401,8 +439,17 @@ class ComposerMediaGallery extends React.PureComponent {
         })}
         data-media-id={id}
         data-media-index={index}
-        onPointerDown={this.handlePointerDown}
       >
+        <button
+          type='button'
+          className='compose-form__media-handle'
+          aria-label={intl.formatMessage(messages.handle)}
+          title={intl.formatMessage(messages.reorder)}
+          data-media-id={id}
+          onPointerDown={this.handlePointerDown}
+        >
+          <Icon id='bars' fixedWidth aria-hidden='true' />
+        </button>
         <button
           type='button'
           className='compose-form__media-thumb'
@@ -410,10 +457,10 @@ class ComposerMediaGallery extends React.PureComponent {
           aria-haspopup='menu'
           aria-expanded={menuOpen}
           aria-keyshortcuts='ArrowLeft ArrowRight'
-          title={intl.formatMessage(messages.reorder)}
           data-media-id={id}
           data-media-index={index}
           data-media-size={size}
+          ref={this.bindThumb}
           onClick={this.handleThumbClick}
           onKeyDown={this.handleKeyDown}
         >
@@ -423,26 +470,28 @@ class ComposerMediaGallery extends React.PureComponent {
             <Icon id={typeIcon(media.get('type'))} fixedWidth aria-hidden='true' />
           )}
         </button>
-        {menuOpen && (
-          <div className='compose-form__media-menu' role='menu' aria-label={intl.formatMessage(messages.menu)}>
-            <button type='button' role='menuitem' data-media-id={id} onClick={this.handleEdit}>
-              <Icon id='pencil' fixedWidth aria-hidden='true' />
-              {intl.formatMessage(messages.edit)}
-            </button>
-            <button type='button' role='menuitem' data-media-id={id} onClick={this.handleRemove}>
-              <Icon id='times' fixedWidth aria-hidden='true' />
-              {intl.formatMessage(messages.undo)}
-            </button>
-            <button type='button' role='menuitem' data-media-id={id} disabled={index === 0} onClick={this.handleMoveEarlier}>
-              <Icon id='arrow-left' fixedWidth aria-hidden='true' />
-              {intl.formatMessage(messages.earlier)}
-            </button>
-            <button type='button' role='menuitem' data-media-id={id} disabled={index >= size - 1} onClick={this.handleMoveLater}>
-              <Icon id='arrow-right' fixedWidth aria-hidden='true' />
-              {intl.formatMessage(messages.later)}
-            </button>
-          </div>
-        )}
+        <Overlay show={menuOpen} placement='bottom' flip target={this.findMenuTarget} popperConfig={{ strategy: 'fixed' }}>
+          {({ props: overlayProps, placement }) => (
+            <div {...overlayProps} className={`compose-form__media-menu ${placement || ''}`} role='menu' aria-label={intl.formatMessage(messages.menu)}>
+              <button type='button' role='menuitem' data-media-id={id} onClick={this.handleEdit}>
+                <Icon id='pencil' fixedWidth aria-hidden='true' />
+                {intl.formatMessage(messages.edit)}
+              </button>
+              <button type='button' role='menuitem' data-media-id={id} onClick={this.handleRemove}>
+                <Icon id='times' fixedWidth aria-hidden='true' />
+                {intl.formatMessage(messages.undo)}
+              </button>
+              <button type='button' role='menuitem' data-media-id={id} disabled={index === 0} onClick={this.handleMoveEarlier}>
+                <Icon id='arrow-left' fixedWidth aria-hidden='true' />
+                {intl.formatMessage(messages.earlier)}
+              </button>
+              <button type='button' role='menuitem' data-media-id={id} disabled={index >= size - 1} onClick={this.handleMoveLater}>
+                <Icon id='arrow-right' fixedWidth aria-hidden='true' />
+                {intl.formatMessage(messages.later)}
+              </button>
+            </div>
+          )}
+        </Overlay>
       </div>
     );
   }
