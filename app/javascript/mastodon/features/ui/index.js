@@ -12,10 +12,12 @@ import ModalContainer from './containers/modal_container';
 import { layoutFromWindow } from 'mastodon/is_mobile';
 import { debounce } from 'lodash';
 import { uploadCompose, uploadToComposer, resetCompose, changeComposeSpoilerness } from '../../actions/compose';
+import { showAlert } from '../../actions/alerts';
 import { selectComposer } from '../../selectors/composer';
 import { selectComposerCanUploadAsIdentity } from '../../selectors/posting_identities';
 import {
   clearColumnDropHighlight,
+  composerUploadRejectionMessage,
   dragFeedback,
   isExternalFileDrag,
   planDocumentFileDrop,
@@ -335,15 +337,20 @@ class UI extends React.PureComponent {
   }
 
   syncDragFeedback = (event) => {
-    const feedback = dragFeedback(event.target, event.dataTransfer, {
-      canUploadPrimary: this.props.canUploadMore,
+    this.props.dispatch((_, getState) => {
+      const feedback = dragFeedback(event.target, event.dataTransfer, {
+        canUploadPrimary: this.props.canUploadMore,
+        composerCanAccept: composerId => this.composerCanAcceptFiles(composerId, getState),
+      });
+
+      syncColumnDropHighlight(feedback.columnId || feedback.blocked ? event.target : null, {
+        blocked: feedback.blocked,
+      });
+
+      if (this.state.draggingOver !== feedback.overlay) {
+        this.setState({ draggingOver: feedback.overlay });
+      }
     });
-
-    syncColumnDropHighlight(feedback.columnId ? event.target : null);
-
-    if (this.state.draggingOver !== feedback.overlay) {
-      this.setState({ draggingOver: feedback.overlay });
-    }
   }
 
   composerCanAcceptFiles = (composerId, getState) => {
@@ -406,6 +413,13 @@ class UI extends React.PureComponent {
       });
 
       if (!files || files.length < 1) {
+        return;
+      }
+
+      if (plan.action === 'reject') {
+        dispatch(showAlert(undefined, composerUploadRejectionMessage(
+          selectComposerCanUploadAsIdentity(getState(), plan.composerId).reason,
+        )));
         return;
       }
 

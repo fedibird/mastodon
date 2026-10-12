@@ -1,6 +1,7 @@
 import {
   clearColumnDropHighlight,
   composerIdFromEventTarget,
+  composerUploadRejectionMessage,
   dropAlreadyHandled,
   dragFeedback,
   isExternalFileDrag,
@@ -157,5 +158,55 @@ describe('composer file drop routing', () => {
     expect(document.querySelector('.column.is-file-drop-target')).toBeNull();
     expect(dragFeedback(document.getElementById('list-status'), { types: ['Files'] }, { canUploadPrimary: true }).overlay).toBe(false);
     expect(dragFeedback(document.getElementById('outside'), { types: ['Files'] }, { canUploadPrimary: true }).overlay).toBe(true);
+  });
+
+  it('does not offer a successful drop on a portable column that cannot accept files', () => {
+    document.body.innerHTML = `
+      <div class="column" data-drop-composer-id="portable:list-column:a" id="open-column"><article id="open-status"></article></div>
+      <div class="column" data-drop-composer-id="portable:group-column:c" id="blocked-column"><article id="blocked-status"></article></div>
+      <div class="upload-area" id="upload-overlay"></div>
+    `;
+    const files = [{ name: 'a.png' }];
+    const drag = { types: ['Files'] };
+    const canAccept = composerId => composerId === 'portable:list-column:a';
+    const open = dragFeedback(document.getElementById('open-status'), drag, { canUploadPrimary: false, composerCanAccept: canAccept });
+    const blocked = dragFeedback(document.getElementById('blocked-status'), drag, { canUploadPrimary: true, composerCanAccept: canAccept });
+
+    expect(open).toEqual({ overlay: false, columnId: 'portable:list-column:a', blocked: false });
+    expect(blocked).toEqual({ overlay: false, columnId: null, blocked: true });
+
+    syncColumnDropHighlight(document.getElementById('open-status'));
+    syncColumnDropHighlight(document.getElementById('blocked-status'), { blocked: true });
+
+    expect(document.getElementById('open-column').classList.contains('is-file-drop-target')).toBe(false);
+    expect(document.getElementById('blocked-column').classList.contains('is-file-drop-target')).toBe(false);
+    expect(document.getElementById('blocked-column').classList.contains('is-file-drop-blocked')).toBe(true);
+
+    const event = {
+      target: document.getElementById('blocked-status'),
+      dataTransfer: { types: ['Files'], files },
+      nativeEvent: {},
+    };
+    const plan = planDocumentFileDrop(event, { primaryCanAccept: true, composerCanAccept: canAccept });
+    let overlay = true;
+    const uploads = [];
+
+    if (plan.clearDragUi) {
+      overlay = false;
+      clearColumnDropHighlight();
+    }
+    if (plan.action === 'upload-composer' || plan.action === 'upload-primary') {
+      uploads.push(plan.action);
+    }
+
+    expect(plan.action).toBe('reject');
+    expect(plan.composerId).toBe('portable:group-column:c');
+    expect(uploads).toEqual([]);
+    expect(overlay).toBe(false);
+    expect(document.querySelector('.column.is-file-drop-target, .column.is-file-drop-blocked')).toBeNull();
+    expect(composerUploadRejectionMessage('unauthorized').id).toBe('compose_form.upload_blocked.unauthorized');
+    expect(composerUploadRejectionMessage('missing').id).toBe('compose_form.upload_blocked');
+    expect(composerUploadRejectionMessage('media').id).toBe('compose_form.upload_blocked.media');
+    expect(composerUploadRejectionMessage('something-else').id).toBe('upload_error.identity');
   });
 });

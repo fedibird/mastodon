@@ -17,6 +17,7 @@ import Icon from 'mastodon/components/icon';
 import classNames from 'classnames';
 import { defaultColumnWidth, followTagModal, unfollowTagModal, isAdministrator } from 'mastodon/initial_state';
 import PortableComposer from '../compose/portable_composer';
+import ColumnDropHint from '../compose/components/column_drop_hint';
 import PortableComposerToggle from '../compose/components/portable_composer_toggle';
 import { captureVisibleStatusAnchor, columnNodeFromRef, scheduleStatusAnchorRestore } from '../compose/components/portable_composer_scroll';
 import { selectPortableComposerVisible } from 'mastodon/selectors/composer';
@@ -382,12 +383,7 @@ class HashtagTimeline extends React.PureComponent {
           {columnId && <ColumnSettingsContainer columnId={columnId} />}
         </ColumnHeader>
 
-        {portableComposer ? (
-          <div className='column-drop-target' aria-hidden='true'>
-            <Icon id='paperclip' />
-            <FormattedMessage id='upload_area.column' defaultMessage='Drop files here to attach them' />
-          </div>
-        ) : null}
+        {portableComposer ? <ColumnDropHint /> : null}
 
         {portableComposer ? (
           <div className='column-portable-composer'>{portableComposer}</div>
