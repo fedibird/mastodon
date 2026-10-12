@@ -85,6 +85,8 @@ describe('composer media order', () => {
     expect(attachmentUploadBlocked({ incomingMimeTypes: ['video/mp4', 'image/png'] })).toBe(true);
     expect(attachmentUploadBlocked({ incomingMimeTypes: ['video/mp4', 'video/webm'] })).toBe(true);
     expect(attachmentUploadBlocked({ pending: 1, incomingMimeTypes: ['audio/mpeg'] })).toBe(true);
+    expect(attachmentUploadBlocked({ pendingExclusive: 1, incomingMimeTypes: ['image/png'] })).toBe(true);
+    expect(attachmentUploadBlocked({ pending: 1, pendingExclusive: 0, incomingMimeTypes: ['image/jpeg'] })).toBe(false);
     expect(attachmentUploadBlocked({ existingTypes: ['image'], pending: 1, incomingMimeTypes: ['image/png'] })).toBe(false);
   });
 });
@@ -144,7 +146,6 @@ describe('ComposerMediaGallery', () => {
     const { onMoveTo } = renderGallery([media('a'), media('b'), media('c'), media('d')]);
     const items = document.querySelectorAll('.compose-form__media-item');
     const first = items[0];
-    const third = items[2];
 
     items.forEach((node, index) => {
       node.getBoundingClientRect = () => ({ left: index * 40, right: index * 40 + 36, top: 0, bottom: 36, width: 36, height: 36 });
@@ -169,11 +170,14 @@ describe('ComposerMediaGallery', () => {
     point('pointermove', thumb, 12, 10);
     expect(capture).not.toHaveBeenCalled();
 
+    const labels = () => screen.getAllByRole('button', { name: /alt$/ }).map(node => node.getAttribute('aria-label'));
+
     point('pointermove', thumb, 90, 10);
     expect(capture).toHaveBeenCalledWith(1);
 
     expect(first).toHaveClass('is-dragging');
-    expect(third).toHaveClass('is-drop-target');
+    expect(onMoveTo).not.toHaveBeenCalled();
+    expect(labels()).toEqual(['b alt', 'c alt', 'a alt', 'd alt']);
 
     point('pointerup', thumb, 90, 10);
 
@@ -183,10 +187,12 @@ describe('ComposerMediaGallery', () => {
     onMoveTo.mockClear();
     point('pointerdown', thumb, 10, 10);
     point('pointermove', thumb, 90, 10);
+    expect(labels()).toEqual(['b alt', 'c alt', 'a alt', 'd alt']);
     fireEvent(thumb, new Event('pointercancel', { bubbles: true }));
 
     expect(onMoveTo).not.toHaveBeenCalled();
     expect(first).not.toHaveClass('is-dragging');
+    expect(labels()).toEqual(['a alt', 'b alt', 'c alt', 'd alt']);
   });
 
   it('opens edit on a click or tap and does not treat the remove button as a drag', () => {

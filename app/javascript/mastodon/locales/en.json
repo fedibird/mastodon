@@ -284,6 +284,7 @@
   "compose_form.posting_style.usual": "Usual settings",
   "compose_form.publish": "Toot",
   "compose_form.publish_loud": "{publish}!",
+  "compose_form.resize_text": "Resize the text field",
   "compose_form.save_changes": "Save changes",
   "compose_form.scheduled_status_warning": "Scheduled post editing in progress.",
   "compose_form.sender_identity.failed": "Couldn’t confirm who this post is from.",

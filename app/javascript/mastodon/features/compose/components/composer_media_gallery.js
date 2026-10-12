@@ -4,7 +4,7 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import { defineMessages, injectIntl } from 'react-intl';
 import classNames from 'classnames';
 import Icon from 'mastodon/components/icon';
-import { summaryThumbCount, visibleMediaWindow } from '../composer_media';
+import { moveMediaIds, summaryThumbCount, visibleMediaWindow } from '../composer_media';
 
 const messages = defineMessages({
   undo: { id: 'upload_form.undo', defaultMessage: 'Delete' },
@@ -376,6 +376,16 @@ class ComposerMediaGallery extends React.PureComponent {
     this.setState({ expanded: false });
   };
 
+  previewIds (ids) {
+    const { dragId, overIndex } = this.state;
+
+    if (!dragId || overIndex === null || overIndex === undefined) {
+      return ids;
+    }
+
+    return moveMediaIds(ids, dragId, overIndex);
+  }
+
   renderItem (media, index, size) {
     const { intl } = this.props;
     const id = media.get('id');
@@ -454,7 +464,7 @@ class ComposerMediaGallery extends React.PureComponent {
       return null;
     }
 
-    const ids = media.map(item => item.get('id')).toArray();
+    const ids = this.previewIds(media.map(item => item.get('id')).toArray());
     const windowed = visibleMediaWindow(ids, {
       summary,
       expanded: this.state.expanded,

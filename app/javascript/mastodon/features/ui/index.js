@@ -11,8 +11,8 @@ import LoadingBarContainer from './containers/loading_bar_container';
 import ModalContainer from './containers/modal_container';
 import { layoutFromWindow } from 'mastodon/is_mobile';
 import { debounce } from 'lodash';
-import { uploadCompose, uploadToComposer, resetCompose, changeComposeSpoilerness } from '../../actions/compose';
-import { composerIdFromEventTarget, dropAlreadyHandled, isExternalFileDrag } from '../compose/composer_drop';
+import { uploadCompose, resetCompose, changeComposeSpoilerness } from '../../actions/compose';
+import { composerIdFromEventTarget, isExternalFileDrag, shouldAcceptGlobalFileDrop } from '../compose/composer_drop';
 import { updateProcessingStatuses, refreshIntersectionStatuses } from '../../actions/statuses';
 import { expandHomeTimeline } from '../../actions/timelines';
 import { expandNotifications } from '../../actions/notifications';
@@ -353,7 +353,7 @@ class UI extends React.PureComponent {
   }
 
   handleDrop = (e) => {
-    if (dropAlreadyHandled(e) || this.dataTransferIsText(e.dataTransfer)) return;
+    if (!shouldAcceptGlobalFileDrop(e, { textOnly: this.dataTransferIsText(e.dataTransfer) })) return;
 
     e.preventDefault();
 
@@ -361,13 +361,6 @@ class UI extends React.PureComponent {
     this.dragTargets = [];
 
     if (!(e.dataTransfer && e.dataTransfer.files.length >= 1)) {
-      return;
-    }
-
-    const composerId = composerIdFromEventTarget(e.target);
-
-    if (composerId) {
-      this.props.dispatch(uploadToComposer(composerId, e.dataTransfer.files));
       return;
     }
 

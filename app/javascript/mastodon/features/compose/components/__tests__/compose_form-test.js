@@ -279,6 +279,70 @@ describe('ComposeForm display mode', () => {
     });
   });
 
+  it('gives a portable composer four rows when full and two rows when compact', () => {
+    const full = renderForm({ displayMode: 'full', onDisplayModeChange: jest.fn() });
+
+    expect(screen.getByPlaceholderText('What is on your mind?')).toHaveAttribute('data-text-rows', '4');
+    expect(screen.queryByRole('button', { name: 'Show full composer' })).toBeNull();
+    full.unmount();
+
+    const onDisplayModeChange = jest.fn();
+
+    renderForm({ displayMode: 'simple', onDisplayModeChange });
+
+    const textarea = screen.getByPlaceholderText('What is on your mind?');
+    const expand = screen.getByRole('button', { name: 'Show full composer' });
+
+    expect(textarea).toHaveAttribute('data-text-rows', '2');
+    expect(document.querySelector('.compose-form__header')).toContainElement(expand);
+    fireEvent.click(expand);
+    expect(onDisplayModeChange).toHaveBeenCalledWith('full');
+  });
+
+  it('keeps the primary composer on the autosizing textarea', () => {
+    renderForm();
+
+    expect(screen.getByPlaceholderText('What is on your mind?')).not.toHaveAttribute('data-text-rows');
+  });
+
+  it('shows the upload area as soon as a compact upload starts', () => {
+    const view = renderForm({ displayMode: 'simple', onDisplayModeChange: jest.fn(), text: 'hello' });
+    const before = screen.getByRole('button', { name: 'Toot!' });
+
+    expect(document.querySelector('.compose-form__compact-publish')).toContainElement(before);
+    expect(screen.queryByTestId('upload-form')).toBeNull();
+
+    view.rerender(
+      <ComposeForm
+        text='hello'
+        suggestions={ImmutableList()}
+        privacy='public'
+        prohibitedVisibilities={ImmutableSet()}
+        prohibitedWords={ImmutableSet()}
+        onChange={noop}
+        onSubmit={noop}
+        onClearSuggestions={noop}
+        onFetchSuggestions={noop}
+        onSuggestionSelected={noop}
+        onChangeSpoilerText={noop}
+        onPaste={noop}
+        onPickEmoji={noop}
+        displayMode='simple'
+        onDisplayModeChange={jest.fn()}
+        isUploading
+        pendingMedia={1}
+      />,
+    );
+
+    const publish = screen.getByRole('button', { name: 'Toot!' });
+
+    expect(screen.getByTestId('upload-form')).toBeTruthy();
+    expect(document.querySelector('.compose-form__simple-row')).toContainElement(publish);
+    expect(document.querySelector('.compose-form__compact-publish')).toBeNull();
+    expect(publish).toBeDisabled();
+    expect(screen.getByPlaceholderText('What is on your mind?')).toHaveValue('hello');
+  });
+
   it('keeps a compact composer to the header, text, and icon publish button', () => {
     renderForm({ displayMode: 'simple', onDisplayModeChange: jest.fn() });
 

@@ -60,6 +60,8 @@ const mapStateToProps = (state, { composerId }) => {
     isSubmitting: composer.get('is_submitting'),
     isChangingUpload: composer.get('is_changing_upload'),
     isUploading: composer.get('is_uploading'),
+    isProcessing: composer.get('is_processing'),
+    pendingMedia: composer.get('pending_media_attachments') || 0,
     isCircleUnselected: !composer.get('id') && composer.get('privacy') === 'limited' && composer.getIn(['reply_status', 'visibility']) !== 'limited' && !composer.get('circle_id'),
     showSearch: state.getIn(['search', 'submitted']) && !state.getIn(['search', 'hidden']),
     anyMedia: composer.get('media_attachments').size > 0,

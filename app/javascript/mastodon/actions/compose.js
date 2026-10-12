@@ -22,7 +22,7 @@ import { fetchPostingIdentities } from './posting_identities';
 import { composerHasGroupDestination } from '../posting_identity/group_destination';
 import { sessionPostingIdentityId } from '../posting_identity/identity';
 import { selectComposerCanSendAsIdentity, selectComposerCanUploadAsIdentity } from '../selectors/posting_identities';
-import { attachmentUploadBlocked } from '../features/compose/composer_media';
+import { attachmentUploadBlocked, isExclusiveFile } from '../features/compose/composer_media';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import { targetComposerAction } from './composer';
 
@@ -682,10 +682,13 @@ export function uploadToComposer(composerId, files) {
     const orderBase = Date.now();
     let total = Array.from(files).reduce((a, v) => a + v.size, 0);
 
+    const incomingMimeTypes = Array.from(files).map(file => file && file.type);
+
     if (attachmentUploadBlocked({
       existingTypes: media.map(item => item.get('type')).toArray(),
       pending,
-      incomingMimeTypes: Array.from(files).map(file => file && file.type),
+      pendingExclusive: composer.get('pending_exclusive_attachments') || 0,
+      incomingMimeTypes,
     })) {
       dispatch(showAlert(undefined, messages.uploadErrorVideo));
       return;
@@ -701,18 +704,32 @@ export function uploadToComposer(composerId, files) {
       return;
     }
 
-    dispatchToComposer(dispatch, composerId, uploadComposeRequest());
+    const queue = [];
 
     for (const [i, file] of Array.from(files).entries()) {
-      if (media.size + i >= maxAttachments) break;
+      if (media.size + queue.length >= maxAttachments) break;
 
+      queue.push({ file, index: i });
+    }
+
+    if (!queue.length) {
+      return;
+    }
+
+    dispatchToComposer(dispatch, composerId, uploadComposeRequest(
+      queue.length,
+      queue.filter(item => isExclusiveFile(item.file && item.file.type)).length,
+    ));
+
+    for (const { file, index } of queue) {
       const data = new FormData();
       data.append('file', file);
       appendPostingIdentity(data, composer);
+      const exclusive = isExclusiveFile(file && file.type);
 
       api(getState).post('/api/v2/media', data, {
         onUploadProgress: function({ loaded }){
-          progress[i] = loaded;
+          progress[index] = loaded;
           dispatchToComposer(
             dispatch,
             composerId,
@@ -724,7 +741,7 @@ export function uploadToComposer(composerId, files) {
         // poll the server until it is, before showing the media attachment as uploaded
 
         if (status === 200) {
-          dispatchToComposer(dispatch, composerId, uploadComposeSuccess({ ...data, order: orderBase + i }, file));
+          dispatchToComposer(dispatch, composerId, uploadComposeSuccess({ ...data, order: orderBase + index }, file));
         } else if (status === 202) {
           dispatchToComposer(dispatch, composerId, uploadComposeProcessing());
 
@@ -733,18 +750,18 @@ export function uploadToComposer(composerId, files) {
           const pollStatus = () => {
             api(getState).get(`/api/v1/media/${data.id}`).then(response => {
               if (response.status === 200) {
-                dispatchToComposer(dispatch, composerId, uploadComposeSuccess({ ...response.data, order: orderBase + i }, file));
+                dispatchToComposer(dispatch, composerId, uploadComposeSuccess({ ...response.data, order: orderBase + index }, file, true));
               } else if (response.status === 206) {
                 const retryAfter = (Math.log2(tryCount) || 1) * 1000;
                 tryCount += 1;
                 setTimeout(() => pollStatus(), retryAfter);
               }
-            }).catch(error => dispatchToComposer(dispatch, composerId, uploadComposeFail(error)));
+            }).catch(error => dispatchToComposer(dispatch, composerId, uploadComposeFail(error, { exclusive, fromProcessing: true })));
           };
 
           pollStatus();
         }
-      }).catch(error => dispatchToComposer(dispatch, composerId, uploadComposeFail(error)));
+      }).catch(error => dispatchToComposer(dispatch, composerId, uploadComposeFail(error, { exclusive })));
     };
   };
 };
@@ -920,9 +937,11 @@ export function changeUploadComposeFail(error) {
   };
 };
 
-export function uploadComposeRequest() {
+export function uploadComposeRequest(count = 1, exclusiveCount = 0) {
   return {
     type: COMPOSE_UPLOAD_REQUEST,
+    count,
+    exclusiveCount,
     skipLoading: true,
   };
 };
@@ -935,19 +954,22 @@ export function uploadComposeProgress(loaded, total) {
   };
 };
 
-export function uploadComposeSuccess(media, file) {
+export function uploadComposeSuccess(media, file, fromProcessing = false) {
   return {
     type: COMPOSE_UPLOAD_SUCCESS,
     media: media,
     file: file,
+    fromProcessing,
     skipLoading: true,
   };
 };
 
-export function uploadComposeFail(error) {
+export function uploadComposeFail(error, { exclusive = false, fromProcessing = false } = {}) {
   return {
     type: COMPOSE_UPLOAD_FAIL,
     error: error,
+    exclusive,
+    fromProcessing,
     skipLoading: true,
   };
 };

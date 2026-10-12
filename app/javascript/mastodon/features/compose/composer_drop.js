@@ -41,3 +41,11 @@ export function markComposerFileDrop (event) {
 export function dropAlreadyHandled (event) {
   return Boolean(event && (event.fedibirdComposerDrop || (event.nativeEvent && event.nativeEvent.fedibirdComposerDrop)));
 }
+
+export function shouldAcceptGlobalFileDrop (event, { textOnly = false } = {}) {
+  if (!event || textOnly || dropAlreadyHandled(event) || !isExternalFileDrag(event.dataTransfer)) {
+    return false;
+  }
+
+  return !composerIdFromEventTarget(event.target);
+}

@@ -33,6 +33,7 @@ import { disablePost, maxChars } from '../../../initial_state';
 import IconButton from '../../../components/icon_button';
 import classNames from 'classnames';
 import { PORTABLE_COMPOSER_MODE_FULL, PORTABLE_COMPOSER_MODE_SIMPLE } from '../../../selectors/composer';
+import { portableComposerRows } from '../composer_text_height';
 import { isExternalFileDrag, markComposerFileDrop } from '../composer_drop';
 import ComposerOverflowMenu from './composer_overflow_menu';
 
@@ -124,6 +125,8 @@ class ComposeForm extends ImmutablePureComponent {
     isSubmitting: PropTypes.bool,
     isChangingUpload: PropTypes.bool,
     isUploading: PropTypes.bool,
+    isProcessing: PropTypes.bool,
+    pendingMedia: PropTypes.number,
     isCircleUnselected: PropTypes.bool,
     prohibitedVisibilities: ImmutablePropTypes.set,
     prohibitedWords: ImmutablePropTypes.set,
@@ -158,6 +161,8 @@ class ComposeForm extends ImmutablePureComponent {
     onAcceptSurface: PropTypes.func,
     displayMode: PropTypes.oneOf(['full', 'simple']),
     onDisplayModeChange: PropTypes.func,
+    textRows: PropTypes.number,
+    textHeight: PropTypes.number,
     composerId: PropTypes.string,
     hasPoll: PropTypes.bool,
     datetimeOpen: PropTypes.bool,
@@ -510,8 +515,16 @@ class ComposeForm extends ImmutablePureComponent {
     this.setState({ searchabilityOpen: false });
   };
 
+  isPortableComposer () {
+    return typeof this.props.onDisplayModeChange === 'function';
+  }
+
   isSimpleMode () {
-    return typeof this.props.onDisplayModeChange === 'function' && this.props.displayMode === PORTABLE_COMPOSER_MODE_SIMPLE;
+    return this.isPortableComposer() && this.props.displayMode === PORTABLE_COMPOSER_MODE_SIMPLE;
+  }
+
+  mediaAreaOpen () {
+    return Boolean(this.props.anyMedia || this.props.isUploading || this.props.isProcessing || this.props.pendingMedia > 0);
   }
 
   handlePaste = (files) => {
@@ -586,7 +599,8 @@ class ComposeForm extends ImmutablePureComponent {
 
   renderTextarea (modifiers, overlay) {
     const { intl, showSearch, autoFocus } = this.props;
-    const simple = this.isSimpleMode();
+    const portable = this.isPortableComposer();
+    const rows = portable ? (this.props.textRows || portableComposerRows(this.props.displayMode)) : undefined;
 
     return (
       <AutosuggestTextarea
@@ -605,8 +619,8 @@ class ComposeForm extends ImmutablePureComponent {
         autoFocus={autoFocus && !showSearch && !isMobile(window.innerWidth)}
         lang={this.props.lang}
         overlay={overlay}
-        minRows={simple ? 2 : undefined}
-        maxRows={simple ? 3 : undefined}
+        rows={typeof this.props.textHeight === 'number' ? undefined : rows}
+        height={portable ? this.props.textHeight : undefined}
       >
         {modifiers}
       </AutosuggestTextarea>
@@ -647,12 +661,23 @@ class ComposeForm extends ImmutablePureComponent {
   }
 
   renderHeader () {
+    const { intl } = this.props;
+
     return (
       <div className='compose-form__header'>
         <div className='compose-form__header-context'>{this.props.stylePicker}</div>
         <div className='compose-form__header-audience'>
           <PrivacyDropdownContainer disabled={this.props.isEditing} showLabel />
         </div>
+        {this.isSimpleMode() && (
+          <IconButton
+            className='compose-form__header-expand'
+            icon='expand'
+            title={intl.formatMessage(messages.fullMode)}
+            onClick={this.handleFullModeClick}
+            inverted
+          />
+        )}
       </div>
     );
   }
@@ -769,6 +794,8 @@ class ComposeForm extends ImmutablePureComponent {
     const { intl } = this.props;
     const publishText = this.publishLabel();
     const simple = this.isSimpleMode();
+    const portable = this.isPortableComposer();
+    const mediaAreaOpen = this.mediaAreaOpen();
     const searchabilityChanged = this.searchabilityChanged();
     const showCount = !simple || searchabilityChanged;
     const simpleBadges = simple ? this.renderSimpleBadges() : null;
@@ -800,7 +827,8 @@ class ComposeForm extends ImmutablePureComponent {
       <div
         className={classNames('compose-form', {
           'compose-form--simple': simple,
-          'compose-form--compact-publish': simple && !this.props.anyMedia,
+          'compose-form--portable': portable,
+          'compose-form--compact-publish': simple && !mediaAreaOpen,
           'compose-form--searchability-note': searchabilityChanged,
           'compose-form--file-hover': this.state.fileHover,
         })}
@@ -831,16 +859,16 @@ class ComposeForm extends ImmutablePureComponent {
 
         <div className='compose-form__body'>
           {this.renderTextarea(modifiers, overlay)}
-          {simple && !this.props.anyMedia && (
+          {simple && !mediaAreaOpen && (
             <div className='compose-form__compact-publish'>
               {this.renderIconPublish()}
             </div>
           )}
-          {simple && (this.props.anyMedia || simpleBadges) && (
+          {simple && (mediaAreaOpen || simpleBadges) && (
             <div className='compose-form__simple-row'>
-              {this.props.anyMedia && <UploadFormContainer summary />}
+              {mediaAreaOpen && <UploadFormContainer summary />}
               {simpleBadges}
-              {this.props.anyMedia && this.renderIconPublish()}
+              {mediaAreaOpen && this.renderIconPublish()}
             </div>
           )}
         </div>
