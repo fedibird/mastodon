@@ -9679,7 +9679,7 @@ entries:
   source_refs:
   - app/controllers/api/web/settings_controller.rb:7
   - app/javascript/mastodon/actions/settings.js:23
-  - config/routes.rb:868
+  - config/routes.rb:869
   - app/helpers/application_helper.rb:207
   - app/javascript/mastodon/reducers/settings.js:12
   audit_status: verified
