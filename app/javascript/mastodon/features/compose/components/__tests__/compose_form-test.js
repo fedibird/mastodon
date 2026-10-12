@@ -531,6 +531,58 @@ describe('ComposeForm display mode', () => {
     expect(document.querySelector('.compose-form--simple')).toBeTruthy();
   });
 
+  it('names the upload block and clears it when attaching is allowed again', () => {
+    const onPaste = jest.fn();
+    const file = new File(['x'], 'photo.png', { type: 'image/png' });
+    const view = renderForm({
+      text: 'hello',
+      canUploadMedia: false,
+      uploadBlockReason: 'poll',
+      onPaste,
+    });
+
+    fireEvent.paste(screen.getByPlaceholderText('What is on your mind?'), {
+      clipboardData: { files: [file] },
+    });
+
+    expect(onPaste).not.toHaveBeenCalled();
+    expect(screen.getByRole('status').textContent).toContain('Remove the poll');
+
+    view.rerender(
+      <ComposeForm
+        text='hello'
+        suggestions={ImmutableList()}
+        privacy='public'
+        prohibitedVisibilities={ImmutableSet()}
+        prohibitedWords={ImmutableSet()}
+        onChange={noop}
+        onSubmit={noop}
+        onClearSuggestions={noop}
+        onFetchSuggestions={noop}
+        onSuggestionSelected={noop}
+        onChangeSpoilerText={noop}
+        onPaste={onPaste}
+        onPickEmoji={noop}
+        canUploadMedia
+        uploadBlockReason={null}
+      />,
+    );
+
+    expect(screen.queryByText(/Remove the poll/)).toBeNull();
+  });
+
+  it('opens schedule actions in an overlay outside the button row', () => {
+    renderForm();
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+
+    const menu = screen.getByTestId('composer-overflow-menu');
+    const buttons = document.querySelector('.compose-form__buttons');
+
+    expect(menu).toBeTruthy();
+    expect(buttons).not.toContainElement(menu);
+  });
+
   it('leaves a text paste on the simple composer', () => {
     const onDisplayModeChange = jest.fn();
     const onPaste = jest.fn();

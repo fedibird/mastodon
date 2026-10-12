@@ -19,6 +19,7 @@ const messages = defineMessages({
   retry: { id: 'compose_form.posting_style.retry', defaultMessage: 'Retry' },
   catalogFailed: { id: 'compose_form.posting_style.catalog_failed', defaultMessage: 'Couldn’t load posting styles.' },
   catalogRetry: { id: 'compose_form.posting_style.catalog_retry', defaultMessage: 'Reload posting styles' },
+  catalogLoading: { id: 'compose_form.posting_style.catalog_loading', defaultMessage: 'Loading posting styles' },
   defaultLabel: { id: 'compose_form.posting_style.default_label', defaultMessage: 'Default for this place' },
   defaultUse: { id: 'compose_form.posting_style.default_use', defaultMessage: 'Always use this style here' },
   defaultNone: { id: 'compose_form.posting_style.default_none', defaultMessage: 'Don’t use a style here' },
@@ -118,6 +119,9 @@ class UserPostingStylePicker extends React.PureComponent {
     contextDetails: PropTypes.node,
     placeLabel: PropTypes.string,
     customEmojis: ImmutablePropTypes.list,
+    catalogFailed: PropTypes.bool,
+    catalogLoading: PropTypes.bool,
+    onRetryCatalog: PropTypes.func,
   };
 
   state = {
@@ -506,7 +510,7 @@ class UserPostingStylePicker extends React.PureComponent {
 
   renderHeader () {
     const { intl, contextDetails, placeLabel } = this.props;
-    const controls = this.props.showStyleControls !== false;
+    const controls = this.props.showStyleControls !== false && !this.props.catalogFailed && !this.props.catalogLoading;
     const current = this.currentStyle();
     const icon = controls && current ? current.get('icon') : '';
     const saved = controls && this.savedStyleMatches();
@@ -522,6 +526,8 @@ class UserPostingStylePicker extends React.PureComponent {
     }
     const notices = this.collectNotices();
     const defaultActions = controls ? this.renderDefaultActions() : null;
+    const catalogProblem = Boolean(this.props.catalogFailed);
+    const catalogPending = Boolean(this.props.catalogLoading);
 
     return (
       <div className='compose-form__style compose-form__style--header compose-form__style--compact' ref={this.setRoot} data-posting-style-picker='true'>
@@ -540,10 +546,15 @@ class UserPostingStylePicker extends React.PureComponent {
           {saved ? <span className='compose-form__style-default-mark' aria-hidden='true'>★</span> : null}
           {saved ? <span className='sr-only'>{intl.formatMessage(messages.defaultMark)}</span> : null}
           {once ? <span className='sr-only'>{intl.formatMessage(messages.once)}</span> : null}
-          {notices.length > 0 ? <span className='compose-form__style-warning' aria-hidden='true'>!</span> : null}
+          {(notices.length > 0 || catalogProblem) ? <span className='compose-form__style-warning' aria-hidden='true'>!</span> : null}
           <span className='compose-form__style-caret' aria-hidden='true'>▾</span>
         </button>
-        {notices.length > 0 ? <span className='sr-only' role='status'>{notices.join(' ')}</span> : null}
+        {(notices.length > 0 || catalogProblem) ? (
+          <span className='sr-only' role='status'>
+            {catalogProblem ? intl.formatMessage(messages.catalogFailed) : ''}
+            {notices.join(' ')}
+          </span>
+        ) : null}
         <div className={classNames('compose-form__style-menu', 'compose-form__style-menu--sectioned')} hidden={!this.state.open}>
           {controls && (
             <div
@@ -558,9 +569,22 @@ class UserPostingStylePicker extends React.PureComponent {
               {this.props.styles && this.props.styles.map(style => this.renderOption(style))}
             </div>
           )}
+          {this.state.open && catalogProblem ? (
+            <div data-posting-style-catalog='failed'>
+              <p className='compose-form__style-notice'>{intl.formatMessage(messages.catalogFailed)}</p>
+              {this.props.onRetryCatalog ? (
+                <button type='button' className='compose-form__style-retry' onClick={this.props.onRetryCatalog}>
+                  {intl.formatMessage(messages.catalogRetry)}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {this.state.open && catalogPending ? (
+            <p className='compose-form__style-notice'>{intl.formatMessage(messages.catalogLoading)}</p>
+          ) : null}
           {this.state.open ? defaultActions : null}
           {this.state.open ? this.renderNotices() : null}
-          <div className='compose-form__style-context'>{contextDetails}</div>
+          <div className='compose-form__style-context' hidden={!this.state.open}>{contextDetails}</div>
           {this.state.open ? (
             <a className='compose-form__style-settings' href='/settings/user_posting_contexts'>
               {intl.formatMessage(messages.settings)}

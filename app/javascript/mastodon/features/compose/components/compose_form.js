@@ -33,6 +33,7 @@ import IconButton from '../../../components/icon_button';
 import classNames from 'classnames';
 import { PORTABLE_COMPOSER_MODE_FULL, PORTABLE_COMPOSER_MODE_SIMPLE } from '../../../selectors/composer';
 import { isExternalFileDrag, markComposerFileDrop } from '../composer_drop';
+import ComposerOverflowMenu from './composer_overflow_menu';
 
 const allowedAroundShortCode = '><\u0085\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000\u2028\u2029\u0009\u000a\u000b\u000c\u000d';
 
@@ -60,12 +61,42 @@ const messages = defineMessages({
   surfaceAccept: { id: 'compose_form.posting_style.surface_accept', defaultMessage: 'Use this destination' },
   more: { id: 'compose_form.more_actions', defaultMessage: 'More actions' },
   uploadBlocked: { id: 'compose_form.upload_blocked', defaultMessage: 'This posting account can’t attach media here.' },
+  uploadBlockedMedia: { id: 'compose_form.upload_blocked.media', defaultMessage: 'This posting account can’t attach media.' },
+  uploadBlockedReply: { id: 'compose_form.upload_blocked.reply', defaultMessage: 'Replies and quotes can’t include media from this posting account.' },
+  uploadBlockedPoll: { id: 'compose_form.upload_blocked.poll', defaultMessage: 'Remove the poll before attaching media as this posting account.' },
+  uploadBlockedSchedule: { id: 'compose_form.upload_blocked.schedule', defaultMessage: 'Scheduled posts can’t include media from this posting account.' },
+  uploadBlockedGroup: { id: 'compose_form.upload_blocked.group', defaultMessage: 'Group posts can’t include media from this posting account.' },
+  uploadBlockedUnauthorized: { id: 'compose_form.upload_blocked.unauthorized', defaultMessage: 'This posting account isn’t allowed to attach media.' },
+  uploadBlockedUnresolved: { id: 'compose_form.upload_blocked.unresolved', defaultMessage: 'Still confirming whether this posting account can attach media.' },
+  uploadBlockedFailed: { id: 'compose_form.upload_blocked.failed', defaultMessage: 'Couldn’t confirm whether this posting account can attach media.' },
+  uploadBlockedMismatch: { id: 'compose_form.upload_blocked.mismatch', defaultMessage: 'This posting account doesn’t match the signed-in account.' },
+  uploadBlockedEdit: { id: 'compose_form.upload_blocked.edit', defaultMessage: 'Finish or discard this edit before attaching media as this posting account.' },
   cwOn: { id: 'compose_form.cw_on', defaultMessage: 'Content warning is on' },
   pollOn: { id: 'compose_form.poll_on', defaultMessage: 'Poll added' },
   scheduleOn: { id: 'compose_form.schedule_on', defaultMessage: 'Scheduled' },
   expiryOn: { id: 'compose_form.expiry_on', defaultMessage: 'Expiry is set' },
   sensitiveOn: { id: 'compose_form.sensitive_on', defaultMessage: 'Media is marked sensitive' },
 });
+
+const uploadReasonMessage = {
+  media: messages.uploadBlockedMedia,
+  reply: messages.uploadBlockedReply,
+  quote: messages.uploadBlockedReply,
+  poll: messages.uploadBlockedPoll,
+  schedule: messages.uploadBlockedSchedule,
+  schedule_bound: messages.uploadBlockedSchedule,
+  group: messages.uploadBlockedGroup,
+  unauthorized: messages.uploadBlockedUnauthorized,
+  unregistered: messages.uploadBlockedUnauthorized,
+  unsupported: messages.uploadBlockedUnauthorized,
+  unresolved: messages.uploadBlockedUnresolved,
+  idle: messages.uploadBlockedUnresolved,
+  loading: messages.uploadBlockedUnresolved,
+  failed: messages.uploadBlockedFailed,
+  mismatch: messages.uploadBlockedMismatch,
+  edit_bound: messages.uploadBlockedEdit,
+  missing: messages.uploadBlocked,
+};
 
 export default @injectIntl
 class ComposeForm extends ImmutablePureComponent {
@@ -129,7 +160,7 @@ class ComposeForm extends ImmutablePureComponent {
 
   state = {
     fileHover: false,
-    uploadNotice: false,
+    uploadNotice: null,
   };
 
   static defaultProps = {
@@ -261,6 +292,30 @@ class ComposeForm extends ImmutablePureComponent {
 
   componentDidUpdate (prevProps) {
     this._updateFocusAndSelection(prevProps);
+    this.syncUploadNotice();
+  }
+
+  syncUploadNotice () {
+    if (!this.state.uploadNotice) {
+      return;
+    }
+
+    if (this.props.canUploadMedia !== false) {
+      this.setState({ uploadNotice: null });
+      return;
+    }
+
+    const reason = this.props.uploadBlockReason || 'unauthorized';
+
+    if (reason !== this.state.uploadNotice) {
+      this.setState({ uploadNotice: reason });
+    }
+  }
+
+  uploadNoticeText () {
+    const message = uploadReasonMessage[this.state.uploadNotice] || messages.uploadBlocked;
+
+    return this.props.intl.formatMessage(message);
   }
 
   _updateFocusAndSelection = (prevProps) => {
@@ -367,11 +422,11 @@ class ComposeForm extends ImmutablePureComponent {
 
   handlePaste = (files) => {
     if (this.props.canUploadMedia === false) {
-      this.setState({ uploadNotice: true });
+      this.setState({ uploadNotice: this.props.uploadBlockReason || 'unauthorized' });
       return;
     }
 
-    this.setState({ uploadNotice: false });
+    this.setState({ uploadNotice: null });
     this.props.onPaste(files);
   }
 
@@ -538,15 +593,14 @@ class ComposeForm extends ImmutablePureComponent {
           <PollButtonContainer />
           <SpoilerButtonContainer />
           {!this.props.isEditing && (
-            <details className='compose-form__more'>
-              <summary className='compose-form__more-summary'>
-                <Icon id='ellipsis-h' fixedWidth aria-hidden='true' />
-                <span className='sr-only'>{intl.formatMessage(messages.more)}</span>
-              </summary>
-              <div className='compose-form__more-panel'>
-                <DateTimeButtonContainer />
-              </div>
-            </details>
+            <div className='compose-form__buttons-secondary'>
+              <DateTimeButtonContainer />
+            </div>
+          )}
+          {!this.props.isEditing && (
+            <ComposerOverflowMenu label={intl.formatMessage(messages.more)}>
+              <DateTimeButtonContainer />
+            </ComposerOverflowMenu>
           )}
         </div>
 
@@ -658,7 +712,7 @@ class ComposeForm extends ImmutablePureComponent {
         {this.renderSurfaceMismatch()}
         {this.renderCapabilityGuard()}
         {this.state.uploadNotice ? (
-          <p className='compose-form__upload-notice' role='status'>{intl.formatMessage(messages.uploadBlocked)}</p>
+          <p className='compose-form__upload-notice' role='status'>{this.uploadNoticeText()}</p>
         ) : null}
         {!simple && <WarningContainer />}
         {!simple && this.props.isEditing && (

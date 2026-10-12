@@ -4,7 +4,7 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import { defineMessages, injectIntl } from 'react-intl';
 import classNames from 'classnames';
 import Icon from 'mastodon/components/icon';
-import { visibleMediaWindow } from '../composer_media';
+import { summaryThumbCount, visibleMediaWindow } from '../composer_media';
 
 const messages = defineMessages({
   edit: { id: 'upload_form.edit', defaultMessage: 'Edit' },
@@ -67,6 +67,7 @@ class ComposerMediaGallery extends React.PureComponent {
     dragId: null,
     overIndex: null,
     expanded: false,
+    previewLimit: null,
   };
 
   rootNode = null;
@@ -75,12 +76,104 @@ class ComposerMediaGallery extends React.PureComponent {
 
   suppressClick = false;
 
+  resizeObserver = null;
+
   setRootNode = (node) => {
     this.rootNode = node;
   };
 
+  componentDidMount () {
+    this.measureSummary();
+
+    if (typeof ResizeObserver === 'function' && this.rootNode && this.rootNode.parentElement) {
+      this.resizeObserver = new ResizeObserver(this.measureSummary);
+      this.resizeObserver.observe(this.rootNode.parentElement);
+    }
+  }
+
+  componentDidUpdate () {
+    this.measureSummary();
+  }
+
   componentWillUnmount () {
+    this.releasePointer();
+    this.unbindPointerListeners();
     this.pointer = null;
+
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
+  }
+
+  measureSummary = () => {
+    if (!this.props.summary || this.state.expanded || !this.rootNode || !this.rootNode.parentElement) {
+      return;
+    }
+
+    const row = this.rootNode.parentElement;
+    const width = row.clientWidth;
+
+    if (!width) {
+      return;
+    }
+
+    const previewLimit = summaryThumbCount({
+      width,
+      itemCount: this.props.media.size,
+      reserved: 0,
+    });
+
+    if (previewLimit !== this.state.previewLimit) {
+      this.setState({ previewLimit });
+    }
+  };
+
+  bindPointerListeners () {
+    document.addEventListener('pointermove', this.handlePointerMove);
+    document.addEventListener('pointerup', this.handlePointerUp);
+    document.addEventListener('pointercancel', this.handlePointerCancel);
+  }
+
+  unbindPointerListeners () {
+    document.removeEventListener('pointermove', this.handlePointerMove);
+    document.removeEventListener('pointerup', this.handlePointerUp);
+    document.removeEventListener('pointercancel', this.handlePointerCancel);
+  }
+
+  capturePointer () {
+    const gesture = this.pointer;
+
+    if (!gesture || gesture.captured || !gesture.target || typeof gesture.target.setPointerCapture !== 'function') {
+      return;
+    }
+
+    if (gesture.pointerId === undefined || gesture.pointerId === null) {
+      return;
+    }
+
+    try {
+      gesture.target.setPointerCapture(gesture.pointerId);
+      gesture.captured = true;
+    } catch (error) {
+      gesture.captured = false;
+    }
+  }
+
+  releasePointer () {
+    const gesture = this.pointer;
+
+    if (!gesture || !gesture.captured || !gesture.target || typeof gesture.target.releasePointerCapture !== 'function') {
+      return;
+    }
+
+    try {
+      if (typeof gesture.target.hasPointerCapture !== 'function' || gesture.target.hasPointerCapture(gesture.pointerId)) {
+        gesture.target.releasePointerCapture(gesture.pointerId);
+      }
+    } catch (error) {
+      // The browser may already have released the pointer.
+    }
   }
 
   indexAt (x, y) {
@@ -88,7 +181,7 @@ class ComposerMediaGallery extends React.PureComponent {
       return null;
     }
 
-    const nodes = this.rootNode.querySelectorAll('[data-media-index]');
+    const nodes = this.rootNode.querySelectorAll('.compose-form__media-item');
     let found = null;
 
     nodes.forEach(node => {
@@ -119,36 +212,51 @@ class ComposerMediaGallery extends React.PureComponent {
 
     this.pointer = {
       id,
+      pointerId: event.pointerId,
+      pointerType: event.pointerType || 'mouse',
       x: event.clientX,
       y: event.clientY,
       moved: false,
+      captured: false,
+      target: event.currentTarget,
     };
+    this.bindPointerListeners();
+  };
 
-    if (event.currentTarget.setPointerCapture && event.pointerId !== undefined && event.pointerId !== null) {
-      try {
-        event.currentTarget.setPointerCapture(event.pointerId);
-      } catch (error) {
-        // Pointer capture is optional.
-      }
+  samePointer = (event) => {
+    if (!this.pointer) {
+      return false;
     }
+
+    if (this.pointer.pointerId === undefined || this.pointer.pointerId === null || event.pointerId === undefined || event.pointerId === null) {
+      return true;
+    }
+
+    return event.pointerId === this.pointer.pointerId;
   };
 
   handlePointerMove = (event) => {
-    if (!this.pointer) {
+    if (!this.samePointer(event)) {
       return;
     }
 
-    const distance = Math.hypot(event.clientX - this.pointer.x, event.clientY - this.pointer.y);
+    const pointX = event.clientX || (event.nativeEvent && event.nativeEvent.clientX) || 0;
+    const pointY = event.clientY || (event.nativeEvent && event.nativeEvent.clientY) || 0;
+    const distance = Math.hypot(pointX - this.pointer.x, pointY - this.pointer.y);
 
     if (!this.pointer.moved && distance < DRAG_THRESHOLD) {
       return;
     }
 
-    this.pointer.moved = true;
-    event.preventDefault();
+    if (!this.pointer.moved) {
+      this.pointer.moved = true;
+      this.capturePointer();
+    }
 
-    const pointX = event.clientX || (event.nativeEvent && event.nativeEvent.clientX) || 0;
-    const pointY = event.clientY || (event.nativeEvent && event.nativeEvent.clientY) || 0;
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+
     const overIndex = this.indexAt(pointX, pointY);
 
     this.pointer.overIndex = overIndex;
@@ -162,12 +270,15 @@ class ComposerMediaGallery extends React.PureComponent {
 
   finishPointer = (commit) => {
     if (!this.pointer) {
+      this.unbindPointerListeners();
       return;
     }
 
     const { id, moved, overIndex: pointerOver } = this.pointer;
     const overIndex = pointerOver !== undefined && pointerOver !== null ? pointerOver : this.state.overIndex;
 
+    this.releasePointer();
+    this.unbindPointerListeners();
     this.pointer = null;
 
     if (moved) {
@@ -181,11 +292,19 @@ class ComposerMediaGallery extends React.PureComponent {
     this.setState({ dragId: null, overIndex: null });
   };
 
-  handlePointerUp = () => {
+  handlePointerUp = (event) => {
+    if (event && !this.samePointer(event)) {
+      return;
+    }
+
     this.finishPointer(true);
   };
 
-  handlePointerCancel = () => {
+  handlePointerCancel = (event) => {
+    if (event && !this.samePointer(event)) {
+      return;
+    }
+
     this.finishPointer(false);
   };
 
@@ -283,9 +402,6 @@ class ComposerMediaGallery extends React.PureComponent {
         data-media-id={id}
         data-media-index={index}
         onPointerDown={this.handlePointerDown}
-        onPointerMove={this.handlePointerMove}
-        onPointerUp={this.handlePointerUp}
-        onPointerCancel={this.handlePointerCancel}
       >
         <button
           type='button'
@@ -339,7 +455,11 @@ class ComposerMediaGallery extends React.PureComponent {
     }
 
     const ids = media.map(item => item.get('id')).toArray();
-    const windowed = visibleMediaWindow(ids, { summary, expanded: this.state.expanded });
+    const windowed = visibleMediaWindow(ids, {
+      summary,
+      expanded: this.state.expanded,
+      limit: this.props.summary && this.state.previewLimit !== null ? this.state.previewLimit : undefined,
+    });
     const visible = windowed.visible.map(id => media.find(item => item.get('id') === id)).filter(Boolean);
 
     return (
@@ -347,6 +467,7 @@ class ComposerMediaGallery extends React.PureComponent {
         className={classNames('compose-form__media', {
           'compose-form__media--summary': summary && !this.state.expanded,
           'compose-form__media--full': !summary || this.state.expanded,
+          'is-reordering': Boolean(this.state.dragId),
         })}
         data-testid='composer-media'
         ref={this.setRootNode}
