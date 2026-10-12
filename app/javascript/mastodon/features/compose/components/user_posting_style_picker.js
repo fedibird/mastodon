@@ -537,7 +537,7 @@ class UserPostingStylePicker extends React.PureComponent {
           className='compose-form__style-button'
           aria-expanded={this.state.open}
           aria-haspopup='menu'
-          aria-controls={this.menuId}
+          aria-controls={this.state.open ? this.menuId : undefined}
           ref={this.setTrigger}
           onClick={this.handleToggle}
         >
@@ -555,42 +555,47 @@ class UserPostingStylePicker extends React.PureComponent {
             {notices.join(' ')}
           </span>
         ) : null}
-        <div className={classNames('compose-form__style-menu', 'compose-form__style-menu--sectioned')} hidden={!this.state.open}>
-          {controls && (
-            <div
-              id={this.menuId}
-              className='compose-form__style-options'
-              role='menu'
-              tabIndex={-1}
-              aria-labelledby={this.labelId}
-              onKeyDown={this.handleMenuKey}
-            >
-              {this.renderOption(null)}
-              {this.props.styles && this.props.styles.map(style => this.renderOption(style))}
-            </div>
-          )}
-          {this.state.open && catalogProblem ? (
-            <div data-posting-style-catalog='failed'>
-              <p className='compose-form__style-notice'>{intl.formatMessage(messages.catalogFailed)}</p>
-              {this.props.onRetryCatalog ? (
-                <button type='button' className='compose-form__style-retry' onClick={this.props.onRetryCatalog}>
-                  {intl.formatMessage(messages.catalogRetry)}
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-          {this.state.open && catalogPending ? (
-            <p className='compose-form__style-notice'>{intl.formatMessage(messages.catalogLoading)}</p>
-          ) : null}
-          {this.state.open ? defaultActions : null}
-          {this.state.open ? this.renderNotices() : null}
-          <div className='compose-form__style-context' hidden={!this.state.open}>{contextDetails}</div>
-          {this.state.open ? (
-            <a className='compose-form__style-settings' href='/settings/user_posting_contexts'>
-              {intl.formatMessage(messages.settings)}
-            </a>
-          ) : null}
-        </div>
+        {this.state.open && (
+          <div
+            id={controls ? undefined : this.menuId}
+            className={classNames('compose-form__style-menu', 'compose-form__style-menu--sectioned')}
+          >
+            {controls && (
+              <div
+                id={this.menuId}
+                className='compose-form__style-options'
+                role='menu'
+                tabIndex={-1}
+                aria-labelledby={this.labelId}
+                onKeyDown={this.handleMenuKey}
+              >
+                {this.renderOption(null)}
+                {this.props.styles && this.props.styles.map(style => this.renderOption(style))}
+              </div>
+            )}
+            {catalogProblem ? (
+              <div data-posting-style-catalog='failed'>
+                <p className='compose-form__style-notice'>{intl.formatMessage(messages.catalogFailed)}</p>
+                {this.props.onRetryCatalog ? (
+                  <button type='button' className='compose-form__style-retry' onClick={this.props.onRetryCatalog}>
+                    {intl.formatMessage(messages.catalogRetry)}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {catalogPending ? (
+              <p className='compose-form__style-notice'>{intl.formatMessage(messages.catalogLoading)}</p>
+            ) : null}
+            {defaultActions}
+            {this.renderNotices()}
+            <div className='compose-form__style-context'>{contextDetails}</div>
+            {controls || catalogProblem ? (
+              <a className='compose-form__style-settings' href='/settings/user_posting_contexts'>
+                {intl.formatMessage(messages.settings)}
+              </a>
+            ) : null}
+          </div>
+        )}
       </div>
     );
   }
@@ -615,7 +620,7 @@ class UserPostingStylePicker extends React.PureComponent {
           className='compose-form__style-button'
           aria-expanded={this.state.open}
           aria-haspopup='menu'
-          aria-controls={this.menuId}
+          aria-controls={this.state.open ? this.menuId : undefined}
           ref={this.setTrigger}
           onClick={this.handleToggle}
         >

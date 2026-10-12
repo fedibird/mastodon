@@ -984,6 +984,44 @@ body > [data-popper-placement] {
     min-width: 0;
   }
 
+  .compose-form__destination {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    position: relative;
+  }
+
+  .compose-form__destination-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 700;
+  }
+
+  .compose-form__destination-details {
+    flex: 0 0 auto;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .compose-form__destination-panel {
+    position: absolute;
+    z-index: 5;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 12rem;
+    max-width: min(18rem, calc(100vw - 24px));
+    padding: 8px;
+    border: 1px solid $ui-base-color;
+    border-radius: 4px;
+    background: $simple-background-color;
+  }
+
   .compose-form__header-audience {
     display: flex;
     align-items: center;

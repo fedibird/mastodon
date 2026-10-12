@@ -22,6 +22,11 @@ jest.mock('react-intl', () => {
   };
 });
 
+jest.mock('../../../../initial_state', () => ({
+  isAdministrator: true,
+  showComposerPostingStyleSelector: true,
+}));
+
 import { USER_POSTING_STYLES_FETCH_SUCCESS } from '../../../../actions/user_posting_styles';
 import { applyComposerSurface, createComposer } from '../../../../actions/composer';
 import { groupPostingContext } from '../../../../posting_context/fixtures/group_context_fixture';
@@ -138,8 +143,8 @@ describe('UserPostingStylePicker container candidates', () => {
     const picker = document.querySelector('[data-posting-style-picker]');
 
     expect(picker).toBeTruthy();
-    expect(picker.querySelector('.compose-form__style-context').hidden).toBe(true);
-    expect(document.querySelector('.compose-form__style-context').parentElement).toBe(picker.querySelector('.compose-form__style-menu'));
+    expect(picker.querySelector('.compose-form__style-menu')).toBeNull();
+    expect(picker.querySelector('.compose-form__style-context')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: /7|Posting destination|This place only|Usual settings/ }));
 

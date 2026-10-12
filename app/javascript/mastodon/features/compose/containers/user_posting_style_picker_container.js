@@ -10,7 +10,8 @@ import { selectComposerPostingContextCompliance } from '../../../posting_context
 import { placeDefaultWriteSurface, selectPortablePostingStyleCandidates, styleMatchesSurface, surfaceCacheKey } from '../../../posting_context/surface';
 import { resolveUserPostingStyle } from '../../../posting_context/user_style_resolver';
 import { PORTABLE_COMPOSER_MODE_SIMPLE, selectComposer, selectPortableComposerDisplayMode } from '../../../selectors/composer';
-import { showComposerPostingStyleSelector } from '../../../initial_state';
+import { isAdministrator, showComposerPostingStyleSelector } from '../../../initial_state';
+import ComposerDestinationSummary from '../components/composer_destination_summary';
 import { PRIMARY_COMPOSER_ID } from '../../../utils/composer';
 import { withComposerId } from '../composer_id_context';
 import UserPostingStylePicker, { IntlUserPostingStyleCatalogNotice } from '../components/user_posting_style_picker';
@@ -30,8 +31,42 @@ const findStyle = (state, styleId) => {
   return styles.find(style => style.get('id') === String(styleId)) || null;
 };
 
+const placeLabelFor = (composer) => {
+  if (!composer) {
+    return null;
+  }
+
+  const surface = composer.get('surface');
+
+  return (composer.getIn(['userPostingStyle', 'snapshot', 'target', 'label']))
+    || (composer.getIn(['context', 'protocol', 'activityPub', 'audience', 'acct']))
+    || (surface ? String(surface.get('key') || '') : '')
+    || null;
+};
+
 const mapStateToProps = (state, { composerId }) => {
   const composer = selectComposer(state, composerId);
+
+  if (!isAdministrator) {
+    const compliance = composer ? selectComposerPostingContextCompliance(state, composerId) : null;
+
+    return {
+      stylePermitted: false,
+      visible: false,
+      catalogFailed: false,
+      catalogLoading: false,
+      styles: ImmutableList(),
+      showStyleControls: false,
+      placeLabel: placeLabelFor(composer),
+      destinationWarning: Boolean(
+        composer && (
+          composer.getIn(['userPostingStyle', 'destinationStatus']) === 'failed'
+          || (compliance && compliance.visibility && compliance.visibility.valid === false)
+        ),
+      ),
+    };
+  }
+
   const catalogStatus = state.getIn(['userPostingStyles', 'status']);
   const editing = Boolean(composer && (composer.get('id') || composer.get('scheduled_status_id')));
   const surface = composer && composer.get('surface');
@@ -81,10 +116,8 @@ const mapStateToProps = (state, { composerId }) => {
     defaultsBlocked: portable && !placeDefaultWriteSurface(composer),
     showStyleControls: showComposerPostingStyleSelector !== false && visible && !catalogFailed,
     customEmojis: state.get('custom_emojis') || ImmutableList(),
-    placeLabel: (composer.getIn(['userPostingStyle', 'snapshot', 'target', 'label']))
-      || (composer.getIn(['context', 'protocol', 'activityPub', 'audience', 'acct']))
-      || (surface ? String(surface.get('key') || '') : '')
-      || null,
+    placeLabel: placeLabelFor(composer),
+    stylePermitted: true,
   };
 };
 
@@ -154,7 +187,17 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => {
   };
 };
 
-const VisiblePicker = ({ visible, catalogFailed, catalogLoading, onRetryCatalog, contextDetails, header, ...props }) => {
+const VisiblePicker = ({ visible, catalogFailed, catalogLoading, onRetryCatalog, contextDetails, header, stylePermitted, placeLabel, destinationWarning, ...props }) => {
+  if (stylePermitted === false) {
+    return (
+      <ComposerDestinationSummary
+        placeLabel={placeLabel}
+        warning={destinationWarning}
+        contextDetails={contextDetails}
+      />
+    );
+  }
+
   if (header && (visible || catalogFailed || catalogLoading)) {
     return (
       <UserPostingStylePicker
@@ -191,6 +234,9 @@ VisiblePicker.propTypes = {
   onRetryCatalog: PropTypes.func,
   contextDetails: PropTypes.node,
   header: PropTypes.bool,
+  stylePermitted: PropTypes.bool,
+  placeLabel: PropTypes.string,
+  destinationWarning: PropTypes.bool,
 };
 
 export default withComposerId(injectIntl(connect(mapStateToProps, mapDispatchToProps)(VisiblePicker)));
