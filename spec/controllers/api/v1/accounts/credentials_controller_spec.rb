@@ -348,6 +348,29 @@ describe Api::V1::Accounts::CredentialsController do
         expect(source[:indexable]).to be true
       end
 
+      it 'writes the current privacy and sensitive getters when source omits them' do
+        user.account.update!(locked: true)
+
+        patch :update, params: { source: { language: 'de' } }, as: :json
+
+        expect(response).to have_http_status(200)
+        privacy = Setting.unscoped.find_by!(thing_type: 'User', thing_id: user.id, var: 'default_privacy')
+        sensitive = Setting.unscoped.find_by!(thing_type: 'User', thing_id: user.id, var: 'default_sensitive')
+        expect(privacy.value).to eq 'private'
+        expect(sensitive.value).to be false
+        expect(user.setting_default_language).to eq 'de'
+      end
+
+      it 'does not replace a stored privacy when source privacy is null' do
+        user.settings['default_privacy'] = 'direct'
+
+        patch :update, params: { source: { privacy: nil, language: 'de' } }, as: :json
+
+        expect(response).to have_http_status(200)
+        expect(user.setting_default_privacy).to eq 'direct'
+        expect(user.setting_default_language).to eq 'de'
+      end
+
       it 'returns stored source preferences without deriving the posting language' do
         user.update!(locale: 'ja')
 
