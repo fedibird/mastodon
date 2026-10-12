@@ -448,6 +448,7 @@ body > [data-popper-placement] {
     width: 100%;
     max-width: 100%;
     min-width: 0;
+    background: $simple-background-color;
   }
 
   .autosuggest-textarea > label {
@@ -1201,11 +1202,13 @@ body > [data-popper-placement] {
     align-items: center;
     justify-content: flex-end;
     gap: 8px;
-    width: max-content;
+    box-sizing: border-box;
+    width: 100%;
     max-width: 100%;
-    margin-inline-start: auto;
-    padding-inline: 10px;
-    padding-bottom: 2px;
+    margin: 0;
+    padding: 4px 10px 8px;
+    background: $simple-background-color;
+    color: $inverted-text-color;
     pointer-events: none;
   }
 
@@ -1628,8 +1631,11 @@ body > [data-popper-placement] {
     z-index: 2;
     inset-inline-end: 8px;
     bottom: 46px;
+    width: max-content;
     margin: 0;
-    padding: 0;
+    padding: 0 4px;
+    background: $simple-background-color;
+    color: $inverted-text-color;
   }
 
   &.compose-form--compact-publish.compose-form--searchability-note .autosuggest-textarea__textarea {
