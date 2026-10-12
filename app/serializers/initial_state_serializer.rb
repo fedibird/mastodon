@@ -49,7 +49,7 @@ class InitialStateSerializer < ActiveModel::Serializer
       store[:auto_play_media]                       = object.current_account.user.setting_auto_play_media
       store[:display_media]                         = object.current_account.user.setting_display_media
       store[:expand_spoilers]                       = object.current_account.user.setting_expand_spoilers
-      store[:reduce_motion]                         = object.current_account.user.setting_reduce_motion
+      store[:reduce_motion]                         = preference_effective('reduce_motion')
       store[:disable_swiping]                       = object.current_account.user.setting_disable_swiping
       store[:advanced_layout]                       = object.current_account.user.setting_advanced_layout
       store[:use_blurhash]                          = object.current_account.user.setting_use_blurhash
@@ -80,7 +80,7 @@ class InitialStateSerializer < ActiveModel::Serializer
       store[:disable_reaction_streaming]            = object.current_account.user.setting_disable_reaction_streaming
       store[:show_reply_tree_button]                = object.current_account.user.setting_show_reply_tree_button
       store[:disable_joke_appearance]               = object.current_account.user.setting_disable_joke_appearance
-      store[:new_features_policy]                   = object.current_account.user.setting_new_features_policy
+      store[:new_features_policy]                   = preference_effective('new_features_policy')
       store[:theme_instance_ticker]                 = object.current_account.user.setting_theme_instance_ticker
       store[:theme_public]                          = object.current_account.user.setting_theme_public
       store[:enable_status_reference]               = object.current_account.user.setting_enable_status_reference
@@ -90,11 +90,11 @@ class InitialStateSerializer < ActiveModel::Serializer
       store[:unselect_reference_modal]              = object.current_account.user.setting_unselect_reference_modal
       store[:delete_scheduled_status_modal]         = object.current_account.user.setting_delete_scheduled_status_modal
       store[:enable_empty_column]                   = object.current_account.user.setting_enable_empty_column
-      store[:content_font_size]                     = object.current_account.user.setting_content_font_size
-      store[:translation_preferred_mode]            = object.current_account.user.setting_translation_preferred_mode
-      store[:translation_bar_visibility]            = object.current_account.user.setting_show_translation_bar
+      store[:content_font_size]                     = preference_effective('content_font_size')
+      store[:translation_preferred_mode]            = preference_effective('translation_preferred_mode')
+      store[:translation_bar_visibility]            = preference_effective('show_translation_bar')
       store[:translation_private_content_allowed] = TranslationService.private_content_allowed_for(object.current_account.user)
-      store[:info_font_size]                        = object.current_account.user.setting_info_font_size
+      store[:info_font_size]                        = preference_effective('info_font_size')
       store[:content_emoji_reaction_size]           = object.current_account.user.setting_content_emoji_reaction_size
       store[:emoji_scale]                           = object.current_account.user.setting_emoji_scale
       store[:emoji_size_in_single]                  = object.current_account.user.setting_emoji_size_in_single
@@ -165,10 +165,10 @@ class InitialStateSerializer < ActiveModel::Serializer
 
     if object.current_account
       store[:me]                      = object.current_account.id.to_s
-      store[:default_privacy]         = object.visibility || object.current_account.user.setting_default_privacy
+      store[:default_privacy]         = object.visibility || preference_effective('default_privacy')
       store[:default_searchability]   = object.current_account.searchability
-      store[:default_sensitive]       = object.current_account.user.setting_default_sensitive
-      store[:default_language]        = object.current_account.user.preferred_posting_language
+      store[:default_sensitive]       = preference_effective('default_sensitive')
+      store[:default_language]        = preference_effective('preferred_posting_language')
       store[:default_expires_in]      = object.current_account.user.setting_default_expires_in
       store[:default_expires_action]  = object.current_account.user.setting_default_expires_action
       store[:prohibited_visibilities] = object.current_account.user.setting_prohibited_visibilities.filter(&:present?)
@@ -231,5 +231,17 @@ class InitialStateSerializer < ActiveModel::Serializer
 
   def instance_presenter
     @instance_presenter ||= InstancePresenter.new
+  end
+
+  # One reader for this serializer instance. Logged-out rendering never calls it.
+  # Values are Reader#effective so stored strings stay strings.
+  def preference_reader
+    return @preference_reader if defined?(@preference_reader)
+
+    @preference_reader = UserPreferences::Reader.new(object.current_account.user)
+  end
+
+  def preference_effective(key)
+    preference_reader.get(key).effective
   end
 end
