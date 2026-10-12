@@ -10,15 +10,15 @@ class REST::PreferencesSerializer < ActiveModel::Serializer
   attribute :reading_autoplay_gifs, key: 'reading:autoplay:gifs'
 
   def posting_default_privacy
-    object.user.setting_default_privacy
+    preference_effective('default_privacy')
   end
 
   def posting_default_sensitive
-    object.user.setting_default_sensitive
+    preference_effective('default_sensitive')
   end
 
   def posting_default_language
-    object.user.preferred_posting_language
+    preference_effective('preferred_posting_language')
   end
 
   def reading_default_sensitive_media
@@ -34,5 +34,17 @@ class REST::PreferencesSerializer < ActiveModel::Serializer
       object.user.setting_auto_play_emoji &&
       object.user.setting_auto_play_header &&
       object.user.setting_auto_play_media
+  end
+
+  private
+
+  def preference_reader
+    return @preference_reader if defined?(@preference_reader)
+
+    @preference_reader = UserPreferences::Reader.new(object.user)
+  end
+
+  def preference_effective(key)
+    preference_reader.get(key).effective
   end
 end
