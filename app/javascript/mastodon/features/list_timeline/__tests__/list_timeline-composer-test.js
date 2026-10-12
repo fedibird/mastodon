@@ -43,7 +43,9 @@ jest.mock('../../../components/missing_indicator', () => () => null);
 jest.mock('../../../components/loading_indicator', () => () => null);
 jest.mock('../../../components/column', () => {
   const React = require('react');
-  return React.forwardRef(({ children }, ref) => <div ref={ref}>{children}</div>);
+  return React.forwardRef(({ children, dropComposerId }, ref) => (
+    <div ref={ref} data-drop-composer-id={dropComposerId || undefined}>{children}</div>
+  ));
 });
 jest.mock('../../../components/column_back_button', () => () => null);
 jest.mock('../../../components/column_header', () => ({ children, extraButton }) => <div>{extraButton}{children}</div>);
@@ -174,6 +176,7 @@ describe('ListTimeline portable composer', () => {
     expect(pinnedComposer().composerId).toEqual('portable:list-route:7');
     expect(pinnedComposer().postingContext).toBeUndefined();
     expect(document.querySelector('.column-portable-composer')).toContainElement(screen.getByTestId('portable-composer'));
+    expect(document.querySelector('[data-drop-composer-id]').getAttribute('data-drop-composer-id')).toBe('portable:list-route:7');
     expect(document.querySelector('[data-testid="status-list"]')).not.toContainElement(screen.getByTestId('portable-composer'));
 
     fireEvent.click(screen.getByRole('button', { name: 'Hide composer' }));

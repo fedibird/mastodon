@@ -346,6 +346,9 @@ describe('ListTimeline split', () => {
     const live = container.querySelector('.timeline-split__pane--live .scrollable');
     const history = container.querySelector('.timeline-split__pane--history .scrollable');
 
+    expect(container.querySelector('.column').getAttribute('data-drop-composer-id')).toBe(composerId);
+    expect(container.querySelector('.column .timeline-split__pane--live')).toBeTruthy();
+    expect(container.querySelector('.column .timeline-split__pane--history')).toBeTruthy();
     expect(container.querySelectorAll('.column-portable-composer [data-testid="portable-composer"]')).toHaveLength(1);
     expect(container.querySelectorAll('.timeline-split [data-testid="portable-composer"]')).toHaveLength(0);
     expect(container.querySelectorAll('.timeline-split__pane--history [data-testid="portable-composer"]')).toHaveLength(0);

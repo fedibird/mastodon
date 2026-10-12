@@ -303,7 +303,7 @@ class ListTimeline extends React.PureComponent {
     }
 
     return (
-      <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={title} columnWidth={columnWidth}>
+      <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={title} columnWidth={columnWidth} dropComposerId={portableComposer ? composerId : null}>
         <ColumnHeader
           icon='list-ul'
           active={hasUnread}
@@ -346,6 +346,13 @@ class ListTimeline extends React.PureComponent {
             </div>
           )}
         </ColumnHeader>
+
+        {portableComposer ? (
+          <div className='column-drop-target' aria-hidden='true'>
+            <Icon id='paperclip' />
+            <FormattedMessage id='upload_area.column' defaultMessage='Drop files here to attach them' />
+          </div>
+        ) : null}
 
         {portableComposer ? (
           <div className='column-portable-composer'>{portableComposer}</div>

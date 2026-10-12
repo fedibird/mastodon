@@ -1029,6 +1029,7 @@
   "units.short.billion": "{count}B",
   "units.short.million": "{count}M",
   "units.short.thousand": "{count}K",
+  "upload_area.column": "Drop files here to attach them",
   "upload_area.title": "Drag & drop to upload",
   "upload_button.label": "Add images, a video or an audio file",
   "upload_error.limit": "File upload limit exceeded.",

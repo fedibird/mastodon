@@ -362,7 +362,7 @@ class GroupTimeline extends React.PureComponent {
     }
 
     return (
-      <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={title} columnWidth={columnWidth}>
+      <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={title} columnWidth={columnWidth} dropComposerId={portableComposer ? composerId : null}>
         <ColumnHeader
           icon='users'
           active={hasUnread}
@@ -387,6 +387,13 @@ class GroupTimeline extends React.PureComponent {
         </ColumnHeader>
 
         {groupDetail}
+
+        {portableComposer ? (
+          <div className='column-drop-target' aria-hidden='true'>
+            <Icon id='paperclip' />
+            <FormattedMessage id='upload_area.column' defaultMessage='Drop files here to attach them' />
+          </div>
+        ) : null}
 
         {portableComposer ? (
           <div className='column-portable-composer'>{portableComposer}</div>

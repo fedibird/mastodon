@@ -162,6 +162,8 @@ describe('GroupTimeline split', () => {
     const history = container.querySelector('.timeline-split__pane--history .scrollable');
 
     expect(store.getState().getIn(['timelines', 'group:7', 'splitTimelineId'])).toEqual(expect.stringMatching(/^group:7:split:col-a:.+/));
+    expect(container.querySelector('.column').getAttribute('data-drop-composer-id')).toBe('portable:group-column:col-a');
+    expect(container.querySelector('.column [data-testid="group-detail"]')).toBeTruthy();
     expect(container.querySelectorAll('.column-portable-composer [data-testid="portable-composer"]')).toHaveLength(1);
     expect(container.querySelectorAll('.timeline-split [data-testid="portable-composer"]')).toHaveLength(0);
     expect(container.querySelectorAll('.timeline-split__pane--history [data-testid="portable-composer"]')).toHaveLength(0);

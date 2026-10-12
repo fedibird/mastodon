@@ -46,7 +46,9 @@ jest.mock('mastodon/actions/tags', () => ({
 
 jest.mock('mastodon/components/column', () => {
   const React = require('react');
-  return React.forwardRef(({ children }, ref) => <div ref={ref}>{children}</div>);
+  return React.forwardRef(({ children, dropComposerId }, ref) => (
+    <div ref={ref} data-drop-composer-id={dropComposerId || undefined}>{children}</div>
+  ));
 });
 jest.mock('mastodon/components/column_header', () => ({ children, extraButton }) => <div>{extraButton}{children}</div>);
 jest.mock('mastodon/components/icon', () => () => null);
@@ -170,6 +172,7 @@ describe('HashtagTimeline portable composer', () => {
     expect(pinnedComposer().postingContext.managed.hashtags.map(tag => tag.normalizedName)).toEqual(['foo']);
     expect(pinnedComposer().postingContext.key).toEqual('builtin:hashtag:foo');
     expect(document.querySelector('.column-portable-composer')).toContainElement(screen.getByTestId('portable-composer'));
+    expect(document.querySelector('[data-drop-composer-id]').getAttribute('data-drop-composer-id')).toBe('portable:hashtag-route:foo');
     expect(document.querySelector('[data-testid="status-list"]')).not.toContainElement(screen.getByTestId('portable-composer'));
     expect(screen.getByRole('button', { name: 'Follow hashtag' })).toBeTruthy();
 

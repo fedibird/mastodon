@@ -11,8 +11,16 @@ import LoadingBarContainer from './containers/loading_bar_container';
 import ModalContainer from './containers/modal_container';
 import { layoutFromWindow } from 'mastodon/is_mobile';
 import { debounce } from 'lodash';
-import { uploadCompose, resetCompose, changeComposeSpoilerness } from '../../actions/compose';
-import { composerIdFromEventTarget, isExternalFileDrag, shouldAcceptGlobalFileDrop } from '../compose/composer_drop';
+import { uploadCompose, uploadToComposer, resetCompose, changeComposeSpoilerness } from '../../actions/compose';
+import { selectComposer } from '../../selectors/composer';
+import { selectComposerCanUploadAsIdentity } from '../../selectors/posting_identities';
+import {
+  clearColumnDropHighlight,
+  dragFeedback,
+  isExternalFileDrag,
+  planDocumentFileDrop,
+  syncColumnDropHighlight,
+} from '../compose/composer_drop';
 import { updateProcessingStatuses, refreshIntersectionStatuses } from '../../actions/statuses';
 import { expandHomeTimeline } from '../../actions/timelines';
 import { expandNotifications } from '../../actions/notifications';
@@ -317,6 +325,34 @@ class UI extends React.PureComponent {
     this.props.dispatch(unfocusApp());
   }
 
+  clearDragUi = () => {
+    this.dragTargets = [];
+    clearColumnDropHighlight();
+
+    if (this.state.draggingOver) {
+      this.setState({ draggingOver: false });
+    }
+  }
+
+  syncDragFeedback = (event) => {
+    const feedback = dragFeedback(event.target, event.dataTransfer, {
+      canUploadPrimary: this.props.canUploadMore,
+    });
+
+    syncColumnDropHighlight(feedback.columnId ? event.target : null);
+
+    if (this.state.draggingOver !== feedback.overlay) {
+      this.setState({ draggingOver: feedback.overlay });
+    }
+  }
+
+  composerCanAcceptFiles = (composerId, getState) => {
+    const state = getState();
+    const composer = selectComposer(state, composerId);
+
+    return Boolean(composer && selectComposerCanUploadAsIdentity(state, composerId).canUpload);
+  }
+
   handleDragEnter = (e) => {
     e.preventDefault();
 
@@ -328,18 +364,17 @@ class UI extends React.PureComponent {
       this.dragTargets.push(e.target);
     }
 
-    if (composerIdFromEventTarget(e.target) || !isExternalFileDrag(e.dataTransfer)) {
+    if (!isExternalFileDrag(e.dataTransfer)) {
       return;
     }
 
-    if (this.props.canUploadMore) {
-      this.setState({ draggingOver: true });
-    }
+    this.syncDragFeedback(e);
   }
 
   handleDragOver = (e) => {
-    if (this.dataTransferIsText(e.dataTransfer) || composerIdFromEventTarget(e.target)) return false;
+    if (this.dataTransferIsText(e.dataTransfer) || !isExternalFileDrag(e.dataTransfer)) return false;
 
+    this.syncDragFeedback(e);
     e.preventDefault();
     e.stopPropagation();
 
@@ -353,20 +388,37 @@ class UI extends React.PureComponent {
   }
 
   handleDrop = (e) => {
-    if (!shouldAcceptGlobalFileDrop(e, { textOnly: this.dataTransferIsText(e.dataTransfer) })) return;
+    const textOnly = this.dataTransferIsText(e.dataTransfer);
 
-    e.preventDefault();
-
-    this.setState({ draggingOver: false });
-    this.dragTargets = [];
-
-    if (!(e.dataTransfer && e.dataTransfer.files.length >= 1)) {
+    if (!isExternalFileDrag(e.dataTransfer) || textOnly) {
       return;
     }
 
-    if (this.props.canUploadMore) {
-      this.props.dispatch(uploadCompose(e.dataTransfer.files));
-    }
+    e.preventDefault();
+    this.clearDragUi();
+
+    const files = e.dataTransfer && e.dataTransfer.files;
+
+    this.props.dispatch((dispatch, getState) => {
+      const plan = planDocumentFileDrop(e, {
+        primaryCanAccept: this.props.canUploadMore,
+        composerCanAccept: composerId => this.composerCanAcceptFiles(composerId, getState),
+      });
+
+      if (!files || files.length < 1) {
+        return;
+      }
+
+      if (plan.action === 'upload-composer') {
+        dispatch(uploadToComposer(plan.composerId, files));
+      } else if (plan.action === 'upload-primary') {
+        dispatch(uploadCompose(files));
+      }
+    });
+  }
+
+  handleDragEnd = () => {
+    this.clearDragUi();
   }
 
   handleDragLeave = (e) => {
@@ -379,7 +431,7 @@ class UI extends React.PureComponent {
       return;
     }
 
-    this.setState({ draggingOver: false });
+    this.clearDragUi();
   }
 
   dataTransferIsText = (dataTransfer) => {

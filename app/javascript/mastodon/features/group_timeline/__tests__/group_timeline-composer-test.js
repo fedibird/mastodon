@@ -51,7 +51,9 @@ jest.mock('../../../actions/streaming', () => ({
 
 jest.mock('../../../components/column', () => {
   const React = require('react');
-  return React.forwardRef(({ children }, ref) => <div ref={ref}>{children}</div>);
+  return React.forwardRef(({ children, dropComposerId }, ref) => (
+    <div ref={ref} data-drop-composer-id={dropComposerId || undefined}>{children}</div>
+  ));
 });
 jest.mock('../../../components/column_header', () => ({ children, extraButton }) => <div>{extraButton}{children}</div>);
 jest.mock('../../../components/icon', () => () => null);
@@ -239,6 +241,7 @@ describe('GroupTimeline portable composer', () => {
     expect(pinnedComposer().postingContext).toEqual(groupPostingContext);
     expect(pinnedComposer().postingContext.discovery).toBeUndefined();
     expect(document.querySelector('.column-portable-composer')).toContainElement(screen.getByTestId('portable-composer'));
+    expect(document.querySelector('[data-drop-composer-id]').getAttribute('data-drop-composer-id')).toBe('portable:group-route:123');
     expect(document.querySelector('[data-testid="status-list"]')).not.toContainElement(screen.getByTestId('portable-composer'));
     expect(screen.getByRole('button', { name: 'Hide composer' }).getAttribute('aria-pressed')).toBe('true');
 

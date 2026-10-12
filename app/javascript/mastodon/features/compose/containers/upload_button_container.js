@@ -1,4 +1,5 @@
 import { connect } from 'react-redux';
+import { List as ImmutableList } from 'immutable';
 import UploadButton from '../components/upload_button';
 import { uploadToComposer } from '../../../actions/compose';
 import { allowPollImage, maxAttachments } from '../../../initial_state';
@@ -9,9 +10,10 @@ const mapStateToProps = (state, { composerId }) => {
   const composer = selectComposer(state, composerId);
   const media = composer.get('media_attachments');
   const hasImages = media.some(item => item.get('type') === 'image');
-  let acceptContentTypes = state.getIn(['media_attachments', 'accept_content_types']);
+  const hasExclusive = media.some(item => ['video', 'audio', 'gifv'].includes(item.get('type'))) || (composer.get('pending_exclusive_attachments') || 0) > 0;
+  let acceptContentTypes = state.getIn(['media_attachments', 'accept_content_types']) || ImmutableList();
 
-  if (hasImages && acceptContentTypes) {
+  if (hasImages && !hasExclusive && acceptContentTypes.size > 0) {
     const images = acceptContentTypes.filter(type => String(type).startsWith('image/'));
 
     if (images.size > 0) {
@@ -20,7 +22,7 @@ const mapStateToProps = (state, { composerId }) => {
   }
 
   return {
-    disabled: composer.get('is_uploading') || (media.size + composer.get('pending_media_attachments') >= maxAttachments || media.some(m => ['video', 'audio', 'gifv'].includes(m.get('type')))),
+    disabled: composer.get('is_uploading') || hasExclusive || (media.size + composer.get('pending_media_attachments') >= maxAttachments),
     unavailable: !allowPollImage && composer.get('poll') !== null,
     resetFileKey: composer.get('resetFileKey'),
     acceptContentTypes,

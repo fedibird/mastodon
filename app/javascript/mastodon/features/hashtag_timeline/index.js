@@ -357,7 +357,7 @@ class HashtagTimeline extends React.PureComponent {
     }
 
     return (
-      <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={`#${id}`} columnWidth={columnWidth}>
+      <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={`#${id}`} columnWidth={columnWidth} dropComposerId={portableComposer ? composerId : null}>
         <ColumnHeader
           icon='hashtag'
           active={hasUnread}
@@ -381,6 +381,13 @@ class HashtagTimeline extends React.PureComponent {
         >
           {columnId && <ColumnSettingsContainer columnId={columnId} />}
         </ColumnHeader>
+
+        {portableComposer ? (
+          <div className='column-drop-target' aria-hidden='true'>
+            <Icon id='paperclip' />
+            <FormattedMessage id='upload_area.column' defaultMessage='Drop files here to attach them' />
+          </div>
+        ) : null}
 
         {portableComposer ? (
           <div className='column-portable-composer'>{portableComposer}</div>
