@@ -44,8 +44,11 @@ const placeLabelFor = (composer) => {
     || null;
 };
 
+const composerIsEditing = (composer) => Boolean(composer && (composer.get('id') || composer.get('scheduled_status_id')));
+
 const mapStateToProps = (state, { composerId }) => {
   const composer = selectComposer(state, composerId);
+  const editing = composerIsEditing(composer);
 
   if (!isAdministrator) {
     const compliance = composer ? selectComposerPostingContextCompliance(state, composerId) : null;
@@ -58,6 +61,7 @@ const mapStateToProps = (state, { composerId }) => {
       styles: ImmutableList(),
       showStyleControls: false,
       placeLabel: placeLabelFor(composer),
+      editing,
       destinationWarning: Boolean(
         composer && (
           composer.getIn(['userPostingStyle', 'destinationStatus']) === 'failed'
@@ -68,7 +72,6 @@ const mapStateToProps = (state, { composerId }) => {
   }
 
   const catalogStatus = state.getIn(['userPostingStyles', 'status']);
-  const editing = Boolean(composer && (composer.get('id') || composer.get('scheduled_status_id')));
   const surface = composer && composer.get('surface');
   const portable = Boolean(surface);
   const eligible = !editing && Boolean(composer) && (composerId === PRIMARY_COMPOSER_ID || portable);
@@ -187,10 +190,12 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => {
   };
 };
 
-const VisiblePicker = ({ visible, catalogFailed, catalogLoading, onRetryCatalog, contextDetails, header, stylePermitted, placeLabel, destinationWarning, ...props }) => {
+const VisiblePicker = ({ visible, catalogFailed, catalogLoading, onRetryCatalog, contextDetails, header, stylePermitted, placeLabel, destinationWarning, editing, composerId, ...props }) => {
   if (stylePermitted === false) {
     return (
       <ComposerDestinationSummary
+        composerId={composerId}
+        editing={editing}
         placeLabel={placeLabel}
         warning={destinationWarning}
         contextDetails={contextDetails}
@@ -202,6 +207,7 @@ const VisiblePicker = ({ visible, catalogFailed, catalogLoading, onRetryCatalog,
     return (
       <UserPostingStylePicker
         {...props}
+        composerId={composerId}
         header
         catalogFailed={catalogFailed}
         catalogLoading={catalogLoading}
@@ -224,7 +230,7 @@ const VisiblePicker = ({ visible, catalogFailed, catalogLoading, onRetryCatalog,
     return contextDetails || null;
   }
 
-  return <UserPostingStylePicker {...props} contextDetails={contextDetails} />;
+  return <UserPostingStylePicker {...props} composerId={composerId} contextDetails={contextDetails} />;
 };
 
 VisiblePicker.propTypes = {
@@ -237,6 +243,8 @@ VisiblePicker.propTypes = {
   stylePermitted: PropTypes.bool,
   placeLabel: PropTypes.string,
   destinationWarning: PropTypes.bool,
+  editing: PropTypes.bool,
+  composerId: PropTypes.string,
 };
 
 export default withComposerId(injectIntl(connect(mapStateToProps, mapDispatchToProps)(VisiblePicker)));

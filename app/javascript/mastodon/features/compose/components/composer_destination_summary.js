@@ -1,6 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { defineMessages, injectIntl } from 'react-intl';
+import { eventInOwnedSearchabilityPopup } from '../searchability_popup';
 
 const messages = defineMessages({
   destination: { id: 'compose_form.posting_style.context', defaultMessage: 'Posting destination' },
@@ -15,6 +16,8 @@ class ComposerDestinationSummary extends React.PureComponent {
     placeLabel: PropTypes.string,
     warning: PropTypes.bool,
     contextDetails: PropTypes.node,
+    editing: PropTypes.bool,
+    composerId: PropTypes.string,
   };
 
   state = {
@@ -44,7 +47,7 @@ class ComposerDestinationSummary extends React.PureComponent {
   }
 
   handleDocumentClick = (event) => {
-    if (!this.state.open || !this.root || this.root.contains(event.target)) {
+    if (!this.state.open || !this.root || this.root.contains(event.target) || eventInOwnedSearchabilityPopup(event, this.props.composerId)) {
       return;
     }
 
@@ -67,23 +70,26 @@ class ComposerDestinationSummary extends React.PureComponent {
   };
 
   render () {
-    const { intl, placeLabel, warning, contextDetails } = this.props;
+    const { intl, placeLabel, warning, contextDetails, editing } = this.props;
     const name = placeLabel || intl.formatMessage(messages.destination);
+    const showDetails = !editing && contextDetails !== null && contextDetails !== undefined;
 
     return (
       <div className='compose-form__destination' data-testid='composer-destination' ref={this.setRoot}>
         <span className='compose-form__destination-name'>{name}</span>
         {warning ? <span className='compose-form__style-warning' role='status'>{intl.formatMessage(messages.warning)}</span> : null}
-        <button
-          type='button'
-          className='compose-form__destination-details'
-          aria-expanded={this.state.open}
-          ref={this.setTrigger}
-          onClick={this.handleToggle}
-        >
-          {intl.formatMessage(messages.details)}
-        </button>
-        {this.state.open ? (
+        {showDetails ? (
+          <button
+            type='button'
+            className='compose-form__destination-details'
+            aria-expanded={this.state.open}
+            ref={this.setTrigger}
+            onClick={this.handleToggle}
+          >
+            {intl.formatMessage(messages.details)}
+          </button>
+        ) : null}
+        {showDetails && this.state.open ? (
           <div className='compose-form__destination-panel'>
             {contextDetails}
           </div>

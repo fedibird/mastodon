@@ -5,6 +5,7 @@ import { List as ImmutableList } from 'immutable';
 import { defineMessages, injectIntl } from 'react-intl';
 import classNames from 'classnames';
 import CustomEmojiText from 'mastodon/components/custom_emoji_text';
+import { eventInOwnedSearchabilityPopup } from '../searchability_popup';
 
 const messages = defineMessages({
   label: { id: 'compose_form.posting_style.label', defaultMessage: 'Posting style' },
@@ -122,6 +123,7 @@ class UserPostingStylePicker extends React.PureComponent {
     catalogFailed: PropTypes.bool,
     catalogLoading: PropTypes.bool,
     onRetryCatalog: PropTypes.func,
+    composerId: PropTypes.string,
   };
 
   state = {
@@ -228,7 +230,7 @@ class UserPostingStylePicker extends React.PureComponent {
   }
 
   handleDocumentClick = event => {
-    if (!this.state.open || !this.root || this.root.contains(event.target)) {
+    if (!this.state.open || !this.root || this.root.contains(event.target) || eventInOwnedSearchabilityPopup(event, this.props.composerId)) {
       return;
     }
 

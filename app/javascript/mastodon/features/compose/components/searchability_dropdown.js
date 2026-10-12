@@ -7,6 +7,7 @@ import Overlay from 'react-overlays/Overlay';
 import { supportsPassiveEvents } from 'detect-passive-events';
 import classNames from 'classnames';
 import Icon from 'mastodon/components/icon';
+import { searchabilityPopupProps } from '../searchability_popup';
 
 const messages = defineMessages({
   public_short: { id: 'searchability.public.short', defaultMessage: 'Public' },
@@ -144,6 +145,7 @@ class SearchabilityDropdown extends React.PureComponent {
     onChange: PropTypes.func.isRequired,
     noDirect: PropTypes.bool,
     container: PropTypes.func,
+    composerId: PropTypes.string,
     intl: PropTypes.object.isRequired,
   };
 
@@ -236,7 +238,7 @@ class SearchabilityDropdown extends React.PureComponent {
   }
 
   render () {
-    const { value, container, intl } = this.props;
+    const { value, container, composerId, intl } = this.props;
     const { open, placement } = this.state;
 
     const valueOption = this.options.find(item => item.value === value);
@@ -262,7 +264,7 @@ class SearchabilityDropdown extends React.PureComponent {
 
         <Overlay show={open} placement={'bottom'} flip target={this.findTarget} container={container} popperConfig={{ strategy: 'fixed', onFirstUpdate: this.handleOverlayEnter }}>
           {({ props, placement }) => (
-            <div {...props} style={{ ...props.style, width: 350, maxWidth: '100vw' }}>
+            <div {...props} {...searchabilityPopupProps(composerId)} style={{ ...props.style, width: 350, maxWidth: '100vw' }}>
               <div className={`dropdown-animation privacy-dropdown__dropdown ${placement}`}>
                 <SearchabilityDropdownMenu
                   items={this.options}
