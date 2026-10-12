@@ -108,22 +108,15 @@ describe('ComposeForm autoFocus', () => {
 });
 
 describe('ComposeForm posting context visibility', () => {
-  it('shows the posting context bar for a new post', () => {
-    renderForm();
+  it('keeps the posting context out of the textarea and in the header selector', () => {
+    renderForm({ stylePicker: <div data-testid='posting-context-bar'>Group</div> });
 
-    expect(screen.getByTestId('posting-context-bar')).toBeTruthy();
-  });
+    const header = document.querySelector('.compose-form__header');
+    const textarea = screen.getByPlaceholderText('What is on your mind?');
 
-  it('hides the posting context bar while editing a status', () => {
-    renderForm({ isEditing: true });
-
-    expect(screen.queryByTestId('posting-context-bar')).toBeNull();
-  });
-
-  it('hides the posting context bar while editing a scheduled status', () => {
-    renderForm({ isScheduledStatusEditting: true });
-
-    expect(screen.queryByTestId('posting-context-bar')).toBeNull();
+    expect(header).toContainElement(screen.getByTestId('posting-context-bar'));
+    expect(textarea.compareDocumentPosition(screen.getByTestId('posting-context-bar')) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(document.querySelector('.compose-form__modifiers')).not.toContainElement(screen.getByTestId('posting-context-bar'));
   });
 });
 
@@ -160,57 +153,81 @@ describe('ComposeForm effective text', () => {
 });
 
 describe('ComposeForm visibility controls', () => {
-  it('places privacy and language above the textarea and leaves publish in place', () => {
-    renderForm();
+  it('places privacy and language in the one-line header and the counter beside the text', () => {
+    renderForm({ spoiler: true, spoilerText: 'cw' });
 
-    const form = document.querySelector('.compose-form');
-    const spoiler = form.querySelector(':scope > .spoiler-input');
-    const dropdowns = form.querySelector(':scope > .compose-form__dropdowns');
-    const autosuggest = form.querySelector(':scope > .compose-form__autosuggest-wrapper');
+    const header = document.querySelector('.compose-form__header');
+    const spoiler = document.querySelector('[data-testid="cw-input"]');
+    const autosuggest = document.querySelector('.compose-form__autosuggest-wrapper');
     const buttons = document.querySelector('.compose-form__buttons');
-    const wrapper = document.querySelector('.compose-form__buttons-wrapper');
     const submit = document.querySelector('.compose-form__submit');
     const publish = screen.getByRole('button', { name: 'Toot!' });
     const privacy = screen.getByTestId('privacy-dropdown');
     const language = screen.getByTestId('language-dropdown');
-    const circle = screen.getByTestId('circle-dropdown');
+    const counter = screen.getByTestId('character-count');
 
-    expect(spoiler.compareDocumentPosition(dropdowns) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    const postingContext = screen.getByTestId('posting-context-bar');
-
-    expect(dropdowns.compareDocumentPosition(postingContext) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(postingContext.compareDocumentPosition(autosuggest) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(dropdowns).toContainElement(privacy);
-    expect(dropdowns).toContainElement(language);
-    expect(dropdowns.children[0]).toBe(privacy);
-    expect(dropdowns.children[1]).toBe(language);
+    expect(header).toContainElement(privacy);
+    expect(header).toContainElement(language);
+    expect(header.children.length).toBeGreaterThan(0);
+    expect(getComputedStyle(header).flexWrap || 'nowrap').not.toBe('wrap');
     expect(privacy).toHaveAttribute('data-show-label', 'true');
     expect(privacy).toHaveAttribute('data-disabled', 'false');
     expect(buttons).not.toContainElement(privacy);
     expect(buttons).not.toContainElement(language);
+    expect(buttons).not.toContainElement(screen.getByTestId('emoji-picker'));
     expect(buttons).toContainElement(screen.getByTestId('upload-button'));
     expect(buttons).toContainElement(screen.getByTestId('poll-button'));
-    expect(document.querySelector('.compose-form__publish')).toBeNull();
-    expect(autosuggest.compareDocumentPosition(circle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(circle.compareDocumentPosition(wrapper) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(wrapper).toContainElement(submit);
-    expect(submit).toContainElement(screen.getByText('500'));
+    expect(document.querySelector('.compose-form__emoji-anchor')).toContainElement(screen.getByTestId('emoji-picker'));
+    expect(counter).toContainElement(screen.getByText('498'));
+    expect(submit).not.toContainElement(counter);
+    expect(submit.querySelector('.character-counter')).toBeNull();
+    expect(header.compareDocumentPosition(spoiler) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(spoiler.compareDocumentPosition(autosuggest) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(submit).toContainElement(publish);
+    expect(document.querySelector('[data-composer-preflight]')).toBeTruthy();
     expect(publish).not.toHaveClass('button--block');
+  });
+
+  it('hides the content warning field until it is turned on', () => {
+    const view = renderForm();
+
+    expect(screen.queryByTestId('cw-input')).toBeNull();
+
+    view.rerender(
+      <ComposeForm
+        text=''
+        suggestions={ImmutableList()}
+        privacy='public'
+        spoiler
+        spoilerText='careful'
+        prohibitedVisibilities={ImmutableSet()}
+        prohibitedWords={ImmutableSet()}
+        onChange={noop}
+        onSubmit={noop}
+        onClearSuggestions={noop}
+        onFetchSuggestions={noop}
+        onSuggestionSelected={noop}
+        onChangeSpoilerText={noop}
+        onPaste={noop}
+        onPickEmoji={noop}
+      />,
+    );
+
+    const spoiler = screen.getByTestId('cw-input');
+    const autosuggest = document.querySelector('.compose-form__autosuggest-wrapper');
+
+    expect(spoiler.querySelector('input, textarea')).toHaveValue('careful');
+    expect(spoiler.compareDocumentPosition(autosuggest) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 
 const advancedControls = [
-  'privacy-dropdown',
-  'language-dropdown',
   'upload-button',
   'poll-button',
   'spoiler-button',
   'emoji-picker',
   'circle-dropdown',
-  'posting-context-bar',
   'reference-stack',
-  'upload-form',
   'poll-form',
 ];
 
@@ -244,14 +261,19 @@ describe('ComposeForm display mode', () => {
     });
   });
 
-  it('mounts only the textarea, full-view button, and publish button in simple mode', () => {
+  it('keeps the compact composer to a header, a short textarea, and a publish icon', () => {
     renderForm({ displayMode: 'simple', onDisplayModeChange: jest.fn() });
 
+    expect(document.querySelector('.compose-form__header')).toBeTruthy();
+    expect(screen.getByTestId('privacy-dropdown')).toBeTruthy();
+    expect(screen.getByTestId('language-dropdown')).toBeTruthy();
+    expect(screen.getByTestId('upload-form')).toBeTruthy();
     expect(screen.getAllByRole('textbox')).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: 'Show full composer' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: 'Toot!' })).toHaveLength(1);
     expect(screen.getAllByRole('button')).toHaveLength(2);
     expect(document.querySelectorAll('.character-counter')).toHaveLength(0);
+    expect(document.querySelector('.compose-form__buttons-wrapper')).toBeNull();
     advancedControls.forEach(id => {
       expect(screen.queryByTestId(id)).toBeNull();
     });
@@ -432,7 +454,7 @@ describe('ComposeForm display mode', () => {
       stylePicker: <SimpleStyleButton onSelect={onSelect} />,
     });
 
-    expect(screen.getByText('Unlisted')).toBeTruthy();
+    expect(screen.getByTestId('privacy-dropdown')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '読書メモ' }));
 
     expect(onSelect).toHaveBeenCalled();
@@ -463,52 +485,50 @@ describe('ComposeForm display mode', () => {
     expect(onAcceptSurface).toHaveBeenCalledTimes(1);
   });
 
-  it('returns to full view before accepting a pasted file', () => {
-    const order = [];
-    const onDisplayModeChange = jest.fn(() => {
-      order.push('mode');
-    });
-    const onPaste = jest.fn(() => {
-      order.push('paste');
-    });
+  it('attaches a pasted file without leaving simple mode', () => {
+    const onDisplayModeChange = jest.fn();
+    const onPaste = jest.fn();
     const file = new File(['x'], 'photo.png', { type: 'image/png' });
-    const view = renderForm({
+
+    renderForm({
       text: 'hello',
       displayMode: 'simple',
       onDisplayModeChange,
       onPaste,
+      composerId: 'portable:hashtag:1',
     });
 
     fireEvent.paste(screen.getByPlaceholderText('What is on your mind?'), {
       clipboardData: { files: [file] },
     });
 
-    expect(order).toEqual(['mode', 'paste']);
-    expect(onDisplayModeChange).toHaveBeenCalledWith('full');
-    expect(screen.queryByTestId('upload-form')).toBeNull();
+    expect(onDisplayModeChange).not.toHaveBeenCalled();
+    expect(onPaste).toHaveBeenCalledWith(expect.any(Object));
+    expect(document.querySelector('.compose-form--simple')).toBeTruthy();
+    expect(document.querySelector('[data-composer-id="portable:hashtag:1"]')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Show full composer' })).toBeTruthy();
+  });
 
-    view.rerender(
-      <ComposeForm
-        text='hello'
-        suggestions={ImmutableList()}
-        privacy='public'
-        prohibitedVisibilities={ImmutableSet()}
-        prohibitedWords={ImmutableSet()}
-        onChange={noop}
-        onSubmit={noop}
-        onClearSuggestions={noop}
-        onFetchSuggestions={noop}
-        onSuggestionSelected={noop}
-        onChangeSpoilerText={noop}
-        onPaste={onPaste}
-        onPickEmoji={noop}
-        displayMode='full'
-        onDisplayModeChange={onDisplayModeChange}
-      />,
-    );
+  it('keeps a dropped file on the composer under the pointer', () => {
+    const onPaste = jest.fn();
+    const other = jest.fn();
+    const file = new File(['x'], 'photo.png', { type: 'image/png' });
 
-    expect(screen.getByTestId('upload-form')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Show full composer' })).toBeNull();
+    renderForm({
+      text: 'hello',
+      displayMode: 'simple',
+      onDisplayModeChange: jest.fn(),
+      onPaste,
+      composerId: 'portable:list:9',
+    });
+
+    fireEvent.drop(document.querySelector('[data-composer-id="portable:list:9"]'), {
+      dataTransfer: { types: ['Files'], files: [file] },
+    });
+
+    expect(onPaste).toHaveBeenCalled();
+    expect(other).not.toHaveBeenCalled();
+    expect(document.querySelector('.compose-form--simple')).toBeTruthy();
   });
 
   it('leaves a text paste on the simple composer', () => {
@@ -551,15 +571,15 @@ describe('ComposeForm sender identity', () => {
       stylePicker: <div data-testid='style-picker'>読書メモ</div>,
     });
 
+    const header = document.querySelector('.compose-form__header');
     const identity = screen.getByTestId('sender-identity');
     const style = screen.getByTestId('style-picker');
-    const destination = screen.getByTestId('posting-context-bar');
 
+    expect(header).toContainElement(identity);
+    expect(header).toContainElement(style);
     expect(identity.textContent).toContain('Posting as');
     expect(identity.textContent).toContain('@admin');
     expect(identity.compareDocumentPosition(style) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(style.compareDocumentPosition(destination) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(destination).not.toContainElement(identity);
     expect(style).not.toContainElement(identity);
   });
 
@@ -570,10 +590,10 @@ describe('ComposeForm sender identity', () => {
       senderIdentity: senderIdentity(true),
     });
 
-    const bar = document.querySelector('.compose-form__simple-bar');
+    const header = document.querySelector('.compose-form__header');
     const sender = screen.getByTestId('sender-identity');
 
-    expect(bar).toContainElement(sender);
+    expect(header).toContainElement(sender);
     expect(sender.className).toContain('compose-form__sender--compact');
     expect(sender.textContent).toContain('Posting as');
     expect(sender.textContent).toContain('@admin');

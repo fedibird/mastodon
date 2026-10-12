@@ -69,6 +69,7 @@ export const mapStateToProps = (state, { composerId }) => {
     })(),
     failed: catalogStatus === 'failed',
     compact: selectPortableComposerDisplayMode(state, composerId) === PORTABLE_COMPOSER_MODE_SIMPLE,
+    catalog: state.getIn(['postingIdentities', 'identities']),
   };
 };
 
@@ -87,6 +88,7 @@ class SenderIdentityContainer extends React.PureComponent {
     text: PropTypes.string,
     blockReason: PropTypes.string,
     sendBlocked: PropTypes.string,
+    catalog: PropTypes.object,
   };
 
   componentDidMount () {
@@ -120,6 +122,8 @@ class SenderIdentityContainer extends React.PureComponent {
         blockReason={blockReason}
         failed={this.props.failed}
         compact={this.props.compact}
+        header
+        catalog={this.props.catalog}
         onRetry={this.handleRetry}
         onSelect={this.handleSelect}
       />

@@ -430,4 +430,83 @@ describe('UserPostingStylePicker', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reload posting styles' }));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
+
+  it('renders a custom emoji icon without inserting raw HTML', () => {
+    const customEmojis = fromJS([{
+      shortcode: 'fedibird',
+      url: '/emoji/fedibird.png',
+      static_url: '/emoji/fedibird.png',
+    }]);
+    const withEmoji = styles.map(style => style.get('id') === '2' ? style.set('icon', ':fedibird:') : style);
+
+    const { container } = render(
+      <UserPostingStylePicker
+        header
+        styles={withEmoji}
+        customEmojis={customEmojis}
+        selectedId='2'
+        snapshot={withEmoji.get(1)}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        onSelect={jest.fn()}
+        {...defaultProps}
+        assignmentStatus='style'
+        assignmentStyleId='2'
+      />,
+    );
+
+    expect(container.querySelector('img.emojione')).toBeTruthy();
+    expect(container.innerHTML).not.toContain('<script');
+
+    const hostile = styles.set(0, styles.get(0).set('icon', '<img src=x onerror=alert(1)>'));
+
+    const hostileView = render(
+      <UserPostingStylePicker
+        header
+        styles={hostile}
+        customEmojis={ImmutableList()}
+        selectedId='1'
+        snapshot={hostile.get(0)}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        onSelect={jest.fn()}
+        {...defaultProps}
+      />,
+    );
+
+    expect(hostileView.container.querySelector('[onerror]')).toBeNull();
+    expect(screen.getAllByRole('button', { name: /サークル告知/ }).length).toBeGreaterThan(0);
+  });
+
+  it('hides style choices without hiding the destination', () => {
+    render(
+      <UserPostingStylePicker
+        header
+        showStyleControls={false}
+        placeLabel='localsquad'
+        contextDetails={<div>Follow the group</div>}
+        styles={styles}
+        selectedId='1'
+        snapshot={styles.get(0)}
+        unapplied={ImmutableList()}
+        destinationStatus='failed'
+        destinationFailure='unsupported'
+        visibilityConflict={false}
+        onSelect={jest.fn()}
+        {...defaultProps}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'localsquad' })).toBeTruthy();
+    expect(screen.queryByRole('menuitemradio')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Always use this style here' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'localsquad' }));
+
+    expect(screen.getByText('Follow the group')).toBeTruthy();
+    expect(screen.getAllByText('This destination isn’t supported, so you can’t post.').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('menuitemradio')).toBeNull();
+  });
 });

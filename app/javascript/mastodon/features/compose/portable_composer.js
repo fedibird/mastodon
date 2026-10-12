@@ -116,7 +116,7 @@ class PortableComposer extends React.PureComponent {
     }
 
     return (
-      <div className='portable-composer' onFocus={this.handleFocus} onBlur={this.handleBlur}>
+      <div className='portable-composer' data-composer-id={composerId} onFocus={this.handleFocus} onBlur={this.handleBlur}>
         <ComposerProvider composerId={composerId}>
           <ComposeFormContainer
             autoFocus={false}

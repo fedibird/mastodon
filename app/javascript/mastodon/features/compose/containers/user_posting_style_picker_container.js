@@ -10,6 +10,7 @@ import { selectComposerPostingContextCompliance } from '../../../posting_context
 import { placeDefaultWriteSurface, selectPortablePostingStyleCandidates, styleMatchesSurface, surfaceCacheKey } from '../../../posting_context/surface';
 import { resolveUserPostingStyle } from '../../../posting_context/user_style_resolver';
 import { PORTABLE_COMPOSER_MODE_SIMPLE, selectComposer, selectPortableComposerDisplayMode } from '../../../selectors/composer';
+import { showComposerPostingStyleSelector } from '../../../initial_state';
 import { PRIMARY_COMPOSER_ID } from '../../../utils/composer';
 import { withComposerId } from '../composer_id_context';
 import UserPostingStylePicker, { IntlUserPostingStyleCatalogNotice } from '../components/user_posting_style_picker';
@@ -69,6 +70,12 @@ const mapStateToProps = (state, { composerId }) => {
     assignmentStyleId: assignment ? assignment.get('styleId') : null,
     assignmentFailure: assignment ? assignment.get('failure') : null,
     defaultsBlocked: portable && !placeDefaultWriteSurface(composer),
+    showStyleControls: showComposerPostingStyleSelector !== false,
+    customEmojis: state.get('custom_emojis') || ImmutableList(),
+    placeLabel: (composer.getIn(['userPostingStyle', 'snapshot', 'target', 'label']))
+      || (composer.getIn(['context', 'protocol', 'activityPub', 'audience', 'acct']))
+      || (surface ? String(surface.get('key') || '') : '')
+      || null,
   };
 };
 
@@ -138,18 +145,28 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => {
   };
 };
 
-const VisiblePicker = ({ visible, catalogFailed, onRetryCatalog, ...props }) => {
+const VisiblePicker = ({ visible, catalogFailed, onRetryCatalog, contextDetails, ...props }) => {
   if (catalogFailed) {
-    return <IntlUserPostingStyleCatalogNotice onRetry={onRetryCatalog} />;
+    return (
+      <React.Fragment>
+        <IntlUserPostingStyleCatalogNotice onRetry={onRetryCatalog} />
+        {contextDetails || null}
+      </React.Fragment>
+    );
   }
 
-  return visible ? <UserPostingStylePicker {...props} /> : null;
+  if (!visible) {
+    return contextDetails || null;
+  }
+
+  return <UserPostingStylePicker {...props} contextDetails={contextDetails} />;
 };
 
 VisiblePicker.propTypes = {
   visible: PropTypes.bool,
   catalogFailed: PropTypes.bool,
   onRetryCatalog: PropTypes.func,
+  contextDetails: PropTypes.node,
 };
 
 export default withComposerId(injectIntl(connect(mapStateToProps, mapDispatchToProps)(VisiblePicker)));
