@@ -11,7 +11,8 @@ import LoadingBarContainer from './containers/loading_bar_container';
 import ModalContainer from './containers/modal_container';
 import { layoutFromWindow } from 'mastodon/is_mobile';
 import { debounce } from 'lodash';
-import { uploadCompose, resetCompose, changeComposeSpoilerness } from '../../actions/compose';
+import { uploadCompose, uploadToComposer, resetCompose, changeComposeSpoilerness } from '../../actions/compose';
+import { composerIdFromEventTarget, dropAlreadyHandled, isExternalFileDrag } from '../compose/composer_drop';
 import { updateProcessingStatuses, refreshIntersectionStatuses } from '../../actions/statuses';
 import { expandHomeTimeline } from '../../actions/timelines';
 import { expandNotifications } from '../../actions/notifications';
@@ -327,13 +328,17 @@ class UI extends React.PureComponent {
       this.dragTargets.push(e.target);
     }
 
-    if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files') && this.props.canUploadMore) {
+    if (composerIdFromEventTarget(e.target) || !isExternalFileDrag(e.dataTransfer)) {
+      return;
+    }
+
+    if (this.props.canUploadMore) {
       this.setState({ draggingOver: true });
     }
   }
 
   handleDragOver = (e) => {
-    if (this.dataTransferIsText(e.dataTransfer)) return false;
+    if (this.dataTransferIsText(e.dataTransfer) || composerIdFromEventTarget(e.target)) return false;
 
     e.preventDefault();
     e.stopPropagation();
@@ -348,14 +353,25 @@ class UI extends React.PureComponent {
   }
 
   handleDrop = (e) => {
-    if (this.dataTransferIsText(e.dataTransfer)) return;
+    if (dropAlreadyHandled(e) || this.dataTransferIsText(e.dataTransfer)) return;
 
     e.preventDefault();
 
     this.setState({ draggingOver: false });
     this.dragTargets = [];
 
-    if (e.dataTransfer && e.dataTransfer.files.length >= 1 && this.props.canUploadMore) {
+    if (!(e.dataTransfer && e.dataTransfer.files.length >= 1)) {
+      return;
+    }
+
+    const composerId = composerIdFromEventTarget(e.target);
+
+    if (composerId) {
+      this.props.dispatch(uploadToComposer(composerId, e.dataTransfer.files));
+      return;
+    }
+
+    if (this.props.canUploadMore) {
       this.props.dispatch(uploadCompose(e.dataTransfer.files));
     }
   }
