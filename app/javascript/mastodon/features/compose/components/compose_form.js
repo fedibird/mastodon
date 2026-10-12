@@ -798,9 +798,11 @@ class ComposeForm extends ImmutablePureComponent {
         <EmojiPickerDropdownContainer onPickEmoji={this.handleEmojiPick} />
       </div>
     );
+    const characterCount = this.renderCharacterCount();
+    const countOnSensitiveRow = !simple && Boolean(this.props.anyMedia);
     const modifiers = simple ? null : (
       <div className='compose-form__modifiers'>
-        <UploadFormContainer />
+        <UploadFormContainer endAccessory={countOnSensitiveRow ? characterCount : null} />
         <PollFormContainer />
         {!this.props.isEditing && <DateTimeFormContainer />}
         {!this.props.isEditing && <ExpiresIndicatorContainer />}
@@ -843,7 +845,7 @@ class ComposeForm extends ImmutablePureComponent {
 
         <div className='compose-form__body'>
           {this.renderTextarea(modifiers, overlay)}
-          {simple && this.renderCharacterCount()}
+          {simple && characterCount}
           {simple && !mediaAreaOpen && (
             <div className='compose-form__compact-publish'>
               {this.renderIconPublish()}
@@ -861,7 +863,7 @@ class ComposeForm extends ImmutablePureComponent {
         {!simple && !this.props.isEditing && <CircleDropdownContainer key='circle' />}
         {!simple && (
           <div className='compose-form__end'>
-            {this.renderCharacterCount()}
+            {countOnSensitiveRow ? null : characterCount}
             {this.renderFooter(publishText)}
           </div>
         )}

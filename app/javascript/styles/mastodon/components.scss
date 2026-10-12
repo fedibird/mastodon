@@ -374,6 +374,28 @@ body > [data-popper-placement] {
 .compose-form {
   padding: 10px;
 
+  &__sensitive-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 8px;
+    min-width: 0;
+    padding: 0 10px 8px;
+
+    .compose-form__sensitive-button {
+      flex: 1 1 auto;
+      min-width: 0;
+      padding: 0;
+
+      label {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    }
+  }
+
   &__sensitive-button {
     padding: 10px;
     padding-top: 0;
@@ -1210,6 +1232,14 @@ body > [data-popper-placement] {
     background: $simple-background-color;
     color: $inverted-text-color;
     pointer-events: none;
+  }
+
+  .compose-form__sensitive-row .compose-form__count-anchor {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: 55%;
+    padding: 0;
+    background: transparent;
   }
 
   .compose-form__searchability-label {

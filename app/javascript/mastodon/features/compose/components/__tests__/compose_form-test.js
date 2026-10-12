@@ -74,7 +74,17 @@ jest.mock('../../containers/expires_indicator_container', () => () => null);
 jest.mock('../../containers/emoji_picker_dropdown_container', () => () => <div data-testid='emoji-picker' />);
 jest.mock('../../containers/language_dropdown_container', () => () => <div data-testid='language-dropdown' />);
 jest.mock('../../containers/poll_form_container', () => () => <div data-testid='poll-form' />);
-jest.mock('../../containers/upload_form_container', () => () => <div data-testid='upload-form' />);
+jest.mock('../../containers/upload_form_container', () => {
+  const MockUploadForm = ({ endAccessory }) => (
+    <div data-testid='upload-form'>{endAccessory}</div>
+  );
+
+  MockUploadForm.propTypes = {
+    endAccessory: () => null,
+  };
+
+  return MockUploadForm;
+});
 jest.mock('../../containers/warning_container', () => () => null);
 jest.mock('../../containers/posting_context_bar_container', () => () => <div data-testid='posting-context-bar' />);
 jest.mock('../../../reference_stack', () => () => <div data-testid='reference-stack' />);
@@ -207,6 +217,17 @@ describe('ComposeForm visibility controls', () => {
     expect(submit).toContainElement(publish);
     expect(document.querySelector('[data-composer-preflight]')).toBeTruthy();
     expect(publish).not.toHaveClass('button--block');
+  });
+
+  it('places the character count on the sensitive row when media is attached', () => {
+    renderForm({ anyMedia: true, text: 'hi' });
+
+    const upload = screen.getByTestId('upload-form');
+    const counter = screen.getByTestId('character-count');
+
+    expect(upload).toContainElement(counter);
+    expect(document.querySelector('.compose-form__end')).not.toContainElement(counter);
+    expect(document.querySelector('.compose-form__submit')).not.toContainElement(counter);
   });
 
   it('hides the content warning field until it is turned on', () => {
