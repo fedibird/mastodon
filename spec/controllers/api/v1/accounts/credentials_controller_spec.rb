@@ -201,6 +201,92 @@ describe Api::V1::Accounts::CredentialsController do
       end
     end
 
+    describe 'GET #show source preferences' do
+      let(:scopes) { 'read:accounts' }
+      let(:user) { Fabricate(:user, locale: 'ja', account: Fabricate(:account, username: 'alice', locked: true)) }
+
+      def authorize_application(app_name)
+        application = Fabricate(:application, name: app_name)
+        access_token = Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: scopes, application: application)
+        allow(controller).to receive(:doorkeeper_token) { access_token }
+      end
+
+      it 'keeps a locked account private for a normal client when privacy is unset' do
+        get :show
+
+        expect(response).to have_http_status(200)
+        expect(body_as_json[:locked]).to be true
+        expect(body_as_json[:source][:privacy]).to eq 'private'
+        expect(body_as_json[:source][:sensitive]).to be false
+        expect(body_as_json[:source][:language]).to be_nil
+        expect(user.preferred_posting_language).to eq 'ja'
+      end
+
+      it 'uses public for an unlocked account when privacy is unset' do
+        user.account.update!(locked: false)
+
+        get :show
+
+        expect(body_as_json[:locked]).to be false
+        expect(body_as_json[:source][:privacy]).to eq 'public'
+        expect(body_as_json[:source][:language]).to be_nil
+      end
+
+      it 'masks locked for official iOS when unlocked_for_official_app is set and privacy is unset' do
+        user.settings['unlocked_for_official_app'] = true
+        authorize_application('Mastodon for iOS')
+
+        get :show
+
+        expect(response).to have_http_status(200)
+        expect(body_as_json[:locked]).to be false
+        expect(body_as_json[:source][:privacy]).to eq 'public'
+        expect(user.account.reload).to be_locked
+      end
+
+      it 'masks locked for official Android when unlocked_for_official_app is set and privacy is unset' do
+        user.settings['unlocked_for_official_app'] = true
+        authorize_application('Mastodon for Android')
+
+        get :show
+
+        expect(body_as_json[:locked]).to be false
+        expect(body_as_json[:source][:privacy]).to eq 'public'
+        expect(user.account.reload).to be_locked
+      end
+
+      it 'keeps a stored privacy value when the official app mask clears locked' do
+        user.settings['unlocked_for_official_app'] = true
+        user.settings['default_privacy'] = 'direct'
+        authorize_application('Mastodon for iOS')
+
+        get :show
+
+        expect(body_as_json[:locked]).to be false
+        expect(body_as_json[:source][:privacy]).to eq 'direct'
+        expect(user.account.reload).to be_locked
+      end
+
+      it 'does not mask locked for a normal client when unlocked_for_official_app is set' do
+        user.settings['unlocked_for_official_app'] = true
+
+        get :show
+
+        expect(body_as_json[:locked]).to be true
+        expect(body_as_json[:source][:privacy]).to eq 'private'
+      end
+
+      it 'does not accept read:preferences alone' do
+        allow(controller).to receive(:doorkeeper_token) do
+          Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: 'read:preferences')
+        end
+
+        get :show
+
+        expect(response).to have_http_status(403)
+      end
+    end
+
     describe 'PATCH #update with the profile scope' do
       let(:scopes) { 'profile' }
 
@@ -260,6 +346,76 @@ describe Api::V1::Accounts::CredentialsController do
         expect(source[:hide_collections]).to be false
         expect(source[:discoverable]).to be true
         expect(source[:indexable]).to be true
+      end
+
+      it 'returns stored source preferences without deriving the posting language' do
+        user.update!(locale: 'ja')
+
+        patch :update, params: {
+          note: 'Kept',
+          source: {
+            privacy: 'direct',
+            sensitive: false,
+            language: 'ja-JP',
+          },
+        }, as: :json
+
+        source = body_as_json[:source]
+        expect(response).to have_http_status(200)
+        expect(source[:privacy]).to eq 'direct'
+        expect(source[:privacy]).to eq user.setting_default_privacy
+        expect(source[:sensitive]).to be false
+        expect(source[:sensitive]).to eq user.setting_default_sensitive
+        expect(source[:language]).to eq 'ja-JP'
+        expect(source[:language]).to eq user.setting_default_language
+        expect(user.preferred_posting_language).to eq 'ja'
+        expect(source[:note]).to eq 'Kept'
+        expect(source).to include(:fields, :follow_requests_count, :hide_collections, :discoverable, :indexable)
+      end
+    end
+
+    describe 'PATCH #update with the write scope' do
+      let(:scopes) { 'write' }
+
+      before { allow(ActivityPub::UpdateDistributionWorker).to receive(:perform_async) }
+
+      it 'returns http success' do
+        patch :update, params: { display_name: 'Writer' }
+
+        expect(response).to have_http_status(200)
+        expect(user.account.reload.display_name).to eq 'Writer'
+      end
+    end
+
+    describe 'PATCH #update with read:preferences only' do
+      let(:scopes) { 'read:preferences' }
+
+      it 'returns http forbidden' do
+        patch :update, params: { display_name: 'Nope' }
+
+        expect(response).to have_http_status(403)
+        expect(user.account.reload.display_name).not_to eq 'Nope'
+      end
+    end
+
+    describe 'PATCH #update from an official app' do
+      let(:scopes) { 'write:accounts' }
+      let(:user) { Fabricate(:user, account: Fabricate(:account, username: 'alice', locked: true)) }
+
+      before { allow(ActivityPub::UpdateDistributionWorker).to receive(:perform_async) }
+
+      it 'does not apply the show locked mask' do
+        user.settings['unlocked_for_official_app'] = true
+        application = Fabricate(:application, name: 'Mastodon for iOS')
+        access_token = Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: scopes, application: application)
+        allow(controller).to receive(:doorkeeper_token) { access_token }
+
+        patch :update, params: { display_name: 'Still locked' }
+
+        expect(response).to have_http_status(200)
+        expect(body_as_json[:locked]).to be true
+        expect(body_as_json[:source][:privacy]).to eq 'private'
+        expect(user.account.reload).to be_locked
       end
     end
   end
