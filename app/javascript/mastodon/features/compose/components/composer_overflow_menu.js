@@ -9,6 +9,7 @@ export default class ComposerOverflowMenu extends React.PureComponent {
   static propTypes = {
     label: PropTypes.string.isRequired,
     children: PropTypes.node,
+    closeToken: PropTypes.number,
   };
 
   state = {
@@ -42,6 +43,12 @@ export default class ComposerOverflowMenu extends React.PureComponent {
       </div>
     );
   };
+
+  componentDidUpdate (prevProps) {
+    if (prevProps.closeToken !== this.props.closeToken && this.state.open) {
+      this.setState({ open: false });
+    }
+  }
 
   componentDidMount () {
     document.addEventListener('mousedown', this.handleDocumentClick);

@@ -25,6 +25,7 @@ import UserPostingStyleController from './user_posting_style_controller';
 import UserPostingStylePickerContainer from './user_posting_style_picker_container';
 import ComposerContextDetails from '../components/composer_context_details';
 import { injectIntl, defineMessages } from 'react-intl';
+import { isAdministrator, showComposerPostingStyleSelector } from '../../../initial_state';
 
 const messages = defineMessages({
   cancelEditConfirm: { id: 'confirmations.cancel_edit.confirm', defaultMessage: 'Discard changes' },
@@ -46,6 +47,7 @@ const mapStateToProps = (state, { composerId }) => {
     uploadBlockReason: selectComposerCanUploadAsIdentity(state, composerId).reason,
     capabilityReason: capability.reason,
     hasPoll: Boolean(composer.get('poll')),
+    datetimeOpen: Boolean(composer.get('datetime_form')),
     hasExpiry: Boolean(composer.get('expires')),
     sensitive: composer.get('sensitive') === true,
     suggestions: composer.get('suggestions'),
@@ -130,11 +132,14 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
 
 const ConnectedComposeForm = injectIntl(connect(mapStateToProps, mapDispatchToProps)(ComposeForm));
 
+const styleControlsAvailable = isAdministrator && showComposerPostingStyleSelector !== false;
+
 const ComposeFormWithPostingStyles = props => (
   <ConnectedComposeForm
     {...props}
     styleController={<UserPostingStyleController />}
-    stylePicker={<UserPostingStylePickerContainer header contextDetails={<ComposerContextDetails />} />}
+    stylePicker={<UserPostingStylePickerContainer header contextDetails={styleControlsAvailable ? <ComposerContextDetails /> : null} />}
+    overflowContext={styleControlsAvailable ? null : <ComposerContextDetails />}
     senderIdentity={<SenderIdentityContainer />}
   />
 );

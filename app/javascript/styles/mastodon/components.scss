@@ -1313,10 +1313,26 @@ body > [data-popper-placement] {
     max-width: 100%;
   }
 
+  .compose-form__buttons-wrapper {
+    overflow: hidden;
+  }
+
   .compose-form__buttons {
     flex: 1 1 auto;
     min-width: 0;
-    overflow: visible;
+    overflow: hidden;
+  }
+
+  .compose-form__submit,
+  .compose-form__toolbar-account,
+  .compose-form__overflow,
+  .compose-form__buttons .text-icon-button {
+    flex: 0 0 auto;
+  }
+
+  .compose-form__buttons .language-dropdown {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   .compose-form__overflow-panel,
@@ -1804,15 +1820,17 @@ body > [data-popper-placement] {
     display: flex;
     align-items: center;
     gap: 8px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     flex: 0 0 auto;
+    overflow: hidden;
 
     .compose-form__buttons {
       display: flex;
       align-items: center;
-      flex: 1 1 140px;
-      flex-wrap: wrap;
+      flex: 1 1 auto;
+      flex-wrap: nowrap;
       min-width: 0;
+      overflow: hidden;
 
       .compose-form__upload-button-icon {
         line-height: 27px;

@@ -145,6 +145,7 @@ class SearchabilityDropdown extends React.PureComponent {
     onChange: PropTypes.func.isRequired,
     noDirect: PropTypes.bool,
     presentation: PropTypes.oneOf(['menu']),
+    onMenuClose: PropTypes.func,
     container: PropTypes.func,
     intl: PropTypes.object.isRequired,
   };
@@ -178,7 +179,7 @@ class SearchabilityDropdown extends React.PureComponent {
     const { value } = this.options[e.currentTarget.getAttribute('data-index')];
 
     this.props.onModalClose();
-    this.props.onChange(value);
+    this.finishMenuChoice(value);
   }
 
   handleKeyDown = e => {
@@ -252,10 +253,18 @@ class SearchabilityDropdown extends React.PureComponent {
     ));
   }
 
+  finishMenuChoice = (value) => {
+    this.props.onChange(value);
+    this.handleClose();
+
+    if (this.props.onMenuClose) {
+      this.props.onMenuClose();
+    }
+  };
+
   handleMenuChoice = event => {
     event.preventDefault();
-    this.props.onChange(event.currentTarget.getAttribute('data-index'));
-    this.handleClose();
+    this.finishMenuChoice(event.currentTarget.getAttribute('data-index'));
   };
 
   render () {

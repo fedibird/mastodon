@@ -130,6 +130,7 @@ class ComposeForm extends ImmutablePureComponent {
     styleController: PropTypes.node,
     stylePicker: PropTypes.node,
     senderIdentity: PropTypes.node,
+    overflowContext: PropTypes.node,
     onCancelEdit: PropTypes.func,
     onChange: PropTypes.func.isRequired,
     onSubmit: PropTypes.func.isRequired,
@@ -153,6 +154,7 @@ class ComposeForm extends ImmutablePureComponent {
     onDisplayModeChange: PropTypes.func,
     composerId: PropTypes.string,
     hasPoll: PropTypes.bool,
+    datetimeOpen: PropTypes.bool,
     hasExpiry: PropTypes.bool,
     sensitive: PropTypes.bool,
     canUploadMedia: PropTypes.bool,
@@ -162,6 +164,7 @@ class ComposeForm extends ImmutablePureComponent {
   state = {
     fileHover: false,
     uploadNotice: null,
+    overflowClose: 0,
   };
 
   static defaultProps = {
@@ -294,6 +297,28 @@ class ComposeForm extends ImmutablePureComponent {
   componentDidUpdate (prevProps) {
     this._updateFocusAndSelection(prevProps);
     this.syncUploadNotice();
+    this.expandSimpleComposerForDetails(prevProps);
+  }
+
+  requestOverflowClose = () => {
+    this.setState(state => ({ overflowClose: state.overflowClose + 1 }));
+  };
+
+  expandSimpleComposerForDetails (prevProps) {
+    if (!this.isSimpleMode() || typeof this.props.onDisplayModeChange !== 'function') {
+      return;
+    }
+
+    const opened = (this.props.spoiler && !prevProps.spoiler)
+      || (this.props.hasPoll && !prevProps.hasPoll)
+      || (this.props.datetimeOpen && !prevProps.datetimeOpen);
+
+    if (!opened) {
+      return;
+    }
+
+    this.props.onDisplayModeChange(PORTABLE_COMPOSER_MODE_FULL);
+    this.requestOverflowClose();
   }
 
   syncUploadNotice () {
@@ -363,28 +388,6 @@ class ComposeForm extends ImmutablePureComponent {
   setRef = c => {
     this.composeForm = c;
   };
-
-  publishAccessibleName () {
-    const { intl } = this.props;
-
-    if (this.props.isEditing) {
-      return intl.formatMessage(messages.saveChanges);
-    }
-
-    if (!this.props.isEditing && this.props.isScheduledStatusEditting && this.props.isScheduled) {
-      return intl.formatMessage(messages.update);
-    }
-
-    if (this.props.privacy !== 'public' && this.props.privacy !== 'unlisted') {
-      return intl.formatMessage(messages.publish);
-    }
-
-    if (this.props.privacy === 'unlisted') {
-      return intl.formatMessage(messages.publish);
-    }
-
-    return intl.formatMessage(messages.publishLoud, { publish: intl.formatMessage(messages.publish) });
-  }
 
   publishLabel () {
     const { intl } = this.props;
@@ -483,10 +486,12 @@ class ComposeForm extends ImmutablePureComponent {
 
   handleSimpleModeClick = () => {
     this.props.onDisplayModeChange(PORTABLE_COMPOSER_MODE_SIMPLE);
+    this.requestOverflowClose();
   }
 
   handleFullModeClick = () => {
     this.props.onDisplayModeChange(PORTABLE_COMPOSER_MODE_FULL);
+    this.requestOverflowClose();
   }
 
   renderTextarea (modifiers, overlay) {
@@ -525,28 +530,17 @@ class ComposeForm extends ImmutablePureComponent {
 
     const simple = this.isSimpleMode();
 
+    const label = this.props.intl.formatMessage(simple ? messages.fullMode : messages.simpleMode);
+
     return (
-      <IconButton
-        className='compose-form__mode-toggle'
-        icon={simple ? 'expand' : 'compress'}
-        title={this.props.intl.formatMessage(simple ? messages.fullMode : messages.simpleMode)}
+      <button
+        type='button'
+        className='compose-form__menu-row'
         onClick={simple ? this.handleFullModeClick : this.handleSimpleModeClick}
-        inverted
-      />
-    );
-  }
-
-  renderIconPublish () {
-    const privatePost = !this.props.isEditing && this.props.privacy !== 'public' && this.props.privacy !== 'unlisted';
-
-    return (
-      <IconButton
-        className={classNames('compose-form__publish-icon', { 'compose-form__publish-private': privatePost })}
-        icon={this.props.isEditing ? 'pencil' : 'paper-plane'}
-        title={this.publishAccessibleName()}
-        disabled={disablePost || !this.canSubmit()}
-        onClick={this.handleSubmit}
-      />
+      >
+        <Icon id={simple ? 'expand' : 'compress'} fixedWidth aria-hidden='true' />
+        <span>{label}</span>
+      </button>
     );
   }
 
@@ -588,22 +582,23 @@ class ComposeForm extends ImmutablePureComponent {
       <div className='compose-form__buttons-wrapper'>
         <div className='compose-form__buttons'>
           <div className='compose-form__toolbar-account'>{this.props.senderIdentity}</div>
-          {simple ? null : <UploadButtonContainer />}
-          {simple ? null : <SpoilerButtonContainer />}
+          <UploadButtonContainer />
+          <SpoilerButtonContainer onExpandComposer={simple ? this.handleFullModeClick : null} />
           <LanguageDropdownContainer />
           {!this.props.isEditing && (
-            <ComposerOverflowMenu label={intl.formatMessage(messages.more)}>
+            <ComposerOverflowMenu closeToken={this.state.overflowClose} label={intl.formatMessage(messages.more)}>
               {this.renderModeToggle()}
               <DateTimeButtonContainer presentation='menu' />
-              <SearchabilityDropdownContainer presentation='menu' />
+              <SearchabilityDropdownContainer presentation='menu' onMenuClose={this.requestOverflowClose} />
               <PollButtonContainer presentation='menu' />
+              {this.props.overflowContext}
             </ComposerOverflowMenu>
           )}
         </div>
 
         <div className='compose-form__submit'>
           <div className='compose-form__preflight' data-composer-preflight='true' />
-          {simple ? this.renderIconPublish() : this.renderPublishButton(publishText)}
+          {this.renderPublishButton(publishText)}
         </div>
       </div>
     );

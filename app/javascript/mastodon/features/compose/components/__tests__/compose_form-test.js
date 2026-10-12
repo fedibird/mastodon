@@ -261,21 +261,30 @@ describe('ComposeForm display mode', () => {
     });
   });
 
-  it('keeps the compact composer to a header, a short textarea, and a publish icon', () => {
+  it('keeps attach, content warning, language, and a labeled publish button in simple mode', () => {
     renderForm({ displayMode: 'simple', onDisplayModeChange: jest.fn() });
+
+    const buttons = document.querySelector('.compose-form__buttons');
 
     expect(document.querySelector('.compose-form__header')).toBeTruthy();
     expect(screen.getByTestId('privacy-dropdown')).toBeTruthy();
     expect(document.querySelector('.compose-form__header')).not.toContainElement(screen.getByTestId('language-dropdown'));
-    expect(document.querySelector('.compose-form__buttons')).toContainElement(screen.getByTestId('language-dropdown'));
+    expect(buttons).toContainElement(screen.getByTestId('language-dropdown'));
+    expect(buttons).toContainElement(screen.getByTestId('upload-button'));
+    expect(buttons).toContainElement(screen.getByTestId('spoiler-button'));
     expect(screen.getByTestId('upload-form')).toBeTruthy();
     expect(screen.getAllByRole('textbox')).toHaveLength(1);
-    expect(screen.getAllByRole('button', { name: 'Toot!' })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Toot!' })).toBeTruthy();
+    expect(document.querySelector('.compose-form__publish-icon')).toBeNull();
     expect(document.querySelectorAll('.character-counter')).toHaveLength(0);
     expect(document.querySelector('.compose-form__buttons-wrapper')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
-    expect(screen.getByRole('button', { name: 'Show full composer' })).toBeTruthy();
-    advancedControls.forEach(id => {
+
+    const mode = screen.getByRole('button', { name: 'Show full composer' });
+
+    expect(mode).toHaveTextContent('Show full composer');
+    expect(mode.querySelector('.fa-expand')).toBeTruthy();
+    ['emoji-picker', 'circle-dropdown', 'reference-stack', 'poll-form'].forEach(id => {
       expect(screen.queryByTestId(id)).toBeNull();
     });
   });
@@ -571,6 +580,113 @@ describe('ComposeForm display mode', () => {
     );
 
     expect(screen.queryByText(/Remove the poll/)).toBeNull();
+  });
+
+  it('opens full editing after a simple composer gains a poll, schedule, or content warning', () => {
+    const onDisplayModeChange = jest.fn();
+    const view = renderForm({ displayMode: 'simple', onDisplayModeChange });
+
+    view.rerender(
+      <ComposeForm
+        text=''
+        suggestions={ImmutableList()}
+        privacy='public'
+        prohibitedVisibilities={ImmutableSet()}
+        prohibitedWords={ImmutableSet()}
+        onChange={noop}
+        onSubmit={noop}
+        onClearSuggestions={noop}
+        onFetchSuggestions={noop}
+        onSuggestionSelected={noop}
+        onChangeSpoilerText={noop}
+        onPaste={noop}
+        onPickEmoji={noop}
+        displayMode='simple'
+        onDisplayModeChange={onDisplayModeChange}
+        hasPoll
+      />,
+    );
+
+    expect(onDisplayModeChange).toHaveBeenCalledWith('full');
+    onDisplayModeChange.mockClear();
+
+    view.rerender(
+      <ComposeForm
+        text=''
+        suggestions={ImmutableList()}
+        privacy='public'
+        prohibitedVisibilities={ImmutableSet()}
+        prohibitedWords={ImmutableSet()}
+        onChange={noop}
+        onSubmit={noop}
+        onClearSuggestions={noop}
+        onFetchSuggestions={noop}
+        onSuggestionSelected={noop}
+        onChangeSpoilerText={noop}
+        onPaste={noop}
+        onPickEmoji={noop}
+        displayMode='simple'
+        onDisplayModeChange={onDisplayModeChange}
+        datetimeOpen
+      />,
+    );
+
+    expect(onDisplayModeChange).toHaveBeenCalledWith('full');
+    onDisplayModeChange.mockClear();
+
+    view.rerender(
+      <ComposeForm
+        text=''
+        suggestions={ImmutableList()}
+        privacy='public'
+        prohibitedVisibilities={ImmutableSet()}
+        prohibitedWords={ImmutableSet()}
+        onChange={noop}
+        onSubmit={noop}
+        onClearSuggestions={noop}
+        onFetchSuggestions={noop}
+        onSuggestionSelected={noop}
+        onChangeSpoilerText={noop}
+        onPaste={noop}
+        onPickEmoji={noop}
+        displayMode='simple'
+        onDisplayModeChange={onDisplayModeChange}
+        spoiler
+      />,
+    );
+
+    expect(onDisplayModeChange).toHaveBeenCalledWith('full');
+    onDisplayModeChange.mockClear();
+
+    view.rerender(
+      <ComposeForm
+        text=''
+        suggestions={ImmutableList()}
+        privacy='public'
+        prohibitedVisibilities={ImmutableSet()}
+        prohibitedWords={ImmutableSet()}
+        onChange={noop}
+        onSubmit={noop}
+        onClearSuggestions={noop}
+        onFetchSuggestions={noop}
+        onSuggestionSelected={noop}
+        onChangeSpoilerText={noop}
+        onPaste={noop}
+        onPickEmoji={noop}
+        displayMode='simple'
+        onDisplayModeChange={onDisplayModeChange}
+        overflowContext={<div data-testid='posting-context'>Required mention</div>}
+      />,
+    );
+
+    expect(onDisplayModeChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+
+    const menu = screen.getByTestId('composer-overflow-menu');
+
+    expect(document.querySelector('.compose-form__header')).not.toContainElement(screen.getByTestId('posting-context'));
+    expect(menu).toContainElement(screen.getByTestId('posting-context'));
+    expect(screen.queryByRole('button', { name: 'Destination details' })).toBeNull();
   });
 
   it('opens schedule actions in an overlay outside the button row', () => {

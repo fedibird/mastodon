@@ -22,10 +22,27 @@ const mapStateToProps = (state, { intl, composerId }) => {
   };
 };
 
-const mapDispatchToProps = (dispatch, { composerId }) => ({
+const mapDispatchToProps = (dispatch, { composerId, onExpandComposer }) => ({
 
   onClick () {
-    dispatch(targetComposerAction(changeComposeSpoilerness(), composerId));
+    dispatch((_, getState) => {
+      const composer = selectComposer(getState(), composerId);
+
+      if (!composer) {
+        return;
+      }
+
+      if (composer.get('spoiler') && onExpandComposer) {
+        onExpandComposer();
+        return;
+      }
+
+      dispatch(targetComposerAction(changeComposeSpoilerness(), composerId));
+
+      if (!composer.get('spoiler') && onExpandComposer) {
+        onExpandComposer();
+      }
+    });
   },
 
 });

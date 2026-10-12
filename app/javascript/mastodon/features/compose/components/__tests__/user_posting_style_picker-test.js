@@ -413,8 +413,89 @@ describe('UserPostingStylePicker', () => {
     );
 
     expect(screen.queryByText('This place does not use a style')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /No style/ }));
+
+    const star = document.querySelector('.compose-form__style-star[data-style-id=""]');
+
+    expect(star).toBeDisabled();
+    fireEvent.click(star);
+    expect(onRetryAssignment).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Reload the default for this place' }));
     expect(onRetryAssignment).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not save a place default before it has been loaded', () => {
+    const onSaveDefault = jest.fn();
+
+    render(
+      <UserPostingStylePicker
+        styles={styles}
+        selectedId={null}
+        snapshot={null}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        onSelect={jest.fn()}
+        {...defaultProps}
+        assignmentFetchStatus='idle'
+        onSaveDefault={onSaveDefault}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /No style/ }));
+
+    const star = document.querySelector('.compose-form__style-star[data-style-id="1"]');
+
+    expect(star).toBeDisabled();
+    fireEvent.click(star);
+    expect(onSaveDefault).not.toHaveBeenCalled();
+  });
+
+  it('clears a place default from the filled star without selecting the row', () => {
+    const onSelect = jest.fn();
+    const onResetDefault = jest.fn();
+
+    render(
+      <UserPostingStylePicker
+        styles={styles}
+        selectedId='2'
+        snapshot={styles.get(1)}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        onSelect={onSelect}
+        {...defaultProps}
+        assignmentStatus='style'
+        assignmentStyleId='1'
+        onResetDefault={onResetDefault}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /読書メモ/ }));
+    fireEvent.click(document.querySelector('.compose-form__style-star[data-style-id="1"]'));
+
+    expect(onResetDefault).toHaveBeenCalledTimes(1);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('does not offer place-default stars when the composer has no place', () => {
+    render(
+      <UserPostingStylePicker
+        styles={styles}
+        selectedId={null}
+        snapshot={null}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        showDefaults={false}
+        onSelect={jest.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /No style/ }));
+
+    expect(document.querySelector('.compose-form__style-star')).toBeNull();
+    expect(screen.getByRole('menuitemradio', { name: /No style/ })).toBeTruthy();
   });
 
   it('offers a way to reload posting styles after the catalog request fails', () => {

@@ -347,7 +347,7 @@ class UserPostingStylePicker extends React.PureComponent {
 
     const { onSaveDefault, onUseNoStyle, onResetDefault, defaultsBlocked, assignmentFetchStatus } = this.props;
 
-    if (defaultsBlocked || assignmentFetchStatus === 'saving' || assignmentFetchStatus === 'failed') {
+    if (defaultsBlocked || assignmentFetchStatus !== 'ready') {
       return;
     }
 
@@ -381,12 +381,8 @@ class UserPostingStylePicker extends React.PureComponent {
       return null;
     }
 
-    if (!assignmentFetchStatus || assignmentFetchStatus === 'idle' || assignmentFetchStatus === 'failed') {
-      return null;
-    }
-
     const pressed = this.isPlaceDefault(styleId);
-    const disabled = Boolean(defaultsBlocked) || assignmentFetchStatus === 'saving';
+    const disabled = assignmentFetchStatus !== 'ready' || Boolean(defaultsBlocked);
 
     return (
       <button
