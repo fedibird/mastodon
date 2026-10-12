@@ -20,6 +20,30 @@ RSpec.describe UserPreferences::Reader do
     queries
   end
 
+  describe 'account' do
+    it 'matches the omitted account when the user account is passed explicitly' do
+      user = Fabricate(:user, account: Fabricate(:account, locked: true))
+      omitted = described_class.new(user).get(:default_privacy)
+      explicit = described_class.new(user, account: user.account).get(:default_privacy)
+
+      expect(explicit.state).to eq omitted.state
+      expect(explicit.configured).to eq omitted.configured
+      expect(explicit.effective).to eq omitted.effective
+      expect(explicit.effective).to eq 'private'
+      expect(explicit.effective).to eq user.setting_default_privacy
+    end
+
+    it 'rejects another account instead of using that account lock state' do
+      user = Fabricate(:user, account: Fabricate(:account, locked: true))
+      other = Fabricate(:account, locked: false)
+
+      expect { described_class.new(user, account: other) }
+        .to raise_error(ArgumentError, 'account must be the account that belongs to the user')
+      expect(user.setting_default_privacy).to eq 'private'
+      expect(Setting.where(thing_type: 'User', thing_id: user.id, var: 'default_privacy')).to be_empty
+    end
+  end
+
   describe 'supported keys' do
     it 'rejects keys outside the P1-1 set without reading settings' do
       user = Fabricate(:user)
