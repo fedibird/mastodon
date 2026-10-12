@@ -232,6 +232,7 @@ RSpec.describe UserPreferences::Writer do
       end.to raise_error(RuntimeError, 'second key failed')
 
       expect(Setting.unscoped.where(thing_type: 'User', thing_id: user.id)).to be_empty
+      expect(UserPreferenceRevision.find_by(user_id: user.id)).to be_nil
     end
 
     it 'makes the row visible to another connection before deleting cache' do
@@ -286,6 +287,7 @@ RSpec.describe UserPreferences::Writer do
       expect(result.changed_keys).to eq ['default_sensitive']
       expect(Setting.unscoped.where(thing_type: 'User', thing_id: user.id, var: 'default_sensitive').count).to eq 1
       expect(stored(user, 'default_sensitive').value).to be true
+      expect(UserPreferenceRevision.find_by!(user_id: user.id).revision).to eq 1
     end
 
     it 'raises Conflict after three unique violations and keeps no partial rows' do
@@ -346,7 +348,10 @@ RSpec.describe UserPreferences::Writer do
       result = described_class.new(user).apply(updates: { 'default_privacy' => 'private' })
 
       expect(result.cache_deleted).to eq('default_privacy' => false)
+      expect(result.before_revision).to eq 0
+      expect(result.after_revision).to eq 1
       expect(stored(user, 'default_privacy').value).to eq 'private'
+      expect(UserPreferenceRevision.find_by!(user_id: user.id).revision).to eq 1
       expect(warnings.count { |line| line.include?('var=default_privacy') }).to eq 2
       expect(errors.count { |line| line.include?('var=default_privacy') && !line.include?('private') }).to eq 1
     end
@@ -425,6 +430,57 @@ RSpec.describe UserPreferences::Writer do
 
       expect(stored(user, 'default_privacy').value).to eq 'private'
       expect(Setting.unscoped.where(thing_type: 'User', thing_id: user.id, var: 'default_privacy').count).to eq 1
+      expect(UserPreferenceRevision.find_by!(user_id: user.id).revision).to eq 2
+    end
+
+    it 'counts only committed writer changes' do
+      other = nil
+      expect(UserPreferences::Revision.current(user.id)).to eq 0
+      expect(UserPreferenceRevision.find_by(user_id: user.id)).to be_nil
+
+      first = described_class.new(user).apply(updates: { 'default_sensitive' => false })
+      expect(first.before_revision).to eq 0
+      expect(first.after_revision).to eq 1
+
+      second = described_class.new(user).apply(
+        updates: { 'default_sensitive' => true, 'reduce_motion' => true }
+      )
+      expect(second.before_revision).to eq 1
+      expect(second.after_revision).to eq 2
+      expect(UserPreferenceRevision.find_by!(user_id: user.id).revision).to eq 2
+
+      same = described_class.new(user).apply(updates: { 'default_sensitive' => true })
+      expect(same.before_revision).to eq 2
+      expect(same.after_revision).to eq 2
+
+      nil_row = Setting.unscoped.new(thing_type: 'User', thing_id: user.id, var: 'content_font_size')
+      nil_row.value = nil
+      nil_row.save!
+      removed = described_class.new(user).apply(resets: ['content_font_size'])
+      expect(removed.after_revision).to eq 3
+
+      absent = described_class.new(user).apply(resets: ['content_font_size'])
+      expect(absent.before_revision).to eq 3
+      expect(absent.after_revision).to eq 3
+
+      expect { described_class.new(user).apply(updates: { 'default_language' => 'ja-JP' }) }
+        .to raise_error(UserPreferences::InvalidInput)
+      expect(UserPreferenceRevision.find_by!(user_id: user.id).revision).to eq 3
+
+      expect(described_class.new(user).apply.after_revision).to eq 3
+      expect(described_class.new(user).apply(resets: []).after_revision).to eq 3
+
+      other = Fabricate(:user)
+      other_result = described_class.new(other).apply(updates: { 'reduce_motion' => true })
+      expect(other_result.after_revision).to eq 1
+      expect(UserPreferenceRevision.find_by!(user_id: user.id).revision).to eq 3
+    ensure
+      if other&.id
+        Setting.unscoped.where(thing_type: 'User', thing_id: other.id).delete_all
+        UserPreferenceRevision.where(user_id: other.id).delete_all
+        User.where(id: other.id).delete_all
+        Account.where(id: other.account_id).delete_all
+      end
     end
   end
 end
