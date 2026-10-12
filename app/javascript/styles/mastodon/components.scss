@@ -706,12 +706,12 @@ body > [data-popper-placement] {
     }
 
     &-menu--sectioned {
-      overflow: hidden;
-      max-height: none;
+      overflow: auto;
+      max-height: min(24rem, calc(100vh - 16px));
 
       .compose-form__style-options {
-        overflow: auto;
-        max-height: 12rem;
+        overflow: visible;
+        max-height: none;
       }
     }
 
@@ -1366,8 +1366,13 @@ body > [data-popper-placement] {
     }
 
     .compose-portal-menu.compose-form__style-menu--sectioned {
-      overflow: hidden;
+      overflow: auto;
       max-height: min(24rem, calc(100vh - 16px));
+    }
+
+    .compose-portal-menu.compose-form__style-menu--sectioned .compose-form__style-options {
+      overflow: visible;
+      max-height: none;
     }
 
     .compose-portal-menu .compose-form__menu-row {
