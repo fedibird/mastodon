@@ -99,7 +99,7 @@ describe('ComposerMediaGallery', () => {
     expect(onRemove).toHaveBeenCalledWith('c');
 
     fireEvent.keyDown(screen.getByRole('button', { name: 'b alt' }), { key: 'ArrowLeft' });
-    fireEvent.keyDown(screen.getByRole('button', { name: 'b alt' }), { key: 'ArrowRight' });
+    fireEvent.keyDown(screen.getAllByRole('button', { name: 'Drag to reorder' })[1], { key: 'ArrowRight' });
 
     expect(onMoveBy).toHaveBeenNthCalledWith(1, 'b', -1);
     expect(onMoveBy).toHaveBeenNthCalledWith(2, 'b', 1);

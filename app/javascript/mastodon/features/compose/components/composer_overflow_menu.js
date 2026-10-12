@@ -2,6 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import Overlay from 'react-overlays/Overlay';
 import IconButton from '../../../components/icon_button';
+import { createOverlayRefBridge } from '../overlay_ref';
 
 export default class ComposerOverflowMenu extends React.PureComponent {
 
@@ -16,17 +17,31 @@ export default class ComposerOverflowMenu extends React.PureComponent {
 
   target = null;
 
-  panel = null;
+  menuBridge = createOverlayRefBridge();
 
   setTarget = (node) => {
     this.target = node;
   };
 
-  setPanel = (node) => {
-    this.panel = node;
-  };
-
   findTarget = () => this.target;
+
+  renderPanel = ({ props, placement }) => {
+    const { ref: popperRef, style, ...overlayProps } = props;
+
+    this.menuBridge.syncPopperRef(popperRef);
+
+    return (
+      <div
+        {...overlayProps}
+        ref={this.menuBridge.compose}
+        style={style}
+        className={`compose-form__overflow-panel ${placement || ''}`}
+        data-testid='composer-overflow-menu'
+      >
+        {this.props.children}
+      </div>
+    );
+  };
 
   componentDidMount () {
     document.addEventListener('mousedown', this.handleDocumentClick);
@@ -47,7 +62,9 @@ export default class ComposerOverflowMenu extends React.PureComponent {
       return;
     }
 
-    if (this.panel && this.panel.contains(event.target)) {
+    const panel = this.menuBridge.getNode();
+
+    if (panel && panel.contains(event.target)) {
       return;
     }
 
@@ -78,11 +95,7 @@ export default class ComposerOverflowMenu extends React.PureComponent {
           inverted
         />
         <Overlay show={open} placement='top' flip target={this.findTarget} popperConfig={{ strategy: 'fixed' }}>
-          {({ props, placement }) => (
-            <div {...props} ref={this.setPanel} className={`compose-form__overflow-panel ${placement || ''}`} data-testid='composer-overflow-menu'>
-              {this.props.children}
-            </div>
-          )}
+          {this.renderPanel}
         </Overlay>
       </div>
     );

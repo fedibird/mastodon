@@ -1192,23 +1192,34 @@ body > [data-popper-placement] {
     touch-action: pan-y;
   }
 
+  .compose-form__media-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
   .compose-form__media-handle {
-    position: absolute;
-    z-index: 1;
-    left: 0;
-    bottom: 0;
+    position: static;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 16px;
-    height: 16px;
+    width: 28px;
+    height: 28px;
+    margin-top: 2px;
     padding: 0;
     border: 0;
-    border-radius: 2px;
+    border-radius: 4px;
     background: rgba($black, 0.55);
     color: $white;
+    font-size: 12px;
+    line-height: 12px;
     cursor: grab;
     touch-action: none;
+
+    .fa {
+      font-size: 12px;
+      line-height: 12px;
+    }
   }
 
   .compose-form__media--full {

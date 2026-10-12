@@ -6,6 +6,7 @@ import classNames from 'classnames';
 import Overlay from 'react-overlays/Overlay';
 import Icon from 'mastodon/components/icon';
 import { summaryThumbCount, visibleMediaWindow } from '../composer_media';
+import { createOverlayRefBridge } from '../overlay_ref';
 
 const messages = defineMessages({
   edit: { id: 'upload_form.edit', defaultMessage: 'Edit' },
@@ -81,6 +82,8 @@ class ComposerMediaGallery extends React.PureComponent {
   suppressTimer = null;
 
   thumbNodes = new Map();
+
+  menuBridge = createOverlayRefBridge();
 
   resizeObserver = null;
 
@@ -446,7 +449,10 @@ class ComposerMediaGallery extends React.PureComponent {
           aria-label={intl.formatMessage(messages.handle)}
           title={intl.formatMessage(messages.reorder)}
           data-media-id={id}
+          data-media-index={index}
+          data-media-size={size}
           onPointerDown={this.handlePointerDown}
+          onKeyDown={this.handleKeyDown}
         >
           <Icon id='bars' fixedWidth aria-hidden='true' />
         </button>
@@ -470,31 +476,53 @@ class ComposerMediaGallery extends React.PureComponent {
             <Icon id={typeIcon(media.get('type'))} fixedWidth aria-hidden='true' />
           )}
         </button>
-        <Overlay show={menuOpen} placement='bottom' flip target={this.findMenuTarget} popperConfig={{ strategy: 'fixed' }}>
-          {({ props: overlayProps, placement }) => (
-            <div {...overlayProps} className={`compose-form__media-menu ${placement || ''}`} role='menu' aria-label={intl.formatMessage(messages.menu)}>
-              <button type='button' role='menuitem' data-media-id={id} onClick={this.handleEdit}>
-                <Icon id='pencil' fixedWidth aria-hidden='true' />
-                {intl.formatMessage(messages.edit)}
-              </button>
-              <button type='button' role='menuitem' data-media-id={id} onClick={this.handleRemove}>
-                <Icon id='times' fixedWidth aria-hidden='true' />
-                {intl.formatMessage(messages.undo)}
-              </button>
-              <button type='button' role='menuitem' data-media-id={id} disabled={index === 0} onClick={this.handleMoveEarlier}>
-                <Icon id='arrow-left' fixedWidth aria-hidden='true' />
-                {intl.formatMessage(messages.earlier)}
-              </button>
-              <button type='button' role='menuitem' data-media-id={id} disabled={index >= size - 1} onClick={this.handleMoveLater}>
-                <Icon id='arrow-right' fixedWidth aria-hidden='true' />
-                {intl.formatMessage(messages.later)}
-              </button>
-            </div>
-          )}
-        </Overlay>
+        {menuOpen && (
+          <Overlay show placement='bottom' flip target={this.findMenuTarget} popperConfig={{ strategy: 'fixed' }}>
+            {this.renderMediaMenu}
+          </Overlay>
+        )}
       </div>
     );
   }
+
+  renderMediaMenu = ({ props, placement }) => {
+    const { ref: popperRef, style, ...overlayProps } = props;
+    const { intl, media } = this.props;
+    const id = this.state.menuId;
+    const ids = media.map(item => item.get('id')).toArray();
+    const index = ids.indexOf(id);
+    const size = ids.length;
+
+    this.menuBridge.syncPopperRef(popperRef);
+
+    return (
+      <div
+        {...overlayProps}
+        ref={this.menuBridge.compose}
+        style={style}
+        className={`compose-form__media-menu ${placement || ''}`}
+        role='menu'
+        aria-label={intl.formatMessage(messages.menu)}
+      >
+        <button type='button' role='menuitem' data-media-id={id} onClick={this.handleEdit}>
+          <Icon id='pencil' fixedWidth aria-hidden='true' />
+          {intl.formatMessage(messages.edit)}
+        </button>
+        <button type='button' role='menuitem' data-media-id={id} onClick={this.handleRemove}>
+          <Icon id='times' fixedWidth aria-hidden='true' />
+          {intl.formatMessage(messages.undo)}
+        </button>
+        <button type='button' role='menuitem' data-media-id={id} disabled={index === 0} onClick={this.handleMoveEarlier}>
+          <Icon id='arrow-left' fixedWidth aria-hidden='true' />
+          {intl.formatMessage(messages.earlier)}
+        </button>
+        <button type='button' role='menuitem' data-media-id={id} disabled={index >= size - 1} onClick={this.handleMoveLater}>
+          <Icon id='arrow-right' fixedWidth aria-hidden='true' />
+          {intl.formatMessage(messages.later)}
+        </button>
+      </div>
+    );
+  };
 
   render () {
     const { intl, media, summary } = this.props;
