@@ -36,7 +36,7 @@ export default class ComposerOverflowMenu extends React.PureComponent {
         {...overlayProps}
         ref={this.menuBridge.compose}
         style={style}
-        className={`compose-form__overflow-panel ${placement || ''}`}
+        className={`compose-portal-menu compose-form__overflow-panel ${placement || ''}`}
         data-testid='composer-overflow-menu'
       >
         {this.props.children}

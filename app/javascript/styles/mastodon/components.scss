@@ -524,7 +524,7 @@ body > [data-popper-placement] {
     }
   }
 
-  .compose-form__style {
+  @at-root .compose-form__style {
     position: relative;
     display: flex;
     flex-direction: column;
@@ -775,7 +775,7 @@ body > [data-popper-placement] {
     }
   }
 
-  .compose-form__posting-context {
+  @at-root .compose-form__posting-context {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
@@ -839,7 +839,7 @@ body > [data-popper-placement] {
     }
   }
 
-  .compose-form__sender {
+  @at-root .compose-form__sender {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
@@ -1082,14 +1082,6 @@ body > [data-popper-placement] {
     position: static;
   }
 
-  .compose-form__sender-menu {
-    position: fixed;
-    z-index: 7;
-    top: auto;
-    left: auto;
-  }
-
-  .compose-form__sender-menu,
   .compose-form__media-menu {
     position: absolute;
     z-index: 6;
@@ -1109,7 +1101,6 @@ body > [data-popper-placement] {
     box-shadow: 0 8px 24px rgba($black, 0.24);
   }
 
-  .compose-form__sender-menu-item,
   .compose-form__media-menu button {
     display: flex;
     align-items: center;
@@ -1123,13 +1114,6 @@ body > [data-popper-placement] {
     cursor: pointer;
     font: inherit;
     text-align: left;
-  }
-
-  .compose-form__sender-menu-copy {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    font-size: 12px;
   }
 
   .compose-form__style--header {
@@ -1348,88 +1332,144 @@ body > [data-popper-placement] {
     min-width: 0;
   }
 
-  .compose-form__overflow-panel,
-  .compose-form__style-overlay {
-    z-index: 6;
-    display: flex;
-    flex-direction: column;
-    width: min(22rem, calc(100vw - 16px));
-    min-width: min(16rem, calc(100vw - 16px));
-    padding: 4px;
-    border: 1px solid $ui-base-color;
-    border-radius: 4px;
-    background: $simple-background-color;
-    box-shadow: 0 8px 24px rgba($black, 0.24);
-  }
+  @at-root {
+    .compose-portal-menu {
+      z-index: 4;
+      display: flex;
+      flex-direction: column;
+      box-sizing: border-box;
+      width: min(22rem, calc(100vw - 16px));
+      min-width: min(16rem, calc(100vw - 16px));
+      max-width: calc(100vw - 16px);
+      max-height: min(18rem, calc(100vh - 16px));
+      overflow: auto;
+      padding: 4px;
+      border: 1px solid $ui-base-color;
+      border-radius: 4px;
+      background: $simple-background-color;
+      color: $inverted-text-color;
+      box-shadow: 0 8px 24px rgba($black, 0.24);
+    }
 
-  .compose-form__menu-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 8px;
-    border: 0;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    text-align: start;
-    cursor: pointer;
-  }
+    .compose-portal-menu.compose-form__sender-menu,
+    .compose-portal-menu.compose-form__style-menu,
+    .compose-portal-menu.compose-form__overflow-panel {
+      position: fixed;
+      top: auto;
+      right: auto;
+      left: auto;
+    }
 
-  .compose-form__style-row {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
+    .compose-portal-menu.compose-form__sender-menu {
+      width: min(18rem, calc(100vw - 16px));
+      min-width: min(14rem, calc(100vw - 16px));
+    }
 
-  .compose-form__style-option {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
+    .compose-portal-menu.compose-form__style-menu--sectioned {
+      overflow: hidden;
+      max-height: min(24rem, calc(100vh - 16px));
+    }
 
-  .compose-form__style-star {
-    flex: 0 0 auto;
-    border: 0;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    cursor: pointer;
-  }
+    .compose-portal-menu .compose-form__menu-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 8px;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: start;
+      cursor: pointer;
+    }
 
-  .compose-form__style-separator {
-    height: 1px;
-    margin: 4px 8px;
-    background: $ui-base-color;
-  }
+    .compose-portal-menu .compose-form__style-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+    }
 
-  .compose-form__style-settings {
-    justify-content: flex-start;
-    text-decoration: none;
-  }
+    .compose-portal-menu .compose-form__style-option {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
 
-  .compose-form__style-settings .fa-chevron-right {
-    margin-left: auto;
-  }
+    .compose-portal-menu .compose-form__style-star {
+      flex: 0 0 auto;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+    }
 
-  .compose-form__style-context .compose-form__posting-context-tag,
-  .compose-form__style-context .compose-form__posting-context-mention,
-  .compose-form__style-context .compose-form__posting-context-audience {
-    display: inline-flex;
-    align-items: center;
-    margin: 2px;
-    padding: 2px 8px;
-    border: 1px solid $ui-base-color;
-    border-radius: 999px;
-  }
+    .compose-portal-menu .compose-form__style-separator {
+      height: 1px;
+      margin: 4px 8px;
+      background: $ui-base-color;
+    }
 
-  .compose-form__style-context .compose-form__posting-context-tag--suppressed {
-    opacity: 0.45;
-    background: transparent;
-  }
+    .compose-portal-menu .compose-form__style-settings {
+      justify-content: flex-start;
+      text-decoration: none;
+    }
 
-  .compose-form__style-context .compose-form__posting-context-tag--required,
-  .compose-form__style-context .compose-form__posting-context-mention {
-    opacity: 1;
+    .compose-portal-menu .compose-form__style-settings .fa-chevron-right {
+      margin-left: auto;
+    }
+
+    .compose-portal-menu .compose-form__sender-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 6px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: $inverted-text-color;
+      cursor: pointer;
+      font: inherit;
+      text-align: left;
+    }
+
+    .compose-portal-menu .compose-form__sender-menu-copy {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      font-size: 12px;
+    }
+
+    .compose-portal-menu .compose-form__sender-avatar {
+      width: 28px;
+      height: 28px;
+      flex: 0 0 auto;
+      border-radius: 4px;
+      object-fit: cover;
+    }
+
+    .compose-portal-menu .compose-form__style-context .compose-form__posting-context-tag,
+    .compose-portal-menu .compose-form__style-context .compose-form__posting-context-mention,
+    .compose-portal-menu .compose-form__style-context .compose-form__posting-context-audience {
+      display: inline-flex;
+      align-items: center;
+      margin: 2px;
+      padding: 2px 8px;
+      border: 1px solid $ui-base-color;
+      border-radius: 999px;
+    }
+
+    .compose-portal-menu .compose-form__style-context .compose-form__posting-context-tag--suppressed {
+      opacity: 0.45;
+      background: transparent;
+    }
+
+    .compose-portal-menu .compose-form__style-context .compose-form__posting-context-tag--required,
+    .compose-portal-menu .compose-form__style-context .compose-form__posting-context-mention {
+      opacity: 1;
+    }
   }
 
   .compose-form__preflight {

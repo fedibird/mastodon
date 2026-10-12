@@ -583,7 +583,7 @@ class UserPostingStylePicker extends React.PureComponent {
         {...overlayProps}
         ref={this.menuBridge.compose}
         style={{ ...style, width: 'min(22rem, calc(100vw - 16px))' }}
-        className='compose-form__style-menu compose-form__style-menu--sectioned compose-form__style-overlay'
+        className='compose-portal-menu compose-form__style-menu compose-form__style-menu--sectioned compose-form__style-overlay'
       >
         {this.styleMenuBody}
       </div>

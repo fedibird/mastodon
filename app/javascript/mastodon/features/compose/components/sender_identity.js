@@ -192,7 +192,7 @@ class SenderIdentity extends React.PureComponent {
         {...overlayProps}
         ref={this.menuBridge.compose}
         style={style}
-        className={`compose-form__sender-menu ${placement || ''}`}
+        className={`compose-portal-menu compose-form__sender-menu ${placement || ''}`}
         role='menu'
         data-testid='sender-identity-menu'
         data-composer-id={this.props.composerId || ''}
