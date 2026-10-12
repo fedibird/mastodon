@@ -531,18 +531,20 @@ describe('UserPostingStylePicker', () => {
     );
 
     const picker = document.querySelector('[data-posting-style-picker]');
-    const context = picker.querySelector('.compose-form__style-context');
+    const trigger = screen.getByRole('button', { name: /localsquad/ });
 
-    expect(screen.getByRole('button', { name: /localsquad/ })).toBeTruthy();
-    expect(context.hidden).toBe(true);
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(trigger).not.toHaveAttribute('aria-controls');
+    expect(picker.querySelector('.compose-form__style-menu')).toBeNull();
+    expect(picker.querySelector('.compose-form__style-context')).toBeNull();
     expect(picker.querySelector('[data-posting-style-catalog]')).toBeNull();
-    expect(picker.contains(context)).toBe(true);
 
-    fireEvent.click(screen.getByRole('button', { name: /localsquad/ }));
+    fireEvent.click(trigger);
 
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(document.getElementById(trigger.getAttribute('aria-controls'))).toBeTruthy();
     expect(screen.getByText('Loading posting styles')).toBeTruthy();
     expect(screen.getByText('Follow the group')).toBeTruthy();
-    expect(context.hidden).toBe(false);
     expect(screen.queryByRole('menuitemradio')).toBeNull();
 
     view.rerender(
@@ -570,5 +572,55 @@ describe('UserPostingStylePicker', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reload posting styles' }));
     expect(onRetryCatalog).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('menuitemradio')).toBeNull();
+  });
+
+  it('keeps the header menu out of the DOM until it is opened', () => {
+    const onSelect = jest.fn();
+
+    render(
+      <UserPostingStylePicker
+        header
+        styles={styles}
+        selectedId={null}
+        snapshot={null}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        onSelect={onSelect}
+      />,
+    );
+
+    const trigger = screen.getByRole('button', { name: 'Usual settings' });
+
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(trigger).not.toHaveAttribute('aria-controls');
+    expect(document.querySelector('.compose-form__style-menu')).toBeNull();
+
+    fireEvent.click(trigger);
+
+    const menu = document.querySelector('.compose-form__style-menu');
+
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(menu).toBeTruthy();
+    expect(document.getElementById(trigger.getAttribute('aria-controls'))).toBeTruthy();
+    expect(screen.getByRole('menuitemradio', { name: /読書メモ/ })).toBeTruthy();
+
+    fireEvent.click(trigger);
+    expect(document.querySelector('.compose-form__style-menu')).toBeNull();
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /読書メモ/ }));
+    expect(onSelect).toHaveBeenCalledWith('2');
+    expect(document.querySelector('.compose-form__style-menu')).toBeNull();
+
+    fireEvent.click(trigger);
+    fireEvent.mouseDown(document.body);
+    expect(document.querySelector('.compose-form__style-menu')).toBeNull();
+
+    fireEvent.click(trigger);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(document.querySelector('.compose-form__style-menu')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 });
