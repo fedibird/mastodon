@@ -81,6 +81,7 @@ Doorkeeper.configure do
                   :'write:media',
                   :'write:mutes',
                   :'write:notifications',
+                  :'write:preferences',
                   :'write:reports',
                   :'write:statuses',
                   :read,

@@ -636,6 +636,7 @@ Rails.application.routes.draw do
 
       namespace :fedibird do
         resource :preferences, only: [:show]
+        patch 'preferences', to: 'preferences#update'
         get 'preferences/schema', to: 'preferences/schema#show'
 
         resource :translation_languages, only: [:show]

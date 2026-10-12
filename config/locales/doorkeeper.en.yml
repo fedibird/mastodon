@@ -168,6 +168,7 @@ en:
       read:mutes: see your mutes
       read:notifications: see your notifications
       read:preferences: read your preferences
+      write:preferences: update your preferences
       read:reports: see your reports
       read:search: search on your behalf
       read:statuses: see all posts
