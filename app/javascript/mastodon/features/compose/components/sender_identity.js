@@ -3,6 +3,8 @@ import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import { defineMessages, injectIntl } from 'react-intl';
 import classNames from 'classnames';
+import Icon from 'mastodon/components/icon';
+import { domain as localDomain } from 'mastodon/initial_state';
 
 const messages = defineMessages({
   label: { id: 'compose_form.sender_identity.label', defaultMessage: 'Posting as' },
@@ -20,6 +22,11 @@ const messages = defineMessages({
   blockedSchedule: { id: 'compose_form.sender_identity.blocked_schedule', defaultMessage: 'Scheduled and expiring posts cannot be posted as another account yet.' },
   blockedEdit: { id: 'compose_form.sender_identity.blocked_edit', defaultMessage: 'Finish or discard this edit before changing the posting account.' },
   blockedGeneric: { id: 'compose_form.sender_identity.blocked_generic', defaultMessage: 'This posting account cannot be selected for the draft you are writing.' },
+  accountKind: { id: 'compose_form.sender_identity.account', defaultMessage: 'Account' },
+  selected: { id: 'compose_form.sender_identity.selected', defaultMessage: 'Selected' },
+  choose: { id: 'compose_form.sender_identity.choose', defaultMessage: 'Choose posting account' },
+  server: { id: 'compose_form.sender_identity.server', defaultMessage: 'Server {domain}' },
+  revoked: { id: 'compose_form.sender_identity.revoked', defaultMessage: 'Authorization expired' },
 });
 
 const blockMessage = reason => {
@@ -58,6 +65,23 @@ const accountName = account => accountField(account, 'displayName', 'display_nam
 
 const accountAvatar = account => accountField(account, 'avatarStatic', 'avatar_static') || accountField(account, 'avatar', 'avatar');
 
+const accountDomain = account => {
+  const explicit = accountField(account, 'domain', 'domain');
+
+  if (explicit) {
+    return explicit;
+  }
+
+  const acct = accountAcct(account);
+  const at = acct.indexOf('@');
+
+  if (at >= 0) {
+    return acct.slice(at + 1);
+  }
+
+  return localDomain || '';
+};
+
 class SenderIdentity extends React.PureComponent {
 
   static propTypes = {
@@ -72,6 +96,46 @@ class SenderIdentity extends React.PureComponent {
     onSelect: PropTypes.func,
     blockReason: PropTypes.string,
     text: PropTypes.string,
+    header: PropTypes.bool,
+    catalog: ImmutablePropTypes.list,
+  };
+
+  state = {
+    open: false,
+  };
+
+  root = null;
+
+  componentDidMount () {
+    document.addEventListener('mousedown', this.handleDocumentClick);
+    document.addEventListener('keydown', this.handleDocumentKey);
+  }
+
+  componentWillUnmount () {
+    document.removeEventListener('mousedown', this.handleDocumentClick);
+    document.removeEventListener('keydown', this.handleDocumentKey);
+  }
+
+  handleDocumentClick = event => {
+    if (!this.state.open || !this.root || this.root.contains(event.target)) {
+      return;
+    }
+
+    this.setState({ open: false });
+  };
+
+  handleDocumentKey = event => {
+    if (event.key === 'Escape' && this.state.open) {
+      this.setState({ open: false });
+    }
+  };
+
+  setRoot = node => {
+    this.root = node;
+  };
+
+  handleToggle = () => {
+    this.setState(state => ({ open: !state.open }));
   };
 
   handleChoiceClick = event => {
@@ -193,7 +257,119 @@ class SenderIdentity extends React.PureComponent {
     );
   }
 
+  menuIdentities () {
+    const { catalog, choices } = this.props;
+    const source = catalog && catalog.size ? catalog : choices;
+    const list = source && source.toArray ? source.toArray() : [];
+
+    return list.filter(Boolean);
+  }
+
+  renderMenuItem (item) {
+    const { intl, selectedId } = this.props;
+    const account = item.get('account');
+    const acct = accountAcct(account);
+    const name = accountName(account);
+    const ready = this.postableChoices().some(choice => choice.get('id') === item.get('id'));
+    const selected = item.get('id') === selectedId;
+    const linked = item.get('kind') === 'delegated';
+    const domain = accountDomain(account);
+    const kind = linked ? intl.formatMessage(messages.linked) : intl.formatMessage(messages.accountKind);
+    const unavailable = item.get('authorization') && item.get('authorization') !== 'ready';
+
+    return (
+      <button
+        key={item.get('id')}
+        type='button'
+        role='menuitemradio'
+        aria-checked={selected}
+        disabled={!ready}
+        className={classNames('compose-form__sender-menu-item', { active: selected, 'is-unavailable': !ready })}
+        data-identity-id={item.get('id')}
+        onClick={ready ? this.handleChoiceClick : undefined}
+      >
+        {this.renderAvatar(account) || <Icon id='user-times' fixedWidth aria-hidden='true' />}
+        <span className='compose-form__sender-menu-copy'>
+          <strong>{name || (acct ? `@${acct}` : kind)}</strong>
+          {acct ? <span>{`@${acct}`}</span> : null}
+          {domain ? <span>{intl.formatMessage(messages.server, { domain })}</span> : null}
+          <span>{kind}</span>
+          {unavailable ? <span>{intl.formatMessage(messages.revoked)}</span> : null}
+          {!unavailable && !ready ? <span>{intl.formatMessage(messages.unavailable)}</span> : null}
+        </span>
+        {selected ? <Icon id='check' fixedWidth aria-hidden='true' /> : null}
+        {selected ? <span className='sr-only'>{intl.formatMessage(messages.selected)}</span> : null}
+      </button>
+    );
+  }
+
+  renderHeader () {
+    const { intl, current, failed, blockReason, selectedId } = this.props;
+    const authorization = current && current.get('authorization');
+    const unavailable = authorization && authorization !== 'ready';
+    const account = current && current.get('account') ? current.get('account') : null;
+    const currentAcct = accountAcct(account);
+    const delegatedSelected = typeof selectedId === 'string' && selectedId.startsWith('delegated:');
+    const unavailableMessage = delegatedSelected ? messages.linkedUnavailable : messages.unavailable;
+    const label = currentAcct
+      ? `${intl.formatMessage(messages.choose)}, @${currentAcct}`
+      : intl.formatMessage(messages.choose);
+
+    return (
+      <div
+        className='compose-form__sender compose-form__sender--header'
+        data-testid='sender-identity'
+        ref={this.setRoot}
+      >
+        <button
+          type='button'
+          className='compose-form__sender-avatar-button'
+          aria-haspopup='menu'
+          aria-expanded={this.state.open}
+          aria-label={label}
+          title={intl.formatMessage(messages.hint)}
+          onClick={this.handleToggle}
+        >
+          {this.renderAvatar(account) || <Icon id='user-times' fixedWidth aria-hidden='true' />}
+          {(unavailable || failed || blockReason) ? <span className='compose-form__sender-badge' aria-hidden='true'>!</span> : null}
+        </button>
+        <span className='sr-only' data-testid='sender-identity-current'>
+          {currentAcct ? `@${currentAcct}` : ''}
+        </span>
+        {(unavailable || failed || blockReason) ? (
+          <span className='sr-only' role='status'>
+            {blockReason ? intl.formatMessage(blockMessage(blockReason)) : null}
+            {failed ? intl.formatMessage(messages.failed) : null}
+            {unavailable && !failed ? intl.formatMessage(unavailableMessage) : null}
+          </span>
+        ) : null}
+        {this.state.open && (
+          <div className='compose-form__sender-menu' role='menu' aria-label={intl.formatMessage(messages.label)}>
+            {this.menuIdentities().map(item => this.renderMenuItem(item))}
+            <p className='compose-form__sender-hint'>{intl.formatMessage(messages.hint)}</p>
+            {blockReason ? <p className='compose-form__sender-status' role='status'>{intl.formatMessage(blockMessage(blockReason))}</p> : null}
+            {failed ? (
+              <p className='compose-form__sender-status' role='status'>
+                {intl.formatMessage(messages.failed)}
+                {this.props.onRetry ? (
+                  <button type='button' className='compose-form__sender-retry' onClick={this.props.onRetry}>
+                    {intl.formatMessage(messages.retry)}
+                  </button>
+                ) : null}
+              </p>
+            ) : null}
+            {unavailable && !failed ? <p className='compose-form__sender-status' role='status'>{intl.formatMessage(unavailableMessage)}</p> : null}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   render () {
+    if (this.props.header) {
+      return this.renderHeader();
+    }
+
     const { intl, current, failed, compact, blockReason, selectedId } = this.props;
     const authorization = current && current.get('authorization');
     const unavailable = authorization && authorization !== 'ready';

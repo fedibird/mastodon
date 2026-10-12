@@ -430,4 +430,145 @@ describe('UserPostingStylePicker', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reload posting styles' }));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
+
+  it('renders a custom emoji icon without inserting raw HTML', () => {
+    const customEmojis = fromJS([{
+      shortcode: 'fedibird',
+      url: '/emoji/fedibird.png',
+      static_url: '/emoji/fedibird.png',
+    }]);
+    const withEmoji = styles.map(style => style.get('id') === '2' ? style.set('icon', ':fedibird:') : style);
+
+    const { container } = render(
+      <UserPostingStylePicker
+        header
+        styles={withEmoji}
+        customEmojis={customEmojis}
+        selectedId='2'
+        snapshot={withEmoji.get(1)}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        onSelect={jest.fn()}
+        {...defaultProps}
+        assignmentStatus='style'
+        assignmentStyleId='2'
+      />,
+    );
+
+    expect(container.querySelector('img.emojione')).toBeTruthy();
+    expect(container.innerHTML).not.toContain('<script');
+
+    const hostile = styles.set(0, styles.get(0).set('icon', '<img src=x onerror=alert(1)>'));
+
+    const hostileView = render(
+      <UserPostingStylePicker
+        header
+        styles={hostile}
+        customEmojis={ImmutableList()}
+        selectedId='1'
+        snapshot={hostile.get(0)}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        onSelect={jest.fn()}
+        {...defaultProps}
+      />,
+    );
+
+    expect(hostileView.container.querySelector('[onerror]')).toBeNull();
+    expect(screen.getAllByRole('button', { name: /サークル告知/ }).length).toBeGreaterThan(0);
+  });
+
+  it('hides style choices without hiding the destination', () => {
+    render(
+      <UserPostingStylePicker
+        header
+        showStyleControls={false}
+        placeLabel='localsquad'
+        contextDetails={<div>Follow the group</div>}
+        styles={styles}
+        selectedId='1'
+        snapshot={styles.get(0)}
+        unapplied={ImmutableList()}
+        destinationStatus='failed'
+        destinationFailure='unsupported'
+        visibilityConflict={false}
+        onSelect={jest.fn()}
+        {...defaultProps}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'localsquad' })).toBeTruthy();
+    expect(screen.queryByRole('menuitemradio')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Always use this style here' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'localsquad' }));
+
+    expect(screen.getByText('Follow the group')).toBeTruthy();
+    expect(screen.getAllByText('This destination isn’t supported, so you can’t post.').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('menuitemradio')).toBeNull();
+  });
+
+  it('keeps the destination header while styles load or fail to load', () => {
+    const onRetryCatalog = jest.fn();
+    const view = render(
+      <UserPostingStylePicker
+        header
+        catalogLoading
+        showStyleControls={false}
+        placeLabel='localsquad'
+        contextDetails={<div>Follow the group</div>}
+        styles={styles}
+        selectedId={null}
+        snapshot={null}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        onSelect={jest.fn()}
+        onRetryCatalog={onRetryCatalog}
+      />,
+    );
+
+    const picker = document.querySelector('[data-posting-style-picker]');
+    const context = picker.querySelector('.compose-form__style-context');
+
+    expect(screen.getByRole('button', { name: /localsquad/ })).toBeTruthy();
+    expect(context.hidden).toBe(true);
+    expect(picker.querySelector('[data-posting-style-catalog]')).toBeNull();
+    expect(picker.contains(context)).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: /localsquad/ }));
+
+    expect(screen.getByText('Loading posting styles')).toBeTruthy();
+    expect(screen.getByText('Follow the group')).toBeTruthy();
+    expect(context.hidden).toBe(false);
+    expect(screen.queryByRole('menuitemradio')).toBeNull();
+
+    view.rerender(
+      <UserPostingStylePicker
+        header
+        catalogFailed
+        showStyleControls={false}
+        placeLabel='localsquad'
+        contextDetails={<div>Create permission confirmed</div>}
+        styles={styles}
+        selectedId={null}
+        snapshot={null}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict
+        onSelect={jest.fn()}
+        onRetryCatalog={onRetryCatalog}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /localsquad/ })).toHaveAttribute('aria-expanded', 'true');
+    expect(picker.querySelector('[data-posting-style-catalog="failed"]')).toBeTruthy();
+    expect(screen.getByText('Create permission confirmed')).toBeTruthy();
+    expect(screen.getByText('Can’t post because visibility does not meet the destination')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Reload posting styles' }));
+    expect(onRetryCatalog).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('menuitemradio')).toBeNull();
+  });
 });

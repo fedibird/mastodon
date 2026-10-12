@@ -1340,9 +1340,11 @@ export default function composer(state = initialState, action) {
   case COMPOSE_MEDIA_ORDER_CHANGE: {
     const list = state.get('media_attachments');
     const index = list.findIndex(item => item.get('id') === action.id);
-    const nextIndex = index + action.direction;
+    const nextIndex = Number.isInteger(action.toIndex)
+      ? Math.max(0, Math.min(list.size - 1, action.toIndex))
+      : index + action.direction;
 
-    if (index < 0 || nextIndex < 0 || nextIndex >= list.size) {
+    if (index < 0 || nextIndex < 0 || nextIndex >= list.size || nextIndex === index) {
       return state;
     }
 

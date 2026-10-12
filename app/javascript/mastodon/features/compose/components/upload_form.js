@@ -1,30 +1,42 @@
 import React from 'react';
 import ImmutablePropTypes from 'react-immutable-proptypes';
+import PropTypes from 'prop-types';
 import UploadProgressContainer from '../containers/upload_progress_container';
 import ImmutablePureComponent from 'react-immutable-pure-component';
-import UploadContainer from '../containers/upload_container';
 import SensitiveButtonContainer from '../containers/sensitive_button_container';
+import ComposerMediaGallery from './composer_media_gallery';
 
 export default class UploadForm extends ImmutablePureComponent {
 
   static propTypes = {
-    mediaIds: ImmutablePropTypes.list.isRequired,
+    media: ImmutablePropTypes.list.isRequired,
+    summary: PropTypes.bool,
+    onEdit: PropTypes.func.isRequired,
+    onRemove: PropTypes.func.isRequired,
+    onMoveTo: PropTypes.func.isRequired,
+    onMoveBy: PropTypes.func.isRequired,
   };
 
   render () {
-    const { mediaIds } = this.props;
+    const { media, summary } = this.props;
+    const hasMedia = media && !media.isEmpty();
 
     return (
       <div className='compose-form__upload-wrapper'>
         <UploadProgressContainer />
 
-        <div className='compose-form__uploads-wrapper'>
-          {mediaIds.map((id, index) => (
-            <UploadContainer id={id} key={id} index={index} size={mediaIds.size} />
-          ))}
-        </div>
+        {hasMedia && (
+          <ComposerMediaGallery
+            media={media}
+            summary={summary}
+            onEdit={this.props.onEdit}
+            onRemove={this.props.onRemove}
+            onMoveTo={this.props.onMoveTo}
+            onMoveBy={this.props.onMoveBy}
+          />
+        )}
 
-        {!mediaIds.isEmpty() && <SensitiveButtonContainer />}
+        {hasMedia && !summary && <SensitiveButtonContainer />}
       </div>
     );
   }

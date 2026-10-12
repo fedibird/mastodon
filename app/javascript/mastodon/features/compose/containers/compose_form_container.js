@@ -18,11 +18,12 @@ import { acceptComposerSurface, targetComposerAction } from '../../../actions/co
 import { selectComposerEffectiveCreateCapability } from '../../../posting_context/create_capability';
 import { materializeComposerText } from '../../../posting_context/materialize';
 import { selectComposer } from '../../../selectors/composer';
-import { selectComposerCanSendAsIdentity } from '../../../selectors/posting_identities';
+import { selectComposerCanSendAsIdentity, selectComposerCanUploadAsIdentity } from '../../../selectors/posting_identities';
 import { withComposerId } from '../composer_id_context';
 import SenderIdentityContainer from './sender_identity_container';
 import UserPostingStyleController from './user_posting_style_controller';
 import UserPostingStylePickerContainer from './user_posting_style_picker_container';
+import ComposerContextDetails from '../components/composer_context_details';
 import { injectIntl, defineMessages } from 'react-intl';
 
 const messages = defineMessages({
@@ -41,7 +42,12 @@ const mapStateToProps = (state, { composerId }) => {
     contextCompliant: capability.compliance.valid,
     canAttempt: capability.canAttempt,
     canSendAsIdentity: selectComposerCanSendAsIdentity(state, composerId).canSend,
+    canUploadMedia: selectComposerCanUploadAsIdentity(state, composerId).canUpload,
+    uploadBlockReason: selectComposerCanUploadAsIdentity(state, composerId).reason,
     capabilityReason: capability.reason,
+    hasPoll: Boolean(composer.get('poll')),
+    hasExpiry: Boolean(composer.get('expires')),
+    sensitive: composer.get('sensitive') === true,
     suggestions: composer.get('suggestions'),
     spoiler: composer.get('spoiler'),
     spoilerText: composer.get('spoiler_text'),
@@ -128,7 +134,7 @@ const ComposeFormWithPostingStyles = props => (
   <ConnectedComposeForm
     {...props}
     styleController={<UserPostingStyleController />}
-    stylePicker={<UserPostingStylePickerContainer />}
+    stylePicker={<UserPostingStylePickerContainer header contextDetails={<ComposerContextDetails />} />}
     senderIdentity={<SenderIdentityContainer />}
   />
 );

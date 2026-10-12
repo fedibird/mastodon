@@ -116,6 +116,7 @@ export const COMPOSE_REFERENCE_CHECK_IGNORE  = 'COMPOSE_REFERENCE_CHECK_IGNORE';
 
 const messages = defineMessages({
   uploadErrorLimit: { id: 'upload_error.limit', defaultMessage: 'File upload limit exceeded.' },
+  uploadErrorIdentity: { id: 'upload_error.identity', defaultMessage: 'This posting account can’t attach media to this post.' },
   uploadErrorPoll:  { id: 'upload_error.poll', defaultMessage: 'File upload not allowed with polls.' },
   postReferenceMessage:  { id: 'confirmations.post_reference.message', defaultMessage: 'It contains references, do you want to post it?' },
   postReferenceConfirm:  { id: 'confirmations.post_reference.confirm', defaultMessage: 'Post' },
@@ -667,6 +668,7 @@ export function uploadToComposer(composerId, files) {
     }
 
     if (!selectComposerCanUploadAsIdentity(getState(), composerId).canUpload) {
+      dispatch(showAlert(undefined, messages.uploadErrorIdentity));
       return;
     }
 
@@ -1320,6 +1322,14 @@ export function changeMediaOrder(id, direction) {
     type: COMPOSE_MEDIA_ORDER_CHANGE,
     id,
     direction,
+  };
+}
+
+export function moveComposerMediaToIndex(id, toIndex) {
+  return {
+    type: COMPOSE_MEDIA_ORDER_CHANGE,
+    id,
+    toIndex,
   };
 }
 

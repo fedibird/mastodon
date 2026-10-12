@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 import React from 'react';
 
@@ -28,9 +28,9 @@ const identity = (id, acct, authorization = 'ready', kind = 'local') => Immutabl
   capabilities: ImmutableMap({
     post: authorization === 'ready' ? 'supported' : 'unavailable',
   }),
-  account: ImmutableMap({
+    account: ImmutableMap({
     id,
-    acct,
+    acct: id.startsWith('delegated:') ? `${acct}@example.test` : acct,
     displayName: acct,
     avatarStatic: `/avatars/${acct}.png`,
   }),
@@ -183,5 +183,42 @@ describe('SenderIdentity', () => {
     expect(screen.getByTestId('sender-identity-current').textContent).not.toContain('@admin');
     expect(sender.textContent).not.toContain('does not change the account you are logged in as');
     expect(screen.getByRole('radio', { name: /@admin/ })).toBeTruthy();
+  });
+
+  it('opens an avatar menu without presenting an expired identity as the signed-in account', () => {
+    const missing = ImmutableMap({
+      id: 'delegated:99',
+      kind: 'delegated',
+      authorization: 'unavailable',
+      selectionOrigin: 'explicit',
+    });
+
+    render(
+      <SenderIdentity
+        header
+        current={missing}
+        catalog={ImmutableList([
+          identity('local:42', 'admin'),
+          identity('delegated:99', 'author', 'unavailable', 'delegated'),
+        ])}
+        choices={ImmutableList([identity('local:42', 'admin')])}
+        selectedId='delegated:99'
+        sessionIdentityId='local:42'
+        text='Keep this draft'
+      />,
+    );
+
+    const button = screen.getByRole('button', { name: 'Choose posting account' });
+
+    expect(button.querySelector('img')).toBeNull();
+    expect(screen.getByTestId('sender-identity-current').textContent).not.toContain('@admin');
+    expect(screen.getByText('This linked account is not available right now.')).toBeTruthy();
+
+    fireEvent.click(button);
+
+    expect(screen.getByRole('menuitemradio', { name: /@admin/ })).toBeTruthy();
+    expect(screen.getByRole('menuitemradio', { name: /@author/ })).toBeDisabled();
+    expect(screen.getByText('Authorization expired')).toBeTruthy();
+    expect(screen.getByText('Server example.test')).toBeTruthy();
   });
 });

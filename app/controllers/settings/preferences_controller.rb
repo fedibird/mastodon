@@ -111,6 +111,7 @@ class Settings::PreferencesController < Settings::BaseController
       :setting_info_font_size,
       :setting_composer_font_size,
       :setting_composer_min_height,
+      :setting_show_composer_posting_style_selector,
       :setting_content_emoji_reaction_size,
       :setting_emoji_scale,
       :setting_emoji_size_in_single,

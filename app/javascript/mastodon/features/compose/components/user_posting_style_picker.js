@@ -1,8 +1,10 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
+import { List as ImmutableList } from 'immutable';
 import { defineMessages, injectIntl } from 'react-intl';
 import classNames from 'classnames';
+import CustomEmojiText from 'mastodon/components/custom_emoji_text';
 
 const messages = defineMessages({
   label: { id: 'compose_form.posting_style.label', defaultMessage: 'Posting style' },
@@ -17,6 +19,7 @@ const messages = defineMessages({
   retry: { id: 'compose_form.posting_style.retry', defaultMessage: 'Retry' },
   catalogFailed: { id: 'compose_form.posting_style.catalog_failed', defaultMessage: 'Couldn’t load posting styles.' },
   catalogRetry: { id: 'compose_form.posting_style.catalog_retry', defaultMessage: 'Reload posting styles' },
+  catalogLoading: { id: 'compose_form.posting_style.catalog_loading', defaultMessage: 'Loading posting styles' },
   defaultLabel: { id: 'compose_form.posting_style.default_label', defaultMessage: 'Default for this place' },
   defaultUse: { id: 'compose_form.posting_style.default_use', defaultMessage: 'Always use this style here' },
   defaultNone: { id: 'compose_form.posting_style.default_none', defaultMessage: 'Don’t use a style here' },
@@ -37,7 +40,29 @@ const messages = defineMessages({
   fieldSpoiler: { id: 'compose_form.posting_style.field.spoiler', defaultMessage: 'content warning' },
   fieldSensitive: { id: 'compose_form.posting_style.field.sensitive', defaultMessage: 'sensitive media' },
   fieldDestination: { id: 'compose_form.posting_style.field.destination', defaultMessage: 'destination' },
+  once: { id: 'compose_form.posting_style.once', defaultMessage: 'Only for this post' },
+  context: { id: 'compose_form.posting_style.context', defaultMessage: 'Posting destination' },
+  selected: { id: 'compose_form.posting_style.selected', defaultMessage: 'Selected' },
 });
+
+const StyleIcon = ({ icon, customEmojis }) => {
+  if (!icon) {
+    return null;
+  }
+
+  const emojis = customEmojis && customEmojis.reduce ? customEmojis : ImmutableList();
+
+  return (
+    <span className='compose-form__style-icon' aria-hidden='true'>
+      <CustomEmojiText text={String(icon)} customEmojis={emojis} />
+    </span>
+  );
+};
+
+StyleIcon.propTypes = {
+  icon: PropTypes.string,
+  customEmojis: ImmutablePropTypes.list,
+};
 
 const fieldMessage = {
   privacy: messages.fieldPrivacy,
@@ -89,6 +114,14 @@ class UserPostingStylePicker extends React.PureComponent {
     assignmentStyleId: PropTypes.string,
     assignmentFailure: PropTypes.string,
     defaultsBlocked: PropTypes.bool,
+    header: PropTypes.bool,
+    showStyleControls: PropTypes.bool,
+    contextDetails: PropTypes.node,
+    placeLabel: PropTypes.string,
+    customEmojis: ImmutablePropTypes.list,
+    catalogFailed: PropTypes.bool,
+    catalogLoading: PropTypes.bool,
+    onRetryCatalog: PropTypes.func,
   };
 
   state = {
@@ -283,8 +316,10 @@ class UserPostingStylePicker extends React.PureComponent {
         onClick={this.handleSelect}
       >
         <span className='compose-form__style-option-main'>
-          {icon ? <span className='compose-form__style-icon' aria-hidden='true'>{icon}</span> : null}
+          <StyleIcon icon={icon} customEmojis={this.props.customEmojis} />
           <span className='compose-form__style-name'>{name}</span>
+          {(selectedId === id || (!selectedId && !style)) ? <span className='compose-form__style-mark' aria-hidden='true'>✓</span> : null}
+          {style && this.props.assignmentStyleId && this.props.assignmentStyleId === id ? <span className='compose-form__style-mark' aria-hidden='true'>★</span> : null}
         </span>
         {purpose ? <span className='compose-form__style-purpose'>{purpose}</span> : null}
         {label ? <span className='compose-form__style-destination'>{intl.formatMessage(messages.destination, { label })}</span> : null}
@@ -362,7 +397,7 @@ class UserPostingStylePicker extends React.PureComponent {
       defaultsBlocked,
     } = this.props;
 
-    if (!showDefaults || !onSaveDefault || !onUseNoStyle || !onResetDefault) {
+    if (this.props.showStyleControls === false || !showDefaults || !onSaveDefault || !onUseNoStyle || !onResetDefault) {
       return null;
     }
 
@@ -426,8 +461,8 @@ class UserPostingStylePicker extends React.PureComponent {
     );
   }
 
-  renderNotices () {
-    const { intl, unapplied, destinationStatus, visibilityConflict, onRetry } = this.props;
+  collectNotices () {
+    const { intl, unapplied, destinationStatus, visibilityConflict } = this.props;
     const notices = [];
 
     if (destinationStatus === 'pending' || destinationStatus === 'needs_resolve') {
@@ -448,6 +483,13 @@ class UserPostingStylePicker extends React.PureComponent {
       }));
     }
 
+    return notices;
+  }
+
+  renderNotices () {
+    const { intl, destinationStatus, onRetry } = this.props;
+    const notices = this.collectNotices();
+
     if (notices.length === 0) {
       return null;
     }
@@ -466,7 +508,98 @@ class UserPostingStylePicker extends React.PureComponent {
     );
   }
 
+  renderHeader () {
+    const { intl, contextDetails, placeLabel } = this.props;
+    const controls = this.props.showStyleControls !== false && !this.props.catalogFailed && !this.props.catalogLoading;
+    const current = this.currentStyle();
+    const icon = controls && current ? current.get('icon') : '';
+    const saved = controls && this.savedStyleMatches();
+    const once = controls && Boolean(this.props.selectedId) && !saved;
+    let name = intl.formatMessage(messages.context);
+
+    if (controls) {
+      name = current ? current.get('name') : this.emptyOptionLabel();
+    } else if (placeLabel) {
+      name = placeLabel;
+    } else if (current && destinationLabel(current)) {
+      name = destinationLabel(current);
+    }
+    const notices = this.collectNotices();
+    const defaultActions = controls ? this.renderDefaultActions() : null;
+    const catalogProblem = Boolean(this.props.catalogFailed);
+    const catalogPending = Boolean(this.props.catalogLoading);
+
+    return (
+      <div className='compose-form__style compose-form__style--header compose-form__style--compact' ref={this.setRoot} data-posting-style-picker='true'>
+        <div className='compose-form__style-label' id={this.labelId}>{intl.formatMessage(controls ? messages.label : messages.context)}</div>
+        <button
+          type='button'
+          className='compose-form__style-button'
+          aria-expanded={this.state.open}
+          aria-haspopup='menu'
+          aria-controls={this.menuId}
+          ref={this.setTrigger}
+          onClick={this.handleToggle}
+        >
+          <StyleIcon icon={icon} customEmojis={this.props.customEmojis} />
+          <span className='compose-form__style-name'>{name}</span>
+          {saved ? <span className='compose-form__style-default-mark' aria-hidden='true'>★</span> : null}
+          {saved ? <span className='sr-only'>{intl.formatMessage(messages.defaultMark)}</span> : null}
+          {once ? <span className='sr-only'>{intl.formatMessage(messages.once)}</span> : null}
+          {(notices.length > 0 || catalogProblem) ? <span className='compose-form__style-warning' aria-hidden='true'>!</span> : null}
+          <span className='compose-form__style-caret' aria-hidden='true'>▾</span>
+        </button>
+        {(notices.length > 0 || catalogProblem) ? (
+          <span className='sr-only' role='status'>
+            {catalogProblem ? intl.formatMessage(messages.catalogFailed) : ''}
+            {notices.join(' ')}
+          </span>
+        ) : null}
+        <div className={classNames('compose-form__style-menu', 'compose-form__style-menu--sectioned')} hidden={!this.state.open}>
+          {controls && (
+            <div
+              id={this.menuId}
+              className='compose-form__style-options'
+              role='menu'
+              tabIndex={-1}
+              aria-labelledby={this.labelId}
+              onKeyDown={this.handleMenuKey}
+            >
+              {this.renderOption(null)}
+              {this.props.styles && this.props.styles.map(style => this.renderOption(style))}
+            </div>
+          )}
+          {this.state.open && catalogProblem ? (
+            <div data-posting-style-catalog='failed'>
+              <p className='compose-form__style-notice'>{intl.formatMessage(messages.catalogFailed)}</p>
+              {this.props.onRetryCatalog ? (
+                <button type='button' className='compose-form__style-retry' onClick={this.props.onRetryCatalog}>
+                  {intl.formatMessage(messages.catalogRetry)}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {this.state.open && catalogPending ? (
+            <p className='compose-form__style-notice'>{intl.formatMessage(messages.catalogLoading)}</p>
+          ) : null}
+          {this.state.open ? defaultActions : null}
+          {this.state.open ? this.renderNotices() : null}
+          <div className='compose-form__style-context' hidden={!this.state.open}>{contextDetails}</div>
+          {this.state.open ? (
+            <a className='compose-form__style-settings' href='/settings/user_posting_contexts'>
+              {intl.formatMessage(messages.settings)}
+            </a>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
   render () {
+    if (this.props.header) {
+      return this.renderHeader();
+    }
+
     const { intl, compact } = this.props;
     const current = this.currentStyle();
     const icon = current ? current.get('icon') : '';
@@ -486,7 +619,7 @@ class UserPostingStylePicker extends React.PureComponent {
           ref={this.setTrigger}
           onClick={this.handleToggle}
         >
-          {icon ? <span className='compose-form__style-icon' aria-hidden='true'>{icon}</span> : null}
+          <StyleIcon icon={icon} customEmojis={this.props.customEmojis} />
           <span className='compose-form__style-name'>{name}</span>
           {compact && this.savedStyleMatches() ? <span className='compose-form__style-default-mark'>{intl.formatMessage(messages.defaultMark)}</span> : null}
           {compact ? <span className='compose-form__style-caret' aria-hidden='true'>▾</span> : null}

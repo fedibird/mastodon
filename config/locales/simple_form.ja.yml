@@ -148,6 +148,7 @@ ja:
         setting_show_follow_button_on_timeline: フォロー状態を確認し易くなり、素早くフォローリストを構築できます
         setting_show_navigation_panel: 上級者向け UI の右端にナビゲーションパネルを表示します
         setting_show_quote_button: アクションバーへボタンを表示するかどうかの設定です。引用機能の有効・無効を切り替えるものではありません
+        setting_show_composer_posting_style_selector: コンポーザー上のスタイル選択だけを隠します。場所ごとの既定、公開範囲、CW は引き続き適用されます。
         setting_show_reload_button: iPhoneとiPadで、タイムラインの最上部に再読み込みボタンを表示します
         setting_show_reply_tree_button: 別の投稿に対しての返信に青のマーカー、返信のついている投稿に黄色のマーカー、両方の場合は緑のマーカーを表示します
         setting_show_share_button: 共有機能が使えるブラウザを使用している場合、共有ボタンを表示します
@@ -314,6 +315,7 @@ ja:
         setting_compact_reaction: リアクションをコンパクトに表示
         setting_composer_font_size: 編集画面のフォントサイズ
         setting_composer_min_height: 編集画面の最小の高さ
+        setting_show_composer_posting_style_selector: コンポーザーに投稿スタイルの選択を表示する
         setting_confirm_domain_block: ドメインブロックにドメイン入力を要求する
         setting_confirm_follow_from_bot: Bot承認制アカウントにする
         setting_content_emoji_reaction_size: 投稿の絵文字リアクションのサイズ

@@ -35,6 +35,15 @@ describe UserSettingsDecorator do
       expect(user.settings['default_sensitive']).to eq true
     end
 
+    it 'stores the composer posting style selector as a display preference' do
+      expect(user.setting_show_composer_posting_style_selector).to be true
+
+      settings.update('setting_show_composer_posting_style_selector' => '0')
+
+      expect(user.settings['show_composer_posting_style_selector']).to be false
+      expect(user.setting_show_composer_posting_style_selector).to be false
+    end
+
     it 'updates the user settings value for follow modal' do
       values = { 'setting_follow_modal' => '0' }
 

@@ -13,7 +13,6 @@ import UploadButtonContainer from '../containers/upload_button_container';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import SpoilerButtonContainer from '../containers/spoiler_button_container';
 import PrivacyDropdownContainer from '../containers/privacy_dropdown_container';
-import SearchabilityDropdownContainer from '../containers/searchability_dropdown_container';
 import CircleDropdownContainer from '../containers/circle_dropdown_container';
 import DateTimeFormContainer from '../containers/datetime_form_container';
 import ExpiresIndicatorContainer from '../containers/expires_indicator_container';
@@ -22,7 +21,6 @@ import LanguageDropdownContainer from '../containers/language_dropdown_container
 import PollFormContainer from '../containers/poll_form_container';
 import UploadFormContainer from '../containers/upload_form_container';
 import WarningContainer from '../containers/warning_container';
-import PostingContextBarContainer from '../containers/posting_context_bar_container';
 import { postingContextCapabilityMessages } from './posting_context_bar';
 import ReferenceStack from '../../../features/reference_stack';
 import { isMobile } from '../../../is_mobile';
@@ -32,7 +30,10 @@ import { countableText } from '../util/counter';
 import Icon from 'mastodon/components/icon';
 import { disablePost, maxChars } from '../../../initial_state';
 import IconButton from '../../../components/icon_button';
+import classNames from 'classnames';
 import { PORTABLE_COMPOSER_MODE_FULL, PORTABLE_COMPOSER_MODE_SIMPLE } from '../../../selectors/composer';
+import { isExternalFileDrag, markComposerFileDrop } from '../composer_drop';
+import ComposerOverflowMenu from './composer_overflow_menu';
 
 const allowedAroundShortCode = '><\u0085\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000\u2028\u2029\u0009\u000a\u000b\u000c\u000d';
 
@@ -58,7 +59,44 @@ const messages = defineMessages({
   privacyPersonal: { id: 'privacy.personal.short', defaultMessage: 'Personal' },
   surfaceMismatch: { id: 'compose_form.posting_style.surface_mismatch', defaultMessage: 'This draft still uses the previous destination. Posting stays off until you apply the destination shown here.' },
   surfaceAccept: { id: 'compose_form.posting_style.surface_accept', defaultMessage: 'Use this destination' },
+  more: { id: 'compose_form.more_actions', defaultMessage: 'More actions' },
+  uploadBlocked: { id: 'compose_form.upload_blocked', defaultMessage: 'This posting account can’t attach media here.' },
+  uploadBlockedMedia: { id: 'compose_form.upload_blocked.media', defaultMessage: 'This posting account can’t attach media.' },
+  uploadBlockedReply: { id: 'compose_form.upload_blocked.reply', defaultMessage: 'Replies and quotes can’t include media from this posting account.' },
+  uploadBlockedPoll: { id: 'compose_form.upload_blocked.poll', defaultMessage: 'Remove the poll before attaching media as this posting account.' },
+  uploadBlockedSchedule: { id: 'compose_form.upload_blocked.schedule', defaultMessage: 'Scheduled posts can’t include media from this posting account.' },
+  uploadBlockedGroup: { id: 'compose_form.upload_blocked.group', defaultMessage: 'Group posts can’t include media from this posting account.' },
+  uploadBlockedUnauthorized: { id: 'compose_form.upload_blocked.unauthorized', defaultMessage: 'This posting account isn’t allowed to attach media.' },
+  uploadBlockedUnresolved: { id: 'compose_form.upload_blocked.unresolved', defaultMessage: 'Still confirming whether this posting account can attach media.' },
+  uploadBlockedFailed: { id: 'compose_form.upload_blocked.failed', defaultMessage: 'Couldn’t confirm whether this posting account can attach media.' },
+  uploadBlockedMismatch: { id: 'compose_form.upload_blocked.mismatch', defaultMessage: 'This posting account doesn’t match the signed-in account.' },
+  uploadBlockedEdit: { id: 'compose_form.upload_blocked.edit', defaultMessage: 'Finish or discard this edit before attaching media as this posting account.' },
+  cwOn: { id: 'compose_form.cw_on', defaultMessage: 'Content warning is on' },
+  pollOn: { id: 'compose_form.poll_on', defaultMessage: 'Poll added' },
+  scheduleOn: { id: 'compose_form.schedule_on', defaultMessage: 'Scheduled' },
+  expiryOn: { id: 'compose_form.expiry_on', defaultMessage: 'Expiry is set' },
+  sensitiveOn: { id: 'compose_form.sensitive_on', defaultMessage: 'Media is marked sensitive' },
 });
+
+const uploadReasonMessage = {
+  media: messages.uploadBlockedMedia,
+  reply: messages.uploadBlockedReply,
+  quote: messages.uploadBlockedReply,
+  poll: messages.uploadBlockedPoll,
+  schedule: messages.uploadBlockedSchedule,
+  schedule_bound: messages.uploadBlockedSchedule,
+  group: messages.uploadBlockedGroup,
+  unauthorized: messages.uploadBlockedUnauthorized,
+  unregistered: messages.uploadBlockedUnauthorized,
+  unsupported: messages.uploadBlockedUnauthorized,
+  unresolved: messages.uploadBlockedUnresolved,
+  idle: messages.uploadBlockedUnresolved,
+  loading: messages.uploadBlockedUnresolved,
+  failed: messages.uploadBlockedFailed,
+  mismatch: messages.uploadBlockedMismatch,
+  edit_bound: messages.uploadBlockedEdit,
+  missing: messages.uploadBlocked,
+};
 
 export default @injectIntl
 class ComposeForm extends ImmutablePureComponent {
@@ -112,6 +150,17 @@ class ComposeForm extends ImmutablePureComponent {
     onAcceptSurface: PropTypes.func,
     displayMode: PropTypes.oneOf(['full', 'simple']),
     onDisplayModeChange: PropTypes.func,
+    composerId: PropTypes.string,
+    hasPoll: PropTypes.bool,
+    hasExpiry: PropTypes.bool,
+    sensitive: PropTypes.bool,
+    canUploadMedia: PropTypes.bool,
+    uploadBlockReason: PropTypes.string,
+  };
+
+  state = {
+    fileHover: false,
+    uploadNotice: null,
   };
 
   static defaultProps = {
@@ -152,21 +201,6 @@ class ComposeForm extends ImmutablePureComponent {
     const ngWords = prohibitedWords.some( word => composedText.includes(word) || spoilerText?.includes(word) );
 
     return !(isSubmitting || isUploading || isChangingUpload || isCircleUnselected || length(fulltext) > maxChars || (isOnlyWhitespace && !anyMedia) || noVisibility || ngWords || !contextCompliant || !canAttempt || canSendAsIdentity === false || this.props.surfaceMismatch);
-  }
-
-  privacyLabel () {
-    const labels = {
-      public: messages.privacyPublic,
-      unlisted: messages.privacyUnlisted,
-      private: messages.privacyPrivate,
-      mutual: messages.privacyMutual,
-      limited: messages.privacyLimited,
-      direct: messages.privacyDirect,
-      personal: messages.privacyPersonal,
-    };
-    const message = labels[this.props.privacy];
-
-    return message ? this.props.intl.formatMessage(message) : null;
   }
 
   renderSurfaceMismatch () {
@@ -258,6 +292,30 @@ class ComposeForm extends ImmutablePureComponent {
 
   componentDidUpdate (prevProps) {
     this._updateFocusAndSelection(prevProps);
+    this.syncUploadNotice();
+  }
+
+  syncUploadNotice () {
+    if (!this.state.uploadNotice) {
+      return;
+    }
+
+    if (this.props.canUploadMedia !== false) {
+      this.setState({ uploadNotice: null });
+      return;
+    }
+
+    const reason = this.props.uploadBlockReason || 'unauthorized';
+
+    if (reason !== this.state.uploadNotice) {
+      this.setState({ uploadNotice: reason });
+    }
+  }
+
+  uploadNoticeText () {
+    const message = uploadReasonMessage[this.state.uploadNotice] || messages.uploadBlocked;
+
+    return this.props.intl.formatMessage(message);
   }
 
   _updateFocusAndSelection = (prevProps) => {
@@ -305,6 +363,28 @@ class ComposeForm extends ImmutablePureComponent {
     this.composeForm = c;
   };
 
+  publishAccessibleName () {
+    const { intl } = this.props;
+
+    if (this.props.isEditing) {
+      return intl.formatMessage(messages.saveChanges);
+    }
+
+    if (!this.props.isEditing && this.props.isScheduledStatusEditting && this.props.isScheduled) {
+      return intl.formatMessage(messages.update);
+    }
+
+    if (this.props.privacy !== 'public' && this.props.privacy !== 'unlisted') {
+      return intl.formatMessage(messages.publish);
+    }
+
+    if (this.props.privacy === 'unlisted') {
+      return intl.formatMessage(messages.publish);
+    }
+
+    return intl.formatMessage(messages.publishLoud, { publish: intl.formatMessage(messages.publish) });
+  }
+
   publishLabel () {
     const { intl } = this.props;
     let publishText = '';
@@ -341,11 +421,63 @@ class ComposeForm extends ImmutablePureComponent {
   }
 
   handlePaste = (files) => {
-    if (this.isSimpleMode()) {
-      this.props.onDisplayModeChange(PORTABLE_COMPOSER_MODE_FULL);
+    if (this.props.canUploadMedia === false) {
+      this.setState({ uploadNotice: this.props.uploadBlockReason || 'unauthorized' });
+      return;
     }
 
+    this.setState({ uploadNotice: null });
     this.props.onPaste(files);
+  }
+
+  handleComposerDragEnter = (event) => {
+    if (!isExternalFileDrag(event.dataTransfer)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    this.setState({ fileHover: true });
+  }
+
+  handleComposerDragOver = (event) => {
+    if (!isExternalFileDrag(event.dataTransfer)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    try {
+      event.dataTransfer.dropEffect = 'copy';
+    } catch (error) {
+      // Some browsers reject dropEffect assignment.
+    }
+  }
+
+  handleComposerDragLeave = (event) => {
+    if (event.currentTarget.contains(event.relatedTarget)) {
+      return;
+    }
+
+    this.setState({ fileHover: false });
+  }
+
+  handleComposerDrop = (event) => {
+    if (!isExternalFileDrag(event.dataTransfer)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    markComposerFileDrop(event);
+    this.setState({ fileHover: false });
+
+    const files = event.dataTransfer && event.dataTransfer.files;
+
+    if (files && files.length >= 1) {
+      this.handlePaste(files);
+    }
   }
 
   handleSimpleModeClick = () => {
@@ -356,8 +488,9 @@ class ComposeForm extends ImmutablePureComponent {
     this.props.onDisplayModeChange(PORTABLE_COMPOSER_MODE_FULL);
   }
 
-  renderTextarea (modifiers) {
+  renderTextarea (modifiers, overlay) {
     const { intl, showSearch, autoFocus } = this.props;
+    const simple = this.isSimpleMode();
 
     return (
       <AutosuggestTextarea
@@ -375,6 +508,9 @@ class ComposeForm extends ImmutablePureComponent {
         onPaste={this.handlePaste}
         autoFocus={autoFocus && !showSearch && !isMobile(window.innerWidth)}
         lang={this.props.lang}
+        overlay={overlay}
+        minRows={simple ? 2 : undefined}
+        maxRows={simple ? 3 : undefined}
       >
         {modifiers}
       </AutosuggestTextarea>
@@ -386,13 +522,56 @@ class ComposeForm extends ImmutablePureComponent {
       return null;
     }
 
+    const simple = this.isSimpleMode();
+
     return (
       <IconButton
-        icon='compress'
-        title={this.props.intl.formatMessage(messages.simpleMode)}
-        onClick={this.handleSimpleModeClick}
+        className='compose-form__mode-toggle'
+        icon={simple ? 'expand' : 'compress'}
+        title={this.props.intl.formatMessage(simple ? messages.fullMode : messages.simpleMode)}
+        onClick={simple ? this.handleFullModeClick : this.handleSimpleModeClick}
         inverted
       />
+    );
+  }
+
+  renderIconPublish () {
+    const privatePost = !this.props.isEditing && this.props.privacy !== 'public' && this.props.privacy !== 'unlisted';
+
+    return (
+      <IconButton
+        className={classNames('compose-form__publish-icon', { 'compose-form__publish-private': privatePost })}
+        icon={this.props.isEditing ? 'pencil' : 'paper-plane'}
+        title={this.publishAccessibleName()}
+        disabled={disablePost || !this.canSubmit()}
+        onClick={this.handleSubmit}
+      />
+    );
+  }
+
+  renderSimpleBadge (icon, title) {
+    return (
+      <IconButton
+        className='compose-form__simple-badge'
+        icon={icon}
+        title={title}
+        onClick={this.handleFullModeClick}
+        inverted
+      />
+    );
+  }
+
+  renderHeader () {
+    return (
+      <div className='compose-form__header'>
+        <div className='compose-form__header-account'>{this.props.senderIdentity}</div>
+        <div className='compose-form__header-context'>{this.props.stylePicker}</div>
+        <div className='compose-form__header-audience'>
+          <PrivacyDropdownContainer disabled={this.props.isEditing} showLabel />
+          <LanguageDropdownContainer />
+        </div>
+        {this.renderModeToggle()}
+      </div>
     );
   }
 
@@ -406,125 +585,159 @@ class ComposeForm extends ImmutablePureComponent {
 
   renderFooter (publishText) {
     const { intl } = this.props;
-    const simple = this.isSimpleMode();
 
     return (
-      <div className={`compose-form__buttons-wrapper${simple ? ' compose-form__buttons-wrapper--simple' : ''}`}>
+      <div className='compose-form__buttons-wrapper'>
         <div className='compose-form__buttons'>
-          {simple ? (
-            <IconButton
-              icon='expand'
-              title={intl.formatMessage(messages.fullMode)}
-              onClick={this.handleFullModeClick}
-              inverted
-            />
-          ) : (
-            <Fragment>
-              <UploadButtonContainer />
-              <PollButtonContainer />
-              <SpoilerButtonContainer />
-              <EmojiPickerDropdownContainer onPickEmoji={this.handleEmojiPick} />
-              {!this.props.isEditing && <DateTimeButtonContainer />}
-              {!this.props.isEditing && <SearchabilityDropdownContainer />}
-              {this.renderModeToggle()}
-            </Fragment>
+          <UploadButtonContainer />
+          <PollButtonContainer />
+          <SpoilerButtonContainer />
+          {!this.props.isEditing && (
+            <div className='compose-form__buttons-secondary'>
+              <DateTimeButtonContainer />
+            </div>
+          )}
+          {!this.props.isEditing && (
+            <ComposerOverflowMenu label={intl.formatMessage(messages.more)}>
+              <DateTimeButtonContainer />
+            </ComposerOverflowMenu>
           )}
         </div>
 
         <div className='compose-form__submit'>
-          {!simple && (
-            <div className='character-counter__wrapper'>
-              <CharacterCounter max={maxChars} text={this.getFulltextForCharacterCounting()} />
-            </div>
-          )}
-
+          <div className='compose-form__preflight' data-composer-preflight='true' />
           {this.renderPublishButton(publishText)}
         </div>
       </div>
     );
   }
 
+  renderSpoiler () {
+    const { intl } = this.props;
+
+    if (!this.props.spoiler) {
+      return null;
+    }
+
+    return (
+      <div className='spoiler-input spoiler-input--visible' ref={this.setRef} data-testid='cw-input'>
+        <AutosuggestInput
+          placeholder={intl.formatMessage(messages.spoiler_placeholder)}
+          value={this.props.spoilerText}
+          onChange={this.handleChangeSpoilerText}
+          onKeyDown={this.handleKeyDown}
+          disabled={!this.props.spoiler}
+          ref={this.setSpoilerText}
+          suggestions={this.props.suggestions}
+          onSuggestionsFetchRequested={this.onSuggestionsFetchRequested}
+          onSuggestionsClearRequested={this.onSuggestionsClearRequested}
+          onSuggestionSelected={this.onSpoilerSuggestionSelected}
+          searchTokens={[':']}
+          id='cw-spoiler-input'
+          className='spoiler-input__input'
+          lang={this.props.lang}
+        />
+      </div>
+    );
+  }
+
+  renderSimpleBadges () {
+    const { intl } = this.props;
+    const badges = [];
+
+    if (this.props.spoiler) {
+      badges.push(this.renderSimpleBadge('warning', intl.formatMessage(messages.cwOn)));
+    }
+
+    if (this.props.hasPoll) {
+      badges.push(this.renderSimpleBadge('tasks', intl.formatMessage(messages.pollOn)));
+    }
+
+    if (this.props.isScheduled) {
+      badges.push(this.renderSimpleBadge('calendar', intl.formatMessage(messages.scheduleOn)));
+    }
+
+    if (this.props.hasExpiry) {
+      badges.push(this.renderSimpleBadge('hourglass', intl.formatMessage(messages.expiryOn)));
+    }
+
+    if (this.props.sensitive) {
+      badges.push(this.renderSimpleBadge('eye-slash', intl.formatMessage(messages.sensitiveOn)));
+    }
+
+    if (badges.length === 0) {
+      return null;
+    }
+
+    return <div className='compose-form__simple-badges'>{badges}</div>;
+  }
+
   render () {
     const { intl } = this.props;
     const publishText = this.publishLabel();
     const simple = this.isSimpleMode();
+    const overlay = simple ? null : (
+      <Fragment>
+        <div className='compose-form__emoji-anchor'>
+          <EmojiPickerDropdownContainer onPickEmoji={this.handleEmojiPick} />
+        </div>
+        <div className='compose-form__count-anchor' data-testid='character-count'>
+          <CharacterCounter max={maxChars} text={this.getFulltextForCharacterCounting()} />
+        </div>
+      </Fragment>
+    );
+    const modifiers = simple ? null : (
+      <div className='compose-form__modifiers'>
+        <UploadFormContainer />
+        <PollFormContainer />
+        {!this.props.isEditing && <DateTimeFormContainer />}
+        {!this.props.isEditing && <ExpiresIndicatorContainer />}
+      </div>
+    );
 
     return (
-      <div className={simple ? 'compose-form compose-form--simple' : 'compose-form'}>
+      <div
+        className={classNames('compose-form', {
+          'compose-form--simple': simple,
+          'compose-form--file-hover': this.state.fileHover,
+        })}
+        data-composer-id={this.props.composerId || 'primary'}
+        onDragEnter={this.handleComposerDragEnter}
+        onDragOver={this.handleComposerDragOver}
+        onDragLeave={this.handleComposerDragLeave}
+        onDrop={this.handleComposerDrop}
+      >
         {this.props.styleController}
+        {this.renderHeader()}
         {this.renderSurfaceMismatch()}
         {this.renderCapabilityGuard()}
-        {simple && (
-          <div className='compose-form__simple-bar'>
-            {this.props.senderIdentity}
-            {this.props.stylePicker}
-            {this.privacyLabel() ? <span className='compose-form__simple-privacy'>{this.privacyLabel()}</span> : null}
+        {this.state.uploadNotice ? (
+          <p className='compose-form__upload-notice' role='status'>{this.uploadNoticeText()}</p>
+        ) : null}
+        {!simple && <WarningContainer />}
+        {!simple && this.props.isEditing && (
+          <div className='edit-indicator'>
+            <div className='edit-indicator__cancel'><IconButton title={intl.formatMessage(messages.cancelEdit)} icon='times' onClick={this.props.onCancelEdit} inverted /></div>
+            <div className='edit-indicator__content translate'><FormattedMessage {...messages.editing} /></div>
           </div>
         )}
-        {!simple && (
-          <Fragment key='advanced'>
-            <WarningContainer />
+        {!simple && <ReplyIndicatorContainer />}
+        {!simple && !this.props.isEditing && <QuoteIndicatorContainer />}
+        {!simple && this.renderSpoiler()}
 
-            {this.props.isEditing && (
-              <div className='edit-indicator'>
-                <div className='edit-indicator__cancel'><IconButton title={intl.formatMessage(messages.cancelEdit)} icon='times' onClick={this.props.onCancelEdit} inverted /></div>
-                <div className='edit-indicator__content translate'><FormattedMessage {...messages.editing} /></div>
-              </div>
-            )}
-
-            <ReplyIndicatorContainer />
-            {!this.props.isEditing && <QuoteIndicatorContainer />}
-
-            <div className={`spoiler-input ${this.props.spoiler ? 'spoiler-input--visible' : ''}`} ref={this.setRef}>
-              <AutosuggestInput
-                placeholder={intl.formatMessage(messages.spoiler_placeholder)}
-                value={this.props.spoilerText}
-                onChange={this.handleChangeSpoilerText}
-                onKeyDown={this.handleKeyDown}
-                disabled={!this.props.spoiler}
-                ref={this.setSpoilerText}
-                suggestions={this.props.suggestions}
-                onSuggestionsFetchRequested={this.onSuggestionsFetchRequested}
-                onSuggestionsClearRequested={this.onSuggestionsClearRequested}
-                onSuggestionSelected={this.onSpoilerSuggestionSelected}
-                searchTokens={[':']}
-                id='cw-spoiler-input'
-                className='spoiler-input__input'
-                lang={this.props.lang}
-              />
+        <div className='compose-form__body'>
+          {this.renderTextarea(modifiers, overlay)}
+          {simple && (
+            <div className={classNames('compose-form__simple-row', { 'compose-form__simple-row--overlay': !this.props.anyMedia })}>
+              <UploadFormContainer summary />
+              {this.renderSimpleBadges()}
+              {this.renderIconPublish()}
             </div>
-
-            {this.props.senderIdentity}
-            {this.props.stylePicker}
-
-            <div className='compose-form__dropdowns'>
-              <PrivacyDropdownContainer disabled={this.props.isEditing} showLabel />
-              <LanguageDropdownContainer />
-            </div>
-
-            {!this.props.isEditing && !this.props.isScheduledStatusEditting && (
-              <PostingContextBarContainer />
-            )}
-          </Fragment>
-        )}
-
-        <Fragment key='text'>
-          {this.renderTextarea(simple ? null : (
-            <div className='compose-form__modifiers'>
-              <UploadFormContainer />
-              <PollFormContainer />
-              {!this.props.isEditing && <DateTimeFormContainer />}
-              {!this.props.isEditing && <ExpiresIndicatorContainer />}
-            </div>
-          ))}
-        </Fragment>
+          )}
+        </div>
 
         {!simple && !this.props.isEditing && <CircleDropdownContainer key='circle' />}
-
-        <Fragment key='footer'>
-          {this.renderFooter(publishText)}
-        </Fragment>
-
+        {!simple && this.renderFooter(publishText)}
         {!simple && !this.props.isEditing && <ReferenceStack key='references' />}
       </div>
     );
