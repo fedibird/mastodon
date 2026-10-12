@@ -28,11 +28,17 @@ RSpec.describe 'UserPreferences autoload' do
 
         value = UserPreferences::Value
         error = UserPreferences::UnsupportedKey
+        open_transaction = UserPreferences::OpenTransaction
+        conflict = UserPreferences::Conflict
         abort('wrong value') unless value.name == 'UserPreferences::Value'
         abort('wrong error') unless error < ArgumentError
+        abort('wrong open transaction') unless open_transaction < StandardError
+        abort('wrong conflict') unless conflict < StandardError
 
         reader = $LOADED_FEATURES.any? { |path| path.end_with?('user_preferences/reader.rb') }
+        writer = $LOADED_FEATURES.any? { |path| path.end_with?('user_preferences/writer.rb') }
         abort('reader loaded by Value or UnsupportedKey') if reader
+        abort('writer loaded by an exception') if writer
       RUBY
       chdir: Rails.root.to_s
     )
