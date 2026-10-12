@@ -213,7 +213,7 @@ reset は行削除であり、nil の保存でも既定値の書き込みでも�
 
 DB の行を正とする。キャッシュは配信の都合であり、正ではない。
 
-Writer 同士は、対象 User 行の `lock!`（`SELECT ... FOR UPDATE`）で直列化する。設定行がまだ無くても、ロック対象は User 行なので競合を取りこぼさない。一意制約 `(thing_type, thing_id, var)` は最後の砦であり、通常の Writer 同士はこのロックのあとで直列に読むので、同じ未保存キーへの並行 INSERT にはならない。
+Writer 同士は、対象 User 行の `lock!`（`SELECT ... FOR UPDATE`）で直列化する。設定行がまだ無くても、ロック対象は User 行なので競合を取りこぼさない。Writer 同士が同じ未保存キーを書くときは、後続がロック後に先の行を読む。二つの INSERT にはならない。
 
 変更前の保存状態は、ロックを取ったあと、同じトランザクションの中で `Setting.unscoped` から読む。ロック前の Reader 結果や getter のキャッシュは変更前の値に使わない。
 
@@ -239,7 +239,11 @@ Writer 同士は、対象 User 行の `lock!`（`SELECT ... FOR UPDATE`）で直
 
 ポリシーとバーを同じリクエストで書くときは、節 4 の適用後の値で検査する。バーをポリシーから生成して保存しない。
 
-移行期間の制約として、`UserSettingsDecorator` と `ScopedSettings#[]=` はこの User 行ロックを取らない。フォームや Credentials と Writer が同じキーを書くと、後からコミットした方がそのキーを残す。P2-1 で decorator にロックを足さない。P2-6 で同じロックに乗せるまでは、この差を残す。
+移行期間の制約として、`UserSettingsDecorator` と `ScopedSettings#[]=` はこの User 行ロックを取らない。P2-1 で decorator にロックを足さない。P2-6 で同じロックに乗せるまでは、この差を残す。
+
+Decorator は 1 キーずつ `update!` する。同じ未保存キーを Decorator と Writer が同時に INSERT すると、一意制約 `(thing_type, thing_id, var)` に当たることがある。PostgreSQL はそのトランザクションを失敗状態にする。P2-1 は、開いたトランザクションの中で `ActiveRecord::RecordNotUnique` を rescue して続きの SQL を実行しない。例外は `transaction` ブロックの外まで出し、そのトランザクションを完全に ROLLBACK してから、Writer 全体をやり直す。やり直しは最初の失敗のあと 2 回まで（合計 3 回）である。各回は新しいトランザクションで、禁止判定、User 行ロック、ロック後の読み直しから始める。先に入った行が見えれば INSERT ではなく UPDATE か no-op になる。
+
+3 回とも一意制約で失敗したら `UserPreferences::Conflict` を上げる。これは P2-2 が HTTP 409 に変換するドメインエラーである。P2-1 は HTTP にしない。生の PostgreSQL 例外をそのまま呼び出し元の契約にしない。
 
 そのほかの境界は次のとおりである。
 
@@ -261,21 +265,23 @@ Writer 同士は、対象 User 行の `lock!`（`SELECT ... FOR UPDATE`）で直
 
 ### 6.1 Rails 6.1 のコミット後処理
 
-このアプリの Rails は 6.1.7 である。`ActiveRecord.after_all_transactions_commit` は無い。キャッシュ削除は、`transaction` ブロックの次の行に書かない。joined なブロックが戻った時点は、外側の COMMIT より前である。
+このアプリの Rails は 6.1.7 である。`ActiveRecord.after_all_transactions_commit` は無い。キャッシュ削除は、`transaction` ブロックの次の行に書かない。ブロックが戻った時点は、外側の COMMIT より前であることがある。
 
-P2-1 は、`before_committed!`、`committed!(should_run_callbacks:)`、`rolledback!(force_restore_state:, should_run_callbacks:)`、`trigger_transactional_callbacks?` を実装したオブジェクトを `User.connection.add_transaction_record` で現在のトランザクションへ登録する。Rails 6.1 の `TransactionManager#begin_transaction` は `run_commit_callbacks = !current_transaction.joinable?` である。
+P2-1 は、`before_committed!`、`committed!(should_run_callbacks:)`、`rolledback!(force_restore_state:, should_run_callbacks:)`、`trigger_transactional_callbacks?` を実装したオブジェクトを、Writer 自身のトランザクションへ `User.connection.add_transaction_record` で登録する。
 
-- 外側が無いときの `User.transaction` は `RealTransaction` である。`commit` は PostgreSQL の COMMIT であり、そのあと `commit_records` が `committed!` を呼ぶ。本番の成功経路はここだけが cache.delete を実行する。
-- 親が joinable な `SavepointTransaction` の `commit` は `RELEASE SAVEPOINT` である。`run_commit_callbacks` は偽なので、ここでは callback を走らせず、レコードを親へ移す。cache.delete は最外側の COMMIT まで待つ。親が ROLLBACK すると `rolledback!` が走り、cache.delete はしない。
-- 親が joinable ではないとき、内側の savepoint は `run_commit_callbacks` が真になる。`RELEASE SAVEPOINT` の時点で `committed!` が走る。RSpec の transactional fixtures は `begin_transaction joinable: false` なので、このテスト専用の経路である。fixture トランザクション自体の COMMIT ではない。
+`committed!` は `should_run_callbacks` が真のときだけ cache.delete する。偽のときは何もしない。Rails 6.1 の `commit_records` は、callback を親へ繰り延べるときと、`ensure` の掃除のときに `committed!(should_run_callbacks: false)` を呼ぶ。ここで delete すると、SAVEPOINT の帳簿上の呼び出しや二重削除になる。`rolledback!` は `should_run_callbacks` の真偽にかかわらず cache.delete しない。
 
-ROLLBACK では cache.delete しない。SAVEPOINT の解放だけでは、親が joinable な本番トランザクションにおいて cache.delete しない。
+本番の成功経路は、開いたトランザクションが無い状態で始めた `RealTransaction` だけである。その `commit` は PostgreSQL の COMMIT であり、そのあと `commit_records` が `committed!(should_run_callbacks: true)` を呼ぶ。delete はこの呼び出しだけが行う。
 
-### 6.2 Writer は joinable な開いたトランザクションに入らない
+`TransactionManager#begin_transaction` は `run_commit_callbacks = !current_transaction.joinable?` である。親が joinable な savepoint の `commit` は `RELEASE SAVEPOINT` であり、callback は親へ移る。親が joinable ではない savepoint は、`RELEASE SAVEPOINT` の時点で `committed!(should_run_callbacks: true)` が走り得る。これは PostgreSQL の COMMIT ではない。本番の Writer は、どちらの外側トランザクションにも入らない。節 6.2 が先に拒否する。
 
-`connection.transaction_open?` かつ `current_transaction.joinable?` のとき、Writer はロックも書き込みもせず `UserPreferences::OpenTransaction` を上げる。呼び出し側は `ActiveRecord::Base.transaction` で Writer を包まない。包むと、ブロック終了が COMMIT だと誤認してキャッシュを先に消す実装や、外側の ROLLBACK で設定だけ戻る実装が混ざる。
+### 6.2 開いたトランザクションは joinable を問わず拒否する
 
-joinable ではない開いたトランザクションは拒否しない。テストの fixture トランザクションがそれであり、拒否すると通常の RSpec から Writer を呼べなくなる。本番のリクエストに、最初から開いた joinable トランザクションは無い。
+本番の Writer は、`User.connection.transaction_open?` が真なら、joinable の真偽を見ずに `UserPreferences::OpenTransaction` を上げる。判定は `lock!` より前であり、設定行の SELECT や INSERT より前である。キーワード引数、環境名の分岐、非 joinable だけを許す条件は本番クラスに置かない。呼び出し側は `ActiveRecord::Base.transaction` で Writer を包めない。
+
+RSpec の transactional fixtures は `begin_transaction joinable: false` でトランザクションを開く。この中で本番の判定をそのまま使うと Writer は必ず拒否される。fixture を開いたまま Writer の保存例を書くときだけ、`spec/` に置いたモジュールの prepend で判定を空にしてよい。そのモジュールを `app/` から参照しない。本番の呼び出しが同じ抜け道を引数や設定で使えるようにしない。
+
+PostgreSQL の COMMIT と cache.delete の前後は、`use_transactional_tests = false` の例だけで検証する。この例は prepend を使わない。Writer が戻ったとき、別コネクションから行が見えることと、delete がその可視状態より前に呼ばれていないことを見る。fixture の savepoint 解放で delete が走ったことは、COMMIT の証拠にしない。
 
 ### 6.3 delete の失敗
 
@@ -286,7 +292,7 @@ callback の中で例外を握る。1 キーあたり 3 回まで delete を試�
 P2-1 の保証は次のとおりである。
 
 - 正は DB の保存値である。
-- ROLLBACK と、joinable な親の RELEASE SAVEPOINT ではキャッシュを消さない。
+- ROLLBACK ではキャッシュを消さない。`committed!(should_run_callbacks: false)` でも消さない。
 - Writer は `ScopedSettings#[]=` を呼ばない。`[]=` は `update!` の直後に `Rails.cache.write` する。
 - リクエストに無いキーの行もキャッシュも触らない。
 - 読み取りは保存状態を変えない。
@@ -295,14 +301,16 @@ P2-1 の保証は次のとおりである。
 
 ### 6.4 P2-1 の RSpec
 
-- 成功時、cache.delete は `committed!` の中だけで呼ばれる。トランザクションの途中では呼ばれない。
+- `committed!(should_run_callbacks: false)` は cache.delete を呼ばない。`rolledback!` も cache.delete を呼ばない。
+- 成功時、cache.delete は `committed!(should_run_callbacks: true)` の中だけで呼ばれる。トランザクションの途中では呼ばれない。
 - Writer のトランザクションが例外で戻ると、cache.delete は呼ばれず、書いた行も残らない。
-- joinable な外側トランザクションの中では `OpenTransaction` になり、行も delete も無い。
-- `use_transactional_tests = false` の例で、Writer が戻ったあと別コネクションから行が見える。これは PostgreSQL の COMMIT である。そのあと無関係なトランザクションを ROLLBACK しても、その行は残る。
-- transactional fixtures の例では、delete が savepoint 解放時に走ることをコメントと assertion の位置で固定する。fixture トランザクションの COMMIT とは書かない。
+- 開いたトランザクションの中では、joinable が真でも偽でも、prepend 無しなら `OpenTransaction` になる。行も delete も無い。判定が `lock!` より前であることも固定する。
+- `use_transactional_tests = false` で、別コネクションが行を見えた時点より前に delete が無く、Writer が戻ったあと無関係な ROLLBACK をしても行が残る。これが PostgreSQL COMMIT と delete の前後の検証である。
+- fixture を開いた保存例は、`spec/` の prepend を付けたときだけ書く。本番クラスに同じ分岐が無いことを、ソースに引数も `Rails.env` も無いことで固定する。
 - cache.delete が 2 回失敗して 3 回目に成功すると、行は残り、warn が 2 回残り、`cache_deleted` は true である。
 - 3 回とも失敗すると、例外は呼び出し元へ出ず、行は残り、`cache_deleted` は false で、error ログが残る。
 - ROLLBACK の例では delete の失敗ログは出ない。delete 自体を呼ばないためである。
+- Decorator と同時の未保存 INSERT で一意制約に当たったとき、失敗したトランザクションの行は残らず、ROLLBACK のあと別トランザクションでやり直す。トランザクションの中で rescue して続行しない。3 回失敗すると `UserPreferences::Conflict` になり、部分行は残らない。
 
 ## 7. 副作用の境界
 
@@ -322,7 +330,9 @@ P2-1 の保証は次のとおりである。
 | --- | --- |
 | `UserPreferences::WriteContract` | 9 キーの定数、型、選択肢、範囲。未知キーと派生キーを拒否する |
 | `UserPreferences::ChangeSet` | 省略、値の設定、reset を操作に分ける。変更前はロック後の configured state である |
-| `UserPreferences::Writer` | 開いた joinable トランザクションを拒否し、User 行をロックし、1 トランザクションで UPSERT または DELETE し、COMMIT 後の callback で cache delete する |
+| `UserPreferences::Writer` | 開いたトランザクションを joinable を問わず拒否し、User 行をロックし、1 トランザクションで UPSERT または DELETE し、`committed!(should_run_callbacks: true)` だけで cache delete する |
+| `UserPreferences::Conflict` | 一意制約のやり直し上限を超えたドメインエラー。HTTP への変換は P2-2 |
+| `UserPreferences::OpenTransaction` | 開いたトランザクションを拒否したドメインエラー |
 | `UserPreferences::WriteResult` | `before`、`after`、`changed_keys`、`unchanged_keys`、キーごとの `cache_deleted`。HTTP の形にはしない |
 
 DB 更新は `Setting.unscoped` をこのトランザクションの中で使う。`ScopedSettings#[]=` は使わない。
@@ -337,13 +347,14 @@ API コントローラ、OAuth、revision 列、Streaming は Writer の外で�
 
 ### P2-1 Writer
 
-HTTP もフォームも変えない。節 8 の 4 クラスと spec だけを足す。
+HTTP もフォームも変えない。節 8 のクラスと spec だけを足す。
 
 - 9 キー以外、派生キー、Schema では general だが定数に無いキーを拒否する。
 - 省略は無変更、`null` は拒否、`false` と空文字列と明示的既定値と reset を区別する。
 - 節 4 の言語表を固定する。`ja-JP` は拒否し、`zh-CN`、`zh-TW`、`zh-HK`、`zh-YUE` は文字列のまま許可する。`valid_locale_or_nil` で地域を剥がさない。
 - 未保存への既定値は INSERT する。既存行への同値再送だけを no-op にする。`:absent`、`:nil`、`:present` を取り違えない。
-- 節 5 の User 行ロックと、節 6.4 の COMMIT、SAVEPOINT、ROLLBACK、delete 失敗を固定する。
+- 節 5 の User 行ロック、Decorator との一意制約、完全な ROLLBACK のあと最大 2 回のやり直し、上限超過の `Conflict` を固定する。
+- 節 6.4 の、開いたトランザクションの拒否、`should_run_callbacks: false` で副作用が無いこと、transactional fixtures を切った COMMIT と delete の前後、delete 失敗を固定する。
 - ポリシーだけの更新がバー行を変えない。同時更新でもバーをポリシーから生成しない。
 - 2 キーの途中失敗で両方戻る。キャッシュ write が無く、delete は COMMIT 後の callback だけである。
 - リクエスト外のキーが残る。decorator はロックしないままである。
@@ -354,7 +365,7 @@ HTTP もフォームも変えない。節 8 の 4 クラスと spec だけを足
 
 `PATCH /api/v1/fedibird/preferences` を足す。スコープは `write:preferences` だけとする。`write`、`write:accounts`、`read`、`read:preferences` では書けない。`read:preferences` を Credentials や Mastodon の preferences に足さない。
 
-ボディは P1-3 のキー名だけを受ける。省略、拒否、保存の spec をコントローラで繰り返す。応答は変更後の読み取り文書である。キャッシュは `private, no-store` とする。既存 GET の JSON を回帰する。
+ボディは P1-3 のキー名だけを受ける。省略、拒否、保存の spec をコントローラで繰り返す。`UserPreferences::Conflict` は 409 にする。`OpenTransaction` はコントローラが Writer をトランザクションで包まないことで本番には出さない。応答は変更後の読み取り文書である。キャッシュは `private, no-store` とする。既存 GET の JSON を回帰する。
 
 ### P2-3 reset
 
@@ -385,7 +396,9 @@ Rails フォームと Credentials を Writer に載せる専用 PR とする。�
 
 ## 10. この PR で決めたことと、実装時に残すこと
 
-決めたことは、9 キーの許可リスト、PATCH と `null` と reset と no-op の差、`valid_locale?` による言語の許可集合、User 行ロック、joinable な外側トランザクションの拒否、Rails 6.1 の COMMIT 後 callback、delete 失敗を DB へ戻さないこと、ActivityPub を 9 キーに付けないこと、節 9 の PR 順である。#415 の `show_composer_posting_style_selector` はカタログ未登録であり、この PR のカタログ差分には入れない。
+決めたことは、9 キーの許可リスト、PATCH と `null` と reset と no-op の差、`valid_locale?` による言語の許可集合、User 行ロック、開いたトランザクションの拒否、`committed!(should_run_callbacks: false)` では副作用を実行しないこと、Decorator との一意制約は完全な ROLLBACK のあと限定回数だけやり直すこと、delete 失敗を DB へ戻さないこと、ActivityPub を 9 キーに付けないこと、節 9 の PR 順である。
+
+#415 の `8186cf1e480fd065171904694a4236fb823d09e4` は `show_composer_posting_style_selector` を足している。最新の `origin/fedibird` で P1-0 チェッカーは失敗する。未登録キーと、delegate 追加でずれた `source_refs` がある。この差の修正はこの PR に入れない。監査追従は別 PR のままである。
 
 実装時に残すのは次だけである。
 
