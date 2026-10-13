@@ -35,7 +35,7 @@ class DateTimeForm extends ImmutablePureComponent {
     }
 
     return (
-      <div className='compose-form__datetime-wrapper'>
+      <div className='compose-form__datetime-wrapper compose-form__datetime-wrapper--editor'>
         <IconButton
           className='compose-form__form-dismiss'
           icon='times'

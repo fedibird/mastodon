@@ -265,6 +265,56 @@ describe('SenderIdentity', () => {
     expect(document.activeElement).toBe(button);
   });
 
+  it('selects the account when its custom emoji is clicked', () => {
+    const onSelect = jest.fn();
+    const linked = identity('delegated:7', 'painter', 'ready', 'delegated')
+      .setIn(['account', 'displayName'], 'Paint :blob:')
+      .setIn(['account', 'emojis'], ImmutableList([
+        ImmutableMap({
+          shortcode: 'blob',
+          url: 'https://cdn.example/blob.gif',
+          static_url: 'https://cdn.example/blob.png',
+        }),
+      ]));
+    const revoked = identity('delegated:8', 'expired', 'unavailable', 'delegated')
+      .setIn(['account', 'displayName'], 'Old :blob:')
+      .setIn(['account', 'emojis'], ImmutableList([
+        ImmutableMap({
+          shortcode: 'blob',
+          url: 'https://cdn.example/blob.gif',
+          static_url: 'https://cdn.example/blob.png',
+        }),
+      ]));
+
+    render(
+      <SenderIdentity
+        header
+        current={identity('local:42', 'admin')}
+        catalog={ImmutableList([identity('local:42', 'admin'), linked, revoked])}
+        choices={ImmutableList([identity('local:42', 'admin'), linked])}
+        selectedId='local:42'
+        sessionIdentityId='local:42'
+        onSelect={onSelect}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose posting account, @admin' }));
+
+    const images = screen.getAllByRole('img', { name: ':blob:' });
+    const readyEmoji = images.find(image => !image.closest('button').disabled);
+    const revokedEmoji = images.find(image => image.closest('button').disabled);
+
+    expect(readyEmoji).toHaveAttribute('draggable', 'false');
+    expect(revokedEmoji.closest('button')).toBeDisabled();
+
+    fireEvent.click(revokedEmoji);
+    fireEvent.click(readyEmoji);
+
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith('delegated:7', { confirmed: true });
+    expect(document.querySelector('a[href]')).toBeNull();
+  });
+
   it('opens the account menu outside a footer that hides overflow', () => {
     const { container } = render(
       <div className='compose-form__buttons-wrapper'>

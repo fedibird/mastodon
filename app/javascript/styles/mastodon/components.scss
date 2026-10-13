@@ -2223,12 +2223,12 @@ body > [data-popper-placement] {
 
 .spoiler-input.spoiler-input--visible,
 .compose-form__poll-wrapper,
-.compose-form__datetime-wrapper {
+.compose-form__datetime-wrapper--editor {
   position: relative;
 }
 
 .compose-form__poll-wrapper,
-.compose-form__datetime-wrapper {
+.compose-form__datetime-wrapper--editor {
   padding-inline-end: 36px;
 }
 

@@ -28,42 +28,25 @@ const emojiList = emojis => {
   return Array.isArray(emojis) ? emojis : [];
 };
 
-class IdentityEmoji extends React.PureComponent {
+const IdentityEmoji = ({ originalUrl, shortcode, staticUrl, url }) => (
+  <img
+    className='emojione custom-emoji'
+    draggable='false'
+    alt={`:${shortcode}:`}
+    title={shortcode}
+    src={url}
+    data-shortcode={shortcode}
+    data-original={originalUrl || url}
+    data-static={staticUrl || url}
+  />
+);
 
-  static propTypes = {
-    shortcode: PropTypes.string.isRequired,
-    url: PropTypes.string.isRequired,
-    staticUrl: PropTypes.string,
-    originalUrl: PropTypes.string,
-  };
-
-  handleClick = event => {
-    event.preventDefault();
-    event.stopPropagation();
-  };
-
-  render () {
-    const { originalUrl, shortcode, staticUrl, url } = this.props;
-
-    return (
-      // The image sits inside the account button and must not activate that button.
-      // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
-      <img
-        className='emojione custom-emoji'
-        draggable='false'
-        alt={`:${shortcode}:`}
-        title={shortcode}
-        src={url}
-        data-shortcode={shortcode}
-        data-original={originalUrl || url}
-        data-static={staticUrl || url}
-        onMouseDown={this.handleClick}
-        onClick={this.handleClick}
-      />
-    );
-  }
-
-}
+IdentityEmoji.propTypes = {
+  shortcode: PropTypes.string.isRequired,
+  url: PropTypes.string.isRequired,
+  staticUrl: PropTypes.string,
+  originalUrl: PropTypes.string,
+};
 
 export const identityDisplayNameNodes = (name, emojis) => {
   const text = typeof name === 'string' ? name : '';
