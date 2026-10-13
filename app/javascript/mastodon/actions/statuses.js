@@ -1,3 +1,5 @@
+import { fromJS } from 'immutable';
+
 import api from '../api';
 import { locale as interfaceLocale } from '../initial_state';
 import { sessionPostingIdentityId } from '../posting_identity/identity';
@@ -339,6 +341,22 @@ export function requestEditStatus(status, routerHistory, intl) {
   };
 }
 
+// A usable delete payload lists every attachment id. Anything else is too
+// incomplete to reuse, and the cached composer copy must not replace it.
+const deleteResponseMedia = payload => {
+  const list = payload && payload.media_attachments;
+
+  if (!Array.isArray(list)) {
+    return null;
+  }
+
+  if (list.some(item => !item || item.id === undefined || item.id === null || item.id === '')) {
+    return null;
+  }
+
+  return fromJS(list);
+};
+
 export function redraft(getState, status, replyStatus, raw_text, options = {}) {
   return {
     type: REDRAFT,
@@ -348,6 +366,7 @@ export function redraft(getState, status, replyStatus, raw_text, options = {}) {
     context_references: getContextReference(getState, replyStatus),
     reuseMedia: options.reuseMedia === true,
     ownerIdentityId: options.ownerIdentityId || null,
+    mediaUnconfirmed: options.mediaUnconfirmed === true,
   };
 };
 
@@ -369,11 +388,25 @@ export function deleteStatus(id, routerHistory, withRedraft = false) {
 
       if (withRedraft) {
         dispatch(fetchStatuses(status.get('status_reference_ids', [])));
-        dispatch(redraft(getState, status, replyStatus, response.data.text, {
+
+        const responseMedia = deleteResponseMedia(response.data);
+        const cachedCount = status.get('media_attachments') ? status.get('media_attachments').size : 0;
+        // An empty or missing list cannot stand in for attachments we already showed.
+        const mediaUnconfirmed = !responseMedia || (responseMedia.size === 0 && cachedCount > 0);
+        const redraftStatus = responseMedia && !mediaUnconfirmed
+          ? status.set('media_attachments', responseMedia)
+          : status;
+
+        dispatch(redraft(getState, redraftStatus, replyStatus, response.data.text, {
           reuseMedia: true,
           ownerIdentityId: sessionPostingIdentityId(),
+          mediaUnconfirmed,
         }));
-        dispatch(prepareRedraftMedia(PRIMARY_COMPOSER_ID));
+
+        if (!mediaUnconfirmed) {
+          dispatch(prepareRedraftMedia(PRIMARY_COMPOSER_ID));
+        }
+
         ensureComposeIsVisible(getState, routerHistory);
       }
     }).catch(error => {

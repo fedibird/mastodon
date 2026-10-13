@@ -157,7 +157,7 @@ describe('redraft media reuse', () => {
     expect(client.put).toHaveBeenCalledWith('/api/v1/media/m1', {
       description: 'new alt',
       focus: '0.40,-0.50',
-    });
+    }, { timeout: 30_000 });
     expect(primaryMedia(store).get('description')).toEqual('new alt');
     expect(primaryMedia(store).get('redraftReuse')).toEqual('complete');
     expect(store.getState().getIn(['compose', 'text'])).toEqual('body');
@@ -181,6 +181,7 @@ describe('redraft media reuse', () => {
       reuse: 'complete',
       fetched: true,
       error: null,
+      epoch: store.getState().getIn(['compose', 'redraftEpoch']),
     }, 'primary'));
 
     store.dispatch(changeComposerUpload('primary', 'm1', { description: 'first', focus: '0.10,-0.20' }));
@@ -194,7 +195,7 @@ describe('redraft media reuse', () => {
     expect(client.put).toHaveBeenLastCalledWith('/api/v1/media/m1', {
       description: 'second',
       focus: '0.30,0.30',
-    });
+    }, { timeout: 30_000 });
     expect(primaryMedia(store).get('redraftReuse')).toEqual('complete');
   });
 
@@ -263,6 +264,7 @@ describe('redraft media reuse', () => {
       reuse: 'complete',
       fetched: true,
       error: null,
+      epoch: store.getState().getIn(['compose', 'redraftEpoch']),
     }, 'primary'));
     store.dispatch(changeComposerUpload('primary', 'm1', { description: 'kept alt', focus: '0.20,0.20' }));
     await flush();
@@ -378,6 +380,7 @@ describe('redraft media reuse', () => {
       reuse: 'complete',
       fetched: true,
       error: null,
+      epoch: store.getState().getIn(['composers', 'byId', 'composer-a', 'redraftEpoch']),
     }, 'composer-a'));
 
     store.dispatch(changeComposerUpload('composer-a', 'm-a', { description: 'from a', focus: '0.00,0.00' }));
@@ -416,6 +419,296 @@ describe('redraft media reuse', () => {
     expect(reportedStore.getState().getIn(['compose', 'text'])).toEqual('');
     expect(reportedStore.getState().getIn(['alerts', 0]).get('message').id).toEqual('compose.redraft_media.reported');
     expect(reportedStore.getState().getIn(['statuses', 'status-9', 'text'])).toEqual('body');
+  });
+
+  const accountPayload = {
+    id: '1',
+    username: 'admin',
+    acct: 'admin',
+    display_name: 'Admin',
+    note: '',
+    followed_message: '',
+    url: 'https://example.test/@admin',
+    emojis: [],
+  };
+
+  const redraftStore = posted => createStore(combineReducers({
+    compose,
+    composers,
+    alerts,
+    statuses: (state = ImmutableMap({ 'status-1': posted, parent: fromJS({ id: 'parent', account: '1', status_reference_ids: [] }) })) => state,
+    accounts: (state = ImmutableMap({ 1: ImmutableMap({ id: '1' }) })) => state,
+    timelines: (state = ImmutableMap()) => state,
+    meta: (state = ImmutableMap()) => state,
+    polls: (state = ImmutableMap()) => state,
+  }), applyMiddleware(thunk));
+
+  it('restores ALT, focus, and order from the delete response instead of the cached status', async () => {
+    const posted = fromJS({
+      id: 'status-1',
+      text: 'stale body',
+      spoiler_text: '',
+      in_reply_to_id: 'parent',
+      quote: { id: 'q1', url: 'https://example.test/q/1' },
+      status_reference_ids: [],
+      media_attachments: [
+        media('m1', { description: 'stale one' }).toJS(),
+        media('m2', { description: 'stale two' }).toJS(),
+      ],
+      account: '1',
+    });
+    const freshStore = redraftStore(posted);
+
+    client.delete.mockResolvedValue({
+      data: {
+        text: 'fresh body',
+        account: accountPayload,
+        media_attachments: [
+          { id: 'm2', type: 'image', description: 'fresh two', meta: { focus: { x: 0.4, y: 0.2 } }, url: 'https://example.test/m2.jpg' },
+          { id: 'm1', type: 'image', description: 'fresh one', meta: { focus: { x: -0.3, y: 0.1 } }, url: 'https://example.test/m1.jpg' },
+        ],
+      },
+    });
+    client.get.mockImplementation(() => new Promise(() => {}));
+
+    await freshStore.dispatch(deleteStatus('status-1', { push: jest.fn() }, true));
+
+    const attachments = freshStore.getState().getIn(['compose', 'media_attachments']);
+
+    expect(freshStore.getState().getIn(['compose', 'text'])).toEqual('fresh body');
+    expect(freshStore.getState().getIn(['compose', 'in_reply_to'])).toEqual('parent');
+    expect(freshStore.getState().getIn(['compose', 'quote_from'])).toEqual('q1');
+    expect(attachments.map(item => item.get('id')).toArray()).toEqual(['m2', 'm1']);
+    expect(attachments.map(item => item.get('description')).toArray()).toEqual(['fresh two', 'fresh one']);
+    expect(attachments.getIn([0, 'meta', 'focus', 'x'])).toEqual(0.4);
+    expect(attachments.getIn([1, 'meta', 'focus', 'y'])).toEqual(0.1);
+    expect(attachments.every(item => item.get('unattached') === true)).toBe(true);
+  });
+
+  it('keeps cached attachments visible and does not poll when the delete response has no media', async () => {
+    const posted = fromJS({
+      id: 'status-1',
+      text: 'body',
+      spoiler_text: '',
+      status_reference_ids: [],
+      media_attachments: [media('m1').toJS()],
+      account: '1',
+    });
+    const freshStore = redraftStore(posted);
+
+    client.delete.mockResolvedValue({
+      data: { text: 'body', account: accountPayload },
+    });
+
+    await freshStore.dispatch(deleteStatus('status-1', { push: jest.fn() }, true));
+
+    expect(freshStore.getState().getIn(['compose', 'media_attachments']).size).toEqual(1);
+    expect(freshStore.getState().getIn(['compose', 'media_attachments', 0, 'description'])).toEqual('old alt');
+    expect(freshStore.getState().getIn(['compose', 'media_attachments', 0, 'redraftReuse'])).toEqual('failed');
+    expect(freshStore.getState().getIn(['compose', 'media_attachments', 0, 'redraftError'])).toEqual('prepare');
+    expect(client.get).not.toHaveBeenCalled();
+
+    await freshStore.dispatch(submitComposer('primary', { push: jest.fn(), goBack: jest.fn() }));
+    expect(client.request).not.toHaveBeenCalled();
+  });
+
+  it('adopts the fetched ALT when the user has not edited and does not write the stale value back', async () => {
+    client.get.mockResolvedValue({
+      status: 200,
+      data: { id: 'm1', type: 'image', description: 'server alt', meta: { focus: { x: 0.5, y: 0.5 } }, url: 'https://example.test/m1.jpg' },
+    });
+
+    redraft();
+    store.dispatch(prepareRedraftMedia('primary'));
+    await flush();
+
+    expect(client.put).not.toHaveBeenCalled();
+    expect(primaryMedia(store).get('description')).toEqual('server alt');
+    expect(primaryMedia(store).getIn(['meta', 'focus', 'x'])).toEqual(0.5);
+    expect(primaryMedia(store).get('redraftReuse')).toEqual('complete');
+  });
+
+  it('ignores an older redraft GET after the same attachment is redrafted again', async () => {
+    let finishOld;
+    client.get.mockImplementationOnce(() => new Promise(resolve => {
+      finishOld = resolve;
+    }));
+
+    redraft();
+    store.dispatch(prepareRedraftMedia('primary'));
+
+    client.get.mockResolvedValue({
+      status: 200,
+      data: { id: 'm1', type: 'image', description: 'current alt', meta: { focus: { x: 0.1, y: -0.2 } } },
+    });
+    redraft();
+    store.dispatch(prepareRedraftMedia('primary'));
+    await flush();
+
+    expect(primaryMedia(store).get('description')).toEqual('current alt');
+    expect(primaryMedia(store).get('redraftReuse')).toEqual('complete');
+
+    finishOld({ status: 200, data: { id: 'm1', type: 'image', description: 'from old get', meta: { focus: { x: 0, y: 0 } } } });
+    await flush();
+
+    expect(primaryMedia(store).get('description')).toEqual('current alt');
+    expect(primaryMedia(store).get('redraftReuse')).toEqual('complete');
+    expect(client.put).not.toHaveBeenCalled();
+  });
+
+  it('does not fail the new redraft when the previous prepare timer expires', async () => {
+    client.get.mockImplementationOnce(() => new Promise(() => {}));
+    redraft();
+    store.dispatch(changeComposerUpload('primary', 'm1', { description: 'typed once', focus: '0.20,0.20' }));
+    store.dispatch(prepareRedraftMedia('primary'));
+
+    jest.advanceTimersByTime(20_000);
+    await flush();
+
+    client.get.mockResolvedValue({
+      status: 200,
+      data: { id: 'm1', type: 'image', description: 'second pass', meta: { focus: { x: 0.2, y: 0.2 } } },
+    });
+    redraft();
+    store.dispatch(prepareRedraftMedia('primary'));
+    await flush();
+
+    expect(primaryMedia(store).get('description')).toEqual('second pass');
+    expect(primaryMedia(store).get('redraftReuse')).toEqual('complete');
+
+    jest.advanceTimersByTime(15_000);
+    await flush();
+
+    expect(primaryMedia(store).get('redraftReuse')).toEqual('complete');
+    expect(primaryMedia(store).get('description')).toEqual('second pass');
+    expect(primaryMedia(store).get('redraftError')).toBeNull();
+  });
+
+  it('keeps the new save in progress when an older PUT settles', async () => {
+    let finishOld;
+    client.put.mockImplementationOnce(() => new Promise(resolve => {
+      finishOld = resolve;
+    }));
+
+    redraft();
+    store.dispatch(targetComposerAction({
+      type: COMPOSE_REDAFT_MEDIA_STATUS,
+      mediaId: 'm1',
+      reuse: 'complete',
+      fetched: true,
+      error: null,
+      epoch: store.getState().getIn(['compose', 'redraftEpoch']),
+    }, 'primary'));
+    store.dispatch(changeComposerUpload('primary', 'm1', { description: 'old edit', focus: '0.10,-0.20' }));
+
+    let finishNew;
+    client.put.mockImplementationOnce(() => new Promise(resolve => {
+      finishNew = resolve;
+    }));
+    redraft();
+    store.dispatch(targetComposerAction({
+      type: COMPOSE_REDAFT_MEDIA_STATUS,
+      mediaId: 'm1',
+      reuse: 'complete',
+      fetched: true,
+      error: null,
+      epoch: store.getState().getIn(['compose', 'redraftEpoch']),
+    }, 'primary'));
+    store.dispatch(changeComposerUpload('primary', 'm1', { description: 'new edit', focus: '0.30,0.30' }));
+
+    finishOld({ status: 200, data: { id: 'm1', type: 'image', description: 'old edit', meta: { focus: { x: 0.1, y: -0.2 } } } });
+    await flush();
+
+    expect(primaryMedia(store).get('description')).toEqual('new edit');
+    expect(primaryMedia(store).get('redraftReuse')).toEqual('saving');
+
+    finishNew({ status: 200, data: { id: 'm1', type: 'image', description: 'new edit', meta: { focus: { x: 0.3, y: 0.3 } } } });
+    await flush();
+
+    expect(primaryMedia(store).get('description')).toEqual('new edit');
+    expect(primaryMedia(store).get('redraftReuse')).toEqual('complete');
+  });
+
+  it('fails a hung media lookup when the prepare limit elapses and ignores the late response', async () => {
+    let finishLate;
+    client.get.mockImplementation((url, config) => {
+      expect(config.timeout).toBeGreaterThan(0);
+      expect(config.timeout).toBeLessThanOrEqual(30_000);
+      return new Promise(resolve => {
+        finishLate = resolve;
+      });
+    });
+
+    redraft();
+    store.dispatch(changeComposerUpload('primary', 'm1', { description: 'typed', focus: '0.20,0.20' }));
+    store.dispatch(prepareRedraftMedia('primary'));
+    jest.advanceTimersByTime(30_000);
+    await flush();
+
+    expect(primaryMedia(store).get('redraftReuse')).toEqual('failed');
+    expect(primaryMedia(store).get('redraftError')).toEqual('prepare');
+    expect(primaryMedia(store).get('description')).toEqual('typed');
+
+    finishLate({ status: 200, data: { id: 'm1', type: 'image', description: 'late', meta: { focus: { x: 0.2, y: 0.2 } } } });
+    await flush();
+
+    expect(primaryMedia(store).get('redraftReuse')).toEqual('failed');
+    expect(primaryMedia(store).get('description')).toEqual('typed');
+    expect(client.put).not.toHaveBeenCalled();
+  });
+
+  it('fails a hung description save after the request timeout and keeps the ALT', async () => {
+    client.put.mockImplementation((url, params, config) => {
+      expect(config.timeout).toEqual(30_000);
+      return new Promise(() => {});
+    });
+
+    redraft();
+    store.dispatch(targetComposerAction({
+      type: COMPOSE_REDAFT_MEDIA_STATUS,
+      mediaId: 'm1',
+      reuse: 'complete',
+      fetched: true,
+      error: null,
+      epoch: store.getState().getIn(['compose', 'redraftEpoch']),
+    }, 'primary'));
+    store.dispatch(changeComposerUpload('primary', 'm1', { description: 'kept alt', focus: '0.20,0.20' }));
+    jest.advanceTimersByTime(30_000);
+    await flush();
+
+    expect(primaryMedia(store).get('description')).toEqual('kept alt');
+    expect(primaryMedia(store).get('redraftReuse')).toEqual('failed');
+    expect(primaryMedia(store).get('redraftError')).toEqual('save');
+    expect(store.getState().getIn(['compose', 'text'])).toEqual('body');
+
+    await store.dispatch(submitComposer('primary', { push: jest.fn(), goBack: jest.fn() }));
+    expect(client.request).not.toHaveBeenCalled();
+  });
+
+  it('does not allow posting when the saved description does not match the composer', async () => {
+    client.put.mockResolvedValue({
+      status: 200,
+      data: { id: 'm1', type: 'image', description: 'someone else', meta: { focus: { x: 0.2, y: 0.2 } } },
+    });
+
+    redraft();
+    store.dispatch(targetComposerAction({
+      type: COMPOSE_REDAFT_MEDIA_STATUS,
+      mediaId: 'm1',
+      reuse: 'complete',
+      fetched: true,
+      error: null,
+      epoch: store.getState().getIn(['compose', 'redraftEpoch']),
+    }, 'primary'));
+    store.dispatch(changeComposerUpload('primary', 'm1', { description: 'mine', focus: '0.20,0.20' }));
+    await flush();
+
+    expect(primaryMedia(store).get('description')).toEqual('mine');
+    expect(primaryMedia(store).get('redraftReuse')).toEqual('failed');
+    expect(primaryMedia(store).get('redraftError')).toEqual('save');
+
+    await store.dispatch(submitComposer('primary', { push: jest.fn(), goBack: jest.fn() }));
+    expect(client.request).not.toHaveBeenCalled();
   });
 
   it('alerts when a thumbnail is chosen before the attachment is reusable', () => {

@@ -494,7 +494,7 @@ const copyRedraftState = (next, item) => {
     .set('redraftFetched', item.get('redraftFetched') === true);
 };
 
-const redraftMediaList = (media, { reuseMedia, ownerIdentityId }) => {
+const redraftMediaList = (media, { reuseMedia, ownerIdentityId, mediaUnconfirmed }) => {
   const list = ImmutableList.isList(media) ? media : ImmutableList(media || []);
 
   return list.map((item, index) => {
@@ -504,12 +504,20 @@ const redraftMediaList = (media, { reuseMedia, ownerIdentityId }) => {
       next = next.set('ownerIdentityId', ownerIdentityId);
     }
 
-    if (reuseMedia) {
+    if (reuseMedia && mediaUnconfirmed) {
+      next = next
+        .set('redraftReuse', 'failed')
+        .set('redraftRevision', 0)
+        .set('redraftError', 'prepare')
+        .set('redraftFetched', false)
+        .set('redraftUnconfirmed', true);
+    } else if (reuseMedia) {
       next = next
         .set('redraftReuse', 'waiting')
         .set('redraftRevision', 0)
         .set('redraftError', null)
-        .set('redraftFetched', false);
+        .set('redraftFetched', false)
+        .set('redraftUnconfirmed', false);
     }
 
     return next;
@@ -565,60 +573,68 @@ const applyRedraftMediaLocal = (state, action) => state.withMutations(map => {
   }
 });
 
-const applyRedraftMediaStatus = (state, action) => state.withMutations(map => {
-  map.update('media_attachments', list => list.map(item => {
-    if (String(item.get('id')) !== String(action.mediaId)) {
-      return item;
-    }
-
-    if (action.expectedRevision !== undefined && (item.get('redraftRevision') || 0) !== action.expectedRevision) {
-      return item;
-    }
-
-    let next = item;
-
-    if (action.media) {
-      const server = fromJS(action.media);
-      const description = action.keepLocalText ? (item.get('description') || '') : (server.get('description') ?? item.get('description') ?? '');
-      const focus = action.keepLocalText ? item.getIn(['meta', 'focus']) : (server.getIn(['meta', 'focus']) || item.getIn(['meta', 'focus']));
-
-      next = server
-        .set('id', item.get('id'))
-        .set('description', description)
-        .set('unattached', true)
-        .set('order', item.has('order') ? item.get('order') : server.get('order'))
-        .set('ownerIdentityId', item.get('ownerIdentityId') || server.get('ownerIdentityId'))
-        .set('redraftRevision', item.get('redraftRevision') || 0)
-        .set('redraftFetched', action.fetched === undefined ? item.get('redraftFetched') === true : action.fetched === true)
-        .set('redraftError', action.error === undefined ? item.get('redraftError') || null : action.error)
-        .set('redraftReuse', action.reuse || item.get('redraftReuse'));
-
-      if (focus) {
-        next = next.setIn(['meta', 'focus'], focus);
-      }
-    }
-
-    if (action.reuse) {
-      next = next.set('redraftReuse', action.reuse);
-    }
-
-    if (action.error !== undefined) {
-      next = next.set('redraftError', action.error);
-    }
-
-    if (action.fetched !== undefined) {
-      next = next.set('redraftFetched', action.fetched === true);
-    }
-
-    return next;
-  }));
-
-  if (action.changingUpload === true) {
-    map.set('is_changing_upload', true);
-  } else if (action.changingUpload === false) {
-    map.set('is_changing_upload', map.get('media_attachments').some(item => item.get('redraftReuse') === 'saving'));
+const applyRedraftMediaStatus = (state, action) => {
+  if (action.epoch !== state.get('redraftEpoch')) {
+    return state;
   }
-});
+
+  return state.withMutations(map => {
+    map.update('media_attachments', list => list.map(item => {
+      if (String(item.get('id')) !== String(action.mediaId)) {
+        return item;
+      }
+
+      if (action.expectedRevision !== undefined && (item.get('redraftRevision') || 0) !== action.expectedRevision) {
+        return item;
+      }
+
+      let next = item;
+
+      if (action.media) {
+        const server = fromJS(action.media);
+        const description = action.keepLocalText ? (item.get('description') || '') : (server.get('description') || '');
+        const focus = action.keepLocalText ? item.getIn(['meta', 'focus']) : server.getIn(['meta', 'focus']);
+
+        next = server
+          .set('id', item.get('id'))
+          .set('description', description)
+          .set('unattached', true)
+          .set('order', item.has('order') ? item.get('order') : server.get('order'))
+          .set('ownerIdentityId', item.get('ownerIdentityId') || server.get('ownerIdentityId'))
+          .set('redraftRevision', item.get('redraftRevision') || 0)
+          .set('redraftFetched', action.fetched === undefined ? item.get('redraftFetched') === true : action.fetched === true)
+          .set('redraftError', action.error === undefined ? item.get('redraftError') || null : action.error)
+          .set('redraftReuse', action.reuse || item.get('redraftReuse'));
+
+        if (focus) {
+          next = next.setIn(['meta', 'focus'], focus);
+        } else if (!action.keepLocalText) {
+          next = next.deleteIn(['meta', 'focus']);
+        }
+      }
+
+      if (action.reuse) {
+        next = next.set('redraftReuse', action.reuse);
+      }
+
+      if (action.error !== undefined) {
+        next = next.set('redraftError', action.error);
+      }
+
+      if (action.fetched !== undefined) {
+        next = next.set('redraftFetched', action.fetched === true);
+      }
+
+      return next;
+    }));
+
+    if (action.changingUpload === true) {
+      map.set('is_changing_upload', true);
+    } else if (action.changingUpload === false) {
+      map.set('is_changing_upload', map.get('media_attachments').some(item => item.get('redraftReuse') === 'saving'));
+    }
+  });
+};
 
 const appendMedia = (state, media, file, fromProcessing = false, tracked = false) => {
   const prevSize = state.get('media_attachments').size;
@@ -1625,6 +1641,7 @@ export default function composer(state = initialState, action) {
       map.set('media_attachments', redraftMediaList(action.status.get('media_attachments'), {
         reuseMedia: action.reuseMedia === true,
         ownerIdentityId: action.ownerIdentityId,
+        mediaUnconfirmed: action.mediaUnconfirmed === true,
       }));
       map.set('focusDate', new Date());
       map.set('caretPosition', null);
