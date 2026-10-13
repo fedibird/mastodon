@@ -121,6 +121,39 @@ describe('resolveSenderIdentitySwitch', () => {
     expect(groupStyle.preservedText).toEqual('Keep the group draft');
     expect(audienceOnly.reason).toEqual('group');
     expect(hashtag.permitted).toBe(true);
+
+    const nodebb = resolveSenderIdentitySwitch({
+      fromIdentityId: 'local:42',
+      toIdentity: ready('delegated:99', { kind: 'delegated' }),
+      sessionIdentityId: 'local:42',
+      draft: draft({
+        text: 'Keep the category draft',
+        groupId: null,
+        contextKey: 'protocol:fep-1b12-nodebb:456',
+        postingContextAccountId: '456',
+        activityPubAudience: { accountId: '456' },
+      }),
+      nextIdempotencyKey: 'key-next',
+      confirmed: true,
+    });
+    const lemmy = resolveSenderIdentitySwitch({
+      fromIdentityId: 'local:42',
+      toIdentity: ready('delegated:99', { kind: 'delegated' }),
+      sessionIdentityId: 'local:42',
+      draft: draft({
+        groupId: null,
+        contextKey: 'protocol:fep-1b12-lemmy:456',
+        postingContextAccountId: '456',
+        activityPubAudience: { accountId: '456' },
+      }),
+      nextIdempotencyKey: 'key-next',
+      confirmed: true,
+    });
+
+    expect(nodebb.permitted).toBe(true);
+    expect(nodebb.mustRevalidateGroup).toBe(true);
+    expect(nodebb.preservedText).toEqual('Keep the category draft');
+    expect(lemmy.reason).toEqual('group');
     expect(moved.nextIdempotencyKey).toEqual('key-next');
     expect(moved.canSend).toBe(false);
     expect(same.effectsApplied).toBe(false);

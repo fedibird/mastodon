@@ -1,8 +1,10 @@
 import { POSTING_CONTEXT_CACHE_TTL } from '../actions/posting_contexts';
 import { isAdministrator, me } from '../initial_state';
-import { composerHasGroupDestination, consistentLocalFedibirdGroup, consistentMitraGroup } from '../posting_identity/group_destination';
+import { composerHasGroupDestination, consistentLocalFedibirdGroup, consistentNodebbGroup, consistentSupportedRemoteGroup } from '../posting_identity/group_destination';
 import { composerInteractionInputKey } from '../posting_identity/interaction_input';
 import { sessionPostingIdentityId } from '../posting_identity/identity';
+import { materializeComposerText } from '../posting_context/materialize';
+import { textContainsMention } from '../posting_context/managed_mentions';
 import { selectComposer } from './composer';
 import { selectPostingContextDiscovery } from './posting_contexts';
 
@@ -72,7 +74,7 @@ export const selectPostingIdentityDelegationId = (state, identityId) => {
   return identity.getIn(['delegation', 'id']) || null;
 };
 
-const delegatedSenderPosting = (state, composer, senderId) => {
+const freshDelegatedDiscovery = (state, composer, senderId) => {
   const accountId = composer.get('posting_context_account_id');
 
   if (!accountId) {
@@ -94,13 +96,57 @@ const delegatedSenderPosting = (state, composer, senderId) => {
     return null;
   }
 
-  return discovery.get('senderPosting');
+  return discovery;
+};
+
+const delegatedSenderPosting = (state, composer, senderId) => {
+  const discovery = freshDelegatedDiscovery(state, composer, senderId);
+
+  return discovery ? discovery.get('senderPosting') : null;
+};
+
+const remoteContextMatches = (composer, discovery, adapter) => {
+  if (!discovery) {
+    return false;
+  }
+
+  const accountId = String(composer.get('posting_context_account_id'));
+
+  return discovery.getIn(['discovery', 'adapter']) === adapter
+    && String(discovery.getIn(['context', 'key'])) === String(composer.getIn(['context', 'key']))
+    && String(discovery.getIn(['context', 'source', 'revision'])) === String(composer.getIn(['context', 'source', 'revision']))
+    && String(discovery.getIn(['context', 'source', 'id'])) === (adapter === 'nodebb_group' ? 'compat:nodebb-fep-1b12' : 'compat:mitra-fep-1b12')
+    && String(discovery.getIn(['context', 'protocol', 'activityPub', 'audience', 'accountId'])) === accountId;
+};
+
+const nodebbMentionReady = composer => {
+  const mentions = composer.getIn(['context', 'managed', 'mentions']);
+  const text = materializeComposerText(composer);
+  let required = false;
+  let ready = true;
+
+  if (mentions && mentions.forEach) {
+    mentions.forEach(mention => {
+      if (mention.get('enforcement') !== 'required') {
+        return;
+      }
+
+      required = true;
+      const acct = mention.get('acct');
+
+      if (!acct || !textContainsMention(text, acct)) {
+        ready = false;
+      }
+    });
+  }
+
+  return required && ready;
 };
 
 const delegatedInteractionReady = (composer, senderId, delegationId) => {
   const replyId = composer.get('in_reply_to');
   const quoteId = composer.get('quote_from');
-  const group = consistentLocalFedibirdGroup(composer) || consistentMitraGroup(composer);
+  const group = consistentLocalFedibirdGroup(composer) || consistentSupportedRemoteGroup(composer);
 
   if (!replyId && !quoteId && !group) {
     return null;
@@ -208,7 +254,7 @@ export const selectComposerCanSendAsIdentity = (state, composerId) => {
         return deny('quote');
       }
 
-      if (composerHasGroupDestination(composer) && (composer.get('in_reply_to') || composer.get('quote_from') || !capabilityAllows(identity, 'group') || !(consistentLocalFedibirdGroup(composer) || consistentMitraGroup(composer)))) {
+      if (composerHasGroupDestination(composer) && (composer.get('in_reply_to') || composer.get('quote_from') || !capabilityAllows(identity, 'group') || !(consistentLocalFedibirdGroup(composer) || consistentSupportedRemoteGroup(composer)))) {
         return deny('group');
       }
 
@@ -245,15 +291,23 @@ export const selectComposerCanSendAsIdentity = (state, composerId) => {
         }
       }
 
-      if (consistentMitraGroup(composer)) {
+      if (consistentSupportedRemoteGroup(composer)) {
         const posting = delegatedSenderPosting(state, composer, senderId);
+        const adapter = consistentNodebbGroup(composer) ? 'nodebb_group' : 'mitra_group';
+        const discovery = freshDelegatedDiscovery(state, composer, senderId);
         const confirmed = posting
           && posting.get('canPost') === true
           && posting.getIn(['permission', 'confirmed']) === true
-          && posting.getIn(['delivery', 'status']) === 'supported';
+          && posting.getIn(['delivery', 'status']) === 'supported'
+          && posting.getIn(['delivery', 'adapter']) === adapter
+          && remoteContextMatches(composer, discovery, adapter);
 
         if (!confirmed) {
           return deny(posting && posting.getIn(['permission', 'status']) === 'unknown' ? 'permission' : 'pending');
+        }
+
+        if (consistentNodebbGroup(composer) && !nodebbMentionReady(composer)) {
+          return deny('mention');
         }
       }
 

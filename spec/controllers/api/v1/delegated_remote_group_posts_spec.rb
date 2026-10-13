@@ -143,19 +143,21 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
 
     it 'rejects another adapter, a swapped audience, a stale context, private visibility, mentions, replies, and quotes' do
       delegate!(scopes: %w(post group reply quote))
-      node = mitra_group('nodebb.example', 'forum')
-      node.node.update!(info: { 'software_name' => 'nodebb' })
-      permit_create!(node)
-      permit_create!
+      %w(lemmy piefed).each do |software|
+        other_group = mitra_group("#{software}.example", 'forum')
+        other_group.node.update!(info: { 'software_name' => software })
+        permit_create!(other_group)
 
-      expect do
-        post :create, params: group_params(
-          posting_context_account_id: node.id,
-          posting_context_key: "protocol:fep-1b12-nodebb:#{node.id}",
-          audience_account_id: node.id
-        )
-      end.not_to change(Status, :count)
-      expect(response).to have_http_status(422)
+        expect do
+          post :create, params: group_params(
+            posting_context_account_id: other_group.id,
+            posting_context_key: "protocol:fep-1b12-#{software}:#{other_group.id}",
+            audience_account_id: other_group.id
+          )
+        end.not_to change(Status, :count)
+        expect(response).to have_http_status(422)
+      end
+      permit_create!
 
       other = mitra_group('other.example', 'other')
       permit_create!(other)

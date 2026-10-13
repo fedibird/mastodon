@@ -119,4 +119,48 @@ RSpec.describe Api::V1::Fedibird::Accounts::PostingContextsController do # ruboc
     expect(response.body).not_to include('relationships/secret')
     expect(response.body).not_to include(grantor.email)
   end
+
+  it 'returns a minimal NodeBB canCreate result and does not copy affiliation URIs' do
+    delegation = delegate!
+    Node.create!(domain: 'nodebb.example', info: { 'software_name' => 'nodebb' })
+    remote = Fabricate(
+      :account,
+      username: 'category',
+      domain: 'nodebb.example',
+      actor_type: 'Group',
+      protocol: :activitypub,
+      uri: 'https://nodebb.example/category/1',
+      inbox_url: 'https://nodebb.example/category/1/inbox'
+    )
+    remote.update_columns(
+      affiliations_fetched_at: Time.now.utc,
+      permission_definitions_fetched_at: Time.now.utc,
+      can_create_affiliation: 'none'
+    )
+    GroupAffiliation.create!(
+      group_account: remote,
+      subject_uri: ActivityPub::TagManager.instance.uri_for(grantor.account),
+      relationship: 'admin',
+      affiliation_uri: 'https://nodebb.example/relationships/secret'
+    )
+
+    get :show, params: { account_id: remote.id, posting_identity_id: "delegated:#{grantor.account.id}" }
+
+    expect(response).to have_http_status(200)
+    expect(response.headers['Cache-Control']).to include('no-store')
+    expect(body_as_json[:viewer_evidence]).to be_nil
+    expect(body_as_json[:sender_posting].keys.map(&:to_s)).to contain_exactly('identity_id', 'delegation_id', 'can_post', 'permission', 'delivery')
+    expect(body_as_json[:sender_posting]).to include(
+      identity_id: "delegated:#{grantor.account.id}",
+      delegation_id: delegation.id.to_s,
+      can_post: true
+    )
+    expect(body_as_json.dig(:sender_posting, :permission)).to include(status: 'allowed', confirmed: true, freshness: 'current')
+    expect(body_as_json.dig(:sender_posting, :delivery)).to include(status: 'supported', adapter: 'nodebb_group', authority: 'compatibility')
+    expect(body_as_json.dig(:context, :key)).to eq "protocol:fep-1b12-nodebb:#{remote.id}"
+    expect(body_as_json.dig(:discovery, :adapter)).to eq 'nodebb_group'
+    expect(response.body).not_to include('affiliation_uri')
+    expect(response.body).not_to include('relationships/secret')
+    expect(response.body).not_to include(grantor.email)
+  end
 end
