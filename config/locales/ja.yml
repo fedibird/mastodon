@@ -1936,6 +1936,7 @@ ja:
       too_few_options: は複数必要です
       too_many_options: は%{max}個までです
   preferences:
+    invalid_input: "%{key} を保存できませんでした。"
     beta_features: ベータ機能
     disable_actions: 操作の無効化
     disable_actions_hint: 誤操作による事故を防いだり、用途を限定したアカウント向けに、特定の操作を無効化するための設定です。クライアントアプリに対しても有効です。

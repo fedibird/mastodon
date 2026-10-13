@@ -3,8 +3,9 @@
 class UserSettingsDecorator
   attr_reader :user, :settings
 
-  def initialize(user)
+  def initialize(user, legacy_writer: nil)
     @user = user
+    @legacy_writer = legacy_writer
   end
 
   def update(settings)
@@ -182,12 +183,26 @@ class UserSettingsDecorator
       next unless change?("setting_#{key}")
 
       value = settings["setting_#{key}"]
-      user.settings[key] = normalize_string_setting(key, value)
+      if legacy_key?(key)
+        @legacy_writer.update(key, value)
+      else
+        user.settings[key] = normalize_string_setting(key, value)
+      end
     end
 
     BOOLEAN_KEYS.each do |key|
-      user.settings[key] = boolean_cast_setting "setting_#{key}" if change?("setting_#{key}")
+      next unless change?("setting_#{key}")
+
+      if legacy_key?(key)
+        @legacy_writer.update(key, settings["setting_#{key}"])
+      else
+        user.settings[key] = boolean_cast_setting("setting_#{key}")
+      end
     end
+  end
+
+  def legacy_key?(key)
+    @legacy_writer && UserPreferences::LegacyWriter::KEYS.include?(key)
   end
 
   def normalize_string_setting(key, value)

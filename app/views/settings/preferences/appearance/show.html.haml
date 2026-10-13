@@ -9,6 +9,8 @@
     = stylesheet_pack_tag theme, media: 'all', crossorigin: 'anonymous', 'data-theme-preview': theme, rel: 'preload', as: 'style'
 
 = simple_form_for current_user, url: settings_preferences_appearance_path, html: { method: :put, id: 'edit_user' } do |f|
+  = render 'shared/error_messages', object: current_user
+
   .fields-row
     .fields-group.fields-row__column.fields-row__column-6
       = f.input :locale, collection: I18n.available_locales, wrapper: :with_label, include_blank: false, label_method: lambda { |locale| human_locale(locale) }, selected: I18n.locale, hint: false

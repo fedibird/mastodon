@@ -16,6 +16,11 @@ class Settings::PreferencesController < Settings::BaseController
     else
       render :show
     end
+  rescue UserPreferences::InvalidInput => e
+    e.errors.each do |item|
+      current_user.errors.add(:base, I18n.t('preferences.invalid_input', key: item['key']))
+    end
+    render :show, formats: [:html], status: :unprocessable_entity
   end
 
   private
@@ -25,7 +30,10 @@ class Settings::PreferencesController < Settings::BaseController
   end
 
   def user_settings
-    UserSettingsDecorator.new(current_user)
+    UserSettingsDecorator.new(
+      current_user,
+      legacy_writer: UserPreferences::LegacyWriter.new(current_user)
+    )
   end
 
   def user_params

@@ -2,13 +2,20 @@
 
 require 'rails_helper'
 
-# Current-behavior characterization for the P2-6 migration.
-# Production saves still go through UserSettingsDecorator and ScopedSettings.
-# Examples that store a Hash or Array, or that write the legacy cache on a
-# same-value resubmit, are the behavior a later PR is expected to change.
+# Form saves of the nine keys go through LegacyWriter. Credentials and a
+# decorator constructed without legacy_writer stay on ScopedSettings.
 RSpec.describe 'P2-6 legacy writer migration boundary' do
   def stored(user, key)
     Setting.unscoped.find_by(thing_type: 'User', thing_id: user.id, var: key)
+  end
+
+  def discard_user(user)
+    return unless user&.id
+
+    Setting.unscoped.where(thing_type: 'User', thing_id: user.id).delete_all
+    UserPreferenceRevision.where(user_id: user.id).delete_all
+    Account.where(id: user.account_id).delete_all
+    User.where(id: user.id).delete_all
   end
 
   def contract_errors(updates)
@@ -23,9 +30,12 @@ RSpec.describe 'P2-6 legacy writer migration boundary' do
   end
 
   describe Settings::Preferences::AppearanceController, type: :controller do
+    self.use_transactional_tests = false
+
     let(:user) { Fabricate(:user) }
 
     before { sign_in user, scope: :user }
+    after { discard_user(user) }
 
     it 'stores font sizes as strings and leaves the public contract strict' do
       put :update, params: { user: { setting_content_font_size: '18', setting_info_font_size: '16' } }
@@ -38,6 +48,7 @@ RSpec.describe 'P2-6 legacy writer migration boundary' do
       expect(info.value).to eq '16'
       expect(info.value).to be_a(String)
       expect(stored(user, 'preferred_posting_language')).to be_nil
+      expect(UserPreferences::Revision.current(user.id)).to eq 2
       expect_public_rejection('content_font_size', '18', 'invalid_type')
       expect_public_rejection('info_font_size', '16', 'invalid_type')
     end
@@ -111,9 +122,12 @@ RSpec.describe 'P2-6 legacy writer migration boundary' do
   end
 
   describe Settings::Preferences::OtherController, type: :controller do
+    self.use_transactional_tests = false
+
     let(:user) { Fabricate(:user, locale: 'ja') }
 
     before { sign_in user, scope: :user }
+    after { discard_user(user) }
 
     it 'skips nil inputs and still saves a present sibling' do
       user.settings['default_privacy'] = 'unlisted'
@@ -194,7 +208,7 @@ RSpec.describe 'P2-6 legacy writer migration boundary' do
       expect_public_rejection('new_features_policy', 'nope', 'invalid_value')
     end
 
-    it 'writes the legacy cache on a same-value resubmit without moving updated_at' do
+    it 'does not rewrite cache or revision when the form resubmits the same nine-key value' do
       user.settings['default_privacy'] = 'unlisted'
       row = stored(user, 'default_privacy')
       row.update_columns(updated_at: 3.hours.ago)
@@ -211,14 +225,14 @@ RSpec.describe 'P2-6 legacy writer migration boundary' do
       expect(response).to redirect_to(settings_preferences_other_path)
       expect(row.reload.updated_at).to eq stamp
       expect(row.value).to eq 'unlisted'
-      expect(writes).to include([key, 'unlisted'])
+      expect(writes.map(&:first)).not_to include(key)
       expect(UserPreferences::Revision.current(user.id)).to eq 0
     end
 
     it 'keeps earlier keys when a later key raises and does not save the rest' do
       expect(ActivityPub::UpdateDistributionWorker).not_to receive(:perform_async)
-      allow_any_instance_of(Settings::ScopedSettings).to receive(:[]=).and_wrap_original do |method, key, value|
-        raise 'content_font_size failed' if key.to_s == 'content_font_size'
+      allow_any_instance_of(UserPreferences::LegacyWriter).to receive(:update).and_wrap_original do |method, key, value|
+        raise 'content_font_size failed' if key == 'content_font_size'
 
         method.call(key, value)
       end
@@ -244,6 +258,7 @@ RSpec.describe 'P2-6 legacy writer migration boundary' do
       expect(stored(user, 'reduce_motion')).to be_nil
       expect(stored(user, 'noindex')).to be_nil
       expect(User.find(user.id).locale).to eq 'ja'
+      expect(UserPreferences::Revision.current(user.id)).to eq 2
     end
 
     it 'distributes when a profile key is present even if that value does not change' do
@@ -328,9 +343,12 @@ RSpec.describe 'P2-6 legacy writer migration boundary' do
   end
 
   describe Settings::Preferences::SafetyController, type: :controller do
+    self.use_transactional_tests = false
+
     let(:user) { Fabricate(:user) }
 
     before { sign_in user, scope: :user }
+    after { discard_user(user) }
 
     it 'saves a posted nine-key and a prohibited-operation key through the shared action' do
       put :update, params: { user: { setting_content_font_size: '18', setting_disable_post: '1' } }
@@ -339,7 +357,7 @@ RSpec.describe 'P2-6 legacy writer migration boundary' do
       expect(stored(user, 'content_font_size').value).to eq '18'
       expect(stored(user, 'content_font_size').value).to be_a(String)
       expect(stored(user, 'disable_post').value).to be true
-      expect(UserPreferences::Revision.current(user.id)).to eq 0
+      expect(UserPreferences::Revision.current(user.id)).to eq 1
       expect_public_rejection('disable_post', true, 'unknown_key')
     end
   end
