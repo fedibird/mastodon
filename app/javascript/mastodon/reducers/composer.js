@@ -15,6 +15,7 @@ import {
   COMPOSE_UPLOAD_REQUEST,
   COMPOSE_UPLOAD_SUCCESS,
   COMPOSE_UPLOAD_FAIL,
+  COMPOSE_UPLOAD_DISCARD,
   COMPOSE_UPLOAD_UNDO,
   COMPOSE_UPLOAD_PROGRESS,
   COMPOSE_UPLOAD_PROCESSING,
@@ -127,6 +128,7 @@ export const initialState = ImmutableMap({
   pending_media_attachments: 0,
   pending_exclusive_attachments: 0,
   processing_media_attachments: 0,
+  uploadRequests: ImmutableMap(),
   poll: null,
   poll_max_options: 4,
   suggestion_token: null,
@@ -339,6 +341,12 @@ const clearAll = state => {
     map.set('circle_id', null);
     map.set('sensitive', false);
     map.update('media_attachments', list => list.clear());
+    map.set('pending_media_attachments', 0);
+    map.set('pending_exclusive_attachments', 0);
+    map.set('processing_media_attachments', 0);
+    map.set('uploadRequests', ImmutableMap());
+    map.set('is_uploading', false);
+    map.set('is_processing', false);
     map.set('poll', null);
     map.set('idempotencyKey', uuid());
     map.set('dirty', false);
@@ -371,20 +379,45 @@ const exclusiveFile = (media, file) => {
   return isExclusiveAttachmentType(media && media.get && media.get('type'));
 };
 
-const appendMedia = (state, media, file, fromProcessing = false) => {
+const uploadRequestMap = state => {
+  const current = state.get('uploadRequests');
+
+  return current && typeof current.get === 'function' && typeof current.set === 'function' ? current : ImmutableMap();
+};
+
+const applyTrackedUpload = (map, requests, exclusive) => {
+  const uploading = requests.valueSeq().filter(phase => phase === 'uploading').count();
+  const processing = requests.valueSeq().filter(phase => phase === 'processing').count();
+
+  map.set('uploadRequests', requests);
+  map.set('pending_media_attachments', requests.size);
+  map.set('processing_media_attachments', processing);
+  map.set('is_uploading', uploading > 0);
+  map.set('is_processing', processing > 0);
+
+  if (exclusive) {
+    map.update('pending_exclusive_attachments', count => Math.max(0, (count || 0) - 1));
+  }
+};
+
+const appendMedia = (state, media, file, fromProcessing = false, tracked = false) => {
   const prevSize = state.get('media_attachments').size;
-  const settled = remainingUpload(state, { exclusive: exclusiveFile(media, file), fromProcessing });
+  const settled = tracked ? null : remainingUpload(state, { exclusive: exclusiveFile(media, file), fromProcessing });
 
   return state.withMutations(map => {
     if (media.get('type') === 'image') {
       media = media.set('file', file);
     }
     map.update('media_attachments', list => list.push(media.set('unattached', media.get('unattached', true))).sortBy(item => item.get('order')));
-    map.set('pending_media_attachments', settled.pending);
-    map.set('pending_exclusive_attachments', settled.exclusiveCount);
-    map.set('processing_media_attachments', settled.processing);
-    map.set('is_uploading', settled.pending > 0);
-    map.set('is_processing', settled.processing > 0);
+
+    if (!tracked) {
+      map.set('pending_media_attachments', settled.pending);
+      map.set('pending_exclusive_attachments', settled.exclusiveCount);
+      map.set('processing_media_attachments', settled.processing);
+      map.set('is_uploading', settled.pending > 0);
+      map.set('is_processing', settled.processing > 0);
+    }
+
     map.set('resetFileKey', Math.floor((Math.random() * 0x10000)));
     map.set('idempotencyKey', uuid());
 
@@ -1101,8 +1134,31 @@ export default function composer(state = initialState, action) {
   case COMPOSE_UPLOAD_CHANGE_FAIL:
     return state.set('is_changing_upload', false);
   case COMPOSE_UPLOAD_REQUEST: {
-    const count = Math.max(1, Number(action.count) || 1);
+    const ids = Array.isArray(action.requestIds) ? action.requestIds.filter(Boolean) : [];
     const exclusiveCount = Math.max(0, Number(action.exclusiveCount) || 0);
+
+    if (ids.length > 0) {
+      return state.withMutations(map => {
+        map.update('uploadRequests', current => {
+          let next = current && typeof current.set === 'function' ? current : ImmutableMap();
+
+          ids.forEach(id => {
+            next = next.set(id, 'uploading');
+          });
+
+          return next;
+        });
+        const requests = map.get('uploadRequests');
+
+        map.set('pending_media_attachments', requests.size);
+        map.update('pending_exclusive_attachments', count => (count || 0) + exclusiveCount);
+        map.set('processing_media_attachments', requests.valueSeq().filter(phase => phase === 'processing').count());
+        map.set('is_uploading', requests.valueSeq().some(phase => phase === 'uploading'));
+        map.set('is_processing', requests.valueSeq().some(phase => phase === 'processing'));
+      });
+    }
+
+    const count = Math.max(1, Number(action.count) || 1);
 
     return state
       .set('is_uploading', true)
@@ -1110,12 +1166,55 @@ export default function composer(state = initialState, action) {
       .update('pending_exclusive_attachments', n => (n || 0) + exclusiveCount);
   }
   case COMPOSE_UPLOAD_PROCESSING:
+    if (action.requestId) {
+      const requests = uploadRequestMap(state);
+
+      if (requests.get(action.requestId) !== 'uploading') {
+        return state;
+      }
+
+      return state.withMutations(map => {
+        applyTrackedUpload(map, requests.set(action.requestId, 'processing'), false);
+      });
+    }
+
     return state
       .update('processing_media_attachments', n => (n || 0) + 1)
       .set('is_processing', true);
-  case COMPOSE_UPLOAD_SUCCESS:
-    return appendMedia(state, fromJS(action.media), action.file, action.fromProcessing);
+  case COMPOSE_UPLOAD_SUCCESS: {
+    const uploaded = fromJS(action.media);
+    const withOwner = action.ownerIdentityId ? uploaded.set('ownerIdentityId', action.ownerIdentityId) : uploaded;
+
+    if (action.requestId) {
+      const requests = uploadRequestMap(state);
+
+      if (!requests.has(action.requestId)) {
+        return state;
+      }
+
+      const settled = state.withMutations(map => {
+        applyTrackedUpload(map, requests.delete(action.requestId), exclusiveFile(withOwner, action.file));
+      });
+
+      return appendMedia(settled, withOwner, action.file, action.fromProcessing, true);
+    }
+
+    return appendMedia(state, withOwner, action.file, action.fromProcessing);
+  }
+  case COMPOSE_UPLOAD_DISCARD:
   case COMPOSE_UPLOAD_FAIL: {
+    if (action.requestId) {
+      const requests = uploadRequestMap(state);
+
+      if (!requests.has(action.requestId)) {
+        return state;
+      }
+
+      return state.withMutations(map => {
+        applyTrackedUpload(map, requests.delete(action.requestId), action.exclusive === true);
+      });
+    }
+
     const settled = remainingUpload(state, { exclusive: action.exclusive, fromProcessing: action.fromProcessing });
 
     return state
@@ -1140,7 +1239,9 @@ export default function composer(state = initialState, action) {
       .set('isUploadingThumbnail', false)
       .update('media_attachments', list => list.map(item => {
         if (item.get('id') === action.media.id) {
-          return fromJS(action.media);
+          const next = fromJS(action.media);
+
+          return next.set('ownerIdentityId', next.get('ownerIdentityId') || item.get('ownerIdentityId'));
         }
 
         return item;
@@ -1223,7 +1324,8 @@ export default function composer(state = initialState, action) {
 
           return next
             .set('unattached', action.attached ? false : item.get('unattached', true))
-            .set('order', item.has('order') ? item.get('order') : next.get('order'));
+            .set('order', item.has('order') ? item.get('order') : next.get('order'))
+            .set('ownerIdentityId', next.get('ownerIdentityId') || item.get('ownerIdentityId'));
         }
 
         return item;

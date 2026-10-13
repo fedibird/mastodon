@@ -175,7 +175,7 @@ export function composerSenderSwitchDraft(composer, viewerEvidence) {
       id: item.get('id'),
       ownerIdentityId: item.get('ownerIdentityId') || fromIdentityId,
     })).toArray(),
-    mediaUploading: composer.get('is_uploading') === true || composer.get('pending_media_attachments') > 0,
+    mediaUploading: composer.get('is_uploading') === true || composer.get('pending_media_attachments') > 0 || composer.get('is_processing') === true || composer.get('is_changing_upload') === true || (composer.get('uploadRequests') && composer.get('uploadRequests').size > 0),
     poll: composer.get('poll'),
     replyToId: composer.get('in_reply_to'),
     quoteId: composer.get('quote_from'),

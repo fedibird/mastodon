@@ -1,8 +1,10 @@
 # frozen_string_literal: true
 
-# M3-1 allows a new text status and nothing built on top of one.
-# The check runs before reply, circle, schedule, and expiry lookups so
-# the signed-in user's defaults cannot reshape the delegated post.
+# A delegated post is a new public, unlisted, or followers-only status.
+# Still images are allowed when the grant also includes media. Replies,
+# groups, polls, and schedules stay out. The check runs before reply,
+# circle, schedule, and expiry lookups so the signed-in user's defaults
+# cannot reshape the delegated post.
 class PostingIdentity::DelegatedTextPost
   ALLOWED_VISIBILITIES = %w(public unlisted private).freeze
   QT_PATTERN = /QT:\s*\[\s*https:\/\/.+?\]/i
@@ -27,6 +29,11 @@ class PostingIdentity::DelegatedTextPost
       delegation: @resolution.delegation,
       operation: 'post'
     )
+    raise Mastodon::NotPermittedError if media_requested? && !PostingIdentity::DelegationResolver.grant_permits?(
+      grantee: @resolution.delegation.grantee_user,
+      delegation: @resolution.delegation,
+      operation: 'media'
+    )
 
     raise unsupported if unsupported_shape?
     raise unsupported unless self.class::ALLOWED_VISIBILITIES.include?(self.class.resolved_visibility(@resolution, @params).to_s)
@@ -43,7 +50,6 @@ class PostingIdentity::DelegatedTextPost
       present?(@params[:quote_id]) ||
       present?(@params[:circle_id]) ||
       present?(@params[:audience_account_id]) ||
-      present?(@params[:media_ids]) ||
       present?(@params[:poll]) ||
       present?(@params[:scheduled_at]) ||
       present?(@params[:scheduled_in]) ||
@@ -64,6 +70,10 @@ class PostingIdentity::DelegatedTextPost
 
   def explicit_mention?(text)
     text.to_s.match?(Account::MENTION_RE)
+  end
+
+  def media_requested?
+    present?(@params[:media_ids])
   end
 
   def present?(value)

@@ -46,6 +46,7 @@ const mapStateToProps = (state, { composerId }) => {
     canSendAsIdentity: selectComposerCanSendAsIdentity(state, composerId).canSend,
     canUploadMedia: selectComposerCanUploadAsIdentity(state, composerId).canUpload,
     uploadBlockReason: selectComposerCanUploadAsIdentity(state, composerId).reason,
+    sendBlockReason: selectComposerCanSendAsIdentity(state, composerId).reason,
     capabilityReason: capability.reason,
     hasPoll: Boolean(composer.get('poll')),
     datetimeOpen: Boolean(composer.get('datetime_form')),

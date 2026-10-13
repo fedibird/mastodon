@@ -63,6 +63,8 @@ const messages = defineMessages({
   privacyPersonal: { id: 'privacy.personal.short', defaultMessage: 'Personal' },
   surfaceMismatch: { id: 'compose_form.posting_style.surface_mismatch', defaultMessage: 'This draft still uses the previous destination. Posting stays off until you apply the destination shown here.' },
   surfaceAccept: { id: 'compose_form.posting_style.surface_accept', defaultMessage: 'Use this destination' },
+  mediaType: { id: 'upload_button.media_type', defaultMessage: 'Video and audio cannot be posted as this account.' },
+  mediaOwner: { id: 'compose_form.media_owner', defaultMessage: 'These images belong to a different posting account. They stay attached, and this post cannot be sent until they match the selected account.' },
   more: { id: 'compose_form.more_actions', defaultMessage: 'More actions' },
   searchPublic: { id: 'searchability.public.short', defaultMessage: 'Public' },
   searchPrivate: { id: 'searchability.private.short', defaultMessage: 'Followers-only' },
@@ -88,6 +90,8 @@ const messages = defineMessages({
 
 const uploadReasonMessage = {
   media: messages.uploadBlockedMedia,
+  media_type: messages.mediaType,
+  media_owner: messages.mediaOwner,
   reply: messages.uploadBlockedReply,
   quote: messages.uploadBlockedReply,
   poll: messages.uploadBlockedPoll,
@@ -173,6 +177,7 @@ class ComposeForm extends ImmutablePureComponent {
     sensitive: PropTypes.bool,
     canUploadMedia: PropTypes.bool,
     uploadBlockReason: PropTypes.string,
+    sendBlockReason: PropTypes.string,
   };
 
   state = {
@@ -188,6 +193,9 @@ class ComposeForm extends ImmutablePureComponent {
     contextCompliant: true,
     canAttempt: true,
     canSendAsIdentity: true,
+    canUploadMedia: true,
+    uploadBlockReason: null,
+    sendBlockReason: null,
     capabilityReason: null,
     surfaceMismatch: false,
     displayMode: 'full',
@@ -236,6 +244,24 @@ class ComposeForm extends ImmutablePureComponent {
           </button>
         ) : null}
       </div>
+    );
+  }
+
+  renderSendBlockNotice () {
+    if (this.props.canSendAsIdentity !== false) {
+      return null;
+    }
+
+    const message = uploadReasonMessage[this.props.sendBlockReason];
+
+    if (this.props.sendBlockReason !== 'media_owner' && this.props.sendBlockReason !== 'media_type') {
+      return null;
+    }
+
+    return (
+      <p className='compose-form__upload-notice' role='status'>
+        {this.props.intl.formatMessage(message)}
+      </p>
     );
   }
 
@@ -839,6 +865,7 @@ class ComposeForm extends ImmutablePureComponent {
         {this.state.uploadNotice ? (
           <p className='compose-form__upload-notice' role='status'>{this.uploadNoticeText()}</p>
         ) : null}
+        {this.renderSendBlockNotice()}
         {!simple && <WarningContainer />}
         {!simple && this.props.isEditing && (
           <div className='edit-indicator'>
