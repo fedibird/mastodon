@@ -1,3 +1,4 @@
+import { CancelToken } from 'axios';
 import { Map as ImmutableMap, List as ImmutableList, fromJS } from 'immutable';
 import api from '../api';
 import { importFetchedStatus } from './importer';
@@ -27,6 +28,7 @@ export const IMMEDIATE_FEED_CONFIRM = 'IMMEDIATE_FEED_CONFIRM';
 export { buildGroupImmediateView, buildHashtagImmediateView, IMMEDIATE_FEED_TTL_MS };
 
 const timers = new Map();
+const deadlines = new Map();
 const flights = new Map();
 
 const timerKey = (viewKey, statusId) => `${viewKey}\u0000${statusId}`;
@@ -45,8 +47,6 @@ const allocateGeneration = () => {
 const clearTimerRecord = (key) => {
   const record = timers.get(key);
 
-  flights.delete(key);
-
   if (!record) {
     return;
   }
@@ -55,9 +55,79 @@ const clearTimerRecord = (key) => {
   timers.delete(key);
 };
 
+const releaseFlight = (key, token) => {
+  if (!token || flights.get(key) !== token) {
+    return false;
+  }
+
+  flights.delete(key);
+  return true;
+};
+
+const abandonFlight = (key, token) => {
+  if (!releaseFlight(key, token)) {
+    return false;
+  }
+
+  if (typeof token.cancel === 'function') {
+    token.cancel();
+  }
+
+  return true;
+};
+
+const abandonFlightIfGeneration = (viewKey, statusId, generation) => {
+  const key = timerKey(viewKey, statusId);
+  const token = flights.get(key);
+
+  if (token && token.generation === generation) {
+    abandonFlight(key, token);
+  }
+};
+
+const claimFlight = (viewKey, statusId, generation, timelineId) => {
+  const key = timerKey(viewKey, statusId);
+  const previous = flights.get(key);
+
+  if (previous) {
+    abandonFlight(key, previous);
+  }
+
+  const source = CancelToken.source();
+  const token = {
+    generation,
+    timelineId,
+    statusId: String(statusId),
+    cancel: () => source.cancel('immediate feed closed'),
+    cancelToken: source.token,
+  };
+
+  flights.set(key, token);
+  return token;
+};
+
 export function cancelImmediateFeedTimer (viewKey, statusId) {
   clearTimerRecord(timerKey(viewKey, statusId));
 }
+
+const clearDeadline = (key) => {
+  const record = deadlines.get(key);
+
+  if (!record) {
+    return;
+  }
+
+  clearTimeout(record.handle);
+  deadlines.delete(key);
+};
+
+const abandonFlightsForPrefix = (prefix) => {
+  Array.from(flights.entries()).forEach(([key, token]) => {
+    if (key.indexOf(prefix) === 0) {
+      abandonFlight(key, token);
+    }
+  });
+};
 
 export function cancelImmediateFeedViewTimers (viewKey) {
   const prefix = `${viewKey}\u0000`;
@@ -67,6 +137,12 @@ export function cancelImmediateFeedViewTimers (viewKey) {
       clearTimerRecord(key);
     }
   });
+  Array.from(deadlines.keys()).forEach(key => {
+    if (key.indexOf(prefix) === 0) {
+      clearDeadline(key);
+    }
+  });
+  abandonFlightsForPrefix(prefix);
 }
 
 export function cancelImmediateFeedTimersForStatuses (statusIds) {
@@ -81,12 +157,32 @@ export function cancelImmediateFeedTimersForStatuses (statusIds) {
       clearTimerRecord(key);
     }
   });
+  Array.from(deadlines.entries()).forEach(([key, record]) => {
+    if (wanted.has(String(record.statusId))) {
+      clearDeadline(key);
+    }
+  });
+  Array.from(flights.entries()).forEach(([key, token]) => {
+    if (wanted.has(String(token.statusId))) {
+      abandonFlight(key, token);
+    }
+  });
 }
 
 export function cancelImmediateFeedTimersForTimeline (timelineId) {
   Array.from(timers.entries()).forEach(([key, record]) => {
     if (record.timelineId === timelineId) {
       clearTimerRecord(key);
+    }
+  });
+  Array.from(deadlines.entries()).forEach(([key, record]) => {
+    if (record.timelineId === timelineId) {
+      clearDeadline(key);
+    }
+  });
+  Array.from(flights.entries()).forEach(([key, token]) => {
+    if (token.timelineId === timelineId) {
+      abandonFlight(key, token);
     }
   });
 }
@@ -121,6 +217,102 @@ const armTimer = (dispatch, { viewKey, statusId, generation, timelineId, delay, 
   });
 };
 
+const removeOverlay = (dispatch, viewKey, statusId, generation) => {
+  abandonFlightIfGeneration(viewKey, statusId, generation);
+  cancelImmediateFeedTimer(viewKey, statusId);
+  clearDeadline(timerKey(viewKey, statusId));
+  dispatch({
+    type: IMMEDIATE_FEED_REMOVE,
+    viewKey,
+    statusId,
+    generation,
+  });
+};
+
+const armDeadline = (dispatch, { viewKey, statusId, generation, timelineId, startedAt }) => {
+  const key = timerKey(viewKey, statusId);
+  const previous = deadlines.get(key);
+
+  if (previous) {
+    clearTimeout(previous.handle);
+  }
+
+  const record = {
+    viewKey,
+    statusId: String(statusId),
+    generation,
+    timelineId,
+    startedAt,
+    dispatch,
+    handle: null,
+  };
+
+  const delay = Math.max(0, startedAt + OVERLAY_MAX_AGE_MS - Date.now());
+
+  record.handle = setTimeout(() => {
+    if (deadlines.get(key) !== record) {
+      return;
+    }
+
+    deadlines.delete(key);
+
+    if (Date.now() - startedAt < OVERLAY_MAX_AGE_MS) {
+      armDeadline(dispatch, { viewKey, statusId, generation, timelineId, startedAt });
+      return;
+    }
+
+    removeOverlay(dispatch, viewKey, statusId, generation);
+  }, delay);
+
+  deadlines.set(key, record);
+};
+
+export function sweepImmediateFeedDeadlines () {
+  Array.from(deadlines.values()).forEach(record => {
+    if (Date.now() - record.startedAt < OVERLAY_MAX_AGE_MS) {
+      return;
+    }
+
+    const key = timerKey(record.viewKey, record.statusId);
+
+    if (deadlines.get(key) !== record) {
+      return;
+    }
+
+    clearTimeout(record.handle);
+    deadlines.delete(key);
+    removeOverlay(record.dispatch, record.viewKey, record.statusId, record.generation);
+  });
+}
+
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      sweepImmediateFeedDeadlines();
+    }
+  });
+}
+
+export function immediateFeedFlightGeneration (viewKey, statusId) {
+  const token = flights.get(timerKey(viewKey, statusId));
+
+  return token ? token.generation : null;
+}
+
+export function syncImmediateFeedFlights (getState) {
+  Array.from(flights.entries()).forEach(([key, token]) => {
+    if (flights.get(key) !== token) {
+      return;
+    }
+
+    const entry = getState().getIn(['immediate_feed', 'entries', key]);
+
+    if (!entry || entry.get('generation') !== token.generation) {
+      abandonFlight(key, token);
+    }
+  });
+}
+
 const scheduleAttempt = (dispatch, entry, generation) => {
   if (!entry) {
     return;
@@ -129,12 +321,7 @@ const scheduleAttempt = (dispatch, entry, generation) => {
   const plan = planOverlayWait(entry.get('attempt') || 0, entry.get('elapsedMs') || 0);
 
   if (!plan) {
-    dispatch({
-      type: IMMEDIATE_FEED_REMOVE,
-      viewKey: entry.get('viewKey'),
-      statusId: entry.get('statusId'),
-      generation,
-    });
+    removeOverlay(dispatch, entry.get('viewKey'), entry.get('statusId'), generation);
     return;
   }
 
@@ -315,6 +502,7 @@ export function publishImmediateStatus (snapshot, status) {
 
     const statusId = String(status.id);
     const generation = allocateGeneration();
+    const startedAt = Date.now();
     const alreadyListed = timelineListsStatus(state.getIn(['timelines', snapshot.timelineId], ImmutableMap()), statusId);
 
     dispatch(importFetchedStatus(status, { acceptPresentationChange: false }));
@@ -332,10 +520,11 @@ export function publishImmediateStatus (snapshot, status) {
       generation,
       registrationGeneration: snapshot.registrationGeneration,
       requestId: snapshot.requestId,
-      startedAt: Date.now(),
+      startedAt,
       attempt: 0,
       elapsedMs: 0,
     });
+
     scheduleAttempt(dispatch, ImmutableMap({
       viewKey: snapshot.viewKey,
       statusId,
@@ -343,6 +532,13 @@ export function publishImmediateStatus (snapshot, status) {
       attempt: 0,
       elapsedMs: 0,
     }), generation);
+    armDeadline(dispatch, {
+      viewKey: snapshot.viewKey,
+      statusId,
+      generation,
+      timelineId: snapshot.timelineId,
+      startedAt,
+    });
   };
 }
 
@@ -434,17 +630,12 @@ const continueUnconfirmed = (dispatch, getState, viewKey, statusId, generation) 
 };
 
 const scheduleConfirmedOverlay = (dispatch, entry, generation) => {
-  const elapsedMs = entry.get('elapsedMs') || 0;
-  const remaining = OVERLAY_MAX_AGE_MS - elapsedMs;
+  const startedAt = entry.get('startedAt') || Date.now();
+  const remaining = startedAt + OVERLAY_MAX_AGE_MS - Date.now();
   const delay = Math.min(CONFIRMED_OVERLAY_TTL_MS, remaining);
 
   if (delay <= 0) {
-    dispatch({
-      type: IMMEDIATE_FEED_REMOVE,
-      viewKey: entry.get('viewKey'),
-      statusId: entry.get('statusId'),
-      generation,
-    });
+    removeOverlay(dispatch, entry.get('viewKey'), entry.get('statusId'), generation);
     return;
   }
 
@@ -467,12 +658,18 @@ export function reconcileImmediateEntry (viewKey, statusId, generation) {
       return Promise.resolve();
     }
 
+    const startedAt = current.entry.get('startedAt') || 0;
+
+    if (startedAt && Date.now() - startedAt >= OVERLAY_MAX_AGE_MS) {
+      removeOverlay(dispatch, viewKey, statusId, generation);
+      return Promise.resolve();
+    }
+
     const attempt = current.entry.get('attempt') || 0;
     const delay = planOverlayWait(attempt, current.entry.get('elapsedMs') || 0);
     const elapsedMs = (current.entry.get('elapsedMs') || 0) + (delay && delay.mode === 'reconcile' ? delay.delay : 0);
-    const token = { generation };
-
-    flights.set(timerKey(viewKey, statusId), token);
+    const token = claimFlight(viewKey, statusId, generation, current.entry.get('timelineId'));
+    const key = timerKey(viewKey, statusId);
 
     dispatch({
       type: IMMEDIATE_FEED_RECHECK,
@@ -485,10 +682,11 @@ export function reconcileImmediateEntry (viewKey, statusId, generation) {
 
     const request = timelineRequestForView(current.view);
     const pages = [];
-    const stillThisFlight = () => flights.get(timerKey(viewKey, statusId)) === token
+    const stillThisFlight = () => flights.get(key) === token
       && entryStillCurrent(getState(), viewKey, statusId, generation);
 
     const loadPage = (maxId) => api(getState()).get(request.url, {
+      cancelToken: token.cancelToken,
       params: {
         ...request.params,
         max_id: maxId || undefined,
@@ -539,7 +737,7 @@ export function reconcileImmediateEntry (viewKey, statusId, generation) {
         return;
       }
 
-      flights.delete(timerKey(viewKey, statusId));
+      releaseFlight(key, token);
 
       if (result.outcome === 'confirmed') {
         if (result.status) {
@@ -549,13 +747,7 @@ export function reconcileImmediateEntry (viewKey, statusId, generation) {
         const listed = timelineListsStatus(getState().getIn(['timelines', current.entry.get('timelineId')], ImmutableMap()), statusId);
 
         if (listed || !entryStillCurrent(getState(), viewKey, statusId, generation)) {
-          dispatch({
-            type: IMMEDIATE_FEED_REMOVE,
-            viewKey,
-            statusId,
-            generation,
-          });
-          cancelImmediateFeedTimer(viewKey, statusId);
+          removeOverlay(dispatch, viewKey, statusId, generation);
           return;
         }
 
@@ -574,13 +766,7 @@ export function reconcileImmediateEntry (viewKey, statusId, generation) {
       }
 
       if (result.outcome === 'excluded') {
-        dispatch({
-          type: IMMEDIATE_FEED_REMOVE,
-          viewKey,
-          statusId,
-          generation,
-        });
-        cancelImmediateFeedTimer(viewKey, statusId);
+        removeOverlay(dispatch, viewKey, statusId, generation);
         return;
       }
 
@@ -590,7 +776,7 @@ export function reconcileImmediateEntry (viewKey, statusId, generation) {
         return;
       }
 
-      flights.delete(timerKey(viewKey, statusId));
+      releaseFlight(key, token);
       continueUnconfirmed(dispatch, getState, viewKey, statusId, generation);
     });
   };

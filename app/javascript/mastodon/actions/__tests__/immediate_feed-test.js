@@ -1,6 +1,7 @@
 import { fromJS, Map as ImmutableMap } from 'immutable';
 import api from '../../api';
-import { captureImmediateFeedSnapshot, cancelImmediateFeedTimersForStatuses, IMMEDIATE_FEED_CONFIRM, IMMEDIATE_FEED_INSERT, IMMEDIATE_FEED_REMOVE, IMMEDIATE_FEED_TTL_MS, publishImmediateStatus, reconcileImmediateEntry, registerImmediateFeedView } from '../immediate_feed';
+import { captureImmediateFeedSnapshot, cancelImmediateFeedTimersForStatuses, IMMEDIATE_FEED_CONFIRM, IMMEDIATE_FEED_INSERT, IMMEDIATE_FEED_REMOVE, IMMEDIATE_FEED_TTL_MS, immediateFeedFlightGeneration, publishImmediateStatus, reconcileImmediateEntry, registerImmediateFeedView, sweepImmediateFeedDeadlines, syncImmediateFeedFlights, unregisterImmediateFeedView } from '../immediate_feed';
+import { OVERLAY_MAX_AGE_MS } from '../../immediate_feed/reconcile';
 import { clearTimeline, deleteFromTimelines } from '../timelines';
 import immediateFeed from '../../reducers/immediate_feed';
 import { buildGroupImmediateView, buildHashtagImmediateView } from '../../immediate_feed/eligibility';
@@ -251,8 +252,12 @@ const applyDispatch = (initial) => {
 
     actions.push(action);
 
-    if (action.type && String(action.type).indexOf('IMMEDIATE_FEED') === 0) {
+    if (action.type && (String(action.type).indexOf('IMMEDIATE_FEED') === 0 || action.type === 'TIMELINE_UPDATE' || action.type === 'TIMELINE_EXPAND_SUCCESS')) {
       state = state.set('immediate_feed', immediateFeed(state.get('immediate_feed'), action));
+    }
+
+    if (action.type === 'TIMELINE_UPDATE' || action.type === 'TIMELINE_EXPAND_SUCCESS') {
+      syncImmediateFeedFlights(() => state);
     }
 
     return action;
@@ -525,6 +530,139 @@ describe('timeline reconcile', () => {
 
     expect(replaced.harness.getState().getIn(['immediate_feed', 'entries', `${hashtagView.viewKey}\u000077`, 'generation'])).toBe(replaced.inserted.generation + 1);
     expect(replaced.harness.getState().getIn(['immediate_feed', 'entries', `${hashtagView.viewKey}\u000077`, 'phase'])).toBe('immediate');
+  });
+
+  it('drops a pending reconcile at five real minutes and ignores the late response', async () => {
+    let now = 1700000000000;
+    const clock = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const { harness } = harnessForPosted();
+    let resolvePage;
+    const get = jest.fn().mockReturnValue(new Promise((resolve) => {
+      resolvePage = resolve;
+    }));
+
+    api.mockImplementation(() => ({ get }));
+    jest.advanceTimersByTime(30000);
+    await Promise.resolve();
+    expect(get).toHaveBeenCalled();
+
+    now += OVERLAY_MAX_AGE_MS;
+    jest.advanceTimersByTime(OVERLAY_MAX_AGE_MS - 30000);
+
+    expect(harness.getState().getIn(['immediate_feed', 'entries', `${hashtagView.viewKey}\u000077`])).toBeUndefined();
+    expect(harness.actions.find(action => action.type === 'TIMELINE_DELETE')).toBeUndefined();
+
+    resolvePage({ data: [{ id: '77', content: '<p>too late</p>' }] });
+    for (let step = 0; step < 20; step += 1) {
+      await Promise.resolve();
+    }
+
+    expect(harness.getState().getIn(['immediate_feed', 'entries', `${hashtagView.viewKey}\u000077`])).toBeUndefined();
+    expect(immediateFeedFlightGeneration(hashtagView.viewKey, '77')).toBeNull();
+    clock.mockRestore();
+  });
+
+  it('drops the overlay when the tab returns after five real minutes', () => {
+    let now = 1700000000000;
+    const clock = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const { harness } = harnessForPosted();
+
+    now += OVERLAY_MAX_AGE_MS;
+    sweepImmediateFeedDeadlines();
+
+    expect(harness.getState().getIn(['immediate_feed', 'entries', `${hashtagView.viewKey}\u000077`])).toBeUndefined();
+    clock.mockRestore();
+  });
+
+  it('cancels an in-flight reconcile when streaming publishes the status', async () => {
+    const { harness } = harnessForPosted();
+    let resolvePage;
+    const get = jest.fn().mockReturnValue(new Promise((resolve) => {
+      resolvePage = resolve;
+    }));
+
+    api.mockImplementation(() => ({ get }));
+    const pending = harness.dispatch(reconcileImmediateEntry(hashtagView.viewKey, '77', harness.actions.find(action => action.type === IMMEDIATE_FEED_INSERT).generation));
+
+    harness.dispatch({
+      type: 'TIMELINE_UPDATE',
+      timeline: 'hashtag:News',
+      status: posted(),
+    });
+    resolvePage({ data: [{ id: '77', content: '<p>late</p>' }] });
+    await pending;
+
+    expect(harness.getState().getIn(['immediate_feed', 'entries', `${hashtagView.viewKey}\u000077`])).toBeUndefined();
+    expect(immediateFeedFlightGeneration(hashtagView.viewKey, '77')).toBeNull();
+  });
+
+  it('ignores the HTTP response after the column is closed', async () => {
+    const { harness, inserted } = harnessForPosted();
+    let resolvePage;
+    const get = jest.fn().mockReturnValue(new Promise((resolve) => {
+      resolvePage = resolve;
+    }));
+
+    api.mockImplementation(() => ({ get }));
+    const pending = harness.dispatch(reconcileImmediateEntry(hashtagView.viewKey, '77', inserted.generation));
+
+    harness.dispatch(unregisterImmediateFeedView(hashtagView.viewKey));
+    resolvePage({ data: [{ id: '77', content: '<p>late</p>' }] });
+    await pending;
+
+    expect(harness.getState().getIn(['immediate_feed', 'entries', `${hashtagView.viewKey}\u000077`])).toBeUndefined();
+    expect(immediateFeedFlightGeneration(hashtagView.viewKey, '77')).toBeNull();
+  });
+
+  it('does not let an older flight replace a newer generation', async () => {
+    const first = harnessForPosted();
+    let resolveFirst;
+    const firstGet = jest.fn().mockReturnValue(new Promise((resolve) => {
+      resolveFirst = resolve;
+    }));
+
+    api.mockImplementation(() => ({ get: firstGet }));
+    const firstPending = first.harness.dispatch(reconcileImmediateEntry(hashtagView.viewKey, '77', first.inserted.generation));
+
+    first.harness.dispatch({
+      type: IMMEDIATE_FEED_REMOVE,
+      viewKey: hashtagView.viewKey,
+      statusId: '77',
+      generation: first.inserted.generation,
+    });
+    first.harness.dispatch({
+      type: IMMEDIATE_FEED_INSERT,
+      viewKey: hashtagView.viewKey,
+      timelineId: hashtagView.timelineId,
+      statusId: '77',
+      phase: 'immediate',
+      generation: first.inserted.generation + 1,
+      registrationGeneration: first.harness.getState().getIn(['immediate_feed', 'views', hashtagView.viewKey, 'registrationGeneration']),
+      startedAt: Date.now(),
+      attempt: 0,
+      elapsedMs: 0,
+    });
+
+    let resolveSecond;
+    const secondGet = jest.fn().mockReturnValue(new Promise((resolve) => {
+      resolveSecond = resolve;
+    }));
+
+    api.mockImplementation(() => ({ get: secondGet }));
+    const secondPending = first.harness.dispatch(reconcileImmediateEntry(hashtagView.viewKey, '77', first.inserted.generation + 1));
+
+    resolveFirst({ data: [{ id: '77', content: '<p>stale</p>' }] });
+    await firstPending;
+
+    expect(first.harness.getState().getIn(['immediate_feed', 'entries', `${hashtagView.viewKey}\u000077`, 'generation'])).toBe(first.inserted.generation + 1);
+    expect(first.harness.getState().getIn(['immediate_feed', 'entries', `${hashtagView.viewKey}\u000077`, 'phase'])).not.toBe('confirmed');
+    expect(immediateFeedFlightGeneration(hashtagView.viewKey, '77')).toBe(first.inserted.generation + 1);
+
+    resolveSecond({ data: [{ id: '77', content: '<p>current</p>' }] });
+    await secondPending;
+
+    expect(first.harness.getState().getIn(['immediate_feed', 'entries', `${hashtagView.viewKey}\u000077`, 'phase'])).toBe('confirmed');
+    expect(immediateFeedFlightGeneration(hashtagView.viewKey, '77')).toBeNull();
   });
 });
 
