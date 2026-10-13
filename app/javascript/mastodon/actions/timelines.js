@@ -43,7 +43,7 @@ export const loadPending = timeline => ({
   timeline,
 });
 
-export function updateTimeline(timeline, status, accept) {
+export function updateTimeline(timeline, status, accept, options = {}) {
   return (dispatch, getState) => {
     if (typeof accept === 'function' && !accept(status)) {
       return;
@@ -56,7 +56,9 @@ export function updateTimeline(timeline, status, accept) {
       return;
     }
 
-    dispatch(importFetchedStatus(status));
+    dispatch(importFetchedStatus(status, {
+      acceptPresentationChange: options.acceptPresentationChange !== false,
+    }));
     if (show_follow_button_on_timeline || show_subscribe_button_on_timeline || status.quote_id) {
       dispatch(fetchRelationshipsFromStatus(status));
     }

@@ -7,6 +7,7 @@ import { createSelector } from 'reselect';
 import { debounce } from 'lodash';
 import { me } from '../../../initial_state';
 import { uniqWithoutNull } from '../../../utils/uniq';
+import { makeGetImmediatePresentation } from 'mastodon/selectors/immediate_feed';
 
 const visibilitiesByType = (state, type) => {
   if (type === 'home') {
@@ -70,18 +71,36 @@ const makeGetLiveStatusIds = () => createSelector([
   return statusIds;
 });
 
+const mergeImmediateStatusIds = (statusIds, prependIds) => {
+  if (!prependIds || prependIds.isEmpty()) {
+    return statusIds;
+  }
+
+  return uniqWithoutNull(prependIds.concat(statusIds));
+};
+
 const makeMapStateToProps = () => {
   const getStatusIds = makeGetStatusIds();
   const getPendingStatusIds = makeGetStatusIds(true);
   const getLiveStatusIds = makeGetLiveStatusIds();
+  const getImmediatePresentation = makeGetImmediatePresentation();
 
-  const mapStateToProps = (state, { timelineId, dataTimelineId, includePendingItems, statusLimit }) => {
+  const mapStateToProps = (state, { timelineId, dataTimelineId, includePendingItems, statusLimit, immediateViewKey }) => {
     const dataId = dataTimelineId || timelineId;
     const selectorProps = { type: timelineId, dataTimelineId: dataId, statusLimit };
+    const presentation = getImmediatePresentation(state, {
+      timelineId,
+      dataTimelineId: dataId,
+      includePendingItems,
+      immediateViewKey,
+    });
+    const prependIds = presentation.get('prependIds');
+    const immediateStatusIds = presentation.get('fadeIds');
 
     if (includePendingItems) {
       return {
-        statusIds: getLiveStatusIds(state, selectorProps),
+        statusIds: mergeImmediateStatusIds(getLiveStatusIds(state, selectorProps), prependIds),
+        immediateStatusIds,
         isLoading: state.getIn(['timelines', dataId, 'isLoading'], true),
         isPartial: state.getIn(['timelines', dataId, 'isPartial'], false),
         hasMore: state.getIn(['timelines', dataId, 'hasMore']),
@@ -90,7 +109,8 @@ const makeMapStateToProps = () => {
     }
 
     return {
-      statusIds: getStatusIds(state, selectorProps),
+      statusIds: mergeImmediateStatusIds(getStatusIds(state, selectorProps), prependIds),
+      immediateStatusIds,
       isLoading: state.getIn(['timelines', dataId, 'isLoading'], true),
       isPartial: state.getIn(['timelines', dataId, 'isPartial'], false),
       hasMore: state.getIn(['timelines', dataId, 'hasMore']),

@@ -20,7 +20,7 @@ import classNames from 'classnames';
 import Icon from 'mastodon/components/icon';
 import EmojiReactionsBar from 'mastodon/components/emoji_reactions_bar';
 import PictureInPicturePlaceholder from 'mastodon/components/picture_in_picture_placeholder';
-import { displayMedia, enableReaction, compactReaction, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy } from 'mastodon/initial_state';
+import { displayMedia, enableReaction, compactReaction, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy, new_features_policy } from 'mastodon/initial_state';
 import { List as ImmutableList } from 'immutable';
 import MixSourceBadges from 'mastodon/features/mixes/components/source_badges';
 import { attachmentAccessibility, galleryTranslationProps, statusTranslationView, translationDisplayStatus, TRANSLATION_MODE_BILINGUAL, TRANSLATION_MODE_ORIGINAL, TRANSLATION_MODE_TRANSLATED } from 'mastodon/utils/translation_view';
@@ -223,6 +223,7 @@ class Status extends ImmutablePureComponent {
     emojiReactioned: PropTypes.bool,
     reactionLimitReached: PropTypes.bool,
     sourceBadges: PropTypes.array,
+    immediate: PropTypes.bool,
   };
 
   static defaultProps = {
@@ -242,6 +243,7 @@ class Status extends ImmutablePureComponent {
     'contextReferenced',
     'quote_muted',
     'sourceBadges',
+    'immediate',
   ];
 
   state = {
@@ -955,7 +957,7 @@ class Status extends ImmutablePureComponent {
         >
           {prepend}
 
-          <div className={classNames('status', `status-${status.get('visibility')}`, { 'status-reply': !!status.get('in_reply_to_id'), muted: this.props.muted, 'status-with-expiration': expires_date, 'status-expired': expired, referenced, 'context-referenced': contextReferenced })} data-id={status.get('id')}>
+          <div className={classNames('status', `status-${status.get('visibility')}`, { 'status-reply': !!status.get('in_reply_to_id'), muted: this.props.muted, 'status-with-expiration': expires_date, 'status-expired': expired, referenced, 'context-referenced': contextReferenced, 'status-immediate': this.props.immediate && new_features_policy === 'tester' })} data-id={status.get('id')}>
             <AccountActionBar account={status.get('account')} {...other} />
             <div className='status__expand' onClick={this.handleExpandClick} role='presentation' />
             <div className='status__info'>

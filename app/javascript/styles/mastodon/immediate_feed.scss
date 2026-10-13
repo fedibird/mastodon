@@ -1,0 +1,11 @@
+// Portable composer immediate feed. Delete this file and its import to
+// remove the tester-only tint. The class does not change opacity, so the
+// post text stays at the normal contrast.
+.status.status-immediate {
+  box-shadow: inset 0 0 0 1000px rgba(128, 128, 128, 0.08);
+  transition: box-shadow 400ms ease;
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}

@@ -114,6 +114,92 @@ const mediaSignature = (media) => {
   return entries.join('\n');
 };
 
+const readValue = (value, key) => {
+  if (!value) {
+    return undefined;
+  }
+
+  return typeof value.get === 'function' ? value.get(key) : value[key];
+};
+
+const mediaPresentation = (media) => {
+  if (!media || typeof media.forEach !== 'function') {
+    return '';
+  }
+
+  const entries = [];
+
+  media.forEach(item => {
+    if (!item) {
+      return;
+    }
+
+    const field = (key) => readValue(item, key) || '';
+
+    entries.push([
+      field('id'),
+      field('type'),
+      field('url'),
+      field('preview_url'),
+      field('remote_url'),
+      field('text_url'),
+      field('description'),
+    ].join('\u0000'));
+  });
+
+  entries.sort();
+  return entries.join('\n');
+};
+
+const cardPresentation = (card) => {
+  if (!card) {
+    return '';
+  }
+
+  const field = (key) => readValue(card, key) || '';
+
+  return [field('url'), field('title'), field('description'), field('image'), field('type'), field('html')].join('\u0000');
+};
+
+const canonicalLink = (value) => String(readValue(value, 'url') || readValue(value, 'uri') || '');
+
+// Body, links, and media can arrive twice with one updated_at: the POST
+// response, then the timeline payload. Refresh the derived HTML when those
+// differ. Counter-only refreshes stay on the fast path.
+const presentationChanged = (oldStatus, incoming) => {
+  const oldSource = canonicalTranslationSource(oldStatus.get('content'), oldStatus.get('spoiler_text'));
+  const nextSource = canonicalTranslationSource(incoming.content, incoming.spoiler_text);
+
+  if (oldSource.content !== nextSource.content || oldSource.spoilerText !== nextSource.spoilerText) {
+    return true;
+  }
+
+  if (canonicalLink(oldStatus) !== canonicalLink(incoming)) {
+    return true;
+  }
+
+  if (cardPresentation(oldStatus.get('card')) !== cardPresentation(incoming.card)) {
+    return true;
+  }
+
+  return mediaPresentation(oldStatus.get('media_attachments')) !== mediaPresentation(incoming.media_attachments);
+};
+
+const preserveHiddenState = (oldStatus, incoming, spoilerText) => {
+  if (!oldStatus || !oldStatus.has || !oldStatus.has('hidden')) {
+    return false;
+  }
+
+  const oldSource = canonicalTranslationSource(oldStatus.get('content'), oldStatus.get('spoiler_text'));
+  const nextSource = canonicalTranslationSource(incoming.content, incoming.spoiler_text);
+
+  // A body or link refresh should not close a spoiler the viewer already
+  // opened. Reset only when the spoiler text or sensitive flag changes.
+  return oldSource.spoilerText === nextSource.spoilerText &&
+    !!oldStatus.get('sensitive') === !!incoming.sensitive &&
+    (oldStatus.get('spoiler_text') || '') === (spoilerText || '');
+};
+
 const pollId = (poll) => {
   if (poll === null || poll === undefined || poll === '') {
     return '';
@@ -297,8 +383,9 @@ const preserveMediaTranslations = (mediaAttachments, normalOldStatus) => {
   });
 };
 
-export function normalizeStatus(status, normalOldStatus, domain, previousPoll) {
+export function normalizeStatus(status, normalOldStatus, domain, previousPoll, options = {}) {
   const normalStatus   = { ...status };
+  const acceptPresentationChange = !options || options.acceptPresentationChange !== false;
 
   if (typeof status.account === 'object') {
     normalStatus.account = status.account.id;
@@ -316,9 +403,15 @@ export function normalizeStatus(status, normalOldStatus, domain, previousPoll) {
     normalStatus.filtered = status.filtered.map(normalizeFilterResult);
   }
 
-  // Only calculate these values when status first encountered
-  // Otherwise keep the ones already in the reducer
-  if (normalOldStatus && normalStatus.updated_at === normalOldStatus.get('updated_at')) {
+  // Only calculate these values when status first encountered and the
+  // visible body, links, and media are unchanged. A same updated_at with a
+  // new body or attachment still re-normalizes. Pass
+  // acceptPresentationChange: false to keep an already official copy when a
+  // later POST echo would otherwise replace it.
+  const sameStamp = normalOldStatus && normalStatus.updated_at === normalOldStatus.get('updated_at');
+  const refreshPresentation = sameStamp && acceptPresentationChange && presentationChanged(normalOldStatus, status);
+
+  if (sameStamp && !refreshPresentation) {
     normalStatus.search_index = normalOldStatus.get('search_index');
     normalStatus.shortHtml = normalOldStatus.get('shortHtml');
     normalStatus.contentHtml = normalOldStatus.get('contentHtml');
@@ -358,6 +451,11 @@ export function normalizeStatus(status, normalOldStatus, domain, previousPoll) {
     normalStatus.contentHtml       = applyEmojiPresentation(emojify(normalStatus.content, emojiMap, domain));
     normalStatus.spoilerHtml       = emojify(escapeTextContentForBrowser(spoilerText), emojiMap, domain);
     normalStatus.hidden            = expandSpoilers ? false : spoilerText.length > 0 || normalStatus.sensitive;
+
+    if (preserveHiddenState(normalOldStatus, status, spoilerText)) {
+      normalStatus.hidden = normalOldStatus.get('hidden');
+    }
+
     normalStatus.visibility        = normalStatus.visibility_ex ? normalStatus.visibility_ex : normalStatus.visibility;
     normalStatus.quote             = null;
     normalStatus.media_attachments = preserveMediaTranslations(status.media_attachments, normalOldStatus);

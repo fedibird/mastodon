@@ -31,7 +31,7 @@ jest.mock('mastodon/components/status_list', () => {
         <div>
           {this.props.numPending > 0 && <button className='load-gap' type='button'>pending</button>}
           {ids.map(id => (
-            <article key={String(id)} data-testid='status' data-id={id} data-context-type={this.props.timelineId} />
+            <article key={String(id)} data-testid='status' data-id={id} data-context-type={this.props.timelineId} data-immediate={this.props.immediateStatusIds && this.props.immediateStatusIds.includes(id) ? 'true' : 'false'} />
           ))}
         </div>
       );
@@ -41,6 +41,9 @@ jest.mock('mastodon/components/status_list', () => {
 });
 
 import timelines from 'mastodon/reducers/timelines';
+import immediateFeed from 'mastodon/reducers/immediate_feed';
+import { IMMEDIATE_FEED_INSERT } from 'mastodon/actions/immediate_feed';
+import { buildHashtagImmediateView } from 'mastodon/immediate_feed/eligibility';
 import StatusListContainer from '../status_list_container';
 
 const identity = (state = ImmutableMap()) => state;
@@ -195,5 +198,107 @@ describe('StatusListContainer timeline selection', () => {
     expect(container.querySelector('.load-gap')).toBeNull();
     expect(store.getState().getIn(['timelines', 'home', 'pendingItems'])).toEqual(ImmutableList(['1200', '1100']));
     expect(store.getState().getIn(['timelines', 'home', 'top'])).toBe(false);
+  });
+
+  it('prepends an immediate hashtag post without writing timeline items or pending items', () => {
+    const view = buildHashtagImmediateView({
+      viewKey: 'portable:hashtag-column:news',
+      timelineId: 'hashtag:news',
+      primary: 'news',
+      tags: { any: [{ value: 'web' }] },
+    });
+    const other = buildHashtagImmediateView({
+      viewKey: 'portable:hashtag-column:other',
+      timelineId: 'hashtag:news',
+      primary: 'news',
+      tags: { all: [{ value: 'dev' }] },
+    });
+    let immediate = immediateFeed(undefined, { type: '@@INIT' });
+
+    immediate = immediateFeed(immediate, { type: 'IMMEDIATE_FEED_REGISTER_VIEW', view });
+    immediate = immediateFeed(immediate, { type: 'IMMEDIATE_FEED_REGISTER_VIEW', view: other });
+    immediate = immediateFeed(immediate, {
+      type: IMMEDIATE_FEED_INSERT,
+      viewKey: view.viewKey,
+      timelineId: view.timelineId,
+      statusId: '900',
+      phase: 'immediate',
+      generation: 1,
+      requestId: 'req',
+    });
+
+    const store = createStore(combineReducers({
+      timelines,
+      immediate_feed: () => immediate,
+      settings: identity,
+      statuses: identity,
+    }), ImmutableMap({
+      timelines: ImmutableMap({
+        'hashtag:news': ImmutableMap({
+          items: ImmutableList(),
+          pendingItems: ImmutableList(['800']),
+          isLoading: false,
+          hasMore: false,
+          top: true,
+          unread: 1,
+        }),
+        'hashtag:news:split:1': ImmutableMap({
+          items: ImmutableList(['100']),
+          pendingItems: ImmutableList(),
+          isLoading: false,
+          hasMore: true,
+          top: false,
+        }),
+      }),
+      settings: ImmutableMap(),
+      statuses: ImmutableMap({
+        '900': status('900'),
+        '800': status('800'),
+        '100': status('100'),
+      }),
+      immediate_feed: immediate,
+    }));
+
+    const live = renderList(store, {
+      timelineId: 'hashtag:news',
+      immediateViewKey: view.viewKey,
+      includePendingItems: true,
+      trackScroll: false,
+    });
+
+    expect(statusIds(live.container)).toEqual(['900', '800']);
+    expect(live.container.querySelector('[data-id="900"]').getAttribute('data-immediate')).toBe('false');
+    expect(store.getState().getIn(['timelines', 'hashtag:news', 'items'])).toEqual(ImmutableList());
+    expect(store.getState().getIn(['timelines', 'hashtag:news', 'pendingItems'])).toEqual(ImmutableList(['800']));
+    expect(store.getState().getIn(['timelines', 'hashtag:news', 'unread'])).toBe(1);
+
+    const history = renderList(store, {
+      timelineId: 'hashtag:news',
+      dataTimelineId: 'hashtag:news:split:1',
+      immediateViewKey: view.viewKey,
+      trackScroll: false,
+    });
+
+    expect(statusIds(history.container)).toEqual(['100']);
+
+    const otherColumn = renderList(store, {
+      timelineId: 'hashtag:news',
+      immediateViewKey: other.viewKey,
+      trackScroll: false,
+    });
+
+    expect(statusIds(otherColumn.container)).toEqual([]);
+
+    const scrolled = renderList(store, {
+      timelineId: 'hashtag:news',
+      immediateViewKey: view.viewKey,
+      trackScroll: false,
+    });
+
+    expect(statusIds(scrolled.container)).toEqual(['900']);
+
+    store.dispatch({ type: 'TIMELINE_SCROLL_TOP', timeline: 'hashtag:news', top: false });
+
+    expect(statusIds(scrolled.container)).toEqual([]);
   });
 });
