@@ -141,6 +141,45 @@ describe('composer media order', () => {
     })).toBeNull();
     expect(composerFileDropBlock({ mediaCount: 3, maxAttachments: 4 })).toBeNull();
   });
+  it('counts converted animated GIFs as images while preserving video and audio exclusivity', () => {
+    expect(attachmentUploadBlocked({ existingTypes: ['gifv'], incomingMimeTypes: ['image/png'] })).toBe(false);
+    expect(attachmentUploadBlocked({ existingTypes: ['image', 'gifv'], incomingMimeTypes: ['image/gif'] })).toBe(false);
+    expect(attachmentUploadBlocked({ incomingMimeTypes: ['image/gif', 'image/png'] })).toBe(false);
+    expect(attachmentUploadBlocked({ existingTypes: ['gifv'], incomingMimeTypes: ['video/mp4'] })).toBe(true);
+    expect(attachmentUploadBlocked({ existingTypes: ['video'], incomingMimeTypes: ['image/gif'] })).toBe(true);
+    expect(attachmentUploadBlocked({ existingTypes: ['audio'], incomingMimeTypes: ['image/gif'] })).toBe(true);
+    expect(composerFileDropBlock({
+      existingTypes: ['gifv', 'image'],
+      mediaCount: 2,
+      maxAttachments: 4,
+      incomingMimeTypes: ['image/gif', 'image/png'],
+    })).toBeNull();
+    expect(composerFileDropBlock({
+      existingTypes: ['gifv', 'image'],
+      mediaCount: 2,
+      maxAttachments: 4,
+      incomingMimeTypes: ['image/gif', 'image/png', 'image/jpeg'],
+    })).toBe('limit');
+    expect(composerFileDropBlock({
+      existingTypes: ['gifv'],
+      mediaCount: 1,
+      maxAttachments: 4,
+      incomingMimeTypes: ['video/mp4'],
+    })).toBe('video');
+    expect(composerFileDropBlock({
+      existingTypes: ['video'],
+      mediaCount: 1,
+      maxAttachments: 4,
+      incomingMimeTypes: ['image/gif'],
+    })).toBe('video');
+    expect(composerFileDropBlock({
+      existingTypes: ['gifv'],
+      mediaCount: 1,
+      pending: 1,
+      maxAttachments: 4,
+      incomingMimeTypes: ['image/png', 'image/jpeg'],
+    })).toBeNull();
+  });
 });
 
 describe('ComposerMediaGallery', () => {
@@ -168,6 +207,13 @@ describe('ComposerMediaGallery', () => {
     expect(onMoveBy).toHaveBeenNthCalledWith(2, 'b', 1);
     expect(screen.getByRole('button', { name: 'c alt' }).querySelector('.fa-music, .icon')).toBeTruthy();
     expect(screen.getByRole('status').textContent).toContain('Only one video or audio file');
+  });
+
+  it('does not show a video-only warning when animated GIFs and images are attached', () => {
+    renderGallery([media('animated', 'gifv'), media('photo', 'image')]);
+
+    expect(screen.getAllByRole('button', { name: /alt$/ })).toHaveLength(2);
+    expect(screen.queryByRole('status')).toBeNull();
   });
 
   it('summarizes seven attachments as four thumbnails and +3, then expands', () => {
