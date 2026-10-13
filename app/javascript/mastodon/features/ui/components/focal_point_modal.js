@@ -35,6 +35,7 @@ const messages = defineMessages({
   chooseImage: { id: 'upload_modal.choose_image', defaultMessage: 'Choose image' },
   discardMessage: { id: 'confirmations.discard_edit_media.message', defaultMessage: 'You have unsaved changes to the media description or preview, discard them anyway?' },
   discardConfirm: { id: 'confirmations.discard_edit_media.confirm', defaultMessage: 'Discard' },
+  thumbnailWaiting: { id: 'upload_modal.thumbnail_waiting', defaultMessage: 'You can change the thumbnail after the original post releases this media.' },
 });
 
 const mapStateToProps = (state, { id, composerId }) => {
@@ -52,6 +53,7 @@ const mapStateToProps = (state, { id, composerId }) => {
     focusY: composer ? composer.getIn(['media_modal', 'focusY']) : 0,
     dirty: composer ? composer.getIn(['media_modal', 'dirty']) : false,
     is_changing_upload: composer ? composer.get('is_changing_upload') : false,
+    thumbnailLocked: !!(media && media.get('redraftReuse') && media.get('redraftReuse') !== 'complete'),
   };
 };
 
@@ -287,7 +289,7 @@ class FocalPointModal extends ImmutablePureComponent {
   }
 
   render () {
-    const { media, intl, account, onClose, isUploadingThumbnail, description, focusX, focusY, dirty, is_changing_upload } = this.props;
+    const { media, intl, account, onClose, isUploadingThumbnail, description, focusX, focusY, dirty, is_changing_upload, thumbnailLocked } = this.props;
 
     if (!media) {
       return null;
@@ -338,7 +340,8 @@ class FocalPointModal extends ImmutablePureComponent {
               <React.Fragment>
                 <label className='setting-text-label' htmlFor='upload-modal__thumbnail'><FormattedMessage id='upload_form.thumbnail' defaultMessage='Change thumbnail' /></label>
 
-                <Button disabled={isUploadingThumbnail} text={intl.formatMessage(messages.chooseImage)} onClick={this.handleFileInputClick} />
+                <Button disabled={isUploadingThumbnail || thumbnailLocked} text={intl.formatMessage(messages.chooseImage)} onClick={this.handleFileInputClick} />
+                {thumbnailLocked ? <p role='status'>{intl.formatMessage(messages.thumbnailWaiting)}</p> : null}
 
                 <label>
                   <span style={{ display: 'none' }}>{intl.formatMessage(messages.chooseImage)}</span>
@@ -350,7 +353,7 @@ class FocalPointModal extends ImmutablePureComponent {
                     accept='image/png,image/jpeg'
                     onChange={this.handleThumbnailChange}
                     style={{ display: 'none' }}
-                    disabled={isUploadingThumbnail || is_changing_upload}
+                    disabled={isUploadingThumbnail || is_changing_upload || thumbnailLocked}
                   />
                 </label>
 

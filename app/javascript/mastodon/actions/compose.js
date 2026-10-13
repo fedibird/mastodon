@@ -27,6 +27,7 @@ import { isExclusiveFile } from '../features/compose/composer_media';
 import { composerFileDropAlert, fileDropBlockFromComposer } from '../features/compose/composer_drop';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import { targetComposerAction } from './composer';
+import { alertThumbnailWaiting, composerRedraftBlocksSubmit, rejectThumbnailUntilRedraftReady, retainRedraftMediaEdits } from './redraft_media';
 
 const dispatchToComposer = (dispatch, composerId, action) => dispatch(targetComposerAction(action, composerId));
 
@@ -340,6 +341,10 @@ export function submitComposerWithCheck(composerId, routerHistory, intl) {
       return;
     }
 
+    if (composerRedraftBlocksSubmit(composer)) {
+      return;
+    }
+
     const status = materializeComposerText(composer);
     const media  = composer.get('media_attachments');
     const missingAltTextMediaId = media.find(item => ['image', 'gifv'].includes(item.get('type')) && (item.get('description') ?? '').length === 0)?.get('id');
@@ -404,6 +409,10 @@ export function submitComposer(composerId, routerHistory) {
     }
 
     if (!selectComposerCanSendAsIdentity(state, composerId).canSend) {
+      return Promise.resolve();
+    }
+
+    if (composerRedraftBlocksSubmit(composer)) {
       return Promise.resolve();
     }
 
@@ -526,13 +535,22 @@ export function submitComposer(composerId, routerHistory) {
       delete createData.status_reference_ids;
     }
 
-    if (!selectComposerCanSendAsIdentity(getState(), composerId).canSend) {
+    const latestComposer = selectComposer(getState(), composerId);
+    const latestMedia = latestComposer && latestComposer.get('media_attachments');
+
+    if (!latestComposer || !latestMedia || composerRedraftBlocksSubmit(latestComposer) || !selectComposerCanSendAsIdentity(getState(), composerId).canSend) {
       dispatchToComposer(dispatch, composerId, {
         type: COMPOSE_SUBMIT_FAIL,
         skipLoading: true,
         skipAlert: true,
       });
       return Promise.resolve();
+    }
+
+    createData.media_ids = latestMedia.map(item => item.get('id'));
+
+    if (editing) {
+      editData.media_ids = latestMedia.map(item => item.get('id')).toArray();
     }
 
     return api(getState).request({
@@ -860,6 +878,12 @@ export const uploadComposerThumbnail = (composerId, id, file) => (dispatch, getS
   }
 
   const composer = selectComposer(getState(), composerId);
+
+  if (rejectThumbnailUntilRedraftReady(composer, id)) {
+    dispatch(alertThumbnailWaiting());
+    return;
+  }
+
   const snapshot = captureUploadSnapshot(composer, composerId);
 
   dispatchToComposer(dispatch, composerId, uploadThumbnailRequest());
@@ -966,15 +990,24 @@ export function changeComposerUpload(composerId, id, params) {
   return (dispatch, getState) => {
     const composer = selectComposer(getState(), composerId);
 
-    if (!composer || !selectComposerCanUploadAsIdentity(getState(), composerId).canUpload) {
+    if (!composer) {
+      return;
+    }
+
+    const media = composer.get('media_attachments').find(item => item.get('id') === id);
+
+    if (media && media.get('redraftReuse')) {
+      dispatch(retainRedraftMediaEdits(composerId, media.get('id'), params));
+      return;
+    }
+
+    if (!selectComposerCanUploadAsIdentity(getState(), composerId).canUpload) {
       return;
     }
 
     const snapshot = captureUploadSnapshot(composer, composerId);
 
     dispatchToComposer(dispatch, composerId, changeUploadComposeRequest());
-
-    const media = composer.get('media_attachments').find(item => item.get('id') === id);
 
     // Attached media cannot be updated through the unattached media endpoint.
     // Keep the description and focus in compose and send them with the status PUT.

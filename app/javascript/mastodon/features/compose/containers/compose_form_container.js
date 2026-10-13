@@ -27,6 +27,7 @@ import UserPostingStyleController from './user_posting_style_controller';
 import UserPostingStylePickerContainer from './user_posting_style_picker_container';
 import ComposerContextDetails from '../components/composer_context_details';
 import { injectIntl, defineMessages } from 'react-intl';
+import { composerRedraftNotice, retryRedraftMedia } from '../../../actions/redraft_media';
 import { isAdministrator, showComposerPostingStyleSelector } from '../../../initial_state';
 
 const messages = defineMessages({
@@ -78,6 +79,7 @@ const mapStateToProps = (state, { composerId }) => {
     isEditing: !!composer.get('id'),
     lang: composer.get('language'),
     surfaceMismatch: composer.get('surfaceMismatch') === true,
+    redraftNotice: composerRedraftNotice(composer),
   };
 };
 
@@ -126,6 +128,10 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
 
   onAcceptSurface () {
     dispatch(acceptComposerSurface(composerId));
+  },
+
+  onRetryRedraft () {
+    dispatch(retryRedraftMedia(composerId));
   },
 
   onCancelEdit () {
