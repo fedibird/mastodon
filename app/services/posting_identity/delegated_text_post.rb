@@ -2,9 +2,9 @@
 
 # A delegated post is published as the granting account. New public,
 # unlisted, and followers-only posts need post. A reply also needs reply,
-# and a quote also needs quote. Still images also need media. Groups,
-# polls, and schedules stay out. The check runs after the sender is fixed
-# and before the status is saved.
+# a quote also needs quote, and a local group post also needs group.
+# Still images also need media. Polls, schedules, and remote groups stay
+# out. The check runs after the sender is fixed and before the status is saved.
 class PostingIdentity::DelegatedTextPost
   ALLOWED_VISIBILITIES = %w(public unlisted private).freeze
   QUOTE_VISIBILITIES = %w(public unlisted).freeze
@@ -34,6 +34,23 @@ class PostingIdentity::DelegatedTextPost
     permit!('post')
     permit!('media') if media_requested?
     raise unsupported if unsupported_shape?
+
+    if group_requested?
+      permit!('group')
+      raise group_rejected if reply_requested? || quote_requested?
+
+      return Result.new(
+        text: stripped_text,
+        thread: nil,
+        quote_id: nil,
+        allowed_mentions: PostingIdentity::DelegatedGroupPost.resolve!(
+          author: author,
+          params: @params,
+          visibility: requested_visibility
+        )
+      )
+    end
+
     raise unsupported unless self.class::ALLOWED_VISIBILITIES.include?(requested_visibility)
 
     permit!('reply') if reply_requested?
@@ -83,6 +100,16 @@ class PostingIdentity::DelegatedTextPost
 
   def mention_rejected
     Mastodon::ValidationError.new(I18n.t('posting_identity_links.delegated_mention_rejected'))
+  end
+
+  def group_rejected
+    Mastodon::ValidationError.new(I18n.t('posting_identity_links.delegated_group_rejected'))
+  end
+
+  def group_requested?
+    present?(@params[:posting_context_account_id]) ||
+      present?(@params[:posting_context_key]) ||
+      present?(@params[:posting_context_revision])
   end
 
   def concealed!

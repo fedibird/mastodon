@@ -71,6 +71,7 @@ import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { REDRAFT } from '../actions/statuses';
 import { COMPOSE_REDAFT_DISCARD, COMPOSE_REDAFT_MEDIA_LOCAL, COMPOSE_REDAFT_MEDIA_STATUS } from '../actions/redraft_media';
 import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE, COMPOSER_INTERACTION_CHECK_FAIL, COMPOSER_INTERACTION_CHECK_REQUEST, COMPOSER_INTERACTION_CHECK_SUCCESS, COMPOSER_SENDER_IDENTITY_SELECT, COMPOSER_SURFACE_ACCEPT } from '../actions/composer';
+import { consistentLocalFedibirdGroup } from '../posting_identity/group_destination';
 import { composerInteractionInputKey } from '../posting_identity/interaction_input';
 import { USER_POSTING_STYLE_AUTO_ATTEMPT, USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DEFAULTS_SETTLED, USER_POSTING_STYLE_DESTINATION, USER_POSTING_STYLE_DESTINATION_RETRY, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../actions/user_posting_styles';
 import { Map as ImmutableMap, List as ImmutableList, Set as ImmutableSet, OrderedSet as ImmutableOrderedSet, fromJS } from 'immutable';
@@ -351,15 +352,18 @@ const noteInteractionTarget = map => {
   const quoteId = map.get('quote_from');
   const identityId = map.getIn(['senderIdentity', 'id']);
   const delegated = typeof identityId === 'string' && identityId.startsWith('delegated:');
-  const active = Boolean(replyId || quoteId);
+  const groupPost = consistentLocalFedibirdGroup(map) && !replyId && !quoteId;
+  const active = Boolean(replyId || quoteId || groupPost);
 
-  map.set('interactionCheck', ImmutableMap({
+  const next = map.set('interactionCheck', ImmutableMap({
     status: delegated && active ? 'pending' : 'idle',
     identityId: delegated && active ? identityId : null,
     epoch: Number(map.getIn(['senderIdentity', 'changeEpoch'])) || 0,
     targetKey: interactionTargetKey(replyId, quoteId),
     inputKey: delegated && active ? composerInteractionInputKey(map) : null,
   }));
+
+  return next;
 };
 
 const invalidateInteraction = state => {
@@ -369,7 +373,7 @@ const invalidateInteraction = state => {
     return state;
   }
 
-  if (!state.get('in_reply_to') && !state.get('quote_from')) {
+  if (!state.get('in_reply_to') && !state.get('quote_from') && !consistentLocalFedibirdGroup(state)) {
     return state;
   }
 
@@ -408,6 +412,7 @@ const acceptInteractionCheck = (state, action, status) => {
     status,
     identityId,
     epoch,
+    delegationId: action.delegationId || null,
     targetKey: interactionTargetKey(state.get('in_reply_to'), state.get('quote_from')),
     inputKey,
     requestId,
@@ -796,9 +801,9 @@ const enforceSessionSenderIdentity = state => {
   return state.set('senderIdentity', initialSenderIdentity());
 };
 
-// An approved switch keeps the draft text and the selected posting style.
-// Foreign media and group surfaces are refused by the resolver. A reply
-// or quote stays in the draft and must be checked again for the new sender.
+// An approved switch keeps the draft text, the posting style, and a local
+// group destination. Foreign media, remote groups, and group replies are
+// refused by the resolver. A reply, quote, or local group is checked again.
 const applySenderIdentitySelection = (state, action) => {
   const decision = action.decision || {};
 
@@ -1113,8 +1118,16 @@ export default function composer(state = initialState, action) {
     return state
       .set('mounted', Math.max(state.get('mounted') - 1, 0))
       .set('is_composing', false);
-  case COMPOSER_CONTEXT_APPLY:
-    return reduceSurfaceContext(state, action);
+  case COMPOSER_CONTEXT_APPLY: {
+    const applied = reduceSurfaceContext(state, action);
+    const delegated = String(applied.getIn(['senderIdentity', 'id']) || '').startsWith('delegated:');
+
+    if (!delegated && !applied.get('interactionCheck')) {
+      return applied;
+    }
+
+    return noteInteractionTarget(applied);
+  }
   case COMPOSER_SENDER_IDENTITY_SELECT:
     return applySenderIdentitySelection(state, action);
   case COMPOSER_SURFACE_ACCEPT: {

@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
 class PostingIdentity::Delegated
-  # post is the text capability. media, reply, and quote are listed only
-  # together with post. Groups and schedules stay unavailable. ready is
-  # the grant at read time and is checked again when a status is saved.
+  # post is the text capability. media, reply, quote, and group are listed
+  # only together with post. Schedules stay unavailable. ready is the grant
+  # at read time and is checked again when a status is saved.
   def self.build(delegation)
     account = delegation.posting_account
     scopes = Array(delegation.scopes).map(&:to_s)
@@ -11,11 +11,13 @@ class PostingIdentity::Delegated
     media_ready = post_ready && scopes.include?('media')
     reply_ready = post_ready && scopes.include?('reply')
     quote_ready = post_ready && scopes.include?('quote')
+    group_ready = post_ready && scopes.include?('group')
     capabilities = PostingIdentity::CAPABILITIES.index_with { PostingIdentity::CAPABILITY_UNAVAILABLE }
     capabilities['post'] = PostingIdentity::CAPABILITY_SUPPORTED if post_ready
     capabilities['media'] = PostingIdentity::CAPABILITY_SUPPORTED if media_ready
     capabilities['reply'] = PostingIdentity::CAPABILITY_SUPPORTED if reply_ready
     capabilities['quote'] = PostingIdentity::CAPABILITY_SUPPORTED if quote_ready
+    capabilities['group'] = PostingIdentity::CAPABILITY_SUPPORTED if group_ready
 
     PostingIdentity::Record.new(
       id: PostingIdentity.delegated_id(account),
@@ -25,6 +27,7 @@ class PostingIdentity::Delegated
       authorization: post_ready ? PostingIdentity::AUTHORIZATION_READY : PostingIdentity::AUTHORIZATION_UNAVAILABLE,
       capabilities: capabilities,
       delegation: {
+        id: delegation.id.to_s,
         state: 'active',
         scopes: Array(delegation.scopes),
         expires_at: delegation.expires_at,

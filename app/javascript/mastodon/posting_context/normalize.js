@@ -125,6 +125,19 @@ export function normalizeViewerEvidence(evidence) {
   };
 }
 
+const normalizeSenderPosting = posting => {
+  if (!posting) {
+    return null;
+  }
+
+  return {
+    identityId: posting.identity_id ? String(posting.identity_id) : null,
+    delegationId: posting.delegation_id ? String(posting.delegation_id) : null,
+    canPost: posting.can_post === true,
+    following: posting.following === true,
+  };
+};
+
 export function normalizePostingContextDiscovery(data) {
   if (!data) {
     return null;
@@ -146,5 +159,6 @@ export function normalizePostingContextDiscovery(data) {
       authority: null,
     },
     viewerEvidence: normalizeViewerEvidence(data.viewer_evidence),
+    senderPosting: normalizeSenderPosting(data.sender_posting),
   };
 }

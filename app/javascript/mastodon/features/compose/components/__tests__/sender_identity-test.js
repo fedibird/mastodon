@@ -490,4 +490,42 @@ describe('SenderIdentity', () => {
     expect(screen.queryByRole('menuitemradio')).toBeNull();
     expect(screen.getByTestId('sender-identity-current').textContent).toContain('@admin');
   });
+
+  it('shows the group sender warning in the narrow header and in simple mode', () => {
+    const { unmount } = render(
+      <SenderIdentity
+        header
+        selectable
+        current={identity('delegated:99', 'author', 'ready', 'delegated')}
+        choices={ImmutableList([
+          identity('local:42', 'admin'),
+          identity('delegated:99', 'author', 'ready', 'delegated'),
+        ])}
+        selectedId='delegated:99'
+        sessionIdentityId='local:42'
+        blockReason='follow'
+      />,
+    );
+
+    expect(document.querySelector('.compose-form__sender-status').textContent).toContain('does not follow that group');
+    expect(screen.getByTestId('sender-identity-current').textContent).toContain('@author');
+    unmount();
+
+    render(
+      <SenderIdentity
+        compact
+        current={identity('delegated:99', 'author', 'ready', 'delegated')}
+        choices={ImmutableList([
+          identity('local:42', 'admin'),
+          identity('delegated:99', 'author', 'ready', 'delegated'),
+        ])}
+        selectedId='delegated:99'
+        sessionIdentityId='local:42'
+        blockReason='group'
+      />,
+    );
+
+    expect(document.querySelector('.compose-form__sender--compact')).toBeTruthy();
+    expect(document.querySelector('.compose-form__sender-status').textContent).toContain('cannot post to that group');
+  });
 });

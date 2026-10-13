@@ -31,6 +31,7 @@ class REST::PostingIdentitySerializer < ActiveModel::Serializer
     payload = object.delegation
 
     {
+      id: payload[:id]&.to_s,
       state: payload[:state],
       scopes: Array(payload[:scopes]),
       expires_at: payload[:expires_at]&.iso8601,

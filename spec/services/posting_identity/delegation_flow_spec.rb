@@ -38,6 +38,7 @@ RSpec.describe PostingIdentity::Approval do # rubocop:disable Metrics/BlockLengt
       expect { issue!(acct: 'remote@example.com') }.to raise_error(PostingIdentity::Error) { |error| expect(error.code).to eq :request_unavailable }
       expect { issue!(acct: grantee.account.username) }.to raise_error(PostingIdentity::Error) { |error| expect(error.code).to eq :self_target }
       expect { issue!(scopes: ['reply']) }.to raise_error(PostingIdentity::Error) { |error| expect(error.code).to eq :invalid_scopes }
+      expect { issue!(scopes: ['group']) }.to raise_error(PostingIdentity::Error) { |error| expect(error.code).to eq :invalid_scopes }
       expect { issue!(requester: grantor) }.to raise_error(PostingIdentity::Error) { |error| expect(error.code).to eq :not_administrator }
     end
 

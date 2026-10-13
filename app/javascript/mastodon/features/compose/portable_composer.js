@@ -4,6 +4,7 @@ import { connect } from 'react-redux';
 import { changeComposing, mountCompose, unmountCompose, uploadToComposer } from '../../actions/compose';
 import { changeSetting } from '../../actions/settings';
 import { applyComposerPostingContext, applyComposerSurface, createComposer, targetComposerAction } from '../../actions/composer';
+import { scheduleComposerInteractionCheck } from '../../actions/posting_identities';
 import { surfacesEqual } from '../../posting_context/surface';
 import { selectComposer, selectPortableComposerDisplayMode, selectPortableComposerSeed } from '../../selectors/composer';
 import ComposeFormContainer from './containers/compose_form_container';
@@ -39,6 +40,7 @@ class PortableComposer extends React.PureComponent {
 
     if (surface) {
       dispatch(applyComposerSurface(composerId, surface, postingContext, postingContextAccountId));
+      dispatch(scheduleComposerInteractionCheck(composerId));
       return;
     }
 
@@ -47,6 +49,7 @@ class PortableComposer extends React.PureComponent {
     }
 
     dispatch(applyComposerPostingContext(composerId, postingContext, postingContextAccountId));
+    dispatch(scheduleComposerInteractionCheck(composerId));
   }
 
   state = {
