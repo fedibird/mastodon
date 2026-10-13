@@ -70,6 +70,27 @@ describe('SearchabilityDropdown detached menu', () => {
     expect(document.activeElement).toBe(screen.getByRole('option', { name: /Reacted-users-only/ }));
   });
 
+  it('rebuilds the choices when a visibility becomes prohibited', () => {
+    const props = {
+      presentation: 'detached',
+      open: true,
+      value: 'private',
+      onChange: jest.fn(),
+      onClose: jest.fn(),
+    };
+    const view = render(<SearchabilityDropdown {...props} />);
+
+    expect(screen.getByRole('option', { name: /Public/ })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('option', { name: /Followers-only/ })).toHaveAttribute('aria-selected', 'true');
+
+    view.rerender(<SearchabilityDropdown {...props} prohibitedVisibilities={ImmutableSet(['public'])} />);
+
+    expect(screen.queryByRole('option', { name: /Public/ })).toBeNull();
+    expect(screen.getByRole('option', { name: /Followers-only/ })).toHaveClass('active');
+    expect(screen.getByRole('option', { name: /Followers-only/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getAllByRole('option').filter(option => option.getAttribute('aria-selected') === 'true')).toHaveLength(1);
+  });
+
   it('does not highlight a value that is not in the menu', () => {
     renderMenu({ value: 'public', prohibitedVisibilities: ImmutableSet(['public']) });
 

@@ -183,11 +183,16 @@ export function abandonStyleDestination(map) {
   map.setIn(['userPostingStyle', 'unapplied'], withDestination(map.getIn(['userPostingStyle', 'unapplied'])));
 }
 
+const forgetSearchabilityPrivacyRestore = map => {
+  map.set('privacy_before_searchability', null);
+};
+
 const applyFields = (map, fields) => {
   if (Object.prototype.hasOwnProperty.call(fields, 'privacy')) {
     map.set('privacy', fields.privacy);
     map.set('searchability', searchabilityForPrivacy(fields.privacy, map.get('searchability')));
     map.set('circle_id', null);
+    forgetSearchabilityPrivacyRestore(map);
   }
 
   if (Object.prototype.hasOwnProperty.call(fields, 'language')) {
@@ -211,6 +216,7 @@ const restoreManualValues = map => {
   if (fields.includes('privacy') && values.has('privacy')) {
     map.set('privacy', values.get('privacy'));
     map.set('searchability', searchabilityForPrivacy(values.get('privacy'), map.get('searchability')));
+    forgetSearchabilityPrivacyRestore(map);
   }
 
   if (fields.includes('language') && values.has('language')) {
