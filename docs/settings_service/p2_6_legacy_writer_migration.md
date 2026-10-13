@@ -335,12 +335,26 @@ P2-6B が実装する境界は次のとおりである。
 - 1 キーごとに、開いたトランザクションを拒否し、User 行をロックし、実変更だけ revision を進め、COMMIT 後に cache delete と `preferences_changed` を出す。
 - 同値は ChangeSet の no-op に任せる。`save!` が無いので `cache.write` も `rewrite_cache` も走らない。
 - 実変更の `Setting#save!` が出す `rewrite_cache` は抑止しない。SQL COMMIT のあと write、その次に delete、その次に `preferences_changed` である。`RailsSettings::Base` 全体のコールバックは変えない。
-- 入口は `UserPreferences::LegacyWriter#update` である。1 呼び出しが 1 キーで 1 トランザクションである。コントローラと Decorator はまだこれを呼ばない。
-- コントローラ、Redis のキー形、ストリーミング、WebUI は P2-6B では変えない。
+- 入口は `UserPreferences::LegacyWriter#update` である。1 呼び出しが 1 キーで 1 トランザクションである。
+- コントローラ、Redis のキー形、ストリーミング、WebUI は P2-6B では変えない。P2-6C でフォームだけがこの入口を使う。
 
 P2-6B のテストは、この入口を直接呼ぶ。実 COMMIT の cache delete と通知は `use_transactional_tests = false` で確認する。transactional test の中で「通知が無い」ことを、ROLLBACK される外側トランザクションだけで証明しない。
 
-P2-6C と P2-6D は、このファイルの characterization のうち、結果が変わる例を更新する。変わるのは同値再送の `cache.write`、非スカラーの保存、実変更時の revision と通知である。保存されるスカラーの結果、旧ポリシーの `target`、省略補完、`direct`、空文字 boolean の `nil` 行、部分失敗で先行キーが残ること、配送と User 列の順は、案Aのままなら変えない。
+P2-6C はフォームの 9 キーをこの入口へ移した。Credentials の characterization は旧経路のままである。
+
+## P2-6C の実装
+
+フォームの 9 キーは Writer へ移行済みである。`Settings::PreferencesController#user_settings` が、1 回の update につき `LegacyWriter` を 1 つ作る。初期化時にポリシー getter を 1 回固定する。4 画面はこのメソッドを共有する。`UserSettingsDecorator.new(user)` のままでは従来の `[]=` である。Credentials はこちらを使うので、P2-6D まで revision は増えない。
+
+Decorator の `NESTED_KEYS`、`STRING_KEYS`、`BOOLEAN_KEYS` の順は変えていない。ループの中で 9 キーだけを `LegacyWriter#update` へ渡す。文字列はキャスト前の入力、boolean もキャスト前の入力である。翻訳バーは Decorator で正規化せず、LegacyWriter がスナップショットした旧ポリシーで正規化する。`default` のあいだに `nope` と `conservative` を同時に送ると、バーは `target`、ポリシーは `conservative` である。ポリシー行が nil でも、その nil がスナップショットになる。
+
+9 キーの実変更は revision と `preferences_changed` の対象である。1 フォームで複数キーが変わると、案Aのとおりキーごとに revision が進み、通知もキーごとに COMMIT 後へ出る。通知は ActivityPub より先になることがあり、まとめない。同値再送は `save!` を呼ばない。`updated_at`、revision、cache write/delete、通知は動かない。この no-op は 9 キーだけである。高リスク設定とネストした設定の同値保存は従来の `[]=` のままである。
+
+`content_font_size` で失敗したとき、それより前の `default_privacy` と `default_language` は残り、それぞれの revision と通知も残る。失敗キーは ROLLBACK し、通知しない。`info_font_size`、`reduce_motion`、`noindex` は実行されない。`users.locale` は更新されない。ActivityPub は積まない。`InvalidInput` だけをフォームが捕捉し、422 で再表示する。先行キーは戻さない。DB 例外や `OpenTransaction` は入力エラーにしない。
+
+profile 配送は、値の変化ではなく PROFILE_KEYS がパラメータにあるかで決まる。9 キーの revision では配送しない。profile キーが同値でも配送する。位置は Decorator の成功後、`current_user.update` の前である。
+
+P2-6D に残るもの: Credentials の省略補完、null スキップ、`direct`、非スカラーの現在の保存、`write` / `write:accounts`、アカウント更新後の配送、revision が増えないこと。
 
 ## 13. P2-4C の開始条件
 
