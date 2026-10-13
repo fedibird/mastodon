@@ -390,7 +390,7 @@ Rails フォームと Credentials を Writer に載せる専用 PR とする。�
 - 文字サイズの新規保存が整数だけになる。既存の文字列は残る。
 - `direct` を Credentials から書けるかどうか。
 
-承認前に切り替えない。
+承認前に切り替えない。初回移行の推奨は、これらの差で既存入力を拒否せず、公開 `WriteContract` とは別のレガシー入力経路で維持することである。詳細は `docs/settings_service/p2_6_legacy_writer_migration.md`。同値再送を Writer の no-op に揃えることだけを、初回移行で採る保存動作の変更とする。
 
 既存 GET の回帰は各 PR で回す。対象は Preferences serializer、Credentials の GET、Fedibird の読み取り API、InitialState、Reader、Schema である。P1-0 のカタログチェッカーも回す。カタログの項目追加は、経路を移す PR で source_refs がずれたときだけである。
 
@@ -404,4 +404,4 @@ Rails フォームと Credentials を Writer に載せる専用 PR とする。�
 
 - revision の列を `users` に置くか、1 行の別テーブルに置くか。意味は P2-4 で同じである。
 - P2-5 の通知を、最初から outbox にするか、best-effort のあとで outbox に強化するか。9 キーの正には影響しない。
-- Credentials とフォームを Writer に載せるときの、省略キー補完と `direct` の扱い。P2-6 の承認事項である。
+- Credentials とフォームを Writer に載せるときの、省略キー補完と `direct` の扱い。P2-6 の承認事項である。推奨は `docs/settings_service/p2_6_legacy_writer_migration.md` に書いた。

@@ -371,7 +371,7 @@ P2-6 で Decorator を Writer へ移すと、節 4.7 の Decorator による遅�
 
 ## 6. P2-6 との依存関係
 
-P2-6 は Rails フォームと Credentials を Writer に載せる、別承認の移行である。この設計はそれを実装しない。
+P2-6 は Rails フォームと Credentials を Writer に載せる、別承認の移行である。この設計はそれを実装しない。互換性の決定表、案Aと案B、移行後の受け入れ条件は [p2_6_legacy_writer_migration.md](p2_6_legacy_writer_migration.md) に分けた。段階 D を P2-6 の完了前に始めない、というこの節の依存は変えない。
 
 段階 D（revision キーの読み取り）は、P2-6 が全ホストの全プロセスへ出たあとにしか始められない。理由は節 4 である。Decorator が番号を動かさないあいだは、単一 revision の値キャッシュは Decorator の保存を隠す。
 
@@ -543,7 +543,7 @@ P2-4C を P2-6 より前に出しても、Decorator が番号を動かさない�
 - キャッシュするのは生値であり、privacy の補完とバーの正規化結果ではない。
 - 段階 B の Writer が、従来キーと `/rev/<after_revision>` の両方を COMMIT 後に delete し、値を write しない。
 - 段階 D のフラグが無効のプロセスは、番号が進んでいても従来キーだけを読む。
-- P2-6 の互換性一覧。バーの旧ポリシー、Credentials の省略補完、`direct`、部分保存、locale とのトランザクション、ActivityPub の順序。
+- P2-6 の互換性一覧。バーの旧ポリシー、Credentials の省略補完、`direct`、部分保存、locale とのトランザクション、ActivityPub の順序。現行挙動の固定は `p2_6_legacy_writer_migration.md` と、その characterization RSpec に移した。
 
 ## 12. 追加承認が必要な仕様変更
 
