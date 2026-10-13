@@ -39,6 +39,9 @@ import userPostingStyles from '../../reducers/user_posting_styles';
 import {
   PREFERENCES_PATH,
   PREFERENCES_STREAM,
+  USER_PREFERENCES_EVENT,
+  USER_PREFERENCES_FETCH_FAIL,
+  USER_PREFERENCES_FETCH_REQUEST,
   USER_PREFERENCES_FETCH_SUCCESS,
   WEB_UI_SESSION_SCOPES,
   connectUserPreferences,
@@ -98,6 +101,21 @@ const documentB = {
       configured: 'public',
       effective: 'public',
       public_value: 'public',
+      public_valid: true,
+      validation_errors: [],
+    },
+  },
+};
+
+const documentC = {
+  version: 1,
+  preferences: {
+    'user.default_language': {
+      key: 'user.default_language',
+      state: 'set',
+      configured: 'fr',
+      effective: 'fr',
+      public_value: 'fr',
       public_valid: true,
       validation_errors: [],
     },
@@ -383,6 +401,189 @@ describe('user preferences stream', () => {
     expect(slice(store).get('document').preferences).toBe(documentB.preferences);
   });
 
+  it('accepts a new fetch after remount when acceptedSerial is already 2', async () => {
+    const pending = hangGets();
+    const store = buildStore();
+    const first = open(store);
+
+    pending[0].resolve({ data: documentA });
+    await flush();
+    first.handlers.onReceive({ event: 'preferences_changed', payload });
+    pending[1].resolve({ data: documentB });
+    await flush();
+
+    expect(slice(store).get('acceptedSerial')).toBe(2);
+    expect(slice(store).get('issuedSerial')).toBe(2);
+    expect(slice(store).get('document').preferences).toBe(documentB.preferences);
+
+    first.stop();
+
+    expect(slice(store).get('acceptedSerial')).toBe(2);
+    expect(slice(store).get('issuedSerial')).toBe(2);
+    expect(slice(store).get('connected')).toBe(false);
+
+    open(store);
+
+    expect(mockGet).toHaveBeenCalledTimes(3);
+    expect(slice(store).get('issuedSerial')).toBe(3);
+
+    pending[2].resolve({ data: documentC });
+    await flush();
+
+    expect(slice(store).get('document').preferences).toBe(documentC.preferences);
+    expect(slice(store).get('acceptedSerial')).toBe(3);
+    expect(slice(store).get('loading')).toBe(false);
+    expect(slice(store).get('error')).toBe(null);
+  });
+
+  it('keeps the remounted document when the previous fetch resolves later', async () => {
+    const pending = hangGets();
+    const store = buildStore();
+    const first = open(store);
+
+    expect(slice(store).get('issuedSerial')).toBe(1);
+    first.stop();
+
+    open(store);
+    expect(slice(store).get('issuedSerial')).toBe(2);
+
+    pending[1].resolve({ data: documentC });
+    await flush();
+
+    expect(slice(store).get('document').preferences).toBe(documentC.preferences);
+    expect(slice(store).get('acceptedSerial')).toBe(2);
+
+    pending[0].resolve({ data: documentA });
+    await flush();
+
+    expect(slice(store).get('document').preferences).toBe(documentC.preferences);
+    expect(slice(store).get('acceptedSerial')).toBe(2);
+    expect(slice(store).get('error')).toBe(null);
+    expect(slice(store).get('authorizationBlocked')).toBe(false);
+
+    store.dispatch({
+      type: USER_PREFERENCES_FETCH_SUCCESS,
+      serial: 1,
+      document: documentA,
+      skipLoading: true,
+      skipAlert: true,
+    });
+
+    expect(slice(store).get('document').preferences).toBe(documentC.preferences);
+  });
+
+  it('ignores a late failure from the previous subscription', async () => {
+    const pending = hangGets();
+    const store = buildStore();
+    const first = open(store);
+
+    first.stop();
+    open(store);
+
+    pending[1].reject({ request: {} });
+    await flush();
+
+    expect(slice(store).get('document')).toBe(null);
+    expect(slice(store).get('error')).toEqual({ kind: 'network', status: null });
+    expect(slice(store).get('authorizationBlocked')).toBe(false);
+    expect(slice(store).get('acceptedSerial')).toBe(2);
+
+    pending[0].reject({ response: { status: 401 } });
+    await flush();
+
+    expect(slice(store).get('error')).toEqual({ kind: 'network', status: null });
+    expect(slice(store).get('authorizationBlocked')).toBe(false);
+    expect(slice(store).get('acceptedSerial')).toBe(2);
+    expect(slice(store).get('issuedSerial')).toBe(2);
+
+    store.dispatch({
+      type: USER_PREFERENCES_FETCH_FAIL,
+      serial: 1,
+      error: { kind: 'authorization', status: 401 },
+      skipLoading: true,
+      skipAlert: true,
+    });
+
+    expect(slice(store).get('error')).toEqual({ kind: 'network', status: null });
+    expect(slice(store).get('authorizationBlocked')).toBe(false);
+  });
+
+  it('keeps the highest decimal revision string and still fetches for an older event', async () => {
+    mockGet.mockResolvedValue({ data: documentA });
+    const store = buildStore();
+    const { handlers } = open(store);
+    const revisionEvent = revision => ({
+      event: 'preferences_changed',
+      payload: JSON.stringify({
+        version: 1,
+        revision,
+        changed_keys: ['user.default_language'],
+      }),
+    });
+
+    await flush();
+    mockGet.mockClear();
+
+    handlers.onReceive(revisionEvent('9'));
+    await flush();
+    expect(slice(store).get('lastEventRevision')).toBe('9');
+
+    handlers.onReceive(revisionEvent('10'));
+    await flush();
+    expect(slice(store).get('lastEventRevision')).toBe('10');
+
+    handlers.onReceive(revisionEvent('9'));
+    await flush();
+    expect(slice(store).get('lastEventRevision')).toBe('10');
+    expect(mockGet).toHaveBeenCalledTimes(3);
+
+    handlers.onReceive(revisionEvent('12'));
+    await flush();
+    handlers.onReceive(revisionEvent('12'));
+    await flush();
+    expect(slice(store).get('lastEventRevision')).toBe('12');
+    expect(mockGet).toHaveBeenCalledTimes(5);
+
+    handlers.onReceive(revisionEvent('9223372036854775807'));
+    await flush();
+    expect(slice(store).get('lastEventRevision')).toBe('9223372036854775807');
+    expect(typeof slice(store).get('lastEventRevision')).toBe('string');
+
+    handlers.onReceive(revisionEvent('9223372036854775806'));
+    await flush();
+    expect(slice(store).get('lastEventRevision')).toBe('9223372036854775807');
+    expect(slice(store).get('lastEventRevision')).not.toBe(String(Number('9223372036854775807')));
+
+    const callsAfterBoundary = mockGet.mock.calls.length;
+
+    handlers.onReceive(revisionEvent('09'));
+    handlers.onReceive({
+      event: 'preferences_changed',
+      payload: '{"version":1,"revision":9223372036854775808,"changed_keys":["user.default_language"]}',
+    });
+    store.dispatch({
+      type: USER_PREFERENCES_EVENT,
+      revision: 10,
+      skipLoading: true,
+      skipAlert: true,
+    });
+    await flush();
+
+    expect(mockGet).toHaveBeenCalledTimes(callsAfterBoundary);
+    expect(slice(store).get('lastEventRevision')).toBe('9223372036854775807');
+    expect(typeof slice(store).get('lastEventRevision')).toBe('string');
+    expect(parsePreferencesChangedPayload(JSON.stringify({
+      version: 1,
+      revision: '09',
+      changed_keys: ['user.default_language'],
+    }))).toBe(null);
+    expect(parsePreferencesChangedPayload(JSON.stringify({
+      version: 1,
+      revision: '0',
+      changed_keys: ['user.default_language'],
+    }))).toEqual({ revision: '0' });
+  });
+
   it('keeps the saved document when a later fetch fails', async () => {
     const pending = hangGets();
     const store = buildStore();
@@ -611,7 +812,13 @@ describe('user preferences stream', () => {
 
   it('registers the slice on the root reducer without writing other settings state', () => {
     const before = rootReducer(undefined, { type: '@@INIT' });
-    const after = rootReducer(before, {
+    const requested = rootReducer(before, {
+      type: USER_PREFERENCES_FETCH_REQUEST,
+      serial: 1,
+      skipLoading: true,
+      skipAlert: true,
+    });
+    const after = rootReducer(requested, {
       type: USER_PREFERENCES_FETCH_SUCCESS,
       serial: 1,
       document: documentB,

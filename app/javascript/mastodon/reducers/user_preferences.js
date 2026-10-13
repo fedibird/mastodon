@@ -9,14 +9,18 @@ import {
   USER_PREFERENCES_FETCH_SUCCESS,
   USER_PREFERENCES_REFETCH_NEEDED,
   USER_PREFERENCES_UNSUBSCRIBED,
+  isCanonicalDecimalRevision,
 } from '../actions/user_preferences';
 
 // Kept apart from Web::Setting `settings` and from composer state.
 // `document` is the last successful GET body, stored without rewriting
-// Reader fields. `lastEventRevision` is only the latest accepted
-// preferences_changed revision. GET does not return a revision, so this
-// string is not the revision of `document`. `acceptedSerial` drops an older
-// HTTP result after a newer request has already settled.
+// Reader fields. `lastEventRevision` is the highest accepted
+// preferences_changed revision, compared as decimal text. GET does not
+// return a revision, so this string is not the revision of `document`.
+// `issuedSerial` is the last serial handed out by this store and is not
+// cleared on unmount. A result is applied only when it is that latest
+// request and newer than `acceptedSerial`, so a previous subscription
+// cannot settle state for a serial the current subscription has replaced.
 const initialState = ImmutableMap({
   document: null,
   loading: false,
@@ -25,12 +29,33 @@ const initialState = ImmutableMap({
   lastEventRevision: null,
   refetchNeeded: false,
   authorizationBlocked: false,
+  issuedSerial: 0,
   acceptedSerial: 0,
 });
 
-const DECIMAL_REVISION = /^[0-9]+$/;
+// browserslist includes iOS >= 9, and BigInt starts at Safari 14. Compare
+// canonical decimal strings by length, then by code unit. No Number or BigInt.
+const revisionOrder = (left, right) => {
+  if (left.length !== right.length) {
+    return left.length < right.length ? -1 : 1;
+  }
 
-const newerSerial = (state, serial) => Number.isInteger(serial) && serial > state.get('acceptedSerial');
+  if (left < right) {
+    return -1;
+  }
+
+  if (left > right) {
+    return 1;
+  }
+
+  return 0;
+};
+
+const settleable = (state, serial) => (
+  Number.isInteger(serial) &&
+  serial === state.get('issuedSerial') &&
+  serial > state.get('acceptedSerial')
+);
 
 export default function userPreferences(state = initialState, action) {
   switch (action.type) {
@@ -45,7 +70,11 @@ export default function userPreferences(state = initialState, action) {
       map.set('refetchNeeded', false);
     });
   case USER_PREFERENCES_EVENT:
-    if (typeof action.revision !== 'string' || !DECIMAL_REVISION.test(action.revision)) {
+    if (!isCanonicalDecimalRevision(action.revision)) {
+      return state;
+    }
+
+    if (state.get('lastEventRevision') && revisionOrder(action.revision, state.get('lastEventRevision')) <= 0) {
       return state;
     }
 
@@ -53,9 +82,17 @@ export default function userPreferences(state = initialState, action) {
   case USER_PREFERENCES_REFETCH_NEEDED:
     return state.set('refetchNeeded', true);
   case USER_PREFERENCES_FETCH_REQUEST:
-    return state.set('loading', true).set('refetchNeeded', false);
+    if (!Number.isInteger(action.serial) || action.serial <= state.get('issuedSerial')) {
+      return state;
+    }
+
+    return state.withMutations(map => {
+      map.set('loading', true);
+      map.set('refetchNeeded', false);
+      map.set('issuedSerial', action.serial);
+    });
   case USER_PREFERENCES_FETCH_SUCCESS:
-    if (!newerSerial(state, action.serial) || !action.document) {
+    if (!settleable(state, action.serial) || !action.document) {
       return state;
     }
 
@@ -67,7 +104,7 @@ export default function userPreferences(state = initialState, action) {
       map.set('acceptedSerial', action.serial);
     });
   case USER_PREFERENCES_FETCH_FAIL:
-    if (!newerSerial(state, action.serial)) {
+    if (!settleable(state, action.serial)) {
       return state;
     }
 

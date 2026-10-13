@@ -20,9 +20,15 @@ export const PREFERENCES_STREAM = 'user:preferences';
 // only: `read:statuses` does not satisfy `read`.
 export const WEB_UI_SESSION_SCOPES = ['read', 'write', 'follow'];
 
-const DECIMAL_REVISION = /^[0-9]+$/;
+// Canonical decimal text. Leading zeros are rejected so a later length
+// comparison cannot treat "09" as greater than "9". "0" stays "0".
+const DECIMAL_REVISION = /^(0|[1-9][0-9]*)$/;
 
 const quiet = action => Object.assign({ skipLoading: true, skipAlert: true }, action);
+
+export const isCanonicalDecimalRevision = value => (
+  typeof value === 'string' && DECIMAL_REVISION.test(value)
+);
 
 export const preferencesReadScopeGranted = (scopes) => {
   if (!Array.isArray(scopes)) {
@@ -57,7 +63,7 @@ export const parsePreferencesChangedPayload = (payload) => {
     return null;
   }
 
-  if (typeof parsed.revision !== 'string' || !DECIMAL_REVISION.test(parsed.revision)) {
+  if (!isCanonicalDecimalRevision(parsed.revision)) {
     return null;
   }
 
@@ -94,12 +100,14 @@ const httpStatus = (error) => (
 );
 
 // GET /api/v1/fedibird/preferences returns { version, preferences } and does
-// not include a revision. lastEventRevision is the latest accepted
+// not include a revision. lastEventRevision is the highest accepted
 // preferences_changed revision, not a confirmed revision of the stored
 // document. Redis Pub/Sub does not replay, so a missed event is recovered
 // only by fetching again when the stream connects or reconnects. One GET is
-// in flight at a time; a newer connect or event queues a single follow-up
-// so responses cannot overwrite each other out of order.
+// in flight for this subscription; a newer connect or event queues a single
+// follow-up. Request serials come from the store's issuedSerial, which
+// survives unmount, so a remounted subscription cannot reuse a serial still
+// belonging to a previous in-flight response.
 export function connectUserPreferences(scopes = WEB_UI_SESSION_SCOPES) {
   return (dispatch, getState) => {
     if (getState().getIn(['user_preferences', 'authorizationBlocked'])) {
@@ -121,7 +129,6 @@ export function connectUserPreferences(scopes = WEB_UI_SESSION_SCOPES) {
     let blocked = false;
     let inFlight = false;
     let followUp = false;
-    let serial = 0;
 
     const fail = (requestSerial, error) => {
       dispatch(quiet({
@@ -130,6 +137,10 @@ export function connectUserPreferences(scopes = WEB_UI_SESSION_SCOPES) {
         error,
       }));
     };
+
+    const currentRequest = (requestSerial) => (
+      !disposed && getState().getIn(['user_preferences', 'issuedSerial']) === requestSerial
+    );
 
     const fetchDocument = () => {
       if (disposed || blocked) {
@@ -149,8 +160,7 @@ export function connectUserPreferences(scopes = WEB_UI_SESSION_SCOPES) {
 
       inFlight = true;
       followUp = false;
-      serial += 1;
-      const requestSerial = serial;
+      const requestSerial = getState().getIn(['user_preferences', 'issuedSerial'], 0) + 1;
 
       dispatch(quiet({
         type: USER_PREFERENCES_FETCH_REQUEST,
@@ -160,7 +170,7 @@ export function connectUserPreferences(scopes = WEB_UI_SESSION_SCOPES) {
       return api(getState).get(PREFERENCES_PATH).then((response) => {
         inFlight = false;
 
-        if (disposed || requestSerial !== serial) {
+        if (!currentRequest(requestSerial)) {
           return null;
         }
 
@@ -187,7 +197,7 @@ export function connectUserPreferences(scopes = WEB_UI_SESSION_SCOPES) {
       }).catch((error) => {
         inFlight = false;
 
-        if (disposed || requestSerial !== serial) {
+        if (!currentRequest(requestSerial)) {
           return null;
         }
 
@@ -254,7 +264,6 @@ export function connectUserPreferences(scopes = WEB_UI_SESSION_SCOPES) {
       }
 
       disposed = true;
-      serial += 1;
       followUp = false;
       dispatch(quiet({ type: USER_PREFERENCES_UNSUBSCRIBED }));
 
