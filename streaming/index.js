@@ -124,18 +124,43 @@ const startWorker = (workerId) => {
       port:     process.env.DB_PORT || 5432,
       max:      10,
     },
+
+    // NODE_ENV=test never falls back to the development or production database.
+    test: {
+      user:     process.env.DB_USER,
+      password: process.env.DB_PASS,
+      database: process.env.DB_NAME,
+      host:     process.env.DB_HOST || 'localhost',
+      port:     process.env.DB_PORT || 5432,
+      max:      10,
+    },
   };
 
   if (!!process.env.DB_SSLMODE && process.env.DB_SSLMODE !== 'disable') {
     pgConfigs.development.ssl = true;
     pgConfigs.production.ssl  = true;
+    pgConfigs.test.ssl = true;
+  }
+
+  if (env === 'test') {
+    const testDatabase = pgConfigs.test.database || '';
+
+    if (!/^[A-Za-z0-9_]+$/.test(testDatabase) || !/test/i.test(testDatabase) || /development|production/i.test(testDatabase)) {
+      throw new Error(`Refusing NODE_ENV=test database "${testDatabase}"`);
+    }
   }
 
   const app = express();
 
   app.set('trusted proxy', process.env.TRUSTED_PROXY_IP || 'loopback,uniquelocal');
 
-  const pgPool = new pg.Pool(Object.assign(pgConfigs[env], dbUrlToConfig(process.env.DATABASE_URL)));
+  const poolConfig = Object.assign({}, pgConfigs[env]);
+
+  if (env !== 'test') {
+    Object.assign(poolConfig, dbUrlToConfig(process.env.DATABASE_URL));
+  }
+
+  const pgPool = new pg.Pool(poolConfig);
   const server = http.createServer(app);
   const redisNamespace = process.env.REDIS_NAMESPACE || null;
 
@@ -372,6 +397,8 @@ const startWorker = (workerId) => {
       return 'user';
     case '/api/v1/streaming/user/notification':
       return 'user:notification';
+    case '/api/v1/streaming/user/preferences':
+      return 'user:preferences';
     case '/api/v1/streaming/public/index':
       return 'public:index';
     case '/api/v1/streaming/public':
@@ -402,6 +429,101 @@ const startWorker = (workerId) => {
   ];
 
   /**
+   * @param {string} message
+   * @param {number} status
+   * @return {Error}
+   */
+  const streamingError = (message, status) => {
+    const err = new Error(message);
+
+    err.status = status;
+
+    return err;
+  };
+
+  /**
+   * Mirrors User#functional? and Doorkeeper's accessible? for this stream only.
+   * expires_in is a small TTL in seconds, not the preference revision.
+   *
+   * @param {any} row
+   * @param {string} accountId
+   * @return {boolean}
+   */
+  const preferencesAccountAllowed = (row, accountId) => {
+    if (row.revoked_at) {
+      return false;
+    }
+
+    if (row.expires_in !== null && row.expires_in !== undefined) {
+      const expiresAt = new Date(row.created_at).getTime() + (Number(row.expires_in) * 1000);
+
+      if (Date.now() > expiresAt) {
+        return false;
+      }
+    }
+
+    if (!row.confirmed_at || row.approved !== true || row.disabled === true) {
+      return false;
+    }
+
+    if (row.suspended_at || row.memorial === true || row.moved_to_account_id) {
+      return false;
+    }
+
+    return String(row.user_account_id) === String(accountId);
+  };
+
+  /**
+   * @param {any} req
+   * @return {Promise.<void>}
+   */
+  const authorizePreferencesAccount = (req) => new Promise((resolve, reject) => {
+    if (!req.accessTokenId || !req.accountId) {
+      reject(streamingError('Missing access token', 401));
+      return;
+    }
+
+    pgPool.connect((err, client, done) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      client.query('SELECT oauth_access_tokens.revoked_at, oauth_access_tokens.expires_in, oauth_access_tokens.created_at, users.confirmed_at, users.approved, users.disabled, users.account_id AS user_account_id, accounts.suspended_at, accounts.memorial, accounts.moved_to_account_id FROM oauth_access_tokens INNER JOIN users ON users.id = oauth_access_tokens.resource_owner_id INNER JOIN accounts ON accounts.id = users.account_id WHERE oauth_access_tokens.id = $1 AND users.account_id::text = $2 LIMIT 1', [req.accessTokenId, String(req.accountId)], (queryError, result) => {
+        done();
+
+        if (queryError) {
+          reject(queryError);
+          return;
+        }
+
+        if (result.rows.length === 0 || !preferencesAccountAllowed(result.rows[0], req.accountId)) {
+          reject(streamingError('Invalid access token', 401));
+          return;
+        }
+
+        resolve();
+      });
+    });
+  });
+
+  /**
+   * @param {any} req
+   * @return {Promise.<void>}
+   */
+  const authorizePreferencesStream = (req) => {
+    if (!req.accountId || !Array.isArray(req.scopes)) {
+      return Promise.reject(streamingError('Missing access token', 401));
+    }
+
+    if (!req.scopes.includes('read') && !req.scopes.includes('read:preferences')) {
+      return Promise.reject(streamingError('Access token does not cover required scopes', 401));
+    }
+
+    return authorizePreferencesAccount(req);
+  };
+
+  /**
    * @param {any} req
    * @param {string} channelName
    * @return {Promise.<void>}
@@ -412,6 +534,13 @@ const startWorker = (workerId) => {
     // When accessing public channels, no scopes are needed
     if (PUBLIC_CHANNELS.includes(channelName.split(':')[0])) {
       resolve();
+      return;
+    }
+
+    // Preferences is not a normal user stream. read:statuses must not pass,
+    // and the account check runs before any Redis subscription.
+    if (channelName === 'user:preferences') {
+      authorizePreferencesStream(req).then(resolve).catch(reject);
       return;
     }
 
@@ -589,17 +718,41 @@ const startWorker = (workerId) => {
   });
 
   /**
+   * One ticket per preferences subscription. Unsubscribe and disconnect clear it
+   * so an in-flight re-authorization cannot deliver or close another stream.
+   *
+   * @typedef PreferencesTicket
+   * @property {boolean} active
+   */
+
+  /** @type {WeakMap<function(string): void, PreferencesTicket>} */
+  const preferencesTickets = new WeakMap();
+
+  /**
+   * @param {function(string): void} listener
+   */
+  const deactivatePreferencesTicket = listener => {
+    const ticket = preferencesTickets.get(listener);
+
+    if (ticket) {
+      ticket.active = false;
+    }
+  };
+
+  /**
    * @param {string[]} ids
    * @param {any} req
    * @param {function(string, string): void} output
    * @param {function(string[], function(string): void): void} attachCloseHandler
    * @param {boolean=} needsFiltering
    * @param {boolean=} notificationOnly
+   * @param {boolean=} preferencesOnly
    * @return {function(string): void}
    */
-  const streamFrom = (ids, req, output, attachCloseHandler, needsFiltering = false, notificationOnly = false) => {
+  const streamFrom = (ids, req, output, attachCloseHandler, needsFiltering = false, notificationOnly = false, preferencesOnly = false) => {
     const accountId  = req.accountId || req.remoteAddress;
     const streamType = notificationOnly ? ' (notification)' : '';
+    const preferencesTicket = preferencesOnly ? { active: true } : null;
 
     log.verbose(req.requestId, `Starting stream from ${ids.join(', ')} for ${accountId}${streamType}`);
 
@@ -623,6 +776,34 @@ const startWorker = (workerId) => {
         log.silly(req.requestId, `Transmitting for ${accountId}: ${event} ${encodedPayload} Delay: ${delta}ms`);
         output(event, encodedPayload);
       };
+
+      if (preferencesOnly) {
+        if (event !== 'preferences_changed' || !preferencesTicket) {
+          return;
+        }
+
+        const ticket = preferencesTicket;
+
+        authorizePreferencesAccount(req).then(() => {
+          if (!ticket.active) {
+            return;
+          }
+
+          transmit();
+        }).catch(() => {
+          if (!ticket.active) {
+            return;
+          }
+
+          log.verbose(req.requestId, `Closing preferences stream for ${req.accountId}`);
+
+          if (req.closePreferencesStream) {
+            req.closePreferencesStream();
+          }
+        });
+
+        return;
+      }
 
       if (notificationOnly && event !== 'notification') {
         return;
@@ -705,6 +886,13 @@ const startWorker = (workerId) => {
         });
       });
     };
+
+    if (preferencesTicket) {
+      preferencesTickets.set(listener, preferencesTicket);
+      req.on('close', () => {
+        preferencesTicket.active = false;
+      });
+    }
 
     ids.forEach(id => {
       subscribe(`${redisPrefix}${id}`, listener);
@@ -803,10 +991,18 @@ const startWorker = (workerId) => {
 
   app.get('/api/v1/streaming/*', (req, res) => {
     channelNameToIds(req, channelNameFromPath(req), req.query).then(({ channelIds, options }) => {
+      if (options.preferencesOnly) {
+        req.closePreferencesStream = () => {
+          if (!res.writableEnded) {
+            res.end();
+          }
+        };
+      }
+
       const onSend = streamToHttp(req, res);
       const onEnd  = streamHttpEnd(req, subscriptionHeartbeat(channelIds));
 
-      streamFrom(channelIds, req, onSend, onEnd, options.needsFiltering, options.notificationOnly);
+      streamFrom(channelIds, req, onSend, onEnd, options.needsFiltering, options.notificationOnly, options.preferencesOnly);
     }).catch(err => {
       log.verbose(req.requestId, 'Subscription error:', err.toString());
       httpNotFound(res);
@@ -831,7 +1027,7 @@ const startWorker = (workerId) => {
    * @param {any} req
    * @param {string} name
    * @param {StreamParams} params
-   * @return {Promise.<{ channelIds: string[], options: { needsFiltering: boolean, notificationOnly: boolean } }>}
+   * @return {Promise.<{ channelIds: string[], options: { needsFiltering: boolean, notificationOnly: boolean, preferencesOnly?: boolean } }>}
    */
   const channelNameToIds = (req, name, params) => new Promise((resolve, reject) => {
     const convertedName = (() => {
@@ -869,6 +1065,18 @@ const startWorker = (workerId) => {
       resolve({
         channelIds: [`timeline:${req.accountId}`],
         options: { needsFiltering: false, notificationOnly: true },
+      });
+
+      break;
+    case 'user:preferences':
+      if (!req.accountId) {
+        reject('Missing access token');
+        break;
+      }
+
+      resolve({
+        channelIds: [`timeline:preferences:${req.accountId}`],
+        options: { needsFiltering: false, notificationOnly: false, preferencesOnly: true },
       });
 
       break;
@@ -1271,9 +1479,17 @@ const startWorker = (workerId) => {
         return;
       }
 
+      if (options.preferencesOnly) {
+        request.closePreferencesStream = () => {
+          if (socket.readyState === socket.OPEN) {
+            socket.close();
+          }
+        };
+      }
+
       const onSend        = streamToWs(request, socket, streamNameFromChannelName(channelName, params));
       const stopHeartbeat = subscriptionHeartbeat(channelIds);
-      const listener      = streamFrom(channelIds, request, onSend, undefined, options.needsFiltering, options.notificationOnly);
+      const listener      = streamFrom(channelIds, request, onSend, undefined, options.needsFiltering, options.notificationOnly, options.preferencesOnly);
 
       subscriptions[channelIds.join(';')] = {
         listener,
@@ -1300,6 +1516,8 @@ const startWorker = (workerId) => {
       }
 
       const { listener, stopHeartbeat } = subscription;
+
+      deactivatePreferencesTicket(listener);
 
       channelIds.forEach(channelId => {
         unsubscribe(`${redisPrefix}${channelId}`, listener);
@@ -1381,6 +1599,8 @@ const startWorker = (workerId) => {
 
       keys.forEach(channelIds => {
         const { listener, stopHeartbeat } = session.subscriptions[channelIds];
+
+        deactivatePreferencesTicket(listener);
 
         channelIds.split(';').forEach(channelId => {
           unsubscribe(`${redisPrefix}${channelId}`, listener);
