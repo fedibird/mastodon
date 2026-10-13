@@ -30,13 +30,17 @@ MD5 は `RailsSettings::Default.instance` の文字列から、プロセスが�
 
 `Settings::ScopedSettings#[]` は `Rails.cache.fetch` である。ミスならその 1 キーだけを SELECT し、行があれば YAML の値、無ければ `ScopedSettings.default_settings` をキャッシュする。ハッシュ既定のキーは `fetch` ブロック内の `return` でキャッシュに載らない。9 キーはスカラーなのでこの抜け方はしない。`theme` と `noindex` だけが未保存時にサイト全体の `Setting[var]` を見る。9 キーはこの例外に入らない。
 
-production / development の `Rails.cache` は `redis_cache_store` であり、`REDIS_CACHE_PARAMS` の `expires_in` は 10 分である。`[]=` の `write` は期限を上書きしないので、設定エントリも 10 分で消える。namespace は `cache:7.1`、または `REDIS_NAMESPACE` があるときは `<namespace>_cache:7.1` である。URL は `CACHE_REDIS_URL` であり、Sidekiq の Redis とは別にできる。`error_handler` は無い。Redis の例外は呼び出し元へ出る。test は `memory_store` である。
+production / development の `Rails.cache` は `redis_cache_store` であり、`REDIS_CACHE_PARAMS` の `expires_in` は 10 分である。`[]=` の `write` は期限を上書きしないので、設定エントリも 10 分で消える。namespace は `cache:7.1`、または `REDIS_NAMESPACE` があるときは `<namespace>_cache:7.1` である。URL は `CACHE_REDIS_URL` であり、Sidekiq の Redis とは別にできる。test は `memory_store` である。
+
+`REDIS_CACHE_PARAMS` は `error_handler` を渡さない。activesupport 6.1.7.10 の `ActiveSupport::Cache::RedisCacheStore` は、そのとき `DEFAULT_ERROR_HANDLER` を使う。このハンドラは `RedisCacheStore: <method> failed, returned <returning>` をログし、例外を再送出しない。`read_entry`、`write_entry`、`delete_entry` は `failsafe` の中にある。`failsafe` が握るのは `Redis::BaseError` だけである。読取は `nil`（キャッシュミス）、書込は `false`、delete は `false` を返す。この三つの失敗は呼び出し元へ例外として出ない。`Redis::BaseError` 以外は握らない。キャッシュプールの `ConnectionPool::TimeoutError` は呼び出し元へ出る。`delete_multi_entries` は `failsafe` を通らない。現行の `CacheDeletion` が呼ぶのは単キーの `Rails.cache.delete` であり、こちらは `delete_entry` を通る。
 
 Puma は `preload_app!`、既定 `WEB_CONCURRENCY` 2、`MAX_THREADS` 5 である。Sidekiq は別プロセスである。Web の全ホストと Sidekiq が同じ `CACHE_REDIS_URL` を使うとき、設定キャッシュはプロセスとホストをまたいで共有される。revision 行は PostgreSQL にあり、Redis がホストごとに分かれていても同じ行を指す。
 
 `UserPreferences::Reader` は `Setting.unscoped` を 9 つの storage key について 1 回 SELECT し、インスタンス内にメモする。`Rails.cache` は読まない。書かない。revision も読まない。不正値を保存し直さない。
 
 `UserPreferences::Writer` は開いたトランザクションを拒否し、`users` 行を `FOR UPDATE` し、変更したキーだけを同じトランザクションで書き、変更が残ったときだけ revision を 1 進める。キャッシュは COMMIT 後の `CacheDeletion` が従来キーを `delete` する。値の `cache.write` はしない。#431 の `ChangeNotification` は、その delete 登録のあとに同じ COMMIT 後フックとして Redis へ `preferences_changed` を出す。失敗は各自が飲み、DB は戻さない。
+
+現行の `CacheDeletion` は、この PR では変えない。例外が出た delete は、同じキーを最大 3 回まで試す。1 回目と 2 回目の例外は warn のあと再試行し、3 回目の例外は error を残してそのキーを `false` にする。例外を呼び出し元へは出さない。`RedisCacheStore` が失敗を戻り値 `false` で返した場合、例外は無いので再試行せず、戻り値も見ない。`Rails.cache.delete` が戻っただけで `cache_deleted[key] = true` にする。Redis の DEL が 0（キーが元から無い）でも true になる。したがって `true` は、Redis 上でそのキーを削除したことを保証しない。読み取り障害（ミスと同じ `nil`）、書き込み障害（`false`）、キーが元から無いことを、この `true` は区別しない。この区別と、`false` を成功にしない修正は、後続実装の確認事項である。この PR の RSpec には足さない。
 
 `UserPreferences::Revision.current` は `user_preference_revisions` を 1 行 SELECT する。行が無ければ 0 であり、行は作らない。
 
@@ -119,7 +123,7 @@ Writer の許可リストは `UserPreferences::WriteContract::KEYS` の 9 キー
 | Reader と getter のミス | `fetch` が生値を write する。Reader はしない |
 | 読み取り | 行を作らない。不正値を修復しない |
 
-Writer の delete が 3 回失敗すると、行と revision は残り、従来キーは古いまま残ることがある。HTTP は成功である。Reader は DB を見る。getter は残ったキャッシュを見る。
+`CacheDeletion` が例外を 3 回受けて `false` にしたとき、行と revision は残り、従来キーは古いまま残ることがある。HTTP は成功である。Reader は DB を見る。getter は残ったキャッシュを見る。`Redis::BaseError` は `failsafe` が `false` を返すだけで例外にならないので、この 3 回には入らない。そのとき `cache_deleted` は `true` のままで、キーが残っていることがある。節 1.1。
 
 ## 2. 更新と読み取りのシーケンス
 
@@ -247,7 +251,11 @@ Decorator、`ScopedSettings#[]=`、Rails フォーム、Credentials の保存は
 
 従来キーへのフォールバックは、`[]=` の遅い `cache.write` が残した古い値を、新しい世代のミスのあとで復活させる。条件 7 のため、段階 D 以降は禁止する。
 
-Redis の例外は、従来キーへ逃げずに、その getter 呼び出しの DB 読み取りへ進む。DB も失敗したら例外を返す。今日の `fetch` は Redis 例外を握らない。この握り方は段階 D の実装 PR の本番変更であり、この PR では入れない。
+段階 D の Redis 障害は、ストアがミスとして処理する場合と、例外が呼び出し元へ出る場合に分ける。従来キーへのフォールバックは、どちらの場合もしない。
+
+`Redis::BaseError` は、節 1.1 のとおり `failsafe` が読み取りを `nil` にする。`fetch` は例外を見ない。ミスとしてブロックへ進み、DB を読む。書き込みと delete は `false` が返る。段階 D の getter が `fetch` を使うなら、この経路では追加の rescue 無しに DB の生値へ進む。この `nil` は、キーが元から無いミスと同じである。失敗した読み取りのあと、ブロックが読んだ古い生値を新しい revision のキーへ書かないこと、および `false` を成功と扱わないことは、P2-4D の確認事項である。`write` が `false` でも、上の 3 のとおり、その場の戻り値は DB の生値である。
+
+`Redis::BaseError` 以外で呼び出し元へ出る例外は、今日の `fetch` でも呼び出し元へ出る。キャッシュプールの `ConnectionPool::TimeoutError` がそれである。段階 D でこの例外を DB 読み取りへ落とす rescue は、段階 D の実装 PR の本番変更であり、この PR では入れない。rescue するにしても従来キーは読まない。DB も失敗したら例外を返す。番号を推測して古い revision キーを読まない。
 
 ## 4. レース条件と解決方法
 
@@ -332,6 +340,22 @@ Decorator の書き込みは別である。バーの `nope` や mode の `origin
 
 段階 D の値キャッシュが有効値を入れると、この表が崩れる。生値だけをキャッシュする。
 
+### 4.10 段階 B の cache-aside 再充填
+
+Writer が COMMIT したあと従来キーを delete しても、その delete より前に DB から旧値を読んだ別リクエストの `fetch` が、delete のあとで旧値を同じ従来キーへ write することがある。
+
+1. リクエスト R が従来キーをミスし、DB から旧値 v1 を読む。write はまだである。
+2. Writer が v2 を COMMIT し、従来キーを delete する。
+3. R の `fetch` が v1 を従来キーへ write する。
+
+段階 B の getter は従来キーを読む。このあと TTL のあいだ v1 を返すことが残る。DB と Reader は v2 である。
+
+P2-6 で Decorator を Writer へ移すと、節 4.7 の Decorator による遅い `cache.write` は無くなる。節 4.10 の再充填は、その移行だけでは消えない。保存側が値を write せず、COMMIT 後に delete するだけでも残る。
+
+段階 D は、値キーを `<従来キー>/rev/<R>` に分けることで解消する。旧値を読んだ `fetch` が write するのは、その読み取りが確保した古い番号のキーである。新しい番号の読み取りは別キーであり、その再充填を見ない。write の直前に番号を読み直して、新しいキーへ旧値を書く実装は採らない。節 4.7 と同じ制約である。
+
+段階 B と段階 D が同時にいるローリング期間では、段階 D の getter はこの分離で再充填を見ない。段階 B の getter は従来キーのままなので、上の競合が残る。
+
 ## 5. 既存フォームの互換性
 
 次は P2-6 で個別に承認するまで変えない。revision 付きキャッシュを理由に、この PR でも後続のキャッシュ PR でも無断で変えない。
@@ -357,7 +381,7 @@ P2-6 より前に番号だけを Decorator へ足す案は採らない。
 - フォーム全体を 1 トランザクションと 1 増分にすると、節 5 の部分保存が変わる。原子性の変更はこの PR の対象外である。
 - 番号の意味が「Writer の変更回数」から「Decorator を含む変更回数」へ変わる。P2-4A と #431 の契約変更であり、キャッシュ PR に混ぜない。
 
-したがって、キャッシュ世代を読み始める前提は「9 キーの本番保存が Writer だけになり、その COMMIT が revision を進める」である。それが P2-6 の完了である。P2-6 自体は従来キーの delete のままでよく、revision キーの読み取りを同時に有効にしない。
+したがって、キャッシュ世代を読み始める前提は「9 キーの本番保存が Writer だけになり、その COMMIT が revision を進める」である。それが P2-6 の完了である。P2-6 自体は従来キーの delete のままでよく、revision キーの読み取りを同時に有効にしない。P2-6 が Decorator を Writer へ移しても、節 4.10 の cache-aside 再充填は残る。それを消すのは段階 D である。
 
 P2-6 が承認されないあいだ、本番は段階 A に留まる。revision 行は Writer と通知だけが使う。getter は従来キーのままである。
 
@@ -381,7 +405,7 @@ P2-6 が承認されないあいだ、本番は段階 A に留まる。revision 
 - 9 キーの変更 COMMIT と同じトランザクションで、今までどおり revision を 1 進める。
 - COMMIT 後に、変更キーの従来キーを delete する。
 - COMMIT 後に、コミットした番号の `<従来キー>/rev/<R>` も delete する。値は write しない。
-- getter はまだ従来キーだけを読む。
+- getter はまだ従来キーだけを読む。節 4.10 のとおり、delete より前に旧値を読んだ `fetch` が delete のあと従来キーを再充填すると、TTL のあいだその getter は旧値を返すことが残る。
 
 旧プロセスが段階 A の Writer（従来キーだけ delete、revision は進める）で、新プロセスが段階 B でも、読み手が従来キーであるあいだは両方とも読める。段階 A の Decorator がまだ 1 プロセスでも残っているなら、段階 B の完了とは言わない。Decorator は番号を進めず、従来キーへ write する。
 
@@ -406,8 +430,8 @@ P2-6 が承認されないあいだ、本番は段階 A に留まる。revision 
 全プロセスが B であるデプロイの、次のデプロイで読み取りを切り替える。ローリングの途中で段階 B と段階 D が同時にいる。
 
 - 段階 D の getter は節 3.4 だけを行う。従来キーは読まない。
-- 段階 B の getter は従来キーを読む。Writer が従来キーを delete しているので、ミスから DB を充填する。正しい。
-- 段階 D の Writer は従来キーと新しいキーの両方を delete する。段階 B の読み手は従来キーのミスで DB を見る。正しい。
+- 段階 B の getter は従来キーを読む。delete のあとに DB を読んだミスは、新しい値を充填する。delete より前に旧値を読んだ `fetch` が delete のあと従来キーを再充填する競合は、節 4.10 のとおり、このローリング期間も段階 B の getter に残る。段階 D の getter は、古い番号のキーへの再充填を読まない。
+- 段階 D の Writer は従来キーと新しいキーの両方を delete する。段階 B の読み手が delete のあとでミスすれば DB を見る。delete より前の再充填は、直前の箇条のとおり段階 B の getter に残る。
 - 段階 A の Decorator がこの時間に残っていると、正しくない。C がそれを禁止する。
 
 有効化してよい時点は、C の確認が終わったあとの、このデプロイだけである。環境変数を古いプロセスが無視する形では有効化しない。古いプロセスは読み取りコードを持たないからである。
@@ -468,7 +492,7 @@ User 行ロックを持っている時間は、Writer の BEGIN から COMMIT �
 - Writer のトランザクションの外でだけ `Rails.cache.delete` と Redis publish が呼ばれることを、既存の `use_transactional_tests = false` の例で維持する。
 - ロック待ちは、既存の Writer 並行例と同じく、先にロックを持った側が終わるまで後続の適用が終わらないことで見る。段階 D はロック区間へ Redis を足さないので、この前後関係は変わらない。
 - 多数アカウントは、`PostStatusService` とグループ配送の例で revision SQL の本数を数える。対象 user の本数を超えないことを見る。
-- Rails.cache の障害は、`fetch` が例外を上げるスタブで、段階 D の getter が従来キーを読まずに DB の生値を返すことを見る。DB も失敗するスタブでは例外が残ることを見る。
+- Rails.cache の障害は二つに分ける。`Redis::BaseError` はストアが読み取りをミスとして返すので、`fetch` のブロックが DB の生値を返し、従来キーを読まないことを見る。`Redis::BaseError` 以外で呼び出し元へ出る例外のスタブでも、従来キーを読まず、DB が成功すれば生値を返し、DB も失敗すれば例外が残ることを見る。
 - PostgreSQL の障害は、revision SELECT が例外を上げるスタブで、従来キーに新しい値があっても getter がそれを返さないことを見る。
 
 毎 getter の個別 revision SELECT は、上の最初の計測で不合格にする。
@@ -510,7 +534,9 @@ P2-4C を P2-6 より前に出しても、Decorator が番号を動かさない�
 - 段階 D で、9 回の getter が revision SELECT を 1 回だけ発行する。
 - 値キャッシュがヒットしているあいだ、getter が settings を SELECT しない。
 - revision キーのミスが従来キーを読まない。
-- Redis 例外の getter が DB の生値を返し、従来キーを読まない。
+- `Redis::BaseError` の読み取りはストアがミスとして処理し、getter が DB の生値を返し、従来キーを読まない。呼び出し元へ出る例外でも従来キーを読まない。DB も失敗すれば例外が残る。
+- 節 4.10 の再充填を、段階 D では古い revision のキーへの write が新しい revision の読み取りに見えないことで確認する。段階 B の getter では TTL 中に旧値が残ることを、実装前の受け入れ条件として残す。
+- `CacheDeletion` の確認。例外が出た delete は最大 3 回まで試し、3 回目で `false` にする。`RedisCacheStore` が `false` を返したときは現行コードがそれを見ず `cache_deleted` を `true` にする。`true` は Redis 上の削除成功を保証しない。読み取り障害、書き込み障害、キーが元から無いことを区別する修正は、この PR ではせず、P2-4C の実装時に確認する。
 - revision SELECT の例外が、従来キーに値があってもそれを返さない。
 - 同じスレッドの次の Sidekiq ジョブが、前のジョブの revision メモを見ない。
 - 同じリクエストの Writer のあと、メモが `after_revision` になっている。
