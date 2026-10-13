@@ -26,7 +26,7 @@ const redraftResave = new Set();
 
 let nextAttemptId = 1;
 
-const generationKey = (composerId, mediaId, epoch) => `${composerId}:${mediaId}:${epoch}`;
+const generationKey = (composerId, mediaId, generation) => `${composerId}:${mediaId}:${generation}`;
 
 const sameMediaId = (left, right) => String(left) === String(right);
 
@@ -125,7 +125,7 @@ const metadataMatches = (media, serverMedia) => {
   return localDescription === serverDescription && focusToken(media) === serverFocusToken(serverMedia);
 };
 
-const keyFor = context => generationKey(context.composerId, context.mediaId, context.epoch);
+const keyFor = context => generationKey(context.composerId, context.mediaId, context.generation);
 
 const clearRetryTimer = context => {
   const key = keyFor(context);
@@ -162,10 +162,16 @@ const statusAction = (composerId, fields) => targetComposerAction({
   ...fields,
 }, composerId);
 
+const composerMatches = (composer, context) => (
+  !!composer
+  && composer.get('redraftEpoch') === context.epoch
+  && composer.get('redraftGeneration') === context.generation
+);
+
 const currentComposerMedia = (getState, context) => {
   const composer = selectComposer(getState(), context.composerId);
 
-  if (!composer || composer.get('redraftEpoch') !== context.epoch) {
+  if (!composerMatches(composer, context)) {
     return null;
   }
 
@@ -186,6 +192,7 @@ const failReuse = (dispatch, context, error) => {
   clearGeneration(context);
   dispatch(statusAction(context.composerId, {
     epoch: context.epoch,
+    generation: context.generation,
     mediaId: context.mediaId,
     reuse: REDRAFT_REUSE_FAILED,
     error,
@@ -196,6 +203,7 @@ const failReuse = (dispatch, context, error) => {
 const markComplete = (dispatch, context, media) => {
   dispatch(statusAction(context.composerId, {
     epoch: context.epoch,
+    generation: context.generation,
     mediaId: context.mediaId,
     reuse: REDRAFT_REUSE_COMPLETE,
     error: null,
@@ -221,7 +229,7 @@ function saveRedraftMetadata(dispatch, getState, context) {
   const key = keyFor(context);
   const composer = selectComposer(getState(), context.composerId);
 
-  if (!composer || composer.get('redraftEpoch') !== context.epoch) {
+  if (!composerMatches(composer, context) || composer.get('redraftMediaUnconfirmed')) {
     return;
   }
 
@@ -251,6 +259,7 @@ function saveRedraftMetadata(dispatch, getState, context) {
 
   dispatch(statusAction(context.composerId, {
     epoch: context.epoch,
+    generation: context.generation,
     mediaId: media.get('id'),
     reuse: REDRAFT_REUSE_SAVING,
     error: null,
@@ -338,6 +347,7 @@ function finishSaveError(dispatch, getState, context, revision, saveId, error) {
   if (status === 404) {
     dispatch(statusAction(context.composerId, {
       epoch: context.epoch,
+      generation: context.generation,
       mediaId: media.get('id'),
       reuse: REDRAFT_REUSE_WAITING,
       error: null,
@@ -375,6 +385,7 @@ function acceptReady(dispatch, getState, context, serverMedia) {
   if (!edited) {
     dispatch(statusAction(context.composerId, {
       epoch: context.epoch,
+      generation: context.generation,
       mediaId: context.mediaId,
       reuse: REDRAFT_REUSE_COMPLETE,
       error: null,
@@ -388,6 +399,7 @@ function acceptReady(dispatch, getState, context, serverMedia) {
 
   dispatch(statusAction(context.composerId, {
     epoch: context.epoch,
+    generation: context.generation,
     mediaId: context.mediaId,
     reuse: REDRAFT_REUSE_READY,
     error: null,
@@ -529,7 +541,12 @@ export function prepareRedraftMedia(composerId) {
       return;
     }
 
+    if (composer.get('redraftMediaUnconfirmed')) {
+      return;
+    }
+
     const epoch = composer.get('redraftEpoch');
+    const generation = composer.get('redraftGeneration');
     const startedAt = Date.now();
 
     composer.get('media_attachments').forEach(media => {
@@ -541,6 +558,7 @@ export function prepareRedraftMedia(composerId) {
         composerId,
         mediaId: media.get('id'),
         epoch,
+        generation,
         attempt: 0,
         startedAt,
       });
@@ -556,7 +574,12 @@ export function retryRedraftMedia(composerId) {
       return;
     }
 
+    if (composer.get('redraftMediaUnconfirmed')) {
+      return;
+    }
+
     const epoch = composer.get('redraftEpoch');
+    const generation = composer.get('redraftGeneration');
 
     composer.get('media_attachments').forEach(media => {
       if (media.get('redraftReuse') !== REDRAFT_REUSE_FAILED || media.get('redraftUnconfirmed')) {
@@ -568,12 +591,14 @@ export function retryRedraftMedia(composerId) {
           composerId,
           mediaId: media.get('id'),
           epoch,
+          generation,
         });
         return;
       }
 
       dispatch(statusAction(composerId, {
         epoch,
+        generation,
         mediaId: media.get('id'),
         reuse: REDRAFT_REUSE_WAITING,
         error: null,
@@ -584,6 +609,7 @@ export function retryRedraftMedia(composerId) {
         composerId,
         mediaId: media.get('id'),
         epoch,
+        generation,
         attempt: 0,
         startedAt: Date.now(),
       });
@@ -596,7 +622,7 @@ export function retainRedraftMediaEdits(composerId, mediaId, params) {
     const composer = selectComposer(getState(), composerId);
     const media = findMedia(composer, mediaId);
 
-    if (!media || !media.get('redraftReuse') || media.get('redraftUnconfirmed')) {
+    if (!media || !media.get('redraftReuse') || media.get('redraftUnconfirmed') || composer.get('redraftMediaUnconfirmed')) {
       return;
     }
 
@@ -609,6 +635,8 @@ export function retainRedraftMediaEdits(composerId, mediaId, params) {
       mediaId: media.get('id'),
       description,
       focus: params.focus || focusToken(media),
+      epoch: composer.get('redraftEpoch'),
+      generation: composer.get('redraftGeneration'),
     }, composerId));
 
     const updatedComposer = selectComposer(getState(), composerId);
@@ -632,6 +660,7 @@ export function retainRedraftMediaEdits(composerId, mediaId, params) {
       composerId,
       mediaId: updated.get('id'),
       epoch: updatedComposer.get('redraftEpoch'),
+      generation: updatedComposer.get('redraftGeneration'),
     });
   };
 }
@@ -639,6 +668,10 @@ export function retainRedraftMediaEdits(composerId, mediaId, params) {
 export function composerRedraftBlocksSubmit(composer) {
   if (!composer) {
     return false;
+  }
+
+  if (composer.get('redraftMediaUnconfirmed')) {
+    return true;
   }
 
   const media = composer.get('media_attachments');
@@ -657,6 +690,10 @@ export function composerRedraftBlocksSubmit(composer) {
 export function composerRedraftNotice(composer) {
   if (!composer) {
     return null;
+  }
+
+  if (composer.get('redraftMediaUnconfirmed')) {
+    return 'prepare';
   }
 
   const media = composer.get('media_attachments');

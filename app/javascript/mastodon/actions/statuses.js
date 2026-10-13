@@ -390,9 +390,25 @@ export function deleteStatus(id, routerHistory, withRedraft = false) {
         dispatch(fetchStatuses(status.get('status_reference_ids', [])));
 
         const responseMedia = deleteResponseMedia(response.data);
-        const cachedCount = status.get('media_attachments') ? status.get('media_attachments').size : 0;
-        // An empty or missing list cannot stand in for attachments we already showed.
-        const mediaUnconfirmed = !responseMedia || (responseMedia.size === 0 && cachedCount > 0);
+        const cachedIds = [];
+        const cachedAttachments = status.get('media_attachments');
+
+        if (cachedAttachments && cachedAttachments.forEach) {
+          cachedAttachments.forEach(item => {
+            const cachedId = item && item.get('id');
+
+            if (cachedId !== undefined && cachedId !== null && cachedId !== '') {
+              cachedIds.push(String(cachedId));
+            }
+          });
+        }
+
+        // Missing, malformed, or partial lists are not a safe source of attachments.
+        // Keep the cached copies only as an unconfirmed hold; do not invent the rest.
+        const responseCoversCache = !!responseMedia && cachedIds.every(cachedId => (
+          responseMedia.some(item => String(item.get('id')) === cachedId)
+        ));
+        const mediaUnconfirmed = !responseCoversCache;
         const redraftStatus = responseMedia && !mediaUnconfirmed
           ? status.set('media_attachments', responseMedia)
           : status;

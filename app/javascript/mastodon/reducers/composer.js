@@ -193,12 +193,24 @@ export const initialState = ImmutableMap({
   userPostingStyle: initialUserPostingStyle(),
   senderIdentity: initialSenderIdentity(),
   redraftEpoch: 0,
+  redraftGeneration: 0,
+  redraftMediaUnconfirmed: false,
   surface: null,
   pendingSurface: null,
   displayedSurface: null,
   surfaceMismatch: false,
   surfaceEpoch: 0,
 });
+
+// Survives composer destroy/recreate. Epoch restarts at 0 on a new instance.
+let nextRedraftGeneration = 1;
+
+const allocateRedraftGeneration = () => {
+  const generation = nextRedraftGeneration;
+
+  nextRedraftGeneration += 1;
+  return generation;
+};
 
 const initialPoll = ImmutableMap({
   options: ImmutableList(['', '']),
@@ -423,6 +435,8 @@ const clearAll = state => {
     map.set('sensitive', false);
     map.update('media_attachments', list => list.clear());
     map.update('redraftEpoch', epoch => (epoch || 0) + 1);
+    map.set('redraftGeneration', allocateRedraftGeneration());
+    map.set('redraftMediaUnconfirmed', false);
     map.set('pending_media_attachments', 0);
     map.set('pending_exclusive_attachments', 0);
     map.set('processing_media_attachments', 0);
@@ -540,41 +554,47 @@ const applyRedraftFocus = (item, focus) => {
   return item.setIn(['meta', 'focus'], ImmutableMap({ x, y }));
 };
 
-const applyRedraftMediaLocal = (state, action) => state.withMutations(map => {
-  map.update('media_attachments', list => list.map(item => {
-    if (String(item.get('id')) !== String(action.mediaId)) {
-      return item;
+const applyRedraftMediaLocal = (state, action) => {
+  if (action.epoch !== state.get('redraftEpoch') || action.generation !== state.get('redraftGeneration')) {
+    return state;
+  }
+
+  return state.withMutations(map => {
+    map.update('media_attachments', list => list.map(item => {
+      if (String(item.get('id')) !== String(action.mediaId)) {
+        return item;
+      }
+
+      return applyRedraftFocus(
+        item.set('description', action.description || '').set('redraftRevision', (item.get('redraftRevision') || 0) + 1),
+        action.focus,
+      );
+    }));
+
+    if (String(map.getIn(['media_modal', 'id'])) !== String(action.mediaId)) {
+      return;
     }
 
-    return applyRedraftFocus(
-      item.set('description', action.description || '').set('redraftRevision', (item.get('redraftRevision') || 0) + 1),
-      action.focus,
-    );
-  }));
+    map.setIn(['media_modal', 'dirty'], false);
+    map.setIn(['media_modal', 'description'], action.description || '');
 
-  if (String(map.getIn(['media_modal', 'id'])) !== String(action.mediaId)) {
-    return;
-  }
+    if (!action.focus) {
+      return;
+    }
 
-  map.setIn(['media_modal', 'dirty'], false);
-  map.setIn(['media_modal', 'description'], action.description || '');
+    const [rawX, rawY] = String(action.focus).split(',');
+    const x = Number(rawX);
+    const y = Number(rawY);
 
-  if (!action.focus) {
-    return;
-  }
-
-  const [rawX, rawY] = String(action.focus).split(',');
-  const x = Number(rawX);
-  const y = Number(rawY);
-
-  if (!Number.isNaN(x) && !Number.isNaN(y)) {
-    map.setIn(['media_modal', 'focusX'], x);
-    map.setIn(['media_modal', 'focusY'], y);
-  }
-});
+    if (!Number.isNaN(x) && !Number.isNaN(y)) {
+      map.setIn(['media_modal', 'focusX'], x);
+      map.setIn(['media_modal', 'focusY'], y);
+    }
+  });
+};
 
 const applyRedraftMediaStatus = (state, action) => {
-  if (action.epoch !== state.get('redraftEpoch')) {
+  if (action.epoch !== state.get('redraftEpoch') || action.generation !== state.get('redraftGeneration')) {
     return state;
   }
 
@@ -1638,6 +1658,8 @@ export default function composer(state = initialState, action) {
       clearSearchabilityOverride(map);
       map.set('circle_id', action.status.get('circle_id', null));
       map.update('redraftEpoch', epoch => (epoch || 0) + 1);
+      map.set('redraftGeneration', allocateRedraftGeneration());
+      map.set('redraftMediaUnconfirmed', action.mediaUnconfirmed === true);
       map.set('media_attachments', redraftMediaList(action.status.get('media_attachments'), {
         reuseMedia: action.reuseMedia === true,
         ownerIdentityId: action.ownerIdentityId,
