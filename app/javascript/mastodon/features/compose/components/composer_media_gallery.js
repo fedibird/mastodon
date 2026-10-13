@@ -4,7 +4,7 @@ import ImmutablePropTypes from 'react-immutable-proptypes';
 import { defineMessages, injectIntl } from 'react-intl';
 import classNames from 'classnames';
 import Icon from 'mastodon/components/icon';
-import { moveMediaIds, summaryThumbCount, visibleMediaWindow } from '../composer_media';
+import { isExclusiveAttachmentType, moveMediaIds, summaryThumbCount, visibleMediaWindow } from '../composer_media';
 
 const messages = defineMessages({
   undo: { id: 'upload_form.undo', defaultMessage: 'Delete' },
@@ -18,7 +18,7 @@ const messages = defineMessages({
 const DRAG_THRESHOLD = 8;
 
 const typeIcon = (type) => {
-  if (type === 'video' || type === 'gifv') {
+  if (type === 'video') {
     return 'video-camera';
   }
 
@@ -442,7 +442,7 @@ class ComposerMediaGallery extends React.PureComponent {
   };
 
   mediaConstraint (media) {
-    const exclusive = media.some(item => ['video', 'audio', 'gifv'].includes(item.get('type')));
+    const exclusive = media.some(item => isExclusiveAttachmentType(item.get('type')));
 
     if (exclusive) {
       return messages.videoOnly;
