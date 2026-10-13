@@ -3,6 +3,7 @@ import PrivacyDropdown from '../components/privacy_dropdown';
 import { changeComposeVisibility } from '../../../actions/compose';
 import { openModal, closeModal } from '../../../actions/modal';
 import { targetComposerAction } from '../../../actions/composer';
+import { scheduleComposerInteractionCheck } from '../../../actions/posting_identities';
 import { isUserTouching } from '../../../is_mobile';
 import { selectComposer } from '../../../selectors/composer';
 import { composerActivityPubAudienceAllowedVisibilities } from '../../../posting_context/protocol';
@@ -39,6 +40,7 @@ const mapDispatchToProps = (dispatch, { composerId }) => ({
 
   onChange (value) {
     dispatch(targetComposerAction(changeComposeVisibility(value), composerId));
+    dispatch(scheduleComposerInteractionCheck(composerId));
   },
 
   isUserTouching,

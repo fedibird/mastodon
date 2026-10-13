@@ -105,6 +105,57 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
       expect(marked.account_id).to eq grantor.account.id
     end
 
+    it 'rejects mentions in a quote body or content warning, including a reply mixed with a quote' do
+      delegate!(scopes: %w(post reply quote))
+
+      expect do
+        post :create, params: delegated_params(status: '@stranger quoted', quote_id: parent.id)
+      end.not_to(change { grantor.account.statuses.count })
+
+      expect(response).to have_http_status(422)
+      expect(response.body).not_to include('stranger')
+
+      expect do
+        post :create, params: delegated_params(status: 'Quoted', spoiler_text: 'cw @stranger', quote_id: parent.id)
+      end.not_to(change { grantor.account.statuses.count })
+
+      expect(response).to have_http_status(422)
+      expect(response.body).not_to include('stranger')
+
+      expect do
+        post :create, params: delegated_params(status: '@speaker both', in_reply_to_id: parent.id, quote_id: parent.id)
+      end.not_to(change { grantor.account.statuses.count })
+
+      expect(response).to have_http_status(422)
+
+      post :create, params: delegated_params(status: '@speaker hello back', spoiler_text: 'cw', in_reply_to_id: parent.id)
+
+      expect(response).to have_http_status(200)
+      expect(grantor.account.statuses.last.in_reply_to_id).to eq parent.id
+      expect(grantor.account.statuses.last.quote_id).to be_nil
+    end
+
+    it 'rejects a quote mention in the content warning and accepts the warning without one' do
+      delegate!(scopes: %w(post quote))
+      url = ActivityPub::TagManager.instance.url_for(parent)
+
+      expect do
+        post :create, params: delegated_params(status: 'See the warning', spoiler_text: "QT: [#{url}] @stranger")
+      end.not_to(change { grantor.account.statuses.count })
+
+      expect(response).to have_http_status(422)
+      expect(response.body).not_to include('stranger')
+
+      post :create, params: delegated_params(status: 'See the warning', spoiler_text: "QT: [#{url}]")
+
+      status = grantor.account.statuses.last
+
+      expect(response).to have_http_status(200)
+      expect(status.quote_id).to eq parent.id
+      expect(status.account_id).to eq grantor.account.id
+      expect(status.mentions).to be_empty
+    end
+
     it 'normalizes a quoted reblog to the original post' do
       delegate!(scopes: %w(post quote))
       booster = Fabricate(:account, username: 'booster')
@@ -308,7 +359,7 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
   end
 end
 
-RSpec.describe Api::V1::Fedibird::PostingIdentitiesController, type: :controller do
+RSpec.describe Api::V1::Fedibird::PostingIdentitiesController, type: :controller do # rubocop:disable Metrics/BlockLength
   render_views
 
   let(:grantee) { user_with_role('Owner', account: Fabricate(:account, username: 'checker')) }
@@ -339,6 +390,34 @@ RSpec.describe Api::V1::Fedibird::PostingIdentitiesController, type: :controller
     expect(response).to have_http_status(204)
     expect(response.body).to eq ''
     expect(response.body).not_to include('visible-target')
+  end
+
+  it 'uses the same mention decision for a content warning as posting does' do
+    delegate!(scopes: %w(post quote))
+    parent = Fabricate(:status, account: grantor.account, visibility: :public, text: 'visible-target')
+    url = ActivityPub::TagManager.instance.url_for(parent)
+
+    post :interaction, params: {
+      posting_identity_id: "delegated:#{grantor.account.id}",
+      status: 'See the warning',
+      spoiler_text: "QT: [#{url}] @stranger",
+      visibility: 'public',
+    }
+
+    expect(response).to have_http_status(422)
+    expect(response.body).not_to include('stranger')
+    expect(response.body).not_to include('visible-target')
+
+    post :interaction, params: {
+      posting_identity_id: "delegated:#{grantor.account.id}",
+      status: 'See the warning',
+      spoiler_text: "QT: [#{url}]",
+      visibility: 'public',
+    }
+
+    expect(response).to have_http_status(204)
+    expect(response.body).to eq ''
+    expect(grantor.account.statuses.where(quote_id: parent.id)).to be_empty
   end
 
   it 'does not reveal a post the operator cannot see' do

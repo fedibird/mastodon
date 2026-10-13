@@ -38,6 +38,10 @@ class PostingIdentity::DelegatedTextPost
 
     permit!('reply') if reply_requested?
     permit!('quote') if quote_requested?
+    # A reply allows a closed set of mentions. A quote allows none.
+    # Doing both in one post would let one path bypass the other.
+    raise unsupported if reply_requested? && quote_requested?
+    raise mention_rejected if quote_requested? && marked_mention?
     raise unsupported if plain_post? && marked_mention?
 
     thread = reply_requested? ? resolve_reply! : nil
@@ -47,7 +51,7 @@ class PostingIdentity::DelegatedTextPost
       text: stripped_text,
       thread: thread,
       quote_id: quote&.id,
-      allowed_mentions: thread ? allowed_mention_ids(thread) : nil
+      allowed_mentions: mention_boundary(thread, quote)
     )
   end
 
@@ -196,6 +200,15 @@ class PostingIdentity::DelegatedTextPost
 
   def allowed_mention_ids(thread)
     mention_accounts(thread).map(&:id)
+  end
+
+  # nil skips the mention boundary. A quote passes an empty list so a
+  # mention resolved by ProcessMentionsService is still rejected.
+  def mention_boundary(thread, quote)
+    return allowed_mention_ids(thread) if thread
+    return [] if quote
+
+    nil
   end
 
   def mention_accounts(thread)

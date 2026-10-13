@@ -1,6 +1,7 @@
 import { List as ImmutableList, fromJS } from 'immutable';
 import api from '../api';
 import { normalizePostingIdentity, sessionPostingIdentityId } from '../posting_identity/identity';
+import { composerInteractionInputKey, composerInteractionSpoilerText } from '../posting_identity/interaction_input';
 import { composerSenderSwitchDraft, resolveSenderIdentitySwitch } from '../posting_identity/switch_resolver';
 import { selectComposer } from '../selectors/composer';
 import { selectPostingContextViewerEvidence } from '../selectors/posting_contexts';
@@ -104,22 +105,74 @@ export function selectComposerSenderIdentity(composerId, identityId, { confirmed
     }, composerId));
 
     if (decision.effectsApplied && (decision.mustRevalidateReply || decision.mustRevalidateQuote)) {
-      dispatch(validateComposerInteraction(composerId));
+      dispatch(scheduleComposerInteractionCheck(composerId));
     }
 
     return selected;
   };
 }
 
-const interactionTargetKey = composer => (
-  `${composer.get('in_reply_to') || ''}:${composer.get('quote_from') || ''}`
-);
+export const INTERACTION_CHECK_DELAY = 300;
+
+const interactionTimers = new Map();
+
+const clearInteractionTimer = composerId => {
+  const timer = interactionTimers.get(composerId);
+
+  if (timer) {
+    clearTimeout(timer);
+    interactionTimers.delete(composerId);
+  }
+};
+
+const interactionNeeded = composer => {
+  if (!composer) {
+    return false;
+  }
+
+  const identityId = composer.getIn(['senderIdentity', 'id']);
+  const delegated = typeof identityId === 'string' && identityId.startsWith('delegated:');
+
+  return delegated && Boolean(composer.get('in_reply_to') || composer.get('quote_from'));
+};
+
+export function cancelComposerInteractionChecks () {
+  interactionTimers.forEach(timer => clearTimeout(timer));
+  interactionTimers.clear();
+}
+
+export function scheduleComposerInteractionCheck (composerId) {
+  return (dispatch, getState) => {
+    const composer = selectComposer(getState(), composerId);
+
+    clearInteractionTimer(composerId);
+
+    if (!interactionNeeded(composer)) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      interactionTimers.delete(composerId);
+      dispatch(validateComposerInteraction(composerId));
+    }, INTERACTION_CHECK_DELAY);
+
+    interactionTimers.set(composerId, timer);
+  };
+}
+
+export function retryComposerInteraction (composerId) {
+  return (dispatch) => {
+    clearInteractionTimer(composerId);
+
+    return dispatch(validateComposerInteraction(composerId));
+  };
+}
 
 export function validateComposerInteraction(composerId) {
   return (dispatch, getState) => {
     const composer = selectComposer(getState(), composerId);
 
-    if (!composer) {
+    if (!interactionNeeded(composer)) {
       return Promise.resolve();
     }
 
@@ -127,14 +180,8 @@ export function validateComposerInteraction(composerId) {
     const epoch = Number(composer.getIn(['senderIdentity', 'changeEpoch'])) || 0;
     const replyId = composer.get('in_reply_to') || null;
     const quoteId = composer.get('quote_from') || null;
-    const delegated = typeof identityId === 'string' && identityId.startsWith('delegated:');
-
-    if (!delegated || (!replyId && !quoteId)) {
-      return Promise.resolve();
-    }
-
-    const targetKey = interactionTargetKey(composer);
-    const snapshot = { identityId, epoch, targetKey };
+    const inputKey = composerInteractionInputKey(composer);
+    const snapshot = { identityId, epoch, inputKey };
 
     dispatch(targetComposerAction({
       type: COMPOSER_INTERACTION_CHECK_REQUEST,
@@ -149,6 +196,7 @@ export function validateComposerInteraction(composerId) {
         quote_id: quoteId,
         visibility: composer.get('privacy'),
         status: composer.get('text') || '',
+        spoiler_text: composerInteractionSpoilerText(composer),
       })
       .then(() => {
         dispatch(targetComposerAction({

@@ -68,6 +68,7 @@ import {
 import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { REDRAFT } from '../actions/statuses';
 import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE, COMPOSER_INTERACTION_CHECK_FAIL, COMPOSER_INTERACTION_CHECK_REQUEST, COMPOSER_INTERACTION_CHECK_SUCCESS, COMPOSER_SENDER_IDENTITY_SELECT, COMPOSER_SURFACE_ACCEPT } from '../actions/composer';
+import { composerInteractionInputKey } from '../posting_identity/interaction_input';
 import { USER_POSTING_STYLE_AUTO_ATTEMPT, USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DEFAULTS_SETTLED, USER_POSTING_STYLE_DESTINATION, USER_POSTING_STYLE_DESTINATION_RETRY, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../actions/user_posting_styles';
 import { Map as ImmutableMap, List as ImmutableList, Set as ImmutableSet, OrderedSet as ImmutableOrderedSet, fromJS } from 'immutable';
 import uuid from '../uuid';
@@ -339,15 +340,34 @@ const noteInteractionTarget = map => {
     identityId: delegated && active ? identityId : null,
     epoch: Number(map.getIn(['senderIdentity', 'changeEpoch'])) || 0,
     targetKey: interactionTargetKey(replyId, quoteId),
+    inputKey: delegated && active ? composerInteractionInputKey(map) : null,
   }));
+};
+
+const invalidateInteraction = state => {
+  const check = state.get('interactionCheck');
+
+  if (!check || check.get('status') === 'idle') {
+    return state;
+  }
+
+  if (!state.get('in_reply_to') && !state.get('quote_from')) {
+    return state;
+  }
+
+  if (check.get('inputKey') === composerInteractionInputKey(state)) {
+    return state;
+  }
+
+  return state.setIn(['interactionCheck', 'status'], 'pending');
 };
 
 const acceptInteractionCheck = (state, action, status) => {
   const identityId = state.getIn(['senderIdentity', 'id']);
   const epoch = Number(state.getIn(['senderIdentity', 'changeEpoch'])) || 0;
-  const targetKey = interactionTargetKey(state.get('in_reply_to'), state.get('quote_from'));
+  const inputKey = composerInteractionInputKey(state);
 
-  if (action.identityId !== identityId || Number(action.epoch) !== epoch || action.targetKey !== targetKey) {
+  if (action.identityId !== identityId || Number(action.epoch) !== epoch || action.inputKey !== inputKey) {
     return state;
   }
 
@@ -355,7 +375,8 @@ const acceptInteractionCheck = (state, action, status) => {
     status,
     identityId,
     epoch,
-    targetKey,
+    targetKey: interactionTargetKey(state.get('in_reply_to'), state.get('quote_from')),
+    inputKey,
   }));
 };
 
@@ -954,7 +975,7 @@ export default function composer(state = initialState, action) {
       map.set('dirty', true);
     });
   case COMPOSE_SPOILERNESS_CHANGE:
-    return state.withMutations(map => {
+    return invalidateInteraction(state.withMutations(map => {
       const nextSpoiler = !state.get('spoiler');
 
       map.set('spoiler', nextSpoiler);
@@ -970,10 +991,10 @@ export default function composer(state = initialState, action) {
       }
 
       rememberManualSetting(map, 'spoiler');
-    });
+    }));
   case COMPOSE_SPOILER_TEXT_CHANGE:
     if (!state.get('spoiler')) return state;
-    return state.withMutations(map => {
+    return invalidateInteraction(state.withMutations(map => {
       map.set('spoiler_text', action.text);
       syncSensitiveWithWarning(map, state, {
         spoiler: true,
@@ -982,10 +1003,10 @@ export default function composer(state = initialState, action) {
       map.set('idempotencyKey', uuid());
       map.set('dirty', true);
       rememberManualSetting(map, 'spoiler');
-    });
+    }));
   case COMPOSE_VISIBILITY_CHANGE:
     if (state.get('id')) return state;
-    return state.withMutations(map => {
+    return invalidateInteraction(state.withMutations(map => {
       const searchability = searchabilityCap(action.value, state.get('searchability'));
 
       map.set('text', statusToTextMentions(state.get('text'), action.value, state.get('reply_status')));
@@ -995,10 +1016,10 @@ export default function composer(state = initialState, action) {
       map.set('dirty', true);
       map.set('circle_id', null);
       rememberManualSetting(map, 'privacy');
-    });
+    }));
   case COMPOSE_SEARCHABILITY_CHANGE:
     if (state.get('id')) return state;
-    return state.withMutations(map => {
+    return invalidateInteraction(state.withMutations(map => {
       map.set('searchability', action.value);
       map.set('idempotencyKey', uuid());
       map.set('dirty', true);
@@ -1010,7 +1031,7 @@ export default function composer(state = initialState, action) {
         map.set('privacy', privacy);
         map.set('circle_id', null);
       }
-    });
+    }));
   case COMPOSE_CIRCLE_CHANGE:
     if (state.get('id')) return state;
     return state
@@ -1018,7 +1039,7 @@ export default function composer(state = initialState, action) {
       .set('idempotencyKey', uuid())
       .set('dirty', true);
   case COMPOSE_CHANGE:
-    return state.withMutations(map => {
+    return invalidateInteraction(state.withMutations(map => {
       map.set('text', action.text);
       map.set('idempotencyKey', uuid());
       map.set('dirty', true);
@@ -1026,7 +1047,7 @@ export default function composer(state = initialState, action) {
       if (String(action.text || '').trim()) {
         notePortableDraftInput(map);
       }
-    });
+    }));
   case COMPOSE_COMPOSING_CHANGE:
     return state.set('is_composing', action.value);
   case COMPOSE_REPLY:
@@ -1349,7 +1370,7 @@ export default function composer(state = initialState, action) {
   case COMPOSE_SUGGESTIONS_READY:
     return state.set('suggestions', ImmutableList(normalizeSuggestions(state, action))).set('suggestion_token', action.token);
   case COMPOSE_SUGGESTION_SELECT:
-    return insertSuggestion(state, action.position, action.token, action.completion, action.path);
+    return invalidateInteraction(insertSuggestion(state, action.position, action.token, action.completion, action.path));
   case COMPOSE_SUGGESTION_TAGS_UPDATE:
     return updateSuggestionTags(state, action.token);
   case COMPOSE_TAG_HISTORY_UPDATE:
@@ -1362,7 +1383,7 @@ export default function composer(state = initialState, action) {
       return state;
     }
   case COMPOSE_EMOJI_INSERT:
-    return insertEmoji(state, action.position, action.emoji, action.needsSpace);
+    return invalidateInteraction(insertEmoji(state, action.position, action.emoji, action.needsSpace));
   case COMPOSE_UPLOAD_CHANGE_SUCCESS:
     return state
       .set('is_changing_upload', false)

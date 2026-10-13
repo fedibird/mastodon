@@ -18,7 +18,7 @@ import { selectComposerEffectiveCreateCapability } from '../posting_context/crea
 import { materializeComposerText } from '../posting_context/materialize';
 import { composerActivityPubAudienceAccountId } from '../posting_context/protocol';
 import { selectComposer } from '../selectors/composer';
-import { fetchPostingIdentities, validateComposerInteraction } from './posting_identities';
+import { fetchPostingIdentities, scheduleComposerInteractionCheck } from './posting_identities';
 import { composerHasGroupDestination } from '../posting_identity/group_destination';
 import { sessionPostingIdentityId } from '../posting_identity/identity';
 import { delegatedFileIsBlocked } from '../posting_identity/still_image';
@@ -189,7 +189,7 @@ export function replyInComposer(composerId, status, routerHistory) {
       status: status,
       context_references: getContextReference(getState, status),
     });
-    dispatch(validateComposerInteraction(composerId));
+    dispatch(scheduleComposerInteractionCheck(composerId));
 
     ensureComposeIsVisible(getState, routerHistory, composerId);
   };
@@ -215,7 +215,7 @@ export function quoteInComposer(composerId, status, routerHistory) {
       type: COMPOSE_QUOTE,
       status: status,
     });
-    dispatch(validateComposerInteraction(composerId));
+    dispatch(scheduleComposerInteractionCheck(composerId));
 
     ensureComposeIsVisible(getState, routerHistory, composerId);
   };

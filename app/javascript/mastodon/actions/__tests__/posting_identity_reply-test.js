@@ -19,9 +19,10 @@ jest.mock('../../api', () => ({
 }));
 
 import api from '../../api';
-import { changeCompose, COMPOSE_REPLY, COMPOSE_SUBMIT_SUCCESS, replyInComposer } from '../compose';
+import { changeCompose, changeComposeSpoilerText, changeComposeVisibility, COMPOSE_REPLY, COMPOSE_SUBMIT_SUCCESS, replyInComposer } from '../compose';
 import { COMPOSER_INTERACTION_CHECK_SUCCESS, createComposer, targetComposerAction } from '../composer';
-import { selectComposerSenderIdentity } from '../posting_identities';
+import { composerInteractionInputKey } from '../../posting_identity/interaction_input';
+import { cancelComposerInteractionChecks, INTERACTION_CHECK_DELAY, retryComposerInteraction, scheduleComposerInteractionCheck, selectComposerSenderIdentity } from '../posting_identities';
 import compose from '../../reducers/compose';
 import { initialState as composerInitialState } from '../../reducers/composer';
 import composers from '../../reducers/composers';
@@ -80,20 +81,26 @@ const catalog = (identities, composeState = composerInitialState) => makeStore(I
 
 const delegated = (capabilities = { reply: 'supported', quote: 'supported' }) => readyIdentity('delegated:99', capabilities);
 
-const check = (status, targetKey, epoch = 0, identityId = 'delegated:99') => ImmutableMap({
+const withCheck = (composeState, status = 'ready') => composeState.set('interactionCheck', ImmutableMap({
   status,
-  identityId,
-  epoch,
-  targetKey,
-});
+  identityId: composeState.getIn(['senderIdentity', 'id']),
+  epoch: Number(composeState.getIn(['senderIdentity', 'changeEpoch'])) || 0,
+  inputKey: composerInteractionInputKey(composeState),
+}));
 
 describe('delegated replies and quotes', () => {
   beforeEach(() => {
+    jest.useFakeTimers();
     api.mockReset();
     api.mockReturnValue({
       post: jest.fn(() => new Promise(() => {})),
       get: jest.fn(() => Promise.resolve({ data: {} })),
     });
+  });
+
+  afterEach(() => {
+    cancelComposerInteractionChecks();
+    jest.useRealTimers();
   });
 
   it('keeps a reply draft when the sender changes and while the target is unchecked', () => {
@@ -147,18 +154,21 @@ describe('delegated replies and quotes', () => {
       type: COMPOSER_INTERACTION_CHECK_SUCCESS,
       identityId: 'delegated:99',
       epoch: 0,
-      targetKey: 'status-1:',
+      inputKey: 'stale',
     }, 'primary'));
 
     expect(store.getState().getIn(['compose', 'interactionCheck', 'status'])).toEqual('pending');
     expect(store.getState().getIn(['composers', 'byId', portableId, 'text'])).toContain('Portable draft');
 
+    jest.advanceTimersByTime(INTERACTION_CHECK_DELAY);
     calls[0]({ status: 204 });
     await Promise.resolve();
     await Promise.resolve();
 
     expect(store.getState().getIn(['compose', 'interactionCheck', 'status'])).toEqual('ready');
-    expect(store.getState().getIn(['compose', 'interactionCheck', 'targetKey'])).toEqual('status-1:');
+    expect(store.getState().getIn(['compose', 'interactionCheck', 'inputKey'])).toEqual(
+      composerInteractionInputKey(store.getState().get('compose')),
+    );
     expect(selectComposerCanSendAsIdentity(store.getState(), 'primary').canSend).toBe(true);
     expect(selectComposerCanSendAsIdentity(store.getState(), portableId).canSend).toBe(false);
     expect(store.getState().getIn(['composers', 'byId', portableId, 'interactionCheck', 'status'])).toEqual('pending');
@@ -169,12 +179,11 @@ describe('delegated replies and quotes', () => {
       readyIdentity('local:42', { reply: 'supported', quote: 'supported' }),
       delegated(),
     ];
-    const denied = catalog(identities, composerInitialState
+    const denied = catalog(identities, withCheck(composerInitialState
       .set('text', 'Keep this draft')
       .set('in_reply_to', 'status-1')
       .setIn(['senderIdentity', 'id'], 'delegated:99')
-      .setIn(['senderIdentity', 'status'], 'ready')
-      .set('interactionCheck', check('denied', 'status-1:')));
+      .setIn(['senderIdentity', 'status'], 'ready'), 'denied'));
 
     expect(selectComposerCanSendAsIdentity(denied.getState(), 'primary')).toEqual(expect.objectContaining({
       canSend: false,
@@ -203,52 +212,41 @@ describe('delegated replies and quotes', () => {
     const replyStore = catalog([
       readyIdentity('local:42', { reply: 'supported' }),
       delegated({ reply: 'supported', quote: 'unavailable', media: 'supported' }),
-    ], base
-      .set('in_reply_to', 'status-1')
-      .set('interactionCheck', check('ready', 'status-1:')));
+    ], withCheck(base.set('in_reply_to', 'status-1')));
     const quoteStore = catalog([
       readyIdentity('local:42', { reply: 'supported', quote: 'supported' }),
       delegated({ reply: 'unavailable', quote: 'supported' }),
-    ], base
-      .set('quote_from', 'status-2')
-      .set('interactionCheck', check('ready', ':status-2')));
+    ], withCheck(base.set('quote_from', 'status-2')));
     const wrongQuote = catalog([
       readyIdentity('local:42'),
       delegated({ reply: 'supported', quote: 'unavailable' }),
-    ], base
-      .set('quote_from', 'status-2')
-      .set('interactionCheck', check('ready', ':status-2')));
+    ], withCheck(base.set('quote_from', 'status-2')));
     const wrongReply = catalog([
       readyIdentity('local:42'),
       delegated({ reply: 'unavailable', quote: 'supported' }),
-    ], base
-      .set('in_reply_to', 'status-1')
-      .set('interactionCheck', check('ready', 'status-1:')));
+    ], withCheck(base.set('in_reply_to', 'status-1')));
     const foreignMedia = catalog([
       readyIdentity('local:42'),
       delegated({ reply: 'supported', media: 'supported' }),
-    ], base
+    ], withCheck(base
       .set('in_reply_to', 'status-1')
-      .set('interactionCheck', check('ready', 'status-1:'))
       .set('media_attachments', ImmutableList([
         ImmutableMap({ id: 'm1', type: 'image', ownerIdentityId: 'local:42' }),
-      ])));
+      ]))));
     const ownedMedia = catalog([
       readyIdentity('local:42'),
       delegated({ reply: 'supported', media: 'supported' }),
-    ], base
+    ], withCheck(base
       .set('in_reply_to', 'status-1')
-      .set('interactionCheck', check('ready', 'status-1:'))
       .set('media_attachments', ImmutableList([
         ImmutableMap({ id: 'm1', type: 'image', ownerIdentityId: 'delegated:99' }),
-      ])));
+      ]))));
     const grouped = catalog([
       readyIdentity('local:42'),
       delegated({ reply: 'supported', quote: 'supported' }),
-    ], base
+    ], withCheck(base
       .set('in_reply_to', 'status-1')
-      .set('interactionCheck', check('ready', 'status-1:'))
-      .set('posting_context_account_id', '456'));
+      .set('posting_context_account_id', '456')));
 
     expect(selectComposerCanSendAsIdentity(replyStore.getState(), 'primary').canSend).toBe(true);
     expect(selectComposerCanSendAsIdentity(quoteStore.getState(), 'primary').canSend).toBe(true);
@@ -281,5 +279,102 @@ describe('delegated replies and quotes', () => {
     expect(store.getState().getIn(['composers', 'byId', portableId, 'text'])).toEqual('');
     expect(store.getState().getIn(['composers', 'byId', portableId, 'in_reply_to'])).toBeNull();
     expect(store.getState().getIn(['composers', 'byId', portableId, 'quote_from'])).toBeNull();
+  });
+
+  it('drops a ready check when the text, warning, or visibility changes and keeps the draft', async () => {
+    const calls = [];
+    const post = jest.fn(() => new Promise(resolve => {
+      calls.push(resolve);
+    }));
+    api.mockReturnValue({ post, get: jest.fn(() => Promise.resolve({ data: {} })) });
+    const identities = [
+      readyIdentity('local:42', { reply: 'supported', quote: 'supported' }),
+      delegated({ reply: 'supported', quote: 'supported' }),
+    ];
+    const ready = composeState => catalog(identities, withCheck(composeState
+      .set('text', 'Keep this draft')
+      .set('spoiler', true)
+      .set('spoiler_text', 'warning')
+      .set('privacy', 'public')
+      .set('in_reply_to', 'status-1')
+      .setIn(['senderIdentity', 'id'], 'delegated:99')
+      .setIn(['senderIdentity', 'status'], 'ready')));
+    const textChanged = ready(composerInitialState);
+
+    expect(selectComposerCanSendAsIdentity(textChanged.getState(), 'primary').canSend).toBe(true);
+
+    textChanged.dispatch(changeCompose('Keep this draft more'));
+
+    expect(selectComposerCanSendAsIdentity(textChanged.getState(), 'primary')).toEqual(expect.objectContaining({
+      canSend: false,
+      reason: 'pending',
+    }));
+    expect(textChanged.getState().getIn(['compose', 'text'])).toEqual('Keep this draft more');
+
+    const warned = ready(composerInitialState);
+    warned.dispatch(changeComposeSpoilerText('warning changed'));
+
+    expect(selectComposerCanSendAsIdentity(warned.getState(), 'primary').canSend).toBe(false);
+    expect(warned.getState().getIn(['compose', 'spoiler_text'])).toEqual('warning changed');
+    expect(warned.getState().getIn(['compose', 'text'])).toEqual('Keep this draft');
+
+    const narrowed = ready(composerInitialState);
+    narrowed.dispatch(changeComposeVisibility('private'));
+
+    expect(selectComposerCanSendAsIdentity(narrowed.getState(), 'primary').canSend).toBe(false);
+    expect(narrowed.getState().getIn(['compose', 'privacy'])).toEqual('private');
+    expect(narrowed.getState().getIn(['compose', 'text'])).toEqual('Keep this draft');
+
+    const portableId = 'portable:list:9';
+    textChanged.dispatch(createComposer(portableId));
+    textChanged.dispatch(targetComposerAction(changeCompose('Portable stays'), portableId));
+    textChanged.dispatch(scheduleComposerInteractionCheck('primary'));
+    textChanged.dispatch(scheduleComposerInteractionCheck('primary'));
+    textChanged.dispatch(scheduleComposerInteractionCheck(portableId));
+
+    expect(post).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(INTERACTION_CHECK_DELAY);
+
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post.mock.calls[0][1]).toEqual(expect.objectContaining({
+      status: 'Keep this draft more',
+      spoiler_text: 'warning',
+      visibility: 'public',
+      in_reply_to_id: 'status-1',
+    }));
+
+    textChanged.dispatch(targetComposerAction({
+      type: COMPOSER_INTERACTION_CHECK_SUCCESS,
+      identityId: 'delegated:99',
+      epoch: 0,
+      inputKey: composerInteractionInputKey(composerInitialState.set('text', 'Keep this draft')),
+    }, 'primary'));
+
+    expect(selectComposerCanSendAsIdentity(textChanged.getState(), 'primary').canSend).toBe(false);
+    expect(textChanged.getState().getIn(['composers', 'byId', portableId, 'text'])).toEqual('Portable stays');
+
+    calls[0]({ status: 204 });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(selectComposerCanSendAsIdentity(textChanged.getState(), 'primary').canSend).toBe(true);
+    expect(textChanged.getState().getIn(['compose', 'text'])).toEqual('Keep this draft more');
+
+    post.mockImplementationOnce(() => Promise.reject(new Error('offline')));
+    textChanged.dispatch(changeCompose('Keep this draft more'));
+    textChanged.dispatch(retryComposerInteraction('primary'));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(selectComposerCanSendAsIdentity(textChanged.getState(), 'primary').canSend).toBe(false);
+    expect(textChanged.getState().getIn(['compose', 'text'])).toEqual('Keep this draft more');
+
+    post.mockImplementationOnce(() => Promise.resolve({ status: 204 }));
+    textChanged.dispatch(retryComposerInteraction('primary'));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(selectComposerCanSendAsIdentity(textChanged.getState(), 'primary').canSend).toBe(true);
+    expect(textChanged.getState().getIn(['compose', 'text'])).toEqual('Keep this draft more');
   });
 });

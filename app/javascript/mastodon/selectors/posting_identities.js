@@ -1,5 +1,6 @@
 import { isAdministrator, me } from '../initial_state';
 import { composerHasGroupDestination } from '../posting_identity/group_destination';
+import { composerInteractionInputKey } from '../posting_identity/interaction_input';
 import { sessionPostingIdentityId } from '../posting_identity/identity';
 import { selectComposer } from './composer';
 
@@ -59,8 +60,6 @@ const capabilityAllows = (identity, name) => {
   return value === 'supported';
 };
 
-const interactionTargetKey = (replyId, quoteId) => `${replyId || ''}:${quoteId || ''}`;
-
 const delegatedInteractionReady = (composer, senderId) => {
   const replyId = composer.get('in_reply_to');
   const quoteId = composer.get('quote_from');
@@ -70,20 +69,18 @@ const delegatedInteractionReady = (composer, senderId) => {
   }
 
   const check = composer.get('interactionCheck');
-  const epoch = Number(composer.getIn(['senderIdentity', 'changeEpoch'])) || 0;
-  const targetKey = interactionTargetKey(replyId, quoteId);
+  const inputKey = composerInteractionInputKey(composer);
 
-  if (!check || check.get('status') === 'pending') {
+  if (!check || check.get('inputKey') !== inputKey || check.get('status') === 'pending') {
     return 'pending';
   }
 
-  if (
-    check.get('status') !== 'ready'
-    || check.get('identityId') !== senderId
-    || Number(check.get('epoch')) !== epoch
-    || check.get('targetKey') !== targetKey
-  ) {
+  if (check.get('status') === 'denied') {
     return 'target';
+  }
+
+  if (check.get('status') !== 'ready' || check.get('identityId') !== senderId) {
+    return 'pending';
   }
 
   return null;

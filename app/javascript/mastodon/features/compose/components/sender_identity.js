@@ -96,6 +96,7 @@ class SenderIdentity extends React.PureComponent {
     current: ImmutablePropTypes.map,
     failed: PropTypes.bool,
     onRetry: PropTypes.func,
+    onRetryInteraction: PropTypes.func,
     compact: PropTypes.bool,
     choices: ImmutablePropTypes.list,
     selectedId: PropTypes.string,
@@ -204,7 +205,16 @@ class SenderIdentity extends React.PureComponent {
         aria-label={intl.formatMessage(messages.label)}
       >
         {this.menuIdentities().map(item => this.renderMenuItem(item))}
-        {blockReason ? <p className='compose-form__sender-status' role='status'>{intl.formatMessage(blockMessage(blockReason))}</p> : null}
+        {blockReason ? (
+          <p className='compose-form__sender-status' role='status'>
+            {intl.formatMessage(blockMessage(blockReason))}
+            {blockReason === 'target' && this.props.onRetryInteraction ? (
+              <button type='button' className='compose-form__sender-retry' onClick={this.props.onRetryInteraction}>
+                {intl.formatMessage(messages.retry)}
+              </button>
+            ) : null}
+          </p>
+        ) : null}
         {failed ? (
           <p className='compose-form__sender-status' role='status'>
             {intl.formatMessage(messages.failed)}
@@ -561,7 +571,14 @@ class SenderIdentity extends React.PureComponent {
           </span>
         ) : null}
         {blockReason ? (
-          <p className='compose-form__sender-status' role='status'>{intl.formatMessage(blockMessage(blockReason))}</p>
+          <p className='compose-form__sender-status' role='status'>
+            {intl.formatMessage(blockMessage(blockReason))}
+            {blockReason === 'target' && this.props.onRetryInteraction ? (
+              <button type='button' className='compose-form__sender-retry' onClick={this.props.onRetryInteraction}>
+                {intl.formatMessage(messages.retry)}
+              </button>
+            ) : null}
+          </p>
         ) : null}
         {failed ? (
           <p className='compose-form__sender-status' role='status'>
