@@ -1,4 +1,5 @@
 import { isExclusiveAttachmentType, isExclusiveFile } from '../features/compose/composer_media';
+import { effectiveSearchability, searchabilityCap } from '../utils/searchability';
 import {
   COMPOSE_MOUNT,
   COMPOSE_UNMOUNT,
@@ -35,6 +36,7 @@ import {
   COMPOSE_VISIBILITY_CHANGE,
   COMPOSE_LANGUAGE_CHANGE,
   COMPOSE_SEARCHABILITY_CHANGE,
+  COMPOSE_SEARCHABILITY_RESET,
   COMPOSE_CIRCLE_CHANGE,
   COMPOSE_COMPOSING_CHANGE,
   COMPOSE_EMOJI_INSERT,
@@ -104,6 +106,8 @@ export const initialState = ImmutableMap({
   spoiler_text: '',
   privacy: null,
   searchability: null,
+  searchability_manual: false,
+  privacy_before_searchability: null,
   circle_id: null,
   id: null,
   language: null,
@@ -338,6 +342,7 @@ const clearAll = state => {
     map.set('reply_status', null);
     map.set('privacy', state.get('default_privacy'));
     map.set('searchability', state.get('default_searchability'));
+    clearSearchabilityOverride(map);
     map.set('circle_id', null);
     map.set('sensitive', false);
     map.update('media_attachments', list => list.clear());
@@ -497,10 +502,9 @@ const privacyCap = (a, b) => {
   return order[Math.max(order.indexOf(a), order.indexOf(b), 0)];
 };
 
-const searchabilityCap = (a, b) => {
-  const order = ['public', 'unlisted', 'private', 'mutual', 'limited', 'direct', 'personal'];
-  const to    = ['public', 'private',  'private', 'direct', 'direct',  'direct', 'direct'];
-  return to[Math.max(order.indexOf(a), order.indexOf(b), 0)];
+const clearSearchabilityOverride = map => {
+  map.set('searchability_manual', false);
+  map.set('privacy_before_searchability', null);
 };
 
 export const hydrateComposer = (state, hydratedState) => {
@@ -952,6 +956,7 @@ export default function composer(state = initialState, action) {
       map.set('text', statusToTextMentions(state.get('text'), action.value, state.get('reply_status')));
       map.set('privacy', action.value);
       map.set('searchability', searchability);
+      map.set('privacy_before_searchability', null);
       map.set('idempotencyKey', uuid());
       map.set('dirty', true);
       map.set('circle_id', null);
@@ -960,17 +965,44 @@ export default function composer(state = initialState, action) {
   case COMPOSE_SEARCHABILITY_CHANGE:
     if (state.get('id')) return state;
     return state.withMutations(map => {
+      const previousPrivacy = state.get('privacy');
+      const privacy = privacyExpand(action.value, previousPrivacy);
+
       map.set('searchability', action.value);
+      map.set('searchability_manual', true);
       map.set('idempotencyKey', uuid());
       map.set('dirty', true);
 
-      const privacy = privacyExpand(action.value, state.get('privacy'));
+      if (privacy !== previousPrivacy) {
+        if (!state.get('privacy_before_searchability')) {
+          map.set('privacy_before_searchability', previousPrivacy);
+        }
 
-      if (privacy !== state.get('privacy')) {
-        map.set('text', statusToTextMentions(state.get('text'), action.value, state.get('reply_status')));
+        map.set('text', statusToTextMentions(state.get('text'), privacy, state.get('reply_status')));
         map.set('privacy', privacy);
         map.set('circle_id', null);
       }
+    });
+  case COMPOSE_SEARCHABILITY_RESET:
+    if (state.get('id')) return state;
+    return state.withMutations(map => {
+      let privacy = state.get('privacy');
+      const restorePrivacy = state.get('searchability_manual') && state.get('privacy_before_searchability');
+
+      if (restorePrivacy) {
+        privacy = state.get('privacy_before_searchability');
+      }
+
+      if (privacy !== state.get('privacy')) {
+        map.set('text', statusToTextMentions(state.get('text'), privacy, state.get('reply_status')));
+        map.set('privacy', privacy);
+        map.set('circle_id', null);
+      }
+
+      clearSearchabilityOverride(map);
+      map.set('searchability', effectiveSearchability(privacy, state.get('default_searchability')));
+      map.set('idempotencyKey', uuid());
+      map.set('dirty', true);
     });
   case COMPOSE_CIRCLE_CHANGE:
     if (state.get('id')) return state;
@@ -1018,6 +1050,7 @@ export default function composer(state = initialState, action) {
       clearManagedHashtagSuppressions(map);
       map.set('privacy', privacy);
       map.set('searchability', searchability);
+      clearSearchabilityOverride(map);
       map.set('circle_id', null);
       map.set('focusDate', new Date());
       map.set('caretPosition', null);
@@ -1062,6 +1095,7 @@ export default function composer(state = initialState, action) {
       clearManagedHashtagSuppressions(map);
       map.set('privacy', privacy);
       map.set('searchability', searchability);
+      clearSearchabilityOverride(map);
       map.set('focusDate', new Date());
       map.set('preselectDate', new Date());
       map.set('idempotencyKey', uuid());
@@ -1102,6 +1136,7 @@ export default function composer(state = initialState, action) {
       map.set('spoiler_text', '');
       map.set('privacy', state.get('default_privacy'));
       map.set('searchability', state.get('default_searchability'));
+      clearSearchabilityOverride(map);
       map.set('language', state.get('default_language'));
       map.set('circle_id', null);
       map.set('poll', null);
@@ -1287,6 +1322,7 @@ export default function composer(state = initialState, action) {
 
       map.set('privacy', 'direct');
       map.set('searchability', 'direct');
+      clearSearchabilityOverride(map);
       map.set('circle_id', null);
       map.set('focusDate', new Date());
       map.set('caretPosition', null);
@@ -1348,6 +1384,7 @@ export default function composer(state = initialState, action) {
       map.set('reply_status', action.replyStatus);
       map.set('privacy', action.status.get('visibility', state.get('default_privacy')));
       map.set('searchability', action.status.get('searchability', state.get('default_searchability')));
+      clearSearchabilityOverride(map);
       map.set('circle_id', action.status.get('circle_id', null));
       map.set('media_attachments', action.status.get('media_attachments', ImmutableList()));
       map.set('focusDate', new Date());
