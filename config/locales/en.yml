@@ -2244,8 +2244,10 @@ en:
     code_placeholder: "e.g. aB3xK9mQ_2pL8nR4sT6uV"
     code_once: Linking code
     current_account: Signed in as
-    delegated_unsupported: This linked account can only publish a public, unlisted, or followers-only post. Groups, polls, and schedules stay on your own account. Still images can be attached when the grant includes media.
+    delegated_unsupported: This linked account can only publish a public, unlisted, or followers-only post. Polls and schedules stay on your own account. Group posts need a separate permission. Still images can be attached when the grant includes media.
     delegated_interaction_rejected: This linked account cannot reply to or quote that post.
+    delegated_group_rejected: This linked account cannot post to that group.
+    delegated_group_mention_rejected: This linked account can mention only that group.
     delegated_mention_rejected: This linked account can mention only the account being replied to and accounts already mentioned on that post.
     delegated_media_type: This linked account can attach still images only.
     description: Manage links for posting as another account, and permission for others to use your account.
@@ -2305,6 +2307,8 @@ en:
     scopes:
       joiner: ", "
       media: Upload media for new posts
+      group: Post to local groups
+      group_extra: Group posts are a separate permission. Creating posts does not include them.
       post: Create new posts
       post_included: New posts are included. Media upload is a separate permission.
       quote: Quote posts

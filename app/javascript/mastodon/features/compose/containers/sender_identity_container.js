@@ -156,7 +156,7 @@ class SenderIdentityContainer extends React.PureComponent {
         composerId={this.props.composerId}
         catalog={this.props.catalog}
         onRetry={this.handleRetry}
-        onRetryInteraction={this.props.sendBlocked === 'target' ? this.handleRetryInteraction : null}
+        onRetryInteraction={this.props.sendBlocked === 'target' || this.props.sendBlocked === 'follow' ? this.handleRetryInteraction : null}
         onSelect={this.handleSelect}
       />
     );

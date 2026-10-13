@@ -1,4 +1,4 @@
-import { draftHasGroupDestination } from './group_destination';
+import { consistentLocalFedibirdGroup, draftHasGroupDestination } from './group_destination';
 import { ENABLED_SENDER_KINDS, ENABLED_SENDER_PROVIDERS } from './identity';
 import { applyPostingStylePrecedence } from './style_precedence';
 
@@ -14,6 +14,20 @@ const capabilitySupported = (identity, name) => {
   }
 
   return capabilities[name] === 'supported';
+};
+
+// Remote groups and group replies stay refused. A consistent local Fedibird
+// group can move to an identity that was granted group together with post.
+const groupSwitchBlocked = (source, toIdentity) => {
+  if (!draftHasGroupDestination(source)) {
+    return false;
+  }
+
+  if (source.replyToId || source.quoteId) {
+    return true;
+  }
+
+  return !(consistentLocalFedibirdGroup(source) && capabilitySupported(toIdentity, 'group'));
 };
 
 // Pure description of a future sender change. M1 never permits the change
@@ -101,7 +115,7 @@ export function resolveSenderIdentitySwitch({
     reasons.push('quote');
   }
 
-  if (changing && draftHasGroupDestination(source)) {
+  if (changing && groupSwitchBlocked(source, toIdentity)) {
     reasons.push('group');
   }
 
@@ -134,9 +148,10 @@ export function resolveSenderIdentitySwitch({
     userPostingContext: source.userPostingContext,
     manual: source.manual,
   });
-  const refreshGroupDiscovery = changing && Boolean(source.groupId);
+  const refreshGroupDiscovery = changing && draftHasGroupDestination(source);
   const mustRevalidateReply = changing && Boolean(source.replyToId);
   const mustRevalidateQuote = changing && Boolean(source.quoteId);
+  const mustRevalidateGroup = changing && consistentLocalFedibirdGroup(source) && capabilitySupported(toIdentity, 'group') && !source.replyToId && !source.quoteId;
   const permitted = reasons.length === 0 && authorized && supported && (changing ? targetAllowed : sessionTarget);
 
   return {
@@ -166,6 +181,7 @@ export function resolveSenderIdentitySwitch({
     refreshGroupDiscovery,
     mustRevalidateReply,
     mustRevalidateQuote,
+    mustRevalidateGroup,
     canSend: permitted && !changing && source.senderStatus === 'ready' && style.canPost,
   };
 }
@@ -194,6 +210,8 @@ export function composerSenderSwitchDraft(composer, viewerEvidence) {
     groupId,
     postingContextAccountId: composer.get('posting_context_account_id'),
     resolvedAccountId: composer.getIn(['context', 'resolvedAccountId']),
+    contextKey: composer.getIn(['context', 'key']),
+    contextRevision: composer.getIn(['context', 'source', 'revision']),
     activityPubAudience: composer.getIn(['context', 'protocol', 'activityPub', 'audience']),
     postingContext: {
       key: composer.getIn(['context', 'key']),

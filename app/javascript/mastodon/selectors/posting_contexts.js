@@ -1,9 +1,22 @@
-export const selectPostingContextDiscovery = (state, accountId) => {
+// Session discovery stays keyed by the group account. A delegated sender
+// keeps a separate record so one viewer's result cannot satisfy another.
+export function postingContextCacheKey (accountId, identity) {
+  const id = String(accountId);
+  const identityId = identity && identity.identityId;
+
+  if (!identityId || String(identityId).startsWith('local:')) {
+    return id;
+  }
+
+  return `${id}\n${identityId}\n${identity.delegationId || ''}`;
+}
+
+export const selectPostingContextDiscovery = (state, accountId, identity = null) => {
   if (!state || accountId === undefined || accountId === null) {
     return null;
   }
 
-  return state.getIn(['posting_contexts', String(accountId)], null);
+  return state.getIn(['posting_contexts', postingContextCacheKey(accountId, identity)], null);
 };
 
 export const selectPostingContextViewerEvidence = (state, accountId) => {

@@ -1,10 +1,14 @@
 import { List as ImmutableList, fromJS } from 'immutable';
 import api from '../api';
+import { materializeComposerText } from '../posting_context/materialize';
+import { consistentLocalFedibirdGroup } from '../posting_identity/group_destination';
 import { normalizePostingIdentity, sessionPostingIdentityId } from '../posting_identity/identity';
 import { composerInteractionInputKey, composerInteractionSpoilerText } from '../posting_identity/interaction_input';
 import { composerSenderSwitchDraft, resolveSenderIdentitySwitch } from '../posting_identity/switch_resolver';
 import { selectComposer } from '../selectors/composer';
+import { selectPostingIdentityDelegationId } from '../selectors/posting_identities';
 import { selectPostingContextViewerEvidence } from '../selectors/posting_contexts';
+import { fetchPostingContext } from './posting_contexts';
 import uuid from '../uuid';
 import { COMPOSER_INTERACTION_CHECK_FAIL, COMPOSER_INTERACTION_CHECK_REQUEST, COMPOSER_INTERACTION_CHECK_SUCCESS, COMPOSER_SENDER_IDENTITY_SELECT, targetComposerAction } from './composer';
 
@@ -104,8 +108,21 @@ export function selectComposerSenderIdentity(composerId, identityId, { confirmed
       decision,
     }, composerId));
 
-    if (decision.effectsApplied && (decision.mustRevalidateReply || decision.mustRevalidateQuote)) {
+    if (decision.effectsApplied && (decision.mustRevalidateReply || decision.mustRevalidateQuote || decision.mustRevalidateGroup)) {
       dispatch(scheduleComposerInteractionCheck(composerId));
+    }
+
+    if (decision.effectsApplied && decision.refreshGroupDiscovery) {
+      const next = selectComposer(getState(), composerId);
+      const accountId = next && (next.get('posting_context_account_id') || next.getIn(['context', 'resolvedAccountId']));
+
+      if (accountId) {
+        dispatch(fetchPostingContext(accountId, {
+          force: true,
+          identityId: decision.toIdentityId,
+          delegationId: selectPostingIdentityDelegationId(getState(), decision.toIdentityId),
+        }));
+      }
     }
 
     return selected;
@@ -133,8 +150,9 @@ const interactionNeeded = composer => {
 
   const identityId = composer.getIn(['senderIdentity', 'id']);
   const delegated = typeof identityId === 'string' && identityId.startsWith('delegated:');
+  const group = consistentLocalFedibirdGroup(composer) && !composer.get('in_reply_to') && !composer.get('quote_from');
 
-  return delegated && Boolean(composer.get('in_reply_to') || composer.get('quote_from'));
+  return delegated && Boolean(composer.get('in_reply_to') || composer.get('quote_from') || group);
 };
 
 const nextInteractionRequestId = composerId => {
@@ -190,8 +208,24 @@ export function validateComposerInteraction(composerId) {
     const epoch = Number(composer.getIn(['senderIdentity', 'changeEpoch'])) || 0;
     const replyId = composer.get('in_reply_to') || null;
     const quoteId = composer.get('quote_from') || null;
+    const delegationId = selectPostingIdentityDelegationId(getState(), identityId);
     const inputKey = composerInteractionInputKey(composer);
-    const snapshot = { identityId, epoch, inputKey, requestId: nextInteractionRequestId(composerId) };
+    const localGroup = consistentLocalFedibirdGroup(composer);
+    const snapshot = { identityId, epoch, delegationId, inputKey, requestId: nextInteractionRequestId(composerId) };
+    const payload = {
+      posting_identity_id: identityId,
+      in_reply_to_id: replyId,
+      quote_id: quoteId,
+      visibility: composer.get('privacy'),
+      status: materializeComposerText(composer),
+      spoiler_text: composerInteractionSpoilerText(composer),
+    };
+
+    if (localGroup) {
+      payload.posting_context_account_id = composer.get('posting_context_account_id');
+      payload.posting_context_key = composer.getIn(['context', 'key']);
+      payload.posting_context_revision = composer.getIn(['context', 'source', 'revision']);
+    }
 
     dispatch(targetComposerAction({
       type: COMPOSER_INTERACTION_CHECK_REQUEST,
@@ -200,14 +234,7 @@ export function validateComposerInteraction(composerId) {
     }, composerId));
 
     return api(getState)
-      .post('/api/v1/fedibird/posting_identities/interaction', {
-        posting_identity_id: identityId,
-        in_reply_to_id: replyId,
-        quote_id: quoteId,
-        visibility: composer.get('privacy'),
-        status: composer.get('text') || '',
-        spoiler_text: composerInteractionSpoilerText(composer),
-      })
+      .post('/api/v1/fedibird/posting_identities/interaction', payload)
       .then(() => {
         dispatch(targetComposerAction({
           type: COMPOSER_INTERACTION_CHECK_SUCCESS,

@@ -1,3 +1,5 @@
+import { postingContextOutputSignature } from '../posting_context/materialize';
+
 const field = value => {
   const text = value === null || value === undefined ? '' : String(value);
 
@@ -21,6 +23,10 @@ export function composerInteractionInputKey (composer) {
     field(composer.get('privacy')),
     field(composer.get('text')),
     field(spoilerText),
+    field(composer.get('posting_context_account_id')),
+    field(composer.getIn(['context', 'key'])),
+    field(composer.getIn(['context', 'source', 'revision'])),
+    field(postingContextOutputSignature(composer)),
   ].join('|');
 }
 

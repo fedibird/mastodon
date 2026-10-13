@@ -55,6 +55,14 @@
                 %label.checkbox
                   = check_box_tag 'scopes[]', 'quote', Array(params[:scopes]).include?('quote'), id: 'posting_identity_request_scope_quote', class: 'boolean optional'
             %span.hint= t('posting_identity_links.scopes.quote_extra')
+        .fields-group
+          .input.boolean.optional.with_label
+            .label_input
+              %label{ for: 'posting_identity_request_scope_group' }= t('posting_identity_links.scopes.group')
+              .label_input__wrapper
+                %label.checkbox
+                  = check_box_tag 'scopes[]', 'group', Array(params[:scopes]).include?('group'), id: 'posting_identity_request_scope_group', class: 'boolean optional'
+            %span.hint= t('posting_identity_links.scopes.group_extra')
         .actions
           = button_tag t('posting_identity_links.request_submit'), type: 'submit', class: 'button'
     - else
@@ -140,6 +148,14 @@
               %label.checkbox
                 = check_box_tag 'scopes[]', 'quote', false, id: 'posting_identity_allowance_scope_quote', class: 'boolean optional'
           %span.hint= t('posting_identity_links.scopes.quote_extra')
+      .fields-group
+        .input.boolean.optional.with_label
+          .label_input
+            %label{ for: 'posting_identity_allowance_scope_group' }= t('posting_identity_links.scopes.group')
+            .label_input__wrapper
+              %label.checkbox
+                = check_box_tag 'scopes[]', 'group', false, id: 'posting_identity_allowance_scope_group', class: 'boolean optional'
+          %span.hint= t('posting_identity_links.scopes.group_extra')
       .actions
         = button_tag t('posting_identity_links.allowance_submit'), type: 'submit', class: 'button'
     - active_allowances = @allowances.select(&:active?)

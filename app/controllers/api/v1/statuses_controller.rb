@@ -321,6 +321,9 @@ class Api::V1::StatusesController < Api::BaseController
       :expires_action,
       :with_reference,
       :searchability,
+      :posting_context_account_id,
+      :posting_context_key,
+      :posting_context_revision,
       allowed_mentions: [],
       media_ids: [],
       poll: [

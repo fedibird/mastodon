@@ -26,7 +26,8 @@ const messages = defineMessages({
   canReply: { id: 'compose_form.sender_identity.can_reply', defaultMessage: 'Replies' },
   canQuote: { id: 'compose_form.sender_identity.can_quote', defaultMessage: 'Quotes' },
   replyQuoteSeparate: { id: 'compose_form.sender_identity.reply_quote_separate', defaultMessage: 'Replies and quotes need a separate permission.' },
-  blockedGroup: { id: 'compose_form.sender_identity.blocked_group', defaultMessage: 'Group posts cannot be posted as another account yet.' },
+  blockedGroup: { id: 'compose_form.sender_identity.blocked_group', defaultMessage: 'This linked account cannot post to that group.' },
+  blockedGroupFollow: { id: 'compose_form.sender_identity.blocked_group_follow', defaultMessage: 'This linked account does not follow that group.' },
   blockedSchedule: { id: 'compose_form.sender_identity.blocked_schedule', defaultMessage: 'Scheduled and expiring posts cannot be posted as another account yet.' },
   blockedEdit: { id: 'compose_form.sender_identity.blocked_edit', defaultMessage: 'Finish or discard this edit before changing the posting account.' },
   blockedGeneric: { id: 'compose_form.sender_identity.blocked_generic', defaultMessage: 'This posting account cannot be selected for the draft you are writing.' },
@@ -53,6 +54,8 @@ const blockMessage = reason => {
     return messages.blockedTarget;
   case 'group':
     return messages.blockedGroup;
+  case 'follow':
+    return messages.blockedGroupFollow;
   case 'schedule':
   case 'schedule_bound':
     return messages.blockedSchedule;
@@ -208,7 +211,7 @@ class SenderIdentity extends React.PureComponent {
         {blockReason ? (
           <p className='compose-form__sender-status' role='status'>
             {intl.formatMessage(blockMessage(blockReason))}
-            {blockReason === 'target' && this.props.onRetryInteraction ? (
+            {(blockReason === 'target' || blockReason === 'follow') && this.props.onRetryInteraction ? (
               <button type='button' className='compose-form__sender-retry' onClick={this.props.onRetryInteraction}>
                 {intl.formatMessage(messages.retry)}
               </button>
@@ -510,6 +513,11 @@ class SenderIdentity extends React.PureComponent {
             {unavailable && !failed ? intl.formatMessage(unavailableMessage) : null}
           </span>
         ) : null}
+        {blockReason ? (
+          <p className='compose-form__sender-status' role='status'>
+            {intl.formatMessage(blockMessage(blockReason))}
+          </p>
+        ) : null}
         {this.state.open ? (
           <Overlay show placement='top' flip target={this.findTrigger} popperConfig={{ strategy: 'fixed' }}>
             {this.renderSenderMenu}
@@ -587,7 +595,7 @@ class SenderIdentity extends React.PureComponent {
         {blockReason ? (
           <p className='compose-form__sender-status' role='status'>
             {intl.formatMessage(blockMessage(blockReason))}
-            {blockReason === 'target' && this.props.onRetryInteraction ? (
+            {(blockReason === 'target' || blockReason === 'follow') && this.props.onRetryInteraction ? (
               <button type='button' className='compose-form__sender-retry' onClick={this.props.onRetryInteraction}>
                 {intl.formatMessage(messages.retry)}
               </button>

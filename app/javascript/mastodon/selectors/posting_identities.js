@@ -1,8 +1,10 @@
+import { POSTING_CONTEXT_CACHE_TTL } from '../actions/posting_contexts';
 import { isAdministrator, me } from '../initial_state';
-import { composerHasGroupDestination } from '../posting_identity/group_destination';
+import { composerHasGroupDestination, consistentLocalFedibirdGroup } from '../posting_identity/group_destination';
 import { composerInteractionInputKey } from '../posting_identity/interaction_input';
 import { sessionPostingIdentityId } from '../posting_identity/identity';
 import { selectComposer } from './composer';
+import { selectPostingContextDiscovery } from './posting_contexts';
 
 const deny = reason => ({ canSend: false, canUpload: false, reason });
 
@@ -60,11 +62,47 @@ const capabilityAllows = (identity, name) => {
   return value === 'supported';
 };
 
-const delegatedInteractionReady = (composer, senderId) => {
+export const selectPostingIdentityDelegationId = (state, identityId) => {
+  const identity = findIdentity(state, identityId);
+
+  if (!identity) {
+    return null;
+  }
+
+  return identity.getIn(['delegation', 'id']) || null;
+};
+
+const delegatedSenderPosting = (state, composer, senderId) => {
+  const accountId = composer.get('posting_context_account_id');
+
+  if (!accountId) {
+    return null;
+  }
+
+  const discovery = selectPostingContextDiscovery(state, accountId, {
+    identityId: senderId,
+    delegationId: selectPostingIdentityDelegationId(state, senderId),
+  });
+
+  if (!discovery || discovery.get('status') !== 'resolved') {
+    return null;
+  }
+
+  const receivedAt = discovery.get('receivedAt');
+
+  if (typeof receivedAt !== 'number' || (Date.now() - receivedAt) >= POSTING_CONTEXT_CACHE_TTL) {
+    return null;
+  }
+
+  return discovery.get('senderPosting');
+};
+
+const delegatedInteractionReady = (composer, senderId, delegationId) => {
   const replyId = composer.get('in_reply_to');
   const quoteId = composer.get('quote_from');
+  const group = consistentLocalFedibirdGroup(composer);
 
-  if (!replyId && !quoteId) {
+  if (!replyId && !quoteId && !group) {
     return null;
   }
 
@@ -80,6 +118,10 @@ const delegatedInteractionReady = (composer, senderId) => {
   }
 
   if (check.get('status') !== 'ready' || check.get('identityId') !== senderId) {
+    return 'pending';
+  }
+
+  if ((delegationId || null) !== (check.get('delegationId') || null)) {
     return 'pending';
   }
 
@@ -166,7 +208,7 @@ export const selectComposerCanSendAsIdentity = (state, composerId) => {
         return deny('quote');
       }
 
-      if (composerHasGroupDestination(composer)) {
+      if (composerHasGroupDestination(composer) && (composer.get('in_reply_to') || composer.get('quote_from') || !capabilityAllows(identity, 'group') || !consistentLocalFedibirdGroup(composer))) {
         return deny('group');
       }
 
@@ -182,10 +224,25 @@ export const selectComposerCanSendAsIdentity = (state, composerId) => {
         return deny('edit_bound');
       }
 
-      const interactionBlock = delegatedInteractionReady(composer, senderId);
+      const delegationId = selectPostingIdentityDelegationId(state, senderId);
+      const interactionBlock = delegatedInteractionReady(composer, senderId, delegationId);
+
+      if (interactionBlock === 'target' && consistentLocalFedibirdGroup(composer)) {
+        const posting = delegatedSenderPosting(state, composer, senderId);
+
+        return deny(posting && posting.get('following') === false ? 'follow' : 'group');
+      }
 
       if (interactionBlock) {
         return deny(interactionBlock);
+      }
+
+      if (consistentLocalFedibirdGroup(composer)) {
+        const posting = delegatedSenderPosting(state, composer, senderId);
+
+        if (!posting || posting.get('canPost') !== true) {
+          return deny(posting && posting.get('following') === false ? 'follow' : 'pending');
+        }
       }
 
       const mediaSupported = capabilityAllows(identity, 'media');

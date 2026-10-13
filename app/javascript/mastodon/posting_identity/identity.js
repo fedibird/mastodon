@@ -61,5 +61,10 @@ export const normalizePostingIdentity = data => {
       })) : [],
     },
     capabilities: normalizedCapabilities,
+    delegation: source.delegation ? {
+      id: source.delegation.id ? String(source.delegation.id) : null,
+      state: source.delegation.state || null,
+      scopes: Array.isArray(source.delegation.scopes) ? source.delegation.scopes.map(String) : [],
+    } : null,
   };
 };

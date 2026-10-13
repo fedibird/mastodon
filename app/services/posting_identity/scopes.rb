@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
 module PostingIdentity::Scopes
-  # media, reply, and quote are extra grants. Each one also requires post.
-  # Existing grants do not gain reply or quote. Groups and account
-  # administration are not delegable.
-  ALLOWED = %w(post media reply quote).freeze
+  # media, reply, quote, and group are extra grants. Each one also
+  # requires post. Existing grants do not gain group. Account
+  # administration is not delegable.
+  ALLOWED = %w(post media reply quote group).freeze
 
   module_function
 
@@ -19,7 +19,7 @@ module PostingIdentity::Scopes
     list = Array(scopes).map(&:to_s).uniq
     return false if list.empty?
     return false unless (list - ALLOWED).empty?
-    return false if (list & %w(media reply quote)).any? && !list.include?('post')
+    return false if (list & %w(media reply quote group)).any? && !list.include?('post')
 
     true
   end

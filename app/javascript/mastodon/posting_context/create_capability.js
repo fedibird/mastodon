@@ -2,6 +2,7 @@ import { POSTING_CONTEXT_CACHE_TTL } from '../actions/posting_contexts';
 import { selectComposer } from '../selectors/composer';
 import { selectPostingContextRevalidation } from '../selectors/posting_context_revalidations';
 import { selectPostingContextDiscovery } from '../selectors/posting_contexts';
+import { selectPostingIdentityDelegationId } from '../selectors/posting_identities';
 import { selectComposerPostingContextCompliance } from './compliance';
 import { normalizeManagedHashtagName } from './managed_hashtags';
 import { managedMentionPlacement } from './managed_mentions';
@@ -345,7 +346,12 @@ export function selectComposerEffectiveCreateCapability(state, composerId, now =
     return delegatedResult(compliance);
   }
 
-  const discovery = selectPostingContextDiscovery(state, targetAccountId);
+  const senderId = composer.getIn(['senderIdentity', 'id']);
+  const delegatedSender = typeof senderId === 'string' && senderId.startsWith('delegated:');
+  const discovery = selectPostingContextDiscovery(state, targetAccountId, delegatedSender ? {
+    identityId: senderId,
+    delegationId: selectPostingIdentityDelegationId(state, senderId),
+  } : null);
   const delivery = resolveDelivery(discovery);
   const permission = applyRevalidationOverlay(resolvePermission(discovery, delivery, now), state, targetAccountId);
 

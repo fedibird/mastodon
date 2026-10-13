@@ -1,5 +1,8 @@
-import { composerActivityPubAudienceAllowedVisibilities } from './protocol';
+import { POSTING_CONTEXT_CACHE_TTL } from '../actions/posting_contexts';
 import { selectComposer } from '../selectors/composer';
+import { selectPostingIdentityDelegationId } from '../selectors/posting_identities';
+import { selectPostingContextDiscovery } from '../selectors/posting_contexts';
+import { composerActivityPubAudienceAllowedVisibilities } from './protocol';
 
 const emptyCompliance = () => ({
   valid: true,
@@ -91,13 +94,30 @@ export function selectComposerPostingContextCompliance(state, composerId) {
 
   const following = composer.getIn(['context', 'requirements', 'followingAccounts']);
   const relationships = state.get('relationships');
+  const senderId = composer.getIn(['senderIdentity', 'id']);
+  const delegatedSender = typeof senderId === 'string' && senderId.startsWith('delegated:');
+  const delegatedDiscovery = delegatedSender ? selectPostingContextDiscovery(state, composer.get('posting_context_account_id'), {
+    identityId: senderId,
+    delegationId: selectPostingIdentityDelegationId(state, senderId),
+  }) : null;
+  const delegatedReceivedAt = delegatedDiscovery && delegatedDiscovery.get('receivedAt');
+  const delegatedFresh = typeof delegatedReceivedAt === 'number' && (Date.now() - delegatedReceivedAt) < POSTING_CONTEXT_CACHE_TTL;
+  const delegatedPosting = delegatedFresh ? delegatedDiscovery.get('senderPosting') : null;
   const followingAccounts = [];
   let followingValid = true;
 
   if (following && following.forEach) {
     following.forEach(requirement => {
       const accountId = requirement.get('accountId');
-      const status = followStatus(relationshipRecord(relationships, accountId));
+      let status;
+
+      if (!delegatedSender) {
+        status = followStatus(relationshipRecord(relationships, accountId));
+      } else if (!delegatedPosting || String(accountId) !== String(composer.get('posting_context_account_id'))) {
+        status = 'unknown';
+      } else {
+        status = delegatedPosting.get('following') === true ? 'satisfied' : 'not_following';
+      }
 
       if (status !== 'satisfied') {
         followingValid = false;
