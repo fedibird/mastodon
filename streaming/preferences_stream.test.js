@@ -18,13 +18,88 @@ const NOTIFICATION_PATH = '/api/v1/streaming/user/notification';
 const SCOPE_ERROR = 'Error: Access token does not cover required scopes';
 const INVALID_TOKEN = 'Error: Invalid access token';
 const MISSING_TOKEN = 'Error: Missing access token';
-const ARTIFACT_DIR = '/opt/cursor/artifacts';
+const TEST_DB_KEYS = [
+  'PREFERENCES_STREAM_TEST_DB_NAME',
+  'PREFERENCES_STREAM_TEST_DB_USER',
+  'PREFERENCES_STREAM_TEST_DB_PASSWORD',
+  'PREFERENCES_STREAM_TEST_DB_HOST',
+  'PREFERENCES_STREAM_TEST_DB_PORT',
+];
 
 let serverProcess;
 let serverLog = '';
 let publisher;
 let db;
+let lockClient;
 const world = {};
+const runId = crypto.randomBytes(3).toString('hex');
+const created = {
+  accountIds: [],
+  userIds: [],
+  tokenIds: [],
+};
+
+const testDatabaseConfig = (env) => {
+  const missing = TEST_DB_KEYS.filter(key => {
+    if (!Object.prototype.hasOwnProperty.call(env, key) || env[key] === undefined) {
+      return true;
+    }
+
+    return key !== 'PREFERENCES_STREAM_TEST_DB_PASSWORD' && env[key] === '';
+  });
+
+  if (missing.length > 0) {
+    throw new Error(`Refusing to start without ${missing.join(', ')}`);
+  }
+
+  const database = env.PREFERENCES_STREAM_TEST_DB_NAME;
+
+  if (!/^[A-Za-z0-9_]+$/.test(database) || !/test/i.test(database) || /development|production/i.test(database)) {
+    throw new Error(`Refusing database "${database}"`);
+  }
+
+  const port = Number(env.PREFERENCES_STREAM_TEST_DB_PORT);
+
+  if (!Number.isInteger(port) || port <= 0) {
+    throw new Error('PREFERENCES_STREAM_TEST_DB_PORT must be a positive integer');
+  }
+
+  return {
+    database: database,
+    user: env.PREFERENCES_STREAM_TEST_DB_USER,
+    password: env.PREFERENCES_STREAM_TEST_DB_PASSWORD,
+    host: env.PREFERENCES_STREAM_TEST_DB_HOST,
+    port: port,
+  };
+};
+
+const writeArtifact = (name, contents) => {
+  const dir = process.env.PREFERENCES_STREAM_TEST_ARTIFACT_DIR;
+
+  if (!dir) {
+    return;
+  }
+
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(`${dir}/${name}`, contents);
+};
+
+const deleteCreated = async () => {
+  if (created.tokenIds.length > 0) {
+    await db.query('DELETE FROM oauth_access_tokens WHERE id = ANY($1::bigint[])', [created.tokenIds]);
+    created.tokenIds = [];
+  }
+
+  if (created.userIds.length > 0) {
+    await db.query('DELETE FROM users WHERE id = ANY($1::bigint[])', [created.userIds]);
+    created.userIds = [];
+  }
+
+  if (created.accountIds.length > 0) {
+    await db.query('DELETE FROM accounts WHERE id = ANY($1::bigint[])', [created.accountIds]);
+    created.accountIds = [];
+  }
+};
 
 const waitFor = (predicate, timeoutMs, label) => new Promise((resolve, reject) => {
   const started = Date.now();
@@ -279,13 +354,18 @@ const assertSocketDenied = async (token, message) => {
   }
 };
 
-const insertAccount = async (username, fields) => {
+const insertAccount = async (username, fields, track) => {
   const result = await db.query(
     'INSERT INTO accounts (username, memorial, suspended_at, moved_to_account_id, created_at, updated_at) VALUES ($1, $2, $3, $4, NOW(), NOW()) RETURNING id',
     [username, fields.memorial === true, fields.suspendedAt || null, fields.movedTo || null],
   );
+  const id = String(result.rows[0].id);
 
-  return String(result.rows[0].id);
+  if (track !== false) {
+    created.accountIds.push(id);
+  }
+
+  return id;
 };
 
 const insertUser = async (accountId, email, fields) => {
@@ -300,7 +380,11 @@ const insertUser = async (accountId, email, fields) => {
     ],
   );
 
-  return String(result.rows[0].id);
+  const id = String(result.rows[0].id);
+
+  created.userIds.push(id);
+
+  return id;
 };
 
 const insertToken = async (userId, scopes, fields) => {
@@ -317,15 +401,19 @@ const insertToken = async (userId, scopes, fields) => {
     ],
   );
 
+  const id = String(result.rows[0].id);
+
+  created.tokenIds.push(id);
+
   return {
     token: token,
-    id: String(result.rows[0].id),
+    id: id,
     userId: userId,
   };
 };
 
 const createPerson = async (name, scopes, accountFields, userFields, tokenFields) => {
-  const username = `p52b${name}`.slice(0, 30);
+  const username = `t${runId}${name}`.slice(0, 30);
   const accountId = await insertAccount(username, accountFields || {});
   const userId = await insertUser(accountId, `${username}@preferences.test`, userFields || {});
   const token = await insertToken(userId, scopes, tokenFields || {});
@@ -339,21 +427,76 @@ const createPerson = async (name, scopes, accountFields, userFields, tokenFields
   };
 };
 
+const countBlockedAuthQueries = async () => {
+  const result = await db.query('SELECT COUNT(*)::int AS blocked FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND wait_event_type = \'Lock\' AND query LIKE \'%AS user_account_id%\'');
+
+  return Number(result.rows[0].blocked);
+};
+
+const withHeldAuthorization = async (fn) => {
+  await lockClient.query('BEGIN');
+  await lockClient.query('LOCK TABLE oauth_access_tokens IN ACCESS EXCLUSIVE MODE');
+  let released = false;
+
+  try {
+    await fn(async () => {
+      await lockClient.query('COMMIT');
+      released = true;
+    });
+  } finally {
+    if (!released) {
+      await lockClient.query('ROLLBACK');
+    }
+  }
+};
+
+describe('preferences stream test database guard', () => {
+  const present = {
+    PREFERENCES_STREAM_TEST_DB_NAME: 'preferences_stream_test',
+    PREFERENCES_STREAM_TEST_DB_USER: 'mastodon',
+    PREFERENCES_STREAM_TEST_DB_PASSWORD: 'mastodon',
+    PREFERENCES_STREAM_TEST_DB_HOST: 'localhost',
+    PREFERENCES_STREAM_TEST_DB_PORT: '5432',
+  };
+
+  it('rejects a missing test database before changing data', () => {
+    assert.throws(() => testDatabaseConfig({}), /Refusing to start without/);
+    assert.throws(() => testDatabaseConfig(Object.assign({}, present, {
+      PREFERENCES_STREAM_TEST_DB_NAME: undefined,
+    })), /PREFERENCES_STREAM_TEST_DB_NAME/);
+  });
+
+  it('rejects a database name that is not a dedicated test database', () => {
+    ['mastodon_development', 'mastodon_production', 'postgres', 'production_test'].forEach(name => {
+      assert.throws(() => testDatabaseConfig(Object.assign({}, present, {
+        PREFERENCES_STREAM_TEST_DB_NAME: name,
+      })), /Refusing database/);
+    });
+
+    const accepted = testDatabaseConfig(present);
+
+    assert.equal(accepted.database, 'preferences_stream_test');
+  });
+});
+
 describe('user:preferences streaming', { concurrency: 1, timeout: 180000 }, () => {
   before(async () => {
-    fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
+    const dbConfig = testDatabaseConfig(process.env);
 
-    db = new Client({
-      user: 'mastodon',
-      password: 'mastodon',
-      database: 'mastodon_development',
-      host: 'localhost',
-      port: 5432,
-    });
-    await db.connect();
-    await db.query('DELETE FROM accounts WHERE username LIKE \'p52b%\'');
+    const client = new Client(dbConfig);
 
-    const destination = await insertAccount('p52bmovedest', {});
+    await client.connect();
+    db = client;
+
+    const current = await db.query('SELECT current_database() AS name');
+
+    if (current.rows[0].name !== dbConfig.database) {
+      throw new Error(`Connected to ${current.rows[0].name} instead of ${dbConfig.database}`);
+    }
+
+    world.preexistingAccountId = await insertAccount(`p52bkept${runId}`, {}, false);
+
+    const destination = await insertAccount(`tdest${runId}`, {});
 
     world.readPreferences = await createPerson('readprefs', 'read:preferences');
     world.read = await createPerson('readall', 'read');
@@ -381,16 +524,35 @@ describe('user:preferences streaming', { concurrency: 1, timeout: 180000 }, () =
     world.cutoffExpire = await createPerson('cutexpire', 'read', {}, {}, { expiresIn: 3600 });
     world.cutoffDisable = await createPerson('cutdisable', 'read:preferences');
     world.leak = await createPerson('leak', 'read:preferences');
+    world.raceQuiet = await createPerson('racequiet', 'read');
+    world.raceFail = await createPerson('racefail', 'read');
+    world.raceRenew = await createPerson('racerenew', 'read');
+    world.raceDrop = await createPerson('racedrop', 'read:preferences');
+    world.raceLive = await createPerson('racelive', 'read');
+
+    const held = new Client(dbConfig);
+
+    await held.connect();
+    lockClient = held;
+
+    const childEnv = Object.assign({}, process.env, {
+      NODE_ENV: 'test',
+      PORT: String(PORT),
+      BIND: '127.0.0.1',
+      STREAMING_CLUSTER_NUM: '1',
+      LOG_LEVEL: 'error',
+      REDIS_NAMESPACE: NAMESPACE,
+      DB_HOST: dbConfig.host,
+      DB_PORT: String(dbConfig.port),
+      DB_USER: dbConfig.user,
+      DB_PASS: dbConfig.password,
+      DB_NAME: dbConfig.database,
+    });
+
+    delete childEnv.DATABASE_URL;
 
     serverProcess = spawn(process.execPath, ['./streaming/index.js'], {
-      env: Object.assign({}, process.env, {
-        NODE_ENV: 'development',
-        PORT: String(PORT),
-        BIND: '127.0.0.1',
-        STREAMING_CLUSTER_NUM: '1',
-        LOG_LEVEL: 'error',
-        REDIS_NAMESPACE: NAMESPACE,
-      }),
+      env: childEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     serverProcess.stdout.on('data', chunk => {
@@ -428,8 +590,24 @@ describe('user:preferences streaming', { concurrency: 1, timeout: 180000 }, () =
       });
     }
 
+    if (lockClient) {
+      await lockClient.query('ROLLBACK').catch(() => {});
+      await lockClient.end();
+    }
+
     if (db) {
-      await db.query('DELETE FROM accounts WHERE username LIKE \'p52b%\'').catch(() => {});
+      await deleteCreated();
+
+      if (world.preexistingAccountId) {
+        const kept = await db.query('SELECT id FROM accounts WHERE id = $1', [world.preexistingAccountId]);
+
+        if (kept.rows.length !== 1) {
+          throw new Error('cleanup removed an account this run did not create');
+        }
+
+        await db.query('DELETE FROM accounts WHERE id = $1', [world.preexistingAccountId]);
+      }
+
       await db.end();
     }
   });
@@ -453,7 +631,7 @@ describe('user:preferences streaming', { concurrency: 1, timeout: 180000 }, () =
 
       assert.equal(sample, 'event: preferences_changed\ndata: {"version":1,"revision":"12","changed_keys":["user.default_language"]}');
       assert.equal(stream.text().includes('"revision":"11"'), false);
-      fs.writeFileSync(`${ARTIFACT_DIR}/preferences-sse-event.txt`, `${sample}\n`);
+      writeArtifact('preferences-sse-event.txt', `${sample}\n`);
 
       await publish(channel, 'preferences_changed', preferencePayload('9223372036854775807', ['user.default_language']));
       await waitFor(() => stream.text().includes('"revision":"9223372036854775807"'), 8000, 'sse big revision');
@@ -500,7 +678,7 @@ describe('user:preferences streaming', { concurrency: 1, timeout: 180000 }, () =
       assert.equal(typeof message.parsed.payload, 'string');
       assert.deepEqual(message.payload, preferencePayload('12', ['user.default_language']));
       assert.equal(message.raw.includes(world.read.accountId), false);
-      fs.writeFileSync(`${ARTIFACT_DIR}/preferences-ws-event.json`, `${message.raw}\n`);
+      writeArtifact('preferences-ws-event.json', `${message.raw}\n`);
 
       await publish(channel, 'preferences_changed', preferencePayload('9223372036854775807', ['user.default_language']));
       await waitFor(() => preferenceMessages(socket).some(item => item.payload.revision === '9223372036854775807'), 8000, 'ws big revision');
@@ -907,5 +1085,184 @@ describe('user:preferences streaming', { concurrency: 1, timeout: 180000 }, () =
       user.close();
       await waitNumsub(userChannel(world.statuses.accountId), 0);
     }
+  });
+
+  it('does not deliver a preference event whose authorization finishes after unsubscribe', async () => {
+    const person = world.raceQuiet;
+    const prefs = prefsChannel(person.accountId);
+    const user = userChannel(person.accountId);
+    const socket = await connectSocket(person.token);
+
+    try {
+      socket.send({ type: 'subscribe', stream: 'user:preferences' });
+      socket.send({ type: 'subscribe', stream: 'user' });
+      await waitNumsub(prefs, 1);
+      await waitNumsub(user, 1);
+
+      await withHeldAuthorization(async release => {
+        await publish(prefs, 'preferences_changed', preferencePayload('81', ['marker-unsub-late']));
+        await waitFor(async () => (await countBlockedAuthQueries()) >= 1, 8000, 'quiet auth blocked');
+        socket.send({ type: 'unsubscribe', stream: 'user:preferences' });
+        await waitNumsub(prefs, 0);
+        assert.equal(await numsub(user), 1);
+        await release();
+        await waitFor(async () => (await countBlockedAuthQueries()) === 0, 8000, 'quiet auth finished');
+      });
+
+      await publish(user, 'update', 'marker-user-after-late-auth');
+      await waitFor(() => socket.messages.some(message => message.includes('marker-user-after-late-auth')), 8000, 'user after late auth');
+      assert.equal(socket.messages.some(message => message.includes('marker-unsub-late')), false);
+      assert.equal(socket.closed(), false);
+    } finally {
+      socket.ws.close();
+      await waitNumsub(prefs, 0);
+      await waitNumsub(user, 0);
+    }
+  });
+
+  it('keeps the user stream when a removed preferences subscription fails authorization', async () => {
+    const person = world.raceFail;
+    const prefs = prefsChannel(person.accountId);
+    const user = userChannel(person.accountId);
+    const socket = await connectSocket(person.token);
+
+    try {
+      socket.send({ type: 'subscribe', stream: 'user:preferences' });
+      socket.send({ type: 'subscribe', stream: 'user' });
+      await waitNumsub(prefs, 1);
+      await waitNumsub(user, 1);
+
+      await withHeldAuthorization(async release => {
+        await publish(prefs, 'preferences_changed', preferencePayload('82', ['marker-unsub-revoke']));
+        await waitFor(async () => (await countBlockedAuthQueries()) >= 1, 8000, 'revoke auth blocked');
+        socket.send({ type: 'unsubscribe', stream: 'user:preferences' });
+        await waitNumsub(prefs, 0);
+        await lockClient.query('UPDATE oauth_access_tokens SET revoked_at = NOW() WHERE id = $1', [person.tokenId]);
+        await release();
+        await waitFor(async () => (await countBlockedAuthQueries()) === 0, 8000, 'revoke auth finished');
+      });
+
+      await publish(user, 'update', 'marker-user-after-revoked-unsub');
+      await waitFor(() => socket.messages.some(message => message.includes('marker-user-after-revoked-unsub')), 8000, 'user after revoked unsub');
+      assert.equal(socket.messages.some(message => message.includes('marker-unsub-revoke')), false);
+      assert.equal(socket.closed(), false);
+    } finally {
+      socket.ws.close();
+      await waitNumsub(prefs, 0);
+      await waitNumsub(user, 0);
+    }
+  });
+
+  it('does not apply an in-flight authorization to a preferences subscription created later', async () => {
+    const person = world.raceRenew;
+    const prefs = prefsChannel(person.accountId);
+    const socket = await connectSocket(person.token);
+
+    try {
+      socket.send({ type: 'subscribe', stream: 'user:preferences' });
+      await waitNumsub(prefs, 1);
+
+      await withHeldAuthorization(async release => {
+        await publish(prefs, 'preferences_changed', preferencePayload('83', ['marker-old-subscription']));
+        await waitFor(async () => (await countBlockedAuthQueries()) >= 1, 8000, 'old auth blocked');
+        socket.send({ type: 'unsubscribe', stream: 'user:preferences' });
+        await waitNumsub(prefs, 0);
+        socket.send({ type: 'subscribe', stream: 'user:preferences' });
+        await waitFor(async () => (await countBlockedAuthQueries()) >= 2, 8000, 'new auth blocked');
+        await release();
+        await waitFor(async () => (await countBlockedAuthQueries()) === 0, 8000, 'renew auth finished');
+        await waitNumsub(prefs, 1);
+      });
+
+      assert.equal(socket.messages.some(message => message.includes('marker-old-subscription')), false);
+      assert.equal(socket.closed(), false);
+      await publish(prefs, 'preferences_changed', preferencePayload('84', ['marker-new-subscription']));
+      await waitFor(() => socket.messages.some(message => message.includes('marker-new-subscription')), 8000, 'new subscription event');
+      assert.equal(socket.messages.some(message => message.includes('marker-old-subscription')), false);
+    } finally {
+      socket.ws.close();
+      await waitNumsub(prefs, 0);
+    }
+  });
+
+  it('does not send a preference event whose authorization finishes after disconnect', async () => {
+    const person = world.raceDrop;
+    const prefs = prefsChannel(person.accountId);
+    const socket = await connectSocket(person.token);
+    const logAt = serverLog.length;
+
+    try {
+      socket.send({ type: 'subscribe', stream: 'user:preferences' });
+      await waitNumsub(prefs, 1);
+
+      await withHeldAuthorization(async release => {
+        await publish(prefs, 'preferences_changed', preferencePayload('85', ['marker-after-disconnect']));
+        await waitFor(async () => (await countBlockedAuthQueries()) >= 1, 8000, 'disconnect auth blocked');
+        socket.ws.close();
+        await waitNumsub(prefs, 0);
+        await release();
+        await waitFor(async () => (await countBlockedAuthQueries()) === 0, 8000, 'disconnect auth finished');
+      });
+
+      assert.equal(socket.messages.some(message => message.includes('marker-after-disconnect')), false);
+      assert.equal(serverLog.slice(logAt).includes('Tried writing to closed socket'), false);
+      assert.equal(await numsub(prefs), 0);
+    } finally {
+      if (socket.opened && !socket.closed()) {
+        socket.ws.close();
+      }
+      await waitNumsub(prefs, 0);
+    }
+  });
+
+  it('closes an active preferences subscription when authorization fails', async () => {
+    const person = world.raceLive;
+    const prefs = prefsChannel(person.accountId);
+    const socket = await connectSocket(person.token);
+
+    try {
+      socket.send({ type: 'subscribe', stream: 'user:preferences' });
+      socket.send({ type: 'subscribe', stream: 'user' });
+      await waitNumsub(prefs, 1);
+
+      await withHeldAuthorization(async release => {
+        await publish(prefs, 'preferences_changed', preferencePayload('86', ['marker-active-revoke']));
+        await waitFor(async () => (await countBlockedAuthQueries()) >= 1, 8000, 'active revoke blocked');
+        await lockClient.query('UPDATE oauth_access_tokens SET revoked_at = NOW() WHERE id = $1', [person.tokenId]);
+        await release();
+        await waitFor(() => socket.closed(), 8000, 'active revoke closed');
+      });
+
+      assert.equal(socket.messages.some(message => message.includes('marker-active-revoke')), false);
+    } finally {
+      if (socket.opened && !socket.closed()) {
+        socket.ws.close();
+      }
+      await waitNumsub(prefs, 0);
+      await waitNumsub(userChannel(person.accountId), 0);
+    }
+  });
+
+  it('deletes only the accounts, users, and tokens created by this run', async () => {
+    const preexisting = world.preexistingAccountId;
+    const accountIds = created.accountIds.slice();
+    const userIds = created.userIds.slice();
+    const tokenIds = created.tokenIds.slice();
+    const keptBefore = await db.query('SELECT id FROM accounts WHERE id = $1', [preexisting]);
+
+    assert.equal(keptBefore.rows.length, 1);
+    assert.equal(accountIds.includes(preexisting), false);
+
+    await deleteCreated();
+
+    const keptAfter = await db.query('SELECT id FROM accounts WHERE id = $1', [preexisting]);
+    const accountsLeft = await db.query('SELECT COUNT(*)::int AS n FROM accounts WHERE id = ANY($1::bigint[])', [accountIds]);
+    const usersLeft = await db.query('SELECT COUNT(*)::int AS n FROM users WHERE id = ANY($1::bigint[])', [userIds]);
+    const tokensLeft = await db.query('SELECT COUNT(*)::int AS n FROM oauth_access_tokens WHERE id = ANY($1::bigint[])', [tokenIds]);
+
+    assert.equal(keptAfter.rows.length, 1);
+    assert.equal(Number(accountsLeft.rows[0].n), 0);
+    assert.equal(Number(usersLeft.rows[0].n), 0);
+    assert.equal(Number(tokensLeft.rows[0].n), 0);
   });
 });

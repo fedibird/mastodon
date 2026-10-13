@@ -124,18 +124,43 @@ const startWorker = (workerId) => {
       port:     process.env.DB_PORT || 5432,
       max:      10,
     },
+
+    // NODE_ENV=test never falls back to the development or production database.
+    test: {
+      user:     process.env.DB_USER,
+      password: process.env.DB_PASS,
+      database: process.env.DB_NAME,
+      host:     process.env.DB_HOST || 'localhost',
+      port:     process.env.DB_PORT || 5432,
+      max:      10,
+    },
   };
 
   if (!!process.env.DB_SSLMODE && process.env.DB_SSLMODE !== 'disable') {
     pgConfigs.development.ssl = true;
     pgConfigs.production.ssl  = true;
+    pgConfigs.test.ssl = true;
+  }
+
+  if (env === 'test') {
+    const testDatabase = pgConfigs.test.database || '';
+
+    if (!/^[A-Za-z0-9_]+$/.test(testDatabase) || !/test/i.test(testDatabase) || /development|production/i.test(testDatabase)) {
+      throw new Error(`Refusing NODE_ENV=test database "${testDatabase}"`);
+    }
   }
 
   const app = express();
 
   app.set('trusted proxy', process.env.TRUSTED_PROXY_IP || 'loopback,uniquelocal');
 
-  const pgPool = new pg.Pool(Object.assign(pgConfigs[env], dbUrlToConfig(process.env.DATABASE_URL)));
+  const poolConfig = Object.assign({}, pgConfigs[env]);
+
+  if (env !== 'test') {
+    Object.assign(poolConfig, dbUrlToConfig(process.env.DATABASE_URL));
+  }
+
+  const pgPool = new pg.Pool(poolConfig);
   const server = http.createServer(app);
   const redisNamespace = process.env.REDIS_NAMESPACE || null;
 
@@ -693,6 +718,28 @@ const startWorker = (workerId) => {
   });
 
   /**
+   * One ticket per preferences subscription. Unsubscribe and disconnect clear it
+   * so an in-flight re-authorization cannot deliver or close another stream.
+   *
+   * @typedef PreferencesTicket
+   * @property {boolean} active
+   */
+
+  /** @type {WeakMap<function(string): void, PreferencesTicket>} */
+  const preferencesTickets = new WeakMap();
+
+  /**
+   * @param {function(string): void} listener
+   */
+  const deactivatePreferencesTicket = listener => {
+    const ticket = preferencesTickets.get(listener);
+
+    if (ticket) {
+      ticket.active = false;
+    }
+  };
+
+  /**
    * @param {string[]} ids
    * @param {any} req
    * @param {function(string, string): void} output
@@ -705,6 +752,7 @@ const startWorker = (workerId) => {
   const streamFrom = (ids, req, output, attachCloseHandler, needsFiltering = false, notificationOnly = false, preferencesOnly = false) => {
     const accountId  = req.accountId || req.remoteAddress;
     const streamType = notificationOnly ? ' (notification)' : '';
+    const preferencesTicket = preferencesOnly ? { active: true } : null;
 
     log.verbose(req.requestId, `Starting stream from ${ids.join(', ')} for ${accountId}${streamType}`);
 
@@ -730,13 +778,23 @@ const startWorker = (workerId) => {
       };
 
       if (preferencesOnly) {
-        if (event !== 'preferences_changed') {
+        if (event !== 'preferences_changed' || !preferencesTicket) {
           return;
         }
 
+        const ticket = preferencesTicket;
+
         authorizePreferencesAccount(req).then(() => {
+          if (!ticket.active) {
+            return;
+          }
+
           transmit();
         }).catch(() => {
+          if (!ticket.active) {
+            return;
+          }
+
           log.verbose(req.requestId, `Closing preferences stream for ${req.accountId}`);
 
           if (req.closePreferencesStream) {
@@ -828,6 +886,13 @@ const startWorker = (workerId) => {
         });
       });
     };
+
+    if (preferencesTicket) {
+      preferencesTickets.set(listener, preferencesTicket);
+      req.on('close', () => {
+        preferencesTicket.active = false;
+      });
+    }
 
     ids.forEach(id => {
       subscribe(`${redisPrefix}${id}`, listener);
@@ -1452,6 +1517,8 @@ const startWorker = (workerId) => {
 
       const { listener, stopHeartbeat } = subscription;
 
+      deactivatePreferencesTicket(listener);
+
       channelIds.forEach(channelId => {
         unsubscribe(`${redisPrefix}${channelId}`, listener);
       });
@@ -1532,6 +1599,8 @@ const startWorker = (workerId) => {
 
       keys.forEach(channelIds => {
         const { listener, stopHeartbeat } = session.subscriptions[channelIds];
+
+        deactivatePreferencesTicket(listener);
 
         channelIds.split(';').forEach(channelId => {
           unsubscribe(`${redisPrefix}${channelId}`, listener);
