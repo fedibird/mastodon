@@ -5,6 +5,10 @@
 # posts with FEP-1b12 audience and no group mention. A NodeBB category
 # uses that audience plus a required category mention in the body.
 # The topic collection from FEP-7888 is not derived from the audience.
+# Lemmy and PieFed are absent on purpose. Both store a community
+# submission as a Page whose name is the title. Fedibird emits a Note
+# and has no title field. Their receivers may invent a title from the
+# body, and this service does not send that Note as a substitute.
 class PostingIdentity::RemoteGroupPost
   ADAPTERS = {
     'mitra_group' => {

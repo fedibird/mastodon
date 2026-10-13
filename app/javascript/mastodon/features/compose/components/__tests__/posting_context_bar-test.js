@@ -538,9 +538,29 @@ describe('PostingContextBar', () => {
     const en = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../../locales/en.json'), 'utf8'));
     const ja = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../../locales/ja.json'), 'utf8'));
 
+    store.dispatch(targetComposerAction({
+      type: 'COMPOSER_SENDER_IDENTITY_SELECT',
+      decision: {
+        changing: true,
+        effectsApplied: true,
+        permitted: true,
+        toIdentityId: 'delegated:99',
+      },
+    }, composerId));
+
+    const delegatedMessage = 'Sending to this community as another account needs an explicit title. That is not available, so this draft is kept and is not sent.';
+
+    expect(screen.getByText(delegatedMessage)).toBeTruthy();
+    expect(screen.queryByText(lemmyMessage)).toBeNull();
+    expect(screen.queryByText(weakTitle)).toBeNull();
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'text'])).toEqual('');
+    expect(store.getState().getIn(['composers', 'byId', composerId, 'context', 'key'])).toEqual('protocol:fep-1b12-lemmy:456');
+
     expect(en['compose_form.posting_context.threadiverse.lemmy']).toEqual(lemmyMessage);
     expect(ja['compose_form.posting_context.threadiverse.lemmy']).toEqual('最初の行が投稿タイトルになります（最大100文字）。コミュニティのメンションは自動追加されます');
     expect(en['compose_form.posting_context.threadiverse.piefed']).toEqual(piefedMessage);
+    expect(en['compose_form.posting_context.threadiverse.delegated']).toEqual(delegatedMessage);
+    expect(ja['compose_form.posting_context.threadiverse.delegated']).toEqual('別のアカウントとしてこのコミュニティへ送るには、明示的なタイトルが必要です。まだ対応していないため、下書きは残したまま送信できません。');
     expect(ja['compose_form.posting_context.threadiverse.piefed']).toEqual('コミュニティのメンションは自動追加されます');
     expect(ja['compose_form.posting_context.threadiverse.weak_title']).toEqual('先頭行が空、またはメンションやハッシュタグだけの場合、タイトルとして適さないことがあります');
   });

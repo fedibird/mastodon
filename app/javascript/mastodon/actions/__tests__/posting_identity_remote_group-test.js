@@ -419,7 +419,7 @@ describe('delegated NodeBB group posts', () => {
     const forged = makeStore(lemmy);
 
     forged.dispatch(nodebbDiscovery('456', '7', senderPosting({ adapter: 'lemmy_group', delivery: 'supported' })));
-    expect(selectComposerCanSendAsIdentity(forged.getState(), 'primary').reason).toEqual('group');
+    expect(selectComposerCanSendAsIdentity(forged.getState(), 'primary').reason).toEqual('post_type');
     expect(selectComposerEffectiveCreateCapability(forged.getState(), 'primary').canAttempt).toBe(false);
   });
 
@@ -582,5 +582,170 @@ describe('delegated NodeBB group discovery order', () => {
     expect(store.getState().getIn(['compose', 'text'])).toEqual('Keep this draft');
     expect(store.getState().getIn(['compose', 'posting_context_account_id'])).toEqual('456');
     expect(selectComposerCanSendAsIdentity(store.getState(), 'primary').canSend).toBe(true);
+  });
+});
+
+const threadiverseContext = (software, accountId = '456') => ({
+  key: `protocol:fep-1b12-${software}:${accountId}`,
+  source: { id: `compat:${software}-group-note`, revision: 1 },
+  resolvedAccountId: accountId,
+  managed: {
+    hashtags: [],
+    mentions: [{
+      accountId,
+      acct: `technology@${software}.example`,
+      enforcement: 'required',
+      ruleId: `${software}-group-mention`,
+      placement: software === 'lemmy' ? 'after_title' : 'append',
+    }],
+  },
+  requirements: { followingAccounts: [] },
+  constraints: { allowedVisibilities: ['public'] },
+  protocol: {
+    activityPub: {
+      audience: {
+        accountId,
+        acct: `technology@${software}.example`,
+        enforcement: 'required',
+        ruleId: 'fep-1b12-group-audience',
+      },
+    },
+  },
+});
+
+const threadiverseDiscovery = (software, accountId, delegationId, posting) => ({
+  type: 'POSTING_CONTEXT_FETCH_SUCCESS',
+  accountId,
+  cacheKey: postingContextCacheKey(accountId, { identityId: 'delegated:99', delegationId }),
+  receivedAt: Date.now(),
+  data: {
+    schema_version: 1,
+    account_id: accountId,
+    status: 'resolved',
+    context: {
+      key: `protocol:fep-1b12-${software}:${accountId}`,
+      source: { id: `compat:${software}-group-note`, revision: 1 },
+      managed: {
+        hashtags: [],
+        mentions: [{
+          account_id: accountId,
+          acct: `technology@${software}.example`,
+          enforcement: 'required',
+          rule_id: `${software}-group-mention`,
+          placement: software === 'lemmy' ? 'after_title' : 'append',
+        }],
+      },
+      requirements: { following_accounts: [] },
+      constraints: { allowed_visibilities: ['public'] },
+      protocol: {
+        activitypub: {
+          audience: {
+            account_id: accountId,
+            acct: `technology@${software}.example`,
+            enforcement: 'required',
+            rule_id: 'fep-1b12-group-audience',
+          },
+        },
+      },
+    },
+    discovery: { mechanism: 'nodeinfo_software', adapter: `${software}_group`, authority: 'compatibility' },
+    sender_posting: posting,
+  },
+});
+
+const readyThreadiverse = (software, accountId = '456') => {
+  let composeState = composerInitialState
+    .set('text', 'Title line\n\nKeep this draft')
+    .set('privacy', 'public')
+    .set('posting_context_account_id', accountId)
+    .set('context', fromJS(threadiverseContext(software, accountId)))
+    .setIn(['senderIdentity', 'id'], 'delegated:99')
+    .setIn(['senderIdentity', 'status'], 'ready');
+
+  composeState = composeState.set('interactionCheck', ImmutableMap({
+    status: 'ready',
+    identityId: 'delegated:99',
+    epoch: 0,
+    delegationId: '7',
+    inputKey: composerInteractionInputKey(composeState),
+    requestId: 1,
+  }));
+
+  return composeState;
+};
+
+describe('delegated Lemmy and PieFed groups stay closed', () => {
+  beforeEach(() => {
+    api.mockReset();
+    api.mockReturnValue({ request: jest.fn(), post: jest.fn(), get: jest.fn() });
+  });
+
+  it.each(['lemmy', 'piefed'])('does not send a %s community post or reuse another identity cache', async (software) => {
+    const store = makeStore(readyThreadiverse(software));
+    const portableId = 'portable:list:9';
+
+    store.dispatch(createComposer(portableId));
+    store.dispatch({
+      type: 'SETTING_CHANGE',
+      path: ['portableComposerDisplayMode', portableId],
+      value: PORTABLE_COMPOSER_MODE_SIMPLE,
+    });
+    store.dispatch({
+      type: 'POSTING_CONTEXT_FETCH_SUCCESS',
+      accountId: '456',
+      receivedAt: Date.now(),
+      data: {
+        ...threadiverseDiscovery(software, '456', '7', null).data,
+        sender_posting: undefined,
+        viewer_evidence: {
+          affiliations: { source: 'fep-5219-affiliations', snapshot_status: 'fresh', relationships: [] },
+          permissions: { create: { status: 'allowed', source: 'fep-5219', via_relationship: 'none', authority: 'protocol' } },
+        },
+      },
+    });
+
+    expect(selectComposerCanSendAsIdentity(store.getState(), 'primary')).toEqual(expect.objectContaining({
+      canSend: false,
+      reason: 'post_type',
+    }));
+
+    store.dispatch(threadiverseDiscovery(software, '456', '7', senderPosting({
+      adapter: `${software}_group`,
+      canPost: true,
+      confirmed: true,
+      delivery: 'supported',
+    })));
+
+    expect(store.getState().getIn(['posting_contexts', postingContextCacheKey('456', { identityId: 'delegated:99', delegationId: '7' }), 'discovery', 'adapter'])).toEqual(`${software}_group`);
+    expect(selectComposerCanSendAsIdentity(store.getState(), 'primary').canSend).toBe(false);
+    expect(selectComposerCanSendAsIdentity(store.getState(), 'primary').reason).toEqual('post_type');
+    expect(selectComposerEffectiveCreateCapability(store.getState(), 'primary')).toEqual(expect.objectContaining({
+      canAttempt: false,
+      reason: 'delivery_unsupported',
+    }));
+    expect(store.getState().getIn(['compose', 'text'])).toEqual('Title line\n\nKeep this draft');
+    expect(store.getState().getIn(['compose', 'context', 'key'])).toEqual(`protocol:fep-1b12-${software}:456`);
+    expect(selectPortableComposerDisplayMode(store.getState(), portableId)).toEqual(PORTABLE_COMPOSER_MODE_SIMPLE);
+
+    const request = jest.fn();
+
+    api.mockReturnValue({ request, post: jest.fn(), get: jest.fn() });
+    await store.dispatch(submitComposer('primary'));
+    expect(request).not.toHaveBeenCalled();
+    expect(store.getState().getIn(['compose', 'text'])).toEqual('Title line\n\nKeep this draft');
+    expect(store.getState().getIn(['compose', 'posting_context_account_id'])).toEqual('456');
+
+    const otherDelegation = makeStore(readyThreadiverse(software), [identity('local:42', null), identity('delegated:99', '8')]);
+
+    otherDelegation.dispatch(threadiverseDiscovery(software, '456', '7', senderPosting({ adapter: `${software}_group` })));
+    expect(selectComposerCanSendAsIdentity(otherDelegation.getState(), 'primary').canSend).toBe(false);
+    expect(otherDelegation.getState().getIn(['compose', 'text'])).toEqual('Title line\n\nKeep this draft');
+
+    const otherGroup = makeStore(readyThreadiverse(software, '789'));
+
+    otherGroup.dispatch(threadiverseDiscovery(software, '456', '7', senderPosting({ adapter: `${software}_group` })));
+    expect(selectComposerCanSendAsIdentity(otherGroup.getState(), 'primary').canSend).toBe(false);
+    expect(otherGroup.getState().getIn(['compose', 'posting_context_account_id'])).toEqual('789');
+    expect(otherGroup.getState().getIn(['compose', 'context', 'key'])).toEqual(`protocol:fep-1b12-${software}:789`);
   });
 });

@@ -1,6 +1,6 @@
 import { POSTING_CONTEXT_CACHE_TTL } from '../actions/posting_contexts';
 import { isAdministrator, me } from '../initial_state';
-import { composerHasGroupDestination, consistentLocalFedibirdGroup, consistentNodebbGroup, consistentSupportedRemoteGroup } from '../posting_identity/group_destination';
+import { composerHasGroupDestination, consistentLocalFedibirdGroup, consistentNodebbGroup, consistentSupportedRemoteGroup, consistentUnavailableThreadiverseGroup } from '../posting_identity/group_destination';
 import { composerInteractionInputKey } from '../posting_identity/interaction_input';
 import { sessionPostingIdentityId } from '../posting_identity/identity';
 import { materializeComposerText } from '../posting_context/materialize';
@@ -252,6 +252,10 @@ export const selectComposerCanSendAsIdentity = (state, composerId) => {
 
       if (composer.get('quote_from') && !capabilityAllows(identity, 'quote')) {
         return deny('quote');
+      }
+
+      if (consistentUnavailableThreadiverseGroup(composer)) {
+        return deny('post_type');
       }
 
       if (composerHasGroupDestination(composer) && (composer.get('in_reply_to') || composer.get('quote_from') || !capabilityAllows(identity, 'group') || !(consistentLocalFedibirdGroup(composer) || consistentSupportedRemoteGroup(composer)))) {
