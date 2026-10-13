@@ -1,17 +1,21 @@
 # frozen_string_literal: true
 
 class PostingIdentity::Delegated
-  # post is the text capability. media is listed only together with post.
-  # Replies, groups, and schedules stay unavailable. The catalog describes
-  # the grant at read time and is checked again when a file or status is saved.
+  # post is the text capability. media, reply, and quote are listed only
+  # together with post. Groups and schedules stay unavailable. ready is
+  # the grant at read time and is checked again when a status is saved.
   def self.build(delegation)
     account = delegation.posting_account
     scopes = Array(delegation.scopes).map(&:to_s)
     post_ready = scopes.include?('post')
     media_ready = post_ready && scopes.include?('media')
+    reply_ready = post_ready && scopes.include?('reply')
+    quote_ready = post_ready && scopes.include?('quote')
     capabilities = PostingIdentity::CAPABILITIES.index_with { PostingIdentity::CAPABILITY_UNAVAILABLE }
     capabilities['post'] = PostingIdentity::CAPABILITY_SUPPORTED if post_ready
     capabilities['media'] = PostingIdentity::CAPABILITY_SUPPORTED if media_ready
+    capabilities['reply'] = PostingIdentity::CAPABILITY_SUPPORTED if reply_ready
+    capabilities['quote'] = PostingIdentity::CAPABILITY_SUPPORTED if quote_ready
 
     PostingIdentity::Record.new(
       id: PostingIdentity.delegated_id(account),

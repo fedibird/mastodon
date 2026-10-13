@@ -16,7 +16,7 @@ module PostingIdentity
   AUTHORIZATION_UNAVAILABLE = 'unavailable'
   CAPABILITY_SUPPORTED = 'supported'
   CAPABILITY_UNAVAILABLE = 'unavailable'
-  CAPABILITIES = %w(post media reply group schedule).freeze
+  CAPABILITIES = %w(post media reply quote group schedule).freeze
 
   def self.local_id(account)
     "local:#{account.id}"

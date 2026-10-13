@@ -5,7 +5,7 @@ import { composerSenderSwitchDraft, resolveSenderIdentitySwitch } from '../posti
 import { selectComposer } from '../selectors/composer';
 import { selectPostingContextViewerEvidence } from '../selectors/posting_contexts';
 import uuid from '../uuid';
-import { COMPOSER_SENDER_IDENTITY_SELECT, targetComposerAction } from './composer';
+import { COMPOSER_INTERACTION_CHECK_FAIL, COMPOSER_INTERACTION_CHECK_REQUEST, COMPOSER_INTERACTION_CHECK_SUCCESS, COMPOSER_SENDER_IDENTITY_SELECT, targetComposerAction } from './composer';
 
 export const POSTING_IDENTITIES_FETCH_REQUEST = 'POSTING_IDENTITIES_FETCH_REQUEST';
 export const POSTING_IDENTITIES_FETCH_SUCCESS = 'POSTING_IDENTITIES_FETCH_SUCCESS';
@@ -97,10 +97,73 @@ export function selectComposerSenderIdentity(composerId, identityId, { confirmed
       confirmed,
     });
 
-    return dispatch(targetComposerAction({
+    const selected = dispatch(targetComposerAction({
       type: COMPOSER_SENDER_IDENTITY_SELECT,
       identityId: identityId ? String(identityId) : null,
       decision,
     }, composerId));
+
+    if (decision.effectsApplied && (decision.mustRevalidateReply || decision.mustRevalidateQuote)) {
+      dispatch(validateComposerInteraction(composerId));
+    }
+
+    return selected;
+  };
+}
+
+const interactionTargetKey = composer => (
+  `${composer.get('in_reply_to') || ''}:${composer.get('quote_from') || ''}`
+);
+
+export function validateComposerInteraction(composerId) {
+  return (dispatch, getState) => {
+    const composer = selectComposer(getState(), composerId);
+
+    if (!composer) {
+      return Promise.resolve();
+    }
+
+    const identityId = composer.getIn(['senderIdentity', 'id']);
+    const epoch = Number(composer.getIn(['senderIdentity', 'changeEpoch'])) || 0;
+    const replyId = composer.get('in_reply_to') || null;
+    const quoteId = composer.get('quote_from') || null;
+    const delegated = typeof identityId === 'string' && identityId.startsWith('delegated:');
+
+    if (!delegated || (!replyId && !quoteId)) {
+      return Promise.resolve();
+    }
+
+    const targetKey = interactionTargetKey(composer);
+    const snapshot = { identityId, epoch, targetKey };
+
+    dispatch(targetComposerAction({
+      type: COMPOSER_INTERACTION_CHECK_REQUEST,
+      ...snapshot,
+      skipLoading: true,
+    }, composerId));
+
+    return api(getState)
+      .post('/api/v1/fedibird/posting_identities/interaction', {
+        posting_identity_id: identityId,
+        in_reply_to_id: replyId,
+        quote_id: quoteId,
+        visibility: composer.get('privacy'),
+        status: composer.get('text') || '',
+      })
+      .then(() => {
+        dispatch(targetComposerAction({
+          type: COMPOSER_INTERACTION_CHECK_SUCCESS,
+          ...snapshot,
+          skipLoading: true,
+        }, composerId));
+      })
+      .catch(() => {
+        dispatch(targetComposerAction({
+          type: COMPOSER_INTERACTION_CHECK_FAIL,
+          ...snapshot,
+          skipLoading: true,
+          skipAlert: true,
+        }, composerId));
+      });
   };
 }

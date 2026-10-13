@@ -45,9 +45,49 @@ export const selectComposerSenderIdentity = (state, composerId) => {
   });
 };
 
-const capabilityAllows = (identity, name) => (
-  !identity || identity.getIn(['capabilities', name]) === 'supported'
-);
+const capabilityAllows = (identity, name) => {
+  if (!identity) {
+    return true;
+  }
+
+  const value = identity.getIn(['capabilities', name]);
+
+  if (name === 'quote' && (value === undefined || value === null)) {
+    return identity.get('kind') !== 'delegated';
+  }
+
+  return value === 'supported';
+};
+
+const interactionTargetKey = (replyId, quoteId) => `${replyId || ''}:${quoteId || ''}`;
+
+const delegatedInteractionReady = (composer, senderId) => {
+  const replyId = composer.get('in_reply_to');
+  const quoteId = composer.get('quote_from');
+
+  if (!replyId && !quoteId) {
+    return null;
+  }
+
+  const check = composer.get('interactionCheck');
+  const epoch = Number(composer.getIn(['senderIdentity', 'changeEpoch'])) || 0;
+  const targetKey = interactionTargetKey(replyId, quoteId);
+
+  if (!check || check.get('status') === 'pending') {
+    return 'pending';
+  }
+
+  if (
+    check.get('status') !== 'ready'
+    || check.get('identityId') !== senderId
+    || Number(check.get('epoch')) !== epoch
+    || check.get('targetKey') !== targetKey
+  ) {
+    return 'target';
+  }
+
+  return null;
+};
 
 export const selectComposerCanSendAsIdentity = (state, composerId) => {
   const composer = selectComposer(state, composerId);
@@ -121,8 +161,12 @@ export const selectComposerCanSendAsIdentity = (state, composerId) => {
         return deny('mismatch');
       }
 
-      if (composer.get('in_reply_to') || composer.get('quote_from')) {
+      if (composer.get('in_reply_to') && !capabilityAllows(identity, 'reply')) {
         return deny('reply');
+      }
+
+      if (composer.get('quote_from') && !capabilityAllows(identity, 'quote')) {
+        return deny('quote');
       }
 
       if (composerHasGroupDestination(composer)) {
@@ -139,6 +183,12 @@ export const selectComposerCanSendAsIdentity = (state, composerId) => {
 
       if (composer.get('id')) {
         return deny('edit_bound');
+      }
+
+      const interactionBlock = delegatedInteractionReady(composer, senderId);
+
+      if (interactionBlock) {
+        return deny(interactionBlock);
       }
 
       const mediaSupported = capabilityAllows(identity, 'media');
@@ -179,6 +229,10 @@ export const selectComposerCanSendAsIdentity = (state, composerId) => {
 
     if (composer.get('in_reply_to') && !capabilityAllows(identity, 'reply')) {
       return deny('reply');
+    }
+
+    if (composer.get('quote_from') && !capabilityAllows(identity, 'quote')) {
+      return deny('quote');
     }
 
     if (composer.getIn(['surface', 'kind']) === 'group' && !capabilityAllows(identity, 'group')) {

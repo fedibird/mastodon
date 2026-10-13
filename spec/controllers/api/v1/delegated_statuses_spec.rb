@@ -132,15 +132,12 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
       expect(status.status_expire).to be_nil
     end
 
-    it 'rejects polls, replies, quotes, groups, schedules, and expiry' do
+    it 'rejects polls, mentions, groups, schedules, and expiry' do
       delegate!
       other = Fabricate(:status, account: Fabricate(:account, username: 'quoted'))
 
       [
         { poll: { options: %w(a b) } },
-        { in_reply_to_id: other.id },
-        { quote_id: other.id },
-        { status: 'QT: [https://example.com/users/quoted/statuses/1]' },
         { status: 'hello @quoted' },
         { audience_account_id: other.account_id },
         { circle_id: '1' },

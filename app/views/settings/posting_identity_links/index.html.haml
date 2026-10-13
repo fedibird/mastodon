@@ -39,6 +39,22 @@
                 %label.checkbox
                   = check_box_tag 'scopes[]', 'media', Array(params[:scopes]).include?('media'), id: 'posting_identity_request_scope_media', class: 'boolean optional'
             %span.hint= t('posting_identity_links.scopes.post_included')
+        .fields-group
+          .input.boolean.optional.with_label
+            .label_input
+              %label{ for: 'posting_identity_request_scope_reply' }= t('posting_identity_links.scopes.reply')
+              .label_input__wrapper
+                %label.checkbox
+                  = check_box_tag 'scopes[]', 'reply', Array(params[:scopes]).include?('reply'), id: 'posting_identity_request_scope_reply', class: 'boolean optional'
+            %span.hint= t('posting_identity_links.scopes.reply_extra')
+        .fields-group
+          .input.boolean.optional.with_label
+            .label_input
+              %label{ for: 'posting_identity_request_scope_quote' }= t('posting_identity_links.scopes.quote')
+              .label_input__wrapper
+                %label.checkbox
+                  = check_box_tag 'scopes[]', 'quote', Array(params[:scopes]).include?('quote'), id: 'posting_identity_request_scope_quote', class: 'boolean optional'
+            %span.hint= t('posting_identity_links.scopes.quote_extra')
         .actions
           = button_tag t('posting_identity_links.request_submit'), type: 'submit', class: 'button'
     - else
@@ -108,6 +124,22 @@
               %label.checkbox
                 = check_box_tag 'scopes[]', 'media', false, id: 'posting_identity_allowance_scope_media', class: 'boolean optional'
           %span.hint= t('posting_identity_links.scopes.post_included')
+      .fields-group
+        .input.boolean.optional.with_label
+          .label_input
+            %label{ for: 'posting_identity_allowance_scope_reply' }= t('posting_identity_links.scopes.reply')
+            .label_input__wrapper
+              %label.checkbox
+                = check_box_tag 'scopes[]', 'reply', false, id: 'posting_identity_allowance_scope_reply', class: 'boolean optional'
+          %span.hint= t('posting_identity_links.scopes.reply_extra')
+      .fields-group
+        .input.boolean.optional.with_label
+          .label_input
+            %label{ for: 'posting_identity_allowance_scope_quote' }= t('posting_identity_links.scopes.quote')
+            .label_input__wrapper
+              %label.checkbox
+                = check_box_tag 'scopes[]', 'quote', false, id: 'posting_identity_allowance_scope_quote', class: 'boolean optional'
+          %span.hint= t('posting_identity_links.scopes.quote_extra')
       .actions
         = button_tag t('posting_identity_links.allowance_submit'), type: 'submit', class: 'button'
     - active_allowances = @allowances.select(&:active?)

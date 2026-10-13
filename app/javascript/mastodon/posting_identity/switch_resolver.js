@@ -6,6 +6,16 @@ const mediaOwner = (item, fromIdentityId) => (
   item && item.ownerIdentityId ? item.ownerIdentityId : fromIdentityId
 );
 
+const capabilitySupported = (identity, name) => {
+  const capabilities = identity && identity.capabilities;
+
+  if (!capabilities || !Object.prototype.hasOwnProperty.call(capabilities, name)) {
+    return name === 'quote' && Boolean(identity) && identity.kind !== 'delegated';
+  }
+
+  return capabilities[name] === 'supported';
+};
+
 // Pure description of a future sender change. M1 never permits the change
 // itself. effectsApplied stays false: discarding media, refreshing group
 // discovery, and rotating the idempotency key are instructions, not work
@@ -67,7 +77,7 @@ export function resolveSenderIdentitySwitch({
     reasons.push('media_uploading');
   }
 
-  if (changing && media.length > 0) {
+  if (changing && media.some(item => mediaOwner(item, fromIdentityId) !== toId)) {
     reasons.push('media');
   }
 
@@ -83,11 +93,11 @@ export function resolveSenderIdentitySwitch({
     reasons.push('schedule_bound');
   }
 
-  if (changing && source.replyToId) {
+  if (changing && source.replyToId && !capabilitySupported(toIdentity, 'reply')) {
     reasons.push('reply');
   }
 
-  if (changing && source.quoteId) {
+  if (changing && source.quoteId && !capabilitySupported(toIdentity, 'quote')) {
     reasons.push('quote');
   }
 

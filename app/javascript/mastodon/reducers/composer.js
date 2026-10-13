@@ -67,7 +67,7 @@ import {
 } from '../actions/compose';
 import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { REDRAFT } from '../actions/statuses';
-import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE, COMPOSER_SENDER_IDENTITY_SELECT, COMPOSER_SURFACE_ACCEPT } from '../actions/composer';
+import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE, COMPOSER_INTERACTION_CHECK_FAIL, COMPOSER_INTERACTION_CHECK_REQUEST, COMPOSER_INTERACTION_CHECK_SUCCESS, COMPOSER_SENDER_IDENTITY_SELECT, COMPOSER_SURFACE_ACCEPT } from '../actions/composer';
 import { USER_POSTING_STYLE_AUTO_ATTEMPT, USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DEFAULTS_SETTLED, USER_POSTING_STYLE_DESTINATION, USER_POSTING_STYLE_DESTINATION_RETRY, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../actions/user_posting_styles';
 import { Map as ImmutableMap, List as ImmutableList, Set as ImmutableSet, OrderedSet as ImmutableOrderedSet, fromJS } from 'immutable';
 import uuid from '../uuid';
@@ -115,6 +115,7 @@ export const initialState = ImmutableMap({
   quote_from: null,
   quote_from_url: null,
   reply_status: null,
+  interactionCheck: null,
   is_composing: false,
   is_submitting: false,
   is_changing_upload: false,
@@ -324,6 +325,40 @@ const clearScheduledDraftProvenance = map => {
   map.set('draft_audience_account_id', null);
 };
 
+const interactionTargetKey = (replyId, quoteId) => `${replyId || ''}:${quoteId || ''}`;
+
+const noteInteractionTarget = map => {
+  const replyId = map.get('in_reply_to');
+  const quoteId = map.get('quote_from');
+  const identityId = map.getIn(['senderIdentity', 'id']);
+  const delegated = typeof identityId === 'string' && identityId.startsWith('delegated:');
+  const active = Boolean(replyId || quoteId);
+
+  map.set('interactionCheck', ImmutableMap({
+    status: delegated && active ? 'pending' : 'idle',
+    identityId: delegated && active ? identityId : null,
+    epoch: Number(map.getIn(['senderIdentity', 'changeEpoch'])) || 0,
+    targetKey: interactionTargetKey(replyId, quoteId),
+  }));
+};
+
+const acceptInteractionCheck = (state, action, status) => {
+  const identityId = state.getIn(['senderIdentity', 'id']);
+  const epoch = Number(state.getIn(['senderIdentity', 'changeEpoch'])) || 0;
+  const targetKey = interactionTargetKey(state.get('in_reply_to'), state.get('quote_from'));
+
+  if (action.identityId !== identityId || Number(action.epoch) !== epoch || action.targetKey !== targetKey) {
+    return state;
+  }
+
+  return state.set('interactionCheck', ImmutableMap({
+    status,
+    identityId,
+    epoch,
+    targetKey,
+  }));
+};
+
 const clearAll = state => {
   return state.withMutations(map => {
     map.set('id', null);
@@ -335,7 +370,9 @@ const clearAll = state => {
     map.set('is_changing_upload', false);
     map.set('in_reply_to', null);
     map.set('quote_from', null);
+    map.set('quote_from_url', null);
     map.set('reply_status', null);
+    map.set('interactionCheck', null);
     map.set('privacy', state.get('default_privacy'));
     map.set('searchability', state.get('default_searchability'));
     map.set('circle_id', null);
@@ -538,8 +575,8 @@ const enforceSessionSenderIdentity = state => {
 };
 
 // An approved switch keeps the draft text and the selected posting style.
-// Media, replies, and group surfaces are refused by the resolver, so this
-// does not discard them.
+// Foreign media and group surfaces are refused by the resolver. A reply
+// or quote stays in the draft and must be checked again for the new sender.
 const applySenderIdentitySelection = (state, action) => {
   const decision = action.decision || {};
 
@@ -565,6 +602,8 @@ const applySenderIdentitySelection = (state, action) => {
     if (decision.rotateIdempotencyKey && decision.nextIdempotencyKey) {
       map.set('idempotencyKey', decision.nextIdempotencyKey);
     }
+
+    noteInteractionTarget(map);
   });
 };
 
@@ -1014,7 +1053,7 @@ export default function composer(state = initialState, action) {
       map.set('quote_from', null);
       map.set('quote_from_url', null);
       map.set('reply_status', action.status);
-      map.set('text', statusToTextMentions('', privacy, action.status));
+      map.set('text', statusToTextMentions(state.get('text') || '', privacy, action.status));
       clearManagedHashtagSuppressions(map);
       map.set('privacy', privacy);
       map.set('searchability', searchability);
@@ -1039,6 +1078,8 @@ export default function composer(state = initialState, action) {
         map.set('spoiler', false);
         map.set('spoiler_text', '');
       }
+
+      noteInteractionTarget(map);
     });
   case COMPOSE_QUOTE:
     return state.withMutations(map => {
@@ -1081,6 +1122,8 @@ export default function composer(state = initialState, action) {
         map.set('spoiler', false);
         map.set('spoiler_text', '');
       }
+
+      noteInteractionTarget(map);
     });
   case COMPOSE_EDIT_CANCEL:
     return reapplySelectedStyle(clearStyleManualState(clearAll(state)), { respectManual: false, resetSuppressions: true });
@@ -1118,7 +1161,14 @@ export default function composer(state = initialState, action) {
       }
       clearScheduledDraftProvenance(map);
       clearManagedHashtagSuppressions(map);
+      noteInteractionTarget(map);
     }), { respectManual: true, resetSuppressions: false });
+  case COMPOSER_INTERACTION_CHECK_REQUEST:
+    return acceptInteractionCheck(state, action, 'pending');
+  case COMPOSER_INTERACTION_CHECK_SUCCESS:
+    return acceptInteractionCheck(state, action, 'ready');
+  case COMPOSER_INTERACTION_CHECK_FAIL:
+    return acceptInteractionCheck(state, action, 'denied');
   case COMPOSE_SUBMIT_REQUEST:
     return state.set('is_submitting', true);
   case COMPOSE_UPLOAD_CHANGE_REQUEST:

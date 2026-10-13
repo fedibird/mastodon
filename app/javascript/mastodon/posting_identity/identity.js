@@ -7,7 +7,7 @@ export const KNOWN_SENDER_KINDS = ['local', 'delegated', 'mastodon', 'misskey', 
 export const DELEGATED_POSTING_IDENTITY_KIND = 'delegated';
 export const ENABLED_SENDER_KINDS = [LOCAL_POSTING_IDENTITY_KIND, DELEGATED_POSTING_IDENTITY_KIND];
 export const ENABLED_SENDER_PROVIDERS = [LOCAL_POSTING_IDENTITY_PROVIDER];
-export const POSTING_CAPABILITIES = ['post', 'media', 'reply', 'group', 'schedule'];
+export const POSTING_CAPABILITIES = ['post', 'media', 'reply', 'quote', 'group', 'schedule'];
 
 export const localPostingIdentityId = accountId => {
   if (accountId === null || accountId === undefined || accountId === '') {
@@ -33,6 +33,13 @@ export const normalizePostingIdentity = data => {
   const normalizedCapabilities = {};
 
   POSTING_CAPABILITIES.forEach(key => {
+    // Older catalogs omit quote. A local sender could already quote.
+    // A delegated sender only quotes when the grant says so.
+    if (key === 'quote' && capabilities[key] === undefined) {
+      normalizedCapabilities[key] = source.kind === 'delegated' ? 'unavailable' : 'supported';
+      return;
+    }
+
     normalizedCapabilities[key] = capabilities[key] === 'supported' ? 'supported' : 'unavailable';
   });
 

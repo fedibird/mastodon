@@ -18,7 +18,7 @@ import { selectComposerEffectiveCreateCapability } from '../posting_context/crea
 import { materializeComposerText } from '../posting_context/materialize';
 import { composerActivityPubAudienceAccountId } from '../posting_context/protocol';
 import { selectComposer } from '../selectors/composer';
-import { fetchPostingIdentities } from './posting_identities';
+import { fetchPostingIdentities, validateComposerInteraction } from './posting_identities';
 import { composerHasGroupDestination } from '../posting_identity/group_destination';
 import { sessionPostingIdentityId } from '../posting_identity/identity';
 import { delegatedFileIsBlocked } from '../posting_identity/still_image';
@@ -189,6 +189,7 @@ export function replyInComposer(composerId, status, routerHistory) {
       status: status,
       context_references: getContextReference(getState, status),
     });
+    dispatch(validateComposerInteraction(composerId));
 
     ensureComposeIsVisible(getState, routerHistory, composerId);
   };
@@ -214,6 +215,7 @@ export function quoteInComposer(composerId, status, routerHistory) {
       type: COMPOSE_QUOTE,
       status: status,
     });
+    dispatch(validateComposerInteraction(composerId));
 
     ensureComposeIsVisible(getState, routerHistory, composerId);
   };
@@ -513,9 +515,7 @@ export function submitComposer(composerId, routerHistory) {
     const delegatedSend = !editing && typeof senderIdentityId === 'string' && senderIdentityId.startsWith('delegated:');
 
     if (delegatedSend) {
-      delete createData.in_reply_to_id;
       delete createData.poll;
-      delete createData.quote_id;
       delete createData.scheduled_at;
       delete createData.scheduled_in;
       delete createData.expires_at;
