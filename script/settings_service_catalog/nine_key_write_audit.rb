@@ -9,7 +9,8 @@ module SettingsServiceCatalog
 
     def scan(text, keys)
       findings = []
-      text.scan(/settings\s*\[[^\]]{0,200}\]\s*=(?!=)/m) do
+      assign = /(?:\|\|=|&&=|\+=|=)(?!=)/
+      text.scan(/settings\s*\[[^\]]{0,200}\]\s*#{assign}/m) do
         snippet = Regexp.last_match(0)
         key = keys.find { |item| snippet.include?(item) }
         if key && snippet.match?(/['":]#{Regexp.escape(key)}['"]/)
@@ -17,6 +18,14 @@ module SettingsServiceCatalog
         elsif !snippet.match?(/\[\s*['":]/)
           findings << [:review, 'settings_index', snippet.gsub(/\s+/, ' '), 'dynamic index']
         end
+      end
+      text.scan(/settings\s*\.\s*([A-Za-z_]\w*)\s*#{assign}/) do
+        name = Regexp.last_match(1)
+        snippet = Regexp.last_match(0).gsub(/\s+/, ' ')
+        findings << [:violation, 'literal_nine_key_write', snippet, name] if keys.include?(name)
+      end
+      text.scan(/settings\s*\.\s*#\{[^}]{0,80}\}\s*#{assign}/m) do
+        findings << [:review, 'dynamic_setter', Regexp.last_match(0).gsub(/\s+/, ' '), 'dynamic setter']
       end
       text.scan(/Setting(?:\.unscoped)?(?:\.[\w]+|\([^)]{0,400}\)){0,6}\.(?:update_all|create!?|insert_all!?|upsert_all!?|delete_all)/m) do
         snippet = Regexp.last_match(0)
@@ -28,6 +37,32 @@ module SettingsServiceCatalog
                     end
       end
       findings
+    end
+
+    def digest(node)
+      strip_positions(node).inspect
+    end
+
+    def line_of(node)
+      found = nil
+      walk_line(node) { |number| found ||= number }
+      found
+    end
+
+    def strip_positions(node)
+      return node unless node.is_a?(Array)
+      return node[1] if node[0].to_s.start_with?('@')
+
+      node.map { |child| strip_positions(child) }
+    end
+
+    def walk_line(node, &block)
+      return unless node.is_a?(Array)
+
+      if node[0].to_s.start_with?('@') && node[2].is_a?(Array) && node[2][0].is_a?(Integer)
+        yield node[2][0]
+      end
+      node.each { |child| walk_line(child, &block) if child.is_a?(Array) }
     end
   end
 
@@ -226,20 +261,45 @@ module SettingsServiceCatalog
       sql_write(node, path, method_name, violations, reviews)
     end
 
+    # ScopedSettings#method_missing treats a call ending in "=" as a write:
+    # user.settings.default_privacy = value becomes self['default_privacy'] = value.
+    # :field is that setter. :opassign (||=, +=, &&=) can call it too.
     def index_write(node, path, method_name, violations, reviews)
-      return unless node[0] == :assign && node[1].is_a?(Array) && node[1][0] == :aref_field
+      return unless node.is_a?(Array) && %i(assign opassign).include?(node[0])
 
-      receiver = node[1][1]
-      index = first_arg(node[1][2])
+      lhs = node[1]
+      return unless lhs.is_a?(Array)
+
+      case lhs[0]
+      when :aref_field
+        classify_index(node, lhs, path, method_name, violations, reviews)
+      when :field
+        classify_field(node, lhs, path, method_name, violations, reviews)
+      end
+    end
+
+    def classify_index(node, lhs, path, method_name, violations, reviews)
+      receiver = lhs[1]
       return unless settings_receiver?(receiver) || (self_receiver?(receiver) && method_name == 'method_missing')
 
-      label = static_label(index)
+      label = static_label(first_arg(lhs[2]))
       if label[:literal] && KEYS.include?(label[:value])
         add(violations, path, node, method_name, 'literal_nine_key_write', digest(node), label[:value], true)
       elsif label[:literal]
         nil
       else
         add(reviews, path, node, method_name, 'settings_index', digest(node), 'dynamic index', false)
+      end
+    end
+
+    def classify_field(node, lhs, path, method_name, violations, reviews)
+      return unless settings_receiver?(lhs[1])
+
+      name = ident_text(lhs[3])
+      if name && KEYS.include?(name)
+        add(violations, path, node, method_name, 'literal_nine_key_write', digest(node), name, true)
+      elsif name.nil?
+        add(reviews, path, node, method_name, 'dynamic_setter', digest(node), 'dynamic setter', false)
       end
     end
 
@@ -484,29 +544,11 @@ module SettingsServiceCatalog
     end
 
     def digest(node)
-      strip_positions(node).inspect
-    end
-
-    def strip_positions(node)
-      return node unless node.is_a?(Array)
-      return node[1] if node[0].to_s.start_with?('@')
-
-      node.map { |child| strip_positions(child) }
+      NineKeyTemplateScan.digest(node)
     end
 
     def line_of(node)
-      found = nil
-      walk_line(node) { |number| found ||= number }
-      found
-    end
-
-    def walk_line(node, &block)
-      return unless node.is_a?(Array)
-
-      if node[0].to_s.start_with?('@') && node[2].is_a?(Array) && node[2][0].is_a?(Integer)
-        yield node[2][0]
-      end
-      node.each { |child| walk_line(child, &block) if child.is_a?(Array) }
+      NineKeyTemplateScan.line_of(node)
     end
 
     def scan_fallback(path, text, violations, reviews)

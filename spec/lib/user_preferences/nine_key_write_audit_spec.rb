@@ -114,4 +114,55 @@ RSpec.describe SettingsServiceCatalog::NineKeyWriteAudit do
     expect(result['unlisted_reviews'].map(&:defn)).to include('extra_dynamic')
     expect(result['allowed_reviews'].map(&:defn)).to include('insert_row', 'update_row', 'delete_row')
   end
+
+  it 'detects settings setter assignment and compound assignment' do
+    setter = audit.scan_content('app/services/example_field_setter.rb', <<~RUBY)
+      user.settings.default_privacy = 'direct'
+      settings.default_language = 'ja-JP'
+      user.settings.show_translation_bar = 'always'
+    RUBY
+    index_or = audit.scan_content('app/services/example_or_index.rb', <<~RUBY)
+      user.settings['default_privacy'] ||= 'direct'
+    RUBY
+    index_plus = audit.scan_content('app/services/example_plus_index.rb', <<~RUBY)
+      user.settings['default_privacy'] += '-custom'
+    RUBY
+    field_or = audit.scan_content('app/services/example_or_field.rb', <<~RUBY)
+      user.settings.default_privacy ||= 'direct'
+    RUBY
+    symbol_and = audit.scan_content('app/services/example_and_symbol.rb', <<~RUBY)
+      user.settings[:reduce_motion] &&= false
+    RUBY
+    dynamic_or = audit.scan_content('app/services/example_or_dynamic.rb', <<~RUBY)
+      user.settings[key] ||= value
+    RUBY
+    other = audit.scan_content('app/services/example_other_setter.rb', <<~RUBY)
+      user.settings.disable_post = true
+      user.settings['disable_post'] ||= true
+      value = user.settings.default_privacy
+      account.default_privacy = 'direct'
+    RUBY
+
+    expect(setter['violations'].map(&:detail)).to eq %w(default_privacy default_language show_translation_bar)
+    expect(setter['reviews']).to eq []
+    expect(index_or['violations'].map(&:detail)).to eq ['default_privacy']
+    expect(index_plus['violations'].map(&:detail)).to eq ['default_privacy']
+    expect(field_or['violations'].map(&:detail)).to eq ['default_privacy']
+    expect(symbol_and['violations'].map(&:detail)).to eq ['reduce_motion']
+    expect(dynamic_or['violations']).to eq []
+    expect(dynamic_or['unlisted_reviews'].map(&:kind)).to eq ['settings_index']
+    expect(other['violations']).to eq []
+    expect(other['reviews']).to eq []
+  end
+
+  it 'rejects a new setter or compound assignment inside an allowlisted file' do
+    source = Rails.root.join('app/lib/user_preferences/writer.rb').read
+    with_setter = audit.scan_content('app/lib/user_preferences/writer.rb', "#{source}\ndef extra_setter\n  user.settings.default_privacy = 'direct'\nend\n")
+    with_compound = audit.scan_content('app/lib/user_preferences/writer.rb', "#{source}\ndef extra_compound\n  user.settings['default_privacy'] ||= 'direct'\nend\n")
+
+    expect(with_setter['violations'].map(&:defn)).to include('extra_setter')
+    expect(with_compound['violations'].map(&:defn)).to include('extra_compound')
+    expect(with_setter['allowed_reviews'].map(&:defn)).to include('insert_row')
+    expect(described_class::ALLOW.size).to eq 9
+  end
 end

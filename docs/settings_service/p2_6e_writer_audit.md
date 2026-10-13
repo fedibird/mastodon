@@ -57,7 +57,9 @@
 
 Ruby は Ripper の構文木で見る。複数行の代入、`Setting.where` / `Setting.unscoped.where` の `update_all`、`create` / `create!`、`insert_all` / `upsert_all`、`update!` / `update_columns`、`save!`、`delete_all`、`settings` への `public_send` / `send` / `__send__`、settings テーブルへの UPDATE / INSERT / DELETE を対象にする。`var` が 9 キーのリテラルなら違反である。`var` や添字を静的に決められない書き込みはレビューであり、許可リストに無いと失敗する。読み取りの `Setting.where` と `settings[key]`、9 キー以外のリテラル保存は対象にしない。
 
-Haml と ERB、および Ripper が解析できないファイルは、空白をまたぐ正規表現で同じ形を探す。
+`Settings::ScopedSettings#method_missing` は、名前が `=` で終わる呼び出しを setter として `[]=` に渡す。そのため `user.settings.default_privacy =` も書き込みである。Ripper では左辺が `:field` になる。受け手が `settings` のときだけ見る。`account.default_privacy =` や `user.note =` のような、別オブジェクトの同名属性は対象にしない。`||=`、`+=`、`&&=` は `:opassign` で、条件次第で `[]=` か setter が呼ばれるので書き込み候補にする。9 キーのリテラルは違反、キーが不明ならレビュー、9 キー以外のリテラルは無視する。
+
+Haml と ERB、および Ripper が解析できないファイルは、空白をまたぐ正規表現で添字代入、直接 setter、複合代入を探す。9 キーが確定すれば違反、式が動的ならレビューである。
 
 許可済みの動的書き込みは次のとおりである。
 
@@ -65,7 +67,7 @@ Haml と ERB、および Ripper が解析できないファイルは、空白を
 | --- | --- |
 | `UserPreferences::Writer#insert_row` / `update_row` / `delete_row` | Writer 内部の Setting 保存と削除 |
 | `UserSettingsDecorator#process_update` の 3 つの `user.settings[key] =` | ネストした Hash と、9 キー以外の文字列・boolean。9 キーは LegacyWriter か、Writer が無いときの拒否に分かれる |
-| `Settings::ScopedSettings#method_missing` と `#[]=` | 汎用ストア。9 キー専用の拒否は付けていない |
+| `Settings::ScopedSettings#method_missing` と `#[]=` | 汎用ストア。`method_missing` は `=` で終わる名前を `[]=` に渡す。9 キー専用の拒否は付けていない |
 | `Form::AdminSettings#save` | サイト Setting。`KEYS` に 9 キーの名前を足すと、呼び出しの形が同じでも違反にする |
 
 `Form::ActionReviewSettings` と `registrations_mode` の migration は、保存する `var` が 9 キーではないリテラルなのでレビューにも違反にもならない。
