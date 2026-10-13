@@ -10,7 +10,12 @@
 - #434 preferences streaming
 - #435 WebUI の受信
 
-`p2_write_design.md` の P2-6 は、切替前に承認する差として「未知のバーと mode を正規化しなくなる」「Credentials の省略補完をやめる」「文字サイズの新規保存を整数だけにする」「`direct` を書くか」を挙げている。この契約は、初回移行ではその拒否側を採らない。公開 `WriteContract` は維持し、フォームと Credentials の既存入力は別の信頼済み経路で維持する。同値再送を Writer の no-op に揃えることだけを、初回移行で採る保存動作の変更とする。案Aの採用は P2-6B の実装前にレビューする。この PR は実装しない。
+`p2_write_design.md` の P2-6 は、切替前に承認する差として「未知のバーと mode を正規化しなくなる」「Credentials の省略補完をやめる」「文字サイズの新規保存を整数だけにする」「`direct` を書くか」を挙げている。この契約は、初回移行ではその拒否側を採らない。公開 `WriteContract` は維持し、フォームと Credentials の既存スカラー入力は別の信頼済み経路で維持する。案Aを推奨する判断は維持する。初回移行で承認を取る保存動作の変更は、次の2つを並列に置く。
+
+- 9 キーの同値再送を Writer の no-op に揃える。
+- Credentials の非スカラー設定値を拒否する。
+
+それ以外の従来スカラー互換性は維持する。この PR は本番の保存経路を実装しない。
 
 ## 1. 9 キーの移行契約
 
@@ -97,13 +102,35 @@ boolean の空文字は別である。`""` は `nil` ではないので `change?
 
 空文字 boolean の `nil` 行は、reset ではない。reset は行を削除して state を `:absent` にする。空文字は state `:nil` の行を残す。Reader はこの二つを区別する。レガシー経路も区別する。
 
-同値再送は、今日と Writer で違う。これを明示的な仕様変更として初回移行に含める。
+同値再送は、今日と Writer で違う。Credentials の非スカラー拒否と並べて、初回移行の承認事項にする。節 16。
 
-今日の `ScopedSettings#[]=` は、値が同じでも `update!` と `Rails.cache.write` を呼ぶ。YAML が同一なら ActiveRecord は UPDATE を出さず、`settings.updated_at` は動かない。それでも Rails 6.1 の `_update_record` は、更新列が空のとき `_trigger_update_callback` を真にする。外側トランザクションが無い本番では、`update!` の COMMIT で `RailsSettings::Base.after_commit :rewrite_cache` が走り、従来キーへもう一度 `cache.write` する。`[]=` の 48 行目の `cache.write` はその直後にも走る。revision は動かない。`preferences_changed` は出ない。
+今日の `ScopedSettings#[]=` は、値が同じでも `update!` と `Rails.cache.write` を呼ぶ。YAML が同一なら ActiveRecord は UPDATE を出さず、`settings.updated_at` は動かない。それでも Rails 6.1 の `_update_record` は、更新列が空のとき `_trigger_update_callback` を真にする。外側トランザクションが無い本番では、`update!` の COMMIT で `RailsSettings::Base.after_commit :rewrite_cache` が走り、従来キーへもう一度 `cache.write` する。`[]=` の 48 行目の `cache.write` はその直後にも走る。revision は動かない。`preferences_changed` は出ない。この `[]=` の即時 write は transactional test でも観測できる。`rewrite_cache` は実 COMMIT のあとなので、transactional test の ROLLBACK では走らない。
 
-RSpec の transactional test は例の終わりに ROLLBACK する。例の中で観測できるのは `[]=` の即時 `cache.write` だけである。`rewrite_cache` の実 COMMIT は、後続 PR で `use_transactional_tests = false` にして確認する。
+Writer の同値は no-op である。`Setting#save!` を呼ばないので、`rewrite_cache` も `CacheDeletion` も走らない。revision、`updated_at`、通知は動かない。事前に入っていた従来キーは残る。P2-6 後の 9 キーはこちらに揃える。高リスク設定の `[]=` は対象外なので、同値でも今の write のままである。
 
-Writer は同値なら no-op である。revision、`updated_at`、通知、cache delete を動かさない。値の `cache.write` もしない。P2-6 後の 9 キーはこちらに揃える。高リスク設定の `[]=` は対象外なので、同値でも今の write のままである。
+### Writer の実変更と Setting の after_commit
+
+Writer 自身は値を `cache.write` しない。`insert_row` と `update_row` は `Setting#save!` を呼ぶ。`Setting` は `RailsSettings::Base` なので、固定 gem rails-settings-cached 0.6.6（revision `86328ef0bd04ce21cc0504ff5e334591e8c2ccab`）の `lib/rails-settings/railtie.rb` が create と update に登録した `after_commit :rewrite_cache` が走る。`lib/rails-settings/base.rb` の `rewrite_cache` は `Rails.cache.write(self.class.cache_key(var, thing), value)` である。`delete_row` は `delete_all` であり、destroy の `expire_cache` は走らない。
+
+これは `ScopedSettings#[]=` の即時 write とは別である。Writer のトランザクション内の INSERT / UPDATE と、COMMIT 後のモデルコールバックを分けて扱う。
+
+`spec/lib/user_preferences/writer_setting_commit_cache_spec.rb` は `use_transactional_tests = false` で SQL の `COMMIT` を記録した。作成した User と Setting と revision だけを削除する。
+
+| 操作 | SQL COMMIT のあと | `apply` 終了時の従来キー | Reader |
+| --- | --- | --- | --- |
+| 新規 `Setting#save!` | `rewrite_cache` が新しい値を write し、その次に `CacheDeletion` が同じ従来キーを delete する。どちらも COMMIT より前には走らない | 残っていない | DB の新しい値 |
+| 既存行の `Setting#save!` | 上と同じ。write する値は更新後の値であり、削除前に入っていた古いキャッシュではない | 残っていない | DB の新しい値 |
+| 同値 no-op | 対象キーの write も delete も無い。`save!` が無いのでモデルコールバックも無い。User トランザクションの COMMIT 自体はある | 呼び出し前の値が残る | DB の既存値 |
+| reset（`delete_all`） | `CacheDeletion` の delete だけ。`rewrite_cache` も `expire_cache` も無い | 残っていない | state `:absent` |
+
+観測した順は write、その次に delete である。逆順は出ていない。逆順になると delete の直後に `rewrite_cache` が値を書き戻し、終了時に従来キーが残る。今の登録順は `save!` がモデルを先に積み、Writer が後から `CacheDeletion` を積むので、write が先になる。この PR はその登録順を変えない。
+
+P2-6B 以降の判断として、次を残す。この PR ではどちらも実装しない。
+
+- モデルコールバックを Writer の `Setting#save!` だけ明示的に抑止する。終了状態は delete だけになり、COMMIT 後の短い write 窓が無くなる。`RailsSettings::Base` 全体のコールバックを外すと、`[]=` の `rewrite_cache` まで止まる。抑止は Writer が作る行に限る。
+- 現状の write の次の delete を許容する。両方成功したあとの従来キーは、delete だけのときと同じく残っていない。write する値は新しい値なので、delete の前に落ちるとキャッシュには新しい値が残る。P2-4B が書いた「Writer は値を write しない」は、Writer のコードについては正しく、モデルコールバックを含めると正しくない。
+
+Reader はどちらの案でも DB を読む。getter は従来キーを読むので、終了時にキーが無いことは P2-4B の delete 契約と一致する。write と delete のあいだだけ、従来キーに新しい値が入る。
 
 ## 5. 案Aと案B
 
@@ -249,12 +276,12 @@ source.language  -> default_language
 
 | 出来事 | revision | 通知 | キャッシュ |
 | --- | --- | --- | --- |
-| 9 キーの実変更 1 件（案A） | +1 | COMMIT 後に 1 回。changed key はその 1 キー | COMMIT 後にその従来キーを delete。値は write しない |
-| 同じリクエストの実変更 N 件（案A） | +N | N 回 | 変更キーだけ delete |
-| 同値、nil スキップ、空の source | 動かない | 出ない | 9 キーは触らない。高リスクの `[]=` は今どおり write し得る |
+| 9 キーの実変更 1 件（案A） | +1 | COMMIT 後に 1 回。changed key はその 1 キー | SQL COMMIT のあと、`rewrite_cache` が従来キーへ新しい値を write し、次に `CacheDeletion` が delete する。終了時はキーが残らない |
+| 同じリクエストの実変更 N 件（案A） | +N | N 回 | 各キーの save が write し、そのあと変更キーを delete する。終了時はそれらのキーが残らない |
+| 同値、nil スキップ、空の source | 動かない | 出ない | 9 キーの Writer は write も delete もしない。高リスクの `[]=` は今どおり write し得る |
 | 入力エラーでそのキーのトランザクションが ROLLBACK | 動かない | 出ない | delete しない |
 | 先行キーがコミットしたあとの後続失敗（案A） | 先行分だけ残る | 先行分はすでに出ている。失敗キーと後続は出ない | 先行キーだけ delete 済み |
-| 公開 `apply` の複数キー | 今どおり +1 | 1 回 | 変更キーだけ delete |
+| 公開 `apply` の複数キー | 今どおり +1 | 1 回 | 変更した行ごとに `rewrite_cache` が write し、そのあと `CacheDeletion` が変更キーを delete する。終了時はキーが残らない |
 
 通知の payload はこの契約では変えない。件数だけが案Aで増える。payload をまとめる、または WebUI の再取得を間引くのは別承認である。
 
@@ -309,7 +336,8 @@ P2-6B が実装する境界は次のとおりである。
 - `nil` 入力は Writer を呼ばずスキップする。空文字 boolean はキャスト後の `nil` を、公開契約を緩めるのではなく内部入口で保存する。
 - バーの正規化は、そのリクエストで 9 キーを書き始める前のポリシー getter を使う。
 - 1 キーごとに、開いたトランザクションを拒否し、User 行をロックし、実変更だけ revision を進め、COMMIT 後に cache delete と `preferences_changed` を出す。
-- 同値は ChangeSet の no-op に任せる。`cache.write` も `rewrite_cache` も走らせない。
+- 同値は ChangeSet の no-op に任せる。`save!` が無いので `cache.write` も `rewrite_cache` も走らない。
+- 実変更の `Setting#save!` が今日出す `rewrite_cache` を、Writer の保存だけ抑止するか、write の次の delete を許容するかは、P2-6B の開始前に決める。節 4。この PR では本番コードを変えない。
 - コントローラ、Redis のキー形、ストリーミング、WebUI は P2-6B では変えない。
 
 P2-6B のテストは、この入口を直接呼ぶ。実 COMMIT の cache delete と通知は `use_transactional_tests = false` で確認する。transactional test の中で「通知が無い」ことを、ROLLBACK される外側トランザクションだけで証明しない。
@@ -381,17 +409,18 @@ P2-4B の節 6 と節 7 と節 10 を変えない。対応は次のとおりで�
 21. 高リスク設定と `interactions` は保存され、revision は 0 のままである。公開契約は `unknown_key` にする。safety の共通アクションも、送られた文字サイズを文字列で保存する。
 22. フォームは非スカラーの privacy と未知キーを保存しない。Credentials は今日、privacy の JSON オブジェクトを未許可の `ActionController::Parameters` として、language の JSON 配列を `Array` として保存する。後者は P2-6D で拒否する対象であり、公開契約はすでに `invalid_type` である。フォームの urlencoded で privacy に `nil` を渡すと空文字として保存される。JSON の null とは違う。
 
-未保証の並行順序は成功条件にしていない。失敗位置は Decorator の配列順であり、競合の勝ち負けではない。
+未保証の並行順序は成功条件にしていない。失敗位置は Decorator の配列順であり、競合の勝ち負けではない。Writer の create、update、no-op、reset が SQL COMMIT の前後でキャッシュをどう触るかは、`spec/lib/user_preferences/writer_setting_commit_cache_spec.rb` が実 COMMIT で固定した。
 
 ## 16. 追加承認が必要な仕様変更
 
-この PR では本番を変えない。次を、実装 PR の前に分ける。
+この PR では本番を変えない。案Aを推奨する判断は変えない。否決して案Bを採る場合だけ、節 5 の revision 件数、通知件数、部分失敗、高リスクとの境界を別途承認する。
 
-推奨としてこの文書に入れたもの。P2-6B の前にレビューする。
+初回移行の承認事項は次の2つで、並列である。どちらか一方だけを黙って外さない。
 
-- 案Aを採ること。否決して案Bを採るなら、節 5 の revision 件数、通知件数、部分失敗、高リスクとの境界をその PR で承認する。
-- 同値再送を Writer の no-op にすること。今日の即時 `cache.write` と、本番の `rewrite_cache` は 9 キーでは止まる。
-- レガシー経路が `Hash`、未許可の `ActionController::Parameters`、`Array` を拒否すること。今日の Credentials は保存できている。フォームの既存スカラーは拒否しない。
+- 9 キーの同値再送を Writer の no-op に揃える。今日の `[]=` は同値でも即時 `cache.write` し、実 COMMIT では `rewrite_cache` も走る。Writer の no-op は `save!` を呼ばないので、その write も delete も無い。
+- Credentials の非スカラー設定値を拒否する。今日は JSON オブジェクトが未許可の `ActionController::Parameters`、JSON 配列が `Array` として保存される。フォームの strong parameters はスカラー許可の `Hash` をすでに落とす。レガシー経路は `Hash`、`ActionController::Parameters`、`Array` を保存しない。
+
+それ以外の従来スカラー互換性は維持する。`direct`、空文字、`ja-JP`、文字サイズの文字列、boolean キャスト、古いポリシーでの翻訳正規化、省略補完を含む。
 
 推奨に入れないもの。やるなら別の仕様変更である。
 

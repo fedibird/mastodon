@@ -38,7 +38,7 @@ Puma は `preload_app!`、既定 `WEB_CONCURRENCY` 2、`MAX_THREADS` 5 である
 
 `UserPreferences::Reader` は `Setting.unscoped` を 9 つの storage key について 1 回 SELECT し、インスタンス内にメモする。`Rails.cache` は読まない。書かない。revision も読まない。不正値を保存し直さない。
 
-`UserPreferences::Writer` は開いたトランザクションを拒否し、`users` 行を `FOR UPDATE` し、変更したキーだけを同じトランザクションで書き、変更が残ったときだけ revision を 1 進める。キャッシュは COMMIT 後の `CacheDeletion` が従来キーを `delete` する。値の `cache.write` はしない。#431 の `ChangeNotification` は、その delete 登録のあとに同じ COMMIT 後フックとして Redis へ `preferences_changed` を出す。失敗は各自が飲み、DB は戻さない。
+`UserPreferences::Writer` は開いたトランザクションを拒否し、`users` 行を `FOR UPDATE` し、変更したキーだけを同じトランザクションで書き、変更が残ったときだけ revision を 1 進める。Writer 自身のコードは値を `cache.write` しない。`CacheDeletion` は SQL COMMIT のあと従来キーを `delete` する。ただし `Setting` は `RailsSettings::Base` であり、rails-settings-cached 0.6.6（`86328ef0bd04ce21cc0504ff5e334591e8c2ccab`）の Railtie が create と update に `after_commit :rewrite_cache` を付けている。Writer の `Setting#save!` もこのコールバックを出す。実 COMMIT では `rewrite_cache` の write の次に `CacheDeletion` の delete が走り、`apply` が戻ったとき従来キーは残っていない。節 2.3。#431 の `ChangeNotification` は、その delete 登録のあとに同じ COMMIT 後フックとして Redis へ `preferences_changed` を出す。失敗は各自が飲み、DB は戻さない。
 
 現行の `CacheDeletion` は、この PR では変えない。例外が出た delete は、同じキーを最大 3 回まで試す。1 回目と 2 回目の例外は warn のあと再試行し、3 回目の例外は error を残してそのキーを `false` にする。例外を呼び出し元へは出さない。`RedisCacheStore` が失敗を戻り値 `false` で返した場合、例外は無いので再試行せず、戻り値も見ない。`Rails.cache.delete` が戻っただけで `cache_deleted[key] = true` にする。Redis の DEL が 0（キーが元から無い）でも true になる。したがって `true` は、Redis 上でそのキーを削除したことを保証しない。読み取り障害（ミスと同じ `nil`）、書き込み障害（`false`）、キーが元から無いことを、この `true` は区別しない。この区別と、`false` を成功にしない修正は、後続実装の確認事項である。この PR の RSpec には足さない。
 
@@ -155,11 +155,21 @@ revision 行は SELECT しない。
 5. リクエストに含まれるキーだけを `Setting.unscoped` から読む。
 6. 変わったキーだけを INSERT / UPDATE / DELETE する。
 7. 変更が残っていれば revision を +1。無ければ番号も `updated_at` も動かさない。
-8. `CacheDeletion` と `ChangeNotification` をトランザクションレコードとして登録する。
+8. `CacheDeletion` と `ChangeNotification` をトランザクションレコードとして登録する。`Setting#save!` はそれより前に、自分を同じトランザクションのコールバックへ登録している。
 9. `COMMIT`。
-10. `committed!(should_run_callbacks: true)` で変更キーの従来キーを delete し、そのあと Redis へ通知する。
+10. `Setting` の `after_commit :rewrite_cache` が従来キーへ新しい値を `cache.write` する。これは Writer のコードではない。rails-settings-cached 0.6.6 の `lib/rails-settings/railtie.rb` が `RailsSettings::Base` に付けた create / update のコールバックで、`lib/rails-settings/base.rb` の `rewrite_cache` が `Rails.cache.write(cache_key, value)` する。キーは `Setting.cache_key(var, thing)` で、従来キーと一致する。
+11. `CacheDeletion#committed!` が同じ従来キーを `delete` する。
+12. `ChangeNotification#committed!` が Redis へ通知する。
 
-User 行ロックを持っているのは 3 から 9 までである。Redis はロックの外である。
+`delete_row` は `delete_all` である。destroy ではないので、reset では `expire_cache` も `rewrite_cache` も走らない。delete だけが残る。
+
+同値 no-op は `Setting#save!` を呼ばない。`rewrite_cache` も `CacheDeletion` も走らない。事前に入っていた従来キーは残る。User 行のトランザクション自体は COMMIT される。
+
+`spec/lib/user_preferences/writer_setting_commit_cache_spec.rb` は `use_transactional_tests = false` で、SQL の `COMMIT` とキャッシュ操作の順を記録した。新規作成と既存行の更新はどちらも、SQL COMMIT のあと `rewrite_cache` の write、その次に `CacheDeletion` の delete である。どちらも `transaction_open?` はすでに false である。Rails は SQL COMMIT の前にトランザクションスタックを外すので、この false は「まだ COMMIT していない」という意味ではない。境界は SQL の `COMMIT` である。`Writer#apply` が戻ったとき従来キーは無く、Reader は DB の新しい値を返す。reset は COMMIT のあと delete だけである。no-op は対象キーの write も delete も無い。
+
+delete のあとに write する経路は、この測定では出ていない。その順になると、`CacheDeletion` が消した直後に `rewrite_cache` が値を戻し、処理終了時に従来キーが残る。今の登録順は、`save!` がモデルを先に登録し、Writer がそのあと `CacheDeletion` を登録するので、write が先になる。この順を入れ替える本番変更は、この PR ではしない。コールバックを Writer の保存だけ止めるか、write の次の delete を許容するかは、`p2_6_legacy_writer_migration.md` の P2-6B の判断として残す。
+
+User 行ロックを持っているのは 3 から 9 までである。Redis の delete、`rewrite_cache` の write、通知はロックの外である。
 
 ### 2.4 読み取り
 
@@ -350,7 +360,7 @@ Writer が COMMIT したあと従来キーを delete しても、その delete �
 
 段階 B の getter は従来キーを読む。このあと TTL のあいだ v1 を返すことが残る。DB と Reader は v2 である。
 
-P2-6 で Decorator を Writer へ移すと、節 4.7 の Decorator による遅い `cache.write` は無くなる。節 4.10 の再充填は、その移行だけでは消えない。保存側が値を write せず、COMMIT 後に delete するだけでも残る。
+P2-6 で Decorator を Writer へ移すと、節 4.7 の Decorator による遅い `cache.write` は無くなる。Writer の `Setting#save!` は節 2.3 のとおり、SQL COMMIT のあと `rewrite_cache` で従来キーへ新しい値を write し、その次に delete する。終了時の従来キーは delete 済みである。節 4.10 の再充填は、その delete のあとでも残る。delete より前に旧値を読んだ `fetch` が、delete のあと従来キーを埋め直す経路は消えない。
 
 段階 D は、値キーを `<従来キー>/rev/<R>` に分けることで解消する。旧値を読んだ `fetch` が write するのは、その読み取りが確保した古い番号のキーである。新しい番号の読み取りは別キーであり、その再充填を見ない。write の直前に番号を読み直して、新しいキーへ旧値を書く実装は採らない。節 4.7 と同じ制約である。
 
