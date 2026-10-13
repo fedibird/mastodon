@@ -108,6 +108,24 @@ describe('uploadToComposer batch limits', () => {
     ]);
   });
 
+  it('accepts another image after an animated GIF has been converted to gifv', () => {
+    const { store, actions } = makeStore();
+
+    store.dispatch(createComposer('composer-a'));
+    store.dispatch(targetComposerAction({
+      type: 'COMPOSE_UPLOAD_SUCCESS',
+      media: { id: 'animated-gif', type: 'gifv' },
+      file: { type: 'image/gif' },
+    }, 'composer-a'));
+
+    const post = attempt(store, 'composer-a', 1);
+
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(actions.filter(action => action.type === COMPOSE_UPLOAD_REQUEST)).toEqual([
+      expect.objectContaining({ meta: { composerId: 'composer-a' }, count: 1, exclusiveCount: 0 }),
+    ]);
+  });
+
   it('keeps another composer pending from blocking a batch that fits', () => {
     const { store, actions } = makeStore();
 
