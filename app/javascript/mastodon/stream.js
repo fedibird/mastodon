@@ -208,7 +208,9 @@ export const connectStream = (channelName, params, callbacks) => (dispatch, getS
   };
 };
 
-const KNOWN_EVENT_TYPES = [
+// EventSource only emits listeners registered here. WebSocket frames are
+// parsed as a whole message and are not filtered by this list.
+export const KNOWN_EVENT_TYPES = [
   'update',
   'status.update',
   'delete',
@@ -220,6 +222,7 @@ const KNOWN_EVENT_TYPES = [
   'announcement',
   'announcement.delete',
   'announcement.reaction',
+  'preferences_changed',
 ];
 
 /**

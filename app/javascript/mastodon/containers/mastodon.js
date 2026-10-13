@@ -8,7 +8,7 @@ import UI from '../features/ui';
 import { fetchCustomEmojis } from '../actions/custom_emojis';
 import { fetchCircles } from '../actions/circles';
 import { hydrateStore } from '../actions/store';
-import { connectUserStream } from '../actions/streaming';
+import { startMastodonSubscriptions } from './mastodon_subscriptions';
 import { IntlProvider, addLocaleData } from 'react-intl';
 import { getLocale } from '../locales';
 import initialState from '../initial_state';
@@ -31,7 +31,7 @@ export default class Mastodon extends React.PureComponent {
   };
 
   componentDidMount() {
-    this.disconnect = store.dispatch(connectUserStream());
+    this.disconnect = startMastodonSubscriptions(store);
   }
 
   componentWillUnmount () {

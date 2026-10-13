@@ -17,6 +17,7 @@ import processing_statuses from './processing_statuses';
 import intersection_statuses from './intersection_statuses';
 import relationships from './relationships';
 import settings from './settings';
+import user_preferences from './user_preferences';
 import push_notifications from './push_notifications';
 import status_lists from './status_lists';
 import emoji_reactioned_statuses from './emoji_reactioned_statuses';
@@ -83,6 +84,7 @@ const reducers = {
   intersection_statuses,
   relationships,
   settings,
+  user_preferences,
   push_notifications,
   mutes,
   blocks,
