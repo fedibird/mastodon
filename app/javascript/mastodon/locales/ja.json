@@ -200,6 +200,8 @@
   "compose_form.overflow.searchability": "検索の公開範囲",
   "compose_form.personal_message_warning": "この投稿は自分限定で、他の誰にも送信されず、公開されません。",
   "compose_form.placeholder": "今なにしてる？",
+  "compose_form.placeholder.auto_detect": "自動判定",
+  "compose_form.placeholder.with_language": "{text}（{language}）",
   "compose_form.poll.add_option": "追加",
   "compose_form.poll.close": "アンケートを外す",
   "compose_form.poll.duration": "アンケート期間",

@@ -23,13 +23,12 @@ class SearchabilityIndicator extends React.PureComponent {
   static propTypes = {
     changed: PropTypes.bool,
     value: PropTypes.string,
-    fallback: PropTypes.string,
     onReset: PropTypes.func.isRequired,
     intl: PropTypes.object.isRequired,
   };
 
   handleReset = () => {
-    this.props.onReset(this.props.fallback);
+    this.props.onReset();
   };
 
   render () {

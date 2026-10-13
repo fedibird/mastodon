@@ -126,13 +126,13 @@ describe('ComposeForm autoFocus', () => {
   it('focuses the textarea when autoFocus is omitted', () => {
     renderForm();
 
-    expect(screen.getByPlaceholderText('What is on your mind?')).toHaveFocus();
+    expect(screen.getByPlaceholderText('What is on your mind? (Auto-detect)')).toHaveFocus();
   });
 
   it('does not focus the textarea when autoFocus is false', () => {
     renderForm({ autoFocus: false });
 
-    expect(screen.getByPlaceholderText('What is on your mind?')).not.toHaveFocus();
+    expect(screen.getByPlaceholderText('What is on your mind? (Auto-detect)')).not.toHaveFocus();
   });
 });
 
@@ -141,7 +141,7 @@ describe('ComposeForm posting context visibility', () => {
     renderForm({ stylePicker: <div data-testid='posting-context-bar'>Group</div> });
 
     const header = document.querySelector('.compose-form__header');
-    const textarea = screen.getByPlaceholderText('What is on your mind?');
+    const textarea = screen.getByPlaceholderText('What is on your mind? (Auto-detect)');
 
     expect(header).toContainElement(screen.getByTestId('posting-context-bar'));
     expect(textarea.compareDocumentPosition(screen.getByTestId('posting-context-bar')) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
@@ -153,14 +153,14 @@ describe('ComposeForm effective text', () => {
   it('keeps the textarea on the raw draft and counts effective text', () => {
     renderForm({ text: 'hi', effectiveText: 'hi\n\n#foo' });
 
-    expect(screen.getByPlaceholderText('What is on your mind?')).toHaveValue('hi');
+    expect(screen.getByPlaceholderText('What is on your mind? (Auto-detect)')).toHaveValue('hi');
     expect(screen.getByText('492')).toBeTruthy();
   });
 
   it('disables publish when the materialized text exceeds the limit or contains a prohibited word', () => {
     const { unmount } = renderForm({ text: 'hello', effectiveText: 'h'.repeat(501) });
 
-    expect(screen.getByPlaceholderText('What is on your mind?')).toHaveValue('hello');
+    expect(screen.getByPlaceholderText('What is on your mind? (Auto-detect)')).toHaveValue('hello');
     expect(screen.getByRole('button', { name: 'Toot!' })).toBeDisabled();
     unmount();
 
@@ -176,7 +176,7 @@ describe('ComposeForm effective text', () => {
   it('disables publish when the posting context is not compliant', () => {
     renderForm({ text: 'Hello', contextCompliant: false });
 
-    expect(screen.getByPlaceholderText('What is on your mind?')).toHaveValue('Hello');
+    expect(screen.getByPlaceholderText('What is on your mind? (Auto-detect)')).toHaveValue('Hello');
     expect(screen.getByRole('button', { name: 'Toot!' })).toBeDisabled();
   });
 });
@@ -284,7 +284,7 @@ describe('ComposeForm display mode', () => {
     expect(document.querySelector('.compose-form--simple')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Switch to simple view' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Show full composer' })).toBeNull();
-    expect(screen.getByPlaceholderText('What is on your mind?')).toBeTruthy();
+    expect(screen.getByPlaceholderText('What is on your mind? (Auto-detect)')).toBeTruthy();
     expect(document.querySelector('.character-counter')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Toot!' })).toBeTruthy();
     advancedControls.forEach(id => {
@@ -315,7 +315,7 @@ describe('ComposeForm display mode', () => {
   it('gives a portable composer four rows when full and two rows when compact', () => {
     const full = renderForm({ displayMode: 'full', onDisplayModeChange: jest.fn() });
 
-    expect(screen.getByPlaceholderText('What is on your mind?')).toHaveAttribute('data-text-rows', '4');
+    expect(screen.getByPlaceholderText('What is on your mind? (Auto-detect)')).toHaveAttribute('data-text-rows', '4');
     expect(screen.queryByRole('button', { name: 'Show full composer' })).toBeNull();
     full.unmount();
 
@@ -323,7 +323,7 @@ describe('ComposeForm display mode', () => {
 
     renderForm({ displayMode: 'simple', onDisplayModeChange });
 
-    const textarea = screen.getByPlaceholderText('What is on your mind?');
+    const textarea = screen.getByPlaceholderText('What is on your mind? (Auto-detect)');
     const expand = screen.getByRole('button', { name: 'Show full composer' });
 
     expect(textarea).toHaveAttribute('data-text-rows', '2');
@@ -335,7 +335,7 @@ describe('ComposeForm display mode', () => {
   it('keeps the primary composer on the autosizing textarea', () => {
     renderForm();
 
-    expect(screen.getByPlaceholderText('What is on your mind?')).not.toHaveAttribute('data-text-rows');
+    expect(screen.getByPlaceholderText('What is on your mind? (Auto-detect)')).not.toHaveAttribute('data-text-rows');
   });
 
   it('shows the upload area as soon as a compact upload starts', () => {
@@ -373,7 +373,7 @@ describe('ComposeForm display mode', () => {
     expect(document.querySelector('.compose-form__simple-row')).toContainElement(publish);
     expect(document.querySelector('.compose-form__compact-publish')).toBeNull();
     expect(publish).toBeDisabled();
-    expect(screen.getByPlaceholderText('What is on your mind?')).toHaveValue('hello');
+    expect(screen.getByPlaceholderText('What is on your mind? (Auto-detect)')).toHaveValue('hello');
   });
 
   it('keeps a compact composer to the header, text, and icon publish button', () => {
@@ -413,7 +413,7 @@ describe('ComposeForm display mode', () => {
   it('keeps the textarea node and caret when switching modes', () => {
     const onDisplayModeChange = jest.fn();
     const view = renderForm({ text: 'hello caret', displayMode: 'full', onDisplayModeChange });
-    const textarea = screen.getByPlaceholderText('What is on your mind?');
+    const textarea = screen.getByPlaceholderText('What is on your mind? (Auto-detect)');
 
     textarea.setSelectionRange(3, 3);
     view.rerender(
@@ -436,7 +436,7 @@ describe('ComposeForm display mode', () => {
       />,
     );
 
-    const simpleTextarea = screen.getByPlaceholderText('What is on your mind?');
+    const simpleTextarea = screen.getByPlaceholderText('What is on your mind? (Auto-detect)');
 
     expect(simpleTextarea).toBe(textarea);
     expect(simpleTextarea.selectionStart).toBe(3);
@@ -462,7 +462,7 @@ describe('ComposeForm display mode', () => {
       />,
     );
 
-    expect(screen.getByPlaceholderText('What is on your mind?')).toBe(textarea);
+    expect(screen.getByPlaceholderText('What is on your mind? (Auto-detect)')).toBe(textarea);
     expect(textarea.selectionStart).toBe(3);
   });
 
@@ -476,14 +476,14 @@ describe('ComposeForm display mode', () => {
     const full = renderForm({ ...shared, displayMode: 'full' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Toot!' }));
-    fireEvent.keyDown(screen.getByPlaceholderText('What is on your mind?'), { keyCode: 13, ctrlKey: true });
+    fireEvent.keyDown(screen.getByPlaceholderText('What is on your mind? (Auto-detect)'), { keyCode: 13, ctrlKey: true });
     expect(onSubmit).toHaveBeenCalledTimes(2);
     full.unmount();
 
     onSubmit.mockClear();
     renderForm({ ...shared, displayMode: 'simple' });
     fireEvent.click(screen.getByRole('button', { name: 'Toot!' }));
-    fireEvent.keyDown(screen.getByPlaceholderText('What is on your mind?'), { keyCode: 13, metaKey: true });
+    fireEvent.keyDown(screen.getByPlaceholderText('What is on your mind? (Auto-detect)'), { keyCode: 13, metaKey: true });
     expect(onSubmit).toHaveBeenCalledTimes(2);
   });
 
@@ -629,7 +629,7 @@ describe('ComposeForm display mode', () => {
       composerId: 'portable:hashtag:1',
     });
 
-    fireEvent.paste(screen.getByPlaceholderText('What is on your mind?'), {
+    fireEvent.paste(screen.getByPlaceholderText('What is on your mind? (Auto-detect)'), {
       clipboardData: { files: [file] },
     });
 
@@ -673,7 +673,7 @@ describe('ComposeForm display mode', () => {
       onPaste,
     });
 
-    fireEvent.paste(screen.getByPlaceholderText('What is on your mind?'), {
+    fireEvent.paste(screen.getByPlaceholderText('What is on your mind? (Auto-detect)'), {
       clipboardData: { files: [file] },
     });
 
@@ -871,7 +871,7 @@ describe('ComposeForm display mode', () => {
       onPaste,
     });
 
-    fireEvent.paste(screen.getByPlaceholderText('What is on your mind?'), {
+    fireEvent.paste(screen.getByPlaceholderText('What is on your mind? (Auto-detect)'), {
       clipboardData: { files: [] },
     });
 
@@ -895,6 +895,40 @@ describe('ComposeForm display mode', () => {
     expect(document.querySelectorAll('[data-testid="character-count"]')).toHaveLength(1);
   });
 
+  it('follows the posting language in the placeholder without rewriting the draft', () => {
+    const view = renderForm({ text: 'hello caret', lang: 'ja' });
+    const textarea = screen.getByPlaceholderText('今なにしてる？ (Japanese)');
+
+    textarea.setSelectionRange(2, 2);
+
+    view.rerender(
+      <ComposeForm
+        text='hello caret'
+        lang='en'
+        suggestions={ImmutableList()}
+        privacy='public'
+        prohibitedVisibilities={ImmutableSet()}
+        prohibitedWords={ImmutableSet()}
+        onChange={noop}
+        onSubmit={noop}
+        onClearSuggestions={noop}
+        onFetchSuggestions={noop}
+        onSuggestionSelected={noop}
+        onChangeSpoilerText={noop}
+        onPaste={noop}
+        onPickEmoji={noop}
+      />,
+    );
+
+    const next = screen.getByPlaceholderText('What\'s on your mind? (English)');
+
+    expect(next).toBe(textarea);
+    expect(next).toHaveValue('hello caret');
+    expect(next.selectionStart).toBe(2);
+    expect(next).toHaveAttribute('lang', 'en');
+    expect(textarea).not.toHaveAttribute('aria-live');
+  });
+
   it('turns off only the content warning from its close button', () => {
     const onToggleSpoilerness = jest.fn();
 
@@ -903,7 +937,7 @@ describe('ComposeForm display mode', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove content warning' }));
 
     expect(onToggleSpoilerness).toHaveBeenCalledTimes(1);
-    expect(screen.getByPlaceholderText('What is on your mind?')).toHaveValue('hello');
+    expect(screen.getByPlaceholderText('What is on your mind? (Auto-detect)')).toHaveValue('hello');
   });
 });
 

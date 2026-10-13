@@ -213,6 +213,14 @@ class SenderIdentity extends React.PureComponent {
     this.setState(state => ({ open: !state.open }));
   };
 
+  closeMenu = () => {
+    this.setState({ open: false }, () => {
+      if (this.trigger) {
+        this.trigger.focus();
+      }
+    });
+  };
+
   handleChoiceClick = event => {
     this.handleSelect(event.currentTarget.getAttribute('data-identity-id'));
   };
@@ -220,7 +228,12 @@ class SenderIdentity extends React.PureComponent {
   handleSelect = identityId => {
     const { intl, onSelect, selectedId, text, choices } = this.props;
 
-    if (!onSelect || identityId === selectedId) {
+    if (!onSelect) {
+      return;
+    }
+
+    if (identityId === selectedId) {
+      this.closeMenu();
       return;
     }
 
@@ -237,6 +250,7 @@ class SenderIdentity extends React.PureComponent {
     }
 
     onSelect(identityId, { confirmed: true });
+    this.closeMenu();
   };
 
   handleKeyDown = event => {

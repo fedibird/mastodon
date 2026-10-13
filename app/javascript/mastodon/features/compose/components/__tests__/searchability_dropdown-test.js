@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { Set as ImmutableSet } from 'immutable';
 import React from 'react';
 
 jest.mock('react-intl', () => {
@@ -48,10 +49,35 @@ describe('SearchabilityDropdown detached menu', () => {
     expect(screen.getByRole('listbox')).toHaveClass('compose-form__searchability-menu');
     expect(screen.queryByText('🔎')).toBeNull();
 
+    expect(screen.getByRole('option', { name: /Followers-only/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('option', { name: /Followers-only/ })).toHaveClass('active');
+    expect(screen.getByRole('option', { name: /Public/ })).toHaveAttribute('aria-selected', 'false');
+
     fireEvent.click(screen.getByRole('option', { name: /Public/ }));
 
     expect(onChange).toHaveBeenCalledWith('public');
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('moves focus with the arrow keys without saving a new value', () => {
+    const { onChange } = renderMenu({ value: 'private' });
+    const current = screen.getByRole('option', { name: /Followers-only/ });
+
+    fireEvent.keyDown(current, { key: 'ArrowDown' });
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(current).toHaveAttribute('aria-selected', 'true');
+    expect(document.activeElement).toBe(screen.getByRole('option', { name: /Reacted-users-only/ }));
+  });
+
+  it('does not highlight a value that is not in the menu', () => {
+    renderMenu({ value: 'public', prohibitedVisibilities: ImmutableSet(['public']) });
+
+    expect(screen.queryByRole('option', { name: /Public/ })).toBeNull();
+    screen.getAllByRole('option').forEach(option => {
+      expect(option).toHaveAttribute('aria-selected', 'false');
+      expect(option).not.toHaveClass('active');
+    });
   });
 
   it('uses the touch action sheet instead of the desktop menu', () => {
@@ -72,6 +98,8 @@ describe('SearchabilityDropdown detached menu', () => {
 
     expect(onModalOpen).toHaveBeenCalledTimes(1);
     expect(onModalOpen.mock.calls[0][0].actions.map(action => action.value)).toEqual(['public', 'private', 'direct']);
+    expect(onModalOpen.mock.calls[0][0].actions.find(action => action.value === 'private').active).toBe(true);
+    expect(onModalOpen.mock.calls[0][0].actions.filter(action => action.active)).toHaveLength(1);
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('listbox')).toBeNull();
   });

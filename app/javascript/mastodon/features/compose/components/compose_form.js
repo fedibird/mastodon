@@ -35,6 +35,8 @@ import IconButton from '../../../components/icon_button';
 import classNames from 'classnames';
 import { PORTABLE_COMPOSER_MODE_FULL, PORTABLE_COMPOSER_MODE_SIMPLE } from '../../../selectors/composer';
 import { portableComposerRows } from '../composer_text_height';
+import { isAutoPostingLanguage, postingPlaceholderText, textareaLanguage } from '../posting_placeholder';
+import { localizedCommonName } from '../../../utils/language_names';
 import { isExternalFileDrag, markComposerFileDrop } from '../composer_drop';
 import ComposerOverflowMenu from './composer_overflow_menu';
 
@@ -42,6 +44,8 @@ const allowedAroundShortCode = '><\u0085\u0020\u00a0\u1680\u2000\u2001\u2002\u20
 
 const messages = defineMessages({
   placeholder: { id: 'compose_form.placeholder', defaultMessage: 'What is on your mind?' },
+  placeholderWithLanguage: { id: 'compose_form.placeholder.with_language', defaultMessage: '{text} ({language})' },
+  placeholderAuto: { id: 'compose_form.placeholder.auto_detect', defaultMessage: 'Auto-detect' },
   spoiler_placeholder: { id: 'compose_form.spoiler_placeholder', defaultMessage: 'Write your warning here' },
   spoilerClose: { id: 'compose_form.spoiler.close', defaultMessage: 'Remove content warning' },
   publish: { id: 'compose_form.publish', defaultMessage: 'Toot' },
@@ -614,15 +618,28 @@ class ComposeForm extends ImmutablePureComponent {
     this.requestOverflowClose();
   }
 
+  placeholderText () {
+    const { intl, lang } = this.props;
+    const uiPlaceholder = intl.formatMessage(messages.placeholder);
+    const auto = isAutoPostingLanguage(lang);
+    const translated = auto ? null : postingPlaceholderText(lang);
+    const text = translated || uiPlaceholder;
+    const language = auto
+      ? intl.formatMessage(messages.placeholderAuto)
+      : localizedCommonName(lang, lang, intl.locale || 'en');
+
+    return intl.formatMessage(messages.placeholderWithLanguage, { text, language });
+  }
+
   renderTextarea (modifiers, overlay) {
-    const { intl, showSearch, autoFocus } = this.props;
+    const { showSearch, autoFocus } = this.props;
     const portable = this.isPortableComposer();
     const rows = portable ? (this.props.textRows || portableComposerRows(this.props.displayMode)) : undefined;
 
     return (
       <AutosuggestTextarea
         ref={this.setAutosuggestTextarea}
-        placeholder={intl.formatMessage(messages.placeholder)}
+        placeholder={this.placeholderText()}
         disabled={this.props.isSubmitting}
         value={this.props.text}
         onChange={this.handleChange}
@@ -634,7 +651,7 @@ class ComposeForm extends ImmutablePureComponent {
         onSuggestionSelected={this.onSuggestionSelected}
         onPaste={this.handlePaste}
         autoFocus={autoFocus && !showSearch && !isMobile(window.innerWidth)}
-        lang={this.props.lang}
+        lang={textareaLanguage(this.props.lang)}
         overlay={overlay}
         rows={typeof this.props.textHeight === 'number' ? undefined : rows}
         height={portable ? this.props.textHeight : undefined}

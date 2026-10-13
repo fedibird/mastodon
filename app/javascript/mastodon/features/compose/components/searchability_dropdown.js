@@ -77,7 +77,6 @@ class SearchabilityDropdownMenu extends React.PureComponent {
 
     if (element) {
       element.focus();
-      this.props.onChange(element.getAttribute('data-index'));
       e.preventDefault();
       e.stopPropagation();
     }

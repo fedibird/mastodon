@@ -200,6 +200,8 @@
   "compose_form.overflow.searchability": "Search visibility",
   "compose_form.personal_message_warning": "This post is for you only and will not be sent to anyone else and will not be published.",
   "compose_form.placeholder": "What's on your mind?",
+  "compose_form.placeholder.auto_detect": "Auto-detect",
+  "compose_form.placeholder.with_language": "{text} ({language})",
   "compose_form.poll.add_option": "Add a choice",
   "compose_form.poll.close": "Remove poll",
   "compose_form.poll.duration": "Poll duration",
