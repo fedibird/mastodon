@@ -18,6 +18,13 @@ const SUPPORTED_DELIVERY_ADAPTERS = {
   piefed_group: true,
 };
 
+// Delegated sending uses B's FEP-5219 result. Lemmy and PieFed stay out
+// even when a cached payload claims the delivery is supported.
+const DELEGATED_REMOTE_ADAPTERS = {
+  mitra_group: true,
+  nodebb_group: true,
+};
+
 const present = value => value !== null && value !== undefined && value !== '';
 
 const emptyVisibility = () => ({
@@ -367,10 +374,13 @@ export function selectComposerEffectiveCreateCapability(state, composerId, now =
   }
 
   const posting = discovery && discovery.get ? discovery.get('senderPosting') : null;
+  const adapter = posting && posting.getIn(['delivery', 'adapter']);
   const confirmed = posting
     && posting.get('canPost') === true
     && posting.getIn(['permission', 'confirmed']) === true
-    && posting.getIn(['delivery', 'status']) === 'supported';
+    && posting.getIn(['delivery', 'status']) === 'supported'
+    && adapter === delivery.adapter
+    && DELEGATED_REMOTE_ADAPTERS[adapter];
 
   if (confirmed) {
     return attempt;

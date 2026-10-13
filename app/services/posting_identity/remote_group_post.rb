@@ -1,11 +1,28 @@
 # frozen_string_literal: true
 
 # Whether delegated account B may address one remote ActivityPub group.
-# Permission comes from the existing FEP-5219 resolvers for B. Delivery
-# in this stage is Mitra's FEP-1b12 audience path. Another adapter can
-# be named later without turning unknown evidence into a post.
+# Permission comes from the existing FEP-5219 resolvers for B. Mitra
+# posts with FEP-1b12 audience and no group mention. A NodeBB category
+# uses that audience plus a required category mention in the body.
+# The topic collection from FEP-7888 is not derived from the audience.
 class PostingIdentity::RemoteGroupPost
-  SUPPORTED_ADAPTERS = %w(mitra_group).freeze
+  ADAPTERS = {
+    'mitra_group' => {
+      source_id: 'compat:mitra-fep-1b12',
+      key_prefix: 'protocol:fep-1b12-group:',
+      revision: '1',
+      visibilities: %w(public unlisted).freeze,
+      body_mention: false,
+    }.freeze,
+    'nodebb_group' => {
+      source_id: 'compat:nodebb-fep-1b12',
+      key_prefix: 'protocol:fep-1b12-nodebb:',
+      revision: '1',
+      visibilities: %w(public).freeze,
+      body_mention: true,
+    }.freeze,
+  }.freeze
+  SUPPORTED_ADAPTERS = ADAPTERS.keys.freeze
   Outcome = Struct.new(:allowed_mentions, :audience_account_id, keyword_init: true)
 
   Decision = Struct.new(
@@ -41,7 +58,7 @@ class PostingIdentity::RemoteGroupPost
 
     discovered = PostingContext::DiscoveryService.new.call(group, viewer: nil)
     adapter = discovered.dig(:discovery, :adapter).to_s
-    supported = discovered[:status] == 'resolved' && SUPPORTED_ADAPTERS.include?(adapter)
+    supported = contract_matches?(discovered, group, adapter)
     permission = create_permission(group)
     Decision.new(
       group: group,
@@ -63,7 +80,8 @@ class PostingIdentity::RemoteGroupPost
 
     assert_context!(current, params, visibility)
     accounts = mention_accounts(current)
-    assert_mentions!(params, accounts)
+    assert_mentions!(params, accounts, current)
+    assert_resolved_mentions!(params, accounts, current)
     Outcome.new(allowed_mentions: accounts.map(&:id), audience_account_id: current.group.id)
   end
 
@@ -116,16 +134,41 @@ class PostingIdentity::RemoteGroupPost
     'absent'
   end
 
+  def contract_matches?(discovered, group, adapter)
+    contract = ADAPTERS[adapter]
+    context = discovered[:context]
+    return false unless discovered[:status] == 'resolved' && contract && context
+    return false if group.inbox_url.blank?
+
+    context[:key].to_s == "#{contract[:key_prefix]}#{group.id}" &&
+      context.dig(:source, :id).to_s == contract[:source_id] &&
+      context.dig(:source, :revision).to_s == contract[:revision] &&
+      context.dig(:protocol, :activitypub, :audience, :account_id).to_s == group.id.to_s &&
+      Array(context.dig(:constraints, :allowed_visibilities)).map(&:to_s) == contract[:visibilities] &&
+      mention_contract?(context, group, contract)
+  end
+
+  def mention_contract?(context, group, contract)
+    mentions = Array(context.dig(:managed, :mentions))
+    return mentions.empty? unless contract[:body_mention]
+
+    mentions.one? &&
+      mentions.first[:account_id].to_s == group.id.to_s &&
+      mentions.first[:acct].to_s == group.acct &&
+      mentions.first[:enforcement].to_s == 'required'
+  end
+
   def assert_context!(current, params, visibility)
     context = current.context
+    contract = ADAPTERS.fetch(current.delivery_adapter)
     audience_id = context.dig(:protocol, :activitypub, :audience, :account_id).to_s
-    allowed = Array(context.dig(:constraints, :allowed_visibilities)).map(&:to_s)
+    raise rejected unless contract_matches?({ status: 'resolved', context: context }, current.group, current.delivery_adapter)
     raise rejected unless params[:posting_context_key].to_s == context[:key].to_s
     raise rejected unless params[:posting_context_revision].to_s == context.dig(:source, :revision).to_s
     raise rejected unless audience_id == current.group.id.to_s
     raise rejected unless params[:posting_context_account_id].to_s == current.group.id.to_s
     raise rejected unless params[:audience_account_id].to_s == current.group.id.to_s
-    raise rejected unless allowed.include?(visibility.to_s)
+    raise rejected unless contract[:visibilities].include?(visibility.to_s)
   end
 
   def mention_accounts(current)
@@ -136,14 +179,26 @@ class PostingIdentity::RemoteGroupPost
     accounts
   end
 
-  def assert_mentions!(params, accounts)
+  def assert_mentions!(params, accounts, current)
     body = tokens(params[:status])
     warning = tokens(params[:spoiler_text])
     raise mention_rejected if (body + warning).any? { |token| !allowed_token?(token, accounts) }
+    return unless ADAPTERS.fetch(current.delivery_adapter)[:body_mention]
 
     accounts.each do |account|
       raise mention_rejected unless body.any? { |token| allowed_token?(token, [account]) }
     end
+  end
+
+  # The text check is not enough: the mention has to resolve to the
+  # category account ProcessMentionsService will actually deliver.
+  def assert_resolved_mentions!(params, accounts, current)
+    return unless ADAPTERS.fetch(current.delivery_adapter)[:body_mention]
+
+    draft = Status.new(account: @author, text: params[:status].to_s, visibility: :public)
+    resolved = ProcessMentionsService.new.prepare(draft, nil, silent_audience: false)
+    resolved_ids = Array(resolved).map(&:account_id)
+    raise mention_rejected unless accounts.all? { |account| resolved_ids.include?(account.id) }
   end
 
   def tokens(text)

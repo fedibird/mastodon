@@ -1,4 +1,4 @@
-import { consistentLocalFedibirdGroup, consistentMitraGroup, draftHasGroupDestination } from './group_destination';
+import { consistentLocalFedibirdGroup, consistentSupportedRemoteGroup, draftHasGroupDestination } from './group_destination';
 import { ENABLED_SENDER_KINDS, ENABLED_SENDER_PROVIDERS } from './identity';
 import { applyPostingStylePrecedence } from './style_precedence';
 
@@ -47,9 +47,9 @@ const pendingStyleGroup = source => {
     .every(item => String(item) === String(id));
 };
 
-// Remote groups and group replies stay refused. A consistent local Fedibird
-// group, or a style still resolving one, can move to an identity that was
-// granted group together with post.
+// Lemmy, PieFed, and group replies stay refused. A consistent local
+// Fedibird group, a supported remote group, or a style still resolving
+// one, can move to an identity that was granted group together with post.
 const groupSwitchBlocked = (source, toIdentity) => {
   if (!draftHasGroupDestination(source)) {
     return false;
@@ -63,7 +63,7 @@ const groupSwitchBlocked = (source, toIdentity) => {
     return true;
   }
 
-  return !(consistentLocalFedibirdGroup(source) || consistentMitraGroup(source) || pendingStyleGroup(source));
+  return !(consistentLocalFedibirdGroup(source) || consistentSupportedRemoteGroup(source) || pendingStyleGroup(source));
 };
 
 // Pure description of a future sender change. M1 never permits the change
@@ -191,7 +191,7 @@ export function resolveSenderIdentitySwitch({
     && capabilitySupported(toIdentity, 'group')
     && !source.replyToId
     && !source.quoteId
-    && (consistentLocalFedibirdGroup(source) || consistentMitraGroup(source) || pendingStyleGroup(source));
+    && (consistentLocalFedibirdGroup(source) || consistentSupportedRemoteGroup(source) || pendingStyleGroup(source));
   const permitted = reasons.length === 0 && authorized && supported && (changing ? targetAllowed : sessionTarget);
 
   return {
