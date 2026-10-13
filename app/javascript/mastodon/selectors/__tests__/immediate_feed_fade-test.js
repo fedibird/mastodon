@@ -24,8 +24,15 @@ describe('tester immediate fade', () => {
           statusId: '88',
           viewKey: 'portable:hashtag-column:news',
           timelineId: 'hashtag:news',
-          phase: 'expired',
+          phase: 'recheck',
           generation: 2,
+        },
+        'portable:hashtag-column:news\u000099': {
+          statusId: '99',
+          viewKey: 'portable:hashtag-column:news',
+          timelineId: 'hashtag:news',
+          phase: 'confirmed',
+          generation: 3,
         },
       },
     });
@@ -41,7 +48,7 @@ describe('tester immediate fade', () => {
       includePendingItems: false,
     });
 
-    expect(presentation.get('fadeIds').toArray()).toEqual(['77']);
-    expect(presentation.get('prependIds').toArray()).toEqual(['88']);
+    expect(presentation.get('fadeIds').toArray()).toEqual(['77', '88']);
+    expect(presentation.get('prependIds').toArray()).toEqual(['99', '88']);
   });
 });

@@ -4,6 +4,9 @@ import {
   IMMEDIATE_FEED_UNREGISTER_VIEW,
   IMMEDIATE_FEED_INSERT,
   IMMEDIATE_FEED_EXPIRE,
+  IMMEDIATE_FEED_RECHECK,
+  IMMEDIATE_FEED_REMOVE,
+  IMMEDIATE_FEED_CONFIRM,
   immediateFeedEntryKey,
   immediateFeedViewFromAction,
 } from '../actions/immediate_feed';
@@ -120,19 +123,60 @@ const insertEntry = (state, action) => {
     timelineId: action.timelineId,
     phase: action.phase || 'immediate',
     generation: action.generation,
+    registrationGeneration: action.registrationGeneration === undefined ? null : action.registrationGeneration,
     requestId: action.requestId || null,
   }));
 };
 
-const expireEntry = (state, action) => {
-  const key = immediateFeedEntryKey(action.viewKey, action.statusId);
-  const entry = state.getIn(['entries', key]);
+const entryMatchesGeneration = (state, action) => {
+  const entry = state.getIn(['entries', immediateFeedEntryKey(action.viewKey, action.statusId)]);
 
-  if (!entry || entry.get('generation') !== action.generation || entry.get('phase') !== 'immediate') {
+  if (!entry || entry.get('generation') !== action.generation) {
+    return null;
+  }
+
+  return entry;
+};
+
+const expireEntry = (state, action) => {
+  const entry = entryMatchesGeneration(state, action);
+
+  if (!entry || entry.get('phase') !== 'immediate') {
     return state;
   }
 
-  return state.setIn(['entries', key, 'phase'], 'expired');
+  return state.setIn(['entries', immediateFeedEntryKey(action.viewKey, action.statusId), 'phase'], 'recheck');
+};
+
+const recheckEntry = (state, action) => {
+  const entry = entryMatchesGeneration(state, action);
+
+  if (!entry || (entry.get('phase') !== 'immediate' && entry.get('phase') !== 'recheck')) {
+    return state;
+  }
+
+  return state.setIn(['entries', immediateFeedEntryKey(action.viewKey, action.statusId), 'phase'], 'recheck');
+};
+
+const confirmEntry = (state, action) => {
+  const entry = entryMatchesGeneration(state, action);
+
+  if (!entry || entry.get('phase') === 'confirmed') {
+    return state;
+  }
+
+  return state.setIn(['entries', immediateFeedEntryKey(action.viewKey, action.statusId), 'phase'], 'confirmed');
+};
+
+const removeEntry = (state, action) => {
+  const key = immediateFeedEntryKey(action.viewKey, action.statusId);
+  const entry = state.getIn(['entries', key]);
+
+  if (!entry || entry.get('generation') !== action.generation) {
+    return state;
+  }
+
+  return state.deleteIn(['entries', key]);
 };
 
 const statusesFromExpand = (statuses) => {
@@ -157,6 +201,12 @@ export default function immediateFeed (state = initialState, action) {
     return insertEntry(state, action);
   case IMMEDIATE_FEED_EXPIRE:
     return expireEntry(state, action);
+  case IMMEDIATE_FEED_RECHECK:
+    return recheckEntry(state, action);
+  case IMMEDIATE_FEED_CONFIRM:
+    return confirmEntry(state, action);
+  case IMMEDIATE_FEED_REMOVE:
+    return removeEntry(state, action);
   case TIMELINE_UPDATE:
     return confirmEntries(state, action.timeline, action.status ? [action.status] : []);
   case TIMELINE_EXPAND_SUCCESS:

@@ -383,9 +383,27 @@ const preserveMediaTranslations = (mediaAttachments, normalOldStatus) => {
   });
 };
 
+const preserveStoredStatus = (oldStatus) => {
+  const kept = oldStatus.toJS();
+
+  ['media_attachments', 'translation', 'card', 'poll', 'emojis', 'mentions', 'tags', 'filtered'].forEach((key) => {
+    if (oldStatus.has(key)) {
+      kept[key] = oldStatus.get(key);
+    }
+  });
+
+  return kept;
+};
+
 export function normalizeStatus(status, normalOldStatus, domain, previousPoll, options = {}) {
   const normalStatus   = { ...status };
   const acceptPresentationChange = !options || options.acceptPresentationChange !== false;
+
+  // A POST echo must not replace an official copy, even when updated_at differs.
+  // Streaming can carry a later stamp or a richer card and media URL.
+  if (normalOldStatus && acceptPresentationChange === false) {
+    return preserveStoredStatus(normalOldStatus);
+  }
 
   if (typeof status.account === 'object') {
     normalStatus.account = status.account.id;

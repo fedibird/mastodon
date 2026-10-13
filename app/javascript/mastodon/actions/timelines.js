@@ -1,4 +1,5 @@
 import { fetchRelationshipsSuccess, fetchRelationshipsFromStatus, fetchRelationshipsFromStatuses } from './accounts';
+import { cancelImmediateFeedTimersForStatuses, cancelImmediateFeedTimersForTimeline } from './immediate_feed';
 import { importFetchedStatus, importFetchedStatuses, importFetchedAccounts } from './importer';
 import { submitMarkers } from './markers';
 import api, { getLinks } from 'mastodon/api';
@@ -115,6 +116,7 @@ export function deleteFromTimelines(id) {
       references,
       quotes,
     });
+    cancelImmediateFeedTimersForStatuses([id].concat(references ? references.toArray() : []));
   };
 };
 
@@ -131,11 +133,13 @@ export function expireFromTimelines(id) {
       references,
       quotes,
     });
+    cancelImmediateFeedTimersForStatuses([id].concat(references ? references.toArray() : []));
   };
 };
 
 export function clearTimeline(timeline) {
   return (dispatch) => {
+    cancelImmediateFeedTimersForTimeline(timeline);
     dispatch({ type: TIMELINE_CLEAR, timeline });
   };
 };

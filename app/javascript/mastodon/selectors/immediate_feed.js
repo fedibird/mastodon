@@ -68,16 +68,29 @@ export function immediateFeedPresentationFrom (immediate, timeline, { viewKey, t
 
     const phase = entry.get('phase');
     const statusId = entry.get('statusId');
+    const listed = present.has(String(statusId));
 
-    if (!statusId || phase === 'confirmed') {
+    if (!statusId) {
       return;
     }
 
-    if (phase === 'immediate' && fadeEnabled) {
+    if (phase === 'confirmed') {
+      if (!listed) {
+        prepend.push(statusId);
+      }
+
+      return;
+    }
+
+    if (phase !== 'immediate' && phase !== 'recheck') {
+      return;
+    }
+
+    if (fadeEnabled) {
       fade.push(statusId);
     }
 
-    if ((phase === 'immediate' || phase === 'expired') && !present.has(String(statusId))) {
+    if (!listed) {
       prepend.push(statusId);
     }
   });

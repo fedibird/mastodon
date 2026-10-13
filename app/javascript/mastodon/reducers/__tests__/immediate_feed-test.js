@@ -125,7 +125,7 @@ describe('immediate feed reducer', () => {
     expect(entry(state, hashtagView.viewKey, '50').get('generation')).toBe(1);
   });
 
-  it('expires only the matching generation and leaves the status id in place', () => {
+  it('moves only the matching generation to recheck and can then remove it', () => {
     let state = register(undefined, hashtagView);
     state = insert(state, hashtagView, '50', 'immediate', 4);
 
@@ -143,15 +143,23 @@ describe('immediate feed reducer', () => {
       statusId: '50',
       generation: 4,
     });
-    expect(entry(state, hashtagView.viewKey, '50').get('phase')).toBe('expired');
+    expect(entry(state, hashtagView.viewKey, '50').get('phase')).toBe('recheck');
 
     state = immediateFeed(state, {
-      type: IMMEDIATE_FEED_EXPIRE,
+      type: 'IMMEDIATE_FEED_REMOVE',
+      viewKey: hashtagView.viewKey,
+      statusId: '50',
+      generation: 3,
+    });
+    expect(entry(state, hashtagView.viewKey, '50').get('phase')).toBe('recheck');
+
+    state = immediateFeed(state, {
+      type: 'IMMEDIATE_FEED_REMOVE',
       viewKey: hashtagView.viewKey,
       statusId: '50',
       generation: 4,
     });
-    expect(entry(state, hashtagView.viewKey, '50').get('phase')).toBe('expired');
+    expect(entry(state, hashtagView.viewKey, '50')).toBeUndefined();
   });
 
   it('drops entries on delete, expire, clear, unregister, and a filter change', () => {

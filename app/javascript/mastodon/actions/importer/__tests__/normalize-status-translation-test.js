@@ -684,15 +684,40 @@ describe('normalizeStatus same updated_at presentation', () => {
   it('keeps the official body when a later POST echo would replace it', () => {
     const next = normalizeStatus(buildStatus({
       content: '<p>stale POST</p>',
+      card: { url: 'https://example.test/stale', title: 'Stale', description: '', image: null, type: 'link' },
       media_attachments: [
         { id: 'm1', type: 'image', description: 'cat', url: 'https://example.test/original.jpg', preview_url: null, remote_url: null },
       ],
-    }), previous, '', null, { acceptPresentationChange: false });
+    }), previous.set('card', fromJS({ url: 'https://example.test/official', title: 'Official', description: 'card', image: null, type: 'link' })), '', null, { acceptPresentationChange: false });
 
+    expect(next.content).toBe('<p>Hello</p>');
     expect(next.contentHtml).toBe('<p>Hello</p>');
+    expect(next.card.get('url')).toBe('https://example.test/official');
     expect(next.media_attachments.getIn([0, 'url'])).toBe('https://example.test/cat.jpg');
     expect(next.translation.get('contentHtml')).toBe('<p>こんにちは</p>');
     expect(next.hidden).toBe(true);
+    expect(next.updated_at).toBe('2020-01-01T00:00:00.000Z');
+  });
+
+  it('keeps the official copy when the POST echo has a different updated_at', () => {
+    const next = normalizeStatus(buildStatus({
+      updated_at: '2020-02-02T00:00:00.000Z',
+      content: '<p>rolled back</p>',
+      url: 'https://example.test/rolled-back',
+      card: { url: 'https://example.test/rolled-back', title: 'Rolled', description: '', image: null, type: 'link' },
+      media_attachments: [
+        { id: 'm1', type: 'image', description: 'cat', url: 'https://cdn.test/rolled.jpg', preview_url: null, remote_url: null },
+      ],
+    }), previous.set('card', fromJS({ url: 'https://example.test/official', title: 'Official', description: 'card', image: null, type: 'link' })), '', null, { acceptPresentationChange: false });
+
+    expect(next.updated_at).toBe('2020-01-01T00:00:00.000Z');
+    expect(next.contentHtml).toBe('<p>Hello</p>');
+    expect(next.content).toBe('<p>Hello</p>');
+    expect(next.url).toBe('https://example.test/1');
+    expect(next.card.get('url')).toBe('https://example.test/official');
+    expect(next.media_attachments.getIn([0, 'url'])).toBe('https://example.test/cat.jpg');
+    expect(next.translation.get('contentHtml')).toBe('<p>こんにちは</p>');
+    expect(next.translationMode).toBe('bilingual');
   });
 
   it('keeps a translation when only a media URL changes', () => {

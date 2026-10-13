@@ -138,6 +138,57 @@ describe('group immediate eligibility', () => {
   });
 });
 
+describe('hide_bot_on_public_timeline', () => {
+  const load = (hideBot, policy) => {
+    let loaded;
+
+    jest.resetModules();
+    jest.doMock('../../initial_state', () => ({
+      ...jest.requireActual('../../initial_state'),
+      hideBotOnPublicTimeline: hideBot,
+      new_features_policy: policy,
+    }));
+    jest.isolateModules(() => {
+      loaded = require('../eligibility');
+    });
+    jest.dontMock('../../initial_state');
+
+    return loaded;
+  };
+
+  const botStatus = {
+    id: '10',
+    visibility: 'public',
+    reblog: null,
+    tags: [{ name: 'news' }],
+    mentions: [{ id: '123' }],
+    media_attachments: [],
+    account: { id: '1', bot: true },
+  };
+
+  it.each(['tester', 'default'])('follows the setting for %s users', (policy) => {
+    const hidden = load(true, policy);
+    const shown = load(false, policy);
+
+    expect(hidden.hashtagStatusEligible(botStatus, { primary: 'news', any: [], all: [], none: [] }).reason).toBe('bot');
+    expect(shown.hashtagStatusEligible(botStatus, { primary: 'news', any: [], all: [], none: [] }).eligible).toBe(true);
+    expect(hidden.groupStatusEligible(botStatus, {
+      groupId: '123',
+      onlyMedia: false,
+      withoutMedia: false,
+      tagged: null,
+      viewPermission: null,
+    }, { localGroup: true }).reason).toBe('bot');
+    expect(shown.groupStatusEligible(botStatus, {
+      groupId: '123',
+      onlyMedia: false,
+      withoutMedia: false,
+      tagged: null,
+      viewPermission: null,
+    }, { localGroup: true }).eligible).toBe(true);
+  });
+});
+
 describe('immediate view signatures', () => {
   it('gives different hashtag columns different signatures when their tag filters differ', () => {
     const open = buildHashtagImmediateView({

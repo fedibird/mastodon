@@ -123,7 +123,11 @@ export function importFetchedStatuses(statuses, options = {}) {
 
       delete status.filter_results;
 
-      if (status.poll && status.poll.id) {
+      const previousForKeep = options.acceptPresentationChange === false
+        ? getState().getIn(['statuses', status.id])
+        : null;
+
+      if (!(previousForKeep && options.acceptPresentationChange === false) && status.poll && status.poll.id) {
         pushUnique(polls, normalizePoll(status.poll, getState().getIn(['polls', status.poll.id])));
       }
 

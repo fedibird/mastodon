@@ -1,11 +1,18 @@
-import { fromJS } from 'immutable';
-import { captureImmediateFeedSnapshot, IMMEDIATE_FEED_INSERT, IMMEDIATE_FEED_TTL_MS, publishImmediateStatus, registerImmediateFeedView } from '../immediate_feed';
+import { fromJS, Map as ImmutableMap } from 'immutable';
+import api from '../../api';
+import { captureImmediateFeedSnapshot, cancelImmediateFeedTimersForStatuses, IMMEDIATE_FEED_CONFIRM, IMMEDIATE_FEED_INSERT, IMMEDIATE_FEED_REMOVE, IMMEDIATE_FEED_TTL_MS, publishImmediateStatus, reconcileImmediateEntry, registerImmediateFeedView } from '../immediate_feed';
+import { clearTimeline, deleteFromTimelines } from '../timelines';
 import immediateFeed from '../../reducers/immediate_feed';
 import { buildGroupImmediateView, buildHashtagImmediateView } from '../../immediate_feed/eligibility';
 import { groupPostingContext } from '../../posting_context/fixtures/group_context_fixture';
 
 jest.mock('../importer', () => ({
   importFetchedStatus: jest.fn((status, options) => ({ type: 'STATUS_IMPORT', status, options })),
+}));
+
+jest.mock('../../api', () => ({
+  __esModule: true,
+  default: jest.fn(),
 }));
 
 import { importFetchedStatus } from '../importer';
@@ -108,8 +115,9 @@ describe('publishImmediateStatus', () => {
   });
 
   it('imports the POST body without replacing an official copy and starts the expiry timer', () => {
-    const snapshot = captureImmediateFeedSnapshot(stateWith([hashtagView]), hashtagView.viewKey, composer());
-    const actions = run(publishImmediateStatus(snapshot, posted()), stateWith([hashtagView]));
+    const state = stateWith([hashtagView]);
+    const snapshot = captureImmediateFeedSnapshot(state, hashtagView.viewKey, composer());
+    const actions = run(publishImmediateStatus(snapshot, posted()), state);
 
     expect(importFetchedStatus).toHaveBeenCalledWith(expect.objectContaining({ id: '77' }), { acceptPresentationChange: false });
     expect(actions).toEqual(expect.arrayContaining([
@@ -124,27 +132,12 @@ describe('publishImmediateStatus', () => {
       }),
     ]));
 
-    const generation = actions.find(action => action.type === IMMEDIATE_FEED_INSERT).generation;
     const inserted = actions.find(action => action.type === IMMEDIATE_FEED_INSERT);
-    let immediate = immediateFeed(stateWith([hashtagView]).get('immediate_feed'), inserted);
+    const immediate = immediateFeed(state.get('immediate_feed'), inserted);
 
     jest.advanceTimersByTime(IMMEDIATE_FEED_TTL_MS - 1);
     expect(immediate.getIn(['entries', `${hashtagView.viewKey}\u000077`, 'phase'])).toBe('immediate');
-    expect(actions.find(action => action.type === 'IMMEDIATE_FEED_EXPIRE')).toBeUndefined();
-
-    jest.advanceTimersByTime(1);
-
-    const expire = actions.find(action => action.type === 'IMMEDIATE_FEED_EXPIRE');
-
-    expect(expire).toMatchObject({
-      viewKey: hashtagView.viewKey,
-      statusId: '77',
-      generation,
-    });
-    immediate = immediateFeed(immediate, expire);
-    expect(immediate.getIn(['entries', `${hashtagView.viewKey}\u000077`, 'phase'])).toBe('expired');
-    immediate = immediateFeed(immediate, { ...expire, generation: generation - 1 });
-    expect(immediate.getIn(['entries', `${hashtagView.viewKey}\u000077`, 'phase'])).toBe('expired');
+    expect(api).not.toHaveBeenCalled();
   });
 
   it('confirms immediately when streaming already listed the same id', () => {
@@ -245,6 +238,212 @@ describe('publishImmediateStatus', () => {
 
     expect(snapshot.blockedByGroup).toBe(true);
     expect(run(publishImmediateStatus(snapshot, posted({ mentions: [{ id: '123' }] })), blocked)).toEqual([]);
+  });
+});
+
+const applyDispatch = (initial) => {
+  let state = initial;
+  const actions = [];
+  const dispatch = (action) => {
+    if (typeof action === 'function') {
+      return action(dispatch, () => state);
+    }
+
+    actions.push(action);
+
+    if (action.type && String(action.type).indexOf('IMMEDIATE_FEED') === 0) {
+      state = state.set('immediate_feed', immediateFeed(state.get('immediate_feed'), action));
+    }
+
+    return action;
+  };
+
+  return {
+    dispatch,
+    actions,
+    getState: () => state,
+  };
+};
+
+describe('view registration generation', () => {
+  it('does not insert when the column returns to the original filters in a new session', () => {
+    const original = stateWith([hashtagView]);
+    const snapshot = captureImmediateFeedSnapshot(original, hashtagView.viewKey, composer());
+    const narrowed = buildHashtagImmediateView({
+      viewKey: hashtagView.viewKey,
+      timelineId: hashtagView.timelineId,
+      primary: 'News',
+      tags: { all: [{ value: 'dev' }] },
+    });
+    const restored = buildHashtagImmediateView({
+      viewKey: hashtagView.viewKey,
+      timelineId: hashtagView.timelineId,
+      primary: 'News',
+      tags: {},
+    });
+    let immediate = original.get('immediate_feed');
+
+    immediate = immediateFeed(immediate, registerImmediateFeedView(narrowed));
+    immediate = immediateFeed(immediate, registerImmediateFeedView(restored));
+
+    const actions = run(publishImmediateStatus(snapshot, posted()), original.set('immediate_feed', immediate));
+
+    expect(restored.filterSignature).toBe(snapshot.filterSignature);
+    expect(immediate.getIn(['views', hashtagView.viewKey, 'registrationGeneration'])).not.toBe(snapshot.registrationGeneration);
+    expect(actions).toEqual([]);
+    expect(importFetchedStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe('timeline reconcile', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  const harnessForPosted = () => {
+    const state = stateWith([hashtagView]);
+    const snapshot = captureImmediateFeedSnapshot(state, hashtagView.viewKey, composer());
+    const harness = applyDispatch(state);
+
+    harness.dispatch(publishImmediateStatus(snapshot, posted()));
+    importFetchedStatus.mockClear();
+    api.mockReset();
+
+    const inserted = harness.actions.find(action => action.type === IMMEDIATE_FEED_INSERT);
+
+    return { harness, inserted };
+  };
+
+  it('does not treat the latest page alone as exclusion, then confirms from a later page', async () => {
+    const { harness, inserted } = harnessForPosted();
+    const newestPage = Array.from({ length: 20 }, (_, index) => ({ id: String(5000 - index), content: '<p>other</p>' }));
+    const get = jest.fn()
+      .mockResolvedValueOnce({ data: newestPage })
+      .mockResolvedValueOnce({ data: [{ id: '50', content: '<p>older</p>' }, { id: '77', content: '<p>official</p>', card: { url: 'https://example.test/post' }, media_attachments: [{ id: 'm', url: 'https://cdn.test/a.jpg' }] }] });
+
+    api.mockImplementation(() => ({ get }));
+
+    await harness.dispatch(reconcileImmediateEntry(hashtagView.viewKey, '77', inserted.generation));
+
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(String(get.mock.calls[0][0])).toContain('/api/v1/timelines/tag/');
+    expect(get.mock.calls[1][1].params.max_id).toBe('4981');
+    expect(get.mock.calls.some(call => String(call[0]).indexOf('/api/v1/statuses/') === 0)).toBe(false);
+    expect(harness.actions.find(action => action.type === IMMEDIATE_FEED_CONFIRM)).toMatchObject({ statusId: '77' });
+    expect(importFetchedStatus).toHaveBeenCalledWith(expect.objectContaining({
+      id: '77',
+      content: '<p>official</p>',
+    }));
+    expect(harness.getState().getIn(['immediate_feed', 'entries', `${hashtagView.viewKey}\u000077`, 'phase'])).toBe('confirmed');
+  });
+
+  it('removes the overlay when a covered page omits a filtered status', async () => {
+    const { harness, inserted } = harnessForPosted();
+    const get = jest.fn().mockResolvedValue({
+      data: [
+        { id: '90', language: 'en', content: '<p>kept</p>' },
+        { id: '70', language: 'ja', content: '<p>kept too</p>' },
+      ],
+    });
+
+    api.mockImplementation(() => ({ get }));
+
+    await harness.dispatch(reconcileImmediateEntry(hashtagView.viewKey, '77', inserted.generation));
+
+    expect(harness.actions.find(action => action.type === IMMEDIATE_FEED_REMOVE)).toMatchObject({ statusId: '77' });
+    expect(harness.getState().getIn(['immediate_feed', 'entries', `${hashtagView.viewKey}\u000077`])).toBeUndefined();
+    expect(importFetchedStatus).not.toHaveBeenCalled();
+  });
+
+  it('removes the overlay when a covered page omits a muted account', async () => {
+    const { harness, inserted } = harnessForPosted();
+    const get = jest.fn().mockResolvedValue({
+      data: [
+        { id: '90', account: { id: '2' }, content: '<p>visible</p>' },
+        { id: '70', account: { id: '3' }, content: '<p>visible</p>' },
+      ],
+    });
+
+    api.mockImplementation(() => ({ get }));
+
+    await harness.dispatch(reconcileImmediateEntry(hashtagView.viewKey, '77', inserted.generation));
+
+    expect(harness.actions.find(action => action.type === IMMEDIATE_FEED_REMOVE)).toBeTruthy();
+    expect(String(get.mock.calls[0][0])).not.toContain('/api/v1/statuses/77');
+  });
+
+  it('keeps a group post that is still newer than the group feed and retries after a network failure', async () => {
+    const groupView = buildGroupImmediateView({
+      viewKey: 'portable:group-route:123',
+      timelineId: 'group:123',
+      groupId: '123',
+      postingContext: groupPostingContext,
+    });
+    const state = stateWith([groupView]);
+    const snapshot = captureImmediateFeedSnapshot(state, groupView.viewKey, composer({
+      surface: { kind: 'group', key: '123' },
+    }));
+    const harness = applyDispatch(state);
+
+    harness.dispatch(publishImmediateStatus(snapshot, posted({ mentions: [{ id: '123' }] })));
+    const inserted = harness.actions.find(action => action.type === IMMEDIATE_FEED_INSERT);
+    const get = jest.fn()
+      .mockResolvedValueOnce({ data: [{ id: '40', content: '<p>older group post</p>' }] })
+      .mockRejectedValueOnce(new Error('offline'));
+
+    api.mockImplementation(() => ({ get }));
+
+    await harness.dispatch(reconcileImmediateEntry(groupView.viewKey, '77', inserted.generation));
+
+    expect(harness.actions.find(action => action.type === IMMEDIATE_FEED_REMOVE)).toBeUndefined();
+    expect(harness.actions.find(action => action.type === IMMEDIATE_FEED_CONFIRM)).toBeUndefined();
+    expect(harness.getState().getIn(['immediate_feed', 'entries', `${groupView.viewKey}\u000077`, 'phase'])).toBe('recheck');
+
+    jest.advanceTimersByTime(IMMEDIATE_FEED_TTL_MS);
+    await Promise.resolve();
+
+    expect(harness.getState().getIn(['immediate_feed', 'entries', `${groupView.viewKey}\u000077`])).toBeTruthy();
+    expect(harness.actions.find(action => action.type === IMMEDIATE_FEED_REMOVE)).toBeUndefined();
+  });
+});
+
+describe('immediate feed timers', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('drops timers when the status is deleted or the timeline is cleared', () => {
+    const state = stateWith([hashtagView]).set('statuses', ImmutableMap());
+    const snapshot = captureImmediateFeedSnapshot(state, hashtagView.viewKey, composer());
+    const harness = applyDispatch(state);
+
+    harness.dispatch(publishImmediateStatus(snapshot, posted()));
+    api.mockReset();
+
+    harness.dispatch(deleteFromTimelines('77'));
+    jest.advanceTimersByTime(IMMEDIATE_FEED_TTL_MS);
+    expect(api).not.toHaveBeenCalled();
+
+    const again = stateWith([hashtagView]);
+    const againSnapshot = captureImmediateFeedSnapshot(again, hashtagView.viewKey, composer());
+    const second = applyDispatch(again);
+
+    second.dispatch(publishImmediateStatus(againSnapshot, posted()));
+    api.mockReset();
+    second.dispatch(clearTimeline(hashtagView.timelineId));
+    jest.advanceTimersByTime(IMMEDIATE_FEED_TTL_MS);
+    expect(api).not.toHaveBeenCalled();
+    cancelImmediateFeedTimersForStatuses(['77']);
   });
 });
 
