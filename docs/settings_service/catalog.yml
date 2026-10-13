@@ -92,10 +92,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:140
-  - app/lib/user_settings_decorator.rb:43
+  - app/lib/user_settings_decorator.rb:44
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:123
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:125
   - app/serializers/initial_state_serializer.rb:89
   - app/javascript/mastodon/initial_state.js:28
   audit_status: verified
@@ -141,10 +141,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:50
-  - app/lib/user_settings_decorator.rb:59
+  - app/lib/user_settings_decorator.rb:60
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:70
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:72
   - app/serializers/initial_state_serializer.rb:54
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -183,9 +183,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:49
-  - app/lib/user_settings_decorator.rb:57
+  - app/lib/user_settings_decorator.rb:58
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:11
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -232,10 +232,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:30
-  - app/lib/user_settings_decorator.rb:47
+  - app/lib/user_settings_decorator.rb:48
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:84
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:86
   - app/serializers/initial_state_serializer.rb:46
   - app/javascript/mastodon/initial_state.js:9
   audit_status: verified
@@ -286,10 +286,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:31
-  - app/lib/user_settings_decorator.rb:48
+  - app/lib/user_settings_decorator.rb:49
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:87
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:89
   - app/serializers/initial_state_serializer.rb:47
   - app/javascript/mastodon/initial_state.js:10
   audit_status: verified
@@ -340,10 +340,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:32
-  - app/lib/user_settings_decorator.rb:49
+  - app/lib/user_settings_decorator.rb:50
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:85
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:87
   - app/serializers/initial_state_serializer.rb:48
   - app/javascript/mastodon/initial_state.js:11
   audit_status: verified
@@ -394,10 +394,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:33
-  - app/lib/user_settings_decorator.rb:50
+  - app/lib/user_settings_decorator.rb:51
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:86
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:88
   - app/serializers/initial_state_serializer.rb:49
   - app/javascript/mastodon/initial_state.js:12
   audit_status: verified
@@ -445,10 +445,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:27
-  - app/lib/user_settings_decorator.rb:40
+  - app/lib/user_settings_decorator.rb:41
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:119
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:121
   - app/serializers/initial_state_serializer.rb:43
   - app/javascript/mastodon/initial_state.js:25
   audit_status: verified
@@ -493,10 +493,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:145
-  - app/lib/user_settings_decorator.rb:93
+  - app/lib/user_settings_decorator.rb:94
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:98
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:100
   - app/helpers/application_helper.rb:167
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -540,9 +540,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:74
-  - app/lib/user_settings_decorator.rb:81
+  - app/lib/user_settings_decorator.rb:82
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:130
   - app/serializers/initial_state_serializer.rb:79
   - app/javascript/mastodon/initial_state.js:70
@@ -589,10 +589,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:85
-  - app/lib/user_settings_decorator.rb:151
+  - app/lib/user_settings_decorator.rb:152
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:39
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:41
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -634,10 +634,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:86
-  - app/lib/user_settings_decorator.rb:152
+  - app/lib/user_settings_decorator.rb:153
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:40
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:42
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -681,10 +681,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:56
-  - app/lib/user_settings_decorator.rb:64
+  - app/lib/user_settings_decorator.rb:65
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:121
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:123
   - app/serializers/initial_state_serializer.rb:62
   - app/javascript/mastodon/initial_state.js:53
   audit_status: verified
@@ -730,9 +730,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:148
-  - app/lib/user_settings_decorator.rb:96
+  - app/lib/user_settings_decorator.rb:97
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:148
   - app/serializers/initial_state_serializer.rb:108
   audit_status: verified
@@ -778,10 +778,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:87
-  - app/lib/user_settings_decorator.rb:150
+  - app/lib/user_settings_decorator.rb:151
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:62
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:64
   - app/serializers/initial_state_serializer.rb:98
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
@@ -808,7 +808,7 @@ entries:
   - server CSS variables in account_theme_valiables
   - Rails preferences form getter
   write_sources:
-  - rails preferences update (appearance)
+  - rails preferences update via LegacyWriter (appearance)
   normalization: Listed in STRING_KEYS, so the decorator stores the form value without
     Integer() or Float(). YAML defaults are numeric. After a Rails save the stored
     YAML value can be a string. CSS interpolates either. max_frequently_used_emojis
@@ -817,7 +817,8 @@ entries:
   read_policy: general
   write_policy: general
   side_effects:
-  - settings row update and Rails.cache.write in ScopedSettings#[]=
+  - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
+  - 'UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
   - document CSS variables; reload required
   apply_hint: reload
   client_reference:
@@ -827,10 +828,11 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:83
-  - app/lib/user_settings_decorator.rb:148
+  - app/lib/user_settings_decorator.rb:149
+  - app/lib/user_preferences/legacy_writer.rb:21
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:37
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:39
   - app/serializers/initial_state_serializer.rb:93
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
@@ -875,10 +877,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:55
-  - app/lib/user_settings_decorator.rb:63
+  - app/lib/user_settings_decorator.rb:64
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:103
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:105
   - app/serializers/initial_state_serializer.rb:61
   - app/javascript/mastodon/initial_state.js:51
   audit_status: verified
@@ -924,10 +926,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:151
-  - app/lib/user_settings_decorator.rb:160
+  - app/lib/user_settings_decorator.rb:161
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:76
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:78
   - app/serializers/initial_state_serializer.rb:110
   - app/javascript/mastodon/initial_state.js:80
   audit_status: verified
@@ -972,9 +974,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:153
-  - app/lib/user_settings_decorator.rb:162
+  - app/lib/user_settings_decorator.rb:163
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:83
   - app/serializers/initial_state_serializer.rb:173
   audit_status: verified
@@ -1016,9 +1018,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:152
-  - app/lib/user_settings_decorator.rb:161
+  - app/lib/user_settings_decorator.rb:162
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:79
   - app/serializers/initial_state_serializer.rb:172
   audit_status: verified
@@ -1050,24 +1052,26 @@ entries:
   - GET /api/v1/accounts/verify_credentials source
   - Rails preferences form getter
   write_sources:
-  - rails preferences update (other)
-  - PATCH /api/v1/accounts/update_credentials source
+  - rails preferences update via LegacyWriter (other)
+  - PATCH /api/v1/accounts/update_credentials source via UserSettingsDecorator without legacy_writer
   normalization: Stored as submitted, including nil for the language-detection option.
     The getter does not cascade. preferred_posting_language does.
   availability: user preference
   read_policy: general
   write_policy: general
   side_effects:
-  - settings row update and Rails.cache.write in ScopedSettings#[]=
+  - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
+  - 'Credentials and UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
   apply_hint: reinitialize
   client_reference:
   - none
   configured_vs_effective: distinct
   form_status: active
   source_refs:
-  - app/lib/user_settings_decorator.rb:141
+  - app/lib/user_settings_decorator.rb:142
+  - app/lib/user_preferences/legacy_writer.rb:21
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:69
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -1101,8 +1105,8 @@ entries:
   - GET /api/v1/accounts/verify_credentials source
   - Rails preferences form getter
   write_sources:
-  - rails preferences update (other)
-  - PATCH /api/v1/accounts/update_credentials source
+  - rails preferences update via LegacyWriter (other)
+  - PATCH /api/v1/accounts/update_credentials source via UserSettingsDecorator without legacy_writer
   normalization: 'Stored as the submitted string. The getter replaces only a blank
     stored value. Selectable form values are Status.selectable_visibilities: public,
     unlisted, private, mutual, personal.'
@@ -1110,16 +1114,18 @@ entries:
   read_policy: general
   write_policy: general
   side_effects:
-  - settings row update and Rails.cache.write in ScopedSettings#[]=
+  - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
+  - 'Credentials and UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
   apply_hint: reinitialize
   client_reference:
   - redux_compose
   configured_vs_effective: distinct
   form_status: active
   source_refs:
-  - app/lib/user_settings_decorator.rb:140
+  - app/lib/user_settings_decorator.rb:141
+  - app/lib/user_preferences/legacy_writer.rb:21
   - app/models/user.rb:313
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:66
   - app/serializers/initial_state_serializer.rb:168
   audit_status: verified
@@ -1164,9 +1170,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:149
-  - app/lib/user_settings_decorator.rb:159
+  - app/lib/user_settings_decorator.rb:160
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:88
   - app/serializers/initial_state_serializer.rb:194
   audit_status: verified
@@ -1201,8 +1207,8 @@ entries:
   - GET /api/v1/accounts/verify_credentials source
   - Rails preferences form getter
   write_sources:
-  - rails preferences update (other)
-  - PATCH /api/v1/accounts/update_credentials source
+  - rails preferences update via LegacyWriter (other)
+  - PATCH /api/v1/accounts/update_credentials source via UserSettingsDecorator without legacy_writer
   normalization: ActiveModel::Type::Boolean on write. Simple Form sends 0 or 1. Read
     returns the stored YAML boolean or the YAML default. No integer cast; INTEGER_KEYS
     is empty.
@@ -1210,7 +1216,8 @@ entries:
   read_policy: general
   write_policy: general
   side_effects:
-  - settings row update and Rails.cache.write in ScopedSettings#[]=
+  - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
+  - 'Credentials and UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
   apply_hint: reinitialize
   client_reference:
   - redux_compose
@@ -1218,9 +1225,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:19
-  - app/lib/user_settings_decorator.rb:33
+  - app/lib/user_settings_decorator.rb:34
+  - app/lib/user_preferences/legacy_writer.rb:21
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:72
   - app/serializers/initial_state_serializer.rb:170
   audit_status: verified
@@ -1265,10 +1273,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:28
-  - app/lib/user_settings_decorator.rb:41
+  - app/lib/user_settings_decorator.rb:42
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:120
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:122
   - app/serializers/initial_state_serializer.rb:44
   - app/javascript/mastodon/initial_state.js:26
   audit_status: verified
@@ -1317,10 +1325,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:142
-  - app/lib/user_settings_decorator.rb:45
+  - app/lib/user_settings_decorator.rb:46
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:125
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:127
   - app/serializers/initial_state_serializer.rb:91
   - app/javascript/mastodon/initial_state.js:30
   audit_status: verified
@@ -1368,9 +1376,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:162
-  - app/lib/user_settings_decorator.rb:105
+  - app/lib/user_settings_decorator.rb:106
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:36
   - app/serializers/initial_state_serializer.rb:119
   - app/javascript/mastodon/initial_state.js:91
@@ -1419,9 +1427,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:195
-  - app/lib/user_settings_decorator.rb:136
+  - app/lib/user_settings_decorator.rb:137
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:207
   - app/serializers/initial_state_serializer.rb:146
   - app/javascript/mastodon/initial_state.js:122
@@ -1470,9 +1478,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:158
-  - app/lib/user_settings_decorator.rb:102
+  - app/lib/user_settings_decorator.rb:103
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:24
   - app/serializers/initial_state_serializer.rb:115
   - app/javascript/mastodon/initial_state.js:88
@@ -1522,9 +1530,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:161
-  - app/lib/user_settings_decorator.rb:104
+  - app/lib/user_settings_decorator.rb:105
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:33
   - app/serializers/initial_state_serializer.rb:118
   - app/javascript/mastodon/initial_state.js:90
@@ -1573,9 +1581,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:159
-  - app/lib/user_settings_decorator.rb:103
+  - app/lib/user_settings_decorator.rb:104
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:27
   - app/serializers/initial_state_serializer.rb:116
   - app/javascript/mastodon/initial_state.js:89
@@ -1625,9 +1633,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:156
-  - app/lib/user_settings_decorator.rb:100
+  - app/lib/user_settings_decorator.rb:101
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:18
   - app/serializers/initial_state_serializer.rb:113
   - app/javascript/mastodon/initial_state.js:86
@@ -1678,10 +1686,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:80
-  - app/lib/user_settings_decorator.rb:87
+  - app/lib/user_settings_decorator.rb:88
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:95
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:97
   - app/serializers/initial_state_serializer.rb:82
   - app/javascript/mastodon/initial_state.js:73
   - app/helpers/accounts_helper.rb:129
@@ -1731,9 +1739,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:154
-  - app/lib/user_settings_decorator.rb:98
+  - app/lib/user_settings_decorator.rb:99
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:39
   - app/serializers/initial_state_serializer.rb:111
   - app/javascript/mastodon/initial_state.js:84
@@ -1782,9 +1790,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:75
-  - app/lib/user_settings_decorator.rb:82
+  - app/lib/user_settings_decorator.rb:83
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:136
   - app/serializers/initial_state_serializer.rb:80
   - app/javascript/mastodon/initial_state.js:71
@@ -1832,9 +1840,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:155
-  - app/lib/user_settings_decorator.rb:99
+  - app/lib/user_settings_decorator.rb:100
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:15
   - app/serializers/initial_state_serializer.rb:112
   - app/javascript/mastodon/initial_state.js:85
@@ -1883,9 +1891,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:165
-  - app/lib/user_settings_decorator.rb:106
+  - app/lib/user_settings_decorator.rb:107
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:154
   - app/serializers/initial_state_serializer.rb:120
   - app/javascript/mastodon/initial_state.js:92
@@ -1934,9 +1942,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:160
-  - app/lib/user_settings_decorator.rb:107
+  - app/lib/user_settings_decorator.rb:108
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:30
   - app/serializers/initial_state_serializer.rb:117
   - app/javascript/mastodon/initial_state.js:93
@@ -1985,10 +1993,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:42
-  - app/lib/user_settings_decorator.rb:53
+  - app/lib/user_settings_decorator.rb:54
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:89
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:91
   - app/serializers/initial_state_serializer.rb:53
   - app/javascript/mastodon/initial_state.js:52
   audit_status: verified
@@ -2036,9 +2044,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:157
-  - app/lib/user_settings_decorator.rb:101
+  - app/lib/user_settings_decorator.rb:102
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:21
   - app/serializers/initial_state_serializer.rb:114
   - app/javascript/mastodon/initial_state.js:87
@@ -2087,10 +2095,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:34
-  - app/lib/user_settings_decorator.rb:143
+  - app/lib/user_settings_decorator.rb:144
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:138
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:140
   - app/serializers/initial_state_serializer.rb:50
   - app/javascript/mastodon/initial_state.js:13
   audit_status: verified
@@ -2139,10 +2147,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:88
-  - app/lib/user_settings_decorator.rb:153
+  - app/lib/user_settings_decorator.rb:154
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:45
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:47
   - app/serializers/initial_state_serializer.rb:99
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
@@ -2185,10 +2193,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:91
-  - app/lib/user_settings_decorator.rb:156
+  - app/lib/user_settings_decorator.rb:157
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:53
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:55
   - app/serializers/initial_state_serializer.rb:102
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
@@ -2231,10 +2239,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:90
-  - app/lib/user_settings_decorator.rb:155
+  - app/lib/user_settings_decorator.rb:156
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:51
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:53
   - app/serializers/initial_state_serializer.rb:101
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
@@ -2277,10 +2285,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:92
-  - app/lib/user_settings_decorator.rb:157
+  - app/lib/user_settings_decorator.rb:158
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:55
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:57
   - app/serializers/initial_state_serializer.rb:103
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
@@ -2323,10 +2331,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:89
-  - app/lib/user_settings_decorator.rb:154
+  - app/lib/user_settings_decorator.rb:155
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:49
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:51
   - app/serializers/initial_state_serializer.rb:100
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
@@ -2371,10 +2379,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:146
-  - app/lib/user_settings_decorator.rb:94
+  - app/lib/user_settings_decorator.rb:95
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:73
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:75
   - app/serializers/initial_state_serializer.rb:92
   - app/javascript/mastodon/initial_state.js:78
   audit_status: verified
@@ -2424,9 +2432,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:68
-  - app/lib/user_settings_decorator.rb:76
+  - app/lib/user_settings_decorator.rb:77
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:118
   - app/serializers/initial_state_serializer.rb:74
   - app/javascript/mastodon/initial_state.js:67
@@ -2477,9 +2485,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:69
-  - app/lib/user_settings_decorator.rb:77
+  - app/lib/user_settings_decorator.rb:78
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:121
   - app/serializers/initial_state_serializer.rb:75
   - app/javascript/mastodon/initial_state.js:65
@@ -2535,9 +2543,9 @@ entries:
   form_status: commented
   source_refs:
   - config/settings.yml:72
-  - app/lib/user_settings_decorator.rb:79
+  - app/lib/user_settings_decorator.rb:80
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:115
   - app/serializers/initial_state_serializer.rb:77
   - app/javascript/mastodon/initial_state.js:68
@@ -2586,9 +2594,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:70
-  - app/lib/user_settings_decorator.rb:78
+  - app/lib/user_settings_decorator.rb:79
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:124
   - app/serializers/initial_state_serializer.rb:76
   - app/javascript/mastodon/initial_state.js:66
@@ -2639,9 +2647,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:73
-  - app/lib/user_settings_decorator.rb:80
+  - app/lib/user_settings_decorator.rb:81
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:127
   - app/serializers/initial_state_serializer.rb:78
   - app/javascript/mastodon/initial_state.js:69
@@ -2691,9 +2699,9 @@ entries:
   form_status: conditional
   source_refs:
   - config/settings.yml:193
-  - app/lib/user_settings_decorator.rb:134
+  - app/lib/user_settings_decorator.rb:135
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:200
   - app/serializers/initial_state_serializer.rb:144
   - app/javascript/mastodon/initial_state.js:120
@@ -2744,9 +2752,9 @@ entries:
   form_status: conditional
   source_refs:
   - config/settings.yml:194
-  - app/lib/user_settings_decorator.rb:135
+  - app/lib/user_settings_decorator.rb:136
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:204
   - app/serializers/initial_state_serializer.rb:145
   - app/javascript/mastodon/initial_state.js:121
@@ -2795,9 +2803,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:82
-  - app/lib/user_settings_decorator.rb:89
+  - app/lib/user_settings_decorator.rb:90
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:142
   - app/serializers/initial_state_serializer.rb:86
   - app/javascript/mastodon/initial_state.js:75
@@ -2848,10 +2856,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:94
-  - app/lib/user_settings_decorator.rb:115
+  - app/lib/user_settings_decorator.rb:116
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:58
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:60
   - app/serializers/initial_state_serializer.rb:105
   - app/javascript/mastodon/initial_state.js:82
   - app/helpers/accounts_helper.rb:129
@@ -2902,10 +2910,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:95
-  - app/lib/user_settings_decorator.rb:116
+  - app/lib/user_settings_decorator.rb:117
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:59
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:61
   - app/serializers/initial_state_serializer.rb:106
   - app/javascript/mastodon/initial_state.js:83
   - app/helpers/accounts_helper.rb:129
@@ -2956,10 +2964,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:39
-  - app/lib/user_settings_decorator.rb:51
+  - app/lib/user_settings_decorator.rb:52
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:144
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:146
   - app/serializers/initial_state_serializer.rb:51
   - app/javascript/mastodon/initial_state.js:18
   audit_status: verified
@@ -3007,9 +3015,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:60
-  - app/lib/user_settings_decorator.rb:68
+  - app/lib/user_settings_decorator.rb:69
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:49
   - app/serializers/initial_state_serializer.rb:66
   - app/javascript/mastodon/initial_state.js:57
@@ -3058,10 +3066,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:21
-  - app/lib/user_settings_decorator.rb:34
+  - app/lib/user_settings_decorator.rb:35
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:113
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:115
   - app/serializers/initial_state_serializer.rb:37
   - app/javascript/mastodon/initial_state.js:19
   audit_status: verified
@@ -3109,10 +3117,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:25
-  - app/lib/user_settings_decorator.rb:38
+  - app/lib/user_settings_decorator.rb:39
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:115
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:117
   - app/serializers/initial_state_serializer.rb:41
   - app/javascript/mastodon/initial_state.js:23
   audit_status: verified
@@ -3157,10 +3165,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:144
-  - app/lib/user_settings_decorator.rb:92
+  - app/lib/user_settings_decorator.rb:93
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:97
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:99
   - app/helpers/application_helper.rb:166
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -3201,10 +3209,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:143
-  - app/lib/user_settings_decorator.rb:91
+  - app/lib/user_settings_decorator.rb:92
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:96
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:98
   - app/helpers/application_helper.rb:165
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -3247,9 +3255,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:147
-  - app/lib/user_settings_decorator.rb:95
+  - app/lib/user_settings_decorator.rb:96
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:215
   - app/serializers/initial_state_serializer.rb:107
   audit_status: verified
@@ -3296,9 +3304,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:166
-  - app/lib/user_settings_decorator.rb:108
+  - app/lib/user_settings_decorator.rb:109
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:157
   - app/serializers/initial_state_serializer.rb:121
   - app/javascript/mastodon/initial_state.js:94
@@ -3345,9 +3353,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:79
-  - app/lib/user_settings_decorator.rb:86
+  - app/lib/user_settings_decorator.rb:87
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:22
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -3393,9 +3401,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:182
-  - app/lib/user_settings_decorator.rb:123
+  - app/lib/user_settings_decorator.rb:124
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:28
   - app/serializers/initial_state_serializer.rb:135
   - app/javascript/mastodon/initial_state.js:111
@@ -3446,9 +3454,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:185
-  - app/lib/user_settings_decorator.rb:126
+  - app/lib/user_settings_decorator.rb:127
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:37
   - app/serializers/initial_state_serializer.rb:132
   - app/javascript/mastodon/initial_state.js:108
@@ -3494,9 +3502,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:78
-  - app/lib/user_settings_decorator.rb:85
+  - app/lib/user_settings_decorator.rb:86
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:19
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -3542,9 +3550,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:181
-  - app/lib/user_settings_decorator.rb:122
+  - app/lib/user_settings_decorator.rb:123
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:25
   - app/serializers/initial_state_serializer.rb:134
   - app/javascript/mastodon/initial_state.js:110
@@ -3595,9 +3603,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:184
-  - app/lib/user_settings_decorator.rb:125
+  - app/lib/user_settings_decorator.rb:126
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:34
   - app/serializers/initial_state_serializer.rb:131
   - app/javascript/mastodon/initial_state.js:107
@@ -3647,9 +3655,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:186
-  - app/lib/user_settings_decorator.rb:127
+  - app/lib/user_settings_decorator.rb:128
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:181
   - app/serializers/initial_state_serializer.rb:137
   - app/javascript/mastodon/initial_state.js:113
@@ -3699,10 +3707,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:169
-  - app/lib/user_settings_decorator.rb:112
+  - app/lib/user_settings_decorator.rb:113
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:149
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:151
   - app/serializers/initial_state_serializer.rb:125
   - app/javascript/mastodon/initial_state.js:98
   audit_status: verified
@@ -3752,9 +3760,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:188
-  - app/lib/user_settings_decorator.rb:129
+  - app/lib/user_settings_decorator.rb:130
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:184
   - app/serializers/initial_state_serializer.rb:139
   - app/javascript/mastodon/initial_state.js:115
@@ -3805,9 +3813,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:189
-  - app/lib/user_settings_decorator.rb:130
+  - app/lib/user_settings_decorator.rb:131
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:187
   - app/serializers/initial_state_serializer.rb:140
   - app/javascript/mastodon/initial_state.js:116
@@ -3858,9 +3866,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:190
-  - app/lib/user_settings_decorator.rb:131
+  - app/lib/user_settings_decorator.rb:132
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:190
   - app/serializers/initial_state_serializer.rb:141
   - app/javascript/mastodon/initial_state.js:117
@@ -3911,9 +3919,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:191
-  - app/lib/user_settings_decorator.rb:132
+  - app/lib/user_settings_decorator.rb:133
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:193
   - app/serializers/initial_state_serializer.rb:142
   - app/javascript/mastodon/initial_state.js:118
@@ -3960,9 +3968,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:20
-  - app/lib/user_settings_decorator.rb:56
+  - app/lib/user_settings_decorator.rb:57
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:16
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -4008,9 +4016,9 @@ entries:
   configured_vs_effective: unset_is_nil
   form_status: active
   source_refs:
-  - app/lib/user_settings_decorator.rb:110
+  - app/lib/user_settings_decorator.rb:111
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:163
   - app/serializers/initial_state_serializer.rb:123
   - app/javascript/mastodon/initial_state.js:96
@@ -4060,9 +4068,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:167
-  - app/lib/user_settings_decorator.rb:109
+  - app/lib/user_settings_decorator.rb:110
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:160
   - app/serializers/initial_state_serializer.rb:122
   - app/javascript/mastodon/initial_state.js:95
@@ -4112,10 +4120,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:170
-  - app/lib/user_settings_decorator.rb:113
+  - app/lib/user_settings_decorator.rb:114
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:152
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:154
   - app/serializers/initial_state_serializer.rb:126
   - app/javascript/mastodon/initial_state.js:99
   audit_status: verified
@@ -4164,9 +4172,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:168
-  - app/lib/user_settings_decorator.rb:111
+  - app/lib/user_settings_decorator.rb:112
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:166
   - app/serializers/initial_state_serializer.rb:124
   - app/javascript/mastodon/initial_state.js:97
@@ -4216,9 +4224,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:187
-  - app/lib/user_settings_decorator.rb:128
+  - app/lib/user_settings_decorator.rb:129
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:133
   - app/serializers/initial_state_serializer.rb:138
   - app/javascript/mastodon/initial_state.js:114
@@ -4268,9 +4276,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:192
-  - app/lib/user_settings_decorator.rb:133
+  - app/lib/user_settings_decorator.rb:134
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:196
   - app/serializers/initial_state_serializer.rb:143
   - app/javascript/mastodon/initial_state.js:119
@@ -4317,9 +4325,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:77
-  - app/lib/user_settings_decorator.rb:84
+  - app/lib/user_settings_decorator.rb:85
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:57
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -4365,9 +4373,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:180
-  - app/lib/user_settings_decorator.rb:121
+  - app/lib/user_settings_decorator.rb:122
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:60
   - app/serializers/initial_state_serializer.rb:133
   - app/javascript/mastodon/initial_state.js:109
@@ -4418,9 +4426,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:183
-  - app/lib/user_settings_decorator.rb:124
+  - app/lib/user_settings_decorator.rb:125
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:31
   - app/serializers/initial_state_serializer.rb:136
   - app/javascript/mastodon/initial_state.js:112
@@ -4470,10 +4478,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:171
-  - app/lib/user_settings_decorator.rb:114
+  - app/lib/user_settings_decorator.rb:115
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:155
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:157
   - app/serializers/initial_state_serializer.rb:127
   - app/javascript/mastodon/initial_state.js:100
   audit_status: verified
@@ -4503,7 +4511,7 @@ entries:
   - server CSS variables in account_theme_valiables
   - Rails preferences form getter
   write_sources:
-  - rails preferences update (appearance)
+  - rails preferences update via LegacyWriter (appearance)
   normalization: Listed in STRING_KEYS, so the decorator stores the form value without
     Integer() or Float(). YAML defaults are numeric. After a Rails save the stored
     YAML value can be a string. CSS interpolates either. max_frequently_used_emojis
@@ -4512,7 +4520,8 @@ entries:
   read_policy: general
   write_policy: general
   side_effects:
-  - settings row update and Rails.cache.write in ScopedSettings#[]=
+  - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
+  - 'UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
   - document CSS variables; reload required
   apply_hint: reload
   client_reference:
@@ -4522,10 +4531,11 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:84
-  - app/lib/user_settings_decorator.rb:149
+  - app/lib/user_settings_decorator.rb:150
+  - app/lib/user_preferences/legacy_writer.rb:21
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:38
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:40
   - app/serializers/initial_state_serializer.rb:97
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
@@ -4571,9 +4581,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:138
-  - app/lib/user_settings_decorator.rb:90
+  - app/lib/user_settings_decorator.rb:91
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:145
   - app/serializers/initial_state_serializer.rb:87
   - app/javascript/mastodon/initial_state.js:77
@@ -4623,9 +4633,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:198
-  - app/lib/user_settings_decorator.rb:165
+  - app/lib/user_settings_decorator.rb:166
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:210
   - app/serializers/initial_state_serializer.rb:147
   - app/javascript/mastodon/initial_state.js:126
@@ -4674,10 +4684,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:29
-  - app/lib/user_settings_decorator.rb:46
+  - app/lib/user_settings_decorator.rb:47
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:126
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:128
   - app/serializers/initial_state_serializer.rb:45
   - app/javascript/mastodon/initial_state.js:31
   audit_status: verified
@@ -4707,13 +4717,14 @@ entries:
   - static JS import new_features_policy (6 importers)
   - Rails preferences form getter
   write_sources:
-  - rails preferences update (other)
+  - rails preferences update via LegacyWriter (other)
   normalization: Stored as the submitted string with no extra cast.
   availability: user preference
   read_policy: general
   write_policy: general
   side_effects:
-  - settings row update and Rails.cache.write in ScopedSettings#[]=
+  - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
+  - 'UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
   apply_hint: reinitialize
   client_reference:
   - static_import
@@ -4723,9 +4734,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:81
-  - app/lib/user_settings_decorator.rb:146
+  - app/lib/user_settings_decorator.rb:147
+  - app/lib/user_preferences/legacy_writer.rb:21
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:94
   - app/serializers/initial_state_serializer.rb:83
   - app/javascript/mastodon/initial_state.js:74
@@ -4772,9 +4784,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:45
-  - app/lib/user_settings_decorator.rb:55
+  - app/lib/user_settings_decorator.rb:56
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:54
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -4821,10 +4833,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:93
-  - app/lib/user_settings_decorator.rb:158
+  - app/lib/user_settings_decorator.rb:159
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:63
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:65
   - app/serializers/initial_state_serializer.rb:104
   - app/javascript/mastodon/initial_state.js:81
   - app/helpers/accounts_helper.rb:129
@@ -4873,9 +4885,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:66
-  - app/lib/user_settings_decorator.rb:74
+  - app/lib/user_settings_decorator.rb:75
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:109
   - app/serializers/initial_state_serializer.rb:72
   - app/javascript/mastodon/initial_state.js:63
@@ -4924,10 +4936,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:139
-  - app/lib/user_settings_decorator.rb:42
+  - app/lib/user_settings_decorator.rb:43
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:122
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:124
   - app/serializers/initial_state_serializer.rb:88
   - app/javascript/mastodon/initial_state.js:27
   audit_status: verified
@@ -4973,7 +4985,7 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:163
-  - app/lib/user_settings_decorator.rb:163
+  - app/lib/user_settings_decorator.rb:164
   - app/models/user.rb:148
   - app/views/settings/preferences/safety/show.html.haml:44
   - app/serializers/initial_state_serializer.rb:174
@@ -5018,9 +5030,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:164
-  - app/lib/user_settings_decorator.rb:164
+  - app/lib/user_settings_decorator.rb:165
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/safety/show.html.haml:47
   - app/serializers/initial_state_serializer.rb:175
   audit_status: verified
@@ -5048,7 +5060,7 @@ entries:
   - server HTML body class or theme stylesheet
   - Rails preferences form getter
   write_sources:
-  - rails preferences update (appearance)
+  - rails preferences update via LegacyWriter (appearance)
   normalization: ActiveModel::Type::Boolean on write. Simple Form sends 0 or 1. Read
     returns the stored YAML boolean or the YAML default. No integer cast; INTEGER_KEYS
     is empty.
@@ -5056,7 +5068,8 @@ entries:
   read_policy: general
   write_policy: general
   side_effects:
-  - settings row update and Rails.cache.write in ScopedSettings#[]=
+  - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
+  - 'UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
   - body class or theme stylesheet; reload required
   apply_hint: reload
   client_reference:
@@ -5067,10 +5080,11 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:41
-  - app/lib/user_settings_decorator.rb:52
+  - app/lib/user_settings_decorator.rb:53
+  - app/lib/user_preferences/legacy_writer.rb:21
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:88
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:90
   - app/serializers/initial_state_serializer.rb:52
   - app/javascript/mastodon/initial_state.js:8
   - app/helpers/application_helper.rb:163
@@ -5114,9 +5128,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:43
-  - app/lib/user_settings_decorator.rb:58
+  - app/lib/user_settings_decorator.rb:59
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:75
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -5160,9 +5174,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:62
-  - app/lib/user_settings_decorator.rb:71
+  - app/lib/user_settings_decorator.rb:72
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:103
   - app/serializers/initial_state_serializer.rb:69
   - app/javascript/mastodon/initial_state.js:60
@@ -5214,9 +5228,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:57
-  - app/lib/user_settings_decorator.rb:65
+  - app/lib/user_settings_decorator.rb:66
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:40
   - app/serializers/initial_state_serializer.rb:63
   - app/javascript/mastodon/initial_state.js:54
@@ -5266,9 +5280,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:59
-  - app/lib/user_settings_decorator.rb:67
+  - app/lib/user_settings_decorator.rb:68
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:46
   - app/serializers/initial_state_serializer.rb:65
   - app/javascript/mastodon/initial_state.js:56
@@ -5317,9 +5331,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:61
-  - app/lib/user_settings_decorator.rb:69
+  - app/lib/user_settings_decorator.rb:70
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:97
   - app/serializers/initial_state_serializer.rb:67
   - app/javascript/mastodon/initial_state.js:58
@@ -5368,9 +5382,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:64
-  - app/lib/user_settings_decorator.rb:70
+  - app/lib/user_settings_decorator.rb:71
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:100
   - app/serializers/initial_state_serializer.rb:68
   - app/javascript/mastodon/initial_state.js:59
@@ -5419,9 +5433,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:150
-  - app/lib/user_settings_decorator.rb:97
+  - app/lib/user_settings_decorator.rb:98
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:151
   - app/serializers/initial_state_serializer.rb:109
   - app/javascript/mastodon/initial_state.js:79
@@ -5470,9 +5484,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:76
-  - app/lib/user_settings_decorator.rb:83
+  - app/lib/user_settings_decorator.rb:84
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:139
   - app/serializers/initial_state_serializer.rb:81
   - app/javascript/mastodon/initial_state.js:72
@@ -5521,9 +5535,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:63
-  - app/lib/user_settings_decorator.rb:72
+  - app/lib/user_settings_decorator.rb:73
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:106
   - app/serializers/initial_state_serializer.rb:70
   - app/javascript/mastodon/initial_state.js:61
@@ -5573,9 +5587,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:58
-  - app/lib/user_settings_decorator.rb:66
+  - app/lib/user_settings_decorator.rb:67
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:43
   - app/serializers/initial_state_serializer.rb:64
   - app/javascript/mastodon/initial_state.js:55
@@ -5624,9 +5638,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:67
-  - app/lib/user_settings_decorator.rb:75
+  - app/lib/user_settings_decorator.rb:76
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:112
   - app/serializers/initial_state_serializer.rb:73
   - app/javascript/mastodon/initial_state.js:64
@@ -5675,9 +5689,9 @@ entries:
   form_status: absent
   source_refs:
   - config/settings.yml:65
-  - app/lib/user_settings_decorator.rb:73
+  - app/lib/user_settings_decorator.rb:74
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/serializers/initial_state_serializer.rb:71
   - app/javascript/mastodon/initial_state.js:62
   audit_status: unresolved
@@ -5709,7 +5723,7 @@ entries:
   - static JS import translationBarVisibility (3 importers)
   - Rails preferences form getter
   write_sources:
-  - rails preferences update (appearance)
+  - rails preferences update via LegacyWriter (appearance)
   normalization: On write, TranslationPreferences.normalize_visibility. true becomes
     always, false becomes never, always|target|never are kept, and any other value
     becomes the new_features_policy default. The policy read during that write is
@@ -5721,7 +5735,8 @@ entries:
   read_policy: general
   write_policy: general
   side_effects:
-  - settings row update and Rails.cache.write in ScopedSettings#[]=
+  - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
+  - 'UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
   apply_hint: reinitialize
   client_reference:
   - static_import
@@ -5731,10 +5746,11 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:38
-  - app/lib/user_settings_decorator.rb:145
+  - app/lib/user_settings_decorator.rb:146
+  - app/lib/user_preferences/legacy_writer.rb:21
   - app/models/user.rb:323
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:131
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:133
   - app/serializers/initial_state_serializer.rb:95
   - app/javascript/mastodon/initial_state.js:15
   - app/lib/translation_preferences.rb:11
@@ -5783,10 +5799,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:23
-  - app/lib/user_settings_decorator.rb:36
+  - app/lib/user_settings_decorator.rb:37
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:114
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:116
   - app/serializers/initial_state_serializer.rb:39
   - app/javascript/mastodon/initial_state.js:21
   audit_status: verified
@@ -5831,10 +5847,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:44
-  - app/lib/user_settings_decorator.rb:54
+  - app/lib/user_settings_decorator.rb:55
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:90
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:92
   - app/helpers/application_helper.rb:162
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -5876,10 +5892,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:46
-  - app/lib/user_settings_decorator.rb:142
+  - app/lib/user_settings_decorator.rb:143
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:26
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:28
   - app/controllers/application_controller.rb:154
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -5921,10 +5937,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:47
-  - app/lib/user_settings_decorator.rb:147
+  - app/lib/user_settings_decorator.rb:148
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:29
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:31
   - app/serializers/initial_state_serializer.rb:84
   - app/helpers/application_helper.rb:202
   audit_status: verified
@@ -5969,10 +5985,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:48
-  - app/lib/user_settings_decorator.rb:88
+  - app/lib/user_settings_decorator.rb:89
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:32
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:34
   - app/serializers/initial_state_serializer.rb:85
   - app/helpers/accounts_helper.rb:129
   audit_status: verified
@@ -6000,7 +6016,7 @@ entries:
   - static JS import translationPreferredMode (1 importers)
   - Rails preferences form getter
   write_sources:
-  - rails preferences update (appearance)
+  - rails preferences update via LegacyWriter (appearance)
   normalization: TranslationPreferences.normalize_preferred_mode keeps translated,
     bilingual, and both. Anything else becomes translated on read and on write. The
     display mode original is per-status UI state and is not a stored preference.
@@ -6008,7 +6024,8 @@ entries:
   read_policy: general
   write_policy: general
   side_effects:
-  - settings row update and Rails.cache.write in ScopedSettings#[]=
+  - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
+  - 'UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
   apply_hint: reinitialize
   client_reference:
   - static_import
@@ -6018,10 +6035,11 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:35
-  - app/lib/user_settings_decorator.rb:144
+  - app/lib/user_settings_decorator.rb:145
+  - app/lib/user_preferences/legacy_writer.rb:21
   - app/models/user.rb:327
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:132
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:134
   - app/serializers/initial_state_serializer.rb:94
   - app/javascript/mastodon/initial_state.js:14
   - app/lib/translation_preferences.rb:36
@@ -6070,10 +6088,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:53
-  - app/lib/user_settings_decorator.rb:62
+  - app/lib/user_settings_decorator.rb:63
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:108
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:110
   - app/serializers/initial_state_serializer.rb:59
   - app/serializers/initial_state_serializer.rb:60
   audit_status: verified
@@ -6118,10 +6136,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:22
-  - app/lib/user_settings_decorator.rb:35
+  - app/lib/user_settings_decorator.rb:36
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:116
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:118
   - app/serializers/initial_state_serializer.rb:38
   - app/javascript/mastodon/initial_state.js:20
   audit_status: verified
@@ -6169,10 +6187,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:26
-  - app/lib/user_settings_decorator.rb:39
+  - app/lib/user_settings_decorator.rb:40
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:118
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:120
   - app/serializers/initial_state_serializer.rb:42
   - app/javascript/mastodon/initial_state.js:24
   audit_status: verified
@@ -6217,9 +6235,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:96
-  - app/lib/user_settings_decorator.rb:117
+  - app/lib/user_settings_decorator.rb:118
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:169
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
@@ -6263,10 +6281,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:141
-  - app/lib/user_settings_decorator.rb:44
+  - app/lib/user_settings_decorator.rb:45
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:124
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:126
   - app/serializers/initial_state_serializer.rb:90
   - app/javascript/mastodon/initial_state.js:29
   audit_status: verified
@@ -6314,10 +6332,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:24
-  - app/lib/user_settings_decorator.rb:37
+  - app/lib/user_settings_decorator.rb:38
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:117
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:119
   - app/serializers/initial_state_serializer.rb:40
   - app/javascript/mastodon/initial_state.js:22
   audit_status: verified
@@ -6365,10 +6383,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:51
-  - app/lib/user_settings_decorator.rb:60
+  - app/lib/user_settings_decorator.rb:61
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:141
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:143
   - app/serializers/initial_state_serializer.rb:55
   - app/javascript/mastodon/initial_state.js:46
   audit_status: verified
@@ -6418,9 +6436,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:178
-  - app/lib/user_settings_decorator.rb:119
+  - app/lib/user_settings_decorator.rb:120
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:175
   - app/serializers/initial_state_serializer.rb:129
   - app/javascript/mastodon/initial_state.js:105
@@ -6470,9 +6488,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:179
-  - app/lib/user_settings_decorator.rb:120
+  - app/lib/user_settings_decorator.rb:121
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:178
   - app/serializers/initial_state_serializer.rb:130
   - app/javascript/mastodon/initial_state.js:106
@@ -6522,9 +6540,9 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:177
-  - app/lib/user_settings_decorator.rb:118
+  - app/lib/user_settings_decorator.rb:119
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:172
   - app/serializers/initial_state_serializer.rb:128
   - app/javascript/mastodon/initial_state.js:104
@@ -6573,10 +6591,10 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:52
-  - app/lib/user_settings_decorator.rb:61
+  - app/lib/user_settings_decorator.rb:62
   - app/models/user.rb:148
-  - app/controllers/settings/preferences_controller.rb:39
-  - app/views/settings/preferences/appearance/show.html.haml:81
+  - app/controllers/settings/preferences_controller.rb:47
+  - app/views/settings/preferences/appearance/show.html.haml:83
   - app/serializers/initial_state_serializer.rb:56
   - app/javascript/mastodon/initial_state.js:47
   audit_status: verified
@@ -6625,8 +6643,8 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:97
-  - app/lib/user_settings_decorator.rb:27
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/lib/user_settings_decorator.rb:28
+  - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:78
   - app/views/settings/preferences/notifications/show.html.haml:33
   - app/models/user.rb:331
@@ -6672,8 +6690,8 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:97
-  - app/lib/user_settings_decorator.rb:27
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/lib/user_settings_decorator.rb:28
+  - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:78
   - app/views/settings/preferences/notifications/show.html.haml:21
   audit_status: verified
@@ -6718,8 +6736,8 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:97
-  - app/lib/user_settings_decorator.rb:27
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/lib/user_settings_decorator.rb:28
+  - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:78
   - app/views/settings/preferences/notifications/show.html.haml:20
   audit_status: verified
@@ -6764,8 +6782,8 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:97
-  - app/lib/user_settings_decorator.rb:27
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/lib/user_settings_decorator.rb:28
+  - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:78
   - app/views/settings/preferences/notifications/show.html.haml:16
   audit_status: verified
@@ -6810,8 +6828,8 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:97
-  - app/lib/user_settings_decorator.rb:27
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/lib/user_settings_decorator.rb:28
+  - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:78
   - app/views/settings/preferences/notifications/show.html.haml:17
   audit_status: verified
@@ -6855,8 +6873,8 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:97
-  - app/lib/user_settings_decorator.rb:27
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/lib/user_settings_decorator.rb:28
+  - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:78
   - app/views/settings/preferences/notifications/show.html.haml:18
   audit_status: unresolved
@@ -6902,8 +6920,8 @@ entries:
   form_status: absent
   source_refs:
   - config/settings.yml:97
-  - app/lib/user_settings_decorator.rb:27
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/lib/user_settings_decorator.rb:28
+  - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:78
   audit_status: unresolved
   notes: Nested key of notification_emails. YAML present=false default=nil. Permitted=true.
@@ -6952,8 +6970,8 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:97
-  - app/lib/user_settings_decorator.rb:27
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/lib/user_settings_decorator.rb:28
+  - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:78
   - app/views/settings/preferences/notifications/show.html.haml:22
   audit_status: verified
@@ -6998,8 +7016,8 @@ entries:
   form_status: conditional
   source_refs:
   - config/settings.yml:97
-  - app/lib/user_settings_decorator.rb:27
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/lib/user_settings_decorator.rb:28
+  - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:78
   - app/views/settings/preferences/notifications/show.html.haml:27
   - app/models/user.rb:331
@@ -7046,8 +7064,8 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:97
-  - app/lib/user_settings_decorator.rb:27
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/lib/user_settings_decorator.rb:28
+  - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:78
   - app/views/settings/preferences/notifications/show.html.haml:19
   audit_status: verified
@@ -7092,8 +7110,8 @@ entries:
   form_status: conditional
   source_refs:
   - config/settings.yml:97
-  - app/lib/user_settings_decorator.rb:27
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/lib/user_settings_decorator.rb:28
+  - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:78
   - app/views/settings/preferences/notifications/show.html.haml:26
   - app/models/user.rb:331
@@ -7140,8 +7158,8 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:97
-  - app/lib/user_settings_decorator.rb:27
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/lib/user_settings_decorator.rb:28
+  - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:78
   - app/views/settings/preferences/notifications/show.html.haml:23
   audit_status: verified
@@ -7186,8 +7204,8 @@ entries:
   form_status: conditional
   source_refs:
   - config/settings.yml:97
-  - app/lib/user_settings_decorator.rb:27
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/lib/user_settings_decorator.rb:28
+  - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:78
   - app/views/settings/preferences/notifications/show.html.haml:29
   - app/models/user.rb:331
@@ -7234,8 +7252,8 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:110
-  - app/lib/user_settings_decorator.rb:27
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/lib/user_settings_decorator.rb:28
+  - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:78
   - app/views/settings/preferences/notifications/show.html.haml:44
   audit_status: verified
@@ -7283,8 +7301,8 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:110
-  - app/lib/user_settings_decorator.rb:27
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/lib/user_settings_decorator.rb:28
+  - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:78
   - app/views/settings/preferences/notifications/show.html.haml:39
   audit_status: verified
@@ -7330,8 +7348,8 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:110
-  - app/lib/user_settings_decorator.rb:27
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/lib/user_settings_decorator.rb:28
+  - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:78
   - app/views/settings/preferences/notifications/show.html.haml:40
   audit_status: verified
@@ -7377,8 +7395,8 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:110
-  - app/lib/user_settings_decorator.rb:27
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/lib/user_settings_decorator.rb:28
+  - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:78
   - app/views/settings/preferences/notifications/show.html.haml:41
   audit_status: verified
@@ -7424,8 +7442,8 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:110
-  - app/lib/user_settings_decorator.rb:27
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/lib/user_settings_decorator.rb:28
+  - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:78
   - app/views/settings/preferences/notifications/show.html.haml:42
   audit_status: verified
@@ -7471,8 +7489,8 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:110
-  - app/lib/user_settings_decorator.rb:27
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/lib/user_settings_decorator.rb:28
+  - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:78
   - app/views/settings/preferences/notifications/show.html.haml:43
   audit_status: verified
@@ -7518,8 +7536,8 @@ entries:
   form_status: active
   source_refs:
   - config/settings.yml:110
-  - app/lib/user_settings_decorator.rb:27
-  - app/controllers/settings/preferences_controller.rb:39
+  - app/lib/user_settings_decorator.rb:28
+  - app/controllers/settings/preferences_controller.rb:47
   - app/services/notify_service.rb:78
   - app/views/settings/preferences/notifications/show.html.haml:45
   audit_status: verified
@@ -7556,7 +7574,7 @@ entries:
   form_status: active
   source_refs:
   - app/models/user.rb:619
-  - app/controllers/settings/preferences_controller.rb:31
+  - app/controllers/settings/preferences_controller.rb:39
   audit_status: verified
   notes: InitialState meta.locale is I18n.locale at render, which preferences#update
     sets from the saved user locale. It is not user.settings.
@@ -7590,7 +7608,7 @@ entries:
   form_status: active
   source_refs:
   - app/models/user.rb:615
-  - app/controllers/settings/preferences_controller.rb:31
+  - app/controllers/settings/preferences_controller.rb:39
   audit_status: verified
   notes: Not part of User.settings and not present in InitialState.
 - key: user.chosen_languages
@@ -7623,7 +7641,7 @@ entries:
   form_status: active
   source_refs:
   - app/models/user.rb:609
-  - app/controllers/settings/preferences_controller.rb:31
+  - app/controllers/settings/preferences_controller.rb:39
   audit_status: verified
   notes: Public-timeline language filter stored on users, not in settings. The other
     preferences form saves it through user_params.

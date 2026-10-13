@@ -22,6 +22,11 @@ module SettingsServiceCatalog
       show_application prohibited_visibilities prohibited_words disable_post
       match_visibility_of_references enable_status_reference default_search_searchability
     ].freeze
+    LEGACY_FORM_KEYS = %w(
+      default_privacy default_sensitive default_language show_translation_bar
+      translation_preferred_mode new_features_policy content_font_size info_font_size
+      reduce_motion
+    ).freeze
     TRANSLATION = %w[show_translation_bar translation_preferred_mode].freeze
     PRIVACY = %w[
       noindex hide_network hide_statuses_count hide_following_count hide_followers_count
@@ -690,10 +695,21 @@ module SettingsServiceCatalog
       sources = []
       if @facts[:permit]['scalars'].include?(var)
         pages = forms.reject { |field| field['commented'] }.map { |field| field['path'][%r{preferences/(\w+)/}, 1] || 'preferences' }.uniq
-        sources << (pages.empty? ? 'permitted by every Settings::PreferencesController#update, but no active input submits it' : "rails preferences update (#{pages.join(', ')})")
+        form_source = if LEGACY_FORM_KEYS.include?(var)
+                        if pages.empty?
+                          'permitted on preferences update and saved through LegacyWriter when the form passes one, but no active input submits it'
+                        else
+                          "rails preferences update via LegacyWriter (#{pages.join(', ')})"
+                        end
+                      elsif pages.empty?
+                        'permitted by every Settings::PreferencesController#update, but no active input submits it'
+                      else
+                        "rails preferences update (#{pages.join(', ')})"
+                      end
+        sources << form_source
       end
       sources << 'commented form input; the shared permit list still accepts the parameter' if forms.any? { |field| field['commented'] } && @facts[:permit]['scalars'].include?(var)
-      sources << 'PATCH /api/v1/accounts/update_credentials source' if %w[default_privacy default_sensitive default_language].include?(var)
+      sources << 'PATCH /api/v1/accounts/update_credentials source via UserSettingsDecorator without legacy_writer' if %w(default_privacy default_sensitive default_language).include?(var)
       sources << 'no write path found' if sources.empty?
       sources
     end
@@ -762,7 +778,19 @@ module SettingsServiceCatalog
     end
 
     def side_effects_for(var, css, html)
-      effects = ['settings row update and Rails.cache.write in ScopedSettings#[]=']
+      effects = if LEGACY_FORM_KEYS.include?(var)
+                  decorator_path = if %w(default_privacy default_sensitive default_language).include?(var)
+                                     'Credentials and UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
+                                   else
+                                     'UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
+                                   end
+                  [
+                    'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not',
+                    decorator_path,
+                  ]
+                else
+                  ['settings row update and Rails.cache.write in ScopedSettings#[]=']
+                end
       effects << 'ActivityPub::UpdateDistributionWorker when the preferences params include this key; the check is key presence, not value change' if PROFILE_VARS.include?(var)
       effects << 'fan-out skips direct or personal delivery to self' if %w[hide_direct_from_timeline hide_personal_from_timeline].include?(var)
       effects << 'account statuses API filters personal visibility' if var == 'hide_personal_from_account'
@@ -845,6 +873,7 @@ module SettingsServiceCatalog
       refs = []
       refs << "config/settings.yml:#{yaml['line']}" if yaml && yaml['line']
       refs << "app/lib/user_settings_decorator.rb:#{@facts[:decorator]['lines'][var]}" if @facts[:decorator]['lines'][var]
+      refs << "app/lib/user_preferences/legacy_writer.rb:#{read_line('app/lib/user_preferences/legacy_writer.rb', 'def update')}" if LEGACY_FORM_KEYS.include?(var)
       refs << "app/models/user.rb:#{@facts[:delegate]['line']}" if @facts[:delegate]['keys'].include?(var)
       refs << "app/models/user.rb:#{read_line('app/models/user.rb', 'def setting_default_privacy')}" if var == 'default_privacy'
       refs << "app/models/user.rb:#{read_line('app/models/user.rb', 'def setting_show_translation_bar')}" if var == 'show_translation_bar'
@@ -912,7 +941,7 @@ module SettingsServiceCatalog
     end
 
     def nested_refs(group, child, forms)
-      refs = ["config/settings.yml:#{yaml_by_key[group]['line']}", 'app/lib/user_settings_decorator.rb:27', "app/controllers/settings/preferences_controller.rb:#{@facts[:permit]['line']}", 'app/services/notify_service.rb:78']
+      refs = ["config/settings.yml:#{yaml_by_key[group]['line']}", "app/lib/user_settings_decorator.rb:#{read_line('app/lib/user_settings_decorator.rb', 'NESTED_KEYS = %w(')}", "app/controllers/settings/preferences_controller.rb:#{@facts[:permit]['line']}", 'app/services/notify_service.rb:78']
       forms.each { |field| refs << "#{field['path']}:#{field['line']}" }
       refs << "app/models/user.rb:#{read_line('app/models/user.rb', 'def allows_digest_emails?')}" if %w[digest report pending_account trends].include?(child)
       refs.uniq
@@ -920,7 +949,7 @@ module SettingsServiceCatalog
 
     def column_refs(column)
       line = read_line('app/models/user.rb', column == 'chosen_languages' ? 'def sanitize_languages' : "def sanitize_#{column == 'locale' ? 'locale' : 'time_zone'}")
-      ["app/models/user.rb:#{line}", "app/controllers/settings/preferences_controller.rb:31"]
+      ["app/models/user.rb:#{line}", "app/controllers/settings/preferences_controller.rb:#{read_line('app/controllers/settings/preferences_controller.rb', 'def user_params')}"]
     end
 
     def account_storage(name)
