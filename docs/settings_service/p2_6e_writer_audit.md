@@ -8,7 +8,7 @@
 
 ローカル作業ツリーの `app`、`lib`、`config`、`db`、`script`、`bin` を走査した。GitHub の検索結果は使っていない。
 
-`script/audit_nine_key_writes.rb` が同じ範囲の Ruby / Haml / ERB と、拡張子のない `bin` スクリプトを読む。この作業での走査は 2337 ファイル、違反 0、許可リスト外の動的書き込み 0 である。キー名のリテラル検索に加え、次も見た。
+`script/audit_nine_key_writes.rb` が同じ範囲の Ruby / Haml / ERB と、拡張子のない `bin` スクリプトを読む。更新後の実測は 2338 ファイル、確定違反 0、動的レビュー 9、その 9 件はすべて許可済み、未許可 0 である。許可はファイル全体ではなく、メソッドと文の形（shape の SHA256）で 1 件ずつ固定する。行番号は使わない。9 キーのリテラル書き込みは許可リストでは消せない。
 
 - `UserSettingsDecorator.new`、`LegacyWriter.new`、`UserPreferences::Writer.new`
 - `.settings[` と `.settings.name =`
@@ -51,7 +51,26 @@
 
 本番の 9 キー直接代入は見つからなかった。追加の呼び出し元を Writer に移す変更はない。
 
-`ScopedSettings#[]=` は User 以外と 9 キー以外も書く。ここへ 9 キー専用の拒否を入れると、テストの初期化、歴史的 migration、高リスク設定の契約まで変わる。入れていない。新しい `user.settings['default_privacy'] =` や未許可の動的代入は `script/audit_nine_key_writes.rb` が失敗させる。許可リストはファイルパスと理由であり、行番号ではない。
+`ScopedSettings#[]=` は User 以外と 9 キー以外も書く。ここへ 9 キー専用の拒否を入れると、テストの初期化、歴史的 migration、高リスク設定の契約まで変わる。入れていない。
+
+## 6. 静的監査の検出と例外
+
+Ruby は Ripper の構文木で見る。複数行の代入、`Setting.where` / `Setting.unscoped.where` の `update_all`、`create` / `create!`、`insert_all` / `upsert_all`、`update!` / `update_columns`、`save!`、`delete_all`、`settings` への `public_send` / `send` / `__send__`、settings テーブルへの UPDATE / INSERT / DELETE を対象にする。`var` が 9 キーのリテラルなら違反である。`var` や添字を静的に決められない書き込みはレビューであり、許可リストに無いと失敗する。読み取りの `Setting.where` と `settings[key]`、9 キー以外のリテラル保存は対象にしない。
+
+Haml と ERB、および Ripper が解析できないファイルは、空白をまたぐ正規表現で同じ形を探す。
+
+許可済みの動的書き込みは次のとおりである。
+
+| 場所 | 理由 |
+| --- | --- |
+| `UserPreferences::Writer#insert_row` / `update_row` / `delete_row` | Writer 内部の Setting 保存と削除 |
+| `UserSettingsDecorator#process_update` の 3 つの `user.settings[key] =` | ネストした Hash と、9 キー以外の文字列・boolean。9 キーは LegacyWriter か、Writer が無いときの拒否に分かれる |
+| `Settings::ScopedSettings#method_missing` と `#[]=` | 汎用ストア。9 キー専用の拒否は付けていない |
+| `Form::AdminSettings#save` | サイト Setting。`KEYS` に 9 キーの名前を足すと、呼び出しの形が同じでも違反にする |
+
+`Form::ActionReviewSettings` と `registrations_mode` の migration は、保存する `var` が 9 キーではないリテラルなのでレビューにも違反にもならない。
+
+検出できないものがある。`eval` や、`settings` という名前でないオブジェクトへの `send`、許可済みの `AdminSettings::KEYS` を別定数経由で差し替える変更は、文の形が変わらなければ見つからない。ActiveRecord の `self[column] =` は Setting 行の保存ではないので対象外である。許可済みの文を書き換えるか、同じファイルに新しい動的書き込みや 9 キーのリテラル代入を足すと、監査は失敗する。
 
 ## 5. P2-4C / P2-4D
 
