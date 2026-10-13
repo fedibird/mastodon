@@ -16,7 +16,15 @@ class REST::PostingIdentitySerializer < ActiveModel::Serializer
       display_name: account.display_name,
       avatar: full_asset_url(account.suspended? ? account.avatar.default_url : account.avatar_original_url),
       avatar_static: full_asset_url(account.suspended? ? account.avatar.default_url : account.avatar_static_url, ext: account.avatar_file_name),
+      emojis: serialized_emojis(account),
     }
+  end
+
+  def serialized_emojis(account)
+    ActiveModelSerializers::SerializableResource.new(
+      account.emojis,
+      each_serializer: REST::CustomEmojiSerializer
+    ).as_json
   end
 
   def delegation

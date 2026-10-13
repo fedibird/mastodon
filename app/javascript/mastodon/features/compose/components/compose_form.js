@@ -13,9 +13,11 @@ import UploadButtonContainer from '../containers/upload_button_container';
 import { defineMessages, injectIntl, FormattedMessage } from 'react-intl';
 import SpoilerButtonContainer from '../containers/spoiler_button_container';
 import PrivacyDropdownContainer from '../containers/privacy_dropdown_container';
+import SearchabilityDropdownContainer from '../containers/searchability_dropdown_container';
 import CircleDropdownContainer from '../containers/circle_dropdown_container';
 import DateTimeFormContainer from '../containers/datetime_form_container';
 import ExpiresIndicatorContainer from '../containers/expires_indicator_container';
+import SearchabilityIndicatorContainer from '../containers/searchability_indicator_container';
 import EmojiPickerDropdownContainer from '../containers/emoji_picker_dropdown_container';
 import LanguageDropdownContainer from '../containers/language_dropdown_container';
 import PollFormContainer from '../containers/poll_form_container';
@@ -32,6 +34,7 @@ import { disablePost, maxChars } from '../../../initial_state';
 import IconButton from '../../../components/icon_button';
 import classNames from 'classnames';
 import { PORTABLE_COMPOSER_MODE_FULL, PORTABLE_COMPOSER_MODE_SIMPLE } from '../../../selectors/composer';
+import { portableComposerRows } from '../composer_text_height';
 import { isExternalFileDrag, markComposerFileDrop } from '../composer_drop';
 import ComposerOverflowMenu from './composer_overflow_menu';
 
@@ -40,6 +43,7 @@ const allowedAroundShortCode = '><\u0085\u0020\u00a0\u1680\u2000\u2001\u2002\u20
 const messages = defineMessages({
   placeholder: { id: 'compose_form.placeholder', defaultMessage: 'What is on your mind?' },
   spoiler_placeholder: { id: 'compose_form.spoiler_placeholder', defaultMessage: 'Write your warning here' },
+  spoilerClose: { id: 'compose_form.spoiler.close', defaultMessage: 'Remove content warning' },
   publish: { id: 'compose_form.publish', defaultMessage: 'Toot' },
   publishLoud: { id: 'compose_form.publish_loud', defaultMessage: '{publish}!' },
   saveChanges: { id: 'compose_form.save_changes', defaultMessage: 'Save changes' },
@@ -59,7 +63,13 @@ const messages = defineMessages({
   privacyPersonal: { id: 'privacy.personal.short', defaultMessage: 'Personal' },
   surfaceMismatch: { id: 'compose_form.posting_style.surface_mismatch', defaultMessage: 'This draft still uses the previous destination. Posting stays off until you apply the destination shown here.' },
   surfaceAccept: { id: 'compose_form.posting_style.surface_accept', defaultMessage: 'Use this destination' },
+  mediaType: { id: 'upload_button.media_type', defaultMessage: 'Video and audio cannot be posted as this account.' },
+  mediaOwner: { id: 'compose_form.media_owner', defaultMessage: 'These images belong to a different posting account. They stay attached, and this post cannot be sent until they match the selected account.' },
   more: { id: 'compose_form.more_actions', defaultMessage: 'More actions' },
+  searchPublic: { id: 'searchability.public.short', defaultMessage: 'Public' },
+  searchPrivate: { id: 'searchability.private.short', defaultMessage: 'Followers-only' },
+  searchDirect: { id: 'searchability.direct.short', defaultMessage: 'Reacted-users-only' },
+  searchMenu: { id: 'compose_form.overflow.searchability', defaultMessage: 'Search visibility' },
   uploadBlocked: { id: 'compose_form.upload_blocked', defaultMessage: 'This posting account can’t attach media here.' },
   uploadBlockedMedia: { id: 'compose_form.upload_blocked.media', defaultMessage: 'This posting account can’t attach media.' },
   uploadBlockedReply: { id: 'compose_form.upload_blocked.reply', defaultMessage: 'Replies and quotes can’t include media from this posting account.' },
@@ -80,6 +90,8 @@ const messages = defineMessages({
 
 const uploadReasonMessage = {
   media: messages.uploadBlockedMedia,
+  media_type: messages.mediaType,
+  media_owner: messages.mediaOwner,
   reply: messages.uploadBlockedReply,
   quote: messages.uploadBlockedReply,
   poll: messages.uploadBlockedPoll,
@@ -119,6 +131,8 @@ class ComposeForm extends ImmutablePureComponent {
     isSubmitting: PropTypes.bool,
     isChangingUpload: PropTypes.bool,
     isUploading: PropTypes.bool,
+    isProcessing: PropTypes.bool,
+    pendingMedia: PropTypes.number,
     isCircleUnselected: PropTypes.bool,
     prohibitedVisibilities: ImmutablePropTypes.set,
     prohibitedWords: ImmutablePropTypes.set,
@@ -129,6 +143,7 @@ class ComposeForm extends ImmutablePureComponent {
     styleController: PropTypes.node,
     stylePicker: PropTypes.node,
     senderIdentity: PropTypes.node,
+    overflowContext: PropTypes.node,
     onCancelEdit: PropTypes.func,
     onChange: PropTypes.func.isRequired,
     onSubmit: PropTypes.func.isRequired,
@@ -136,10 +151,13 @@ class ComposeForm extends ImmutablePureComponent {
     onFetchSuggestions: PropTypes.func.isRequired,
     onSuggestionSelected: PropTypes.func.isRequired,
     onChangeSpoilerText: PropTypes.func.isRequired,
+    onToggleSpoilerness: PropTypes.func,
     onPaste: PropTypes.func.isRequired,
     onPickEmoji: PropTypes.func.isRequired,
     showSearch: PropTypes.bool,
     anyMedia: PropTypes.bool,
+    searchability: PropTypes.string,
+    defaultSearchability: PropTypes.string,
     singleColumn: PropTypes.bool,
     autoFocus: PropTypes.bool,
     contextCompliant: PropTypes.bool,
@@ -150,17 +168,23 @@ class ComposeForm extends ImmutablePureComponent {
     onAcceptSurface: PropTypes.func,
     displayMode: PropTypes.oneOf(['full', 'simple']),
     onDisplayModeChange: PropTypes.func,
+    textRows: PropTypes.number,
+    textHeight: PropTypes.number,
     composerId: PropTypes.string,
     hasPoll: PropTypes.bool,
+    datetimeOpen: PropTypes.bool,
     hasExpiry: PropTypes.bool,
     sensitive: PropTypes.bool,
     canUploadMedia: PropTypes.bool,
     uploadBlockReason: PropTypes.string,
+    sendBlockReason: PropTypes.string,
   };
 
   state = {
     fileHover: false,
     uploadNotice: null,
+    overflowClose: 0,
+    searchabilityOpen: false,
   };
 
   static defaultProps = {
@@ -169,6 +193,9 @@ class ComposeForm extends ImmutablePureComponent {
     contextCompliant: true,
     canAttempt: true,
     canSendAsIdentity: true,
+    canUploadMedia: true,
+    uploadBlockReason: null,
+    sendBlockReason: null,
     capabilityReason: null,
     surfaceMismatch: false,
     displayMode: 'full',
@@ -217,6 +244,24 @@ class ComposeForm extends ImmutablePureComponent {
           </button>
         ) : null}
       </div>
+    );
+  }
+
+  renderSendBlockNotice () {
+    if (this.props.canSendAsIdentity !== false) {
+      return null;
+    }
+
+    const message = uploadReasonMessage[this.props.sendBlockReason];
+
+    if (this.props.sendBlockReason !== 'media_owner' && this.props.sendBlockReason !== 'media_type') {
+      return null;
+    }
+
+    return (
+      <p className='compose-form__upload-notice' role='status'>
+        {this.props.intl.formatMessage(message)}
+      </p>
     );
   }
 
@@ -293,6 +338,28 @@ class ComposeForm extends ImmutablePureComponent {
   componentDidUpdate (prevProps) {
     this._updateFocusAndSelection(prevProps);
     this.syncUploadNotice();
+    this.expandSimpleComposerForDetails(prevProps);
+  }
+
+  requestOverflowClose = () => {
+    this.setState(state => ({ overflowClose: state.overflowClose + 1 }));
+  };
+
+  expandSimpleComposerForDetails (prevProps) {
+    if (!this.isSimpleMode() || typeof this.props.onDisplayModeChange !== 'function') {
+      return;
+    }
+
+    const opened = (this.props.spoiler && !prevProps.spoiler)
+      || (this.props.hasPoll && !prevProps.hasPoll)
+      || (this.props.datetimeOpen && !prevProps.datetimeOpen);
+
+    if (!opened) {
+      return;
+    }
+
+    this.props.onDisplayModeChange(PORTABLE_COMPOSER_MODE_FULL);
+    this.requestOverflowClose();
   }
 
   syncUploadNotice () {
@@ -363,28 +430,6 @@ class ComposeForm extends ImmutablePureComponent {
     this.composeForm = c;
   };
 
-  publishAccessibleName () {
-    const { intl } = this.props;
-
-    if (this.props.isEditing) {
-      return intl.formatMessage(messages.saveChanges);
-    }
-
-    if (!this.props.isEditing && this.props.isScheduledStatusEditting && this.props.isScheduled) {
-      return intl.formatMessage(messages.update);
-    }
-
-    if (this.props.privacy !== 'public' && this.props.privacy !== 'unlisted') {
-      return intl.formatMessage(messages.publish);
-    }
-
-    if (this.props.privacy === 'unlisted') {
-      return intl.formatMessage(messages.publish);
-    }
-
-    return intl.formatMessage(messages.publishLoud, { publish: intl.formatMessage(messages.publish) });
-  }
-
   publishLabel () {
     const { intl } = this.props;
     let publishText = '';
@@ -416,8 +461,87 @@ class ComposeForm extends ImmutablePureComponent {
     );
   }
 
+  publishAccessibleName () {
+    const { intl } = this.props;
+    let name;
+
+    if (this.props.isEditing) {
+      name = intl.formatMessage(messages.saveChanges);
+    } else if (this.props.privacy !== 'public' && this.props.privacy !== 'unlisted') {
+      name = intl.formatMessage(messages.publish);
+    } else if (this.props.privacy !== 'unlisted') {
+      name = intl.formatMessage(messages.publishLoud, { publish: intl.formatMessage(messages.publish) });
+    } else {
+      name = intl.formatMessage(messages.publish);
+    }
+
+    if (!this.props.isEditing && this.props.isScheduledStatusEditting) {
+      if (this.props.isScheduled) {
+        return intl.formatMessage(messages.update);
+      }
+
+      return `${intl.formatMessage(messages.delete)}${intl.formatMessage(messages.and)}${name}`;
+    }
+
+    return name;
+  }
+
+  renderIconPublish () {
+    const limited = !this.props.isEditing && this.props.privacy !== 'public' && this.props.privacy !== 'unlisted';
+
+    return (
+      <IconButton
+        className={classNames('compose-form__publish-icon', { 'compose-form__publish-private': limited })}
+        icon='paper-plane'
+        title={this.publishAccessibleName()}
+        size={18}
+        style={{ width: 36, height: 36, lineHeight: '36px' }}
+        disabled={disablePost || !this.canSubmit()}
+        onClick={this.handleSubmit}
+      />
+    );
+  }
+
+  searchabilityChanged () {
+    const { searchability, defaultSearchability } = this.props;
+
+    return Boolean(searchability) && Boolean(defaultSearchability) && searchability !== defaultSearchability;
+  }
+
+  searchabilityLabel () {
+    const labels = {
+      public: messages.searchPublic,
+      private: messages.searchPrivate,
+      direct: messages.searchDirect,
+    };
+
+    return this.props.intl.formatMessage(labels[this.props.searchability] || messages.searchPrivate);
+  }
+
+  setFormNode = (node) => {
+    this.formNode = node;
+  };
+
+  openSearchabilityMenu = () => {
+    this.searchabilityReturn = this.formNode ? this.formNode.querySelector('.compose-form__overflow-button') : null;
+    this.requestOverflowClose();
+    this.setState({ searchabilityOpen: true });
+  };
+
+  closeSearchabilityMenu = () => {
+    this.setState({ searchabilityOpen: false });
+  };
+
+  isPortableComposer () {
+    return typeof this.props.onDisplayModeChange === 'function';
+  }
+
   isSimpleMode () {
-    return typeof this.props.onDisplayModeChange === 'function' && this.props.displayMode === PORTABLE_COMPOSER_MODE_SIMPLE;
+    return this.isPortableComposer() && this.props.displayMode === PORTABLE_COMPOSER_MODE_SIMPLE;
+  }
+
+  mediaAreaOpen () {
+    return Boolean(this.props.anyMedia || this.props.isUploading || this.props.isProcessing || this.props.pendingMedia > 0);
   }
 
   handlePaste = (files) => {
@@ -482,15 +606,18 @@ class ComposeForm extends ImmutablePureComponent {
 
   handleSimpleModeClick = () => {
     this.props.onDisplayModeChange(PORTABLE_COMPOSER_MODE_SIMPLE);
+    this.requestOverflowClose();
   }
 
   handleFullModeClick = () => {
     this.props.onDisplayModeChange(PORTABLE_COMPOSER_MODE_FULL);
+    this.requestOverflowClose();
   }
 
   renderTextarea (modifiers, overlay) {
     const { intl, showSearch, autoFocus } = this.props;
-    const simple = this.isSimpleMode();
+    const portable = this.isPortableComposer();
+    const rows = portable ? (this.props.textRows || portableComposerRows(this.props.displayMode)) : undefined;
 
     return (
       <AutosuggestTextarea
@@ -509,43 +636,11 @@ class ComposeForm extends ImmutablePureComponent {
         autoFocus={autoFocus && !showSearch && !isMobile(window.innerWidth)}
         lang={this.props.lang}
         overlay={overlay}
-        minRows={simple ? 2 : undefined}
-        maxRows={simple ? 3 : undefined}
+        rows={typeof this.props.textHeight === 'number' ? undefined : rows}
+        height={portable ? this.props.textHeight : undefined}
       >
         {modifiers}
       </AutosuggestTextarea>
-    );
-  }
-
-  renderModeToggle () {
-    if (typeof this.props.onDisplayModeChange !== 'function') {
-      return null;
-    }
-
-    const simple = this.isSimpleMode();
-
-    return (
-      <IconButton
-        className='compose-form__mode-toggle'
-        icon={simple ? 'expand' : 'compress'}
-        title={this.props.intl.formatMessage(simple ? messages.fullMode : messages.simpleMode)}
-        onClick={simple ? this.handleFullModeClick : this.handleSimpleModeClick}
-        inverted
-      />
-    );
-  }
-
-  renderIconPublish () {
-    const privatePost = !this.props.isEditing && this.props.privacy !== 'public' && this.props.privacy !== 'unlisted';
-
-    return (
-      <IconButton
-        className={classNames('compose-form__publish-icon', { 'compose-form__publish-private': privatePost })}
-        icon={this.props.isEditing ? 'pencil' : 'paper-plane'}
-        title={this.publishAccessibleName()}
-        disabled={disablePost || !this.canSubmit()}
-        onClick={this.handleSubmit}
-      />
     );
   }
 
@@ -562,15 +657,25 @@ class ComposeForm extends ImmutablePureComponent {
   }
 
   renderHeader () {
+    const { intl } = this.props;
+    const portable = this.isPortableComposer();
+    const simple = this.isSimpleMode();
+
     return (
       <div className='compose-form__header'>
-        <div className='compose-form__header-account'>{this.props.senderIdentity}</div>
         <div className='compose-form__header-context'>{this.props.stylePicker}</div>
         <div className='compose-form__header-audience'>
           <PrivacyDropdownContainer disabled={this.props.isEditing} showLabel />
-          <LanguageDropdownContainer />
         </div>
-        {this.renderModeToggle()}
+        {portable && (
+          <IconButton
+            className='compose-form__header-expand'
+            icon={simple ? 'expand' : 'compress'}
+            title={intl.formatMessage(simple ? messages.fullMode : messages.simpleMode)}
+            onClick={simple ? this.handleFullModeClick : this.handleSimpleModeClick}
+            inverted
+          />
+        )}
       </div>
     );
   }
@@ -589,18 +694,28 @@ class ComposeForm extends ImmutablePureComponent {
     return (
       <div className='compose-form__buttons-wrapper'>
         <div className='compose-form__buttons'>
+          <div className='compose-form__toolbar-account'>{this.props.senderIdentity}</div>
           <UploadButtonContainer />
-          <PollButtonContainer />
           <SpoilerButtonContainer />
+          <LanguageDropdownContainer />
           {!this.props.isEditing && (
-            <div className='compose-form__buttons-secondary'>
-              <DateTimeButtonContainer />
-            </div>
+            <ComposerOverflowMenu closeToken={this.state.overflowClose} label={intl.formatMessage(messages.more)}>
+              <DateTimeButtonContainer presentation='menu' onMenuClose={this.requestOverflowClose} />
+              <button type='button' className='compose-form__menu-row' onClick={this.openSearchabilityMenu}>
+                <Icon id='search' fixedWidth aria-hidden='true' />
+                <span>{intl.formatMessage(messages.searchMenu)}</span>
+              </button>
+              <PollButtonContainer presentation='menu' onMenuClose={this.requestOverflowClose} />
+              {this.props.overflowContext}
+            </ComposerOverflowMenu>
           )}
           {!this.props.isEditing && (
-            <ComposerOverflowMenu label={intl.formatMessage(messages.more)}>
-              <DateTimeButtonContainer />
-            </ComposerOverflowMenu>
+            <SearchabilityDropdownContainer
+              presentation='detached'
+              open={this.state.searchabilityOpen}
+              onClose={this.closeSearchabilityMenu}
+              returnFocus={this.searchabilityReturn}
+            />
           )}
         </div>
 
@@ -621,6 +736,13 @@ class ComposeForm extends ImmutablePureComponent {
 
     return (
       <div className='spoiler-input spoiler-input--visible' ref={this.setRef} data-testid='cw-input'>
+        <IconButton
+          className='compose-form__form-dismiss'
+          icon='times'
+          title={intl.formatMessage(messages.spoilerClose)}
+          onClick={this.handleCloseSpoiler}
+          inverted
+        />
         <AutosuggestInput
           placeholder={intl.formatMessage(messages.spoiler_placeholder)}
           value={this.props.spoilerText}
@@ -665,6 +787,10 @@ class ComposeForm extends ImmutablePureComponent {
       badges.push(this.renderSimpleBadge('eye-slash', intl.formatMessage(messages.sensitiveOn)));
     }
 
+    if (this.searchabilityChanged()) {
+      badges.push(this.renderSimpleBadge('search', this.searchabilityLabel()));
+    }
+
     if (badges.length === 0) {
       return null;
     }
@@ -672,26 +798,47 @@ class ComposeForm extends ImmutablePureComponent {
     return <div className='compose-form__simple-badges'>{badges}</div>;
   }
 
+  handleCloseSpoiler = () => {
+    if (this.props.onToggleSpoilerness) {
+      this.props.onToggleSpoilerness();
+    }
+  };
+
+  renderCharacterCount () {
+    const simple = this.isSimpleMode();
+
+    if (simple && !this.searchabilityChanged()) {
+      return null;
+    }
+
+    return (
+      <div className='compose-form__count-anchor' data-testid='character-count'>
+        <CharacterCounter max={maxChars} text={this.getFulltextForCharacterCounting()} />
+      </div>
+    );
+  }
+
   render () {
     const { intl } = this.props;
     const publishText = this.publishLabel();
     const simple = this.isSimpleMode();
+    const portable = this.isPortableComposer();
+    const mediaAreaOpen = this.mediaAreaOpen();
+    const searchabilityChanged = this.searchabilityChanged();
+    const simpleBadges = simple ? this.renderSimpleBadges() : null;
     const overlay = simple ? null : (
-      <Fragment>
-        <div className='compose-form__emoji-anchor'>
-          <EmojiPickerDropdownContainer onPickEmoji={this.handleEmojiPick} />
-        </div>
-        <div className='compose-form__count-anchor' data-testid='character-count'>
-          <CharacterCounter max={maxChars} text={this.getFulltextForCharacterCounting()} />
-        </div>
-      </Fragment>
+      <div className='compose-form__emoji-anchor'>
+        <EmojiPickerDropdownContainer onPickEmoji={this.handleEmojiPick} />
+      </div>
     );
+    const characterCount = this.renderCharacterCount();
     const modifiers = simple ? null : (
       <div className='compose-form__modifiers'>
-        <UploadFormContainer />
+        <UploadFormContainer endAccessory={characterCount} />
         <PollFormContainer />
         {!this.props.isEditing && <DateTimeFormContainer />}
         {!this.props.isEditing && <ExpiresIndicatorContainer />}
+        {!this.props.isEditing && <SearchabilityIndicatorContainer />}
       </div>
     );
 
@@ -699,8 +846,12 @@ class ComposeForm extends ImmutablePureComponent {
       <div
         className={classNames('compose-form', {
           'compose-form--simple': simple,
+          'compose-form--portable': portable,
+          'compose-form--compact-publish': simple && !mediaAreaOpen,
+          'compose-form--searchability-note': searchabilityChanged,
           'compose-form--file-hover': this.state.fileHover,
         })}
+        ref={this.setFormNode}
         data-composer-id={this.props.composerId || 'primary'}
         onDragEnter={this.handleComposerDragEnter}
         onDragOver={this.handleComposerDragOver}
@@ -714,6 +865,7 @@ class ComposeForm extends ImmutablePureComponent {
         {this.state.uploadNotice ? (
           <p className='compose-form__upload-notice' role='status'>{this.uploadNoticeText()}</p>
         ) : null}
+        {this.renderSendBlockNotice()}
         {!simple && <WarningContainer />}
         {!simple && this.props.isEditing && (
           <div className='edit-indicator'>
@@ -727,17 +879,27 @@ class ComposeForm extends ImmutablePureComponent {
 
         <div className='compose-form__body'>
           {this.renderTextarea(modifiers, overlay)}
-          {simple && (
-            <div className={classNames('compose-form__simple-row', { 'compose-form__simple-row--overlay': !this.props.anyMedia })}>
-              <UploadFormContainer summary />
-              {this.renderSimpleBadges()}
+          {simple && characterCount}
+          {simple && !mediaAreaOpen && (
+            <div className='compose-form__compact-publish'>
               {this.renderIconPublish()}
+            </div>
+          )}
+          {simple && (mediaAreaOpen || simpleBadges) && (
+            <div className='compose-form__simple-row'>
+              {mediaAreaOpen && <UploadFormContainer summary />}
+              {simpleBadges}
+              {mediaAreaOpen && this.renderIconPublish()}
             </div>
           )}
         </div>
 
         {!simple && !this.props.isEditing && <CircleDropdownContainer key='circle' />}
-        {!simple && this.renderFooter(publishText)}
+        {!simple && (
+          <div className='compose-form__end'>
+            {this.renderFooter(publishText)}
+          </div>
+        )}
         {!simple && !this.props.isEditing && <ReferenceStack key='references' />}
       </div>
     );

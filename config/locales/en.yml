@@ -2243,7 +2243,8 @@ en:
     code_placeholder: "e.g. aB3xK9mQ_2pL8nR4sT6uV"
     code_once: Linking code
     current_account: Signed in as
-    delegated_unsupported: This linked account can only publish a new public, unlisted, or followers-only text post.
+    delegated_unsupported: This linked account can only publish a new public, unlisted, or followers-only post. Still images can be attached when the grant includes media.
+    delegated_media_type: This linked account can attach still images only.
     description: Manage links for posting as another account, and permission for others to use your account.
     errors:
       allowance_conflict: The acceptance could not be saved. Try again.

@@ -22,7 +22,7 @@ RSpec.describe Api::V1::Fedibird::PostingIdentitiesController do
     PostingIdentity::Approval.call!(approver: grantor, token: issued.token)
   end
 
-  it 'adds the delegated account without marking it ready to send' do
+  it 'adds the delegated account and marks text posting ready' do
     get :index
 
     identities = body_as_json[:identities]
@@ -38,10 +38,13 @@ RSpec.describe Api::V1::Fedibird::PostingIdentitiesController do
       id: "delegated:#{grantor.account.id}",
       kind: 'delegated',
       provider: 'fedibird',
-      authorization: 'unavailable'
+      authorization: 'ready'
     )
-    expect(delegated[:capabilities][:post]).to eq 'unavailable'
+    expect(delegated[:capabilities][:post]).to eq 'supported'
     expect(delegated[:capabilities][:media]).to eq 'unavailable'
+    expect(delegated[:capabilities][:reply]).to eq 'unavailable'
+    expect(delegated[:capabilities][:group]).to eq 'unavailable'
+    expect(delegated[:capabilities][:schedule]).to eq 'unavailable'
     expect(delegated[:delegation]).to include(state: 'active', scopes: ['post'])
     expect(delegated[:account]).to include(id: grantor.account.id.to_s, acct: 'cataloged', display_name: 'Cataloged')
     expect(response.body).not_to include(grantee.email)
