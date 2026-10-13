@@ -163,15 +163,23 @@ class SearchabilityDropdown extends React.PureComponent {
     placement: 'bottom',
   };
 
+  openTouchMenu () {
+    this.touchActions = this.searchabilityOptions().map(option => ({
+      ...option,
+      active: option.value === this.props.value,
+    }));
+    this.props.onModalOpen({
+      actions: this.touchActions,
+      onClick: this.handleModalActionClick,
+    });
+  }
+
   handleToggle = () => {
     if (this.props.isUserTouching && this.props.isUserTouching()) {
       if (this.state.open) {
         this.props.onModalClose();
       } else {
-        this.props.onModalOpen({
-          actions: this.searchabilityOptions().map(option => ({ ...option, active: option.value === this.props.value })),
-          onClick: this.handleModalActionClick,
-        });
+        this.openTouchMenu();
       }
     } else {
       if (this.state.open && this.activeElement) {
@@ -184,10 +192,22 @@ class SearchabilityDropdown extends React.PureComponent {
   handleModalActionClick = (e) => {
     e.preventDefault();
 
-    const { value } = this.searchabilityOptions()[e.currentTarget.getAttribute('data-index')];
+    const index = Number(e.currentTarget.getAttribute('data-index'));
+    const opened = this.touchActions && this.touchActions[index];
 
     this.props.onModalClose();
-    this.finishMenuChoice(value);
+
+    if (!opened) {
+      return;
+    }
+
+    const stillAllowed = this.searchabilityOptions().some(option => option.value === opened.value);
+
+    if (!stillAllowed) {
+      return;
+    }
+
+    this.finishMenuChoice(opened.value);
   }
 
   handleKeyDown = e => {
@@ -221,10 +241,7 @@ class SearchabilityDropdown extends React.PureComponent {
     this.activeElement = this.props.returnFocus || document.activeElement;
 
     if (this.props.isUserTouching && this.props.isUserTouching()) {
-      this.props.onModalOpen({
-        actions: this.searchabilityOptions().map(option => ({ ...option, active: option.value === this.props.value })),
-        onClick: this.handleModalActionClick,
-      });
+      this.openTouchMenu();
 
       if (this.props.onClose) {
         this.props.onClose();

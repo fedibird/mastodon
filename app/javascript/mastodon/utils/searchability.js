@@ -11,3 +11,18 @@ export const searchabilityCap = (visibility, searchability) => {
 export const effectiveSearchability = (privacy, defaultSearchability) => (
   searchabilityCap(privacy, defaultSearchability)
 );
+
+export const searchabilityIsChanged = ({
+  searchability,
+  privacy,
+  defaultSearchability,
+  privacyBeforeSearchability,
+}) => {
+  if (privacyBeforeSearchability) {
+    return true;
+  }
+
+  const effective = effectiveSearchability(privacy, defaultSearchability);
+
+  return Boolean(searchability) && searchability !== effective;
+};

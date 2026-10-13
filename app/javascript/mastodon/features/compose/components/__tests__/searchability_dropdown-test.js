@@ -101,6 +101,75 @@ describe('SearchabilityDropdown detached menu', () => {
     });
   });
 
+  const openTouchSheet = (extra = {}) => {
+    const onChange = jest.fn();
+    const onModalOpen = jest.fn();
+    const onModalClose = jest.fn();
+    const props = {
+      presentation: 'detached',
+      value: 'private',
+      isUserTouching: () => true,
+      onModalOpen,
+      onModalClose,
+      onChange,
+      onClose: jest.fn(),
+      ...extra,
+    };
+    const view = render(<SearchabilityDropdown {...props} open={false} />);
+
+    view.rerender(<SearchabilityDropdown {...props} open />);
+
+    return { view, props, onChange, onModalOpen, onModalClose };
+  };
+
+  const clickOpenedIndex = (onClick, index) => {
+    const anchor = document.createElement('a');
+
+    anchor.setAttribute('data-index', String(index));
+    onClick({
+      preventDefault () {},
+      currentTarget: anchor,
+    });
+  };
+
+  it('does not confirm a shifted touch option after the menu choices change', () => {
+    const { view, props, onChange, onModalOpen } = openTouchSheet();
+    const opened = onModalOpen.mock.calls[0][0];
+
+    expect(opened.actions.map(action => action.value)).toEqual(['public', 'private', 'direct']);
+
+    view.rerender(
+      <SearchabilityDropdown
+        {...props}
+        open
+        prohibitedVisibilities={ImmutableSet(['public'])}
+      />,
+    );
+
+    clickOpenedIndex(opened.onClick, 1);
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith('private');
+  });
+
+  it('does not apply a touch option that became prohibited after the menu opened', () => {
+    const { view, props, onChange, onModalOpen, onModalClose } = openTouchSheet();
+    const opened = onModalOpen.mock.calls[0][0];
+
+    view.rerender(
+      <SearchabilityDropdown
+        {...props}
+        open
+        prohibitedVisibilities={ImmutableSet(['public'])}
+      />,
+    );
+
+    clickOpenedIndex(opened.onClick, 0);
+
+    expect(onModalClose).toHaveBeenCalledTimes(1);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it('uses the touch action sheet instead of the desktop menu', () => {
     const onModalOpen = jest.fn();
     const onClose = jest.fn();

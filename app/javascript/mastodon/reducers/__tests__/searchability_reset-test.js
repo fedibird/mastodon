@@ -4,12 +4,13 @@ jest.mock('react-intl', () => ({
   defineMessages: messages => messages,
 }));
 
-import { changeCompose, changeComposeSearchability, changeComposeVisibility, resetComposeSearchability, COMPOSE_LANGUAGE_CHANGE } from '../../actions/compose';
+import { changeCompose, changeComposeSearchability, changeComposeVisibility, resetComposeSearchability, COMPOSE_LANGUAGE_CHANGE, COMPOSE_QUOTE, COMPOSE_REPLY } from '../../actions/compose';
 import { createComposer, targetComposerAction } from '../../actions/composer';
-import { COMPOSE_REPLY } from '../../actions/compose';
+import composer from '../composer';
 import composers from '../composers';
+import { searchabilityIsChanged } from '../../utils/searchability';
 
-const composer = (id = 'composer-a') => {
+const registry = (id = 'composer-a') => {
   let state = composers(undefined, { type: '@@INIT' });
 
   state = composers(state, createComposer(id));
@@ -17,9 +18,64 @@ const composer = (id = 'composer-a') => {
   return state;
 };
 
+const changed = state => searchabilityIsChanged({
+  searchability: state.get('searchability'),
+  privacy: state.get('privacy'),
+  defaultSearchability: state.get('default_searchability'),
+  privacyBeforeSearchability: state.get('privacy_before_searchability'),
+});
+
+const directStatus = () => ImmutableMap({
+  id: 'status-1',
+  visibility: 'direct',
+  spoiler_text: '',
+  url: 'https://example.test/1',
+  mentions: ImmutableList(),
+});
+
 describe('searchability reset', () => {
+  it('keeps a cancellable change when searchability matches the widened privacy', () => {
+    let state = composer(undefined, { type: '@@INIT' });
+
+    state = composer(state, changeComposeVisibility('direct'));
+    state = composer(state, changeComposeSearchability('private'));
+
+    expect(state.get('default_searchability')).toBe('private');
+    expect(state.get('privacy')).toBe('private');
+    expect(state.get('searchability')).toBe('private');
+    expect(state.get('privacy_before_searchability')).toBe('direct');
+    expect(state.get('searchability_manual')).toBe(true);
+    expect(changed(state)).toBe(true);
+
+    state = composer(state, resetComposeSearchability());
+
+    expect(state.get('privacy')).toBe('direct');
+    expect(state.get('searchability')).toBe('direct');
+    expect(state.get('privacy_before_searchability')).toBeNull();
+    expect(state.get('searchability_manual')).toBe(false);
+    expect(changed(state)).toBe(false);
+  });
+
+  it('does not mark an automatic reply or quote cap as a manual change', () => {
+    let reply = composer(undefined, { type: '@@INIT' });
+    let quote = composer(undefined, { type: '@@INIT' });
+    const status = directStatus();
+
+    reply = composer(reply, { type: COMPOSE_REPLY, status, context_references: [] });
+    quote = composer(quote, { type: COMPOSE_QUOTE, status });
+
+    [reply, quote].forEach(state => {
+      expect(state.get('privacy')).toBe('direct');
+      expect(state.get('searchability')).toBe('direct');
+      expect(state.get('default_searchability')).toBe('private');
+      expect(state.get('privacy_before_searchability')).toBeNull();
+      expect(state.get('searchability_manual')).toBe(false);
+      expect(changed(state)).toBe(false);
+    });
+  });
+
   it('returns a normal post to the effective default without widening privacy', () => {
-    let state = composer();
+    let state = registry();
 
     state = composers(state, targetComposerAction(changeCompose('hello'), 'composer-a'));
     state = composers(state, targetComposerAction(changeComposeVisibility('private'), 'composer-a'));
@@ -37,7 +93,7 @@ describe('searchability reset', () => {
   });
 
   it('does not treat a private reply as a manual searchability change', () => {
-    let state = composer();
+    let state = registry();
     const status = ImmutableMap({
       id: 'status-1',
       visibility: 'private',
@@ -63,7 +119,7 @@ describe('searchability reset', () => {
   });
 
   it('keeps a later manual privacy choice when searchability is reset', () => {
-    let state = composer();
+    let state = registry();
 
     state = composers(state, targetComposerAction(changeComposeSearchability('public'), 'composer-a'));
     state = composers(state, targetComposerAction(changeComposeVisibility('unlisted'), 'composer-a'));

@@ -880,6 +880,116 @@ describe('ComposeForm display mode', () => {
     expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull();
   });
 
+  it('shows a compact search badge while widened privacy can still be restored', () => {
+    renderForm({
+      displayMode: 'simple',
+      onDisplayModeChange: jest.fn(),
+      privacy: 'private',
+      searchability: 'private',
+      defaultSearchability: 'private',
+      privacyBeforeSearchability: 'direct',
+    });
+
+    const badge = screen.getByRole('button', { name: 'Followers-only' });
+
+    expect(badge).toHaveClass('compose-form__simple-badge');
+    expect(badge.querySelector('.fa-search')).toBeTruthy();
+    expect(document.querySelector('.compose-form--searchability-note')).toBeTruthy();
+  });
+
+  it('hides the search badge after the widened privacy is restored', () => {
+    const restored = {
+      privacy: 'direct',
+      searchability: 'direct',
+      defaultSearchability: 'private',
+      privacyBeforeSearchability: null,
+    };
+    const simple = renderForm({
+      ...restored,
+      displayMode: 'simple',
+      onDisplayModeChange: jest.fn(),
+    });
+
+    expect(screen.queryByRole('button', { name: 'Followers-only' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reacted-users-only' })).toBeNull();
+    expect(document.querySelector('.compose-form--searchability-note')).toBeNull();
+    simple.unmount();
+
+    renderForm(restored);
+
+    expect(document.querySelector('.compose-form--searchability-note')).toBeNull();
+  });
+
+  it('does not mark a reply or quote that only follows the privacy cap', () => {
+    const capped = {
+      privacy: 'direct',
+      searchability: 'direct',
+      defaultSearchability: 'private',
+    };
+    const full = renderForm(capped);
+
+    expect(document.querySelector('.compose-form--searchability-note')).toBeNull();
+    full.unmount();
+
+    renderForm({
+      ...capped,
+      displayMode: 'simple',
+      onDisplayModeChange: jest.fn(),
+    });
+
+    expect(document.querySelector('.compose-form--searchability-note')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reacted-users-only' })).toBeNull();
+    expect(document.querySelector('.compose-form__simple-badge')).toBeNull();
+  });
+
+  it('does not keep a search badge after a style drops the restore point', () => {
+    const settled = {
+      privacy: 'unlisted',
+      searchability: 'private',
+      defaultSearchability: 'private',
+      privacyBeforeSearchability: null,
+    };
+    const full = renderForm(settled);
+
+    expect(document.querySelector('.compose-form--searchability-note')).toBeNull();
+    full.unmount();
+
+    renderForm({
+      ...settled,
+      displayMode: 'simple',
+      onDisplayModeChange: jest.fn(),
+    });
+
+    expect(screen.queryByRole('button', { name: 'Followers-only' })).toBeNull();
+    expect(document.querySelector('.compose-form--searchability-note')).toBeNull();
+  });
+
+  it('keeps a full search note and a compact badge on separate composers', () => {
+    renderForm({
+      composerId: 'primary',
+      privacy: 'private',
+      searchability: 'private',
+      defaultSearchability: 'private',
+      privacyBeforeSearchability: 'direct',
+    });
+    renderForm({
+      composerId: 'portable:1',
+      displayMode: 'simple',
+      onDisplayModeChange: jest.fn(),
+      privacy: 'direct',
+      searchability: 'direct',
+      defaultSearchability: 'private',
+    });
+
+    const forms = document.querySelectorAll('.compose-form');
+
+    expect(forms[0]).toHaveClass('compose-form--searchability-note');
+    expect(forms[0]).toHaveAttribute('data-composer-id', 'primary');
+    expect(forms[1]).not.toHaveClass('compose-form--searchability-note');
+    expect(forms[1]).toHaveAttribute('data-composer-id', 'portable:1');
+    expect(forms[1].querySelector('.compose-form__simple-badge')).toBeNull();
+  });
+
   it('keeps a changed search visibility off the character count', () => {
     renderForm({
       text: 'hello',

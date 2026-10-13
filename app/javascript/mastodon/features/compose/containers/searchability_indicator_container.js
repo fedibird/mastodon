@@ -3,16 +3,20 @@ import SearchabilityIndicator from '../components/searchability_indicator';
 import { resetComposeSearchability } from '../../../actions/compose';
 import { targetComposerAction } from '../../../actions/composer';
 import { selectComposer } from '../../../selectors/composer';
-import { effectiveSearchability } from '../../../utils/searchability';
+import { searchabilityIsChanged } from '../../../utils/searchability';
 import { withComposerId } from '../composer_id_context';
 
 const mapStateToProps = (state, { composerId }) => {
   const composer = selectComposer(state, composerId);
   const value = composer.get('searchability');
-  const effective = effectiveSearchability(composer.get('privacy'), composer.get('default_searchability'));
 
   return {
-    changed: Boolean(value) && value !== effective,
+    changed: searchabilityIsChanged({
+      searchability: value,
+      privacy: composer.get('privacy'),
+      defaultSearchability: composer.get('default_searchability'),
+      privacyBeforeSearchability: composer.get('privacy_before_searchability'),
+    }),
     value,
   };
 };

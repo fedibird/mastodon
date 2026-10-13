@@ -10,6 +10,7 @@ import composer from '../../reducers/composer';
 import composers from '../../reducers/composers';
 import { commitUserPostingStyle, reapplySelectedStyle } from '../user_style_state';
 import { resolveUserPostingStyle } from '../user_style_resolver';
+import { searchabilityIsChanged } from '../../utils/searchability';
 
 const style = fromJS({
   id: 'style-1',
@@ -29,6 +30,13 @@ const widened = () => {
   return state;
 };
 
+const changed = state => searchabilityIsChanged({
+  searchability: state.get('searchability'),
+  privacy: state.get('privacy'),
+  defaultSearchability: state.get('default_searchability'),
+  privacyBeforeSearchability: state.get('privacy_before_searchability'),
+});
+
 const commit = state => {
   const plan = resolveUserPostingStyle(style, state, { destinationPolicy: 'change' });
 
@@ -42,15 +50,24 @@ const commit = state => {
 
 describe('posting style clears searchability privacy restore', () => {
   it('does not restore the pre-searchability privacy after a style changes privacy', () => {
-    let state = commit(widened());
+    const before = widened();
+
+    expect(before.get('privacy_before_searchability')).toBe('private');
+    expect(changed(before)).toBe(true);
+
+    let state = commit(before);
 
     expect(state.get('privacy')).toBe('unlisted');
+    expect(state.get('searchability')).toBe('private');
     expect(state.get('privacy_before_searchability')).toBeNull();
+    expect(state.get('searchability_manual')).toBe(true);
+    expect(changed(state)).toBe(false);
 
     state = composer(state, resetComposeSearchability());
 
     expect(state.get('privacy')).toBe('unlisted');
     expect(state.get('searchability')).toBe('private');
+    expect(changed(state)).toBe(false);
   });
 
   it('drops the restore point again when the selected style is reapplied', () => {
@@ -102,8 +119,10 @@ describe('posting style clears searchability privacy restore', () => {
 
     expect(registry.getIn(['byId', 'composer-a', 'privacy'])).toBe('unlisted');
     expect(registry.getIn(['byId', 'composer-a', 'privacy_before_searchability'])).toBeNull();
+    expect(changed(registry.getIn(['byId', 'composer-a']))).toBe(false);
     expect(registry.getIn(['byId', 'composer-b', 'privacy'])).toBe('public');
     expect(registry.getIn(['byId', 'composer-b', 'privacy_before_searchability'])).toBe('private');
+    expect(changed(registry.getIn(['byId', 'composer-b']))).toBe(true);
     expect(ImmutableMap.isMap(registry.getIn(['byId', 'composer-b']))).toBe(true);
     expect(ImmutableList.isList(style.getIn(['managed', 'hashtags']))).toBe(true);
   });

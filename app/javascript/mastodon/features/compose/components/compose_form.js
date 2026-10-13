@@ -37,6 +37,7 @@ import { PORTABLE_COMPOSER_MODE_FULL, PORTABLE_COMPOSER_MODE_SIMPLE } from '../.
 import { portableComposerRows } from '../composer_text_height';
 import { isAutoPostingLanguage, postingPlaceholderText, textareaLanguage } from '../posting_placeholder';
 import { localizedCommonName } from '../../../utils/language_names';
+import { searchabilityIsChanged } from '../../../utils/searchability';
 import { isExternalFileDrag, markComposerFileDrop } from '../composer_drop';
 import ComposerOverflowMenu from './composer_overflow_menu';
 
@@ -162,6 +163,7 @@ class ComposeForm extends ImmutablePureComponent {
     anyMedia: PropTypes.bool,
     searchability: PropTypes.string,
     defaultSearchability: PropTypes.string,
+    privacyBeforeSearchability: PropTypes.string,
     singleColumn: PropTypes.bool,
     autoFocus: PropTypes.bool,
     contextCompliant: PropTypes.bool,
@@ -507,9 +509,12 @@ class ComposeForm extends ImmutablePureComponent {
   }
 
   searchabilityChanged () {
-    const { searchability, defaultSearchability } = this.props;
-
-    return Boolean(searchability) && Boolean(defaultSearchability) && searchability !== defaultSearchability;
+    return searchabilityIsChanged({
+      searchability: this.props.searchability,
+      privacy: this.props.privacy,
+      defaultSearchability: this.props.defaultSearchability,
+      privacyBeforeSearchability: this.props.privacyBeforeSearchability,
+    });
   }
 
   searchabilityLabel () {
