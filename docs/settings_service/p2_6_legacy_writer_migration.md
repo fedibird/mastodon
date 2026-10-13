@@ -340,11 +340,11 @@ P2-6B が実装する境界は次のとおりである。
 
 P2-6B のテストは、この入口を直接呼ぶ。実 COMMIT の cache delete と通知は `use_transactional_tests = false` で確認する。transactional test の中で「通知が無い」ことを、ROLLBACK される外側トランザクションだけで証明しない。
 
-P2-6C はフォームの 9 キーをこの入口へ移した。Credentials の characterization は旧経路のままである。
+P2-6C はフォームの 9 キーをこの入口へ移した。P2-6D は Credentials の 3 キーもこの入口へ移した。
 
 ## P2-6C の実装
 
-フォームの 9 キーは Writer へ移行済みである。`Settings::PreferencesController#user_settings` が、1 回の update につき `LegacyWriter` を 1 つ作る。初期化時にポリシー getter を 1 回固定する。4 画面はこのメソッドを共有する。`UserSettingsDecorator.new(user)` のままでは従来の `[]=` である。Credentials はこちらを使うので、P2-6D まで revision は増えない。
+フォームの 9 キーは Writer へ移行済みである。`Settings::PreferencesController#user_settings` が、1 回の update につき `LegacyWriter` を 1 つ作る。初期化時にポリシー getter を 1 回固定する。4 画面はこのメソッドを共有する。`UserSettingsDecorator.new(user)` のままでは従来の `[]=` である。Credentials の 3 キーは P2-6D で同じ入口へ移した。
 
 Decorator の `NESTED_KEYS`、`STRING_KEYS`、`BOOLEAN_KEYS` の順は変えていない。ループの中で 9 キーだけを `LegacyWriter#update` へ渡す。文字列はキャスト前の入力、boolean もキャスト前の入力である。翻訳バーは Decorator で正規化せず、LegacyWriter がスナップショットした旧ポリシーで正規化する。`default` のあいだに `nope` と `conservative` を同時に送ると、バーは `target`、ポリシーは `conservative` である。ポリシー行が nil でも、その nil がスナップショットになる。
 
@@ -354,7 +354,37 @@ Decorator の `NESTED_KEYS`、`STRING_KEYS`、`BOOLEAN_KEYS` の順は変えて�
 
 profile 配送は、値の変化ではなく PROFILE_KEYS がパラメータにあるかで決まる。9 キーの revision では配送しない。profile キーが同値でも配送する。位置は Decorator の成功後、`current_user.update` の前である。
 
-P2-6D に残るもの: Credentials の省略補完、null スキップ、`direct`、非スカラーの現在の保存、`write` / `write:accounts`、アカウント更新後の配送、revision が増えないこと。
+## P2-6D の実装
+
+Credentials の `source.privacy`、`source.language`、`source.sensitive` は LegacyWriter へ移行済みである。`Api::V1::Accounts::CredentialsController#update` は、これまでどおり `UpdateAccountService` のあとで `user_settings_params` を一度だけ評価する。`source` が blank なら設定保存をスキップする。それ以外は `UserSettingsDecorator.new(current_user, legacy_writer: UserPreferences::LegacyWriter.new(current_user))` へ渡す。外側のトランザクションは足していない。
+
+省略補完はコントローラの `fetch` のままである。経路の中で再度 getter を読まない。補完はアカウント更新のあとなので、同じリクエストで locked を外したあとの未保存 privacy は `public` になる。キーが無く、getter が値を返すときはその値を明示的に保存する。キーがあり値が `nil` のときは Decorator の `change?` がスキップする。language の getter が `nil` なら行を作らない。未保存の sensitive を省略すると `false` を保存する。
+
+保存順は Decorator のまま、`default_privacy`、`default_language`、`default_sensitive` である。実変更はキーごとに revision が進み、SQL COMMIT のあと `rewrite_cache`、legacy cache delete、`preferences_changed` が出る。3 キーがすべて新規なら revision は 1、2、3 で、通知も 3 回である。同値再送は `save!` を呼ばない。`updated_at`、revision、cache write/delete、通知は動かない。ActivityPub 配送は、アカウント更新と設定保存が両方成功したあとである。3 キーがすべて no-op でも、`source` が無くても、ここまで例外が無ければ配送する。
+
+`direct`、空文字 privacy、`ja-JP`、空文字 language、sensitive の `true` / `false` / `"0"` / `"1"`、空文字 sensitive の nil 行は引き続き保存する。公開 Preferences PATCH の許可範囲は変えていない。
+
+非スカラーは LegacyWriter が `UserPreferences::InvalidInput` にする。コントローラはこの例外だけを捕捉し、HTTP 422 で次の形を返す。
+
+```json
+{
+  "error": "Invalid source preferences",
+  "errors": [
+    {
+      "key": "source.privacy",
+      "code": "invalid_type"
+    }
+  ]
+}
+```
+
+内部キーは `source.privacy`、`source.language`、`source.sensitive` に対応付ける。不正値、アクセストークン、リクエスト全体は応答に入れない。`StandardError`、DB 例外、`OpenTransaction` は 422 にしない。
+
+案Aの部分保存を維持する。language で型エラーになると、すでにコミットした privacy の行、revision、通知は残る。language は保存されない。sensitive は実行されない。ActivityPub は積まない。その時点で `UpdateAccountService` は終わっているので、display_name、locked、フォローリクエスト承認、リンク検証、ハッシュタグ抽出は残る。422 でもこれらを取り消すトランザクションは無い。
+
+認可は `write` または `write:accounts` のままである。`write:preferences` だけでは 403、未認証は 401 で、アカウントも設定も revision も通知も動かない。
+
+P2-6E に残るもの: `legacy_writer` を渡さない Decorator は 9 キーをまだ `ScopedSettings#[]=` で書く。高リスク設定とネスト設定も従来経路のままである。本番の 9 キーに対する直接の `[]=` を消し、Decorator の 9 キー分岐を削除するのは P2-6E である。revision 付き getter と P2-4C は有効にしない。カタログの既知 drift（`show_composer_posting_style_selector` の未登録、既存の `source_refs` 差分、`meta.stats.form_inputs`）は未解決のままである。
 
 ## 13. P2-4C の開始条件
 
@@ -419,7 +449,7 @@ P2-4B の節 6 と節 7 と節 10 を変えない。対応は次のとおりで�
 19. アカウント更新のあと設定保存が失敗すると、表示名と locked とフォローリクエスト承認とリンク検証は残り、設定は保存されず、ActivityPub は積まれない。
 20. `write` と `write:accounts` は source を保存できる。`write` は `write:preferences` を含まなくてよい。`write:preferences` だけは 403 で、設定もアカウントも書かない。
 21. 高リスク設定と `interactions` は保存され、revision は 0 のままである。公開契約は `unknown_key` にする。safety の共通アクションも、送られた文字サイズを文字列で保存する。
-22. フォームは非スカラーの privacy と未知キーを保存しない。Credentials は今日、privacy の JSON オブジェクトを未許可の `ActionController::Parameters` として、language の JSON 配列を `Array` として保存する。後者は P2-6D で拒否する対象であり、公開契約はすでに `invalid_type` である。フォームの urlencoded で privacy に `nil` を渡すと空文字として保存される。JSON の null とは違う。
+22. フォームは非スカラーの privacy と未知キーを保存しない。Credentials は P2-6D で、privacy の JSON オブジェクトと language の JSON 配列を保存せず、HTTP 422 と `source.*` / `invalid_type` で拒否する。公開契約はすでに `invalid_type` である。フォームの urlencoded で privacy に `nil` を渡すと空文字として保存される。JSON の null とは違う。
 
 未保証の並行順序は成功条件にしていない。失敗位置は Decorator の配列順であり、競合の勝ち負けではない。Writer の create、update、no-op、reset が SQL COMMIT の前後でキャッシュをどう触るかは、`spec/lib/user_preferences/writer_setting_commit_cache_spec.rb` が実 COMMIT で固定した。
 

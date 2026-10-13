@@ -11,6 +11,17 @@ describe Api::V1::Accounts::CredentialsController do
     allow(controller).to receive(:doorkeeper_token) { access_token }
   end
 
+  def discard_credentials_user(record)
+    return unless record&.id
+
+    account_id = record.account_id
+    Setting.unscoped.where(thing_type: 'User', thing_id: record.id).delete_all
+    UserPreferenceRevision.where(user_id: record.id).delete_all
+    MediaAttachment.where(account_id: account_id).delete_all if account_id
+    Account.where(id: account_id).delete_all
+    User.where(id: record.id).delete_all
+  end
+
   context 'with an oauth token' do
     before do
       allow(controller).to receive(:doorkeeper_token) { token }
@@ -142,6 +153,10 @@ describe Api::V1::Accounts::CredentialsController do
       let(:scopes) { 'write:accounts' }
 
       describe 'with valid data' do
+        self.use_transactional_tests = false
+
+        after { discard_credentials_user(user) }
+
         before do
           allow(ActivityPub::UpdateDistributionWorker).to receive(:perform_async)
 
@@ -329,9 +344,12 @@ describe Api::V1::Accounts::CredentialsController do
     end
 
     describe 'PATCH #update source visibility fields' do
+      self.use_transactional_tests = false
+
       let(:scopes) { 'write:accounts' }
 
       before { allow(ActivityPub::UpdateDistributionWorker).to receive(:perform_async) }
+      after { discard_credentials_user(user) }
 
       it 'returns updated source visibility fields' do
         user.account.update!(hide_collections: true, discoverable: false, indexable: false)

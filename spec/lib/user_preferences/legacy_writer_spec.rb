@@ -44,7 +44,7 @@ RSpec.describe UserPreferences::LegacyWriter do
       expect(described_class::KEYS).not_to include('preferred_posting_language', 'noindex')
       expect(UserPreferences::Writer.public_instance_methods(false)).to contain_exactly(:apply)
       expect(File.read(Rails.root.join('app/controllers/settings/preferences_controller.rb'))).to include('LegacyWriter')
-      expect(File.read(Rails.root.join('app/controllers/api/v1/accounts/credentials_controller.rb'))).not_to include('LegacyWriter')
+      expect(File.read(Rails.root.join('app/controllers/api/v1/accounts/credentials_controller.rb'))).to include('LegacyWriter')
       expect(File.read(Rails.root.join('app/lib/user_settings_decorator.rb'))).to include('LegacyWriter')
     end
 
