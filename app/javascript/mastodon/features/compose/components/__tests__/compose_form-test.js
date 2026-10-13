@@ -70,7 +70,8 @@ jest.mock('../../containers/searchability_dropdown_container', () => {
 });
 jest.mock('../../containers/circle_dropdown_container', () => () => <div data-testid='circle-dropdown' />);
 jest.mock('../../containers/datetime_form_container', () => () => null);
-jest.mock('../../containers/expires_indicator_container', () => () => null);
+jest.mock('../../containers/expires_indicator_container', () => () => <div data-testid='expires-indicator' />);
+jest.mock('../../containers/searchability_indicator_container', () => () => <div data-testid='searchability-indicator' />);
 jest.mock('../../containers/emoji_picker_dropdown_container', () => () => <div data-testid='emoji-picker' />);
 jest.mock('../../containers/language_dropdown_container', () => () => <div data-testid='language-dropdown' />);
 jest.mock('../../containers/poll_form_container', () => () => <div data-testid='poll-form' />);
@@ -208,8 +209,12 @@ describe('ComposeForm visibility controls', () => {
     expect(document.querySelector('.compose-form__emoji-anchor')).toContainElement(screen.getByTestId('emoji-picker'));
     expect(counter).toContainElement(screen.getByText('498'));
     expect(document.querySelector('.autosuggest-textarea')).not.toContainElement(counter);
-    expect(document.querySelector('.compose-form__end')).toContainElement(counter);
+    expect(screen.getByTestId('upload-form')).toContainElement(counter);
+    expect(document.querySelector('.compose-form__end')).not.toContainElement(counter);
+    expect(counter.compareDocumentPosition(screen.getByTestId('poll-form')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('poll-form').compareDocumentPosition(screen.getByTestId('searchability-indicator')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(counter.compareDocumentPosition(publish) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(document.querySelectorAll('[data-testid="character-count"]')).toHaveLength(1);
     expect(submit).not.toContainElement(counter);
     expect(submit.querySelector('.character-counter')).toBeNull();
     expect(header.compareDocumentPosition(spoiler) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -875,42 +880,30 @@ describe('ComposeForm display mode', () => {
     expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull();
   });
 
-  it('shows a changed search visibility beside the character count', () => {
-    const { rerender } = renderForm({
+  it('keeps a changed search visibility off the character count', () => {
+    renderForm({
       text: 'hello',
-      searchability: 'private',
+      searchability: 'public',
       defaultSearchability: 'private',
     });
 
-    expect(screen.queryByTestId('searchability-label')).toBeNull();
-    expect(document.querySelector('.compose-form__count-anchor .character-counter')).toBeTruthy();
-
-    rerender(
-      <ComposeForm
-        text='hello'
-        suggestions={ImmutableList()}
-        privacy='public'
-        prohibitedVisibilities={ImmutableSet()}
-        prohibitedWords={ImmutableSet()}
-        onChange={noop}
-        onSubmit={noop}
-        onClearSuggestions={noop}
-        onFetchSuggestions={noop}
-        onSuggestionSelected={noop}
-        onChangeSpoilerText={noop}
-        onPaste={noop}
-        onPickEmoji={noop}
-        searchability='public'
-        defaultSearchability='private'
-      />,
-    );
-
     const anchor = document.querySelector('.compose-form__count-anchor');
-    const label = screen.getByTestId('searchability-label');
 
-    expect(label).toHaveTextContent('Public');
-    expect(anchor).toContainElement(label);
-    expect(label.compareDocumentPosition(anchor.querySelector('.character-counter')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByTestId('searchability-label')).toBeNull();
+    expect(anchor.querySelector('.compose-form__searchability-label')).toBeNull();
+    expect(anchor.querySelector('.character-counter')).toBeTruthy();
+    expect(document.querySelectorAll('[data-testid="character-count"]')).toHaveLength(1);
+  });
+
+  it('turns off only the content warning from its close button', () => {
+    const onToggleSpoilerness = jest.fn();
+
+    renderForm({ spoiler: true, spoilerText: 'cw', text: 'hello', onToggleSpoilerness });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove content warning' }));
+
+    expect(onToggleSpoilerness).toHaveBeenCalledTimes(1);
+    expect(screen.getByPlaceholderText('What is on your mind?')).toHaveValue('hello');
   });
 });
 

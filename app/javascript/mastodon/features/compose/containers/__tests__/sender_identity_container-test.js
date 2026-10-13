@@ -118,7 +118,7 @@ describe('SenderIdentityContainer', () => {
       expect(screen.getByText('This linked account is not available right now.')).toBeTruthy();
       expect(screen.getAllByTestId('sender-identity-current').some(node => node.textContent.includes('@admin'))).toBe(false);
       expect(screen.getByRole('radio', { name: /@admin/ })).toBeTruthy();
-      expect(screen.getByTestId('sender-identity').textContent).toContain('does not change the account you are logged in as');
+      expect(screen.getByTestId('sender-identity').textContent).not.toContain('does not change the account you are logged in as');
 
       cleanup();
     });

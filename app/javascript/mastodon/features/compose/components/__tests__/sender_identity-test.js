@@ -49,7 +49,7 @@ describe('SenderIdentity', () => {
 
     expect(screen.getByTestId('sender-identity').textContent).toContain('Posting as');
     expect(screen.getByTestId('sender-identity').textContent).toContain('@admin');
-    expect(screen.getByTestId('sender-identity').textContent).toContain('does not change the account you are logged in as');
+    expect(screen.getByTestId('sender-identity').textContent).not.toContain('does not change the account you are logged in as');
     expect(screen.queryByRole('button', { name: 'Post as other' })).toBeNull();
     expect(screen.queryByText('@other')).toBeNull();
     expect(screen.getByTestId('sender-identity-current')).toBeTruthy();
@@ -90,7 +90,7 @@ describe('SenderIdentity', () => {
     expect(sender.textContent).toContain('Posting as');
     expect(sender.textContent).toContain('@admin');
     expect(sender.textContent).not.toContain('does not change the account you are logged in as');
-    expect(sender.getAttribute('title')).toContain('does not change the account you are logged in as');
+    expect(sender.getAttribute('title')).toBeNull();
   });
 
   it('stacks the signed-in account on the posting account in the toolbar', () => {
@@ -194,7 +194,7 @@ describe('SenderIdentity', () => {
     expect(screen.getByTestId('sender-identity-current').textContent).not.toContain('@admin');
     expect(screen.getByTestId('sender-identity-current').textContent).not.toContain('admin');
     expect(screen.getByRole('radio', { name: /@admin/ })).toBeTruthy();
-    expect(screen.getByTestId('sender-identity').textContent).toContain('does not change the account you are logged in as');
+    expect(screen.getByTestId('sender-identity').textContent).not.toContain('does not change the account you are logged in as');
 
     rerender(
       <SenderIdentity
@@ -253,13 +253,66 @@ describe('SenderIdentity', () => {
     expect(screen.getByRole('menuitemradio', { name: /@admin/ })).toBeTruthy();
     expect(screen.getByRole('menuitemradio', { name: /@author/ })).toBeDisabled();
     expect(screen.getByText('Authorization expired')).toBeTruthy();
-    expect(screen.getByText('Server example.test')).toBeTruthy();
+    expect(screen.queryByText(/Server /)).toBeNull();
+    expect(screen.getByText('Linked account')).toBeTruthy();
+    expect(screen.getByText('Main account')).toBeTruthy();
+    expect(screen.getByText('@author@example.test')).toBeTruthy();
     expect(menu).toBeTruthy();
 
     fireEvent.keyDown(document, { key: 'Escape' });
 
     expect(document.querySelector('.compose-form__sender-menu')).toBeNull();
     expect(document.activeElement).toBe(button);
+  });
+
+  it('selects the account when its custom emoji is clicked', () => {
+    const onSelect = jest.fn();
+    const linked = identity('delegated:7', 'painter', 'ready', 'delegated')
+      .setIn(['account', 'displayName'], 'Paint :blob:')
+      .setIn(['account', 'emojis'], ImmutableList([
+        ImmutableMap({
+          shortcode: 'blob',
+          url: 'https://cdn.example/blob.gif',
+          static_url: 'https://cdn.example/blob.png',
+        }),
+      ]));
+    const revoked = identity('delegated:8', 'expired', 'unavailable', 'delegated')
+      .setIn(['account', 'displayName'], 'Old :blob:')
+      .setIn(['account', 'emojis'], ImmutableList([
+        ImmutableMap({
+          shortcode: 'blob',
+          url: 'https://cdn.example/blob.gif',
+          static_url: 'https://cdn.example/blob.png',
+        }),
+      ]));
+
+    render(
+      <SenderIdentity
+        header
+        current={identity('local:42', 'admin')}
+        catalog={ImmutableList([identity('local:42', 'admin'), linked, revoked])}
+        choices={ImmutableList([identity('local:42', 'admin'), linked])}
+        selectedId='local:42'
+        sessionIdentityId='local:42'
+        onSelect={onSelect}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose posting account, @admin' }));
+
+    const images = screen.getAllByRole('img', { name: ':blob:' });
+    const readyEmoji = images.find(image => !image.closest('button').disabled);
+    const revokedEmoji = images.find(image => image.closest('button').disabled);
+
+    expect(readyEmoji).toHaveAttribute('draggable', 'false');
+    expect(revokedEmoji.closest('button')).toBeDisabled();
+
+    fireEvent.click(revokedEmoji);
+    fireEvent.click(readyEmoji);
+
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith('delegated:7', { confirmed: true });
+    expect(document.querySelector('a[href]')).toBeNull();
   });
 
   it('opens the account menu outside a footer that hides overflow', () => {

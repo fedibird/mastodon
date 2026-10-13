@@ -19,8 +19,9 @@ export default class UploadForm extends ImmutablePureComponent {
   };
 
   render () {
-    const { media, summary } = this.props;
+    const { media, summary, endAccessory } = this.props;
     const hasMedia = media && !media.isEmpty();
+    const showRow = !summary && (hasMedia || Boolean(endAccessory));
 
     return (
       <div className='compose-form__upload-wrapper'>
@@ -37,10 +38,10 @@ export default class UploadForm extends ImmutablePureComponent {
           />
         )}
 
-        {hasMedia && !summary && (
+        {showRow && (
           <div className='compose-form__sensitive-row'>
-            <SensitiveButtonContainer />
-            {this.props.endAccessory}
+            {hasMedia ? <SensitiveButtonContainer /> : null}
+            {endAccessory}
           </div>
         )}
       </div>

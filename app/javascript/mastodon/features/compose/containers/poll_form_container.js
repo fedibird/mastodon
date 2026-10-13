@@ -1,6 +1,6 @@
 import { connect } from 'react-redux';
 import PollForm from '../components/poll_form';
-import { addPollOption, removePollOption, changePollOption, changePollSettings } from '../../../actions/compose';
+import { addPollOption, removePoll, removePollOption, changePollOption, changePollSettings } from '../../../actions/compose';
 import {
   clearComposerSuggestions,
   fetchComposerSuggestions,
@@ -30,6 +30,10 @@ const mapDispatchToProps = (dispatch, { composerId }) => ({
 
   onRemoveOption(index) {
     dispatch(targetComposerAction(removePollOption(index), composerId));
+  },
+
+  onRemovePoll() {
+    dispatch(targetComposerAction(removePoll(), composerId));
   },
 
   onChangeOption(index, title) {
