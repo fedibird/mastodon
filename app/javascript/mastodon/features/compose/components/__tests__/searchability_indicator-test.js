@@ -11,7 +11,7 @@ import SearchabilityIndicator from '../searchability_indicator';
 
 describe('SearchabilityIndicator', () => {
   it('stays hidden while search visibility matches the default', () => {
-    render(<SearchabilityIndicator changed={false} value='public' fallback='public' onReset={jest.fn()} />);
+    render(<SearchabilityIndicator changed={false} value='public' onReset={jest.fn()} />);
 
     expect(screen.queryByTestId('searchability-indicator')).toBeNull();
   });
@@ -19,7 +19,7 @@ describe('SearchabilityIndicator', () => {
   it('shows the selected visibility and resets it to the default', () => {
     const onReset = jest.fn();
 
-    render(<SearchabilityIndicator changed value='private' fallback='public' onReset={onReset} />);
+    render(<SearchabilityIndicator changed value='private' onReset={onReset} />);
 
     expect(screen.getByTestId('searchability-indicator').textContent).toContain('Search visibility');
     expect(screen.getByTestId('searchability-indicator').textContent).toContain('Followers-only');
@@ -27,6 +27,6 @@ describe('SearchabilityIndicator', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset search visibility' }));
 
-    expect(onReset).toHaveBeenCalledWith('public');
+    expect(onReset).toHaveBeenCalledTimes(1);
   });
 });

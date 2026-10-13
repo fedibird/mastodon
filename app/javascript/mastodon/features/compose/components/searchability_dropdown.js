@@ -77,7 +77,6 @@ class SearchabilityDropdownMenu extends React.PureComponent {
 
     if (element) {
       element.focus();
-      this.props.onChange(element.getAttribute('data-index'));
       e.preventDefault();
       e.stopPropagation();
     }
@@ -164,15 +163,23 @@ class SearchabilityDropdown extends React.PureComponent {
     placement: 'bottom',
   };
 
+  openTouchMenu () {
+    this.touchActions = this.searchabilityOptions().map(option => ({
+      ...option,
+      active: option.value === this.props.value,
+    }));
+    this.props.onModalOpen({
+      actions: this.touchActions,
+      onClick: this.handleModalActionClick,
+    });
+  }
+
   handleToggle = () => {
     if (this.props.isUserTouching && this.props.isUserTouching()) {
       if (this.state.open) {
         this.props.onModalClose();
       } else {
-        this.props.onModalOpen({
-          actions: this.options.map(option => ({ ...option, active: option.value === this.props.value })),
-          onClick: this.handleModalActionClick,
-        });
+        this.openTouchMenu();
       }
     } else {
       if (this.state.open && this.activeElement) {
@@ -185,10 +192,22 @@ class SearchabilityDropdown extends React.PureComponent {
   handleModalActionClick = (e) => {
     e.preventDefault();
 
-    const { value } = this.options[e.currentTarget.getAttribute('data-index')];
+    const index = Number(e.currentTarget.getAttribute('data-index'));
+    const opened = this.touchActions && this.touchActions[index];
 
     this.props.onModalClose();
-    this.finishMenuChoice(value);
+
+    if (!opened) {
+      return;
+    }
+
+    const stillAllowed = this.searchabilityOptions().some(option => option.value === opened.value);
+
+    if (!stillAllowed) {
+      return;
+    }
+
+    this.finishMenuChoice(opened.value);
   }
 
   handleKeyDown = e => {
@@ -222,10 +241,7 @@ class SearchabilityDropdown extends React.PureComponent {
     this.activeElement = this.props.returnFocus || document.activeElement;
 
     if (this.props.isUserTouching && this.props.isUserTouching()) {
-      this.props.onModalOpen({
-        actions: this.options.map(option => ({ ...option, active: option.value === this.props.value })),
-        onClick: this.handleModalActionClick,
-      });
+      this.openTouchMenu();
 
       if (this.props.onClose) {
         this.props.onClose();
@@ -255,10 +271,10 @@ class SearchabilityDropdown extends React.PureComponent {
     this.props.onChange(value);
   }
 
-  componentWillMount () {
+  searchabilityOptions () {
     const { intl: { formatMessage }, prohibitedVisibilities } = this.props;
 
-    this.options = [
+    return [
       { icon: 'globe', value: 'public', text: formatMessage(messages.public_short), meta: formatMessage(messages.public_long) },
       { icon: 'lock', value: 'private', text: formatMessage(messages.private_short), meta: formatMessage(messages.private_long) },
       { icon: 'at', value: 'direct', text: formatMessage(messages.direct_short), meta: formatMessage(messages.direct_long) },
@@ -318,7 +334,7 @@ class SearchabilityDropdown extends React.PureComponent {
                 style={props.style}
                 popperRef={props.ref}
                 className={`compose-portal-menu compose-form__searchability-menu ${placement || ''}`}
-                items={this.options}
+                items={this.searchabilityOptions()}
                 value={value}
                 onClose={this.handleClose}
                 onChange={this.handleChange}
@@ -329,11 +345,12 @@ class SearchabilityDropdown extends React.PureComponent {
       );
     }
 
-    const valueOption = this.options.find(item => item.value === value);
+    const options = this.searchabilityOptions();
+    const valueOption = options.find(item => item.value === value);
 
     return (
       <div className={classNames('privacy-dropdown', placement, { active: open })} onKeyDown={this.handleKeyDown}>
-        <div className={classNames('privacy-dropdown__value', { active: this.options.indexOf(valueOption) === (placement === 'bottom' ? 0 : (this.options.length - 1)) })} ref={this.setTargetRef}>
+        <div className={classNames('privacy-dropdown__value', { active: options.indexOf(valueOption) === (placement === 'bottom' ? 0 : (options.length - 1)) })} ref={this.setTargetRef}>
           <IconButton
             className='privacy-dropdown__value-icon'
             icon='search'
@@ -355,7 +372,7 @@ class SearchabilityDropdown extends React.PureComponent {
             <div {...props} style={{ ...props.style, width: 350, maxWidth: '100vw' }}>
               <div className={`dropdown-animation privacy-dropdown__dropdown ${placement}`}>
                 <SearchabilityDropdownMenu
-                  items={this.options}
+                  items={options}
                   value={value}
                   onClose={this.handleClose}
                   onChange={this.handleChange}

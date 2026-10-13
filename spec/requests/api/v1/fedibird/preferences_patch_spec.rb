@@ -66,6 +66,7 @@ RSpec.describe 'PATCH /api/v1/fedibird/preferences JSON body' do
     expect(body_as_json[:version]).to eq 1
     expect(body_as_json[:preferences].keys).to include(:'user.default_sensitive')
     expect(settings_count).to eq 0
+    expect(UserPreferenceRevision.find_by(user_id: user.id)).to be_nil
 
     patch_raw('{"preferences":{"user.default_sensitive":false}}')
 

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_10_150000) do
+ActiveRecord::Schema.define(version: 2026_10_12_190000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1740,6 +1740,10 @@ ActiveRecord::Schema.define(version: 2026_10_10_150000) do
     t.index ["user_id", "position"], name: "index_user_posting_contexts_on_user_id_and_position"
   end
 
+  create_table "user_preference_revisions", primary_key: "user_id", id: :bigint, default: nil, force: :cascade do |t|
+    t.bigint "revision", null: false
+  end
+
   create_table "user_roles", force: :cascade do |t|
     t.string "name", default: "", null: false
     t.string "color", default: "", null: false
@@ -2015,6 +2019,7 @@ ActiveRecord::Schema.define(version: 2026_10_10_150000) do
   add_foreign_key "user_posting_context_assignments", "users", on_delete: :cascade
   add_foreign_key "user_posting_contexts", "accounts", column: "target_account_id", on_delete: :nullify
   add_foreign_key "user_posting_contexts", "users", on_delete: :cascade
+  add_foreign_key "user_preference_revisions", "users", on_delete: :cascade
   add_foreign_key "users", "accounts", name: "fk_50500f500d", on_delete: :cascade
   add_foreign_key "users", "invites", on_delete: :nullify
   add_foreign_key "users", "oauth_applications", column: "created_by_application_id", on_delete: :nullify

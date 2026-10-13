@@ -313,6 +313,43 @@ describe('SenderIdentity', () => {
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith('delegated:7', { confirmed: true });
     expect(document.querySelector('a[href]')).toBeNull();
+    expect(document.querySelector('.compose-form__sender-menu')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Choose posting account, @admin' }));
+  });
+
+  it('closes the menu when the current account is chosen again and keeps it open if the switch is cancelled', () => {
+    const onSelect = jest.fn();
+    const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false);
+
+    render(
+      <SenderIdentity
+        header
+        current={identity('local:42', 'admin')}
+        catalog={ImmutableList([identity('local:42', 'admin'), identity('delegated:7', 'painter', 'ready', 'delegated')])}
+        choices={ImmutableList([identity('local:42', 'admin'), identity('delegated:7', 'painter', 'ready', 'delegated')])}
+        selectedId='local:42'
+        sessionIdentityId='local:42'
+        text='draft'
+        onSelect={onSelect}
+      />,
+    );
+
+    const trigger = screen.getByRole('button', { name: 'Choose posting account, @admin' });
+
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /@admin/ }));
+
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(document.querySelector('.compose-form__sender-menu')).toBeNull();
+
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /painter/ }));
+
+    expect(confirm).toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(document.querySelector('.compose-form__sender-menu')).toBeTruthy();
+
+    confirm.mockRestore();
   });
 
   it('opens the account menu outside a footer that hides overflow', () => {

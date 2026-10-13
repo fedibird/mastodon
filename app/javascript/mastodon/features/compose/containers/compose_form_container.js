@@ -70,6 +70,7 @@ const mapStateToProps = (state, { composerId }) => {
     anyMedia: composer.get('media_attachments').size > 0,
     searchability: composer.get('searchability'),
     defaultSearchability: composer.get('default_searchability'),
+    privacyBeforeSearchability: composer.get('privacy_before_searchability'),
     prohibitedVisibilities: composer.get('prohibited_visibilities'),
     prohibitedWords: composer.get('prohibited_words'),
     isScheduled: !!composer.get('scheduled'),

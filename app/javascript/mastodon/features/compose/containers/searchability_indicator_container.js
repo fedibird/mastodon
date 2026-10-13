@@ -1,26 +1,30 @@
 import { connect } from 'react-redux';
 import SearchabilityIndicator from '../components/searchability_indicator';
-import { changeComposeSearchability } from '../../../actions/compose';
+import { resetComposeSearchability } from '../../../actions/compose';
 import { targetComposerAction } from '../../../actions/composer';
 import { scheduleComposerInteractionCheck } from '../../../actions/posting_identities';
 import { selectComposer } from '../../../selectors/composer';
+import { searchabilityIsChanged } from '../../../utils/searchability';
 import { withComposerId } from '../composer_id_context';
 
 const mapStateToProps = (state, { composerId }) => {
   const composer = selectComposer(state, composerId);
   const value = composer.get('searchability');
-  const fallback = composer.get('default_searchability');
 
   return {
-    changed: Boolean(value) && Boolean(fallback) && value !== fallback,
+    changed: searchabilityIsChanged({
+      searchability: value,
+      privacy: composer.get('privacy'),
+      defaultSearchability: composer.get('default_searchability'),
+      privacyBeforeSearchability: composer.get('privacy_before_searchability'),
+    }),
     value,
-    fallback,
   };
 };
 
 const mapDispatchToProps = (dispatch, { composerId }) => ({
-  onReset (fallback) {
-    dispatch(targetComposerAction(changeComposeSearchability(fallback), composerId));
+  onReset () {
+    dispatch(targetComposerAction(resetComposeSearchability(), composerId));
     dispatch(scheduleComposerInteractionCheck(composerId));
   },
 });

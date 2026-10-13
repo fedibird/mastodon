@@ -33,22 +33,33 @@ class UserPreferences::Writer
   end
 
   def empty_result
+    revision = UserPreferences::Revision.current(@user.id)
     UserPreferences::WriteResult.new(
       before: {},
       after: {},
       changed_keys: [],
       unchanged_keys: [],
-      cache_deleted: {}
+      cache_deleted: {},
+      before_revision: revision,
+      after_revision: revision
     )
   end
 
   def write_once(request)
     callback = nil
     change_set = nil
+    before_revision = nil
+    after_revision = nil
     User.transaction do
       locked = lock_user
+      before_revision = UserPreferences::Revision.current_for_update(locked.id)
       change_set = UserPreferences::ChangeSet.build(read_stored(locked, request), request)
       change_set.writes.each { |operation| persist(locked.id, operation) }
+      after_revision = if change_set.changed_keys.any?
+                         UserPreferences::Revision.advance!(locked.id)
+                       else
+                         before_revision
+                       end
       if change_set.changed_keys.any?
         callback = UserPreferences::CacheDeletion.new(locked, change_set.changed_keys)
         User.connection.add_transaction_record(callback)
@@ -59,7 +70,9 @@ class UserPreferences::Writer
       after: change_set.after,
       changed_keys: change_set.changed_keys,
       unchanged_keys: change_set.unchanged_keys,
-      cache_deleted: callback ? callback.cache_deleted : {}
+      cache_deleted: callback ? callback.cache_deleted : {},
+      before_revision: before_revision,
+      after_revision: after_revision
     )
   end
 
