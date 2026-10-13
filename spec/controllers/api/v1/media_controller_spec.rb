@@ -101,6 +101,30 @@ RSpec.describe Api::V1::MediaController, type: :controller do
   end
 
   describe 'GET #show' do
+    it 'returns not found for a missing media id' do
+      get :show, params: { id: 0 }
+
+      expect(response).to have_http_status(:not_found)
+    end
+
+    it 'returns not found after the media is destroyed' do
+      media = Fabricate(:media_attachment, account: user.account, status: nil)
+      media_id = media.id
+      media.destroy!
+
+      get :show, params: { id: media_id }
+
+      expect(response).to have_http_status(:not_found)
+    end
+
+    it 'returns not found for another account attachment even when it is unattached' do
+      media = Fabricate(:media_attachment, status: nil)
+
+      get :show, params: { id: media.id }
+
+      expect(response).to have_http_status(:not_found)
+    end
+
     context 'when attached to a scheduled status' do
       let(:scheduled_status) { Fabricate(:scheduled_status, account: user.account) }
       let(:media) { Fabricate(:media_attachment, status: nil, account: user.account, scheduled_status: scheduled_status) }

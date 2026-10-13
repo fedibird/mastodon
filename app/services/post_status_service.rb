@@ -281,8 +281,12 @@ class PostStatusService < BaseService
 
     raise Mastodon::ValidationError, I18n.t('media_attachments.validations.too_many') if @options[:media_ids].size > Setting.attachments_max || !Setting.allow_poll_image && @options[:poll].present?
 
-    @media = @account.media_attachments.where(status_id: nil).where(id: @options[:media_ids].take(Setting.attachments_max).map(&:to_i))
+    requested_ids = @options[:media_ids].take(Setting.attachments_max).map(&:to_i).uniq
+    @media = @account.media_attachments.where(status_id: nil).where(id: requested_ids).to_a
 
+    # A missing or still-attached id must fail the post. Dropping it would
+    # publish a redraft that silently lost part of the original media.
+    raise Mastodon::ValidationError, I18n.t('media_attachments.validations.missing') unless @media.size == requested_ids.size
     raise Mastodon::ValidationError, I18n.t('media_attachments.validations.images_and_video') if @media.size > 1 && @media.find(&:audio_or_video?)
     raise Mastodon::ValidationError, I18n.t('media_attachments.validations.not_ready') if @media.any?(&:not_processed?)
   end
