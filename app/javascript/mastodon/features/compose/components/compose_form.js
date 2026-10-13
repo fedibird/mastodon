@@ -91,7 +91,23 @@ const messages = defineMessages({
   scheduleOn: { id: 'compose_form.schedule_on', defaultMessage: 'Scheduled' },
   expiryOn: { id: 'compose_form.expiry_on', defaultMessage: 'Expiry is set' },
   sensitiveOn: { id: 'compose_form.sensitive_on', defaultMessage: 'Media is marked sensitive' },
+  redraftWaiting: { id: 'compose.redraft_media.waiting', defaultMessage: 'Taking the images from the original post' },
+  redraftSaving: { id: 'compose.redraft_media.saving', defaultMessage: 'Saving the image description' },
+  redraftSaveFailed: { id: 'compose.redraft_media.save_failed', defaultMessage: 'Could not save the image description' },
+  redraftReuseFailed: { id: 'compose.redraft_media.reuse_failed', defaultMessage: 'This image cannot be reused. Try again, or attach the image again' },
+  redraftRetry: { id: 'compose.redraft_media.retry', defaultMessage: 'Try again' },
+  redraftUnconfirmed: { id: 'compose.redraft_media.unconfirmed', defaultMessage: 'The images from the original post could not be confirmed, so this draft cannot be posted.' },
+  redraftDiscard: { id: 'compose.redraft_media.discard', defaultMessage: 'Discard this draft' },
 });
+
+const redraftNoticeMessage = {
+  waiting: messages.redraftWaiting,
+  saving: messages.redraftSaving,
+  save: messages.redraftSaveFailed,
+  prepare: messages.redraftReuseFailed,
+  forbidden: messages.redraftReuseFailed,
+  unconfirmed: messages.redraftUnconfirmed,
+};
 
 const uploadReasonMessage = {
   media: messages.uploadBlockedMedia,
@@ -184,6 +200,9 @@ class ComposeForm extends ImmutablePureComponent {
     canUploadMedia: PropTypes.bool,
     uploadBlockReason: PropTypes.string,
     sendBlockReason: PropTypes.string,
+    redraftNotice: PropTypes.string,
+    onRetryRedraft: PropTypes.func,
+    onDiscardUnconfirmedRedraft: PropTypes.func,
   };
 
   state = {
@@ -226,14 +245,14 @@ class ComposeForm extends ImmutablePureComponent {
   }
 
   canSubmit = () => {
-    const { isSubmitting, isChangingUpload, isUploading, isCircleUnselected, isEditing, anyMedia, prohibitedVisibilities, privacy, prohibitedWords, spoilerText, contextCompliant, canAttempt, canSendAsIdentity } = this.props;
+    const { isSubmitting, isChangingUpload, isUploading, isCircleUnselected, isEditing, anyMedia, prohibitedVisibilities, privacy, prohibitedWords, spoilerText, contextCompliant, canAttempt, canSendAsIdentity, redraftNotice } = this.props;
     const composedText = this.composedText();
     const fulltext = this.getFulltextForCharacterCounting();
     const isOnlyWhitespace = fulltext.length !== 0 && fulltext.trim().length === 0;
     const noVisibility = !isEditing && prohibitedVisibilities?.includes(privacy);
     const ngWords = prohibitedWords.some( word => composedText.includes(word) || spoilerText?.includes(word) );
 
-    return !(isSubmitting || isUploading || isChangingUpload || isCircleUnselected || length(fulltext) > maxChars || (isOnlyWhitespace && !anyMedia) || noVisibility || ngWords || !contextCompliant || !canAttempt || canSendAsIdentity === false || this.props.surfaceMismatch);
+    return !(isSubmitting || isUploading || isChangingUpload || isCircleUnselected || length(fulltext) > maxChars || (isOnlyWhitespace && !anyMedia) || noVisibility || ngWords || !contextCompliant || !canAttempt || canSendAsIdentity === false || this.props.surfaceMismatch || !!redraftNotice);
   }
 
   renderSurfaceMismatch () {
@@ -250,6 +269,33 @@ class ComposeForm extends ImmutablePureComponent {
           </button>
         ) : null}
       </div>
+    );
+  }
+
+  renderRedraftNotice () {
+    const message = redraftNoticeMessage[this.props.redraftNotice];
+
+    if (!message) {
+      return null;
+    }
+
+    const retry = this.props.redraftNotice === 'prepare' || this.props.redraftNotice === 'save' || this.props.redraftNotice === 'forbidden';
+    const discard = this.props.redraftNotice === 'unconfirmed';
+
+    return (
+      <p className='compose-form__upload-notice' role='status'>
+        {this.props.intl.formatMessage(message)}
+        {retry && this.props.onRetryRedraft ? (
+          <button type='button' className='link-button' onClick={this.props.onRetryRedraft}>
+            {this.props.intl.formatMessage(messages.redraftRetry)}
+          </button>
+        ) : null}
+        {discard && this.props.onDiscardUnconfirmedRedraft ? (
+          <button type='button' className='link-button' onClick={this.props.onDiscardUnconfirmedRedraft}>
+            {this.props.intl.formatMessage(messages.redraftDiscard)}
+          </button>
+        ) : null}
+      </p>
     );
   }
 
@@ -887,6 +933,7 @@ class ComposeForm extends ImmutablePureComponent {
         {this.state.uploadNotice ? (
           <p className='compose-form__upload-notice' role='status'>{this.uploadNoticeText()}</p>
         ) : null}
+        {this.renderRedraftNotice()}
         {this.renderSendBlockNotice()}
         {!simple && <WarningContainer />}
         {!simple && this.props.isEditing && (

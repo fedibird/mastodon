@@ -363,6 +363,126 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
       end
     end
 
+    describe 'DELETE #destroy redraft media' do
+      let(:scopes) { 'write:statuses' }
+      let(:status) { Fabricate(:status, account: user.account, text: 'redraft body') }
+      let!(:first) { Fabricate(:media_attachment, account: user.account, status: status, description: 'first alt') }
+      let!(:second) { Fabricate(:media_attachment, account: user.account, status: status, description: 'second alt') }
+
+      before do
+        status.update!(ordered_media_attachment_ids: [second.id, first.id])
+      end
+
+      # The controller returns as soon as the row is discarded. Sidekiq inline
+      # would hide the window where status_id is still set.
+      around do |example|
+        Sidekiq::Testing.fake!
+        example.run
+      ensure
+        Sidekiq::Worker.clear_all
+        Sidekiq::Testing.inline!
+      end
+
+      def queued_removal
+        RemovalWorker.jobs.last
+      end
+
+      it 'keeps the original attachment linked until the removal worker runs' do
+        delete :destroy, params: { id: status.id, redraft: true }
+
+        expect(response).to have_http_status(200)
+        body = body_as_json
+        expect(body[:text]).to eq 'redraft body'
+        expect(body[:media_attachments].map { |item| item[:id] }).to eq [second.id.to_s, first.id.to_s]
+        expect(body[:media_attachments].map { |item| item[:description] }).to eq ['second alt', 'first alt']
+        expect(body[:media_attachments].map { |item| item[:url] }).to all(be_present)
+        expect(status.reload.discarded?).to be true
+        expect(first.reload.status_id).to eq status.id
+        expect(second.reload.status_id).to eq status.id
+        expect(queued_removal['args']).to eq [status.id, { 'redraft' => true }]
+      end
+
+      it 'frees redraft media for reuse after the worker runs' do
+        delete :destroy, params: { id: status.id, redraft: true }
+        RemovalWorker.drain
+
+        expect(Status.find_by(id: status.id)).to be_nil
+        expect(first.reload.status_id).to be_nil
+        expect(second.reload.status_id).to be_nil
+        expect(first.description).to eq 'first alt'
+        expect(second.description).to eq 'second alt'
+      end
+
+      it 'reuses freed media on a new status without dropping a sibling that is not free yet' do
+        delete :destroy, params: { id: status.id, redraft: true }
+        RemovalWorker.drain
+        # Reload first. The in-memory row still has the destroyed status id,
+        # and saving it would write that id back onto the freed attachment.
+        first.reload.update!(description: 'updated alt')
+
+        held_status = Fabricate(:status, account: user.account, text: 'held')
+        held = Fabricate(:media_attachment, account: user.account, status: held_status, description: 'held alt')
+
+        expect do
+          PostStatusService.new.call(user.account, text: 'partial redraft', media_ids: [second.id, held.id])
+        end.to raise_error(Mastodon::ValidationError, I18n.t('media_attachments.validations.missing'))
+
+        posted = PostStatusService.new.call(user.account, text: 'full redraft', media_ids: [second.id, first.id])
+
+        expect(posted.ordered_media_attachment_ids).to eq [second.id, first.id]
+        expect(first.reload.status_id).to eq posted.id
+        expect(first.description).to eq 'updated alt'
+        expect(second.reload.status_id).to eq posted.id
+        expect(second.description).to eq 'second alt'
+        expect(held.reload.status_id).to eq held_status.id
+      end
+
+      it 'rejects an explicit redraft of a reported status without deleting it or freeing media' do
+        report = Fabricate(:report, account: Fabricate(:account), target_account: user.account, status_ids: [status.id], comment: 'evidence')
+
+        delete :destroy, params: { id: status.id, redraft: true }
+
+        expect(response).to have_http_status(:conflict)
+        expect(body_as_json[:error]).to eq I18n.t('statuses.errors.redraft_reported')
+        expect(status.reload.discarded?).to be false
+        expect(first.reload.status_id).to eq status.id
+        expect(second.reload.status_id).to eq status.id
+        expect(report.reload.status_ids).to include(status.id)
+        expect(RemovalWorker.jobs).to be_empty
+      end
+
+      it 'keeps the normal delete contract for a reported status' do
+        Fabricate(:report, account: Fabricate(:account), target_account: user.account, status_ids: [status.id])
+
+        delete :destroy, params: { id: status.id }
+
+        expect(response).to have_http_status(200)
+        expect(queued_removal['args']).to eq [status.id, { 'redraft' => true }]
+
+        RemovalWorker.drain
+
+        expect(status.reload.discarded?).to be true
+        expect(Status.with_discarded.find_by(id: status.id)).to be_present
+        expect(first.reload.status_id).to eq status.id
+        expect(second.reload.status_id).to eq status.id
+      end
+
+      it 'keeps reported media attached when a report arrives before the worker runs' do
+        delete :destroy, params: { id: status.id, redraft: true }
+        expect(response).to have_http_status(200)
+
+        # The DELETE check has already passed. A report created in this window
+        # makes the worker preserve the row, so the attachment is not reusable.
+        Fabricate(:report, account: Fabricate(:account), target_account: user.account, status_ids: [status.id])
+        RemovalWorker.drain
+
+        expect(status.reload.discarded?).to be true
+        expect(Status.with_discarded.find(status.id)).to be_present
+        expect(first.reload.status_id).to eq status.id
+        expect(second.reload.status_id).to eq status.id
+      end
+    end
+
     describe 'GET #updated' do
       let(:scopes) { 'read:statuses' }
       let(:status) { Fabricate(:status, account: user.account, visibility: :public) }

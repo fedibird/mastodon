@@ -69,6 +69,7 @@ import {
 } from '../actions/compose';
 import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { REDRAFT } from '../actions/statuses';
+import { COMPOSE_REDAFT_DISCARD, COMPOSE_REDAFT_MEDIA_LOCAL, COMPOSE_REDAFT_MEDIA_STATUS } from '../actions/redraft_media';
 import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE, COMPOSER_INTERACTION_CHECK_FAIL, COMPOSER_INTERACTION_CHECK_REQUEST, COMPOSER_INTERACTION_CHECK_SUCCESS, COMPOSER_SENDER_IDENTITY_SELECT, COMPOSER_SURFACE_ACCEPT } from '../actions/composer';
 import { composerInteractionInputKey } from '../posting_identity/interaction_input';
 import { USER_POSTING_STYLE_AUTO_ATTEMPT, USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DEFAULTS_SETTLED, USER_POSTING_STYLE_DESTINATION, USER_POSTING_STYLE_DESTINATION_RETRY, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../actions/user_posting_styles';
@@ -191,12 +192,25 @@ export const initialState = ImmutableMap({
   }),
   userPostingStyle: initialUserPostingStyle(),
   senderIdentity: initialSenderIdentity(),
+  redraftEpoch: 0,
+  redraftGeneration: 0,
+  redraftMediaUnconfirmed: false,
   surface: null,
   pendingSurface: null,
   displayedSurface: null,
   surfaceMismatch: false,
   surfaceEpoch: 0,
 });
+
+// Survives composer destroy/recreate. Epoch restarts at 0 on a new instance.
+let nextRedraftGeneration = 1;
+
+const allocateRedraftGeneration = () => {
+  const generation = nextRedraftGeneration;
+
+  nextRedraftGeneration += 1;
+  return generation;
+};
 
 const initialPoll = ImmutableMap({
   options: ImmutableList(['', '']),
@@ -420,6 +434,9 @@ const clearAll = state => {
     map.set('circle_id', null);
     map.set('sensitive', false);
     map.update('media_attachments', list => list.clear());
+    map.update('redraftEpoch', epoch => (epoch || 0) + 1);
+    map.set('redraftGeneration', allocateRedraftGeneration());
+    map.set('redraftMediaUnconfirmed', false);
     map.set('pending_media_attachments', 0);
     map.set('pending_exclusive_attachments', 0);
     map.set('processing_media_attachments', 0);
@@ -477,6 +494,170 @@ const applyTrackedUpload = (map, requests, exclusive) => {
   if (exclusive) {
     map.update('pending_exclusive_attachments', count => Math.max(0, (count || 0) - 1));
   }
+};
+
+const copyRedraftState = (next, item) => {
+  if (!item.has('redraftReuse')) {
+    return next;
+  }
+
+  return next
+    .set('redraftReuse', item.get('redraftReuse'))
+    .set('redraftRevision', item.get('redraftRevision') || 0)
+    .set('redraftError', item.get('redraftError') || null)
+    .set('redraftFetched', item.get('redraftFetched') === true);
+};
+
+const redraftMediaList = (media, { reuseMedia, ownerIdentityId, mediaUnconfirmed }) => {
+  const list = ImmutableList.isList(media) ? media : ImmutableList(media || []);
+
+  return list.map((item, index) => {
+    let next = item.set('order', index).set('unattached', true);
+
+    if (ownerIdentityId) {
+      next = next.set('ownerIdentityId', ownerIdentityId);
+    }
+
+    if (reuseMedia && mediaUnconfirmed) {
+      next = next
+        .set('redraftReuse', 'failed')
+        .set('redraftRevision', 0)
+        .set('redraftError', 'prepare')
+        .set('redraftFetched', false)
+        .set('redraftUnconfirmed', true);
+    } else if (reuseMedia) {
+      next = next
+        .set('redraftReuse', 'waiting')
+        .set('redraftRevision', 0)
+        .set('redraftError', null)
+        .set('redraftFetched', false)
+        .set('redraftUnconfirmed', false);
+    }
+
+    return next;
+  });
+};
+
+const applyRedraftFocus = (item, focus) => {
+  if (!focus) {
+    return item;
+  }
+
+  const [rawX, rawY] = String(focus).split(',');
+  const x = Number(rawX);
+  const y = Number(rawY);
+
+  if (Number.isNaN(x) || Number.isNaN(y)) {
+    return item;
+  }
+
+  return item.setIn(['meta', 'focus'], ImmutableMap({ x, y }));
+};
+
+const applyRedraftMediaLocal = (state, action) => {
+  if (action.epoch !== state.get('redraftEpoch') || action.generation !== state.get('redraftGeneration')) {
+    return state;
+  }
+
+  return state.withMutations(map => {
+    map.update('media_attachments', list => list.map(item => {
+      if (String(item.get('id')) !== String(action.mediaId)) {
+        return item;
+      }
+
+      return applyRedraftFocus(
+        item.set('description', action.description || '').set('redraftRevision', (item.get('redraftRevision') || 0) + 1),
+        action.focus,
+      );
+    }));
+
+    if (String(map.getIn(['media_modal', 'id'])) !== String(action.mediaId)) {
+      return;
+    }
+
+    map.setIn(['media_modal', 'dirty'], false);
+    map.setIn(['media_modal', 'description'], action.description || '');
+
+    if (!action.focus) {
+      return;
+    }
+
+    const [rawX, rawY] = String(action.focus).split(',');
+    const x = Number(rawX);
+    const y = Number(rawY);
+
+    if (!Number.isNaN(x) && !Number.isNaN(y)) {
+      map.setIn(['media_modal', 'focusX'], x);
+      map.setIn(['media_modal', 'focusY'], y);
+    }
+  });
+};
+
+const applyRedraftMediaStatus = (state, action) => {
+  if (action.epoch !== state.get('redraftEpoch') || action.generation !== state.get('redraftGeneration')) {
+    return state;
+  }
+
+  return state.withMutations(map => {
+    map.update('media_attachments', list => list.map(item => {
+      if (String(item.get('id')) !== String(action.mediaId)) {
+        return item;
+      }
+
+      if (action.expectedRevision !== undefined && (item.get('redraftRevision') || 0) !== action.expectedRevision) {
+        return item;
+      }
+
+      let next = item;
+
+      if (action.media) {
+        const server = fromJS(action.media);
+        const description = action.keepLocalText ? (item.get('description') || '') : (server.get('description') || '');
+        const focus = action.keepLocalText ? item.getIn(['meta', 'focus']) : server.getIn(['meta', 'focus']);
+
+        next = server
+          .set('id', item.get('id'))
+          .set('description', description)
+          .set('unattached', true)
+          .set('order', item.has('order') ? item.get('order') : server.get('order'))
+          .set('ownerIdentityId', item.get('ownerIdentityId') || server.get('ownerIdentityId'))
+          .set('redraftRevision', item.get('redraftRevision') || 0)
+          .set('redraftFetched', action.fetched === undefined ? item.get('redraftFetched') === true : action.fetched === true)
+          .set('redraftError', action.error === undefined ? item.get('redraftError') || null : action.error)
+          .set('redraftReuse', action.reuse || item.get('redraftReuse'));
+
+        if (focus) {
+          next = next.setIn(['meta', 'focus'], focus);
+        } else if (!action.keepLocalText) {
+          next = next.deleteIn(['meta', 'focus']);
+        }
+      }
+
+      if (action.reuse) {
+        next = next.set('redraftReuse', action.reuse);
+      }
+
+      if (action.error !== undefined) {
+        next = next.set('redraftError', action.error);
+      }
+
+      if (action.fetched !== undefined) {
+        next = next.set('redraftFetched', action.fetched === true);
+      }
+
+      if (action.redraftUnconfirmed !== undefined) {
+        next = next.set('redraftUnconfirmed', action.redraftUnconfirmed === true);
+      }
+
+      return next;
+    }));
+
+    if (action.changingUpload === true) {
+      map.set('is_changing_upload', true);
+    } else if (action.changingUpload === false) {
+      map.set('is_changing_upload', map.get('media_attachments').some(item => item.get('redraftReuse') === 'saving'));
+    }
+  });
 };
 
 const appendMedia = (state, media, file, fromProcessing = false, tracked = false) => {
@@ -1363,11 +1544,30 @@ export default function composer(state = initialState, action) {
         if (item.get('id') === action.media.id) {
           const next = fromJS(action.media);
 
-          return next.set('ownerIdentityId', next.get('ownerIdentityId') || item.get('ownerIdentityId'));
+          return copyRedraftState(
+            next.set('unattached', item.get('unattached', true)).set('ownerIdentityId', next.get('ownerIdentityId') || item.get('ownerIdentityId')).set('order', item.has('order') ? item.get('order') : next.get('order')),
+            item,
+          );
         }
 
         return item;
       }));
+  case COMPOSE_REDAFT_MEDIA_LOCAL:
+    return applyRedraftMediaLocal(state, action);
+  case COMPOSE_REDAFT_MEDIA_STATUS:
+    return applyRedraftMediaStatus(state, action);
+  case COMPOSE_REDAFT_DISCARD:
+    if (!state.get('redraftMediaUnconfirmed')) {
+      return state;
+    }
+
+    return reapplySelectedStyle(clearStyleManualState(clearAll(state).set('media_modal', ImmutableMap({
+      id: null,
+      description: '',
+      focusX: 0,
+      focusY: 0,
+      dirty: false,
+    }))), { respectManual: false, resetSuppressions: true });
   case INIT_MEDIA_EDIT_MODAL:
     const media =  state.get('media_attachments').find(item => item.get('id') === action.id);
     return state.set('media_modal', ImmutableMap({
@@ -1445,10 +1645,10 @@ export default function composer(state = initialState, action) {
         if (item.get('id') === action.media.id) {
           const next = fromJS(action.media);
 
-          return next
+          return copyRedraftState(next
             .set('unattached', action.attached ? false : item.get('unattached', true))
             .set('order', item.has('order') ? item.get('order') : next.get('order'))
-            .set('ownerIdentityId', next.get('ownerIdentityId') || item.get('ownerIdentityId'));
+            .set('ownerIdentityId', next.get('ownerIdentityId') || item.get('ownerIdentityId')), item);
         }
 
         return item;
@@ -1473,7 +1673,14 @@ export default function composer(state = initialState, action) {
       map.set('searchability', action.status.get('searchability', state.get('default_searchability')));
       clearSearchabilityOverride(map);
       map.set('circle_id', action.status.get('circle_id', null));
-      map.set('media_attachments', action.status.get('media_attachments', ImmutableList()));
+      map.update('redraftEpoch', epoch => (epoch || 0) + 1);
+      map.set('redraftGeneration', allocateRedraftGeneration());
+      map.set('redraftMediaUnconfirmed', action.mediaUnconfirmed === true);
+      map.set('media_attachments', redraftMediaList(action.status.get('media_attachments'), {
+        reuseMedia: action.reuseMedia === true,
+        ownerIdentityId: action.ownerIdentityId,
+        mediaUnconfirmed: action.mediaUnconfirmed === true,
+      }));
       map.set('focusDate', new Date());
       map.set('caretPosition', null);
       map.set('idempotencyKey', uuid());

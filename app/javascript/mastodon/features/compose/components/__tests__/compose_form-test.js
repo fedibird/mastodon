@@ -1095,6 +1095,50 @@ describe('ComposeForm sender identity', () => {
     expect(screen.getByRole('button', { name: 'Toot!' })).toBeEnabled();
   });
 
+  it('offers discard instead of retry when redraft media is unconfirmed', () => {
+    const onRetryRedraft = jest.fn();
+    const onDiscardUnconfirmedRedraft = jest.fn();
+    const view = renderForm({
+      text: 'held',
+      redraftNotice: 'unconfirmed',
+      onRetryRedraft,
+      onDiscardUnconfirmedRedraft,
+    });
+
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+    expect(screen.getByText('The images from the original post could not be confirmed, so this draft cannot be posted.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard this draft' }));
+    expect(onDiscardUnconfirmedRedraft).toHaveBeenCalledTimes(1);
+    expect(onRetryRedraft).not.toHaveBeenCalled();
+
+    view.unmount();
+    renderForm({
+      text: 'held',
+      displayMode: 'simple',
+      redraftNotice: 'unconfirmed',
+      onRetryRedraft,
+      onDiscardUnconfirmedRedraft,
+    });
+
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Discard this draft' })).toBeTruthy();
+  });
+
+  it('still offers retry when a redraft attachment failed and can be tried again', () => {
+    const onRetryRedraft = jest.fn();
+
+    renderForm({
+      text: 'held',
+      redraftNotice: 'prepare',
+      onRetryRedraft,
+      onDiscardUnconfirmedRedraft: jest.fn(),
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(onRetryRedraft).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Discard this draft' })).toBeNull();
+  });
+
   it('disables publish when the sender identity cannot post', () => {
     const onSubmit = jest.fn();
 

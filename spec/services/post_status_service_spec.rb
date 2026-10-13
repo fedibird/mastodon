@@ -171,7 +171,7 @@ RSpec.describe PostStatusService, type: :service do
 
   it 'does not immediately create a status when scheduling a status' do
     account = Fabricate(:account)
-    media = Fabricate(:media_attachment)
+    media = Fabricate(:media_attachment, account: account)
     future  = Time.now.utc + 2.hours
 
     status = subject.call(account, text: 'Hi future!', media_ids: [media.id], scheduled_at: future)
@@ -375,17 +375,74 @@ RSpec.describe PostStatusService, type: :service do
     expect(media.reload.status).to eq status
   end
 
-  it 'does not attach media from another account to the created status' do
+  it 'refuses media from another account instead of publishing without it' do
     account = Fabricate(:account)
     media = Fabricate(:media_attachment, account: Fabricate(:account))
 
-    status = subject.call(
-      account,
-      text: "test status update",
-      media_ids: [media.id],
+    expect do
+      subject.call(
+        account,
+        text: 'test status update',
+        media_ids: [media.id],
+      )
+    end.to raise_error(
+      Mastodon::ValidationError,
+      I18n.t('media_attachments.validations.missing'),
     )
 
-    expect(media.reload.status).to eq nil
+    expect(Status.where(account: account, text: 'test status update')).to be_empty
+    expect(media.reload.status_id).to be_nil
+  end
+
+  it 'refuses a post when any requested attachment is still on another status' do
+    account = Fabricate(:account)
+    ready = Fabricate(:media_attachment, account: account, description: 'ready alt')
+    held_status = Fabricate(:status, account: account, text: 'still holding media')
+    held = Fabricate(:media_attachment, account: account, status: held_status, description: 'held alt')
+
+    expect do
+      subject.call(
+        account,
+        text: 'redraft too early',
+        media_ids: [ready.id, held.id],
+      )
+    end.to raise_error(
+      Mastodon::ValidationError,
+      I18n.t('media_attachments.validations.missing'),
+    )
+
+    expect(Status.where(account: account, text: 'redraft too early')).to be_empty
+    expect(ready.reload.status_id).to be_nil
+    expect(held.reload.status_id).to eq held_status.id
+    expect(held.description).to eq 'held alt'
+  end
+
+  it 'refuses a missing or destroyed media id' do
+    account = Fabricate(:account)
+    destroyed = Fabricate(:media_attachment, account: account)
+    destroyed_id = destroyed.id
+    destroyed.destroy!
+
+    expect do
+      subject.call(account, text: 'missing media', media_ids: [0])
+    end.to raise_error(Mastodon::ValidationError, I18n.t('media_attachments.validations.missing'))
+
+    expect do
+      subject.call(account, text: 'destroyed media', media_ids: [destroyed_id])
+    end.to raise_error(Mastodon::ValidationError, I18n.t('media_attachments.validations.missing'))
+
+    expect(Status.where(account: account, text: ['missing media', 'destroyed media'])).to be_empty
+  end
+
+  it 'reuses a detached attachment with its updated description' do
+    account = Fabricate(:account)
+    media = Fabricate(:media_attachment, account: account, description: 'fresh alt')
+
+    status = subject.call(account, text: 'posted again', media_ids: [media.id])
+
+    expect(status.ordered_media_attachment_ids).to eq [media.id]
+    expect(media.reload.status_id).to eq status.id
+    expect(media.description).to eq 'fresh alt'
   end
 
   it 'does not allow attaching more than 4 files' do

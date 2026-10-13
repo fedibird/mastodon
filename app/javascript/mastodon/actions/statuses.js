@@ -1,6 +1,10 @@
+import { fromJS } from 'immutable';
+
 import api from '../api';
 import { locale as interfaceLocale } from '../initial_state';
+import { sessionPostingIdentityId } from '../posting_identity/identity';
 import { copyText } from '../utils/clipboard';
+import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import { legacyTranslationPair, sameLanguagePair, viewerTranslationPair } from '../utils/translation_view';
 
 import { SETTING_CHANGE, saveSettings } from './settings';
@@ -10,7 +14,8 @@ import { importFetchedStatus, importFetchedStatuses, importFetchedAccount } from
 import { statusSourceSignature, translationSourceSignature } from './importer/normalizer';
 import { ensureComposeIsVisible, getContextReference, setComposeToStatus } from './compose';
 import { openModal } from './modal';
-import { showAlertForError } from './alerts';
+import { showAlert, showAlertForError } from './alerts';
+import { prepareRedraftMedia } from './redraft_media';
 
 export const STATUS_FETCH_REQUEST = 'STATUS_FETCH_REQUEST';
 export const STATUS_FETCH_SUCCESS = 'STATUS_FETCH_SUCCESS';
@@ -69,6 +74,8 @@ export const STATUS_FETCH_SOURCE_FAIL    = 'STATUS_FETCH_SOURCE_FAIL';
 const messages = {
   editConfirm: { id: 'confirmations.edit.confirm', defaultMessage: 'Edit' },
   editMessage: { id: 'confirmations.edit.message', defaultMessage: 'Editing now will overwrite the message you are currently composing. Are you sure you want to proceed?' },
+  redraftReportedTitle: { id: 'compose.redraft_media.reported_title', defaultMessage: 'Cannot redraft' },
+  redraftReported: { id: 'compose.redraft_media.reported', defaultMessage: 'This post is part of an open report, so it cannot be deleted and redrafted. Edit it instead.' },
 };
 
 export const updateStatus = status => dispatch => dispatch(importFetchedStatus(status));
@@ -334,13 +341,32 @@ export function requestEditStatus(status, routerHistory, intl) {
   };
 }
 
-export function redraft(getState, status, replyStatus, raw_text) {
+// A usable delete payload lists every attachment id. Anything else is too
+// incomplete to reuse, and the cached composer copy must not replace it.
+const deleteResponseMedia = payload => {
+  const list = payload && payload.media_attachments;
+
+  if (!Array.isArray(list)) {
+    return null;
+  }
+
+  if (list.some(item => !item || item.id === undefined || item.id === null || item.id === '')) {
+    return null;
+  }
+
+  return fromJS(list);
+};
+
+export function redraft(getState, status, replyStatus, raw_text, options = {}) {
   return {
     type: REDRAFT,
     status,
     replyStatus,
     raw_text,
     context_references: getContextReference(getState, replyStatus),
+    reuseMedia: options.reuseMedia === true,
+    ownerIdentityId: options.ownerIdentityId || null,
+    mediaUnconfirmed: options.mediaUnconfirmed === true,
   };
 };
 
@@ -351,18 +377,62 @@ export function deleteStatus(id, routerHistory, withRedraft = false) {
 
     dispatch(deleteStatusRequest(id));
 
-    api(getState).delete(`/api/v1/statuses/${id}`).then(response => {
+    const request = withRedraft
+      ? api(getState).delete(`/api/v1/statuses/${id}`, { params: { redraft: true } })
+      : api(getState).delete(`/api/v1/statuses/${id}`);
+
+    return request.then(response => {
       dispatch(deleteStatusSuccess(id));
       dispatch(deleteFromTimelines(id));
       dispatch(importFetchedAccount(response.data.account));
 
       if (withRedraft) {
         dispatch(fetchStatuses(status.get('status_reference_ids', [])));
-        dispatch(redraft(getState, status, replyStatus, response.data.text));
+
+        const responseMedia = deleteResponseMedia(response.data);
+        const cachedIds = [];
+        const cachedAttachments = status.get('media_attachments');
+
+        if (cachedAttachments && cachedAttachments.forEach) {
+          cachedAttachments.forEach(item => {
+            const cachedId = item && item.get('id');
+
+            if (cachedId !== undefined && cachedId !== null && cachedId !== '') {
+              cachedIds.push(String(cachedId));
+            }
+          });
+        }
+
+        // Missing, malformed, or partial lists are not a safe source of attachments.
+        // Keep the cached copies only as an unconfirmed hold; do not invent the rest.
+        const responseCoversCache = !!responseMedia && cachedIds.every(cachedId => (
+          responseMedia.some(item => String(item.get('id')) === cachedId)
+        ));
+        const mediaUnconfirmed = !responseCoversCache;
+        const redraftStatus = responseMedia && !mediaUnconfirmed
+          ? status.set('media_attachments', responseMedia)
+          : status;
+
+        dispatch(redraft(getState, redraftStatus, replyStatus, response.data.text, {
+          reuseMedia: true,
+          ownerIdentityId: sessionPostingIdentityId(),
+          mediaUnconfirmed,
+        }));
+
+        if (!mediaUnconfirmed) {
+          dispatch(prepareRedraftMedia(PRIMARY_COMPOSER_ID));
+        }
+
         ensureComposeIsVisible(getState, routerHistory);
       }
     }).catch(error => {
-      dispatch(deleteStatusFail(id, error));
+      const reportedRedraft = withRedraft && error.response && error.response.status === 409;
+
+      dispatch(deleteStatusFail(id, error, reportedRedraft));
+
+      if (reportedRedraft) {
+        dispatch(showAlert(messages.redraftReportedTitle, messages.redraftReported));
+      }
     });
   };
 };
@@ -381,11 +451,12 @@ export function deleteStatusSuccess(id) {
   };
 };
 
-export function deleteStatusFail(id, error) {
+export function deleteStatusFail(id, error, skipAlert = false) {
   return {
     type: STATUS_DELETE_FAIL,
     id: id,
     error: error,
+    skipAlert,
   };
 };
 

@@ -114,11 +114,23 @@ class Api::V1::StatusesController < Api::BaseController
     @status = Status.include_expired.where(account_id: current_account.id).find(status_params[:id])
     authorize @status, :destroy?
 
-    @status.discard
-    RemovalWorker.perform_async(@status.id, { 'redraft' => true })
-    @status.account.statuses_count = @status.account.statuses_count - 1
+    # Explicit redraft cannot safely reuse media that an open report still
+    # needs. Refuse before discard so the post and its attachments stay put.
+    # A report filed after this check can still make RemovalWorker keep the
+    # row; the client must stop waiting instead of detaching that media.
+    if explicit_redraft_request? && @status.reported?
+      render json: { error: I18n.t('statuses.errors.redraft_reported') }, status: :conflict
+      return
+    end
 
-    render json: @status, serializer: REST::StatusSerializer, source_requested: true
+    @status.account.statuses_count = @status.account.statuses_count - 1
+    payload = redraft_destroy_payload(@status)
+
+    @status.discard
+    # Normal deletes already enqueue redraft: true. Leave that policy alone.
+    RemovalWorker.perform_async(@status.id, { 'redraft' => true })
+
+    render json: payload
   end
 
   def expire
@@ -272,6 +284,22 @@ class Api::V1::StatusesController < Api::BaseController
       account_id: params[:account_id],
       posting_identity_id: params[:posting_identity_id]
     )
+  end
+
+  def explicit_redraft_request?
+    ActiveModel::Type::Boolean.new.cast(params[:redraft])
+  end
+
+  # Capture text, ALT, and media URLs before discard. The worker still loads
+  # the discarded row itself, so this snapshot does not strip delivery data.
+  def redraft_destroy_payload(status)
+    ActiveModelSerializers::SerializableResource.new(
+      status,
+      serializer: REST::StatusSerializer,
+      source_requested: true,
+      scope: current_user,
+      scope_name: :current_user
+    ).as_json
   end
 
   def status_params
