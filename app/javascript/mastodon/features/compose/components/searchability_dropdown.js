@@ -16,6 +16,7 @@ const messages = defineMessages({
   direct_short: { id: 'searchability.direct.short', defaultMessage: 'Reacted-users-only' },
   direct_long: { id: 'searchability.direct.long', defaultMessage: 'Searchable for reacted users only' },
   change_searchability: { id: 'searchability.change', defaultMessage: 'Adjust status searchability' },
+  menu: { id: 'compose_form.overflow.searchability', defaultMessage: 'Search visibility' },
 });
 
 const listenerOptions = supportsPassiveEvents ? { passive: true } : false;
@@ -24,6 +25,8 @@ class SearchabilityDropdownMenu extends React.PureComponent {
 
   static propTypes = {
     style: PropTypes.object,
+    className: PropTypes.string,
+    popperRef: PropTypes.func,
     items: PropTypes.array.isRequired,
     value: PropTypes.string.isRequired,
     onClose: PropTypes.func.isRequired,
@@ -102,6 +105,10 @@ class SearchabilityDropdownMenu extends React.PureComponent {
 
   setRef = c => {
     this.node = c;
+
+    if (this.props.popperRef) {
+      this.props.popperRef(c);
+    }
   }
 
   setFocusRef = c => {
@@ -109,10 +116,10 @@ class SearchabilityDropdownMenu extends React.PureComponent {
   }
 
   render () {
-    const { style, items, value } = this.props;
+    const { style, className, items, value } = this.props;
 
     return (
-      <div style={{ ...style }} role='listbox' ref={this.setRef}>
+      <div className={className} style={{ ...style }} role='listbox' data-testid='searchability-menu' ref={this.setRef}>
         {items.map(item => (
           <div role='option' tabIndex='0' key={item.value} data-index={item.value} onKeyDown={this.handleKeyDown} onClick={this.handleClick} className={classNames('privacy-dropdown__option', { active: item.value === value })} aria-selected={item.value === value} ref={item.value === value ? this.setFocusRef : null}>
             <div className='privacy-dropdown__option__icon'>
@@ -143,6 +150,11 @@ class SearchabilityDropdown extends React.PureComponent {
     prohibitedVisibilities: ImmutablePropTypes.set,
     onChange: PropTypes.func.isRequired,
     noDirect: PropTypes.bool,
+    presentation: PropTypes.oneOf(['menu', 'detached']),
+    open: PropTypes.bool,
+    onClose: PropTypes.func,
+    returnFocus: PropTypes.object,
+    onMenuClose: PropTypes.func,
     container: PropTypes.func,
     intl: PropTypes.object.isRequired,
   };
@@ -176,7 +188,7 @@ class SearchabilityDropdown extends React.PureComponent {
     const { value } = this.options[e.currentTarget.getAttribute('data-index')];
 
     this.props.onModalClose();
-    this.props.onChange(value);
+    this.finishMenuChoice(value);
   }
 
   handleKeyDown = e => {
@@ -202,10 +214,40 @@ class SearchabilityDropdown extends React.PureComponent {
     }
   }
 
-  handleClose = () => {
-    if (this.state.open && this.activeElement) {
-      this.activeElement.focus({ preventScroll: true });
+  componentDidUpdate (prevProps) {
+    if (this.props.presentation !== 'detached' || !this.props.open || prevProps.open) {
+      return;
     }
+
+    this.activeElement = this.props.returnFocus || document.activeElement;
+
+    if (this.props.isUserTouching && this.props.isUserTouching()) {
+      this.props.onModalOpen({
+        actions: this.options.map(option => ({ ...option, active: option.value === this.props.value })),
+        onClick: this.handleModalActionClick,
+      });
+
+      if (this.props.onClose) {
+        this.props.onClose();
+      }
+    }
+  }
+
+  handleClose = () => {
+    const returnFocus = this.props.returnFocus || this.activeElement;
+
+    if (returnFocus && typeof returnFocus.focus === 'function') {
+      returnFocus.focus({ preventScroll: true });
+    }
+
+    if (this.props.presentation === 'detached') {
+      if (this.props.onClose) {
+        this.props.onClose();
+      }
+
+      return;
+    }
+
     this.setState({ open: false });
   }
 
@@ -235,9 +277,57 @@ class SearchabilityDropdown extends React.PureComponent {
     this.setState({ placement: state.placement });
   }
 
+  handleOpenDedicated = (event) => {
+    event.preventDefault();
+
+    if (this.props.onMenuClose) {
+      this.props.onMenuClose();
+    }
+  };
+
+  finishMenuChoice = (value) => {
+    this.props.onChange(value);
+    this.handleClose();
+
+    if (this.props.onMenuClose) {
+      this.props.onMenuClose();
+    }
+  };
+
   render () {
-    const { value, container, intl } = this.props;
+    const { value, container, intl, presentation } = this.props;
     const { open, placement } = this.state;
+
+    if (presentation === 'menu') {
+      return (
+        <button type='button' className='compose-form__menu-row' onClick={this.handleOpenDedicated}>
+          <Icon id='search' fixedWidth aria-hidden='true' />
+          <span>{intl.formatMessage(messages.menu)}</span>
+        </button>
+      );
+    }
+
+    if (presentation === 'detached') {
+      const touching = this.props.isUserTouching && this.props.isUserTouching();
+
+      return (
+        <div className='compose-form__searchability-anchor' ref={this.setTargetRef}>
+          <Overlay show={Boolean(this.props.open) && !touching} placement='bottom' flip target={this.findTarget} container={container} popperConfig={{ strategy: 'fixed', onFirstUpdate: this.handleOverlayEnter }}>
+            {({ props, placement }) => (
+              <SearchabilityDropdownMenu
+                style={props.style}
+                popperRef={props.ref}
+                className={`compose-portal-menu compose-form__searchability-menu ${placement || ''}`}
+                items={this.options}
+                value={value}
+                onClose={this.handleClose}
+                onChange={this.handleChange}
+              />
+            )}
+          </Overlay>
+        </div>
+      );
+    }
 
     const valueOption = this.options.find(item => item.value === value);
 

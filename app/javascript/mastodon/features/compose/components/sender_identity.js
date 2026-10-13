@@ -3,8 +3,10 @@ import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import { defineMessages, injectIntl } from 'react-intl';
 import classNames from 'classnames';
+import Overlay from 'react-overlays/Overlay';
 import Icon from 'mastodon/components/icon';
 import { domain as localDomain } from 'mastodon/initial_state';
+import { createOverlayRefBridge } from '../overlay_ref';
 
 const messages = defineMessages({
   label: { id: 'compose_form.sender_identity.label', defaultMessage: 'Posting as' },
@@ -97,6 +99,8 @@ class SenderIdentity extends React.PureComponent {
     blockReason: PropTypes.string,
     text: PropTypes.string,
     header: PropTypes.bool,
+    selectable: PropTypes.bool,
+    composerId: PropTypes.string,
     catalog: ImmutablePropTypes.list,
   };
 
@@ -105,6 +109,10 @@ class SenderIdentity extends React.PureComponent {
   };
 
   root = null;
+
+  trigger = null;
+
+  menuBridge = createOverlayRefBridge();
 
   componentDidMount () {
     document.addEventListener('mousedown', this.handleDocumentClick);
@@ -117,7 +125,17 @@ class SenderIdentity extends React.PureComponent {
   }
 
   handleDocumentClick = event => {
-    if (!this.state.open || !this.root || this.root.contains(event.target)) {
+    if (!this.state.open) {
+      return;
+    }
+
+    if (this.trigger && this.trigger.contains(event.target)) {
+      return;
+    }
+
+    const menu = this.menuBridge.getNode();
+
+    if (menu && menu.contains(event.target)) {
       return;
     }
 
@@ -125,13 +143,77 @@ class SenderIdentity extends React.PureComponent {
   };
 
   handleDocumentKey = event => {
-    if (event.key === 'Escape' && this.state.open) {
-      this.setState({ open: false });
+    if (event.key !== 'Escape' || !this.state.open) {
+      return;
     }
+
+    const menu = this.menuBridge.getNode();
+    const active = document.activeElement;
+    const focusInMenu = Boolean(menu && menu.contains(active));
+    const focusOnTrigger = this.trigger && active === this.trigger;
+    const nothingFocused = !active || active === document.body || active === document.documentElement;
+
+    if (!focusInMenu && !focusOnTrigger && !nothingFocused) {
+      this.setState({ open: false });
+      return;
+    }
+
+    event.preventDefault();
+    this.setState({ open: false }, () => {
+      if (this.trigger) {
+        this.trigger.focus();
+      }
+    });
   };
 
   setRoot = node => {
     this.root = node;
+  };
+
+  setTrigger = node => {
+    this.trigger = node;
+  };
+
+  findTrigger = () => this.trigger;
+
+  renderSenderMenu = ({ props, placement }) => {
+    const { ref: popperRef, style, ...overlayProps } = props;
+    const { intl, failed, blockReason, selectedId } = this.props;
+    const current = this.props.current;
+    const authorization = current && current.get('authorization');
+    const unavailable = authorization && authorization !== 'ready';
+    const delegatedSelected = typeof selectedId === 'string' && selectedId.startsWith('delegated:');
+    const unavailableMessage = delegatedSelected ? messages.linkedUnavailable : messages.unavailable;
+
+    this.menuBridge.syncPopperRef(popperRef);
+
+    return (
+      <div
+        {...overlayProps}
+        ref={this.menuBridge.compose}
+        style={style}
+        className={`compose-portal-menu compose-form__sender-menu ${placement || ''}`}
+        role='menu'
+        data-testid='sender-identity-menu'
+        data-composer-id={this.props.composerId || ''}
+        aria-label={intl.formatMessage(messages.label)}
+      >
+        {this.menuIdentities().map(item => this.renderMenuItem(item))}
+        <p className='compose-form__sender-hint'>{intl.formatMessage(messages.hint)}</p>
+        {blockReason ? <p className='compose-form__sender-status' role='status'>{intl.formatMessage(blockMessage(blockReason))}</p> : null}
+        {failed ? (
+          <p className='compose-form__sender-status' role='status'>
+            {intl.formatMessage(messages.failed)}
+            {this.props.onRetry ? (
+              <button type='button' className='compose-form__sender-retry' onClick={this.props.onRetry}>
+                {intl.formatMessage(messages.retry)}
+              </button>
+            ) : null}
+          </p>
+        ) : null}
+        {unavailable && !failed ? <p className='compose-form__sender-status' role='status'>{intl.formatMessage(unavailableMessage)}</p> : null}
+      </div>
+    );
   };
 
   handleToggle = () => {
@@ -207,14 +289,33 @@ class SenderIdentity extends React.PureComponent {
     return filtered.toArray ? filtered.toArray() : filtered;
   }
 
-  renderAvatar (account) {
+  renderAvatar (account, className = 'compose-form__sender-avatar') {
     const src = accountAvatar(account);
 
     if (!src) {
       return null;
     }
 
-    return <img className='compose-form__sender-avatar' src={src} alt='' />;
+    return <img className={className} src={src} alt='' />;
+  }
+
+  renderAvatarControl (account) {
+    const { selectedId, sessionIdentityId } = this.props;
+    const delegated = typeof selectedId === 'string' && selectedId.startsWith('delegated:');
+    const session = this.postableChoices().find(item => item.get('id') === sessionIdentityId);
+    const sessionAccount = session && session.get('account');
+    const posting = this.renderAvatar(account) || <Icon id='user-times' fixedWidth aria-hidden='true' />;
+
+    if (!delegated || !sessionAccount) {
+      return posting;
+    }
+
+    return (
+      <span className='compose-form__sender-stack'>
+        {this.renderAvatar(account, 'compose-form__sender-avatar compose-form__sender-stack-base') || posting}
+        {this.renderAvatar(sessionAccount, 'compose-form__sender-avatar compose-form__sender-stack-self')}
+      </span>
+    );
   }
 
   renderIdentity (account) {
@@ -328,9 +429,10 @@ class SenderIdentity extends React.PureComponent {
           aria-expanded={this.state.open}
           aria-label={label}
           title={intl.formatMessage(messages.hint)}
+          ref={this.setTrigger}
           onClick={this.handleToggle}
         >
-          {this.renderAvatar(account) || <Icon id='user-times' fixedWidth aria-hidden='true' />}
+          {this.renderAvatarControl(account)}
           {(unavailable || failed || blockReason) ? <span className='compose-form__sender-badge' aria-hidden='true'>!</span> : null}
         </button>
         <span className='sr-only' data-testid='sender-identity-current'>
@@ -343,30 +445,37 @@ class SenderIdentity extends React.PureComponent {
             {unavailable && !failed ? intl.formatMessage(unavailableMessage) : null}
           </span>
         ) : null}
-        {this.state.open && (
-          <div className='compose-form__sender-menu' role='menu' aria-label={intl.formatMessage(messages.label)}>
-            {this.menuIdentities().map(item => this.renderMenuItem(item))}
-            <p className='compose-form__sender-hint'>{intl.formatMessage(messages.hint)}</p>
-            {blockReason ? <p className='compose-form__sender-status' role='status'>{intl.formatMessage(blockMessage(blockReason))}</p> : null}
-            {failed ? (
-              <p className='compose-form__sender-status' role='status'>
-                {intl.formatMessage(messages.failed)}
-                {this.props.onRetry ? (
-                  <button type='button' className='compose-form__sender-retry' onClick={this.props.onRetry}>
-                    {intl.formatMessage(messages.retry)}
-                  </button>
-                ) : null}
-              </p>
-            ) : null}
-            {unavailable && !failed ? <p className='compose-form__sender-status' role='status'>{intl.formatMessage(unavailableMessage)}</p> : null}
-          </div>
-        )}
+        {this.state.open ? (
+          <Overlay show placement='top' flip target={this.findTrigger} popperConfig={{ strategy: 'fixed' }}>
+            {this.renderSenderMenu}
+          </Overlay>
+        ) : null}
+      </div>
+    );
+  }
+
+  renderStaticHeader () {
+    const account = this.props.current && this.props.current.get('account') ? this.props.current.get('account') : null;
+    const currentAcct = accountAcct(account);
+
+    return (
+      <div className='compose-form__sender compose-form__sender--header' data-testid='sender-identity'>
+        <span className='compose-form__sender-avatar-static'>
+          {this.renderAvatar(account) || <Icon id='user' fixedWidth aria-hidden='true' />}
+        </span>
+        <span className='sr-only' data-testid='sender-identity-current'>
+          {currentAcct ? `@${currentAcct}` : ''}
+        </span>
       </div>
     );
   }
 
   render () {
     if (this.props.header) {
+      if (this.props.selectable === false) {
+        return this.renderStaticHeader();
+      }
+
       return this.renderHeader();
     }
 

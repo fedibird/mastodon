@@ -22,6 +22,11 @@ jest.mock('react-intl', () => {
   };
 });
 
+jest.mock('../../../../initial_state', () => ({
+  isAdministrator: true,
+  showComposerPostingStyleSelector: true,
+}));
+
 import { USER_POSTING_STYLES_FETCH_SUCCESS } from '../../../../actions/user_posting_styles';
 import { applyComposerSurface, createComposer } from '../../../../actions/composer';
 import { groupPostingContext } from '../../../../posting_context/fixtures/group_context_fixture';
@@ -90,7 +95,7 @@ const renderPicker = (composerId, surface) => {
     </Provider>,
   );
 
-  fireEvent.click(screen.getByRole('button', { name: /Posting style|Usual settings|This place only/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Posting style|No style|Usual settings|This place only/ }));
 
   return optionNames();
 };
@@ -138,13 +143,13 @@ describe('UserPostingStylePicker container candidates', () => {
     const picker = document.querySelector('[data-posting-style-picker]');
 
     expect(picker).toBeTruthy();
-    expect(picker.querySelector('.compose-form__style-context').hidden).toBe(true);
-    expect(document.querySelector('.compose-form__style-context').parentElement).toBe(picker.querySelector('.compose-form__style-menu'));
+    expect(document.querySelector('.compose-form__style-context')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: /7|Posting destination|This place only|Usual settings/ }));
+    fireEvent.click(screen.getByRole('button', { name: /7|Posting destination|No style|This place only|Usual settings/ }));
 
     expect(screen.getByText('Loading posting styles')).toBeTruthy();
     expect(screen.getByText('Follow the group')).toBeTruthy();
+    expect(document.querySelector('.compose-form__style-overlay')).toContainElement(screen.getByText('Follow the group'));
     expect(screen.queryByRole('menuitemradio')).toBeNull();
 
     const failed = store.getState().setIn(['userPostingStyles', 'status'], 'failed');
@@ -171,6 +176,6 @@ describe('UserPostingStylePicker container candidates', () => {
     expect(names.some(name => name.includes('Group B'))).toBe(false);
     expect(names.some(name => name.includes('Books'))).toBe(false);
     expect(names.some(name => name.includes('News'))).toBe(false);
-    expect(names.some(name => name.includes('Usual settings'))).toBe(true);
+    expect(names.some(name => name.includes('No style'))).toBe(true);
   });
 });

@@ -11,6 +11,7 @@ export default class Column extends React.PureComponent {
     label: PropTypes.string,
     bindToDocument: PropTypes.bool,
     columnWidth: PropTypes.string,
+    dropComposerId: PropTypes.string,
   };
 
   scrollTop () {
@@ -52,10 +53,16 @@ export default class Column extends React.PureComponent {
   }
 
   render () {
-    const { label, columnWidth, children } = this.props;
+    const { label, columnWidth, children, dropComposerId } = this.props;
 
     return (
-      <div role='region' aria-label={label} className={classNames('column', columnWidth)} ref={this.setRef}>
+      <div
+        role='region'
+        aria-label={label}
+        className={classNames('column', columnWidth)}
+        data-drop-composer-id={dropComposerId || undefined}
+        ref={this.setRef}
+      >
         {children}
       </div>
     );

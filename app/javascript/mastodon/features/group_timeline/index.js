@@ -18,6 +18,7 @@ import GroupDetail from './components/group_detail';
 import { connectGroupStream } from '../../actions/streaming';
 import { defaultColumnWidth, isAdministrator } from 'mastodon/initial_state';
 import PortableComposer from '../compose/portable_composer';
+import ColumnDropHint from '../compose/components/column_drop_hint';
 import PortableComposerToggle from '../compose/components/portable_composer_toggle';
 import { captureVisibleStatusAnchor, columnNodeFromRef, scheduleStatusAnchorRestore } from '../compose/components/portable_composer_scroll';
 import { selectPortableComposerVisible } from 'mastodon/selectors/composer';
@@ -317,8 +318,8 @@ class GroupTimeline extends React.PureComponent {
           emptyMessage={emptyMessage}
           bindToDocument={!multiColumn}
           showCard={!withoutMedia}
-          prepend={portableComposer}
-          alwaysPrepend={!!portableComposer}
+          prepend={null}
+          alwaysPrepend={false}
         />
       );
     } else {
@@ -337,8 +338,8 @@ class GroupTimeline extends React.PureComponent {
               emptyMessage={emptyMessage}
               bindToDocument={false}
               showCard={!withoutMedia}
-              prepend={portableComposer}
-              alwaysPrepend={!!portableComposer}
+              prepend={null}
+              alwaysPrepend={false}
             />
           </div>
 
@@ -362,7 +363,7 @@ class GroupTimeline extends React.PureComponent {
     }
 
     return (
-      <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={title} columnWidth={columnWidth}>
+      <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={title} columnWidth={columnWidth} dropComposerId={portableComposer ? composerId : null}>
         <ColumnHeader
           icon='users'
           active={hasUnread}
@@ -387,6 +388,12 @@ class GroupTimeline extends React.PureComponent {
         </ColumnHeader>
 
         {groupDetail}
+
+        {portableComposer ? <ColumnDropHint /> : null}
+
+        {portableComposer ? (
+          <div className='column-portable-composer'>{portableComposer}</div>
+        ) : null}
 
         {timeline}
       </Column>

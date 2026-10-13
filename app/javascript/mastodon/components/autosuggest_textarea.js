@@ -56,6 +56,8 @@ export default class AutosuggestTextarea extends ImmutablePureComponent {
     overlay: PropTypes.node,
     minRows: PropTypes.number,
     maxRows: PropTypes.number,
+    rows: PropTypes.number,
+    height: PropTypes.number,
   };
 
   static defaultProps = {
@@ -170,6 +172,40 @@ export default class AutosuggestTextarea extends ImmutablePureComponent {
     this.textarea = c;
   }
 
+  componentDidMount () {
+    this.syncFixedHeight();
+  }
+
+  componentDidUpdate (prevProps) {
+    if (prevProps.rows !== this.props.rows || prevProps.height !== this.props.height) {
+      this.syncFixedHeight();
+    }
+  }
+
+  syncFixedHeight () {
+    const node = this.textarea;
+
+    if (!node || node.tagName !== 'TEXTAREA') {
+      return;
+    }
+
+    if (typeof this.props.height === 'number') {
+      node.style.height = `${this.props.height}px`;
+      return;
+    }
+
+    if (!this.props.rows) {
+      return;
+    }
+
+    const style = window.getComputedStyle(node);
+    const line = parseFloat(style.lineHeight) || 22;
+    const padding = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+    const border = (parseFloat(style.borderTopWidth) || 0) + (parseFloat(style.borderBottomWidth) || 0);
+
+    node.style.height = `${Math.round((this.props.rows * line) + padding + border)}px`;
+  }
+
   onPaste = (e) => {
     if (e.clipboardData && e.clipboardData.files.length === 1) {
       this.props.onPaste(e.clipboardData.files);
@@ -199,35 +235,56 @@ export default class AutosuggestTextarea extends ImmutablePureComponent {
     );
   }
 
+  renderTextarea (shared) {
+    const { minRows, maxRows, rows, height } = this.props;
+
+    if (rows || typeof height === 'number') {
+      return (
+        <textarea
+          {...shared}
+          rows={rows || undefined}
+          data-text-rows={rows || undefined}
+          ref={this.setTextarea}
+        />
+      );
+    }
+
+    return (
+      <Textarea
+        {...shared}
+        ref={this.setTextarea}
+        minRows={minRows}
+        maxRows={maxRows}
+      />
+    );
+  }
+
   render () {
-    const { value, suggestions, disabled, placeholder, onKeyUp, autoFocus, children, lang, overlay, minRows, maxRows } = this.props;
+    const { value, suggestions, disabled, placeholder, onKeyUp, autoFocus, children, lang, overlay } = this.props;
     const { suggestionsHidden } = this.state;
+    const textarea = this.renderTextarea({
+      className: 'autosuggest-textarea__textarea',
+      disabled,
+      placeholder,
+      autoFocus,
+      value,
+      onChange: this.onChange,
+      onKeyDown: this.onKeyDown,
+      onKeyUp,
+      onFocus: this.onFocus,
+      onBlur: this.onBlur,
+      onPaste: this.onPaste,
+      dir: 'auto',
+      lang,
+      'aria-autocomplete': 'list',
+    });
 
     return [
       <div className='compose-form__autosuggest-wrapper' key='autosuggest-wrapper'>
         <div className='autosuggest-textarea'>
           <label>
             <span style={{ display: 'none' }}>{placeholder}</span>
-
-            <Textarea
-              ref={this.setTextarea}
-              className='autosuggest-textarea__textarea'
-              disabled={disabled}
-              placeholder={placeholder}
-              autoFocus={autoFocus}
-              value={value}
-              onChange={this.onChange}
-              onKeyDown={this.onKeyDown}
-              onKeyUp={onKeyUp}
-              onFocus={this.onFocus}
-              onBlur={this.onBlur}
-              onPaste={this.onPaste}
-              dir='auto'
-              lang={lang}
-              aria-autocomplete='list'
-              minRows={minRows}
-              maxRows={maxRows}
-            />
+            {textarea}
           </label>
           {overlay}
         </div>

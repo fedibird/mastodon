@@ -7,7 +7,7 @@ const mapStateToProps = (state, { composerId }) => {
   const composer = selectComposer(state, composerId);
 
   return {
-    active: composer.get('is_uploading'),
+    active: composer.get('is_uploading') || composer.get('is_processing'),
     progress: composer.get('progress'),
     isProcessing: composer.get('is_processing'),
   };

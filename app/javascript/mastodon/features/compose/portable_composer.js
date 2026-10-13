@@ -1,13 +1,16 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { connect } from 'react-redux';
-import { changeComposing, mountCompose, unmountCompose } from '../../actions/compose';
+import { changeComposing, mountCompose, unmountCompose, uploadToComposer } from '../../actions/compose';
 import { changeSetting } from '../../actions/settings';
 import { applyComposerPostingContext, applyComposerSurface, createComposer, targetComposerAction } from '../../actions/composer';
 import { surfacesEqual } from '../../posting_context/surface';
 import { selectComposer, selectPortableComposerDisplayMode, selectPortableComposerSeed } from '../../selectors/composer';
 import ComposeFormContainer from './containers/compose_form_container';
+import ComposerHeightGrip from './components/composer_height_grip';
 import { ComposerProvider } from './composer_id_context';
+import { portableComposerRows } from './composer_text_height';
+import { isExternalFileDrag, markComposerFileDrop } from './composer_drop';
 
 const mapStateToProps = (state, { composerId }) => ({
   exists: selectComposer(state, composerId) !== null,
@@ -45,6 +48,32 @@ class PortableComposer extends React.PureComponent {
 
     dispatch(applyComposerPostingContext(composerId, postingContext, postingContextAccountId));
   }
+
+  state = {
+    manualHeight: null,
+  };
+
+  setRoot = (node) => {
+    this.root = node;
+  };
+
+  measureTextBox = () => {
+    const textarea = this.root && this.root.querySelector('textarea');
+    const host = this.root;
+    const textareaHeight = textarea ? textarea.getBoundingClientRect().height : 0;
+    const hostHeight = host ? host.getBoundingClientRect().height : textareaHeight;
+    const lineHeight = textarea ? parseFloat(window.getComputedStyle(textarea).lineHeight) : 22;
+
+    return {
+      height: textareaHeight,
+      chromeHeight: Math.max(0, hostHeight - textareaHeight),
+      lineHeight: Number.isFinite(lineHeight) ? lineHeight : 22,
+    };
+  };
+
+  handleTextHeightChange = (height) => {
+    this.setState({ manualHeight: height });
+  };
 
   destinationChanged (prevProps) {
     if (!surfacesEqual(prevProps.surface, this.props.surface)) {
@@ -99,6 +128,32 @@ class PortableComposer extends React.PureComponent {
     dispatch(targetComposerAction(changeComposing(false), composerId));
   }
 
+  handleFileDragOver = (event) => {
+    if (!isExternalFileDrag(event.dataTransfer)) {
+      return;
+    }
+
+    event.preventDefault();
+  };
+
+  handleFileDrop = (event) => {
+    const target = event.target;
+
+    if (!isExternalFileDrag(event.dataTransfer) || (target && target.closest && target.closest('.compose-form'))) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    markComposerFileDrop(event);
+
+    const files = event.dataTransfer && event.dataTransfer.files;
+
+    if (files && files.length >= 1) {
+      this.props.dispatch(uploadToComposer(this.props.composerId, files));
+    }
+  };
+
   handleDisplayModeChange = (mode) => {
     const { composerId, dispatch } = this.props;
 
@@ -116,14 +171,25 @@ class PortableComposer extends React.PureComponent {
     }
 
     return (
-      <div className='portable-composer' data-composer-id={composerId} onFocus={this.handleFocus} onBlur={this.handleBlur}>
+      <div
+        className='portable-composer'
+        data-composer-id={composerId}
+        onFocus={this.handleFocus}
+        onBlur={this.handleBlur}
+        onDragOver={this.handleFileDragOver}
+        onDrop={this.handleFileDrop}
+        ref={this.setRoot}
+      >
         <ComposerProvider composerId={composerId}>
           <ComposeFormContainer
             autoFocus={false}
             displayMode={displayMode}
             onDisplayModeChange={this.handleDisplayModeChange}
+            textRows={this.state.manualHeight === null ? portableComposerRows(displayMode) : undefined}
+            textHeight={this.state.manualHeight === null ? undefined : this.state.manualHeight}
           />
         </ComposerProvider>
+        <ComposerHeightGrip onChange={this.handleTextHeightChange} onMeasure={this.measureTextBox} />
       </div>
     );
   }

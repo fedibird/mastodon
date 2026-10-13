@@ -1,5 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import fs from 'fs';
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
+import path from 'path';
 import React from 'react';
 
 jest.mock('react-intl', () => {
@@ -20,7 +22,7 @@ jest.mock('react-intl', () => {
 });
 
 import ComposerMediaGallery from '../components/composer_media_gallery';
-import { moveMediaIds, summaryThumbCount, visibleMediaWindow } from '../composer_media';
+import { attachmentUploadBlocked, composerFileDropBlock, moveMediaIds, summaryThumbCount, visibleMediaWindow } from '../composer_media';
 
 const media = (id, type = 'image') => ImmutableMap({
   id,
@@ -77,6 +79,67 @@ describe('composer media order', () => {
       visible: [],
       overflow: 5,
     });
+    expect(attachmentUploadBlocked({ incomingMimeTypes: ['video/mp4'] })).toBe(false);
+    expect(attachmentUploadBlocked({ incomingMimeTypes: ['image/png', 'image/jpeg'] })).toBe(false);
+    expect(attachmentUploadBlocked({ existingTypes: ['video'], incomingMimeTypes: ['image/png'] })).toBe(true);
+    expect(attachmentUploadBlocked({ existingTypes: ['image'], incomingMimeTypes: ['video/mp4'] })).toBe(true);
+    expect(attachmentUploadBlocked({ existingTypes: ['audio'], incomingMimeTypes: ['image/png'] })).toBe(true);
+    expect(attachmentUploadBlocked({ incomingMimeTypes: ['video/mp4', 'image/png'] })).toBe(true);
+    expect(attachmentUploadBlocked({ incomingMimeTypes: ['video/mp4', 'video/webm'] })).toBe(true);
+    expect(attachmentUploadBlocked({ pending: 1, incomingMimeTypes: ['audio/mpeg'] })).toBe(true);
+    expect(attachmentUploadBlocked({ pendingExclusive: 1, incomingMimeTypes: ['image/png'] })).toBe(true);
+    expect(attachmentUploadBlocked({ pending: 1, pendingExclusive: 0, incomingMimeTypes: ['image/jpeg'] })).toBe(false);
+    expect(attachmentUploadBlocked({ existingTypes: ['image'], pending: 1, incomingMimeTypes: ['image/png'] })).toBe(false);
+    expect(composerFileDropBlock({ mediaCount: 4, maxAttachments: 4 })).toBe('limit');
+    expect(composerFileDropBlock({ mediaCount: 3, pending: 1, maxAttachments: 4 })).toBe('limit');
+    expect(composerFileDropBlock({ existingTypes: ['video'], mediaCount: 1, maxAttachments: 4 })).toBe('video');
+    expect(composerFileDropBlock({ existingTypes: ['audio'], mediaCount: 1, maxAttachments: 4 })).toBe('video');
+    expect(composerFileDropBlock({ pending: 1, pendingExclusive: 1, maxAttachments: 4 })).toBe('video');
+    expect(composerFileDropBlock({ hasPoll: true, allowPollImage: false, maxAttachments: 4 })).toBe('poll_image');
+    expect(composerFileDropBlock({ hasPoll: true, allowPollImage: true, mediaCount: 1, existingTypes: ['image'], maxAttachments: 4 })).toBeNull();
+    expect(composerFileDropBlock({ existingTypes: ['image'], mediaCount: 1, pending: 1, maxAttachments: 4 })).toBeNull();
+    expect(composerFileDropBlock({
+      existingTypes: ['image'],
+      mediaCount: 1,
+      pending: 1,
+      maxAttachments: 4,
+      incomingMimeTypes: ['video/mp4'],
+    })).toBe('video');
+    expect(composerFileDropBlock({ canUpload: false, permissionReason: 'unauthorized', maxAttachments: 4 })).toBe('unauthorized');
+    expect(composerFileDropBlock({ existingTypes: ['image'], mediaCount: 2, maxAttachments: 4 })).toBeNull();
+    expect(composerFileDropBlock({ mediaCount: 4, maxAttachments: 4 })).toBe('limit');
+    expect(composerFileDropBlock({ mediaCount: 0, maxAttachments: 4 })).toBeNull();
+    expect(composerFileDropBlock({
+      mediaCount: 0,
+      maxAttachments: 4,
+      incomingMimeTypes: ['image/png', 'image/png', 'image/png', 'image/png', 'image/png'],
+    })).toBe('limit');
+    expect(composerFileDropBlock({
+      existingTypes: ['image', 'image', 'image'],
+      mediaCount: 3,
+      maxAttachments: 4,
+      incomingMimeTypes: ['image/png', 'image/png'],
+    })).toBe('limit');
+    expect(composerFileDropBlock({
+      existingTypes: ['image', 'image'],
+      mediaCount: 2,
+      pending: 1,
+      maxAttachments: 4,
+      incomingMimeTypes: ['image/png', 'image/png'],
+    })).toBe('limit');
+    expect(composerFileDropBlock({
+      existingTypes: ['image', 'image'],
+      mediaCount: 2,
+      maxAttachments: 4,
+      incomingMimeTypes: ['image/png', 'image/png'],
+    })).toBeNull();
+    expect(composerFileDropBlock({
+      existingTypes: ['image', 'image', 'image'],
+      mediaCount: 3,
+      maxAttachments: 4,
+      incomingMimeTypes: ['image/png'],
+    })).toBeNull();
+    expect(composerFileDropBlock({ mediaCount: 3, maxAttachments: 4 })).toBeNull();
   });
 });
 
@@ -87,23 +150,24 @@ describe('ComposerMediaGallery', () => {
     expect(screen.queryByTestId('composer-media')).toBeNull();
   });
 
-  it('opens edit and delete from a thumbnail menu and moves with the keyboard', () => {
+  it('edits from the thumbnail, removes from the corner, and moves with the keyboard', () => {
     const { onEdit, onRemove, onMoveBy } = renderGallery([media('a'), media('b', 'video'), media('c', 'audio')]);
 
     fireEvent.click(screen.getByRole('button', { name: 'a alt' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit' }));
     expect(onEdit).toHaveBeenCalledWith('a');
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.querySelector('.compose-form__media-handle')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'c alt' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[2]);
     expect(onRemove).toHaveBeenCalledWith('c');
 
     fireEvent.keyDown(screen.getByRole('button', { name: 'b alt' }), { key: 'ArrowLeft' });
-    fireEvent.keyDown(screen.getAllByRole('button', { name: 'Drag to reorder' })[1], { key: 'ArrowRight' });
+    fireEvent.keyDown(screen.getByRole('button', { name: 'b alt' }), { key: 'ArrowRight' });
 
     expect(onMoveBy).toHaveBeenNthCalledWith(1, 'b', -1);
     expect(onMoveBy).toHaveBeenNthCalledWith(2, 'b', 1);
     expect(screen.getByRole('button', { name: 'c alt' }).querySelector('.fa-music, .icon')).toBeTruthy();
+    expect(screen.getByRole('status').textContent).toContain('Only one video or audio file');
   });
 
   it('summarizes seven attachments as four thumbnails and +3, then expands', () => {
@@ -111,19 +175,38 @@ describe('ComposerMediaGallery', () => {
     renderGallery(items, { summary: true });
 
     expect(screen.getAllByRole('button', { name: /alt$/ })).toHaveLength(4);
-    expect(screen.queryAllByRole('button', { name: 'Drag to reorder' })).toHaveLength(0);
+    expect(document.querySelector('.compose-form__media-handle')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Show 3 more attachments' })).toHaveTextContent('+3');
 
     fireEvent.click(screen.getByRole('button', { name: 'Show 3 more attachments' }));
 
     expect(screen.getAllByRole('button', { name: /alt$/ })).toHaveLength(7);
-    expect(screen.getAllByRole('button', { name: 'Drag to reorder' })).toHaveLength(7);
+    expect(screen.queryByRole('button', { name: 'Show 3 more attachments' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Hide the full attachment list' })).toBeTruthy();
+    expect(screen.queryByText(/can’t be added while images are attached/)).toBeNull();
+    expect(document.querySelector('.compose-form__media-handle')).toBeNull();
+  });
+
+  it('uses the Japanese label for closing the attachment list', () => {
+    const ja = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../locales/ja.json'), 'utf8'));
+
+    expect(ja['upload_form.hide_attachments']).toBe('添付一覧を閉じる');
+  });
+
+  it('shows every full-size thumbnail without a summary card', () => {
+    const items = ['a', 'b', 'c', 'd', 'e'].map(id => media(id));
+    renderGallery(items);
+
+    expect(screen.getAllByRole('button', { name: /alt$/ })).toHaveLength(5);
+    expect(screen.queryByText('+1')).toBeNull();
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByText(/can’t be added while images are attached/)).toBeNull();
   });
 
   it('drops a dragged attachment onto a new index and restores on cancel', () => {
     const { onMoveTo } = renderGallery([media('a'), media('b'), media('c'), media('d')]);
     const items = document.querySelectorAll('.compose-form__media-item');
     const first = items[0];
-    const third = items[2];
 
     items.forEach((node, index) => {
       node.getBoundingClientRect = () => ({ left: index * 40, right: index * 40 + 36, top: 0, bottom: 36, width: 36, height: 36 });
@@ -137,41 +220,46 @@ describe('ComposerMediaGallery', () => {
       fireEvent(node, event);
     };
 
-    const handle = first.querySelector('.compose-form__media-handle');
+    const thumb = first.querySelector('.compose-form__media-thumb');
     const capture = jest.fn();
 
-    handle.setPointerCapture = capture;
+    thumb.setPointerCapture = capture;
 
-    point('pointerdown', handle, 10, 10);
+    point('pointerdown', thumb, 10, 10);
     expect(capture).not.toHaveBeenCalled();
 
-    point('pointermove', handle, 12, 10);
+    point('pointermove', thumb, 12, 10);
     expect(capture).not.toHaveBeenCalled();
 
-    point('pointermove', handle, 90, 10);
+    const labels = () => screen.getAllByRole('button', { name: /alt$/ }).map(node => node.getAttribute('aria-label'));
+
+    point('pointermove', thumb, 90, 10);
     expect(capture).toHaveBeenCalledWith(1);
 
     expect(first).toHaveClass('is-dragging');
-    expect(third).toHaveClass('is-drop-target');
+    expect(onMoveTo).not.toHaveBeenCalled();
+    expect(labels()).toEqual(['b alt', 'c alt', 'a alt', 'd alt']);
 
-    point('pointerup', handle, 90, 10);
+    point('pointerup', thumb, 90, 10);
 
     expect(onMoveTo).toHaveBeenCalledWith('a', 2);
     expect(first).not.toHaveClass('is-dragging');
 
     onMoveTo.mockClear();
-    point('pointerdown', handle, 10, 10);
-    point('pointermove', handle, 90, 10);
-    fireEvent(handle, new Event('pointercancel', { bubbles: true }));
+    point('pointerdown', thumb, 10, 10);
+    point('pointermove', thumb, 90, 10);
+    expect(labels()).toEqual(['b alt', 'c alt', 'a alt', 'd alt']);
+    fireEvent(thumb, new Event('pointercancel', { bubbles: true }));
 
     expect(onMoveTo).not.toHaveBeenCalled();
     expect(first).not.toHaveClass('is-dragging');
+    expect(labels()).toEqual(['a alt', 'b alt', 'c alt', 'd alt']);
   });
 
-  it('opens the menu on a click or tap and does not treat menu actions as a drag', () => {
-    const { onEdit, onMoveTo } = renderGallery([media('a'), media('b')]);
+  it('opens edit on a click or tap and does not treat the remove button as a drag', () => {
+    const { onEdit, onRemove, onMoveTo } = renderGallery([media('a'), media('b')]);
     const thumb = screen.getByRole('button', { name: 'a alt' });
-    const item = thumb.parentElement;
+    const remove = thumb.parentElement.querySelector('.compose-form__media-remove');
     const point = (type, node, x, y, pointerType) => {
       const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 });
 
@@ -181,29 +269,26 @@ describe('ComposerMediaGallery', () => {
     };
 
     fireEvent.click(thumb);
-    expect(screen.getByRole('menu', { name: 'Attachment options' })).toBeTruthy();
-    fireEvent.click(thumb);
-
-    point('pointerdown', item, 8, 8, 'touch');
-    point('pointerup', item, 8, 8, 'touch');
-    fireEvent.click(thumb);
-
-    expect(screen.getByRole('menu', { name: 'Attachment options' })).toBeTruthy();
-    expect(onMoveTo).not.toHaveBeenCalled();
-
-    const edit = screen.getByRole('menuitem', { name: 'Edit' });
-
-    point('pointerdown', edit, 8, 8, 'mouse');
-    point('pointermove', edit, 80, 8, 'mouse');
-    fireEvent.click(edit);
-
-    expect(onMoveTo).not.toHaveBeenCalled();
     expect(onEdit).toHaveBeenCalledWith('a');
+    expect(screen.queryByRole('menu')).toBeNull();
+
+    point('pointerdown', thumb, 8, 8, 'touch');
+    point('pointerup', thumb, 8, 8, 'touch');
+    fireEvent.click(thumb);
+
+    expect(onMoveTo).not.toHaveBeenCalled();
+    expect(onEdit).toHaveBeenCalledTimes(2);
+
+    point('pointerdown', remove, 8, 8, 'mouse');
+    point('pointermove', remove, 80, 8, 'mouse');
+    fireEvent.click(remove);
+
+    expect(onMoveTo).not.toHaveBeenCalled();
+    expect(onRemove).toHaveBeenCalledWith('a');
   });
 
-  it('opens the menu on the next click after a cancelled drag', () => {
-    const { onMoveTo } = renderGallery([media('a'), media('b'), media('c')]);
-    const handle = document.querySelector('.compose-form__media-handle');
+  it('opens edit on the next click after a cancelled drag', () => {
+    const { onEdit, onMoveTo } = renderGallery([media('a'), media('b'), media('c')]);
     const thumb = screen.getByRole('button', { name: 'a alt' });
     const point = (type, node, x, y) => {
       const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 });
@@ -212,34 +297,14 @@ describe('ComposerMediaGallery', () => {
       fireEvent(node, event);
     };
 
-    point('pointerdown', handle, 4, 4);
-    point('pointermove', handle, 40, 30);
-    fireEvent(handle, new Event('pointercancel', { bubbles: true }));
+    point('pointerdown', thumb, 4, 4);
+    point('pointermove', thumb, 40, 30);
+    fireEvent(thumb, new Event('pointercancel', { bubbles: true }));
 
     expect(onMoveTo).not.toHaveBeenCalled();
     fireEvent.click(thumb);
 
-    expect(screen.getByRole('menu', { name: 'Attachment options' })).toBeTruthy();
-  });
-
-  it('renders the media menu outside an overflow-hidden upload wrapper', () => {
-    const { container } = render(
-      <div className='compose-form__upload-wrapper'>
-        <ComposerMediaGallery
-          summary
-          media={ImmutableList([media('a'), media('b')])}
-          onEdit={jest.fn()}
-          onRemove={jest.fn()}
-          onMoveTo={jest.fn()}
-          onMoveBy={jest.fn()}
-        />
-      </div>,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'a alt' }));
-
-    const menu = screen.getByRole('menu', { name: 'Attachment options' });
-
-    expect(container.querySelector('.compose-form__upload-wrapper').contains(menu)).toBe(false);
+    expect(onEdit).toHaveBeenCalledWith('a');
+    expect(screen.queryByRole('menu')).toBeNull();
   });
 });

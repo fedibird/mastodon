@@ -12,7 +12,18 @@ import ModalContainer from './containers/modal_container';
 import { layoutFromWindow } from 'mastodon/is_mobile';
 import { debounce } from 'lodash';
 import { uploadCompose, uploadToComposer, resetCompose, changeComposeSpoilerness } from '../../actions/compose';
-import { composerIdFromEventTarget, dropAlreadyHandled, isExternalFileDrag } from '../compose/composer_drop';
+import { showAlert } from '../../actions/alerts';
+import { selectComposer } from '../../selectors/composer';
+import { selectComposerCanUploadAsIdentity } from '../../selectors/posting_identities';
+import {
+  clearColumnDropHighlight,
+  composerFileDropAlert,
+  dragFeedback,
+  fileDropBlockFromComposer,
+  isExternalFileDrag,
+  planDocumentFileDrop,
+  syncColumnDropHighlight,
+} from '../compose/composer_drop';
 import { updateProcessingStatuses, refreshIntersectionStatuses } from '../../actions/statuses';
 import { expandHomeTimeline } from '../../actions/timelines';
 import { expandNotifications } from '../../actions/notifications';
@@ -317,6 +328,46 @@ class UI extends React.PureComponent {
     this.props.dispatch(unfocusApp());
   }
 
+  clearDragUi = () => {
+    this.dragTargets = [];
+    clearColumnDropHighlight();
+
+    if (this.state.draggingOver) {
+      this.setState({ draggingOver: false });
+    }
+  }
+
+  syncDragFeedback = (event) => {
+    this.props.dispatch((_, getState) => {
+      const feedback = dragFeedback(event.target, event.dataTransfer, {
+        canUploadPrimary: this.composerCanAcceptFiles('primary', getState),
+        composerCanAccept: composerId => this.composerCanAcceptFiles(composerId, getState),
+      });
+
+      syncColumnDropHighlight(feedback.columnId || feedback.blocked ? event.target : null, {
+        blocked: feedback.blocked,
+      });
+
+      if (this.state.draggingOver !== feedback.overlay) {
+        this.setState({ draggingOver: feedback.overlay });
+      }
+    });
+  }
+
+  composerDropBlock = (composerId, getState, incomingMimeTypes = null) => {
+    const state = getState();
+
+    return fileDropBlockFromComposer(
+      selectComposer(state, composerId),
+      selectComposerCanUploadAsIdentity(state, composerId),
+      incomingMimeTypes,
+    );
+  }
+
+  composerCanAcceptFiles = (composerId, getState, incomingMimeTypes = null) => (
+    this.composerDropBlock(composerId, getState, incomingMimeTypes) === null
+  )
+
   handleDragEnter = (e) => {
     e.preventDefault();
 
@@ -328,18 +379,17 @@ class UI extends React.PureComponent {
       this.dragTargets.push(e.target);
     }
 
-    if (composerIdFromEventTarget(e.target) || !isExternalFileDrag(e.dataTransfer)) {
+    if (!isExternalFileDrag(e.dataTransfer)) {
       return;
     }
 
-    if (this.props.canUploadMore) {
-      this.setState({ draggingOver: true });
-    }
+    this.syncDragFeedback(e);
   }
 
   handleDragOver = (e) => {
-    if (this.dataTransferIsText(e.dataTransfer) || composerIdFromEventTarget(e.target)) return false;
+    if (this.dataTransferIsText(e.dataTransfer) || !isExternalFileDrag(e.dataTransfer)) return false;
 
+    this.syncDragFeedback(e);
     e.preventDefault();
     e.stopPropagation();
 
@@ -353,27 +403,45 @@ class UI extends React.PureComponent {
   }
 
   handleDrop = (e) => {
-    if (dropAlreadyHandled(e) || this.dataTransferIsText(e.dataTransfer)) return;
+    const textOnly = this.dataTransferIsText(e.dataTransfer);
+
+    if (!isExternalFileDrag(e.dataTransfer) || textOnly) {
+      return;
+    }
 
     e.preventDefault();
+    this.clearDragUi();
 
-    this.setState({ draggingOver: false });
-    this.dragTargets = [];
+    const files = e.dataTransfer && e.dataTransfer.files;
 
-    if (!(e.dataTransfer && e.dataTransfer.files.length >= 1)) {
-      return;
-    }
+    this.props.dispatch((dispatch, getState) => {
+      const incomingMimeTypes = files && files.length ? Array.from(files).map(file => file && file.type) : null;
+      const plan = planDocumentFileDrop(e, {
+        primaryCanAccept: this.composerCanAcceptFiles('primary', getState, incomingMimeTypes),
+        composerCanAccept: composerId => this.composerCanAcceptFiles(composerId, getState, incomingMimeTypes),
+      });
 
-    const composerId = composerIdFromEventTarget(e.target);
+      if (!files || files.length < 1) {
+        return;
+      }
 
-    if (composerId) {
-      this.props.dispatch(uploadToComposer(composerId, e.dataTransfer.files));
-      return;
-    }
+      if (plan.action === 'reject') {
+        dispatch(showAlert(undefined, composerFileDropAlert(
+          this.composerDropBlock(plan.composerId, getState, incomingMimeTypes),
+        )));
+        return;
+      }
 
-    if (this.props.canUploadMore) {
-      this.props.dispatch(uploadCompose(e.dataTransfer.files));
-    }
+      if (plan.action === 'upload-composer') {
+        dispatch(uploadToComposer(plan.composerId, files));
+      } else if (plan.action === 'upload-primary') {
+        dispatch(uploadCompose(files));
+      }
+    });
+  }
+
+  handleDragEnd = () => {
+    this.clearDragUi();
   }
 
   handleDragLeave = (e) => {
@@ -386,7 +454,7 @@ class UI extends React.PureComponent {
       return;
     }
 
-    this.setState({ draggingOver: false });
+    this.clearDragUi();
   }
 
   dataTransferIsText = (dataTransfer) => {

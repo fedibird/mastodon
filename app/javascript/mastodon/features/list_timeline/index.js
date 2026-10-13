@@ -19,6 +19,7 @@ import RadioButton from 'mastodon/components/radio_button';
 import { defaultColumnWidth, isAdministrator } from 'mastodon/initial_state';
 import { DEFAULT_TIMELINE_SPLIT_RATIO } from 'mastodon/components/timeline_splitter';
 import PortableComposer from '../compose/portable_composer';
+import ColumnDropHint from '../compose/components/column_drop_hint';
 import PortableComposerToggle from '../compose/components/portable_composer_toggle';
 import { captureVisibleStatusAnchor, columnNodeFromRef, scheduleStatusAnchorRestore } from '../compose/components/portable_composer_scroll';
 import { selectPortableComposerVisible } from 'mastodon/selectors/composer';
@@ -260,8 +261,8 @@ class ListTimeline extends React.PureComponent {
           onLoadMore={this.handleLoadMore}
           emptyMessage={emptyMessage}
           bindToDocument={!multiColumn}
-          prepend={portableComposer}
-          alwaysPrepend={!!portableComposer}
+          prepend={null}
+          alwaysPrepend={false}
         />
       );
     } else {
@@ -279,8 +280,8 @@ class ListTimeline extends React.PureComponent {
               scrollKey={`list_timeline-${columnId}-live`}
               emptyMessage={emptyMessage}
               bindToDocument={false}
-              prepend={portableComposer}
-              alwaysPrepend={!!portableComposer}
+              prepend={null}
+              alwaysPrepend={false}
             />
           </div>
 
@@ -303,7 +304,7 @@ class ListTimeline extends React.PureComponent {
     }
 
     return (
-      <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={title} columnWidth={columnWidth}>
+      <Column bindToDocument={!multiColumn} ref={this.bindColumn} label={title} columnWidth={columnWidth} dropComposerId={portableComposer ? composerId : null}>
         <ColumnHeader
           icon='list-ul'
           active={hasUnread}
@@ -346,6 +347,12 @@ class ListTimeline extends React.PureComponent {
             </div>
           )}
         </ColumnHeader>
+
+        {portableComposer ? <ColumnDropHint /> : null}
+
+        {portableComposer ? (
+          <div className='column-portable-composer'>{portableComposer}</div>
+        ) : null}
 
         {timeline}
       </Column>

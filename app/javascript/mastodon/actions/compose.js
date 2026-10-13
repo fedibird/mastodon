@@ -12,7 +12,7 @@ import { getHomeVisibilities, getLimitedVisibilities } from 'mastodon/selectors'
 import { openModal } from './modal';
 import { addYears, addMonths, addDays, addHours, addMinutes, addSeconds, millisecondsToSeconds, set, formatISO, format } from 'date-fns';
 import { Set as ImmutableSet } from 'immutable';
-import { postReferenceModal, missingAltTextModal, enableFederatedTimeline, allowPollImage, maxAttachments, disablePost } from '../initial_state';
+import { postReferenceModal, missingAltTextModal, enableFederatedTimeline, disablePost } from '../initial_state';
 import { deleteScheduledStatus } from './scheduled_statuses';
 import { selectComposerEffectiveCreateCapability } from '../posting_context/create_capability';
 import { materializeComposerText } from '../posting_context/materialize';
@@ -22,6 +22,8 @@ import { fetchPostingIdentities } from './posting_identities';
 import { composerHasGroupDestination } from '../posting_identity/group_destination';
 import { sessionPostingIdentityId } from '../posting_identity/identity';
 import { selectComposerCanSendAsIdentity, selectComposerCanUploadAsIdentity } from '../selectors/posting_identities';
+import { isExclusiveFile } from '../features/compose/composer_media';
+import { composerFileDropAlert, fileDropBlockFromComposer } from '../features/compose/composer_drop';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import { targetComposerAction } from './composer';
 
@@ -115,9 +117,6 @@ export const COMPOSE_REFERENCE_RESET  = 'COMPOSE_REFERENCE_RESET';
 export const COMPOSE_REFERENCE_CHECK_IGNORE  = 'COMPOSE_REFERENCE_CHECK_IGNORE';
 
 const messages = defineMessages({
-  uploadErrorLimit: { id: 'upload_error.limit', defaultMessage: 'File upload limit exceeded.' },
-  uploadErrorIdentity: { id: 'upload_error.identity', defaultMessage: 'This posting account can’t attach media to this post.' },
-  uploadErrorPoll:  { id: 'upload_error.poll', defaultMessage: 'File upload not allowed with polls.' },
   postReferenceMessage:  { id: 'confirmations.post_reference.message', defaultMessage: 'It contains references, do you want to post it?' },
   postReferenceConfirm:  { id: 'confirmations.post_reference.confirm', defaultMessage: 'Post' },
   missingAltTextTitle:     { id: 'confirmations.missing_alt_text.title', defaultMessage: 'Add alt text?' },
@@ -667,41 +666,39 @@ export function uploadToComposer(composerId, files) {
       return;
     }
 
-    if (!selectComposerCanUploadAsIdentity(getState(), composerId).canUpload) {
-      dispatch(showAlert(undefined, messages.uploadErrorIdentity));
+    const permission = selectComposerCanUploadAsIdentity(getState(), composerId);
+    const incomingMimeTypes = Array.from(files).map(file => file && file.type);
+    const block = fileDropBlockFromComposer(composer, permission, incomingMimeTypes);
+
+    if (block) {
+      dispatch(showAlert(undefined, composerFileDropAlert(block)));
       return;
     }
 
-    const uploadLimit = maxAttachments;
-    const media = composer.get('media_attachments');
-    const pending = composer.get('pending_media_attachments');
-    const poll = composer.get('poll');
     const progress = new Array(files.length).fill(0);
     const orderBase = Date.now();
     let total = Array.from(files).reduce((a, v) => a + v.size, 0);
 
-    if (files.length + media.size + pending > uploadLimit) {
-      dispatch(showAlert(undefined, messages.uploadErrorLimit));
+    const queue = Array.from(files).map((file, index) => ({ file, index }));
+
+    if (!queue.length) {
       return;
     }
 
-    if (!allowPollImage && poll) {
-      dispatch(showAlert(undefined, messages.uploadErrorPoll));
-      return;
-    }
+    dispatchToComposer(dispatch, composerId, uploadComposeRequest(
+      queue.length,
+      queue.filter(item => isExclusiveFile(item.file && item.file.type)).length,
+    ));
 
-    dispatchToComposer(dispatch, composerId, uploadComposeRequest());
-
-    for (const [i, file] of Array.from(files).entries()) {
-      if (media.size + i >= maxAttachments) break;
-
+    for (const { file, index } of queue) {
       const data = new FormData();
       data.append('file', file);
       appendPostingIdentity(data, composer);
+      const exclusive = isExclusiveFile(file && file.type);
 
       api(getState).post('/api/v2/media', data, {
         onUploadProgress: function({ loaded }){
-          progress[i] = loaded;
+          progress[index] = loaded;
           dispatchToComposer(
             dispatch,
             composerId,
@@ -713,7 +710,7 @@ export function uploadToComposer(composerId, files) {
         // poll the server until it is, before showing the media attachment as uploaded
 
         if (status === 200) {
-          dispatchToComposer(dispatch, composerId, uploadComposeSuccess({ ...data, order: orderBase + i }, file));
+          dispatchToComposer(dispatch, composerId, uploadComposeSuccess({ ...data, order: orderBase + index }, file));
         } else if (status === 202) {
           dispatchToComposer(dispatch, composerId, uploadComposeProcessing());
 
@@ -722,18 +719,18 @@ export function uploadToComposer(composerId, files) {
           const pollStatus = () => {
             api(getState).get(`/api/v1/media/${data.id}`).then(response => {
               if (response.status === 200) {
-                dispatchToComposer(dispatch, composerId, uploadComposeSuccess({ ...response.data, order: orderBase + i }, file));
+                dispatchToComposer(dispatch, composerId, uploadComposeSuccess({ ...response.data, order: orderBase + index }, file, true));
               } else if (response.status === 206) {
                 const retryAfter = (Math.log2(tryCount) || 1) * 1000;
                 tryCount += 1;
                 setTimeout(() => pollStatus(), retryAfter);
               }
-            }).catch(error => dispatchToComposer(dispatch, composerId, uploadComposeFail(error)));
+            }).catch(error => dispatchToComposer(dispatch, composerId, uploadComposeFail(error, { exclusive, fromProcessing: true })));
           };
 
           pollStatus();
         }
-      }).catch(error => dispatchToComposer(dispatch, composerId, uploadComposeFail(error)));
+      }).catch(error => dispatchToComposer(dispatch, composerId, uploadComposeFail(error, { exclusive })));
     };
   };
 };
@@ -909,9 +906,11 @@ export function changeUploadComposeFail(error) {
   };
 };
 
-export function uploadComposeRequest() {
+export function uploadComposeRequest(count = 1, exclusiveCount = 0) {
   return {
     type: COMPOSE_UPLOAD_REQUEST,
+    count,
+    exclusiveCount,
     skipLoading: true,
   };
 };
@@ -924,19 +923,22 @@ export function uploadComposeProgress(loaded, total) {
   };
 };
 
-export function uploadComposeSuccess(media, file) {
+export function uploadComposeSuccess(media, file, fromProcessing = false) {
   return {
     type: COMPOSE_UPLOAD_SUCCESS,
     media: media,
     file: file,
+    fromProcessing,
     skipLoading: true,
   };
 };
 
-export function uploadComposeFail(error) {
+export function uploadComposeFail(error, { exclusive = false, fromProcessing = false } = {}) {
   return {
     type: COMPOSE_UPLOAD_FAIL,
     error: error,
+    exclusive,
+    fromProcessing,
     skipLoading: true,
   };
 };

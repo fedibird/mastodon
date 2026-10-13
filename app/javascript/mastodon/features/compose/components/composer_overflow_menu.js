@@ -9,6 +9,7 @@ export default class ComposerOverflowMenu extends React.PureComponent {
   static propTypes = {
     label: PropTypes.string.isRequired,
     children: PropTypes.node,
+    closeToken: PropTypes.number,
   };
 
   state = {
@@ -35,13 +36,19 @@ export default class ComposerOverflowMenu extends React.PureComponent {
         {...overlayProps}
         ref={this.menuBridge.compose}
         style={style}
-        className={`compose-form__overflow-panel ${placement || ''}`}
+        className={`compose-portal-menu compose-form__overflow-panel ${placement || ''}`}
         data-testid='composer-overflow-menu'
       >
         {this.props.children}
       </div>
     );
   };
+
+  componentDidUpdate (prevProps) {
+    if (prevProps.closeToken !== this.props.closeToken && this.state.open) {
+      this.setState({ open: false });
+    }
+  }
 
   componentDidMount () {
     document.addEventListener('mousedown', this.handleDocumentClick);
@@ -73,7 +80,14 @@ export default class ComposerOverflowMenu extends React.PureComponent {
 
   handleDocumentKey = (event) => {
     if (event.key === 'Escape' && this.state.open) {
-      this.setState({ open: false });
+      event.preventDefault();
+      this.setState({ open: false }, () => {
+        const button = this.target && this.target.querySelector('button');
+
+        if (button) {
+          button.focus();
+        }
+      });
     }
   };
 

@@ -89,6 +89,11 @@ const buildState = ({ id = null, privacy = 'public', circleId = null, prohibited
     scheduled: null,
     scheduled_status_id: null,
     id,
+    senderIdentity: ImmutableMap({
+      status: 'ready',
+      selectionOrigin: 'default',
+      changeEpoch: 0,
+    }),
   }),
   search: ImmutableMap({
     submitted: false,

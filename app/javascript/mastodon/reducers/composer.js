@@ -1,3 +1,4 @@
+import { isExclusiveAttachmentType, isExclusiveFile } from '../features/compose/composer_media';
 import {
   COMPOSE_MOUNT,
   COMPOSE_UNMOUNT,
@@ -117,12 +118,15 @@ export const initialState = ImmutableMap({
   is_submitting: false,
   is_changing_upload: false,
   is_uploading: false,
+  is_processing: false,
   dirty: false,
   progress: 0,
   isUploadingThumbnail: false,
   thumbnailProgress: 0,
   media_attachments: ImmutableList(),
   pending_media_attachments: 0,
+  pending_exclusive_attachments: 0,
+  processing_media_attachments: 0,
   poll: null,
   poll_max_options: 4,
   suggestion_token: null,
@@ -351,19 +355,38 @@ const clearAll = state => {
   });
 };
 
-const appendMedia = (state, media, file) => {
+const remainingUpload = (state, { exclusive = false, fromProcessing = false } = {}) => {
+  const pending = Math.max(0, (state.get('pending_media_attachments') || 0) - 1);
+  const exclusiveCount = Math.max(0, (state.get('pending_exclusive_attachments') || 0) - (exclusive ? 1 : 0));
+  const processing = Math.max(0, (state.get('processing_media_attachments') || 0) - (fromProcessing ? 1 : 0));
+
+  return { pending, exclusiveCount, processing };
+};
+
+const exclusiveFile = (media, file) => {
+  if (file && file.type) {
+    return isExclusiveFile(file.type);
+  }
+
+  return isExclusiveAttachmentType(media && media.get && media.get('type'));
+};
+
+const appendMedia = (state, media, file, fromProcessing = false) => {
   const prevSize = state.get('media_attachments').size;
+  const settled = remainingUpload(state, { exclusive: exclusiveFile(media, file), fromProcessing });
 
   return state.withMutations(map => {
     if (media.get('type') === 'image') {
       media = media.set('file', file);
     }
     map.update('media_attachments', list => list.push(media.set('unattached', media.get('unattached', true))).sortBy(item => item.get('order')));
-    map.set('is_uploading', false);
-    map.set('is_processing', false);
+    map.set('pending_media_attachments', settled.pending);
+    map.set('pending_exclusive_attachments', settled.exclusiveCount);
+    map.set('processing_media_attachments', settled.processing);
+    map.set('is_uploading', settled.pending > 0);
+    map.set('is_processing', settled.processing > 0);
     map.set('resetFileKey', Math.floor((Math.random() * 0x10000)));
     map.set('idempotencyKey', uuid());
-    map.update('pending_media_attachments', n => n - 1);
 
     if (prevSize === 0) {
       applySensitiveOnFirstMedia(map, state);
@@ -1077,14 +1100,31 @@ export default function composer(state = initialState, action) {
     return state.set('is_submitting', false);
   case COMPOSE_UPLOAD_CHANGE_FAIL:
     return state.set('is_changing_upload', false);
-  case COMPOSE_UPLOAD_REQUEST:
-    return state.set('is_uploading', true).update('pending_media_attachments', n => n + 1);
+  case COMPOSE_UPLOAD_REQUEST: {
+    const count = Math.max(1, Number(action.count) || 1);
+    const exclusiveCount = Math.max(0, Number(action.exclusiveCount) || 0);
+
+    return state
+      .set('is_uploading', true)
+      .update('pending_media_attachments', n => (n || 0) + count)
+      .update('pending_exclusive_attachments', n => (n || 0) + exclusiveCount);
+  }
   case COMPOSE_UPLOAD_PROCESSING:
-    return state.set('is_processing', true);
+    return state
+      .update('processing_media_attachments', n => (n || 0) + 1)
+      .set('is_processing', true);
   case COMPOSE_UPLOAD_SUCCESS:
-    return appendMedia(state, fromJS(action.media), action.file);
-  case COMPOSE_UPLOAD_FAIL:
-    return state.set('is_uploading', false).set('is_processing', false).update('pending_media_attachments', n => n - 1);
+    return appendMedia(state, fromJS(action.media), action.file, action.fromProcessing);
+  case COMPOSE_UPLOAD_FAIL: {
+    const settled = remainingUpload(state, { exclusive: action.exclusive, fromProcessing: action.fromProcessing });
+
+    return state
+      .set('pending_media_attachments', settled.pending)
+      .set('pending_exclusive_attachments', settled.exclusiveCount)
+      .set('processing_media_attachments', settled.processing)
+      .set('is_uploading', settled.pending > 0)
+      .set('is_processing', settled.processing > 0);
+  }
   case COMPOSE_UPLOAD_UNDO:
     return removeMedia(state, action.media_id);
   case COMPOSE_UPLOAD_PROGRESS:

@@ -1,5 +1,6 @@
 import React from 'react';
 import PropTypes from 'prop-types';
+import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 import { connect } from 'react-redux';
 import { fetchPostingIdentities, selectComposerSenderIdentity } from '../../../actions/posting_identities';
 import { isAdministrator, me } from '../../../initial_state';
@@ -53,8 +54,31 @@ export const mapStateToProps = (state, { composerId }) => {
     return identity.get('kind') === 'local' && identity.get('id') === sessionId;
   });
 
+  if (!isAdministrator) {
+    return {
+      visible: Boolean(sessionAccount),
+      current: sessionAccount ? ImmutableMap({
+        id: sessionId,
+        authorization: 'ready',
+        status: 'ready',
+        account: sessionAccount,
+      }) : null,
+      choices: ImmutableList(),
+      selectedId: sessionId,
+      sessionIdentityId: sessionId,
+      selectable: false,
+      text: composer ? composer.get('text') : '',
+      blockReason: null,
+      sendBlocked: null,
+      failed: false,
+      compact: selectPortableComposerDisplayMode(state, composerId) === PORTABLE_COMPOSER_MODE_SIMPLE,
+      catalog: null,
+    };
+  }
+
   return {
-    visible: isAdministrator && Boolean(sender),
+    visible: Boolean(sender),
+    selectable: true,
     current,
     choices,
     selectedId: sender ? sender.get('id') : null,
@@ -79,6 +103,7 @@ class SenderIdentityContainer extends React.PureComponent {
     dispatch: PropTypes.func.isRequired,
     composerId: PropTypes.string,
     visible: PropTypes.bool,
+    selectable: PropTypes.bool,
     current: PropTypes.object,
     failed: PropTypes.bool,
     compact: PropTypes.bool,
@@ -123,6 +148,8 @@ class SenderIdentityContainer extends React.PureComponent {
         failed={this.props.failed}
         compact={this.props.compact}
         header
+        selectable={this.props.selectable}
+        composerId={this.props.composerId}
         catalog={this.props.catalog}
         onRetry={this.handleRetry}
         onSelect={this.handleSelect}

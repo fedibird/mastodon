@@ -11,6 +11,7 @@ export default class UploadForm extends ImmutablePureComponent {
   static propTypes = {
     media: ImmutablePropTypes.list.isRequired,
     summary: PropTypes.bool,
+    endAccessory: PropTypes.node,
     onEdit: PropTypes.func.isRequired,
     onRemove: PropTypes.func.isRequired,
     onMoveTo: PropTypes.func.isRequired,
@@ -36,7 +37,12 @@ export default class UploadForm extends ImmutablePureComponent {
           />
         )}
 
-        {hasMedia && !summary && <SensitiveButtonContainer />}
+        {hasMedia && !summary && (
+          <div className='compose-form__sensitive-row'>
+            <SensitiveButtonContainer />
+            {this.props.endAccessory}
+          </div>
+        )}
       </div>
     );
   }

@@ -233,101 +233,103 @@ class PostingContextBar extends React.PureComponent {
 
     return (
       <div className='compose-form__posting-context'>
-        <span className='compose-form__posting-context-label'>
+        <div className='compose-form__posting-context-label'>
           {intl.formatMessage(messages.label)}
-        </span>
-        {createMessage && (
-          <span
-            className={classNames('compose-form__posting-context-create', {
-              'compose-form__posting-context-create--blocked': createCapabilityNoticeIsWarning(createNotice),
-            })}
-            title={this.viaTitle()}
-          >
-            {intl.formatMessage(createMessage)}
-          </span>
-        )}
-        {revalidationMessage && (
-          <span
-            className='compose-form__posting-context-revalidation'
-            title={revalidationActor || revalidationAffiliations ? intl.formatMessage(messages.revalidationDetail, {
-              actor: revalidationActor || 'unavailable',
-              affiliations: revalidationAffiliations || 'unavailable',
-            }) : undefined}
-          >
-            {intl.formatMessage(revalidationMessage)}
-          </span>
-        )}
-        {showRecheck && (
-          <button type='button' className='compose-form__posting-context-recheck' onClick={this.handleRecheck}>
-            {intl.formatMessage(messages.recheck)}
-          </button>
-        )}
-        {showResume && (
-          <button type='button' className='compose-form__posting-context-recheck' onClick={this.handleRefreshStatus}>
-            {intl.formatMessage(messages.revalidationResume)}
-          </button>
-        )}
-        {showAudience && (
-          <span className='compose-form__posting-context-audience'>
-            {intl.formatMessage(messages.audienceGroup, { acct: audienceAcct })}
-          </span>
-        )}
-        {hasMentions && requiredMentions.map(mention => (
-          <span key={mention.get('accountId')} className='compose-form__posting-context-mention'>
-            {intl.formatMessage(messages.mentionRequired, { acct: mention.get('acct') })}
-          </span>
-        ))}
-        {showVisibility && (
-          <span className={classNames('compose-form__posting-context-visibility', { 'compose-form__posting-context-warning': !visibility.valid })}>
-            {intl.formatMessage(messages.visibilityPublicUnlisted)}
-          </span>
-        )}
-        {showPublicOnly && (
-          <span className={classNames('compose-form__posting-context-visibility', { 'compose-form__posting-context-warning': !visibility.valid })}>
-            {intl.formatMessage(messages.visibilityPublicOnly)}
-          </span>
-        )}
-        {threadiverseMessage && (
-          <span className='compose-form__posting-context-threadiverse'>
-            {intl.formatMessage(threadiverseMessage)}
-          </span>
-        )}
-        {weakTitle && (
-          <span className='compose-form__posting-context-threadiverse'>
-            {intl.formatMessage(messages.threadiverseWeakTitle)}
-          </span>
-        )}
-        {hasFollows && followingAccounts.map(account => (
-          <span key={account.accountId} className={classNames('compose-form__posting-context-follow', { 'compose-form__posting-context-warning': account.status !== 'satisfied' })}>
-            {intl.formatMessage(followMessages[account.status] || messages.followUnknown, { acct: account.acct })}
-          </span>
-        ))}
-        {hasHashtags && hashtags.map(tag => {
-          const normalizedName = tag.get('normalizedName');
-          const origin = tag.get('origin');
-          const suppressed = tag.has('suppressed') ? tag.get('suppressed') : Boolean(suppressedHashtags && suppressedHashtags.includes(normalizedName));
-          const key = `${origin || 'context'}:${normalizedName}`;
+        </div>
+        <div className='compose-form__posting-context-badges'>
+          {createMessage && (
+            <span
+              className={classNames('compose-form__posting-context-create', {
+                'compose-form__posting-context-create--blocked': createCapabilityNoticeIsWarning(createNotice),
+              })}
+              title={this.viaTitle()}
+            >
+              {intl.formatMessage(createMessage)}
+            </span>
+          )}
+          {revalidationMessage && (
+            <span
+              className='compose-form__posting-context-revalidation'
+              title={revalidationActor || revalidationAffiliations ? intl.formatMessage(messages.revalidationDetail, {
+                actor: revalidationActor || 'unavailable',
+                affiliations: revalidationAffiliations || 'unavailable',
+              }) : undefined}
+            >
+              {intl.formatMessage(revalidationMessage)}
+            </span>
+          )}
+          {showRecheck && (
+            <button type='button' className='compose-form__posting-context-recheck' onClick={this.handleRecheck}>
+              {intl.formatMessage(messages.recheck)}
+            </button>
+          )}
+          {showResume && (
+            <button type='button' className='compose-form__posting-context-recheck' onClick={this.handleRefreshStatus}>
+              {intl.formatMessage(messages.revalidationResume)}
+            </button>
+          )}
+          {showAudience && (
+            <span className='compose-form__posting-context-audience'>
+              {intl.formatMessage(messages.audienceGroup, { acct: audienceAcct })}
+            </span>
+          )}
+          {hasMentions && requiredMentions.map(mention => (
+            <span key={mention.get('accountId')} className='compose-form__posting-context-mention'>
+              {intl.formatMessage(messages.mentionRequired, { acct: mention.get('acct') })}
+            </span>
+          ))}
+          {showVisibility && (
+            <span className={classNames('compose-form__posting-context-visibility', { 'compose-form__posting-context-warning': !visibility.valid })}>
+              {intl.formatMessage(messages.visibilityPublicUnlisted)}
+            </span>
+          )}
+          {showPublicOnly && (
+            <span className={classNames('compose-form__posting-context-visibility', { 'compose-form__posting-context-warning': !visibility.valid })}>
+              {intl.formatMessage(messages.visibilityPublicOnly)}
+            </span>
+          )}
+          {threadiverseMessage && (
+            <span className='compose-form__posting-context-threadiverse'>
+              {intl.formatMessage(threadiverseMessage)}
+            </span>
+          )}
+          {weakTitle && (
+            <span className='compose-form__posting-context-threadiverse'>
+              {intl.formatMessage(messages.threadiverseWeakTitle)}
+            </span>
+          )}
+          {hasFollows && followingAccounts.map(account => (
+            <span key={account.accountId} className={classNames('compose-form__posting-context-follow', { 'compose-form__posting-context-warning': account.status !== 'satisfied' })}>
+              {intl.formatMessage(followMessages[account.status] || messages.followUnknown, { acct: account.acct })}
+            </span>
+          ))}
+          {hasHashtags && hashtags.map(tag => {
+            const normalizedName = tag.get('normalizedName');
+            const origin = tag.get('origin');
+            const suppressed = tag.has('suppressed') ? tag.get('suppressed') : Boolean(suppressedHashtags && suppressedHashtags.includes(normalizedName));
+            const key = `${origin || 'context'}:${normalizedName}`;
 
-          if (tag.get('enforcement') === 'required') {
+            if (tag.get('enforcement') === 'required') {
+              return (
+                <span key={key} className='compose-form__posting-context-tag compose-form__posting-context-tag--required'>
+                  {`#${tag.get('name')}`}
+                </span>
+              );
+            }
+
             return (
-              <span key={key} className='compose-form__posting-context-tag compose-form__posting-context-tag--required'>
-                {`#${tag.get('name')}`}
-              </span>
+              <ManagedHashtagButton
+                key={key}
+                name={tag.get('name')}
+                normalizedName={normalizedName}
+                origin={origin}
+                suppressed={suppressed}
+                onToggle={onToggle}
+                intl={intl}
+              />
             );
-          }
-
-          return (
-            <ManagedHashtagButton
-              key={key}
-              name={tag.get('name')}
-              normalizedName={normalizedName}
-              origin={origin}
-              suppressed={suppressed}
-              onToggle={onToggle}
-              intl={intl}
-            />
-          );
-        })}
+          })}
+        </div>
       </div>
     );
   }
