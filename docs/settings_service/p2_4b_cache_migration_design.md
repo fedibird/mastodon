@@ -533,7 +533,7 @@ P2-4C を P2-6 より前に出しても、Decorator が番号を動かさない�
 - Decorator が 9 キーを保存しても revision 行は増えず、0 のままである。
 - `ScopedSettings#[]=` が保存しても revision は増えない。write するキーは `Setting.cache_key` である。
 - 既存 getter が `fetch` するキーは `Setting.cache_key` であり、`/rev/` を含まない。Writer が番号を進めたあとも同じである。
-- Writer の保存だけが revision を進める。delete するキーは従来キーだけである。
+- Writer の保存だけが revision を進める。P2-4C の実装後、delete は従来キーと `/rev/<after_revision>` の両方である。下の「P2-4C の実装」を参照する。
 - Reader は、従来キーを別の値で上書きしても DB の保存値を返す。
 - `nil`、空文字、`direct`、未知のバー、`original`、不正な言語、文字サイズの文字列を読んでも、行の値と `updated_at` は変わらない。
 
@@ -546,7 +546,7 @@ P2-4C を P2-6 より前に出しても、Decorator が番号を動かさない�
 - revision キーのミスが従来キーを読まない。
 - `Redis::BaseError` の読み取りはストアがミスとして処理し、getter が DB の生値を返し、従来キーを読まない。呼び出し元へ出る例外でも従来キーを読まない。DB も失敗すれば例外が残る。
 - 節 4.10 の再充填を、段階 D では古い revision のキーへの write が新しい revision の読み取りに見えないことで確認する。段階 B の getter では TTL 中に旧値が残ることを、実装前の受け入れ条件として残す。
-- `CacheDeletion` の確認。例外が出た delete は最大 3 回まで試し、3 回目で `false` にする。`RedisCacheStore` が `false` を返したときは現行コードがそれを見ず `cache_deleted` を `true` にする。`true` は Redis 上の削除成功を保証しない。読み取り障害、書き込み障害、キーが元から無いことを区別する修正は、この PR ではせず、P2-4C の実装時に確認する。
+- `CacheDeletion` の確認。例外が出た delete は最大 3 回まで試し、3 回目で `false` にする。`Rails.cache.delete` の false は、P2-4C で未確認として扱う。`cache_deleted` の true は従来キーの delete が true を返したことだけを意味する。false の戻りと例外の失敗はログで区別する。詳細は「P2-4C の実装」。
 - revision SELECT の例外が、従来キーに値があってもそれを返さない。
 - 同じスレッドの次の Sidekiq ジョブが、前のジョブの revision メモを見ない。
 - 同じリクエストの Writer のあと、メモが `after_revision` になっている。
@@ -563,3 +563,25 @@ P2-4C を P2-6 より前に出しても、Decorator が番号を動かさない�
 - 段階 D: 9 キーの getter が PostgreSQL を読めないとき失敗する、という可用性の変更。節 8。
 - 単一 revision により、1 キーの変更で 9 キーの値キャッシュが同時にミスする、という命中率。この設計の推奨としてここに書いた。実装は P2-4D である。
 - キーごとの世代、revision の Redis キャッシュ、`Setting.cache_key` への全体接尾辞、フォームの原子性変更、通知 payload の変更は、この推奨に含めない。やるなら別の設計承認が要る。
+
+## P2-4C の実装
+
+段階 B の delete は実装済みである。getter は従来キーのままである。revision 付きキーの読み取りは有効にしていない。
+
+キーは `UserPreferences::CacheKey.for_revision(key, user, revision)` が作る。中身は `#{Setting.cache_key(key, user)}/rev/#{revision}` だけである。DB も Redis も読まない。`Setting.cache_key` 自体は変えていない。番号はユーザー単位の一つで、キーごとの世代はない。
+
+`Writer#register_after_commit` は、トランザクション内で決めた `after_revision` を `CacheDeletion.new(..., revision:)` に渡す。COMMIT 後に `Revision.current` を読み直さない。
+
+変更キーごとに、従来キーを delete してから `/rev/<after_revision>` を delete する。どちらも SQL COMMIT のあとである。未変更キーは消さない。公開 Writer の複数キーは同じ `after_revision` を使う。LegacyWriter は 1 キー 1 COMMIT なので、各キーはその COMMIT の番号を使う。
+
+`Rails.cache.delete` が true のときだけ、その世代の削除を確認できたものとする。false は未確認であり、成功の証明にはしない。false ではリトライせず、error ログも出さない。DB の保存と revision と通知は戻さない。例外は従来どおり最大 3 回で、失敗したキャッシュキーだけをやり直す。1 回目と 2 回目は warning、3 回目は error である。ログは user_id、var、legacy / revision の区分、revision 側の番号、例外クラスである。設定値は出さない。従来キーの例外があっても revision キーを試し、その逆も、次の変更キーも試す。
+
+`WriteResult#cache_deleted` は設定キーごとの Hash のままである。値は従来キーの結果だけである。true は従来キーの delete が true を返したことである。false は、false が返ったか、例外のリトライが尽きたかである。revision キーの結果は `CacheDeletion#revision_cache_deleted` に分け、この Hash にはキャッシュキー文字列を入れない。
+
+同値、空 PATCH、空 reset、absent の reset、不正入力、ROLLBACK では、どちらのキーも delete しない。`RecordNotUnique` のリトライで残るのは、最後に成功した COMMIT の delete と通知だけである。
+
+`rewrite_cache` は抑止していない。Writer は値を `Rails.cache.write` しない。reset では `rewrite_cache` は走らない。
+
+段階 C はコードではなくデプロイ確認である。Puma の各 worker、Sidekiq、設定を読む他の Rails プロセスが段階 B になるまで、P2-4D の読み取りを出さない。旧プロセスが残るあいだは段階 C 未完了である。このデプロイだけでは getter を変えないので、従来キーの読み取りは維持される。
+
+切り戻しは段階 B から A である。接尾辞キーの delete を止める。読み手は従来キーのままなので、接尾辞キーは誰も読まない。revision 行は消さない。
