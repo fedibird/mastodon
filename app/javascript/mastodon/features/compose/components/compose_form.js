@@ -17,6 +17,7 @@ import SearchabilityDropdownContainer from '../containers/searchability_dropdown
 import CircleDropdownContainer from '../containers/circle_dropdown_container';
 import DateTimeFormContainer from '../containers/datetime_form_container';
 import ExpiresIndicatorContainer from '../containers/expires_indicator_container';
+import SearchabilityIndicatorContainer from '../containers/searchability_indicator_container';
 import EmojiPickerDropdownContainer from '../containers/emoji_picker_dropdown_container';
 import LanguageDropdownContainer from '../containers/language_dropdown_container';
 import PollFormContainer from '../containers/poll_form_container';
@@ -42,6 +43,7 @@ const allowedAroundShortCode = '><\u0085\u0020\u00a0\u1680\u2000\u2001\u2002\u20
 const messages = defineMessages({
   placeholder: { id: 'compose_form.placeholder', defaultMessage: 'What is on your mind?' },
   spoiler_placeholder: { id: 'compose_form.spoiler_placeholder', defaultMessage: 'Write your warning here' },
+  spoilerClose: { id: 'compose_form.spoiler.close', defaultMessage: 'Remove content warning' },
   publish: { id: 'compose_form.publish', defaultMessage: 'Toot' },
   publishLoud: { id: 'compose_form.publish_loud', defaultMessage: '{publish}!' },
   saveChanges: { id: 'compose_form.save_changes', defaultMessage: 'Save changes' },
@@ -145,6 +147,7 @@ class ComposeForm extends ImmutablePureComponent {
     onFetchSuggestions: PropTypes.func.isRequired,
     onSuggestionSelected: PropTypes.func.isRequired,
     onChangeSpoilerText: PropTypes.func.isRequired,
+    onToggleSpoilerness: PropTypes.func,
     onPaste: PropTypes.func.isRequired,
     onPickEmoji: PropTypes.func.isRequired,
     showSearch: PropTypes.bool,
@@ -489,18 +492,6 @@ class ComposeForm extends ImmutablePureComponent {
     return this.props.intl.formatMessage(labels[this.props.searchability] || messages.searchPrivate);
   }
 
-  renderSearchabilityLabel () {
-    if (!this.searchabilityChanged()) {
-      return null;
-    }
-
-    return (
-      <span className='compose-form__searchability-label' data-testid='searchability-label'>
-        {this.searchabilityLabel()}
-      </span>
-    );
-  }
-
   setFormNode = (node) => {
     this.formNode = node;
   };
@@ -719,6 +710,13 @@ class ComposeForm extends ImmutablePureComponent {
 
     return (
       <div className='spoiler-input spoiler-input--visible' ref={this.setRef} data-testid='cw-input'>
+        <IconButton
+          className='compose-form__form-dismiss'
+          icon='times'
+          title={intl.formatMessage(messages.spoilerClose)}
+          onClick={this.handleCloseSpoiler}
+          inverted
+        />
         <AutosuggestInput
           placeholder={intl.formatMessage(messages.spoiler_placeholder)}
           value={this.props.spoilerText}
@@ -763,12 +761,22 @@ class ComposeForm extends ImmutablePureComponent {
       badges.push(this.renderSimpleBadge('eye-slash', intl.formatMessage(messages.sensitiveOn)));
     }
 
+    if (this.searchabilityChanged()) {
+      badges.push(this.renderSimpleBadge('search', this.searchabilityLabel()));
+    }
+
     if (badges.length === 0) {
       return null;
     }
 
     return <div className='compose-form__simple-badges'>{badges}</div>;
   }
+
+  handleCloseSpoiler = () => {
+    if (this.props.onToggleSpoilerness) {
+      this.props.onToggleSpoilerness();
+    }
+  };
 
   renderCharacterCount () {
     const simple = this.isSimpleMode();
@@ -779,7 +787,6 @@ class ComposeForm extends ImmutablePureComponent {
 
     return (
       <div className='compose-form__count-anchor' data-testid='character-count'>
-        {this.renderSearchabilityLabel()}
         <CharacterCounter max={maxChars} text={this.getFulltextForCharacterCounting()} />
       </div>
     );
@@ -799,13 +806,13 @@ class ComposeForm extends ImmutablePureComponent {
       </div>
     );
     const characterCount = this.renderCharacterCount();
-    const countOnSensitiveRow = !simple && Boolean(this.props.anyMedia);
     const modifiers = simple ? null : (
       <div className='compose-form__modifiers'>
-        <UploadFormContainer endAccessory={countOnSensitiveRow ? characterCount : null} />
+        <UploadFormContainer endAccessory={characterCount} />
         <PollFormContainer />
         {!this.props.isEditing && <DateTimeFormContainer />}
         {!this.props.isEditing && <ExpiresIndicatorContainer />}
+        {!this.props.isEditing && <SearchabilityIndicatorContainer />}
       </div>
     );
 
@@ -863,7 +870,6 @@ class ComposeForm extends ImmutablePureComponent {
         {!simple && !this.props.isEditing && <CircleDropdownContainer key='circle' />}
         {!simple && (
           <div className='compose-form__end'>
-            {countOnSensitiveRow ? null : characterCount}
             {this.renderFooter(publishText)}
           </div>
         )}

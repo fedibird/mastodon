@@ -6,17 +6,17 @@ import classNames from 'classnames';
 import Overlay from 'react-overlays/Overlay';
 import Icon from 'mastodon/components/icon';
 import { domain as localDomain } from 'mastodon/initial_state';
+import { identityDisplayNameNodes } from 'mastodon/posting_identity/display_name';
 import { createOverlayRefBridge } from '../overlay_ref';
 
 const messages = defineMessages({
   label: { id: 'compose_form.sender_identity.label', defaultMessage: 'Posting as' },
-  hint: { id: 'compose_form.sender_identity.hint', defaultMessage: 'This does not change the account you are logged in as.' },
   unavailable: { id: 'compose_form.sender_identity.unavailable', defaultMessage: 'Posting as this identity isn’t available.' },
   linkedUnavailable: { id: 'compose_form.sender_identity.linked_unavailable', defaultMessage: 'This linked account is not available right now.' },
   failed: { id: 'compose_form.sender_identity.failed', defaultMessage: 'Couldn’t confirm who this post is from.' },
   retry: { id: 'compose_form.sender_identity.retry', defaultMessage: 'Retry' },
   linked: { id: 'compose_form.sender_identity.linked', defaultMessage: 'Linked account' },
-  confirmSwitch: { id: 'compose_form.sender_identity.confirm_switch', defaultMessage: 'Post as @{acct}? The text you are writing stays. This does not change the account you are logged in as.' },
+  confirmSwitch: { id: 'compose_form.sender_identity.confirm_switch', defaultMessage: 'Post as @{acct}? The text you are writing stays.' },
   blockedMedia: { id: 'compose_form.sender_identity.blocked_media', defaultMessage: 'Remove attached media before posting as another account.' },
   blockedPoll: { id: 'compose_form.sender_identity.blocked_poll', defaultMessage: 'Remove the poll before posting as another account.' },
   blockedReply: { id: 'compose_form.sender_identity.blocked_reply', defaultMessage: 'Replies and quotes cannot be posted as another account yet.' },
@@ -24,10 +24,9 @@ const messages = defineMessages({
   blockedSchedule: { id: 'compose_form.sender_identity.blocked_schedule', defaultMessage: 'Scheduled and expiring posts cannot be posted as another account yet.' },
   blockedEdit: { id: 'compose_form.sender_identity.blocked_edit', defaultMessage: 'Finish or discard this edit before changing the posting account.' },
   blockedGeneric: { id: 'compose_form.sender_identity.blocked_generic', defaultMessage: 'This posting account cannot be selected for the draft you are writing.' },
-  accountKind: { id: 'compose_form.sender_identity.account', defaultMessage: 'Account' },
+  accountKind: { id: 'compose_form.sender_identity.account', defaultMessage: 'Main account' },
   selected: { id: 'compose_form.sender_identity.selected', defaultMessage: 'Selected' },
   choose: { id: 'compose_form.sender_identity.choose', defaultMessage: 'Choose posting account' },
-  server: { id: 'compose_form.sender_identity.server', defaultMessage: 'Server {domain}' },
   revoked: { id: 'compose_form.sender_identity.revoked', defaultMessage: 'Authorization expired' },
 });
 
@@ -65,24 +64,19 @@ const accountAcct = account => accountField(account, 'acct', 'acct');
 
 const accountName = account => accountField(account, 'displayName', 'display_name');
 
-const accountAvatar = account => accountField(account, 'avatarStatic', 'avatar_static') || accountField(account, 'avatar', 'avatar');
+const accountEmojis = account => (account && account.get ? account.get('emojis') : null);
 
-const accountDomain = account => {
-  const explicit = accountField(account, 'domain', 'domain');
-
-  if (explicit) {
-    return explicit;
-  }
-
+const displayAcct = account => {
   const acct = accountAcct(account);
-  const at = acct.indexOf('@');
 
-  if (at >= 0) {
-    return acct.slice(at + 1);
+  if (!acct || acct.includes('@') || !localDomain) {
+    return acct;
   }
 
-  return localDomain || '';
+  return `${acct}@${localDomain}`;
 };
+
+const accountAvatar = account => accountField(account, 'avatarStatic', 'avatar_static') || accountField(account, 'avatar', 'avatar');
 
 class SenderIdentity extends React.PureComponent {
 
@@ -199,7 +193,6 @@ class SenderIdentity extends React.PureComponent {
         aria-label={intl.formatMessage(messages.label)}
       >
         {this.menuIdentities().map(item => this.renderMenuItem(item))}
-        <p className='compose-form__sender-hint'>{intl.formatMessage(messages.hint)}</p>
         {blockReason ? <p className='compose-form__sender-status' role='status'>{intl.formatMessage(blockMessage(blockReason))}</p> : null}
         {failed ? (
           <p className='compose-form__sender-status' role='status'>
@@ -318,15 +311,23 @@ class SenderIdentity extends React.PureComponent {
     );
   }
 
+  renderDisplayName (account) {
+    const name = accountName(account);
+    const nodes = identityDisplayNameNodes(name, accountEmojis(account));
+
+    return <span className='compose-form__sender-name'>{nodes}</span>;
+  }
+
   renderIdentity (account) {
-    const acct = accountAcct(account);
+    const acct = displayAcct(account);
     const name = accountName(account);
 
     return (
       <React.Fragment>
         {this.renderAvatar(account)}
+        {name ? this.renderDisplayName(account) : null}
         <span className='compose-form__sender-acct'>
-          {acct ? `@${acct}` : name}
+          {acct ? `@${acct}` : null}
         </span>
       </React.Fragment>
     );
@@ -335,11 +336,11 @@ class SenderIdentity extends React.PureComponent {
   renderChoice (item) {
     const selected = item.get('id') === this.props.selectedId;
     const account = item.get('account');
-    const acct = accountAcct(account);
+    const acct = displayAcct(account);
     const linked = item.get('kind') === 'delegated';
     const label = linked
       ? this.props.intl.formatMessage(messages.linked)
-      : this.props.intl.formatMessage(messages.label);
+      : this.props.intl.formatMessage(messages.accountKind);
 
     return (
       <button
@@ -369,14 +370,20 @@ class SenderIdentity extends React.PureComponent {
   renderMenuItem (item) {
     const { intl, selectedId } = this.props;
     const account = item.get('account');
-    const acct = accountAcct(account);
+    const acct = displayAcct(account);
     const name = accountName(account);
     const ready = this.postableChoices().some(choice => choice.get('id') === item.get('id'));
     const selected = item.get('id') === selectedId;
     const linked = item.get('kind') === 'delegated';
-    const domain = accountDomain(account);
     const kind = linked ? intl.formatMessage(messages.linked) : intl.formatMessage(messages.accountKind);
     const unavailable = item.get('authorization') && item.get('authorization') !== 'ready';
+    let heading = kind;
+
+    if (name) {
+      heading = this.renderDisplayName(account);
+    } else if (acct) {
+      heading = `@${acct}`;
+    }
 
     return (
       <button
@@ -391,9 +398,8 @@ class SenderIdentity extends React.PureComponent {
       >
         {this.renderAvatar(account) || <Icon id='user-times' fixedWidth aria-hidden='true' />}
         <span className='compose-form__sender-menu-copy'>
-          <strong>{name || (acct ? `@${acct}` : kind)}</strong>
+          <strong>{heading}</strong>
           {acct ? <span>{`@${acct}`}</span> : null}
-          {domain ? <span>{intl.formatMessage(messages.server, { domain })}</span> : null}
           <span>{kind}</span>
           {unavailable ? <span>{intl.formatMessage(messages.revoked)}</span> : null}
           {!unavailable && !ready ? <span>{intl.formatMessage(messages.unavailable)}</span> : null}
@@ -428,7 +434,6 @@ class SenderIdentity extends React.PureComponent {
           aria-haspopup='menu'
           aria-expanded={this.state.open}
           aria-label={label}
-          title={intl.formatMessage(messages.hint)}
           ref={this.setTrigger}
           onClick={this.handleToggle}
         >
@@ -497,7 +502,6 @@ class SenderIdentity extends React.PureComponent {
       <div
         className={classNames('compose-form__sender', { 'compose-form__sender--compact': compact })}
         data-testid='sender-identity'
-        title={intl.formatMessage(messages.hint)}
       >
         <span className='compose-form__sender-label'>{intl.formatMessage(messages.label)}</span>
         {selectable ? (
@@ -520,9 +524,6 @@ class SenderIdentity extends React.PureComponent {
             {currentAcct ? `@${currentAcct}` : ''}
           </span>
         ) : null}
-        {compact ? null : (
-          <p className='compose-form__sender-hint'>{intl.formatMessage(messages.hint)}</p>
-        )}
         {blockReason ? (
           <p className='compose-form__sender-status' role='status'>{intl.formatMessage(blockMessage(blockReason))}</p>
         ) : null}

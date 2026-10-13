@@ -468,7 +468,7 @@ class ComposerMediaGallery extends React.PureComponent {
     const constraint = this.mediaConstraint(media);
 
     return (
-      <div data-testid='composer-media' ref={this.setRootNode}>
+      <div className='compose-form__media-block' data-testid='composer-media' ref={this.setRootNode}>
         <div
           className={classNames('compose-form__media', {
             'compose-form__media--summary': summary && !this.state.expanded,

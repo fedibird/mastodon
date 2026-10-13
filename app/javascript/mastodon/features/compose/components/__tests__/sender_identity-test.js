@@ -49,7 +49,7 @@ describe('SenderIdentity', () => {
 
     expect(screen.getByTestId('sender-identity').textContent).toContain('Posting as');
     expect(screen.getByTestId('sender-identity').textContent).toContain('@admin');
-    expect(screen.getByTestId('sender-identity').textContent).toContain('does not change the account you are logged in as');
+    expect(screen.getByTestId('sender-identity').textContent).not.toContain('does not change the account you are logged in as');
     expect(screen.queryByRole('button', { name: 'Post as other' })).toBeNull();
     expect(screen.queryByText('@other')).toBeNull();
     expect(screen.getByTestId('sender-identity-current')).toBeTruthy();
@@ -90,7 +90,7 @@ describe('SenderIdentity', () => {
     expect(sender.textContent).toContain('Posting as');
     expect(sender.textContent).toContain('@admin');
     expect(sender.textContent).not.toContain('does not change the account you are logged in as');
-    expect(sender.getAttribute('title')).toContain('does not change the account you are logged in as');
+    expect(sender.getAttribute('title')).toBeNull();
   });
 
   it('stacks the signed-in account on the posting account in the toolbar', () => {
@@ -194,7 +194,7 @@ describe('SenderIdentity', () => {
     expect(screen.getByTestId('sender-identity-current').textContent).not.toContain('@admin');
     expect(screen.getByTestId('sender-identity-current').textContent).not.toContain('admin');
     expect(screen.getByRole('radio', { name: /@admin/ })).toBeTruthy();
-    expect(screen.getByTestId('sender-identity').textContent).toContain('does not change the account you are logged in as');
+    expect(screen.getByTestId('sender-identity').textContent).not.toContain('does not change the account you are logged in as');
 
     rerender(
       <SenderIdentity
@@ -253,7 +253,10 @@ describe('SenderIdentity', () => {
     expect(screen.getByRole('menuitemradio', { name: /@admin/ })).toBeTruthy();
     expect(screen.getByRole('menuitemradio', { name: /@author/ })).toBeDisabled();
     expect(screen.getByText('Authorization expired')).toBeTruthy();
-    expect(screen.getByText('Server example.test')).toBeTruthy();
+    expect(screen.queryByText(/Server /)).toBeNull();
+    expect(screen.getByText('Linked account')).toBeTruthy();
+    expect(screen.getByText('Main account')).toBeTruthy();
+    expect(screen.getByText('@author@example.test')).toBeTruthy();
     expect(menu).toBeTruthy();
 
     fireEvent.keyDown(document, { key: 'Escape' });

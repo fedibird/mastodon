@@ -374,6 +374,10 @@ body > [data-popper-placement] {
 .compose-form {
   padding: 10px;
 
+  .compose-form__media-block + .compose-form__sensitive-row {
+    margin-top: 10px;
+  }
+
   &__sensitive-row {
     display: flex;
     align-items: center;
@@ -2215,6 +2219,28 @@ body > [data-popper-placement] {
 .scheduled-status-warning-indicator__header {
   margin-bottom: 5px;
   overflow: hidden;
+}
+
+.spoiler-input.spoiler-input--visible,
+.compose-form__poll-wrapper,
+.compose-form__datetime-wrapper {
+  position: relative;
+}
+
+.compose-form__poll-wrapper,
+.compose-form__datetime-wrapper {
+  padding-inline-end: 36px;
+}
+
+.spoiler-input.spoiler-input--visible .spoiler-input__input {
+  padding-inline-end: 36px;
+}
+
+.compose-form__form-dismiss {
+  position: absolute;
+  z-index: 2;
+  top: 4px;
+  inset-inline-end: 4px;
 }
 
 .reply-indicator__cancel,

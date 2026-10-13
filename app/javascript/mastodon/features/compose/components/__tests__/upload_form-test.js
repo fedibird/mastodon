@@ -35,7 +35,7 @@ describe('UploadForm sensitive row', () => {
     expect(sensitive.compareDocumentPosition(counter) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('does not render the shared row without media', () => {
+  it('keeps the character count on the row when nothing is attached', () => {
     render(
       <UploadForm
         media={ImmutableList()}
@@ -44,7 +44,9 @@ describe('UploadForm sensitive row', () => {
       />,
     );
 
-    expect(document.querySelector('.compose-form__sensitive-row')).toBeNull();
-    expect(screen.queryByTestId('character-count')).toBeNull();
+    const row = document.querySelector('.compose-form__sensitive-row');
+
+    expect(row).toContainElement(screen.getByTestId('character-count'));
+    expect(screen.queryByTestId('sensitive-button')).toBeNull();
   });
 });

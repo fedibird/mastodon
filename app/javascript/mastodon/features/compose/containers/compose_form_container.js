@@ -9,6 +9,7 @@ import {
   fetchComposerSuggestions,
   selectComposerSuggestion,
   changeComposeSpoilerText,
+  changeComposeSpoilerness,
   insertEmojiCompose,
   uploadToComposer,
   cancelEditCompose,
@@ -101,6 +102,10 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
 
   onChangeSpoilerText (checked) {
     dispatch(targetComposerAction(changeComposeSpoilerText(checked), composerId));
+  },
+
+  onToggleSpoilerness () {
+    dispatch(targetComposerAction(changeComposeSpoilerness(), composerId));
   },
 
   onPaste (files) {

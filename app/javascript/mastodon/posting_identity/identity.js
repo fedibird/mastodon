@@ -47,6 +47,11 @@ export const normalizePostingIdentity = data => {
       displayName: account.display_name || account.displayName || '',
       avatar: account.avatar || '',
       avatarStatic: account.avatar_static || account.avatarStatic || '',
+      emojis: Array.isArray(account.emojis) ? account.emojis.map(emoji => ({
+        shortcode: emoji.shortcode || '',
+        url: emoji.url || '',
+        staticUrl: emoji.static_url || emoji.staticUrl || '',
+      })) : [],
     },
     capabilities: normalizedCapabilities,
   };

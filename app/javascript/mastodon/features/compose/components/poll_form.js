@@ -12,6 +12,7 @@ const messages = defineMessages({
   option_placeholder: { id: 'compose_form.poll.option_placeholder', defaultMessage: 'Choice {number}' },
   add_option: { id: 'compose_form.poll.add_option', defaultMessage: 'Add a choice' },
   remove_option: { id: 'compose_form.poll.remove_option', defaultMessage: 'Remove this choice' },
+  close: { id: 'compose_form.poll.close', defaultMessage: 'Remove poll' },
   poll_duration: { id: 'compose_form.poll.duration', defaultMessage: 'Poll duration' },
   switchToMultiple: { id: 'compose_form.poll.switch_to_multiple', defaultMessage: 'Change poll to allow multiple choices' },
   switchToSingle: { id: 'compose_form.poll.switch_to_single', defaultMessage: 'Change poll to allow for a single choice' },
@@ -124,6 +125,7 @@ class PollForm extends ImmutablePureComponent {
     onAddOption: PropTypes.func.isRequired,
     onRemoveOption: PropTypes.func.isRequired,
     onChangeSettings: PropTypes.func.isRequired,
+    onRemovePoll: PropTypes.func,
     suggestions: ImmutablePropTypes.list,
     onClearSuggestions: PropTypes.func.isRequired,
     onFetchSuggestions: PropTypes.func.isRequired,
@@ -144,6 +146,12 @@ class PollForm extends ImmutablePureComponent {
     this.props.onChangeSettings(this.props.expiresIn, !this.props.isMultiple);
   };
 
+  handleRemovePoll = () => {
+    if (this.props.onRemovePoll) {
+      this.props.onRemovePoll();
+    }
+  };
+
   render () {
     const { options, expiresIn, isMultiple, onChangeOption, onRemoveOption, pollMaxOptions, intl, ...other } = this.props;
 
@@ -155,6 +163,13 @@ class PollForm extends ImmutablePureComponent {
 
     return (
       <div className='compose-form__poll-wrapper'>
+        <IconButton
+          className='compose-form__form-dismiss'
+          icon='times'
+          title={intl.formatMessage(messages.close)}
+          onClick={this.handleRemovePoll}
+          inverted
+        />
         <ul>
           {options.map((title, i) => <Option title={title} key={i} index={i} onChange={onChangeOption} onRemove={onRemoveOption} isPollMultiple={isMultiple} onToggleMultiple={this.handleToggleMultiple} autoFocus={i === autoFocusIndex} {...other} />)}
         </ul>
