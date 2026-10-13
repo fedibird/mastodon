@@ -3,6 +3,7 @@ import SearchabilityDropdown from '../components/searchability_dropdown';
 import { changeComposeSearchability } from '../../../actions/compose';
 import { openModal, closeModal } from '../../../actions/modal';
 import { targetComposerAction } from '../../../actions/composer';
+import { scheduleComposerInteractionCheck } from '../../../actions/posting_identities';
 import { isUserTouching } from '../../../is_mobile';
 import { selectComposer } from '../../../selectors/composer';
 import { withComposerId } from '../composer_id_context';
@@ -20,6 +21,7 @@ const mapDispatchToProps = (dispatch, { composerId }) => ({
 
   onChange (value) {
     dispatch(targetComposerAction(changeComposeSearchability(value), composerId));
+    dispatch(scheduleComposerInteractionCheck(composerId));
   },
 
   isUserTouching,

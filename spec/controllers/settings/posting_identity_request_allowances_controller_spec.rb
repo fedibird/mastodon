@@ -22,6 +22,20 @@ RSpec.describe Settings::PostingIdentityRequestAllowancesController do
     expect(allowance.reload.revoked_at).to be_present
   end
 
+  it 'stores reply and quote only when they are chosen with post' do
+    sign_in grantor, scope: :user
+
+    expect do
+      post :create, params: { acct: grantee.account.username, scopes: %w(reply) }
+    end.not_to change(PostingIdentityRequestAllowance, :count)
+
+    expect(flash[:alert]).to be_present
+
+    post :create, params: { acct: grantee.account.username, scopes: %w(post reply quote) }
+
+    expect(PostingIdentityRequestAllowance.last.allowed_scopes).to eq %w(post reply quote)
+  end
+
   it 'does not let another account revoke or list that acceptance' do
     allowance = PostingIdentity::RequestAllowance.permit!(grantor: grantor, acct: stranger.account.username, scopes: %w(post))
     sign_in grantee, scope: :user

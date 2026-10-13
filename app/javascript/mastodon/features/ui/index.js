@@ -12,6 +12,8 @@ import ModalContainer from './containers/modal_container';
 import { layoutFromWindow } from 'mastodon/is_mobile';
 import { debounce } from 'lodash';
 import { uploadCompose, uploadToComposer, resetCompose, changeComposeSpoilerness } from '../../actions/compose';
+import { scheduleComposerInteractionCheck } from '../../actions/posting_identities';
+import { PRIMARY_COMPOSER_ID } from '../../utils/composer';
 import { showAlert } from '../../actions/alerts';
 import { selectComposer } from '../../selectors/composer';
 import { selectComposerCanUploadAsIdentity } from '../../selectors/posting_identities';
@@ -601,6 +603,7 @@ class UI extends React.PureComponent {
   handleHotkeyToggleComposeSpoilers = e => {
     e.preventDefault();
     this.props.dispatch(changeComposeSpoilerness());
+    this.props.dispatch(scheduleComposerInteractionCheck(PRIMARY_COMPOSER_ID));
   }
 
   handleHotkeyFocusColumn = e => {

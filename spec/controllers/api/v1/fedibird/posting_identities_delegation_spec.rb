@@ -43,6 +43,8 @@ RSpec.describe Api::V1::Fedibird::PostingIdentitiesController do
     expect(delegated[:capabilities][:post]).to eq 'supported'
     expect(delegated[:capabilities][:media]).to eq 'unavailable'
     expect(delegated[:capabilities][:reply]).to eq 'unavailable'
+    expect(delegated[:capabilities][:quote]).to eq 'unavailable'
+    expect(own[:capabilities][:quote]).to eq 'supported'
     expect(delegated[:capabilities][:group]).to eq 'unavailable'
     expect(delegated[:capabilities][:schedule]).to eq 'unavailable'
     expect(delegated[:delegation]).to include(state: 'active', scopes: ['post'])

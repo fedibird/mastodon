@@ -16,6 +16,7 @@ import {
 } from '../../../actions/compose';
 import { openModal } from '../../../actions/modal';
 import { acceptComposerSurface, targetComposerAction } from '../../../actions/composer';
+import { scheduleComposerInteractionCheck } from '../../../actions/posting_identities';
 import { selectComposerEffectiveCreateCapability } from '../../../posting_context/create_capability';
 import { materializeComposerText } from '../../../posting_context/materialize';
 import { selectComposer } from '../../../selectors/composer';
@@ -84,6 +85,7 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
 
   onChange (text) {
     dispatch(targetComposerAction(changeCompose(text), composerId));
+    dispatch(scheduleComposerInteractionCheck(composerId));
   },
 
   onSubmit (router) {
@@ -100,14 +102,17 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
 
   onSuggestionSelected (position, token, suggestion, path) {
     dispatch(selectComposerSuggestion(composerId, position, token, suggestion, path));
+    dispatch(scheduleComposerInteractionCheck(composerId));
   },
 
   onChangeSpoilerText (checked) {
     dispatch(targetComposerAction(changeComposeSpoilerText(checked), composerId));
+    dispatch(scheduleComposerInteractionCheck(composerId));
   },
 
   onToggleSpoilerness () {
     dispatch(targetComposerAction(changeComposeSpoilerness(), composerId));
+    dispatch(scheduleComposerInteractionCheck(composerId));
   },
 
   onPaste (files) {
@@ -116,6 +121,7 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
 
   onPickEmoji (position, data, needsSpace) {
     dispatch(targetComposerAction(insertEmojiCompose(position, data, needsSpace), composerId));
+    dispatch(scheduleComposerInteractionCheck(composerId));
   },
 
   onAcceptSurface () {

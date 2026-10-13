@@ -427,6 +427,54 @@ describe('SenderIdentity', () => {
     expect(document.activeElement).toBe(portableButton);
   });
 
+  it('shows reply and quote as separate permissions on a linked account', () => {
+    const replyOnly = identity('delegated:7', 'painter', 'ready', 'delegated').set('capabilities', ImmutableMap({
+      post: 'supported',
+      reply: 'supported',
+      quote: 'unavailable',
+    }));
+    const quoteOnly = identity('delegated:8', 'quoter', 'ready', 'delegated').set('capabilities', ImmutableMap({
+      post: 'supported',
+      reply: 'unavailable',
+      quote: 'supported',
+    }));
+
+    render(
+      <SenderIdentity
+        header
+        current={replyOnly}
+        catalog={ImmutableList([identity('local:42', 'admin'), replyOnly, quoteOnly])}
+        choices={ImmutableList([identity('local:42', 'admin'), replyOnly, quoteOnly])}
+        selectedId='delegated:7'
+        sessionIdentityId='local:42'
+        onSelect={jest.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Choose posting account/ }));
+
+    expect(screen.getByTestId('sender-capabilities-delegated:7').textContent).toContain('Replies');
+    expect(screen.getByTestId('sender-capabilities-delegated:7').textContent).not.toContain('Quotes');
+    expect(screen.getByTestId('sender-capabilities-delegated:8').textContent).toContain('Quotes');
+    expect(screen.getByTestId('sender-capabilities-delegated:8').textContent).not.toContain('Replies');
+  });
+
+  it('keeps the compact sender label in simple mode', () => {
+    render(
+      <SenderIdentity
+        compact
+        current={identity('local:42', 'admin')}
+        choices={ImmutableList([identity('local:42', 'admin')])}
+        selectedId='local:42'
+        sessionIdentityId='local:42'
+      />,
+    );
+
+    expect(document.querySelector('.compose-form__sender--compact')).toBeTruthy();
+    expect(screen.getByTestId('sender-identity').textContent).toContain('Posting as');
+    expect(screen.getByTestId('sender-identity-current').textContent).toContain('@admin');
+  });
+
   it('shows only the signed-in avatar when identity selection is unavailable', () => {
     render(
       <SenderIdentity

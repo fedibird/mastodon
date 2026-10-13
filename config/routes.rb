@@ -641,7 +641,11 @@ Rails.application.routes.draw do
         get 'preferences/schema', to: 'preferences/schema#show'
 
         resource :translation_languages, only: [:show]
-        resources :posting_identities, only: :index
+        resources :posting_identities, only: :index do
+          collection do
+            post :interaction
+          end
+        end
         resources :user_posting_contexts, only: :index
         resource :user_posting_context_assignment, only: [:show, :update, :destroy], controller: 'user_posting_context_assignments', path: 'user_posting_context_assignments'
 

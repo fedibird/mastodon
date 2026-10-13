@@ -1,6 +1,7 @@
 import { fromJS } from 'immutable';
 import api from '../api';
 import { applyComposerPostingContext, targetComposerAction } from './composer';
+import { scheduleComposerInteractionCheck } from './posting_identities';
 import { fetchPostingContext } from './posting_contexts';
 import { isExistingPostEdit } from '../posting_context/materialize';
 import { normalizeUserPostingStyle, resolveUserPostingStyle } from '../posting_context/user_style_resolver';
@@ -190,6 +191,7 @@ export function commitUserPostingStyle(composerId, styleId, { selectionOrigin, e
       selectionOrigin: selectionOrigin || (style ? 'manual' : 'none'),
       evaluatedSurface: surface ? { kind: surface.get('kind'), key: surface.get('key') } : null,
     }, composerId));
+    dispatch(scheduleComposerInteractionCheck(composerId));
 
     if (destinationPolicy !== 'locked' && plan.destination.action === 'group') {
       return dispatch(loadUserPostingStyleDestination(composerId, {

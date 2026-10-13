@@ -63,9 +63,10 @@ class Api::V1::StatusesController < Api::BaseController
   def create
     sender = @posting_resolution.account
     delegated = @posting_resolution.delegated?
+    interaction = @delegated_interaction
     @status = PostStatusService.new.call(sender,
-                                         text: status_params[:status],
-                                         thread: delegated ? nil : @thread,
+                                         text: delegated ? interaction.text : status_params[:status],
+                                         thread: delegated ? interaction.thread : @thread,
                                          circle: delegated ? nil : @circle,
                                          media_ids: status_params[:media_ids],
                                          sensitive: status_params[:sensitive],
@@ -79,12 +80,12 @@ class Api::V1::StatusesController < Api::BaseController
                                          poll: delegated ? nil : status_params[:poll],
                                          idempotency: idempotency_for_sender,
                                          with_rate_limit: true,
-                                         quote_id: delegated ? nil : status_params[:quote_id].presence,
+                                         quote_id: delegated ? interaction.quote_id : status_params[:quote_id].presence,
                                          status_reference_ids: delegated ? [] : Array(status_params[:status_reference_ids]).uniq.map(&:to_i),
                                          status_reference_urls: delegated ? [] : (status_params[:status_reference_urls] || []),
                                          searchability: status_params[:searchability],
                                          audience_account_id: status_params[:audience_account_id],
-                                         allowed_mentions: delegated ? nil : status_params[:allowed_mentions],
+                                         allowed_mentions: delegated ? interaction.allowed_mentions : status_params[:allowed_mentions],
                                          posting_audit: delegated ? posting_audit_payload : nil
     )
 
@@ -213,9 +214,9 @@ class Api::V1::StatusesController < Api::BaseController
     params.permit(:updated_at, d: [:id, :updated_at])
   end
 
-  # Unsupported delegated shapes are rejected before reply, circle, schedule,
-  # and expiry lookups. Those lookups use the signed-in account, and expiry
-  # also copies that user's default lifetime.
+  # Delegated replies are resolved for the granting account after the
+  # sender is fixed. Circle, schedule, and expiry lookups stay on the
+  # signed-in account and are not used for a delegated post.
   def prepare_status_create
     raise Mastodon::NotPermittedError if current_user.setting_disable_post
 
@@ -227,7 +228,11 @@ class Api::V1::StatusesController < Api::BaseController
     )
 
     if @posting_resolution.delegated?
-      PostingIdentity::DelegatedTextPost.authorize!(resolution: @posting_resolution, params: status_params)
+      @delegated_interaction = PostingIdentity::DelegatedTextPost.resolve!(
+        resolution: @posting_resolution,
+        viewer: current_account,
+        params: status_params
+      )
       @thread = nil
       @circle = nil
       @scheduled_at = nil

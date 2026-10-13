@@ -2,7 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
-import { createStore } from 'redux';
+import { applyMiddleware, createStore } from 'redux';
+import thunk from 'redux-thunk';
 
 jest.mock('react-intl', () => ({
   defineMessages: messages => messages,
@@ -62,7 +63,7 @@ const indicatorIn = (testId) => screen.getByTestId(testId).querySelector('[data-
 
 describe('SearchabilityIndicatorContainer', () => {
   it('shows a cancellable change when searchability matches the widened privacy', () => {
-    const store = createStore(root);
+    const store = createStore(root, applyMiddleware(thunk));
 
     store.dispatch(createComposer(PORTABLE_ID));
     store.dispatch(targetComposerAction({
@@ -97,7 +98,7 @@ describe('SearchabilityIndicatorContainer', () => {
   });
 
   it('resets only the composer whose indicator was closed', () => {
-    const store = createStore(root);
+    const store = createStore(root, applyMiddleware(thunk));
 
     store.dispatch(createComposer(PORTABLE_ID));
     widen(store, PRIMARY_COMPOSER_ID);

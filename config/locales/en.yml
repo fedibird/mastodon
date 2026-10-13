@@ -2243,7 +2243,9 @@ en:
     code_placeholder: "e.g. aB3xK9mQ_2pL8nR4sT6uV"
     code_once: Linking code
     current_account: Signed in as
-    delegated_unsupported: This linked account can only publish a new public, unlisted, or followers-only post. Still images can be attached when the grant includes media.
+    delegated_unsupported: This linked account can only publish a public, unlisted, or followers-only post. Groups, polls, and schedules stay on your own account. Still images can be attached when the grant includes media.
+    delegated_interaction_rejected: This linked account cannot reply to or quote that post.
+    delegated_mention_rejected: This linked account can mention only the account being replied to and accounts already mentioned on that post.
     delegated_media_type: This linked account can attach still images only.
     description: Manage links for posting as another account, and permission for others to use your account.
     errors:
@@ -2304,6 +2306,10 @@ en:
       media: Upload media for new posts
       post: Create new posts
       post_included: New posts are included. Media upload is a separate permission.
+      quote: Quote posts
+      quote_extra: Quotes are a separate permission. Creating posts does not include them.
+      reply: Reply to posts
+      reply_extra: Replies are a separate permission. Creating posts does not include them.
     sending_not_enabled: Sending as this account is not available yet.
     title: Linked accounts
     unlink: Remove link

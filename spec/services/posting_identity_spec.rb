@@ -18,6 +18,7 @@ RSpec.describe PostingIdentity do # rubocop:disable Metrics/BlockLength
         'post' => 'supported',
         'media' => 'supported',
         'reply' => 'supported',
+        'quote' => 'supported',
         'group' => 'supported',
         'schedule' => 'supported'
       )

@@ -19,7 +19,13 @@ const messages = defineMessages({
   confirmSwitch: { id: 'compose_form.sender_identity.confirm_switch', defaultMessage: 'Post as @{acct}? The text you are writing stays.' },
   blockedMedia: { id: 'compose_form.sender_identity.blocked_media', defaultMessage: 'Remove attached media before posting as another account.' },
   blockedPoll: { id: 'compose_form.sender_identity.blocked_poll', defaultMessage: 'Remove the poll before posting as another account.' },
-  blockedReply: { id: 'compose_form.sender_identity.blocked_reply', defaultMessage: 'Replies and quotes cannot be posted as another account yet.' },
+  blockedReply: { id: 'compose_form.sender_identity.blocked_reply', defaultMessage: 'Replies need a separate permission on this linked account.' },
+  blockedQuote: { id: 'compose_form.sender_identity.blocked_quote', defaultMessage: 'Quotes need a separate permission on this linked account.' },
+  blockedPending: { id: 'compose_form.sender_identity.blocked_pending', defaultMessage: 'Checking whether this linked account can use that post.' },
+  blockedTarget: { id: 'compose_form.sender_identity.blocked_target', defaultMessage: 'This linked account cannot reply to or quote that post.' },
+  canReply: { id: 'compose_form.sender_identity.can_reply', defaultMessage: 'Replies' },
+  canQuote: { id: 'compose_form.sender_identity.can_quote', defaultMessage: 'Quotes' },
+  replyQuoteSeparate: { id: 'compose_form.sender_identity.reply_quote_separate', defaultMessage: 'Replies and quotes need a separate permission.' },
   blockedGroup: { id: 'compose_form.sender_identity.blocked_group', defaultMessage: 'Group posts cannot be posted as another account yet.' },
   blockedSchedule: { id: 'compose_form.sender_identity.blocked_schedule', defaultMessage: 'Scheduled and expiring posts cannot be posted as another account yet.' },
   blockedEdit: { id: 'compose_form.sender_identity.blocked_edit', defaultMessage: 'Finish or discard this edit before changing the posting account.' },
@@ -38,8 +44,13 @@ const blockMessage = reason => {
   case 'poll':
     return messages.blockedPoll;
   case 'reply':
-  case 'quote':
     return messages.blockedReply;
+  case 'quote':
+    return messages.blockedQuote;
+  case 'pending':
+    return messages.blockedPending;
+  case 'target':
+    return messages.blockedTarget;
   case 'group':
     return messages.blockedGroup;
   case 'schedule':
@@ -85,6 +96,7 @@ class SenderIdentity extends React.PureComponent {
     current: ImmutablePropTypes.map,
     failed: PropTypes.bool,
     onRetry: PropTypes.func,
+    onRetryInteraction: PropTypes.func,
     compact: PropTypes.bool,
     choices: ImmutablePropTypes.list,
     selectedId: PropTypes.string,
@@ -193,7 +205,16 @@ class SenderIdentity extends React.PureComponent {
         aria-label={intl.formatMessage(messages.label)}
       >
         {this.menuIdentities().map(item => this.renderMenuItem(item))}
-        {blockReason ? <p className='compose-form__sender-status' role='status'>{intl.formatMessage(blockMessage(blockReason))}</p> : null}
+        {blockReason ? (
+          <p className='compose-form__sender-status' role='status'>
+            {intl.formatMessage(blockMessage(blockReason))}
+            {blockReason === 'target' && this.props.onRetryInteraction ? (
+              <button type='button' className='compose-form__sender-retry' onClick={this.props.onRetryInteraction}>
+                {intl.formatMessage(messages.retry)}
+              </button>
+            ) : null}
+          </p>
+        ) : null}
         {failed ? (
           <p className='compose-form__sender-status' role='status'>
             {intl.formatMessage(messages.failed)}
@@ -347,6 +368,29 @@ class SenderIdentity extends React.PureComponent {
     );
   }
 
+  capabilitySummary (item) {
+    if (!item || item.get('kind') !== 'delegated') {
+      return '';
+    }
+
+    const caps = item.get('capabilities');
+    const names = [];
+
+    if (caps && caps.get('reply') === 'supported') {
+      names.push(this.props.intl.formatMessage(messages.canReply));
+    }
+
+    if (caps && caps.get('quote') === 'supported') {
+      names.push(this.props.intl.formatMessage(messages.canQuote));
+    }
+
+    if (!names.length) {
+      return this.props.intl.formatMessage(messages.replyQuoteSeparate);
+    }
+
+    return names.join(', ');
+  }
+
   renderChoice (item) {
     const selected = item.get('id') === this.props.selectedId;
     const account = item.get('account');
@@ -368,6 +412,7 @@ class SenderIdentity extends React.PureComponent {
       >
         {this.renderIdentity(account)}
         <span className='compose-form__sender-kind'>{label}</span>
+        {linked ? <span className='compose-form__sender-capabilities' data-testid={`sender-capabilities-${item.get('id')}`}>{this.capabilitySummary(item)}</span> : null}
         <span className='sr-only'>{selected ? acct : ''}</span>
       </button>
     );
@@ -415,6 +460,7 @@ class SenderIdentity extends React.PureComponent {
           <strong>{heading}</strong>
           {acct ? <span>{`@${acct}`}</span> : null}
           <span>{kind}</span>
+          {linked ? <span data-testid={`sender-capabilities-${item.get('id')}`}>{this.capabilitySummary(item)}</span> : null}
           {unavailable ? <span>{intl.formatMessage(messages.revoked)}</span> : null}
           {!unavailable && !ready ? <span>{intl.formatMessage(messages.unavailable)}</span> : null}
         </span>
@@ -539,7 +585,14 @@ class SenderIdentity extends React.PureComponent {
           </span>
         ) : null}
         {blockReason ? (
-          <p className='compose-form__sender-status' role='status'>{intl.formatMessage(blockMessage(blockReason))}</p>
+          <p className='compose-form__sender-status' role='status'>
+            {intl.formatMessage(blockMessage(blockReason))}
+            {blockReason === 'target' && this.props.onRetryInteraction ? (
+              <button type='button' className='compose-form__sender-retry' onClick={this.props.onRetryInteraction}>
+                {intl.formatMessage(messages.retry)}
+              </button>
+            ) : null}
+          </p>
         ) : null}
         {failed ? (
           <p className='compose-form__sender-status' role='status'>

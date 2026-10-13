@@ -2,12 +2,17 @@
 
 class PostingIdentity::DelegationResolver
   # A stored grant is not permission to post. Callers re-check the parties,
-  # the account, the clock, and the requested scope. M2 does not turn a
-  # passing result into a status or media request.
+  # the account, the clock, and the requested scope. reply and quote also
+  # require post, and they are never implied by an older post grant.
   def self.grant_permits?(grantee:, delegation:, operation:)
-    relationship_active?(grantee: grantee, delegation: delegation) &&
-      PostingIdentity::Scopes::ALLOWED.include?(operation.to_s) &&
-      Array(delegation.scopes).map(&:to_s).include?(operation.to_s)
+    return false unless relationship_active?(grantee: grantee, delegation: delegation)
+
+    name = operation.to_s
+    scopes = Array(delegation.scopes).map(&:to_s)
+    return false unless PostingIdentity::Scopes::ALLOWED.include?(name) && scopes.include?(name)
+    return false if %w(reply quote).include?(name) && !scopes.include?('post')
+
+    true
   end
 
   def self.relationship_active?(grantee:, delegation:)

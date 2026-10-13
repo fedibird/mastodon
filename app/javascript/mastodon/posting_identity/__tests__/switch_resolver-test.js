@@ -234,6 +234,58 @@ describe('resolveSenderIdentitySwitch', () => {
     expect(uploading.permitted).toBe(false);
   });
 
+  it('allows a reply or quote switch only when that capability is granted', () => {
+    const delegated = ready('delegated:99', {
+      kind: 'delegated',
+      capabilities: {
+        post: 'supported',
+        media: 'supported',
+        reply: 'supported',
+        quote: 'unavailable',
+        group: 'unavailable',
+        schedule: 'unavailable',
+      },
+    });
+    const reply = resolveSenderIdentitySwitch({
+      fromIdentityId: 'local:42',
+      toIdentity: delegated,
+      sessionIdentityId: 'local:42',
+      draft: draft({ text: 'Keep this draft', replyToId: 'status-1' }),
+      nextIdempotencyKey: 'key-next',
+      confirmed: true,
+    });
+    const quote = resolveSenderIdentitySwitch({
+      fromIdentityId: 'local:42',
+      toIdentity: delegated,
+      sessionIdentityId: 'local:42',
+      draft: draft({ text: '', quoteId: 'status-2' }),
+      nextIdempotencyKey: 'key-next',
+      confirmed: true,
+    });
+    const foreignMedia = resolveSenderIdentitySwitch({
+      fromIdentityId: 'local:42',
+      toIdentity: delegated,
+      sessionIdentityId: 'local:42',
+      draft: draft({
+        text: '',
+        replyToId: 'status-1',
+        media: [{ id: 'mine', ownerIdentityId: 'local:42' }],
+      }),
+      nextIdempotencyKey: 'key-next',
+      confirmed: true,
+    });
+
+    expect(reply.permitted).toBe(true);
+    expect(reply.preservedText).toEqual('Keep this draft');
+    expect(reply.mustRevalidateReply).toBe(true);
+    expect(reply.nextIdempotencyKey).toEqual('key-next');
+    expect(quote.permitted).toBe(false);
+    expect(quote.reason).toEqual('quote');
+    expect(foreignMedia.permitted).toBe(false);
+    expect(foreignMedia.reason).toEqual('media');
+    expect(foreignMedia.preservedText).toEqual('');
+  });
+
   it('refuses an unregistered, unauthorized, or unsupported identity', () => {
     const base = {
       fromIdentityId: 'local:42',

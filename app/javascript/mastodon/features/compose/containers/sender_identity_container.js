@@ -2,7 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 import { connect } from 'react-redux';
-import { fetchPostingIdentities, selectComposerSenderIdentity } from '../../../actions/posting_identities';
+import { fetchPostingIdentities, retryComposerInteraction, selectComposerSenderIdentity } from '../../../actions/posting_identities';
 import { isAdministrator, me } from '../../../initial_state';
 import { sessionPostingIdentityId } from '../../../posting_identity/identity';
 import { PORTABLE_COMPOSER_MODE_SIMPLE, selectComposer, selectPortableComposerDisplayMode } from '../../../selectors/composer';
@@ -126,6 +126,10 @@ class SenderIdentityContainer extends React.PureComponent {
     this.props.dispatch(fetchPostingIdentities({ force: true }));
   };
 
+  handleRetryInteraction = () => {
+    this.props.dispatch(retryComposerInteraction(this.props.composerId));
+  };
+
   handleSelect = (identityId, options) => {
     this.props.dispatch(selectComposerSenderIdentity(this.props.composerId, identityId, options || {}));
   };
@@ -152,6 +156,7 @@ class SenderIdentityContainer extends React.PureComponent {
         composerId={this.props.composerId}
         catalog={this.props.catalog}
         onRetry={this.handleRetry}
+        onRetryInteraction={this.props.sendBlocked === 'target' ? this.handleRetryInteraction : null}
         onSelect={this.handleSelect}
       />
     );

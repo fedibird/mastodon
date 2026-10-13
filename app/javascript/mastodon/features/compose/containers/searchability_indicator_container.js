@@ -2,6 +2,7 @@ import { connect } from 'react-redux';
 import SearchabilityIndicator from '../components/searchability_indicator';
 import { resetComposeSearchability } from '../../../actions/compose';
 import { targetComposerAction } from '../../../actions/composer';
+import { scheduleComposerInteractionCheck } from '../../../actions/posting_identities';
 import { selectComposer } from '../../../selectors/composer';
 import { searchabilityIsChanged } from '../../../utils/searchability';
 import { withComposerId } from '../composer_id_context';
@@ -24,6 +25,7 @@ const mapStateToProps = (state, { composerId }) => {
 const mapDispatchToProps = (dispatch, { composerId }) => ({
   onReset () {
     dispatch(targetComposerAction(resetComposeSearchability(), composerId));
+    dispatch(scheduleComposerInteractionCheck(composerId));
   },
 });
 

@@ -2172,7 +2172,9 @@ ja:
     code_placeholder: "例: aB3xK9mQ_2pL8nR4sT6uV"
     code_once: 連携コード
     current_account: ログイン中
-    delegated_unsupported: この連携アカウントからできるのは、公開・未収載・フォロワー限定の新しい投稿だけです。静止画像は、メディアの権限があるときだけ添付できます。
+    delegated_unsupported: この連携アカウントからできるのは、公開・未収載・フォロワー限定の投稿だけです。グループ、投票、予約はログイン中のアカウントのままです。静止画像は、メディアの権限があるときだけ添付できます。
+    delegated_interaction_rejected: この連携アカウントでは、その投稿へ返信または引用できません。
+    delegated_mention_rejected: この連携アカウントが付けられるメンションは、返信先のアカウントと、その投稿に既にあるメンションだけです。
     delegated_media_type: この連携アカウントに添付できるのは静止画像だけです。
     description: ほかのアカウントとして投稿するための連携と、自分のアカウントの利用許可を管理します。
     errors:
@@ -2233,6 +2235,10 @@ ja:
       media: 新規投稿用のメディアアップロード
       post: 新規投稿
       post_included: 新規投稿は含まれます。メディアのアップロードは別の許可です。
+      quote: 投稿の引用
+      quote_extra: 引用は別の追加許可です。新規投稿だけでは引用できません。
+      reply: 投稿への返信
+      reply_extra: 返信は別の追加許可です。新規投稿だけでは返信できません。
     sending_not_enabled: このアカウントとしての送信は、まだできません。
     title: 連携アカウント
     unlink: 連携を解除する
