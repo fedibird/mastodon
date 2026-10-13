@@ -114,6 +114,7 @@ RSpec.describe 'POST /api/v1/fedibird/preferences/reset' do
     post_raw('{"reset":[]}')
     expect(response).to have_http_status(200)
     expect(row(user, 'default_privacy').value).to eq 'public'
+    expect(UserPreferenceRevision.find_by(user_id: user.id)).to be_nil
 
     expect_any_instance_of(UserPreferences::Writer).to receive(:apply).and_wrap_original do |method, **kwargs|
       expect(kwargs[:resets]).to eq ['default_privacy']
