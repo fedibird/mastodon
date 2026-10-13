@@ -73,6 +73,21 @@ describe('UploadButton accept types', () => {
     })).toBe(false);
   });
 
+  it('keeps image uploads enabled after a converted animated GIF is attached', () => {
+    renderButton(base({ compose: composer(['gifv', 'image']) }));
+
+    expect(screen.getByRole('button', { name: 'Add images, a video or an audio file' })).toBeEnabled();
+    expect(document.querySelector('input[type="file"]').getAttribute('accept')).toBe('image/png,image/jpeg');
+    expect(attachmentUploadBlocked({
+      existingTypes: ['gifv', 'image'],
+      incomingMimeTypes: ['image/png'],
+    })).toBe(false);
+    expect(attachmentUploadBlocked({
+      existingTypes: ['gifv'],
+      incomingMimeTypes: ['audio/mpeg'],
+    })).toBe(true);
+  });
+
   it('disables another attachment when a video is already attached', () => {
     const portable = composer(['video']);
     renderButton(base({

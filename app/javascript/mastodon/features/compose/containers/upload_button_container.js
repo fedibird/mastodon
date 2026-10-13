@@ -4,6 +4,7 @@ import UploadButton from '../components/upload_button';
 import { uploadToComposer } from '../../../actions/compose';
 import { allowPollImage, maxAttachments } from '../../../initial_state';
 import { STILL_IMAGE_CONTENT_TYPES } from '../../../posting_identity/still_image';
+import { isExclusiveAttachmentType } from '../composer_media';
 import { selectComposer } from '../../../selectors/composer';
 import { selectComposerCanUploadAsIdentity } from '../../../selectors/posting_identities';
 import { withComposerId } from '../composer_id_context';
@@ -12,8 +13,8 @@ const mapStateToProps = (state, { composerId }) => {
   const composer = selectComposer(state, composerId);
   const media = composer.get('media_attachments');
   const upload = selectComposerCanUploadAsIdentity(state, composerId);
-  const hasImages = media.some(item => item.get('type') === 'image');
-  const hasExclusive = media.some(item => ['video', 'audio', 'gifv'].includes(item.get('type'))) || (composer.get('pending_exclusive_attachments') || 0) > 0;
+  const hasImages = media.some(item => ['image', 'gifv'].includes(item.get('type')));
+  const hasExclusive = media.some(item => isExclusiveAttachmentType(item.get('type'))) || (composer.get('pending_exclusive_attachments') || 0) > 0;
   let acceptContentTypes = state.getIn(['media_attachments', 'accept_content_types']) || ImmutableList();
 
   if (upload.stillImagesOnly) {
