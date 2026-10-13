@@ -375,6 +375,8 @@ HTTP もフォームも変えない。節 8 のクラスと spec だけを足す
 
 P2-4A は `user_preference_revisions` に Writer の変更回数だけを記録する。行が無いユーザーは 0 である。設定行と同じトランザクションで 1 増やす。Decorator、フォーム、Credentials、既存 getter のキャッシュキーはこの番号を動かさない。HTTP 公開、ETag、If-Match、revision 付きキャッシュは後続である。詳細は `p2_4a_revision.md` に書く。
 
+キャッシュ世代の採否、revision の取得、ローリングデプロイの段階は `p2_4b_cache_migration_design.md` に書く。単一 revision を 9 キーの世代に使うと、1 キーの変更で 9 キーとも世代が変わる。P2-4A に書いた「変わったキーだけを落とす」という命中率の説明は、そこで訂正する。フォームと Credentials の Writer 移行は、このキャッシュ設計だけでは前倒ししない。
+
 ### P2-5 変更通知
 
 コミット後に、revision と変更キーを載せる。9 キー以外と ActivityPub は混ぜない。enqueue 失敗を失いたくなった時点で outbox を別 PR にする。P2-5 の最初の実装は、コミット後の best-effort でよい。設定の正はすでに DB にある。
