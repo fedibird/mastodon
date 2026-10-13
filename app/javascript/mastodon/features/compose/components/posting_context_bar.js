@@ -16,6 +16,7 @@ const messages = defineMessages({
   threadiverseLemmy: { id: 'compose_form.posting_context.threadiverse.lemmy', defaultMessage: 'The first line becomes the post title (100 characters max). The community mention is added automatically' },
   threadiversePiefed: { id: 'compose_form.posting_context.threadiverse.piefed', defaultMessage: 'The community mention is added automatically' },
   threadiverseWeakTitle: { id: 'compose_form.posting_context.threadiverse.weak_title', defaultMessage: 'An empty first line, or one with only a mention or hashtag, may not work as a title' },
+  threadiverseDelegated: { id: 'compose_form.posting_context.threadiverse.delegated', defaultMessage: 'Sending to this community as another account needs an explicit title. That is not available, so this draft is kept and is not sent.' },
   followSatisfied: { id: 'compose_form.posting_context.follow.satisfied', defaultMessage: '✓ Following @{acct}' },
   followUnknown: { id: 'compose_form.posting_context.follow.unknown', defaultMessage: 'Checking follow status for @{acct}…' },
   followRequested: { id: 'compose_form.posting_context.follow.requested', defaultMessage: 'Follow request to @{acct} is pending' },
@@ -141,6 +142,7 @@ class PostingContextBar extends React.PureComponent {
     onRefreshStatus: PropTypes.func,
     onWatch: PropTypes.func,
     threadiverse: PropTypes.oneOf(['lemmy', 'piefed']),
+    threadiverseDelegated: PropTypes.bool,
     weakTitle: PropTypes.bool,
   };
 
@@ -205,7 +207,7 @@ class PostingContextBar extends React.PureComponent {
   }
 
   render () {
-    const { intl, hashtags, suppressedHashtags, mentions, audience, visibility, followingAccounts, createNotice, canRecheck, revalidationNotice, revalidationActor, revalidationAffiliations, onToggle, threadiverse, weakTitle } = this.props;
+    const { intl, hashtags, suppressedHashtags, mentions, audience, visibility, followingAccounts, createNotice, canRecheck, revalidationNotice, revalidationActor, revalidationAffiliations, onToggle, threadiverse, threadiverseDelegated, weakTitle } = this.props;
     const hasHashtags = Boolean(hashtags && !hashtags.isEmpty());
     const requiredMentions = mentions ? mentions.filter(mention => mention.get('enforcement') === 'required' && mention.get('acct')) : null;
     const hasMentions = Boolean(requiredMentions && !requiredMentions.isEmpty());
@@ -221,7 +223,9 @@ class PostingContextBar extends React.PureComponent {
     const showRecheck = Boolean(canRecheck && !showResume && revalidationNotice !== 'running');
     let threadiverseMessage = null;
 
-    if (threadiverse === 'lemmy') {
+    if (threadiverseDelegated && (threadiverse === 'lemmy' || threadiverse === 'piefed')) {
+      threadiverseMessage = messages.threadiverseDelegated;
+    } else if (threadiverse === 'lemmy') {
       threadiverseMessage = messages.threadiverseLemmy;
     } else if (threadiverse === 'piefed') {
       threadiverseMessage = messages.threadiversePiefed;

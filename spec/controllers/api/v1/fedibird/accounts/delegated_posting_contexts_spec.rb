@@ -163,4 +163,50 @@ RSpec.describe Api::V1::Fedibird::Accounts::PostingContextsController do # ruboc
     expect(response.body).not_to include('relationships/secret')
     expect(response.body).not_to include(grantor.email)
   end
+
+  it 'recognizes Lemmy and PieFed but does not turn fresh canCreate into delegated send permission' do
+    delegation = delegate!
+    %w(lemmy piefed).each do |software|
+      domain = "#{software}.example"
+      Node.create!(domain: domain, info: { 'software_name' => software })
+      remote = Fabricate(
+        :account,
+        username: 'technology',
+        domain: domain,
+        actor_type: 'Group',
+        protocol: :activitypub,
+        uri: "https://#{domain}/c/technology",
+        inbox_url: "https://#{domain}/c/technology/inbox"
+      )
+      remote.update_columns(
+        affiliations_fetched_at: Time.now.utc,
+        permission_definitions_fetched_at: Time.now.utc,
+        can_create_affiliation: 'none'
+      )
+      GroupAffiliation.create!(
+        group_account: remote,
+        subject_uri: ActivityPub::TagManager.instance.uri_for(grantee.account),
+        relationship: 'admin',
+        affiliation_uri: "https://#{domain}/relationships/secret"
+      )
+
+      get :show, params: { account_id: remote.id, posting_identity_id: "delegated:#{grantor.account.id}" }
+
+      expect(response).to have_http_status(200)
+      expect(response.headers['Cache-Control']).to include('no-store')
+      expect(body_as_json[:viewer_evidence]).to be_nil
+      expect(body_as_json.dig(:discovery, :adapter)).to eq "#{software}_group"
+      expect(body_as_json.dig(:context, :key)).to eq "protocol:fep-1b12-#{software}:#{remote.id}"
+      expect(body_as_json.dig(:context, :source, :id)).to eq "compat:#{software}-group-note"
+      expect(body_as_json[:sender_posting]).to include(
+        identity_id: "delegated:#{grantor.account.id}",
+        delegation_id: delegation.id.to_s,
+        can_post: false
+      )
+      expect(body_as_json.dig(:sender_posting, :permission, :confirmed)).to be true
+      expect(body_as_json.dig(:sender_posting, :delivery)).to include(status: 'unsupported', adapter: "#{software}_group")
+      expect(response.body).not_to include('relationships/secret')
+      expect(response.body).not_to include(grantor.email)
+    end
+  end
 end

@@ -7,6 +7,7 @@ import { toggleUserPostingStyleHashtag } from '../../../actions/user_posting_sty
 import { createCapabilityNotice, selectComposerEffectiveCreateCapability } from '../../../posting_context/create_capability';
 import { firstLineLacksProse } from '../../../posting_context/managed_mentions';
 import { isExistingPostEdit, materializeComposerText, styleHashtagChips } from '../../../posting_context/materialize';
+import { consistentLemmyGroup, consistentPiefedGroup } from '../../../posting_identity/group_destination';
 import { selectComposer } from '../../../selectors/composer';
 import { selectPostingContextRevalidation } from '../../../selectors/posting_context_revalidations';
 import { withComposerId } from '../composer_id_context';
@@ -93,17 +94,26 @@ const mapStateToProps = (state, { composerId }) => {
   const accountId = composer.get('posting_context_account_id');
   const revalidation = present(accountId) ? selectPostingContextRevalidation(state, accountId) : null;
   const adapter = capability.delivery && capability.delivery.adapter;
+  const senderId = composer.getIn(['senderIdentity', 'id']);
+  const delegatedSender = typeof senderId === 'string' && senderId.startsWith('delegated:');
   let threadiverse = null;
 
   if (!isExistingPostEdit(composer)) {
-    if (adapter === 'lemmy_group') {
+    if (delegatedSender) {
+      if (consistentLemmyGroup(composer)) {
+        threadiverse = 'lemmy';
+      } else if (consistentPiefedGroup(composer)) {
+        threadiverse = 'piefed';
+      }
+    } else if (adapter === 'lemmy_group') {
       threadiverse = 'lemmy';
     } else if (adapter === 'piefed_group') {
       threadiverse = 'piefed';
     }
   }
 
-  const previewText = threadiverse ? materializeComposerText(composer) : '';
+  const threadiverseDelegated = delegatedSender && (threadiverse === 'lemmy' || threadiverse === 'piefed');
+  const previewText = threadiverse && !threadiverseDelegated ? materializeComposerText(composer) : '';
 
   return {
     hashtags: composer.getIn(['context', 'managed', 'hashtags'], ImmutableList()).concat(styleHashtagChips(composer)),
@@ -121,7 +131,8 @@ const mapStateToProps = (state, { composerId }) => {
     revalidationAccountId: present(accountId) ? String(accountId) : null,
     revalidationExplicit: Boolean(revalidation && revalidation.get('explicit')),
     threadiverse,
-    weakTitle: threadiverse === 'lemmy' && firstLineLacksProse(previewText),
+    threadiverseDelegated,
+    weakTitle: threadiverse === 'lemmy' && !threadiverseDelegated && firstLineLacksProse(previewText),
   };
 };
 

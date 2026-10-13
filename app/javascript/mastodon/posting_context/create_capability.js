@@ -373,6 +373,19 @@ export function selectComposerEffectiveCreateCapability(state, composerId, now =
     return attempt;
   }
 
+  // A Lemmy or PieFed community post is a titled Page. Delegated send
+  // stays closed until that title is an explicit field, even when a
+  // cached payload says canCreate is allowed.
+  if (delivery.adapter === 'lemmy_group' || delivery.adapter === 'piefed_group') {
+    return result({
+      permission: attempt.permission,
+      delivery: attempt.delivery,
+      compliance: attempt.compliance,
+      canAttempt: false,
+      reason: 'delivery_unsupported',
+    });
+  }
+
   const posting = discovery && discovery.get ? discovery.get('senderPosting') : null;
   const adapter = posting && posting.getIn(['delivery', 'adapter']);
   const confirmed = posting
