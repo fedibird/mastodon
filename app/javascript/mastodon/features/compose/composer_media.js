@@ -44,7 +44,8 @@ export function summaryThumbCount ({
   return Math.max(0, Math.min(cap, Math.floor((room - more) / thumb)));
 }
 
-export const isExclusiveAttachmentType = (type) => type === 'video' || type === 'audio' || type === 'gifv';
+// Animated GIFs are delivered as gifv (MP4), but count as images for attachments.
+export const isExclusiveAttachmentType = (type) => type === 'video' || type === 'audio';
 
 export const isExclusiveFile = (mime) => (
   typeof mime === 'string' && (mime.startsWith('video/') || mime.startsWith('audio/'))
