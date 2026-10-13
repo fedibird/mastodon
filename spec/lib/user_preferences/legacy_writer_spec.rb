@@ -170,6 +170,32 @@ RSpec.describe UserPreferences::LegacyWriter do
       expect(stored(user, 'show_translation_bar').value).to eq 'never'
     end
 
+    it 'keeps an explicit nil policy after the stored policy changes' do
+      user.settings['new_features_policy'] = nil
+      expect(stored(user, 'new_features_policy').value).to be_nil
+      legacy = described_class.new(user, policy: nil)
+
+      legacy.update('new_features_policy', 'tester')
+      legacy.update('show_translation_bar', 'nope')
+
+      expect(stored(user, 'new_features_policy').value).to eq 'tester'
+      expect(stored(user, 'show_translation_bar').value).to eq 'target'
+    end
+
+    it 'normalizes with the policy read once when the argument is omitted' do
+      user.settings['new_features_policy'] = 'default'
+      legacy = described_class.new(user)
+
+      legacy.update('new_features_policy', 'conservative')
+      legacy.update('show_translation_bar', 'nope')
+
+      expect(stored(user, 'new_features_policy').value).to eq 'conservative'
+      expect(stored(user, 'show_translation_bar').value).to eq 'target'
+
+      described_class.new(user, policy: 'tester').update('show_translation_bar', 'nope')
+      expect(stored(user, 'show_translation_bar').value).to eq 'always'
+    end
+
     it 'gives each changed key its own revision and leaves the earlier key when a later save fails' do
       writer.update('default_privacy', 'direct')
       expect(revision(user)).to eq 1
@@ -315,6 +341,34 @@ RSpec.describe UserPreferences::LegacyWriter do
       expect(payload.dig('payload', 'changed_keys')).to eq ['user.default_sensitive']
       expect(payload.dig('payload', 'revision')).to eq '2'
     end
+
+    it 'rolls back a failed save without cache writes, deletion, or notification' do
+      described_class.new(user).update('default_privacy', 'direct')
+      expect(revision(user)).to eq 1
+      events = nil
+      messages = nil
+
+      observe do |seen, published|
+        allow_any_instance_of(Setting).to receive(:save!).and_wrap_original do |method, *args|
+          method.call(*args)
+          raise 'save failed'
+        end
+
+        expect do
+          described_class.new(user).update('default_language', 'ja-JP')
+        end.to raise_error(RuntimeError, 'save failed')
+        events = seen
+        messages = published
+      end
+
+      expect(stored(user, 'default_privacy').value).to eq 'direct'
+      expect(stored(user, 'default_language')).to be_nil
+      expect(revision(user)).to eq 1
+      expect(events.select { |event| event[:source] == 'rewrite_cache' }).to eq []
+      expect(events.select { |event| event[:source] == 'cache_deletion' }).to eq []
+      expect(events.select { |event| event[:op] == 'notify' }).to eq []
+      expect(messages).to eq []
+    end
   end
 
   describe 'user row lock' do
@@ -325,36 +379,61 @@ RSpec.describe UserPreferences::LegacyWriter do
     it 'waits behind another writer that holds the same user row' do
       release = Queue.new
       state = { locked: false, started: false, finished: false }
-      first = UserPreferences::Writer.new(user)
-      allow(first).to receive(:lock_user).and_wrap_original do |method|
-        locked = method.call
-        state[:locked] = true
-        release.pop
-        locked
-      end
-      first_thread = Thread.new do
-        ActiveRecord::Base.connection_pool.with_connection do
-          first.apply(updates: { 'default_sensitive' => true })
+      first_thread = nil
+      second_thread = nil
+      body_error = nil
+      begin
+        first = UserPreferences::Writer.new(user)
+        allow(first).to receive(:lock_user).and_wrap_original do |method|
+          locked = method.call
+          state[:locked] = true
+          release.pop
+          locked
+        end
+        first_thread = Thread.new do
+          ActiveRecord::Base.connection_pool.with_connection do
+            first.apply(updates: { 'default_sensitive' => true })
+          end
+        end
+        deadline = Time.now + 5
+        sleep 0.05 until state[:locked] || Time.now > deadline
+        expect(state[:locked]).to be true
+
+        second_thread = Thread.new do
+          ActiveRecord::Base.connection_pool.with_connection do
+            state[:started] = true
+            described_class.new(user).update('reduce_motion', '1')
+            state[:finished] = true
+          end
+        end
+        sleep 0.05 until state[:started] || Time.now > deadline
+        sleep 0.2
+        expect(state[:finished]).to be false
+      rescue StandardError => error
+        body_error = error
+      ensure
+        release << true
+        thread_errors = [first_thread, second_thread].compact.filter_map do |thread|
+          thread.join(5)
+          if thread.alive?
+            thread.kill
+            thread.join(1)
+            RuntimeError.new('preference lock thread was still waiting')
+          else
+            thread.value
+            nil
+          end
+        rescue StandardError => error
+          error
+        end
+        if body_error && thread_errors.any?
+          raise body_error, "#{body_error.message}\n#{thread_errors.map { |error| "#{error.class}: #{error.message}" }.join("\n")}", body_error.backtrace
+        elsif body_error
+          raise body_error
+        elsif thread_errors.any?
+          raise thread_errors.first
         end
       end
-      deadline = Time.now + 5
-      sleep 0.05 until state[:locked] || Time.now > deadline
-      expect(state[:locked]).to be true
-
-      second_thread = Thread.new do
-        ActiveRecord::Base.connection_pool.with_connection do
-          state[:started] = true
-          described_class.new(user).update('reduce_motion', '1')
-          state[:finished] = true
-        end
-      end
-      sleep 0.05 until state[:started] || Time.now > deadline
-      sleep 0.2
-      expect(state[:finished]).to be false
-
-      release << true
-      first_thread.join
-      second_thread.join
 
       expect(stored(user, 'default_sensitive').value).to be true
       expect(stored(user, 'reduce_motion').value).to be true

@@ -7,12 +7,14 @@ class UserPreferences::LegacyWriter
   KEYS = UserPreferences::WriteContract::KEYS
   BOOLEAN_KEYS = %w(default_sensitive reduce_motion).freeze
   SKIP = Object.new
-  private_constant :SKIP
+  UNSET_POLICY = Object.new
+  private_constant :SKIP, :UNSET_POLICY
 
-  def initialize(user, policy: nil)
+  def initialize(user, policy: UNSET_POLICY)
     @user = user
-    @policy = policy
     @writer = UserPreferences::Writer.new(user)
+    # Omitted policy is snapshotted once. An explicit nil stays nil.
+    @policy = policy.equal?(UNSET_POLICY) ? user.setting_new_features_policy : policy
     @boolean = ActiveModel::Type::Boolean.new
   end
 
@@ -65,9 +67,7 @@ class UserPreferences::LegacyWriter
   end
 
   def bar_policy
-    return @policy unless @policy.nil?
-
-    @user.setting_new_features_policy
+    @policy
   end
 
   def string_key(key)
