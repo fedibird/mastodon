@@ -115,6 +115,7 @@ export function selectComposerSenderIdentity(composerId, identityId, { confirmed
 export const INTERACTION_CHECK_DELAY = 300;
 
 const interactionTimers = new Map();
+const interactionSerial = new Map();
 
 const clearInteractionTimer = composerId => {
   const timer = interactionTimers.get(composerId);
@@ -136,9 +137,18 @@ const interactionNeeded = composer => {
   return delegated && Boolean(composer.get('in_reply_to') || composer.get('quote_from'));
 };
 
+const nextInteractionRequestId = composerId => {
+  const next = (interactionSerial.get(composerId) || 0) + 1;
+
+  interactionSerial.set(composerId, next);
+
+  return next;
+};
+
 export function cancelComposerInteractionChecks () {
   interactionTimers.forEach(timer => clearTimeout(timer));
   interactionTimers.clear();
+  interactionSerial.clear();
 }
 
 export function scheduleComposerInteractionCheck (composerId) {
@@ -181,7 +191,7 @@ export function validateComposerInteraction(composerId) {
     const replyId = composer.get('in_reply_to') || null;
     const quoteId = composer.get('quote_from') || null;
     const inputKey = composerInteractionInputKey(composer);
-    const snapshot = { identityId, epoch, inputKey };
+    const snapshot = { identityId, epoch, inputKey, requestId: nextInteractionRequestId(composerId) };
 
     dispatch(targetComposerAction({
       type: COMPOSER_INTERACTION_CHECK_REQUEST,

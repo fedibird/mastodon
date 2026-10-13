@@ -1496,6 +1496,7 @@ export function addReferenceToComposer(composerId, id, change) {
 
       if (status && status.get('visibility') === 'private' && ['public', 'unlisted'].includes(visibility)) {
         dispatchToComposer(dispatch, composerId, changeComposeVisibility('private'));
+        dispatch(scheduleComposerInteractionCheck(composerId));
       }
     }
 

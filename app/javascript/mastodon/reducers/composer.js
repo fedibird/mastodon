@@ -359,15 +359,30 @@ const invalidateInteraction = state => {
     return state;
   }
 
-  return state.setIn(['interactionCheck', 'status'], 'pending');
+  // Drop the in-flight id so a response for this input cannot be reused
+  // after the draft changes and then returns to the same text.
+  return state.set('interactionCheck', check.merge({
+    status: 'pending',
+    requestId: null,
+  }));
 };
 
 const acceptInteractionCheck = (state, action, status) => {
   const identityId = state.getIn(['senderIdentity', 'id']);
   const epoch = Number(state.getIn(['senderIdentity', 'changeEpoch'])) || 0;
   const inputKey = composerInteractionInputKey(state);
+  const requestId = Number(action.requestId);
+  const currentRequestId = state.getIn(['interactionCheck', 'requestId']);
 
-  if (action.identityId !== identityId || Number(action.epoch) !== epoch || action.inputKey !== inputKey) {
+  if (!Number.isFinite(requestId) || action.identityId !== identityId || Number(action.epoch) !== epoch || action.inputKey !== inputKey) {
+    return state;
+  }
+
+  if (status === 'pending') {
+    if (typeof currentRequestId === 'number' && requestId < currentRequestId) {
+      return state;
+    }
+  } else if (requestId !== currentRequestId) {
     return state;
   }
 
@@ -377,6 +392,7 @@ const acceptInteractionCheck = (state, action, status) => {
     epoch,
     targetKey: interactionTargetKey(state.get('in_reply_to'), state.get('quote_from')),
     inputKey,
+    requestId,
   }));
 };
 
@@ -943,7 +959,7 @@ export default function composer(state = initialState, action) {
   case USER_POSTING_STYLE_DEFAULTS_SETTLED:
     return state.setIn(['userPostingStyle', 'defaultsSettledSurface'], action.surfaceKey || null);
   case USER_POSTING_STYLE_COMMIT:
-    return commitUserPostingStyle(state, action);
+    return invalidateInteraction(commitUserPostingStyle(state, action));
   case USER_POSTING_STYLE_DESTINATION:
     return finishStyleDestination(state, action);
   case USER_POSTING_STYLE_DESTINATION_RETRY:

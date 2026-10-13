@@ -2,6 +2,7 @@ import { connect } from 'react-redux';
 import { cancelQuoteCompose } from '../../../actions/compose';
 import { openModal } from '../../../actions/modal';
 import { targetComposerAction } from '../../../actions/composer';
+import { scheduleComposerInteractionCheck } from '../../../actions/posting_identities';
 import { makeGetStatus } from '../../../selectors';
 import { selectComposer } from '../../../selectors/composer';
 import QuoteIndicator from '../components/quote_indicator';
@@ -33,7 +34,10 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
   onCancel () {
     dispatch((_, getState) => {
       const composer = selectComposer(getState(), composerId);
-      const cancel = () => dispatch(targetComposerAction(cancelQuoteCompose(), composerId));
+      const cancel = () => {
+        dispatch(targetComposerAction(cancelQuoteCompose(), composerId));
+        dispatch(scheduleComposerInteractionCheck(composerId));
+      };
 
       if (composer.get('text').trim().length !== 0 && composer.get('dirty')) {
         dispatch(openModal('CONFIRM', {

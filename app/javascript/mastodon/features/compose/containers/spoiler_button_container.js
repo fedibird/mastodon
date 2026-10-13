@@ -2,6 +2,7 @@ import { connect } from 'react-redux';
 import TextIconButton from '../components/text_icon_button';
 import { changeComposeSpoilerness } from '../../../actions/compose';
 import { targetComposerAction } from '../../../actions/composer';
+import { scheduleComposerInteractionCheck } from '../../../actions/posting_identities';
 import { selectComposer } from '../../../selectors/composer';
 import { withComposerId } from '../composer_id_context';
 import { injectIntl, defineMessages } from 'react-intl';
@@ -38,6 +39,7 @@ const mapDispatchToProps = (dispatch, { composerId, onExpandComposer }) => ({
       }
 
       dispatch(targetComposerAction(changeComposeSpoilerness(), composerId));
+      dispatch(scheduleComposerInteractionCheck(composerId));
 
       if (!composer.get('spoiler') && onExpandComposer) {
         onExpandComposer();
