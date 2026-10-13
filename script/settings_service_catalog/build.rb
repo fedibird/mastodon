@@ -788,7 +788,7 @@ module SettingsServiceCatalog
                   if CREDENTIALS_KEYS.include?(var)
                     form_effects << 'Credentials LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not. ActivityPub distribution is enqueued after a successful save, including when every key is a no-op'
                   end
-                  form_effects << 'UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
+                  form_effects << 'UserSettingsDecorator without a LegacyWriter refuses a non-nil nine-key write before saving anything'
                   form_effects
                 else
                   ['settings row update and Rails.cache.write in ScopedSettings#[]=']
@@ -876,6 +876,7 @@ module SettingsServiceCatalog
       refs << "config/settings.yml:#{yaml['line']}" if yaml && yaml['line']
       refs << "app/lib/user_settings_decorator.rb:#{@facts[:decorator]['lines'][var]}" if @facts[:decorator]['lines'][var]
       refs << "app/lib/user_preferences/legacy_writer.rb:#{read_line('app/lib/user_preferences/legacy_writer.rb', 'def update')}" if LEGACY_FORM_KEYS.include?(var)
+      refs << "app/lib/user_settings_decorator.rb:#{read_line('app/lib/user_settings_decorator.rb', 'def refuse_missing_legacy_writer!')}" if LEGACY_FORM_KEYS.include?(var)
       refs << "app/controllers/api/v1/accounts/credentials_controller.rb:#{read_line('app/controllers/api/v1/accounts/credentials_controller.rb', 'legacy_writer: UserPreferences::LegacyWriter.new(current_user)')}" if CREDENTIALS_KEYS.include?(var)
       refs << "app/models/user.rb:#{@facts[:delegate]['line']}" if @facts[:delegate]['keys'].include?(var)
       refs << "app/models/user.rb:#{read_line('app/models/user.rb', 'def setting_default_privacy')}" if var == 'default_privacy'

@@ -377,17 +377,20 @@ RSpec.describe 'preference form legacy writer' do
 
     after { discard_user(user) }
 
-    it 'advances revision for credentials source changes and leaves an undecorated decorator at zero' do
-      UserSettingsDecorator.new(user).update('setting_default_privacy' => 'direct')
-      expect(stored(user, 'default_privacy').value).to eq 'direct'
+    it 'refuses an undecorated nine-key write and still advances revision from credentials' do
+      expect do
+        UserSettingsDecorator.new(user).update('setting_default_privacy' => 'direct')
+      end.to raise_error(UserSettingsDecorator::MissingLegacyWriter)
+      expect(stored(user, 'default_privacy')).to be_nil
       expect(revision(user)).to eq 0
 
       patch :update, params: { source: { privacy: 'direct', language: 'ja-JP' } }, as: :json
 
       expect(response).to have_http_status(200)
+      expect(stored(user, 'default_privacy').value).to eq 'direct'
       expect(stored(user, 'default_language').value).to eq 'ja-JP'
       expect(stored(user, 'default_sensitive').value).to be false
-      expect(revision(user)).to eq 2
+      expect(revision(user)).to eq 3
     end
   end
 end

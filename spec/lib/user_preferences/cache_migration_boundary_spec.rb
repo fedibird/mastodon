@@ -2,8 +2,9 @@
 
 require 'rails_helper'
 
-# Locks the P2-4B boundary. Decorator and ScopedSettings do not move
-# user_preference_revisions, and getters still use Setting.cache_key.
+# Locks the P2-4B cache boundary. Getters still use Setting.cache_key.
+# ScopedSettings#[]= still does not move revision. A decorator without a
+# LegacyWriter no longer saves the nine keys.
 RSpec.describe 'preference cache revision boundary' do
   def stored(user, key)
     Setting.unscoped.find_by(thing_type: 'User', thing_id: user.id, var: key)
@@ -32,26 +33,29 @@ RSpec.describe 'preference cache revision boundary' do
   end
 
   describe 'current readers and non-writer saves' do
-    it 'keeps revision unchanged when the decorator saves all nine keys' do
+    it 'refuses the nine keys before saving when the decorator has no legacy writer' do
       user = Fabricate(:user)
-      UserSettingsDecorator.new(user).update(
-        'setting_default_privacy' => 'unlisted',
-        'setting_default_language' => 'de',
-        'setting_translation_preferred_mode' => 'bilingual',
-        'setting_show_translation_bar' => 'always',
-        'setting_new_features_policy' => 'tester',
-        'setting_content_font_size' => '16',
-        'setting_info_font_size' => '14',
-        'setting_default_sensitive' => '1',
-        'setting_reduce_motion' => '1'
-      )
+
+      expect do
+        UserSettingsDecorator.new(user).update(
+          'setting_default_privacy' => 'unlisted',
+          'setting_default_language' => 'de',
+          'setting_translation_preferred_mode' => 'bilingual',
+          'setting_show_translation_bar' => 'always',
+          'setting_new_features_policy' => 'tester',
+          'setting_content_font_size' => '16',
+          'setting_info_font_size' => '14',
+          'setting_default_sensitive' => '1',
+          'setting_reduce_motion' => '1'
+        )
+      end.to raise_error(UserSettingsDecorator::MissingLegacyWriter)
 
       expect(UserPreferences::Revision.current(user.id)).to eq 0
       expect(UserPreferenceRevision.find_by(user_id: user.id)).to be_nil
-      expect(stored(user, 'default_privacy').value).to eq 'unlisted'
-      expect(stored(user, 'default_sensitive').value).to be true
-      expect(stored(user, 'reduce_motion').value).to be true
-      expect(stored(user, 'content_font_size').value).to eq '16'
+      expect(stored(user, 'default_privacy')).to be_nil
+      expect(stored(user, 'default_sensitive')).to be_nil
+      expect(stored(user, 'reduce_motion')).to be_nil
+      expect(stored(user, 'content_font_size')).to be_nil
     end
 
     it 'writes the legacy cache key from ScopedSettings and does not advance revision' do

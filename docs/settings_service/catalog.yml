@@ -818,7 +818,7 @@ entries:
   write_policy: general
   side_effects:
   - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
-  - 'UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
+  - 'UserSettingsDecorator without a LegacyWriter refuses a non-nil nine-key write before saving anything'
   - document CSS variables; reload required
   apply_hint: reload
   client_reference:
@@ -830,6 +830,7 @@ entries:
   - config/settings.yml:83
   - app/lib/user_settings_decorator.rb:149
   - app/lib/user_preferences/legacy_writer.rb:21
+  - app/lib/user_settings_decorator.rb:238
   - app/models/user.rb:148
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:39
@@ -1062,7 +1063,7 @@ entries:
   side_effects:
   - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
   - 'Credentials LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not. ActivityPub distribution is enqueued after a successful save, including when every key is a no-op'
-  - 'UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
+  - 'UserSettingsDecorator without a LegacyWriter refuses a non-nil nine-key write before saving anything'
   apply_hint: reinitialize
   client_reference:
   - none
@@ -1071,6 +1072,7 @@ entries:
   source_refs:
   - app/lib/user_settings_decorator.rb:142
   - app/lib/user_preferences/legacy_writer.rb:21
+  - app/lib/user_settings_decorator.rb:238
   - app/controllers/api/v1/accounts/credentials_controller.rb:30
   - app/models/user.rb:148
   - app/controllers/settings/preferences_controller.rb:47
@@ -1118,7 +1120,7 @@ entries:
   side_effects:
   - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
   - 'Credentials LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not. ActivityPub distribution is enqueued after a successful save, including when every key is a no-op'
-  - 'UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
+  - 'UserSettingsDecorator without a LegacyWriter refuses a non-nil nine-key write before saving anything'
   apply_hint: reinitialize
   client_reference:
   - redux_compose
@@ -1127,6 +1129,7 @@ entries:
   source_refs:
   - app/lib/user_settings_decorator.rb:141
   - app/lib/user_preferences/legacy_writer.rb:21
+  - app/lib/user_settings_decorator.rb:238
   - app/controllers/api/v1/accounts/credentials_controller.rb:30
   - app/models/user.rb:313
   - app/controllers/settings/preferences_controller.rb:47
@@ -1222,7 +1225,7 @@ entries:
   side_effects:
   - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
   - 'Credentials LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not. ActivityPub distribution is enqueued after a successful save, including when every key is a no-op'
-  - 'UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
+  - 'UserSettingsDecorator without a LegacyWriter refuses a non-nil nine-key write before saving anything'
   apply_hint: reinitialize
   client_reference:
   - redux_compose
@@ -1232,6 +1235,7 @@ entries:
   - config/settings.yml:19
   - app/lib/user_settings_decorator.rb:34
   - app/lib/user_preferences/legacy_writer.rb:21
+  - app/lib/user_settings_decorator.rb:238
   - app/controllers/api/v1/accounts/credentials_controller.rb:30
   - app/models/user.rb:148
   - app/controllers/settings/preferences_controller.rb:47
@@ -4527,7 +4531,7 @@ entries:
   write_policy: general
   side_effects:
   - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
-  - 'UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
+  - 'UserSettingsDecorator without a LegacyWriter refuses a non-nil nine-key write before saving anything'
   - document CSS variables; reload required
   apply_hint: reload
   client_reference:
@@ -4539,6 +4543,7 @@ entries:
   - config/settings.yml:84
   - app/lib/user_settings_decorator.rb:150
   - app/lib/user_preferences/legacy_writer.rb:21
+  - app/lib/user_settings_decorator.rb:238
   - app/models/user.rb:148
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:40
@@ -4730,7 +4735,7 @@ entries:
   write_policy: general
   side_effects:
   - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
-  - 'UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
+  - 'UserSettingsDecorator without a LegacyWriter refuses a non-nil nine-key write before saving anything'
   apply_hint: reinitialize
   client_reference:
   - static_import
@@ -4742,6 +4747,7 @@ entries:
   - config/settings.yml:81
   - app/lib/user_settings_decorator.rb:147
   - app/lib/user_preferences/legacy_writer.rb:21
+  - app/lib/user_settings_decorator.rb:238
   - app/models/user.rb:148
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:94
@@ -5075,7 +5081,7 @@ entries:
   write_policy: general
   side_effects:
   - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
-  - 'UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
+  - 'UserSettingsDecorator without a LegacyWriter refuses a non-nil nine-key write before saving anything'
   - body class or theme stylesheet; reload required
   apply_hint: reload
   client_reference:
@@ -5088,6 +5094,7 @@ entries:
   - config/settings.yml:41
   - app/lib/user_settings_decorator.rb:53
   - app/lib/user_preferences/legacy_writer.rb:21
+  - app/lib/user_settings_decorator.rb:238
   - app/models/user.rb:148
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:90
@@ -5742,7 +5749,7 @@ entries:
   write_policy: general
   side_effects:
   - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
-  - 'UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
+  - 'UserSettingsDecorator without a LegacyWriter refuses a non-nil nine-key write before saving anything'
   apply_hint: reinitialize
   client_reference:
   - static_import
@@ -5754,6 +5761,7 @@ entries:
   - config/settings.yml:38
   - app/lib/user_settings_decorator.rb:146
   - app/lib/user_preferences/legacy_writer.rb:21
+  - app/lib/user_settings_decorator.rb:238
   - app/models/user.rb:323
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:133
@@ -6031,7 +6039,7 @@ entries:
   write_policy: general
   side_effects:
   - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
-  - 'UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
+  - 'UserSettingsDecorator without a LegacyWriter refuses a non-nil nine-key write before saving anything'
   apply_hint: reinitialize
   client_reference:
   - static_import
@@ -6043,6 +6051,7 @@ entries:
   - config/settings.yml:35
   - app/lib/user_settings_decorator.rb:145
   - app/lib/user_preferences/legacy_writer.rb:21
+  - app/lib/user_settings_decorator.rb:238
   - app/models/user.rb:327
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/appearance/show.html.haml:134

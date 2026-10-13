@@ -175,6 +175,7 @@ class UserSettingsDecorator
   end
 
   def process_update
+    refuse_missing_legacy_writer!
     NESTED_KEYS.each do |key|
       user.settings[key] = user.settings[key].merge coerced_settings(key) if change?(key)
     end
@@ -230,5 +231,21 @@ class UserSettingsDecorator
 
   def change?(key)
     !settings[key].nil?
+  end
+
+  # A nine-key write without LegacyWriter used to hit ScopedSettings and skip
+  # revision. Refuse that before NESTED_KEYS, STRING_KEYS, or BOOLEAN_KEYS run.
+  def refuse_missing_legacy_writer!
+    return if @legacy_writer
+
+    keys = UserPreferences::LegacyWriter::KEYS.select { |key| change?("setting_#{key}") }
+    return if keys.empty?
+
+    message = "Refusing to save #{keys.join(', ')} without a LegacyWriter"
+    Rails.logger.error("[UserSettingsDecorator] #{message} caller=#{Array(caller_locations(1, 8)).join(' | ')}")
+    raise MissingLegacyWriter, message
+  end
+
+  class MissingLegacyWriter < ArgumentError
   end
 end
