@@ -2,8 +2,9 @@
 
 require 'rails_helper'
 
-# Form saves of the nine keys go through LegacyWriter. Credentials and a
-# decorator constructed without legacy_writer stay on ScopedSettings.
+# Form saves of the nine keys, and Credentials saves of the three source keys,
+# go through LegacyWriter. A decorator constructed without legacy_writer stays
+# on ScopedSettings.
 RSpec.describe 'P2-6 legacy writer migration boundary' do
   def stored(user, key)
     Setting.unscoped.find_by(thing_type: 'User', thing_id: user.id, var: key)
@@ -378,6 +379,8 @@ RSpec.describe 'P2-6 legacy writer migration boundary' do
   end
 
   describe Api::V1::Accounts::CredentialsController, type: :controller do
+    self.use_transactional_tests = false
+
     let(:user) { Fabricate(:user, account: Fabricate(:account, username: 'alice')) }
     let(:scopes) { 'write:accounts' }
     let(:token) { Fabricate(:accessible_access_token, resource_owner_id: user.id, scopes: scopes) }
@@ -389,6 +392,8 @@ RSpec.describe 'P2-6 legacy writer migration boundary' do
       allow(AuthorizeFollowWorker).to receive(:push_bulk)
     end
 
+    after { discard_user(user) }
+
     it 'materializes omitted privacy and sensitive when only language is sent' do
       patch :update, params: { source: { language: 'de' } }, as: :json
 
@@ -398,7 +403,7 @@ RSpec.describe 'P2-6 legacy writer migration boundary' do
       expect(stored(user, 'default_language').value).to eq 'de'
       expect(stored(user, 'preferred_posting_language')).to be_nil
       expect(ActivityPub::UpdateDistributionWorker).to have_received(:perform_async).with(user.account.id)
-      expect(UserPreferences::Revision.current(user.id)).to eq 0
+      expect(UserPreferences::Revision.current(user.id)).to eq 3
     end
 
     it 'fills privacy from the getter after the account update, so an unlock stores public' do
@@ -463,7 +468,7 @@ RSpec.describe 'P2-6 legacy writer migration boundary' do
       expect(ActivityPub::UpdateDistributionWorker).not_to have_received(:perform_async)
     end
 
-    it 'currently stores a non-scalar source value that the legacy path must not keep' do
+    it 'rejects a non-scalar source value instead of storing it' do
       patch :update, params: {
         source: {
           privacy: { bad: 'direct' },
@@ -471,14 +476,13 @@ RSpec.describe 'P2-6 legacy writer migration boundary' do
         },
       }, as: :json
 
-      expect(response).to have_http_status(200)
-      privacy = stored(user, 'default_privacy').value
-      expect(privacy).to be_a(ActionController::Parameters)
-      expect(privacy['bad']).to eq 'direct'
-      expect(privacy).not_to be_permitted
-      expect(stored(user, 'default_language').value).to eq ['ja-JP']
-      expect(stored(user, 'default_language').value).to be_a(Array)
-      expect(stored(user, 'default_sensitive').value).to be false
+      expect(response).to have_http_status(422)
+      expect(body_as_json[:errors]).to eq [{ key: 'source.privacy', code: 'invalid_type' }]
+      expect(stored(user, 'default_privacy')).to be_nil
+      expect(stored(user, 'default_language')).to be_nil
+      expect(stored(user, 'default_sensitive')).to be_nil
+      expect(UserPreferences::Revision.current(user.id)).to eq 0
+      expect(ActivityPub::UpdateDistributionWorker).not_to have_received(:perform_async)
       expect_public_rejection('default_privacy', { 'bad' => 'direct' }, 'invalid_type')
       expect_public_rejection('default_language', ['ja-JP'], 'invalid_type')
     end

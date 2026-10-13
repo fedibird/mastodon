@@ -1053,7 +1053,7 @@ entries:
   - Rails preferences form getter
   write_sources:
   - rails preferences update via LegacyWriter (other)
-  - PATCH /api/v1/accounts/update_credentials source via UserSettingsDecorator without legacy_writer
+  - PATCH /api/v1/accounts/update_credentials source via LegacyWriter after getter fill-in
   normalization: Stored as submitted, including nil for the language-detection option.
     The getter does not cascade. preferred_posting_language does.
   availability: user preference
@@ -1061,7 +1061,8 @@ entries:
   write_policy: general
   side_effects:
   - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
-  - 'Credentials and UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
+  - 'Credentials LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not. ActivityPub distribution is enqueued after a successful save, including when every key is a no-op'
+  - 'UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
   apply_hint: reinitialize
   client_reference:
   - none
@@ -1070,6 +1071,7 @@ entries:
   source_refs:
   - app/lib/user_settings_decorator.rb:142
   - app/lib/user_preferences/legacy_writer.rb:21
+  - app/controllers/api/v1/accounts/credentials_controller.rb:30
   - app/models/user.rb:148
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:69
@@ -1106,7 +1108,7 @@ entries:
   - Rails preferences form getter
   write_sources:
   - rails preferences update via LegacyWriter (other)
-  - PATCH /api/v1/accounts/update_credentials source via UserSettingsDecorator without legacy_writer
+  - PATCH /api/v1/accounts/update_credentials source via LegacyWriter after getter fill-in
   normalization: 'Stored as the submitted string. The getter replaces only a blank
     stored value. Selectable form values are Status.selectable_visibilities: public,
     unlisted, private, mutual, personal.'
@@ -1115,7 +1117,8 @@ entries:
   write_policy: general
   side_effects:
   - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
-  - 'Credentials and UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
+  - 'Credentials LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not. ActivityPub distribution is enqueued after a successful save, including when every key is a no-op'
+  - 'UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
   apply_hint: reinitialize
   client_reference:
   - redux_compose
@@ -1124,6 +1127,7 @@ entries:
   source_refs:
   - app/lib/user_settings_decorator.rb:141
   - app/lib/user_preferences/legacy_writer.rb:21
+  - app/controllers/api/v1/accounts/credentials_controller.rb:30
   - app/models/user.rb:313
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:66
@@ -1208,7 +1212,7 @@ entries:
   - Rails preferences form getter
   write_sources:
   - rails preferences update via LegacyWriter (other)
-  - PATCH /api/v1/accounts/update_credentials source via UserSettingsDecorator without legacy_writer
+  - PATCH /api/v1/accounts/update_credentials source via LegacyWriter after getter fill-in
   normalization: ActiveModel::Type::Boolean on write. Simple Form sends 0 or 1. Read
     returns the stored YAML boolean or the YAML default. No integer cast; INTEGER_KEYS
     is empty.
@@ -1217,7 +1221,8 @@ entries:
   write_policy: general
   side_effects:
   - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
-  - 'Credentials and UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
+  - 'Credentials LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not. ActivityPub distribution is enqueued after a successful save, including when every key is a no-op'
+  - 'UserSettingsDecorator without legacy_writer: ScopedSettings#[]= update! and Rails.cache.write, no revision'
   apply_hint: reinitialize
   client_reference:
   - redux_compose
@@ -1227,6 +1232,7 @@ entries:
   - config/settings.yml:19
   - app/lib/user_settings_decorator.rb:34
   - app/lib/user_preferences/legacy_writer.rb:21
+  - app/controllers/api/v1/accounts/credentials_controller.rb:30
   - app/models/user.rb:148
   - app/controllers/settings/preferences_controller.rb:47
   - app/views/settings/preferences/other/show.html.haml:72

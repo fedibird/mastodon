@@ -377,7 +377,7 @@ RSpec.describe 'preference form legacy writer' do
 
     after { discard_user(user) }
 
-    it 'keeps credentials and the undecorated settings path off revision' do
+    it 'advances revision for credentials source changes and leaves an undecorated decorator at zero' do
       UserSettingsDecorator.new(user).update('setting_default_privacy' => 'direct')
       expect(stored(user, 'default_privacy').value).to eq 'direct'
       expect(revision(user)).to eq 0
@@ -386,7 +386,8 @@ RSpec.describe 'preference form legacy writer' do
 
       expect(response).to have_http_status(200)
       expect(stored(user, 'default_language').value).to eq 'ja-JP'
-      expect(revision(user)).to eq 0
+      expect(stored(user, 'default_sensitive').value).to be false
+      expect(revision(user)).to eq 2
     end
   end
 end

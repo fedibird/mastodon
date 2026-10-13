@@ -1,6 +1,12 @@
 # frozen_string_literal: true
 
 class Api::V1::Accounts::CredentialsController < Api::BaseController
+  SOURCE_PREFERENCE_KEYS = {
+    'default_privacy' => 'source.privacy',
+    'default_language' => 'source.language',
+    'default_sensitive' => 'source.sensitive',
+  }.freeze
+
   before_action -> { doorkeeper_authorize! :profile, :read, :'read:accounts' }, except: [:update]
   before_action -> { doorkeeper_authorize! :write, :'write:accounts' }, only: [:update]
   before_action :require_user!
@@ -16,12 +22,36 @@ class Api::V1::Accounts::CredentialsController < Api::BaseController
   def update
     @account = current_account
     UpdateAccountService.new.call(@account, account_params, raise_error: true)
-    UserSettingsDecorator.new(current_user).update(user_settings_params) if user_settings_params
+
+    source_settings = user_settings_params
+    if source_settings
+      UserSettingsDecorator.new(
+        current_user,
+        legacy_writer: UserPreferences::LegacyWriter.new(current_user)
+      ).update(source_settings)
+    end
+
     ActivityPub::UpdateDistributionWorker.perform_async(@account.id)
     render json: @account, serializer: REST::CredentialAccountSerializer
+  rescue UserPreferences::InvalidInput => e
+    render json: invalid_source_preferences(e), status: :unprocessable_entity
   end
 
   private
+
+  def invalid_source_preferences(error)
+    {
+      error: 'Invalid source preferences',
+      errors: error.errors.map { |item| source_preference_error(item) },
+    }
+  end
+
+  def source_preference_error(item)
+    {
+      key: SOURCE_PREFERENCE_KEYS.fetch(item['key']),
+      code: item['code'],
+    }
+  end
 
   def account_params
     params.permit(
