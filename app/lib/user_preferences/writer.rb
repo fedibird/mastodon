@@ -15,6 +15,24 @@ class UserPreferences::Writer
     request = @contract.validate!(updates: updates.nil? ? {} : updates, resets: resets.nil? ? [] : resets)
     return empty_result if request.empty?
 
+    commit_request(request)
+  end
+
+  private
+
+  # LegacyWriter is the only other caller. This is not a public bypass of
+  # WriteContract: the key is one of the nine, and the value is nil or a scalar.
+  def commit_checked(key, value)
+    refuse_open_transaction!
+    raise ArgumentError, 'unsupported preference key' unless UserPreferences::WriteContract::KEYS.include?(key)
+    raise ArgumentError, 'unsupported preference value' unless scalar_value?(value)
+
+    request = UserPreferences::WriteContract::Request.new(updates: { key => value }, resets: [])
+    commit_request(request)
+  end
+
+  def commit_request(request)
+    guard_request!(request)
     attempt = 0
     begin
       attempt += 1
@@ -26,7 +44,23 @@ class UserPreferences::Writer
     end
   end
 
-  private
+  def guard_request!(request)
+    request.updates.each_key { |key| guard_key!(key) }
+    request.resets.each { |key| guard_key!(key) }
+    request.updates.each_value do |value|
+      raise ArgumentError, 'unsupported preference value' unless scalar_value?(value)
+    end
+  end
+
+  def guard_key!(key)
+    raise ArgumentError, 'unsupported preference key' unless UserPreferences::WriteContract::KEYS.include?(key)
+  end
+
+  def scalar_value?(value)
+    return false if value.is_a?(Hash) || value.is_a?(Array) || value.is_a?(ActionController::Parameters)
+
+    value.nil? || value == true || value == false || value.is_a?(String) || value.is_a?(Integer)
+  end
 
   def refuse_open_transaction!
     raise UserPreferences::OpenTransaction if User.connection.transaction_open?
