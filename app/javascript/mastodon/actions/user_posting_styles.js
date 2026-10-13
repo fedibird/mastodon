@@ -1,13 +1,11 @@
 import { fromJS } from 'immutable';
 import api from '../api';
-import { applyComposerPostingContext, targetComposerAction } from './composer';
-import { scheduleComposerInteractionCheck } from './posting_identities';
-import { fetchPostingContext } from './posting_contexts';
+import { targetComposerAction } from './composer';
+import { refreshComposerGroupDiscovery, scheduleComposerInteractionCheck } from './posting_identities';
 import { isExistingPostEdit } from '../posting_context/materialize';
 import { normalizeUserPostingStyle, resolveUserPostingStyle } from '../posting_context/user_style_resolver';
 import { portablePostingContextReady, selectPortableAutoStyle, styleMatchesSurface, surfaceCacheKey, surfacesEqual } from '../posting_context/surface';
 import { selectComposer } from '../selectors/composer';
-import { selectPostingContextDiscovery, selectPostingContextForAccount } from '../selectors/posting_contexts';
 
 export const USER_POSTING_STYLES_FETCH_REQUEST = 'USER_POSTING_STYLES_FETCH_REQUEST';
 export const USER_POSTING_STYLES_FETCH_SUCCESS = 'USER_POSTING_STYLES_FETCH_SUCCESS';
@@ -92,49 +90,11 @@ export function loadUserPostingStyleDestination(composerId, { selectedId, accoun
       return Promise.resolve();
     }
 
-    const startedEpoch = started.get('surfaceEpoch') || 0;
-
-    return dispatch(fetchPostingContext(accountId, { force })).then(() => {
-      const current = selectComposer(getState(), composerId);
-
-      if (!current || destinationLocked(current) || (current.get('surfaceEpoch') || 0) !== startedEpoch) {
-        return;
-      }
-
-      if (!stillWaiting(getState, composerId, selectedId, accountId)) {
-        return;
-      }
-
-      const discovery = selectPostingContextDiscovery(getState(), accountId);
-
-      const status = discovery && discovery.get('status');
-
-      if (status !== 'resolved') {
-        dispatch(destinationResult(composerId, {
-          status: 'failed',
-          failure: status === 'unsupported' || status === 'not_applicable' ? 'unsupported' : 'error',
-          selectedId,
-          accountId,
-        }));
-        return;
-      }
-
-      const context = selectPostingContextForAccount(getState(), accountId);
-
-      if (!context || !stillWaiting(getState, composerId, selectedId, accountId)) {
-        dispatch(destinationResult(composerId, { status: 'failed', failure: 'error', selectedId, accountId }));
-        return;
-      }
-
-      dispatch(applyComposerPostingContext(composerId, context, accountId));
-      dispatch(scheduleComposerInteractionCheck(composerId));
-
-      if (!stillWaiting(getState, composerId, selectedId, accountId)) {
-        return;
-      }
-
-      dispatch(destinationResult(composerId, { status: 'ready', selectedId, accountId }));
-    });
+    return dispatch(refreshComposerGroupDiscovery(composerId, accountId, {
+      force,
+      selectedId,
+      surfaceEpoch: started.get('surfaceEpoch') || 0,
+    }));
   };
 }
 

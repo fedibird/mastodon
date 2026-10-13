@@ -16,8 +16,40 @@ const capabilitySupported = (identity, name) => {
   return capabilities[name] === 'supported';
 };
 
+const presentId = value => value !== null && value !== undefined && value !== '';
+
+// A style can name its group before discovery has written the context key.
+// The switch is allowed only when every id that is already present agrees
+// and the target has group. Send still waits for that discovery.
+const pendingStyleGroup = source => {
+  const status = source.styleDestinationStatus;
+
+  if (status !== 'pending' && status !== 'needs_resolve') {
+    return false;
+  }
+
+  if (source.activityPubAudience) {
+    return false;
+  }
+
+  if (source.contextKey && !consistentLocalFedibirdGroup(source)) {
+    return false;
+  }
+
+  const id = source.styleDestinationAccountId || source.postingContextAccountId;
+
+  if (!presentId(id)) {
+    return false;
+  }
+
+  return [id, source.postingContextAccountId, source.resolvedAccountId, source.groupId]
+    .filter(presentId)
+    .every(item => String(item) === String(id));
+};
+
 // Remote groups and group replies stay refused. A consistent local Fedibird
-// group can move to an identity that was granted group together with post.
+// group, or a style still resolving one, can move to an identity that was
+// granted group together with post.
 const groupSwitchBlocked = (source, toIdentity) => {
   if (!draftHasGroupDestination(source)) {
     return false;
@@ -27,7 +59,11 @@ const groupSwitchBlocked = (source, toIdentity) => {
     return true;
   }
 
-  return !(consistentLocalFedibirdGroup(source) && capabilitySupported(toIdentity, 'group'));
+  if (!capabilitySupported(toIdentity, 'group')) {
+    return true;
+  }
+
+  return !(consistentLocalFedibirdGroup(source) || pendingStyleGroup(source));
 };
 
 // Pure description of a future sender change. M1 never permits the change
@@ -151,7 +187,11 @@ export function resolveSenderIdentitySwitch({
   const refreshGroupDiscovery = changing && draftHasGroupDestination(source);
   const mustRevalidateReply = changing && Boolean(source.replyToId);
   const mustRevalidateQuote = changing && Boolean(source.quoteId);
-  const mustRevalidateGroup = changing && consistentLocalFedibirdGroup(source) && capabilitySupported(toIdentity, 'group') && !source.replyToId && !source.quoteId;
+  const mustRevalidateGroup = changing
+    && capabilitySupported(toIdentity, 'group')
+    && !source.replyToId
+    && !source.quoteId
+    && (consistentLocalFedibirdGroup(source) || pendingStyleGroup(source));
   const permitted = reasons.length === 0 && authorized && supported && (changing ? targetAllowed : sessionTarget);
 
   return {
@@ -208,6 +248,8 @@ export function composerSenderSwitchDraft(composer, viewerEvidence) {
     editingId: composer.get('id'),
     scheduled: composer.get('scheduled') || composer.get('scheduled_status_id'),
     groupId,
+    styleDestinationStatus: composer.getIn(['userPostingStyle', 'destinationStatus']),
+    styleDestinationAccountId: composer.getIn(['userPostingStyle', 'destinationAccountId']),
     postingContextAccountId: composer.get('posting_context_account_id'),
     resolvedAccountId: composer.getIn(['context', 'resolvedAccountId']),
     contextKey: composer.getIn(['context', 'key']),

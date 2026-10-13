@@ -1,16 +1,17 @@
 import { List as ImmutableList, fromJS } from 'immutable';
 import api from '../api';
 import { materializeComposerText } from '../posting_context/materialize';
+import { captureGroupDiscovery, groupDiscoveryMatches } from '../posting_identity/discovery_snapshot';
 import { consistentLocalFedibirdGroup } from '../posting_identity/group_destination';
 import { normalizePostingIdentity, sessionPostingIdentityId } from '../posting_identity/identity';
 import { composerInteractionInputKey, composerInteractionSpoilerText } from '../posting_identity/interaction_input';
 import { composerSenderSwitchDraft, resolveSenderIdentitySwitch } from '../posting_identity/switch_resolver';
 import { selectComposer } from '../selectors/composer';
 import { selectPostingIdentityDelegationId } from '../selectors/posting_identities';
-import { selectPostingContextViewerEvidence } from '../selectors/posting_contexts';
+import { selectPostingContextDiscovery, selectPostingContextViewerEvidence } from '../selectors/posting_contexts';
 import { fetchPostingContext } from './posting_contexts';
 import uuid from '../uuid';
-import { COMPOSER_INTERACTION_CHECK_FAIL, COMPOSER_INTERACTION_CHECK_REQUEST, COMPOSER_INTERACTION_CHECK_SUCCESS, COMPOSER_SENDER_IDENTITY_SELECT, targetComposerAction } from './composer';
+import { applyComposerPostingContext, COMPOSER_INTERACTION_CHECK_FAIL, COMPOSER_INTERACTION_CHECK_REQUEST, COMPOSER_INTERACTION_CHECK_SUCCESS, COMPOSER_SENDER_IDENTITY_SELECT, targetComposerAction } from './composer';
 
 export const POSTING_IDENTITIES_FETCH_REQUEST = 'POSTING_IDENTITIES_FETCH_REQUEST';
 export const POSTING_IDENTITIES_FETCH_SUCCESS = 'POSTING_IDENTITIES_FETCH_SUCCESS';
@@ -114,18 +115,141 @@ export function selectComposerSenderIdentity(composerId, identityId, { confirmed
 
     if (decision.effectsApplied && decision.refreshGroupDiscovery) {
       const next = selectComposer(getState(), composerId);
-      const accountId = next && (next.get('posting_context_account_id') || next.getIn(['context', 'resolvedAccountId']));
+      const accountId = next && (next.get('posting_context_account_id') || next.getIn(['context', 'resolvedAccountId']) || next.getIn(['userPostingStyle', 'destinationAccountId']));
 
       if (accountId) {
-        dispatch(fetchPostingContext(accountId, {
-          force: true,
-          identityId: decision.toIdentityId,
-          delegationId: selectPostingIdentityDelegationId(getState(), decision.toIdentityId),
-        }));
+        dispatch(refreshComposerGroupDiscovery(composerId, accountId, { force: true }));
       }
     }
 
     return selected;
+  };
+}
+
+const discoveryIdentity = snapshot => {
+  const identityId = snapshot.identityId;
+
+  if (!identityId || String(identityId).startsWith('local:')) {
+    return null;
+  }
+
+  return {
+    identityId: String(identityId),
+    delegationId: snapshot.delegationId || '',
+  };
+};
+
+const contextDefinition = discovery => {
+  if (!discovery || discovery.get('status') !== 'resolved') {
+    return null;
+  }
+
+  const context = discovery.get('context');
+
+  if (!context || !context.toJS) {
+    return null;
+  }
+
+  return context.toJS();
+};
+
+const styleStillWaiting = (composer, selectedId, accountId) => {
+  if (!composer) {
+    return false;
+  }
+
+  const status = composer.getIn(['userPostingStyle', 'destinationStatus']);
+
+  return composer.getIn(['userPostingStyle', 'selectedId']) === selectedId
+    && String(composer.getIn(['userPostingStyle', 'destinationAccountId'] || '')) === String(accountId)
+    && (status === 'pending' || status === 'needs_resolve');
+};
+
+// Fetch the group for the sender that is selected now. The context
+// definition may be applied to the composer. Follow evidence stays on
+// the cache key for that identity and delegation.
+export function refreshComposerGroupDiscovery(composerId, accountId, { force = false, selectedId = null, surfaceEpoch = null } = {}) {
+  return (dispatch, getState) => {
+    const started = selectComposer(getState(), composerId);
+
+    if (!started || !accountId) {
+      return Promise.resolve();
+    }
+
+    const identityId = started.getIn(['senderIdentity', 'id']);
+    const delegationId = selectPostingIdentityDelegationId(getState(), identityId);
+    const styleId = selectedId || started.getIn(['userPostingStyle', 'selectedId']) || null;
+    const snapshot = captureGroupDiscovery(started, composerId, accountId, delegationId, styleId);
+    const identity = discoveryIdentity(snapshot);
+
+    return dispatch(fetchPostingContext(accountId, {
+      force,
+      identityId: identity ? identity.identityId : null,
+      delegationId: identity ? identity.delegationId : null,
+    })).then(() => {
+      const composer = selectComposer(getState(), composerId);
+      const currentDelegationId = selectPostingIdentityDelegationId(getState(), composer && composer.getIn(['senderIdentity', 'id']));
+
+      if (!groupDiscoveryMatches(composer, snapshot, currentDelegationId)) {
+        return;
+      }
+
+      if (surfaceEpoch !== null && (composer.get('surfaceEpoch') || 0) !== surfaceEpoch) {
+        return;
+      }
+
+      if (composer.get('surface') || composer.getIn(['userPostingStyle', 'destinationPolicy']) === 'locked') {
+        return;
+      }
+
+      if (composer.get('in_reply_to') || composer.get('quote_from') || composer.get('id') || composer.get('scheduled_status_id')) {
+        return;
+      }
+
+      const discovery = selectPostingContextDiscovery(getState(), accountId, identity);
+      const waiting = styleStillWaiting(composer, snapshot.selectedId, snapshot.accountId);
+      const context = contextDefinition(discovery);
+
+      if (!context) {
+        if (waiting) {
+          dispatch(targetComposerAction({
+            type: 'USER_POSTING_STYLE_DESTINATION',
+            status: 'failed',
+            failure: discovery && (discovery.get('status') === 'unsupported' || discovery.get('status') === 'not_applicable') ? 'unsupported' : 'error',
+            selectedId: snapshot.selectedId,
+            accountId: snapshot.accountId,
+          }, composerId));
+        }
+        return;
+      }
+
+      const appliedId = composer.get('posting_context_account_id');
+      const destinationReady = composer.getIn(['userPostingStyle', 'destinationStatus']) === 'ready'
+        && appliedId
+        && String(appliedId) === snapshot.accountId
+        && composer.getIn(['context', 'key']);
+
+      if (destinationReady) {
+        return;
+      }
+
+      dispatch(applyComposerPostingContext(composerId, context, snapshot.accountId));
+      dispatch(scheduleComposerInteractionCheck(composerId));
+
+      const latest = selectComposer(getState(), composerId);
+      const latestDelegationId = selectPostingIdentityDelegationId(getState(), latest && latest.getIn(['senderIdentity', 'id']));
+
+      if (!groupDiscoveryMatches(latest, snapshot, latestDelegationId) || !styleStillWaiting(latest, snapshot.selectedId, snapshot.accountId)) {
+        return;
+      }
+
+      dispatch(targetComposerAction({
+        type: 'USER_POSTING_STYLE_DESTINATION',
+        status: 'ready',
+        selectedId: snapshot.selectedId,
+        accountId: snapshot.accountId,
+      }, composerId));
+    });
   };
 }
 

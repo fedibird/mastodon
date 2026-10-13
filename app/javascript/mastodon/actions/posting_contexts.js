@@ -4,6 +4,7 @@ import { postingContextCacheKey, selectPostingContextDiscovery } from '../select
 export const POSTING_CONTEXT_FETCH_REQUEST = 'POSTING_CONTEXT_FETCH_REQUEST';
 export const POSTING_CONTEXT_FETCH_SUCCESS = 'POSTING_CONTEXT_FETCH_SUCCESS';
 export const POSTING_CONTEXT_FETCH_FAIL    = 'POSTING_CONTEXT_FETCH_FAIL';
+export const POSTING_CONTEXT_CONTEXT_SHARE = 'POSTING_CONTEXT_CONTEXT_SHARE';
 
 // How long a discovery REST result stays reusable in this session.
 // This is separate from the server affiliation snapshot freshness.
@@ -79,12 +80,25 @@ export function fetchPostingContext(accountId, { force = false, identityId = nul
 
     dispatch(fetchPostingContextRequest(id, cacheKey));
 
-    const pending = api(getState)
-      .get(`/api/v1/fedibird/accounts/${encodeURIComponent(id)}/posting_context`, {
-        params: delegated ? { posting_identity_id: String(identityId) } : undefined,
-      })
+    const url = `/api/v1/fedibird/accounts/${encodeURIComponent(id)}/posting_context`;
+    const request = delegated
+      ? api(getState).get(url, { params: { posting_identity_id: String(identityId) } })
+      : api(getState).get(url);
+    const pending = request
       .then(({ data }) => {
-        dispatch(fetchPostingContextSuccess(id, cacheKey, data, Date.now()));
+        const receivedAt = Date.now();
+
+        dispatch(fetchPostingContextSuccess(id, cacheKey, data, receivedAt));
+
+        // Local group rules are the same for every sender. The follow
+        // result stays on the identity cache key above.
+        if (delegated && data && data.discovery && data.discovery.adapter === 'fedibird_group' && data.context) {
+          dispatch({
+            type: POSTING_CONTEXT_CONTEXT_SHARE,
+            accountId: id,
+            data,
+          });
+        }
       })
       .catch(error => {
         dispatch(fetchPostingContextFail(id, cacheKey, error));

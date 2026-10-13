@@ -1,5 +1,6 @@
 import { Map as ImmutableMap, fromJS } from 'immutable';
 import {
+  POSTING_CONTEXT_CONTEXT_SHARE,
   POSTING_CONTEXT_FETCH_FAIL,
   POSTING_CONTEXT_FETCH_REQUEST,
   POSTING_CONTEXT_FETCH_SUCCESS,
@@ -78,6 +79,34 @@ export default function postingContexts(state = initialState, action) {
     return state.set(cacheKey, record({
       status: 'error',
       error: true,
+    }));
+  }
+  case POSTING_CONTEXT_CONTEXT_SHARE: {
+    const normalized = normalizePostingContextDiscovery(action.data) || {};
+
+    if (!normalized.context || normalized.status !== 'resolved') {
+      return state;
+    }
+
+    const current = state.get(action.accountId);
+
+    if (current && (current.get('status') === 'loading' || current.get('refreshing'))) {
+      return state;
+    }
+
+    if (current) {
+      return state.set(action.accountId, current
+        .set('status', 'resolved')
+        .set('context', fromJS(normalized.context))
+        .set('discovery', fromJS(normalized.discovery))
+        .set('senderPosting', null));
+    }
+
+    return state.set(action.accountId, record({
+      status: 'resolved',
+      context: normalized.context,
+      discovery: normalized.discovery,
+      senderPosting: null,
     }));
   }
   default:
