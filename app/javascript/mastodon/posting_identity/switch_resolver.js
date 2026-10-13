@@ -1,4 +1,4 @@
-import { consistentLocalFedibirdGroup, draftHasGroupDestination } from './group_destination';
+import { consistentLocalFedibirdGroup, consistentMitraGroup, draftHasGroupDestination } from './group_destination';
 import { ENABLED_SENDER_KINDS, ENABLED_SENDER_PROVIDERS } from './identity';
 import { applyPostingStylePrecedence } from './style_precedence';
 
@@ -63,7 +63,7 @@ const groupSwitchBlocked = (source, toIdentity) => {
     return true;
   }
 
-  return !(consistentLocalFedibirdGroup(source) || pendingStyleGroup(source));
+  return !(consistentLocalFedibirdGroup(source) || consistentMitraGroup(source) || pendingStyleGroup(source));
 };
 
 // Pure description of a future sender change. M1 never permits the change
@@ -191,7 +191,7 @@ export function resolveSenderIdentitySwitch({
     && capabilitySupported(toIdentity, 'group')
     && !source.replyToId
     && !source.quoteId
-    && (consistentLocalFedibirdGroup(source) || pendingStyleGroup(source));
+    && (consistentLocalFedibirdGroup(source) || consistentMitraGroup(source) || pendingStyleGroup(source));
   const permitted = reasons.length === 0 && authorized && supported && (changing ? targetAllowed : sessionTarget);
 
   return {

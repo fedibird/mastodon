@@ -1,10 +1,11 @@
 # frozen_string_literal: true
 
-# A delegated group post keeps the local Fedibird group rules. The client
-# account id and context key are resolved again here. They are not permission
-# by themselves. The returned ids are the only mentions ProcessMentionsService
-# may attach.
+# Shared entry for a delegated group post. Local Fedibird groups keep
+# their follow and mention rules. Remote groups are authorized separately
+# and do not fall through to a normal post.
 class PostingIdentity::DelegatedGroupPost
+  Outcome = Struct.new(:allowed_mentions, :audience_account_id, keyword_init: true)
+
   def self.resolve!(author:, params:, visibility:)
     new(author, params, visibility).resolve!
   end
@@ -16,18 +17,25 @@ class PostingIdentity::DelegatedGroupPost
   end
 
   def resolve!
-    decision = PostingIdentity::LocalGroupPost.decision(author: @author, account_id: @params[:posting_context_account_id])
-    raise rejected unless decision.can_post && decision.group
+    local = PostingIdentity::LocalGroupPost.decision(author: @author, account_id: @params[:posting_context_account_id])
+    return local_outcome(local) if local.group
+
+    PostingIdentity::RemoteGroupPost.authorize!(author: @author, params: @params, visibility: @visibility)
+  end
+
+  private
+
+  def local_outcome(decision)
+    raise rejected if @params[:audience_account_id].present?
+    raise rejected unless decision.can_post
 
     assert_current_context!(decision.context)
     raise rejected unless allowed_visibility?(decision.context)
 
-    accounts = mention_accounts(decision)
-    assert_mentions!(accounts, decision.group)
-    accounts.map(&:id)
+    accounts = local_mention_accounts(decision)
+    assert_local_mentions!(accounts, decision.group)
+    Outcome.new(allowed_mentions: accounts.map(&:id), audience_account_id: nil)
   end
-
-  private
 
   def assert_current_context!(context)
     raise rejected if context.nil?
@@ -39,7 +47,7 @@ class PostingIdentity::DelegatedGroupPost
     Array(context.dig(:constraints, :allowed_visibilities)).map(&:to_s).include?(@visibility)
   end
 
-  def mention_accounts(decision)
+  def local_mention_accounts(decision)
     ids = Array(decision.context.dig(:managed, :mentions)).filter_map { |mention| mention[:account_id].presence }.uniq
     accounts = Account.where(id: ids).to_a
     raise rejected unless accounts.map { |account| account.id.to_s }.sort == ids.map(&:to_s).sort
@@ -47,7 +55,7 @@ class PostingIdentity::DelegatedGroupPost
     (accounts + [@author]).uniq
   end
 
-  def assert_mentions!(accounts, group)
+  def assert_local_mentions!(accounts, group)
     body = tokens(@params[:status])
     warning = tokens(@params[:spoiler_text])
     raise mention_rejected if (body + warning).any? { |token| !allowed_token?(token, accounts) }

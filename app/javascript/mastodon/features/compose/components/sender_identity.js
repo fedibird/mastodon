@@ -28,6 +28,7 @@ const messages = defineMessages({
   replyQuoteSeparate: { id: 'compose_form.sender_identity.reply_quote_separate', defaultMessage: 'Replies and quotes need a separate permission.' },
   blockedGroup: { id: 'compose_form.sender_identity.blocked_group', defaultMessage: 'This linked account cannot post to that group.' },
   blockedGroupFollow: { id: 'compose_form.sender_identity.blocked_group_follow', defaultMessage: 'This linked account does not follow that group.' },
+  blockedPermission: { id: 'compose_form.sender_identity.blocked_permission', defaultMessage: 'This linked account is not allowed to post to that group.' },
   blockedSchedule: { id: 'compose_form.sender_identity.blocked_schedule', defaultMessage: 'Scheduled and expiring posts cannot be posted as another account yet.' },
   blockedEdit: { id: 'compose_form.sender_identity.blocked_edit', defaultMessage: 'Finish or discard this edit before changing the posting account.' },
   blockedGeneric: { id: 'compose_form.sender_identity.blocked_generic', defaultMessage: 'This posting account cannot be selected for the draft you are writing.' },
@@ -56,6 +57,8 @@ const blockMessage = reason => {
     return messages.blockedGroup;
   case 'follow':
     return messages.blockedGroupFollow;
+  case 'permission':
+    return messages.blockedPermission;
   case 'schedule':
   case 'schedule_bound':
     return messages.blockedSchedule;

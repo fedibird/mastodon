@@ -12,7 +12,7 @@ class PostingIdentity::DelegatedTextPost
   QT_PATTERN = /QT:\s*\[\s*(https:\/\/.+?)\s*\]/i
   QT_MARKUP = /QT:\s*\[.*?\]/i
 
-  Result = Struct.new(:text, :thread, :quote_id, :allowed_mentions, keyword_init: true)
+  Result = Struct.new(:text, :thread, :quote_id, :allowed_mentions, :audience_account_id, keyword_init: true)
 
   def self.resolve!(resolution:, viewer:, params:)
     new(resolution, viewer, params).resolve!
@@ -39,15 +39,17 @@ class PostingIdentity::DelegatedTextPost
       permit!('group')
       raise group_rejected if reply_requested? || quote_requested?
 
+      group = PostingIdentity::DelegatedGroupPost.resolve!(
+        author: author,
+        params: @params,
+        visibility: requested_visibility
+      )
       return Result.new(
         text: stripped_text,
         thread: nil,
         quote_id: nil,
-        allowed_mentions: PostingIdentity::DelegatedGroupPost.resolve!(
-          author: author,
-          params: @params,
-          visibility: requested_visibility
-        )
+        allowed_mentions: group.allowed_mentions,
+        audience_account_id: group.audience_account_id
       )
     end
 
@@ -68,7 +70,8 @@ class PostingIdentity::DelegatedTextPost
       text: stripped_text,
       thread: thread,
       quote_id: quote&.id,
-      allowed_mentions: mention_boundary(thread, quote)
+      allowed_mentions: mention_boundary(thread, quote),
+      audience_account_id: nil
     )
   end
 
@@ -118,7 +121,7 @@ class PostingIdentity::DelegatedTextPost
 
   def unsupported_shape?
     present?(@params[:circle_id]) ||
-      present?(@params[:audience_account_id]) ||
+      (present?(@params[:audience_account_id]) && !group_requested?) ||
       present?(@params[:poll]) ||
       present?(@params[:scheduled_at]) ||
       present?(@params[:scheduled_in]) ||

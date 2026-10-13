@@ -2,7 +2,7 @@ import { List as ImmutableList, fromJS } from 'immutable';
 import api from '../api';
 import { materializeComposerText } from '../posting_context/materialize';
 import { captureGroupDiscovery, groupDiscoveryMatches } from '../posting_identity/discovery_snapshot';
-import { consistentLocalFedibirdGroup } from '../posting_identity/group_destination';
+import { consistentLocalFedibirdGroup, consistentMitraGroup } from '../posting_identity/group_destination';
 import { normalizePostingIdentity, sessionPostingIdentityId } from '../posting_identity/identity';
 import { composerInteractionInputKey, composerInteractionSpoilerText } from '../posting_identity/interaction_input';
 import { composerSenderSwitchDraft, resolveSenderIdentitySwitch } from '../posting_identity/switch_resolver';
@@ -274,7 +274,7 @@ const interactionNeeded = composer => {
 
   const identityId = composer.getIn(['senderIdentity', 'id']);
   const delegated = typeof identityId === 'string' && identityId.startsWith('delegated:');
-  const group = consistentLocalFedibirdGroup(composer) && !composer.get('in_reply_to') && !composer.get('quote_from');
+  const group = (consistentLocalFedibirdGroup(composer) || consistentMitraGroup(composer)) && !composer.get('in_reply_to') && !composer.get('quote_from');
 
   return delegated && Boolean(composer.get('in_reply_to') || composer.get('quote_from') || group);
 };
@@ -335,6 +335,7 @@ export function validateComposerInteraction(composerId) {
     const delegationId = selectPostingIdentityDelegationId(getState(), identityId);
     const inputKey = composerInteractionInputKey(composer);
     const localGroup = consistentLocalFedibirdGroup(composer);
+    const mitraGroup = consistentMitraGroup(composer);
     const snapshot = { identityId, epoch, delegationId, inputKey, requestId: nextInteractionRequestId(composerId) };
     const payload = {
       posting_identity_id: identityId,
@@ -345,10 +346,14 @@ export function validateComposerInteraction(composerId) {
       spoiler_text: composerInteractionSpoilerText(composer),
     };
 
-    if (localGroup) {
+    if (localGroup || mitraGroup) {
       payload.posting_context_account_id = composer.get('posting_context_account_id');
       payload.posting_context_key = composer.getIn(['context', 'key']);
       payload.posting_context_revision = composer.getIn(['context', 'source', 'revision']);
+    }
+
+    if (mitraGroup) {
+      payload.audience_account_id = composer.getIn(['context', 'protocol', 'activityPub', 'audience', 'accountId']);
     }
 
     dispatch(targetComposerAction({

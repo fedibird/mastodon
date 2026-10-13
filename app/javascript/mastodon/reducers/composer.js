@@ -71,7 +71,7 @@ import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { REDRAFT } from '../actions/statuses';
 import { COMPOSE_REDAFT_DISCARD, COMPOSE_REDAFT_MEDIA_LOCAL, COMPOSE_REDAFT_MEDIA_STATUS } from '../actions/redraft_media';
 import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE, COMPOSER_INTERACTION_CHECK_FAIL, COMPOSER_INTERACTION_CHECK_REQUEST, COMPOSER_INTERACTION_CHECK_SUCCESS, COMPOSER_SENDER_IDENTITY_SELECT, COMPOSER_SURFACE_ACCEPT } from '../actions/composer';
-import { consistentLocalFedibirdGroup } from '../posting_identity/group_destination';
+import { consistentLocalFedibirdGroup, consistentMitraGroup } from '../posting_identity/group_destination';
 import { composerInteractionInputKey } from '../posting_identity/interaction_input';
 import { USER_POSTING_STYLE_AUTO_ATTEMPT, USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DEFAULTS_SETTLED, USER_POSTING_STYLE_DESTINATION, USER_POSTING_STYLE_DESTINATION_RETRY, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../actions/user_posting_styles';
 import { Map as ImmutableMap, List as ImmutableList, Set as ImmutableSet, OrderedSet as ImmutableOrderedSet, fromJS } from 'immutable';
@@ -352,7 +352,7 @@ const noteInteractionTarget = map => {
   const quoteId = map.get('quote_from');
   const identityId = map.getIn(['senderIdentity', 'id']);
   const delegated = typeof identityId === 'string' && identityId.startsWith('delegated:');
-  const groupPost = consistentLocalFedibirdGroup(map) && !replyId && !quoteId;
+  const groupPost = (consistentLocalFedibirdGroup(map) || consistentMitraGroup(map)) && !replyId && !quoteId;
   const active = Boolean(replyId || quoteId || groupPost);
 
   const next = map.set('interactionCheck', ImmutableMap({
@@ -373,7 +373,7 @@ const invalidateInteraction = state => {
     return state;
   }
 
-  if (!state.get('in_reply_to') && !state.get('quote_from') && !consistentLocalFedibirdGroup(state)) {
+  if (!state.get('in_reply_to') && !state.get('quote_from') && !consistentLocalFedibirdGroup(state) && !consistentMitraGroup(state)) {
     return state;
   }
 
