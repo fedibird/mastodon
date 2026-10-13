@@ -13,6 +13,7 @@ class ActivityPub::ReplyDistributionWorker
     @status  = Status.find(status_id)
     @account = @status.thread&.account
 
+    return if @status.ap_page?
     return unless @account.present? && @status.distributable?
 
     ActivityPub::DeliveryWorker.push_bulk(inboxes) do |inbox_url|

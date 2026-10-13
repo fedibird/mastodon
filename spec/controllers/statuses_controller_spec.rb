@@ -24,6 +24,15 @@ describe StatusesController do
     let(:account) { Fabricate(:account) }
     let(:status)  { Fabricate(:status, account: account) }
 
+    it 'does not render an unreleased page' do
+      page = Fabricate(:status, account: account, text: 'page body', post_title: 'Title', ap_object_type: 'page')
+
+      get :show, params: { account_username: account.username, id: page.id }, format: :json
+
+      expect(response).to have_http_status(404)
+      expect(body_as_json[:error]).to eq 'Not Found'
+    end
+
     context 'when account is permanently suspended' do
       before do
         account.suspend!

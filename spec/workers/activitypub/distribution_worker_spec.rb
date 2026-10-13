@@ -14,6 +14,19 @@ describe ActivityPub::DistributionWorker do
       follower.follow!(status.account)
     end
 
+    context 'with an unreleased page' do
+      before do
+        status.update!(visibility: :public, post_title: 'Title', ap_object_type: 'page')
+      end
+
+      it 'does not deliver' do
+        subject.perform(status.id)
+
+        expect(ActivityPub::DeliveryWorker).not_to have_received(:push_bulk)
+        expect(ActivityPub::DeliveryWorker).not_to have_received(:perform_async)
+      end
+    end
+
     context 'with public status' do
       before do
         status.update(visibility: :public)

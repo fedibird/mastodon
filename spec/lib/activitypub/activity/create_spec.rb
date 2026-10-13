@@ -30,6 +30,50 @@ RSpec.describe ActivityPub::Activity::Create do
     context 'when fetching' do
       subject { described_class.new(json, sender, delivered_to_account_id: delivered_to_account_id) }
 
+      context 'when a Note carries a name' do
+        let(:object_json) do
+          {
+            id: [ActivityPub::TagManager.instance.uri_for(sender), '#named-note'].join,
+            type: 'Note',
+            name: 'Not a stored title',
+            content: 'Lorem ipsum',
+          }
+        end
+
+        it 'does not copy the name onto the status title' do
+          expect { subject.perform }.to change(sender.statuses, :count).by(1)
+
+          status = sender.statuses.first
+          expect(status.text).to eq 'Lorem ipsum'
+          expect(status.post_title).to be_nil
+          expect(status[:ap_object_type]).to be_nil
+          expect(status.ap_object_type).to eq 'note'
+        end
+      end
+
+      context 'when the object is a remote Page with a name' do
+        let(:object_json) do
+          {
+            id: [ActivityPub::TagManager.instance.uri_for(sender), '#remote-page'].join,
+            type: 'Page',
+            name: 'Remote title',
+            content: 'Remote body',
+          }
+        end
+
+        it 'keeps the converted note and does not store a page' do
+          stub_request(:get, 'https://example.com/actor#remote-page').to_return(status: 200, body: '')
+
+          expect { subject.perform }.to change(sender.statuses, :count).by(1)
+
+          status = sender.statuses.first
+          expect(status.post_title).to be_nil
+          expect(status[:ap_object_type]).to be_nil
+          expect(status.ap_page?).to be false
+          expect(status.text).to include('Remote title')
+        end
+      end
+
       context 'when object publication date is below ISO8601 range' do
         let(:object_json) do
           {

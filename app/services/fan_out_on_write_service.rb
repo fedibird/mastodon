@@ -14,6 +14,7 @@ class FanOutOnWriteService < BaseService
   def call(status, update: false)
     @update = update
     raise Mastodon::RaceConditionError if status.visibility.nil?
+    return if status.ap_page?
 
     @feedInsertWorker = status.account.high_priority? ? ::PriorityFeedInsertWorker : FeedInsertWorker
 

@@ -16,8 +16,12 @@ class UpdateStatusService < BaseService
   # @param [Integer] account_id
   # @param [Hash] options
   def call(status, account_id, options = {})
+    # Title and activity type are not edit fields. A stored page must not
+    # be saved again and distributed as a Note update.
+    raise Mastodon::ValidationError, I18n.t('statuses.errors.unreleased_activity_object') if status.ap_page?
+
     @status                    = status
-    @options                   = options
+    @options                   = options.except(:post_title, :ap_object_type)
     @account_id                = account_id
     @media_attachments_changed = false
     @poll_changed              = false

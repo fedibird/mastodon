@@ -41,6 +41,8 @@ class ActivityPub::NoteSerializer < ActivityPub::Serializer
   end
 
   def type
+    raise Status::UnreleasedActivityObject if object.respond_to?(:ap_page?) && object.ap_page?
+
     object.preloadable_poll ? 'Question' : 'Note'
   end
 

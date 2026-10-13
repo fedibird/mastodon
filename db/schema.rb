@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_12_190000) do
+ActiveRecord::Schema.define(version: 2026_10_13_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1581,6 +1581,8 @@ ActiveRecord::Schema.define(version: 2026_10_12_190000) do
     t.datetime "edited_at"
     t.boolean "trendable"
     t.bigint "audience_account_id"
+    t.text "post_title"
+    t.string "ap_object_type"
     t.index ["account_id", "id", "visibility", "updated_at"], name: "index_statuses_20210710", order: { id: :desc }, where: "((deleted_at IS NULL) AND (expired_at IS NULL))"
     t.index ["account_id", "id"], name: "index_statuses_private_searchable", order: { id: :desc }, where: "((deleted_at IS NULL) AND (expired_at IS NULL) AND (reblog_of_id IS NULL) AND (searchability = ANY (ARRAY[0, 1, 2])))"
     t.index ["audience_account_id"], name: "index_statuses_on_audience_account_id"
@@ -1593,6 +1595,7 @@ ActiveRecord::Schema.define(version: 2026_10_12_190000) do
     t.index ["reblog_of_id", "account_id"], name: "index_statuses_on_reblog_of_id_and_account_id"
     t.index ["uri"], name: "index_statuses_on_uri", unique: true
     t.index ["url"], name: "index_statuses_on_url"
+    t.check_constraint "((ap_object_type IS NULL) OR ((ap_object_type)::text = ANY ((ARRAY['note'::character varying, 'page'::character varying])::text[]))) AND ((post_title IS NULL) OR (((char_length(post_title) >= 1) AND (char_length(post_title) <= 100)) AND (post_title !~ '[[:cntrl:]]'::text) AND (btrim(post_title) <> ''::text))) AND (((ap_object_type)::text IS DISTINCT FROM 'page'::text) OR (post_title IS NOT NULL))", name: "statuses_post_title_shape"
   end
 
   create_table "statuses_tags", id: false, force: :cascade do |t|

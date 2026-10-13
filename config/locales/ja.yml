@@ -2467,6 +2467,12 @@ ja:
       invalid_audience_account: audience対象はリモートのActivityPubグループである必要があります
       invalid_audience_visibility: audience対象は公開または未収載の投稿でのみ使用できます
       audience_on_reply: audience対象は返信には使用できません
+      unreleased_activity_object: このActivityオブジェクトはまだ利用できません
+      invalid_ap_object_type: Activityオブジェクト型はnoteまたはpageである必要があります
+      page_title_required: ページにはタイトルが必要です
+      page_shape_unsupported: ページは返信、ブースト、引用、投票、リモート投稿にはできません
+      post_title_invalid: タイトルに改行や制御文字は使えません
+      post_title_too_long: タイトルは%{max}文字までです
     language_detection: 自動検出
     open_in_web: Webで開く
     over_character_limit: 上限は %{max}文字までです

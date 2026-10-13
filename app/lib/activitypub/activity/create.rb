@@ -194,6 +194,8 @@ class ActivityPub::Activity::Create < ActivityPub::Activity
   end
 
   def process_status_params
+    # Remote name and remote object type stay out of post_title and
+    # ap_object_type. A remote Page is still the existing converted Note.
     @params = begin
       {
         uri: object_uri,
