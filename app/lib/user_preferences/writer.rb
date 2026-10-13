@@ -60,10 +60,7 @@ class UserPreferences::Writer
                        else
                          before_revision
                        end
-      if change_set.changed_keys.any?
-        callback = UserPreferences::CacheDeletion.new(locked, change_set.changed_keys)
-        User.connection.add_transaction_record(callback)
-      end
+      callback = register_after_commit(locked, change_set, after_revision)
     end
     UserPreferences::WriteResult.new(
       before: change_set.before,
@@ -74,6 +71,24 @@ class UserPreferences::Writer
       before_revision: before_revision,
       after_revision: after_revision
     )
+  end
+
+  # Cache deletion and the change notification run after COMMIT.
+  # Each one swallows its own failure so the other still runs.
+  def register_after_commit(locked, change_set, after_revision)
+    return unless change_set.changed_keys.any?
+
+    deletion = UserPreferences::CacheDeletion.new(locked, change_set.changed_keys)
+    User.connection.add_transaction_record(deletion)
+    User.connection.add_transaction_record(
+      UserPreferences::ChangeNotification.new(
+        user_id: locked.id,
+        account_id: locked.account_id,
+        changed_keys: change_set.changed_keys,
+        revision: after_revision
+      )
+    )
+    deletion
   end
 
   def lock_user
