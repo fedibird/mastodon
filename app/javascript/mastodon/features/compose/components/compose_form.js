@@ -96,6 +96,8 @@ const messages = defineMessages({
   redraftSaveFailed: { id: 'compose.redraft_media.save_failed', defaultMessage: 'Could not save the image description' },
   redraftReuseFailed: { id: 'compose.redraft_media.reuse_failed', defaultMessage: 'This image cannot be reused. Try again, or attach the image again' },
   redraftRetry: { id: 'compose.redraft_media.retry', defaultMessage: 'Try again' },
+  redraftUnconfirmed: { id: 'compose.redraft_media.unconfirmed', defaultMessage: 'The images from the original post could not be confirmed, so this draft cannot be posted.' },
+  redraftDiscard: { id: 'compose.redraft_media.discard', defaultMessage: 'Discard this draft' },
 });
 
 const redraftNoticeMessage = {
@@ -104,6 +106,7 @@ const redraftNoticeMessage = {
   save: messages.redraftSaveFailed,
   prepare: messages.redraftReuseFailed,
   forbidden: messages.redraftReuseFailed,
+  unconfirmed: messages.redraftUnconfirmed,
 };
 
 const uploadReasonMessage = {
@@ -199,6 +202,7 @@ class ComposeForm extends ImmutablePureComponent {
     sendBlockReason: PropTypes.string,
     redraftNotice: PropTypes.string,
     onRetryRedraft: PropTypes.func,
+    onDiscardUnconfirmedRedraft: PropTypes.func,
   };
 
   state = {
@@ -276,6 +280,7 @@ class ComposeForm extends ImmutablePureComponent {
     }
 
     const retry = this.props.redraftNotice === 'prepare' || this.props.redraftNotice === 'save' || this.props.redraftNotice === 'forbidden';
+    const discard = this.props.redraftNotice === 'unconfirmed';
 
     return (
       <p className='compose-form__upload-notice' role='status'>
@@ -283,6 +288,11 @@ class ComposeForm extends ImmutablePureComponent {
         {retry && this.props.onRetryRedraft ? (
           <button type='button' className='link-button' onClick={this.props.onRetryRedraft}>
             {this.props.intl.formatMessage(messages.redraftRetry)}
+          </button>
+        ) : null}
+        {discard && this.props.onDiscardUnconfirmedRedraft ? (
+          <button type='button' className='link-button' onClick={this.props.onDiscardUnconfirmedRedraft}>
+            {this.props.intl.formatMessage(messages.redraftDiscard)}
           </button>
         ) : null}
       </p>

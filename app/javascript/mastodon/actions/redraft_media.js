@@ -1,10 +1,19 @@
+import { defineMessages } from 'react-intl';
 import api from '../api';
 import { selectComposer } from '../selectors/composer';
 import { showAlert } from './alerts';
 import { targetComposerAction } from './composer';
+import { openModal } from './modal';
 
 export const COMPOSE_REDAFT_MEDIA_LOCAL = 'COMPOSE_REDAFT_MEDIA_LOCAL';
 export const COMPOSE_REDAFT_MEDIA_STATUS = 'COMPOSE_REDAFT_MEDIA_STATUS';
+export const COMPOSE_REDAFT_DISCARD = 'COMPOSE_REDAFT_DISCARD';
+
+const discardMessages = defineMessages({
+  title: { id: 'compose.redraft_media.discard_title', defaultMessage: 'Discard this draft?' },
+  message: { id: 'compose.redraft_media.discard_message', defaultMessage: 'The text, content warning, and attached images in this draft will be lost.' },
+  confirm: { id: 'compose.redraft_media.discard_confirm', defaultMessage: 'Discard this draft' },
+});
 
 export const REDRAFT_REUSE_WAITING = 'waiting';
 export const REDRAFT_REUSE_READY = 'ready';
@@ -229,7 +238,7 @@ function saveRedraftMetadata(dispatch, getState, context) {
   const key = keyFor(context);
   const composer = selectComposer(getState(), context.composerId);
 
-  if (!composerMatches(composer, context) || composer.get('redraftMediaUnconfirmed')) {
+  if (!composerMatches(composer, context)) {
     return;
   }
 
@@ -541,10 +550,6 @@ export function prepareRedraftMedia(composerId) {
       return;
     }
 
-    if (composer.get('redraftMediaUnconfirmed')) {
-      return;
-    }
-
     const epoch = composer.get('redraftEpoch');
     const generation = composer.get('redraftGeneration');
     const startedAt = Date.now();
@@ -622,7 +627,7 @@ export function retainRedraftMediaEdits(composerId, mediaId, params) {
     const composer = selectComposer(getState(), composerId);
     const media = findMedia(composer, mediaId);
 
-    if (!media || !media.get('redraftReuse') || media.get('redraftUnconfirmed') || composer.get('redraftMediaUnconfirmed')) {
+    if (!media || !media.get('redraftReuse') || media.get('redraftUnconfirmed')) {
       return;
     }
 
@@ -693,7 +698,7 @@ export function composerRedraftNotice(composer) {
   }
 
   if (composer.get('redraftMediaUnconfirmed')) {
-    return 'prepare';
+    return 'unconfirmed';
   }
 
   const media = composer.get('media_attachments');
@@ -745,6 +750,30 @@ export function rejectThumbnailUntilRedraftReady(composer, mediaId) {
 
 export function alertThumbnailWaiting() {
   return showAlert(undefined, redraftThumbnailWaitingMessage);
+}
+
+export function discardUnconfirmedRedraft(composerId) {
+  return targetComposerAction({
+    type: COMPOSE_REDAFT_DISCARD,
+  }, composerId);
+}
+
+export function confirmDiscardUnconfirmedRedraft(composerId, intl) {
+  return (dispatch, getState) => {
+    const composer = selectComposer(getState(), composerId);
+
+    if (!composer || !composer.get('redraftMediaUnconfirmed')) {
+      return;
+    }
+
+    dispatch(openModal('CONFIRM', {
+      title: intl.formatMessage(discardMessages.title),
+      message: intl.formatMessage(discardMessages.message),
+      confirm: intl.formatMessage(discardMessages.confirm),
+      destructive: true,
+      onConfirm: () => dispatch(discardUnconfirmedRedraft(composerId)),
+    }));
+  };
 }
 
 export function resetRedraftMediaRuntime() {

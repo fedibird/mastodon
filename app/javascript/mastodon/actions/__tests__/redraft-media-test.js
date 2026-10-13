@@ -13,13 +13,15 @@ jest.mock('../../api', () => ({
 }));
 
 import api from '../../api';
-import { COMPOSE_SET_STATUS, changeComposerUpload, submitComposer, uploadComposerThumbnail } from '../compose';
+import { COMPOSE_SET_STATUS, changeCompose, changeComposerUpload, submitComposer, uploadComposeSuccess, uploadComposerThumbnail } from '../compose';
 import { createComposer, destroyComposer, targetComposerAction } from '../composer';
-import { COMPOSE_REDAFT_MEDIA_STATUS, composerRedraftBlocksSubmit, composerRedraftNotice, prepareRedraftMedia, resetRedraftMediaRuntime, retryRedraftMedia } from '../redraft_media';
+import { closeModal } from '../modal';
+import { COMPOSE_REDAFT_MEDIA_STATUS, composerRedraftBlocksSubmit, composerRedraftNotice, confirmDiscardUnconfirmedRedraft, prepareRedraftMedia, resetRedraftMediaRuntime, retryRedraftMedia } from '../redraft_media';
 import { REDRAFT, deleteStatus } from '../statuses';
 import alerts from '../../reducers/alerts';
 import compose from '../../reducers/compose';
 import composers from '../../reducers/composers';
+import modal from '../../reducers/modal';
 
 const flush = async () => {
   for (let i = 0; i < 20; i += 1) {
@@ -49,6 +51,7 @@ const statusWithMedia = (id = 'm1') => fromJS({
 const reducer = combineReducers({
   compose,
   composers,
+  modal,
   statuses: (state = ImmutableMap()) => state,
   accounts: (state = ImmutableMap()) => state,
   timelines: (state = ImmutableMap()) => state,
@@ -520,7 +523,7 @@ describe('redraft media reuse', () => {
     expect(freshStore.getState().getIn(['compose', 'media_attachments', 0, 'redraftReuse'])).toEqual('failed');
     expect(freshStore.getState().getIn(['compose', 'media_attachments', 0, 'redraftError'])).toEqual('prepare');
     expect(freshStore.getState().getIn(['compose', 'redraftMediaUnconfirmed'])).toBe(true);
-    expect(composerRedraftNotice(freshStore.getState().get('compose'))).toEqual('prepare');
+    expect(composerRedraftNotice(freshStore.getState().get('compose'))).toEqual('unconfirmed');
     expect(client.get).not.toHaveBeenCalled();
 
     await freshStore.dispatch(submitComposer('primary', { push: jest.fn(), goBack: jest.fn() }));
@@ -773,7 +776,7 @@ describe('redraft media reuse', () => {
     expect(attachments.every(item => item.get('redraftReuse') === 'failed' && item.get('redraftUnconfirmed') === true)).toBe(true);
     expect(composer.get('redraftMediaUnconfirmed')).toBe(true);
     expect(composerRedraftBlocksSubmit(composer)).toBe(true);
-    expect(composerRedraftNotice(composer)).toEqual('prepare');
+    expect(composerRedraftNotice(composer)).toEqual('unconfirmed');
     expect(client.get).not.toHaveBeenCalled();
 
     await freshStore.dispatch(submitComposer('primary', { push: jest.fn(), goBack: jest.fn() }));
@@ -795,7 +798,7 @@ describe('redraft media reuse', () => {
     expect(composer.get('text')).toEqual('body');
     expect(composer.get('redraftMediaUnconfirmed')).toBe(true);
     expect(composerRedraftBlocksSubmit(composer)).toBe(true);
-    expect(composerRedraftNotice(composer)).toEqual('prepare');
+    expect(composerRedraftNotice(composer)).toEqual('unconfirmed');
 
     await freshStore.dispatch(submitComposer('primary', { push: jest.fn(), goBack: jest.fn() }));
     expect(client.request).not.toHaveBeenCalled();
@@ -880,7 +883,7 @@ describe('redraft media reuse', () => {
     expect(freshStore.getState().getIn(['compose', 'media_attachments']).size).toEqual(0);
     expect(freshStore.getState().getIn(['compose', 'text'])).toEqual('body');
     expect(freshStore.getState().getIn(['compose', 'redraftMediaUnconfirmed'])).toBe(true);
-    expect(composerRedraftNotice(freshStore.getState().get('compose'))).toEqual('prepare');
+    expect(composerRedraftNotice(freshStore.getState().get('compose'))).toEqual('unconfirmed');
 
     await freshStore.dispatch(submitComposer('primary', { push: jest.fn(), goBack: jest.fn() }));
     expect(client.request).not.toHaveBeenCalled();
@@ -1006,5 +1009,228 @@ describe('redraft media reuse', () => {
     expect(read().getIn(['media_attachments', 0, 'redraftError'])).toBeNull();
     expect(read().get('redraftGeneration')).toEqual(newIdentity.generation);
     expect(client.put).toHaveBeenCalledTimes(1);
+  });
+
+  const intl = {
+    formatMessage: descriptor => descriptor.defaultMessage,
+  };
+
+  const holdUnconfirmed = (composerId = 'primary') => {
+    const action = {
+      type: REDRAFT,
+      status: fromJS({
+        id: 'status-held',
+        text: 'held',
+        spoiler_text: 'cw text',
+        visibility: 'public',
+        media_attachments: [media('m1', { description: 'cached alt' }).toJS()],
+      }),
+      raw_text: 'held body',
+      reuseMedia: true,
+      mediaUnconfirmed: true,
+    };
+
+    store.dispatch(composerId === 'primary' ? action : targetComposerAction(action, composerId));
+    const openModalEdit = { type: 'INIT_MEDIA_EDIT_MODAL', id: 'm1' };
+    const editDescription = { type: 'COMPOSE_CHANGE_MEDIA_DESCRIPTION', description: 'modal alt' };
+
+    store.dispatch(composerId === 'primary' ? openModalEdit : targetComposerAction(openModalEdit, composerId));
+    store.dispatch(composerId === 'primary' ? editDescription : targetComposerAction(editDescription, composerId));
+  };
+
+  const approveDiscard = composerId => {
+    store.dispatch(confirmDiscardUnconfirmedRedraft(composerId, intl));
+    const confirm = store.getState().getIn(['modal', 0, 'modalProps']).onConfirm;
+
+    store.dispatch(closeModal('CONFIRM'));
+    confirm();
+  };
+
+  it('does not clear an unconfirmed draft when compose reset runs', () => {
+    holdUnconfirmed();
+    store.dispatch({ type: 'COMPOSE_RESET' });
+
+    const composer = composerRecord(store.getState());
+
+    expect(composer.get('text')).toEqual('');
+    expect(composer.get('media_attachments').size).toEqual(1);
+    expect(composer.get('redraftMediaUnconfirmed')).toBe(true);
+    expect(composerRedraftBlocksSubmit(composer)).toBe(true);
+  });
+
+  it('keeps the text, images, and unconfirmed hold when discard is cancelled', () => {
+    holdUnconfirmed();
+    store.dispatch(confirmDiscardUnconfirmedRedraft('primary', intl));
+
+    const props = store.getState().getIn(['modal', 0, 'modalProps']);
+
+    expect(store.getState().getIn(['modal', 0, 'modalType'])).toEqual('CONFIRM');
+    expect(props.title).toEqual('Discard this draft?');
+    expect(props.message).toEqual('The text, content warning, and attached images in this draft will be lost.');
+    expect(props.confirm).toEqual('Discard this draft');
+
+    store.dispatch(closeModal('CONFIRM'));
+
+    const composer = composerRecord(store.getState());
+
+    expect(store.getState().get('modal').size).toEqual(0);
+    expect(composer.get('text')).toEqual('held body');
+    expect(composer.get('spoiler_text')).toEqual('cw text');
+    expect(composer.get('media_attachments').map(item => item.get('description')).toArray()).toEqual(['cached alt']);
+    expect(composer.get('redraftMediaUnconfirmed')).toBe(true);
+    expect(composer.getIn(['media_modal', 'description'])).toEqual('modal alt');
+    expect(composer.getIn(['media_modal', 'dirty'])).toBe(true);
+    expect(composerRedraftBlocksSubmit(composer)).toBe(true);
+  });
+
+  it('returns to an empty composer when discard is confirmed', () => {
+    holdUnconfirmed();
+    const before = redraftIdentity(store.getState());
+
+    approveDiscard('primary');
+
+    const composer = composerRecord(store.getState());
+
+    expect(composer.get('text')).toEqual('');
+    expect(composer.get('spoiler')).toBe(false);
+    expect(composer.get('spoiler_text')).toEqual('');
+    expect(composer.get('media_attachments').size).toEqual(0);
+    expect(composer.get('redraftMediaUnconfirmed')).toBe(false);
+    expect(composer.getIn(['media_modal', 'id'])).toBeNull();
+    expect(composer.getIn(['media_modal', 'description'])).toEqual('');
+    expect(composer.getIn(['media_modal', 'dirty'])).toBe(false);
+    expect(composer.get('is_changing_upload')).toBe(false);
+    expect(composer.get('redraftEpoch')).not.toEqual(before.epoch);
+    expect(composer.get('redraftGeneration')).not.toEqual(before.generation);
+    expect(composerRedraftBlocksSubmit(composer)).toBe(false);
+    expect(composerRedraftNotice(composer)).toBeNull();
+  });
+
+  it('allows a normal text post and image upload after the unconfirmed draft is discarded', async () => {
+    holdUnconfirmed();
+    approveDiscard('primary');
+    store.dispatch(changeCompose('hello again'));
+    store.dispatch(uploadComposeSuccess(fromJS({
+      id: 'up1',
+      type: 'image',
+      description: 'fresh upload',
+    }), null));
+
+    const composer = composerRecord(store.getState());
+
+    expect(composer.get('text')).toEqual('hello again');
+    expect(composer.get('media_attachments').map(item => item.get('id')).toArray()).toEqual(['up1']);
+    expect(composer.getIn(['media_attachments', 0, 'redraftReuse'])).toBeUndefined();
+    expect(composer.get('redraftMediaUnconfirmed')).toBe(false);
+    expect(composerRedraftBlocksSubmit(composer)).toBe(false);
+
+    client.request.mockResolvedValue(postedResponse);
+    await store.dispatch(submitComposer('primary', { push: jest.fn(), goBack: jest.fn(), location: { pathname: '/home' } }));
+
+    expect(client.request).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'post',
+      data: expect.objectContaining({ status: 'hello again' }),
+    }));
+    expect(client.request.mock.calls[0][0].data.media_ids.toArray()).toEqual(['up1']);
+  });
+
+  it('ignores a late GET and PUT from before the unconfirmed draft is discarded', async () => {
+    holdUnconfirmed();
+    const before = redraftIdentity(store.getState());
+    let finishGet;
+
+    client.get.mockImplementationOnce(() => new Promise(resolve => {
+      finishGet = resolve;
+    }));
+    store.dispatch(targetComposerAction({
+      type: COMPOSE_REDAFT_MEDIA_STATUS,
+      mediaId: 'm1',
+      reuse: 'waiting',
+      error: null,
+      redraftUnconfirmed: false,
+      ...before,
+    }, 'primary'));
+    store.dispatch(prepareRedraftMedia('primary'));
+    store.dispatch(targetComposerAction({
+      type: COMPOSE_REDAFT_MEDIA_STATUS,
+      mediaId: 'm1',
+      reuse: 'complete',
+      fetched: true,
+      error: null,
+      redraftUnconfirmed: false,
+      ...before,
+    }, 'primary'));
+
+    let finishPut;
+
+    client.put.mockImplementationOnce(() => new Promise(resolve => {
+      finishPut = resolve;
+    }));
+    store.dispatch(changeComposerUpload('primary', 'm1', { description: 'editing', focus: '0.20,0.20' }));
+    expect(client.get).toHaveBeenCalled();
+    expect(client.put).toHaveBeenCalled();
+
+    approveDiscard('primary');
+    store.dispatch(changeCompose('after discard'));
+    store.dispatch(uploadComposeSuccess(fromJS({
+      id: 'm1',
+      type: 'image',
+      description: 'new upload alt',
+    }), null));
+
+    finishGet({ status: 200, data: { id: 'm1', type: 'image', description: 'from old get', meta: { focus: { x: 0, y: 0 } } } });
+    finishPut({ status: 200, data: { id: 'm1', type: 'image', description: 'editing', meta: { focus: { x: 0.2, y: 0.2 } } } });
+    store.dispatch(targetComposerAction({
+      type: COMPOSE_REDAFT_MEDIA_STATUS,
+      mediaId: 'm1',
+      reuse: 'failed',
+      error: 'prepare',
+      ...before,
+    }, 'primary'));
+    jest.advanceTimersByTime(30_000);
+    await flush();
+
+    const composer = composerRecord(store.getState());
+
+    expect(composer.get('text')).toEqual('after discard');
+    expect(composer.get('redraftMediaUnconfirmed')).toBe(false);
+    expect(composer.getIn(['media_attachments', 0, 'description'])).toEqual('new upload alt');
+    expect(composer.getIn(['media_attachments', 0, 'redraftReuse'])).toBeUndefined();
+    expect(composer.get('redraftEpoch')).not.toEqual(before.epoch);
+    expect(composer.get('redraftGeneration')).not.toEqual(before.generation);
+  });
+
+  it('discards only the composer whose draft was confirmed', () => {
+    holdUnconfirmed();
+    store.dispatch(createComposer('composer-a'));
+    store.dispatch(createComposer('composer-b'));
+    store.dispatch(targetComposerAction({
+      type: REDRAFT,
+      status: statusWithMedia('m-a'),
+      raw_text: 'aaa',
+      reuseMedia: true,
+      mediaUnconfirmed: true,
+    }, 'composer-a'));
+    store.dispatch(targetComposerAction({
+      type: REDRAFT,
+      status: statusWithMedia('m-b'),
+      raw_text: 'bbb',
+      reuseMedia: true,
+    }, 'composer-b'));
+
+    store.dispatch(confirmDiscardUnconfirmedRedraft('composer-b', intl));
+    expect(store.getState().get('modal').size).toEqual(0);
+    expect(composerRecord(store.getState(), 'composer-b').get('text')).toEqual('bbb');
+
+    approveDiscard('composer-a');
+
+    expect(composerRecord(store.getState(), 'composer-a').get('text')).toEqual('');
+    expect(composerRecord(store.getState(), 'composer-a').get('media_attachments').size).toEqual(0);
+    expect(composerRecord(store.getState(), 'composer-a').get('redraftMediaUnconfirmed')).toBe(false);
+    expect(composerRecord(store.getState()).get('text')).toEqual('held body');
+    expect(composerRecord(store.getState()).get('redraftMediaUnconfirmed')).toBe(true);
+    expect(composerRecord(store.getState()).get('media_attachments').size).toEqual(1);
+    expect(composerRecord(store.getState(), 'composer-b').get('text')).toEqual('bbb');
+    expect(composerRecord(store.getState(), 'composer-b').getIn(['media_attachments', 0, 'description'])).toEqual('old alt');
   });
 });

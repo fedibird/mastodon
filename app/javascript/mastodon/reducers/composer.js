@@ -69,7 +69,7 @@ import {
 } from '../actions/compose';
 import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { REDRAFT } from '../actions/statuses';
-import { COMPOSE_REDAFT_MEDIA_LOCAL, COMPOSE_REDAFT_MEDIA_STATUS } from '../actions/redraft_media';
+import { COMPOSE_REDAFT_DISCARD, COMPOSE_REDAFT_MEDIA_LOCAL, COMPOSE_REDAFT_MEDIA_STATUS } from '../actions/redraft_media';
 import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE, COMPOSER_INTERACTION_CHECK_FAIL, COMPOSER_INTERACTION_CHECK_REQUEST, COMPOSER_INTERACTION_CHECK_SUCCESS, COMPOSER_SENDER_IDENTITY_SELECT, COMPOSER_SURFACE_ACCEPT } from '../actions/composer';
 import { composerInteractionInputKey } from '../posting_identity/interaction_input';
 import { USER_POSTING_STYLE_AUTO_ATTEMPT, USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DEFAULTS_SETTLED, USER_POSTING_STYLE_DESTINATION, USER_POSTING_STYLE_DESTINATION_RETRY, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../actions/user_posting_styles';
@@ -643,6 +643,10 @@ const applyRedraftMediaStatus = (state, action) => {
 
       if (action.fetched !== undefined) {
         next = next.set('redraftFetched', action.fetched === true);
+      }
+
+      if (action.redraftUnconfirmed !== undefined) {
+        next = next.set('redraftUnconfirmed', action.redraftUnconfirmed === true);
       }
 
       return next;
@@ -1552,6 +1556,18 @@ export default function composer(state = initialState, action) {
     return applyRedraftMediaLocal(state, action);
   case COMPOSE_REDAFT_MEDIA_STATUS:
     return applyRedraftMediaStatus(state, action);
+  case COMPOSE_REDAFT_DISCARD:
+    if (!state.get('redraftMediaUnconfirmed')) {
+      return state;
+    }
+
+    return reapplySelectedStyle(clearStyleManualState(clearAll(state).set('media_modal', ImmutableMap({
+      id: null,
+      description: '',
+      focusX: 0,
+      focusY: 0,
+      dirty: false,
+    }))), { respectManual: false, resetSuppressions: true });
   case INIT_MEDIA_EDIT_MODAL:
     const media =  state.get('media_attachments').find(item => item.get('id') === action.id);
     return state.set('media_modal', ImmutableMap({

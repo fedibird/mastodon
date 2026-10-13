@@ -27,7 +27,7 @@ import UserPostingStyleController from './user_posting_style_controller';
 import UserPostingStylePickerContainer from './user_posting_style_picker_container';
 import ComposerContextDetails from '../components/composer_context_details';
 import { injectIntl, defineMessages } from 'react-intl';
-import { composerRedraftNotice, retryRedraftMedia } from '../../../actions/redraft_media';
+import { composerRedraftNotice, confirmDiscardUnconfirmedRedraft, retryRedraftMedia } from '../../../actions/redraft_media';
 import { isAdministrator, showComposerPostingStyleSelector } from '../../../initial_state';
 
 const messages = defineMessages({
@@ -132,6 +132,10 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
 
   onRetryRedraft () {
     dispatch(retryRedraftMedia(composerId));
+  },
+
+  onDiscardUnconfirmedRedraft () {
+    dispatch(confirmDiscardUnconfirmedRedraft(composerId, intl));
   },
 
   onCancelEdit () {
