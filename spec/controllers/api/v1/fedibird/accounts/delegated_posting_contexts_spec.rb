@@ -59,6 +59,7 @@ RSpec.describe Api::V1::Fedibird::Accounts::PostingContextsController do # ruboc
     expect(response).to have_http_status(200)
     expect(body_as_json.dig(:sender_posting, :following)).to be false
     expect(body_as_json.dig(:sender_posting, :can_post)).to be false
+    expect(response.body).not_to include('affiliation_uri')
   end
 
   it 'refuses a grant without group and a remote group stays unpostable' do
@@ -76,5 +77,46 @@ RSpec.describe Api::V1::Fedibird::Accounts::PostingContextsController do # ruboc
     expect(response).to have_http_status(200)
     expect(body_as_json.dig(:sender_posting, :can_post)).to be false
     expect(body_as_json[:viewer_evidence]).to be_nil
+  end
+
+  it 'returns a minimal canCreate result for a Mitra group and not the affiliation list' do
+    delegation = delegate!
+    Node.create!(domain: 'mitra.example', info: { 'software_name' => 'mitra' })
+    remote = Fabricate(
+      :account,
+      username: 'circle',
+      domain: 'mitra.example',
+      actor_type: 'Group',
+      protocol: :activitypub,
+      uri: 'https://mitra.example/users/circle',
+      inbox_url: 'https://mitra.example/users/circle/inbox'
+    )
+    remote.update_columns(
+      affiliations_fetched_at: Time.now.utc,
+      permission_definitions_fetched_at: Time.now.utc,
+      can_create_affiliation: 'none'
+    )
+    GroupAffiliation.create!(
+      group_account: remote,
+      subject_uri: ActivityPub::TagManager.instance.uri_for(grantor.account),
+      relationship: 'admin',
+      affiliation_uri: 'https://mitra.example/relationships/secret'
+    )
+
+    get :show, params: { account_id: remote.id, posting_identity_id: "delegated:#{grantor.account.id}" }
+
+    expect(response).to have_http_status(200)
+    expect(response.headers['Cache-Control']).to include('no-store')
+    expect(body_as_json[:viewer_evidence]).to be_nil
+    expect(body_as_json[:sender_posting]).to include(
+      identity_id: "delegated:#{grantor.account.id}",
+      delegation_id: delegation.id.to_s,
+      can_post: true
+    )
+    expect(body_as_json.dig(:sender_posting, :permission)).to include(status: 'allowed', confirmed: true, freshness: 'current')
+    expect(body_as_json.dig(:sender_posting, :delivery)).to include(status: 'supported', adapter: 'mitra_group')
+    expect(response.body).not_to include('affiliation_uri')
+    expect(response.body).not_to include('relationships/secret')
+    expect(response.body).not_to include(grantor.email)
   end
 end

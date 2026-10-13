@@ -355,11 +355,33 @@ export function selectComposerEffectiveCreateCapability(state, composerId, now =
   const delivery = resolveDelivery(discovery);
   const permission = applyRevalidationOverlay(resolvePermission(discovery, delivery, now), state, targetAccountId);
 
-  return groupAttempt({
+  const attempt = groupAttempt({
     permission,
     delivery,
     compliance,
     aligned: appliedContextMatchesDiscovery(composer, discovery, targetAccountId),
+  });
+
+  if (!delegatedSender || delivery.adapter === 'fedibird_group' || delivery.adapter === null) {
+    return attempt;
+  }
+
+  const posting = discovery && discovery.get ? discovery.get('senderPosting') : null;
+  const confirmed = posting
+    && posting.get('canPost') === true
+    && posting.getIn(['permission', 'confirmed']) === true
+    && posting.getIn(['delivery', 'status']) === 'supported';
+
+  if (confirmed) {
+    return attempt;
+  }
+
+  return result({
+    permission: attempt.permission,
+    delivery: attempt.delivery,
+    compliance: attempt.compliance,
+    canAttempt: false,
+    reason: 'permission',
   });
 }
 

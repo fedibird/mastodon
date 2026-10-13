@@ -134,7 +134,18 @@ const normalizeSenderPosting = posting => {
     identityId: posting.identity_id ? String(posting.identity_id) : null,
     delegationId: posting.delegation_id ? String(posting.delegation_id) : null,
     canPost: posting.can_post === true,
-    following: posting.following === true,
+    following: typeof posting.following === 'boolean' ? posting.following : null,
+    permission: posting.permission ? {
+      status: posting.permission.status || 'unknown',
+      confirmed: posting.permission.confirmed === true,
+      source: posting.permission.source || null,
+      freshness: posting.permission.freshness || null,
+    } : null,
+    delivery: posting.delivery ? {
+      status: posting.delivery.status || null,
+      adapter: posting.delivery.adapter || null,
+      authority: posting.delivery.authority || null,
+    } : null,
   };
 };
 

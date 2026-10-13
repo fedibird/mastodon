@@ -84,7 +84,7 @@ class Api::V1::StatusesController < Api::BaseController
                                          status_reference_ids: delegated ? [] : Array(status_params[:status_reference_ids]).uniq.map(&:to_i),
                                          status_reference_urls: delegated ? [] : (status_params[:status_reference_urls] || []),
                                          searchability: status_params[:searchability],
-                                         audience_account_id: status_params[:audience_account_id],
+                                         audience_account_id: delegated ? interaction.audience_account_id : status_params[:audience_account_id],
                                          allowed_mentions: delegated ? interaction.allowed_mentions : status_params[:allowed_mentions],
                                          posting_audit: delegated ? posting_audit_payload : nil
     )

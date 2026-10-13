@@ -1,4 +1,5 @@
 const FEDIBIRD_GROUP_KEY = /^builtin:fedibird-group:([1-9]\d*)$/;
+const MITRA_GROUP_KEY = /^protocol:fep-1b12-group:([1-9]\d*)$/;
 
 const present = value => value !== null && value !== undefined && value !== '';
 
@@ -53,6 +54,45 @@ export function consistentLocalFedibirdGroup (source) {
   }
 
   const ids = [match[1]];
+  const push = value => {
+    if (present(value)) {
+      ids.push(String(value));
+    }
+  };
+
+  if (composer) {
+    push(source.get('posting_context_account_id'));
+    push(source.getIn(['context', 'resolvedAccountId']));
+
+    if (source.getIn(['surface', 'kind']) === 'group') {
+      push(source.getIn(['surface', 'key']));
+    }
+  } else {
+    push(read(source, 'postingContextAccountId'));
+    push(read(source, 'resolvedAccountId'));
+    push(read(source, 'groupId'));
+  }
+
+  return ids.every(id => id === match[1]);
+}
+
+// Mitra addresses the group with audience. The key is the Mitra FEP-1b12
+// context, and every account id already on the draft has to be that group.
+export function consistentMitraGroup (source) {
+  if (!source) {
+    return false;
+  }
+
+  const composer = typeof source.getIn === 'function';
+  const contextKey = composer ? source.getIn(['context', 'key']) : read(source, 'contextKey');
+  const match = String(contextKey || '').match(MITRA_GROUP_KEY);
+  const audienceId = audienceAccountId(source);
+
+  if (!match || !audienceId || String(audienceId) !== match[1]) {
+    return false;
+  }
+
+  const ids = [match[1], String(audienceId)];
   const push = value => {
     if (present(value)) {
       ids.push(String(value));

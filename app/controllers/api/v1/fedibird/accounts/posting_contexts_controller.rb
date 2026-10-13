@@ -43,6 +43,14 @@ class Api::V1::Fedibird::Accounts::PostingContextsController < Api::BaseControll
   end
 
   def sender_posting(resolution)
+    if PostingContext::Adapters::FedibirdGroup.applicable?(@account)
+      return local_sender_posting(resolution)
+    end
+
+    remote_sender_posting(resolution)
+  end
+
+  def local_sender_posting(resolution)
     decision = PostingIdentity::LocalGroupPost.decision(author: resolution.account, account_id: @account.id)
 
     {
@@ -50,6 +58,38 @@ class Api::V1::Fedibird::Accounts::PostingContextsController < Api::BaseControll
       delegation_id: resolution.delegation.id.to_s,
       can_post: decision.can_post,
       following: decision.following,
+      permission: {
+        status: decision.can_post ? 'allowed' : 'unknown',
+        confirmed: decision.can_post,
+        source: 'local_follow',
+        freshness: 'current',
+      },
+      delivery: {
+        status: decision.group ? 'supported' : 'unsupported',
+        adapter: decision.group ? 'fedibird_group' : nil,
+        authority: decision.group ? 'server' : nil,
+      },
+    }
+  end
+
+  def remote_sender_posting(resolution)
+    decision = PostingIdentity::RemoteGroupPost.decision(author: resolution.account, account_id: @account.id)
+
+    {
+      identity_id: resolution.identity_id,
+      delegation_id: resolution.delegation.id.to_s,
+      can_post: decision.can_post,
+      permission: {
+        status: decision.permission_status,
+        confirmed: decision.permission_confirmed,
+        source: decision.permission_source,
+        freshness: decision.permission_freshness,
+      },
+      delivery: {
+        status: decision.delivery_status,
+        adapter: decision.delivery_adapter,
+        authority: decision.delivery_authority,
+      },
     }
   end
 end

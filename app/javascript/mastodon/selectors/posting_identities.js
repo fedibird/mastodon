@@ -1,6 +1,6 @@
 import { POSTING_CONTEXT_CACHE_TTL } from '../actions/posting_contexts';
 import { isAdministrator, me } from '../initial_state';
-import { composerHasGroupDestination, consistentLocalFedibirdGroup } from '../posting_identity/group_destination';
+import { composerHasGroupDestination, consistentLocalFedibirdGroup, consistentMitraGroup } from '../posting_identity/group_destination';
 import { composerInteractionInputKey } from '../posting_identity/interaction_input';
 import { sessionPostingIdentityId } from '../posting_identity/identity';
 import { selectComposer } from './composer';
@@ -100,7 +100,7 @@ const delegatedSenderPosting = (state, composer, senderId) => {
 const delegatedInteractionReady = (composer, senderId, delegationId) => {
   const replyId = composer.get('in_reply_to');
   const quoteId = composer.get('quote_from');
-  const group = consistentLocalFedibirdGroup(composer);
+  const group = consistentLocalFedibirdGroup(composer) || consistentMitraGroup(composer);
 
   if (!replyId && !quoteId && !group) {
     return null;
@@ -208,7 +208,7 @@ export const selectComposerCanSendAsIdentity = (state, composerId) => {
         return deny('quote');
       }
 
-      if (composerHasGroupDestination(composer) && (composer.get('in_reply_to') || composer.get('quote_from') || !capabilityAllows(identity, 'group') || !consistentLocalFedibirdGroup(composer))) {
+      if (composerHasGroupDestination(composer) && (composer.get('in_reply_to') || composer.get('quote_from') || !capabilityAllows(identity, 'group') || !(consistentLocalFedibirdGroup(composer) || consistentMitraGroup(composer)))) {
         return deny('group');
       }
 
@@ -242,6 +242,18 @@ export const selectComposerCanSendAsIdentity = (state, composerId) => {
 
         if (!posting || posting.get('canPost') !== true) {
           return deny(posting && posting.get('following') === false ? 'follow' : 'pending');
+        }
+      }
+
+      if (consistentMitraGroup(composer)) {
+        const posting = delegatedSenderPosting(state, composer, senderId);
+        const confirmed = posting
+          && posting.get('canPost') === true
+          && posting.getIn(['permission', 'confirmed']) === true
+          && posting.getIn(['delivery', 'status']) === 'supported';
+
+        if (!confirmed) {
+          return deny(posting && posting.getIn(['permission', 'status']) === 'unknown' ? 'permission' : 'pending');
         }
       }
 

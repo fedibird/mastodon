@@ -19,7 +19,7 @@ import { materializeComposerText } from '../posting_context/materialize';
 import { composerActivityPubAudienceAccountId } from '../posting_context/protocol';
 import { selectComposer } from '../selectors/composer';
 import { fetchPostingIdentities, scheduleComposerInteractionCheck } from './posting_identities';
-import { composerHasGroupDestination, consistentLocalFedibirdGroup } from '../posting_identity/group_destination';
+import { composerHasGroupDestination, consistentLocalFedibirdGroup, consistentMitraGroup } from '../posting_identity/group_destination';
 import { sessionPostingIdentityId } from '../posting_identity/identity';
 import { delegatedFileIsBlocked } from '../posting_identity/still_image';
 import { selectComposerCanSendAsIdentity, selectComposerCanUploadAsIdentity } from '../selectors/posting_identities';
@@ -419,11 +419,13 @@ export function submitComposer(composerId, routerHistory) {
     const senderIdentityIdEarly = composer.getIn(['senderIdentity', 'id']);
     const delegatedSender = typeof senderIdentityIdEarly === 'string' && senderIdentityIdEarly.startsWith('delegated:');
 
-    if (delegatedSender && composerActivityPubAudienceAccountId(composer)) {
+    const mitraGroup = consistentMitraGroup(composer);
+
+    if (delegatedSender && composerActivityPubAudienceAccountId(composer) && !mitraGroup) {
       return Promise.resolve();
     }
 
-    if (delegatedSender && composerHasGroupDestination(composer) && !consistentLocalFedibirdGroup(composer)) {
+    if (delegatedSender && composerHasGroupDestination(composer) && !consistentLocalFedibirdGroup(composer) && !mitraGroup) {
       return Promise.resolve();
     }
 
@@ -528,7 +530,7 @@ export function submitComposer(composerId, routerHistory) {
 
     const delegatedSend = !editing && typeof senderIdentityId === 'string' && senderIdentityId.startsWith('delegated:');
 
-    if (delegatedSend && consistentLocalFedibirdGroup(composer)) {
+    if (delegatedSend && (consistentLocalFedibirdGroup(composer) || consistentMitraGroup(composer))) {
       createData.posting_context_account_id = composer.get('posting_context_account_id');
       createData.posting_context_key = composer.getIn(['context', 'key']);
       createData.posting_context_revision = composer.getIn(['context', 'source', 'revision']);
