@@ -66,7 +66,7 @@ const statusIdOf = (status) => {
   return id === undefined || id === null ? null : String(id);
 };
 
-const confirmEntries = (state, timelineId, statuses) => {
+const absorbEntries = (state, timelineId, statuses) => {
   if (!timelineId || !statuses || statuses.length === 0) {
     return state;
   }
@@ -85,23 +85,23 @@ const confirmEntries = (state, timelineId, statuses) => {
     return state;
   }
 
-  return state.update('entries', ImmutableMap(), entries => entries.map(entry => {
-    if (entry.get('timelineId') !== timelineId || entry.get('phase') === 'confirmed') {
-      return entry;
+  return state.update('entries', ImmutableMap(), entries => entries.filter(entry => {
+    if (entry.get('timelineId') !== timelineId) {
+      return true;
     }
 
-    const status = byId.get(statusIdOf(entry.get('statusId')) || String(entry.get('statusId')));
+    const status = byId.get(String(entry.get('statusId')));
     const view = state.getIn(['views', entry.get('viewKey')]);
 
     if (!status || !view || view.get('timelineId') !== timelineId) {
-      return entry;
+      return true;
     }
 
     if (!statusMatchesImmediateView(view, status)) {
-      return entry;
+      return true;
     }
 
-    return entry.set('phase', 'confirmed');
+    return false;
   }));
 };
 
@@ -125,6 +125,9 @@ const insertEntry = (state, action) => {
     generation: action.generation,
     registrationGeneration: action.registrationGeneration === undefined ? null : action.registrationGeneration,
     requestId: action.requestId || null,
+    startedAt: action.startedAt || 0,
+    attempt: action.attempt || 0,
+    elapsedMs: action.elapsedMs || 0,
   }));
 };
 
@@ -155,7 +158,19 @@ const recheckEntry = (state, action) => {
     return state;
   }
 
-  return state.setIn(['entries', immediateFeedEntryKey(action.viewKey, action.statusId), 'phase'], 'recheck');
+  const key = immediateFeedEntryKey(action.viewKey, action.statusId);
+
+  return state.updateIn(['entries', key], current => current.withMutations(next => {
+    next.set('phase', 'recheck');
+
+    if (action.attempt !== undefined) {
+      next.set('attempt', action.attempt);
+    }
+
+    if (action.elapsedMs !== undefined) {
+      next.set('elapsedMs', action.elapsedMs);
+    }
+  }));
 };
 
 const confirmEntry = (state, action) => {
@@ -208,9 +223,9 @@ export default function immediateFeed (state = initialState, action) {
   case IMMEDIATE_FEED_REMOVE:
     return removeEntry(state, action);
   case TIMELINE_UPDATE:
-    return confirmEntries(state, action.timeline, action.status ? [action.status] : []);
+    return absorbEntries(state, action.timeline, action.status ? [action.status] : []);
   case TIMELINE_EXPAND_SUCCESS:
-    return confirmEntries(state, action.timeline, statusesFromExpand(action.statuses));
+    return absorbEntries(state, action.timeline, statusesFromExpand(action.statuses));
   case TIMELINE_DELETE:
   case TIMELINE_EXPIRE:
     return removeStatusIds(state, new Set([action.id, ...(action.references || [])].filter(id => id !== undefined && id !== null).map(id => String(id))));

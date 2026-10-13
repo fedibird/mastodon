@@ -1,4 +1,5 @@
-import { fromJS } from 'immutable';
+import { fromJS, List as ImmutableList, Map as ImmutableMap } from 'immutable';
+import { immediateFeedPresentationFrom } from '../../selectors/immediate_feed';
 import immediateFeed from '../immediate_feed';
 import {
   IMMEDIATE_FEED_EXPIRE,
@@ -83,7 +84,7 @@ describe('immediate feed reducer', () => {
       status: posted(),
     });
 
-    expect(entry(state, hashtagView.viewKey, '50').get('phase')).toBe('confirmed');
+    expect(entry(state, hashtagView.viewKey, '50')).toBeUndefined();
     expect(entry(state, groupView.viewKey, '50').get('phase')).toBe('immediate');
   });
 
@@ -100,7 +101,7 @@ describe('immediate feed reducer', () => {
     });
 
     expect(entry(state, hashtagView.viewKey, '50').get('phase')).toBe('immediate');
-    expect(entry(state, otherHashtagView.viewKey, '51').get('phase')).toBe('confirmed');
+    expect(entry(state, otherHashtagView.viewKey, '51')).toBeUndefined();
   });
 
   it('confirms from a timeline refresh even when the id was already listed', () => {
@@ -113,7 +114,7 @@ describe('immediate feed reducer', () => {
       statuses: [posted()],
     });
 
-    expect(entry(state, hashtagView.viewKey, '50').get('phase')).toBe('confirmed');
+    expect(entry(state, hashtagView.viewKey, '50')).toBeUndefined();
   });
 
   it('does not downgrade a confirmed entry when a later POST echo arrives', () => {
@@ -200,6 +201,43 @@ describe('immediate feed reducer', () => {
       statuses: fromJS([posted({ visibility: 'unlisted' })]),
     });
 
-    expect(entry(state, groupView.viewKey, '50').get('phase')).toBe('confirmed');
+    expect(entry(state, groupView.viewKey, '50')).toBeUndefined();
+  });
+
+  it('does not bring a trimmed timeline item back from an absorbed overlay', () => {
+    let state = register(undefined, hashtagView);
+    state = insert(state, hashtagView, '50');
+
+    const whileListed = immediateFeedPresentationFrom(state, ImmutableMap({
+      items: ImmutableList(['50']),
+      pendingItems: ImmutableList(),
+      top: true,
+    }), {
+      viewKey: hashtagView.viewKey,
+      timelineId: 'hashtag:News',
+      dataTimelineId: 'hashtag:News',
+      includePendingItems: false,
+    });
+
+    expect(whileListed.get('prependIds').toArray()).toEqual([]);
+
+    state = immediateFeed(state, {
+      type: TIMELINE_UPDATE,
+      timeline: 'hashtag:News',
+      status: posted(),
+    });
+
+    const hidden = immediateFeedPresentationFrom(state, ImmutableMap({
+      items: ImmutableList(),
+      pendingItems: ImmutableList(),
+      top: true,
+    }), {
+      viewKey: hashtagView.viewKey,
+      timelineId: 'hashtag:News',
+      dataTimelineId: 'hashtag:News',
+      includePendingItems: false,
+    });
+
+    expect(hidden.get('prependIds').toArray()).toEqual([]);
   });
 });

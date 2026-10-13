@@ -7,7 +7,14 @@ import {
   buildHashtagImmediateView,
   immediateStatusDecision,
 } from '../immediate_feed/eligibility';
-import { RECONCILE_MAX_PAGES, RECONCILE_PAGE_LIMIT, walkTimelineForStatus } from '../immediate_feed/reconcile';
+import {
+  CONFIRMED_OVERLAY_TTL_MS,
+  OVERLAY_MAX_AGE_MS,
+  RECONCILE_MAX_PAGES,
+  RECONCILE_PAGE_LIMIT,
+  planOverlayWait,
+  walkTimelineForStatus,
+} from '../immediate_feed/reconcile';
 
 export const IMMEDIATE_FEED_REGISTER_VIEW = 'IMMEDIATE_FEED_REGISTER_VIEW';
 export const IMMEDIATE_FEED_UNREGISTER_VIEW = 'IMMEDIATE_FEED_UNREGISTER_VIEW';
@@ -20,6 +27,7 @@ export const IMMEDIATE_FEED_CONFIRM = 'IMMEDIATE_FEED_CONFIRM';
 export { buildGroupImmediateView, buildHashtagImmediateView, IMMEDIATE_FEED_TTL_MS };
 
 const timers = new Map();
+const flights = new Map();
 
 const timerKey = (viewKey, statusId) => `${viewKey}\u0000${statusId}`;
 
@@ -36,6 +44,8 @@ const allocateGeneration = () => {
 
 const clearTimerRecord = (key) => {
   const record = timers.get(key);
+
+  flights.delete(key);
 
   if (!record) {
     return;
@@ -81,20 +91,60 @@ export function cancelImmediateFeedTimersForTimeline (timelineId) {
   });
 }
 
-const scheduleReconcile = (dispatch, viewKey, statusId, generation, timelineId) => {
+const armTimer = (dispatch, { viewKey, statusId, generation, timelineId, delay, mode }) => {
+  const key = timerKey(viewKey, statusId);
+
   cancelImmediateFeedTimer(viewKey, statusId);
 
   const handle = setTimeout(() => {
-    timers.delete(timerKey(viewKey, statusId));
-    dispatch(reconcileImmediateEntry(viewKey, statusId, generation));
-  }, IMMEDIATE_FEED_TTL_MS);
+    timers.delete(key);
 
-  timers.set(timerKey(viewKey, statusId), {
+    if (mode === 'remove') {
+      dispatch({
+        type: IMMEDIATE_FEED_REMOVE,
+        viewKey,
+        statusId,
+        generation,
+      });
+      return;
+    }
+
+    dispatch(reconcileImmediateEntry(viewKey, statusId, generation));
+  }, delay);
+
+  timers.set(key, {
     handle,
     statusId: String(statusId),
     timelineId,
     viewKey,
     generation,
+  });
+};
+
+const scheduleAttempt = (dispatch, entry, generation) => {
+  if (!entry) {
+    return;
+  }
+
+  const plan = planOverlayWait(entry.get('attempt') || 0, entry.get('elapsedMs') || 0);
+
+  if (!plan) {
+    dispatch({
+      type: IMMEDIATE_FEED_REMOVE,
+      viewKey: entry.get('viewKey'),
+      statusId: entry.get('statusId'),
+      generation,
+    });
+    return;
+  }
+
+  armTimer(dispatch, {
+    viewKey: entry.get('viewKey'),
+    statusId: entry.get('statusId'),
+    generation,
+    timelineId: entry.get('timelineId'),
+    delay: plan.delay,
+    mode: plan.mode,
   });
 };
 
@@ -266,23 +316,33 @@ export function publishImmediateStatus (snapshot, status) {
     const statusId = String(status.id);
     const generation = allocateGeneration();
     const alreadyListed = timelineListsStatus(state.getIn(['timelines', snapshot.timelineId], ImmutableMap()), statusId);
-    const phase = alreadyListed ? 'confirmed' : 'immediate';
 
     dispatch(importFetchedStatus(status, { acceptPresentationChange: false }));
+
+    if (alreadyListed) {
+      return;
+    }
+
     dispatch({
       type: IMMEDIATE_FEED_INSERT,
       viewKey: snapshot.viewKey,
       timelineId: snapshot.timelineId,
       statusId,
-      phase,
+      phase: 'immediate',
       generation,
       registrationGeneration: snapshot.registrationGeneration,
       requestId: snapshot.requestId,
+      startedAt: Date.now(),
+      attempt: 0,
+      elapsedMs: 0,
     });
-
-    if (phase === 'immediate') {
-      scheduleReconcile(dispatch, snapshot.viewKey, statusId, generation, snapshot.timelineId);
-    }
+    scheduleAttempt(dispatch, ImmutableMap({
+      viewKey: snapshot.viewKey,
+      statusId,
+      timelineId: snapshot.timelineId,
+      attempt: 0,
+      elapsedMs: 0,
+    }), generation);
   };
 }
 
@@ -345,6 +405,59 @@ const idsFromTimelinePayload = (data) => {
   };
 };
 
+const continueUnconfirmed = (dispatch, getState, viewKey, statusId, generation) => {
+  const latest = entryStillCurrent(getState(), viewKey, statusId, generation);
+
+  if (!latest) {
+    cancelImmediateFeedTimer(viewKey, statusId);
+    return;
+  }
+
+  const nextAttempt = (latest.entry.get('attempt') || 0) + 1;
+
+  dispatch({
+    type: IMMEDIATE_FEED_RECHECK,
+    viewKey,
+    statusId,
+    generation,
+    attempt: nextAttempt,
+    elapsedMs: latest.entry.get('elapsedMs') || 0,
+  });
+
+  const updated = getState().getIn(['immediate_feed', 'entries', immediateFeedEntryKey(viewKey, statusId)]);
+
+  if (!updated || updated.get('generation') !== generation) {
+    return;
+  }
+
+  scheduleAttempt(dispatch, updated, generation);
+};
+
+const scheduleConfirmedOverlay = (dispatch, entry, generation) => {
+  const elapsedMs = entry.get('elapsedMs') || 0;
+  const remaining = OVERLAY_MAX_AGE_MS - elapsedMs;
+  const delay = Math.min(CONFIRMED_OVERLAY_TTL_MS, remaining);
+
+  if (delay <= 0) {
+    dispatch({
+      type: IMMEDIATE_FEED_REMOVE,
+      viewKey: entry.get('viewKey'),
+      statusId: entry.get('statusId'),
+      generation,
+    });
+    return;
+  }
+
+  armTimer(dispatch, {
+    viewKey: entry.get('viewKey'),
+    statusId: entry.get('statusId'),
+    generation,
+    timelineId: entry.get('timelineId'),
+    delay,
+    mode: 'remove',
+  });
+};
+
 export function reconcileImmediateEntry (viewKey, statusId, generation) {
   return (dispatch, getState) => {
     const current = entryStillCurrent(getState(), viewKey, statusId, generation);
@@ -354,15 +467,26 @@ export function reconcileImmediateEntry (viewKey, statusId, generation) {
       return Promise.resolve();
     }
 
+    const attempt = current.entry.get('attempt') || 0;
+    const delay = planOverlayWait(attempt, current.entry.get('elapsedMs') || 0);
+    const elapsedMs = (current.entry.get('elapsedMs') || 0) + (delay && delay.mode === 'reconcile' ? delay.delay : 0);
+    const token = { generation };
+
+    flights.set(timerKey(viewKey, statusId), token);
+
     dispatch({
       type: IMMEDIATE_FEED_RECHECK,
       viewKey,
       statusId,
       generation,
+      attempt,
+      elapsedMs,
     });
 
     const request = timelineRequestForView(current.view);
     const pages = [];
+    const stillThisFlight = () => flights.get(timerKey(viewKey, statusId)) === token
+      && entryStillCurrent(getState(), viewKey, statusId, generation);
 
     const loadPage = (maxId) => api(getState()).get(request.url, {
       params: {
@@ -381,11 +505,19 @@ export function reconcileImmediateEntry (viewKey, statusId, generation) {
     });
 
     const step = (maxId, remaining) => {
+      if (!stillThisFlight()) {
+        return Promise.resolve(null);
+      }
+
       if (remaining <= 0) {
         return Promise.resolve(walkTimelineForStatus(statusId, pages));
       }
 
       return loadPage(maxId).then(ids => {
+        if (!stillThisFlight()) {
+          return null;
+        }
+
         const assessed = walkTimelineForStatus(statusId, pages);
 
         if (assessed.outcome !== 'continue') {
@@ -403,16 +535,28 @@ export function reconcileImmediateEntry (viewKey, statusId, generation) {
     };
 
     return step(null, RECONCILE_MAX_PAGES).then(result => {
-      const latest = entryStillCurrent(getState(), viewKey, statusId, generation);
-
-      if (!latest) {
-        cancelImmediateFeedTimer(viewKey, statusId);
+      if (!result || !stillThisFlight()) {
         return;
       }
+
+      flights.delete(timerKey(viewKey, statusId));
 
       if (result.outcome === 'confirmed') {
         if (result.status) {
           dispatch(importFetchedStatus(result.status));
+        }
+
+        const listed = timelineListsStatus(getState().getIn(['timelines', current.entry.get('timelineId')], ImmutableMap()), statusId);
+
+        if (listed || !entryStillCurrent(getState(), viewKey, statusId, generation)) {
+          dispatch({
+            type: IMMEDIATE_FEED_REMOVE,
+            viewKey,
+            statusId,
+            generation,
+          });
+          cancelImmediateFeedTimer(viewKey, statusId);
+          return;
         }
 
         dispatch({
@@ -421,7 +565,11 @@ export function reconcileImmediateEntry (viewKey, statusId, generation) {
           statusId,
           generation,
         });
-        cancelImmediateFeedTimer(viewKey, statusId);
+        scheduleConfirmedOverlay(
+          dispatch,
+          getState().getIn(['immediate_feed', 'entries', immediateFeedEntryKey(viewKey, statusId)]),
+          generation,
+        );
         return;
       }
 
@@ -436,16 +584,14 @@ export function reconcileImmediateEntry (viewKey, statusId, generation) {
         return;
       }
 
-      scheduleReconcile(dispatch, viewKey, statusId, generation, latest.entry.get('timelineId'));
+      continueUnconfirmed(dispatch, getState, viewKey, statusId, generation);
     }).catch(() => {
-      const latest = entryStillCurrent(getState(), viewKey, statusId, generation);
-
-      if (!latest) {
-        cancelImmediateFeedTimer(viewKey, statusId);
+      if (!stillThisFlight()) {
         return;
       }
 
-      scheduleReconcile(dispatch, viewKey, statusId, generation, latest.entry.get('timelineId'));
+      flights.delete(timerKey(viewKey, statusId));
+      continueUnconfirmed(dispatch, getState, viewKey, statusId, generation);
     });
   };
 }

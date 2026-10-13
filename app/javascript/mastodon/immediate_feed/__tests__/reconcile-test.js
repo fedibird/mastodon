@@ -23,5 +23,15 @@ describe('timeline reconcile coverage', () => {
   it('treats a post newer than the whole feed as not yet verifiable', () => {
     expect(classifyTimelinePage('77', ['40'], true)).toBe('inconclusive');
     expect(classifyTimelinePage('77', [], true)).toBe('inconclusive');
+    expect(walkTimelineForStatus('77', [{ ids: [] }]).outcome).toBe('inconclusive');
+  });
+
+  it('excludes a status when a full page is followed by an empty older page', () => {
+    const latest = Array.from({ length: 20 }, (_, index) => String(5000 - index));
+
+    expect(walkTimelineForStatus('77', [
+      { ids: latest },
+      { ids: [] },
+    ]).outcome).toBe('excluded');
   });
 });

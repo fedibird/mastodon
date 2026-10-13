@@ -140,7 +140,7 @@ describe('publishImmediateStatus', () => {
     expect(api).not.toHaveBeenCalled();
   });
 
-  it('confirms immediately when streaming already listed the same id', () => {
+  it('does not open an overlay when streaming already listed the same id', () => {
     const base = stateWith([hashtagView], {
       timelines: {
         'hashtag:News': {
@@ -151,11 +151,11 @@ describe('publishImmediateStatus', () => {
     });
     const snapshot = captureImmediateFeedSnapshot(base, hashtagView.viewKey, composer());
     const actions = run(publishImmediateStatus(snapshot, posted()), base);
-    const inserted = actions.find(action => action.type === IMMEDIATE_FEED_INSERT);
 
-    expect(inserted.phase).toBe('confirmed');
+    expect(actions.find(action => action.type === IMMEDIATE_FEED_INSERT)).toBeUndefined();
+    expect(importFetchedStatus).toHaveBeenCalledWith(expect.objectContaining({ id: '77' }), { acceptPresentationChange: false });
     jest.advanceTimersByTime(IMMEDIATE_FEED_TTL_MS);
-    expect(actions.find(action => action.type === 'IMMEDIATE_FEED_EXPIRE')).toBeUndefined();
+    expect(api).not.toHaveBeenCalled();
   });
 
   it('does not insert when the column filters change while the request is in flight', () => {
@@ -404,11 +404,127 @@ describe('timeline reconcile', () => {
     expect(harness.actions.find(action => action.type === IMMEDIATE_FEED_CONFIRM)).toBeUndefined();
     expect(harness.getState().getIn(['immediate_feed', 'entries', `${groupView.viewKey}\u000077`, 'phase'])).toBe('recheck');
 
-    jest.advanceTimersByTime(IMMEDIATE_FEED_TTL_MS);
+    jest.advanceTimersByTime(60000);
+    await Promise.resolve();
     await Promise.resolve();
 
     expect(harness.getState().getIn(['immediate_feed', 'entries', `${groupView.viewKey}\u000077`])).toBeTruthy();
     expect(harness.actions.find(action => action.type === IMMEDIATE_FEED_REMOVE)).toBeUndefined();
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops retrying an empty feed and a permanent API error within five minutes', async () => {
+    const empty = harnessForPosted();
+    const get = jest.fn().mockResolvedValue({ data: [] });
+
+    api.mockImplementation(() => ({ get }));
+
+    const flush = async () => {
+      for (let step = 0; step < 20; step += 1) {
+        await Promise.resolve();
+      }
+    };
+
+    jest.advanceTimersByTime(30000);
+    await flush();
+    jest.advanceTimersByTime(60000);
+    await flush();
+    jest.advanceTimersByTime(120000);
+    await flush();
+    jest.advanceTimersByTime(90000);
+    await flush();
+
+    expect(get).toHaveBeenCalledTimes(3);
+    expect(empty.harness.getState().getIn(['immediate_feed', 'entries', `${hashtagView.viewKey}\u000077`])).toBeUndefined();
+    expect(empty.harness.actions.find(action => action.type === 'COMPOSE_SUBMIT_FAIL')).toBeUndefined();
+
+    const failing = harnessForPosted();
+    const rejectGet = jest.fn().mockRejectedValue(new Error('offline'));
+
+    api.mockImplementation(() => ({ get: rejectGet }));
+
+    jest.advanceTimersByTime(30000);
+    await flush();
+    jest.advanceTimersByTime(60000);
+    await flush();
+    jest.advanceTimersByTime(120000);
+    await flush();
+    jest.advanceTimersByTime(90000);
+    await flush();
+
+    expect(rejectGet).toHaveBeenCalledTimes(3);
+    expect(failing.harness.getState().getIn(['immediate_feed', 'entries', `${hashtagView.viewKey}\u000077`])).toBeUndefined();
+    expect(failing.harness.actions.find(action => action.type === 'COMPOSE_SUBMIT_FAIL')).toBeUndefined();
+  });
+
+  it('drops a reconcile-confirmed overlay after its short lifetime', async () => {
+    const { harness, inserted } = harnessForPosted();
+    const get = jest.fn().mockResolvedValue({
+      data: [{ id: '77', content: '<p>official</p>' }],
+    });
+
+    api.mockImplementation(() => ({ get }));
+    await harness.dispatch(reconcileImmediateEntry(hashtagView.viewKey, '77', inserted.generation));
+
+    expect(harness.getState().getIn(['immediate_feed', 'entries', `${hashtagView.viewKey}\u000077`, 'phase'])).toBe('confirmed');
+
+    jest.advanceTimersByTime(30000);
+    expect(harness.getState().getIn(['immediate_feed', 'entries', `${hashtagView.viewKey}\u000077`])).toBeUndefined();
+    expect(harness.actions.find(action => action.type === 'TIMELINE_DELETE')).toBeUndefined();
+  });
+
+  it('ignores a late response after the column filters change or the generation is replaced', async () => {
+    const { harness, inserted } = harnessForPosted();
+    let resolvePage;
+    const get = jest.fn().mockReturnValue(new Promise(resolve => {
+      resolvePage = resolve;
+    }));
+
+    api.mockImplementation(() => ({ get }));
+    const pending = harness.dispatch(reconcileImmediateEntry(hashtagView.viewKey, '77', inserted.generation));
+    const narrowed = buildHashtagImmediateView({
+      viewKey: hashtagView.viewKey,
+      timelineId: hashtagView.timelineId,
+      primary: 'News',
+      tags: { all: [{ value: 'dev' }] },
+    });
+
+    harness.dispatch(registerImmediateFeedView(narrowed));
+    resolvePage({ data: [{ id: '77', content: '<p>late</p>' }] });
+    await pending;
+
+    expect(harness.actions.find(action => action.type === IMMEDIATE_FEED_CONFIRM)).toBeUndefined();
+    expect(harness.getState().getIn(['immediate_feed', 'entries', `${hashtagView.viewKey}\u000077`])).toBeUndefined();
+
+    const replaced = harnessForPosted();
+    let resolveReplaced;
+    const replacedGet = jest.fn().mockReturnValue(new Promise(resolve => {
+      resolveReplaced = resolve;
+    }));
+
+    api.mockImplementation(() => ({ get: replacedGet }));
+    const late = replaced.harness.dispatch(reconcileImmediateEntry(hashtagView.viewKey, '77', replaced.inserted.generation));
+
+    replaced.harness.dispatch({
+      type: IMMEDIATE_FEED_REMOVE,
+      viewKey: hashtagView.viewKey,
+      statusId: '77',
+      generation: replaced.inserted.generation,
+    });
+    replaced.harness.dispatch({
+      type: IMMEDIATE_FEED_INSERT,
+      viewKey: hashtagView.viewKey,
+      timelineId: hashtagView.timelineId,
+      statusId: '77',
+      phase: 'immediate',
+      generation: replaced.inserted.generation + 1,
+      registrationGeneration: replaced.harness.getState().getIn(['immediate_feed', 'views', hashtagView.viewKey, 'registrationGeneration']),
+    });
+    resolveReplaced({ data: [{ id: '77', content: '<p>stale</p>' }] });
+    await late;
+
+    expect(replaced.harness.getState().getIn(['immediate_feed', 'entries', `${hashtagView.viewKey}\u000077`, 'generation'])).toBe(replaced.inserted.generation + 1);
+    expect(replaced.harness.getState().getIn(['immediate_feed', 'entries', `${hashtagView.viewKey}\u000077`, 'phase'])).toBe('immediate');
   });
 });
 
@@ -461,7 +577,7 @@ describe('pending items already count as receipt', () => {
     const snapshot = captureImmediateFeedSnapshot(base, hashtagView.viewKey, composer());
     const actions = run(publishImmediateStatus(snapshot, posted()), base);
 
-    expect(actions.find(action => action.type === IMMEDIATE_FEED_INSERT).phase).toBe('confirmed');
+    expect(actions.find(action => action.type === IMMEDIATE_FEED_INSERT)).toBeUndefined();
     jest.useRealTimers();
   });
 });
