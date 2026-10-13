@@ -100,6 +100,7 @@ export const hidePrivacyMeta = getMeta('hide_privacy_meta');
 export const hideLinkPreview = getMeta('hide_link_preview');
 export const hidePhotoPreview = getMeta('hide_photo_preview');
 export const hideVideoPreview = getMeta('hide_video_preview');
+export const hideBotOnPublicTimeline = getMeta('hide_bot_on_public_timeline');
 export const allowPollImage = getMeta('allow_poll_image');
 export const maxReactionsPerAccount = initialState?.emoji_reactions?.max_reactions_per_account ?? 1;
 export const maxAttachments = initialState?.media_attachments?.max_attachments ?? 1;

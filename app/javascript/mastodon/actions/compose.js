@@ -8,6 +8,7 @@ import { showAlert, showAlertForError } from './alerts';
 import { useEmoji } from './emojis';
 import { importFetchedAccounts, importFetchedStatus } from './importer';
 import { updateTimeline } from './timelines';
+import { captureImmediateFeedSnapshot, publishImmediateStatus } from './immediate_feed';
 import { getHomeVisibilities, getLimitedVisibilities } from 'mastodon/selectors';
 import { openModal } from './modal';
 import { addYears, addMonths, addDays, addHours, addMinutes, addSeconds, millisecondsToSeconds, set, formatISO, format } from 'date-fns';
@@ -565,6 +566,11 @@ export function submitComposer(composerId, routerHistory) {
       editData.media_ids = latestMedia.map(item => item.get('id')).toArray();
     }
 
+    const willSchedule = !editing && !!(scheduled_in || scheduled_at);
+    const immediateSnapshot = (!editing && !willSchedule)
+      ? captureImmediateFeedSnapshot(getState(), composerId, composer)
+      : null;
+
     return api(getState).request({
       url: editing ? `/api/v1/statuses/${statusId}` : '/api/v1/statuses',
       method: editing ? 'put' : 'post',
@@ -599,11 +605,15 @@ export function submitComposer(composerId, routerHistory) {
 
       // To make the app more responsive, immediately push the status
       // into the columns
+      if (immediateSnapshot) {
+        dispatch(publishImmediateStatus(immediateSnapshot, response.data));
+      }
+
       const insertIfOnline = timelineId => {
         const timeline = getState().getIn(['timelines', timelineId]);
 
         if (timeline && timeline.get('items').size > 0 && timeline.getIn(['items', 0]) !== null && timeline.get('online')) {
-          dispatch(updateTimeline(timelineId, { ...response.data }));
+          dispatch(updateTimeline(timelineId, { ...response.data }, undefined, { acceptPresentationChange: false }));
         }
       };
 

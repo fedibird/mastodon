@@ -1,4 +1,5 @@
 import { fetchRelationshipsSuccess, fetchRelationshipsFromStatus, fetchRelationshipsFromStatuses } from './accounts';
+import { cancelImmediateFeedTimersForStatuses, cancelImmediateFeedTimersForTimeline, syncImmediateFeedFlights } from './immediate_feed';
 import { importFetchedStatus, importFetchedStatuses, importFetchedAccounts } from './importer';
 import { submitMarkers } from './markers';
 import api, { getLinks } from 'mastodon/api';
@@ -43,7 +44,7 @@ export const loadPending = timeline => ({
   timeline,
 });
 
-export function updateTimeline(timeline, status, accept) {
+export function updateTimeline(timeline, status, accept, options = {}) {
   return (dispatch, getState) => {
     if (typeof accept === 'function' && !accept(status)) {
       return;
@@ -56,7 +57,9 @@ export function updateTimeline(timeline, status, accept) {
       return;
     }
 
-    dispatch(importFetchedStatus(status));
+    dispatch(importFetchedStatus(status, {
+      acceptPresentationChange: options.acceptPresentationChange !== false,
+    }));
     if (show_follow_button_on_timeline || show_subscribe_button_on_timeline || status.quote_id) {
       dispatch(fetchRelationshipsFromStatus(status));
     }
@@ -97,6 +100,8 @@ export function updateTimeline(timeline, status, accept) {
     } else {
       insertTimeline(timeline);
     }
+
+    syncImmediateFeedFlights(getState);
   };
 };
 
@@ -113,6 +118,7 @@ export function deleteFromTimelines(id) {
       references,
       quotes,
     });
+    cancelImmediateFeedTimersForStatuses([id].concat(references ? references.toArray() : []));
   };
 };
 
@@ -129,11 +135,13 @@ export function expireFromTimelines(id) {
       references,
       quotes,
     });
+    cancelImmediateFeedTimersForStatuses([id].concat(references ? references.toArray() : []));
   };
 };
 
 export function clearTimeline(timeline) {
   return (dispatch) => {
+    cancelImmediateFeedTimersForTimeline(timeline);
     dispatch({ type: TIMELINE_CLEAR, timeline });
   };
 };
@@ -204,11 +212,13 @@ export function expandTimeline(timelineId, path, params = {}, done = noOp) {
           dispatch(importFetchedStatuses(statuses.concat(referenced_statuses)));
           dispatch(fetchRelationshipsSuccess(relationships));
           dispatch(expandTimelineSuccess(timelineId, statuses, next ? next.uri : null, response.status === 206, isLoadingRecent, isLoadingMore, isLoadingRecent && preferPendingItems));
+          syncImmediateFeedFlights(getState);
         } else {
           const statuses = response.data;
           dispatch(importFetchedStatuses(statuses));
           dispatch(fetchRelationshipsFromStatuses(statuses));
           dispatch(expandTimelineSuccess(timelineId, statuses, next ? next.uri : null, response.status === 206, isLoadingRecent, isLoadingMore, isLoadingRecent && preferPendingItems));
+          syncImmediateFeedFlights(getState);
         }
       }
 

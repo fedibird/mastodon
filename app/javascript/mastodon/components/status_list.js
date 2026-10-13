@@ -39,6 +39,7 @@ class StatusList extends ImmutablePureComponent {
     warningTitlesForId: PropTypes.func,
     showCard: PropTypes.bool,
     trackIntersection: PropTypes.bool,
+    immediateStatusIds: ImmutablePropTypes.list,
   };
 
   static defaultProps = {
@@ -106,7 +107,7 @@ class StatusList extends ImmutablePureComponent {
   }
 
   render () {
-    const { statusIds, featuredStatusIds, onLoadMore, timelineId, contextTypeForId, warningTitlesForId, sourceBadgesForId, badgeRevision, showCard, trackIntersection, ...other } = this.props;
+    const { statusIds, featuredStatusIds, onLoadMore, timelineId, contextTypeForId, warningTitlesForId, sourceBadgesForId, badgeRevision, showCard, trackIntersection, immediateStatusIds, ...other } = this.props;
 
     void badgeRevision;
     const { isLoading, isPartial } = other;
@@ -140,6 +141,7 @@ class StatusList extends ImmutablePureComponent {
           scrollKey={this.props.scrollKey}
           showThread
           showCard={showCard}
+          immediate={!!(immediateStatusIds && immediateStatusIds.includes(statusId))}
         />
       ))
     ) : ImmutableList();

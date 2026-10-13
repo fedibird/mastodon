@@ -7,6 +7,7 @@ import Column from 'mastodon/components/column';
 import ColumnHeader from 'mastodon/components/column_header';
 import ColumnSettingsContainer from './containers/column_settings_container';
 import { expandHashtagTimeline, clearTimeline } from 'mastodon/actions/timelines';
+import { buildHashtagImmediateView, syncImmediateFeedView, unregisterImmediateFeedView } from 'mastodon/actions/immediate_feed';
 import { hashtagSplitContextKey, hashtagTimelineId } from 'mastodon/actions/timeline_ids';
 import { addColumn, removeColumn, moveColumn } from 'mastodon/actions/columns';
 import { injectIntl, FormattedMessage, defineMessages } from 'react-intl';
@@ -152,7 +153,19 @@ class HashtagTimeline extends React.PureComponent {
     dispatch(fetchHashtag(id));
   }
 
+  immediateFeedView = (props = this.props) => {
+    const { columnId, params } = props;
+
+    return buildHashtagImmediateView({
+      viewKey: hashtagComposerId(params.id, columnId),
+      timelineId: hashtagTimelineId(params.id),
+      primary: params.id,
+      tags: params.tags,
+    });
+  }
+
   componentDidMount () {
+    syncImmediateFeedView(this.props.dispatch, null, this.immediateFeedView());
     this._load();
   }
 
@@ -163,6 +176,7 @@ class HashtagTimeline extends React.PureComponent {
     const tagsChanged = !isEqual(prevProps.params.tags, tags);
 
     this.restoreComposerScroll(prevProps, idChanged);
+    syncImmediateFeedView(this.props.dispatch, this.immediateFeedView(prevProps), this.immediateFeedView());
 
     if (idChanged || tagsChanged) {
       this._unsubscribe();
@@ -182,6 +196,7 @@ class HashtagTimeline extends React.PureComponent {
     }
 
     this._unsubscribe();
+    this.props.dispatch(unregisterImmediateFeedView(this.immediateFeedView().viewKey));
   }
 
   bindColumn = (column) => {
@@ -312,6 +327,7 @@ class HashtagTimeline extends React.PureComponent {
           trackScroll={!pinned}
           scrollKey={`hashtag_timeline-${columnId}`}
           timelineId={sourceTimelineId}
+          immediateViewKey={composerId}
           onLoadMore={this.handleLoadMore}
           emptyMessage={emptyMessage}
           bindToDocument={!multiColumn}
@@ -326,6 +342,7 @@ class HashtagTimeline extends React.PureComponent {
             <StatusListContainer
               timelineId={sourceTimelineId}
               dataTimelineId={sourceTimelineId}
+              immediateViewKey={composerId}
               includePendingItems
               statusLimit={40}
               manageTimelineScrollState={false}

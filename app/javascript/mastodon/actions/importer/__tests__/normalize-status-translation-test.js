@@ -36,12 +36,14 @@ describe('normalizeStatus translation retention', () => {
     hidden: true,
     visibility: 'public',
     language: 'en',
+    url: 'https://example.test/1',
+    uri: 'https://example.test/1',
     poll: 'p1',
     translation: { contentHtml: '<p>こんにちは</p>', language: 'ja' },
     translationMode: 'bilingual',
     media_attachments: [
-      { id: 'm1', description: 'cat', translation: { description: 'ねこ' } },
-      { id: 'm2', description: 'tree', translation: { description: '木' } },
+      { id: 'm1', type: 'image', description: 'cat', url: 'https://example.test/cat.jpg', preview_url: null, remote_url: 'https://example.test/cat.jpg', text_url: null, translation: { description: 'ねこ' } },
+      { id: 'm2', type: 'image', description: 'tree', url: 'https://example.test/tree.jpg', preview_url: null, remote_url: 'https://example.test/tree.jpg', text_url: null, translation: { description: '木' } },
     ],
   });
 
@@ -636,5 +638,98 @@ describe('personal boost wrapper translation source changes', () => {
 
     expect(wrapperOf(statuses).translation).toBeUndefined();
     expect(wrapperOf(statuses).translationRequestId).toBeUndefined();
+  });
+});
+
+describe('normalizeStatus same updated_at presentation', () => {
+  const previous = fromJS({
+    id: 's1',
+    content: '<p>Hello</p>',
+    spoiler_text: 'cw',
+    updated_at: '2020-01-01T00:00:00.000Z',
+    search_index: 'cw Hello',
+    shortHtml: '<p>cw Hello</p>',
+    contentHtml: '<p>Hello</p>',
+    spoilerHtml: 'cw',
+    hidden: true,
+    sensitive: false,
+    visibility: 'public',
+    language: 'en',
+    url: 'https://example.test/1',
+    uri: 'https://example.test/1',
+    translation: { contentHtml: '<p>こんにちは</p>', language: 'ja' },
+    translationMode: 'bilingual',
+    media_attachments: [
+      { id: 'm1', type: 'image', description: 'cat', url: 'https://example.test/cat.jpg', preview_url: 'https://example.test/cat-small.jpg', remote_url: null, text_url: null },
+    ],
+  });
+
+  it('refreshes body, links, and media when updated_at is unchanged', () => {
+    const next = normalizeStatus(buildStatus({
+      content: '<p>Hello <a href="https://example.test/post">post</a></p>',
+      url: 'https://example.test/post',
+      card: { url: 'https://example.test/post', title: 'Post', description: 'A post', image: null, type: 'link' },
+      media_attachments: [
+        { id: 'm1', type: 'image', description: 'cat', url: 'https://cdn.test/cat.jpg', preview_url: 'https://cdn.test/cat-small.jpg', remote_url: null },
+      ],
+    }), previous, '', null);
+
+    expect(next.contentHtml).toContain('https://example.test/post');
+    expect(next.url).toBe('https://example.test/post');
+    expect(next.card.url).toBe('https://example.test/post');
+    expect(next.media_attachments[0].url).toBe('https://cdn.test/cat.jpg');
+    expect(next.hidden).toBe(true);
+  });
+
+  it('keeps the official body when a later POST echo would replace it', () => {
+    const next = normalizeStatus(buildStatus({
+      content: '<p>stale POST</p>',
+      card: { url: 'https://example.test/stale', title: 'Stale', description: '', image: null, type: 'link' },
+      media_attachments: [
+        { id: 'm1', type: 'image', description: 'cat', url: 'https://example.test/original.jpg', preview_url: null, remote_url: null },
+      ],
+    }), previous.set('card', fromJS({ url: 'https://example.test/official', title: 'Official', description: 'card', image: null, type: 'link' })), '', null, { acceptPresentationChange: false });
+
+    expect(next.content).toBe('<p>Hello</p>');
+    expect(next.contentHtml).toBe('<p>Hello</p>');
+    expect(next.card.get('url')).toBe('https://example.test/official');
+    expect(next.media_attachments.getIn([0, 'url'])).toBe('https://example.test/cat.jpg');
+    expect(next.translation.get('contentHtml')).toBe('<p>こんにちは</p>');
+    expect(next.hidden).toBe(true);
+    expect(next.updated_at).toBe('2020-01-01T00:00:00.000Z');
+  });
+
+  it('keeps the official copy when the POST echo has a different updated_at', () => {
+    const next = normalizeStatus(buildStatus({
+      updated_at: '2020-02-02T00:00:00.000Z',
+      content: '<p>rolled back</p>',
+      url: 'https://example.test/rolled-back',
+      card: { url: 'https://example.test/rolled-back', title: 'Rolled', description: '', image: null, type: 'link' },
+      media_attachments: [
+        { id: 'm1', type: 'image', description: 'cat', url: 'https://cdn.test/rolled.jpg', preview_url: null, remote_url: null },
+      ],
+    }), previous.set('card', fromJS({ url: 'https://example.test/official', title: 'Official', description: 'card', image: null, type: 'link' })), '', null, { acceptPresentationChange: false });
+
+    expect(next.updated_at).toBe('2020-01-01T00:00:00.000Z');
+    expect(next.contentHtml).toBe('<p>Hello</p>');
+    expect(next.content).toBe('<p>Hello</p>');
+    expect(next.url).toBe('https://example.test/1');
+    expect(next.card.get('url')).toBe('https://example.test/official');
+    expect(next.media_attachments.getIn([0, 'url'])).toBe('https://example.test/cat.jpg');
+    expect(next.translation.get('contentHtml')).toBe('<p>こんにちは</p>');
+    expect(next.translationMode).toBe('bilingual');
+  });
+
+  it('keeps a translation when only a media URL changes', () => {
+    const next = normalizeStatus(buildStatus({
+      media_attachments: [
+        { id: 'm1', type: 'image', description: 'cat', url: 'https://cdn.test/cat.jpg', preview_url: 'https://cdn.test/cat-small.jpg', remote_url: null },
+      ],
+    }), previous, '', null);
+
+    expect(next.media_attachments[0].url).toBe('https://cdn.test/cat.jpg');
+    expect(next.translation.get('contentHtml')).toBe('<p>こんにちは</p>');
+    expect(next.translationMode).toBe('bilingual');
+    expect(next.hidden).toBe(true);
   });
 });

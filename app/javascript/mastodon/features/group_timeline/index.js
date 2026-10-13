@@ -11,6 +11,7 @@ import Icon from '../../components/icon';
 import { fetchAccount } from '../../actions/accounts';
 import { makeGetAccount } from 'mastodon/selectors';
 import { expandGroupTimeline, clearTimelineSplitReturnAnchor } from '../../actions/timelines';
+import { buildGroupImmediateView, syncImmediateFeedView, unregisterImmediateFeedView } from '../../actions/immediate_feed';
 import { groupTimelineId } from '../../actions/timeline_ids';
 import { addColumn, removeColumn, moveColumn } from '../../actions/columns';
 import ColumnSettingsContainer from './containers/column_settings_container';
@@ -125,9 +126,24 @@ class GroupTimeline extends React.PureComponent {
     this.props.dispatch(changeSetting(['group', 'splitRatio'], ratio));
   }
 
+  immediateFeedView = (props = this.props) => {
+    const { columnId, onlyMedia, withoutMedia, postingContext, params: { id, tagged } } = props;
+
+    return buildGroupImmediateView({
+      viewKey: groupComposerId(id, columnId),
+      timelineId: groupTimelineId(id, { withoutMedia, onlyMedia, tagged }),
+      groupId: id,
+      onlyMedia,
+      withoutMedia,
+      tagged,
+      postingContext,
+    });
+  }
+
   componentDidMount () {
     const { dispatch, onlyMedia, withoutMedia, composerVisible, params: { id, tagged } } = this.props;
 
+    syncImmediateFeedView(dispatch, null, this.immediateFeedView());
     dispatch(fetchAccount(id));
 
     if (isAdministrator && composerVisible) {
@@ -143,6 +159,7 @@ class GroupTimeline extends React.PureComponent {
     const idChanged = prevProps.params.id !== id;
 
     this.restoreComposerScroll(prevProps, idChanged);
+    syncImmediateFeedView(dispatch, this.immediateFeedView(prevProps), this.immediateFeedView());
 
     if (idChanged) {
       dispatch(fetchAccount(id));
@@ -186,6 +203,8 @@ class GroupTimeline extends React.PureComponent {
       this.disconnect();
       this.disconnect = null;
     }
+
+    this.props.dispatch(unregisterImmediateFeedView(this.immediateFeedView().viewKey));
   }
 
   bindColumn = (column) => {
@@ -314,6 +333,7 @@ class GroupTimeline extends React.PureComponent {
           trackScroll={!pinned}
           scrollKey={`group_timeline-${columnId}`}
           timelineId={sourceTimelineId}
+          immediateViewKey={composerId}
           onLoadMore={this.handleLoadMore}
           emptyMessage={emptyMessage}
           bindToDocument={!multiColumn}
@@ -329,6 +349,7 @@ class GroupTimeline extends React.PureComponent {
             <StatusListContainer
               timelineId={sourceTimelineId}
               dataTimelineId={sourceTimelineId}
+              immediateViewKey={composerId}
               includePendingItems
               statusLimit={40}
               manageTimelineScrollState={false}

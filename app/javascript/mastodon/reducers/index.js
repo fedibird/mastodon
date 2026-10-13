@@ -1,6 +1,7 @@
 import { combineReducers } from 'redux-immutable';
 import dropdown_menu from './dropdown_menu';
 import timelines from './timelines';
+import immediate_feed from './immediate_feed';
 import meta from './meta';
 import alerts from './alerts';
 import { loadingBarReducer } from 'react-redux-loading-bar';
@@ -66,6 +67,7 @@ const reducers = {
   announcements,
   dropdown_menu,
   timelines,
+  immediate_feed,
   meta,
   alerts,
   loadingBar: loadingBarReducer,

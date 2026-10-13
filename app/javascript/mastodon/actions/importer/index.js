@@ -98,11 +98,11 @@ export function importFetchedAccounts(accounts) {
   return importAccounts(normalAccounts);
 }
 
-export function importFetchedStatus(status) {
-  return importFetchedStatuses([status]);
+export function importFetchedStatus(status, options) {
+  return importFetchedStatuses([status], options);
 }
 
-export function importFetchedStatuses(statuses) {
+export function importFetchedStatuses(statuses, options = {}) {
   return (dispatch, getState) => {
     const accounts = [];
     const normalStatuses = [];
@@ -123,7 +123,11 @@ export function importFetchedStatuses(statuses) {
 
       delete status.filter_results;
 
-      if (status.poll && status.poll.id) {
+      const previousForKeep = options.acceptPresentationChange === false
+        ? getState().getIn(['statuses', status.id])
+        : null;
+
+      if (!(previousForKeep && options.acceptPresentationChange === false) && status.poll && status.poll.id) {
         pushUnique(polls, normalizePoll(status.poll, getState().getIn(['polls', status.poll.id])));
       }
 
@@ -153,7 +157,9 @@ export function importFetchedStatuses(statuses) {
       const previousStatus = state.getIn(['statuses', status.id]);
       const previousPoll = status.poll && status.poll.id ? state.getIn(['polls', status.poll.id]) : null;
       const domain = (typeof status.account === 'object' ? status.account.acct : state.getIn(['accounts', status.account, 'acct']))?.split('@')[1] ?? '';
-      const normalizedStatus = normalizeStatus(status, previousStatus, domain, previousPoll);
+      const normalizedStatus = normalizeStatus(status, previousStatus, domain, previousPoll, {
+        acceptPresentationChange: options.acceptPresentationChange !== false,
+      });
 
       // A status-level source change invalidates the in-flight translation,
       // including poll options whose titles did not change.
