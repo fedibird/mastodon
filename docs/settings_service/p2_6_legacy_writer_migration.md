@@ -125,12 +125,9 @@ Writer 自身は値を `cache.write` しない。`insert_row` と `update_row` �
 
 観測した順は write、その次に delete である。逆順は出ていない。逆順になると delete の直後に `rewrite_cache` が値を書き戻し、終了時に従来キーが残る。今の登録順は `save!` がモデルを先に積み、Writer が後から `CacheDeletion` を積むので、write が先になる。この PR はその登録順を変えない。
 
-P2-6B 以降の判断として、次を残す。この PR ではどちらも実装しない。
+P2-6B は `rewrite_cache` を抑止しない。`RailsSettings::Base` 全体のコールバックも変えない。両方成功したあとの従来キーは delete 済みである。write する値は新しい値なので、delete の前に落ちるとキャッシュには新しい値が残る。Writer のコード自体は値を write しない。モデルコールバックを含めると、COMMIT 後に write してから delete する。
 
-- モデルコールバックを Writer の `Setting#save!` だけ明示的に抑止する。終了状態は delete だけになり、COMMIT 後の短い write 窓が無くなる。`RailsSettings::Base` 全体のコールバックを外すと、`[]=` の `rewrite_cache` まで止まる。抑止は Writer が作る行に限る。
-- 現状の write の次の delete を許容する。両方成功したあとの従来キーは、delete だけのときと同じく残っていない。write する値は新しい値なので、delete の前に落ちるとキャッシュには新しい値が残る。P2-4B が書いた「Writer は値を write しない」は、Writer のコードについては正しく、モデルコールバックを含めると正しくない。
-
-Reader はどちらの案でも DB を読む。getter は従来キーを読むので、終了時にキーが無いことは P2-4B の delete 契約と一致する。write と delete のあいだだけ、従来キーに新しい値が入る。
+Reader は DB を読む。getter は従来キーを読むので、終了時にキーが無いことは P2-4B の delete 契約と一致する。write と delete のあいだだけ、従来キーに新しい値が入る。
 
 ## 5. 案Aと案B
 
@@ -337,7 +334,8 @@ P2-6B が実装する境界は次のとおりである。
 - バーの正規化は、そのリクエストで 9 キーを書き始める前のポリシー getter を使う。
 - 1 キーごとに、開いたトランザクションを拒否し、User 行をロックし、実変更だけ revision を進め、COMMIT 後に cache delete と `preferences_changed` を出す。
 - 同値は ChangeSet の no-op に任せる。`save!` が無いので `cache.write` も `rewrite_cache` も走らない。
-- 実変更の `Setting#save!` が今日出す `rewrite_cache` を、Writer の保存だけ抑止するか、write の次の delete を許容するかは、P2-6B の開始前に決める。節 4。この PR では本番コードを変えない。
+- 実変更の `Setting#save!` が出す `rewrite_cache` は抑止しない。SQL COMMIT のあと write、その次に delete、その次に `preferences_changed` である。`RailsSettings::Base` 全体のコールバックは変えない。
+- 入口は `UserPreferences::LegacyWriter#update` である。1 呼び出しが 1 キーで 1 トランザクションである。コントローラと Decorator はまだこれを呼ばない。
 - コントローラ、Redis のキー形、ストリーミング、WebUI は P2-6B では変えない。
 
 P2-6B のテストは、この入口を直接呼ぶ。実 COMMIT の cache delete と通知は `use_transactional_tests = false` で確認する。transactional test の中で「通知が無い」ことを、ROLLBACK される外側トランザクションだけで証明しない。

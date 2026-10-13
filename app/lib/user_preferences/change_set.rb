@@ -36,7 +36,8 @@ class UserPreferences::ChangeSet
 
     @changed_keys << key
     @writes << Operation.new(key: key, action: :set, value: value, insert: stored[:state] == :absent)
-    @after[key] = snapshot(:present, value)
+    # A nil value is a stored row whose YAML is nil, not an absent key and not :present.
+    @after[key] = value.nil? ? snapshot(:nil, nil) : snapshot(:present, value)
   end
 
   def add_reset(key, stored)
