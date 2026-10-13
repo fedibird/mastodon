@@ -224,7 +224,23 @@ const rememberSource = (sourceKeysById, id, key) => {
   sourceKeysById[id] = keys;
 };
 
-const considerId = (id, key, source, results, statusesById, options, visible, contextById, sourceKeysById, warningsById) => {
+const warnTitles = (results, context, filters) => (
+  context ? matchingFilters(results, context, filters, 'warn').map(filter => filter.title) : []
+);
+
+const hidesSource = (results, context, filters) => (
+  !!(context && matchingFilters(results, context, filters, 'hide').length)
+);
+
+const rememberWarning = (sourceWarningsById, id, key, titles) => {
+  if (!sourceWarningsById[id]) {
+    sourceWarningsById[id] = {};
+  }
+
+  sourceWarningsById[id][key] = titles;
+};
+
+const considerId = (id, key, source, results, statusesById, options, visible, contextById, sourceKeysById, warningsById, sourceWarningsById) => {
   const { me, filters, contexts, tombstones } = options;
 
   if (tombstones && tombstones.indexOf(id) !== -1) {
@@ -244,16 +260,17 @@ const considerId = (id, key, source, results, statusesById, options, visible, co
   const context = contexts[key];
   const choiceResults = results || [];
 
-  if (context && matchingFilters(choiceResults, context, filters, 'hide').length) {
+  if (hidesSource(choiceResults, context, filters)) {
     return;
   }
 
   rememberSource(sourceKeysById, id, key);
+  rememberWarning(sourceWarningsById, id, key, warnTitles(choiceResults, context, filters));
 
   if (visible.indexOf(id) === -1) {
     visible.push(id);
     contextById[id] = context || null;
-    warningsById[id] = context ? matchingFilters(choiceResults, context, filters, 'warn').map(filter => filter.title) : [];
+    warningsById[id] = warnTitles(choiceResults, context, filters);
   }
 };
 
@@ -262,6 +279,7 @@ export const buildMixView = (sources, statusesById, { me = null, filters = [], c
   const visible = [];
   const contextById = {};
   const sourceKeysById = {};
+  const sourceWarningsById = {};
   const warningsById = {};
   const options = { me, filters, contexts, tombstones };
   const held = new Set(pending || []);
@@ -296,17 +314,33 @@ export const buildMixView = (sources, statusesById, { me = null, filters = [], c
       context: contexts[key],
       results: resultsFor(sources.find(item => item.key === key) || {}, id),
     })).filter(choice => choice.context);
-    const shown = choices.find(choice => matchingFilters(choice.results, choice.context, filters, 'hide').length === 0);
+    const shown = choices.find(choice => !hidesSource(choice.results, choice.context, filters));
 
     if (choices.length && !shown) {
       return;
     }
 
+    const displayKeys = visibleKeys.filter(key => {
+      const choice = choices.find(item => item.key === key);
+
+      return !choice || !hidesSource(choice.results, choice.context, filters);
+    });
+
+    if (!displayKeys.length) {
+      return;
+    }
+
     visible.push(id);
-    sourceKeysById[id] = visibleKeys;
+    sourceKeysById[id] = displayKeys;
+    sourceWarningsById[id] = {};
+    displayKeys.forEach(key => {
+      const choice = choices.find(item => item.key === key);
+
+      sourceWarningsById[id][key] = choice ? warnTitles(choice.results, choice.context, filters) : [];
+    });
     contextById[id] = shown ? shown.context : null;
     if (shown) {
-      warningsById[id] = matchingFilters(shown.results, shown.context, filters, 'warn').map(filter => filter.title);
+      warningsById[id] = warnTitles(shown.results, shown.context, filters);
     }
   });
 
@@ -318,7 +352,7 @@ export const buildMixView = (sources, statusesById, { me = null, filters = [], c
 
       const record = sources.find(item => item.key === source.key) || source;
 
-      considerId(id, source.key, record.source || source.source, (source.filterResults && source.filterResults[id]) || [], statusesById, options, visible, contextById, sourceKeysById, warningsById);
+      considerId(id, source.key, record.source || source.source, (source.filterResults && source.filterResults[id]) || [], statusesById, options, visible, contextById, sourceKeysById, warningsById, sourceWarningsById);
     });
   });
 
@@ -340,6 +374,7 @@ export const buildMixView = (sources, statusesById, { me = null, filters = [], c
     ids: visible,
     contextById,
     sourceKeysById,
+    sourceWarningsById,
     warningsById,
     orderGuaranteed: prefix.orderGuaranteed,
     waiting: prefix.waiting,

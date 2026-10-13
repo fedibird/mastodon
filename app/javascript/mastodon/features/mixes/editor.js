@@ -7,10 +7,10 @@ import { List as ImmutableList } from 'immutable';
 import Column from '../../components/column';
 import ColumnHeader from '../../components/column_header';
 import { defaultColumnWidth } from 'mastodon/initial_state';
-import { isMixEnabled } from 'mastodon/mix/availability';
-import { addDraftSource, emptyMixDraft, moveDraftSource, plainMix, removeDraftSource, retitleDraft } from 'mastodon/mix/definition';
+import { addDraftSource, emptyMixDraft, plainMix, removeDraftSource, reorderDraftSource, retitleDraft } from 'mastodon/mix/definition';
 import { createMix, deleteMix, searchMixSources, updateMix } from '../../actions/mixes';
 import { fetchLists } from '../../actions/lists';
+import { mixTimelineLocation } from './info_state';
 import messages from './messages';
 import MixEditorForm from './components/editor_form';
 
@@ -29,7 +29,6 @@ const mapStateToProps = (state, { params }) => ({
   mixId: params && params.id ? String(params.id) : null,
   mix: params && params.id ? state.getIn(['settings', 'mixes'], ImmutableList()).find(item => item && item.get('id') === String(params.id)) : null,
   lists: plainLists(state.get('lists')),
-  enabled: isMixEnabled(),
   columnWidth: defaultColumnWidth,
 });
 
@@ -44,7 +43,6 @@ export class MixEditorPage extends React.PureComponent {
     mixId: PropTypes.string,
     mix: PropTypes.object,
     lists: PropTypes.array,
-    enabled: PropTypes.bool,
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
   };
@@ -106,9 +104,9 @@ export class MixEditorPage extends React.PureComponent {
     }));
   };
 
-  handleMoveSource = (index, direction) => {
+  handleReorderSource = (fromIndex, toIndex) => {
     this.setState(state => ({
-      draft: moveDraftSource(state.draft, index, direction),
+      draft: reorderDraftSource(state.draft, fromIndex, toIndex),
       confirmingDelete: false,
     }));
   };
@@ -124,7 +122,7 @@ export class MixEditorPage extends React.PureComponent {
       return;
     }
 
-    history.push(`/timelines/mixes/${result.mix.id}`);
+    history.push(mixTimelineLocation(result.mix.id, !mixId));
   };
 
   handleCancel = () => {
@@ -157,15 +155,13 @@ export class MixEditorPage extends React.PureComponent {
   };
 
   render () {
-    const { intl, mixId, mix, lists, enabled, multiColumn, columnWidth } = this.props;
+    const { intl, mixId, mix, lists, multiColumn, columnWidth } = this.props;
     const missing = !!mixId && !mix;
     const title = intl.formatMessage(mixId ? messages.edit : messages.create);
 
     let body;
 
-    if (!enabled) {
-      body = <p className='mix-editor__notice'>{intl.formatMessage(messages.unavailable)}</p>;
-    } else if (missing) {
+    if (missing) {
       body = <p className='mix-editor__notice'>{intl.formatMessage(messages.deleted)}</p>;
     } else {
       body = (
@@ -181,7 +177,7 @@ export class MixEditorPage extends React.PureComponent {
             onTitleChange={this.handleTitleChange}
             onAddSource={this.handleAddSource}
             onRemoveSource={this.handleRemoveSource}
-            onMoveSource={this.handleMoveSource}
+            onReorderSource={this.handleReorderSource}
             onSave={this.handleSave}
             onCancel={this.handleCancel}
             onDelete={this.handleDelete}

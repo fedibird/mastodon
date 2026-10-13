@@ -12,16 +12,27 @@ const mapStateToProps = (state, { composerId }) => {
   const composer = selectComposer(state, composerId);
   const media = composer.get('media_attachments');
   const upload = selectComposerCanUploadAsIdentity(state, composerId);
-  const atLimit = media.size + composer.get('pending_media_attachments') >= maxAttachments;
-  const hasMovingMedia = media.some(item => ['video', 'audio', 'gifv'].includes(item.get('type')));
+  const hasImages = media.some(item => item.get('type') === 'image');
+  const hasExclusive = media.some(item => ['video', 'audio', 'gifv'].includes(item.get('type'))) || (composer.get('pending_exclusive_attachments') || 0) > 0;
+  let acceptContentTypes = state.getIn(['media_attachments', 'accept_content_types']) || ImmutableList();
+
+  if (upload.stillImagesOnly) {
+    acceptContentTypes = ImmutableList(STILL_IMAGE_CONTENT_TYPES);
+  } else if (hasImages && !hasExclusive && acceptContentTypes.size > 0) {
+    const images = acceptContentTypes.filter(type => String(type).startsWith('image/'));
+
+    if (images.size > 0) {
+      acceptContentTypes = images;
+    }
+  }
 
   return {
-    disabled: !upload.canUpload || composer.get('is_uploading') || composer.get('is_processing') || atLimit || hasMovingMedia,
+    disabled: composer.get('is_uploading') || composer.get('is_processing') || hasExclusive || (media.size + composer.get('pending_media_attachments') >= maxAttachments) || (upload.canUpload === false && ['media', 'media_type'].includes(upload.reason)),
     unavailable: !allowPollImage && composer.get('poll') !== null,
     resetFileKey: composer.get('resetFileKey'),
     stillImagesOnly: upload.stillImagesOnly === true,
     uploadReason: upload.canUpload ? null : upload.reason,
-    acceptContentTypes: upload.stillImagesOnly ? ImmutableList(STILL_IMAGE_CONTENT_TYPES) : undefined,
+    acceptContentTypes,
   };
 };
 

@@ -1,12 +1,13 @@
 import React from 'react';
 import { connect } from 'react-redux';
-import { Link } from 'react-router-dom';
 import PropTypes from 'prop-types';
+import classNames from 'classnames';
 import { FormattedMessage, injectIntl } from 'react-intl';
 import { List as ImmutableList } from 'immutable';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import Column from '../../components/column';
 import ColumnHeader from '../../components/column_header';
+import Icon from '../../components/icon';
 import StatusList from '../../components/status_list';
 import { addColumn, changeColumnParams, moveColumn, removeColumn } from '../../actions/columns';
 import { changeSetting } from '../../actions/settings';
@@ -14,10 +15,12 @@ import { clearMixSplitAnchor, closeMixTimeline, createMixSplit, destroyMixSplit,
 import { closeMixStream, openMixStream, pinMixStream, reconcileMixSource, revealMixStream } from '../../actions/mix_streaming';
 import TimelineSplitControllerCore from '../ui/components/timeline_split_controller_core';
 import { defaultColumnWidth, me } from 'mastodon/initial_state';
-import { isMixEnabled } from 'mastodon/mix/availability';
 import { plainMix } from 'mastodon/mix/definition';
 import { sourceKey } from 'mastodon/mix/source';
+import { badgeRevisionToken, mixBadgeIdentity, paneBadgeToken, sourceBadges, storeBadge } from 'mastodon/mix/source_badges';
 import { mixTimelineView } from 'mastodon/mix/view';
+import { consumeMixInfoFlag, mixInfoStartsOpen } from './info_state';
+import MixInfoPanel from './components/info_panel';
 import messages from './messages';
 
 const findMix = (state, id) => {
@@ -58,16 +61,13 @@ const mapStateToProps = (state, { columnId, params }) => {
     splitId: timeline ? timeline.getIn(['split', 'id']) : null,
     splitReturnAnchor: state.getIn(['mix_timelines', '__anchors', columnKey]) || null,
     splitRatio: state.getIn(['settings', 'mixTimeline', 'splitRatio'], 35),
-    enabled: isMixEnabled(),
     columnWidth: columnWidth || defaultColumnWidth,
+    lists: state.get('lists'),
+    accounts: state.get('accounts'),
   };
 };
 
-export const mixTimelineMode = ({ enabled, mix }) => {
-  if (!enabled) {
-    return 'unavailable';
-  }
-
+export const mixTimelineMode = ({ mix }) => {
   if (!mix) {
     return 'deleted';
   }
@@ -108,16 +108,121 @@ export class MixTimelinePage extends React.PureComponent {
       incomplete: PropTypes.array,
       restOnly: PropTypes.array,
     }),
-    enabled: PropTypes.bool,
     multiColumn: PropTypes.bool,
     columnWidth: PropTypes.string,
+    lists: PropTypes.object,
+    accounts: PropTypes.object,
+    history: PropTypes.shape({
+      replace: PropTypes.func,
+    }),
+  };
+
+  static contextTypes = {
+    router: PropTypes.object,
+  };
+
+  state = {
+    infoOpen: mixInfoStartsOpen(this.props.location),
+  };
+
+  emptyBadges = [];
+
+  badgeCache = new Map();
+
+  badgesForSingle = (id) => this.lookupBadges('single', id);
+
+  badgesForLive = (id) => this.lookupBadges('live', id);
+
+  badgesForHistory = (id) => this.lookupBadges('history', id);
+
+  viewForPane (pane) {
+    if (pane === 'live') {
+      return this.props.liveView;
+    }
+
+    if (pane === 'history') {
+      return this.props.historyView;
+    }
+
+    return this.props.view;
+  }
+
+  badgeIdentity () {
+    const plain = plainMix(this.props.mix);
+
+    return mixBadgeIdentity({
+      sources: plain ? plain.sources : [],
+      lists: this.props.lists,
+      accounts: this.props.accounts,
+      locale: this.props.intl && this.props.intl.locale,
+    });
+  }
+
+  lookupBadges (pane, id) {
+    const view = this.viewForPane(pane);
+    const keys = view && view.sourceKeysById && view.sourceKeysById[id];
+
+    if (!this.props.mix || !keys || !keys.length) {
+      return this.emptyBadges;
+    }
+
+    const warnings = (view.sourceWarningsById && view.sourceWarningsById[id]) || {};
+    const identity = this.badgeIdentity();
+    const token = paneBadgeToken({ pane, keys, warnings, identity });
+    const cacheKey = `${pane}:${id}`;
+    const hit = this.badgeCache.get(cacheKey);
+
+    if (hit && hit.token === token) {
+      return hit.value;
+    }
+
+    const plain = plainMix(this.props.mix);
+    const value = sourceBadges(plain ? plain.sources : [], keys, {
+      formatMessage: (message, values) => this.props.intl.formatMessage(message, values),
+      lists: this.props.lists,
+      accounts: this.props.accounts,
+      warningsByKey: warnings,
+    });
+
+    return storeBadge(this.badgeCache, cacheKey, { token, value });
+  }
+
+  badgeRevision () {
+    return badgeRevisionToken({
+      views: [this.props.view, this.props.liveView, this.props.historyView],
+      identity: this.badgeIdentity(),
+    });
+  }
+
+  routerHistory = () => {
+    if (this.props.history) {
+      return this.props.history;
+    }
+
+    return this.context.router && this.context.router.history;
   };
 
   componentDidMount () {
     this.loadTimeline();
+
+    if (this.state.infoOpen) {
+      consumeMixInfoFlag(this.routerHistory(), this.props.location);
+    }
   }
 
   componentDidUpdate (prevProps) {
+    if (prevProps.mixId !== this.props.mixId) {
+      const infoOpen = mixInfoStartsOpen(this.props.location);
+
+      if (infoOpen !== this.state.infoOpen) {
+        this.setState({ infoOpen });
+      }
+
+      if (infoOpen) {
+        consumeMixInfoFlag(this.routerHistory(), this.props.location);
+      }
+    }
+
     if (prevProps.columnKey && prevProps.columnKey !== this.props.columnKey) {
       this.props.dispatch(closeMixStream(prevProps.columnKey));
       this.props.dispatch(closeMixTimeline(prevProps.columnKey));
@@ -358,9 +463,41 @@ export class MixTimelinePage extends React.PureComponent {
     }
   };
 
+  setInfoButton = (node) => {
+    this.infoButton = node;
+  };
+
+  handleToggleInfo = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    this.setState(state => ({ infoOpen: !state.infoOpen }));
+  };
+
+  handleInfoButtonKeyDown = (event) => {
+    if (event.key !== 'Escape' || !this.state.infoOpen) {
+      return;
+    }
+
+    event.preventDefault();
+    this.setState({ infoOpen: false });
+  };
+
+  handleInfoKeyDown = (event) => {
+    if (event.key !== 'Escape' || !this.state.infoOpen) {
+      return;
+    }
+
+    event.preventDefault();
+    this.setState({ infoOpen: false });
+
+    if (this.infoButton) {
+      this.infoButton.focus();
+    }
+  };
+
   render () {
-    const { intl, columnId, mixId, mix, enabled, multiColumn, columnWidth, view, liveView, historyView } = this.props;
-    const mode = mixTimelineMode({ enabled, mix });
+    const { intl, columnId, mixId, mix, multiColumn, columnWidth, view, liveView, historyView } = this.props;
+    const mode = mixTimelineMode({ mix });
     const plain = mode === 'ready' ? plainMix(mix) : null;
     const title = plain ? plain.title : intl.formatMessage(messages.heading);
     const statusIds = view && view.statusIds ? view.statusIds : ImmutableList();
@@ -368,9 +505,7 @@ export class MixTimelinePage extends React.PureComponent {
 
     let body;
 
-    if (mode === 'unavailable') {
-      body = <p className='mix-editor__notice'>{intl.formatMessage(messages.unavailable)}</p>;
-    } else if (mode === 'deleted') {
+    if (mode === 'deleted') {
       body = <p className='mix-editor__notice'>{intl.formatMessage(messages.deleted)}</p>;
     } else {
       body = (
@@ -384,14 +519,10 @@ export class MixTimelinePage extends React.PureComponent {
           onScroll={this.handleScroll}
           contextTypeForId={this.contextTypeFor(view)}
           warningTitlesForId={this.warningTitlesFor(view)}
+          sourceBadgesForId={this.badgesForSingle}
+          badgeRevision={this.badgeRevision()}
           emptyMessage={<FormattedMessage id='mixes.empty_timeline' defaultMessage='No posts in this mix yet.' />}
-          prepend={(
-            <div className='mix-editor'>
-              <p>{intl.formatMessage(messages.notShared)}</p>
-              {noticeNodes}
-              <Link className='button button-secondary' to={`/mixes/${mixId}/edit`}>{intl.formatMessage(messages.edit)}</Link>
-            </div>
-          )}
+          prepend={noticeNodes.length ? <div className='mix-editor'>{noticeNodes}</div> : null}
         />
       );
     }
@@ -408,6 +539,8 @@ export class MixTimelinePage extends React.PureComponent {
         trackIntersection={extra.trackIntersection}
         contextTypeForId={this.contextTypeFor(extra.view)}
         warningTitlesForId={this.warningTitlesFor(extra.view)}
+        sourceBadgesForId={extra.badgesFor}
+        badgeRevision={this.badgeRevision()}
         emptyMessage={<FormattedMessage id='mixes.empty_timeline' defaultMessage='No posts in this mix yet.' />}
         prepend={extra.prepend}
       />
@@ -426,7 +559,7 @@ export class MixTimelinePage extends React.PureComponent {
         splitReturnAnchor={this.props.splitReturnAnchor}
         splitBlocked={!view || !!view.waiting}
         anchorHold={!!(view && view.waiting)}
-        unavailableMessage={messages.unavailable}
+        unavailableMessage={messages.splitUnavailable}
         onSplitRatioCommit={this.handleSplitRatio}
         onCreate={this.handleCreateSplit}
         onDestroy={this.handleDestroySplit}
@@ -447,23 +580,44 @@ export class MixTimelinePage extends React.PureComponent {
               columnWidth={columnWidth}
               extraButton={mode === 'ready' ? (
                 <React.Fragment>
+                  <button
+                    type='button'
+                    className={classNames('column-header__button', 'mix-column__info', { active: this.state.infoOpen })}
+                    title={intl.formatMessage(messages.mixInfo)}
+                    aria-label={intl.formatMessage(messages.mixInfo)}
+                    aria-expanded={this.state.infoOpen}
+                    aria-controls={`mix-info-${this.props.columnKey || mixId || 'mix'}`}
+                    onClick={this.handleToggleInfo}
+                    onKeyDown={this.handleInfoButtonKeyDown}
+                    ref={this.setInfoButton}
+                  >
+                    <Icon id='info-circle' />
+                  </button>
                   {split.splitButton}
                   {split.closeLiveButton}
                 </React.Fragment>
               ) : undefined}
+              appendContent={mode === 'ready' && this.state.infoOpen ? (
+                <MixInfoPanel
+                  id={`mix-info-${this.props.columnKey || mixId || 'mix'}`}
+                  intl={intl}
+                  mix={mix}
+                  mixId={mixId}
+                  lists={this.props.lists}
+                  accounts={this.props.accounts}
+                  onKeyDown={this.handleInfoKeyDown}
+                />
+              ) : null}
               showBackButton
             />
             {mode !== 'ready' || !split.isSplit ? body : (
               <React.Fragment>
-                <div className='mix-editor'>
-                  <p>{intl.formatMessage(messages.notShared)}</p>
-                  <Link className='button button-secondary' to={`/mixes/${mixId}/edit`}>{intl.formatMessage(messages.edit)}</Link>
-                </div>
                 <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
                   <div className='timeline-split__pane timeline-split__pane--live'>
                     {list(liveView ? liveView.statusIds : ImmutableList(), {
                       key: 'live',
                       view: liveView,
+                      badgesFor: this.badgesForLive,
                       hasMore: false,
                       isLoading: false,
                       trackIntersection: false,
@@ -475,6 +629,7 @@ export class MixTimelinePage extends React.PureComponent {
                     {list(historyView ? historyView.statusIds : ImmutableList(), {
                       key: 'history',
                       view: historyView,
+                      badgesFor: this.badgesForHistory,
                       hasMore: !!(historyView && historyView.hasMore),
                       isLoading: !!(historyView && (historyView.waiting || historyView.running)),
                       trackIntersection: true,

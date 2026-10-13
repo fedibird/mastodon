@@ -23,7 +23,9 @@ import { withComposerId } from '../composer_id_context';
 import SenderIdentityContainer from './sender_identity_container';
 import UserPostingStyleController from './user_posting_style_controller';
 import UserPostingStylePickerContainer from './user_posting_style_picker_container';
+import ComposerContextDetails from '../components/composer_context_details';
 import { injectIntl, defineMessages } from 'react-intl';
+import { isAdministrator, showComposerPostingStyleSelector } from '../../../initial_state';
 
 const messages = defineMessages({
   cancelEditConfirm: { id: 'confirmations.cancel_edit.confirm', defaultMessage: 'Discard changes' },
@@ -42,8 +44,13 @@ const mapStateToProps = (state, { composerId }) => {
     canAttempt: capability.canAttempt,
     canSendAsIdentity: selectComposerCanSendAsIdentity(state, composerId).canSend,
     canUploadMedia: selectComposerCanUploadAsIdentity(state, composerId).canUpload,
-    mediaUploadReason: selectComposerCanUploadAsIdentity(state, composerId).reason,
+    uploadBlockReason: selectComposerCanUploadAsIdentity(state, composerId).reason,
+    sendBlockReason: selectComposerCanSendAsIdentity(state, composerId).reason,
     capabilityReason: capability.reason,
+    hasPoll: Boolean(composer.get('poll')),
+    datetimeOpen: Boolean(composer.get('datetime_form')),
+    hasExpiry: Boolean(composer.get('expires')),
+    sensitive: composer.get('sensitive') === true,
     suggestions: composer.get('suggestions'),
     spoiler: composer.get('spoiler'),
     spoilerText: composer.get('spoiler_text'),
@@ -54,9 +61,13 @@ const mapStateToProps = (state, { composerId }) => {
     isSubmitting: composer.get('is_submitting'),
     isChangingUpload: composer.get('is_changing_upload'),
     isUploading: composer.get('is_uploading'),
+    isProcessing: composer.get('is_processing'),
+    pendingMedia: composer.get('pending_media_attachments') || 0,
     isCircleUnselected: !composer.get('id') && composer.get('privacy') === 'limited' && composer.getIn(['reply_status', 'visibility']) !== 'limited' && !composer.get('circle_id'),
     showSearch: state.getIn(['search', 'submitted']) && !state.getIn(['search', 'hidden']),
     anyMedia: composer.get('media_attachments').size > 0,
+    searchability: composer.get('searchability'),
+    defaultSearchability: composer.get('default_searchability'),
     prohibitedVisibilities: composer.get('prohibited_visibilities'),
     prohibitedWords: composer.get('prohibited_words'),
     isScheduled: !!composer.get('scheduled'),
@@ -126,11 +137,14 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => ({
 
 const ConnectedComposeForm = injectIntl(connect(mapStateToProps, mapDispatchToProps)(ComposeForm));
 
+const styleControlsAvailable = isAdministrator && showComposerPostingStyleSelector !== false;
+
 const ComposeFormWithPostingStyles = props => (
   <ConnectedComposeForm
     {...props}
     styleController={<UserPostingStyleController />}
-    stylePicker={<UserPostingStylePickerContainer />}
+    stylePicker={<UserPostingStylePickerContainer header contextDetails={styleControlsAvailable ? <ComposerContextDetails /> : null} />}
+    overflowContext={styleControlsAvailable ? null : <ComposerContextDetails />}
     senderIdentity={<SenderIdentityContainer />}
   />
 );

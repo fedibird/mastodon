@@ -66,14 +66,11 @@ describe('mix setting actions', () => {
     jest.useRealTimers();
   });
 
-  it('refuses to save a mix unless the viewer is an administrator or beta tester', () => {
+  it('saves a mix for a signed-in viewer on the default or conservative policy', () => {
     const state = fromJS({ settings: { mixes: [], saved: true } });
-    const refused = run(createMix({ id: 'forged', title: 'Desk', sources: [home, remote] }), state);
 
-    expect(refused).toEqual({ ok: false, errors: ['unavailable'] });
-    expect(mockPut).not.toHaveBeenCalled();
-
-    flags.new_features_policy = 'tester';
+    flags.isAdministrator = false;
+    flags.new_features_policy = 'default';
     const saved = run(createMix({ id: 'forged', title: 'Desk', sources: [home, remote] }), state);
 
     expect(saved.ok).toBe(true);
@@ -86,6 +83,23 @@ describe('mix setting actions', () => {
     expect(payload.mixes[0].title).toBe('Desk');
     expect(JSON.stringify(payload.mixes)).not.toContain('content');
     expect(payload.saved).toBeUndefined();
+
+    flags.new_features_policy = 'conservative';
+    const again = run(createMix({ title: 'Night', sources: [home, remote] }), state);
+
+    expect(again.ok).toBe(true);
+    expect(again.mix.sources).toHaveLength(2);
+  });
+
+  it('still rejects an incomplete mix', () => {
+    flags.isAdministrator = false;
+    flags.new_features_policy = 'conservative';
+    const state = fromJS({ settings: { mixes: [], saved: true } });
+    const refused = run(createMix({ title: 'Desk', sources: [home] }), state);
+
+    expect(refused.ok).toBe(false);
+    expect(refused.errors).toContain('sources_too_few');
+    expect(mockPut).not.toHaveBeenCalled();
   });
 
   it('updates and deletes definitions without keeping removed mixes', () => {
@@ -116,6 +130,16 @@ describe('mix setting actions', () => {
     expect(updated.mix.id).toBe('mix-1');
     expect(updated.mix.title).toBe('Night');
     expect(replaced[replaced.length - 1][0].sources[1]).toEqual({ type: 'list', id: '3', params: {} });
+
+    const kept = updateMix('mix-1', {
+      title: 'Desk',
+      sources: [home, { type: 'limited', params: { shows: { reblog: false } } }],
+    })(dispatch, () => state);
+
+    expect(kept.ok).toBe(true);
+    expect(kept.mix.id).toBe('mix-1');
+    expect(kept.mix.sources.map(source => source.type)).toEqual(['home', 'limited']);
+    expect(state.getIn(['settings', 'mixes', 0, 'sources']).toJS()).toEqual(kept.mix.sources);
 
     const removed = deleteMix('mix-1')(dispatch, () => state);
 
@@ -149,6 +173,9 @@ describe('mix setting actions', () => {
     });
 
     const dispatch = (action) => (typeof action === 'function' ? action(dispatch, () => fromJS({})) : action);
+
+    expect(await searchMixSources('hashtag', ' ')(dispatch, () => fromJS({}))).toEqual([]);
+
     const hashtags = await searchMixSources('hashtag', 'ruby')(dispatch, () => fromJS({}));
     const accounts = await searchMixSources('account', 'ada')(dispatch, () => fromJS({}));
     const groups = await searchMixSources('group', 'news')(dispatch, () => fromJS({}));

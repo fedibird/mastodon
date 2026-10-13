@@ -374,6 +374,28 @@ body > [data-popper-placement] {
 .compose-form {
   padding: 10px;
 
+  &__sensitive-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 8px;
+    min-width: 0;
+    padding: 0 10px 8px;
+
+    .compose-form__sensitive-button {
+      flex: 1 1 auto;
+      min-width: 0;
+      padding: 0;
+
+      label {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    }
+  }
+
   &__sensitive-button {
     padding: 10px;
     padding-top: 0;
@@ -445,6 +467,17 @@ body > [data-popper-placement] {
 
   .compose-form__autosuggest-wrapper {
     position: relative;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    background: $simple-background-color;
+  }
+
+  .autosuggest-textarea > label {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
   }
 
   .autosuggest-textarea,
@@ -473,6 +506,8 @@ body > [data-popper-placement] {
     display: block;
     box-sizing: border-box;
     width: 100%;
+    max-width: 100%;
+    min-width: 0;
     margin: 0;
     color: $inverted-text-color;
     background: $simple-background-color;
@@ -524,7 +559,7 @@ body > [data-popper-placement] {
     }
   }
 
-  .compose-form__style {
+  @at-root .compose-form__style {
     position: relative;
     display: flex;
     flex-direction: column;
@@ -706,12 +741,12 @@ body > [data-popper-placement] {
     }
 
     &-menu--sectioned {
-      overflow: hidden;
-      max-height: none;
+      overflow: auto;
+      max-height: min(24rem, calc(100vh - 16px));
 
       .compose-form__style-options {
-        overflow: auto;
-        max-height: 12rem;
+        overflow: visible;
+        max-height: none;
       }
     }
 
@@ -775,10 +810,10 @@ body > [data-popper-placement] {
     }
   }
 
-  .compose-form__posting-context {
+  @at-root .compose-form__posting-context {
     display: flex;
-    align-items: center;
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: stretch;
     gap: 6px;
     padding: 0 10px 6px;
     background: $simple-background-color;
@@ -786,8 +821,18 @@ body > [data-popper-placement] {
     font-size: 14px;
 
     &-label {
+      flex: none;
+      width: 100%;
       color: $dark-text-color;
       font-size: 14px;
+    }
+
+    &-badges {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-width: 0;
     }
 
     &-tag {
@@ -839,7 +884,7 @@ body > [data-popper-placement] {
     }
   }
 
-  .compose-form__sender {
+  @at-root .compose-form__sender {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
@@ -961,6 +1006,696 @@ body > [data-popper-placement] {
       font: inherit;
       text-decoration: underline;
     }
+  }
+
+  .compose-form__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: nowrap;
+    gap: 8px;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 32px;
+  }
+
+  .compose-form__header-account,
+  .compose-form__header-audience,
+  .compose-form__mode-toggle,
+  .compose-form__header-expand {
+    flex: 0 0 auto;
+  }
+
+  .compose-form__header-expand {
+    margin-inline-start: auto;
+  }
+
+  .compose-form__header-context {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .compose-form__header-audience {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .compose-form__header .dropdown-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 7.5rem;
+    padding: 2px 4px;
+  }
+
+  .compose-form__header .dropdown-button__label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .compose-form__sender--header {
+    position: relative;
+    padding: 0;
+  }
+
+  .compose-form__sender-avatar-button,
+  .compose-form__sender-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+  }
+
+  .compose-form__sender-avatar-button,
+  .compose-form__sender-avatar-static {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: $primary-text-color;
+  }
+
+  .compose-form__sender-avatar-button {
+    cursor: pointer;
+  }
+
+  .compose-form__sender-avatar {
+    display: block;
+    object-fit: cover;
+  }
+
+  .compose-form__sender-stack {
+    position: relative;
+    display: inline-block;
+    width: 28px;
+    height: 28px;
+  }
+
+  .compose-form__sender-stack-base {
+    width: 28px;
+    height: 28px;
+  }
+
+  .compose-form__sender-stack-self {
+    position: absolute;
+    right: -3px;
+    bottom: -3px;
+    width: 14px;
+    height: 14px;
+    border: 1px solid $simple-background-color;
+    border-radius: 4px;
+  }
+
+  .compose-form__toolbar-account {
+    flex: 0 0 auto;
+  }
+
+  .compose-form__sender-badge,
+  .compose-form__style-warning {
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+    color: $warning-red;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .compose-form__style-warning {
+    position: static;
+  }
+
+  .compose-form__media-menu {
+    position: absolute;
+    z-index: 6;
+    top: calc(100% + 4px);
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 14rem;
+    max-width: min(18rem, calc(100vw - 24px));
+    max-height: 18rem;
+    overflow: auto;
+    padding: 4px;
+    border: 1px solid $ui-base-color;
+    border-radius: 4px;
+    background: $simple-background-color;
+    box-shadow: 0 8px 24px rgba($black, 0.24);
+  }
+
+  .compose-form__media-menu button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: $primary-text-color;
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+  }
+
+  .compose-form__style--header {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+
+    .compose-form__style-label,
+    .compose-form__style-current-destination {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      border: 0;
+    }
+
+    .compose-form__style-button {
+      max-width: 100%;
+      min-width: 0;
+      padding: 2px 0;
+    }
+
+    .compose-form__style-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .compose-form__style-icon img {
+      width: 1.1em;
+      height: 1.1em;
+      vertical-align: -0.15em;
+    }
+  }
+
+  .compose-form__emoji-anchor {
+    position: absolute;
+    z-index: 2;
+    top: 4px;
+    inset-inline-end: 4px;
+  }
+
+  .compose-form__end {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .compose-form__count-anchor {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 4px 10px 8px;
+    background: $simple-background-color;
+    color: $inverted-text-color;
+    pointer-events: none;
+  }
+
+  .compose-form__sensitive-row .compose-form__count-anchor {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: 55%;
+    padding: 0;
+    background: transparent;
+  }
+
+  .compose-form__searchability-label {
+    font-size: 12px;
+    line-height: 16px;
+    white-space: nowrap;
+  }
+
+  .compose-form__compact-publish {
+    position: absolute;
+    z-index: 2;
+    inset-inline-end: 6px;
+    bottom: 6px;
+  }
+
+  .compose-form__body {
+    position: relative;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .compose-form__simple-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    max-width: 100%;
+    margin-top: 4px;
+  }
+
+  .compose-form__simple-row--overlay {
+    position: absolute;
+    right: 4px;
+    bottom: 4px;
+    margin-top: 0;
+    z-index: 2;
+  }
+
+  .compose-form__simple-badges,
+  .compose-form__media {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .compose-form__simple-row > .compose-form__upload-wrapper {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .compose-form__publish-icon {
+    flex: 0 0 auto;
+  }
+
+  .compose-form__media {
+    touch-action: pan-y;
+  }
+
+  .compose-form__media-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .compose-form__media-remove {
+    position: absolute;
+    z-index: 1;
+    top: 2px;
+    inset-inline-end: 2px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: rgba($black, 0.65);
+    color: $white;
+    font-size: 10px;
+    line-height: 10px;
+    cursor: pointer;
+
+    .fa {
+      font-size: 10px;
+      line-height: 10px;
+    }
+  }
+
+  .compose-form__media-constraint {
+    margin: 4px 0 0;
+    color: $darker-text-color;
+    font-size: 12px;
+    line-height: 16px;
+  }
+
+  .compose-form__media--full {
+    flex-wrap: wrap;
+  }
+
+  .compose-form__media-item {
+    position: relative;
+    flex: 0 0 auto;
+  }
+
+  .compose-form__media-thumb,
+  .compose-form__media-more,
+  .compose-form__media-collapse {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: $ui-base-color;
+    color: $primary-text-color;
+    cursor: pointer;
+    overflow: hidden;
+    font: inherit;
+  }
+
+  .compose-form__media-collapse {
+    width: auto;
+    padding: 0 8px;
+  }
+
+  .compose-form__media--full .compose-form__media-thumb {
+    width: 88px;
+    height: 64px;
+  }
+
+  .compose-form__media-preview {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background-size: cover;
+    background-repeat: no-repeat;
+  }
+
+  .compose-form__media.is-reordering {
+    touch-action: none;
+    user-select: none;
+  }
+
+  .compose-form__media-item.is-dragging .compose-form__media-thumb {
+    opacity: 0.55;
+  }
+
+  .compose-form__media-item.is-drop-target .compose-form__media-thumb {
+    box-shadow: inset 0 0 0 2px $highlight-text-color;
+  }
+
+  .compose-form__buttons-wrapper,
+  .compose-form__buttons,
+  .compose-form__submit {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 4px;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .compose-form__buttons-wrapper {
+    overflow: hidden;
+  }
+
+  .compose-form__buttons {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .compose-form__submit,
+  .compose-form__toolbar-account,
+  .compose-form__overflow,
+  .compose-form__buttons .text-icon-button {
+    flex: 0 0 auto;
+  }
+
+  .compose-form__buttons .language-dropdown {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+
+  .compose-form__publish-icon.icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: $ui-highlight-color;
+    color: $primary-text-color;
+
+    &:hover,
+    &:focus,
+    &:active {
+      background: lighten($ui-highlight-color, 10%);
+      color: $primary-text-color;
+    }
+  }
+
+  @at-root {
+    .compose-portal-menu {
+      z-index: 4;
+      display: flex;
+      flex-direction: column;
+      box-sizing: border-box;
+      width: min(22rem, calc(100vw - 16px));
+      min-width: min(16rem, calc(100vw - 16px));
+      max-width: calc(100vw - 16px);
+      max-height: min(18rem, calc(100vh - 16px));
+      overflow: auto;
+      padding: 4px;
+      border: 1px solid $ui-base-color;
+      border-radius: 4px;
+      background: $simple-background-color;
+      color: $inverted-text-color;
+      box-shadow: 0 8px 24px rgba($black, 0.24);
+    }
+
+    .compose-portal-menu.compose-form__sender-menu,
+    .compose-portal-menu.compose-form__style-menu,
+    .compose-portal-menu.compose-form__overflow-panel,
+    .compose-portal-menu.compose-form__searchability-menu {
+      position: fixed;
+      top: auto;
+      right: auto;
+      left: auto;
+    }
+
+    .compose-portal-menu.compose-form__sender-menu {
+      width: min(18rem, calc(100vw - 16px));
+      min-width: min(14rem, calc(100vw - 16px));
+    }
+
+    .compose-portal-menu.compose-form__style-menu--sectioned {
+      overflow: auto;
+      max-height: min(24rem, calc(100vh - 16px));
+    }
+
+    .compose-portal-menu.compose-form__style-menu--sectioned .compose-form__style-options {
+      overflow: visible;
+      max-height: none;
+    }
+
+    .compose-portal-menu .compose-form__menu-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 8px;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: start;
+      cursor: pointer;
+    }
+
+    .compose-portal-menu .compose-form__style-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .compose-portal-menu .compose-form__style-option {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .compose-portal-menu .compose-form__style-star {
+      flex: 0 0 auto;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .compose-portal-menu .compose-form__style-separator {
+      height: 1px;
+      margin: 4px 8px;
+      background: $ui-base-color;
+    }
+
+    .compose-portal-menu .compose-form__style-settings {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 8px;
+      box-sizing: border-box;
+      width: calc(100% - 16px);
+      margin: 8px;
+      padding: 8px 12px;
+      border: 1px solid $ui-base-color;
+      border-radius: 6px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: start;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .compose-portal-menu .compose-form__style-settings:hover,
+    .compose-portal-menu .compose-form__style-settings:focus {
+      background: rgba($inverted-text-color, 0.08);
+      border-color: $highlight-text-color;
+      outline: 0;
+      box-shadow: 0 0 0 2px rgba($highlight-text-color, 0.35);
+    }
+
+    .compose-portal-menu .compose-form__style-settings .fa-chevron-right {
+      margin-inline-start: auto;
+    }
+
+    .compose-portal-menu .compose-form__style-context .compose-form__posting-context {
+      padding: 4px 8px 8px;
+      background: transparent;
+    }
+
+    .compose-portal-menu .compose-form__sender-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 6px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: $inverted-text-color;
+      cursor: pointer;
+      font: inherit;
+      text-align: left;
+    }
+
+    .compose-portal-menu .compose-form__sender-menu-copy {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      font-size: 12px;
+    }
+
+    .compose-portal-menu .compose-form__sender-avatar {
+      width: 28px;
+      height: 28px;
+      flex: 0 0 auto;
+      border-radius: 4px;
+      object-fit: cover;
+    }
+
+    .compose-portal-menu .compose-form__style-context .compose-form__posting-context-tag,
+    .compose-portal-menu .compose-form__style-context .compose-form__posting-context-mention,
+    .compose-portal-menu .compose-form__style-context .compose-form__posting-context-audience {
+      display: inline-flex;
+      align-items: center;
+      margin: 2px;
+      padding: 2px 8px;
+      border: 1px solid $ui-base-color;
+      border-radius: 999px;
+    }
+
+    .compose-portal-menu .compose-form__style-context .compose-form__posting-context-tag--suppressed {
+      opacity: 0.45;
+      background: transparent;
+    }
+
+    .compose-portal-menu .compose-form__style-context .compose-form__posting-context-tag--required,
+    .compose-portal-menu .compose-form__style-context .compose-form__posting-context-mention {
+      opacity: 1;
+    }
+  }
+
+  .compose-form__preflight {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+
+  .compose-form__upload-notice {
+    margin: 4px 0 0;
+    color: $warning-red;
+    font-size: 13px;
+  }
+
+  .compose-form--file-hover {
+    outline: 2px dashed $highlight-text-color;
+    outline-offset: -2px;
+  }
+
+  &:not(.compose-form--simple) .autosuggest-textarea__textarea {
+    padding-inline-end: 40px;
+    padding-bottom: 10px;
+  }
+
+  &--simple .autosuggest-textarea__textarea {
+    resize: none;
+    padding-inline-end: 10px;
+    padding-bottom: 8px;
+  }
+
+  &.compose-form--compact-publish .autosuggest-textarea__textarea {
+    padding-inline-end: 10px;
+    padding-bottom: 44px;
+  }
+
+  &.compose-form--simple .compose-form__count-anchor {
+    position: absolute;
+    z-index: 2;
+    inset-inline-end: 8px;
+    bottom: 46px;
+    width: max-content;
+    margin: 0;
+    padding: 0 4px;
+    background: $simple-background-color;
+    color: $inverted-text-color;
+  }
+
+  &.compose-form--compact-publish.compose-form--searchability-note .autosuggest-textarea__textarea {
+    padding-bottom: 68px;
+  }
+
+  @media screen and (max-width: 420px) {
+    .compose-form__header .dropdown-button {
+      max-width: 4.5rem;
+    }
+
+    .compose-form__buttons-secondary {
+      display: none;
+    }
+  }
+
+  @media screen and (max-width: 340px) {
+    .compose-form__header .privacy-dropdown .dropdown-button__label,
+    .compose-form__header .language-dropdown .dropdown-button__label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+    }
+  }
+
+  .compose-form__buttons .dropdown-button__label {
+    font-weight: 700;
+    letter-spacing: 0.04em;
   }
 
     &--simple {
@@ -1106,7 +1841,6 @@ body > [data-popper-placement] {
     min-height: var(--composer-min-height, 100px);
     border-radius: 0;
     padding-bottom: 0;
-    padding-right: 10px + 22px;
     resize: none;
     scrollbar-color: initial;
 
@@ -1327,15 +2061,17 @@ body > [data-popper-placement] {
     display: flex;
     align-items: center;
     gap: 8px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     flex: 0 0 auto;
+    overflow: hidden;
 
     .compose-form__buttons {
       display: flex;
       align-items: center;
-      flex: 1 1 140px;
-      flex-wrap: wrap;
+      flex: 1 1 auto;
+      flex-wrap: nowrap;
       min-width: 0;
+      overflow: hidden;
 
       .compose-form__upload-button-icon {
         line-height: 27px;
@@ -2276,6 +3012,119 @@ body > [data-popper-placement] {
 
 .status__info {
   font-size: var(--info-font-size, 15px);
+}
+
+.status__info > .status__mix-sources {
+  clear: both;
+  width: 100%;
+  margin: 2px 0 4px;
+}
+
+.status__mix-sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 4px;
+  margin: 0 0 6px;
+  max-width: 100%;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.3;
+
+  &__list {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    min-width: 0;
+    max-width: 100%;
+    list-style: none;
+  }
+
+  &__item {
+    position: relative;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  &__badge,
+  &__more,
+  &__menu-close,
+  &__menu-link {
+    border: 1px solid rgba($primary-text-color, 0.2);
+    background: rgba($primary-text-color, 0.06);
+    color: $primary-text-color;
+    border-radius: 999px;
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.2;
+    text-decoration: none;
+
+    &:hover,
+    &:focus {
+      background: rgba($highlight-text-color, 0.12);
+      border-color: $highlight-text-color;
+      outline: 2px solid $highlight-text-color;
+      outline-offset: 1px;
+    }
+  }
+
+  &__badge,
+  &__more {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 12em;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+
+  &__badge-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  &__icon {
+    flex: 0 0 auto;
+  }
+
+  &__menu {
+    z-index: 3;
+    box-sizing: border-box;
+    padding: 8px;
+    border: 1px solid rgba($primary-text-color, 0.2);
+    border-radius: 8px;
+    background: $ui-base-color;
+    color: $primary-text-color;
+    box-shadow: 0 2px 8px rgba($base-shadow-color, 0.2);
+  }
+
+  &__menu-type,
+  &__menu-name,
+  &__menu-detail,
+  &__menu-warn {
+    margin: 0 0 4px;
+    overflow-wrap: anywhere;
+  }
+
+  &__menu-type {
+    color: $darker-text-color;
+  }
+
+  &__menu-link,
+  &__menu-close {
+    display: inline-flex;
+    margin-top: 4px;
+    margin-right: 4px;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
 }
 
 .status-check-box {
@@ -3541,6 +4390,14 @@ a.account__display-name {
   display: flex;
   flex-direction: column;
 
+  &.is-file-drop-target {
+    box-shadow: inset 0 0 0 2px $highlight-text-color;
+  }
+
+  &.is-file-drop-blocked {
+    box-shadow: inset 0 0 0 2px $error-red;
+  }
+
   > .scrollable,
   > .timeline-split > .timeline-split__pane > .scrollable {
     background: $ui-base-color;
@@ -3570,6 +4427,45 @@ a.account__display-name {
   .layout-multiple-columns &.x200 {
     width: 350px * 2;
   }
+}
+
+.column-drop-target {
+  display: none;
+  pointer-events: none;
+}
+
+.column.is-file-drop-target .column-drop-target,
+.column.is-file-drop-blocked .column-drop-target {
+  position: absolute;
+  z-index: 4;
+  inset: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  pointer-events: none;
+  border: 2px dashed $highlight-text-color;
+  border-radius: 4px;
+  background: rgba($base-overlay-background, 0.35);
+  color: $primary-text-color;
+  font-weight: 500;
+}
+
+.column.is-file-drop-target .column-drop-target__blocked,
+.column.is-file-drop-blocked .column-drop-target__accept {
+  display: none;
+}
+
+.column.is-file-drop-blocked .column-drop-target {
+  border-color: $error-red;
+}
+
+.column-drop-target__accept,
+.column-drop-target__blocked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
 }
 
 $timeline-split-separator-size: 12px;
@@ -4311,6 +5207,46 @@ body.app-body.layout-single-column.status-timeline-split {
     font-weight: 400;
     color: $darker-text-color;
   }
+}
+
+.portable-composer__grip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  height: 8px;
+  cursor: row-resize;
+  touch-action: none;
+  user-select: none;
+  background: lighten($ui-base-color, 4%);
+
+  &:focus {
+    outline: 2px solid $highlight-text-color;
+    outline-offset: -2px;
+  }
+}
+
+.portable-composer__grip-line {
+  height: 1px;
+  width: 100%;
+  background: lighten($ui-base-color, 12%);
+  pointer-events: none;
+}
+
+.compose-form.compose-form--portable .autosuggest-textarea__textarea {
+  min-height: 0;
+  overflow-y: auto;
+  resize: none;
+}
+
+.column-portable-composer {
+  flex: 0 0 auto;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-width: 0;
+  max-height: min(50vh, 100%);
+  overflow: auto;
+  background: lighten($ui-base-color, 13%);
 }
 
 .portable-composer {
@@ -5973,6 +6909,7 @@ a.status-card.compact:hover {
   justify-content: center;
   left: 0;
   opacity: 0;
+  pointer-events: none;
   position: absolute;
   top: 0;
   visibility: hidden;
@@ -8872,6 +9809,36 @@ noscript {
 .mix-editor {
   padding: 15px;
 
+  &__intro {
+    margin: 0 0 12px;
+    color: $dark-text-color;
+    font-size: 13px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  &__back {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    margin: 0 0 12px;
+    color: $dark-text-color;
+    font-size: 13px;
+    line-height: 1.4;
+    text-decoration: none;
+
+    &:hover,
+    &:focus {
+      color: $highlight-text-color;
+      text-decoration: underline;
+    }
+  }
+
+  &__back-icon {
+    flex: 0 0 auto;
+  }
+
   &__label,
   &__notice,
   &__error {
@@ -8891,6 +9858,22 @@ noscript {
     padding: 0;
   }
 
+  &__source-form {
+    border: 0;
+    border-top: 1px solid lighten($ui-base-color, 8%);
+    padding-top: 8px;
+
+    legend {
+      padding: 0;
+      font-size: 14px;
+      font-weight: 700;
+    }
+  }
+
+  &__add {
+    margin-top: 12px;
+  }
+
   &__sources,
   &__results {
     list-style: none;
@@ -8898,53 +9881,391 @@ noscript {
 
   &__source {
     display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    padding: 8px 0;
-    border-bottom: 1px solid lighten($ui-base-color, 8%);
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    padding: 8px;
+    border: 1px solid lighten($ui-base-color, 8%);
+    border-radius: 4px;
+    background: lighten($ui-base-color, 4%);
+    cursor: grab;
+
+    &.is-dragging {
+      opacity: 0.55;
+    }
+
+    &.is-over {
+      border-color: $highlight-text-color;
+    }
   }
 
-  &__source-name {
-    display: flex;
-    flex-direction: column;
+  &__handle,
+  &__remove {
+    flex: 0 0 auto;
+    width: 32px;
+    height: 32px;
+    color: $darker-text-color;
+  }
+
+  &__handle {
+    cursor: grab;
+  }
+
+  &__source-main {
     flex: 1 1 auto;
-    margin-right: 8px;
+    min-width: 0;
   }
 
-  &__source-actions {
+  &__source-heading {
     display: flex;
     flex-wrap: wrap;
-    flex: 0 0 auto;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
 
-    .button {
-      margin: 0 0 4px 4px;
-    }
+  &__source-icon {
+    flex: 0 0 auto;
+    color: $darker-text-color;
+  }
+
+  &__source-label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: $primary-text-color;
+  }
+
+  &__source-chip {
+    flex: 0 0 auto;
+    border: 1px solid rgba($primary-text-color, 0.2);
+    border-radius: 999px;
+    padding: 0 6px;
+    color: $darker-text-color;
+    font-size: 11px;
+    line-height: 16px;
+  }
+
+  &__source-detail {
+    display: block;
+    margin-top: 2px;
+    color: $darker-text-color;
+    font-size: 12px;
+    overflow-wrap: anywhere;
   }
 
   &__flag {
+    position: relative;
     display: flex;
-    align-items: center;
-    margin: 6px 0;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 8px 0;
+    color: $primary-text-color;
+    font-size: 14px;
+    line-height: 18px;
+    cursor: pointer;
 
     input {
-      margin-right: 8px;
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      margin: 0;
+      opacity: 0;
+      cursor: pointer;
+
+      &:focus + .checkbox {
+        box-shadow: 0 0 0 2px rgba($highlight-text-color, 0.45);
+      }
+
+      &:disabled + .checkbox,
+      &:disabled ~ .mix-editor__flag-label {
+        opacity: 0.5;
+      }
     }
+
+    .checkbox {
+      position: relative;
+      box-sizing: border-box;
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      flex: 0 0 auto;
+      border: 1px solid $ui-primary-color;
+      border-radius: 4px;
+      background: transparent;
+
+      &.active {
+        border-color: $highlight-text-color;
+        background: $highlight-text-color;
+
+        &::after {
+          content: '';
+          position: absolute;
+          left: 5px;
+          top: 1px;
+          width: 4px;
+          height: 8px;
+          border: solid $primary-text-color;
+          border-width: 0 2px 2px 0;
+          transform: rotate(45deg);
+        }
+      }
+    }
+
+    &:hover .checkbox:not(.active) {
+      border-color: lighten($ui-primary-color, 8%);
+    }
+  }
+
+  &__flag-label {
+    min-width: 0;
   }
 
   &__actions {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     margin-top: 16px;
 
-    .button {
+    .button,
+    .button.button-secondary {
+      box-sizing: border-box;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 36px;
       margin: 0 8px 8px 0;
+      padding: 0 16px;
+      font-size: 14px;
+      line-height: 1.2;
+      text-transform: none;
+    }
+  }
+
+  &__danger {
+    color: $error-red;
+    border-color: $error-red;
+
+    &:hover,
+    &:focus,
+    &:active {
+      color: $error-red;
+      border-color: lighten($error-red, 8%);
+      background: rgba($error-red, 0.08);
     }
   }
 
   .setting-text,
   select {
+    box-sizing: border-box;
     width: 100%;
     margin-top: 4px;
+  }
+
+  .setting-text:focus {
+    box-shadow: 0 0 0 2px rgba($highlight-text-color, 0.45);
+  }
+
+  select {
+    appearance: none;
+    height: 36px;
+    padding: 0 30px 0 10px;
+    border: 1px solid darken($simple-background-color, 14%);
+    border-radius: 4px;
+    color: $inverted-text-color;
+    background: $simple-background-color url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14.933 18.467' height='19.698' width='15.929'><path d='M3.467 14.967l-3.393-3.5H14.86l-3.392 3.5c-1.866 1.925-3.666 3.5-4 3.5-.335 0-2.135-1.575-4-3.5zm.266-11.234L7.467 0 11.2 3.733l3.733 3.734H0l3.733-3.734z' fill='#{hex-color(darken($simple-background-color, 28%))}'/></svg>") no-repeat right 8px center / auto 16px;
+    font-family: inherit;
+    font-size: 14px;
+
+    &:focus {
+      border-color: $highlight-text-color;
+      box-shadow: 0 0 0 2px rgba($highlight-text-color, 0.45);
+      outline: 0;
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+  }
+}
+
+.mix-list {
+  &__create {
+    display: block;
+    margin: 0 0 4px;
+    text-align: center;
+  }
+
+  &__items {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  &__item {
+    display: flex;
+    align-items: flex-start;
+    background: lighten($ui-base-color, 8%);
+
+    & + & {
+      border-top: 1px solid $ui-base-color;
+    }
+  }
+
+  &__link {
+    display: flex;
+    align-items: flex-start;
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 12px 8px 12px 15px;
+    color: $primary-text-color;
+    font-size: 16px;
+    text-decoration: none;
+
+    &:hover,
+    &:focus,
+    &:active {
+      background: lighten($ui-base-color, 11%);
+    }
+
+    &:focus {
+      outline: 2px solid $highlight-text-color;
+      outline-offset: -2px;
+    }
+  }
+
+  &__text {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  &__title {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  &__sources {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    max-width: 100%;
+    min-width: 0;
+    margin-top: 6px;
+  }
+
+  &__source {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    min-width: 0;
+    padding: 1px 8px;
+    border: 1px solid rgba($primary-text-color, 0.2);
+    border-radius: 999px;
+    background: rgba($primary-text-color, 0.06);
+    color: $darker-text-color;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 16px;
+  }
+
+  &__source-icon {
+    flex: 0 0 auto;
+    font-size: 11px;
+  }
+
+  &__source-label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  &__settings {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 40px;
+    height: 40px;
+    margin: 6px 6px 0 0;
+    border-radius: 4px;
+    color: $darker-text-color;
+    text-decoration: none;
+
+    &:hover,
+    &:focus,
+    &:active {
+      color: $primary-text-color;
+      background: rgba($primary-text-color, 0.08);
+    }
+
+    &:focus {
+      outline: 2px solid $highlight-text-color;
+      outline-offset: 1px;
+    }
+  }
+}
+
+.mix-info {
+  box-sizing: border-box;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 12px 15px 8px;
+  border-bottom: 1px solid lighten($ui-base-color, 8%);
+  background: lighten($ui-base-color, 4%);
+  color: $dark-text-color;
+  font-size: 13px;
+  line-height: 1.45;
+
+  h2 {
+    margin: 0 0 4px;
+    color: $primary-text-color;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  p {
+    margin: 0 0 8px;
+  }
+
+  &__sources {
+    margin: 0 0 12px;
+    padding: 0;
+    list-style: none;
+  }
+
+  &__source {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 4px 0;
+  }
+
+  &__icon {
+    flex: 0 0 auto;
+    color: $darker-text-color;
+  }
+
+  &__label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: $primary-text-color;
+  }
+
+  &__chip {
+    flex: 0 0 auto;
+    border: 1px solid rgba($primary-text-color, 0.2);
+    border-radius: 999px;
+    padding: 0 6px;
+    font-size: 11px;
+    line-height: 16px;
+  }
+
+  &__edit {
+    margin: 0 0 12px;
+    text-transform: none;
   }
 }
 

@@ -60,7 +60,13 @@ describe('PostingContextBar', () => {
 
     renderBar(store);
 
-    expect(screen.getByText('Posting context')).toBeTruthy();
+    const label = screen.getByText('Posting context');
+    const badges = document.querySelector('.compose-form__posting-context-badges');
+
+    expect(label).toBeTruthy();
+    expect(badges).toContainElement(screen.getByRole('button', { name: 'Do not add #foo' }));
+    expect(label.compareDocumentPosition(badges) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(label).not.toContainElement(screen.getByRole('button', { name: 'Do not add #foo' }));
     fireEvent.click(screen.getByRole('button', { name: 'Do not add #foo' }));
 
     expect(store.getState().getIn(['composers', 'byId', composerId, 'text'])).toEqual('Hello #foo');

@@ -1,4 +1,4 @@
-import { addDraftSource, moveDraftSource, prepareMix, removeDraftSource } from '../definition';
+import { addDraftSource, moveDraftSource, prepareMix, removeDraftSource, reorderDraftSource } from '../definition';
 
 const source = (type, extra = {}) => ({ type, params: {}, ...extra });
 
@@ -85,6 +85,8 @@ describe('mix definitions', () => {
     expect(duplicate.ok).toBe(false);
     expect(duplicate.error).toBe('source_duplicate');
     expect(moved.sources.map(item => item.type)).toEqual(['public', 'home']);
+    expect(reorderDraftSource(added.draft, 0, 1).sources.map(item => item.type)).toEqual(['public', 'home']);
+    expect(reorderDraftSource(added.draft, 1, 1)).toBe(added.draft);
     expect(removed.sources.map(item => item.type)).toEqual(['home']);
     expect(addDraftSource({ title: 'A', sources: [1, 2, 3, 4, 5, 6, 7, 8].map(id => source('account', { id: String(id) })) }, source('home')).error).toBe('sources_too_many');
   });

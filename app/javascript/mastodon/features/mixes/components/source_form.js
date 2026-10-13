@@ -1,8 +1,12 @@
 import React from 'react';
 import PropTypes from 'prop-types';
+import classNames from 'classnames';
 import { SOURCE_TYPES } from 'mastodon/mix/source';
 import messages from '../messages';
 
+// Limited stays a valid saved source. Home already filters limited posts,
+// so the add-source menu no longer offers it as a new choice.
+const ADDABLE_SOURCE_TYPES = SOURCE_TYPES.filter(type => type !== 'limited');
 const SEARCH_TYPES = ['hashtag', 'account', 'group'];
 const MEDIA_TYPES = ['personal', 'public', 'remote', 'domain', 'group'];
 const BOT_TYPES = ['public', 'remote', 'domain'];
@@ -58,7 +62,8 @@ class FlagToggle extends React.PureComponent {
     return (
       <label className='mix-editor__flag' htmlFor={`mix-source-${name}`}>
         <input id={`mix-source-${name}`} type='checkbox' checked={!!checked} onChange={this.handleChange} />
-        {label}
+        <span className={classNames('checkbox', { active: !!checked })} aria-hidden='true' />
+        <span className='mix-editor__flag-label'>{label}</span>
       </label>
     );
   }
@@ -276,7 +281,7 @@ export default class SourceForm extends React.PureComponent {
 
         <label className='mix-editor__label' htmlFor='mix-source-type'>{intl.formatMessage(messages.sourceType)}</label>
         <select id='mix-source-type' value={type} onChange={this.handleType}>
-          {SOURCE_TYPES.map(sourceType => (
+          {ADDABLE_SOURCE_TYPES.map(sourceType => (
             <option key={sourceType} value={sourceType}>{this.typeLabel(sourceType)}</option>
           ))}
         </select>
@@ -352,7 +357,7 @@ export default class SourceForm extends React.PureComponent {
         {BOT_TYPES.indexOf(type) !== -1 && this.renderFlags(['withoutBot'])}
         {shows.length > 0 && this.renderFlags(shows)}
 
-        <button type='button' className='button' onClick={this.handleAdd}>{intl.formatMessage(messages.addSource)}</button>
+        <button type='button' className='button mix-editor__add' onClick={this.handleAdd}>{intl.formatMessage(messages.addSource)}</button>
       </fieldset>
     );
   }

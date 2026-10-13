@@ -10,6 +10,7 @@ import { selectComposerPostingContextCompliance } from '../../../posting_context
 import { placeDefaultWriteSurface, selectPortablePostingStyleCandidates, styleMatchesSurface, surfaceCacheKey } from '../../../posting_context/surface';
 import { resolveUserPostingStyle } from '../../../posting_context/user_style_resolver';
 import { PORTABLE_COMPOSER_MODE_SIMPLE, selectComposer, selectPortableComposerDisplayMode } from '../../../selectors/composer';
+import { isAdministrator, showComposerPostingStyleSelector } from '../../../initial_state';
 import { PRIMARY_COMPOSER_ID } from '../../../utils/composer';
 import { withComposerId } from '../composer_id_context';
 import UserPostingStylePicker, { IntlUserPostingStyleCatalogNotice } from '../components/user_posting_style_picker';
@@ -31,6 +32,17 @@ const findStyle = (state, styleId) => {
 
 const mapStateToProps = (state, { composerId }) => {
   const composer = selectComposer(state, composerId);
+
+  if (!isAdministrator || showComposerPostingStyleSelector === false) {
+    return {
+      visible: false,
+      catalogFailed: false,
+      catalogLoading: false,
+      styles: ImmutableList(),
+      stylePermitted: false,
+    };
+  }
+
   const catalogStatus = state.getIn(['userPostingStyles', 'status']);
   const editing = Boolean(composer && (composer.get('id') || composer.get('scheduled_status_id')));
   const surface = composer && composer.get('surface');
@@ -38,9 +50,10 @@ const mapStateToProps = (state, { composerId }) => {
   const eligible = !editing && Boolean(composer) && (composerId === PRIMARY_COMPOSER_ID || portable);
   const visible = eligible && catalogStatus === 'ready';
   const catalogFailed = eligible && catalogStatus === 'failed';
+  const catalogLoading = eligible && !visible && !catalogFailed;
 
-  if (!composer || (!visible && !catalogFailed)) {
-    return { visible: false, catalogFailed: false, styles: ImmutableList() };
+  if (!composer || (!visible && !catalogFailed && !catalogLoading)) {
+    return { visible: false, catalogFailed: false, catalogLoading: false, styles: ImmutableList() };
   }
 
   const compliance = selectComposerPostingContextCompliance(state, composerId);
@@ -48,11 +61,19 @@ const mapStateToProps = (state, { composerId }) => {
   const kind = surface && surface.get('kind');
   const cacheKey = surfaceCacheKey(surface);
   const assignment = cacheKey && state.getIn(['userPostingContextAssignments', 'bySurface', cacheKey]);
+  let styleChoices = styles;
+
+  if (catalogLoading) {
+    styleChoices = ImmutableList();
+  } else if (portable) {
+    styleChoices = selectPortablePostingStyleCandidates(styles, surface);
+  }
 
   return {
     visible,
     catalogFailed,
-    styles: portable ? selectPortablePostingStyleCandidates(styles, surface) : styles,
+    catalogLoading,
+    styles: styleChoices,
     emptyLabel: kind === 'group' || kind === 'hashtag' ? 'place' : 'usual',
     compact: portable && selectPortableComposerDisplayMode(state, composerId) === PORTABLE_COMPOSER_MODE_SIMPLE,
     selectedId: composer.getIn(['userPostingStyle', 'selectedId']),
@@ -69,6 +90,12 @@ const mapStateToProps = (state, { composerId }) => {
     assignmentStyleId: assignment ? assignment.get('styleId') : null,
     assignmentFailure: assignment ? assignment.get('failure') : null,
     defaultsBlocked: portable && !placeDefaultWriteSurface(composer),
+    showStyleControls: showComposerPostingStyleSelector !== false && visible && !catalogFailed,
+    customEmojis: state.get('custom_emojis') || ImmutableList(),
+    placeLabel: (composer.getIn(['userPostingStyle', 'snapshot', 'target', 'label']))
+      || (composer.getIn(['context', 'protocol', 'activityPub', 'audience', 'acct']))
+      || (surface ? String(surface.get('key') || '') : '')
+      || null,
   };
 };
 
@@ -138,18 +165,48 @@ const mapDispatchToProps = (dispatch, { intl, composerId }) => {
   };
 };
 
-const VisiblePicker = ({ visible, catalogFailed, onRetryCatalog, ...props }) => {
-  if (catalogFailed) {
-    return <IntlUserPostingStyleCatalogNotice onRetry={onRetryCatalog} />;
+const VisiblePicker = ({ visible, catalogFailed, catalogLoading, onRetryCatalog, contextDetails, header, stylePermitted, ...props }) => {
+  if (stylePermitted === false) {
+    return null;
   }
 
-  return visible ? <UserPostingStylePicker {...props} /> : null;
+  if (header && (visible || catalogFailed || catalogLoading)) {
+    return (
+      <UserPostingStylePicker
+        {...props}
+        header
+        catalogFailed={catalogFailed}
+        catalogLoading={catalogLoading}
+        onRetryCatalog={onRetryCatalog}
+        contextDetails={contextDetails}
+      />
+    );
+  }
+
+  if (catalogFailed) {
+    return (
+      <React.Fragment>
+        <IntlUserPostingStyleCatalogNotice onRetry={onRetryCatalog} />
+        {contextDetails || null}
+      </React.Fragment>
+    );
+  }
+
+  if (!visible) {
+    return contextDetails || null;
+  }
+
+  return <UserPostingStylePicker {...props} contextDetails={contextDetails} />;
 };
 
 VisiblePicker.propTypes = {
   visible: PropTypes.bool,
   catalogFailed: PropTypes.bool,
+  catalogLoading: PropTypes.bool,
   onRetryCatalog: PropTypes.func,
+  contextDetails: PropTypes.node,
+  header: PropTypes.bool,
+  stylePermitted: PropTypes.bool,
 };
 
 export default withComposerId(injectIntl(connect(mapStateToProps, mapDispatchToProps)(VisiblePicker)));

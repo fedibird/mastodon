@@ -11,6 +11,7 @@ jest.mock('../../initial_state', () => ({
   ...jest.requireActual('../../initial_state'),
   me: '42',
   isAdministrator: true,
+  maxAttachments: 4,
 }));
 
 jest.mock('../../api', () => ({
@@ -351,7 +352,7 @@ describe('delegated media composer', () => {
     }, 'primary'));
     store.dispatch(targetComposerAction({
       type: 'COMPOSE_UPLOAD_SUCCESS',
-      media: { id: 'still', type: 'image' },
+      media: { id: 'still', type: 'image', ownerIdentityId: 'delegated:99' },
       skipLoading: true,
     }, 'primary'));
 
@@ -380,5 +381,115 @@ describe('delegated media composer', () => {
       reason: null,
       stillImagesOnly: true,
     });
+  });
+
+  it('keeps the other uploads running when one of three finishes and one fails', async () => {
+    const resolvers = [];
+    const post = jest.fn().mockImplementation(() => new Promise((resolve, reject) => {
+      resolvers.push({ resolve, reject });
+    }));
+
+    api.mockReturnValue({ post, get: jest.fn() });
+    const store = delegatedStore();
+    const portableId = 'portable:list-column:b';
+
+    store.dispatch(changeCompose('Keep this draft'));
+    store.dispatch(selectComposerSenderIdentity('primary', 'delegated:99', { confirmed: true }));
+    store.dispatch(createComposer(portableId));
+    store.dispatch(uploadToComposer('primary', [
+      new File(['a'], 'a.jpg', { type: 'image/jpeg' }),
+      new File(['b'], 'b.jpg', { type: 'image/jpeg' }),
+      new File(['c'], 'c.jpg', { type: 'image/jpeg' }),
+    ]));
+
+    expect(store.getState().getIn(['compose', 'pending_media_attachments'])).toBe(3);
+    expect(store.getState().getIn(['compose', 'is_uploading'])).toBe(true);
+    store.dispatch(selectComposerSenderIdentity('primary', 'local:42', { confirmed: true }));
+    expect(store.getState().getIn(['compose', 'senderIdentity', 'id'])).toEqual('delegated:99');
+    expect(store.getState().getIn(['compose', 'senderIdentity', 'switchBlockReason'])).toEqual('media_uploading');
+
+    resolvers[0].resolve({ status: 200, data: { id: 'a', type: 'image' } });
+    await flush();
+
+    expect(store.getState().getIn(['compose', 'pending_media_attachments'])).toBe(2);
+    expect(store.getState().getIn(['compose', 'is_uploading'])).toBe(true);
+    expect(store.getState().getIn(['compose', 'media_attachments']).map(item => item.get('id')).toArray()).toEqual(['a']);
+
+    resolvers[1].reject(new Error('failed'));
+    await flush();
+
+    expect(store.getState().getIn(['compose', 'pending_media_attachments'])).toBe(1);
+    expect(store.getState().getIn(['compose', 'is_uploading'])).toBe(true);
+
+    resolvers[2].resolve({ status: 200, data: { id: 'c', type: 'image' } });
+    await flush();
+
+    expect(store.getState().getIn(['compose', 'pending_media_attachments'])).toBe(0);
+    expect(store.getState().getIn(['compose', 'is_uploading'])).toBe(false);
+    expect(store.getState().getIn(['compose', 'is_processing'])).toBe(false);
+    expect(store.getState().getIn(['compose', 'media_attachments']).map(item => item.get('id')).toArray()).toEqual(['a', 'c']);
+    expect(store.getState().getIn(['composers', 'byId', portableId, 'media_attachments']).size).toBe(0);
+    expect(store.getState().getIn(['compose', 'text'])).toEqual('Keep this draft');
+  });
+
+  it('refuses a delegated send when an image has a different or missing owner', async () => {
+    const request = jest.fn();
+
+    api.mockReturnValue({ request, post: jest.fn(), get: jest.fn() });
+    const store = delegatedStore();
+
+    store.dispatch(changeCompose('Keep this draft'));
+    store.dispatch(selectComposerSenderIdentity('primary', 'delegated:99', { confirmed: true }));
+    store.dispatch(targetComposerAction({
+      type: 'COMPOSE_UPLOAD_SUCCESS',
+      media: { id: 'foreign', type: 'image', ownerIdentityId: 'local:42' },
+      skipLoading: true,
+    }, 'primary'));
+
+    expect(selectComposerCanSendAsIdentity(store.getState(), 'primary')).toEqual(expect.objectContaining({
+      canSend: false,
+      reason: 'media_owner',
+    }));
+
+    await store.dispatch(submitComposer('primary', router));
+
+    expect(request).not.toHaveBeenCalled();
+    expect(store.getState().getIn(['compose', 'text'])).toEqual('Keep this draft');
+    expect(store.getState().getIn(['compose', 'media_attachments']).first().get('id')).toEqual('foreign');
+    expect(store.getState().getIn(['compose', 'senderIdentity', 'id'])).toEqual('delegated:99');
+
+    store.dispatch(targetComposerAction({
+      type: 'COMPOSE_UPLOAD_UNDO',
+      media_id: 'foreign',
+    }, 'primary'));
+    store.dispatch(targetComposerAction({
+      type: 'COMPOSE_UPLOAD_SUCCESS',
+      media: { id: 'unknown', type: 'image' },
+      skipLoading: true,
+    }, 'primary'));
+
+    expect(selectComposerCanSendAsIdentity(store.getState(), 'primary').reason).toEqual('media_owner');
+    await store.dispatch(submitComposer('primary', router));
+    expect(request).not.toHaveBeenCalled();
+
+    store.dispatch(targetComposerAction({
+      type: 'COMPOSE_UPLOAD_UNDO',
+      media_id: 'unknown',
+    }, 'primary'));
+    store.dispatch(targetComposerAction({
+      type: 'COMPOSE_UPLOAD_SUCCESS',
+      media: { id: 'mine', type: 'image', ownerIdentityId: 'delegated:99' },
+      skipLoading: true,
+    }, 'primary'));
+
+    expect(selectComposerCanSendAsIdentity(store.getState(), 'primary')).toEqual(expect.objectContaining({
+      canSend: true,
+    }));
+
+    request.mockResolvedValue({ data: statusBody });
+    await store.dispatch(submitComposer('primary', router));
+
+    const sent = request.mock.calls[0][0].data.media_ids;
+    expect(sent.toArray ? sent.toArray() : sent).toEqual(['mine']);
   });
 });

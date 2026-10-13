@@ -149,6 +149,10 @@ export const selectComposerCanSendAsIdentity = (state, composerId) => {
         return { canSend: false, canUpload: false, reason: 'media_type', stillImagesOnly: true };
       }
 
+      if (attachments.size > 0 && attachments.some(item => item.get('ownerIdentityId') !== senderId)) {
+        return { canSend: false, canUpload: mediaSupported, reason: 'media_owner', stillImagesOnly: mediaSupported };
+      }
+
       if (pendingMedia && !mediaSupported) {
         return { canSend: false, canUpload: false, reason: 'media', stillImagesOnly: false };
       }

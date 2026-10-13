@@ -122,19 +122,16 @@ describe('NavigationPanel discovery links', () => {
     ]);
   });
 
-  it('shows Mix to administrators and beta testers', () => {
-    flags.isAdministrator = true;
-    renderPanel();
+  it('shows Mix between Lists and Circles for default and conservative policies', () => {
+    ['default', 'conservative', 'tester'].forEach(policy => {
+      flags.isAdministrator = false;
+      flags.new_features_policy = policy;
+      const view = renderPanel();
+      const links = hrefs();
 
-    const adminLinks = hrefs();
-
-    expect(adminLinks).toContain('/mixes');
-    expect(adminLinks[adminLinks.indexOf('/lists') + 1]).toBe('/mixes');
-  });
-
-  it('hides Mix from accounts that are not administrators or beta testers', () => {
-    renderPanel();
-
-    expect(hrefs()).not.toContain('/mixes');
+      expect(links[links.indexOf('/lists') + 1]).toBe('/mixes');
+      expect(links[links.indexOf('/mixes') + 1]).toBe('/circles');
+      view.unmount();
+    });
   });
 });

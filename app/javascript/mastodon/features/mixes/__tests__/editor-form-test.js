@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
+import { MemoryRouter } from 'react-router-dom';
 
 jest.mock('react-intl', () => ({
   defineMessages: messages => messages,
@@ -16,19 +17,22 @@ const acceptSource = () => true;
 const rejectSource = () => false;
 const emptySearch = () => Promise.resolve([]);
 
+const renderEditor = (element) => render(<MemoryRouter>{element}</MemoryRouter>);
+
 describe('mix editor form', () => {
   it('renames, reorders, removes, and saves the draft shown on screen', () => {
     const onTitleChange = jest.fn();
     const onRemoveSource = jest.fn();
-    const onMoveSource = jest.fn();
+    const onReorderSource = jest.fn();
     const onSave = jest.fn();
     const onCancel = jest.fn();
     const sources = [
       { type: 'home', params: {} },
+      { type: 'domain', domain: 'mstdn.jp', params: {} },
       { type: 'public', title: 'Federated photos', params: { onlyMedia: true } },
     ];
 
-    render(
+    renderEditor(
       <MixEditorForm
         intl={intl}
         title='Desk'
@@ -38,7 +42,7 @@ describe('mix editor form', () => {
         onTitleChange={onTitleChange}
         onAddSource={acceptSource}
         onRemoveSource={onRemoveSource}
-        onMoveSource={onMoveSource}
+        onReorderSource={onReorderSource}
         onSave={onSave}
         onCancel={onCancel}
         onDelete={jest.fn()}
@@ -47,13 +51,19 @@ describe('mix editor form', () => {
     );
 
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Night' } });
-    fireEvent.click(screen.getAllByRole('button', { name: 'Move source up' })[1]);
-    fireEvent.click(screen.getAllByRole('button', { name: 'Remove source' })[0]);
+    fireEvent.keyDown(screen.getAllByRole('button', { name: /Reorder display source/ })[2], { key: 'ArrowUp' });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Remove display source' })[0]);
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     fireEvent.submit(screen.getByRole('button', { name: 'Save' }).closest('form'));
 
+    expect(screen.getByText('A mix combines several columns into one timeline.')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Display sources' })).toBeTruthy();
+    expect(screen.getByText('mstdn.jp')).toBeTruthy();
+    expect(screen.getByText('Server')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Move source up' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Move source down' })).toBeNull();
     expect(onTitleChange).toHaveBeenCalledWith('Night');
-    expect(onMoveSource).toHaveBeenCalledWith(1, -1);
+    expect(onReorderSource).toHaveBeenCalledWith(2, 1);
     expect(onRemoveSource).toHaveBeenCalledWith(0);
     expect(onCancel).toHaveBeenCalled();
     expect(onSave).toHaveBeenCalled();
@@ -62,7 +72,7 @@ describe('mix editor form', () => {
   });
 
   it('shows a validation error without saving an incomplete mix', () => {
-    render(
+    renderEditor(
       <MixEditorForm
         intl={intl}
         title=''
@@ -71,15 +81,44 @@ describe('mix editor form', () => {
         onTitleChange={jest.fn()}
         onAddSource={rejectSource}
         onRemoveSource={jest.fn()}
-        onMoveSource={jest.fn()}
+        onReorderSource={jest.fn()}
         onSave={jest.fn()}
         onCancel={jest.fn()}
         onSearch={emptySearch}
       />,
     );
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Add at least two sources.');
+    expect(screen.getByRole('alert')).toHaveTextContent('Add at least two display sources.');
     expect(screen.getByRole('alert')).toHaveTextContent('Enter a name.');
+  });
+
+  it('reorders a display source when its row is dropped on another row', () => {
+    const onReorderSource = jest.fn();
+    const sources = [
+      { type: 'home', params: {} },
+      { type: 'public', params: {} },
+    ];
+    const { container } = renderEditor(
+      <MixEditorForm
+        intl={intl}
+        title='Desk'
+        sources={sources}
+        onTitleChange={jest.fn()}
+        onAddSource={acceptSource}
+        onRemoveSource={jest.fn()}
+        onReorderSource={onReorderSource}
+        onSave={jest.fn()}
+        onCancel={jest.fn()}
+        onSearch={emptySearch}
+      />,
+    );
+    const rows = container.querySelectorAll('.mix-editor__source');
+
+    fireEvent.dragStart(rows[0].querySelector('.mix-editor__handle'));
+    fireEvent.dragOver(rows[1]);
+    fireEvent.drop(rows[1]);
+
+    expect(onReorderSource).toHaveBeenCalledWith(0, 1);
   });
 });
 
@@ -96,7 +135,7 @@ describe('mix source form', () => {
 
     render(<SourceForm intl={intl} lists={[]} onAddSource={onAddSource} onSearch={onSearch} />);
 
-    fireEvent.change(screen.getByLabelText('Source type'), { target: { value: 'hashtag' } });
+    fireEvent.change(screen.getByLabelText('Display source type'), { target: { value: 'hashtag' } });
     fireEvent.change(screen.getByLabelText('Hashtag'), { target: { value: 'old' } });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     fireEvent.change(screen.getByLabelText('Hashtag'), { target: { value: 'ruby' } });
@@ -110,7 +149,7 @@ describe('mix source form', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '#ruby' }));
     fireEvent.change(screen.getByLabelText('Any of these'), { target: { value: 'web, api' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add source' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add display source' }));
 
     expect(onAddSource).toHaveBeenCalledWith(expect.objectContaining({
       type: 'hashtag',
@@ -121,6 +160,20 @@ describe('mix source form', () => {
     expect(screen.getByLabelText('Hashtag')).toHaveValue('');
   });
 
+  it('marks a display-source option when its checkbox is selected', () => {
+    const { container } = render(<SourceForm intl={intl} onAddSource={acceptSource} onSearch={emptySearch} />);
+    const input = screen.getByLabelText('Hide boosts');
+
+    expect(input.checked).toBe(false);
+    expect(container.querySelector('.mix-editor__flag .checkbox.active')).toBeNull();
+
+    fireEvent.click(input);
+
+    expect(input.checked).toBe(true);
+    expect(input.nextElementSibling.classList.contains('checkbox')).toBe(true);
+    expect(input.nextElementSibling.classList.contains('active')).toBe(true);
+  });
+
   it('does not keep showing search results after the source type changes', async () => {
     let resolveSearch;
     const onSearch = jest.fn(() => new Promise(resolve => {
@@ -128,10 +181,10 @@ describe('mix source form', () => {
     }));
 
     render(<SourceForm intl={intl} onAddSource={acceptSource} onSearch={onSearch} />);
-    fireEvent.change(screen.getByLabelText('Source type'), { target: { value: 'account' } });
+    fireEvent.change(screen.getByLabelText('Display source type'), { target: { value: 'account' } });
     fireEvent.change(screen.getByLabelText('Search'), { target: { value: 'ada' } });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-    fireEvent.change(screen.getByLabelText('Source type'), { target: { value: 'home' } });
+    fireEvent.change(screen.getByLabelText('Display source type'), { target: { value: 'home' } });
     resolveSearch([{ type: 'account', id: '5', title: 'ada@example.com' }]);
     await Promise.resolve();
 

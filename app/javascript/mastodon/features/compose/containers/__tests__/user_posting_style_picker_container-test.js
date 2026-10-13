@@ -22,6 +22,11 @@ jest.mock('react-intl', () => {
   };
 });
 
+jest.mock('../../../../initial_state', () => ({
+  isAdministrator: true,
+  showComposerPostingStyleSelector: true,
+}));
+
 import { USER_POSTING_STYLES_FETCH_SUCCESS } from '../../../../actions/user_posting_styles';
 import { applyComposerSurface, createComposer } from '../../../../actions/composer';
 import { groupPostingContext } from '../../../../posting_context/fixtures/group_context_fixture';
@@ -90,7 +95,7 @@ const renderPicker = (composerId, surface) => {
     </Provider>,
   );
 
-  fireEvent.click(screen.getByRole('button', { name: /Posting style|Usual settings|This place only/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Posting style|No style|Usual settings|This place only/ }));
 
   return optionNames();
 };
@@ -116,6 +121,53 @@ describe('UserPostingStylePicker container candidates', () => {
     expect(names.some(name => name.includes('Group B'))).toBe(false);
   });
 
+  it('keeps the compact header while the style catalog is loading or failed', () => {
+    const composerId = 'portable:list-column:7';
+    const base = ImmutableMap({
+      composers: composers(undefined, createComposer(composerId)),
+      userPostingStyles: ImmutableMap({ status: 'loading', styles: ImmutableList() }),
+      relationships: ImmutableMap(),
+    });
+    const store = createStore(reduce, base);
+
+    store.dispatch(applyComposerSurface(composerId, { kind: 'list', key: '7' }, null, null));
+
+    const { rerender } = render(
+      <Provider store={store}>
+        <ComposerProvider composerId={composerId}>
+          <UserPostingStylePicker header contextDetails={<div>Follow the group</div>} />
+        </ComposerProvider>
+      </Provider>,
+    );
+
+    const picker = document.querySelector('[data-posting-style-picker]');
+
+    expect(picker).toBeTruthy();
+    expect(document.querySelector('.compose-form__style-context')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /7|Posting destination|No style|This place only|Usual settings/ }));
+
+    expect(screen.getByText('Loading posting styles')).toBeTruthy();
+    expect(screen.getByText('Follow the group')).toBeTruthy();
+    expect(document.querySelector('.compose-form__style-overlay')).toContainElement(screen.getByText('Follow the group'));
+    expect(screen.queryByRole('menuitemradio')).toBeNull();
+
+    const failed = store.getState().setIn(['userPostingStyles', 'status'], 'failed');
+
+    rerender(
+      <Provider store={createStore(reduce, failed)}>
+        <ComposerProvider composerId={composerId}>
+          <UserPostingStylePicker header contextDetails={<div>Follow the group</div>} />
+        </ComposerProvider>
+      </Provider>,
+    );
+
+    expect(document.querySelector('[data-posting-style-picker]')).toBeTruthy();
+    expect(document.querySelector('[data-posting-style-catalog="failed"]')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Reload posting styles' })).toBeTruthy();
+    expect(screen.getByText('Follow the group')).toBeTruthy();
+  });
+
   it('offers a list only common styles', () => {
     const names = renderPicker('portable:list-column:7', { kind: 'list', key: '7' });
 
@@ -124,6 +176,6 @@ describe('UserPostingStylePicker container candidates', () => {
     expect(names.some(name => name.includes('Group B'))).toBe(false);
     expect(names.some(name => name.includes('Books'))).toBe(false);
     expect(names.some(name => name.includes('News'))).toBe(false);
-    expect(names.some(name => name.includes('Usual settings'))).toBe(true);
+    expect(names.some(name => name.includes('No style'))).toBe(true);
   });
 });

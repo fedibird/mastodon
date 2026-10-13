@@ -1,5 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
+import { Link } from 'react-router-dom';
+import Icon from 'mastodon/components/icon';
 import messages from '../messages';
 import SourceForm from './source_form';
 import SourceList from './source_list';
@@ -10,7 +12,6 @@ const errorMessage = (error) => ({
   sources_too_few: messages.sourcesTooFew,
   sources_too_many: messages.sourcesTooMany,
   source_duplicate: messages.sourceDuplicate,
-  unavailable: messages.unavailable,
   not_found: messages.deleted,
 }[error] || messages.sourceInvalid);
 
@@ -26,7 +27,7 @@ export default class MixEditorForm extends React.PureComponent {
     onTitleChange: PropTypes.func.isRequired,
     onAddSource: PropTypes.func.isRequired,
     onRemoveSource: PropTypes.func.isRequired,
-    onMoveSource: PropTypes.func.isRequired,
+    onReorderSource: PropTypes.func.isRequired,
     onSave: PropTypes.func.isRequired,
     onCancel: PropTypes.func.isRequired,
     onDelete: PropTypes.func,
@@ -60,7 +61,7 @@ export default class MixEditorForm extends React.PureComponent {
       editing,
       onAddSource,
       onRemoveSource,
-      onMoveSource,
+      onReorderSource,
       onCancel,
       onDelete,
       onSearch,
@@ -69,11 +70,16 @@ export default class MixEditorForm extends React.PureComponent {
 
     return (
       <form className='mix-editor' onSubmit={this.handleSubmit}>
+        <Link className='mix-editor__back' to='/mixes'>
+          <Icon id='chevron-left' className='mix-editor__back-icon' aria-hidden='true' />
+          {intl.formatMessage(messages.backToList)}
+        </Link>
+        <p className='mix-editor__intro'>{intl.formatMessage(messages.editorIntro)}</p>
         <label className='mix-editor__label' htmlFor='mix-name'>{intl.formatMessage(messages.name)}</label>
         <input id='mix-name' className='setting-text' value={title} onChange={this.handleTitle} maxLength={100} />
 
         <h2 className='mix-editor__label'>{intl.formatMessage(messages.sources)}</h2>
-        <SourceList sources={sources} intl={intl} editable onRemove={onRemoveSource} onMove={onMoveSource} />
+        <SourceList sources={sources} intl={intl} editable onRemove={onRemoveSource} onReorder={onReorderSource} />
         <SourceForm intl={intl} lists={lists} onAddSource={onAddSource} onSearch={onSearch} />
 
         {errors.length > 0 && (
@@ -88,7 +94,7 @@ export default class MixEditorForm extends React.PureComponent {
           <button type='submit' className='button'>{intl.formatMessage(messages.save)}</button>
           <button type='button' className='button button-secondary' onClick={onCancel}>{intl.formatMessage(messages.cancel)}</button>
           {editing && onDelete && (
-            <button type='button' className='button button-secondary' onClick={onDelete}>
+            <button type='button' className='button button-secondary mix-editor__danger' onClick={onDelete}>
               {intl.formatMessage(confirmingDelete ? messages.deleteConfirm : messages.delete)}
             </button>
           )}

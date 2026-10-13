@@ -56,12 +56,16 @@ describe('UserPostingStylePicker', () => {
     );
 
     expect(screen.getByText('Posting style')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Usual settings' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Usual settings' }));
+    expect(screen.getByRole('button', { name: 'No style' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'No style' }));
     expect(screen.getByRole('menuitemradio', { name: /サークル告知/ })).toBeTruthy();
     expect(screen.getByText('サークル向けの告知')).toBeTruthy();
     expect(screen.getByText('Destination localsquad')).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'Posting style settings' }).getAttribute('href')).toEqual('/settings/user_posting_contexts');
+    const settings = screen.getByRole('link', { name: 'Posting style settings' });
+
+    expect(settings.getAttribute('href')).toEqual('/settings/user_posting_contexts');
+    expect(settings.className).toContain('compose-form__style-settings-button');
+    expect(settings.querySelector('.fa-gear')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('menuitemradio', { name: /読書メモ/ }));
 
@@ -83,11 +87,11 @@ describe('UserPostingStylePicker', () => {
       />,
     );
 
-    const trigger = screen.getByRole('button', { name: 'Usual settings' });
+    const trigger = screen.getByRole('button', { name: 'No style' });
 
     fireEvent.click(trigger);
 
-    const usual = screen.getByRole('menuitemradio', { name: 'Usual settings' });
+    const usual = screen.getByRole('menuitemradio', { name: /No style/ });
     const circle = screen.getByRole('menuitemradio', { name: /サークル告知/ });
 
     expect(usual).toHaveAttribute('aria-checked', 'true');
@@ -166,9 +170,9 @@ describe('UserPostingStylePicker', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'This place only' }));
+    fireEvent.click(screen.getByRole('button', { name: 'No style' }));
 
-    const place = screen.getByRole('menuitemradio', { name: 'This place only' });
+    const place = screen.getByRole('menuitemradio', { name: /No style/ });
     const circle = screen.getByRole('menuitemradio', { name: /サークル告知/ });
 
     expect(place).toHaveAttribute('aria-checked', 'true');
@@ -209,13 +213,13 @@ describe('UserPostingStylePicker', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /サークル告知/ }));
 
-    const useHere = screen.getByRole('button', { name: 'Always use this style here' });
+    const useHere = document.querySelector('.compose-form__style-star[data-style-id="1"]');
     const radios = screen.getAllByRole('menuitemradio').map(item => item.textContent);
 
     expect(useHere.getAttribute('role')).toBeNull();
-    expect(radios.some(text => text.includes('Always use this style here'))).toBe(false);
-    expect(screen.getByRole('button', { name: 'Don’t use a style here' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Return to automatic selection' })).toHaveAttribute('aria-pressed', 'true');
+    expect(radios.some(text => text.includes('Save as the default for this place'))).toBe(false);
+    expect(document.querySelector('.compose-form__style-star[data-style-id=""]')).toBeTruthy();
+    expect(useHere).toHaveAttribute('aria-pressed', 'false');
 
     fireEvent.click(useHere);
 
@@ -239,9 +243,9 @@ describe('UserPostingStylePicker', () => {
       />,
     );
 
-    expect(screen.getByText('This place uses this style by default')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Always use this style here' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Always use this style here' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /サークル告知/ }));
+    expect(document.querySelector('.compose-form__style-star[data-style-id="1"]')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByText('This place uses this style by default')).not.toBeInTheDocument();
 
     rerender(
       <UserPostingStylePicker
@@ -260,7 +264,7 @@ describe('UserPostingStylePicker', () => {
 
     expect(screen.getByText('Saving the default for this place')).toBeTruthy();
     expect(screen.queryByText('This place uses this style by default')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Always use this style here' })).toBeDisabled();
+    expect(document.querySelector('.compose-form__style-star[data-style-id="2"]')).toBeDisabled();
 
     rerender(
       <UserPostingStylePicker
@@ -286,13 +290,17 @@ describe('UserPostingStylePicker', () => {
     expect(document.querySelector('.compose-form__style--compact')).toBeTruthy();
     expect(screen.getByRole('button', { name: /読書メモ/ })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: /読書メモ/ }));
+    const trigger = screen.getByRole('button', { name: /読書メモ/ });
 
-    const failedSave = screen.getByRole('button', { name: 'Always use this style here' });
+    if (trigger.getAttribute('aria-expanded') !== 'true') {
+      fireEvent.click(trigger);
+    }
+
+    const failedSave = document.querySelector('.compose-form__style-star[data-style-id="2"]');
 
     expect(failedSave.getAttribute('role')).toBeNull();
-    expect(failedSave.closest('[role="menu"]')).toBeNull();
     expect(failedSave.closest('.compose-form__style-menu')).toBeTruthy();
+    expect(failedSave.closest('[role="menuitemradio"]')).toBeNull();
   });
 
   it('keeps simple-mode default actions in the open menu and out of the radio group', () => {
@@ -323,21 +331,15 @@ describe('UserPostingStylePicker', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /読書メモ/ }));
 
-    const useHere = screen.getByRole('button', { name: 'Always use this style here' });
-    const none = screen.getByRole('button', { name: 'Don’t use a style here' });
+    const useHere = document.querySelector('.compose-form__style-star[data-style-id="2"]');
+    const none = document.querySelector('.compose-form__style-star[data-style-id=""]');
     const menu = screen.getByRole('menu');
 
-    expect(useHere.closest('[role="menu"]')).toBeNull();
     expect(useHere.closest('.compose-form__style-menu')).toBeTruthy();
-    expect(screen.getAllByRole('menuitemradio').some(item => item.textContent.includes('Always use this style here'))).toBe(false);
+    expect(useHere.closest('[role="menuitemradio"]')).toBeNull();
+    expect(screen.getAllByRole('menuitemradio').some(item => item.textContent.includes('Save as the default for this place'))).toBe(false);
     expect(document.activeElement.getAttribute('role')).toEqual('menuitemradio');
 
-    fireEvent.keyDown(menu, { key: 'ArrowDown' });
-
-    expect(document.activeElement.getAttribute('role')).toEqual('menuitemradio');
-    expect(document.activeElement).not.toBe(useHere);
-
-    useHere.focus();
     fireEvent.keyDown(menu, { key: 'ArrowDown' });
 
     expect(document.activeElement.getAttribute('role')).toEqual('menuitemradio');
@@ -351,7 +353,7 @@ describe('UserPostingStylePicker', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
 
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Always use this style here' })).not.toBeInTheDocument();
+    expect(document.querySelector('.compose-form__style-star')).toBeNull();
     expect(document.activeElement).toBe(screen.getByRole('button', { name: /読書メモ/ }));
   });
 
@@ -379,17 +381,15 @@ describe('UserPostingStylePicker', () => {
 
     expect(screen.getByText('This draft’s destination isn’t confirmed, so the default for this place can’t be changed.')).toBeTruthy();
 
-    const useHere = screen.getByRole('button', { name: 'Always use this style here' });
-    const none = screen.getByRole('button', { name: 'Don’t use a style here' });
-    const auto = screen.getByRole('button', { name: 'Return to automatic selection' });
+    fireEvent.click(screen.getByRole('button', { name: /サークル告知/ }));
 
-    expect(useHere).toBeDisabled();
-    expect(none).toBeDisabled();
-    expect(auto).toBeDisabled();
+    const stars = Array.from(document.querySelectorAll('.compose-form__style-star'));
 
-    fireEvent.click(useHere);
-    fireEvent.click(none);
-    fireEvent.click(auto);
+    expect(stars.length).toBeGreaterThan(0);
+    stars.forEach(star => {
+      expect(star).toBeDisabled();
+      fireEvent.click(star);
+    });
 
     expect(onSaveDefault).not.toHaveBeenCalled();
     expect(onUseNoStyle).not.toHaveBeenCalled();
@@ -417,8 +417,89 @@ describe('UserPostingStylePicker', () => {
     );
 
     expect(screen.queryByText('This place does not use a style')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /No style/ }));
+
+    const star = document.querySelector('.compose-form__style-star[data-style-id=""]');
+
+    expect(star).toBeDisabled();
+    fireEvent.click(star);
+    expect(onRetryAssignment).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Reload the default for this place' }));
     expect(onRetryAssignment).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not save a place default before it has been loaded', () => {
+    const onSaveDefault = jest.fn();
+
+    render(
+      <UserPostingStylePicker
+        styles={styles}
+        selectedId={null}
+        snapshot={null}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        onSelect={jest.fn()}
+        {...defaultProps}
+        assignmentFetchStatus='idle'
+        onSaveDefault={onSaveDefault}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /No style/ }));
+
+    const star = document.querySelector('.compose-form__style-star[data-style-id="1"]');
+
+    expect(star).toBeDisabled();
+    fireEvent.click(star);
+    expect(onSaveDefault).not.toHaveBeenCalled();
+  });
+
+  it('clears a place default from the filled star without selecting the row', () => {
+    const onSelect = jest.fn();
+    const onResetDefault = jest.fn();
+
+    render(
+      <UserPostingStylePicker
+        styles={styles}
+        selectedId='2'
+        snapshot={styles.get(1)}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        onSelect={onSelect}
+        {...defaultProps}
+        assignmentStatus='style'
+        assignmentStyleId='1'
+        onResetDefault={onResetDefault}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /読書メモ/ }));
+    fireEvent.click(document.querySelector('.compose-form__style-star[data-style-id="1"]'));
+
+    expect(onResetDefault).toHaveBeenCalledTimes(1);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('does not offer place-default stars when the composer has no place', () => {
+    render(
+      <UserPostingStylePicker
+        styles={styles}
+        selectedId={null}
+        snapshot={null}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        showDefaults={false}
+        onSelect={jest.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /No style/ }));
+
+    expect(document.querySelector('.compose-form__style-star')).toBeNull();
+    expect(screen.getByRole('menuitemradio', { name: /No style/ })).toBeTruthy();
   });
 
   it('offers a way to reload posting styles after the catalog request fails', () => {
@@ -429,5 +510,144 @@ describe('UserPostingStylePicker', () => {
     expect(screen.getByText('Couldn’t load posting styles.')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Reload posting styles' }));
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders a custom emoji icon without inserting raw HTML', () => {
+    const customEmojis = fromJS([{
+      shortcode: 'fedibird',
+      url: '/emoji/fedibird.png',
+      static_url: '/emoji/fedibird.png',
+    }]);
+    const withEmoji = styles.map(style => style.get('id') === '2' ? style.set('icon', ':fedibird:') : style);
+
+    const { container } = render(
+      <UserPostingStylePicker
+        header
+        styles={withEmoji}
+        customEmojis={customEmojis}
+        selectedId='2'
+        snapshot={withEmoji.get(1)}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        onSelect={jest.fn()}
+        {...defaultProps}
+        assignmentStatus='style'
+        assignmentStyleId='2'
+      />,
+    );
+
+    expect(container.querySelector('img.emojione')).toBeTruthy();
+    expect(container.innerHTML).not.toContain('<script');
+
+    const hostile = styles.set(0, styles.get(0).set('icon', '<img src=x onerror=alert(1)>'));
+
+    const hostileView = render(
+      <UserPostingStylePicker
+        header
+        styles={hostile}
+        customEmojis={ImmutableList()}
+        selectedId='1'
+        snapshot={hostile.get(0)}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        onSelect={jest.fn()}
+        {...defaultProps}
+      />,
+    );
+
+    expect(hostileView.container.querySelector('[onerror]')).toBeNull();
+    expect(screen.getAllByRole('button', { name: /サークル告知/ }).length).toBeGreaterThan(0);
+  });
+
+  it('hides style choices without hiding the destination', () => {
+    render(
+      <UserPostingStylePicker
+        header
+        showStyleControls={false}
+        placeLabel='localsquad'
+        contextDetails={<div>Follow the group</div>}
+        styles={styles}
+        selectedId='1'
+        snapshot={styles.get(0)}
+        unapplied={ImmutableList()}
+        destinationStatus='failed'
+        destinationFailure='unsupported'
+        visibilityConflict={false}
+        onSelect={jest.fn()}
+        {...defaultProps}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'localsquad' })).toBeTruthy();
+    expect(screen.queryByRole('menuitemradio')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Always use this style here' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'localsquad' }));
+
+    expect(screen.getByText('Follow the group')).toBeTruthy();
+    expect(screen.getAllByText('This destination isn’t supported, so you can’t post.').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('menuitemradio')).toBeNull();
+  });
+
+  it('keeps the destination header while styles load or fail to load', () => {
+    const onRetryCatalog = jest.fn();
+    const view = render(
+      <UserPostingStylePicker
+        header
+        catalogLoading
+        showStyleControls={false}
+        placeLabel='localsquad'
+        contextDetails={<div>Follow the group</div>}
+        styles={styles}
+        selectedId={null}
+        snapshot={null}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict={false}
+        onSelect={jest.fn()}
+        onRetryCatalog={onRetryCatalog}
+      />,
+    );
+
+    const picker = document.querySelector('[data-posting-style-picker]');
+
+    expect(screen.getByRole('button', { name: /localsquad/ })).toBeTruthy();
+    expect(document.querySelector('.compose-form__style-context')).toBeNull();
+    expect(picker.querySelector('[data-posting-style-catalog]')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /localsquad/ }));
+
+    expect(screen.getByText('Loading posting styles')).toBeTruthy();
+    expect(screen.getByText('Follow the group')).toBeTruthy();
+    expect(document.querySelector('.compose-form__style-overlay')).toContainElement(screen.getByText('Follow the group'));
+    expect(screen.queryByRole('menuitemradio')).toBeNull();
+
+    view.rerender(
+      <UserPostingStylePicker
+        header
+        catalogFailed
+        showStyleControls={false}
+        placeLabel='localsquad'
+        contextDetails={<div>Create permission confirmed</div>}
+        styles={styles}
+        selectedId={null}
+        snapshot={null}
+        unapplied={ImmutableList()}
+        destinationStatus='idle'
+        visibilityConflict
+        onSelect={jest.fn()}
+        onRetryCatalog={onRetryCatalog}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /localsquad/ })).toHaveAttribute('aria-expanded', 'true');
+    expect(document.querySelector('[data-posting-style-catalog="failed"]')).toBeTruthy();
+    expect(screen.getByText('Create permission confirmed')).toBeTruthy();
+    expect(screen.getByText('Can’t post because visibility does not meet the destination')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Reload posting styles' }));
+    expect(onRetryCatalog).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('menuitemradio')).toBeNull();
   });
 });

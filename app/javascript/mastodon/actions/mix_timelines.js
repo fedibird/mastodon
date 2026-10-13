@@ -4,7 +4,6 @@ import { me } from '../initial_state';
 import { mixTimelineView } from '../mix/view';
 import { fetchRelationshipsSuccess } from './accounts';
 import { importFetchedAccounts, importFetchedStatuses, importFilters } from './importer';
-import { isMixEnabled } from '../mix/availability';
 import { plainMix } from '../mix/definition';
 import { resolveRequest, normalizePage, classifyFetchFailure, previousStatusesForImport, statusesForSharedImport } from '../mix/source_adapters';
 import { MIX_FETCH_BUDGET, MIX_FETCH_CONCURRENCY, MIX_PAGE_SIZE, MIX_PAGE_TARGET, nextFetchKeys } from '../mix/merge';
@@ -329,10 +328,6 @@ export function closeMixTimeline(columnKey) {
 
 export function loadMixTimeline(columnKey, mix, { extend = false, scope = null, splitId = null } = {}) {
   return (dispatch, getState) => {
-    if (!isMixEnabled()) {
-      return Promise.resolve();
-    }
-
     const plain = plainMix(mix);
 
     if (!plain) {

@@ -64,12 +64,13 @@ const renderDropdown = (props = {}) => {
 describe('LanguageDropdown', () => {
   it('shows the current language name and selects a searched language', () => {
     const { onChange, onClose } = renderDropdown();
-    const button = screen.getByRole('button', { name: '日本語' });
+    const button = screen.getByRole('button', { name: 'Change language' });
 
-    expect(button).toHaveTextContent('日本語');
-    expect(button.querySelector('.fa-language')).not.toBeNull();
+    expect(button).toHaveTextContent('JA');
+    expect(button).toHaveClass('text-icon-button');
+    expect(button.querySelector('.fa')).toBeNull();
     expect(button).toHaveAttribute('title', 'Change language');
-    expect(button).not.toHaveAttribute('aria-label');
+    expect(button).toHaveAttribute('aria-label', 'Change language');
     expect(button).toHaveAttribute('aria-expanded', 'false');
 
     fireEvent.click(button);
@@ -95,12 +96,12 @@ describe('LanguageDropdown', () => {
   it('falls back to the language code when the native name is unknown', () => {
     renderDropdown({ value: 'de' });
 
-    expect(screen.getByRole('button', { name: 'de' })).toHaveTextContent('de');
+    expect(screen.getByRole('button', { name: 'Change language' })).toHaveTextContent('DE');
   });
 
   it('returns focus to the language button after Escape', async () => {
     renderDropdown();
-    const button = screen.getByRole('button', { name: '日本語' });
+    const button = screen.getByRole('button', { name: 'Change language' });
 
     button.focus();
     fireEvent.click(button);
@@ -120,7 +121,7 @@ describe('LanguageDropdown', () => {
   it('closes from the search field with Escape', () => {
     renderDropdown();
 
-    fireEvent.click(screen.getByRole('button', { name: '日本語' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Change language' }));
     fireEvent.keyDown(screen.getByPlaceholderText('Search languages...'), { key: 'Escape' });
 
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
@@ -147,7 +148,7 @@ describe('LanguageDropdown', () => {
       </Provider>,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '日本語' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Change language' }));
 
     expect(screen.getAllByRole('option').map(option => option.getAttribute('data-index'))).toEqual(['ja', 'fr', 'en', 'de']);
   });
@@ -234,9 +235,9 @@ describe('localized composer language names', () => {
   it('resolves the composer language messages in the Japanese locale', () => {
     renderDropdown({ intl: jaIntl, languages: localizedLanguages });
 
-    const button = screen.getByRole('button', { name: '日本語' });
+    const button = screen.getByRole('button', { name: '言語を変更' });
 
-    expect(button).toHaveTextContent('日本語');
+    expect(button).toHaveTextContent('JA');
     expect(button).not.toHaveTextContent('英語');
     expect(button).toHaveAttribute('title', '言語を変更');
 
@@ -245,12 +246,12 @@ describe('localized composer language names', () => {
     expect(screen.getByPlaceholderText('言語を検索...')).toBeInTheDocument();
   });
 
-  it('keeps the composer button on the native name', () => {
+  it('shows a short language code on the composer button', () => {
     renderDropdown({ intl: jaIntl, value: 'de', languages: localizedLanguages });
 
-    const button = screen.getByRole('button', { name: 'Deutsch' });
+    const button = screen.getByRole('button', { name: '言語を変更' });
 
-    expect(button).toHaveTextContent('Deutsch');
+    expect(button).toHaveTextContent('DE');
     expect(button).not.toHaveTextContent('ドイツ語');
     expect(button).toHaveAttribute('title', '言語を変更');
   });

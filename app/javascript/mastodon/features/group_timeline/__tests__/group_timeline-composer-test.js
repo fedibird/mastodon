@@ -51,19 +51,31 @@ jest.mock('../../../actions/streaming', () => ({
 
 jest.mock('../../../components/column', () => {
   const React = require('react');
-  return React.forwardRef(({ children }, ref) => <div ref={ref}>{children}</div>);
+  return React.forwardRef(({ children, dropComposerId }, ref) => (
+    <div ref={ref} data-drop-composer-id={dropComposerId || undefined}>{children}</div>
+  ));
 });
 jest.mock('../../../components/column_header', () => ({ children, extraButton }) => <div>{extraButton}{children}</div>);
 jest.mock('../../../components/icon', () => () => null);
 jest.mock('../containers/column_settings_container', () => () => null);
 jest.mock('../components/group_detail', () => () => null);
+const mockPinnedComposers = [];
+
 jest.mock('../../compose/portable_composer', () => {
   const React = require('react');
 
-  return function PortableComposer ({ composerId }) {
-    return <div data-testid='portable-composer' data-composer-id={composerId} />;
+  return function PortableComposer (props) {
+    mockPinnedComposers.push(props);
+
+    return <div data-testid='portable-composer' data-composer-id={props.composerId} />;
   };
 });
+
+const pinnedComposer = (composerId) => {
+  const matches = mockPinnedComposers.filter(item => !composerId || item.composerId === composerId);
+
+  return matches[matches.length - 1];
+};
 
 const captured = [];
 
@@ -189,6 +201,7 @@ const renderTimeline = (GroupTimeline, {
 
 describe('GroupTimeline portable composer', () => {
   beforeEach(() => {
+    mockPinnedComposers.length = 0;
     mockFetchAccount.mockClear();
     mockFetchPostingContext.mockClear();
   });
@@ -222,11 +235,14 @@ describe('GroupTimeline portable composer', () => {
 
     const shown = captured[captured.length - 1];
 
-    expect(shown.alwaysPrepend).toBe(true);
-    expect(shown.prepend.props.composerId).toEqual('portable:group-route:123');
-    expect(shown.prepend.key).toEqual('portable:group-route:123');
-    expect(shown.prepend.props.postingContext).toEqual(groupPostingContext);
-    expect(shown.prepend.props.postingContext.discovery).toBeUndefined();
+    expect(shown.alwaysPrepend).toBeFalsy();
+    expect(shown.prepend).toBeFalsy();
+    expect(pinnedComposer().composerId).toEqual('portable:group-route:123');
+    expect(pinnedComposer().postingContext).toEqual(groupPostingContext);
+    expect(pinnedComposer().postingContext.discovery).toBeUndefined();
+    expect(document.querySelector('.column-portable-composer')).toContainElement(screen.getByTestId('portable-composer'));
+    expect(document.querySelector('[data-drop-composer-id]').getAttribute('data-drop-composer-id')).toBe('portable:group-route:123');
+    expect(document.querySelector('[data-testid="status-list"]')).not.toContainElement(screen.getByTestId('portable-composer'));
     expect(screen.getByRole('button', { name: 'Hide composer' }).getAttribute('aria-pressed')).toBe('true');
 
     fireEvent.click(screen.getByRole('button', { name: 'Hide composer' }));
@@ -247,20 +263,20 @@ describe('GroupTimeline portable composer', () => {
       columnId: 'column-1',
       visibility: { 'portable:group-column:column-1': true },
     });
-    const context = route.props.prepend.props.postingContext;
+    const context = pinnedComposer('portable:group-route:123').postingContext;
 
     expect(mockFetchPostingContext).toHaveBeenCalledWith('123');
     expect(mockFetchAccount).toHaveBeenCalledWith('123');
-    expect(route.props.alwaysPrepend).toBe(true);
-    expect(route.props.prepend.props.composerId).toEqual('portable:group-route:123');
-    expect(route.props.prepend.key).toEqual('portable:group-route:123');
+    expect(route.props.alwaysPrepend).toBeFalsy();
+    expect(route.props.prepend).toBeFalsy();
+    expect(pinnedComposer('portable:group-route:123').composerId).toEqual('portable:group-route:123');
     expect(context).toEqual(groupPostingContext);
     expect(context.discovery).toBeUndefined();
-    expect(route.props.prepend.props.postingContextAccountId).toEqual('123');
-    expect(column.props.prepend.props.postingContextAccountId).toEqual('123');
-    expect(column.props.prepend.props.composerId).toEqual('portable:group-column:column-1');
-    expect(column.props.prepend.key).toEqual('portable:group-column:column-1');
-    expect(column.props.alwaysPrepend).toBe(true);
+    expect(pinnedComposer('portable:group-route:123').postingContextAccountId).toEqual('123');
+    expect(pinnedComposer('portable:group-column:column-1').postingContextAccountId).toEqual('123');
+    expect(pinnedComposer('portable:group-column:column-1').composerId).toEqual('portable:group-column:column-1');
+    expect(column.props.alwaysPrepend).toBeFalsy();
+    expect(column.props.prepend).toBeFalsy();
   });
 
   it('keeps timeline filters out of the posting context and does not rediscover them', () => {
@@ -268,6 +284,7 @@ describe('GroupTimeline portable composer', () => {
     const plain = renderTimeline(GroupTimeline, {
       visibility: { 'portable:group-route:123': true },
     });
+    const before = pinnedComposer();
     const callsAfterMount = mockFetchPostingContext.mock.calls.length;
 
     plain.store.dispatch({
@@ -278,8 +295,10 @@ describe('GroupTimeline portable composer', () => {
     const filtered = captured[captured.length - 1];
 
     expect(mockFetchPostingContext.mock.calls.length).toEqual(callsAfterMount);
-    expect(filtered.prepend.props.composerId).toEqual(plain.props.prepend.props.composerId);
-    expect(filtered.prepend.props.postingContext).toEqual(plain.props.prepend.props.postingContext);
+    expect(filtered.prepend).toBeFalsy();
+    expect(pinnedComposer().composerId).toEqual(before.composerId);
+    expect(pinnedComposer().postingContext).toEqual(before.postingContext);
+    expect(plain.props.prepend).toBeFalsy();
   });
 
   it('refetches the account and discovery result when a visible group id changes', () => {
@@ -371,7 +390,8 @@ describe('GroupTimeline portable composer', () => {
 
     expect(mockFetchPostingContext).toHaveBeenCalledTimes(1);
     expect(mockFetchPostingContext).toHaveBeenCalledWith('456');
-    expect(captured[captured.length - 1].prepend.props.composerId).toEqual('portable:group-route:456');
+    expect(captured[captured.length - 1].prepend).toBeFalsy();
+    expect(pinnedComposer().composerId).toEqual('portable:group-route:456');
     expect(view.store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:group-route:123'])).toBe(false);
     expect(view.store.getState().getIn(['settings', 'portableComposerVisibility', 'portable:group-route:456'])).toBe(true);
   });
@@ -411,9 +431,10 @@ describe('GroupTimeline portable composer', () => {
       visibility: { 'portable:group-route:456': true },
     }).props;
 
-    expect(props.prepend.props.composerId).toEqual('portable:group-route:456');
-    expect(props.prepend.props.postingContext.key).toEqual('builtin:fedibird-group:456');
-    expect(props.prepend.props.postingContext.discovery).toBeUndefined();
+    expect(props.prepend).toBeFalsy();
+    expect(pinnedComposer().composerId).toEqual('portable:group-route:456');
+    expect(pinnedComposer().postingContext.key).toEqual('builtin:fedibird-group:456');
+    expect(pinnedComposer().postingContext.discovery).toBeUndefined();
   });
 
   it('keeps the timeline without a composer while discovery is missing, loading, or failed', () => {
@@ -458,17 +479,18 @@ describe('GroupTimeline portable composer', () => {
     }).props;
 
     expect(mockFetchPostingContext).toHaveBeenCalledWith('456');
-    expect(props.alwaysPrepend).toBe(true);
-    expect(props.prepend.props.composerId).toEqual('portable:group-route:456');
-    expect(props.prepend.props.postingContext.protocol.activityPub.audience).toEqual({
+    expect(props.alwaysPrepend).toBeFalsy();
+    expect(props.prepend).toBeFalsy();
+    expect(pinnedComposer().composerId).toEqual('portable:group-route:456');
+    expect(pinnedComposer().postingContext.protocol.activityPub.audience).toEqual({
       accountId: '456',
       acct: 'group@mitra.example',
       enforcement: 'required',
       ruleId: 'fep-1b12-group-audience',
     });
-    expect(props.prepend.props.postingContext.managed.mentions).toEqual([]);
-    expect(props.prepend.props.postingContext.requirements.followingAccounts).toEqual([]);
-    expect(props.prepend.props.postingContext.constraints.allowedVisibilities).toEqual(['public', 'unlisted']);
+    expect(pinnedComposer().postingContext.managed.mentions).toEqual([]);
+    expect(pinnedComposer().postingContext.requirements.followingAccounts).toEqual([]);
+    expect(pinnedComposer().postingContext.constraints.allowedVisibilities).toEqual(['public', 'unlisted']);
   });
 
   it('prepends a NodeBB category context with its required mention and public-only constraint', () => {
@@ -480,17 +502,17 @@ describe('GroupTimeline portable composer', () => {
       group: true,
       display_name: 'Category',
     });
-    const props = renderTimeline(GroupTimeline, {
+    renderTimeline(GroupTimeline, {
       account,
       discovery: discoveryRecord('resolved', nodebbGroupPostingContext),
       visibility: { 'portable:group-route:456': true },
-    }).props;
+    });
 
-    expect(props.prepend.props.composerId).toEqual('portable:group-route:456');
-    expect(props.prepend.props.postingContextAccountId).toEqual('456');
-    expect(props.prepend.props.postingContext.key).toEqual('protocol:fep-1b12-nodebb:456');
-    expect(props.prepend.props.postingContext.constraints.allowedVisibilities).toEqual(['public']);
-    expect(props.prepend.props.postingContext.managed.mentions).toEqual([
+    expect(pinnedComposer().composerId).toEqual('portable:group-route:456');
+    expect(pinnedComposer().postingContextAccountId).toEqual('456');
+    expect(pinnedComposer().postingContext.key).toEqual('protocol:fep-1b12-nodebb:456');
+    expect(pinnedComposer().postingContext.constraints.allowedVisibilities).toEqual(['public']);
+    expect(pinnedComposer().postingContext.managed.mentions).toEqual([
       {
         accountId: '456',
         acct: 'category@nodebb.example',
@@ -498,7 +520,7 @@ describe('GroupTimeline portable composer', () => {
         ruleId: 'nodebb-group-mention',
       },
     ]);
-    expect(props.prepend.props.postingContext.protocol.activityPub.audience.accountId).toEqual('456');
+    expect(pinnedComposer().postingContext.protocol.activityPub.audience.accountId).toEqual('456');
   });
 
   it('prepends a Lemmy community context with an after-title mention', () => {
@@ -510,14 +532,14 @@ describe('GroupTimeline portable composer', () => {
       group: true,
       display_name: 'Technology',
     });
-    const props = renderTimeline(GroupTimeline, {
+    renderTimeline(GroupTimeline, {
       account,
       discovery: discoveryRecord('resolved', lemmyGroupPostingContext),
       visibility: { 'portable:group-route:456': true },
-    }).props;
+    });
 
-    expect(props.prepend.props.postingContext.key).toEqual('protocol:fep-1b12-lemmy:456');
-    expect(props.prepend.props.postingContext.managed.mentions).toEqual([
+    expect(pinnedComposer().postingContext.key).toEqual('protocol:fep-1b12-lemmy:456');
+    expect(pinnedComposer().postingContext.managed.mentions).toEqual([
       {
         accountId: '456',
         acct: 'technology@lemmy.example',
@@ -526,7 +548,7 @@ describe('GroupTimeline portable composer', () => {
         placement: 'after_title',
       },
     ]);
-    expect(props.prepend.props.postingContext.constraints.allowedVisibilities).toEqual(['public']);
+    expect(pinnedComposer().postingContext.constraints.allowedVisibilities).toEqual(['public']);
   });
 
   it('keeps the composer mounted while a resolved context is refreshing', () => {
@@ -543,8 +565,9 @@ describe('GroupTimeline portable composer', () => {
     });
 
     expect(screen.getByTestId('portable-composer')).toBeTruthy();
-    expect(captured[captured.length - 1].prepend.props.postingContext.key).toEqual('builtin:fedibird-group:123');
-    expect(captured[captured.length - 1].prepend.props.postingContextAccountId).toEqual('123');
+    expect(captured[captured.length - 1].prepend).toBeFalsy();
+    expect(pinnedComposer().postingContext.key).toEqual('builtin:fedibird-group:123');
+    expect(pinnedComposer().postingContextAccountId).toEqual('123');
   });
 
   it('does not fetch or mount a composer for a non-administrator', () => {
