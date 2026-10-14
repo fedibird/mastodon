@@ -32,7 +32,7 @@ describe PostProcessMediaWorker do # rubocop:disable Metrics/BlockLength
       calls << args
       true
     end
-    allow_any_instance_of(Paperclip::Attachment).to receive(:exists?).and_return(true)
+    allow(worker).to receive(:ensure_still_image_derivatives!)
 
     worker.perform(media.id)
 
@@ -40,7 +40,6 @@ describe PostProcessMediaWorker do # rubocop:disable Metrics/BlockLength
     expect(media.reload).to be_processing_complete
 
     calls.clear
-    allow_any_instance_of(Paperclip::Attachment).to receive(:exists?).and_call_original
     video = MediaAttachment.create!(
       account: media.account,
       file: attachment_fixture('attachment.jpg'),
@@ -81,9 +80,9 @@ describe PostProcessMediaWorker do # rubocop:disable Metrics/BlockLength
   end
 
   it 'does not persist complete when a still image is missing derivatives' do
-    media
+    expect(media.file.exists?(:small)).to be false
+    expect(media.file.exists?(:tiny)).to be false
     allow_any_instance_of(Paperclip::Attachment).to receive(:reprocess!).and_return(true)
-    allow_any_instance_of(Paperclip::Attachment).to receive(:exists?).and_return(false)
 
     expect { worker.perform(media.id) }.to raise_error(Paperclip::Error, /missing small, tiny after reprocess/)
     expect(media.reload).to be_processing_in_progress
