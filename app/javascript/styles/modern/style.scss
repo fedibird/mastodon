@@ -185,10 +185,27 @@
     overflow: visible !important;
     transition: max-width 0.2s cubic-bezier(0, 0, 0, 1.1), margin 0.2s cubic-bezier(0, 0, 0, 1.1);
   }
+  // Side panes keep a 285px min-width and do not shrink. Main's horizontal
+  // margins are 10px each, and the root scrollbar (forced by overflow-y)
+  // sits inside the viewport that the 895/1190/1320 queries measure. Cap the
+  // timeline at the base 600px, or the wide --tl-width, using only the space
+  // those panes and margins leave in the content box.
+  @media (min-width: 896px) and (max-width: 1190px) {
+    #mastodon .columns-area__panels__main,
+    .public-layout .columns-area__panels__main {
+      max-width: min(600px, 100% - 305px) !important;
+    }
+  }
+  @media (min-width: 1191px) and (max-width: 1319px) {
+    #mastodon .columns-area__panels__main,
+    .public-layout .columns-area__panels__main {
+      max-width: min(600px, 100% - 590px) !important;
+    }
+  }
   @media (min-width: 1320px) {
     #mastodon .columns-area__panels__main,
     .public-layout .columns-area__panels__main {
-      max-width: var(--tl-width) !important;
+      max-width: min(var(--tl-width), 100% - 590px) !important;
       padding: 0 15px;
     }
   }
@@ -572,7 +589,11 @@
     .public-layout .tabs-bar__wrapper {
       position: fixed;
       width: 285px;
-      margin-left: 600px;
+      // 100% is the layout viewport beside the scrollbar, the same box the
+      // main column's max-width uses, so this tracks the right pane when the
+      // timeline is narrower than 600px. With 10px of horizontal padding,
+      // margin-left equal to the used main width lands on that pane.
+      margin-left: min(600px, 100% - 590px);
       padding-top: 0;
       margin-top: 30px;
       overflow: clip;
@@ -618,7 +639,10 @@
   @media (min-width: 1191px) and (min-width: 1320px) {
     #mastodon .tabs-bar__wrapper,
     .public-layout .tabs-bar__wrapper {
-      margin-left: calc(var(--tl-width) - 5px);
+      // The wide breakpoint adds 5px of horizontal padding. Subtracting that
+      // keeps the fixed header aligned with the right pane while main grows
+      // from the leftover space up to --tl-width.
+      margin-left: calc(min(var(--tl-width), 100% - 590px) - 5px);
     }
   }
   #mastodon .navigation-panel,
