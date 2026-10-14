@@ -244,7 +244,7 @@ RSpec.describe 'preference cache revision boundary' do
       User.where(id: user.id).delete_all
     end
 
-    it 'advances revision and deletes the legacy key and the committed revision key' do
+    it 'advances revision and deletes only the committed revision keys' do
       user = Fabricate(:user)
       deleted = []
       allow(Rails.cache).to receive(:delete).and_wrap_original do |method, cache_key, *args|
@@ -260,11 +260,11 @@ RSpec.describe 'preference cache revision boundary' do
       expect(result.after_revision).to eq 1
       expect(UserPreferences::Revision.current(user.id)).to eq 1
       expect(deleted).to contain_exactly(
-        legacy_key(user, 'reduce_motion'),
         UserPreferences::CacheKey.for_revision('reduce_motion', user, 1),
-        legacy_key(user, 'default_privacy'),
         UserPreferences::CacheKey.for_revision('default_privacy', user, 1)
       )
+      expect(Rails.cache.read(legacy_key(user, 'reduce_motion'))).to be true
+      expect(Rails.cache.read(legacy_key(user, 'default_privacy'))).to eq 'private'
 
       fetched = []
       allow(Rails.cache).to receive(:fetch).and_wrap_original do |method, cache_key, *args, &block|

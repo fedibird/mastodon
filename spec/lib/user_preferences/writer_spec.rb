@@ -170,6 +170,9 @@ RSpec.describe UserPreferences::Writer do
       string_row.value = '18'
       string_row.save!
 
+      Rails.cache.write(UserPreferences::CacheKey.for_revision('content_font_size', user, 1), 18.0)
+      Rails.cache.write(UserPreferences::CacheKey.for_revision('info_font_size', user, 1), '18')
+
       result = described_class.new(user).apply(updates: { 'content_font_size' => 18, 'info_font_size' => 18 })
 
       expect(result.before['content_font_size']).to eq(state: :present, configured: 18.0)
@@ -322,6 +325,7 @@ RSpec.describe UserPreferences::Writer do
       calls = 0
       warnings = []
       allow(Rails.logger).to receive(:warn) { |line| warnings << line }
+      Rails.cache.write(UserPreferences::CacheKey.for_revision('default_language', user, 1), 'stale')
       allow(Rails.cache).to receive(:delete).and_wrap_original do |method, key|
         calls += 1
         raise StandardError, 'cache unavailable' if calls < 3
@@ -336,7 +340,9 @@ RSpec.describe UserPreferences::Writer do
       matched = warnings.select { |line| line.include?('cache delete failed') && line.include?('var=default_language') }
       expect(matched.size).to eq 2
       expect(matched.join).not_to include('value=')
-      expect(matched.join).to include('generation=legacy')
+      expect(matched.join).to include('generation=revision')
+      expect(matched.join).to include('revision=1')
+      expect(matched.join).not_to include('generation=legacy')
     end
 
     it 'records a cache deletion failure without raising after three errors' do
@@ -353,11 +359,9 @@ RSpec.describe UserPreferences::Writer do
       expect(result.after_revision).to eq 1
       expect(stored(user, 'default_privacy').value).to eq 'private'
       expect(UserPreferenceRevision.find_by!(user_id: user.id).revision).to eq 1
-      # Legacy and revision keys each retry on their own: two warnings and one error per key.
-      expect(warnings.count { |line| line.include?('var=default_privacy') && line.include?('generation=legacy') }).to eq 2
       expect(warnings.count { |line| line.include?('var=default_privacy') && line.include?('generation=revision') }).to eq 2
-      expect(errors.count { |line| line.include?('var=default_privacy') && line.include?('generation=legacy') && !line.include?('private') }).to eq 1
-      expect(errors.count { |line| line.include?('var=default_privacy') && line.include?('generation=revision') && line.include?('revision=1') }).to eq 1
+      expect(warnings.count { |line| line.include?('generation=legacy') }).to eq 0
+      expect(errors.count { |line| line.include?('var=default_privacy') && line.include?('generation=revision') && line.include?('revision=1') && !line.include?('private') }).to eq 1
     end
 
     it 'does not treat a false cache delete as a confirmed deletion' do

@@ -197,9 +197,11 @@ RSpec.describe 'preference form legacy writer' do
 
       privacy = legacy_key(user, 'default_privacy')
       language = legacy_key(user, 'default_language')
+      privacy_rev = UserPreferences::CacheKey.for_revision('default_privacy', user, 1)
+      language_rev = UserPreferences::CacheKey.for_revision('default_language', user, 2)
       relevant = []
       events.each do |event|
-        next unless [privacy, language].include?(event[:key]) || %w(commit notify).include?(event[:op])
+        next unless [privacy, language, privacy_rev, language_rev].include?(event[:key]) || %w(commit notify).include?(event[:op])
 
         relevant << event
         break if event[:op] == 'notify' && relevant.count { |item| item[:op] == 'notify' } == 2
@@ -208,16 +210,18 @@ RSpec.describe 'preference form legacy writer' do
         %w(commit write delete notify commit write delete notify)
       ), events.inspect
       expect(relevant[1]).to include(key: privacy, source: 'rewrite_cache', value: 'unlisted', after_sql_commit: true)
-      expect(relevant[2]).to include(key: privacy, source: 'cache_deletion', after_sql_commit: true)
+      expect(relevant[2]).to include(key: privacy_rev, source: 'cache_deletion', after_sql_commit: true)
       expect(relevant[5]).to include(key: language, source: 'rewrite_cache', value: 'de', after_sql_commit: true)
-      expect(relevant[6]).to include(key: language, source: 'cache_deletion', after_sql_commit: true)
+      expect(relevant[6]).to include(key: language_rev, source: 'cache_deletion', after_sql_commit: true)
       expect(revision(user)).to eq 2
       expect(messages.map { |message| JSON.parse(message.last).dig('payload', 'changed_keys') }).to eq(
         [['user.default_privacy'], ['user.default_language']]
       )
       expect(messages.map { |message| JSON.parse(message.last).dig('payload', 'revision') }).to eq %w(1 2)
-      expect(Rails.cache.exist?(privacy)).to be false
-      expect(Rails.cache.exist?(language)).to be false
+      expect(Rails.cache.read(privacy)).to eq 'unlisted'
+      expect(Rails.cache.read(language)).to eq 'de'
+      expect(Rails.cache.exist?(privacy_rev)).to be false
+      expect(Rails.cache.exist?(language_rev)).to be false
     end
 
     it 'keeps earlier commits when a later nine-key save rolls back' do

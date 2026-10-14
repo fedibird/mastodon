@@ -366,6 +366,8 @@ RSpec.describe UserPreferences::ChangeNotification do
     it 'keeps the committed write when redis publish fails' do
       install_raising_publisher
 
+      Rails.cache.write(UserPreferences::CacheKey.for_revision('default_language', user, 1), 'stale')
+
       result = UserPreferences::Writer.new(user).apply(updates: { 'default_language' => 'zh-TW' })
 
       expect(result.after_revision).to eq 1

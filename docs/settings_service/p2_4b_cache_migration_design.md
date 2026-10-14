@@ -670,3 +670,50 @@ revision 自体は Redis にキャッシュしない。プロセスをまたぐ�
 P2-4E では、9 キーの Writer が行う従来キャッシュキーの delete を終了する。9 キー以外の設定に対する `ScopedSettings` の従来キャッシュ読み書きは維持する。revision 付きキーへのフォールバックは設けない。
 
 段階 D が全プロセスへ出てから、9 キーの従来キーの TTL である 10 分を超えて待つ。revision の Redis キャッシュ、キーごとの世代、ミス時の 9 行まとめ SELECT は、P2-4E の作業に含めない。
+
+上の範囲は実装した。結果は「P2-4E の実装」。P2-4C と P2-4D の節に残る二重 delete の説明は、その段階の記録である。
+
+## P2-4E の実装
+
+段階 E では、9 キーの Writer が COMMIT 後に消すキャッシュを `/rev/<after_revision>` だけにした。従来キャッシュキーの delete は終了した。9 キー以外の `ScopedSettings` の従来キャッシュ読み書きは維持する。revision 付きキーへのフォールバックは設けない。getter、`RevisionMemo`、`Setting.cache_key`、rails-settings-cached の callback、`ScopedSettings#[]=` は変えていない。
+
+### CacheDeletion
+
+`UserPreferences::CacheDeletion#committed!` は、変更キーごとに `UserPreferences::CacheKey.for_revision(key, user, after_revision)` だけを delete する。`Setting.cache_key` を delete の引数には渡さない。番号はトランザクション内で決めた `after_revision` であり、COMMIT 後に PostgreSQL を読み直さない。未変更キー、別の revision 番号、キーの全探索は対象にしない。値の write は足していない。
+
+`cache_deleted` の意味を変えた。段階 E 以降、`WriteResult#cache_deleted` の true は、その var の `/rev/<after_revision>` に対する `Rails.cache.delete` が true を返したことである。false は、delete が false を返したか、例外のリトライが尽きたかである。false は成功にしない。revision キーが元から無いとき、テストの `MemoryStore` は delete で false を返す。これは未確認であり、DB の保存は戻さない。no-op は空 Hash のままである。Hash のキーは設定名であり、キャッシュキー文字列ではない。API レスポンスには項目を足していない。
+
+`revision_cache_deleted` は外部から読まれていなかったので削除した。段階 B と D では、`cache_deleted` が従来キーの結果で、revision キーの結果は別属性だった。段階 E では削除が revision キーだけなので、公開の `cache_deleted` がその結果を持つ。
+
+例外の規則は P2-4C のままである。true だけを確認済みとする。false はリトライせず、error ログも出さない。例外は最大 3 回で、1 回目と 2 回目は warning、3 回目は error である。ログは `user_id`、`var`、`generation=revision`、`revision=<after_revision>`、例外クラスである。設定値は出さない。失敗しても COMMIT 済みの行と revision は戻さない。`ChangeNotification` は続けて実行する。
+
+### rewrite_cache が残す従来キー
+
+`Setting` の `after_commit :rewrite_cache` は、create と update のあと従来キーへ値を write する。段階 E は Writer 側の従来キー delete をやめたので、この write で作られた従来キーは TTL まで残る。reset は行を消すだけで `rewrite_cache` を走らせない。reset の前から従来キーに値があれば、そのまま残る。
+
+9 キーの getter は段階 D 以降、revision キーだけを読む。残った従来キーは読まない。本番の Redis キャッシュは `expires_in: 10.minutes` である。今回、この callback を 9 キーだけ止める処理は入れていない。入れるなら影響範囲を分けた別 PR とする。
+
+### 読み取りとメモ
+
+`ScopedSettings#[]` の 9 キー経路と `read_legacy_value` はそのままである。高リスク設定、ネスト設定、サイト `Setting[]`、`Web::Setting`、User 以外の scope は従来キャッシュのままである。
+
+`RevisionMemo.remember!` の位置もそのままである。順序は、SQL COMMIT、create/update の `rewrite_cache`、revision キーの delete、`preferences_changed`、メモ更新である。同じリクエストの次の getter は新しい revision を読む。
+
+### 本番展開の条件
+
+この実装を出した時点では、次を確認していない。コードから推定しない。条件を満たすまで本番へ展開しない。
+
+- 全 Puma worker が段階 D である。
+- 全 Sidekiq プロセスが段階 D である。
+- 設定を読む、または書く他の Rails プロセスも段階 D である。
+- 段階 B 以下のプロセスが残っていない。
+- 最後の段階 B プロセスが停止してから 10 分を超えている。
+- 段階 D のブラウザ動作確認が成功している。保存した設定を再読み込みでき、別タブで変えた値が次のリクエストで読めること。同じリクエストで複数の 9 キーを読んでも revision SELECT は 1 回であること。
+
+段階 E と D は混在できる。両方の getter は revision キーを読む。D の Writer は従来キーと revision キーを delete し、E の Writer は revision キーだけを delete する。Setting 行と revision は共通である。段階 B 以下との混在は許可しない。B は従来キーを読むからである。
+
+切り戻し先は段階 D である。A や B へ直接戻す手順は作らない。設定行と revision 行は消さないし、番号も戻さない。Redis の全消去は切り戻しの必須作業にしない。
+
+### P2-4E のあと
+
+残っている任意の作業は、9 キーの `rewrite_cache` を止める別 PR、revision の Redis キャッシュ、ミス時の 9 行まとめ SELECT である。どれもこの PR には入れていない。
