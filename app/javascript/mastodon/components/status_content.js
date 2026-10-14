@@ -11,6 +11,7 @@ import BilingualContent from 'mastodon/components/bilingual_content';
 import TranslationBar from 'mastodon/components/translation_bar';
 import { setStatusTranslationAssumption, setTranslationTargetLanguage } from 'mastodon/actions/statuses';
 import { autoPlayEmoji, disableReactions, me, translationBarVisibility, translationPreferredMode, translationPrivateContentAllowed } from 'mastodon/initial_state';
+import { selectAcceptedTranslationPreferences } from 'mastodon/selectors/user_preferences';
 import { translationCapability, translationRequestStatus } from 'mastodon/utils/translation_languages';
 import { computeStatusHashtagBadges, isHashtagMenuLink, stripMatchingTrailingHashtags } from 'mastodon/utils/status_hashtags';
 import { sameLanguagePair, statusTranslationView, translationBarEffectivelyVisible, translationDisplayStatus, translationRequestPair, viewerTranslationPair } from 'mastodon/utils/translation_view';
@@ -36,6 +37,7 @@ const translationStateStatus = (status, wrapper) => translationRequestStatus(wra
 
 const mapStateToProps = (state, ownProps) => {
   const subject = translationStateStatus(ownProps.status, ownProps.translationWrapper);
+  const accepted = selectAcceptedTranslationPreferences(state);
 
   return {
     languages: state.getIn(['server', 'translationLanguages', 'items']),
@@ -43,6 +45,8 @@ const mapStateToProps = (state, ownProps) => {
     translationTarget: state.getIn(['settings', 'translation', 'targetLanguage']),
     translationTargetUsage: state.getIn(['settings', 'translation', 'targetLanguageUsage']),
     translationBarRevealed: translationBarRevealed(state, subject),
+    acceptedTranslationBarVisibility: accepted.visibility,
+    acceptedTranslationPreferredMode: accepted.preferredMode,
   };
 };
 
@@ -79,6 +83,8 @@ class StatusContent extends React.PureComponent {
     translationTarget: PropTypes.string,
     translationTargetUsage: ImmutablePropTypes.map,
     translationBarRevealed: PropTypes.bool,
+    acceptedTranslationBarVisibility: PropTypes.string,
+    acceptedTranslationPreferredMode: PropTypes.string,
     onTranslationAssumption: PropTypes.func,
     onTranslationTarget: PropTypes.func,
     intl: PropTypes.object.isRequired,
@@ -538,7 +544,8 @@ class StatusContent extends React.PureComponent {
     const sourceSpoilerHtml = status.get('spoilerHtml');
     const targetSpoilerHtml = translated.getIn(['translation', 'spoilerHtml']);
     const language = viewMode === 'original' ? sourceLang : (targetLang || sourceLang);
-    const preferredMode = this.props.translationPreferredMode || translationPreferredMode;
+    const preferredMode = this.props.translationPreferredMode || this.props.acceptedTranslationPreferredMode || translationPreferredMode;
+    const barVisibility = this.props.acceptedTranslationBarVisibility || translationBarVisibility;
     const classNames = classnames('status__content', {
       'status__content--with-action': this.props.onClick && this.context.router,
       'status__content--with-spoiler': status.get('spoiler_text').length > 0,
@@ -571,7 +578,7 @@ class StatusContent extends React.PureComponent {
     const spoilerText = this.renderSpoilerText(viewMode, sourceSpoilerHtml, targetSpoilerHtml, sourceLang, targetLang);
 
     const translateButton = translationBarEffectivelyVisible({
-      visibility: translationBarVisibility,
+      visibility: barVisibility,
       revealed: this.props.translationBarRevealed,
       source: viewerPair.source,
       target: viewerPair.target,

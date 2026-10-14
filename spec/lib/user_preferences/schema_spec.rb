@@ -45,6 +45,23 @@ RSpec.describe UserPreferences::Schema do
       )
     end
 
+    it 'marks posting and translation keys for reinitialize and appearance keys for reload' do
+      reinitialize = %w(
+        default_privacy
+        default_sensitive
+        default_language
+        preferred_posting_language
+        show_translation_bar
+        translation_preferred_mode
+        new_features_policy
+      )
+      reload_keys = %w(content_font_size info_font_size reduce_motion)
+
+      expect(reinitialize.map { |key| described_class.get(key).apply_hint }).to all(eq(:reinitialize))
+      expect(reload_keys.map { |key| described_class.get(key).apply_hint }).to all(eq(:reload))
+      expect(described_class.get(:show_translation_bar).dependencies).to eq ['new_features_policy']
+    end
+
     it 'rejects a key the reader does not support' do
       expect { described_class.get(:enable_local_timeline) }.to raise_error(UserPreferences::UnsupportedKey)
     end

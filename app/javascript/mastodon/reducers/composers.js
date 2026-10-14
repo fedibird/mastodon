@@ -1,5 +1,6 @@
 import { Map as ImmutableMap, fromJS } from 'immutable';
 import { COMPOSER_CREATE, COMPOSER_DESTROY } from '../actions/composer';
+import { USER_PREFERENCES_DOCUMENT_ACCEPTED } from '../actions/user_preferences';
 import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { PRIMARY_COMPOSER_ID } from '../utils/composer';
 import composer, { hydrateComposer, initialState as initialComposerState } from './composer';
@@ -40,6 +41,7 @@ export default function composers(state = initialState, action) {
     return state.deleteIn(['byId', composerId]);
   case TIMELINE_DELETE:
   case TIMELINE_EXPIRE:
+  case USER_PREFERENCES_DOCUMENT_ACCEPTED:
     return state.update('byId', byId => byId.map(instance => composer(instance, action)));
   default:
     break;

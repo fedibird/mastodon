@@ -71,6 +71,8 @@ import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../actions/timelines';
 import { REDRAFT } from '../actions/statuses';
 import { COMPOSE_REDAFT_DISCARD, COMPOSE_REDAFT_MEDIA_LOCAL, COMPOSE_REDAFT_MEDIA_STATUS } from '../actions/redraft_media';
 import { COMPOSER_CONTEXT_APPLY, COMPOSER_CONTEXT_HASHTAG_TOGGLE, COMPOSER_INTERACTION_CHECK_FAIL, COMPOSER_INTERACTION_CHECK_REQUEST, COMPOSER_INTERACTION_CHECK_SUCCESS, COMPOSER_SENDER_IDENTITY_SELECT, COMPOSER_SURFACE_ACCEPT } from '../actions/composer';
+import { USER_PREFERENCES_DOCUMENT_ACCEPTED } from '../actions/user_preferences';
+import { applyComposerPreferenceDefaults } from '../utils/preference_apply';
 import { consistentLocalFedibirdGroup, consistentSupportedRemoteGroup } from '../posting_identity/group_destination';
 import { composerInteractionInputKey } from '../posting_identity/interaction_input';
 import { USER_POSTING_STYLE_AUTO_ATTEMPT, USER_POSTING_STYLE_COMMIT, USER_POSTING_STYLE_DEFAULTS_SETTLED, USER_POSTING_STYLE_DESTINATION, USER_POSTING_STYLE_DESTINATION_RETRY, USER_POSTING_STYLE_HASHTAG_TOGGLE } from '../actions/user_posting_styles';
@@ -1112,6 +1114,8 @@ const reduceSurfaceContext = (state, action) => {
 
 export default function composer(state = initialState, action) {
   switch(action.type) {
+  case USER_PREFERENCES_DOCUMENT_ACCEPTED:
+    return applyComposerPreferenceDefaults(state, action.document);
   case COMPOSE_MOUNT:
     return state.set('mounted', state.get('mounted') + 1);
   case COMPOSE_UNMOUNT:

@@ -29,13 +29,16 @@ const mockConnectStream = jest.fn((channelName, params, callbacks) => (dispatch,
   };
 });
 
-import { COMPOSE_CHANGE, COMPOSE_LANGUAGE_CHANGE, COMPOSE_VISIBILITY_CHANGE } from '../compose';
+import { COMPOSE_CHANGE, COMPOSE_LANGUAGE_CHANGE, COMPOSE_RESET, COMPOSE_VISIBILITY_CHANGE } from '../compose';
+import { createComposer } from '../composer';
 import compose from '../../reducers/compose';
+import composers from '../../reducers/composers';
 import rootReducer from '../../reducers';
 import meta from '../../reducers/meta';
 import settings from '../../reducers/settings';
 import userPreferences from '../../reducers/user_preferences';
 import userPostingStyles from '../../reducers/user_posting_styles';
+import { selectAcceptedTranslationPreferences, selectPreferenceReloadRequired } from '../../selectors/user_preferences';
 import {
   PREFERENCES_PATH,
   PREFERENCES_STREAM,
@@ -47,12 +50,14 @@ import {
   connectUserPreferences,
   parsePreferencesChangedPayload,
   preferencesReadScopeGranted,
+  publishAcceptedPreferenceDocument,
 } from '../user_preferences';
 
 const reducer = combineReducers({
   user_preferences: userPreferences,
   settings,
   compose,
+  composers,
   meta,
   userPostingStyles,
 });
@@ -832,5 +837,136 @@ describe('user preferences stream', () => {
     expect(after.get('composers')).toEqual(before.get('composers'));
     expect(after.get('meta')).toEqual(before.get('meta'));
     expect(after.get('userPostingStyles')).toEqual(before.get('userPostingStyles'));
+  });
+
+  const preferenceEntry = (key, publicValue, valid = true) => ({
+    key,
+    state: 'set',
+    configured: publicValue,
+    effective: publicValue,
+    public_value: publicValue,
+    public_valid: valid,
+    validation_errors: [],
+  });
+
+  const liveDocument = (privacy, language) => ({
+    version: 1,
+    preferences: {
+      'user.default_privacy': preferenceEntry('user.default_privacy', privacy),
+      'user.default_sensitive': preferenceEntry('user.default_sensitive', true),
+      'user.default_language': preferenceEntry('user.default_language', 'en'),
+      'user.preferred_posting_language': preferenceEntry('user.preferred_posting_language', language),
+      'user.show_translation_bar': preferenceEntry('user.show_translation_bar', 'nope', false),
+      'user.translation_preferred_mode': preferenceEntry('user.translation_preferred_mode', 'both'),
+      'user.new_features_policy': preferenceEntry('user.new_features_policy', 'tester'),
+      'user.content_font_size': preferenceEntry('user.content_font_size', privacy === 'private' ? 15 : 18),
+      'user.info_font_size': preferenceEntry('user.info_font_size', 15),
+      'user.reduce_motion': preferenceEntry('user.reduce_motion', false),
+    },
+  });
+
+  it('applies an accepted document and ignores a stale or failed response', async () => {
+    const pending = hangGets();
+    const store = buildStore();
+
+    store.dispatch({ type: COMPOSE_CHANGE, text: '下書きです' });
+    store.dispatch({ type: COMPOSE_VISIBILITY_CHANGE, value: 'unlisted' });
+    store.dispatch(createComposer('composer-draft'));
+    store.dispatch({ type: COMPOSE_CHANGE, text: 'portable', meta: { composerId: 'composer-draft' } });
+    store.dispatch(createComposer('composer-idle'));
+    let state = store.getState();
+    state = state.setIn(['meta', 'content_font_size'], 15);
+    state = state.setIn(['meta', 'info_font_size'], 15);
+    state = state.setIn(['meta', 'reduce_motion'], false);
+
+    const seeded = createStore(reducer, state, applyMiddleware(thunk));
+    const settingsBefore = seeded.getState().get('settings');
+    const metaBefore = seeded.getState().get('meta');
+    const stylesBefore = seeded.getState().get('userPostingStyles');
+    const first = open(seeded);
+
+    pending[0].resolve({ data: liveDocument('private', 'ja') });
+    await flush();
+
+    expect(seeded.getState().getIn(['compose', 'text'])).toBe('下書きです');
+    expect(seeded.getState().getIn(['compose', 'privacy'])).toBe('unlisted');
+    expect(seeded.getState().getIn(['compose', 'default_privacy'])).toBe('private');
+    expect(seeded.getState().getIn(['compose', 'default_language'])).toBe('ja');
+    expect(seeded.getState().getIn(['compose', 'default_sensitive'])).toBe(true);
+    expect(seeded.getState().getIn(['compose', 'sensitive'])).toBe(false);
+    expect(seeded.getState().getIn(['composers', 'byId', 'composer-draft', 'text'])).toBe('portable');
+    expect(seeded.getState().getIn(['composers', 'byId', 'composer-draft', 'default_language'])).toBe('ja');
+    expect(seeded.getState().getIn(['composers', 'byId', 'composer-idle', 'privacy'])).toBe('private');
+    expect(seeded.getState().getIn(['composers', 'byId', 'composer-idle', 'language'])).toBe('ja');
+    expect(seeded.getState().getIn(['composers', 'byId', 'composer-idle', 'sensitive'])).toBe(false);
+    expect(selectAcceptedTranslationPreferences(seeded.getState())).toEqual({
+      visibility: 'always',
+      preferredMode: 'both',
+    });
+    expect(selectPreferenceReloadRequired(seeded.getState())).toBe(false);
+    expect(seeded.getState().get('settings')).toEqual(settingsBefore);
+    expect(seeded.getState().get('meta')).toEqual(metaBefore);
+    expect(seeded.getState().get('userPostingStyles')).toEqual(stylesBefore);
+
+    first.handlers.onReceive({ event: 'preferences_changed', payload });
+    pending[1].resolve({ data: liveDocument('public', 'fr') });
+    await flush();
+
+    expect(seeded.getState().getIn(['compose', 'text'])).toBe('下書きです');
+    expect(seeded.getState().getIn(['compose', 'privacy'])).toBe('unlisted');
+    expect(seeded.getState().getIn(['compose', 'default_privacy'])).toBe('public');
+    expect(seeded.getState().getIn(['compose', 'default_language'])).toBe('fr');
+    expect(selectPreferenceReloadRequired(seeded.getState())).toBe(true);
+    expect(seeded.getState().get('meta')).toEqual(metaBefore);
+
+    const reset = seeded.getState().get('compose');
+    seeded.dispatch({ type: COMPOSE_RESET });
+    expect(seeded.getState().getIn(['compose', 'text'])).toBe('');
+    expect(seeded.getState().getIn(['compose', 'privacy'])).toBe('public');
+    expect(seeded.getState().getIn(['compose', 'language'])).toBe('fr');
+    expect(seeded.getState().getIn(['compose', 'sensitive'])).toBe(false);
+    expect(reset.get('text')).toBe('下書きです');
+
+    first.handlers.onReceive({ event: 'preferences_changed', payload: bigintPayload });
+    pending[2].reject({ request: {} });
+    await flush();
+
+    expect(seeded.getState().getIn(['user_preferences', 'document']).preferences['user.default_privacy'].public_value).toBe('public');
+    expect(seeded.getState().getIn(['compose', 'default_language'])).toBe('fr');
+    expect(selectPreferenceReloadRequired(seeded.getState())).toBe(true);
+
+    expect(seeded.dispatch(publishAcceptedPreferenceDocument(1, liveDocument('private', 'ja')))).toBe(false);
+    expect(seeded.getState().getIn(['compose', 'default_language'])).toBe('fr');
+  });
+
+  it('does not let a late response from a previous subscription change composers', async () => {
+    const pending = hangGets();
+    const store = buildStore();
+    const first = open(store);
+
+    first.stop();
+    const second = open(store);
+
+    pending[1].resolve({ data: liveDocument('private', 'ja') });
+    await flush();
+    pending[0].resolve({ data: liveDocument('public', 'en') });
+    await flush();
+
+    expect(slice(store).get('acceptedSerial')).toBe(2);
+    expect(store.getState().getIn(['compose', 'default_privacy'])).toBe('private');
+    expect(store.getState().getIn(['compose', 'default_language'])).toBe('ja');
+    expect(store.getState().getIn(['compose', 'privacy'])).toBe('private');
+    expect(second).toBeTruthy();
+
+    store.dispatch({
+      type: USER_PREFERENCES_FETCH_SUCCESS,
+      serial: 1,
+      document: liveDocument('public', 'en'),
+      skipLoading: true,
+      skipAlert: true,
+    });
+
+    expect(store.getState().getIn(['compose', 'default_language'])).toBe('ja');
+    expect(slice(store).get('document').preferences['user.preferred_posting_language'].public_value).toBe('ja');
   });
 });
