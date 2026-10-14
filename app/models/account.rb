@@ -511,11 +511,12 @@ class Account < ApplicationRecord
   end
 
   def permitted_statuses(account)
-    if account.class.name == 'Account' && account.id == id
-      Status.include_expired.where(account_id: id)
-    else
-      statuses
-    end.permitted_for(self, account)
+    scope = if account.class.name == 'Account' && account.id == id
+              Status.include_expired.where(account_id: id)
+            else
+              statuses
+            end
+    scope.permitted_for(self, account).without_unreleased_pages
   end
 
   def conversation_statuses(account)

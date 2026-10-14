@@ -99,6 +99,7 @@ class Api::V1::StatusesController < Api::BaseController
   end
 
   def update
+    reject_unreleased_status_attributes!
     raise Mastodon::NotPermittedError if current_user.setting_disable_post
 
     sender = session_sender_account!
@@ -164,6 +165,11 @@ class Api::V1::StatusesController < Api::BaseController
 
   def set_status
     @status = Status.include_expired.find(status_params[:id])
+    if @status.ap_page?
+      render json: { error: 'Not Found' }, status: :not_found
+      return
+    end
+
     @status.resolve_reference!
     authorize @status, :show?
   rescue Mastodon::NotPermittedError
@@ -230,6 +236,7 @@ class Api::V1::StatusesController < Api::BaseController
   # sender is fixed. Circle, schedule, and expiry lookups stay on the
   # signed-in account and are not used for a delegated post.
   def prepare_status_create
+    reject_unreleased_status_attributes!
     raise Mastodon::NotPermittedError if current_user.setting_disable_post
 
     @posting_resolution = PostingIdentity::SendGuard.resolve!(
@@ -284,6 +291,14 @@ class Api::V1::StatusesController < Api::BaseController
       account_id: params[:account_id],
       posting_identity_id: params[:posting_identity_id]
     )
+  end
+
+  # These names stay out of status_params until the page API exists.
+  # A client that sends them must not look like it created or edited a page.
+  def reject_unreleased_status_attributes!
+    return unless params.key?(:post_title) || params.key?(:ap_object_type)
+
+    raise Mastodon::ValidationError, I18n.t('statuses.errors.unreleased_activity_object')
   end
 
   def explicit_redraft_request?

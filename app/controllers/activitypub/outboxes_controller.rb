@@ -62,7 +62,7 @@ class ActivityPub::OutboxesController < ActivityPub::BaseController
     return unless page_requested?
 
     @statuses = cache_collection_paginated_by_id(
-      @account.statuses.permitted_for(@account, signed_request_account),
+      @account.statuses.without_unreleased_pages.permitted_for(@account, signed_request_account),
       Status,
       LIMIT,
       params_slice(:max_id, :min_id, :since_id)

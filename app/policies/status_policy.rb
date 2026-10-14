@@ -15,6 +15,7 @@ class StatusPolicy < ApplicationPolicy
   end
 
   def show?
+    return false if record.ap_page?
     return false if author.suspended?
     return false unless expired_show?
 

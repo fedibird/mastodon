@@ -32,9 +32,13 @@
 #  ordered_media_attachment_ids :bigint(8)        is an Array
 #  searchability                :integer
 #  generator_id                 :bigint(8)
+#  post_title                   :text
+#  ap_object_type               :string
 #
 
 class Status < ApplicationRecord
+  class UnreleasedActivityObject < StandardError; end
+
   before_destroy :unlink_from_conversations
 
   include Discard::Model
@@ -56,7 +60,7 @@ class Status < ApplicationRecord
   # will be based on current time instead of `created_at`
   attr_accessor :override_timestamps, :circle, :expires_at, :expires_action, :fetch
 
-  update_index('statuses', :proper)
+  update_index('statuses', :proper, if: :search_indexable?)
 
   enum visibility: { public: 0, unlisted: 1, private: 2, direct: 3, limited: 4, mutual: 100, personal: 200 }, _suffix: :visibility
   enum searchability: { public: 0, unlisted: 1, private: 2, direct: 3, limited: 4, mutual: 100, personal: 200 }, _suffix: :searchability
@@ -66,6 +70,16 @@ class Status < ApplicationRecord
   EXTRA_VISIBILITY    = %w(limited personal)
   PSEUDO_VISIBILITY   = %w(mutual)
   UNCOUNT_VISIBILITY  = %w(direct personal)
+
+  # ActivityPub object type stored for a future Page. NULL means note.
+  # This is not Status#object_type, which only distinguishes note and comment URIs.
+  AP_OBJECT_TYPES = %w(note page).freeze
+  AP_OBJECT_TYPE_NOTE = 'note'
+  AP_OBJECT_TYPE_PAGE = 'page'
+  # Unicode code points, the same count as PostgreSQL char_length and Ruby String#length.
+  # Lemmy truncates at 200 scalar values. PieFed stores varchar(255). 100 stays under both.
+  POST_TITLE_MAX_CODEPOINTS = 100
+  POST_TITLE_CONTROL = /[\p{Cc}\u2028\u2029]/.freeze
 
   belongs_to :application, class_name: 'Doorkeeper::Application', optional: true
   belongs_to :generator, optional: true, inverse_of: :statuses
@@ -117,8 +131,13 @@ class Status < ApplicationRecord
   validates :visibility, exclusion: { in: %w(direct) }, if: :reblog?
   validates :quote_visibility, inclusion: { in: %w(public unlisted) }, if: :quote?
   validates_with ExpiresValidator, on: :create, if: :local?
+  validate :validate_post_title_shape
+  validate :validate_ap_object_type_value
+  validate :validate_page_activity_shape
 
   accepts_nested_attributes_for :poll
+
+  before_validation :normalize_post_title_attribute
 
   default_scope { recent.kept.not_expired }
 
@@ -157,6 +176,9 @@ class Status < ApplicationRecord
   scope :unset_searchability, -> { where(searchability: nil, reblog_of_id: nil) }
   scope :indexable, -> { without_reblogs.where(visibility: :public).joins(:account).where(account: { indexable: true }) }
   scope :list_eligible_visibility, -> { where(visibility: %i(public unlisted private)) }
+  # One residual predicate. It is not part of default_scope, so note queries
+  # keep their existing indexes and only drop a stored page at the call site.
+  scope :without_unreleased_pages, -> { where("#{table_name}.ap_object_type IS DISTINCT FROM 'page'") }
 
   cache_associated :application,
                    :media_attachments,
@@ -352,8 +374,36 @@ class Status < ApplicationRecord
     end
   end
 
+  # URI discriminator used by the tag managers. A non-reply stays :note even
+  # when ap_object_type is page, so Create, Update, and Delete keep one object id.
   def object_type
     reply? ? :comment : :note
+  end
+
+  def ap_object_type
+    super.presence || AP_OBJECT_TYPE_NOTE
+  end
+
+  def ap_object_type=(value)
+    normalized = value.to_s.presence
+    super(normalized == AP_OBJECT_TYPE_NOTE ? nil : normalized)
+  end
+
+  def ap_page?
+    self[:ap_object_type] == AP_OBJECT_TYPE_PAGE
+  end
+
+  def search_indexable?
+    !ap_page?
+  end
+
+  def self.normalize_post_title(value)
+    return nil if value.nil?
+    return value unless value.is_a?(String)
+    return value if value.match?(POST_TITLE_CONTROL)
+
+    stripped = value.gsub(/\A[[:space:]]+|[[:space:]]+\z/, '')
+    stripped.empty? ? nil : stripped
   end
 
   def proper
@@ -763,6 +813,41 @@ class Status < ApplicationRecord
 
   private
 
+  def normalize_post_title_attribute
+    self.post_title = self.class.normalize_post_title(post_title)
+  end
+
+  def validate_post_title_shape
+    return if post_title.nil?
+
+    unless post_title.is_a?(String) && !post_title.match?(POST_TITLE_CONTROL)
+      errors.add(:post_title, I18n.t('statuses.errors.post_title_invalid'))
+      return
+    end
+
+    return if post_title.length <= POST_TITLE_MAX_CODEPOINTS
+
+    errors.add(:post_title, I18n.t('statuses.errors.post_title_too_long', max: POST_TITLE_MAX_CODEPOINTS))
+  end
+
+  def validate_ap_object_type_value
+    stored = self[:ap_object_type]
+    return if stored.nil? || AP_OBJECT_TYPES.include?(stored)
+
+    errors.add(:ap_object_type, I18n.t('statuses.errors.invalid_ap_object_type'))
+  end
+
+  def validate_page_activity_shape
+    return unless ap_page?
+
+    errors.add(:post_title, I18n.t('statuses.errors.page_title_required')) if post_title.blank?
+    errors.add(:ap_object_type, I18n.t('statuses.errors.page_shape_unsupported')) if page_shape_unsupported?
+  end
+
+  def page_shape_unsupported?
+    reblog_of_id.present? || reply? || quote_id.present? || poll_id.present? || poll.present? || !local?
+  end
+
   def emoji_reaction_status_stat_for_refresh(force)
     stat = StatusStat.find_by(status_id: id)
     return stat if stat.present? && (!force || stat.emoji_reactions_cache_dirty?)
@@ -885,7 +970,7 @@ class Status < ApplicationRecord
   end
 
   def increment_counter_caches
-    return if uncount_visibility?
+    return if uncount_visibility? || ap_page?
 
     account&.touch_count!(:statuses_count) if fetch
     account&.increment_count!(:statuses_count) unless fetch
@@ -894,7 +979,7 @@ class Status < ApplicationRecord
   end
 
   def decrement_counter_caches
-    return if uncount_visibility? || new_record?
+    return if uncount_visibility? || new_record? || ap_page?
 
     account&.decrement_count!(:statuses_count)
     reblog&.decrement_count!(:reblogs_count) if reblog?
@@ -913,10 +998,10 @@ class Status < ApplicationRecord
   end
 
   def trigger_create_webhooks
-    TriggerWebhookWorker.perform_async('status.created', 'Status', id) if local?
+    TriggerWebhookWorker.perform_async('status.created', 'Status', id) if local? && !ap_page?
   end
 
   def trigger_update_webhooks
-    TriggerWebhookWorker.perform_async('status.updated', 'Status', id) if local?
+    TriggerWebhookWorker.perform_async('status.updated', 'Status', id) if local? && !ap_page?
   end
 end

@@ -36,11 +36,14 @@ class PostStatusService < BaseService
   # @option [Enumerable] :allowed_mentions Optional array of expected mentioned account IDs, raises `UnexpectedMentionsError` if unexpected accounts end up in mentions
   # @option [String] :searchability
   # @option [String] :audience_account_id Optional remote ActivityPub Group to address
+  # @option [String] :post_title Optional explicit title. Blank becomes NULL. Not read from the body or CW.
+  # @option [String] :ap_object_type Internal activity type. "note" stays NULL. "page" is refused until delivery exists.
   # @option [Boolean] :notify Optional notification of completion of schedule post
   # @return [Status]
   def call(account, options = {})
     @account     = account
     @options     = options
+    reject_unreleased_activity_object!
     @text        = @options[:text] || ''
     @in_reply_to = @options[:thread]
     @quote_id    = @options[:quote_id]
@@ -153,6 +156,8 @@ class PostStatusService < BaseService
       quote = Status.find(@quote_id)
       @quote_id = quote.reblog_of_id.to_s if quote.reblog?
     end
+
+    reject_unreleased_page_targets!
   end
 
   def process_status!
@@ -373,7 +378,39 @@ class PostStatusService < BaseService
       expires_action: @expires_action,
       searchability: @searchability,
       audience_account: @audience_account,
-    }.compact
+    }.compact.merge(activity_object_attributes)
+  end
+
+  # A note title can be stored for an internal caller. Page is refused in
+  # reject_unreleased_activity_object! before save, schedule, or delivery,
+  # and a note leaves ap_object_type NULL.
+  def activity_object_attributes
+    return {} unless @options.key?(:post_title)
+
+    { post_title: @options[:post_title] }
+  end
+
+  def reject_unreleased_activity_object!
+    raw = @options[:ap_object_type]
+    return if raw.nil? || raw == '' || raw.to_s == Status::AP_OBJECT_TYPE_NOTE
+
+    if raw.to_s == Status::AP_OBJECT_TYPE_PAGE
+      raise Mastodon::ValidationError, I18n.t('statuses.errors.unreleased_activity_object')
+    end
+
+    raise Mastodon::ValidationError, I18n.t('statuses.errors.invalid_ap_object_type')
+  end
+
+  def reject_unreleased_page_targets!
+    return unless @in_reply_to&.ap_page? || quoted_page?
+
+    raise Mastodon::ValidationError, I18n.t('statuses.errors.unreleased_activity_object')
+  end
+
+  def quoted_page?
+    return false if @quote_id.blank?
+
+    Status.find_by(id: @quote_id)&.ap_page?
   end
 
   def resolve_audience_account!

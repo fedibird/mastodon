@@ -21,6 +21,16 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
       it 'returns http success' do
         get :show, params: { id: status.id }
         expect(response).to have_http_status(200)
+        expect(body_as_json).not_to have_key(:post_title)
+        expect(body_as_json).not_to have_key(:ap_object_type)
+      end
+
+      it 'returns not found for an unreleased page' do
+        page = Fabricate(:status, account: user.account, text: 'page body', post_title: 'Title', ap_object_type: 'page')
+
+        get :show, params: { id: page.id }
+
+        expect(response).to have_http_status(404)
       end
 
       it 'returns canonical filtered FilterResult without filter_results or searchable_text' do
@@ -89,12 +99,31 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
 
         it 'returns http success' do
           expect(response).to have_http_status(200)
+          created = Status.find(body_as_json[:id])
+          expect(created.text).to eq 'Hello world'
+          expect(created.post_title).to be_nil
+          expect(created[:ap_object_type]).to be_nil
+          expect(created.ap_object_type).to eq 'note'
+          expect(body_as_json).not_to have_key(:post_title)
+          expect(body_as_json).not_to have_key(:ap_object_type)
         end
 
         it 'returns rate limit headers' do
           expect(response.headers['X-RateLimit-Limit']).to eq RateLimiter::FAMILIES[:statuses][:limit].to_s
           expect(response.headers['X-RateLimit-Remaining']).to eq (RateLimiter::FAMILIES[:statuses][:limit] - 1).to_s
         end
+      end
+
+      it 'rejects a title or activity type before creating a status' do
+        expect do
+          post :create, params: { status: 'Hello', post_title: 'Title' }
+        end.not_to change(Status, :count)
+        expect(response).to have_http_status(422)
+
+        expect do
+          post :create, params: { status: 'Hello', ap_object_type: 'page', post_title: 'Title' }
+        end.not_to change(Status, :count)
+        expect(response).to have_http_status(422)
       end
 
       context 'with a remote group audience' do
@@ -265,6 +294,41 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
         allow(DistributionWorker).to receive(:perform_async)
         allow(ActivityPub::StatusUpdateDistributionWorker).to receive(:perform_async)
         allow(LinkCrawlWorker).to receive(:perform_async)
+      end
+
+      it 'rejects a title edit and leaves a stored note title in place' do
+        status.update!(post_title: 'Kept')
+
+        put :update, params: { id: status.id, status: 'edited text', post_title: 'Changed', ap_object_type: 'page' }
+
+        expect(response).to have_http_status(422)
+        expect(status.reload.text).to eq 'original'
+        expect(status.post_title).to eq 'Kept'
+        expect(status.ap_page?).to be false
+        expect(ActivityPub::StatusUpdateDistributionWorker).not_to have_received(:perform_async)
+      end
+
+      it 'does not clear a stored note title when the text changes' do
+        status.update!(post_title: 'Kept')
+
+        put :update, params: { id: status.id, status: 'edited text' }
+
+        expect(response).to have_http_status(200)
+        expect(status.reload.text).to eq 'edited text'
+        expect(status.post_title).to eq 'Kept'
+        expect(body_as_json).not_to have_key(:post_title)
+        expect(body_as_json).not_to have_key(:ap_object_type)
+      end
+
+      it 'refuses to edit an unreleased page' do
+        status.update!(post_title: 'Title', ap_object_type: 'page')
+
+        put :update, params: { id: status.id, status: 'edited text' }
+
+        expect(response).to have_http_status(422)
+        expect(status.reload.text).to eq 'original'
+        expect(status.ap_page?).to be true
+        expect(ActivityPub::StatusUpdateDistributionWorker).not_to have_received(:perform_async)
       end
 
       it 'returns the edited status and edited_at without replacing updated_at' do

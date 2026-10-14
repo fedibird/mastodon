@@ -2542,6 +2542,12 @@ en:
       invalid_audience_account: Audience target must be a remote ActivityPub group
       invalid_audience_visibility: Audience targets can only be used with public or unlisted posts
       audience_on_reply: Audience targets cannot be used on replies
+      unreleased_activity_object: This activity object is not available yet
+      invalid_ap_object_type: Activity object type must be note or page
+      page_title_required: A page needs a title
+      page_shape_unsupported: A page cannot be a reply, boost, quote, poll, or remote post
+      post_title_invalid: Title cannot contain line breaks or control characters
+      post_title_too_long: Title cannot be longer than %{max} characters
     language_detection: Automatically detect language
     open_in_web: Open in web
     over_character_limit: character limit of %{max} exceeded
