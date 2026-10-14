@@ -6,7 +6,7 @@ class Mastodon::RackMiddleware
   end
 
   def call(env)
-    @app.call(env)
+    UserPreferences::RevisionMemo.scope { @app.call(env) }
   ensure
     clean_up_sockets!
   end

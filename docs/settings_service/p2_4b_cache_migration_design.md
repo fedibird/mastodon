@@ -585,3 +585,88 @@ P2-4C を P2-6 より前に出しても、Decorator が番号を動かさない�
 段階 C はコードではなくデプロイ確認である。Puma の各 worker、Sidekiq、設定を読む他の Rails プロセスが段階 B になるまで、P2-4D の読み取りを出さない。旧プロセスが残るあいだは段階 C 未完了である。このデプロイだけでは getter を変えないので、従来キーの読み取りは維持される。
 
 切り戻しは段階 B から A である。接尾辞キーの delete を止める。読み手は従来キーのままなので、接尾辞キーは誰も読まない。revision 行は消さない。
+
+## P2-4D の実装
+
+段階 D の読み取りは実装済みである。User に属する 9 キーの getter だけが `/rev/<revision>` を読む。従来キーへのフォールバックはない。P2-4C の二重 delete、通知、保存契約は変えていない。
+
+### revision メモ
+
+`UserPreferences::RevisionMemo` は `ActiveSupport::CurrentAttributes` である。保持するのは処理単位の `revisions` Hash と、入れ子の深さを数える `depth` だけである。User のインスタンス変数、クラス変数、グローバル変数には持たない。
+
+`RevisionMemo.scope` が処理単位を開く。開始時の Hash は空である。同じ単位の同じ user id は、最初の参照だけ `UserPreferences::Revision.current` で PostgreSQL を読む。行が無ければ 0、あればその整数である。取得に成功した整数だけをメモする。例外はその場で伝播し、0 を推測してメモしない。別の user id は別の SELECT になる。
+
+入れ子の `scope` は外側の Hash を共有し、`depth` だけを増やす。内側が終わっても外側のメモは残る。一番外側が終わるとき、正常終了でも例外でも `reset` して破棄する。次の処理単位へは持ち越さない。
+
+`scope` の外、たとえば Rails console や Rake ではメモを作らない。参照のたびに PostgreSQL を読む。
+
+### HTTP と Sidekiq
+
+`Mastodon::RackMiddleware#call` は `@app.call` を `RevisionMemo.scope` で包む。`ensure` の `clean_up_sockets!` はそのままである。応答が例外でも、スコープの `ensure` がメモを破棄してからソケットを閉じる。Puma がスレッドを再利用しても、次のリクエストは空のメモから始まる。Rails の executor はリクエストの前後で `CurrentAttributes.reset_all` も呼ぶ。メモを作るのはその開始より後である。
+
+`Mastodon::SidekiqMiddleware#call` は、既存の `Chewy.strategy` と `HostValidationError` の握りつぶし、Elasticsearch の後始末、例外の再送出を `RevisionMemo.scope` の中に置く。`ensure` の Redis と StatsD の掃除はスコープの外のままである。同じスレッドの次のジョブは、前のジョブの revision を見ない。
+
+### getter
+
+切り替え箇所は `Settings::ScopedSettings#[]` だけである。`@object` が User で、キーが `UserPreferences::WriteContract::KEYS` の 9 つであるときだけ、次の順で読む。
+
+1. `RevisionMemo.revision_for(user.id)`
+2. `UserPreferences::CacheKey.for_revision`
+3. `Rails.cache.fetch`
+4. ミスなら、その User とその var の Setting 行を 1 行だけ読む
+
+返すのは、行があればその生値、無ければ従来の default である。nil 行も nil のまま返す。privacy の locked 補完、翻訳バーと翻訳モードの正規化、`preferred_posting_language`、公開 API 用の文字サイズ変換は、これまでどおり User と Reader の getter が生値のあとで行う。getter は行を修復せず、`updated_at` を変えない。
+
+9 キー以外、User 以外、サイトの `Setting[]`、`Web::Setting` は従来キーのままである。ネストした Hash の default マージは、従来どおり `fetch` ブロックの中の `return` でメソッドから抜け、マージ結果をキャッシュしない。`Setting.cache_key` 自体は変えていない。`[]=` は従来キーへ write するままである。
+
+`ScopedSettings#[]=` と `Setting#save!` は従来キーを更新するだけで、revision キーは消さない。revision キーが空なら getter は DB を読む。一度充填した revision キーは、Writer がその番号を delete するまで残る。`update_column` では消えない。本番の 9 キー保存は Writer なので、COMMIT 後の delete とメモ更新で次の getter は新しい番号のミスから DB を読む。
+
+revision キーが無いとき、DB の生値を正とする。次はしない。
+
+```ruby
+Rails.cache.fetch(revision_key) { Rails.cache.fetch(legacy_key) { ... } }
+```
+
+revision SELECT が失敗しても、Redis が失敗しても、従来キーは読まない。
+
+### キャッシュする値と障害
+
+revision キーに入れるのは生値、または行が無いときの default である。補完後、正規化後の値は入れない。
+
+`Redis::BaseError` は `RedisCacheStore` の failsafe が読み取りをミスとして扱う。`fetch` のブロックが DB の生値を返し、その戻り値が呼び出し元へ返る。`write` が false でも戻り値は DB の生値である。広範な `rescue` は足していない。`ConnectionPool::TimeoutError` のように呼び出し元へ出る例外は、従来キーへ切り替えずに伝播する。
+
+### Writer のあと
+
+`Writer#write_once` は、`User.transaction` が戻ったあと、実変更があるときだけ `RevisionMemo.remember!(user.id, after_revision)` を呼ぶ。SQL COMMIT、`rewrite_cache`、従来キーと revision キーの delete、`preferences_changed` より後である。COMMIT より前には更新しない。ROLLBACK、同値の no-op、`RecordNotUnique` で失敗した試行はメモしない。成功したリトライの `after_revision` だけをメモする。キャッシュ delete が失敗しても、COMMIT 済みならメモは新しい番号になる。別ユーザーのメモは変えない。`scope` の外では `remember!` は何もしない。LegacyWriter は Writer を使うので同じである。Writer から revision キーへ値を write する処理は足していない。
+
+同じ処理単位のメモは、他プロセスの COMMIT を追いかけて読み直さない。その単位自身の Writer が COMMIT したときだけ、次の getter は新しい番号を読む。
+
+### 並行再充填
+
+節 4.10 を RSpec で固定した。revision 6 の getter が DB から v1 を読んだあと、キャッシュ write の前に Writer が v2 と revision 7 を COMMIT し、`/rev/7` を delete する。遅れて `/rev/6` へ v1 を書いても、次の処理単位は revision 7 を読み、v2 を得る。`/rev/6` の古い値は残ってよい。
+
+### 性能
+
+`sql.active_record` で数えた。
+
+| 状況 | revision SELECT | settings SELECT |
+| --- | --- | --- |
+| 同じ scope で 9 キーを初回に読む。キャッシュは空 | 1 | 9 |
+| 同じ scope の 2 回目の同じキー。revision キャッシュはヒット | 0 | 0 |
+| Writer が 1 キーを変えた次の scope で 9 キーを読む | 1 | 9 |
+
+revision 自体は Redis にキャッシュしない。プロセスをまたぐメモは作らない。9 キー分のまとめ SELECT は後続の最適化とする。
+
+### ローリングデプロイと切り戻し
+
+段階 C は、この変更を出す前に全 Rails プロセスが段階 B であり、キャッシュクリア済みである、という運用確認を前提にする。このリポジトリの変更では本番プロセスの確認はできない。段階 A のプロセスが残っている状態では出さない。
+
+展開中は段階 B と D が混在する。B は従来キーを読む。D は revision キーを読む。Writer は両方を delete する。DB の revision は共通である。旧 Decorator による 9 キーの書き込みは残していない。
+
+切り戻し先は段階 B である。設定行と revision 行は消さないし、番号も 0 に戻さない。D から B へ戻すと読み取りは従来キーになり、節 4.10 の cache-aside 再充填競合が再び残る。
+
+### P2-4E へ残す作業
+
+P2-4E では、9 キーの Writer が行う従来キャッシュキーの delete を終了する。9 キー以外の設定に対する `ScopedSettings` の従来キャッシュ読み書きは維持する。revision 付きキーへのフォールバックは設けない。
+
+段階 D が全プロセスへ出てから、9 キーの従来キーの TTL である 10 分を超えて待つ。revision の Redis キャッシュ、キーごとの世代、ミス時の 9 行まとめ SELECT は、P2-4E の作業に含めない。

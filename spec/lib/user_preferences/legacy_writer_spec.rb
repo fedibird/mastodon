@@ -318,7 +318,12 @@ RSpec.describe UserPreferences::LegacyWriter do
       expect(result.unchanged_keys).to eq ['default_privacy']
       expect(result.cache_deleted).to eq({})
       expect(result.after_revision).to eq 1
-      expect(events.map { |event| event[:op] }).to eq(%w(commit)), events.inspect
+      # LegacyWriter reads setting_new_features_policy before the no-op.
+      # That getter fills its revision key and does not touch the privacy key.
+      policy_key = UserPreferences::CacheKey.for_revision('new_features_policy', user, 1)
+      expect(events.map { |event| event[:op] }).to eq(%w(write commit)), events.inspect
+      expect(events.first).to include(key: policy_key, value: 'default', after_sql_commit: false)
+      expect(events.none? { |event| event[:key] == key || event[:op] == 'delete' || event[:op] == 'notify' }).to be true
       expect(Rails.cache.read(key)).to eq 'sentinel'
       expect(row.reload.updated_at).to eq stamp
       expect(messages).to eq []

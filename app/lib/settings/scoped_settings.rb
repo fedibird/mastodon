@@ -49,6 +49,28 @@ module Settings
     end
 
     def [](key)
+      name = key.to_s
+      return read_revision_value(name) if revision_scoped?(name)
+
+      read_legacy_value(name)
+    end
+
+    private
+
+    def revision_scoped?(key)
+      @object.is_a?(User) && UserPreferences::WriteContract::KEYS.include?(key)
+    end
+
+    def read_revision_value(key)
+      revision = UserPreferences::RevisionMemo.revision_for(@object.id)
+      Rails.cache.fetch(UserPreferences::CacheKey.for_revision(key, @object, revision)) do
+        uncached_value(key)
+      end
+    end
+
+    # Nested hash defaults return from the fetch block without being stored.
+    # That is the previous ScopedSettings#[] contract for non-revision keys.
+    def read_legacy_value(key)
       Rails.cache.fetch(Setting.cache_key(key, @object)) do
         db_val = thing_scoped.find_by(var: key.to_s)
         if db_val
@@ -58,6 +80,20 @@ module Settings
         else
           ScopedSettings.default_settings[key]
         end
+      end
+    end
+
+    def uncached_value(key)
+      db_val = thing_scoped.find_by(var: key.to_s)
+      if db_val
+        default_value = ScopedSettings.default_settings[key]
+        if default_value.is_a?(Hash)
+          default_value.with_indifferent_access.merge!(db_val.value)
+        else
+          db_val.value
+        end
+      else
+        ScopedSettings.default_settings[key]
       end
     end
 

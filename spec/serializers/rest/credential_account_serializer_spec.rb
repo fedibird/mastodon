@@ -13,6 +13,11 @@ RSpec.describe REST::CredentialAccountSerializer do
     )
   end
 
+  def drop_revision_cache(record_user, key)
+    revision = UserPreferences::Revision.current(record_user.id)
+    Rails.cache.delete(UserPreferences::CacheKey.for_revision(key, record_user, revision))
+  end
+
   def legacy_source(record)
     user = record.user
     JSON.parse({
@@ -70,6 +75,7 @@ RSpec.describe REST::CredentialAccountSerializer do
     it 'keeps stored privacy values, including nil, an empty string, and direct' do
       [nil, '', 'public', 'private', 'unlisted', 'direct'].each do |visibility|
         user.settings['default_privacy'] = visibility
+        drop_revision_cache(user, 'default_privacy')
         body = serialize(account)
 
         expect(body[:source][:privacy]).to eq(user.setting_default_privacy)
@@ -88,6 +94,7 @@ RSpec.describe REST::CredentialAccountSerializer do
 
       [true, false, nil].each do |value|
         user.settings['default_sensitive'] = value
+        drop_revision_cache(user, 'default_sensitive')
         body = serialize(account)
 
         expect(body[:source][:sensitive]).to eq value
@@ -102,6 +109,7 @@ RSpec.describe REST::CredentialAccountSerializer do
 
       [nil, 'de', 'ja-JP', 'invalid'].each do |language|
         user.settings['default_language'] = language
+        drop_revision_cache(user, 'default_language')
         body = serialize(account)
 
         expect(body[:source][:language]).to eq language
@@ -110,10 +118,12 @@ RSpec.describe REST::CredentialAccountSerializer do
       end
 
       user.settings['default_language'] = 'ja-JP'
+      drop_revision_cache(user, 'default_language')
       expect(serialize(account)[:source][:language]).to eq 'ja-JP'
       expect(user.preferred_posting_language).to eq 'ja'
 
       user.settings['default_language'] = 'invalid'
+      drop_revision_cache(user, 'default_language')
       expect(serialize(account)[:source][:language]).to eq 'invalid'
       expect(user.preferred_posting_language).to eq 'ja'
     end
@@ -132,6 +142,7 @@ RSpec.describe REST::CredentialAccountSerializer do
       expect(body[:locked]).to be false
 
       user.settings['default_privacy'] = 'direct'
+      drop_revision_cache(user, 'default_privacy')
       body = serialize(account)
 
       expect(body[:source][:privacy]).to eq 'direct'
@@ -163,7 +174,7 @@ RSpec.describe REST::CredentialAccountSerializer do
       2.times { serialize(account) }
     end
 
-    it 'reads the database when the settings cache is stale and does not refresh that cache' do
+    it 'reads the database for nine-key getters when only the legacy cache is stale' do
       user.settings['default_privacy'] = 'public'
       user.settings['default_sensitive'] = false
       user.settings['default_language'] = 'de'
@@ -176,9 +187,12 @@ RSpec.describe REST::CredentialAccountSerializer do
         Setting.unscoped.find_by!(thing_type: 'User', thing_id: user.id, var: var).update_column(:value, value.to_yaml)
       end
 
-      expect(user.setting_default_privacy).to eq 'public'
-      expect(user.setting_default_sensitive).to be false
-      expect(user.setting_default_language).to eq 'de'
+      expect(Rails.cache.read(Setting.cache_key('default_privacy', user))).to eq 'public'
+      expect(Rails.cache.read(Setting.cache_key('default_sensitive', user))).to be false
+      expect(Rails.cache.read(Setting.cache_key('default_language', user))).to eq 'de'
+      expect(user.setting_default_privacy).to eq 'direct'
+      expect(user.setting_default_sensitive).to be true
+      expect(user.setting_default_language).to eq 'ja-JP'
 
       body = serialize(account)
 
@@ -187,9 +201,10 @@ RSpec.describe REST::CredentialAccountSerializer do
       expect(body[:source][:language]).to eq 'ja-JP'
       expect(body[:source][:note]).to eq 'hello'
       expect(body[:source][:follow_requests_count]).to eq 1
-      expect(user.setting_default_privacy).to eq 'public'
-      expect(user.setting_default_sensitive).to be false
-      expect(user.setting_default_language).to eq 'de'
+      expect(Rails.cache.read(Setting.cache_key('default_privacy', user))).to eq 'public'
+      expect(user.setting_default_privacy).to eq 'direct'
+      expect(user.setting_default_sensitive).to be true
+      expect(user.setting_default_language).to eq 'ja-JP'
     end
   end
 end
