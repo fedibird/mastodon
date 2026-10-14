@@ -51,11 +51,31 @@ class PostProcessMediaWorker
   # Still images skip every derivative during upload. Larger media, including
   # an animated GIF classified as gifv by GifReader before styles run, only
   # deferred :original. A static GIF stays image and reprocesses every style.
+  #
+  # Pinned kt-paperclip reprocess! returns false, without raising, for
+  # Errno::EACCES and when instance.save fails. NotIdentifiedByImageMagickError
+  # is rescued inside post_process_style, so a still image can also come back
+  # truthy with small/tiny never written. Either case must retry, not complete.
   def reprocess_file(media_attachment)
-    if media_attachment.image?
-      media_attachment.file.reprocess!
-    else
-      media_attachment.file.reprocess!(:original)
+    processed = if media_attachment.image?
+                  media_attachment.file.reprocess!
+                else
+                  media_attachment.file.reprocess!(:original)
+                end
+
+    if processed == false
+      raise Paperclip::Error, "Could not reprocess media attachment #{media_attachment.id}"
     end
+
+    ensure_still_image_derivatives!(media_attachment)
+  end
+
+  def ensure_still_image_derivatives!(media_attachment)
+    return unless media_attachment.image?
+
+    missing = [:small, :tiny].reject { |style| media_attachment.file.exists?(style) }
+    return if missing.empty?
+
+    raise Paperclip::Error, "Media attachment #{media_attachment.id} is missing #{missing.join(', ')} after reprocess"
   end
 end

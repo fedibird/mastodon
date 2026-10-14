@@ -26,10 +26,13 @@ describe PostProcessMediaWorker do # rubocop:disable Metrics/BlockLength
   end
 
   it 'reprocesses every style for a still image and only the original for larger media' do
+    media
     calls = []
     allow_any_instance_of(Paperclip::Attachment).to receive(:reprocess!) do |_attachment, *args|
       calls << args
+      true
     end
+    allow_any_instance_of(Paperclip::Attachment).to receive(:exists?).and_return(true)
 
     worker.perform(media.id)
 
@@ -37,6 +40,7 @@ describe PostProcessMediaWorker do # rubocop:disable Metrics/BlockLength
     expect(media.reload).to be_processing_complete
 
     calls.clear
+    allow_any_instance_of(Paperclip::Attachment).to receive(:exists?).and_call_original
     video = MediaAttachment.create!(
       account: media.account,
       file: attachment_fixture('attachment.jpg'),
@@ -60,6 +64,29 @@ describe PostProcessMediaWorker do # rubocop:disable Metrics/BlockLength
     expect(worker.perform(media.id)).to be true
     expect(calls).to eq []
     expect(media.reload).to be_processing_complete
+  end
+
+  it 'does not persist complete when reprocess! returns false' do
+    media
+    allow_any_instance_of(Paperclip::Attachment).to receive(:reprocess!).and_return(false)
+
+    2.times do
+      expect { worker.perform(media.id) }.to raise_error(Paperclip::Error, /Could not reprocess media attachment #{media.id}/)
+      expect(media.reload).to be_processing_in_progress
+    end
+
+    described_class.sidekiq_retries_exhausted_block.call({ 'args' => [media.id], 'error_message' => 'reprocess returned false' })
+
+    expect(media.reload).to be_processing_failed
+  end
+
+  it 'does not persist complete when a still image is missing derivatives' do
+    media
+    allow_any_instance_of(Paperclip::Attachment).to receive(:reprocess!).and_return(true)
+    allow_any_instance_of(Paperclip::Attachment).to receive(:exists?).and_return(false)
+
+    expect { worker.perform(media.id) }.to raise_error(Paperclip::Error, /missing small, tiny after reprocess/)
+    expect(media.reload).to be_processing_in_progress
   end
 
   it 'leaves the attachment in progress until retries are exhausted' do
