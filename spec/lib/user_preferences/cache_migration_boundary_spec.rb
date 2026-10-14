@@ -2,9 +2,10 @@
 
 require 'rails_helper'
 
-# Locks the P2-4B cache boundary. Getters still use Setting.cache_key.
-# ScopedSettings#[]= still does not move revision. A decorator without a
-# LegacyWriter no longer saves the nine keys.
+# Locks the cache boundary after P2-4D. User nine-key getters read
+# <Setting.cache_key>/rev/<revision>. ScopedSettings#[]= still writes the
+# legacy key and does not move revision. A decorator without a LegacyWriter
+# no longer saves the nine keys.
 RSpec.describe 'preference cache revision boundary' do
   def stored(user, key)
     Setting.unscoped.find_by(thing_type: 'User', thing_id: user.id, var: key)
@@ -77,7 +78,7 @@ RSpec.describe 'preference cache revision boundary' do
       expect(UserPreferenceRevision.find_by(user_id: user.id)).to be_nil
     end
 
-    it 'fetches the nine getters through the legacy cache key' do
+    it 'fetches the nine getters through the revision cache key' do
       user = Fabricate(:user, account: Fabricate(:account, locked: true))
       fetched = []
       allow(Rails.cache).to receive(:fetch).and_wrap_original do |method, cache_key, *args, &block|
@@ -85,15 +86,19 @@ RSpec.describe 'preference cache revision boundary' do
         method.call(cache_key, *args, &block)
       end
 
-      expect(user.setting_default_privacy).to eq 'private'
-      expect(user.setting_default_sensitive).to be false
-      expect(user.setting_default_language).to be_nil
-      user.setting_show_translation_bar
-      user.setting_translation_preferred_mode
-      user.setting_new_features_policy
-      user.setting_content_font_size
-      user.setting_info_font_size
-      user.setting_reduce_motion
+      selects = sql_log do
+        UserPreferences::RevisionMemo.scope do
+          expect(user.setting_default_privacy).to eq 'private'
+          expect(user.setting_default_sensitive).to be false
+          expect(user.setting_default_language).to be_nil
+          user.setting_show_translation_bar
+          user.setting_translation_preferred_mode
+          user.setting_new_features_policy
+          user.setting_content_font_size
+          user.setting_info_font_size
+          user.setting_reduce_motion
+        end
+      end
 
       %w(
         default_privacy
@@ -106,22 +111,25 @@ RSpec.describe 'preference cache revision boundary' do
         info_font_size
         reduce_motion
       ).each do |var|
-        expect(fetched).to include(legacy_key(user, var))
-        expect(Setting.cache_key(var, user)).to eq legacy_key(user, var)
+        expect(fetched).to include(UserPreferences::CacheKey.for_revision(var, user, 0))
+        expect(fetched).not_to include(legacy_key(user, var))
       end
-      expect(fetched.grep(%r{/rev/})).to be_empty
-      expect(sql_log { user.setting_reduce_motion }.grep(/user_preference_revisions/)).to be_empty
+      expect(selects.grep(/FROM "user_preference_revisions"/).size).to eq 1
+      expect(selects.grep(/FROM "settings"/).size).to eq 9
     end
 
-    it 'does not read a prefilled revision cache key' do
+    it 'does not read a legacy key or a different revision key' do
       user = Fabricate(:user)
       legacy = Setting.cache_key('default_privacy', user)
-      revision = UserPreferences::CacheKey.for_revision('default_privacy', user, 7)
-      Rails.cache.write(revision, 'from-revision-key')
-      Rails.cache.delete(legacy)
+      other = UserPreferences::CacheKey.for_revision('default_privacy', user, 7)
+      Rails.cache.write(legacy, 'from-legacy-key')
+      Rails.cache.write(other, 'from-revision-key')
 
-      expect(user.setting_default_privacy).to eq 'public'
-      expect(user.setting_default_privacy).not_to eq 'from-revision-key'
+      UserPreferences::RevisionMemo.scope do
+        expect(user.setting_default_privacy).to eq 'public'
+        expect(user.setting_default_privacy).not_to eq 'from-legacy-key'
+        expect(user.setting_default_privacy).not_to eq 'from-revision-key'
+      end
     end
 
     it 'leaves a revision cache key alone when a high-risk setting is saved' do
@@ -142,7 +150,9 @@ RSpec.describe 'preference cache revision boundary' do
       user.settings['default_sensitive'] = false
       Rails.cache.write(Setting.cache_key('default_sensitive', user), true)
 
-      expect(user.setting_default_sensitive).to be true
+      UserPreferences::RevisionMemo.scope do
+        expect(user.setting_default_sensitive).to be false
+      end
 
       value = UserPreferences::Reader.new(user).get('default_sensitive')
       expect(value.state).to eq :present
@@ -262,8 +272,8 @@ RSpec.describe 'preference cache revision boundary' do
         method.call(cache_key, *args, &block)
       end
       expect(user.setting_reduce_motion).to be true
-      expect(fetched).to include(legacy_key(user, 'reduce_motion'))
-      expect(fetched.grep(%r{/rev/})).to be_empty
+      expect(fetched).to include(UserPreferences::CacheKey.for_revision('reduce_motion', user, 1))
+      expect(fetched).not_to include(legacy_key(user, 'reduce_motion'))
     ensure
       discard_user(user)
     end

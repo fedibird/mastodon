@@ -96,6 +96,7 @@ class UserPreferences::Writer
                        end
       callback = register_after_commit(locked, change_set, after_revision)
     end
+    UserPreferences::RevisionMemo.remember!(@user.id, after_revision) if change_set.changed_keys.any?
     UserPreferences::WriteResult.new(
       before: change_set.before,
       after: change_set.after,

@@ -171,6 +171,7 @@ RSpec.describe InitialStateSerializer do
       record = Setting.unscoped.find_by!(thing_type: 'User', thing_id: user.id, var: 'content_font_size')
       record.update_column(:value, '12'.to_yaml)
 
+      # The getter filled /rev/<revision> before update_column. That write does not delete it.
       expect(user.setting_content_font_size).to eq '18'
       expect(serialize(user.account)[:meta][:content_font_size]).to eq '12'
       expect(user.setting_content_font_size).to eq '18'

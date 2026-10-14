@@ -4,12 +4,14 @@ class Mastodon::SidekiqMiddleware
   BACKTRACE_LIMIT = 3
 
   def call(*, &block)
-    Chewy.strategy(:custom_sidekiq, &block)
-  rescue Mastodon::HostValidationError
-    # Do not retry
-  rescue => e
-    clean_up_elasticsearch_connections!
-    limit_backtrace_and_raise(e)
+    UserPreferences::RevisionMemo.scope do
+      Chewy.strategy(:custom_sidekiq, &block)
+    rescue Mastodon::HostValidationError
+      # Do not retry
+    rescue => e
+      clean_up_elasticsearch_connections!
+      limit_backtrace_and_raise(e)
+    end
   ensure
     clean_up_sockets!
   end

@@ -71,6 +71,11 @@ RSpec.describe REST::PreferencesSerializer do
       }
     end
 
+    def drop_revision_cache(record_user, key)
+      revision = UserPreferences::Revision.current(record_user.id)
+      Rails.cache.delete(UserPreferences::CacheKey.for_revision(key, record_user, revision))
+    end
+
     def settings_selects
       queries = []
       callback = lambda do |_name, _start, _finish, _id, payload|
@@ -104,6 +109,7 @@ RSpec.describe REST::PreferencesSerializer do
 
       %w(public unlisted direct).each do |visibility|
         locked.settings['default_privacy'] = visibility
+        drop_revision_cache(locked, 'default_privacy')
         body = serialize(locked.account)
 
         expect(body[:'posting:default:visibility']).to eq visibility
@@ -111,6 +117,7 @@ RSpec.describe REST::PreferencesSerializer do
       end
 
       locked.settings['default_privacy'] = ''
+      drop_revision_cache(locked, 'default_privacy')
       body = serialize(locked.account)
 
       expect(body[:'posting:default:visibility']).to eq ''
@@ -125,6 +132,7 @@ RSpec.describe REST::PreferencesSerializer do
 
       [false, true, nil].each do |value|
         record_user.settings['default_sensitive'] = value
+        drop_revision_cache(record_user, 'default_sensitive')
         body = serialize(record_user.account)
 
         expect(body[:'posting:default:sensitive']).to eq value
@@ -195,7 +203,7 @@ RSpec.describe REST::PreferencesSerializer do
       2.times { serialize(account) }
     end
 
-    it 'follows the database for posting keys and the stale cache for reading keys' do
+    it 'reads nine-key database values and keeps a stale legacy cache for other keys' do
       record_user = Fabricate(:user, locale: 'ja', account: Fabricate(:account, locked: false))
       record_user.settings['default_sensitive'] = false
       record_user.settings['expand_spoilers'] = false
@@ -206,18 +214,20 @@ RSpec.describe REST::PreferencesSerializer do
       end
       Setting.unscoped.find_by!(thing_type: 'User', thing_id: record_user.id, var: 'default_privacy').update_column(:value, 'direct'.to_yaml)
 
-      expect(record_user.setting_default_sensitive).to be false
+      expect(Rails.cache.read(Setting.cache_key('default_sensitive', record_user))).to be false
+      expect(Rails.cache.read(Setting.cache_key('default_privacy', record_user))).to eq 'public'
+      expect(record_user.setting_default_sensitive).to be true
       expect(record_user.setting_expand_spoilers).to be false
-      expect(record_user.setting_default_privacy).to eq 'public'
+      expect(record_user.setting_default_privacy).to eq 'direct'
 
       body = serialize(record_user.account)
 
       expect(body[:'posting:default:sensitive']).to be true
       expect(body[:'posting:default:visibility']).to eq 'direct'
       expect(body[:'reading:expand:spoilers']).to be false
-      expect(record_user.setting_default_sensitive).to be false
+      expect(record_user.setting_default_sensitive).to be true
       expect(record_user.setting_expand_spoilers).to be false
-      expect(record_user.setting_default_privacy).to eq 'public'
+      expect(record_user.setting_default_privacy).to eq 'direct'
     end
   end
 

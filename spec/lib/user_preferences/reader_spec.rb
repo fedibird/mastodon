@@ -255,6 +255,9 @@ RSpec.describe UserPreferences::Reader do
 
         expect(value.configured).to eq mode
         expect(value.effective).to eq mode
+        # Setting#save! refreshes the legacy cache key only. The previous
+        # iteration's getter may already have filled /rev/0.
+        Rails.cache.delete(UserPreferences::CacheKey.for_revision('translation_preferred_mode', user, 0))
         expect(value.effective).to eq user.setting_translation_preferred_mode
       end
     end
