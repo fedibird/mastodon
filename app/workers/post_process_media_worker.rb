@@ -49,8 +49,8 @@ class PostProcessMediaWorker
   private
 
   # Still images skip every derivative during upload. Larger media, including
-  # an animated GIF reclassified while its thumbnails were written, only
-  # deferred :original.
+  # an animated GIF classified as gifv by GifReader before styles run, only
+  # deferred :original. A static GIF stays image and reprocesses every style.
   def reprocess_file(media_attachment)
     if media_attachment.image?
       media_attachment.file.reprocess!
