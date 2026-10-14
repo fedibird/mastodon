@@ -142,21 +142,27 @@ RSpec.describe 'credentials legacy writer' do
         privacy = legacy_key(user, 'default_privacy')
         language = legacy_key(user, 'default_language')
         sensitive = legacy_key(user, 'default_sensitive')
-        cycles = setting_cycles(events, [privacy, language, sensitive])
+        privacy_rev = UserPreferences::CacheKey.for_revision('default_privacy', user, 1)
+        language_rev = UserPreferences::CacheKey.for_revision('default_language', user, 2)
+        sensitive_rev = UserPreferences::CacheKey.for_revision('default_sensitive', user, 3)
+        cycles = setting_cycles(events, [privacy, language, sensitive, privacy_rev, language_rev, sensitive_rev])
         expect(cycles.map { |event| event[:op] }).to eq(
           %w(commit write delete notify commit write delete notify commit write delete notify activitypub)
         ), events.inspect
         expect(cycles[1]).to include(key: privacy, source: 'rewrite_cache', value: 'public', after_sql_commit: true)
-        expect(cycles[2]).to include(key: privacy, source: 'cache_deletion', after_sql_commit: true)
+        expect(cycles[2]).to include(key: privacy_rev, source: 'cache_deletion', after_sql_commit: true)
         expect(cycles[5]).to include(key: language, source: 'rewrite_cache', value: 'de', after_sql_commit: true)
         expect(cycles[9]).to include(key: sensitive, source: 'rewrite_cache', value: false, after_sql_commit: true)
         expect(messages.map { |message| JSON.parse(message.last).dig('payload', 'changed_keys') }).to eq(
           [['user.default_privacy'], ['user.default_language'], ['user.default_sensitive']]
         )
         expect(messages.map { |message| JSON.parse(message.last).dig('payload', 'revision') }).to eq %w(1 2 3)
-        expect(Rails.cache.exist?(privacy)).to be false
-        expect(Rails.cache.exist?(language)).to be false
-        expect(Rails.cache.exist?(sensitive)).to be false
+        expect(Rails.cache.read(privacy)).to eq 'public'
+        expect(Rails.cache.read(language)).to eq 'de'
+        expect(Rails.cache.read(sensitive)).to be false
+        expect(Rails.cache.exist?(privacy_rev)).to be false
+        expect(Rails.cache.exist?(language_rev)).to be false
+        expect(Rails.cache.exist?(sensitive_rev)).to be false
       end
 
       it 'stores an explicit sensitive value' do

@@ -111,12 +111,11 @@ RSpec.describe 'Writer setting commit cache' do
 
     rev = revision_key(user, 'reduce_motion', 1)
     relevant = events.select { |event| event[:op] == 'commit' || event[:op] == 'notify' || event[:key] == key || event[:key] == rev }
-    expect(relevant.map { |event| event[:op] }).to eq(%w(commit write delete delete notify)), events.inspect
-    expect(relevant[1]).to include(source: 'rewrite_cache', value: true, after_sql_commit: true, transaction_open: false)
-    expect(relevant[2]).to include(key: key, source: 'cache_deletion', after_sql_commit: true, transaction_open: false)
-    expect(relevant[3]).to include(key: rev, source: 'cache_deletion', after_sql_commit: true, transaction_open: false)
-    expect(relevant[1][:key]).to eq key
-    expect(Rails.cache.exist?(key)).to be false
+    expect(relevant.map { |event| event[:op] }).to eq(%w(commit write delete notify)), events.inspect
+    expect(relevant[1]).to include(source: 'rewrite_cache', value: true, key: key, after_sql_commit: true, transaction_open: false)
+    expect(relevant[2]).to include(key: rev, source: 'cache_deletion', after_sql_commit: true, transaction_open: false)
+    expect(events.none? { |event| event[:op] == 'delete' && event[:key] == key }).to be true
+    expect(Rails.cache.read(key)).to be true
     expect(Rails.cache.exist?(rev)).to be false
     expect(Setting.unscoped.find_by!(thing_type: 'User', thing_id: user.id, var: 'reduce_motion').value).to be true
     expect(UserPreferences::Reader.new(user).get('reduce_motion')).to have_attributes(state: :present, configured: true)
@@ -138,11 +137,12 @@ RSpec.describe 'Writer setting commit cache' do
     end
 
     relevant = events.select { |event| event[:op] == 'commit' || event[:key] == key || event[:key] == current || event[:key] == previous }
-    expect(relevant.map { |event| event[:op] }).to eq(%w(commit write delete delete)), events.inspect
-    expect(relevant[1]).to include(source: 'rewrite_cache', value: true, after_sql_commit: true)
-    expect(relevant[2]).to include(key: key, source: 'cache_deletion', after_sql_commit: true)
-    expect(relevant[3]).to include(key: current, source: 'cache_deletion', after_sql_commit: true)
-    expect(Rails.cache.exist?(key)).to be false
+    expect(relevant.map { |event| event[:op] }).to eq(%w(commit write delete)), events.inspect
+    expect(relevant[1]).to include(source: 'rewrite_cache', value: true, key: key, after_sql_commit: true)
+    expect(relevant[2]).to include(key: current, source: 'cache_deletion', after_sql_commit: true)
+    expect(events.none? { |event| event[:op] == 'delete' && event[:key] == key }).to be true
+    expect(events.none? { |event| event[:op] == 'delete' && event[:key] == previous }).to be true
+    expect(Rails.cache.read(key)).to be true
     expect(Rails.cache.exist?(current)).to be false
     expect(Rails.cache.read(previous)).to eq 'old-generation'
     expect(UserPreferences::Reader.new(user).get('reduce_motion')).to have_attributes(state: :present, configured: true)
@@ -180,11 +180,12 @@ RSpec.describe 'Writer setting commit cache' do
     discard_user(user)
   end
 
-  it 'deletes the legacy key after commit on reset and does not run the model cache callbacks' do
+  it 'deletes the committed revision key on reset and leaves a legacy sentinel' do
     user = Fabricate(:user)
     key = legacy_key(user, 'reduce_motion')
     UserPreferences::Writer.new(user).apply(updates: { 'reduce_motion' => true })
     Rails.cache.write(key, 'sentinel')
+    Rails.cache.write(revision_key(user, 'reduce_motion', 2), 'filled')
 
     events = observe_cache do
       result = UserPreferences::Writer.new(user).apply(resets: ['reduce_motion'])
@@ -194,11 +195,10 @@ RSpec.describe 'Writer setting commit cache' do
 
     rev = revision_key(user, 'reduce_motion', 2)
     relevant = events.select { |event| event[:op] == 'commit' || event[:op] == 'notify' || event[:key] == key || event[:key] == rev }
-    expect(relevant.map { |event| event[:op] }).to eq(%w(commit delete delete notify)), events.inspect
-    expect(relevant[1]).to include(key: key, source: 'cache_deletion', after_sql_commit: true, transaction_open: false)
-    expect(relevant[2]).to include(key: rev, source: 'cache_deletion', after_sql_commit: true, transaction_open: false)
-    expect(events.select { |event| event[:key] == key && %w(rewrite_cache expire_cache).include?(event[:source]) }).to be_empty
-    expect(Rails.cache.exist?(key)).to be false
+    expect(relevant.map { |event| event[:op] }).to eq(%w(commit delete notify)), events.inspect
+    expect(relevant[1]).to include(key: rev, source: 'cache_deletion', after_sql_commit: true, transaction_open: false)
+    expect(events.select { |event| event[:key] == key && %w(rewrite_cache expire_cache cache_deletion).include?(event[:source]) }).to be_empty
+    expect(Rails.cache.read(key)).to eq 'sentinel'
     expect(Rails.cache.exist?(rev)).to be false
     expect(Setting.unscoped.find_by(thing_type: 'User', thing_id: user.id, var: 'reduce_motion')).to be_nil
     expect(UserPreferences::Reader.new(user).get('reduce_motion').state).to eq :absent
@@ -217,8 +217,8 @@ RSpec.describe 'Writer setting commit cache' do
     described_class_writer = UserPreferences::Writer.new(user)
     described_class_writer.apply(updates: { 'default_privacy' => 'unlisted', 'default_sensitive' => true })
 
-    expect(Rails.cache.exist?(privacy)).to be false
-    expect(Rails.cache.exist?(sensitive)).to be false
+    expect(Rails.cache.read(privacy)).to eq 'unlisted'
+    expect(Rails.cache.read(sensitive)).to be true
     expect(Rails.cache.exist?(revision_key(user, 'default_privacy', 1))).to be false
     expect(Rails.cache.exist?(revision_key(user, 'default_sensitive', 1))).to be false
     expect(Rails.cache.read(language)).to eq 'leave-me'
@@ -248,14 +248,14 @@ RSpec.describe 'Writer setting commit cache' do
     discard_user(user)
   end
 
-  it 'keeps trying the revision key when the legacy delete raises' do
+  it 'leaves the legacy key when the revision delete raises' do
     user = Fabricate(:user)
     key = legacy_key(user, 'default_privacy')
     rev = revision_key(user, 'default_privacy', 1)
     errors = []
     allow(Rails.logger).to receive(:error) { |line| errors << line }
     allow(Rails.cache).to receive(:delete).and_wrap_original do |method, cache_key, *rest|
-      raise StandardError, 'legacy down' if cache_key == key
+      raise StandardError, 'revision down' if cache_key == rev
 
       method.call(cache_key, *rest)
     end
@@ -263,10 +263,12 @@ RSpec.describe 'Writer setting commit cache' do
     result = UserPreferences::Writer.new(user).apply(updates: { 'default_privacy' => 'private' })
 
     expect(result.cache_deleted).to eq('default_privacy' => false)
-    expect(Rails.cache.exist?(rev)).to be false
+    expect(Rails.cache.read(key)).to eq 'private'
     expect(stored_revision(user)).to eq 1
-    expect(errors.join).to include('generation=legacy')
-    expect(errors.join).not_to include('generation=revision')
+    expect(Setting.unscoped.find_by!(thing_type: 'User', thing_id: user.id, var: 'default_privacy').value).to eq 'private'
+    expect(errors.join).to include('generation=revision')
+    expect(errors.join).to include('revision=1')
+    expect(errors.join).not_to include('generation=legacy')
     expect(errors.join).not_to include('private')
   ensure
     discard_user(user)
@@ -277,6 +279,7 @@ RSpec.describe 'Writer setting commit cache' do
     privacy_rev = revision_key(user, 'default_privacy', 1)
     sensitive = legacy_key(user, 'default_sensitive')
     sensitive_rev = revision_key(user, 'default_sensitive', 1)
+    Rails.cache.write(sensitive_rev, 'filled')
     allow(Rails.cache).to receive(:delete).and_wrap_original do |method, cache_key, *rest|
       raise StandardError, 'revision down' if cache_key == privacy_rev
 
@@ -285,9 +288,10 @@ RSpec.describe 'Writer setting commit cache' do
 
     result = UserPreferences::Writer.new(user).apply(updates: { 'default_privacy' => 'unlisted', 'default_sensitive' => true })
 
-    expect(result.cache_deleted).to eq('default_privacy' => true, 'default_sensitive' => true)
-    expect(Rails.cache.exist?(sensitive)).to be false
+    expect(result.cache_deleted).to eq('default_privacy' => false, 'default_sensitive' => true)
+    expect(Rails.cache.read(sensitive)).to be true
     expect(Rails.cache.exist?(sensitive_rev)).to be false
+    expect(Rails.cache.read(legacy_key(user, 'default_privacy'))).to eq 'unlisted'
     expect(stored_revision(user)).to eq 1
   ensure
     discard_user(user)
@@ -305,6 +309,65 @@ RSpec.describe 'Writer setting commit cache' do
     expect(stored_revision(user)).to eq 1
     expect(Setting.unscoped.find_by!(thing_type: 'User', thing_id: user.id, var: 'reduce_motion').value).to be true
     expect(errors.join).not_to include('cache delete failed')
+  ensure
+    discard_user(user)
+  end
+
+  it 'does not delete high-risk or nested legacy cache keys' do
+    user = Fabricate(:user)
+    risk = Setting.cache_key('disable_post', user)
+    nested = Setting.cache_key('notification_emails', user)
+    Rails.cache.write(risk, true)
+    Rails.cache.write(nested, { 'digest' => true })
+
+    UserPreferences::Writer.new(user).apply(updates: { 'reduce_motion' => true })
+
+    expect(Rails.cache.read(risk)).to be true
+    expect(Rails.cache.read(nested)).to eq('digest' => true)
+    expect(user.setting_disable_post).to be true
+  ensure
+    discard_user(user)
+  end
+
+  it 'reads the database when a stale legacy key remains after the revision key is deleted' do
+    user = Fabricate(:user, account: Fabricate(:account, locked: true))
+    UserPreferences::Writer.new(user).apply(updates: { 'default_privacy' => 'unlisted', 'show_translation_bar' => 'always' })
+    Rails.cache.write(legacy_key(user, 'default_privacy'), 'public')
+    Rails.cache.write(legacy_key(user, 'show_translation_bar'), 'never')
+    privacy_rev = revision_key(user, 'default_privacy', 1)
+    bar_rev = revision_key(user, 'show_translation_bar', 1)
+    fetched = []
+    allow(Rails.cache).to receive(:fetch).and_wrap_original do |method, cache_key, *args, &block|
+      fetched << cache_key
+      method.call(cache_key, *args, &block)
+    end
+
+    UserPreferences::RevisionMemo.scope do
+      expect(user.setting_default_privacy).to eq 'unlisted'
+      expect(user.setting_show_translation_bar).to eq 'always'
+    end
+
+    expect(fetched).to include(privacy_rev, bar_rev)
+    expect(fetched).not_to include(legacy_key(user, 'default_privacy'))
+    expect(fetched).not_to include(legacy_key(user, 'show_translation_bar'))
+    expect(Rails.cache.read(legacy_key(user, 'default_privacy'))).to eq 'public'
+  ensure
+    discard_user(user)
+  end
+
+  it 'returns the default after reset when the legacy key still holds the old value' do
+    user = Fabricate(:user)
+    key = legacy_key(user, 'default_sensitive')
+    UserPreferences::Writer.new(user).apply(updates: { 'default_sensitive' => true })
+    Rails.cache.write(key, true)
+
+    UserPreferences::Writer.new(user).apply(resets: ['default_sensitive'])
+
+    expect(Rails.cache.read(key)).to be true
+    expect(Rails.cache.exist?(revision_key(user, 'default_sensitive', 2))).to be false
+    UserPreferences::RevisionMemo.scope do
+      expect(user.setting_default_sensitive).to be false
+    end
   ensure
     discard_user(user)
   end

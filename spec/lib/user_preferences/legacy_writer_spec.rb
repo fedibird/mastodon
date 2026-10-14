@@ -276,6 +276,7 @@ RSpec.describe UserPreferences::LegacyWriter do
 
     it 'writes, deletes, and notifies after SQL commit, in that order' do
       key = legacy_key('default_privacy')
+      rev = UserPreferences::CacheKey.for_revision('default_privacy', user, 1)
       events = nil
       messages = nil
 
@@ -285,12 +286,13 @@ RSpec.describe UserPreferences::LegacyWriter do
         messages = published
       end
 
-      relevant = events.select { |event| event[:op] == 'commit' || event[:key] == key || event[:op] == 'notify' }
+      relevant = events.select { |event| event[:op] == 'commit' || event[:key] == key || event[:key] == rev || event[:op] == 'notify' }
       expect(relevant.map { |event| event[:op] }).to eq(%w(commit write delete notify)), events.inspect
       expect(relevant[1]).to include(source: 'rewrite_cache', value: 'direct', after_sql_commit: true)
-      expect(relevant[2]).to include(source: 'cache_deletion', after_sql_commit: true)
+      expect(relevant[2]).to include(key: rev, source: 'cache_deletion', after_sql_commit: true)
       expect(relevant[3]).to include(after_sql_commit: true)
-      expect(Rails.cache.exist?(key)).to be false
+      expect(Rails.cache.read(key)).to eq 'direct'
+      expect(Rails.cache.exist?(rev)).to be false
       expect(reader(user, 'default_privacy').configured).to eq 'direct'
       payload = JSON.parse(messages.fetch(0).last)
       expect(payload.dig('payload', 'changed_keys')).to eq ['user.default_privacy']

@@ -6,14 +6,14 @@ class UserPreferences::CacheDeletion
     @keys = keys.dup.freeze
     @revision = revision
     @cache_deleted = {}
-    @revision_cache_deleted = {}
   end
 
-  # Legacy-key results only, keyed by preference var.
+  # Revision-key results, keyed by preference var.
+  # Stage E deletes /rev/<after_revision> only. The legacy cache key is not deleted.
   # true means Rails.cache.delete returned true.
   # false means the delete returned false, or the exception retries were exhausted.
   # Those two false cases are separate in the logs: only exceptions are warned.
-  attr_reader :cache_deleted, :revision_cache_deleted
+  attr_reader :cache_deleted
 
   def before_committed!; end
 
@@ -21,8 +21,11 @@ class UserPreferences::CacheDeletion
     return unless should_run_callbacks
 
     @keys.each do |key|
-      @cache_deleted[key] = delete_cache(Setting.cache_key(key, @user), key, :legacy)
-      @revision_cache_deleted[key] = delete_cache(UserPreferences::CacheKey.for_revision(key, @user, @revision), key, :revision)
+      @cache_deleted[key] = delete_cache(
+        UserPreferences::CacheKey.for_revision(key, @user, @revision),
+        key,
+        :revision
+      )
     end
   end
 
@@ -48,8 +51,7 @@ class UserPreferences::CacheDeletion
   end
 
   def log_failure(var, generation, error, attempts)
-    revision_note = generation == :revision ? " revision=#{@revision}" : ''
-    line = "UserPreferences cache delete failed user_id=#{@user.id} var=#{var} generation=#{generation}#{revision_note} error=#{error.class}"
+    line = "UserPreferences cache delete failed user_id=#{@user.id} var=#{var} generation=#{generation} revision=#{@revision} error=#{error.class}"
     if attempts < 3
       Rails.logger.warn(line)
     else
