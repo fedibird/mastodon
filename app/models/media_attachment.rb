@@ -304,12 +304,38 @@ class MediaAttachment < ApplicationRecord
 
   attr_writer :delay_processing
 
+  # Paperclip processes the file inside `file=`, before the rest of the
+  # attributes are assigned. Pull the flag out first so a later `file` key
+  # still sees it; otherwise the row is queued while ImageMagick already ran.
+  def assign_attributes(new_attributes)
+    return super if new_attributes.blank?
+
+    attributes = new_attributes.respond_to?(:to_h) ? new_attributes.to_h : new_attributes
+    if attributes.respond_to?(:key?) && (attributes.key?(:delay_processing) || attributes.key?('delay_processing'))
+      attributes = attributes.symbolize_keys
+      self.delay_processing = attributes.delete(:delay_processing)
+    end
+    super(attributes)
+  end
+
   def delay_processing?
-    @delay_processing && larger_media_format?
+    @delay_processing
   end
 
   def delay_processing_for_attachment?(attachment_name)
     delay_processing? && attachment_name == :file
+  end
+
+  # v2 defers :original for every upload. Still images also defer small/tiny
+  # so the request only stores the source. Video, audio, and animated GIFs
+  # keep synchronous derivatives: GIF thumbnails reclassify the attachment
+  # as gifv before the response.
+  def delay_processing_style?(attachment_name, style_name)
+    return false unless delay_processing_for_attachment?(attachment_name)
+    return true if style_name.to_sym == :original
+    return false if larger_media_format? || animated_gif_upload?
+
+    true
   end
 
   after_commit :enqueue_processing, on: :create
@@ -456,6 +482,25 @@ class MediaAttachment < ApplicationRecord
 
   def enqueue_processing
     PostProcessMediaWorker.perform_async(id) if delay_processing?
+  end
+
+  def animated_gif_upload?
+    return @animated_gif_upload if defined?(@animated_gif_upload)
+    return @animated_gif_upload = false unless file_content_type == 'image/gif'
+
+    path = local_gif_path
+    @animated_gif_upload = path.present? && GifReader.animated?(path)
+  end
+
+  def local_gif_path
+    queued = file.queued_for_write[:original]
+    queued_path = queued.respond_to?(:path) ? queued.path : nil
+    return queued_path if queued_path.present? && File.exist?(queued_path.to_s)
+
+    stored = file.path(:original)
+    return stored if stored.present? && File.exist?(stored.to_s)
+
+    nil
   end
 
   def reset_parent_cache
