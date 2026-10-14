@@ -112,7 +112,7 @@ class UserPreferences::Writer
   def register_after_commit(locked, change_set, after_revision)
     return unless change_set.changed_keys.any?
 
-    deletion = UserPreferences::CacheDeletion.new(locked, change_set.changed_keys)
+    deletion = UserPreferences::CacheDeletion.new(locked, change_set.changed_keys, revision: after_revision)
     User.connection.add_transaction_record(deletion)
     User.connection.add_transaction_record(
       UserPreferences::ChangeNotification.new(

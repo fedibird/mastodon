@@ -257,7 +257,7 @@ RSpec.describe UserPreferences::Writer do
     end
 
     it 'deletes cache only from committed!(should_run_callbacks: true)' do
-      deletion = UserPreferences::CacheDeletion.new(user, ['default_sensitive'])
+      deletion = UserPreferences::CacheDeletion.new(user, ['default_sensitive'], revision: 1)
       expect(Rails.cache).not_to receive(:delete)
 
       deletion.before_committed!
@@ -336,6 +336,7 @@ RSpec.describe UserPreferences::Writer do
       matched = warnings.select { |line| line.include?('cache delete failed') && line.include?('var=default_language') }
       expect(matched.size).to eq 2
       expect(matched.join).not_to include('value=')
+      expect(matched.join).to include('generation=legacy')
     end
 
     it 'records a cache deletion failure without raising after three errors' do
@@ -352,16 +353,24 @@ RSpec.describe UserPreferences::Writer do
       expect(result.after_revision).to eq 1
       expect(stored(user, 'default_privacy').value).to eq 'private'
       expect(UserPreferenceRevision.find_by!(user_id: user.id).revision).to eq 1
-      expect(warnings.count { |line| line.include?('var=default_privacy') }).to eq 2
-      expect(errors.count { |line| line.include?('var=default_privacy') && !line.include?('private') }).to eq 1
+      # Legacy and revision keys each retry on their own: two warnings and one error per key.
+      expect(warnings.count { |line| line.include?('var=default_privacy') && line.include?('generation=legacy') }).to eq 2
+      expect(warnings.count { |line| line.include?('var=default_privacy') && line.include?('generation=revision') }).to eq 2
+      expect(errors.count { |line| line.include?('var=default_privacy') && line.include?('generation=legacy') && !line.include?('private') }).to eq 1
+      expect(errors.count { |line| line.include?('var=default_privacy') && line.include?('generation=revision') && line.include?('revision=1') }).to eq 1
     end
 
-    it 'treats a missing cache entry as a successful deletion' do
+    it 'does not treat a false cache delete as a confirmed deletion' do
+      errors = []
+      allow(Rails.logger).to receive(:error) { |line| errors << line }
       allow(Rails.cache).to receive(:delete).and_return(false)
 
       result = described_class.new(user).apply(updates: { 'reduce_motion' => true })
 
-      expect(result.cache_deleted).to eq('reduce_motion' => true)
+      expect(result.cache_deleted).to eq('reduce_motion' => false)
+      expect(stored(user, 'reduce_motion').value).to be true
+      expect(UserPreferenceRevision.find_by!(user_id: user.id).revision).to eq 1
+      expect(errors.join).not_to include('cache delete failed')
     end
 
     it 'waits on the user row lock and keeps both keys' do

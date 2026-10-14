@@ -113,6 +113,30 @@ RSpec.describe 'preference cache revision boundary' do
       expect(sql_log { user.setting_reduce_motion }.grep(/user_preference_revisions/)).to be_empty
     end
 
+    it 'does not read a prefilled revision cache key' do
+      user = Fabricate(:user)
+      legacy = Setting.cache_key('default_privacy', user)
+      revision = UserPreferences::CacheKey.for_revision('default_privacy', user, 7)
+      Rails.cache.write(revision, 'from-revision-key')
+      Rails.cache.delete(legacy)
+
+      expect(user.setting_default_privacy).to eq 'public'
+      expect(user.setting_default_privacy).not_to eq 'from-revision-key'
+    end
+
+    it 'leaves a revision cache key alone when a high-risk setting is saved' do
+      user = Fabricate(:user)
+      legacy = Setting.cache_key('disable_post', user)
+      revision = "#{legacy}/rev/1"
+      Rails.cache.write(revision, 'sentinel')
+
+      user.settings['disable_post'] = true
+
+      expect(Rails.cache.read(legacy)).to be true
+      expect(Rails.cache.read(revision)).to eq 'sentinel'
+      expect(UserPreferences::Revision.current(user.id)).to eq 0
+    end
+
     it 'reads the database from Reader when the legacy cache has another value' do
       user = Fabricate(:user)
       user.settings['default_sensitive'] = false
@@ -210,7 +234,7 @@ RSpec.describe 'preference cache revision boundary' do
       User.where(id: user.id).delete_all
     end
 
-    it 'advances revision and deletes only the legacy cache key' do
+    it 'advances revision and deletes the legacy key and the committed revision key' do
       user = Fabricate(:user)
       deleted = []
       allow(Rails.cache).to receive(:delete).and_wrap_original do |method, cache_key, *args|
@@ -227,9 +251,10 @@ RSpec.describe 'preference cache revision boundary' do
       expect(UserPreferences::Revision.current(user.id)).to eq 1
       expect(deleted).to contain_exactly(
         legacy_key(user, 'reduce_motion'),
-        legacy_key(user, 'default_privacy')
+        UserPreferences::CacheKey.for_revision('reduce_motion', user, 1),
+        legacy_key(user, 'default_privacy'),
+        UserPreferences::CacheKey.for_revision('default_privacy', user, 1)
       )
-      expect(deleted.grep(%r{/rev/})).to be_empty
 
       fetched = []
       allow(Rails.cache).to receive(:fetch).and_wrap_original do |method, cache_key, *args, &block|
