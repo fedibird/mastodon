@@ -165,6 +165,11 @@ class Api::V1::StatusesController < Api::BaseController
 
   def set_status
     @status = Status.include_expired.find(status_params[:id])
+    if @status.ap_page?
+      render json: { error: 'Not Found' }, status: :not_found
+      return
+    end
+
     @status.resolve_reference!
     authorize @status, :show?
   rescue Mastodon::NotPermittedError

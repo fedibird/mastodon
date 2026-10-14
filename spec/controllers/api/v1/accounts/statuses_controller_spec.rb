@@ -19,6 +19,17 @@ describe Api::V1::Accounts::StatusesController do
       expect(response.headers['Link'].links.size).to eq(2)
     end
 
+    it 'omits an unreleased page and still returns a note' do
+      note = Fabricate(:status, account: user.account, text: 'visible note')
+      page = Fabricate(:status, account: user.account, text: 'page body', post_title: 'Title', ap_object_type: 'page')
+
+      get :index, params: { account_id: user.account.id, limit: 20 }
+
+      ids = body_as_json.map { |item| item[:id] }
+      expect(ids).to include(note.id.to_s)
+      expect(ids).not_to include(page.id.to_s)
+    end
+
     context 'with only media' do
       it 'returns http success' do
         get :index, params: { account_id: user.account.id, only_media: true }

@@ -23,7 +23,7 @@ class Trends::Statuses < Trends::Base
     end
 
     def to_arel
-      scope = Status.joins(:trend).reorder(score: :desc)
+      scope = Status.joins(:trend).without_unreleased_pages.reorder(score: :desc)
       scope = scope.reorder(language_order_clause.desc, score: :desc) if preferred_languages.present?
       scope = scope.merge(StatusTrend.allowed) if @allowed
       scope = scope.not_excluded_by_account(@account).not_domain_blocked_by_account(@account) if @account.present?
@@ -106,7 +106,7 @@ class Trends::Statuses < Trends::Base
   private
 
   def eligible?(status)
-    status.public_visibility? && status.account.discoverable? && !status.account.silenced? && !status.account.sensitized? && status.spoiler_text.blank? && !status.sensitive? && !status.reply? && valid_locale?(status.language)
+    !status.ap_page? && status.public_visibility? && status.account.discoverable? && !status.account.silenced? && !status.account.sensitized? && status.spoiler_text.blank? && !status.sensitive? && !status.reply? && valid_locale?(status.language)
   end
 
   def calculate_scores(statuses, at_time)

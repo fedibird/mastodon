@@ -14,6 +14,11 @@ class AddPostTitleAndApObjectTypeToStatuses < ActiveRecord::Migration[6.1]
   # statuses table. Rails 6.1 schema dumps omit `validate: false`, so a
   # populated database must take this migration rather than schema:load.
   def change
+    # The role has no lock_timeout (SHOW lock_timeout is 0). Fail the brief
+    # ACCESS EXCLUSIVE catalog lock instead of waiting behind another session.
+    # SET LOCAL ends with this transaction. It does not scan statuses.
+    safety_assured { execute "SET LOCAL lock_timeout = '5s'" }
+
     # strong_migrations rejects change_table, so these stay separate adds.
     add_column :statuses, :post_title, :text # rubocop:disable Rails/BulkChangeTable
     add_column :statuses, :ap_object_type, :string # rubocop:enable Rails/BulkChangeTable

@@ -28,7 +28,7 @@ class Feed
       unhydrated = redis.zrangebyscore(key, "(#{min_id}", "(#{max_id}", limit: [0, visibilities.empty? ? limit : FeedManager::MAX_ITEMS], with_scores: true).map(&:first).map(&:to_i)
     end
 
-    statuses = Status.where(id: unhydrated)
+    statuses = Status.where(id: unhydrated).without_unreleased_pages
     statuses = statuses.joins(:account).merge(Account.without_suspended)
     statuses = statuses.where(visibility: visibilities).limit(limit) unless visibilities.empty?
     statuses

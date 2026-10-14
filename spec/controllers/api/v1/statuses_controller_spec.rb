@@ -25,6 +25,14 @@ RSpec.describe Api::V1::StatusesController, type: :controller do # rubocop:disab
         expect(body_as_json).not_to have_key(:ap_object_type)
       end
 
+      it 'returns not found for an unreleased page' do
+        page = Fabricate(:status, account: user.account, text: 'page body', post_title: 'Title', ap_object_type: 'page')
+
+        get :show, params: { id: page.id }
+
+        expect(response).to have_http_status(404)
+      end
+
       it 'returns canonical filtered FilterResult without filter_results or searchable_text' do
         author = Fabricate(:account)
         filtered_status = Fabricate(:status, account: author, text: "hello foo\nhttps://example.com/filter-url-test")

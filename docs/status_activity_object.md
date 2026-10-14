@@ -85,6 +85,22 @@ local fan-out, the public status permalink, the ActivityPub outbox, and
 account backups skip pages. Local discard still runs, but a page does
 not send Delete or Undo. REST responses do not grow new attributes.
 
+A stored page is also withheld from readers. `StatusPolicy#show?` is
+false for everyone, including the author, so single-status REST, HTML,
+ActivityPub collections that authorize the status, and oEmbed return
+404. Account status lists, profile HTML and RSS, the public and hashtag
+database feeds, Redis feed hydration, and Explore trend queries add
+`without_unreleased_pages` at those entrances only. `default_scope` is
+unchanged. Search drops a page in `StatusFilter`, and Chewy does not
+index one. Webhooks are not enqueued. The profile status counter does
+not include a page.
+
+`without_unreleased_pages` is `ap_object_type IS DISTINCT FROM 'page'`.
+On a public or account timeline it is a residual check on the index
+already chosen by visibility, deletion, and account predicates. It does
+not add an index and does not scan the table by itself. Redis hydration
+applies it only to the small id list already loaded from the feed.
+
 ## REST API later
 
 M3-6b can add optional input and output:

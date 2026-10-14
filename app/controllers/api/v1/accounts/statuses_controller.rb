@@ -130,7 +130,7 @@ class Api::V1::Accounts::StatusesController < Api::BaseController
   end
 
   def pinned_scope
-    @account.pinned_statuses.permitted_for(@account, current_account)
+    @account.pinned_statuses.permitted_for(@account, current_account).without_unreleased_pages
   end
 
   def no_replies_scope

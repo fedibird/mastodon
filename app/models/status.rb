@@ -60,7 +60,7 @@ class Status < ApplicationRecord
   # will be based on current time instead of `created_at`
   attr_accessor :override_timestamps, :circle, :expires_at, :expires_action, :fetch
 
-  update_index('statuses', :proper)
+  update_index('statuses', :proper, if: :search_indexable?)
 
   enum visibility: { public: 0, unlisted: 1, private: 2, direct: 3, limited: 4, mutual: 100, personal: 200 }, _suffix: :visibility
   enum searchability: { public: 0, unlisted: 1, private: 2, direct: 3, limited: 4, mutual: 100, personal: 200 }, _suffix: :searchability
@@ -176,7 +176,9 @@ class Status < ApplicationRecord
   scope :unset_searchability, -> { where(searchability: nil, reblog_of_id: nil) }
   scope :indexable, -> { without_reblogs.where(visibility: :public).joins(:account).where(account: { indexable: true }) }
   scope :list_eligible_visibility, -> { where(visibility: %i(public unlisted private)) }
-  scope :without_unreleased_pages, -> { where(ap_object_type: [nil, AP_OBJECT_TYPE_NOTE]) }
+  # One residual predicate. It is not part of default_scope, so note queries
+  # keep their existing indexes and only drop a stored page at the call site.
+  scope :without_unreleased_pages, -> { where("#{table_name}.ap_object_type IS DISTINCT FROM 'page'") }
 
   cache_associated :application,
                    :media_attachments,
@@ -389,6 +391,10 @@ class Status < ApplicationRecord
 
   def ap_page?
     self[:ap_object_type] == AP_OBJECT_TYPE_PAGE
+  end
+
+  def search_indexable?
+    !ap_page?
   end
 
   def self.normalize_post_title(value)
@@ -964,7 +970,7 @@ class Status < ApplicationRecord
   end
 
   def increment_counter_caches
-    return if uncount_visibility?
+    return if uncount_visibility? || ap_page?
 
     account&.touch_count!(:statuses_count) if fetch
     account&.increment_count!(:statuses_count) unless fetch
@@ -973,7 +979,7 @@ class Status < ApplicationRecord
   end
 
   def decrement_counter_caches
-    return if uncount_visibility? || new_record?
+    return if uncount_visibility? || new_record? || ap_page?
 
     account&.decrement_count!(:statuses_count)
     reblog&.decrement_count!(:reblogs_count) if reblog?
@@ -992,10 +998,10 @@ class Status < ApplicationRecord
   end
 
   def trigger_create_webhooks
-    TriggerWebhookWorker.perform_async('status.created', 'Status', id) if local?
+    TriggerWebhookWorker.perform_async('status.created', 'Status', id) if local? && !ap_page?
   end
 
   def trigger_update_webhooks
-    TriggerWebhookWorker.perform_async('status.updated', 'Status', id) if local?
+    TriggerWebhookWorker.perform_async('status.updated', 'Status', id) if local? && !ap_page?
   end
 end
