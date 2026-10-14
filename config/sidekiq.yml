@@ -10,6 +10,10 @@
   - [scheduler]
   - [backup]
   - [maintenance]
+  # PostProcessMediaWorker. The default `bundle exec sidekiq` consumes this
+  # via the list above. A dedicated media process must be started with
+  # `-q ui`. Confirm with Sidekiq::ProcessSet.new that some live process
+  # lists "ui"; repository config alone does not prove production does.
   - [ui]
   - [debug]
 :scheduler:

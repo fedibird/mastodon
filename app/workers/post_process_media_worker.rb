@@ -3,6 +3,12 @@
 class PostProcessMediaWorker
   include Sidekiq::Worker
 
+  # Stay on `ui`. config/sidekiq.yml lists it, but that does not prove the
+  # production media process consumes it. Before relying on v2 image uploads,
+  # confirm a live process includes "ui":
+  #   Sidekiq::ProcessSet.new.map { |process| process['queues'] }
+  # If none does, run `bundle exec sidekiq -q ui` on the media host.
+  # Do not move this worker unless that process changes in the same deploy.
   sidekiq_options queue: 'ui', retry: 1, dead: false
 
   sidekiq_retries_exhausted do |msg|
@@ -23,18 +29,53 @@ class PostProcessMediaWorker
 
   def perform(media_attachment_id)
     media_attachment = MediaAttachment.find(media_attachment_id)
+    return true if media_attachment.processing_complete?
+
     media_attachment.processing = :in_progress
     media_attachment.save
 
     # Because paperclip-av-transcover overwrites this attribute
     # we will save it here and restore it after reprocess is done
-    previous_meta = media_attachment.file_meta
+    previous_meta = media_attachment.file_meta || {}
 
-    media_attachment.file.reprocess!(:original)
+    reprocess_file(media_attachment)
     media_attachment.processing = :complete
-    media_attachment.file_meta = previous_meta.merge(media_attachment.file_meta).with_indifferent_access.slice(*MediaAttachment::META_KEYS)
+    media_attachment.file_meta = previous_meta.merge(media_attachment.file_meta || {}).with_indifferent_access.slice(*MediaAttachment::META_KEYS)
     media_attachment.save
   rescue ActiveRecord::RecordNotFound
     true
+  end
+
+  private
+
+  # Still images skip every derivative during upload. Larger media, including
+  # an animated GIF classified as gifv by GifReader before styles run, only
+  # deferred :original. A static GIF stays image and reprocesses every style.
+  #
+  # Pinned kt-paperclip reprocess! returns false, without raising, for
+  # Errno::EACCES and when instance.save fails. NotIdentifiedByImageMagickError
+  # is rescued inside post_process_style, so a still image can also come back
+  # truthy with small/tiny never written. Either case must retry, not complete.
+  def reprocess_file(media_attachment)
+    processed = if media_attachment.image?
+                  media_attachment.file.reprocess!
+                else
+                  media_attachment.file.reprocess!(:original)
+                end
+
+    if processed == false
+      raise Paperclip::Error, "Could not reprocess media attachment #{media_attachment.id}"
+    end
+
+    ensure_still_image_derivatives!(media_attachment)
+  end
+
+  def ensure_still_image_derivatives!(media_attachment)
+    return unless media_attachment.image?
+
+    missing = [:small, :tiny].reject { |style| media_attachment.file.exists?(style) }
+    return if missing.empty?
+
+    raise Paperclip::Error, "Media attachment #{media_attachment.id} is missing #{missing.join(', ')} after reprocess"
   end
 end

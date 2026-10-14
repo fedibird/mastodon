@@ -32,10 +32,17 @@ class REST::MediaAttachmentSerializer < ActiveModel::Serializer
       full_asset_url(object.thumbnail.url(:original))
     elsif object.audio?
       nil
-    elsif object.needs_redownload? || object.needs_reprocess?(version)
+    elsif object.needs_redownload?
       media_proxy_url(object.id, version)
-    else
+    elsif !object.needs_reprocess?(version)
       full_asset_url(object.file.url(version), ext: object.file_file_name)
+    elsif object.local?
+      # Queued v2 still images have no derivative yet. Pre-#251 async uploads
+      # generated this preview during the request; v2 now returns null until
+      # PostProcessMediaWorker finishes and GET /api/v1/media/:id is 200.
+      nil
+    else
+      media_proxy_url(object.id, version)
     end
   end
 

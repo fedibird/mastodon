@@ -218,6 +218,7 @@ class MediaAttachment < ApplicationRecord
 
   before_file_validate :set_type_and_extension
   before_file_validate :check_video_dimensions
+  before_file_validate :classify_animated_gif
 
   validates_attachment_content_type :file, content_type: IMAGE_MIME_TYPES + VIDEO_MIME_TYPES + AUDIO_MIME_TYPES
   validates_attachment_size :file, less_than: ->(m) { m.larger_media_format? ? VIDEO_LIMIT : IMAGE_LIMIT }
@@ -304,12 +305,37 @@ class MediaAttachment < ApplicationRecord
 
   attr_writer :delay_processing
 
+  # Paperclip processes the file inside `file=`, before the rest of the
+  # attributes are assigned. Pull the flag out first so a later `file` key
+  # still sees it; otherwise the row is queued while ImageMagick already ran.
+  def assign_attributes(new_attributes)
+    return super if new_attributes.blank?
+
+    attributes = new_attributes.respond_to?(:to_h) ? new_attributes.to_h : new_attributes
+    if attributes.respond_to?(:key?) && (attributes.key?(:delay_processing) || attributes.key?('delay_processing'))
+      attributes = attributes.symbolize_keys
+      self.delay_processing = attributes.delete(:delay_processing)
+    end
+    super(attributes)
+  end
+
   def delay_processing?
-    @delay_processing && larger_media_format?
+    @delay_processing
   end
 
   def delay_processing_for_attachment?(attachment_name)
     delay_processing? && attachment_name == :file
+  end
+
+  # v2 defers :original for every upload. Still images also defer small/tiny.
+  # Animated GIFs are classified as gifv before styles run, so their
+  # thumbnails stay synchronous and the worker only reprocesses :original.
+  def delay_processing_style?(attachment_name, style_name)
+    return false unless delay_processing_for_attachment?(attachment_name)
+    return true if style_name.to_sym == :original
+    return false if larger_media_format? || animated_gif_upload?
+
+    true
   end
 
   after_commit :enqueue_processing, on: :create
@@ -388,6 +414,15 @@ class MediaAttachment < ApplicationRecord
     end
   end
 
+  # GifTranscoder only writes type=gifv when the :original style runs.
+  # v2 skips that style, so classify from the GIF bytes before styles,
+  # after the video dimension check, and before the row is saved.
+  def classify_animated_gif
+    return unless file_content_type == 'image/gif' && animated_gif_upload?
+
+    self.type = :gifv
+  end
+
   def set_processing
     self.processing = delay_processing? ? :queued : :complete
   end
@@ -456,6 +491,25 @@ class MediaAttachment < ApplicationRecord
 
   def enqueue_processing
     PostProcessMediaWorker.perform_async(id) if delay_processing?
+  end
+
+  def animated_gif_upload?
+    return @animated_gif_upload if defined?(@animated_gif_upload)
+    return @animated_gif_upload = false unless file_content_type == 'image/gif'
+
+    path = local_gif_path
+    @animated_gif_upload = path.present? && GifReader.animated?(path)
+  end
+
+  def local_gif_path
+    queued = file.queued_for_write[:original]
+    queued_path = queued.respond_to?(:path) ? queued.path : nil
+    return queued_path if queued_path.present? && File.exist?(queued_path.to_s)
+
+    stored = file.path(:original)
+    return stored if stored.present? && File.exist?(stored.to_s)
+
+    nil
   end
 
   def reset_parent_cache

@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe REST::MediaAttachmentSerializer do
+RSpec.describe REST::MediaAttachmentSerializer do # rubocop:disable Metrics/BlockLength
   include RoutingHelper
 
   def serialize(media)
@@ -65,5 +65,50 @@ RSpec.describe REST::MediaAttachmentSerializer do
 
     expect(json).to have_key(:text_url)
     expect(json[:text_url]).to be_nil
+  end
+
+  it 'hides urls while a local upload has not produced a derivative yet' do
+    media = Fabricate(:media_attachment)
+    media.update_columns(
+      processing: MediaAttachment.processings[:queued],
+      file_meta: { 'original' => { 'width' => 32, 'height' => 32 } }
+    )
+    media.reload
+
+    json = serialize(media)
+
+    expect(json[:url]).to be_nil
+    expect(json[:preview_url]).to be_nil
+  end
+
+  it 'keeps a ready video preview while the original is still processing' do
+    media = Fabricate(:media_attachment)
+    media.update_columns(
+      type: MediaAttachment.types[:video],
+      processing: MediaAttachment.processings[:queued],
+      file_meta: {
+        'original' => { 'width' => 32, 'height' => 32 },
+        'small' => { 'width' => 16, 'height' => 16 },
+      }
+    )
+    media.reload
+
+    json = serialize(media)
+
+    expect(media.not_processed?).to be true
+    expect(json[:url]).to be_nil
+    expect(json[:preview_url]).to be_present
+    expect(json[:preview_url]).not_to include('media_proxy')
+  end
+
+  it 'sends a remote attachment that still needs a derivative through the media proxy' do
+    media = Fabricate(:media_attachment, remote_url: 'https://remote.example/media/original.jpg')
+    media.update_columns(file_meta: { 'original' => { 'width' => 32, 'height' => 32 } })
+    media.reload
+
+    json = serialize(media)
+
+    expect(media.local?).to be false
+    expect(json[:preview_url]).to include('media_proxy')
   end
 end

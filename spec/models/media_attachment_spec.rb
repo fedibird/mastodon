@@ -275,11 +275,11 @@ RSpec.describe MediaAttachment, type: :model do
   describe '#delay_processing?' do
     let(:media) { MediaAttachment.new }
 
-    it 'is false for images even when the v2 delay flag is set' do
+    it 'is true for images when the v2 delay flag is set' do
       media.type = :image
       media.delay_processing = true
 
-      expect(media.delay_processing?).to be false
+      expect(media.delay_processing?).to be true
     end
 
     it 'is true for video when the v2 delay flag is set' do
@@ -325,10 +325,11 @@ RSpec.describe MediaAttachment, type: :model do
   describe '#delay_processing_for_attachment?' do
     let(:media) { MediaAttachment.new(delay_processing: true) }
 
-    it 'does not delay image file processing' do
+    it 'delays image file processing and still processes a separate thumbnail immediately' do
       media.type = :image
 
-      expect(media.delay_processing_for_attachment?(:file)).to be false
+      expect(media.delay_processing_for_attachment?(:file)).to be true
+      expect(media.delay_processing_for_attachment?(:thumbnail)).to be false
     end
 
     it 'delays the video file and still processes the thumbnail immediately' do
@@ -344,6 +345,82 @@ RSpec.describe MediaAttachment, type: :model do
 
       expect(media.delay_processing_for_attachment?(:file)).to be false
       expect(media.delay_processing_for_attachment?(:thumbnail)).to be false
+    end
+  end
+
+  describe '#delay_processing_style?' do
+    it 'defers every file style for a still image' do
+      media = MediaAttachment.new(delay_processing: true, type: :image)
+
+      expect(media.delay_processing_style?(:file, :original)).to be true
+      expect(media.delay_processing_style?(:file, :small)).to be true
+      expect(media.delay_processing_style?(:file, :tiny)).to be true
+      expect(media.delay_processing_style?(:thumbnail, :original)).to be false
+    end
+
+    it 'defers only the original style for video, audio, and gifv' do
+      %i(video audio gifv).each do |type|
+        media = MediaAttachment.new(delay_processing: true, type: type)
+
+        expect(media.delay_processing_style?(:file, :original)).to be true
+        expect(media.delay_processing_style?(:file, :small)).to be false
+        expect(media.delay_processing_style?(:file, :tiny)).to be false
+      end
+    end
+
+    it 'does not defer styles when the delay flag is unset' do
+      media = MediaAttachment.new(type: :image)
+
+      expect(media.delay_processing_style?(:file, :original)).to be_falsey
+      expect(media.delay_processing_style?(:file, :small)).to be_falsey
+    end
+  end
+
+  describe '#classify_animated_gif' do
+    it 'marks an animated GIF as gifv without waiting for the original style' do
+      media = MediaAttachment.new(file_content_type: 'image/gif', type: :image)
+      allow(media).to receive(:animated_gif_upload?).and_return(true)
+
+      media.send(:classify_animated_gif)
+
+      expect(media.type).to eq 'gifv'
+    end
+
+    it 'leaves a static GIF as an image so v2 can defer every style' do
+      media = MediaAttachment.new(file_content_type: 'image/gif', type: :image)
+      allow(media).to receive(:animated_gif_upload?).and_return(false)
+
+      media.send(:classify_animated_gif)
+
+      expect(media.type).to eq 'image'
+      media.delay_processing = true
+      expect(media.delay_processing_style?(:file, :original)).to be true
+      expect(media.delay_processing_style?(:file, :small)).to be true
+    end
+  end
+
+  describe 'delayed still-image create' do
+    it 'persists the source, queues processing, and does not run style processors' do
+      allow(PostProcessMediaWorker).to receive(:perform_async)
+      commands = []
+      allow(Paperclip).to receive(:run).and_wrap_original do |method, cmd, *args|
+        commands << cmd.to_s
+        method.call(cmd, *args)
+      end
+
+      media = MediaAttachment.create!(
+        account: Fabricate(:account),
+        file: attachment_fixture('attachment.jpg'),
+        delay_processing: true
+      )
+
+      expect(media).to be_processing_queued
+      expect(media).to be_image
+      expect(media.delay_processing_for_attachment?(:file)).to be true
+      expect(commands.grep(/convert|identify|ffmpeg/)).to eq []
+      expect(media.file.exists?(:original)).to be true
+      expect(media.file.exists?(:small)).to be false
+      expect(PostProcessMediaWorker).to have_received(:perform_async).with(media.id).once
     end
   end
 end

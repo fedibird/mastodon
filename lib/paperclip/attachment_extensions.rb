@@ -35,12 +35,11 @@ module Paperclip
       unlink_files(intermediate_files)
     end
 
-    # We overwrite this method to support delayed processing in
-    # Sidekiq. Since we process the original file to reduce disk
-    # usage, and we still want to generate thumbnails straight
-    # away, it's the only style we need to exclude
+    # Delayed styles are decided by the attachment. MediaAttachment defers
+    # :original for every v2 upload, and also defers still-image derivatives
+    # so ImageMagick does not run before the 202 response.
     def process_style?(style_name, style_args)
-      if style_name == :original && instance.respond_to?(:delay_processing_for_attachment?) && instance.delay_processing_for_attachment?(name)
+      if instance.respond_to?(:delay_processing_style?) && instance.delay_processing_style?(name, style_name)
         false
       else
         style_args.empty? || style_args.include?(style_name)

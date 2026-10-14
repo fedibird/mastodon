@@ -19,6 +19,13 @@ RSpec.describe 'Delegated media uploads' do # rubocop:disable Metrics/BlockLengt
     post "/api/#{version}/media", headers: headers, params: extra.merge(file: fixture_file_upload(name, content_type), posting_identity_id: identity)
   end
 
+  def finish_processing!(media)
+    return media if media.nil? || !media.processing_queued?
+
+    PostProcessMediaWorker.new.perform(media.id)
+    media.reload
+  end
+
   def spoofed_file(source, filename, content_type)
     directory = Rails.root.join('tmp/delegated-media-spec')
     FileUtils.mkdir_p(directory)
@@ -40,7 +47,8 @@ RSpec.describe 'Delegated media uploads' do # rubocop:disable Metrics/BlockLengt
       media = grantor.account.media_attachments.last
       audit = PostingIdentityMedia.find_by!(media_attachment_id: media.id)
 
-      expect(response).to have_http_status(200)
+      expect(response).to have_http_status(202)
+      expect(media).to be_processing_queued
       expect(media.account_id).to eq grantor.account.id
       expect(media.type).to eq 'image'
       expect(grantee.account.media_attachments).to be_empty
@@ -59,7 +67,8 @@ RSpec.describe 'Delegated media uploads' do # rubocop:disable Metrics/BlockLengt
         file: fixture_file_upload('attachment.jpg', 'image/jpeg'),
       }
 
-      expect(response).to have_http_status(200)
+      expect(response).to have_http_status(202)
+      expect(grantor.account.media_attachments.last).to be_processing_queued
       expect(grantor.account.media_attachments.last.account_id).to eq grantor.account.id
       expect(PostingIdentityMedia.count).to eq 0
     end
@@ -69,7 +78,8 @@ RSpec.describe 'Delegated media uploads' do # rubocop:disable Metrics/BlockLengt
 
       post '/api/v2/media', headers: headers, params: { file: fixture_file_upload('attachment.jpg', 'image/jpeg') }
 
-      expect(response).to have_http_status(200)
+      expect(response).to have_http_status(202)
+      expect(grantee.account.media_attachments.last).to be_processing_queued
       expect(grantee.account.media_attachments.count).to eq 1
       expect(grantor.account.media_attachments).to be_empty
       expect(PostingIdentityMedia.count).to eq 0
@@ -140,6 +150,16 @@ RSpec.describe 'Delegated media uploads' do # rubocop:disable Metrics/BlockLengt
       expect(PostingIdentityMedia.count).to eq 0
     end
 
+    it 'rejects an animated GIF as gifv before thumbnail transcoding can relabel it' do
+      delegate!
+      allow_any_instance_of(Paperclip::Transcoder).to receive(:update_attachment_type)
+
+      expect { upload!(name: 'avatar.gif', content_type: 'image/gif') }.not_to(change { grantor.account.media_attachments.count })
+
+      expect(response).to have_http_status(422)
+      expect(PostingIdentityMedia.count).to eq 0
+    end
+
     it 'rejects a video or audio file whose name claims to be a still image', :paperclip_processing do
       delegate!
 
@@ -166,7 +186,7 @@ RSpec.describe 'Delegated media uploads' do # rubocop:disable Metrics/BlockLengt
 
     def uploaded_media
       upload!
-      grantor.account.media_attachments.last
+      finish_processing!(grantor.account.media_attachments.last)
     end
 
     it 'returns processing state only for the operator upload' do
@@ -258,10 +278,10 @@ RSpec.describe 'Delegated media uploads' do # rubocop:disable Metrics/BlockLengt
     it 'publishes the operator images on a status owned by the granting account' do
       delegation = delegate!
       upload!
-      first = grantor.account.media_attachments.last
+      first = finish_processing!(grantor.account.media_attachments.last)
       put "/api/v1/media/#{first.id}", headers: headers, params: { description: 'Hill', posting_identity_id: delegated_id }
       upload!
-      second = grantor.account.media_attachments.order(:id).last
+      second = finish_processing!(grantor.account.media_attachments.order(:id).last)
 
       post '/api/v1/statuses', headers: headers.merge('Idempotency-Key' => 'media-once'), params: {
         status: 'Two hills',
