@@ -150,6 +150,16 @@ RSpec.describe 'Delegated media uploads' do # rubocop:disable Metrics/BlockLengt
       expect(PostingIdentityMedia.count).to eq 0
     end
 
+    it 'rejects an animated GIF as gifv before thumbnail transcoding can relabel it' do
+      delegate!
+      allow_any_instance_of(Paperclip::Transcoder).to receive(:update_attachment_type)
+
+      expect { upload!(name: 'avatar.gif', content_type: 'image/gif') }.not_to(change { grantor.account.media_attachments.count })
+
+      expect(response).to have_http_status(422)
+      expect(PostingIdentityMedia.count).to eq 0
+    end
+
     it 'rejects a video or audio file whose name claims to be a still image', :paperclip_processing do
       delegate!
 

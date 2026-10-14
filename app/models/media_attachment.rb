@@ -218,6 +218,7 @@ class MediaAttachment < ApplicationRecord
 
   before_file_validate :set_type_and_extension
   before_file_validate :check_video_dimensions
+  before_file_validate :classify_animated_gif
 
   validates_attachment_content_type :file, content_type: IMAGE_MIME_TYPES + VIDEO_MIME_TYPES + AUDIO_MIME_TYPES
   validates_attachment_size :file, less_than: ->(m) { m.larger_media_format? ? VIDEO_LIMIT : IMAGE_LIMIT }
@@ -326,10 +327,9 @@ class MediaAttachment < ApplicationRecord
     delay_processing? && attachment_name == :file
   end
 
-  # v2 defers :original for every upload. Still images also defer small/tiny
-  # so the request only stores the source. Video, audio, and animated GIFs
-  # keep synchronous derivatives: GIF thumbnails reclassify the attachment
-  # as gifv before the response.
+  # v2 defers :original for every upload. Still images also defer small/tiny.
+  # Animated GIFs are classified as gifv before styles run, so their
+  # thumbnails stay synchronous and the worker only reprocesses :original.
   def delay_processing_style?(attachment_name, style_name)
     return false unless delay_processing_for_attachment?(attachment_name)
     return true if style_name.to_sym == :original
@@ -412,6 +412,15 @@ class MediaAttachment < ApplicationRecord
         :image
       end
     end
+  end
+
+  # GifTranscoder only writes type=gifv when the :original style runs.
+  # v2 skips that style, so classify from the GIF bytes before styles,
+  # after the video dimension check, and before the row is saved.
+  def classify_animated_gif
+    return unless file_content_type == 'image/gif' && animated_gif_upload?
+
+    self.type = :gifv
   end
 
   def set_processing

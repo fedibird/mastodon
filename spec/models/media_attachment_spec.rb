@@ -376,6 +376,29 @@ RSpec.describe MediaAttachment, type: :model do
     end
   end
 
+  describe '#classify_animated_gif' do
+    it 'marks an animated GIF as gifv without waiting for the original style' do
+      media = MediaAttachment.new(file_content_type: 'image/gif', type: :image)
+      allow(media).to receive(:animated_gif_upload?).and_return(true)
+
+      media.send(:classify_animated_gif)
+
+      expect(media.type).to eq 'gifv'
+    end
+
+    it 'leaves a static GIF as an image so v2 can defer every style' do
+      media = MediaAttachment.new(file_content_type: 'image/gif', type: :image)
+      allow(media).to receive(:animated_gif_upload?).and_return(false)
+
+      media.send(:classify_animated_gif)
+
+      expect(media.type).to eq 'image'
+      media.delay_processing = true
+      expect(media.delay_processing_style?(:file, :original)).to be true
+      expect(media.delay_processing_style?(:file, :small)).to be true
+    end
+  end
+
   describe 'delayed still-image create' do
     it 'persists the source, queues processing, and does not run style processors' do
       allow(PostProcessMediaWorker).to receive(:perform_async)

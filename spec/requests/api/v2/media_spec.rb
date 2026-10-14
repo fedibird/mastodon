@@ -215,10 +215,25 @@ RSpec.describe 'Media API', paperclip_processing: true do # rubocop:disable Metr
     end
 
     context 'with an animated GIF' do
-      it 'writes thumbnails, reclassifies as gifv, and defers the original' do
+      it 'classifies gifv before the response without transcoding the original' do
+        ffmpeg_runs = []
+        allow(Terrapin::CommandLine).to receive(:new).and_wrap_original do |method, binary, template, *rest|
+          command = method.call(binary, template, *rest)
+          if binary.to_s.end_with?('ffmpeg')
+            allow(command).to receive(:run).and_wrap_original do |run_method, interpolations = {}, *more|
+              ffmpeg_runs << interpolations.values.map(&:to_s).join(' ')
+              run_method.call(interpolations, *more)
+            end
+          end
+          command
+        end
+        # Thumbnail transcoding must not be what marks the row as gifv.
+        allow_any_instance_of(Paperclip::Transcoder).to receive(:update_attachment_type)
+
         post_v2_media(headers, 'avatar.gif', 'image/gif')
 
         media = user.account.media_attachments.first
+        upload_runs = ffmpeg_runs.dup
 
         expect(response).to have_http_status(202)
         expect(media).to be_present
@@ -228,6 +243,9 @@ RSpec.describe 'Media API', paperclip_processing: true do # rubocop:disable Metr
         expect(media.file_content_type).to eq 'image/gif'
         expect(media.file_file_name).not_to end_with('.mp4')
         expect(media.file.exists?(:small)).to be true
+        expect(media.file.exists?(:tiny)).to be true
+        expect(upload_runs.size).to eq 2
+        expect(upload_runs.join).not_to include('h264')
         expect(PostProcessMediaWorker).to have_received(:perform_async).with(media.id).once
 
         PostProcessMediaWorker.new.perform(media.id)
@@ -237,6 +255,7 @@ RSpec.describe 'Media API', paperclip_processing: true do # rubocop:disable Metr
         expect(media.type).to eq 'gifv'
         expect(media.file_content_type).to eq 'video/mp4'
         expect(media.file_file_name).to end_with('.mp4')
+        expect(ffmpeg_runs.drop(upload_runs.size).join).to include('h264')
 
         get "/api/v1/media/#{media.id}", headers: headers
 

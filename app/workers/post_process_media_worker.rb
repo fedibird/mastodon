@@ -3,10 +3,12 @@
 class PostProcessMediaWorker
   include Sidekiq::Worker
 
-  # `ui` is the media queue: config/sidekiq.yml and Procfile.dev consume it,
-  # and Admin::SystemCheck::SidekiqProcessCheck requires a process on it.
-  # A dedicated media process must include `-q ui`. Video already uses this
-  # worker, so still-image jobs stay here rather than moving queues.
+  # Stay on `ui`. config/sidekiq.yml lists it, but that does not prove the
+  # production media process consumes it. Before relying on v2 image uploads,
+  # confirm a live process includes "ui":
+  #   Sidekiq::ProcessSet.new.map { |process| process['queues'] }
+  # If none does, run `bundle exec sidekiq -q ui` on the media host.
+  # Do not move this worker unless that process changes in the same deploy.
   sidekiq_options queue: 'ui', retry: 1, dead: false
 
   sidekiq_retries_exhausted do |msg|
