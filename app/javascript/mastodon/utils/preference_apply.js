@@ -143,10 +143,22 @@ export const composerHasDraftContent = (state) => {
   );
 };
 
+// commitUserPostingStyle writes 'manual' when the picker applies a style and
+// 'none' when the picker clears it. Auto selection writes 'automatic' or
+// 'saved_default' and never writes 'none'. A surface change clears the origin
+// back to null. Only the two picker origins are an intentional style choice.
+const EXPLICIT_STYLE_ORIGINS = new Set(['manual', 'none']);
+
+const composerHasExplicitReloadChoice = (state) => (
+  EXPLICIT_STYLE_ORIGINS.has(state.getIn(['userPostingStyle', 'selectionOrigin'])) ||
+  state.getIn(['senderIdentity', 'selectionOrigin']) === 'explicit'
+);
+
 // Reload confirmation is separate from composerCanFollowPreferenceSelection.
 // A manual privacy, language, or sensitive change sets dirty with an empty
 // body. Whitespace in the body is typed text. An automatic posting context,
-// surface, or managed tag from the open timeline is not unsaved work.
+// surface, managed tag, automatic style, or the default sender is not unsaved
+// work. An explicit style or sender choice is, even when dirty stays false.
 export const composerHasUnsavedReloadWork = (state) => {
   if (!state || typeof state.get !== 'function') {
     return false;
@@ -159,6 +171,7 @@ export const composerHasUnsavedReloadWork = (state) => {
     !!state.get('datetime_form') ||
     !!state.getIn(['media_modal', 'dirty']) ||
     !!state.getIn(['media_modal', 'id']) ||
+    composerHasExplicitReloadChoice(state) ||
     composerHasStructuralDraft(state)
   );
 };

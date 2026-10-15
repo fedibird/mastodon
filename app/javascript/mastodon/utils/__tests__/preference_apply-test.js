@@ -414,4 +414,57 @@ describe('preference reload confirmation', () => {
       'composer-context': contextual,
     }))).toBe(false);
   });
+
+  it('confirms an explicit posting style or sender and ignores automatic ones', () => {
+    const manualStyle = {
+      text: '',
+      dirty: false,
+      userPostingStyle: ImmutableMap({ selectionOrigin: 'manual', selectedId: 'style-1' }),
+    };
+    const clearedStyle = {
+      text: '',
+      dirty: false,
+      userPostingStyle: ImmutableMap({ selectionOrigin: 'none', selectedId: null }),
+    };
+    const explicitSender = {
+      text: '',
+      dirty: false,
+      senderIdentity: ImmutableMap({ id: 'delegated:9', selectionOrigin: 'explicit', status: 'ready' }),
+    };
+
+    [manualStyle, clearedStyle, explicitSender].forEach(fields => {
+      expect(stateHasComposerDraft(storeWith(fields))).toBe(true);
+      expect(composerHasDraftContent(storeWith(fields).get('compose'))).toBe(false);
+    });
+
+    expect(stateHasComposerDraft(storeWith({}, {
+      'composer-style': manualStyle,
+    }))).toBe(true);
+    expect(stateHasComposerDraft(storeWith({}, {
+      'composer-sender': explicitSender,
+    }))).toBe(true);
+
+    ['automatic', 'saved_default'].forEach(origin => {
+      const automatic = storeWith({
+        text: '',
+        dirty: false,
+        userPostingStyle: ImmutableMap({ selectionOrigin: origin, selectedId: 'style-1' }),
+        senderIdentity: ImmutableMap({ id: 'local:1', selectionOrigin: 'default', status: 'ready' }),
+      });
+
+      expect(composerHasUnsavedReloadWork(automatic.get('compose'))).toBe(false);
+      expect(composerCanFollowPreferenceSelection(automatic.get('compose'))).toBe(false);
+      expect(stateHasComposerDraft(automatic)).toBe(false);
+    });
+
+    const releasedBySurface = storeWith({
+      text: '',
+      dirty: false,
+      surface: ImmutableMap({ kind: 'group', key: '123' }),
+      userPostingStyle: ImmutableMap({ selectionOrigin: null, selectedId: null }),
+    });
+
+    expect(stateHasComposerDraft(releasedBySurface)).toBe(false);
+    expect(composerCanFollowPreferenceSelection(storeWith(manualStyle).get('compose'))).toBe(false);
+  });
 });

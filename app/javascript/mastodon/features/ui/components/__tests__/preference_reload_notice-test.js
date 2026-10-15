@@ -168,4 +168,36 @@ describe('PreferenceReloadNotice', () => {
     expect(reload).toHaveBeenCalledTimes(1);
     expect(store.getState().get('compose')).toBe(compose);
   });
+
+  it('asks before discarding an explicit style choice and keeps it when declined', () => {
+    const reload = jest.fn();
+    const confirm = jest.fn(() => false);
+    const compose = ImmutableMap({
+      text: '',
+      dirty: false,
+      media_attachments: ImmutableMap(),
+      userPostingStyle: ImmutableMap({ selectionOrigin: 'manual', selectedId: 'style-1' }),
+      senderIdentity: ImmutableMap({ id: 'local:1', selectionOrigin: 'default' }),
+    });
+    const store = createStore(reducer, reducer(undefined, { type: '@@INIT' }).set('compose', compose));
+
+    store.dispatch({ type: 'DOCUMENT', document });
+
+    render(
+      <Provider store={store}>
+        <PreferenceReloadNotice confirm={confirm} reload={reload} />
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(reload).not.toHaveBeenCalled();
+    expect(store.getState().get('compose')).toBe(compose);
+
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(store.getState().getIn(['compose', 'userPostingStyle', 'selectionOrigin'])).toBe('manual');
+  });
 });
