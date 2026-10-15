@@ -45,7 +45,7 @@ RSpec.describe UserPreferences::Schema do
       )
     end
 
-    it 'marks posting and translation keys for reinitialize and appearance keys for reload' do
+    it 'marks posting and translation keys for reinitialize and appearance keys for live application' do
       reinitialize = %w(
         default_privacy
         default_sensitive
@@ -55,10 +55,10 @@ RSpec.describe UserPreferences::Schema do
         translation_preferred_mode
         new_features_policy
       )
-      reload_keys = %w(content_font_size info_font_size reduce_motion)
+      live_keys = %w(content_font_size info_font_size reduce_motion)
 
       expect(reinitialize.map { |key| described_class.get(key).apply_hint }).to all(eq(:reinitialize))
-      expect(reload_keys.map { |key| described_class.get(key).apply_hint }).to all(eq(:reload))
+      expect(live_keys.map { |key| described_class.get(key).apply_hint }).to all(eq(:live))
       expect(described_class.get(:show_translation_bar).dependencies).to eq ['new_features_policy']
     end
 

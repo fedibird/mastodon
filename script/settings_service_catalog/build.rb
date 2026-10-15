@@ -31,6 +31,7 @@ module SettingsServiceCatalog
       default_privacy default_sensitive default_language
     ).freeze
     TRANSLATION = %w[show_translation_bar translation_preferred_mode].freeze
+    LIVE_WEB_UI = %w[content_font_size info_font_size reduce_motion].freeze
     PRIVACY = %w[
       noindex hide_network hide_statuses_count hide_following_count hide_followers_count
       hide_statuses_count_from_yourself hide_following_count_from_yourself hide_followers_count_from_yourself
@@ -801,14 +802,30 @@ module SettingsServiceCatalog
       effects << 'follow API refuses a new follow' if var == 'disable_follow'
       effects << 'verify_credentials and accounts#show mask account.locked in memory for official iOS or Android apps' if var == 'unlocked_for_official_app'
       effects << 'account serializer redacts counts, follows, or media urls' if var.start_with?('hide_') || var == 'use_low_resolution_thumbnails' || var.start_with?('use_fullsize_')
-      effects << 'document CSS variables; reload required' if css
-      effects << 'body class or theme stylesheet; reload required' if html.any? || var == 'theme'
+      if LIVE_WEB_UI.include?(var)
+        effects << live_web_ui_effect(var)
+      else
+        effects << 'document CSS variables; reload required' if css
+        effects << 'body class or theme stylesheet; reload required' if html.any? || var == 'theme'
+      end
       effects << 'columns_area componentDidMount removes the matching column' if %w[enable_local_timeline enable_federated_timeline enable_limited_timeline].include?(var)
       effects
     end
 
+    def live_web_ui_effect(var)
+      case var
+      when 'content_font_size'
+        'accepted preference document sets --content-font-size on the document element without reload'
+      when 'info_font_size'
+        'accepted preference document sets --info-font-size on the document element without reload'
+      else
+        'accepted preference document toggles the reduce-motion and no-reduce-motion body classes without reload'
+      end
+    end
+
     def apply_hint_for(var, js, css, html, initial)
       return 'unknown' if var == 'enable_local_timeline'
+      return 'live' if LIVE_WEB_UI.include?(var)
       return 'reload' if css || html.any? || var == 'theme' || var == 'system_font_ui'
       return 'live' if var == 'hide_personal_from_account'
       return 'unknown' if js && js['importers'].zero?
@@ -905,7 +922,11 @@ module SettingsServiceCatalog
       parts << 'Active form input is commented out.' if forms.any? { |field| field['commented'] }
       parts << 'InitialState assigns the literal false and does not read the stored setting.' if initial.any? { |ref| ref['literal'] == false }
       parts << "JavaScript captures #{js['export']} at module evaluation. #{js['importers']} import sites. Redux meta also receives the value on hydrate, but scanned selectors do not read it from state.meta." if js
-      parts << 'Changing the stored value does not by itself update the open WebUI.' if %w[reinitialize reload].include?(apply_hint_for(var, js, @facts[:css_vars]['vars'].include?(var), @facts[:html_classes]['vars'].select { |row| row['var'] == var }, initial))
+      if LIVE_WEB_UI.include?(var)
+        parts << 'The open WebUI applies a valid public value from the accepted preference document without reloading. An invalid or missing public value leaves the current appearance in place.'
+      elsif %w[reinitialize reload].include?(apply_hint_for(var, js, @facts[:css_vars]['vars'].include?(var), @facts[:html_classes]['vars'].select { |row| row['var'] == var }, initial))
+        parts << 'Changing the stored value does not by itself update the open WebUI.'
+      end
       if var == 'default_search_searchability'
         parts << 'InitialState search.default_searchability uses this user setting. InitialState compose.default_searchability uses accounts.searchability. The composer reducer default before hydrate is private. These are different values.'
       end

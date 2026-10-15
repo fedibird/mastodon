@@ -38,7 +38,8 @@ import meta from '../../reducers/meta';
 import settings from '../../reducers/settings';
 import userPreferences from '../../reducers/user_preferences';
 import userPostingStyles from '../../reducers/user_posting_styles';
-import { selectAcceptedTranslationPreferences, selectPreferenceReloadRequired } from '../../selectors/user_preferences';
+import { selectAcceptedTranslationPreferences } from '../../selectors/user_preferences';
+import { applyAcceptedAppearance, resetAppearancePreferences } from '../../utils/appearance_preferences';
 import {
   PREFERENCES_PATH,
   PREFERENCES_STREAM,
@@ -903,7 +904,14 @@ describe('user preferences stream', () => {
       visibility: 'always',
       preferredMode: 'both',
     });
-    expect(selectPreferenceReloadRequired(seeded.getState())).toBe(false);
+    document.body.className = 'app-body theme-contrast';
+    applyAcceptedAppearance(seeded.getState().getIn(['user_preferences', 'document']));
+    expect(document.documentElement.style.getPropertyValue('--content-font-size')).toBe('15px');
+    expect(document.documentElement.style.getPropertyValue('--info-font-size')).toBe('15px');
+    expect(document.body.classList.contains('no-reduce-motion')).toBe(true);
+    expect(document.body.classList.contains('reduce-motion')).toBe(false);
+    expect(document.body.classList.contains('theme-contrast')).toBe(true);
+    expect(seeded.getState().getIn(['compose', 'text'])).toBe('下書きです');
     expect(seeded.getState().get('settings')).toEqual(settingsBefore);
     expect(seeded.getState().get('meta')).toEqual(metaBefore);
     expect(seeded.getState().get('userPostingStyles')).toEqual(stylesBefore);
@@ -916,7 +924,11 @@ describe('user preferences stream', () => {
     expect(seeded.getState().getIn(['compose', 'privacy'])).toBe('unlisted');
     expect(seeded.getState().getIn(['compose', 'default_privacy'])).toBe('public');
     expect(seeded.getState().getIn(['compose', 'default_language'])).toBe('fr');
-    expect(selectPreferenceReloadRequired(seeded.getState())).toBe(true);
+    applyAcceptedAppearance(seeded.getState().getIn(['user_preferences', 'document']));
+    expect(document.documentElement.style.getPropertyValue('--content-font-size')).toBe('18px');
+    expect(document.documentElement.style.getPropertyValue('--info-font-size')).toBe('15px');
+    expect(document.body.classList.contains('theme-contrast')).toBe(true);
+    expect(seeded.getState().getIn(['compose', 'text'])).toBe('下書きです');
     expect(seeded.getState().get('meta')).toEqual(metaBefore);
 
     const reset = seeded.getState().get('compose');
@@ -933,7 +945,12 @@ describe('user preferences stream', () => {
 
     expect(seeded.getState().getIn(['user_preferences', 'document']).preferences['user.default_privacy'].public_value).toBe('public');
     expect(seeded.getState().getIn(['compose', 'default_language'])).toBe('fr');
-    expect(selectPreferenceReloadRequired(seeded.getState())).toBe(true);
+    applyAcceptedAppearance(seeded.getState().getIn(['user_preferences', 'document']));
+    expect(document.documentElement.style.getPropertyValue('--content-font-size')).toBe('18px');
+    resetAppearancePreferences();
+    document.documentElement.style.removeProperty('--content-font-size');
+    document.documentElement.style.removeProperty('--info-font-size');
+    document.body.className = '';
 
     expect(seeded.dispatch(publishAcceptedPreferenceDocument(1, liveDocument('private', 'ja')))).toBe(false);
     expect(seeded.getState().getIn(['compose', 'default_language'])).toBe('fr');

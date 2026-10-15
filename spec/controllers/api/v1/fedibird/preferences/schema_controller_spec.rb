@@ -48,6 +48,9 @@ RSpec.describe Api::V1::Fedibird::Preferences::SchemaController, type: :controll
       expect(font[:ui_range]).to eq(min: 10, max: 20, step: nil)
       expect(font[:public_type]).to eq ['integer']
       expect(font[:legacy_formats]).to eq ['numeric_string']
+      expect(font[:apply_hint]).to eq 'live'
+      expect(body[:schema].find { |item| item[:key] == 'user.info_font_size' }[:apply_hint]).to eq 'live'
+      expect(body[:schema].find { |item| item[:key] == 'user.reduce_motion' }[:apply_hint]).to eq 'live'
       expect(response.body).not_to include('source_refs')
       expect(response.body).not_to include('app/models')
       expect(response.body).not_to include(user.account.username)

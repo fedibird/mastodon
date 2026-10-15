@@ -103,8 +103,6 @@ const collectionSize = (value) => (
 
 const textOf = (value) => (typeof value === 'string' ? value.trim() : '');
 
-const rawText = (value) => (typeof value === 'string' ? value : '');
-
 const composerHasUploadWork = (state) => (
   (state.get('pending_media_attachments') || 0) > 0 ||
   (state.get('pending_exclusive_attachments') || 0) > 0 ||
@@ -139,39 +137,6 @@ export const composerHasDraftContent = (state) => {
   return (
     textOf(state.get('text')) !== '' ||
     textOf(state.get('spoiler_text')) !== '' ||
-    composerHasStructuralDraft(state)
-  );
-};
-
-// commitUserPostingStyle writes 'manual' when the picker applies a style and
-// 'none' when the picker clears it. Auto selection writes 'automatic' or
-// 'saved_default' and never writes 'none'. A surface change clears the origin
-// back to null. Only the two picker origins are an intentional style choice.
-const EXPLICIT_STYLE_ORIGINS = new Set(['manual', 'none']);
-
-const composerHasExplicitReloadChoice = (state) => (
-  EXPLICIT_STYLE_ORIGINS.has(state.getIn(['userPostingStyle', 'selectionOrigin'])) ||
-  state.getIn(['senderIdentity', 'selectionOrigin']) === 'explicit'
-);
-
-// Reload confirmation is separate from composerCanFollowPreferenceSelection.
-// A manual privacy, language, or sensitive change sets dirty with an empty
-// body. Whitespace in the body is typed text. An automatic posting context,
-// surface, managed tag, automatic style, or the default sender is not unsaved
-// work. An explicit style or sender choice is, even when dirty stays false.
-export const composerHasUnsavedReloadWork = (state) => {
-  if (!state || typeof state.get !== 'function') {
-    return false;
-  }
-
-  return (
-    rawText(state.get('text')) !== '' ||
-    rawText(state.get('spoiler_text')) !== '' ||
-    state.get('dirty') === true ||
-    !!state.get('datetime_form') ||
-    !!state.getIn(['media_modal', 'dirty']) ||
-    !!state.getIn(['media_modal', 'id']) ||
-    composerHasExplicitReloadChoice(state) ||
     composerHasStructuralDraft(state)
   );
 };
@@ -259,87 +224,4 @@ export const applyComposerPreferenceDefaults = (state, document) => {
       map.set('language', language);
     }
   });
-};
-
-export const fontSizeBaseline = (value) => {
-  if (typeof value === 'number' && Number.isInteger(value)) {
-    return value;
-  }
-
-  if (typeof value === 'string' && /^-?\d+$/.test(value)) {
-    return Number(value);
-  }
-
-  return undefined;
-};
-
-export const motionBaseline = (value) => (
-  typeof value === 'boolean' ? value : undefined
-);
-
-const baselinePresent = (value) => value !== undefined && value !== null;
-
-export const preferenceBaseline = (state, metaKey, moduleValue) => {
-  if (baselinePresent(moduleValue)) {
-    return moduleValue;
-  }
-
-  if (state && typeof state.hasIn === 'function' && state.hasIn(['meta', metaKey])) {
-    const stored = state.getIn(['meta', metaKey]);
-
-    if (baselinePresent(stored)) {
-      return stored;
-    }
-  }
-
-  return undefined;
-};
-
-export const reloadPreferenceChanged = (document, baselines = {}) => {
-  if (!document) {
-    return false;
-  }
-
-  const fonts = [
-    ['user.content_font_size', baselines.contentFontSize],
-    ['user.info_font_size', baselines.infoFontSize],
-  ];
-
-  for (let index = 0; index < fonts.length; index += 1) {
-    const key = fonts[index][0];
-    const baseline = fontSizeBaseline(fonts[index][1]);
-    const value = acceptedPublicValue(document, key, Number.isInteger);
-
-    if (value !== undefined && baseline !== undefined && value !== baseline) {
-      return true;
-    }
-  }
-
-  const motion = acceptedPublicValue(document, 'user.reduce_motion', isBoolean);
-  const motionBase = motionBaseline(baselines.reduceMotion);
-
-  return motion !== undefined && motionBase !== undefined && motion !== motionBase;
-};
-
-export const stateHasComposerDraft = (state) => {
-  if (!state || typeof state.get !== 'function') {
-    return false;
-  }
-
-  if (composerHasUnsavedReloadWork(state.get('compose'))) {
-    return true;
-  }
-
-  const byId = state.getIn(['composers', 'byId']);
-
-  return !!(byId && typeof byId.some === 'function' && byId.some(composerHasUnsavedReloadWork));
-};
-
-export const confirmPreferenceReload = ({ hasDraft, confirm, reload, message }) => {
-  if (hasDraft && !confirm(message)) {
-    return false;
-  }
-
-  reload();
-  return true;
 };

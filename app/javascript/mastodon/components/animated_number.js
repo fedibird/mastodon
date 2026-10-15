@@ -4,6 +4,7 @@ import { FormattedNumber } from 'react-intl';
 import TransitionMotion from 'react-motion/lib/TransitionMotion';
 import spring from 'react-motion/lib/spring';
 import { reduceMotion } from 'mastodon/initial_state';
+import { reduceMotionNow, watchReduceMotion } from 'mastodon/utils/appearance_preferences';
 
 const obfuscatedCount = count => {
   if (count < 0) {
@@ -25,6 +26,16 @@ export default class AnimatedNumber extends React.PureComponent {
   state = {
     direction: 1,
   };
+
+  componentDidMount () {
+    this.stopReduceMotion = watchReduceMotion(this, reduceMotion);
+  }
+
+  componentWillUnmount () {
+    if (this.stopReduceMotion) {
+      this.stopReduceMotion();
+    }
+  }
 
   componentWillReceiveProps (nextProps) {
     if (nextProps.value > this.props.value) {
@@ -50,7 +61,7 @@ export default class AnimatedNumber extends React.PureComponent {
     const { value, obfuscate } = this.props;
     const { direction } = this.state;
 
-    if (reduceMotion) {
+    if (reduceMotionNow(reduceMotion)) {
       return obfuscate ? obfuscatedCount(value) : <FormattedNumber value={value} />;
     }
 

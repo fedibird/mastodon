@@ -4669,31 +4669,6 @@ body.app-body.layout-single-column.status-timeline-split {
   height: 100%;
 }
 
-.preference-reload-notice {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: space-between;
-  margin: 8px 8px 0;
-  padding: 8px 12px;
-  border-radius: 4px;
-  background: lighten($ui-base-color, 8%);
-  color: $primary-text-color;
-  font-size: 14px;
-  line-height: 18px;
-
-  &__text {
-    margin: 0;
-  }
-
-  .button {
-    flex: 0 0 auto;
-    height: 32px;
-    line-height: 32px;
-    margin-left: 12px;
-  }
-}
-
 .drawer {
   width: 300px;
   box-sizing: border-box;
