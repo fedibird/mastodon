@@ -10,6 +10,7 @@ export const USER_PREFERENCES_FETCH_REQUEST = 'USER_PREFERENCES_FETCH_REQUEST';
 export const USER_PREFERENCES_FETCH_SUCCESS = 'USER_PREFERENCES_FETCH_SUCCESS';
 export const USER_PREFERENCES_FETCH_FAIL = 'USER_PREFERENCES_FETCH_FAIL';
 export const USER_PREFERENCES_AUTHORIZATION_BLOCKED = 'USER_PREFERENCES_AUTHORIZATION_BLOCKED';
+export const USER_PREFERENCES_DOCUMENT_ACCEPTED = 'USER_PREFERENCES_DOCUMENT_ACCEPTED';
 
 export const PREFERENCES_PATH = '/api/v1/fedibird/preferences';
 export const PREFERENCES_STREAM = 'user:preferences';
@@ -99,6 +100,27 @@ const httpStatus = (error) => (
   error && error.response && Number.isInteger(error.response.status) ? error.response.status : null
 );
 
+// Other slices must not handle FETCH_SUCCESS themselves. The user_preferences
+// reducer accepts or rejects that action first. This publishes the same
+// document only when that reducer kept it for this serial.
+export function publishAcceptedPreferenceDocument(requestSerial, document) {
+  return (dispatch, getState) => {
+    const prefs = getState().get('user_preferences');
+
+    if (!prefs || prefs.get('acceptedSerial') !== requestSerial || prefs.get('document') !== document) {
+      return false;
+    }
+
+    dispatch(quiet({
+      type: USER_PREFERENCES_DOCUMENT_ACCEPTED,
+      serial: requestSerial,
+      document,
+    }));
+
+    return true;
+  };
+}
+
 // GET /api/v1/fedibird/preferences returns { version, preferences } and does
 // not include a revision. lastEventRevision is the highest accepted
 // preferences_changed revision, not a confirmed revision of the stored
@@ -186,6 +208,7 @@ export function connectUserPreferences(scopes = WEB_UI_SESSION_SCOPES) {
             serial: requestSerial,
             document,
           }));
+          dispatch(publishAcceptedPreferenceDocument(requestSerial, document));
         }
 
         if (!disposed && followUp && !blocked) {

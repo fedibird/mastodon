@@ -6,6 +6,8 @@ const initialState = element && JSON.parse(element.textContent);
 const getMeta = (prop) => initialState && initialState.meta && initialState.meta[prop];
 
 export const reduceMotion = getMeta('reduce_motion');
+export const contentFontSize = getMeta('content_font_size');
+export const infoFontSize = getMeta('info_font_size');
 export const autoPlayAvatar = getMeta('auto_play_avatar');
 export const autoPlayEmoji = getMeta('auto_play_emoji');
 export const autoPlayHeader = getMeta('auto_play_header');

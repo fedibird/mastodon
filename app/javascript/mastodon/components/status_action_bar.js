@@ -13,6 +13,7 @@ import { revealStatusTranslationBar } from '../actions/translation_bar';
 import { canEditStatus, editableStatus } from '../utils/status_edit';
 import { copyStatusSource } from '../actions/statuses';
 import { translationPairStatus } from '../utils/translation_languages';
+import { selectAcceptedTranslationPreferences } from '../selectors/user_preferences';
 import { translationBarEffectivelyVisible, viewerTranslationPair } from '../utils/translation_view';
 
 import ReactionPickerDropdownContainer from '../containers/reaction_picker_dropdown_container';
@@ -110,6 +111,7 @@ const mapStateToProps = (state, { status, translationStatus }) => {
     composePrivacy: state.getIn(['compose', 'privacy']),
     editing: !!state.getIn(['compose', 'id']),
     translationBarRevealed: translationBarRevealed(state, subject),
+    acceptedTranslationBarVisibility: selectAcceptedTranslationPreferences(state).visibility,
     translationAssumption: state.getIn(['translation_assumptions', subject.get('id')]),
     translationTarget: state.getIn(['settings', 'translation', 'targetLanguage']),
     languages: state.getIn(['server', 'translationLanguages', 'items']),
@@ -168,6 +170,7 @@ class StatusActionBar extends ImmutablePureComponent {
     emojiReactioned: PropTypes.bool,
     reactionLimitReached: PropTypes.bool,
     translationBarRevealed: PropTypes.bool,
+    acceptedTranslationBarVisibility: PropTypes.string,
     translationAssumption: PropTypes.oneOfType([PropTypes.string, ImmutablePropTypes.map]),
     translationTarget: PropTypes.string,
     languages: ImmutablePropTypes.map,
@@ -421,14 +424,16 @@ class StatusActionBar extends ImmutablePureComponent {
   }
 
   showTranslationBarMenu = (intl) => {
-    if (!translationBarVisibility) {
+    const visibility = this.props.acceptedTranslationBarVisibility || translationBarVisibility;
+
+    if (!visibility) {
       return false;
     }
 
     const pair = viewerTranslationPair(translationPairStatus(this.props.status), this.props.translationAssumption, intl.locale, this.props.translationTarget);
 
     return !translationBarEffectivelyVisible({
-      visibility: translationBarVisibility,
+      visibility,
       revealed: this.props.translationBarRevealed,
       source: pair.source,
       target: pair.target,
