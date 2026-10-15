@@ -103,6 +103,8 @@ const collectionSize = (value) => (
 
 const textOf = (value) => (typeof value === 'string' ? value.trim() : '');
 
+const rawText = (value) => (typeof value === 'string' ? value : '');
+
 const composerHasUploadWork = (state) => (
   (state.get('pending_media_attachments') || 0) > 0 ||
   (state.get('pending_exclusive_attachments') || 0) > 0 ||
@@ -114,6 +116,21 @@ const composerHasUploadWork = (state) => (
   state.get('isUploadingThumbnail') === true
 );
 
+const composerHasStructuralDraft = (state) => (
+  state.get('spoiler') === true ||
+  collectionSize(state.get('media_attachments')) > 0 ||
+  composerHasUploadWork(state) ||
+  !!state.get('poll') ||
+  !!state.get('in_reply_to') ||
+  !!state.get('quote_from') ||
+  !!state.get('id') ||
+  !!state.get('scheduled') ||
+  !!state.get('scheduled_status_id') ||
+  collectionSize(state.get('references')) > 0 ||
+  collectionSize(state.get('context_references')) > 0 ||
+  state.get('redraftMediaUnconfirmed') === true
+);
+
 export const composerHasDraftContent = (state) => {
   if (!state || typeof state.get !== 'function') {
     return false;
@@ -122,18 +139,27 @@ export const composerHasDraftContent = (state) => {
   return (
     textOf(state.get('text')) !== '' ||
     textOf(state.get('spoiler_text')) !== '' ||
-    state.get('spoiler') === true ||
-    collectionSize(state.get('media_attachments')) > 0 ||
-    composerHasUploadWork(state) ||
-    !!state.get('poll') ||
-    !!state.get('in_reply_to') ||
-    !!state.get('quote_from') ||
-    !!state.get('id') ||
-    !!state.get('scheduled') ||
-    !!state.get('scheduled_status_id') ||
-    collectionSize(state.get('references')) > 0 ||
-    collectionSize(state.get('context_references')) > 0 ||
-    state.get('redraftMediaUnconfirmed') === true
+    composerHasStructuralDraft(state)
+  );
+};
+
+// Reload confirmation is separate from composerCanFollowPreferenceSelection.
+// A manual privacy, language, or sensitive change sets dirty with an empty
+// body. Whitespace in the body is typed text. An automatic posting context,
+// surface, or managed tag from the open timeline is not unsaved work.
+export const composerHasUnsavedReloadWork = (state) => {
+  if (!state || typeof state.get !== 'function') {
+    return false;
+  }
+
+  return (
+    rawText(state.get('text')) !== '' ||
+    rawText(state.get('spoiler_text')) !== '' ||
+    state.get('dirty') === true ||
+    !!state.get('datetime_form') ||
+    !!state.getIn(['media_modal', 'dirty']) ||
+    !!state.getIn(['media_modal', 'id']) ||
+    composerHasStructuralDraft(state)
   );
 };
 
@@ -287,13 +313,13 @@ export const stateHasComposerDraft = (state) => {
     return false;
   }
 
-  if (composerHasDraftContent(state.get('compose'))) {
+  if (composerHasUnsavedReloadWork(state.get('compose'))) {
     return true;
   }
 
   const byId = state.getIn(['composers', 'byId']);
 
-  return !!(byId && typeof byId.some === 'function' && byId.some(composerHasDraftContent));
+  return !!(byId && typeof byId.some === 'function' && byId.some(composerHasUnsavedReloadWork));
 };
 
 export const confirmPreferenceReload = ({ hasDraft, confirm, reload, message }) => {

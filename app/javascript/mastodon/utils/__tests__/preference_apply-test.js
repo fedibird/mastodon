@@ -18,6 +18,8 @@ import {
   acceptedPublicValue,
   acceptedTranslationPreferences,
   composerCanFollowPreferenceSelection,
+  composerHasDraftContent,
+  composerHasUnsavedReloadWork,
   confirmPreferenceReload,
   reloadPreferenceChanged,
   stateHasComposerDraft,
@@ -327,6 +329,89 @@ describe('preference reload confirmation', () => {
     });
 
     expect(stateHasComposerDraft(state)).toBe(true);
-    expect(stateHasComposerDraft(state.setIn(['composers', 'byId', 'composer-a', 'text'], '  '))).toBe(false);
+    expect(stateHasComposerDraft(state.setIn(['composers', 'byId', 'composer-a', 'text'], '  '))).toBe(true);
+  });
+
+  const storeWith = (compose, portables = {}) => ImmutableMap({
+    compose: ImmutableMap({ text: '', dirty: false }).merge(compose),
+    composers: ImmutableMap({
+      byId: ImmutableMap(Object.keys(portables).reduce((byId, id) => {
+        byId[id] = ImmutableMap({ text: '', dirty: false }).merge(portables[id]);
+        return byId;
+      }, {})),
+    }),
+  });
+
+  it('asks to confirm a manual privacy, language, or sensitive change with an empty body', () => {
+    const privacy = storeWith({ privacy: 'unlisted', dirty: true });
+    const language = storeWith({ language: 'ja', dirty: true });
+    const sensitive = storeWith({ sensitive: true, dirty: true });
+
+    [privacy, language, sensitive].forEach(state => {
+      expect(stateHasComposerDraft(state)).toBe(true);
+      expect(composerHasUnsavedReloadWork(state.get('compose'))).toBe(true);
+      expect(composerHasDraftContent(state.get('compose'))).toBe(false);
+      expect(composerCanFollowPreferenceSelection(state.get('compose'))).toBe(false);
+    });
+  });
+
+  it('treats whitespace as typed text and a non-empty body as unsaved work', () => {
+    const spaces = storeWith({ text: '   ' });
+    const typed = storeWith({ text: 'hello', dirty: true });
+
+    expect(composerHasDraftContent(spaces.get('compose'))).toBe(false);
+    expect(composerHasUnsavedReloadWork(spaces.get('compose'))).toBe(true);
+    expect(composerCanFollowPreferenceSelection(spaces.get('compose'))).toBe(true);
+    expect(stateHasComposerDraft(spaces)).toBe(true);
+    expect(stateHasComposerDraft(typed)).toBe(true);
+    expect(stateHasComposerDraft(storeWith({ text: '' }))).toBe(false);
+  });
+
+  it('confirms when only a portable composer has unsaved work', () => {
+    const state = storeWith({}, {
+      'composer-a': { text: '', dirty: false },
+      'composer-b': { text: '', privacy: 'private', dirty: true },
+    });
+
+    expect(stateHasComposerDraft(state)).toBe(true);
+    expect(composerHasUnsavedReloadWork(state.get('compose'))).toBe(false);
+  });
+
+  it('confirms for an open datetime form, media edit, upload, reply, quote, edit, schedule, or redraft', () => {
+    const cases = [
+      { datetime_form: true },
+      { media_modal: ImmutableMap({ id: 'media-1', dirty: true, description: 'alt' }) },
+      { is_uploading: true, pending_media_attachments: 1 },
+      { in_reply_to: '1' },
+      { quote_from: '2' },
+      { id: '9' },
+      { scheduled: '2026-10-15T00:00:00Z', scheduled_status_id: '4' },
+      { redraftMediaUnconfirmed: true },
+      { spoiler_text: ' ' },
+    ];
+
+    cases.forEach(fields => {
+      expect(stateHasComposerDraft(storeWith(fields))).toBe(true);
+    });
+  });
+
+  it('does not confirm for an idle composer or an automatic posting context', () => {
+    const idle = composer(undefined, { type: '@@INIT' });
+    const contextual = idle
+      .set('surface', ImmutableMap({ kind: 'hashtag', key: 'fedibird' }))
+      .set('posting_context_account_id', '1')
+      .setIn(['context', 'key'], 'builtin:hashtag:fedibird')
+      .setIn(['context', 'source'], 'timeline')
+      .setIn(['context', 'managed', 'hashtags'], ImmutableList([ImmutableMap({ name: 'fedibird' })]));
+
+    expect(composerCanFollowPreferenceSelection(idle)).toBe(true);
+    expect(composerHasUnsavedReloadWork(idle)).toBe(false);
+    expect(stateHasComposerDraft(storeWith(idle))).toBe(false);
+    expect(composerCanFollowPreferenceSelection(contextual)).toBe(false);
+    expect(composerHasUnsavedReloadWork(contextual)).toBe(false);
+    expect(stateHasComposerDraft(storeWith(contextual))).toBe(false);
+    expect(stateHasComposerDraft(storeWith(contextual, {
+      'composer-context': contextual,
+    }))).toBe(false);
   });
 });
