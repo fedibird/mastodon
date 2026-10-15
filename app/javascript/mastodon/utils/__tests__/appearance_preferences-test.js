@@ -37,6 +37,20 @@ describe('accepted appearance', () => {
     resetAppearancePreferences();
   });
 
+  it('sets font variables inline and does not rewrite the server stylesheet or composer size', () => {
+    const server = document.createElement('style');
+
+    server.textContent = ':root { --content-font-size: 15px; --info-font-size: 15px; --composer-font-size: 14px; }';
+    document.head.appendChild(server);
+    applyAcceptedAppearance(appearanceDocument(18, 12, false));
+
+    expect(server.textContent).toBe(':root { --content-font-size: 15px; --info-font-size: 15px; --composer-font-size: 14px; }');
+    expect(document.documentElement.style.getPropertyValue('--content-font-size')).toBe('18px');
+    expect(document.documentElement.style.getPropertyValue('--info-font-size')).toBe('12px');
+    expect(document.documentElement.style.getPropertyValue('--composer-font-size')).toBe('');
+    server.remove();
+  });
+
   it('applies valid public font sizes and motion without touching other inline styles or body classes', () => {
     const scroller = document.createElement('div');
     scroller.scrollTop = 80;

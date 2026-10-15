@@ -11,7 +11,10 @@ const extractValue = (value) => (
 );
 
 // Same end state as ReducedMotion, without replacing the Motion element.
-// Swapping the component type would remount the animated subtree.
+// Movement and plain numbers jump to the destination. opacity and
+// backgroundOpacity stay springs so a cross-fade can finish from its
+// current value. defaultStyle is only the mount value: turning motion
+// back on does not replay an entrance from that default.
 export const stylesForMotion = (style, defaultStyle, reduced) => {
   if (!reduced || !style || typeof style !== 'object') {
     return { style, defaultStyle };
