@@ -113,6 +113,44 @@ describe('accepted appearance', () => {
     expect(document.documentElement.style.getPropertyValue('--content-font-size')).toBe('16px');
   });
 
+  it('applies form-range bounds and stored integers outside that range', () => {
+    [10, 20, 9, 21, 99, 0, -1].forEach(size => {
+      applyAcceptedAppearance(appearanceDocument(size, size, false));
+
+      expect(document.documentElement.style.getPropertyValue('--content-font-size')).toBe(`${size}px`);
+      expect(document.documentElement.style.getPropertyValue('--info-font-size')).toBe(`${size}px`);
+      expect(document.body.classList.contains('no-reduce-motion')).toBe(true);
+    });
+  });
+
+  it('keeps the current font when the public value is the wrong type or not public', () => {
+    applyAcceptedAppearance(appearanceDocument(15, 16, false));
+
+    const wrongType = appearanceDocument('18', 18.5, false, { contentValid: true, infoValid: true });
+    const notPublic = appearanceDocument(10, 20, false, { contentValid: false, infoValid: false, contentConfigured: 99, infoConfigured: '12' });
+
+    expect(acceptedAppearance(wrongType)).toEqual({
+      contentFontSize: undefined,
+      infoFontSize: undefined,
+      reduceMotion: false,
+    });
+    applyAcceptedAppearance(wrongType);
+    applyAcceptedAppearance(notPublic);
+
+    expect(document.documentElement.style.getPropertyValue('--content-font-size')).toBe('15px');
+    expect(document.documentElement.style.getPropertyValue('--info-font-size')).toBe('16px');
+    expect(document.body.classList.contains('no-reduce-motion')).toBe(true);
+  });
+
+  it('applies one in-range or stored integer when the other font is not public', () => {
+    applyAcceptedAppearance(appearanceDocument(15, 16, true));
+    applyAcceptedAppearance(appearanceDocument(9, 99, true, { infoValid: false, infoConfigured: '99' }));
+
+    expect(document.documentElement.style.getPropertyValue('--content-font-size')).toBe('9px');
+    expect(document.documentElement.style.getPropertyValue('--info-font-size')).toBe('16px');
+    expect(document.body.classList.contains('reduce-motion')).toBe(true);
+  });
+
   it('applies one valid key when the others are invalid and ignores configured values', () => {
     applyAcceptedAppearance(appearanceDocument(15, 15, false));
     applyAcceptedAppearance(appearanceDocument(18, 'nope', false, {

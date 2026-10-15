@@ -933,6 +933,19 @@ describe('user preferences stream', () => {
     expect(document.documentElement.style.getPropertyValue('--info-font-size')).toBe('15px');
     expect(document.body.classList.contains('theme-contrast')).toBe(true);
     expect(seeded.getState().getIn(['compose', 'text'])).toBe('下書きです');
+
+    applyAcceptedAppearance({
+      version: 1,
+      preferences: {
+        'user.content_font_size': preferenceEntry('user.content_font_size', 99),
+        'user.info_font_size': preferenceEntry('user.info_font_size', 9, false),
+      },
+    });
+    expect(document.documentElement.style.getPropertyValue('--content-font-size')).toBe('99px');
+    expect(document.documentElement.style.getPropertyValue('--info-font-size')).toBe('15px');
+    expect(seeded.getState().getIn(['compose', 'text'])).toBe('下書きです');
+    expect(seeded.getState().getIn(['compose', 'privacy'])).toBe('unlisted');
+    expect(seeded.getState().getIn(['composers', 'byId', 'composer-draft', 'text'])).toBe('portable');
     expect(seeded.getState().get('meta')).toEqual(metaBefore);
 
     const reset = seeded.getState().get('compose');

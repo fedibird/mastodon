@@ -13,13 +13,20 @@ import { acceptedPublicValue } from './preference_apply';
 
 const isBoolean = value => value === true || value === false;
 
+// Schema ui_range 10..20 is the appearance form slider and
+// WriteContract::FONT_RANGE. It is not the public validity range.
+// public_type is integer, storage_constraint is nil, and Conformance
+// accepts an integer such as 99. The initial :root rule prints that
+// stored integer with no clamp, so live apply uses the same gate.
+const isPublicFontSize = value => Number.isInteger(value);
+
 let reduceMotionPublished = false;
 let reduceMotionValue;
 const reduceMotionListeners = new Set();
 
 export const acceptedAppearance = (document) => ({
-  contentFontSize: acceptedPublicValue(document, 'user.content_font_size', Number.isInteger),
-  infoFontSize: acceptedPublicValue(document, 'user.info_font_size', Number.isInteger),
+  contentFontSize: acceptedPublicValue(document, 'user.content_font_size', isPublicFontSize),
+  infoFontSize: acceptedPublicValue(document, 'user.info_font_size', isPublicFontSize),
   reduceMotion: acceptedPublicValue(document, 'user.reduce_motion', isBoolean),
 });
 
