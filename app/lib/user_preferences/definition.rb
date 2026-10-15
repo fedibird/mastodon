@@ -254,8 +254,8 @@ class UserPreferences::Definition
       key: 'reduce_motion',
       category: :appearance,
       default_source: 'config/settings.yml reduce_motion false when no settings row exists',
-      source_refs: ['config/settings.yml', 'app/helpers/application_helper.rb', 'app/javascript/mastodon/initial_state.js'],
-      apply_hint: :reload
+      source_refs: ['config/settings.yml', 'app/helpers/application_helper.rb', 'app/javascript/mastodon/initial_state.js', 'app/javascript/mastodon/utils/appearance_preferences.js'],
+      apply_hint: :live
     )
   end
 
@@ -276,9 +276,9 @@ class UserPreferences::Definition
       dependencies: [],
       read_policy: :general,
       write_policy: :general,
-      apply_hint: :reload,
+      apply_hint: :live,
       legacy_formats: [:numeric_string],
-      source_refs: ['config/settings.yml', 'app/views/settings/preferences/appearance/show.html.haml', 'app/lib/user_preferences/reader.rb'],
+      source_refs: ['config/settings.yml', 'app/views/settings/preferences/appearance/show.html.haml', 'app/lib/user_preferences/reader.rb', 'app/javascript/mastodon/utils/appearance_preferences.js'],
       api_key_candidate: "user.#{key}",
       storage_constraint: nil
     )

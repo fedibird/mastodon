@@ -6,6 +6,7 @@ import ImmutablePureComponent from 'react-immutable-pure-component';
 import { List } from 'immutable';
 import TransitionMotion from 'react-motion/lib/TransitionMotion';
 import { reduceMotion, me, hideReactionCounter, hideListOfEmojiReactionsToPosts } from 'mastodon/initial_state';
+import { reduceMotionNow, watchReduceMotion } from 'mastodon/utils/appearance_preferences';
 import spring from 'react-motion/lib/spring';
 import EmojiReaction from './emoji_reactions';
 
@@ -30,12 +31,22 @@ export default class EmojiReactionsBar extends ImmutablePureComponent {
     reactionLimitReached: PropTypes.bool,
   };
 
+  componentDidMount () {
+    this.stopReduceMotion = watchReduceMotion(this, reduceMotion);
+  }
+
+  componentWillUnmount () {
+    if (this.stopReduceMotion) {
+      this.stopReduceMotion();
+    }
+  }
+
   willEnter () {
-    return { scale: reduceMotion ? 1 : 0 };
+    return { scale: reduceMotionNow(reduceMotion) ? 1 : 0 };
   }
 
   willLeave () {
-    return { scale: reduceMotion ? 0 : spring(0, { stiffness: 170, damping: 26 }) };
+    return { scale: reduceMotionNow(reduceMotion) ? 0 : spring(0, { stiffness: 170, damping: 26 }) };
   }
 
   render () {
@@ -54,7 +65,7 @@ export default class EmojiReactionsBar extends ImmutablePureComponent {
           emojiReaction: emojiReaction,
           myReaction: emojiReaction.get('account_ids', List()).includes(me),
         },
-        style: { scale: reduceMotion ? 1 : spring(1, { stiffness: 150, damping: 13 }) },
+        style: { scale: reduceMotionNow(reduceMotion) ? 1 : spring(1, { stiffness: 150, damping: 13 }) },
       };
     }).toArray();
 

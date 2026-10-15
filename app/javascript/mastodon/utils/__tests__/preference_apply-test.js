@@ -10,19 +10,12 @@ import composer from '../../reducers/composer';
 import composers from '../../reducers/composers';
 import rootReducer from '../../reducers';
 import { selectPortableComposerSeed } from '../../selectors/composer';
-import {
-  selectAcceptedTranslationPreferences,
-  selectPreferenceReloadRequired,
-} from '../../selectors/user_preferences';
+import { selectAcceptedTranslationPreferences } from '../../selectors/user_preferences';
 import {
   acceptedPublicValue,
   acceptedTranslationPreferences,
   composerCanFollowPreferenceSelection,
   composerHasDraftContent,
-  composerHasUnsavedReloadWork,
-  confirmPreferenceReload,
-  reloadPreferenceChanged,
-  stateHasComposerDraft,
 } from '../preference_apply';
 
 const entry = (key, publicValue, options = {}) => ({
@@ -52,12 +45,6 @@ const apply = (state, document) => composer(state, {
   type: USER_PREFERENCES_DOCUMENT_ACCEPTED,
   serial: 4,
   document,
-});
-
-const fontDocument = (content, info, motion, options = {}) => documentWith({
-  'user.content_font_size': entry('user.content_font_size', content, { valid: options.contentValid }),
-  'user.info_font_size': entry('user.info_font_size', info, { valid: options.infoValid }),
-  'user.reduce_motion': entry('user.reduce_motion', motion, { valid: options.motionValid }),
 });
 
 describe('accepted public values', () => {
@@ -102,18 +89,6 @@ describe('accepted public values', () => {
       'user.new_features_policy': entry('user.new_features_policy', 'sometimes', { valid: false }),
     })).visibility).toBe(null);
     expect(acceptedTranslationPreferences(null)).toEqual({ visibility: null, preferredMode: null });
-  });
-
-  it('compares reload keys with the page baseline and ignores an unchanged first read', () => {
-    const baselines = { contentFontSize: '15', infoFontSize: 15, reduceMotion: false };
-
-    expect(reloadPreferenceChanged(fontDocument(15, '15', false), baselines)).toBe(false);
-    expect(reloadPreferenceChanged(fontDocument(18, 15, false), baselines)).toBe(true);
-    expect(reloadPreferenceChanged(fontDocument(15, 16, false), baselines)).toBe(true);
-    expect(reloadPreferenceChanged(fontDocument(15, 15, true), baselines)).toBe(true);
-    expect(reloadPreferenceChanged(fontDocument('18', 15, false, { contentValid: false }), baselines)).toBe(false);
-    expect(reloadPreferenceChanged(fontDocument(18, 15, false), {})).toBe(false);
-    expect(reloadPreferenceChanged(null, baselines)).toBe(false);
   });
 });
 
@@ -275,18 +250,9 @@ describe('composer preference defaults', () => {
     expect(after.getIn(['compose', 'default_language'])).toBe('ja');
   });
 
-  it('reads translation and reload state from the accepted document only', () => {
-    const document = postingDocument({
-      'user.content_font_size': entry('user.content_font_size', 18),
-      'user.info_font_size': entry('user.info_font_size', 15),
-      'user.reduce_motion': entry('user.reduce_motion', false),
-    });
+  it('reads translation state from the accepted document only', () => {
+    const document = postingDocument();
     const state = ImmutableMap({
-      meta: ImmutableMap({
-        content_font_size: 15,
-        info_font_size: 15,
-        reduce_motion: false,
-      }),
       user_preferences: ImmutableMap({ document }),
     });
 
@@ -294,177 +260,27 @@ describe('composer preference defaults', () => {
       visibility: 'always',
       preferredMode: 'bilingual',
     });
-    expect(selectPreferenceReloadRequired(state)).toBe(true);
-    expect(selectPreferenceReloadRequired(state.setIn(['user_preferences', 'document'], fontDocument(15, 15, false)))).toBe(false);
     expect(selectAcceptedTranslationPreferences(ImmutableMap())).toEqual({ visibility: null, preferredMode: null });
   });
-});
 
-describe('preference reload confirmation', () => {
-  it('reloads immediately when nothing is drafted and asks before discarding a draft', () => {
-    const reload = jest.fn();
-    const confirm = jest.fn(() => false);
-
-    expect(confirmPreferenceReload({ hasDraft: false, confirm, reload, message: 'lose drafts?' })).toBe(true);
-    expect(confirm).not.toHaveBeenCalled();
-    expect(reload).toHaveBeenCalledTimes(1);
-
-    expect(confirmPreferenceReload({ hasDraft: true, confirm, reload, message: 'lose drafts?' })).toBe(false);
-    expect(confirm).toHaveBeenCalledWith('lose drafts?');
-    expect(reload).toHaveBeenCalledTimes(1);
-
-    confirm.mockReturnValue(true);
-    expect(confirmPreferenceReload({ hasDraft: true, confirm, reload, message: 'lose drafts?' })).toBe(true);
-    expect(reload).toHaveBeenCalledTimes(2);
-  });
-
-  it('treats a portable draft as unsaved work', () => {
-    const state = ImmutableMap({
-      compose: ImmutableMap({ text: '' }),
-      composers: ImmutableMap({
-        byId: ImmutableMap({
-          'composer-a': ImmutableMap({ text: 'portable draft' }),
-        }),
-      }),
-    });
-
-    expect(stateHasComposerDraft(state)).toBe(true);
-    expect(stateHasComposerDraft(state.setIn(['composers', 'byId', 'composer-a', 'text'], '  '))).toBe(true);
-  });
-
-  const storeWith = (compose, portables = {}) => ImmutableMap({
-    compose: ImmutableMap({ text: '', dirty: false }).merge(compose),
-    composers: ImmutableMap({
-      byId: ImmutableMap(Object.keys(portables).reduce((byId, id) => {
-        byId[id] = ImmutableMap({ text: '', dirty: false }).merge(portables[id]);
-        return byId;
-      }, {})),
-    }),
-  });
-
-  it('asks to confirm a manual privacy, language, or sensitive change with an empty body', () => {
-    const privacy = storeWith({ privacy: 'unlisted', dirty: true });
-    const language = storeWith({ language: 'ja', dirty: true });
-    const sensitive = storeWith({ sensitive: true, dirty: true });
-
-    [privacy, language, sensitive].forEach(state => {
-      expect(stateHasComposerDraft(state)).toBe(true);
-      expect(composerHasUnsavedReloadWork(state.get('compose'))).toBe(true);
-      expect(composerHasDraftContent(state.get('compose'))).toBe(false);
-      expect(composerCanFollowPreferenceSelection(state.get('compose'))).toBe(false);
-    });
-  });
-
-  it('treats whitespace as typed text and a non-empty body as unsaved work', () => {
-    const spaces = storeWith({ text: '   ' });
-    const typed = storeWith({ text: 'hello', dirty: true });
-
-    expect(composerHasDraftContent(spaces.get('compose'))).toBe(false);
-    expect(composerHasUnsavedReloadWork(spaces.get('compose'))).toBe(true);
-    expect(composerCanFollowPreferenceSelection(spaces.get('compose'))).toBe(true);
-    expect(stateHasComposerDraft(spaces)).toBe(true);
-    expect(stateHasComposerDraft(typed)).toBe(true);
-    expect(stateHasComposerDraft(storeWith({ text: '' }))).toBe(false);
-  });
-
-  it('confirms when only a portable composer has unsaved work', () => {
-    const state = storeWith({}, {
-      'composer-a': { text: '', dirty: false },
-      'composer-b': { text: '', privacy: 'private', dirty: true },
-    });
-
-    expect(stateHasComposerDraft(state)).toBe(true);
-    expect(composerHasUnsavedReloadWork(state.get('compose'))).toBe(false);
-  });
-
-  it('confirms for an open datetime form, media edit, upload, reply, quote, edit, schedule, or redraft', () => {
-    const cases = [
-      { datetime_form: true },
-      { media_modal: ImmutableMap({ id: 'media-1', dirty: true, description: 'alt' }) },
-      { is_uploading: true, pending_media_attachments: 1 },
-      { in_reply_to: '1' },
-      { quote_from: '2' },
-      { id: '9' },
-      { scheduled: '2026-10-15T00:00:00Z', scheduled_status_id: '4' },
-      { redraftMediaUnconfirmed: true },
-      { spoiler_text: ' ' },
-    ];
-
-    cases.forEach(fields => {
-      expect(stateHasComposerDraft(storeWith(fields))).toBe(true);
-    });
-  });
-
-  it('does not confirm for an idle composer or an automatic posting context', () => {
+  it('does not follow a dirty empty composer, whitespace, or an explicit style choice', () => {
     const idle = composer(undefined, { type: '@@INIT' });
-    const contextual = idle
-      .set('surface', ImmutableMap({ kind: 'hashtag', key: 'fedibird' }))
-      .set('posting_context_account_id', '1')
-      .setIn(['context', 'key'], 'builtin:hashtag:fedibird')
-      .setIn(['context', 'source'], 'timeline')
-      .setIn(['context', 'managed', 'hashtags'], ImmutableList([ImmutableMap({ name: 'fedibird' })]));
+    const dirty = idle.set('privacy', 'unlisted').set('dirty', true);
+    const spaces = idle.set('text', '   ');
+    const manual = idle.setIn(['userPostingStyle', 'selectionOrigin'], 'manual');
+    const cleared = idle.setIn(['userPostingStyle', 'selectionOrigin'], 'none');
+    const explicitSender = idle.setIn(['senderIdentity', 'selectionOrigin'], 'explicit');
+    const automatic = idle.setIn(['userPostingStyle', 'selectionOrigin'], 'automatic');
 
+    expect(composerHasDraftContent(dirty)).toBe(false);
+    expect(composerCanFollowPreferenceSelection(dirty)).toBe(false);
+    expect(composerHasDraftContent(spaces)).toBe(false);
+    expect(composerCanFollowPreferenceSelection(spaces)).toBe(true);
+    expect(composerHasDraftContent(manual)).toBe(false);
+    expect(composerCanFollowPreferenceSelection(manual)).toBe(false);
+    expect(composerCanFollowPreferenceSelection(cleared)).toBe(false);
+    expect(composerCanFollowPreferenceSelection(explicitSender)).toBe(false);
+    expect(composerCanFollowPreferenceSelection(automatic)).toBe(false);
     expect(composerCanFollowPreferenceSelection(idle)).toBe(true);
-    expect(composerHasUnsavedReloadWork(idle)).toBe(false);
-    expect(stateHasComposerDraft(storeWith(idle))).toBe(false);
-    expect(composerCanFollowPreferenceSelection(contextual)).toBe(false);
-    expect(composerHasUnsavedReloadWork(contextual)).toBe(false);
-    expect(stateHasComposerDraft(storeWith(contextual))).toBe(false);
-    expect(stateHasComposerDraft(storeWith(contextual, {
-      'composer-context': contextual,
-    }))).toBe(false);
-  });
-
-  it('confirms an explicit posting style or sender and ignores automatic ones', () => {
-    const manualStyle = {
-      text: '',
-      dirty: false,
-      userPostingStyle: ImmutableMap({ selectionOrigin: 'manual', selectedId: 'style-1' }),
-    };
-    const clearedStyle = {
-      text: '',
-      dirty: false,
-      userPostingStyle: ImmutableMap({ selectionOrigin: 'none', selectedId: null }),
-    };
-    const explicitSender = {
-      text: '',
-      dirty: false,
-      senderIdentity: ImmutableMap({ id: 'delegated:9', selectionOrigin: 'explicit', status: 'ready' }),
-    };
-
-    [manualStyle, clearedStyle, explicitSender].forEach(fields => {
-      expect(stateHasComposerDraft(storeWith(fields))).toBe(true);
-      expect(composerHasDraftContent(storeWith(fields).get('compose'))).toBe(false);
-    });
-
-    expect(stateHasComposerDraft(storeWith({}, {
-      'composer-style': manualStyle,
-    }))).toBe(true);
-    expect(stateHasComposerDraft(storeWith({}, {
-      'composer-sender': explicitSender,
-    }))).toBe(true);
-
-    ['automatic', 'saved_default'].forEach(origin => {
-      const automatic = storeWith({
-        text: '',
-        dirty: false,
-        userPostingStyle: ImmutableMap({ selectionOrigin: origin, selectedId: 'style-1' }),
-        senderIdentity: ImmutableMap({ id: 'local:1', selectionOrigin: 'default', status: 'ready' }),
-      });
-
-      expect(composerHasUnsavedReloadWork(automatic.get('compose'))).toBe(false);
-      expect(composerCanFollowPreferenceSelection(automatic.get('compose'))).toBe(false);
-      expect(stateHasComposerDraft(automatic)).toBe(false);
-    });
-
-    const releasedBySurface = storeWith({
-      text: '',
-      dirty: false,
-      surface: ImmutableMap({ kind: 'group', key: '123' }),
-      userPostingStyle: ImmutableMap({ selectionOrigin: null, selectedId: null }),
-    });
-
-    expect(stateHasComposerDraft(releasedBySurface)).toBe(false);
-    expect(composerCanFollowPreferenceSelection(storeWith(manualStyle).get('compose'))).toBe(false);
   });
 });

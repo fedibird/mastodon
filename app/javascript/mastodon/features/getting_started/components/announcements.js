@@ -7,6 +7,7 @@ import IconButton from 'mastodon/components/icon_button';
 import Icon from 'mastodon/components/icon';
 import { defineMessages, injectIntl, FormattedMessage, FormattedDate } from 'react-intl';
 import { autoPlayEmoji, reduceMotion, disableSwiping } from 'mastodon/initial_state';
+import { reduceMotionNow, watchReduceMotion } from 'mastodon/utils/appearance_preferences';
 import elephantUIPlane from 'mastodon/../images/elephant_ui_plane.svg';
 import { mascot } from 'mastodon/initial_state';
 import unicodeMapping from 'mastodon/features/emoji/emoji_unicode_mapping_light';
@@ -271,17 +272,27 @@ class ReactionsBar extends ImmutablePureComponent {
     emojiMap: ImmutablePropTypes.map.isRequired,
   };
 
+  componentDidMount () {
+    this.stopReduceMotion = watchReduceMotion(this, reduceMotion);
+  }
+
+  componentWillUnmount () {
+    if (this.stopReduceMotion) {
+      this.stopReduceMotion();
+    }
+  }
+
   handleEmojiPick = data => {
     const { addReaction, announcementId } = this.props;
     addReaction(announcementId, data.native.replace(/:/g, ''));
   }
 
   willEnter () {
-    return { scale: reduceMotion ? 1 : 0 };
+    return { scale: reduceMotionNow(reduceMotion) ? 1 : 0 };
   }
 
   willLeave () {
-    return { scale: reduceMotion ? 0 : spring(0, { stiffness: 170, damping: 26 }) };
+    return { scale: reduceMotionNow(reduceMotion) ? 0 : spring(0, { stiffness: 170, damping: 26 }) };
   }
 
   render () {
@@ -291,7 +302,7 @@ class ReactionsBar extends ImmutablePureComponent {
     const styles = visibleReactions.map(reaction => ({
       key: reaction.get('name'),
       data: reaction,
-      style: { scale: reduceMotion ? 1 : spring(1, { stiffness: 150, damping: 13 }) },
+      style: { scale: reduceMotionNow(reduceMotion) ? 1 : spring(1, { stiffness: 150, damping: 13 }) },
     })).toArray();
 
     return (
@@ -407,7 +418,14 @@ class Announcements extends ImmutablePureComponent {
   }
 
   componentDidMount () {
+    this.stopReduceMotion = watchReduceMotion(this, reduceMotion);
     this._markAnnouncementAsRead();
+  }
+
+  componentWillUnmount () {
+    if (this.stopReduceMotion) {
+      this.stopReduceMotion();
+    }
   }
 
   componentDidUpdate () {
@@ -446,7 +464,7 @@ class Announcements extends ImmutablePureComponent {
         <img className='announcements__mastodon' alt='' draggable='false' src={mascot || elephantUIPlane} />
 
         <div className='announcements__container'>
-          <ReactSwipeableViews animateHeight animateTransitions={!reduceMotion} index={index} onChangeIndex={this.handleChangeIndex}>
+          <ReactSwipeableViews animateHeight animateTransitions={!reduceMotionNow(reduceMotion)} index={index} onChangeIndex={this.handleChangeIndex}>
             {announcements.map((announcement, idx) => (
               <Announcement
                 key={announcement.get('id')}

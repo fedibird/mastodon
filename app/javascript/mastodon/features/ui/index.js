@@ -36,7 +36,7 @@ import { fetchServerTranslationLanguages } from '../../actions/server';
 import { getHomeVisibilities } from 'mastodon/selectors';
 import { WrappedSwitch, WrappedRoute } from './util/react_router_helpers';
 import UploadArea from './components/upload_area';
-import PreferenceReloadNotice from './components/preference_reload_notice';
+import AppearancePreferences from './components/appearance_preferences';
 import HashtagMenuController from './components/hashtag_menu_controller';
 import ColumnsAreaContainer from './containers/columns_area_container';
 import DocumentTitle from './components/document_title';
@@ -722,7 +722,7 @@ class UI extends React.PureComponent {
     return (
       <HotKeys keyMap={keyMap} handlers={handlers} ref={this.setHotkeysRef} attach={window} focused>
         <div className={classNames('ui', { 'is-composing': isComposing })} ref={this.setRef} style={{ pointerEvents: dropdownMenuIsOpen ? 'none' : null }}>
-          <PreferenceReloadNotice />
+          <AppearancePreferences />
           <SwitchingColumnsArea location={location} mobile={layout === 'mobile' || layout === 'single-column'} advancedMode={advancedMode} openPostsFirst={openPostsFirst}>
             {children}
           </SwitchingColumnsArea>

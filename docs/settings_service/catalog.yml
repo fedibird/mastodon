@@ -819,8 +819,8 @@ entries:
   side_effects:
   - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
   - 'UserSettingsDecorator without a LegacyWriter refuses a non-nil nine-key write before saving anything'
-  - document CSS variables; reload required
-  apply_hint: reload
+  - accepted preference document sets --content-font-size on the document element without reload
+  apply_hint: live
   client_reference:
   - redux_meta_hydrated_unread
   - css_variable
@@ -839,7 +839,9 @@ entries:
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group string. Getter is delegated to ScopedSettings with prefix
-    setting. Changing the stored value does not by itself update the open WebUI.'
+    setting. The open WebUI applies a valid public value from the accepted preference
+    document without reloading. An invalid or missing public value leaves the current
+    appearance in place.'
 - key: user.crop_images
   category: appearance
   owner: user
@@ -4532,8 +4534,8 @@ entries:
   side_effects:
   - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
   - 'UserSettingsDecorator without a LegacyWriter refuses a non-nil nine-key write before saving anything'
-  - document CSS variables; reload required
-  apply_hint: reload
+  - accepted preference document sets --info-font-size on the document element without reload
+  apply_hint: live
   client_reference:
   - redux_meta_hydrated_unread
   - css_variable
@@ -4552,7 +4554,9 @@ entries:
   audit_status: verified
   notes: 'Recommendation only: read_policy and write_policy are not an approved API
     contract. Decorator group string. Getter is delegated to ScopedSettings with prefix
-    setting. Changing the stored value does not by itself update the open WebUI.'
+    setting. The open WebUI applies a valid public value from the accepted preference
+    document without reloading. An invalid or missing public value leaves the current
+    appearance in place.'
 - key: user.match_visibility_of_references
   category: posting
   owner: user
@@ -5082,8 +5086,8 @@ entries:
   side_effects:
   - 'form LegacyWriter: a real change advances revision and after COMMIT runs rewrite_cache, legacy cache delete, and preferences_changed; a same-value resubmit does not'
   - 'UserSettingsDecorator without a LegacyWriter refuses a non-nil nine-key write before saving anything'
-  - body class or theme stylesheet; reload required
-  apply_hint: reload
+  - accepted preference document toggles the reduce-motion and no-reduce-motion body classes without reload
+  apply_hint: live
   client_reference:
   - static_import
   - redux_meta_hydrated_unread
@@ -5106,8 +5110,9 @@ entries:
     contract. Decorator group boolean. Getter is delegated to ScopedSettings with
     prefix setting. JavaScript captures reduceMotion at module evaluation. 4 import
     sites. Redux meta also receives the value on hydrate, but scanned selectors do
-    not read it from state.meta. Changing the stored value does not by itself update
-    the open WebUI.'
+    not read it from state.meta. The open WebUI applies a valid public value from
+    the accepted preference document without reloading. An invalid or missing public
+    value leaves the current appearance in place.'
 - key: user.show_application
   category: posting
   owner: user

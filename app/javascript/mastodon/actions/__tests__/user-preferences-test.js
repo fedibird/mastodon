@@ -1,5 +1,8 @@
+import { act, render } from '@testing-library/react';
 import { applyMiddleware, createStore } from 'redux';
 import { combineReducers } from 'redux-immutable';
+import React from 'react';
+import { Provider } from 'react-redux';
 import thunk from 'redux-thunk';
 
 jest.mock('react-intl', () => ({
@@ -38,7 +41,9 @@ import meta from '../../reducers/meta';
 import settings from '../../reducers/settings';
 import userPreferences from '../../reducers/user_preferences';
 import userPostingStyles from '../../reducers/user_posting_styles';
-import { selectAcceptedTranslationPreferences, selectPreferenceReloadRequired } from '../../selectors/user_preferences';
+import AppearancePreferences from '../../features/ui/components/appearance_preferences';
+import { selectAcceptedTranslationPreferences } from '../../selectors/user_preferences';
+import { applyAcceptedAppearance, reduceMotionNow, resetAppearancePreferences, subscribeReduceMotion } from '../../utils/appearance_preferences';
 import {
   PREFERENCES_PATH,
   PREFERENCES_STREAM,
@@ -903,7 +908,14 @@ describe('user preferences stream', () => {
       visibility: 'always',
       preferredMode: 'both',
     });
-    expect(selectPreferenceReloadRequired(seeded.getState())).toBe(false);
+    document.body.className = 'app-body theme-contrast';
+    applyAcceptedAppearance(seeded.getState().getIn(['user_preferences', 'document']));
+    expect(document.documentElement.style.getPropertyValue('--content-font-size')).toBe('15px');
+    expect(document.documentElement.style.getPropertyValue('--info-font-size')).toBe('15px');
+    expect(document.body.classList.contains('no-reduce-motion')).toBe(true);
+    expect(document.body.classList.contains('reduce-motion')).toBe(false);
+    expect(document.body.classList.contains('theme-contrast')).toBe(true);
+    expect(seeded.getState().getIn(['compose', 'text'])).toBe('下書きです');
     expect(seeded.getState().get('settings')).toEqual(settingsBefore);
     expect(seeded.getState().get('meta')).toEqual(metaBefore);
     expect(seeded.getState().get('userPostingStyles')).toEqual(stylesBefore);
@@ -916,7 +928,24 @@ describe('user preferences stream', () => {
     expect(seeded.getState().getIn(['compose', 'privacy'])).toBe('unlisted');
     expect(seeded.getState().getIn(['compose', 'default_privacy'])).toBe('public');
     expect(seeded.getState().getIn(['compose', 'default_language'])).toBe('fr');
-    expect(selectPreferenceReloadRequired(seeded.getState())).toBe(true);
+    applyAcceptedAppearance(seeded.getState().getIn(['user_preferences', 'document']));
+    expect(document.documentElement.style.getPropertyValue('--content-font-size')).toBe('18px');
+    expect(document.documentElement.style.getPropertyValue('--info-font-size')).toBe('15px');
+    expect(document.body.classList.contains('theme-contrast')).toBe(true);
+    expect(seeded.getState().getIn(['compose', 'text'])).toBe('下書きです');
+
+    applyAcceptedAppearance({
+      version: 1,
+      preferences: {
+        'user.content_font_size': preferenceEntry('user.content_font_size', 99),
+        'user.info_font_size': preferenceEntry('user.info_font_size', 9, false),
+      },
+    });
+    expect(document.documentElement.style.getPropertyValue('--content-font-size')).toBe('99px');
+    expect(document.documentElement.style.getPropertyValue('--info-font-size')).toBe('15px');
+    expect(seeded.getState().getIn(['compose', 'text'])).toBe('下書きです');
+    expect(seeded.getState().getIn(['compose', 'privacy'])).toBe('unlisted');
+    expect(seeded.getState().getIn(['composers', 'byId', 'composer-draft', 'text'])).toBe('portable');
     expect(seeded.getState().get('meta')).toEqual(metaBefore);
 
     const reset = seeded.getState().get('compose');
@@ -933,7 +962,12 @@ describe('user preferences stream', () => {
 
     expect(seeded.getState().getIn(['user_preferences', 'document']).preferences['user.default_privacy'].public_value).toBe('public');
     expect(seeded.getState().getIn(['compose', 'default_language'])).toBe('fr');
-    expect(selectPreferenceReloadRequired(seeded.getState())).toBe(true);
+    applyAcceptedAppearance(seeded.getState().getIn(['user_preferences', 'document']));
+    expect(document.documentElement.style.getPropertyValue('--content-font-size')).toBe('18px');
+    resetAppearancePreferences();
+    document.documentElement.style.removeProperty('--content-font-size');
+    document.documentElement.style.removeProperty('--info-font-size');
+    document.body.className = '';
 
     expect(seeded.dispatch(publishAcceptedPreferenceDocument(1, liveDocument('private', 'ja')))).toBe(false);
     expect(seeded.getState().getIn(['compose', 'default_language'])).toBe('fr');
@@ -968,5 +1002,100 @@ describe('user preferences stream', () => {
 
     expect(store.getState().getIn(['compose', 'default_language'])).toBe('ja');
     expect(slice(store).get('document').preferences['user.preferred_posting_language'].public_value).toBe('ja');
+  });
+
+  it('applies only an accepted document, including after reconnect and not after unmount', async () => {
+    const pending = hangGets();
+    const store = buildStore();
+    const notices = [];
+
+    resetAppearancePreferences();
+    const unsubscribe = subscribeReduceMotion(() => {
+      notices.push(reduceMotionNow(null));
+    });
+    const fontDocument = (content, info, motion, options = {}) => ({
+      version: 1,
+      preferences: {
+        'user.content_font_size': preferenceEntry('user.content_font_size', content, options.contentValid !== false),
+        'user.info_font_size': preferenceEntry('user.info_font_size', info, options.infoValid !== false),
+        ...(options.omitMotion ? {} : {
+          'user.reduce_motion': preferenceEntry('user.reduce_motion', motion, options.motionValid !== false),
+        }),
+      },
+    });
+
+    document.documentElement.style.removeProperty('--content-font-size');
+    document.documentElement.style.removeProperty('--info-font-size');
+    document.body.className = 'theme-mastodon';
+
+    const view = render(
+      <Provider store={store}>
+        <AppearancePreferences />
+      </Provider>,
+    );
+    const first = open(store);
+
+    pending[0].resolve({ data: fontDocument(18, 19, true, { infoValid: false, omitMotion: true }) });
+    await act(async () => {
+      await flush();
+    });
+
+    expect(document.documentElement.style.getPropertyValue('--content-font-size')).toBe('18px');
+    expect(document.documentElement.style.getPropertyValue('--info-font-size')).toBe('');
+    expect(document.body.className).toBe('theme-mastodon');
+    expect(notices).toEqual([]);
+
+    store.dispatch({
+      type: USER_PREFERENCES_FETCH_SUCCESS,
+      serial: 1,
+      document: fontDocument(11, 12, false),
+      skipLoading: true,
+      skipAlert: true,
+    });
+
+    expect(slice(store).get('document').preferences['user.content_font_size'].public_value).toBe(18);
+    expect(document.documentElement.style.getPropertyValue('--content-font-size')).toBe('18px');
+    expect(notices).toEqual([]);
+
+    first.handlers.onDisconnect();
+    first.handlers.onConnect();
+    pending[1].resolve({ data: fontDocument(16, 12, false) });
+    await act(async () => {
+      await flush();
+    });
+
+    expect(document.documentElement.style.getPropertyValue('--content-font-size')).toBe('16px');
+    expect(document.documentElement.style.getPropertyValue('--info-font-size')).toBe('12px');
+    expect(document.body.classList.contains('no-reduce-motion')).toBe(true);
+    expect(document.body.classList.contains('theme-mastodon')).toBe(true);
+    expect(notices).toEqual([false]);
+
+    view.unmount();
+    first.handlers.onReceive({ event: 'preferences_changed', payload });
+    pending[2].resolve({ data: fontDocument(10, 20, true) });
+    await flush();
+
+    expect(slice(store).get('document').preferences['user.content_font_size'].public_value).toBe(10);
+    expect(document.documentElement.style.getPropertyValue('--content-font-size')).toBe('16px');
+    expect(document.documentElement.style.getPropertyValue('--info-font-size')).toBe('12px');
+    expect(document.body.classList.contains('reduce-motion')).toBe(false);
+    expect(notices).toEqual([false]);
+
+    render(
+      <Provider store={store}>
+        <AppearancePreferences />
+      </Provider>,
+    );
+
+    expect(document.documentElement.style.getPropertyValue('--content-font-size')).toBe('10px');
+    expect(document.documentElement.style.getPropertyValue('--info-font-size')).toBe('20px');
+    expect(document.body.classList.contains('reduce-motion')).toBe(true);
+    expect(notices).toEqual([false, true]);
+
+    unsubscribe();
+    resetAppearancePreferences();
+    document.body.className = '';
+    document.documentElement.style.removeProperty('--content-font-size');
+    document.documentElement.style.removeProperty('--info-font-size');
   });
 });
