@@ -635,6 +635,7 @@ Rails.application.routes.draw do
       end
 
       namespace :fedibird do
+        post 'filters/matches', to: 'filters/matches#create'
         resource :preferences, only: [:show]
         patch 'preferences', to: 'preferences#update'
         post 'preferences/reset', to: 'preferences#reset'

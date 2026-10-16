@@ -24,6 +24,7 @@ require_relative '../lib/terrapin/multi_pipe_extensions'
 require_relative '../lib/mastodon/snowflake'
 require_relative '../lib/mastodon/version'
 require_relative '../lib/mastodon/rack_middleware'
+require_relative '../lib/mastodon/filter_matches_body_limit'
 require_relative '../lib/devise/two_factor_ldap_authenticatable'
 require_relative '../lib/devise/two_factor_pam_authenticatable'
 require_relative '../lib/chewy/strategy/custom_sidekiq'
@@ -154,6 +155,7 @@ module Mastodon
     config.active_job.queue_adapter = :sidekiq
 
     config.middleware.use Rack::Attack
+    config.middleware.insert_before Rails::Rack::Logger, Mastodon::FilterMatchesBodyLimit
     config.middleware.use Rack::Deflater
     config.middleware.use Mastodon::RackMiddleware
 

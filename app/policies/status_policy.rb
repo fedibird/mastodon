@@ -109,6 +109,8 @@ class StatusPolicy < ApplicationPolicy
   def author_blocking_domain?
     return false if current_account.nil? || author.domain.nil?
 
+    return @preloaded_account_relations[:domain_blocking_by_domain][author.id] if @preloaded_account_relations[:domain_blocking_by_domain]
+
     current_account.domain_blocking?(author.domain)
   end
 
