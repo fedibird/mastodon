@@ -46,6 +46,12 @@ class FeedManager
     case timeline_type
     when :home
       filter_from_home?(status, receiver.id, build_crutches(receiver.id, [status]))
+    when :status_notifications
+      crutches = build_crutches(receiver.id, [status])
+      # Displaying boosts and receiving notifications are independent choices.
+      crutches[:hiding_reblogs] = {}
+      # A boost wrapper normally has no language; notify using the original.
+      filter_from_home?(status, receiver.id, crutches, language: status.reblog&.language)
     when :list
       crutches = build_crutches(receiver.account_id, [status], receiver)
       filter_from_list?(status, receiver, crutches) || filter_from_home?(status, receiver.account_id, crutches, receiver)
@@ -407,10 +413,10 @@ class FeedManager
   # @param [Integer] receiver_id
   # @param [Hash] crutches
   # @return [Boolean]
-  def filter_from_home?(status, receiver_id, crutches, list_id = nil)
+  def filter_from_home?(status, receiver_id, crutches, list_id = nil, language: status.language)
     return false if receiver_id == status.account_id
     return true  if status.reply? && (status.in_reply_to_id.nil? || status.in_reply_to_account_id.nil?)
-    return true  if crutches[:languages][status.account_id].present? && status.language.present? && !crutches[:languages][status.account_id].include?(status.language)
+    return true  if crutches[:languages][status.account_id].present? && language.present? && !crutches[:languages][status.account_id].include?(language)
 
     check_for_blocks = crutches[:active_mentions][status.id] || []
     check_for_blocks.concat([status.account_id])

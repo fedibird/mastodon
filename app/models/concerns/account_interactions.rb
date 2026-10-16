@@ -41,14 +41,15 @@ module AccountInteractions
     has_many :subscribers, through: :passive_subscribes, source: :account
   end
 
-  def follow!(other_account, reblogs: nil, notify: nil, delivery: true, languages: nil, uri: nil, rate_limit: false, bypass_limit: false)
-    rel = active_relationships.create_with(show_reblogs: reblogs.nil? ? true : reblogs, notify: notify.nil? ? false : notify, delivery: delivery.nil? ? true : delivery, languages: languages, uri: uri, rate_limit: rate_limit, bypass_follow_limit: bypass_limit)
+  def follow!(other_account, reblogs: nil, notify: nil, notify_reblogs: nil, delivery: true, languages: nil, uri: nil, rate_limit: false, bypass_limit: false)
+    rel = active_relationships.create_with(show_reblogs: reblogs.nil? ? true : reblogs, notify: notify.nil? ? false : notify, notify_reblogs: notify_reblogs.nil? ? false : notify_reblogs, delivery: delivery.nil? ? true : delivery, languages: languages, uri: uri, rate_limit: rate_limit, bypass_follow_limit: bypass_limit)
                               .find_or_create_by!(target_account: other_account)
 
-    rel.show_reblogs = reblogs   unless reblogs.nil?
-    rel.notify       = notify    unless notify.nil?
-    rel.delivery     = delivery  unless delivery.nil?
-    rel.languages    = languages unless languages.nil?
+    rel.show_reblogs = reblogs unless reblogs.nil?
+    rel.notify_reblogs = notify_reblogs unless notify_reblogs.nil?
+    rel.notify = notify unless notify.nil?
+    rel.delivery = delivery unless delivery.nil?
+    rel.languages = languages unless languages.nil?
 
     rel.save! if rel.changed?
 
@@ -57,14 +58,15 @@ module AccountInteractions
     rel
   end
 
-  def request_follow!(other_account, reblogs: nil, notify: nil, delivery: nil, languages: nil, uri: nil, rate_limit: false, bypass_limit: false)
-    rel = follow_requests.create_with(show_reblogs: reblogs.nil? ? true : reblogs, notify: notify.nil? ? false : notify, delivery: delivery.nil? ? true : delivery, languages: languages, uri: uri, rate_limit: rate_limit, bypass_follow_limit: bypass_limit)
+  def request_follow!(other_account, reblogs: nil, notify: nil, notify_reblogs: nil, delivery: nil, languages: nil, uri: nil, rate_limit: false, bypass_limit: false)
+    rel = follow_requests.create_with(show_reblogs: reblogs.nil? ? true : reblogs, notify: notify.nil? ? false : notify, notify_reblogs: notify_reblogs.nil? ? false : notify_reblogs, delivery: delivery.nil? ? true : delivery, languages: languages, uri: uri, rate_limit: rate_limit, bypass_follow_limit: bypass_limit)
                          .find_or_create_by!(target_account: other_account)
 
-    rel.show_reblogs = reblogs   unless reblogs.nil?
-    rel.notify       = notify    unless notify.nil?
-    rel.delivery     = delivery  unless delivery.nil?
-    rel.languages    = languages unless languages.nil?
+    rel.show_reblogs = reblogs unless reblogs.nil?
+    rel.notify_reblogs = notify_reblogs unless notify_reblogs.nil?
+    rel.notify = notify unless notify.nil?
+    rel.delivery = delivery unless delivery.nil?
+    rel.languages = languages unless languages.nil?
 
     rel.save! if rel.changed?
 

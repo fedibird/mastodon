@@ -25,7 +25,15 @@ class NotifyService < BaseService
   end
 
   def blocked_status?
-    false
+    return false if @activity.reblog_of_id.nil?
+
+    # Recheck opt-in at execution time, including jobs queued before an unfollow.
+    return true unless Follow.where(account: @recipient, target_account: @activity.account, notify_reblogs: true).exists?
+    return true if @activity.reblog.nil?
+    return true if @recipient.muting_conversation?(@activity.reblog.conversation)
+    return true unless StatusPolicy.new(@recipient, @activity).show? && StatusPolicy.new(@recipient, @activity.reblog).show?
+
+    FeedManager.instance.filter?(:status_notifications, @activity, @recipient)
   end
 
   def blocked_favourite?
@@ -210,7 +218,21 @@ class NotifyService < BaseService
   end
 
   def create_notification!
-    @notification.save!
+    unless @notification.type == :status && @activity.reblog_of_id.present?
+      @notification.save!
+      return
+    end
+
+    # Serialize competing deliveries in PostgreSQL, then run the existing status
+    # uniqueness validation under READ COMMITTED. No locks are held while sending
+    # Redis/Push events. A retry sees the committed notification and sends nothing.
+    # Hash collisions only serialize unrelated deliveries; they cannot admit a
+    # duplicate. Unlike a Redis lease, this lock cannot expire mid-transaction.
+    lock_key = Digest::SHA256.digest("boost-notification:#{@recipient.id}:#{@activity.id}").unpack1('q>')
+    Notification.transaction(requires_new: true) do
+      Notification.connection.execute("SELECT pg_advisory_xact_lock(#{lock_key})")
+      @notification.save!
+    end
   end
 
   def push_notification!

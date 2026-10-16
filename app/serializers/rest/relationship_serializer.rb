@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class REST::RelationshipSerializer < ActiveModel::Serializer
-  attributes :id, :following, :delivery_following, :showing_reblogs, :notifying, :followed_by, :account_subscribing,
+  attributes :id, :following, :delivery_following, :showing_reblogs, :notifying, :notifying_reblogs, :followed_by, :account_subscribing,
              :blocking, :blocked_by, :muting, :muting_notifications, :requested, :requested_by,
              :domain_blocking, :endorsed, :note, :languages
 
@@ -19,6 +19,10 @@ class REST::RelationshipSerializer < ActiveModel::Serializer
 
   def showing_reblogs
     instance_options[:relationships].showing_reblogs[object.id] ? true : false
+  end
+
+  def notifying_reblogs
+    instance_options[:relationships].notifying_reblogs[object.id] ? true : false
   end
 
   def notifying

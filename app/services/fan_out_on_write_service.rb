@@ -18,7 +18,7 @@ class FanOutOnWriteService < BaseService
 
     @feedInsertWorker = status.account.high_priority? ? ::PriorityFeedInsertWorker : FeedInsertWorker
 
-    notify_about_update!(status) if update?
+    notify_about_status!(status)
 
     deliver_to_self(status) if status.account.local? && !(status.direct_visibility? && status.account.user.setting_hide_direct_from_timeline)
 
@@ -77,6 +77,28 @@ class FanOutOnWriteService < BaseService
 
   def update?
     @update
+  end
+
+  def notify_about_status!(status)
+    if update?
+      notify_about_update!(status)
+    elsif status.reblog?
+      notify_about_reblog!(status)
+    end
+  end
+
+  # Opt-in notification delivery is independent of home delivery and login age.
+  # The partial index visits only opted-in follows, in bounded primary-key batches.
+  def notify_about_reblog!(status)
+    Follow.where(target_account_id: status.account_id, notify_reblogs: true)
+          .select(:id, :account_id).reorder(nil).find_in_batches do |follows|
+      # Check locality only inside this batch: a join can make PostgreSQL scan
+      # the whole accounts table for every page of an otherwise sparse index.
+      account_ids = Account.local.where(id: follows.map(&:account_id)).pluck(:id)
+      LocalNotificationWorker.push_bulk(account_ids) do |account_id|
+        [account_id, status.id, 'Status', 'status']
+      end
+    end
   end
 
   def notify_about_update!(status)
