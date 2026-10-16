@@ -483,6 +483,50 @@ describe('computeStatusHashtagBadges', () => {
     url: `https://example.com/tags/${encodeURIComponent(name)}`,
   }));
 
+  const generatedSuffixes = [
+    '<span class="quote-inline"><br>QT: <a href="https://example.com/q">quote</a></span>',
+    '<span class="original-media-link"> <a href="https://example.com/m">[Attached: 5 images]</a></span>',
+    '<span class="reference-link-inline"> <a href="https://example.com/r">[Ref.]</a></span>',
+  ];
+
+  [false, true].forEach(nested => {
+    it.each([...generatedSuffixes, generatedSuffixes.join('')])(`keeps the authored boundary after suffix insertion in a ${nested ? 'nested' : 'single'} wrapper: %s`, suffix => {
+      const run = `${anchor('inline')}${suffix}<br><br>${anchor('tail')}`;
+      const html = `<p>Hello <small>${nested ? `<span>${run}</span>` : run}</small></p>`;
+      const result = computeStatusHashtagBadges(html, tags('inline', 'tail', 'hidden'));
+      const template = document.createElement('template');
+      template.innerHTML = result.html;
+
+      expect(result.trailing.map(hashtag => hashtag.name)).toEqual(['tail']);
+      expect(result.hashtags.map(hashtag => hashtag.name)).toEqual(['hidden', 'tail']);
+      expect(Array.from(template.content.querySelectorAll('a.mention.hashtag')).map(link => link.textContent)).toEqual(['#inline']);
+      expect(template.content.querySelectorAll('.quote-inline, .original-media-link, .reference-link-inline')).toHaveLength((suffix.match(/<span class=/g) || []).length);
+      expect(template.content.querySelector('small')).not.toBeNull();
+      if (suffix.includes('quote-inline')) {
+        expect(template.content.querySelector('.quote-inline br')).not.toBeNull();
+      }
+    });
+  });
+
+  it('keeps even an empty generated suffix opaque and present in the body', () => {
+    const suffix = '<span class="quote-inline"><br></span>';
+    const html = `<p>Hello <small>${anchor('inline')}${suffix}<br><br>${anchor('tail')}</small></p>`;
+    const result = computeStatusHashtagBadges(html, tags('inline', 'tail'));
+
+    expect(result.html).toBe(`<p>Hello <small>${anchor('inline')}${suffix}</small></p>`);
+    expect(result.trailing.map(hashtag => hashtag.name)).toEqual(['tail']);
+    expect(result.hashtags.map(hashtag => hashtag.name)).toEqual(['tail']);
+  });
+
+  it.each(['', '<br>', '<span>\n\n</span>'])('does not let a nested generated quote supply a missing authored break: %s', separator => {
+    const html = `<p>Hello <small>${anchor('inline')}${generatedSuffixes[0]}${separator}${anchor('tail')}</small></p>`;
+    const result = computeStatusHashtagBadges(html, tags('inline', 'tail', 'hidden'));
+
+    expect(result.html).toBe(html);
+    expect(result.trailing).toEqual([]);
+    expect(result.hashtags.map(hashtag => hashtag.name)).toEqual(['hidden']);
+  });
+
   it.each([' ', '<br>', '\r\n', '<br>\n\n'])('keeps terminal inline tags and only badges out-of-band tags: %s', separator => {
     const html = `<p>Hello${separator}${anchor('One')} ${anchor('Ａ')}</p>`;
     const result = computeStatusHashtagBadges(html, tags('one', 'a', 'hidden'));

@@ -778,6 +778,44 @@ RSpec.describe Formatter do
       %(<a href="https://remote.test/tags/#{name}" class="mention hashtag" rel="tag">#<span>#{name}</span></a>)
     end
 
+    describe 'suffix insertion inside a shared inline wrapper' do
+      [false, true].each do |nested|
+        it "keeps inline tags before suffixes and the real blank line after them in a #{nested ? 'nested' : 'single'} wrapper" do
+          quoted = Fabricate(:status, account: local_account, text: 'quoted', uri: nil)
+          status = Fabricate(:status, account: local_account, text: 'body', uri: nil, quote: quoted)
+          attach_overflow_media(status)
+          add_status_reference(status)
+          run = "#{remote_hashtag_anchor('inline')}<br><br>#{remote_hashtag_anchor('tail')}"
+          html = %(<p>Hello <small>#{nested ? "<span>#{run}</span>" : run}</small></p>)
+          suffixes = Formatter.instance.send(:local_status_suffix_fragments, status)
+
+          # A later insertion must still see the same boundary after QT was
+          # inserted inside the wrapper. This is also the HTML the WebUI scans.
+          with_quote = Formatter.instance.send(:insert_status_suffixes, html, [suffixes.first])
+          result = Formatter.instance.send(:insert_status_suffixes, with_quote, suffixes.drop(1))
+          fragment = Nokogiri::HTML.fragment(result)
+          wrapper = fragment.at_css(nested ? 'small > span' : 'small')
+          inline, tail = wrapper.css('a.mention.hashtag')
+          quote = wrapper.at_css('.quote-inline')
+          media = wrapper.at_css('.original-media-link')
+          reference = wrapper.at_css('.reference-link-inline')
+          breaks = wrapper.xpath('./br')
+
+          expect(inline.text).to eq '#inline'
+          expect(tail.text).to eq '#tail'
+          expect_before(inline, quote)
+          expect_before(quote, media)
+          expect_before(media, reference)
+          expect(breaks.length).to eq 2
+          expect_before(reference, breaks.first)
+          expect_before(breaks.last, tail)
+          expect(quote.at_css('br')).to be_present
+          expect(fragment.css('.quote-inline, .original-media-link, .reference-link-inline').length).to eq 3
+          expect(status.reload.text).to eq 'body'
+        end
+      end
+    end
+
     describe 'explicit blank-line detection in sanitized HTML' do
       {
         'same line' => '<p>Hello TAGS</p>',

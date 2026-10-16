@@ -511,11 +511,21 @@ class Formatter
 
   def hashtag_scan_nodes(container)
     container.children.flat_map do |node|
-      if trailing_hashtag_wrapper?(node) || (inline_hashtag_wrapper_element?(node) && displayless_element?(node))
+      if hashtag_scan_wrapper?(node)
         hashtag_scan_nodes(node)
       else
         [node]
       end
+    end
+  end
+
+  # Generated suffixes stay opaque content, but must not close the ordinary
+  # wrapper around them: authored BR siblings still establish a blank line.
+  # This is separate from trailing_hashtag_wrapper? so suffixes cannot become
+  # part of a hashtag group or be moved/removed with one.
+  def hashtag_scan_wrapper?(node)
+    inline_hashtag_wrapper_element?(node) && node.children.all? do |child|
+      trailing_hashtag_anchor?(child) || hashtag_run_chrome?(child) || status_suffix_node?(child) || hashtag_scan_wrapper?(child)
     end
   end
 
@@ -605,11 +615,15 @@ class Formatter
   end
 
   def hashtag_run_chrome?(node)
-    ignorable_node?(node) || line_break?(node) || displayless_element?(node)
+    !status_suffix_node?(node) && (ignorable_node?(node) || line_break?(node) || displayless_element?(node))
   end
 
   def inline_hashtag_wrapper_element?(node)
-    node.element? && node.name != 'a' && node.name != 'br' && !STRUCTURAL_TAGS.include?(node.name) && !VISIBLE_EMPTY_TAGS.include?(node.name) && (node['class'].to_s.split & STATUS_SUFFIX_CLASSES).empty?
+    node.element? && node.name != 'a' && node.name != 'br' && !STRUCTURAL_TAGS.include?(node.name) && !VISIBLE_EMPTY_TAGS.include?(node.name) && !status_suffix_node?(node)
+  end
+
+  def status_suffix_node?(node)
+    node.element? && (node['class'].to_s.split & STATUS_SUFFIX_CLASSES).any?
   end
 
   def displayless_element?(node)
