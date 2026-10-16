@@ -411,7 +411,8 @@ class Formatter
 
   # Place every display-time suffix before a trailing hashtag block.
   # The status HTML is parsed once. With no trailing hashtags, the fragments
-  # are appended before the final </p> without reserializing the rest.
+  # are appended before the final </p>, or at the fragment end, without
+  # reserializing the rest.
   def insert_status_suffixes(html, fragments)
     fragments = Array(fragments).map(&:to_s).reject(&:blank?)
     return html if fragments.empty?
@@ -462,7 +463,11 @@ class Formatter
   end
 
   def append_status_suffixes(html, fragments)
-    html.sub(CLOSING_PARAGRAPH_RE, "#{fragments.join}</p>")
+    if html.match?(CLOSING_PARAGRAPH_RE)
+      html.sub(CLOSING_PARAGRAPH_RE, "#{fragments.join}</p>")
+    else
+      html + fragments.join
+    end
   end
 
   # [:before, node] inserts in front of the hashtag row, including the <br>
@@ -472,22 +477,26 @@ class Formatter
     container = trailing_content_container(root)
     return if container.nil?
 
-    scan = scan_trailing_hashtags(container.children.to_a)
+    scan = scan_trailing_hashtags(hashtag_scan_nodes(container))
     return if scan.nil?
 
-    if scan[:index].negative?
+    if scan[:paragraph_run]
       previous = appendable_previous_block(container)
       return [:append, previous] if previous
     end
 
-    nodes = scan[:nodes]
-    boundary = scan[:separator_br_index] || scan[:first_hashtag_index]
-    [:before, nodes[boundary]]
+    return if scan[:boundary].nil?
+
+    boundary = scan[:boundary]
+    # Keep a tag-only wrapper intact when its leading breaks are the boundary.
+    while boundary.parent != container && inline_hashtag_wrapper_element?(boundary.parent) && boundary.xpath('preceding-sibling::node()').all? { |node| hashtag_run_chrome?(node) }
+      boundary = boundary.parent
+    end
+    [:before, boundary]
   end
 
   # Only the final top-level paragraph is a trailing-hashtag container.
-  # blockquote, list, and pre stay closed so a generated link cannot look
-  # like part of quoted or preformatted text.
+  # blockquote, list, and pre stay closed so generated links stay outside.
   def trailing_content_container(root)
     last = last_content_child(root)
     last&.element? && last.name == 'p' ? last : root
@@ -495,67 +504,60 @@ class Formatter
 
   def last_content_child(node)
     child = node.children.last
-    child = child.previous while child && (ignorable_node?(child) || line_break?(child))
+    child = child.previous while child && hashtag_run_chrome?(child)
     child
   end
 
+  def hashtag_scan_nodes(container)
+    container.children.flat_map do |node|
+      trailing_hashtag_wrapper?(node) ? hashtag_scan_nodes(node) : [node]
+    end
+  end
+
+  # Scan forward, resetting on ordinary content. A run can start only after
+  # two BR nodes or in a separate paragraph. Whitespace in text nodes never
+  # counts as a break, nor does a BR inside an opaque synthetic suffix.
   def scan_trailing_hashtags(nodes)
-    index = nodes.length - 1
+    boundary = nil
+    pending_break = nil
+    breaks = 0
+    body_seen = false
+    paragraph_run = true
     seen_hashtag = false
-    first_hashtag_index = nil
-    separator_br_index = nil
 
-    while index >= 0
-      node = nodes[index]
-
-      if ignorable_node?(node) || (!seen_hashtag && line_break?(node))
-        index -= 1
-        next
-      end
-
+    nodes.each do |node|
       if trailing_hashtag_group?(node)
+        boundary ||= pending_break if body_seen && breaks >= 2
         seen_hashtag = true
-        first_hashtag_index = index
-        index -= 1
-        next
+        body_seen = true
+        pending_break = nil
+        breaks = 0
+      elsif hashtag_run_chrome?(node)
+        if line_break?(node)
+          pending_break ||= node
+          breaks += 1
+        end
+      else
+        boundary = nil
+        pending_break = nil
+        breaks = 0
+        body_seen = true
+        paragraph_run = false
+        seen_hashtag = false
       end
-
-      break unless seen_hashtag && line_break?(node)
-
-      relation = break_relation(nodes, index)
-      separator_br_index = index unless relation == :internal
-      break if relation == :content
-
-      index -= 1
     end
 
     return unless seen_hashtag
 
-    { index: index, nodes: nodes, first_hashtag_index: first_hashtag_index, separator_br_index: separator_br_index }
-  end
-
-  def break_relation(nodes, index)
-    previous = previous_significant_index(nodes, index)
-    return :leading if previous.nil?
-
-    previous_node = nodes[previous]
-    return :internal if trailing_hashtag_group?(previous_node)
-    return :break_run if line_break?(previous_node)
-
-    :content
-  end
-
-  def previous_significant_index(nodes, index)
-    cursor = index - 1
-    cursor -= 1 while cursor >= 0 && ignorable_node?(nodes[cursor])
-    cursor >= 0 ? cursor : nil
+    { boundary: boundary, paragraph_run: paragraph_run }
   end
 
   def appendable_previous_block(container)
     return unless container.element? && container.name == 'p'
 
-    previous = container.previous_element
-    previous if previous&.name == 'p'
+    previous = container.previous
+    previous = previous.previous while previous && hashtag_run_chrome?(previous)
+    previous if previous&.element? && previous.name == 'p' && (previous.inner_text.match?(/\S/) || previous.at_css(VISIBLE_EMPTY_SELECTOR))
   end
 
   # Local anchors match a.mention.hashtag[rel~="tag"]. Remote reformat keeps

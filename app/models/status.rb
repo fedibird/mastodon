@@ -901,7 +901,6 @@ class Status < ApplicationRecord
   end
 
   def prepare_contents
-    text&.strip!
     spoiler_text&.strip!
   end
 

@@ -713,7 +713,6 @@ RSpec.describe ActivityPub::Activity::Create do
         end
 
         it 'does not rewrite the remote body' do
-          expect(TrailingHashtagNormalizer).not_to receive(:call)
 
           expect { subject.perform }.to change(sender.statuses, :count).by(1)
 

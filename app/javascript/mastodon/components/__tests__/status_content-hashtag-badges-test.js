@@ -90,7 +90,7 @@ function anchor(name, href = `https://example.com/tags/${encodeURIComponent(name
 }
 
 function hashtagParagraph(names, lead = 'Hello') {
-  return `<p>${lead} ${names.map(name => anchor(name)).join(' ')}</p>`;
+  return `<p>${lead}<br><br>${names.map(name => anchor(name)).join(' ')}</p>`;
 }
 
 function badgeLabels() {
@@ -103,7 +103,7 @@ function badgeRow(container) {
 
 const buildStatus = (overrides = {}) => fromJS({
   id: 's1',
-  contentHtml: `<p>Hello ${anchor('one')} ${anchor('two')}</p>`,
+  contentHtml: `<p>Hello<br><br>${anchor('one')} ${anchor('two')}</p>`,
   spoilerHtml: '',
   spoiler_text: '',
   search_index: 'Hello',
@@ -143,6 +143,36 @@ const renderStatus = (status, props = {}) => {
 describe('StatusContent trailing hashtag badges', () => {
   beforeEach(() => {
     history.push.mockClear();
+  });
+
+  ['original', 'translated', 'bilingual'].forEach(mode => {
+    it.each([' ', '<br>', '<br>\n\n'])(`keeps terminal inline hashtags and their links in ${mode} mode with separator %s`, separator => {
+      const source = `<p>Hello${separator}${anchor('one')}</p>`;
+      const target = `<p>訳${separator}${anchor('One')}</p>`;
+      const { container } = renderStatus(buildStatus({
+        contentHtml: source,
+        tags: [
+          { name: 'one', url: 'https://example.com/tags/one' },
+          { name: 'hidden', url: 'https://example.com/tags/hidden' },
+        ],
+        translationMode: mode,
+        translation: translation(target),
+      }));
+      const links = container.querySelectorAll('.status__content__text a.mention.hashtag');
+
+      expect(links).toHaveLength(mode === 'bilingual' ? 2 : 1);
+      expect(links[0]).toHaveAttribute('href', expect.stringContaining('/tags/'));
+      expect(badgeRow(container)).toEqual(['#hidden']);
+    });
+  });
+
+  it('keeps a tag-only post visible in the body', () => {
+    const html = `<p>${anchor('one')} ${anchor('two')}</p>`;
+    const { container } = renderStatus(buildStatus({ contentHtml: html }));
+
+    expect(container.querySelector('.status__content__text').textContent).toBe('#one #two');
+    expect(container.querySelectorAll('.status__content__text [data-menu-hashtag]')).toHaveLength(2);
+    expect(badgeRow(container)).toEqual([]);
   });
 
   it('moves trailing hashtags out of the original body and into one badge row', () => {
@@ -202,7 +232,7 @@ describe('StatusContent trailing hashtag badges', () => {
   it('shows one source badge row for a matching translation', () => {
     const { container } = renderStatus(buildStatus({
       translationMode: 'translated',
-      translation: translation(`<p>こんにちは ${anchor('one')} ${anchor('two')}</p>`),
+      translation: translation(`<p>こんにちは<br><br>${anchor('one')} ${anchor('two')}</p>`),
     }));
     const text = container.querySelector('.status__content__text');
 
@@ -215,7 +245,7 @@ describe('StatusContent trailing hashtag badges', () => {
   it('shows one badge row in bilingual mode and removes the run from both sides', () => {
     const { container } = renderStatus(buildStatus({
       translationMode: 'bilingual',
-      translation: translation(`<p>こんにちは ${anchor('One')} ${anchor('Two')}</p>`),
+      translation: translation(`<p>こんにちは<br><br>${anchor('One')} ${anchor('Two')}</p>`),
     }));
     const text = container.querySelector('.status__content__text');
 
@@ -229,7 +259,7 @@ describe('StatusContent trailing hashtag badges', () => {
   it('keeps a mismatched target run inline and still shows the source badges', () => {
     const { container } = renderStatus(buildStatus({
       translationMode: 'translated',
-      translation: translation(`<p>こんにちは ${anchor('one')} ${anchor('different')}</p>`),
+      translation: translation(`<p>こんにちは<br><br>${anchor('one')} ${anchor('different')}</p>`),
     }));
     const text = container.querySelector('.status__content__text');
 
@@ -391,7 +421,7 @@ describe('StatusContent trailing hashtag badges', () => {
       '<span class="quote-inline"><br>QT: <a href="https://example.com/q">https://example.com/q</a></span>',
       '<span class="original-media-link"> <a href="https://example.com/m">[Attached: 5 images]</a></span>',
       '<span class="reference-link-inline"> <a href="https://example.com/r">[Ref.]</a></span>',
-      `<br>${anchor('one')} ${anchor('two')}`,
+      `<br><br>${anchor('one')} ${anchor('two')}`,
       '</p>',
     ].join('');
     const { container } = renderStatus(buildStatus({
@@ -452,7 +482,7 @@ describe('StatusContent trailing hashtag badges', () => {
 
   it('drops a duplicate trailing tag and does not badge it when the body still shows it', () => {
     const { container } = renderStatus(buildStatus({
-      contentHtml: `<p>本文 ${anchor('foo')} です<br>${anchor('foo')}</p>`,
+      contentHtml: `<p>本文 ${anchor('foo')} です<br><br>${anchor('foo')}</p>`,
       tags: [{ name: 'foo', url: 'https://example.com/tags/foo' }],
     }));
     const text = container.querySelector('.status__content__text');
@@ -464,7 +494,7 @@ describe('StatusContent trailing hashtag badges', () => {
 
   it('shows an out-of-band tag before the trailing tag', () => {
     const { container } = renderStatus(buildStatus({
-      contentHtml: `<p>${anchor('body')} を含む<br>${anchor('tail')}</p>`,
+      contentHtml: `<p>${anchor('body')} を含む<br><br>${anchor('tail')}</p>`,
       tags: [
         { name: 'body', url: 'https://example.com/tags/body' },
         { name: 'tail', url: 'https://example.com/tags/tail' },
@@ -480,7 +510,7 @@ describe('StatusContent trailing hashtag badges', () => {
 
   it('keeps a remote trailing hashtag badge when status.tags omits it', () => {
     const misskey = [
-      '<p>Hello <small>',
+      '<p>Hello<br><br><small>',
       '  <a href="https://misskey.example/tags/one" rel="nofollow noopener noreferrer" class="mention hashtag" target="_blank">#one</a>',
       '</small></p>',
     ].join('\n');
@@ -502,7 +532,7 @@ describe('StatusContent trailing hashtag badges', () => {
 
   it('shows one badge when a fullwidth trailing hash is also in status.tags', () => {
     const { container } = renderStatus(buildStatus({
-      contentHtml: '<p>本文 <a href="https://remote.example/tags/foo" class="mention hashtag" rel="tag">＃foo</a></p>',
+      contentHtml: '<p>本文<br><br><a href="https://remote.example/tags/foo" class="mention hashtag" rel="tag">＃foo</a></p>',
       tags: [{ name: 'foo', url: 'https://example.com/tags/foo' }],
     }));
 
@@ -526,7 +556,7 @@ describe('StatusContent trailing hashtag badges', () => {
 
   it('does not badge a second casing of a hashtag that is already visible', () => {
     const { container } = renderStatus(buildStatus({
-      contentHtml: `<p>この話は ${anchor('FediBird')} についてです<br>${anchor('fedibird')}</p>`,
+      contentHtml: `<p>この話は ${anchor('FediBird')} についてです<br><br>${anchor('fedibird')}</p>`,
       tags: [{ name: 'fedibird', url: 'https://example.com/tags/fedibird' }],
     }));
     const text = container.querySelector('.status__content__text');
@@ -555,7 +585,7 @@ describe('StatusContent trailing hashtag badges', () => {
   });
 
   it('keeps the source out-of-band badge set in translated and bilingual modes', () => {
-    const contentHtml = `<p>Talk ${anchor('foo')} here<br>${anchor('tail')}</p>`;
+    const contentHtml = `<p>Talk ${anchor('foo')} here<br><br>${anchor('tail')}</p>`;
     const tags = [
       { name: 'foo', url: 'https://example.com/tags/foo' },
       { name: 'tail', url: 'https://example.com/tags/tail' },
@@ -567,7 +597,7 @@ describe('StatusContent trailing hashtag badges', () => {
         contentHtml,
         tags,
         translationMode,
-        translation: translation(`<p>訳 ${anchor('other')} 文<br>${anchor('tail')}</p>`),
+        translation: translation(`<p>訳 ${anchor('other')} 文<br><br>${anchor('tail')}</p>`),
       }));
       const text = view.container.querySelector('.status__content__text');
 

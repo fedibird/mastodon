@@ -144,37 +144,27 @@ RSpec.describe UpdateStatusService, type: :service do # rubocop:disable Metrics/
     expect(media.reload.description).to eq 'kept alt'
   end
 
-  it 'inserts a blank line before a same-line trailing hashtag when text is edited' do
-    subject.call(status, account.id, text: 'Edited #one')
+  [
+    'Hello #one #two',
+    "Hello\n#one #two",
+    "Hello\n\n#one #two",
+    "Hello\n\n\n#one",
+    '#one #two',
+    'Hello #inline text #end',
+    "Hello\r\n#one",
+    "Hello\r\n\r\n#one",
+    "日本語 \t＃タグ #MixedCase  \t",
+    "Hello \t\r\n \t#one #two \t",
+    "Hello\n\n#one\n#two  ",
+  ].each do |text|
+    it "preserves authored hashtag spacing on edit: #{text.inspect}" do
+      subject.call(status, account.id, text: text.dup)
 
-    expect(status.reload.text).to eq "Edited\n\n#one"
-    expect(status.tags.map(&:name)).to contain_exactly('one')
-  end
-
-  it 'adds one newline when the edited text has a single line break before trailing hashtags' do
-    subject.call(status, account.id, text: "Edited\n#one")
-
-    expect(status.reload.text).to eq "Edited\n\n#one"
-  end
-
-  it 'does not change an existing blank line or extra blank lines before trailing hashtags' do
-    subject.call(status, account.id, text: "Edited\n\n#one")
-
-    expect(status.reload.text).to eq "Edited\n\n#one"
-
-    subject.call(status, account.id, text: "Edited\n\n\n#one")
-
-    expect(status.reload.text).to eq "Edited\n\n\n#one"
-  end
-
-  it 'does not change a hashtag-only edit or a hashtag that is not trailing' do
-    subject.call(status, account.id, text: '#one #two')
-
-    expect(status.reload.text).to eq '#one #two'
-
-    subject.call(status, account.id, text: 'Edited #one today')
-
-    expect(status.reload.text).to eq 'Edited #one today'
+      expect(status.text).to eq text
+      expect(status.reload.text).to eq text
+      expect(status.edits.last.text).to eq text
+      expect(status.tags).not_to be_empty
+    end
   end
 
   it 'does not rewrite status text when the edit does not include text' do

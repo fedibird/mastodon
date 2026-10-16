@@ -12,29 +12,47 @@ function names(result) {
 }
 
 describe('splitTrailingHashtags', () => {
-  it('splits same-line trailing hashtags and drops the separating space', () => {
-    const html = `<p>Hello ${anchor('one')} ${anchor('two')}</p>`;
-    const result = splitTrailingHashtags(html);
-
-    expect(result.html).toBe('<p>Hello</p>');
-    expect(names(result)).toEqual(['one', 'two']);
-    expect(result.hashtags.map(hashtag => hashtag.text)).toEqual(['#one', '#two']);
-    expect(result.hashtags.map(hashtag => hashtag.href)).toEqual([
-      'https://example.com/tags/one',
-      'https://example.com/tags/two',
-    ]);
+  it.each([
+    `<p>Hello ${anchor('one')} ${anchor('two')}</p>`,
+    `<p>Hello<br>${anchor('one')} ${anchor('two')}</p>`,
+    `<p>Hello\r\n${anchor('one')}</p>`,
+    `<p>Hello<br>\r\n  ${anchor('one')}</p>`,
+    `<p>Hello\n\n  <small>${anchor('one')}</small></p>`,
+    `<p>Hello <small>\n  ${anchor('one')}\n</small></p>`,
+    `<p>Hello</p>\n\n<small>${anchor('one')}</small>`,
+    `<p>${anchor('one')} ${anchor('two')}</p>`,
+    `<p>${anchor('one')}<br>${anchor('two')}</p>`,
+    `<p>Hello ${anchor('inline')} text ${anchor('end')}</p>`,
+    `<p>Hello<span class="quote-inline"><br>QT: link</span><br>${anchor('one')}</p>`,
+  ])('preserves HTML without an explicit blank-line boundary: %s', html => {
+    expect(splitTrailingHashtags(html)).toEqual({ html, hashtags: [] });
   });
 
-  it('splits a trailing hashtag line after one newline', () => {
-    const html = `<p>Hello<br>${anchor('one')} ${anchor('two')}</p>`;
+  it.each(['<br><br>', '<br> \r\n<br>', '<br><br><br>'])('splits after explicit breaks: %s', separator => {
+    const html = `<p>本文${separator}${anchor('one')} <small>${anchor('Two')}<br>${anchor('日本語')}</small> \t</p>`;
+    const result = splitTrailingHashtags(html);
 
-    expect(splitTrailingHashtags(html)).toEqual({
-      html: '<p>Hello</p>',
-      hashtags: [
-        { name: 'one', text: '#one', href: 'https://example.com/tags/one' },
-        { name: 'two', text: '#two', href: 'https://example.com/tags/two' },
-      ],
-    });
+    expect(result.html).toBe('<p>本文</p>');
+    expect(names(result)).toEqual(['one', 'Two', '日本語']);
+  });
+
+  it('starts the run after the boundary while keeping an earlier terminal inline tag', () => {
+    const html = `<p>Hello ${anchor('inline')}<br><br>${anchor('tail')}</p>`;
+    const result = splitTrailingHashtags(html);
+
+    expect(result.html).toBe(`<p>Hello ${anchor('inline')}</p>`);
+    expect(names(result)).toEqual(['tail']);
+  });
+
+  it.each([
+    `<p>Hello<small><br><br>${anchor('one')}</small></p>`,
+    `<p>Hello<br><small><br>${anchor('one')}</small></p>`,
+    `<p>Hello<br><br><small>${anchor('one')}</small></p>`,
+    `<p>Hello</p>\n  <p><small>${anchor('one')}</small></p>`,
+  ])('recognizes explicit boundaries across tag-only wrappers: %s', html => {
+    const result = splitTrailingHashtags(html);
+    expect(result.html).toBe('<p>Hello</p>');
+    expect(names(result)).toEqual(['one']);
   });
 
   it('drops a hashtag-only final paragraph', () => {
@@ -42,26 +60,6 @@ describe('splitTrailingHashtags', () => {
 
     expect(splitTrailingHashtags(html).html).toBe('<p>Hello</p>');
     expect(names(splitTrailingHashtags(html))).toEqual(['one', 'two']);
-  });
-
-  it('returns an empty body for a hashtag-only post', () => {
-    const html = `<p>${anchor('one')} ${anchor('two')}</p>`;
-
-    expect(splitTrailingHashtags(html)).toEqual({
-      html: '',
-      hashtags: [
-        { name: 'one', text: '#one', href: 'https://example.com/tags/one' },
-        { name: 'two', text: '#two', href: 'https://example.com/tags/two' },
-      ],
-    });
-  });
-
-  it('treats hashtags on separate lines as one trailing run', () => {
-    const html = `<p>${anchor('one')}<br>${anchor('two')}</p>`;
-    const result = splitTrailingHashtags(html);
-
-    expect(result.html).toBe('');
-    expect(names(result)).toEqual(['one', 'two']);
   });
 
   it('keeps an inline hashtag that is followed by ordinary text', () => {
@@ -102,7 +100,7 @@ describe('splitTrailingHashtags', () => {
       '<span class="quote-inline"><br>QT: <a href="https://example.com/q">https://example.com/q</a></span>',
       '<span class="original-media-link"> <a href="https://example.com/m">[Attached: 5 images]</a></span>',
       '<span class="reference-link-inline"> <a href="https://example.com/r">[Ref.]</a></span>',
-      `<br>${anchor('one')} ${anchor('two')}`,
+      `<br><br>${anchor('one')} ${anchor('two')}`,
       '</p>',
     ].join('');
     const result = splitTrailingHashtags(html);
@@ -143,7 +141,7 @@ describe('splitTrailingHashtags', () => {
   });
 
   it('recognizes a remote hashtag whose rel was rewritten by the sanitizer', () => {
-    const html = `<p>Hello ${anchor('one', { rel: 'nofollow noopener noreferrer', href: 'https://remote.test/tags/one' })}</p>`;
+    const html = `<p>Hello<br><br>${anchor('one', { rel: 'nofollow noopener noreferrer', href: 'https://remote.test/tags/one' })}</p>`;
     const result = splitTrailingHashtags(html);
 
     expect(result.html).toBe('<p>Hello</p>');
@@ -153,10 +151,10 @@ describe('splitTrailingHashtags', () => {
   });
 
   it('keeps duplicate trailing hashtags in order', () => {
-    const html = `<p>${anchor('one', { href: 'https://example.com/tags/one' })} ${anchor('one', { href: 'https://example.com/tags/one?repeat=1' })}</p>`;
+    const html = `<p>Body<br><br>${anchor('one', { href: 'https://example.com/tags/one' })} ${anchor('one', { href: 'https://example.com/tags/one?repeat=1' })}</p>`;
     const result = splitTrailingHashtags(html);
 
-    expect(result.html).toBe('');
+    expect(result.html).toBe('<p>Body</p>');
     expect(result.hashtags).toEqual([
       { name: 'one', text: '#one', href: 'https://example.com/tags/one' },
       { name: 'one', text: '#one', href: 'https://example.com/tags/one?repeat=1' },
@@ -173,7 +171,7 @@ describe('splitTrailingHashtags', () => {
 
   it('does not execute scripts or event handlers while parsing', () => {
     window.__statusHashtagProbe = jest.fn();
-    const html = `<p>Hello ${anchor('one')}<script>window.__statusHashtagProbe()</script></p><img src="x" onerror="window.__statusHashtagProbe()">`;
+    const html = `<p>Hello<br><br>${anchor('one')}<script>window.__statusHashtagProbe()</script></p><img src="x" onerror="window.__statusHashtagProbe()">`;
 
     expect(() => splitTrailingHashtags(html)).not.toThrow();
     expect(window.__statusHashtagProbe).not.toHaveBeenCalled();
@@ -197,7 +195,7 @@ describe('splitTrailingHashtags', () => {
   });
 
   it('leaves an earlier inline hashtag in the body', () => {
-    const html = `<p>Hello ${anchor('inline')} there ${anchor('end')}</p>`;
+    const html = `<p>Hello ${anchor('inline')} there<br><br>${anchor('end')}</p>`;
     const result = splitTrailingHashtags(html);
     const template = document.createElement('template');
     template.innerHTML = result.html;
@@ -217,7 +215,7 @@ describe('splitTrailingHashtags', () => {
 
   it('splits a sanitized Misskey trailing hashtag group', () => {
     const html = [
-      '<p>Hello <small>',
+      '<p>Hello<br><br><small>',
       '  <a href="https://misskey.example/tags/one" rel="nofollow noopener noreferrer" class="mention hashtag" target="_blank">#one</a>',
       '  <a href="https://misskey.example/tags/two" rel="nofollow noopener noreferrer" class="mention hashtag" target="_blank">#two</a>',
       '</small></p>',
@@ -234,7 +232,7 @@ describe('splitTrailingHashtags', () => {
   });
 
   it('splits hashtags wrapped in an inline element', () => {
-    const html = `<p>Hello <small>${anchor('one')} ${anchor('two')}</small></p>`;
+    const html = `<p>Hello<br><br><small>${anchor('one')} ${anchor('two')}</small></p>`;
     const result = splitTrailingHashtags(html);
 
     expect(result.html).toBe('<p>Hello</p>');
@@ -242,7 +240,7 @@ describe('splitTrailingHashtags', () => {
   });
 
   it('splits hashtags in nested inline wrappers', () => {
-    const html = `<p>Hello <small>
+    const html = `<p>Hello<br><br><small>
   <span>${anchor('one')}</span> <span>${anchor('two')}</span>
 </small></p>`;
     const result = splitTrailingHashtags(html);
@@ -252,19 +250,19 @@ describe('splitTrailingHashtags', () => {
   });
 
   it('does not split a wrapper that also contains ordinary text', () => {
-    const html = `<p>Hello <small>tags: ${anchor('one')} ${anchor('two')}</small></p>`;
+    const html = `<p>Hello<br><br><small>tags: ${anchor('one')} ${anchor('two')}</small></p>`;
     const result = splitTrailingHashtags(html);
 
     expect(result.html).toBe(html);
     expect(result.hashtags).toEqual([]);
   });
 
-  it('splits a wrapped hashtag run that follows a paragraph', () => {
+  it('keeps a wrapper after a paragraph without a separate tag paragraph', () => {
     const html = `<p>Hello</p><small>${anchor('one')} ${anchor('two')}</small>`;
     const result = splitTrailingHashtags(html);
 
-    expect(result.html).toBe('<p>Hello</p>');
-    expect(names(result)).toEqual(['one', 'two']);
+    expect(result.html).toBe(html);
+    expect(names(result)).toEqual([]);
   });
 
   it('does not split a wrapped hashtag inside a blockquote', () => {
@@ -276,7 +274,7 @@ describe('splitTrailingHashtags', () => {
   });
 
   it('does not split a wrapper that contains an image', () => {
-    const html = `<p>Hello <small><img src="https://example.com/a.png">${anchor('one')}</small></p>`;
+    const html = `<p>Hello<br><br><small><img src="https://example.com/a.png">${anchor('one')}</small></p>`;
     const result = splitTrailingHashtags(html);
 
     expect(result.html).toBe(html);
@@ -380,8 +378,8 @@ describe('collectStatusHashtags', () => {
 });
 
 describe('trailing hashtag translation matching', () => {
-  const source = `<p>Hello ${anchor('one')} ${anchor('two')}</p>`;
-  const matchingTarget = `<p>こんにちは ${anchor('one')} ${anchor('two')}</p>`;
+  const source = `<p>Hello<br><br>${anchor('one')} ${anchor('two')}</p>`;
+  const matchingTarget = `<p>こんにちは<br><br>${anchor('one')} ${anchor('two')}</p>`;
 
   it('removes a target run that matches the source run', () => {
     const sourceParts = splitTrailingHashtags(source);
@@ -392,23 +390,23 @@ describe('trailing hashtag translation matching', () => {
   });
 
   it('matches hashtag names case-insensitively', () => {
-    const sourceParts = splitTrailingHashtags(`<p>${anchor('One')}</p>`);
-    const target = `<p>${anchor('one')}</p>`;
+    const sourceParts = splitTrailingHashtags(`<p>Body<br><br>${anchor('One')}</p>`);
+    const target = `<p>訳<br><br>${anchor('one')}</p>`;
 
     expect(trailingHashtagsEqual(sourceParts.hashtags, splitTrailingHashtags(target).hashtags)).toBe(true);
-    expect(stripMatchingTrailingHashtags(sourceParts.hashtags, target)).toBe('');
+    expect(stripMatchingTrailingHashtags(sourceParts.hashtags, target)).toBe('<p>訳</p>');
   });
 
   it('matches hashtag names after NFKC normalization', () => {
-    const sourceParts = splitTrailingHashtags(`<p>${anchor('Ａ')}</p>`);
-    const target = `<p>${anchor('A')}</p>`;
+    const sourceParts = splitTrailingHashtags(`<p>Body<br><br>${anchor('Ａ')}</p>`);
+    const target = `<p>訳<br><br>${anchor('A')}</p>`;
 
     expect(trailingHashtagsEqual(sourceParts.hashtags, splitTrailingHashtags(target).hashtags)).toBe(true);
   });
 
   it('does not rewrite target HTML when the trailing run differs', () => {
     const sourceParts = splitTrailingHashtags(source);
-    const target = `<p>こんにちは ${anchor('one')} ${anchor('different')}</p>`;
+    const target = `<p>こんにちは<br><br>${anchor('one')} ${anchor('different')}</p>`;
     const result = stripMatchingTrailingHashtags(sourceParts.hashtags, target);
 
     expect(trailingHashtagsEqual(sourceParts.hashtags, splitTrailingHashtags(target).hashtags)).toBe(false);
@@ -416,8 +414,8 @@ describe('trailing hashtag translation matching', () => {
   });
 
   it('strips matching trailing hashtags when both runs are wrapped', () => {
-    const source = `<p>Hello <small>${anchor('one')} ${anchor('two')}</small></p>`;
-    const target = `<p>こんにちは <span><span>${anchor('one')}</span> <span>${anchor('two')}</span></span></p>`;
+    const source = `<p>Hello<br><br><small>${anchor('one')} ${anchor('two')}</small></p>`;
+    const target = `<p>こんにちは<br><br><span><span>${anchor('one')}</span> <span>${anchor('two')}</span></span></p>`;
     const sourceParts = splitTrailingHashtags(source);
 
     expect(names(sourceParts)).toEqual(['one', 'two']);
@@ -426,7 +424,7 @@ describe('trailing hashtag translation matching', () => {
 
   it('does not split a target run when the source has no badges', () => {
     const sourceParts = splitTrailingHashtags('<p>Hello</p>');
-    const target = `<p>こんにちは ${anchor('one')}</p>`;
+    const target = `<p>こんにちは<br><br>${anchor('one')}</p>`;
 
     expect(sourceParts.hashtags).toEqual([]);
     expect(stripMatchingTrailingHashtags(sourceParts.hashtags, target)).toBe(target);
@@ -460,6 +458,17 @@ describe('computeStatusHashtagBadges', () => {
     url: `https://example.com/tags/${encodeURIComponent(name)}`,
   }));
 
+  it.each([' ', '<br>', '\r\n', '<br>\n\n'])('keeps terminal inline tags and only badges out-of-band tags: %s', separator => {
+    const html = `<p>Hello${separator}${anchor('One')} ${anchor('Ａ')}</p>`;
+    const result = computeStatusHashtagBadges(html, tags('one', 'a', 'hidden'));
+    const target = `<p>訳<br><br>${anchor('One')} ${anchor('Ａ')}</p>`;
+
+    expect(result.html).toBe(html);
+    expect(result.trailing).toEqual([]);
+    expect(result.hashtags.map(hashtag => hashtag.name)).toEqual(['hidden']);
+    expect(stripMatchingTrailingHashtags(result.trailing, target)).toBe(target);
+  });
+
   it('keeps a mid-body hashtag and badges only the out-of-band tag', () => {
     const html = `<p>Simple text ${anchor('hashtag')} continues</p>`;
     const result = computeStatusHashtagBadges(html, tags('hashtag', 'test'));
@@ -471,9 +480,9 @@ describe('computeStatusHashtagBadges', () => {
     expect(result.trailing).toEqual([]);
   });
 
-  it('lifts a same-line trailing hashtag and still badges the out-of-band tag first', () => {
+  it('lifts an explicitly separated trailing hashtag and still badges the out-of-band tag first', () => {
     const result = computeStatusHashtagBadges(
-      `<p>Simple text ${anchor('hashtag')}</p>`,
+      `<p>Simple text<br><br>${anchor('hashtag')}</p>`,
       tags('hashtag', 'test'),
     );
 
@@ -491,17 +500,17 @@ describe('computeStatusHashtagBadges', () => {
   });
 
   it('removes a repeated trailing tag and does not badge it when the body still shows it', () => {
-    const html = `<p>本文 ${anchor('foo')} です<br>${anchor('foo')}</p>`;
+    const html = `<p>本文 ${anchor('foo')} です<br><br>${anchor('foo')}</p>`;
     const result = computeStatusHashtagBadges(html, tags('foo'));
 
     expect(result.html).toBe(`<p>本文 ${anchor('foo')} です</p>`);
     expect(result.hashtags).toEqual([]);
     expect(result.trailing.map(hashtag => hashtag.name)).toEqual(['foo']);
-    expect(stripMatchingTrailingHashtags(result.trailing, `<p>訳<br>${anchor('foo')}</p>`)).toBe('<p>訳</p>');
+    expect(stripMatchingTrailingHashtags(result.trailing, `<p>訳<br><br>${anchor('foo')}</p>`)).toBe('<p>訳</p>');
   });
 
   it('orders out-of-band tags before a trailing tag that is not still in the body', () => {
-    const html = `<p>${anchor('body')} を含む<br>${anchor('tail')}</p>`;
+    const html = `<p>${anchor('body')} を含む<br><br>${anchor('tail')}</p>`;
     const result = computeStatusHashtagBadges(html, tags('body', 'tail', 'hidden'));
 
     expect(textOf(result.html)).toContain('#body');
@@ -513,7 +522,7 @@ describe('computeStatusHashtagBadges', () => {
 
   it('still badges a Misskey trailing hashtag that status.tags does not list', () => {
     const html = [
-      '<p>Hello <small>',
+      '<p>Hello<br><br><small>',
       '  <a href="https://misskey.example/tags/one" rel="nofollow noopener noreferrer" class="mention hashtag" target="_blank">#one</a>',
       '</small></p>',
     ].join('\n');
@@ -541,10 +550,10 @@ describe('computeStatusHashtagBadges', () => {
   });
 
   it('does not duplicate a tag that differs only by case or NFKC', () => {
-    const trailing = computeStatusHashtagBadges(`<p>Hello ${anchor('FediBird')}</p>`, tags('fedibird'));
+    const trailing = computeStatusHashtagBadges(`<p>Hello<br><br>${anchor('FediBird')}</p>`, tags('fedibird'));
     const fullwidth = computeStatusHashtagBadges(`<p>${anchor('Ａ')} text</p>`, tags('a', 'extra'));
     const repeated = computeStatusHashtagBadges(
-      `<p>この話は ${anchor('FediBird')} についてです<br>${anchor('fedibird')}</p>`,
+      `<p>この話は ${anchor('FediBird')} についてです<br><br>${anchor('fedibird')}</p>`,
       fromJS(tags('FEDIBIRD')),
     );
 
@@ -557,7 +566,7 @@ describe('computeStatusHashtagBadges', () => {
 
   it('badges a fullwidth trailing hash once when status.tags lists the same name', () => {
     const href = 'https://remote.example/tags/foo';
-    const html = `<p>本文 <a href="${href}" class="mention hashtag" rel="tag">＃foo</a></p>`;
+    const html = `<p>本文<br><br><a href="${href}" class="mention hashtag" rel="tag">＃foo</a></p>`;
     const result = computeStatusHashtagBadges(html, [
       { name: 'foo', url: 'https://example.com/tags/foo' },
     ]);
@@ -569,7 +578,7 @@ describe('computeStatusHashtagBadges', () => {
   });
 
   it('keeps the mixed-case trailing spelling and its href when casings repeat', () => {
-    const html = `<p>Hello ${anchor('foo', { href: 'https://example.com/tags/foo' })} ${anchor('Foo', { href: 'https://example.com/tags/Foo' })} ${anchor('FOO', { href: 'https://example.com/tags/FOO' })}</p>`;
+    const html = `<p>Hello<br><br>${anchor('foo', { href: 'https://example.com/tags/foo' })} ${anchor('Foo', { href: 'https://example.com/tags/Foo' })} ${anchor('FOO', { href: 'https://example.com/tags/FOO' })}</p>`;
     const result = computeStatusHashtagBadges(html, [
       { name: 'foo', url: 'https://api.example/tags/foo' },
     ]);
@@ -582,7 +591,7 @@ describe('computeStatusHashtagBadges', () => {
   });
 
   it('picks the mixed-case accented spelling Mastodon keeps for the bar', () => {
-    const html = `<p>${anchor('éaa', { href: 'https://example.com/tags/lower' })} ${anchor('Éaa', { href: 'https://example.com/tags/mixed' })}</p>`;
+    const html = `<p>Body<br><br>${anchor('éaa', { href: 'https://example.com/tags/lower' })} ${anchor('Éaa', { href: 'https://example.com/tags/mixed' })}</p>`;
     const result = computeStatusHashtagBadges(html, [
       { name: 'éaa', url: 'https://api.example/tags/eaa' },
     ]);
@@ -593,7 +602,7 @@ describe('computeStatusHashtagBadges', () => {
   });
 
   it('does not badge a trailing casing when the body already shows that tag', () => {
-    const html = `<p>See ${anchor('test')} today ${anchor('mastodon')} ${anchor('Test')} ${anchor('fedibird')}</p>`;
+    const html = `<p>See ${anchor('test')} today<br><br>${anchor('mastodon')} ${anchor('Test')} ${anchor('fedibird')}</p>`;
     const result = computeStatusHashtagBadges(html, []);
 
     expect(textOf(result.html)).toBe('See #test today');
@@ -601,7 +610,7 @@ describe('computeStatusHashtagBadges', () => {
   });
 
   it('reads Immutable status tags and ignores a missing tag list', () => {
-    const html = `<p>Hello ${anchor('one')}</p>`;
+    const html = `<p>Hello<br><br>${anchor('one')}</p>`;
 
     expect(computeStatusHashtagBadges(html, fromJS([
       { name: '#hidden', url: 'https://example.com/tags/hidden' },
