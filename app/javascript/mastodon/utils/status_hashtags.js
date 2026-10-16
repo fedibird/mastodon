@@ -81,6 +81,7 @@ function isInlineWrapperElement(node) {
   return isElement(node)
     && node.tagName !== 'A'
     && node.tagName !== 'BR'
+    && !['quote-inline', 'original-media-link', 'reference-link-inline'].some(name => node.classList.contains(name))
     && !STRUCTURAL_TAGS.has(node.tagName)
     && !VISIBLE_EMPTY_TAGS.has(node.tagName);
 }
@@ -217,11 +218,12 @@ function appendHashtagAnchors(node, into) {
 
 // Only actual BR elements count as line breaks. Text-node newlines are
 // HTML formatting whitespace, and breaks inside opaque content (e.g. QT)
-// cannot contribute to the separator. Only tag-only inline wrappers open up.
+// cannot contribute to the separator. Tag-only and empty inline wrappers
+// open up so actual BRs in nested chrome count, too.
 function collectTrailingRun(container) {
   const children = [];
   const append = node => {
-    if (isTransparentHashtagWrapper(node)) {
+    if (isTransparentHashtagWrapper(node) || (isInlineWrapperElement(node) && isDisplaylessElement(node))) {
       Array.from(node.childNodes).forEach(append);
     } else {
       children.push(node);

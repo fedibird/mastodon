@@ -167,6 +167,29 @@ RSpec.describe UpdateStatusService, type: :service do # rubocop:disable Metrics/
     end
   end
 
+  it 'rejects an over-limit whitespace edit with media and rolls back snapshots' do
+    media = attach_media(status, 'kept')
+    text = ' ' * (StatusLengthValidator::MAX_CHARS + 1)
+
+    expect { subject.call(status, account.id, text: text) }.to raise_error(ActiveRecord::RecordInvalid)
+
+    expect(text).to eq(' ' * (StatusLengthValidator::MAX_CHARS + 1))
+    expect(status.reload.text).to eq 'original text'
+    expect(status.edits).to be_empty
+    expect(media.reload.status_id).to eq status.id
+    expect(DistributionWorker).not_to have_received(:perform_async)
+  end
+
+  it 'preserves an at-limit whitespace edit with media in the status and snapshot' do
+    attach_media(status, 'kept')
+    text = ' ' * StatusLengthValidator::MAX_CHARS
+
+    subject.call(status, account.id, text: text)
+
+    expect(status.reload.text).to eq(' ' * StatusLengthValidator::MAX_CHARS)
+    expect(status.edits.last.text).to eq(' ' * StatusLengthValidator::MAX_CHARS)
+  end
+
   it 'does not rewrite status text when the edit does not include text' do
     media = attach_media(status, 'old alt')
 

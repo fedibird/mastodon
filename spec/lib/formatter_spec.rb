@@ -782,6 +782,12 @@ RSpec.describe Formatter do
       {
         'same line' => '<p>Hello TAGS</p>',
         'one break' => '<p>Hello<br>TAGS</p>',
+        'one wrapped break' => '<p>Hello<span><br></span>TAGS</p>',
+        'empty wrapper indentation' => "<p>Hello<span>\n\n</span>TAGS</p>",
+        'empty synthetic quote break' => '<p>Hello<br><span class="quote-inline"><br></span>TAGS</p>',
+        'nested synthetic quote break' => '<p>Hello<br><span><small class="quote-inline"><br></small></span>TAGS</p>',
+        'empty synthetic media break' => '<p>Hello<br><span class="original-media-link"><br></span>TAGS</p>',
+        'empty synthetic reference break' => '<p>Hello<br><span class="reference-link-inline"><br></span>TAGS</p>',
         'indentation after one break' => "<p>Hello<br>\n\n  TAGS</p>",
         'formatting whitespace' => "<p>Hello\n\n  <small>TAGS</small></p>",
         'tag-only post' => '<p>TAGS</p>',
@@ -805,6 +811,10 @@ RSpec.describe Formatter do
 
       {
         'two breaks' => '<p>Hello<br><br>TAGS</p>',
+        'second break in empty span' => '<p>Hello<br><span><br></span>TAGS</p>',
+        'first break in empty span' => '<p>Hello<span><br></span><br>TAGS</p>',
+        'nested empty break wrappers' => '<p>Hello<span><small><br></small></span><span><br></span>TAGS</p>',
+        'indented empty break wrappers' => "<p>Hello<span> \n<br><!-- indent --><small><br> </small></span>TAGS</p>",
         'three breaks' => '<p>Hello<br><br><br>TAGS</p>',
         'two breaks with indentation' => "<p>Hello<br>\r\n  <br>\n  TAGS</p>",
         'tag paragraph' => '<p>Hello</p><p>TAGS</p>',

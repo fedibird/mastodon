@@ -343,6 +343,40 @@ RSpec.describe PostStatusService, type: :service do
     end
   end
 
+  [false, true].each do |schedule|
+    it "rejects over-limit whitespace with media on #{schedule ? 'schedule' : 'create'} without rewriting it" do
+      account = Fabricate(:account)
+      media = MediaAttachment.create!(account: account, type: :image, file_file_name: 'test.jpg', file_content_type: 'image/jpeg', file_file_size: 1)
+      text = ' ' * (StatusLengthValidator::MAX_CHARS + 1)
+      options = { text: text, media_ids: [media.id] }
+      options[:scheduled_at] = 2.hours.from_now if schedule
+
+      expect { subject.call(account, options) }.to raise_error(ActiveRecord::RecordInvalid)
+
+      expect(text).to eq(' ' * (StatusLengthValidator::MAX_CHARS + 1))
+      expect(account.statuses.reload).to be_empty
+      expect(account.scheduled_statuses.reload).to be_empty
+      expect(media.reload.status_id).to be_nil
+    end
+
+    it "preserves whitespace at the limit with media on #{schedule ? 'scheduled publish' : 'create'}" do
+      account = Fabricate(:account)
+      media = MediaAttachment.create!(account: account, type: :image, file_file_name: 'test.jpg', file_content_type: 'image/jpeg', file_file_size: 1)
+      text = ' ' * StatusLengthValidator::MAX_CHARS
+      options = { text: text, media_ids: [media.id] }
+      options[:scheduled_at] = 2.hours.from_now if schedule
+      result = subject.call(account, options)
+
+      if schedule
+        expect(result.reload.params['text']).to eq text
+        PublishScheduledStatusWorker.new.perform(result.id)
+      end
+
+      expect(account.statuses.first!.reload.text).to eq(' ' * StatusLengthValidator::MAX_CHARS)
+      expect(media.reload.status_id).to eq account.statuses.first!.id
+    end
+  end
+
   it 'processes hashtags' do
     hashtags_service = double(:process_hashtags_service)
     allow(hashtags_service).to receive(:call)

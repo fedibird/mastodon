@@ -55,6 +55,31 @@ describe('splitTrailingHashtags', () => {
     expect(names(result)).toEqual(['one']);
   });
 
+  it.each([
+    '<br><span><br></span>',
+    '<span><br></span><br>',
+    '<span><small><br></small></span><span><br></span>',
+    '<span> \n<br><!-- indent --><small><br> </small></span>',
+  ])('counts real breaks inside empty inline wrappers: %s', separator => {
+    const result = splitTrailingHashtags(`<p>Hello${separator}${anchor('one')}</p>`);
+
+    expect(result.html).toBe('<p>Hello</p>');
+    expect(names(result)).toEqual(['one']);
+  });
+
+  it.each([
+    '<span><br></span>',
+    '<span>\n\n</span>',
+    '<br><span class="quote-inline"><br></span>',
+    '<br><span><small class="quote-inline"><br></small></span>',
+    '<br><span class="original-media-link"><br></span>',
+    '<br><span class="reference-link-inline"><br></span>',
+  ])('does not count indentation or synthetic breaks as a blank line: %s', separator => {
+    const html = `<p>Hello${separator}${anchor('one')}</p>`;
+
+    expect(splitTrailingHashtags(html)).toEqual({ html, hashtags: [] });
+  });
+
   it('drops a hashtag-only final paragraph', () => {
     const html = `<p>Hello</p><p>${anchor('one')} ${anchor('two')}</p>`;
 

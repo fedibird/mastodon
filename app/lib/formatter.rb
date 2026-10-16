@@ -31,6 +31,7 @@ class Formatter
     summary table tbody td tfoot th thead tr ul
   ).freeze
   VISIBLE_EMPTY_SELECTOR = VISIBLE_EMPTY_TAGS.join(', ').freeze
+  STATUS_SUFFIX_CLASSES = %w(quote-inline original-media-link reference-link-inline).freeze
 
   def format(status, **options)
     if status.reblog?
@@ -510,7 +511,11 @@ class Formatter
 
   def hashtag_scan_nodes(container)
     container.children.flat_map do |node|
-      trailing_hashtag_wrapper?(node) ? hashtag_scan_nodes(node) : [node]
+      if trailing_hashtag_wrapper?(node) || (inline_hashtag_wrapper_element?(node) && displayless_element?(node))
+        hashtag_scan_nodes(node)
+      else
+        [node]
+      end
     end
   end
 
@@ -604,7 +609,7 @@ class Formatter
   end
 
   def inline_hashtag_wrapper_element?(node)
-    node.element? && node.name != 'a' && node.name != 'br' && !STRUCTURAL_TAGS.include?(node.name) && !VISIBLE_EMPTY_TAGS.include?(node.name)
+    node.element? && node.name != 'a' && node.name != 'br' && !STRUCTURAL_TAGS.include?(node.name) && !VISIBLE_EMPTY_TAGS.include?(node.name) && (node['class'].to_s.split & STATUS_SUFFIX_CLASSES).empty?
   end
 
   def displayless_element?(node)
