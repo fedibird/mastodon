@@ -19,7 +19,7 @@ import api from '../../api';
 import rootReducer from '../../reducers';
 import { makeGetStatus } from '../../selectors';
 import { filterContextForSource } from '../../mix/filter_context';
-import { FILTERS_FETCH_SUCCESS, fetchFilters, scheduleFiltersRefresh } from '../filters';
+import { FILTERS_FETCH_SUCCESS, fetchFilters, scheduleFiltersRefresh, createFilterStatus } from '../filters';
 import { importFetchedStatus, importStatus, importStatuses, importPolls, importFilters } from '../importer';
 import { connectUserStream, connectTimelineStream } from '../streaming';
 import { submitFilterSettings } from '../../features/embedded_rails_settings/requests';
@@ -323,6 +323,58 @@ it('does not request empty input or reconcile before a complete baseline', async
 const flush = async () => {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 };
+
+describe('review: adding a status to a known filter without streaming', () => {
+  it.each([
+    ['hide', 'status'], ['warn', 'status'],
+    ['hide', 'definitions'], ['warn', 'definitions'],
+  ])('invalidates confirmed nonmatches for %s when %s responds first', async (filter_action, first) => {
+    const store = createStore(rootReducer, applyMiddleware(thunk));
+    store.dispatch(importFetchedStatus(payload({ filtered: [] })));
+    const filter = definition({ filter_action, keywords: [] });
+    snapshot(store, [filter]);
+    await store.dispatch(reconcileFilterMatches(['101']));
+    expect(overlay(store).get('filterIds').toJS()).toEqual([]);
+    expect(select(store).get('matched_filters')).toBe(false);
+
+    const definitions = deferred(); const status = deferred();
+    const get = jest.fn(url => {
+      if (url === '/api/v2/filters') return definitions.promise;
+      if (url === '/api/v1/statuses/101') return status.promise;
+      if (url === '/api/v1/statuses/101/context') return Promise.resolve({ data: { ancestors: [], descendants: [], references: [] } });
+      return Promise.resolve({ data: [] });
+    });
+    post.mockResolvedValueOnce({ data: { id: '88', status_id: '101' } });
+    api.mockReturnValue({ get, post });
+    const mutation = store.dispatch(createFilterStatus({ filter_id: '1', status_id: '101' }));
+    await flush();
+    const complete = () => definitions.resolve({ data: [{ ...filter, statuses: [{ id: '88', status_id: '101' }] }] });
+    const refreshed = () => status.resolve({ data: payload({ filtered: [{ filter }] }) });
+    if (first === 'status') {
+      refreshed(); await flush();
+      expect(overlay(store).get('phase')).toBe('ready');
+      expect(select(store).get('matched_filters')).toBe(false);
+      complete();
+    } else {
+      complete(); await flush();
+      refreshed();
+    }
+    await mutation; await flush();
+
+    expect(store.getState().getIn(['filterMatches', 'generation'])).toBe(1);
+    expect(store.getState().getIn(['filterMatches', 'needsReconcile'])).toBe(true);
+    expect(overlay(store).get('resultGeneration')).toBe(0);
+    if (filter_action === 'hide') expect(select(store)).toBeNull();
+    else expect(select(store).get('matched_filters').toJS()).toEqual(['hidden']);
+    expect(get).toHaveBeenCalledWith('/api/v2/filters');
+    // No user-stream event or automatic match POST is needed for convergence.
+    expect(post).toHaveBeenCalledTimes(2);
+    post.mockResolvedValueOnce(answer({ '101': ['1'] }));
+    await store.dispatch(reconcileFilterMatches(['101']));
+    expect(overlay(store).get('resultGeneration')).toBe(1);
+    expect(overlay(store).get('filterIds').toJS()).toEqual(['1']);
+  });
+});
 
 describe('user stream and embedded saves', () => {
   beforeEach(() => jest.useFakeTimers());

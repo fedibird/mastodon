@@ -1,5 +1,6 @@
 import api from '../api';
 
+import { fetchFilters } from './filter_definitions';
 import { importFilters } from './importer';
 import { openModal } from './modal';
 import { fetchStatus } from './statuses';
@@ -56,8 +57,12 @@ export const createFilterStatus = (params, onSuccess, onFail) => (dispatch, getS
     status_id: params.status_id,
   }).then(response => {
     dispatch(createFilterStatusSuccess(response.data));
+    // Refresh the complete target rules so confirmed nonmatches cannot mask
+    // the new FilterResult, even when the user stream is disconnected.
+    const refresh = dispatch(fetchFilters());
     dispatch(fetchStatus(params.status_id, true));
     if (onSuccess) onSuccess(response.data);
+    return refresh;
   }).catch(error => {
     dispatch(createFilterStatusFail(error));
     if (onFail) onFail(error);

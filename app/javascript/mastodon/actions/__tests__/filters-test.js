@@ -103,9 +103,10 @@ describe('filter actions', () => {
     expect(importFilters).toHaveBeenCalledWith([created]);
   });
 
-  it('attaches a status then force-refreshes it', async () => {
+  it('attaches a status then refreshes complete definitions and the status', async () => {
     api.mockReturnValue({
       post: jest.fn().mockResolvedValue({ data: { id: 'fs1', status_id: 's1' } }),
+      get: jest.fn().mockResolvedValue({ data: [] }),
     });
     const onSuccess = jest.fn();
 
@@ -115,12 +116,42 @@ describe('filter actions', () => {
     }, onSuccess));
 
     expect(api().post).toHaveBeenCalledWith('/api/v2/filters/1/statuses', { status_id: 's1' });
+    expect(api().get).toHaveBeenCalledWith('/api/v2/filters');
     expect(fetchStatus).toHaveBeenCalledWith('s1', true);
     expect(onSuccess).toHaveBeenCalled();
     expect(actions.map(action => action.type)).toEqual([
       'FILTERS_STATUS_CREATE_REQUEST',
       'FILTERS_STATUS_CREATE_SUCCESS',
+      'FILTERS_FETCH_REQUEST',
       'STATUS_FETCH',
+      'FILTERS_FETCH_SUCCESS',
+    ]);
+  });
+
+  it('keeps a successful attachment successful when definition refresh fails', async () => {
+    const error = new Error('refresh failed');
+    const attached = { id: 'fs1', status_id: 's1' };
+    api.mockReturnValue({
+      post: jest.fn().mockResolvedValue({ data: attached }),
+      get: jest.fn().mockRejectedValue(error),
+    });
+    const onSuccess = jest.fn();
+    const onFail = jest.fn();
+
+    const actions = await dispatchThunk(createFilterStatus({
+      filter_id: '1',
+      status_id: 's1',
+    }, onSuccess, onFail));
+
+    expect(onSuccess).toHaveBeenCalledWith(attached);
+    expect(onFail).not.toHaveBeenCalled();
+    expect(fetchStatus).toHaveBeenCalledWith('s1', true);
+    expect(actions.map(action => action.type)).toEqual([
+      'FILTERS_STATUS_CREATE_REQUEST',
+      'FILTERS_STATUS_CREATE_SUCCESS',
+      'FILTERS_FETCH_REQUEST',
+      'STATUS_FETCH',
+      'FILTERS_FETCH_FAIL',
     ]);
   });
 
