@@ -22,6 +22,7 @@ import {
 import { getLocale } from '../locales';
 import { deleteScheduledStatusSuccess } from './scheduled_statuses';
 import { updateStatus } from './statuses';
+import { scheduleFiltersRefresh } from './filters';
 
 const { messages } = getLocale();
 
@@ -59,6 +60,7 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
     return {
       onConnect() {
         dispatch(connectTimeline(timelineId));
+        if (channelName === 'user') dispatch(scheduleFiltersRefresh());
 
         if (pollingId) {
           clearTimeout(pollingId);
@@ -76,6 +78,9 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
 
       onReceive (data) {
         switch(data.event) {
+        case 'filters_changed':
+          if (channelName === 'user') dispatch(scheduleFiltersRefresh());
+          break;
         case 'update':
           dispatch(updateTimeline(timelineId, JSON.parse(data.payload), options.accept));
           break;

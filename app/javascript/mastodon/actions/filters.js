@@ -1,12 +1,11 @@
 import api from '../api';
 
+import { fetchFilters } from './filter_definitions';
 import { importFilters } from './importer';
 import { openModal } from './modal';
 import { fetchStatus } from './statuses';
 
-export const FILTERS_FETCH_REQUEST = 'FILTERS_FETCH_REQUEST';
-export const FILTERS_FETCH_SUCCESS = 'FILTERS_FETCH_SUCCESS';
-export const FILTERS_FETCH_FAIL    = 'FILTERS_FETCH_FAIL';
+export { FILTERS_FETCH_REQUEST, FILTERS_FETCH_SUCCESS, FILTERS_FETCH_FAIL, fetchFilters, scheduleFiltersRefresh } from './filter_definitions';
 
 export const FILTERS_CREATE_REQUEST = 'FILTERS_CREATE_REQUEST';
 export const FILTERS_CREATE_SUCCESS = 'FILTERS_CREATE_SUCCESS';
@@ -21,35 +20,6 @@ export const initAddFilter = (status, { contextType } = {}) => dispatch =>
     statusId: status?.get('id'),
     contextType,
   }));
-
-// An earlier load/stream refresh must not overwrite a post-commit collection.
-const latestFilterFetch = new WeakMap();
-
-export const fetchFilters = () => (dispatch, getState) => {
-  const request = {};
-  latestFilterFetch.set(dispatch, request);
-  dispatch({
-    type: FILTERS_FETCH_REQUEST,
-    skipLoading: true,
-  });
-
-  return api(getState)
-    .get('/api/v2/filters')
-    .then(({ data }) => {
-      if (latestFilterFetch.get(dispatch) !== request) return;
-      // FILTERS_FETCH_SUCCESS replaces the collection. A preceding
-      // FILTERS_IMPORT merge would be overwritten on the next dispatch.
-      dispatch({
-        type: FILTERS_FETCH_SUCCESS,
-        filters: data,
-        skipLoading: true,
-      });
-    })
-    .catch(err => {
-      if (latestFilterFetch.get(dispatch) !== request) return;
-      dispatch({ type: FILTERS_FETCH_FAIL, err, skipLoading: true, skipAlert: true });
-    });
-};
 
 export const createFilter = (params, onSuccess, onFail) => (dispatch, getState) => {
   dispatch(createFilterRequest());
@@ -87,8 +57,12 @@ export const createFilterStatus = (params, onSuccess, onFail) => (dispatch, getS
     status_id: params.status_id,
   }).then(response => {
     dispatch(createFilterStatusSuccess(response.data));
+    // Refresh the complete target rules so confirmed nonmatches cannot mask
+    // the new FilterResult, even when the user stream is disconnected.
+    const refresh = dispatch(fetchFilters());
     dispatch(fetchStatus(params.status_id, true));
     if (onSuccess) onSuccess(response.data);
+    return refresh;
   }).catch(error => {
     dispatch(createFilterStatusFail(error));
     if (onFail) onFail(error);

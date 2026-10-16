@@ -41,11 +41,6 @@ describe('streaming custom-filter query', () => {
     expect(source).toContain('req.cachedFilters = null');
   });
 
-  it('does not restore WebUI filters_changed fetching', () => {
-    expect(webUiStreaming).not.toMatch(/filters_changed/);
-    expect(webUiStreaming).not.toMatch(/fetchNotificationFilters/);
-  });
-
   it('still transmits hide-filtered statuses', () => {
     expect(source).toContain('payload.filtered = filteredResultsForStatus(unpackedPayload, req.cachedFilters)');
     expect(source).toMatch(/transmit\(\);/);

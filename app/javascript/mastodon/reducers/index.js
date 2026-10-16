@@ -49,6 +49,9 @@ import circles from './circles';
 import circleEditor from './circle_editor';
 import circleAdder from './circle_adder';
 import filters from './filters';
+import filterMatches from './filter_matches';
+import { maintainFilterMatchContent } from './filter_match_lifecycle';
+import { FILTERS_IMPORT } from '../actions/importer';
 import conversations from './conversations';
 import suggestions from './suggestions';
 import polls from './polls';
@@ -116,6 +119,7 @@ const reducers = {
   circleEditor,
   circleAdder,
   filters,
+  filterMatches,
   conversations,
   suggestions,
   polls,
@@ -129,4 +133,13 @@ const reducers = {
   server,
 };
 
-export default combineReducers(reducers);
+const combined = combineReducers(reducers);
+
+export default (state, action) => {
+  // Status payload FilterResults have neither complete rules nor a version.
+  // After the first authoritative GET, they cannot resurrect deleted filters
+  // or roll current action/title/context back. Explicit create success remains
+  // available to the filter creation modal.
+  const accepted = action.type === FILTERS_IMPORT && state?.getIn(['filterMatches', 'baseline']) ? { ...action, filters: [] } : action;
+  return maintainFilterMatchContent(state, combined(state, accepted), action);
+};
