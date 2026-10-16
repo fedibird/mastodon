@@ -470,6 +470,7 @@ body > [data-popper-placement] {
   }
 
   .compose-form__autosuggest-wrapper {
+    box-sizing: border-box;
     position: relative;
     width: 100%;
     max-width: 100%;
