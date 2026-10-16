@@ -8,7 +8,7 @@
 class IntersectionObserverWrapper {
 
   callbacks = {};
-  observerBacklog = [];
+  nodes = {};
   observer = null;
 
   connect (options) {
@@ -21,32 +21,27 @@ class IntersectionObserverWrapper {
       });
     };
 
+    if (this.observer) this.observer.disconnect();
     this.observer = new IntersectionObserver(onIntersection, options);
-    this.observerBacklog.forEach(([ id, node, callback ]) => {
-      this.observe(id, node, callback);
-    });
-    this.observerBacklog = null;
+    Object.keys(this.nodes).forEach(id => this.observer.observe(this.nodes[id]));
   }
 
   observe (id, node, callback) {
-    if (!this.observer) {
-      this.observerBacklog.push([ id, node, callback ]);
-    } else {
-      this.callbacks[id] = callback;
-      this.observer.observe(node);
-    }
+    this.callbacks[id] = callback;
+    this.nodes[id] = node;
+    if (this.observer) this.observer.observe(node);
   }
 
   unobserve (id, node) {
-    if (this.observer) {
-      delete this.callbacks[id];
-      this.observer.unobserve(node);
-    }
+    delete this.callbacks[id];
+    delete this.nodes[id];
+    if (this.observer) this.observer.unobserve(node);
   }
 
   disconnect () {
     if (this.observer) {
       this.callbacks = {};
+      this.nodes = {};
       this.observer.disconnect();
       this.observer = null;
     }
