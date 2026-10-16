@@ -4,9 +4,7 @@ import { importFilters } from './importer';
 import { openModal } from './modal';
 import { fetchStatus } from './statuses';
 
-export const FILTERS_FETCH_REQUEST = 'FILTERS_FETCH_REQUEST';
-export const FILTERS_FETCH_SUCCESS = 'FILTERS_FETCH_SUCCESS';
-export const FILTERS_FETCH_FAIL    = 'FILTERS_FETCH_FAIL';
+export { FILTERS_FETCH_REQUEST, FILTERS_FETCH_SUCCESS, FILTERS_FETCH_FAIL, fetchFilters, scheduleFiltersRefresh } from './filter_definitions';
 
 export const FILTERS_CREATE_REQUEST = 'FILTERS_CREATE_REQUEST';
 export const FILTERS_CREATE_SUCCESS = 'FILTERS_CREATE_SUCCESS';
@@ -21,64 +19,6 @@ export const initAddFilter = (status, { contextType } = {}) => dispatch =>
     statusId: status?.get('id'),
     contextType,
   }));
-
-// An earlier load/stream refresh must not overwrite a post-commit collection.
-const latestFilterFetch = new WeakMap();
-
-const streamRefreshes = new WeakMap();
-
-// One timer and one in-flight stream refresh per store. Continuous events
-// coalesce into a single trailing refresh; errors do not trigger retries.
-export const scheduleFiltersRefresh = () => dispatch => {
-  let refresh = streamRefreshes.get(dispatch);
-  if (!refresh) {
-    refresh = { dirty: false, timer: null, pending: false };
-    streamRefreshes.set(dispatch, refresh);
-  }
-  refresh.dirty = true;
-  const schedule = () => {
-    if (refresh.timer !== null || refresh.pending) return;
-    refresh.timer = setTimeout(async () => {
-      refresh.timer = null;
-      refresh.pending = true;
-      refresh.dirty = false;
-      try {
-        await dispatch(fetchFilters());
-      } finally {
-        refresh.pending = false;
-        if (refresh.dirty) schedule();
-        else streamRefreshes.delete(dispatch);
-      }
-    }, 250);
-  };
-  schedule();
-};
-
-export const fetchFilters = () => (dispatch, getState) => {
-  const request = {};
-  latestFilterFetch.set(dispatch, request);
-  dispatch({
-    type: FILTERS_FETCH_REQUEST,
-    skipLoading: true,
-  });
-
-  return api(getState)
-    .get('/api/v2/filters')
-    .then(({ data }) => {
-      if (latestFilterFetch.get(dispatch) !== request) return;
-      // FILTERS_FETCH_SUCCESS replaces the collection. A preceding
-      // FILTERS_IMPORT merge would be overwritten on the next dispatch.
-      dispatch({
-        type: FILTERS_FETCH_SUCCESS,
-        filters: data,
-        skipLoading: true,
-      });
-    })
-    .catch(err => {
-      if (latestFilterFetch.get(dispatch) !== request) return;
-      dispatch({ type: FILTERS_FETCH_FAIL, err, skipLoading: true, skipAlert: true });
-    });
-};
 
 export const createFilter = (params, onSuccess, onFail) => (dispatch, getState) => {
   dispatch(createFilterRequest());

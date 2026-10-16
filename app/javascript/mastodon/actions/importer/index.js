@@ -1,4 +1,5 @@
 import { normalizeAccount, normalizeStatus, normalizePoll, normalizeCustomEmojiDetail, translationSourceSignature } from './normalizer';
+import { revalidateUnknownFilters } from '../filter_definitions';
 
 export const ACCOUNT_IMPORT  = 'ACCOUNT_IMPORT';
 export const ACCOUNTS_IMPORT = 'ACCOUNTS_IMPORT';
@@ -108,6 +109,7 @@ export function importFetchedStatuses(statuses, options = {}) {
     const normalStatuses = [];
     const polls = [];
     const filters = [];
+    const filterIds = new Set();
 
     function processStatus(status) {
       status = { ...status };
@@ -137,6 +139,7 @@ export function importFetchedStatuses(statuses, options = {}) {
 
       if (status.filtered) {
         status.filtered.forEach(result => {
+          if (result.filter) filterIds.add(String(typeof result.filter === 'object' ? result.filter.id : result.filter));
           if (result.filter && typeof result.filter === 'object') {
             pushUnique(filters, { ...result.filter, id: String(result.filter.id) });
           }
@@ -216,6 +219,10 @@ export function importFetchedStatuses(statuses, options = {}) {
     dispatch(importFetchedAccounts(accounts));
     // Import Filter entities before statuses so hide/warn selectors see
     // filter_action on the same tick the status lands in Redux.
+    // After baseline, simplified FilterResults cannot overwrite definitions.
+    // Unknown IDs trigger bounded authoritative revalidation even offline from
+    // the user stream, rather than leaving newly created hide rules unknown.
+    dispatch(revalidateUnknownFilters(Array.from(filterIds)));
     dispatch(importFilters(filters));
     dispatch(importStatuses(normalStatuses));
   };
@@ -234,7 +241,7 @@ export function importFetchedCustomEmojiDetail(custom_emoji) {
 export function importFetchedCustomEmojisDetail(custom_emojis) {
   const normalizeCustomEmojisDetail = [];
 
-  return (dispatch, _getState) => {
+  return dispatch => {
     function processCustomEmojiDetail(custom_emoji) {
       pushUnique(normalizeCustomEmojisDetail, normalizeCustomEmojiDetail(custom_emoji));
     }

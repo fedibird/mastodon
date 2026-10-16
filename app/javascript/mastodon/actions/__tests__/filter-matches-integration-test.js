@@ -20,11 +20,12 @@ import rootReducer from '../../reducers';
 import { makeGetStatus } from '../../selectors';
 import { filterContextForSource } from '../../mix/filter_context';
 import { FILTERS_FETCH_SUCCESS, fetchFilters, scheduleFiltersRefresh } from '../filters';
-import { importFetchedStatus, importStatus, importPolls, importFilters } from '../importer';
+import { importFetchedStatus, importStatus, importStatuses, importPolls, importFilters } from '../importer';
 import { connectUserStream, connectTimelineStream } from '../streaming';
 import { submitFilterSettings } from '../../features/embedded_rails_settings/requests';
 import { TIMELINE_DELETE, TIMELINE_EXPIRE } from '../timelines';
 import { reconcileFilterMatches, clearFilterMatches } from '../filter_matches';
+import { maintainFilterMatchContent } from '../../reducers/filter_match_lifecycle';
 import { FILTER_MATCHES_LIMIT } from '../../reducers/filter_matches';
 
 const definition = (overrides = {}) => ({ id: '1', title: 'hidden', context: ['home'], filter_action: 'hide', expires_at: null, keywords: [{ id: '10', keyword: 'hello', whole_word: false }], statuses: [], ...overrides });
@@ -35,7 +36,7 @@ const deferred = () => {
     resolve = yes; reject = no;
   }); return { promise, resolve, reject };
 };
-const snapshot = (store, filters = [definition()]) => store.dispatch({ type: FILTERS_FETCH_SUCCESS, filters });
+const snapshot = (store, filters = [definition()]) => store.dispatch({ type: FILTERS_FETCH_SUCCESS, filters, receivedAt: Date.now() });
 const overlay = (store, id = '101') => store.getState().getIn(['filterMatches', 'entries', id]);
 const select = (store, id = '101', contextType = 'home') => makeGetStatus()(store.getState(), { id, contextType });
 const setup = () => {
@@ -210,7 +211,7 @@ it('keeps wrapper results independent of original and quote results, with existi
   expect(select(store, '102', 'notifications')).not.toBeNull();
 });
 
-it('uses current title/action/context/expiry and excludes own posts without changing generation', async () => {
+it('uses current presentation fields and own-post exclusion, advancing generation only on expiry revival', async () => {
   const store = setup();
   post.mockResolvedValue(answer({ '101': ['1'] }));
   await store.dispatch(reconcileFilterMatches(['101']));
@@ -218,9 +219,10 @@ it('uses current title/action/context/expiry and excludes own posts without chan
   expect(select(store).get('matched_filters').toJS()).toEqual(['renamed']);
   snapshot(store, [definition({ expires_at: '2000-01-01T00:00:00Z' })]);
   expect(select(store).get('matched_filters')).toBe(false);
+  expect(store.getState().getIn(['filterMatches', 'generation'])).toBe(0);
   snapshot(store, [definition({ context: ['public'] })]);
   expect(select(store)).not.toBeNull();
-  expect(store.getState().getIn(['filterMatches', 'generation'])).toBe(0);
+  expect(store.getState().getIn(['filterMatches', 'generation'])).toBe(1);
   store.dispatch(importFetchedStatus(payload({ account: { ...account, id: 'me' } })));
   post.mockResolvedValue(answer({ '101': ['1'] }));
   await store.dispatch(reconcileFilterMatches(['101']));
@@ -409,4 +411,184 @@ it('cannot restore cleared results or overwrite a newer result with a late faile
   old.reject(new Error('old request failed')); await request;
   expect(overlay(store).get('phase')).toBe('ready');
   expect(select(store)).not.toBeNull();
+});
+
+describe('review: expired filter reactivation', () => {
+  beforeEach(() => {
+    jest.useFakeTimers('modern'); jest.setSystemTime(new Date('2026-10-16T10:00:00Z'));
+  });
+  afterEach(() => {
+    jest.clearAllTimers(); jest.useRealTimers();
+  });
+
+  it.each(['hide', 'warn'])('invalidates a confirmed empty result when an expired %s filter is reactivated', async filter_action => {
+    const store = setup();
+    snapshot(store, [definition({ filter_action, expires_at: '2026-10-16T09:00:00Z' })]);
+    await store.dispatch(reconcileFilterMatches(['101']));
+    expect(overlay(store).get('filterIds').toJS()).toEqual([]);
+    const generation = store.getState().getIn(['filterMatches', 'generation']);
+    snapshot(store, [definition({ filter_action, expires_at: '2026-10-17T10:00:00Z' })]);
+    expect(store.getState().getIn(['filterMatches', 'generation'])).toBe(generation + 1);
+    expect(overlay(store).get('resultGeneration')).not.toBe(store.getState().getIn(['filterMatches', 'generation']));
+    post.mockResolvedValue(answer({ '101': ['1'] }));
+    await store.dispatch(reconcileFilterMatches(['101']));
+    expect(overlay(store).get('filterIds').toJS()).toEqual(['1']);
+    expect(overlay(store).get('resultGeneration')).toBe(generation + 1);
+    if (filter_action === 'hide') expect(select(store)).toBeNull();
+    else expect(select(store).get('matched_filters').toJS()).toEqual(['hidden']);
+  });
+
+  it('detects natural expiry since the previous GET and ignores active-to-active, expired-to-expired and empty-rule changes', async () => {
+    const store = setup();
+    snapshot(store, [definition({ expires_at: '2026-10-16T10:01:00Z' })]);
+    snapshot(store, [definition({ expires_at: '2026-10-16T10:02:00Z', title: 'renamed', context: ['public'], filter_action: 'warn' })]);
+    expect(store.getState().getIn(['filterMatches', 'generation'])).toBe(0);
+    jest.setSystemTime(new Date('2026-10-16T10:03:00Z'));
+    await store.dispatch(reconcileFilterMatches(['101']));
+    snapshot(store, [definition({ expires_at: null })]);
+    expect(store.getState().getIn(['filterMatches', 'generation'])).toBe(1);
+    snapshot(store, [definition({ expires_at: '2026-10-16T09:00:00Z' })]);
+    snapshot(store, [definition({ expires_at: '2026-10-16T09:30:00Z' })]);
+    expect(store.getState().getIn(['filterMatches', 'generation'])).toBe(1);
+    snapshot(store, [definition({ keywords: [], expires_at: '2026-10-16T09:00:00Z' })]);
+    const generation = store.getState().getIn(['filterMatches', 'generation']);
+    snapshot(store, [definition({ keywords: [], expires_at: null })]);
+    expect(store.getState().getIn(['filterMatches', 'generation'])).toBe(generation);
+  });
+});
+
+it('profiles a single import with 2000 retained overlay entries and preserves unrelated results', async () => {
+  const store = setup();
+  const source = store.getState().getIn(['statuses', '101']).toJS();
+  const ids = Array.from({ length: 2000 }, (_, i) => String(i + 1));
+  store.dispatch(importStatuses(ids.map(id => ({ ...source, id }))));
+  for (let i = 0; i < ids.length; i += 100) {
+    const batch = ids.slice(i, i + 100);
+    post.mockResolvedValue(answer(Object.fromEntries(batch.map(id => [id, []]))));
+    await store.dispatch(reconcileFilterMatches(batch));
+  }
+  const previous = store.getState();
+  const next = previous.setIn(['statuses', '101', 'content'], 'changed');
+  const action = { type: 'STATUS_IMPORT', status: { ...source, content: 'changed' } };
+  const durations = [];
+  for (let i = 0; i < 100; i++) {
+    const start = performance.now();
+    const result = maintainFilterMatchContent(previous, next, action);
+    durations.push(performance.now() - start);
+    expect(result.getIn(['filterMatches', 'entries', '101', 'phase'])).toBe('unevaluated');
+    expect(result.getIn(['filterMatches', 'entries', '102'])).toBe(previous.getIn(['filterMatches', 'entries', '102']));
+  }
+  const imports = [];
+  for (let i = 0; i < 100; i++) {
+    const start = performance.now();
+    store.dispatch(importFetchedStatus(payload({ favourites_count: i })));
+    imports.push(performance.now() - start);
+  }
+  if (process.env.FILTER_OVERLAY_PROFILE === '1') {
+    const stats = values => {
+      values.sort((a, b) => a - b);
+      return { median: values[50].toFixed(3), p95: values[95].toFixed(3), max: values[99].toFixed(3) };
+    };
+    // eslint-disable-next-line no-console
+    console.info('Overlay import profile (ms):', JSON.stringify({ entries: 2000, samples: 100, lifecycle: stats(durations), completeImporter: stats(imports) }));
+  }
+});
+
+describe('review: unknown filter hints', () => {
+  beforeEach(() => {
+    jest.useFakeTimers('modern'); jest.setSystemTime(new Date('2026-10-16T10:00:00Z'));
+  });
+  afterEach(() => {
+    jest.clearAllTimers(); jest.useRealTimers();
+  });
+  const hint = (store, id = '2') => store.dispatch(importFetchedStatus(payload({ filtered: [{ filter: { id, title: 'unverified', context: ['home'], filter_action: 'hide' } }] })));
+  const tick = async ms => {
+    jest.advanceTimersByTime(ms); await flush();
+  };
+
+  it('recovers a new hide filter from a status payload without a connected user stream', async () => {
+    const store = setup();
+    await store.dispatch(reconcileFilterMatches(['101']));
+    const get = jest.fn().mockResolvedValue({ data: [definition(), definition({ id: '2', title: 'verified' })] });
+    api.mockReturnValue({ get });
+    hint(store);
+    expect(store.getState().getIn(['filters', '2'])).toBeUndefined();
+    await tick(251);
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(store.getState().getIn(['filters', '2', 'title'])).toBe('verified');
+    expect(select(store)).toBeNull();
+    expect(store.getState().getIn(['filterMatches', 'generation'])).toBe(1);
+    expect(overlay(store).get('resultGeneration')).toBe(0);
+  });
+
+  it('detects unknown IDs even when a FilterResult is already normalized', async () => {
+    const store = setup();
+    const get = jest.fn().mockResolvedValue({ data: [definition(), definition({ id: '2' })] });
+    api.mockReturnValue({ get });
+    store.dispatch(importFetchedStatus(payload({ filtered: [{ filter: '2' }] })));
+    await tick(251);
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(select(store)).toBeNull();
+  });
+
+  it('never resurrects deleted filters, and repeated unknown/deleted hints do not spam GETs', async () => {
+    const store = setup(); snapshot(store, []);
+    const get = jest.fn().mockResolvedValue({ data: [] });
+    api.mockReturnValue({ get });
+    for (let i = 0; i < 100; i++) hint(store, '1');
+    await tick(251);
+    for (let i = 0; i < 100; i++) hint(store, '1');
+    await tick(30000);
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(store.getState().get('filters').isEmpty()).toBe(true);
+    expect(select(store)).not.toBeNull();
+    await tick(120000); // elapsed time alone never polls
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps complete metadata and a newer GET when unknown revalidation responses reverse order', async () => {
+    const store = setup(); const old = deferred(); const recent = deferred();
+    const get = jest.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(recent.promise);
+    api.mockReturnValue({ get });
+    hint(store); await tick(251);
+    const request = store.dispatch(fetchFilters());
+    recent.resolve({ data: [definition({ title: 'current', filter_action: 'warn' }), definition({ id: '2', title: 'verified' })] }); await request;
+    old.resolve({ data: [] }); await flush();
+    hint(store, '1');
+    expect(store.getState().getIn(['filters', '1', 'title'])).toBe('current');
+    expect(store.getState().getIn(['filters', '1', 'filter_action'])).toBe('warn');
+    expect(store.getState().getIn(['filters', '2', 'title'])).toBe('verified');
+    await tick(30000);
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  it('bounds distinct-ID storms and retries only on a fresh hint after the negative-cache TTL', async () => {
+    const store = setup();
+    const get = jest.fn().mockRejectedValue(new Error('network'));
+    api.mockReturnValue({ get });
+    hint(store); await tick(251);
+    for (let i = 0; i < 2500; i++) hint(store, String(i + 2));
+    await tick(1000);
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBeLessThanOrEqual(2);
+    await tick(5000);
+    expect(get).toHaveBeenCalledTimes(2);
+    await tick(120000);
+    expect(get).toHaveBeenCalledTimes(2);
+    hint(store, '2500'); await tick(251);
+    expect(get).toHaveBeenCalledTimes(3);
+  });
+
+  it('coalesces unknown hints with user-stream notifications and cancels obsolete hints before firing', async () => {
+    const store = setup();
+    const get = jest.fn().mockResolvedValue({ data: [definition(), definition({ id: '2' })] });
+    api.mockReturnValue({ get });
+    hint(store); store.dispatch(scheduleFiltersRefresh());
+    await tick(251);
+    expect(get).toHaveBeenCalledTimes(1);
+    hint(store, '3');
+    snapshot(store, [definition(), definition({ id: '2' }), definition({ id: '3' })]);
+    await tick(6000);
+    expect(get).toHaveBeenCalledTimes(1);
+  });
 });

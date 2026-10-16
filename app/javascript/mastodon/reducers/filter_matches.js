@@ -1,18 +1,19 @@
 import { Map as ImmutableMap, OrderedMap, List, is } from 'immutable';
 import { FILTERS_FETCH_SUCCESS } from '../actions/filters';
 import { FILTER_MATCHES_REQUEST, FILTER_MATCHES_SUCCESS, FILTER_MATCHES_FAIL, FILTER_MATCHES_CLEAR } from '../actions/filter_matches';
-import { filterRules } from '../utils/filter_rules';
+import { filterRules, filterExpirations, hasReactivatedRules } from '../utils/filter_rules';
 
 export const FILTER_MATCHES_LIMIT = 2000;
 
-const initialState = ImmutableMap({ baseline: false, generation: 0, serial: 0, needsReconcile: false, rules: ImmutableMap(), entries: OrderedMap() });
+const initialState = ImmutableMap({ baseline: false, generation: 0, serial: 0, needsReconcile: false, rules: ImmutableMap(), expirations: ImmutableMap(), entries: OrderedMap() });
 
 export default function filterMatches(state = initialState, action) {
   switch (action.type) {
   case FILTERS_FETCH_SUCCESS: {
     const rules = filterRules(action.filters);
-    const changed = state.get('baseline') && !is(state.get('rules'), rules);
-    return state.merge({ baseline: true, rules, generation: state.get('generation') + (changed ? 1 : 0), needsReconcile: state.get('needsReconcile') || changed });
+    const expirations = filterExpirations(action.filters);
+    const changed = state.get('baseline') && (!is(state.get('rules'), rules) || hasReactivatedRules(state.get('expirations'), expirations, rules, action.receivedAt));
+    return state.merge({ baseline: true, rules, expirations, generation: state.get('generation') + (changed ? 1 : 0), needsReconcile: state.get('needsReconcile') || changed });
   }
   case FILTER_MATCHES_CLEAR:
     return state.update('entries', entries => action.ids ? entries.withMutations(map => action.ids.forEach(id => map.delete(id))) : OrderedMap());

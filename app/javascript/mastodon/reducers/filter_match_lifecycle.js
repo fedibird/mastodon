@@ -23,11 +23,24 @@ export const maintainFilterMatchContent = (previous, next, action) => {
   const entries = next.getIn(['filterMatches', 'entries']);
   const removed = action.type === TIMELINE_DELETE || action.type === TIMELINE_EXPIRE;
   if (!removed && previous.get('statuses') === next.get('statuses') && previous.get('polls') === next.get('polls')) return next;
+  const changedIds = new Set();
+  const pollIds = new Set();
+  if (action.type === STATUS_IMPORT) changedIds.add(action.status.id);
+  if (action.type === STATUSES_IMPORT) action.statuses.forEach(status => changedIds.add(status.id));
+  if (action.type === POLLS_IMPORT) action.polls.forEach(poll => pollIds.add(poll.id));
+  if (removed) {
+    changedIds.add(action.id);
+    action.references?.forEach(id => changedIds.add(id));
+  }
   const updated = entries.withMutations(map => {
     entries.forEach((entry, id) => {
       const beforeOriginal = previous.getIn(['statuses', id, 'reblog']);
+      // Only validate content for affected imports and their tracked wrappers.
+      // This bounded dependency scan avoids 2000 full comparisons per event.
+      const pollChanged = pollIds.size > 0 && (pollIds.has(previous.getIn(['statuses', id, 'poll'])) || (beforeOriginal && pollIds.has(previous.getIn(['statuses', beforeOriginal, 'poll']))));
+      if (!changedIds.has(id) && !changedIds.has(beforeOriginal) && !pollChanged) return;
       const afterOriginal = next.getIn(['statuses', id, 'reblog']);
-      if (removed && (id === action.id || beforeOriginal === action.id || action.references?.includes(id))) {
+      if (removed) {
         map.delete(id);
       } else if (!sameContent(previous, next, id) || (beforeOriginal && !sameContent(previous, next, beforeOriginal)) || (afterOriginal && afterOriginal !== beforeOriginal && !sameContent(previous, next, afterOriginal))) {
         map.set(id, entry.set('phase', 'unevaluated').delete('requestId').delete('filterIds').delete('resultGeneration'));

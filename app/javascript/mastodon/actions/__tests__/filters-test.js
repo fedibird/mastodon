@@ -76,6 +76,7 @@ describe('filter actions', () => {
     expect(actions[1]).toEqual({
       type: 'FILTERS_FETCH_SUCCESS',
       filters,
+      receivedAt: expect.any(Number),
       skipLoading: true,
     });
   });
