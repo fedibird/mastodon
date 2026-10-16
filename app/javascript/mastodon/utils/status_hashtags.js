@@ -77,10 +77,16 @@ function isDisplaylessElement(node) {
   return !node.querySelector(VISIBLE_EMPTY_SELECTOR);
 }
 
+function isSyntheticSuffix(node) {
+  return isElement(node)
+    && ['quote-inline', 'original-media-link', 'reference-link-inline'].some(name => node.classList.contains(name));
+}
+
 function isInlineWrapperElement(node) {
   return isElement(node)
     && node.tagName !== 'A'
     && node.tagName !== 'BR'
+    && !isSyntheticSuffix(node)
     && !STRUCTURAL_TAGS.has(node.tagName)
     && !VISIBLE_EMPTY_TAGS.has(node.tagName);
 }
@@ -125,6 +131,10 @@ function isHashtagCarrier(node) {
 // Whitespace, breaks, comments, transparent hashtag wrappers, and other
 // nodes with nothing else to show.
 function isRunNode(node) {
+  if (isSyntheticSuffix(node)) {
+    return false;
+  }
+
   if (isHashtagAnchor(node) || isWhitespaceText(node) || isLineBreak(node) || isIgnorableNode(node)) {
     return true;
   }
@@ -134,6 +144,15 @@ function isRunNode(node) {
   }
 
   return isDisplaylessElement(node);
+}
+
+// A wrapper can remain traversable after the Formatter inserts a suffix.
+// The suffix itself is an opaque content node, never part of a removable run;
+// only authored BR siblings can establish the boundary that follows it.
+function isHashtagScanWrapper(node) {
+  return isInlineWrapperElement(node) && Array.from(node.childNodes).every(child => (
+    isRunNode(child) || isSyntheticSuffix(child) || isHashtagScanWrapper(child)
+  ));
 }
 
 function hasVisibleContent(node) {
@@ -215,39 +234,58 @@ function appendHashtagAnchors(node, into) {
   }
 }
 
+// Only actual BR elements count as line breaks. Text-node newlines are
+// HTML formatting whitespace, and breaks inside opaque content (e.g. QT)
+// cannot contribute to the separator. Ordinary inline wrappers can open
+// up around opaque suffixes so actual BR siblings remain visible.
 function collectTrailingRun(container) {
-  const nodes = [];
-  let hashtagCount = 0;
-  let node = container.lastChild;
-
-  while (node && isRunNode(node)) {
-    if (isTransparentHashtagWrapper(node)) {
-      const anchors = [];
-      appendHashtagAnchors(node, anchors);
-      nodes.push(node);
-
-      for (let index = anchors.length - 1; index >= 0; index -= 1) {
-        nodes.push(anchors[index]);
-      }
-
-      hashtagCount += anchors.length;
+  const children = [];
+  const append = node => {
+    if (isHashtagScanWrapper(node)) {
+      Array.from(node.childNodes).forEach(append);
     } else {
-      nodes.push(node);
-
-      if (isHashtagAnchor(node)) {
-        hashtagCount += 1;
-      }
+      children.push(node);
     }
+  };
+  Array.from(container.childNodes).forEach(append);
+  let run = [];
+  let pending = [];
+  let breaks = 0;
+  let bodySeen = false;
+  let previous = container.previousSibling;
 
-    node = node.previousSibling;
+  while (previous && isTrailingChrome(previous)) {
+    previous = previous.previousSibling;
   }
 
-  if (hashtagCount === 0) {
-    return null;
-  }
+  const paragraphBoundary = isElement(container) && container.tagName === 'P'
+    && isElement(previous) && previous.tagName === 'P' && hasVisibleContent(previous);
+  let separated = paragraphBoundary;
 
-  nodes.reverse();
-  return nodes;
+  children.forEach(node => {
+    if (isHashtagCarrier(node)) {
+      if (run.length > 0 || separated || (bodySeen && breaks >= 2)) {
+        run.push(...pending, node);
+      }
+      bodySeen = true;
+      pending = [];
+      breaks = 0;
+      separated = false;
+    } else if (isRunNode(node)) {
+      pending.push(node);
+      if (isLineBreak(node)) {
+        breaks += 1;
+      }
+    } else {
+      run = [];
+      pending = [];
+      breaks = 0;
+      separated = false;
+      bodySeen = true;
+    }
+  });
+
+  return run.length > 0 ? run.concat(pending) : null;
 }
 
 function hashtagData(anchor) {
@@ -327,9 +365,12 @@ export function splitTrailingHashtags(html) {
     return { html, hashtags: [] };
   }
 
+  const anchors = [];
+  nodes.forEach(node => appendHashtagAnchors(node, anchors));
+
   return {
     html: htmlWithoutRun(template, container, nodes),
-    hashtags: nodes.filter(isHashtagAnchor).map(hashtagData),
+    hashtags: anchors.map(hashtagData),
   };
 }
 

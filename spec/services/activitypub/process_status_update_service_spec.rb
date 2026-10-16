@@ -74,7 +74,6 @@ RSpec.describe ActivityPub::ProcessStatusUpdateService, type: :service do # rubo
   describe '#call' do # rubocop:disable Metrics/BlockLength
     it 'does not insert a blank line before a remote trailing hashtag' do
       payload[:content] = 'Hello #one'
-      expect(TrailingHashtagNormalizer).not_to receive(:call)
 
       subject.call(status, json, json)
 

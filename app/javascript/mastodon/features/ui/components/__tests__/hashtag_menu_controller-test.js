@@ -95,7 +95,7 @@ function anchor(name) {
   return `<a href="https://example.com/tags/${encodeURIComponent(name)}" class="mention hashtag" rel="tag">#<span>${name}</span></a>`;
 }
 
-const contentHtml = `<p>See ${anchor('test')} today ${anchor('mastodon')} ${anchor('Test')} ${anchor('fedibird')}</p>`;
+const contentHtml = `<p>See ${anchor('test')} today<br><br>${anchor('mastodon')} ${anchor('Test')} ${anchor('fedibird')}</p>`;
 
 const translation = {
   contentHtml: `<p>こんにちは ${anchor('different')}</p>`,
@@ -211,6 +211,23 @@ describe('HashtagMenuController', () => {
       configurable: true,
       value: { writeText: jest.fn(() => Promise.resolve()) },
     });
+  });
+
+  it.each([' ', '<br>'])('opens the menu and copies tags kept inline with separator %s', separator => {
+    const { container } = renderMenu({
+      contentHtml: `<p>Hello${separator}${anchor('test')} ${anchor('fedibird')}</p>`,
+    });
+    const links = container.querySelectorAll('.status__content__text a.mention.hashtag');
+
+    expect(links).toHaveLength(2);
+    expect(container.querySelector('.status__content__hashtag-badge')).toBeNull();
+    click(links[1]);
+    expect(screen.getByRole('button', { name: 'View posts with #fedibird' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy hashtag' }));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('#fedibird');
+    click(links[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy hashtags' }));
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith('#test #fedibird');
   });
 
   it('marks body hashtags and trailing badges, and opens the menu on either', () => {

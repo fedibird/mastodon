@@ -306,25 +306,75 @@ RSpec.describe PostStatusService, type: :service do
     expect(status).to be_persisted
   end
 
-  it 'inserts a blank line before a same-line trailing hashtag run' do
-    status = subject.call(Fabricate(:account), text: 'Hello #one #two')
+  [
+    'Hello #one #two',
+    "Hello\n#one #two",
+    "Hello\n\n#one #two",
+    "Hello\n\n\n#one",
+    '#one #two',
+    'Hello #inline text #end',
+    "Hello\r\n#one",
+    "Hello\r\n\r\n#one",
+    "日本語 \t＃タグ #MixedCase  \t",
+    "Hello \t\r\n \t#one #two \t",
+    "Hello\n\n#one\n#two  ",
+  ].each do |text|
+    it "preserves authored hashtag spacing on create: #{text.inspect}" do
+      status = subject.call(Fabricate(:account), text: text.dup)
 
-    expect(status.text).to eq "Hello\n\n#one #two"
-    expect(status.tags.map(&:name)).to contain_exactly('one', 'two')
+      expect(status.text).to eq text
+      expect(status.reload.text).to eq text
+      expect(status.tags).not_to be_empty
+    end
+
+    it "preserves authored hashtag spacing through scheduled publication: #{text.inspect}" do
+      account = Fabricate(:account)
+      scheduled = subject.call(account, text: text.dup, scheduled_at: 2.hours.from_now)
+
+      expect(scheduled).to be_a(ScheduledStatus)
+      expect(scheduled.reload.params['text']).to eq text
+
+      PublishScheduledStatusWorker.new.perform(scheduled.id)
+
+      published = account.statuses.first!
+      expect(published.text).to eq text
+      expect(published.reload.text).to eq text
+      expect(published.tags).not_to be_empty
+    end
   end
 
-  it 'normalizes trailing hashtags when a scheduled status is published' do
-    account = Fabricate(:account)
-    future = Time.now.utc + 2.hours
-    scheduled = subject.call(account, text: 'Hello #one #two', scheduled_at: future)
+  [false, true].each do |schedule|
+    it "rejects over-limit whitespace with media on #{schedule ? 'schedule' : 'create'} without rewriting it" do
+      account = Fabricate(:account)
+      media = MediaAttachment.create!(account: account, type: :image, file_file_name: 'test.jpg', file_content_type: 'image/jpeg', file_file_size: 1)
+      text = ' ' * (StatusLengthValidator::MAX_CHARS + 1)
+      options = { text: text, media_ids: [media.id] }
+      options[:scheduled_at] = 2.hours.from_now if schedule
 
-    expect(scheduled).to be_a(ScheduledStatus)
-    expect(scheduled.params['text']).to eq 'Hello #one #two'
+      expect { subject.call(account, options) }.to raise_error(ActiveRecord::RecordInvalid)
 
-    PublishScheduledStatusWorker.new.perform(scheduled.id)
+      expect(text).to eq(' ' * (StatusLengthValidator::MAX_CHARS + 1))
+      expect(account.statuses.reload).to be_empty
+      expect(account.scheduled_statuses.reload).to be_empty
+      expect(media.reload.status_id).to be_nil
+    end
 
-    published = account.statuses.find_by!(text: "Hello\n\n#one #two")
-    expect(published.tags.map(&:name)).to contain_exactly('one', 'two')
+    it "preserves whitespace at the limit with media on #{schedule ? 'scheduled publish' : 'create'}" do
+      account = Fabricate(:account)
+      media = MediaAttachment.create!(account: account, type: :image, file_file_name: 'test.jpg', file_content_type: 'image/jpeg', file_file_size: 1)
+      text = ' ' * StatusLengthValidator::MAX_CHARS
+      options = { text: text, media_ids: [media.id] }
+      options[:scheduled_at] = 2.hours.from_now if schedule
+      result = subject.call(account, options)
+
+      if schedule
+        expect(result.reload.params['text']).to eq text
+        PublishScheduledStatusWorker.new.perform(result.id)
+      end
+
+      expect(account.statuses.first!.reload.text).to eq(' ' * StatusLengthValidator::MAX_CHARS)
+      expect(media.reload.status_id).to eq account.statuses.first!.id
+    end
   end
 
   it 'processes hashtags' do

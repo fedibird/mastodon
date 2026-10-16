@@ -128,10 +128,6 @@ class PostStatusService < BaseService
       @text.sub!(/QT:\s*\[.*?\]/, '')
     end
 
-    # After QT stripping, so the stored status separates a trailing hashtag
-    # block with a blank line. Scheduled params keep the submitted text;
-    # publish runs this service again. Remote ActivityPub ingestion does not.
-    @text = TrailingHashtagNormalizer.call(@text)
     resolve_audience_account!
     validate_audience_target!
   rescue ArgumentError
