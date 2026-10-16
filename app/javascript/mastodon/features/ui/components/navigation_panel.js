@@ -40,6 +40,7 @@ const NavigationPanel = () => (
 
     <hr />
 
+    <NavLink className='column-link column-link--transparent' to='/settings/filters'><Icon className='column-link__icon' id='filter' fixedWidth /><FormattedMessage id='embedded_settings.filters' defaultMessage='Filter settings' /></NavLink>
     <a className='column-link column-link--transparent' href='/settings/preferences'><Icon className='column-link__icon' id='cog' fixedWidth /><FormattedMessage id='navigation_bar.preferences' defaultMessage='Preferences' /></a>
     <a className='column-link column-link--transparent' href='/relationships'><Icon className='column-link__icon' id='users' fixedWidth /><FormattedMessage id='navigation_bar.follows_and_followers' defaultMessage='Follows and followers' /></a>
 

@@ -2,6 +2,7 @@
 
 import { render, fireEvent, screen, waitFor } from '@testing-library/react';
 import React from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { fromJS } from 'immutable';
 import { Provider } from 'react-redux';
 import { createStore } from 'redux';
@@ -69,17 +70,17 @@ const filters = {
   },
 };
 
-const store = createStore(() => fromJS({ filters }));
+const store = createStore(() => fromJS({ filters, custom_emojis: [] }));
 
 const renderModal = (props = {}) => render(
-  <Provider store={store}>
+  <MemoryRouter><Provider store={store}>
     <FilterModal
       statusId='s1'
       contextType='home'
       onClose={jest.fn()}
       {...props}
     />
-  </Provider>,
+  </Provider></MemoryRouter>,
 );
 
 describe('FilterModal', () => {
@@ -116,8 +117,8 @@ describe('FilterModal', () => {
     await waitFor(() => {
       expect(screen.getByText('Filter added!')).toBeInTheDocument();
     });
-    expect(screen.getByText(/“spoilers”/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Go to filter settings' })).toHaveAttribute('href', '/filters/1/edit');
+    expect(screen.getByText('spoilers')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Go to filter settings' })).toHaveAttribute('href', '/settings/filters');
   });
 
   it('creates a new category then attaches the status', async () => {

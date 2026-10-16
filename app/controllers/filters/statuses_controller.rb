@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class Filters::StatusesController < ApplicationController
-  layout 'admin'
+  include EmbeddedFilterSettings
 
   before_action :authenticate_user!
   before_action :set_filter
@@ -20,7 +20,7 @@ class Filters::StatusesController < ApplicationController
   rescue ActionController::ParameterMissing
     flash[:alert] = I18n.t('admin.statuses.no_status_selected')
   ensure
-    redirect_to edit_filter_path(@filter)
+    redirect_to edit_filter_path(@filter, embedded_filter_options)
   end
 
   private

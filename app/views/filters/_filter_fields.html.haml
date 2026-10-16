@@ -40,7 +40,7 @@
 - unless f.object.statuses.empty?
   %h4= t('filters.edit.statuses')
 
-  %p.muted-hint= t('filters.edit.statuses_hint_html', path: filter_statuses_path(f.object))
+  %p.muted-hint= t('filters.edit.statuses_hint_html', path: filter_statuses_path(f.object, embedded_filter_options))
 
   %hr.spacer/
 

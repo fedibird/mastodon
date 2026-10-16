@@ -5,6 +5,7 @@ import configureStore from '../store/configureStore';
 import { BrowserRouter, Route } from 'react-router-dom';
 import { ScrollContext } from 'react-router-scroll-4';
 import UI from '../features/ui';
+import { settingsReturnScroll, settleSettingsReturnScroll } from '../features/embedded_rails_settings/navigation';
 import { fetchCustomEmojis } from '../actions/custom_emojis';
 import { fetchCircles } from '../actions/circles';
 import { hydrateStore } from '../actions/store';
@@ -42,6 +43,11 @@ export default class Mastodon extends React.PureComponent {
   }
 
   shouldUpdateScroll (prevRouterProps, { location }) {
+    const settingsPosition = settingsReturnScroll(prevRouterProps?.location, location);
+    if (settingsPosition) {
+      settleSettingsReturnScroll(location, settingsPosition);
+      return settingsPosition;
+    }
     return !(location.state?.mastodonModalKey && location.state?.mastodonModalKey !== prevRouterProps?.location?.state?.mastodonModalKey);
   }
 

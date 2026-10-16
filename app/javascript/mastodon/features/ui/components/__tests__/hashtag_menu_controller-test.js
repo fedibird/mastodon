@@ -369,7 +369,7 @@ describe('HashtagMenuController', () => {
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('#mastodon');
   });
 
-  it('opens filters in a new tab and hides favourite and mute when signed out', () => {
+  it('opens filters inside WebUI and hides favourite and mute when signed out', () => {
     const signedIn = renderMenu();
     click(signedIn.container.querySelector('a.status__content__hashtag-badge'));
     const labels = Array.from(document.querySelectorAll('.dropdown-menu__container__list > li')).map(item => item.textContent);
@@ -385,14 +385,14 @@ describe('HashtagMenuController', () => {
     ]);
     const mute = screen.getByRole('button', { name: 'Mute #mastodon' });
 
-    expect(mute).toHaveAttribute('href', '/filters');
-    expect(mute).toHaveAttribute('target', '_blank');
+    expect(mute).toHaveAttribute('href', '/web/settings/filters');
+    expect(mute).not.toHaveAttribute('target', '_blank');
     expect(mute.closest('li').className).toContain('dropdown-menu__item--dangerous');
 
     fireEvent.click(mute);
 
-    expect(window.open).toHaveBeenCalledWith('/filters', '_blank', 'noopener,noreferrer');
-    expect(history.push).not.toHaveBeenCalled();
+    expect(window.open).not.toHaveBeenCalled();
+    expect(history.push).toHaveBeenCalledWith('/settings/filters');
     signedIn.unmount();
 
     const signedOut = renderMenu({ signedIn: false });
@@ -435,7 +435,7 @@ describe('HashtagMenuController', () => {
     expect(screen.getByRole('button', { name: 'View posts with #bar' })).toHaveAttribute('href', '/timelines/tag/bar');
     expect(screen.getByRole('button', { name: 'View alice\'s posts with #bar' })).toHaveAttribute('href', '/accounts/a1/posts/bar');
     expect(screen.getByRole('button', { name: 'Add to favorites' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Mute #bar' })).toHaveAttribute('href', '/filters');
+    expect(screen.getByRole('button', { name: 'Mute #bar' })).toHaveAttribute('href', '/web/settings/filters');
     expect(Overlay.lastTarget).toBe(badge);
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy hashtags' }));

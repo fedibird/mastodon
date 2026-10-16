@@ -1,4 +1,9 @@
 {
+  "embedded_settings.saving": "Saving settings… You can leave this column; changes will be synchronized when the request finishes.",
+  "embedded_settings.filters": "Filter settings",
+  "embedded_settings.open": "Open in a new tab",
+  "embedded_settings.loading": "Loading settings…",
+  "embedded_settings.failed": "Settings could not be loaded. Open them in a new tab to check your connection or sign in again, then retry.",
   "account.account_note_header": "Note",
   "account.add_or_remove_from_circle": "Add or Remove from circles",
   "account.add_or_remove_from_list": "Add or Remove from lists",

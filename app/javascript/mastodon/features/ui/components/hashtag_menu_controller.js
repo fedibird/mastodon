@@ -131,14 +131,6 @@ class HashtagMenuController extends React.PureComponent {
     copyText(labels.join(' '));
   }
 
-  openFilters = () => {
-    const opened = window.open('/filters', '_blank', 'noopener,noreferrer');
-
-    if (opened) {
-      opened.opener = null;
-    }
-  }
-
   menuItems () {
     const { intl } = this.props;
     const hashtag = this.state.hashtag;
@@ -179,10 +171,10 @@ class HashtagMenuController extends React.PureComponent {
     if (this.isSignedIn()) {
       items.push(null, {
         text: intl.formatMessage(messages.mute, { hashtag }),
-        href: '/filters',
-        target: '_blank',
+        href: '/web/settings/filters',
+        to: '/settings/filters',
+        target: '_self',
         dangerous: true,
-        action: this.openFilters,
       });
     }
 

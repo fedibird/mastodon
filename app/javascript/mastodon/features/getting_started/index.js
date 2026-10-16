@@ -30,6 +30,7 @@ const messages = defineMessages({
   settings_subheading: { id: 'column_subheading.settings', defaultMessage: 'Settings' },
   direct: { id: 'navigation_bar.direct', defaultMessage: 'Direct messages' },
   bookmarks: { id: 'navigation_bar.bookmarks', defaultMessage: 'Bookmarks' },
+  filters: { id: 'embedded_settings.filters', defaultMessage: 'Filter settings' },
   preferences: { id: 'navigation_bar.preferences', defaultMessage: 'Preferences' },
   follow_requests: { id: 'navigation_bar.follow_requests', defaultMessage: 'Follow requests' },
   scheduled_statuses: { id: 'navigation_bar.scheduled_statuses', defaultMessage: 'Scheduled Posts' },
@@ -294,6 +295,9 @@ class GettingStarted extends ImmutablePureComponent {
         height += 48;
       });
     }
+
+    navItems.push(<ColumnLink key='filters' icon='filter' text={intl.formatMessage(messages.filters)} to='/settings/filters' />);
+    height += 48;
 
     if (!multiColumn) {
       navItems.push(
