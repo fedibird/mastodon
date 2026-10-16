@@ -30,6 +30,10 @@
     background: $ui-base-color;
   }
 
+  iframe[aria-busy='true'] {
+    pointer-events: none;
+  }
+
   iframe[hidden] {
     display: none;
   }

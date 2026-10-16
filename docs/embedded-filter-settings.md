@@ -2,9 +2,16 @@
 
 The React route `/web/settings/filters` mounts a settings column with a fixed
 `filters` registry entry (`/filters?embedded=1`). It does not replace the WebUI
-root, columns container, Redux store or Composer implementation. The column's
-Back link returns to Home in the single-column interface or Getting started in
-the multi-column interface. Browser history also includes iframe navigations.
+root, columns container, Redux store or Composer implementation. The existing
+columns container records observed React PUSH origins by history entry key. Back returns to that safe originating React entry; direct entry or
+unavailable history falls back to Home / Getting started. External referrers and
+query/state-supplied return URLs are not used. Child links and successful saves
+use location.replace(), so Rails navigations do not add joint-history entries.
+Browser Back/Forward controls the React route. The source window scroll is
+captured before settings can clamp it, then restored through the existing
+ScrollContext callback when returning to that source entry. A source-post anchor
+settles transient loading-row/browser adjustments for at most one second; wheel,
+touch, pointer, key, resize or another route immediately ends that correction.
 The normal Rails page remains available through Open in a new tab.
 
 ## Security and navigation
@@ -27,7 +34,7 @@ Links, form actions and pagination carry the mode explicitly on filter paths.
 Post/profile links open separately; the child pack makes other non-filter links
 open with `_blank` and `noopener noreferrer`. No destination/return URL parameter
 is accepted. The parent checks the loaded same-origin filter path, the mode and
-the dedicated-layout marker before refreshing. It accepts no postMessage events.
+the dedicated-layout marker before enabling navigation and passive refresh. It accepts no postMessage events.
 
 There is deliberately no iframe sandbox claim: scripts plus same-origin access
 would not provide isolation. Trust comes from existing authenticated Rails code,
@@ -38,9 +45,33 @@ shows a fallback and keeps a new-tab sign-in link and retry button available.
 ## Filter refresh and current posts
 
 Trusted iframe load completions schedule existing `fetchFilters()` with a 300ms
-trailing debounce. Closing the column flushes a queued refresh. The existing
-streaming `filters_changed` mechanism also remains active. Nothing reloads or
-remounts the timeline to obtain fresh matches.
+trailing debounce. A separate parent-window request function submits the existing
+Rails forms with their FormData, CSRF token, method override and submit button.
+Confirmed UJS delete links use the same Rails POST/method/CSRF mechanism.
+The parent fetch follows Rails redirects and requests HTML. On response completion
+it calls `fetchFilters()` outside the settings component lifetime, including when
+the user has already left the column. Pending saves are never cancelled by
+unmount or the UI timeout. An earlier passive refresh is not treated as save
+completion; older concurrent filter API responses cannot overwrite a newer fetch.
+The existing streaming `filters_changed` mechanism also remains active.
+
+Redirected, permitted filter responses cause a replacement iframe GET. An invalid
+Rails form renders its existing server-generated main in the already-protected
+child document (without replacing its CSP-protected head or executing response
+scripts). The existing emoji widgets are reinitialized; delegated Rails/cocoon
+handlers remain active. Authentication redirects and error pages are never
+inserted. Every intercepted link/save and final replacement GET starts a 15-second
+UI timeout. While a save is pending, duplicate submits and retry are suppressed;
+Back and the normal new-tab link remain available. After leaving and reentering,
+any still-pending parent request continues its completion refresh independently.
+
+A full tab close/reload cannot guarantee completion delivery. If the filter API
+is unavailable or its authentication has expired, synchronization cannot be
+guaranteed until access is restored; no reload or draft reset is forced. A network failure
+can also leave the Rails commit outcome unknown: one reconciliation fetch is
+attempted, with no polling or unsafe URL/message permissions; the user can open
+the normal page or retry after the request settles. The UI timeout does not prove
+a save failed and does not resubmit it. No timeline is reloaded/remounted for sync.
 
 The collection refresh updates existing match references' title/action/context/
 expiration and removes deleted filters. Existing status objects retain the
@@ -80,3 +111,20 @@ DENY defaults, CSRF, ownership and authentication. Jest covers fixed URLs, frame
 validation, refresh coalescing, fallback/retry, ignored messages, route integration
 and preservation of primary/portable Composer reducer state. The PR description
 records the actual browser checks and any remaining verification separately.
+
+## Review regression checks
+
+- With streaming notifications withheld, submit create/update/delete/status batch
+  and leave the React settings route before Rails commits. Release the request
+  and check that the parent fetch completes and refreshes the collection.
+- Repeat with Rails already committed and the redirected response held before
+  iframe load. An initial/passive load fetch must not count as completion.
+- Delay an earlier filter API response until after a newer post-save response;
+  the old response must not replace the new collection.
+- Enter from a hashtag/list/status route, navigate new/edit/statuses and submit
+  invalid and valid forms. Child operations must not grow joint history. Back
+  and Forward must traverse React routes, preserving source Composer state and
+  reading position. Direct entry must use the safe default screen.
+- Stall a later child GET: the 15-second failure UI must appear and Retry must
+  recover. Stall a save: no automatic duplicate submit or cancellation on timeout
+  or unmount; Back/new-tab remain usable and completion still refreshes.

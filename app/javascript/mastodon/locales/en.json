@@ -1,4 +1,5 @@
 {
+  "embedded_settings.saving": "Saving settings… You can leave this column; changes will be synchronized when the request finishes.",
   "embedded_settings.filters": "Filter settings",
   "embedded_settings.open": "Open in a new tab",
   "embedded_settings.loading": "Loading settings…",

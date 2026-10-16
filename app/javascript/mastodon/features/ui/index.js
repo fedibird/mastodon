@@ -1,6 +1,7 @@
 import classNames from 'classnames';
 import React from 'react';
 import { FILTER_SETTINGS_ROUTE } from '../embedded_rails_settings/registry';
+import { trackSettingsOrigin } from '../embedded_rails_settings/navigation';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import { HotKeys } from 'react-hotkeys';
 import { defineMessages, injectIntl } from 'react-intl';
@@ -164,15 +165,22 @@ const keyMap = {
 
 class SwitchingColumnsArea extends React.PureComponent {
 
+  state = { lastLocation: this.props.location, origins: {} };
+
+  static getDerivedStateFromProps (props, state) {
+    return trackSettingsOrigin(state, props.location, props.navigationAction);
+  }
+
   static propTypes = {
     children: PropTypes.node,
     location: PropTypes.object,
     mobile: PropTypes.bool,
+    navigationAction: PropTypes.string,
     advancedMode: PropTypes.bool,
     openPostsFirst: PropTypes.bool,
   };
 
-  componentWillMount () {
+  componentDidMount () {
     if (this.props.mobile) {
       document.body.classList.toggle('layout-single-column', true);
       document.body.classList.toggle('layout-multiple-columns', false);
@@ -209,7 +217,7 @@ class SwitchingColumnsArea extends React.PureComponent {
         <WrappedSwitch>
           {redirect}
           {account_redirect}
-          <WrappedRoute path={FILTER_SETTINGS_ROUTE} exact component={EmbeddedRailsSettings} content={children} />
+          <WrappedRoute path={FILTER_SETTINGS_ROUTE} exact component={EmbeddedRailsSettings} componentParams={{ returnTo: this.state.origins[this.props.location.key] }} content={children} />
           <WrappedRoute path='/getting-started' component={GettingStarted} content={children} />
           <WrappedRoute path='/keyboard-shortcuts' component={KeyboardShortcuts} content={children} />
           <WrappedRoute path='/timelines/home' component={HomeTimeline} content={children} />
@@ -292,6 +300,7 @@ class UI extends React.PureComponent {
   static propTypes = {
     dispatch: PropTypes.func.isRequired,
     children: PropTypes.node,
+    history: PropTypes.object.isRequired,
     isComposing: PropTypes.bool,
     hasComposingText: PropTypes.bool,
     hasMediaAttachments: PropTypes.bool,
@@ -726,7 +735,7 @@ class UI extends React.PureComponent {
       <HotKeys keyMap={keyMap} handlers={handlers} ref={this.setHotkeysRef} attach={window} focused>
         <div className={classNames('ui', { 'is-composing': isComposing })} ref={this.setRef} style={{ pointerEvents: dropdownMenuIsOpen ? 'none' : null }}>
           <AppearancePreferences />
-          <SwitchingColumnsArea location={location} mobile={layout === 'mobile' || layout === 'single-column'} advancedMode={advancedMode} openPostsFirst={openPostsFirst}>
+          <SwitchingColumnsArea navigationAction={this.props.history.action} location={location} mobile={layout === 'mobile' || layout === 'single-column'} advancedMode={advancedMode} openPostsFirst={openPostsFirst}>
             {children}
           </SwitchingColumnsArea>
 

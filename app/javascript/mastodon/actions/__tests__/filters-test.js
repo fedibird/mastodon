@@ -143,3 +143,23 @@ describe('filter actions', () => {
     ]);
   });
 });
+
+it('does not let a pre-save fetch overwrite a later post-save collection', async () => {
+  let finishOld;
+  let finishNew;
+  const old = new Promise(resolve => {
+    finishOld = resolve;
+  });
+  const recent = new Promise(resolve => {
+    finishNew = resolve;
+  });
+  api.mockReturnValue({ get: jest.fn().mockReturnValueOnce(old).mockReturnValueOnce(recent) });
+  const dispatch = jest.fn();
+  const first = fetchFilters()(dispatch, () => fromJS({}));
+  const second = fetchFilters()(dispatch, () => fromJS({}));
+  finishNew({ data: [{ id: 'new' }] }); await second;
+  finishOld({ data: [{ id: 'stale' }] }); await first;
+  const successes = dispatch.mock.calls.map(([action]) => action).filter(action => action.type === 'FILTERS_FETCH_SUCCESS');
+  expect(successes).toHaveLength(1);
+  expect(successes[0].filters).toEqual([{ id: 'new' }]);
+});
