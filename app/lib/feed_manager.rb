@@ -46,6 +46,11 @@ class FeedManager
     case timeline_type
     when :home
       filter_from_home?(status, receiver.id, build_crutches(receiver.id, [status]))
+    when :status_notifications
+      crutches = build_crutches(receiver.id, [status])
+      # Displaying boosts and receiving notifications are independent choices.
+      crutches[:hiding_reblogs] = {}
+      filter_from_home?(status, receiver.id, crutches)
     when :list
       crutches = build_crutches(receiver.account_id, [status], receiver)
       filter_from_list?(status, receiver, crutches) || filter_from_home?(status, receiver.account_id, crutches, receiver)

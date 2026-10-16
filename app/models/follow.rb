@@ -12,6 +12,7 @@
 #  uri               :string
 #  delivery          :boolean          default(TRUE), not null
 #  notify            :boolean          default(FALSE), not null
+#  notify_reblogs    :boolean          default(FALSE), not null
 #  languages         :string           is an Array
 #
 
@@ -38,7 +39,7 @@ class Follow < ApplicationRecord
   end
 
   def revoke_request!
-    FollowRequest.create!(account: account, target_account: target_account, show_reblogs: show_reblogs, notify: notify, languages: languages, uri: uri)
+    FollowRequest.create!(account: account, target_account: target_account, show_reblogs: show_reblogs, notify: notify, notify_reblogs: notify_reblogs, delivery: delivery, languages: languages, uri: uri)
     destroy!
   end
 

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 2026_10_13_120000) do
+ActiveRecord::Schema.define(version: 2026_10_16_233100) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -799,6 +799,7 @@ ActiveRecord::Schema.define(version: 2026_10_13_120000) do
     t.boolean "show_reblogs", default: true, null: false
     t.string "uri"
     t.boolean "notify", default: false, null: false
+    t.boolean "notify_reblogs", default: false, null: false
     t.boolean "delivery", default: true, null: false
     t.string "languages", array: true
     t.index ["account_id", "target_account_id"], name: "index_follow_requests_on_account_id_and_target_account_id", unique: true
@@ -824,10 +825,12 @@ ActiveRecord::Schema.define(version: 2026_10_13_120000) do
     t.boolean "show_reblogs", default: true, null: false
     t.string "uri"
     t.boolean "notify", default: false, null: false
+    t.boolean "notify_reblogs", default: false, null: false
     t.boolean "delivery", default: true, null: false
     t.string "languages", array: true
     t.index ["account_id", "target_account_id"], name: "index_follows_on_account_id_and_target_account_id", unique: true
     t.index ["target_account_id"], name: "index_follows_on_target_account_id"
+    t.index ["target_account_id", "id"], name: "index_follows_on_reblog_notifications", where: "notify_reblogs"
   end
 
   create_table "generators", force: :cascade do |t|

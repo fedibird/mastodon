@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class AccountRelationshipsPresenter
-  attr_reader :following, :showing_reblogs, :notifying, :delivery_following, :followed_by, :subscribing, :blocking, :blocked_by,
+  attr_reader :following, :showing_reblogs, :notifying, :notifying_reblogs, :delivery_following, :followed_by, :subscribing, :blocking, :blocked_by,
               :muting, :muting_notifications, :requested, :requested_by, :domain_blocking,
               :endorsed, :account_note, :languages
 
@@ -11,6 +11,7 @@ class AccountRelationshipsPresenter
 
     @following            = cached[:following]
     @showing_reblogs      = cached[:showing_reblogs]
+    @notifying_reblogs    = cached[:notifying_reblogs]
     @notifying            = cached[:notifying]
     @delivery_following   = cached[:delivery_following]
     @followed_by          = cached[:followed_by]
@@ -37,6 +38,7 @@ class AccountRelationshipsPresenter
         (select string_agg(target_account_id::text, ',') from followings) as following,
         (select string_agg(target_account_id::text, ',') from (select target_account_id from followings where show_reblogs union all select target_account_id from follow_requesteds where show_reblogs) a) as showing_reblogs,
         (select string_agg(target_account_id::text, ',') from (select target_account_id from followings where notify union all select target_account_id from follow_requesteds where notify) a) as notifying,
+        (select string_agg(target_account_id::text, ',') from (select target_account_id from followings where notify_reblogs union all select target_account_id from follow_requesteds where notify_reblogs) a) as notifying_reblogs,
         (select string_agg(target_account_id::text, ',') from (select target_account_id from followings where delivery union all select target_account_id from follow_requesteds where delivery) a) as delivery_following,
         (select string_agg(target_account_id::text, ',') from follow_requesteds) as requested,
         (select string_agg(account_id::text, ',') from follow_requests where target_account_id = :current_account_id and account_id in (:account_ids)) as requested_by,
@@ -57,6 +59,7 @@ class AccountRelationshipsPresenter
 
       @following.merge!(mapping_from_string(result['following']))
       @showing_reblogs.merge!(mapping_from_string(result['showing_reblogs']))
+      @notifying_reblogs.merge!(mapping_from_string(result['notifying_reblogs']))
       @notifying.merge!(mapping_from_string(result['notifying']))
       @delivery_following.merge!(mapping_from_string(result['delivery_following']))
       @followed_by.merge!(mapping_from_string(result['followed_by']))
@@ -78,6 +81,7 @@ class AccountRelationshipsPresenter
 
     @following.merge!(options[:following_map] || {})
     @showing_reblogs.merge!(options[:showing_reblogs_map] || {})
+    @notifying_reblogs.merge!(options[:notifying_reblogs_map] || {})
     @notifying.merge!(options[:notifying_map] || {})
     @delivery_following.merge!(options[:delivery_following_map] || {})
     @followed_by.merge!(options[:followed_by_map] || {})
@@ -119,6 +123,7 @@ class AccountRelationshipsPresenter
     @cached = {
       following: {},
       showing_reblogs: {},
+      notifying_reblogs: {},
       notifying: {},
       delivery_following: {},
       followed_by: {},
@@ -140,7 +145,7 @@ class AccountRelationshipsPresenter
     @account_ids.each do |account_id|
       maps_for_account = Rails.cache.read("relationship:#{@current_account_id}:#{account_id}")
 
-      if maps_for_account.is_a?(Hash)
+      if maps_for_account.is_a?(Hash) && maps_for_account.key?(:notifying_reblogs)
         @cached.deep_merge!(maps_for_account)
       else
         @uncached_account_ids << account_id
@@ -155,6 +160,7 @@ class AccountRelationshipsPresenter
       maps_for_account = {
         following:            { account_id => following[account_id] },
         showing_reblogs:      { account_id => showing_reblogs[account_id] },
+        notifying_reblogs:    { account_id => notifying_reblogs[account_id] },
         notifying:            { account_id => notifying[account_id] },
         delivery_following:   { account_id => delivery_following[account_id] },
         followed_by:          { account_id => followed_by[account_id] },
