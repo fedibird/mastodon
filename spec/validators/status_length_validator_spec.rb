@@ -34,6 +34,41 @@ describe StatusLengthValidator do
       expect(status.errors).to have_received(:add)
     end
 
+    [" ", "\t", "\n", "　"].each do |whitespace|
+      [StatusLengthValidator::MAX_CHARS, StatusLengthValidator::MAX_CHARS + 1].each do |length|
+        it "counts #{length} authored whitespace characters #{whitespace.inspect}" do
+          text = whitespace * length
+          status = double(spoiler_text: '', text: text, errors: double(add: nil), local?: true, reblog?: false)
+
+          subject.validate(status)
+
+          if length > StatusLengthValidator::MAX_CHARS
+            expect(status.errors).to have_received(:add)
+          else
+            expect(status.errors).not_to have_received(:add)
+          end
+          expect(status.text).to eq(whitespace * length)
+        end
+      end
+    end
+
+    it 'includes whitespace-only body text in the combined content warning limit' do
+      status = double(spoiler_text: 'a', text: ' ' * StatusLengthValidator::MAX_CHARS, errors: double(add: nil), local?: true, reblog?: false)
+
+      subject.validate(status)
+
+      expect(status.errors).to have_received(:add)
+    end
+
+    it 'accepts a nil body without changing it' do
+      status = double(spoiler_text: '', text: nil, errors: double(add: nil), local?: true, reblog?: false)
+
+      subject.validate(status)
+
+      expect(status.errors).not_to have_received(:add)
+      expect(status.text).to be_nil
+    end
+
     it 'counts URLs as 23 characters flat' do
       text   = ('a' * 476) + " http://#{'b' * 30}.com/example"
       status = double(spoiler_text: '', text: text, errors: double(add: nil), local?: true, reblog?: false)

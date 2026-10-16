@@ -47,4 +47,3 @@ with sync_playwright() as p:
         page.close()
     browser.close()
 server.shutdown()
-

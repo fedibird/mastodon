@@ -21,6 +21,23 @@ describe PublishScheduledStatusWorker do
     end
   end
 
+  it 'rejects an existing scheduled whitespace-only post above the current limit with media' do
+    account = Fabricate(:account)
+    media = MediaAttachment.create!(account: account, type: :image, file_file_name: 'test.jpg', file_content_type: 'image/jpeg', file_file_size: 1)
+    text = ' ' * (StatusLengthValidator::MAX_CHARS + 1)
+    scheduled = Fabricate(:scheduled_status, account: account, params: { text: text, media_ids: [media.id] })
+    allow(DistributionWorker).to receive(:perform_async)
+    allow(ActivityPub::DistributionWorker).to receive(:perform_async)
+
+    subject.perform(scheduled.id)
+
+    expect(account.statuses).to be_empty
+    expect(media.reload.status_id).to be_nil
+    expect(scheduled.params['text']).to eq text
+    expect(DistributionWorker).not_to have_received(:perform_async)
+    expect(ActivityPub::DistributionWorker).not_to have_received(:perform_async)
+  end
+
   it 'uses the same publish barrier when the scheduled text has an unresolved redirect' do
     scheduled = Fabricate(:scheduled_status, params: { text: 'later https://bit.ly/scheduled' })
     allow(StatusPublishPreparationWorker).to receive(:perform_async)

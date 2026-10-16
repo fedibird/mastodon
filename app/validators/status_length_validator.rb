@@ -26,7 +26,7 @@ class StatusLengthValidator < ActiveModel::Validator
   end
 
   def countable_text(str)
-    return '' if str.blank?
+    return str.to_s if str.blank?
 
     # To ensure that we only give length concessions to entities that
     # will be correctly parsed during formatting, we go through full

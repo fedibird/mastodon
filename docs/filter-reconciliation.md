@@ -282,3 +282,66 @@ full memory reclamation or a multi-day leak test. Exact scheduler counters after
 unmount were surfaces=retained=attempts=inflight=active=timers=0. Five 2000-ID
 route cycles in the real-Redux Jest test also returned those counters to zero
 without an eviction/requery loop (100 total POSTs across those cycles).
+
+
+## First-review followup (#470)
+
+The latest fetched `fedibird` base is
+`3b3d0681416dbfda72a9ea45175a8c4c899e816c` (upstream #471), merged into this branch without conflicts.
+The full Jest/build and six scroll configurations below were rerun after this
+base synchronization. The performance comparisons were captured on the review
+fix before that unrelated hashtag base update, using the same fixture.
+The two first-review findings are addressed in the same Draft PR; Rails API,
+timeline ID arrays, Composer and translation reducers are unchanged.
+
+- P3-focused Jest: **4 suites / 56 tests passed** (the original 40 plus 16).
+  Reverting the four affected production files to reviewed HEAD `7c1a292e7`
+  made 12 new assertions fail (44 passed); all files were restored afterwards.
+  Added checks cover 600 ordinary import actions without snapshots, pre-subscriber
+  ordering, targeted original/poll edits, no-op/stale responses, <=18 rect reads
+  for 2000 rows, multiple changes within two correction frames, all nine
+  notification types' live hide/warn/actions and self-post exclusion with a
+  different notification actor. Notification/arrival reducer identity is retained.
+- Entire Jest: **224 suites passed / 11 failed**, **1996 tests passed / 13 failed**. All 11 failed suite paths and 13 failed assertion fullNames match the previously reproduced pre-#471 base failures; no additional failure.
+- Changed application/test and fixture JS ESLint: **0 errors / 0 warnings**; diff check passed.
+- development-build: exit 0, 36.005s wall time (including process startup). Existing warnings remain.
+- production-build: exit 0, 73.573s wall time (including process startup). Existing warnings remain.
+
+The six Chromium geometry configurations were rerun: hide/restoration/manual
+scroll deltas were all **0px**; warn/layout-switch assertions stayed <=2px.
+The same fixed-body/mock-transport limits as the initial run apply.
+
+`counters.py` issues 180 real normalized import actions over 60 animation frames
+(counter-only STATUS_IMPORT, batch import plus an unowned arrival, and poll vote
+counts). Two duplicate columns retain 1000/2000 IDs. It counts article rect reads,
+CDP Layout duration/count, traced synchronous Layout events with a JS stack, and
+PerformanceObserver long tasks. Initial mounting/poll setup are excluded.
+Both sides use the same updated counter-rendering fixture; before is reviewed
+HEAD `7c1a292e7`, after is this implementation. One run per size, no SLA claim.
+
+| IDs | Article rect reads before -> after | JS-stack synchronous layouts | Total layout ms | Task CPU ms | Long tasks / max ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1000 | 60240 -> 0 | 0 -> 0 | 103.3 -> 115.5 | 6810.0 -> 7521.2 | 60/144 -> 60/165 |
+| 2000 | 120240 -> 0 | 1 -> 0 | 181.0 -> 196.8 | 14442.3 -> 14534.5 | 60/351 -> 60/317 |
+
+The frame-paced workload usually reaches clean layout before the old snapshot;
+rect-read counts are not counts of forced layout. A separate small trace control
+with three dirty-style writes/readbacks produced three JS-stack Layout events,
+confirming the classifier. The table reports observed synchronous events only;
+it does not establish a general forced-layout reduction. Long tasks remain
+substantial in this large mounted-list fixture; removing snapshots does not
+remove the cost of notifying thousands of React/Redux row subscriptions.
+
+The unchanged reconciliation profile (initial mount/GC excluded, 10ms mock API)
+was also compared with reviewed HEAD using the same counter-rendering fixture:
+
+| IDs | POSTs / max batch / concurrency | Completion ms before -> after | Task CPU ms | First POST ms |
+| --- | --- | ---: | ---: | ---: |
+| 1000 | 10 / 100 / 1 | 1976.7 -> 1884.8 | 2021.9 -> 1928.6 | 416.6 -> 403.2 |
+| 2000 | 20 / 100 / 1 | 5174.1 -> 5243.4 | 5224.3 -> 5305.0 | 706.8 -> 688.5 |
+
+The 2000-ID result remains about 5.2s in this single-run comparison. Scheduler
+counters return to zero after unmount; this is still not a heap-leak/soak claim.
+Search/detail adapters, full-media/Rails E2E, real mobile Safari, multi-day soak
+and production-load validation remain outside this change. Draft/re-review only;
+no pull request merge or deployment.
