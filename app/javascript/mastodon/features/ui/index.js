@@ -1,5 +1,6 @@
 import classNames from 'classnames';
 import React from 'react';
+import { FILTER_SETTINGS_ROUTE } from '../embedded_rails_settings/registry';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import { HotKeys } from 'react-hotkeys';
 import { defineMessages, injectIntl } from 'react-intl';
@@ -46,6 +47,7 @@ import {
   Status,
   StatusReferences,
   GettingStarted,
+  EmbeddedRailsSettings,
   KeyboardShortcuts,
   PublicTimeline,
   CommunityTimeline,
@@ -207,6 +209,7 @@ class SwitchingColumnsArea extends React.PureComponent {
         <WrappedSwitch>
           {redirect}
           {account_redirect}
+          <WrappedRoute path={FILTER_SETTINGS_ROUTE} exact component={EmbeddedRailsSettings} content={children} />
           <WrappedRoute path='/getting-started' component={GettingStarted} content={children} />
           <WrappedRoute path='/keyboard-shortcuts' component={KeyboardShortcuts} content={children} />
           <WrappedRoute path='/timelines/home' component={HomeTimeline} content={children} />

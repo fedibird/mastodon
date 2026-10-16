@@ -1,7 +1,7 @@
 - content_for :page_title do
   = t('filters.new.title')
 
-= simple_form_for @filter, url: filters_path do |f|
+= simple_form_for @filter, url: filters_path(embedded_filter_options) do |f|
   = render 'filter_fields', f: f
 
   .actions

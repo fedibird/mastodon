@@ -1,0 +1,85 @@
+.embedded-rails-settings {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  padding-bottom: env(safe-area-inset-bottom);
+
+  &__navigation {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  a {
+    color: $highlight-text-color;
+  }
+
+  p,
+  [role='alert'] {
+    padding: 12px;
+  }
+
+  iframe {
+    width: 100%;
+    flex: 1 1 auto;
+    min-height: 300px;
+    border: 0;
+    background: $ui-base-color;
+  }
+
+  iframe[hidden] {
+    display: none;
+  }
+}
+
+.embedded-settings {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  padding: 16px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  overflow-wrap: anywhere;
+
+  a {
+    color: $highlight-text-color;
+  }
+
+  &__navigation {
+    margin-bottom: 16px;
+  }
+
+  .content-heading {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .fields-row {
+    display: block;
+  }
+
+  .fields-row__column {
+    width: 100%;
+    padding: 0;
+  }
+
+  .table-wrapper {
+    overflow-x: auto;
+  }
+
+  input[type='text'],
+  select {
+    box-sizing: border-box;
+    max-width: 100%;
+  }
+}
+
+.layout-single-column .embedded-rails-settings {
+  height: calc(100vh - 120px);
+  height: calc(100dvh - 120px);
+  min-height: 400px;
+}

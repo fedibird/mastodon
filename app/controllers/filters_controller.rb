@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class FiltersController < ApplicationController
-  layout 'admin'
+  include EmbeddedFilterSettings
 
   before_action :authenticate_user!
   before_action :set_filter, only: [:edit, :update, :destroy]
@@ -23,7 +23,7 @@ class FiltersController < ApplicationController
     @filter = current_account.custom_filters.build(resource_params)
 
     if @filter.save
-      redirect_to filters_path
+      redirect_to filters_path(embedded_filter_options)
     else
       render :new
     end
@@ -31,7 +31,7 @@ class FiltersController < ApplicationController
 
   def update
     if @filter.update(resource_params)
-      redirect_to filters_path
+      redirect_to filters_path(embedded_filter_options)
     else
       render :edit
     end
@@ -39,7 +39,7 @@ class FiltersController < ApplicationController
 
   def destroy
     @filter.destroy
-    redirect_to filters_path
+    redirect_to filters_path(embedded_filter_options)
   end
 
   private

@@ -5,7 +5,7 @@
 
 .filters
   .back-link
-    = link_to edit_filter_path(@filter) do
+    = link_to edit_filter_path(@filter, embedded_filter_options) do
       = fa_icon 'chevron-left'
       = t('filters.statuses.back_to_filter')
 
@@ -13,7 +13,7 @@
 
 %hr.spacer/
 
-= form_with model: @status_filter_batch_action, url: batch_filter_statuses_path(@filter.id) do |f|
+= form_with model: @status_filter_batch_action, url: batch_filter_statuses_path(@filter.id, embedded_filter_options) do |f|
   = hidden_field_tag :page, params[:page] || 1
 
   - Admin::StatusFilter::KEYS.each do |key|
@@ -32,4 +32,4 @@
       - else
         = render partial: 'status_filter', collection: @status_filters, locals: { f: f }
 
-= paginate @status_filters
+= paginate @status_filters, params: embedded_filter_options

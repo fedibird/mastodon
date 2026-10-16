@@ -74,6 +74,10 @@ export function StatusReferences () {
   return import(/* webpackChunkName: "features/status_references" */'../../status_references');
 }
 
+export function EmbeddedRailsSettings () {
+  return import(/* webpackChunkName: "features/embedded_rails_settings" */'../../embedded_rails_settings');
+}
+
 export function GettingStarted () {
   return import(/* webpackChunkName: "features/getting_started" */'../../getting_started');
 }

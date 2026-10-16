@@ -1,4 +1,5 @@
 import PropTypes from 'prop-types';
+import { Link } from 'react-router-dom';
 import React, { PureComponent } from 'react';
 
 import { FormattedMessage } from 'react-intl';
@@ -61,9 +62,9 @@ class AddedToFilter extends PureComponent {
     }
 
     const settingsLink = (
-      <a href={`/filters/${filter.get('id')}/edit`}>
+      <Link to='/settings/filters' onClick={this.handleCloseClick}>
         <FormattedMessage id='filter_modal.added.settings_link' defaultMessage='Go to filter settings' />
-      </a>
+      </Link>
     );
 
     return (
