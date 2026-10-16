@@ -63,7 +63,7 @@ export class FilterSurface {
     this.nearRows.forEach((row, rowId) => {
       if (!row.isConnected || !this.owns(this.idForRow(String(rowId)))) this.nearRows.delete(rowId);
     });
-    this.dispatch(registerFilterSurface(this, { ids: this.ids, visible: this.visible, near: this.near, prepare: () => this.prepare() }));
+    this.dispatch(registerFilterSurface(this, { ids: this.ids, sourceIds: this.sourceIds, visible: this.visible, near: this.near, prepare: () => this.prepare() }));
   }
 
   owns(id) {

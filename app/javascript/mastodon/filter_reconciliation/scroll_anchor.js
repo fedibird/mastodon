@@ -2,13 +2,31 @@
 export const captureFilterAnchor = (node, scroller, top) => {
   if (!node || !scroller) return null;
   const rows = Array.from(node.querySelectorAll('article[data-id]'));
-  const rects = rows.map(row => ({ row, rect: row.getBoundingClientRect() }));
-  const index = rects.findIndex(({ rect }) => rect.height > 0 && rect.bottom > top);
-  // Keep nearby alternatives if the reading row itself disappears.
-  const nearby = index < 0 ? [] : [index, index + 1, index + 2, index - 1, index - 2];
+  // Articles are in vertical document order, including zero-height hidden
+  // rows and virtual placeholders. Locate the reading edge with O(log n)
+  // rect reads, then retain only a small, bounded neighborhood.
+  const rects = new Map();
+  const rect = i => {
+    if (!rects.has(i)) rects.set(i, rows[i].getBoundingClientRect());
+    return rects.get(i);
+  };
+  let low = 0;
+  let high = rows.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (rect(mid).bottom > top) high = mid;
+    else low = mid + 1;
+  }
+  const nearby = [];
+  for (let i = low; i < Math.min(rows.length, low + 5); i++) {
+    if (rect(i).height > 0) nearby.push(i);
+  }
+  for (let i = low - 1; i >= Math.max(0, low - 2); i--) {
+    if (rect(i).height > 0) nearby.push(i);
+  }
   return {
     offset: scroller.scrollTop,
-    rows: nearby.filter(i => i >= 0 && i < rects.length).map(i => ({ node: rects[i].row, offset: rects[i].rect.top - top })),
+    rows: nearby.map(i => ({ node: rows[i], offset: rect(i).top - top })),
     focused: node.contains(document.activeElement) ? document.activeElement : null,
   };
 };

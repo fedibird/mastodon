@@ -9,6 +9,6 @@ export default connect(() => {
   return (state, props) => ({ status: select(state, props) });
 })(({ status, hidden }) => status && !hidden ? (
   <div tabIndex='0' data-status={status.get('id')} style={{ height: status.get('matched_filters') ? 210 : 160, background: '#fff', borderBottom: '1px solid #aaa', boxSizing: 'border-box' }}>
-    {status.get('id')} {status.get('matched_filters') ? 'warn' : ''}
+    {status.get('id')} {status.get('matched_filters') ? 'warn' : ''} {status.get('favourites_count', 0)} {status.get('reblogs_count', 0)}
   </div>
 ) : null);

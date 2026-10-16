@@ -1,3 +1,4 @@
+jest.mock('react-intl', () => ({ defineMessages: messages => messages }));
 import { captureFilterAnchor, restoreFilterAnchor } from '../scroll_anchor';
 import { FilterSurface } from '../surface';
 import IntersectionObserverWrapper from '../../features/ui/util/intersection_observer_wrapper';
@@ -99,4 +100,36 @@ it('reconnects the existing article observer to a changed document/column root w
   wrapper.unobserve('1', rows[0]); wrapper.disconnect();
   expect(wrapper.nodes).toEqual({});
   expect(wrapper.callbacks).toEqual({});
+});
+
+it('reads logarithmically many rects even with 2000 retained rows', () => {
+  const node = document.createElement('div');
+  const read = jest.fn(index => ({ top: index * 100 - 150050, bottom: (index + 1) * 100 - 150050, height: 100 }));
+  for (let i = 0; i < 2000; i++) {
+    const row = document.createElement('article'); row.dataset.id = String(i + 1);
+    row.getBoundingClientRect = () => read(i); node.appendChild(row);
+  }
+  const anchor = captureFilterAnchor(node, node, 0);
+  expect(anchor.rows[0].node.dataset.id).toBe('1501');
+  expect(anchor.rows[0].offset).toBe(-50);
+  expect(read.mock.calls.length).toBeLessThanOrEqual(18);
+});
+
+it('keeps the original snapshot for multiple layout changes before the finite correction finishes', () => {
+  const { node, rows, heights } = setup();
+  const frames = [];
+  const raf = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.push(callback); return frames.length;
+  });
+  const before = rows[3].getBoundingClientRect().top;
+  const surface = new FilterSurface(jest.fn(), node, { ids: ['1'], scrollKey: 'route' });
+  surface.prepare(); heights[0] = 0;
+  surface.prepare(); heights[1] = 0;
+  frames.shift()();
+  surface.prepare(); heights[2] = 0;
+  frames.shift()();
+  expect(rows[3].getBoundingClientRect().top).toBe(before);
+  expect(surface.frame).toBeNull();
+  surface.destroy();
+  raf.mockRestore();
 });

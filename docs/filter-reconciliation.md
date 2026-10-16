@@ -47,10 +47,19 @@ consistent with P2. No source array is rewritten.
 
 Notifications collect `notification.status` for status-bearing notification types
 from items and pending items, with a separate notification-row-to-status mapping.
-Follow/admin/report notification IDs are never used as status IDs. The hotkey
-status selector now receives the existing `notifications` context. Arrival-time
-suppression, unread markers/counts, notification settings, sounds and alerts are
-unchanged; their actions/reducers are not modified.
+Follow/admin/report notification IDs are never used as status IDs. For all nine
+status-bearing types (`mention`, `status`, `poll`, `favourite`, `reblog`,
+`scheduled_status`, `emoji_reaction`, `status_reference`, `update`), both the parent
+hotkey selector and nested StatusContainer use `notifications` context. Existing
+notifications follow hide/warn changes immediately: hide removes the post body,
+while the non-mention notification heading remains. A mention renders only the
+post, so hide leaves its article empty. Warn retains the post warning and the
+same hotkey target. Favourite/boost/CW hotkeys have no status target after hide;
+notification-heading navigation/mention actions remain available. Self-authored
+posts retain P2's exclusion, including favourite/reblog notifications. Non-status
+types (follow/follow request/followed/admin signup/report) have no post to filter.
+Arrival-time suppression, unread markers/counts, notification settings, sounds
+and alerts are unchanged; their actions/reducers are not modified.
 
 **Explicit exclusions:** the compose/search results component and the standalone
 status-detail tree do not use StatusList/ScrollableList. They are not registered
@@ -131,12 +140,28 @@ this change never turns an uncertain result into an empty match.
 
 ## Scroll and interaction
 
-Before filter definition, overlay-result, clear and relevant import actions, the
-middleware asks mounted surfaces to capture geometry before subscribers render.
+Before subscribers render, middleware predicts whether a definition or accepted
+overlay/clear action changes presentation; unchanged definitions and stale or
+identical results skip capture. Status imports compare only presentation/content
+fields, and poll imports compare option titles. Counter/vote updates and new
+unowned streaming posts do not request a snapshot. Content/FilterResult changes
+only prepare owning surfaces, including hidden/prefiltered source IDs and boost
+originals. This is a pre-reducer check: after-state notification would be too late
+to capture React's old geometry. No full root reduction is performed in preflight.
+The existing P2 content invalidation fields are included so rejected confirmations
+can fall back to imported results safely.
 The surface keeps the first visible `article[data-id]` at its viewport top and
 nearby next/previous alternatives, including their pixel offsets. After React
 updates it restores the same stable row, or a nearby surviving row, or the
-captured scroll offset. Correction is limited to **two animation frames**.
+captured scroll offset. Ordered article nodes are located with a binary search
+of their bottom edges (including virtual/zero-height rows), followed by at most
+five forward and two previous rect reads. Rects are memoized within a capture;
+the search performs O(log n) geometry reads rather than measuring every article.
+The node list is still enumerated for those rare snapshots. If the bounded
+neighborhood has no surviving row, saved-offset fallback applies.
+Correction is limited to **two animation frames**. Changes within that window
+reuse the original snapshot: both restores measure cumulative movement against
+the same offsets, so multiple changes are retained without extra captures.
 Re-entering a cached virtual article captures before replacing its placeholder
 height. Heights otherwise retain the existing lazy virtualization behavior.
 
@@ -178,6 +203,7 @@ NODE_OPTIONS=--openssl-legacy-provider node node_modules/webpack/bin/webpack.js 
 python3 spec/browser/filter_reconciliation/run.py
 python3 spec/browser/filter_reconciliation/run.py --without-anchors
 python3 spec/browser/filter_reconciliation/profile.py
+python3 spec/browser/filter_reconciliation/counters.py
 FILTER_SCHEDULER_PROFILE=1 node node_modules/jest/bin/jest.js --runInBand \
   app/javascript/mastodon/filter_reconciliation/__tests__/scheduler-test.js \
   --testNamePattern='records bounded scheduler CPU'

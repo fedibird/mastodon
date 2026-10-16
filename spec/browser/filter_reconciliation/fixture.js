@@ -79,6 +79,41 @@ window.fixture = {
     document.head.appendChild(style);
     ReactDOM.render(tree(), root);
   },
+  async prepareCounters() {
+    const visibleId = ids.get(25);
+    const status = store.getState().getIn(['statuses', visibleId]).toJS();
+    store.dispatch(importStatuses([{ ...status, poll: '44' }]));
+    store.dispatch({ type: 'POLLS_IMPORT', polls: [{ id: '44', options: [{ title: 'choice', votes_count: 0 }] }] });
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  },
+  async counters(frames = 60) {
+    // Real normalized imports, visible text updates, and unrelated arrivals.
+    const visibleId = ids.get(25);
+    let rectReads = 0;
+    const original = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function () {
+      if (this.matches('article[data-id]')) rectReads++;
+      return original.call(this);
+    };
+    const tasks = [];
+    const observer = new PerformanceObserver(list => list.getEntries().forEach(entry => tasks.push(entry.duration)));
+    observer.observe({ entryTypes: ['longtask'] });
+    const start = performance.now();
+    try {
+      for (let i = 0; i < frames; i++) {
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        const current = store.getState().getIn(['statuses', visibleId]).toJS();
+        store.dispatch({ type: 'STATUS_IMPORT', status: { ...current, favourites_count: i } });
+        store.dispatch(importStatuses([{ ...current, reblogs_count: i }, { ...source, id: String(count + 1 + i) }]));
+        store.dispatch({ type: 'POLLS_IMPORT', polls: [{ id: '44', options: [{ title: 'choice', votes_count: i }] }] });
+      }
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return { frames, import_actions: frames * 3, elapsed_ms: performance.now() - start, article_rect_reads: rectReads, long_tasks: tasks.length, long_task_ms: tasks.reduce((sum, value) => sum + value, 0), max_long_task_ms: Math.max(0, ...tasks) };
+    } finally {
+      Element.prototype.getBoundingClientRect = original;
+      observer.disconnect();
+    }
+  },
   stats: () => getFilterScheduler(store.dispatch, store.getState).stats(),
   unmount: () => ReactDOM.unmountComponentAtNode(root),
 };

@@ -329,3 +329,58 @@ it('does not poll a failed initial baseline; a recovery event can establish it l
   expect(fresh.getState().getIn(['filterMatches', 'baseline'])).toBe(true);
   expect(post).not.toHaveBeenCalled();
 });
+
+it('never snapshots counter-only imports or unowned streaming posts, and captures affected rows before React subscribers', () => {
+  const { store, scheduler } = setup();
+  const source = store.getState().getIn(['statuses', '101']).toJS();
+  const prepare = jest.fn(); const other = jest.fn();
+  store.dispatch(registerFilterSurface('owned', { ids: ['101'], sourceIds: [101], prepare }));
+  store.dispatch(registerFilterSurface('unrelated', { ids: ['999'], prepare: other }));
+  for (let i = 0; i < 200; i++) {
+    store.dispatch({ type: 'STATUS_IMPORT', status: { ...source, favourites_count: i } });
+    store.dispatch(importStatuses([{ ...source, reblogs_count: i }, { ...source, id: String(i + 1000) }]));
+    store.dispatch({ type: 'POLLS_IMPORT', polls: [{ id: '44', options: [{ title: 'a', votes_count: i }] }] });
+  }
+  expect(prepare).not.toHaveBeenCalled(); expect(other).not.toHaveBeenCalled();
+  const events = [];
+  prepare.mockImplementation(() => events.push('snapshot'));
+  const unsubscribe = store.subscribe(() => events.push('render'));
+  store.dispatch({ type: 'STATUS_IMPORT', status: { ...source, filtered: [{ filter: '1' }] } });
+  expect(events).toEqual(['snapshot', 'render']);
+  expect(other).not.toHaveBeenCalled();
+  unsubscribe();
+  expect(scheduler.stats().surfaces).toBe(2);
+});
+
+it('captures poll title edits and original edits only for dependent surfaces', () => {
+  const { store } = setup();
+  const source = store.getState().getIn(['statuses', '101']).toJS();
+  store.dispatch(importStatuses([{ ...source, poll: '44' }, { ...source, id: '102', reblog: '101' }]));
+  store.dispatch({ type: 'POLLS_IMPORT', polls: [{ id: '44', options: [{ title: 'a' }] }] });
+  const prepare = jest.fn(); const other = jest.fn();
+  store.dispatch(registerFilterSurface('boost', { ids: ['102'], prepare }));
+  store.dispatch(registerFilterSurface('unrelated', { ids: ['999'], prepare: other }));
+  store.dispatch({ type: 'POLLS_IMPORT', polls: [{ id: '44', options: [{ title: 'a', votes_count: 10 }] }] });
+  expect(prepare).not.toHaveBeenCalled();
+  store.dispatch({ type: 'POLLS_IMPORT', polls: [{ id: '44', options: [{ title: 'b' }] }] });
+  store.dispatch({ type: 'STATUS_IMPORT', status: { ...source, content: 'edited' } });
+  expect(prepare).toHaveBeenCalledTimes(2); expect(other).not.toHaveBeenCalled();
+});
+
+it('skips unchanged definition snapshots and stale or identical match responses while protecting accepted hide/warn results', async () => {
+  const { store } = setup();
+  const prepare = jest.fn();
+  store.dispatch(registerFilterSurface('home', { ids: ['101'], prepare }));
+  snapshot(store, [definition()]);
+  expect(prepare).not.toHaveBeenCalled();
+  snapshot(store, [definition('changed')]);
+  await tick(3);
+  expect(prepare).toHaveBeenCalledTimes(2); // definition, then confirmed result
+  const entries = store.getState().getIn(['filterMatches', 'entries', '101']);
+  const response = { type: 'FILTER_MATCHES_SUCCESS', generation: 1, requestId: entries.get('requestId'), ids: ['101'], matches: { '101': [] } };
+  store.dispatch(response);
+  store.dispatch({ ...response, requestId: -1, matches: { '101': ['1'] } });
+  expect(prepare).toHaveBeenCalledTimes(2);
+  snapshot(store, [definition('changed', { filter_action: 'warn' })]);
+  expect(prepare).toHaveBeenCalledTimes(3);
+});

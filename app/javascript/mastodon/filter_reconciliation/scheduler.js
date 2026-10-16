@@ -1,3 +1,6 @@
+import { fromJS, is } from 'immutable';
+import filterMatchesReducer from '../reducers/filter_matches';
+import filtersReducer from '../reducers/filters';
 import { fetchFilters } from '../actions/filter_definitions';
 import { reconcileFilterMatches, clearFilterMatches } from '../actions/filter_matches';
 import { isStatusId } from '../utils/filter_rules';
@@ -99,8 +102,22 @@ export class FilterScheduler {
     if (ids.length) this.dispatch(clearFilterMatches(ids));
   }
 
-  beforeChange() {
-    this.surfaces.forEach(surface => surface.prepare?.());
+  beforeChange(ids, polls = new Set()) {
+    const statuses = this.getState().get('statuses');
+    this.surfaces.forEach(surface => {
+      if (ids === null) {
+        surface.prepare?.();
+        return;
+      }
+      // Include hidden/prefiltered ownership and originals of boost wrappers.
+      const affected = Array.from(surface.sourceIds || surface.ids || []).some(value => {
+        const id = Number.isSafeInteger(value) ? String(value) : value;
+        const status = statuses.get(id);
+        const original = status?.get('reblog');
+        return ids.has(id) || ids.has(original) || ids.has(status?.get('quote_id')) || polls.has(status?.get('poll')) || polls.has(statuses.getIn([original, 'poll']));
+      });
+      if (affected) surface.prepare?.();
+    });
   }
 
   changed(previous, action) {
@@ -204,11 +221,43 @@ export const prioritizeFilterSurface = (token, visible, near) => (dispatch, getS
 export const releaseFilterSurface = token => (dispatch, getState) => getFilterScheduler(dispatch, getState).release(token);
 export const retryFilterReconciliation = () => (dispatch, getState) => getFilterScheduler(dispatch, getState).wake();
 
-const layoutActions = new Set(['FILTERS_FETCH_SUCCESS', 'FILTER_MATCHES_SUCCESS', 'FILTER_MATCHES_CLEAR', 'STATUS_IMPORT', 'STATUSES_IMPORT', 'POLLS_IMPORT']);
+// Predict only fields that can change row presentation or invalidate P2's
+// result. This runs before next(action), hence before Redux notifies React.
+// Counter-only imports and new unowned streaming posts never touch the DOM.
+const presentationFields = ['filtered', 'content', 'contentHtml', 'spoiler_text', 'spoilerHtml', 'hidden', 'sensitive', 'media_attachments', 'card', 'edited_at', 'account', 'reblog', 'quote_id', 'poll', 'url', 'uri', 'references', 'status_reference_ids', 'visibility', 'expired_at', 'deleted_at'];
+const importActions = new Set(['STATUS_IMPORT', 'STATUSES_IMPORT', 'POLLS_IMPORT']);
 export const filterReconciliationMiddleware = ({ dispatch, getState }) => next => action => {
   const scheduler = getFilterScheduler(dispatch, getState);
-  const previous = getState().get('filterMatches');
-  if (layoutActions.has(action.type)) scheduler.beforeChange();
+  const state = getState();
+  const previous = state.get('filterMatches');
+  if (scheduler.surfaces.size) {
+    if (action.type === 'FILTERS_FETCH_SUCCESS') {
+      if (!is(filtersReducer(state.get('filters'), action), state.get('filters')) || filterMatchesReducer(previous, action).get('generation') !== previous.get('generation')) scheduler.beforeChange(null);
+    } else if (action.type === 'FILTER_MATCHES_SUCCESS' || action.type === 'FILTER_MATCHES_CLEAR') {
+      const entries = previous.get('entries');
+      const updated = filterMatchesReducer(previous, action).get('entries');
+      const ids = new Set((action.ids || entries.keySeq()).filter(id => {
+        const before = entries.get(id);
+        const after = updated.get(id);
+        return !is(before?.get('filterIds'), after?.get('filterIds')) || before?.get('resultGeneration') !== after?.get('resultGeneration');
+      }));
+      if (ids.size) scheduler.beforeChange(ids);
+    } else if (importActions.has(action.type)) {
+      const ids = new Set();
+      const polls = new Set();
+      const imported = action.type === 'STATUS_IMPORT' ? [action.status] : action.statuses || [];
+      imported.forEach(status => {
+        const before = state.getIn(['statuses', status.id]);
+        if (!before || presentationFields.some(field => !is(before.get(field), fromJS(status[field])))) ids.add(status.id);
+      });
+      (action.polls || []).forEach(poll => {
+        const before = state.getIn(['polls', poll.id, 'options']);
+        const titles = fromJS(poll.options || []).map(option => option.get('title'));
+        if (!is(before?.map(option => option.get('title')), titles)) polls.add(poll.id);
+      });
+      if (ids.size || polls.size) scheduler.beforeChange(ids, polls);
+    }
+  }
   const result = next(action);
   scheduler.changed(previous, action);
   return result;

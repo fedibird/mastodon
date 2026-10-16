@@ -283,6 +283,7 @@ class Notification extends ImmutablePureComponent {
 
           <StatusContainer
             id={notification.get('status')}
+            contextType='notifications'
             account={notification.get('account')}
             muted
             withDismiss
@@ -315,6 +316,7 @@ class Notification extends ImmutablePureComponent {
 
           <StatusContainer
             id={notification.get('status')}
+            contextType='notifications'
             account={notification.get('account')}
             muted
             withDismiss
@@ -347,6 +349,7 @@ class Notification extends ImmutablePureComponent {
 
           <StatusContainer
             id={notification.get('status')}
+            contextType='notifications'
             account={notification.get('account')}
             muted
             withDismiss
@@ -379,6 +382,7 @@ class Notification extends ImmutablePureComponent {
 
           <StatusContainer
             id={notification.get('status')}
+            contextType='notifications'
             account={notification.get('account')}
             muted
             withDismiss
@@ -417,6 +421,7 @@ class Notification extends ImmutablePureComponent {
 
           <StatusContainer
             id={notification.get('status')}
+            contextType='notifications'
             account={account}
             muted
             withDismiss
@@ -439,11 +444,11 @@ class Notification extends ImmutablePureComponent {
     }
 
     const wide = notification.getIn(['emoji_reaction', 'width'], 1) / notification.getIn(['emoji_reaction', 'height'], 1) >= 1.4;
-    const emoji = notification.getIn(['emoji_reaction', 'name'])
-    const url = notification.getIn(['emoji_reaction', 'url'])
-    const static_url = notification.getIn(['emoji_reaction', 'static_url'])
-    const domain = notification.getIn(['emoji_reaction', 'domain'])
-    const title = notification.getIn(['emoji_reaction', 'alternate_name']) || emoji
+    const emoji = notification.getIn(['emoji_reaction', 'name']);
+    const url = notification.getIn(['emoji_reaction', 'url']);
+    const static_url = notification.getIn(['emoji_reaction', 'static_url']);
+    const domain = notification.getIn(['emoji_reaction', 'domain']);
+    const title = notification.getIn(['emoji_reaction', 'alternate_name']) || emoji;
 
     return (
       <HotKeys handlers={this.getHandlers()}>
@@ -460,6 +465,7 @@ class Notification extends ImmutablePureComponent {
 
           <StatusContainer
             id={notification.get('status')}
+            contextType='notifications'
             account={notification.get('account')}
             muted
             withDismiss
@@ -492,6 +498,7 @@ class Notification extends ImmutablePureComponent {
 
           <StatusContainer
             id={notification.get('status')}
+            contextType='notifications'
             account={notification.get('account')}
             muted
             withDismiss
@@ -524,6 +531,7 @@ class Notification extends ImmutablePureComponent {
 
           <StatusContainer
             id={notification.get('status')}
+            contextType='notifications'
             account={notification.get('account')}
             muted
             withDismiss
