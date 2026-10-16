@@ -11,6 +11,7 @@ import classNames from 'classnames';
 import { attachFullscreenListener, detachFullscreenListener, isFullscreen } from '../features/ui/util/fullscreen';
 import LoadingIndicator from './loading_indicator';
 import { connect } from 'react-redux';
+import { FilterSurface } from '../filter_reconciliation/surface';
 
 const MOUSE_IDLE_DELAY = 300;
 
@@ -47,6 +48,9 @@ class ScrollableList extends PureComponent {
     preventScroll: PropTypes.bool,
     tabIndex: PropTypes.string,
     onIntersectionChange: PropTypes.func,
+    dispatch: PropTypes.func,
+    filterStatusIds: PropTypes.oneOfType([PropTypes.array, PropTypes.object]),
+    filterIdForRow: PropTypes.func,
   };
 
   static defaultProps = {
@@ -156,7 +160,30 @@ class ScrollableList extends PureComponent {
 
     // Handle initial scroll posiiton
     this.handleScroll();
+    this.updateFilterSurface();
   }
+
+  updateFilterSurface = () => {
+    if (this.filterSurface && (this.filterSurface.node !== this.node || this.filterSurface.scrollKey !== this.props.scrollKey || this.filterSurface.bindToDocument !== this.props.bindToDocument || !this.props.filterStatusIds)) {
+      this.filterSurface.destroy();
+      this.filterSurface = null;
+    }
+    if (!this.props.filterStatusIds || !this.node) return;
+    if (!this.filterSurface) {
+      this.filterSurface = new FilterSurface(this.props.dispatch, this.node, { ...this.props, ids: this.props.filterStatusIds, idForRow: this.props.filterIdForRow });
+    } else {
+      this.filterSurface.preventScroll = this.props.preventScroll;
+      this.filterSurface.idForRow = this.props.filterIdForRow || this.filterSurface.idForRow;
+      this.filterSurface.update(this.props.filterStatusIds);
+    }
+  }
+
+  handleIntersectionChange = (id, intersecting, entry) => {
+    this.filterSurface?.intersection(id, intersecting, entry);
+    this.props.onIntersectionChange?.(id, intersecting);
+  }
+
+  handleFilterLayout = () => this.filterSurface?.prepare();
 
   getScrollPosition = () => {
     if (this.node && (this.getScrollTop() > 0 || this.mouseMovedRecently)) {
@@ -198,11 +225,17 @@ class ScrollableList extends PureComponent {
   }
 
   componentDidUpdate (prevProps, prevState, snapshot) {
+    if (prevProps.bindToDocument !== this.props.bindToDocument) {
+      this.detachScrollListener(prevProps.bindToDocument);
+      this.attachScrollListener();
+      this.attachIntersectionObserver();
+    }
     // Reset the scroll position when a new child comes in in order not to
     // jerk the scrollbar around if you're already scrolled down the page.
     if (snapshot !== null) {
       this.setScrollTop(this.getScrollHeight() - snapshot);
     }
+    this.updateFilterSurface();
   }
 
   cacheMediaWidth = (width) => {
@@ -212,6 +245,10 @@ class ScrollableList extends PureComponent {
   }
 
   componentWillUnmount () {
+    this.filterSurface?.destroy();
+    this.handleScroll.cancel();
+    this.handleWheel.cancel();
+    this.handleMouseMove.cancel();
     this.clearMouseIdleTimer();
     this.detachScrollListener();
     this.detachIntersectionObserver();
@@ -247,8 +284,8 @@ class ScrollableList extends PureComponent {
     }
   }
 
-  detachScrollListener () {
-    if (this.props.bindToDocument) {
+  detachScrollListener (bindToDocument = this.props.bindToDocument) {
+    if (bindToDocument) {
       document.removeEventListener('scroll', this.handleScroll);
       document.removeEventListener('wheel', this.handleWheel);
     } else {
@@ -292,7 +329,7 @@ class ScrollableList extends PureComponent {
   }
 
   render () {
-    const { children, scrollKey, trackScroll, showLoading, isLoading, hasMore, numPending, prepend, alwaysPrepend, append, emptyMessage, onLoadMore, tabIndex, onIntersectionChange } = this.props;
+    const { children, scrollKey, trackScroll, showLoading, isLoading, hasMore, numPending, prepend, alwaysPrepend, append, emptyMessage, onLoadMore, tabIndex } = this.props;
     const { fullscreen } = this.state;
     const childrenCount = React.Children.count(children);
 
@@ -329,7 +366,8 @@ class ScrollableList extends PureComponent {
                 intersectionObserverWrapper={this.intersectionObserverWrapper}
                 saveHeightKey={trackScroll ? `${this.context.router.route.location.key}:${scrollKey}` : null}
                 tabIndex={tabIndex}
-                onIntersectionChange={onIntersectionChange}
+                onIntersectionChange={this.handleIntersectionChange}
+                onBeforeLayoutChange={this.handleFilterLayout}
               >
                 {React.cloneElement(child, {
                   getScrollPosition: this.getScrollPosition,

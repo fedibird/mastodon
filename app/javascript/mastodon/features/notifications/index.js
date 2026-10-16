@@ -31,6 +31,7 @@ import { changeSetting } from '../../actions/settings';
 import { changeColumnParams } from '../../actions/columns';
 import ReloadZone from 'mastodon/components/reload_zone';
 import { isIOS } from 'mastodon/is_mobile';
+import { notificationStatusForRow, notificationStatusIds } from '../../filter_reconciliation/notifications';
 
 const messages = defineMessages({
   title: { id: 'column.notifications', defaultMessage: 'Notifications' },
@@ -67,6 +68,7 @@ const mapStateToProps = (state, { columnId }) => {
   return {
     showFilterBar: state.getIn(['settings', 'notifications', 'quickFilter', 'show']),
     notifications: getNotifications(state),
+    filterNotifications: state.getIn(['notifications', 'items']).concat(state.getIn(['notifications', 'pendingItems'], ImmutableList())),
     isLoading: state.getIn(['notifications', 'isLoading'], true),
     isUnread: state.getIn(['notifications', 'unread']) > 0 || state.getIn(['notifications', 'pendingItems']).size > 0,
     hasMore: state.getIn(['notifications', 'hasMore']),
@@ -85,6 +87,7 @@ class Notifications extends React.PureComponent {
   static propTypes = {
     columnId: PropTypes.string,
     notifications: ImmutablePropTypes.list.isRequired,
+    filterNotifications: ImmutablePropTypes.list,
     showFilterBar: PropTypes.bool.isRequired,
     dispatch: PropTypes.func.isRequired,
     intl: PropTypes.object.isRequired,
@@ -202,6 +205,8 @@ class Notifications extends React.PureComponent {
     location.reload();
   }
 
+  filterIdForRow = id => notificationStatusForRow(this.props.filterNotifications, id);
+
   render () {
     const { intl, notifications, isLoading, isUnread, columnId, multiColumn, hasMore, numPending, showFilterBar, lastReadId, canMarkAsRead, needsNotificationPermission, columnWidth } = this.props;
     const pinned = !!columnId;
@@ -249,6 +254,8 @@ class Notifications extends React.PureComponent {
 
     const scrollContainer = (
       <ScrollableList
+        filterStatusIds={notificationStatusIds(this.props.filterNotifications || notifications)}
+        filterIdForRow={this.filterIdForRow}
         scrollKey={`notifications-${columnId}`}
         trackScroll={!pinned}
         isLoading={isLoading}

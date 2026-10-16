@@ -101,6 +101,7 @@ const makeMapStateToProps = () => {
       return {
         statusIds: mergeImmediateStatusIds(getLiveStatusIds(state, selectorProps), prependIds),
         immediateStatusIds,
+        filterStatusIds: getLiveStatusIds(state, { ...selectorProps, statusLimit: undefined }),
         isLoading: state.getIn(['timelines', dataId, 'isLoading'], true),
         isPartial: state.getIn(['timelines', dataId, 'isPartial'], false),
         hasMore: state.getIn(['timelines', dataId, 'hasMore']),
@@ -111,6 +112,7 @@ const makeMapStateToProps = () => {
     return {
       statusIds: mergeImmediateStatusIds(getStatusIds(state, selectorProps), prependIds),
       immediateStatusIds,
+      filterStatusIds: getStatusIds(state, selectorProps).concat(getPendingStatusIds(state, selectorProps)),
       isLoading: state.getIn(['timelines', dataId, 'isLoading'], true),
       isPartial: state.getIn(['timelines', dataId, 'isPartial'], false),
       hasMore: state.getIn(['timelines', dataId, 'hasMore']),

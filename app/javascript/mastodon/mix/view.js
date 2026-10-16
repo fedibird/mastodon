@@ -12,6 +12,8 @@ const plainFilters = (filters) => {
     }
 
     const context = filter.get('context');
+    const expiresAt = filter.get('expires_at');
+    if (expiresAt && expiresAt <= new Date()) return;
 
     list.push({
       id: filter.get('id'),
@@ -97,7 +99,7 @@ const unionLive = (current, seed) => {
   return merged.asImmutable();
 };
 
-export const mixTimelineView = (timeline, statuses, filters, me, pane) => {
+export const mixTimelineView = (timeline, statuses, filters, me, pane, filterMatches) => {
   if (!timeline) {
     return null;
   }
@@ -123,6 +125,22 @@ export const mixTimelineView = (timeline, statuses, filters, me, pane) => {
   const sources = [];
   const live = [];
   const statusesById = {};
+  const reconciliationIds = new Set();
+  const resultsWithOverlay = (ids, results) => {
+    let updated = results || ImmutableMap();
+    ids.forEach(id => {
+      reconciliationIds.add(id);
+      const entry = filterMatches?.getIn(['entries', id]);
+      const status = statuses?.get(id);
+      const original = statuses?.get(status?.get('reblog'));
+      const own = (original || status)?.get('account') === me;
+      if (own) updated = updated.set(id, ImmutableList());
+      else if (entry?.get('resultGeneration') === filterMatches?.get('generation') && entry?.has('filterIds')) {
+        updated = updated.set(id, entry.get('filterIds').map(filter => ImmutableMap({ filter })));
+      }
+    });
+    return updated.toJS();
+  };
   const rememberStatus = (id) => {
     const status = statuses && statuses.get(id);
 
@@ -148,7 +166,7 @@ export const mixTimelineView = (timeline, statuses, filters, me, pane) => {
       partial: source.get('partial'),
       suspended: source.get('suspended'),
       gap: source.get('gap'),
-      filterResults: results && results.toJS ? results.toJS() : {},
+      filterResults: resultsWithOverlay(source.get('ids'), results),
       source: plain,
     });
     contexts[key] = filterContextForSource(plain);
@@ -168,7 +186,7 @@ export const mixTimelineView = (timeline, statuses, filters, me, pane) => {
       live.push({
         key,
         ids: liveIds.toArray(),
-        filterResults: results && results.toJS ? results.toJS() : {},
+        filterResults: resultsWithOverlay(liveIds, results),
         source: plain,
         syncState: entry.get('syncState'),
         mode: entry.get('mode'),
@@ -179,6 +197,7 @@ export const mixTimelineView = (timeline, statuses, filters, me, pane) => {
   }
 
   const tombstones = timeline.get('deletedStatusIds');
+  pending?.forEach(id => reconciliationIds.add(id));
   const view = buildMixView(sources, statusesById, {
     me,
     filters: plainFilters(filters),
@@ -200,6 +219,7 @@ export const mixTimelineView = (timeline, statuses, filters, me, pane) => {
 
   return {
     ...view,
+    reconciliationIds: ImmutableList(Array.from(reconciliationIds)),
     statusIds: ImmutableList(limit ? view.ids.slice(0, limit) : view.ids),
     running: historyRunning,
     pendingCount: pending && pending.size ? pending.size : 0,

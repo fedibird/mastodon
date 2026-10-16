@@ -40,6 +40,7 @@ class StatusList extends ImmutablePureComponent {
     showCard: PropTypes.bool,
     trackIntersection: PropTypes.bool,
     immediateStatusIds: ImmutablePropTypes.list,
+    filterStatusIds: ImmutablePropTypes.list,
   };
 
   static defaultProps = {
@@ -50,6 +51,10 @@ class StatusList extends ImmutablePureComponent {
 
   getFeaturedStatusCount = () => {
     return this.props.featuredStatusIds ? this.props.featuredStatusIds.size : 0;
+  }
+
+  componentWillUnmount () {
+    this.handleLoadOlder.cancel();
   }
 
   getCurrentStatusIndex = (id, featured) => {
@@ -107,7 +112,7 @@ class StatusList extends ImmutablePureComponent {
   }
 
   render () {
-    const { statusIds, featuredStatusIds, onLoadMore, timelineId, contextTypeForId, warningTitlesForId, sourceBadgesForId, badgeRevision, showCard, trackIntersection, immediateStatusIds, ...other } = this.props;
+    const { statusIds, featuredStatusIds, filterStatusIds, onLoadMore, timelineId, contextTypeForId, warningTitlesForId, sourceBadgesForId, badgeRevision, showCard, trackIntersection, immediateStatusIds, ...other } = this.props;
 
     void badgeRevision;
     const { isLoading, isPartial } = other;
@@ -167,7 +172,7 @@ class StatusList extends ImmutablePureComponent {
     }
 
     return (
-      <ScrollableList {...other} showLoading={isLoading && statusIds.size === 0} onLoadMore={onLoadMore && this.handleLoadOlder} onIntersectionChange={trackIntersection ? this.handleIntersectionChange : undefined} ref={this.setRef}>
+      <ScrollableList {...other} filterStatusIds={(filterStatusIds || statusIds).concat(featuredStatusIds || ImmutableList(), immediateStatusIds || ImmutableList())} showLoading={isLoading && statusIds.size === 0} onLoadMore={onLoadMore && this.handleLoadOlder} onIntersectionChange={trackIntersection ? this.handleIntersectionChange : undefined} ref={this.setRef}>
         {scrollableContent}
       </ScrollableList>
     );

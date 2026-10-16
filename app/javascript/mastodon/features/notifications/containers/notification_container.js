@@ -23,7 +23,7 @@ const makeMapStateToProps = () => {
     const notification = getNotification(state, props.notification, props.accountId, props.targetAccountId);
     return {
       notification: notification,
-      status: notification.get('status') ? getStatus(state, { id: notification.get('status') }) : null,
+      status: notification.get('status') ? getStatus(state, { id: notification.get('status'), contextType: 'notifications' }) : null,
     };
   };
 
