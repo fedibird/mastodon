@@ -60,6 +60,8 @@ export const makeGetStatus = () => {
       (state, { id }) => state.getIn(['relationships', state.getIn(['statuses', state.getIn(['statuses', state.getIn(['statuses', id, 'reblog']), 'quote_id']), 'account'])], null),
 
       getFilters,
+      (state, { id }) => state.getIn(['filterMatches', 'entries', id]),
+      state => state.getIn(['filterMatches', 'generation'], 0),
     ],
 
     (
@@ -84,6 +86,8 @@ export const makeGetStatus = () => {
       reblogQuoteRelationship,
 
       filters,
+      filterMatch,
+      filterGeneration,
     ) => {
       if (!statusBase || !accountBase) {
         return null;
@@ -93,6 +97,9 @@ export const makeGetStatus = () => {
 
       if ((accountReblog || accountBase).get('id') !== me && filters) {
         let filterResults = statusReblog?.get('filtered') || statusBase.get('filtered') || ImmutableList();
+        if (filterMatch?.get('resultGeneration') === filterGeneration && filterMatch.has('filterIds')) {
+          filterResults = filterMatch.get('filterIds').map(id => ImmutableMap({ filter: id }));
+        }
 
         if (filterResults.some(result => filters.getIn([result.get('filter'), 'filter_action']) === 'hide')) {
           return null;

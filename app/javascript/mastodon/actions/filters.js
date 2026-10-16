@@ -25,6 +25,35 @@ export const initAddFilter = (status, { contextType } = {}) => dispatch =>
 // An earlier load/stream refresh must not overwrite a post-commit collection.
 const latestFilterFetch = new WeakMap();
 
+const streamRefreshes = new WeakMap();
+
+// One timer and one in-flight stream refresh per store. Continuous events
+// coalesce into a single trailing refresh; errors do not trigger retries.
+export const scheduleFiltersRefresh = () => dispatch => {
+  let refresh = streamRefreshes.get(dispatch);
+  if (!refresh) {
+    refresh = { dirty: false, timer: null, pending: false };
+    streamRefreshes.set(dispatch, refresh);
+  }
+  refresh.dirty = true;
+  const schedule = () => {
+    if (refresh.timer !== null || refresh.pending) return;
+    refresh.timer = setTimeout(async () => {
+      refresh.timer = null;
+      refresh.pending = true;
+      refresh.dirty = false;
+      try {
+        await dispatch(fetchFilters());
+      } finally {
+        refresh.pending = false;
+        if (refresh.dirty) schedule();
+        else streamRefreshes.delete(dispatch);
+      }
+    }, 250);
+  };
+  schedule();
+};
+
 export const fetchFilters = () => (dispatch, getState) => {
   const request = {};
   latestFilterFetch.set(dispatch, request);

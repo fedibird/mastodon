@@ -1,6 +1,6 @@
 import { Map as ImmutableMap, is, fromJS } from 'immutable';
 
-import { FILTERS_FETCH_SUCCESS } from '../actions/filters';
+import { FILTERS_FETCH_SUCCESS, FILTERS_CREATE_SUCCESS } from '../actions/filters';
 import { FILTERS_IMPORT } from '../actions/importer';
 
 const normalizeFilterAction = filterAction => {
@@ -58,6 +58,8 @@ export default function filters(state = ImmutableMap(), action) {
     return normalizeFilters(ImmutableMap(), action.filters);
   case FILTERS_IMPORT:
     return normalizeFilters(state, action.filters);
+  case FILTERS_CREATE_SUCCESS:
+    return normalizeFilter(state, action.filter);
   default:
     return state;
   }
