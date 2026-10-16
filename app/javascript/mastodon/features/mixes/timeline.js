@@ -55,9 +55,9 @@ const mapStateToProps = (state, { columnId, params }) => {
     mix,
     signature: mixSignature(mix),
     columnKey,
-    view: mixTimelineView(timeline, state.get('statuses'), state.get('filters'), me),
-    liveView: timeline && timeline.get('split') ? mixTimelineView(timeline, state.get('statuses'), state.get('filters'), me, 'live') : null,
-    historyView: timeline && timeline.get('split') ? mixTimelineView(timeline, state.get('statuses'), state.get('filters'), me, 'history') : null,
+    view: mixTimelineView(timeline, state.get('statuses'), state.get('filters'), me, undefined, state.get('filterMatches')),
+    liveView: timeline && timeline.get('split') ? mixTimelineView(timeline, state.get('statuses'), state.get('filters'), me, 'live', state.get('filterMatches')) : null,
+    historyView: timeline && timeline.get('split') ? mixTimelineView(timeline, state.get('statuses'), state.get('filters'), me, 'history', state.get('filterMatches')) : null,
     splitId: timeline ? timeline.getIn(['split', 'id']) : null,
     splitReturnAnchor: state.getIn(['mix_timelines', '__anchors', columnKey]) || null,
     splitRatio: state.getIn(['settings', 'mixTimeline', 'splitRatio'], 35),
@@ -94,6 +94,7 @@ export class MixTimelinePage extends React.PureComponent {
     location: PropTypes.object,
     view: PropTypes.shape({
       statusIds: ImmutablePropTypes.list,
+      reconciliationIds: ImmutablePropTypes.list,
       contextById: PropTypes.object,
       warningsById: PropTypes.object,
       orderGuaranteed: PropTypes.bool,
@@ -511,6 +512,8 @@ export class MixTimelinePage extends React.PureComponent {
       body = (
         <StatusList
           statusIds={statusIds}
+          filterStatusIds={view && view.reconciliationIds}
+          bindToDocument={!multiColumn}
           scrollKey={`mix-${this.props.columnKey}`}
           hasMore={!!(view && view.hasMore)}
           isLoading={!!(view && (view.waiting || view.running))}
@@ -530,6 +533,7 @@ export class MixTimelinePage extends React.PureComponent {
     const list = (ids, extra) => (
       <StatusList
         statusIds={ids}
+        filterStatusIds={extra.view && extra.view.reconciliationIds}
         scrollKey={`mix-${this.props.columnKey}-${extra.key}`}
         hasMore={extra.hasMore}
         isLoading={extra.isLoading}

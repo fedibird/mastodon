@@ -16,7 +16,7 @@ const validateResponse = (data, ids) => {
 
 // P2 deliberately accepts IDs from its caller: no timeline traversal, batching,
 // automatic retries, or status imports. Invalid/oversized inputs fail in full.
-export const reconcileFilterMatches = statusIds => async (dispatch, getState) => {
+export const reconcileFilterMatches = (statusIds, { timeout } = {}) => async (dispatch, getState) => {
   if (!Array.isArray(statusIds) || statusIds.length > 100 || !statusIds.every(isStatusId)) throw new TypeError('Expected at most 100 decimal status ID strings');
   const ids = Array.from(new Set(statusIds));
   if (ids.length === 0) return;
@@ -28,11 +28,17 @@ export const reconcileFilterMatches = statusIds => async (dispatch, getState) =>
   dispatch({ ...request, type: FILTER_MATCHES_REQUEST });
 
   try {
-    const { data } = await api(getState).post('/api/v1/fedibird/filters/matches', { status_ids: ids });
+    const client = api(getState);
+    const body = { status_ids: ids };
+    const { data } = await (timeout ? client.post('/api/v1/fedibird/filters/matches', body, { timeout }) : client.post('/api/v1/fedibird/filters/matches', body));
     if (!validateResponse(data, ids)) throw new TypeError('Invalid filter match response');
     dispatch({ ...request, type: FILTER_MATCHES_SUCCESS, matches: data.matches, unavailable: data.unavailable });
   } catch (error) {
-    dispatch({ ...request, type: FILTER_MATCHES_FAIL });
+    const status = error.response?.status;
+    const retryAfter = error.response?.headers?.['retry-after'];
+    let retryAt;
+    if (retryAfter) retryAt = Number.isFinite(Number(retryAfter)) ? Date.now() + Number(retryAfter) * 1000 : Date.parse(retryAfter);
+    dispatch({ ...request, type: FILTER_MATCHES_FAIL, status, retryAt });
   }
 };
 

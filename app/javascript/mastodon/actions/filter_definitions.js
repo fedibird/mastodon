@@ -81,7 +81,7 @@ export const scheduleFiltersRefresh = () => dispatch => {
   schedule();
 };
 
-export const fetchFilters = () => (dispatch, getState) => {
+export const fetchFilters = ({ timeout } = {}) => (dispatch, getState) => {
   const request = {};
   latestFilterFetch.set(dispatch, request);
   dispatch({
@@ -89,8 +89,8 @@ export const fetchFilters = () => (dispatch, getState) => {
     skipLoading: true,
   });
 
-  return api(getState)
-    .get('/api/v2/filters')
+  const client = api(getState);
+  return (timeout ? client.get('/api/v2/filters', { timeout }) : client.get('/api/v2/filters'))
     .then(({ data }) => {
       if (latestFilterFetch.get(dispatch) !== request) return;
       // FILTERS_FETCH_SUCCESS replaces the collection. A preceding

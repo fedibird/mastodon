@@ -23,6 +23,7 @@ import { getLocale } from '../locales';
 import { deleteScheduledStatusSuccess } from './scheduled_statuses';
 import { updateStatus } from './statuses';
 import { scheduleFiltersRefresh } from './filters';
+import { retryFilterReconciliation } from '../filter_reconciliation/scheduler';
 
 const { messages } = getLocale();
 
@@ -60,7 +61,10 @@ export const connectTimelineStream = (timelineId, channelName, params = {}, opti
     return {
       onConnect() {
         dispatch(connectTimeline(timelineId));
-        if (channelName === 'user') dispatch(scheduleFiltersRefresh());
+        if (channelName === 'user') {
+          dispatch(scheduleFiltersRefresh());
+          dispatch(retryFilterReconciliation());
+        }
 
         if (pollingId) {
           clearTimeout(pollingId);

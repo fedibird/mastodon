@@ -19,6 +19,7 @@ export default class IntersectionObserverArticle extends React.Component {
     children: PropTypes.node,
     tabIndex: PropTypes.string,
     onIntersectionChange: PropTypes.func,
+    onBeforeLayoutChange: PropTypes.func,
   };
 
   static defaultProps = {
@@ -65,9 +66,10 @@ export default class IntersectionObserverArticle extends React.Component {
 
   handleIntersection = (entry) => {
     const { id, onIntersectionChange } = this.props;
+    if (entry.isIntersecting && !this.state.isIntersecting) this.props.onBeforeLayoutChange?.();
 
     if (onIntersectionChange) {
-      onIntersectionChange(id, entry.isIntersecting);
+      onIntersectionChange(id, entry.isIntersecting, entry);
     }
 
     this.entry = entry;
