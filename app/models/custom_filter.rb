@@ -88,8 +88,8 @@ def self.cached_filters_for(account_id)
     active_filters.reject { |custom_filter, _| custom_filter.expired? }
   end
 
-  def self.apply_cached_filters(cached_filters, status)
-    filterable_text = status.proper.filterable_text
+  def self.apply_cached_filters(cached_filters, status, filterable_status: status.proper)
+    filterable_text = filterable_status.filterable_text
 
     cached_filters.filter_map do |filter, rules|
       match = rules[:keywords].match(filterable_text) if rules[:keywords].present?
