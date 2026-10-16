@@ -166,11 +166,47 @@ RSpec.describe 'Boost notification delivery', type: :service do
     expect(notifications.count).to eq 1
   end
 
-  it 'keeps follow language filtering' do
+  %i(local remote).each do |source|
+    [ ['ja', ['en'], 0], ['en', ['en'], 1], [nil, ['en'], 1], ['ja', [], 1] ].each do |language, languages, expected|
+      it "filters #{source} boosts with original language=#{language.inspect}, follow languages=#{languages.inspect}" do
+        original.update!(language: language)
+        if source == :local
+          recipient.follow!(booster, notify_reblogs: true, languages: languages)
+          wrapper = ReblogService.new.call(booster, original, visibility: :public)
+        else
+          remote = Fabricate(:account, domain: 'example.com', uri: 'https://example.com/actor', followers_url: 'https://example.com/followers')
+          recipient.follow!(remote, notify_reblogs: true, languages: languages)
+          wrapper = announce(remote)
+        end
+        expect(wrapper.language).to be_nil
+        expect(notifications.where(activity: wrapper).count).to eq expected
+      end
+    end
+  end
+
+  it 'uses the original language even when the wrapper has a different language' do
     recipient.follow!(booster, notify_reblogs: true, languages: ['en'])
+    original.update!(language: 'en')
     boost.update!(language: 'ja')
     deliver
-    expect(notifications).to be_empty
+    expect(notifications.where(activity: boost).count).to eq 1
+  end
+
+  it 'keeps the existing home filter behavior for a language-less wrapper' do
+    recipient.follow!(booster, notify_reblogs: true, languages: ['en'])
+    original.update!(language: 'ja')
+    boost.update!(language: nil)
+    expect(FeedManager.instance.filter?(:home, boost, recipient)).to be false
+    expect(FeedManager.instance.filter?(:status_notifications, boost, recipient)).to be true
+  end
+
+  it 'allows a delayed retry to notify again after the user clears the notification' do
+    recipient.follow!(booster, notify_reblogs: true)
+    Fabricate(:web_push_subscription, user: recipient.user, data: { alerts: { status: true } })
+    deliver
+    notifications.destroy_all
+    expect { LocalNotificationWorker.new.perform(recipient.id, boost.id, 'Status', 'status') }.to change { notifications.count }.by(1)
+    expect(Web::PushNotificationWorker).to have_received(:push_bulk).twice
   end
 
   it 'keeps the wrapper and booster in the notification REST contract' do
@@ -192,6 +228,14 @@ RSpec.describe 'Boost notification delivery', type: :service do
   it 'delivers a remote Announce using its remote wrapper' do
     remote = Fabricate(:account, domain: 'example.com', uri: 'https://example.com/actor', followers_url: 'https://example.com/followers')
     recipient.follow!(remote, notify_reblogs: true)
+    announce(remote)
+    notification = notifications.first!
+    expect(notification.from_account).to eq remote
+    expect(notification.activity.account).to eq remote
+    expect(notification.activity.reblog).to eq original
+  end
+
+  def announce(remote)
     json = {
       '@context': 'https://www.w3.org/ns/activitystreams',
       id: 'https://example.com/announce/1', type: 'Announce', actor: remote.uri,
@@ -199,9 +243,5 @@ RSpec.describe 'Boost notification delivery', type: :service do
       to: ['https://www.w3.org/ns/activitystreams#Public'],
     }.with_indifferent_access
     ActivityPub::Activity::Announce.new(json, remote, delivery: true).perform
-    notification = notifications.first!
-    expect(notification.from_account).to eq remote
-    expect(notification.activity.account).to eq remote
-    expect(notification.activity.reblog).to eq original
   end
 end
