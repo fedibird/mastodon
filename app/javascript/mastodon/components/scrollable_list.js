@@ -164,13 +164,19 @@ class ScrollableList extends PureComponent {
   }
 
   updateFilterSurface = () => {
-    if (this.filterSurface && (this.filterSurface.node !== this.node || this.filterSurface.scrollKey !== this.props.scrollKey || this.filterSurface.bindToDocument !== this.props.bindToDocument || !this.props.filterStatusIds)) {
+    const location = this.context.router?.history?.location || this.context.router?.route?.location;
+    if (location?.key && !location.state?.mastodonModalKey) this.filterRouteKey = location.key;
+    const surfaceKey = `${this.filterRouteKey || ''}:${this.props.scrollKey}`;
+    if (this.filterSurface && (this.filterSurface.node !== this.node || this.filterSurface.scrollKey !== surfaceKey || this.filterSurface.bindToDocument !== this.props.bindToDocument || !this.props.filterStatusIds)) {
       this.filterSurface.destroy();
       this.filterSurface = null;
     }
     if (!this.props.filterStatusIds || !this.node) return;
+    if (!this.filterHistoryUnlisten) this.filterHistoryUnlisten = this.context.router?.history?.listen(nextLocation => {
+      if (!nextLocation.state?.mastodonModalKey) this.updateFilterSurface();
+    });
     if (!this.filterSurface) {
-      this.filterSurface = new FilterSurface(this.props.dispatch, this.node, { ...this.props, ids: this.props.filterStatusIds, idForRow: this.props.filterIdForRow });
+      this.filterSurface = new FilterSurface(this.props.dispatch, this.node, { ...this.props, scrollKey: surfaceKey, ids: this.props.filterStatusIds, idForRow: this.props.filterIdForRow });
     } else {
       this.filterSurface.preventScroll = this.props.preventScroll;
       this.filterSurface.idForRow = this.props.filterIdForRow || this.filterSurface.idForRow;
@@ -245,6 +251,7 @@ class ScrollableList extends PureComponent {
   }
 
   componentWillUnmount () {
+    this.filterHistoryUnlisten?.();
     this.filterSurface?.destroy();
     this.handleScroll.cancel();
     this.handleWheel.cancel();

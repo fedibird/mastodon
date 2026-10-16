@@ -63,6 +63,8 @@ Reconciliation actions leave every other Redux subtree at the identical referenc
 
 ## Validation and P3 work
 
+The mounted-surface scheduler and scroll layer built on this interface are documented in [filter-reconciliation.md](filter-reconciliation.md), including its supported surfaces, explicit adapter gaps, capacity and validation limits. P2 remains the explicit-ID transport/overlay layer described here.
+
 The integration suite uses the real root reducer, importer/normalizer and `makeGetStatus`, with a mocked transport. It covers definition differences and partial imports, reversed GET responses, iframe/stream races, event bursts/reconnects, API validation/error states, generation/per-ID request races, wrapper/original/quote/context differences, content/poll/ALT changes, state reference preservation, deletion/expiry, eviction and cleanup. The former source-text assertion prohibiting any WebUI `filters_changed` handler is superseded by these behavioral tests; SQL/streaming filtering checks remain.
 
 P3 must collect relevant IDs, retain source contexts, prioritize visible statuses, bound concurrency and batches, revisit stale/failed/unavailable IDs appropriately, and perform scroll anchoring when row visibility changes. It should consume the generation (including expired-filter revival) and entry phases, call the exported actions and release unneeded IDs; it must not rewrite status bodies or restore cleared results from old requests. P2 intentionally adds no developer UI or production global for manually calling the action.

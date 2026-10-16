@@ -17,7 +17,7 @@ jest.mock('mastodon/features/emoji/emoji', () => ({
 import api from '../../api';
 import rootReducer from '../../reducers';
 import { importFetchedStatus, importStatuses } from '../../actions/importer';
-import { FILTERS_FETCH_SUCCESS } from '../../actions/filters';
+import { FILTERS_FETCH_SUCCESS, createFilterStatus } from '../../actions/filters';
 import { makeGetStatus } from '../../selectors';
 import { getFilterScheduler, filterReconciliationMiddleware, registerFilterSurface, releaseFilterSurface, prioritizeFilterSurface, candidatesFor, SURFACE_LIMIT } from '../scheduler';
 import { normalizeStatusIds } from '../surface';
@@ -249,4 +249,83 @@ it('records bounded scheduler CPU and request counts for 1000/2000 retained IDs'
     // eslint-disable-next-line no-console
     console.info('Filter scheduler profile (real CPU, fake clock)', JSON.stringify(measurements));
   }
+});
+
+
+it.each(['hide', 'warn'])('converges a local FilterModal target attachment for %s without a stream event', async filter_action => {
+  const { store } = setup();
+  snapshot(store, [definition('hello', { filter_action, keywords: [] })]);
+  store.dispatch(registerFilterSurface('a', { ids: ['101'] }));
+  await tick(3);
+  expect(store.getState().getIn(['filterMatches', 'entries', '101', 'filterIds']).toJS()).toEqual([]);
+  post.mockClear();
+  const updated = definition('hello', { filter_action, keywords: [], statuses: [{ id: '88', status_id: '101' }] });
+  get.mockImplementation(url => {
+    if (url === '/api/v2/filters') return Promise.resolve({ data: [updated] });
+    if (url === '/api/v1/statuses/101') return Promise.resolve({ data: { ...payload, filtered: [{ filter: updated }] } });
+    if (url === '/api/v1/statuses/101/context') return Promise.resolve({ data: { ancestors: [], descendants: [], references: [] } });
+    return Promise.resolve({ data: [] });
+  });
+  post.mockImplementation((url, body) => {
+    if (url === '/api/v2/filters/1/statuses') return Promise.resolve({ data: { id: '88', status_id: '101' } });
+    return Promise.resolve({ data: { matches: Object.fromEntries(body.status_ids.map(id => [id, ['1']])), unavailable: [] } });
+  });
+  await store.dispatch(createFilterStatus({ filter_id: '1', status_id: '101' }));
+  await tick(4);
+  const status = makeGetStatus()(store.getState(), { id: '101', contextType: 'home' });
+  if (filter_action === 'hide') expect(status).toBeNull();
+  else expect(status.get('matched_filters').toJS()).toEqual(['hidden']);
+  expect(post).toHaveBeenCalledTimes(2);
+});
+
+it('automatically schedules expired-to-active revival and does not repeat work on presentation changes', async () => {
+  const { store } = setup();
+  snapshot(store, [definition('hello', { expires_at: '2026-10-15T12:00:00Z' })]);
+  store.dispatch(registerFilterSurface('a', { ids: ['101'] }));
+  snapshot(store, [definition('hello', { expires_at: null })]); await tick(3);
+  expect(post).toHaveBeenCalledTimes(1);
+  snapshot(store, [definition('hello', { filter_action: 'warn', title: 'new title', context: ['public'] })]); await tick(3);
+  expect(post).toHaveBeenCalledTimes(1);
+});
+
+it('bounds scheduler metadata through repeated mounted route lifecycles', async () => {
+  const { store, ids, scheduler } = setup(2000);
+  for (let i = 0; i < 5; i++) {
+    store.dispatch(registerFilterSurface('route', { ids }));
+    snapshot(store, [definition(String(i))]); await tick(23);
+    expect(scheduler.stats().attempts).toBe(2000);
+    store.dispatch(releaseFilterSurface('route'));
+    expect(scheduler.stats()).toEqual({ surfaces: 0, retained: 0, attempts: 0, inflight: 0, active: 0, timers: 0 });
+  }
+  expect(post).toHaveBeenCalledTimes(100);
+});
+
+it('reuses row selection across unrelated actions while still observing absolute expiry and clock changes', () => {
+  const { store } = setup();
+  snapshot(store, [definition('hello', { filter_action: 'warn', expires_at: '2026-10-16T12:01:00Z' })]);
+  store.dispatch(importFetchedStatus({ ...payload, filtered: [{ filter: definition() }] }));
+  const select = makeGetStatus();
+  const before = select(store.getState(), { id: '101', contextType: 'home' });
+  expect(before.get('matched_filters').toJS()).toEqual(['hidden']);
+  store.dispatch({ type: 'UNRELATED_ACTION' });
+  expect(select(store.getState(), { id: '101', contextType: 'home' })).toBe(before);
+  jest.setSystemTime(new Date('2026-10-16T12:02:00Z'));
+  expect(select(store.getState(), { id: '101', contextType: 'home' }).get('matched_filters')).toBe(false);
+  jest.setSystemTime(new Date('2026-10-16T12:00:00Z'));
+  expect(select(store.getState(), { id: '101', contextType: 'home' }).get('matched_filters').toJS()).toEqual(['hidden']);
+});
+
+it('does not poll a failed initial baseline; a recovery event can establish it later', async () => {
+  const fresh = createStore(rootReducer, applyMiddleware(thunk, filterReconciliationMiddleware)); stores.push(fresh);
+  fresh.dispatch(importFetchedStatus(payload));
+  get.mockRejectedValueOnce(new Error('offline'));
+  fresh.dispatch(registerFilterSurface('a', { ids: ['101'] }));
+  await tick(3);
+  expect(fresh.getState().getIn(['filterMatches', 'baseline'])).toBe(false);
+  await tick(1000);
+  expect(get).toHaveBeenCalledTimes(1);
+  document.dispatchEvent(new Event('visibilitychange')); await tick(3);
+  expect(get).toHaveBeenCalledTimes(2);
+  expect(fresh.getState().getIn(['filterMatches', 'baseline'])).toBe(true);
+  expect(post).not.toHaveBeenCalled();
 });

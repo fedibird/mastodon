@@ -64,7 +64,7 @@ export class FilterScheduler {
       this.document?.addEventListener('visibilitychange', this.wake);
       this.window?.addEventListener('online', this.wake);
     }
-    this.surfaces.set(token, { visible: new Set(), near: new Set(), ...surface });
+    this.surfaces.set(token, { ...surface, visible: new Set(surface.visible || []), near: new Set(surface.near || []) });
     this.schedule();
   }
 
@@ -76,8 +76,8 @@ export class FilterScheduler {
       const attempt = this.attempts.get(id);
       if (!surface.visible.has(id) && attempt?.failed && Date.now() - attempt.at >= 60000) this.attempts.delete(id);
     });
-    surface.visible = visible;
-    surface.near = near;
+    surface.visible = new Set(visible);
+    surface.near = new Set(near);
     this.schedule();
   }
 
@@ -128,7 +128,7 @@ export class FilterScheduler {
     if (!matches.get('baseline')) {
       if (!this.baselineAttempted) {
         this.baselineAttempted = true;
-        this.dispatch(fetchFilters());
+        this.dispatch(fetchFilters({ timeout: 15000 }));
       }
       return;
     }

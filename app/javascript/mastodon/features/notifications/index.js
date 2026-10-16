@@ -59,6 +59,11 @@ const getNotifications = createSelector([
   return notifications.filter(item => item === null || allowedType === item.get('type'));
 });
 
+const getFilterNotifications = createSelector([
+  state => state.getIn(['notifications', 'items'], ImmutableList()),
+  state => state.getIn(['notifications', 'pendingItems'], ImmutableList()),
+], (items, pending) => items.concat(pending));
+
 const mapStateToProps = (state, { columnId }) => {
   const uuid = columnId;
   const columns = state.getIn(['settings', 'columns']);
@@ -68,7 +73,7 @@ const mapStateToProps = (state, { columnId }) => {
   return {
     showFilterBar: state.getIn(['settings', 'notifications', 'quickFilter', 'show']),
     notifications: getNotifications(state),
-    filterNotifications: state.getIn(['notifications', 'items']).concat(state.getIn(['notifications', 'pendingItems'], ImmutableList())),
+    filterNotifications: getFilterNotifications(state),
     isLoading: state.getIn(['notifications', 'isLoading'], true),
     isUnread: state.getIn(['notifications', 'unread']) > 0 || state.getIn(['notifications', 'pendingItems']).size > 0,
     hasMore: state.getIn(['notifications', 'hasMore']),

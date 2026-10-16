@@ -77,16 +77,16 @@ export class FilterSurface {
     else this.nearRows.delete(rowId);
     if (intersecting) this.near.add(id);
     else this.near.delete(id);
-    const rect = entry?.boundingClientRect;
-    const bottom = this.bindToDocument ? window.innerHeight : this.node.getBoundingClientRect().bottom;
-    if (intersecting && (!rect || rect.bottom > this.top() && rect.top < bottom)) this.visible.add(id);
-    else this.visible.delete(id);
-    this.dispatch(prioritizeFilterSurface(this, new Set(this.visible), new Set(this.near)));
+    // IO delivers many rows in one turn. Batch geometry and scheduler updates
+    // into one frame, instead of forcing layout after every virtual row render.
+    this.onScroll();
   }
 
   refreshPriority() {
     const visible = new Set();
-    const bottom = this.bindToDocument ? window.innerHeight : this.node.getBoundingClientRect().bottom;
+    const bounds = this.node.getBoundingClientRect();
+    const top = this.bindToDocument ? 0 : bounds.top;
+    const bottom = this.bindToDocument ? window.innerHeight : bounds.bottom;
     this.nearRows.forEach((row, rowId) => {
       if (!row.isConnected) {
         this.nearRows.delete(rowId);
@@ -94,7 +94,7 @@ export class FilterSurface {
       }
       const rect = row.getBoundingClientRect();
       const id = this.idForRow(String(rowId));
-      if (this.owns(id) && rect.height > 0 && rect.bottom > this.top() && rect.top < bottom) visible.add(id);
+      if (this.owns(id) && rect.height > 0 && rect.bottom > top && rect.top < bottom) visible.add(id);
     });
     this.visible = visible;
     this.dispatch(prioritizeFilterSurface(this, visible, new Set(this.near)));

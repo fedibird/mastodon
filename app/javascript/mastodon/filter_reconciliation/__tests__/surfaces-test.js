@@ -18,6 +18,8 @@ jest.mock('mastodon/features/emoji/emoji', () => ({
 import React from 'react';
 import { Provider } from 'react-redux';
 import { render, act } from '@testing-library/react';
+import { Router } from 'react-router-dom';
+import { createMemoryHistory } from 'history';
 
 jest.mock('../../containers/scroll_container', () => ({ children }) => children);
 jest.mock('../../components/regeneration_indicator', () => () => null);
@@ -141,4 +143,32 @@ it('lets a Mix hide apply only to home while public membership stays visible', a
   expect(view.statusIds.toJS()).toEqual(['101']);
   expect(view.contextById['101']).toBe('public');
   expect(view.sourceKeysById['101']).toEqual(['public']);
+});
+
+it.each(['search results', 'detailed status'])('leaves the existing contextless %s selector contract outside automatic registration', async () => {
+  const { makeGetStatus } = require('../../selectors');
+  const select = makeGetStatus();
+  const statuses = store.getState().get('statuses');
+  expect(select(store.getState(), { id: '101' })).not.toBeNull();
+  act(() => snapshot(store, { keywords: [{ id: '10', keyword: 'changed', whole_word: false }] }));
+  await tick(3);
+  expect(getFilterScheduler(store.dispatch, store.getState).stats().surfaces).toBe(0);
+  expect(post).not.toHaveBeenCalled();
+  expect(select(store.getState(), { id: '101' })).not.toBeNull();
+  expect(store.getState().get('statuses')).toBe(statuses);
+});
+
+it('scopes a reused list to its router session key while keeping modal navigation stable', () => {
+  const history = createMemoryHistory();
+  const view = render(<Router history={history}><Provider store={store}><StatusList scrollKey='reused-account' trackScroll={false} timelineId='account' statusIds={fromJS(['101'])} /></Provider></Router>);
+  const scheduler = getFilterScheduler(store.dispatch, store.getState);
+  const first = Array.from(scheduler.surfaces.keys())[0];
+  act(() => history.push('/next-account'));
+  const second = Array.from(scheduler.surfaces.keys())[0];
+  expect(second).not.toBe(first);
+  expect(first.frame).toBeNull();
+  act(() => history.push('/next-account', { mastodonModalKey: 'media' }));
+  expect(Array.from(scheduler.surfaces.keys())[0]).toBe(second);
+  view.unmount();
+  expect(scheduler.stats().surfaces).toBe(0);
 });

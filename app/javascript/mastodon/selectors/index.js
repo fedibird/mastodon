@@ -22,18 +22,36 @@ export const makeGetAccount = () => {
   });
 };
 
+const filterContexts = new WeakMap();
+const emptyFilters = ImmutableMap();
+
 const getFilters = (state, { contextType }) => {
   if (!contextType) return null;
 
   const serverSideType = toServerSideType(contextType);
-  const now = new Date();
+  const filters = state.get('filters', emptyFilters);
+  const now = Date.now();
+  let contexts = filterContexts.get(filters);
+  if (!contexts) {
+    contexts = new Map();
+    filterContexts.set(filters, contexts);
+  }
+  const cached = contexts.get(serverSideType);
+  if (cached && now >= cached.at && now < cached.expiresAt) return cached.filters;
 
-  return state.get('filters', ImmutableMap()).filter(filter => {
+  let nextExpiry = Infinity;
+  const active = filters.filter(filter => {
     const context = filter.get('context');
     const expiresAt = filter.get('expires_at');
 
-    return context && context.includes(serverSideType) && (expiresAt === null || expiresAt > now);
+    if (!context || !context.includes(serverSideType) || expiresAt !== null && !(expiresAt > now)) return false;
+    if (expiresAt !== null) nextExpiry = Math.min(nextExpiry, Number(expiresAt));
+    return true;
   });
+  // Shared by row selectors until definitions or the next absolute expiry
+  // change. Otherwise every unrelated Redux action re-renders every row.
+  contexts.set(serverSideType, { filters: active, expiresAt: nextExpiry, at: now });
+  return active;
 };
 
 export const makeGetStatus = () => {
