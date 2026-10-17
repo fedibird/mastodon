@@ -177,10 +177,14 @@ const presentationFor = (state) => {
   return 'emoji-multi';
 };
 
+// A blank line stays in the parent, between the slices we wrap. It is not
+// part of either slice: dropping it removes the line, and moving it into the
+// following span changes that span's line-height.
 const splitEmojiSegments = (nodes) => {
   const segments = [];
   let current = [];
   let pending = [];
+  let boundaryOpen = false;
 
   const closeSegment = () => {
     if (current.length === 0) return;
@@ -188,23 +192,51 @@ const splitEmojiSegments = (nodes) => {
     current = [];
   };
 
+  // "  hello" after a blank line is one text node. Peel the leading
+  // whitespace so it stays outside the span with the blank line.
+  const peelLeadingWhitespace = (node) => {
+    if (!boundaryOpen || !node || node.nodeType !== Node.TEXT_NODE) return node;
+
+    const text = node.textContent || '';
+    const lead = text.match(/^\s+/);
+
+    if (!lead || lead[0].length === text.length) return node;
+
+    const ws = node.ownerDocument.createTextNode(lead[0]);
+    node.parentNode.insertBefore(ws, node);
+    node.textContent = text.slice(lead[0].length);
+    pending.push(ws);
+    return node;
+  };
+
   nodes.forEach(node => {
     if (isBreakToken(node)) {
       pending.push(node);
 
-      if (isParagraphBoundary(pending)) {
+      if (!boundaryOpen && isParagraphBoundary(pending)) {
         closeSegment();
-        pending = [];
+        boundaryOpen = true;
       }
 
       return;
     }
 
-    current = current.concat(pending, [node]);
+    const content = peelLeadingWhitespace(node);
+
+    if (boundaryOpen) {
+      // pending is the blank line and the whitespace around it. Leave those
+      // nodes where they are; do not wrap them and do not remove them.
+      pending = [];
+      boundaryOpen = false;
+      current = [content];
+      return;
+    }
+
+    current = current.concat(pending, [content]);
     pending = [];
   });
 
-  if (pending.length > 0) current = current.concat(pending);
+  if (!boundaryOpen && pending.length > 0) current = current.concat(pending);
   if (current.length > 0) segments.push(current);
   return segments;
 };

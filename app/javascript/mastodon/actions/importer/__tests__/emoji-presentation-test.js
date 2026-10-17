@@ -43,6 +43,40 @@ const presentations = (html) => {
 
 const normalizeHtml = (content, overrides) => normalizeStatus(buildStatus(content, overrides), null, '').contentHtml;
 
+const parsedBody = (html) => new DOMParser().parseFromString(html, 'text/html').body;
+
+const brSequence = (root) => {
+  const sequence = [];
+  const walk = (node, insideEmoji) => {
+    for (let i = 0; i < node.childNodes.length; i += 1) {
+      const child = node.childNodes[i];
+
+      if (child.nodeType === Node.ELEMENT_NODE && child.tagName === 'BR') {
+        sequence.push(insideEmoji ? 'br-inside' : 'br');
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        const className = child.getAttribute('class') || '';
+        walk(child, insideEmoji || className.indexOf('emoji-') === 0);
+      }
+    }
+  };
+
+  walk(root, false);
+  return sequence;
+};
+
+// Emojify replaces the character with an image, so textContent loses it.
+// Newlines and spaces have to survive that replacement unchanged.
+const assertWhitespacePreserved = (source) => {
+  const output = normalizeHtml(source);
+  const before = parsedBody(source);
+  const after = parsedBody(output);
+
+  expect(after.textContent).toBe(before.textContent.replace(/😀/g, ''));
+  expect(brSequence(after).filter(token => token === 'br').length).toBe(brSequence(before).length);
+  expect(brSequence(after)).not.toContain('br-inside');
+  return after;
+};
+
 describe('emoji presentation paragraphs', () => {
   it('gives a lone emoji the single size, including surrounding whitespace', () => {
     expect(presentations(normalizeHtml('<p>😀</p>'))).toEqual(['p.emoji-single']);
@@ -87,6 +121,36 @@ describe('emoji presentation paragraphs', () => {
     expect(host.querySelector('.emoji-single')).toBeNull();
     expect(host.querySelector('a.mention').getAttribute('href')).toBe('https://example.com/@user');
     expect(presentations(normalizeHtml(`<p>${mention}\n😀</p>`))).toEqual(['p.emoji-mix']);
+  });
+
+  it('keeps blank lines and spaces when a sentence sits on either side of an emoji', () => {
+    const samples = [
+      '<p>文章<br><br>😀</p>',
+      '<p>😀<br><br>文章</p>',
+      '<p>前文<br><br>😀<br><br>後文</p>',
+      '<p>文章<br>\n<br>\n😀</p>',
+      '<p>😀<br>\n<br>\n文章</p>',
+      '<p>前文<br>\n<br>\n😀<br>\n<br>\n後文</p>',
+      '<p>文章\n\n😀</p>',
+      '<p>😀\n\n文章</p>',
+      '<p>前文\n\n😀\n\n後文</p>',
+      '<p>前文 <br> <br>  😀<br><br> 後文</p>',
+      '<p>hello  <br><br>  world 😀<br><br>  tail</p>',
+    ];
+
+    samples.forEach(source => {
+      const after = assertWhitespacePreserved(source);
+      const slice = after.querySelector('.emoji-single, .emoji-multi, .emoji-mix, .emoji-other');
+
+      expect(slice).not.toBeNull();
+      expect(slice.querySelector('br')).toBeNull();
+      expect(slice.textContent).not.toMatch(/\n/);
+    });
+
+    expect(presentations(normalizeHtml('<p>前文<br><br>😀<br><br>後文</p>'))).toEqual(['span.emoji-single']);
+    expect(presentations(normalizeHtml('<p>前文\n\n😀\n\n後文</p>'))).toEqual(['span.emoji-single']);
+    expect(presentations(normalizeHtml('<p>hello<br><br>world 😀</p>'))).toEqual(['span.emoji-other']);
+    expect(presentations(normalizeHtml('<p>😀<br>文章</p>'))).toEqual(['p.emoji-other']);
   });
 
   it('does not merge a mention into the emoji paragraph after a blank line or a new p', () => {
