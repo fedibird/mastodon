@@ -192,7 +192,7 @@ describe SearchQueryTransformer do
       expect(json).to include('text.en_stemmed')
       expect(json).to include('猫')
       expect(json).to include('2020-01-01')
-      expect(rendered.dig(:body, :sort)).to eq([{ created_at: 'asc' }])
+      expect(rendered.dig(:body, :sort)).to eq([{ 'created_at' => 'asc' }])
     end
 
     it 'keeps mute and domain exclusions in front of the mutual author filter' do
