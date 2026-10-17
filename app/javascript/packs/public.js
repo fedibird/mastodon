@@ -5,6 +5,7 @@ import ready from '../mastodon/ready';
 import { start } from '../mastodon/common';
 import loadKeyboardExtensions from '../mastodon/load_keyboard_extensions';
 import 'cocoon-js-vanilla';
+import { initializeFilterForms } from '../mastodon/features/filters/filter_form';
 
 start();
 
@@ -186,6 +187,8 @@ function main() {
 
       return false;
     });
+
+    initializeFilterForms(document);
 
     [].forEach.call(document.querySelectorAll('.status__content__spoiler-link'), (spoilerLink) => {
       const statusEl = spoilerLink.parentNode.parentNode;

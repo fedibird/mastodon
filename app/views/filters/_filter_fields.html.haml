@@ -20,15 +20,22 @@
     %p.filter-contexts__hint= t('filters.edit.contexts_hint')
     - if f.object.errors[:context].present?
       %p.filter-contexts__error= f.object.errors[:context].to_sentence
-    = f.collection_check_boxes :context, CustomFilter::VALID_CONTEXTS, :itself, :itself do |builder|
-      - context = builder.value
-      - input_id = "custom_filter_context_#{context}"
-      - description_id = "#{input_id}_description"
-      .filter-contexts__item
-        = builder.label(for: input_id, class: 'filter-contexts__choice') do
-          = builder.check_box(id: input_id, aria: { describedby: description_id })
-          %span.filter-contexts__name= t("filters.contexts.#{context}")
-        %p.filter-contexts__description{ id: description_id }= t("filters.context_descriptions.#{context}")
+    .filter-contexts__toolbar
+      %button.filter-contexts__bulk{ type: 'button', data: { filter_contexts_action: 'select-all' } }= t('filters.edit.select_all')
+      %button.filter-contexts__bulk{ type: 'button', data: { filter_contexts_action: 'select-none' } }= t('filters.edit.select_none')
+    %details.filter-contexts__disclosure
+      %summary.filter-contexts__summary{ aria: { controls: 'filter-context-choices' }, data: { show_label: t('filters.edit.show_context_descriptions'), hide_label: t('filters.edit.hide_context_descriptions') } }
+        = t('filters.edit.show_context_descriptions')
+    #filter-context-choices.filter-contexts__list
+      = f.collection_check_boxes :context, CustomFilter::VALID_CONTEXTS, :itself, :itself do |builder|
+        - context = builder.value
+        - input_id = "custom_filter_context_#{context}"
+        - description_id = "#{input_id}_description"
+        .filter-contexts__item
+          = builder.label(for: input_id, class: 'filter-contexts__choice') do
+            = builder.check_box(id: input_id)
+            %span.filter-contexts__name= t("filters.contexts.#{context}")
+          %p.filter-contexts__description{ id: description_id }= t("filters.context_descriptions.#{context}")
 
 %hr.spacer/
 
@@ -55,6 +62,10 @@
 %h4= t('filters.edit.keywords')
 
 .filter-keywords
+  %details.filter-keywords__help
+    %summary.filter-keywords__help-summary{ aria: { controls: 'filter-whole-word-help-body' } }= t('filters.edit.whole_word_help')
+    #filter-whole-word-help-body.filter-keywords__help-body
+      %p= t('simple_form.hints.defaults.whole_word')
   .filter-keywords__list
     = f.simple_fields_for :keywords do |keyword|
       = render 'keyword_fields', f: keyword

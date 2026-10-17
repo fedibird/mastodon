@@ -599,7 +599,7 @@ en_GB:
     contexts:
       home: Home and lists
       notifications: Notifications
-      public: Public timelines
+      public: Public and other timelines
       thread: Post threads
     edit:
       title: Edit filter

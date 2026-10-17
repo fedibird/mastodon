@@ -13,7 +13,7 @@ class FiltersController < ApplicationController
   end
 
   def new
-    @filter = current_account.custom_filters.build(action: :warn)
+    @filter = current_account.custom_filters.build(action: :warn, context: CustomFilter::VALID_CONTEXTS.dup)
     @filter.keywords.build
   end
 

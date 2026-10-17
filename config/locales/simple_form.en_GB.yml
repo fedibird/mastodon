@@ -34,7 +34,7 @@ en_GB:
         setting_noindex: Affects your public profile and status pages
         setting_show_application: The application you use to toot will be displayed in the detailed view of your toots
         username: Your username will be unique on %{domain}
-        whole_word: When the keyword or phrase is alphanumeric only, it will only be applied if it matches the whole word
+        whole_word: "When on, a word boundary is required at each end of the keyword that starts or ends with a word character. Word characters include letters in any language, such as Japanese, not only English letters and digits. The keyword does not have to be entirely alphanumeric. An end that is a symbol does not get a boundary. For example, cat matches a separate cat, not category or bobcat. #tag starts with a symbol, so there is no boundary before it, but it does not match #tags. Japanese ねこ also requires a boundary at both ends, so it does not match あねこ or これはねこです."
       featured_tag:
         name: 'You might want to use one of these:'
       imports:
