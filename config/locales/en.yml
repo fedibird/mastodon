@@ -1954,6 +1954,8 @@ en:
       title: New boost
     status:
       subject: "%{name} just posted"
+    status_boost:
+      subject: "%{name} boosted a post"
     update:
       subject: "%{name} edited a post"
     status_reference:

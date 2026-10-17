@@ -39,7 +39,8 @@ export const NOTIFICATIONS_MARK_AS_READ = 'NOTIFICATIONS_MARK_AS_READ';
 export const NOTIFICATIONS_SET_BROWSER_SUPPORT    = 'NOTIFICATIONS_SET_BROWSER_SUPPORT';
 export const NOTIFICATIONS_SET_BROWSER_PERMISSION = 'NOTIFICATIONS_SET_BROWSER_PERMISSION';
 
-defineMessages({
+const messages = defineMessages({
+  statusBoost: { id: 'notification.status_boost', defaultMessage: '{name} boosted a post' },
   mention: { id: 'notification.mention', defaultMessage: '{name} mentioned you' },
   group: { id: 'notifications.group', defaultMessage: '{count} notifications' },
 });
@@ -123,8 +124,13 @@ export function updateNotifications(notification, intlMessages, intlLocale) {
 
     // Desktop notifications
     if (typeof window.Notification !== 'undefined' && showAlert && !filtered) {
-      const title = new IntlMessageFormat(intlMessages[`notification.${notification.type}`], intlLocale).format(notificationTitleValues(notification));
-      const body  = (notification.status && notification.status.spoiler_text.length > 0) ? notification.status.spoiler_text : unescapeHTML(notification.status ? notification.status.content : '');
+      const isBoost = notification.type === 'status' && !!notification.status?.reblog;
+      const titleMessage = isBoost ? intlMessages['notification.status_boost'] || messages.statusBoost.defaultMessage : intlMessages[`notification.${notification.type}`];
+      const title = new IntlMessageFormat(titleMessage, intlLocale).format(notificationTitleValues(notification));
+      const status = isBoost ? notification.status.reblog : notification.status;
+      const spoiler = typeof status?.spoiler_text === 'string' ? status.spoiler_text : '';
+      const content = typeof status?.content === 'string' ? status.content : '';
+      const body = isBoost ? unescapeHTML(spoiler || content) : spoiler || unescapeHTML(content);
 
       const notify = new Notification(title, { body, icon: notification.account.avatar, tag: notification.id });
 
@@ -138,7 +144,7 @@ export function updateNotifications(notification, intlMessages, intlLocale) {
 
 const excludeTypesFromSettings = state => state.getIn(['settings', 'notifications', 'shows']).filter(enabled => !enabled).keySeq().toJS();
 
-const allTypes = ImmutableList(['follow', 'follow_request', 'favourite', 'reblog', 'mention', 'poll', enableReaction ? 'emoji_reaction' : null, enableStatusReference ? 'status_reference' : null, 'followed', 'update', 'admin.sign_up', 'admin.report'].filter(x => !!x))
+const allTypes = ImmutableList(['follow', 'follow_request', 'favourite', 'reblog', 'mention', 'poll', enableReaction ? 'emoji_reaction' : null, enableStatusReference ? 'status_reference' : null, 'followed', 'update', 'admin.sign_up', 'admin.report'].filter(x => !!x));
 
 const excludeTypesFromFilter = filter => {
   return allTypes.filterNot(item => item === filter).toJS();

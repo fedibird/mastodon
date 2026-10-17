@@ -36,6 +36,10 @@
   {
     "descriptors": [
       {
+        "defaultMessage": "{name} boosted a post",
+        "id": "notification.status_boost"
+      },
+      {
         "defaultMessage": "{name} mentioned you",
         "id": "notification.mention"
       },
@@ -2468,6 +2472,10 @@
       {
         "defaultMessage": "{name} just posted",
         "id": "notification.status"
+      },
+      {
+        "defaultMessage": "{name} boosted a post",
+        "id": "notification.status_boost"
       },
       {
         "defaultMessage": "{name} has requested to follow you",

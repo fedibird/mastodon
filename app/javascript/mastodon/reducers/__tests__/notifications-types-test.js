@@ -7,7 +7,7 @@ jest.mock('intl-messageformat', () => function IntlMessageFormat() {
 });
 
 import reducer from '../notifications';
-import { NOTIFICATIONS_UPDATE } from '../../actions/notifications';
+import { NOTIFICATIONS_UPDATE, NOTIFICATIONS_EXPAND_SUCCESS, NOTIFICATIONS_LOAD_PENDING } from '../../actions/notifications';
 
 describe('notification normalization', () => {
   it('stores report, reporter, and target account for admin.report', () => {
@@ -47,5 +47,30 @@ describe('notification normalization', () => {
 
     expect(state.getIn(['items', 0, 'status'])).toEqual('8');
     expect(state.getIn(['items', 0, 'type'])).toEqual('update');
+  });
+
+  const followedBoost = {
+    id: '12', type: 'status', account: { id: 'booster' },
+    status: { id: 'wrapper', reblog: { id: 'original' } },
+  };
+
+  it.each([false, true])('keeps the status type and wrapper on streaming receive (pending=%s)', usePendingItems => {
+    let state = reducer(undefined, { type: NOTIFICATIONS_UPDATE, notification: followedBoost, usePendingItems });
+    const key = usePendingItems ? 'pendingItems' : 'items';
+    expect(state.getIn([key, 0, 'type'])).toBe('status');
+    expect(state.getIn([key, 0, 'status'])).toBe('wrapper');
+    expect(state.get('unread')).toBe(1);
+    if (usePendingItems) {
+      state = reducer(state, { type: NOTIFICATIONS_LOAD_PENDING });
+      expect(state.getIn(['items', 0, 'status'])).toBe('wrapper');
+      expect(state.get('pendingItems').size).toBe(0);
+    }
+  });
+
+  it.each([false, true])('keeps the wrapper during history/recent loading (recent=%s)', isLoadingRecent => {
+    const state = reducer(undefined, { type: NOTIFICATIONS_EXPAND_SUCCESS, notifications: [followedBoost], isLoadingRecent, usePendingItems: true });
+    const key = isLoadingRecent ? 'pendingItems' : 'items';
+    expect(state.getIn([key, 0, 'type'])).toBe('status');
+    expect(state.getIn([key, 0, 'status'])).toBe('wrapper');
   });
 });

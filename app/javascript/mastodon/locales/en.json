@@ -776,6 +776,7 @@
   "notification.reblog": "{name} boosted your post",
   "notification.scheduled_status": "Your scheduled post has been posted",
   "notification.status": "{name} just posted",
+  "notification.status_boost": "{name} boosted a post",
   "notification.status_reference": "{name} referenced your post",
   "notifications.clear": "Clear notifications",
   "notifications.clear_confirmation": "Are you sure you want to permanently clear all your notifications?",

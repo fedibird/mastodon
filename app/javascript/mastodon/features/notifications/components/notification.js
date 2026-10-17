@@ -23,6 +23,7 @@ const messages = defineMessages({
   poll: { id: 'notification.poll', defaultMessage: 'A poll you have voted in has ended' },
   reblog: { id: 'notification.reblog', defaultMessage: '{name} boosted your post' },
   status: { id: 'notification.status', defaultMessage: '{name} just posted' },
+  statusBoost: { id: 'notification.status_boost', defaultMessage: '{name} boosted a post' },
   emoji_reaction: { id: 'notification.emoji_reaction', defaultMessage: '{name} reactioned your post' },
   status_reference: { id: 'notification.status_reference', defaultMessage: '{name} referenced your post' },
   scheduled_status: { id: 'notification.scheduled_status', defaultMessage: 'Your scheduled post has been posted' },
@@ -332,18 +333,20 @@ class Notification extends ImmutablePureComponent {
   }
 
   renderStatus (notification, link) {
-    const { intl, unread } = this.props;
+    const { intl, unread, status } = this.props;
+    const isBoost = !!(status && status.getIn(['reblog', 'id']));
+    const message = isBoost ? messages.statusBoost : messages.status;
 
     return (
       <HotKeys handlers={this.getHandlers()}>
-        <div className={classNames('notification notification-status focusable', { unread })} tabIndex='0' aria-label={notificationForScreenReader(intl, intl.formatMessage(messages.status, { name: notification.getIn(['account', 'acct']) }), notification.get('created_at'))}>
+        <div className={classNames('notification notification-status focusable', { unread })} tabIndex='0' aria-label={notificationForScreenReader(intl, intl.formatMessage(message, { name: notification.getIn(['account', 'acct']) }), notification.get('created_at'))}>
           <div className='notification__message' ref={this.setRef}>
             <div className='notification__favourite-icon-wrapper'>
-              <Icon id='home' fixedWidth />
+              <Icon id={isBoost ? 'retweet' : 'home'} fixedWidth />
             </div>
 
             <span title={notification.get('created_at')}>
-              <FormattedMessage id='notification.status' defaultMessage='{name} just posted' values={{ name: link }} />
+              <FormattedMessage {...message} values={{ name: link }} />
             </span>
           </div>
 
