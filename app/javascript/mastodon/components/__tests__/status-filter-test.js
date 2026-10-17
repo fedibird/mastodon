@@ -65,6 +65,29 @@ const store = createStore(() => fromJS({
   relationships: {},
 }));
 
+const knownEmoji = {
+  shortcode: 'known',
+  url: 'https://cdn.example.test/known.gif',
+  static_url: 'https://cdn.example.test/known.png',
+};
+
+const otherEmoji = {
+  shortcode: 'other',
+  url: 'https://cdn.example.test/other.gif',
+  static_url: 'https://cdn.example.test/other.png',
+};
+
+const createEmojiStore = (emojis = []) => createStore((state, action) => {
+  if (action.type === 'TEST_SET_EMOJIS') {
+    return state.set('custom_emojis', fromJS(action.custom_emojis));
+  }
+
+  return state;
+}, fromJS({
+  relationships: {},
+  custom_emojis: emojis,
+}));
+
 const pictureInPicture = fromJS({ inUse: false, available: false });
 
 const buildStatus = (overrides = {}) => fromJS({
@@ -98,8 +121,8 @@ const buildStatus = (overrides = {}) => fromJS({
   ...overrides,
 });
 
-const renderStatus = (status, extraProps = {}) => render(
-  <Provider store={store}>
+const renderStatus = (status, extraProps = {}, statusStore = store) => render(
+  <Provider store={statusStore}>
     <Status
       status={status}
       pictureInPicture={pictureInPicture}
@@ -244,6 +267,113 @@ describe('Status filter warning UI', () => {
     const wrapper = screen.getByRole('button', { name: 'Show anyway' }).parentElement;
     expect(wrapper.textContent).toContain('<script>alert(1)</script>');
     expect(wrapper.querySelector('script')).toBeNull();
+  });
+
+  it('renders a known local shortcode inside the filter placeholder', () => {
+    const emojiStore = createEmojiStore([knownEmoji, otherEmoji]);
+
+    renderStatus(buildStatus({
+      matched_filters: ['重要 :known: 話題'],
+      account: {
+        id: 'a1',
+        acct: 'alice',
+        username: 'alice',
+        display_name: 'Alice',
+        display_name_html: 'Alice',
+        url: 'https://example.test/alice',
+        avatar: '',
+        group: false,
+        emojis: [{
+          shortcode: 'known',
+          url: 'https://remote.example.test/known.png',
+          static_url: 'https://remote.example.test/known.png',
+        }],
+      },
+    }), {}, emojiStore);
+
+    const wrapper = screen.getByRole('button', { name: 'Show anyway' }).parentElement;
+    const image = screen.getByRole('img', { name: ':known:' });
+
+    expect(image).toHaveAttribute('src', 'https://cdn.example.test/known.png');
+    expect(image).not.toHaveAttribute('src', 'https://remote.example.test/known.png');
+    expect(wrapper.textContent).toContain('重要 ');
+    expect(wrapper.textContent).toContain(' 話題');
+    expect(wrapper).toHaveAttribute('tabindex', '0');
+  });
+
+  it('renders adjacent shortcodes and keeps each filter title', () => {
+    renderStatus(buildStatus({
+      matched_filters: ['理由A :known::other:', '理由B'],
+    }), {}, createEmojiStore([knownEmoji, otherEmoji]));
+
+    const wrapper = screen.getByRole('button', { name: 'Show anyway' }).parentElement;
+    const images = wrapper.querySelectorAll('img.custom-emoji');
+
+    expect(images).toHaveLength(2);
+    expect(images[0]).toHaveAttribute('alt', ':known:');
+    expect(images[1]).toHaveAttribute('alt', ':other:');
+    expect(images[0].nextSibling).toBe(images[1]);
+    expect(wrapper.textContent).toContain('理由A ');
+    expect(wrapper.textContent).toContain(', ');
+    expect(wrapper.textContent).toContain('理由B');
+  });
+
+  it('leaves an unknown shortcode as text in the placeholder', () => {
+    renderStatus(buildStatus({
+      matched_filters: ['確認 :unknown:'],
+    }), {}, createEmojiStore([knownEmoji]));
+
+    const wrapper = screen.getByRole('button', { name: 'Show anyway' }).parentElement;
+
+    expect(wrapper.querySelector('img')).toBeNull();
+    expect(wrapper.textContent).toContain('確認 :unknown:');
+  });
+
+  it('does not execute HTML written into a filter title', () => {
+    renderStatus(buildStatus({
+      matched_filters: ['<img src=x onerror=alert(1)>'],
+    }), {}, createEmojiStore([knownEmoji]));
+
+    const wrapper = screen.getByRole('button', { name: 'Show anyway' }).parentElement;
+
+    expect(wrapper.textContent).toContain('<img src=x onerror=alert(1)>');
+    expect(wrapper.querySelector('img')).toBeNull();
+    expect(wrapper.querySelector('script')).toBeNull();
+  });
+
+  it('replaces shortcodes already on screen when the local catalog arrives', () => {
+    const emojiStore = createEmojiStore([]);
+
+    renderStatus(buildStatus({
+      matched_filters: ['確認 :known:'],
+    }), {}, emojiStore);
+
+    const wrapper = screen.getByRole('button', { name: 'Show anyway' }).parentElement;
+
+    expect(wrapper.querySelector('img')).toBeNull();
+    expect(wrapper.textContent).toContain('確認 :known:');
+
+    emojiStore.dispatch({ type: 'TEST_SET_EMOJIS', custom_emojis: [knownEmoji] });
+
+    expect(screen.getByRole('img', { name: ':known:' })).toHaveAttribute('src', 'https://cdn.example.test/known.png');
+    expect(wrapper.textContent).toContain('確認 ');
+    expect(wrapper.textContent).not.toContain(':known:');
+  });
+
+  it('still reveals the status from Show anyway when the reason contains an emoji', () => {
+    renderStatus(buildStatus({
+      matched_filters: ['確認 :known:'],
+    }), {}, createEmojiStore([knownEmoji]));
+
+    const button = screen.getByRole('button', { name: 'Show anyway' });
+
+    button.focus();
+    expect(button).toHaveFocus();
+    fireEvent.click(button);
+
+    expect(screen.getByText('hello world')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Show anyway' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: ':known:' })).not.toBeInTheDocument();
   });
 
   it('renders quotes and reblogs without a filter placeholder', () => {
