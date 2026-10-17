@@ -227,5 +227,114 @@ describe('timeline position contract', () => {
     expect(filled.anchor.statusId).toBe('12634567890123456789');
     expect(filled.anchor.displayRowId).toBe('f-12634567890123456789');
     expect(String(Number(filled.anchor.statusId))).not.toBe(filled.anchor.statusId);
+    expect(decodeTimelineAnchor({
+      version: 1,
+      statusId: '91',
+      displayRowId: 'some-other-row',
+      offsetPx: 0,
+      alignment: 'top',
+    }).ok).toBe(false);
+    expect(decodeTimelineAnchor({
+      version: 1,
+      displayRowId: 'some-other-row',
+      offsetPx: 0,
+      alignment: 'top',
+    }).anchor).toEqual({
+      version: 1,
+      statusId: null,
+      displayRowId: 'some-other-row',
+      offsetPx: 0,
+      alignment: 'top',
+    });
+  });
+
+  it('rejects prototype keys that would collapse different conditions', () => {
+    const alpha = timelineSourceIdentity('home', JSON.parse('{"__proto__":["alpha"]}'));
+    const beta = timelineSourceIdentity('home', JSON.parse('{"__proto__":["beta"]}'));
+    const constructorKey = timelineSourceIdentity('home', { constructor: ['nope'] });
+    const kept = timelineSourceIdentity('hashtag:foo', { all: ['bar'] });
+
+    expect(alpha).toBeNull();
+    expect(beta).toBeNull();
+    expect(sameTimelineSource(alpha, beta)).toBe(false);
+    expect(constructorKey).toBeNull();
+    expect(kept.conditions.all).toEqual(['bar']);
+    expect(JSON.parse(JSON.stringify(kept.conditions)).all).toEqual(['bar']);
+  });
+
+  it('matches history again after it is closed and opened on the same column', () => {
+    const opened = timelineViewIdentity({
+      columnId: 'column-a',
+      scrollKey: 'home_timeline-column-a',
+      locationKey: 'nav-1',
+      pane: 'history',
+      dataTimelineId: 'home:split:column-a:session-1',
+    });
+    const reopened = timelineViewIdentity({
+      columnId: 'column-a',
+      scrollKey: 'home_timeline-column-a',
+      locationKey: 'nav-2',
+      pane: 'history',
+      dataTimelineId: 'home:split:column-a:session-2',
+    });
+    const otherColumn = timelineViewIdentity({
+      columnId: 'column-b',
+      scrollKey: 'home_timeline-column-b',
+      locationKey: 'nav-2',
+      pane: 'history',
+      dataTimelineId: 'home:split:column-b:session-2',
+    });
+    const live = timelineViewIdentity({
+      columnId: 'column-a',
+      scrollKey: 'home_timeline-column-a-live',
+      locationKey: 'nav-2',
+      pane: 'live',
+      dataTimelineId: 'home',
+    });
+    const listOpened = timelineViewIdentity({
+      columnId: 'column-a',
+      scrollKey: 'list_timeline-column-a',
+      pane: 'history',
+      dataTimelineId: 'list:42:split:column-a:session-1',
+    });
+    const listReopened = timelineViewIdentity({
+      columnId: 'column-a',
+      scrollKey: 'list_timeline-column-a',
+      locationKey: 'nav-9',
+      pane: 'history',
+      dataTimelineId: 'list:42:split:column-a:session-9',
+    });
+
+    expect(opened.dataTimelineId).toBe('home:split:column-a');
+    expect(opened.sessionId).toBe('session-1');
+    expect(opened.locationKey).toBe('nav-1');
+    expect(reopened.sessionId).toBe('session-2');
+    expect(reopened.locationKey).toBe('nav-2');
+    expect(sameTimelineView(opened, reopened)).toBe(true);
+    expect(sameTimelineView(opened, otherColumn)).toBe(false);
+    expect(sameTimelineView(opened, live)).toBe(false);
+    expect(listOpened.dataTimelineId).toBe('list:42:split:column-a');
+    expect(sameTimelineView(listOpened, listReopened)).toBe(true);
+    expect(timelineViewIdentity({
+      columnId: 'column-a',
+      dataTimelineId: 'home:split:column-a:session-1',
+      sessionId: 'session-2',
+    })).toBeNull();
+
+    const saved = createTimelinePosition({
+      source: timelineSourceIdentity('home'),
+      view: opened,
+      anchor,
+    });
+    const again = createTimelinePosition({
+      source: timelineSourceIdentity('home'),
+      view: reopened,
+      anchor,
+    });
+
+    expect(saved.ok).toBe(true);
+    expect(saved.position.view.sessionId).toBe('session-1');
+    expect(sameTimelineView(saved.position.view, again.position.view)).toBe(true);
+    expect(saved.position.view.sessionId).not.toBe(again.position.view.sessionId);
   });
 });

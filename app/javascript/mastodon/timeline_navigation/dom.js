@@ -374,7 +374,7 @@ export const scrollToLoadedTimelineStatus = ({
     return failure(TIMELINE_ANCHOR_REASONS.INVALID);
   }
 
-  if (rowIds && statusId && rowIds.statusId && statusId !== rowIds.statusId) {
+  if (rowIds && statusId && rowIds.statusId !== statusId) {
     return failure(TIMELINE_ANCHOR_REASONS.INVALID);
   }
 

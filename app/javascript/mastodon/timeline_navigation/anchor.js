@@ -135,7 +135,9 @@ export const decodeTimelineAnchor = (input) => {
     displayRowId = input.displayRowId;
     const impliedStatusId = statusIdForDisplayRow(displayRowId);
 
-    if (statusId && impliedStatusId && statusId !== impliedStatusId) {
+    // A status row is a decimal id or f-<id>. Any other display row does not
+    // name that status, so pairing it with a statusId would restore the wrong row.
+    if (statusId && impliedStatusId !== statusId) {
       return { ok: false, reason: TIMELINE_ANCHOR_REASONS.INVALID };
     }
 
@@ -229,12 +231,15 @@ const canonicalizeConditions = (conditions) => {
     return { ok: false };
   }
 
-  const clean = {};
+  // A normal object assigns __proto__ onto the prototype, so two different
+  // payloads both stringify as {}. Null-prototype plus an own property keeps
+  // a rejected key from collapsing those sources if the check is ever loosened.
+  const clean = Object.create(null);
 
   for (let index = 0; index < keys.length; index += 1) {
     const key = keys[index];
 
-    if (!CONDITION_KEY.test(key)) {
+    if (!CONDITION_KEY.test(key) || key === '__proto__' || key === 'constructor' || key === 'prototype') {
       return { ok: false };
     }
 
@@ -257,7 +262,7 @@ const canonicalizeConditions = (conditions) => {
         copy.push(item.value);
       }
 
-      clean[key] = copy;
+      Object.defineProperty(clean, key, { value: copy, enumerable: true, writable: true, configurable: true });
     } else {
       const scalar = canonicalizeScalar(value);
 
@@ -265,7 +270,7 @@ const canonicalizeConditions = (conditions) => {
         return { ok: false };
       }
 
-      clean[key] = scalar.value;
+      Object.defineProperty(clean, key, { value: scalar.value, enumerable: true, writable: true, configurable: true });
     }
   }
 
@@ -327,7 +332,32 @@ export const timelineSourceIdentity = (sourceTimelineId, conditions) => {
   };
 };
 
-const VIEW_FIELDS = ['columnId', 'scrollKey', 'locationKey', 'pane', 'dataTimelineId'];
+const VIEW_FIELDS = ['columnId', 'scrollKey', 'locationKey', 'pane'];
+const SPLIT_TIMELINE_MARKER = ':split:';
+
+// home:split:<column>:<session> is a new id every time History opens.
+// The session stays available for discarding a stale response. The saved
+// place uses the id without that session. location.key is likewise a new
+// value on each route entry, so it is kept and not compared.
+const splitDataTimelineIdentity = (dataTimelineId) => {
+  const marker = dataTimelineId.indexOf(SPLIT_TIMELINE_MARKER);
+
+  if (marker <= 0) {
+    return { dataTimelineId, sessionId: null };
+  }
+
+  const rest = dataTimelineId.slice(marker + SPLIT_TIMELINE_MARKER.length);
+  const splitAt = rest.lastIndexOf(':');
+
+  if (splitAt <= 0 || splitAt === rest.length - 1) {
+    return { dataTimelineId, sessionId: null };
+  }
+
+  return {
+    dataTimelineId: dataTimelineId.slice(0, marker + SPLIT_TIMELINE_MARKER.length + splitAt),
+    sessionId: rest.slice(splitAt + 1),
+  };
+};
 
 // Which surface is scrolling. The same source in two columns is two views.
 // Returns null when a provided field cannot be stored without collapsing it.
@@ -349,6 +379,30 @@ export const timelineViewIdentity = (input = {}) => {
     view[field] = read.value;
   }
 
+  const dataTimeline = readIdentityString(input.dataTimelineId);
+  const explicitSession = readIdentityString(input.sessionId);
+
+  if (!dataTimeline.ok || !explicitSession.ok) {
+    return null;
+  }
+
+  let sessionId = explicitSession.value;
+  let dataTimelineId = dataTimeline.value;
+
+  if (dataTimelineId) {
+    const split = splitDataTimelineIdentity(dataTimelineId);
+
+    if (split.sessionId && sessionId && split.sessionId !== sessionId) {
+      return null;
+    }
+
+    dataTimelineId = split.dataTimelineId;
+    sessionId = split.sessionId || sessionId;
+  }
+
+  view.dataTimelineId = dataTimelineId;
+  view.sessionId = sessionId;
+
   return view;
 };
 
@@ -366,7 +420,6 @@ export const sameTimelineView = (left, right) => (
   right.kind === 'timeline_view' &&
   left.columnId === right.columnId &&
   left.scrollKey === right.scrollKey &&
-  left.locationKey === right.locationKey &&
   left.pane === right.pane &&
   left.dataTimelineId === right.dataTimelineId
 );

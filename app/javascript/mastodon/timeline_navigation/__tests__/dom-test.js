@@ -180,6 +180,12 @@ describe('scrollToLoadedTimelineStatus', () => {
     expect(host.scroller.scrollTop).toBe(before);
     expect(emptyHost.scroller.scrollTop).toBe(33);
     expect(scrollToLoadedTimelineStatus({ scrollHost: host.scrollHost, statusId: 100 }).reason).toBe(TIMELINE_ANCHOR_REASONS.INVALID);
+    expect(scrollToLoadedTimelineStatus({
+      scrollHost: host.scrollHost,
+      statusId: '90',
+      displayRowId: 'some-other-row',
+    })).toEqual({ ok: false, reason: TIMELINE_ANCHOR_REASONS.INVALID });
+    expect(host.scroller.scrollTop).toBe(before);
     expect(findLoadedTimelineStatus({ scrollHost: { kind: 'pane', list: null, scroller: null }, statusId: '100' }).reason).toBe(TIMELINE_ANCHOR_REASONS.MISSING_HOST);
   });
 
