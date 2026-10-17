@@ -548,6 +548,7 @@ Rails.application.routes.draw do
         resources :list, only: :show
         resources :group, only: :show
         resource :personal, only: :show, controller: :personal
+        resource :seek, only: :create, controller: :seek
       end
 
       get '/streaming', to: 'streaming#index'

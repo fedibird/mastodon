@@ -33,6 +33,12 @@ import {
   WINDOW_HISTORY_SUCCESS,
 } from '../windowed_history/types';
 import {
+  WINDOW_SEEK_BEGIN,
+  WINDOW_SEEK_COMMIT,
+  WINDOW_SEEK_FAIL,
+} from '../timeline_seek/constants';
+import { beginSeekState, commitSeekState, failSeekState } from '../timeline_seek/reduce';
+import {
   failHistory,
   initialHistoryWindow,
   keptHistoryItems,
@@ -376,6 +382,12 @@ export default function timelines(state = initialState, action) {
     return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => failHistory(timeline, action));
   case WINDOW_HISTORY_ANCHOR:
     return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => placeHistoryAnchor(timeline, action.anchorId));
+  case WINDOW_SEEK_BEGIN:
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => beginSeekState(timeline, action));
+  case WINDOW_SEEK_FAIL:
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => failSeekState(timeline, action));
+  case WINDOW_SEEK_COMMIT:
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => commitSeekState(timeline, action));
   case TIMELINE_UPDATE:
     return isStaleSplitTimeline(state, action.timeline) ? state : updateTimeline(state, action.timeline, fromJS(action.status), action.usePendingItems);
   case TIMELINE_DELETE:
