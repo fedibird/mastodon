@@ -489,7 +489,7 @@ export const applyHistoryPage = (windowState, items, {
     newer = { ...newer, status: HISTORY_EDGE.OPEN, cursor: edges.newestId };
   }
 
-  if (trimmedOlder && older.status === HISTORY_EDGE.EXHAUSTED) {
+  if (trimmedOlder && (older.status === HISTORY_EDGE.EXHAUSTED || older.status === HISTORY_EDGE.UNAVAILABLE)) {
     older = { ...older, status: HISTORY_EDGE.OPEN, cursor: edges.oldestId };
   }
 

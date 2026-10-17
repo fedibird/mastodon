@@ -241,6 +241,53 @@ describe('windowed history model', () => {
     expect(database.window.hasOlder).toBe(false);
   });
 
+  it('reopens a redis older edge after a newer page trims it', () => {
+    const items = sequence(12, 1200);
+    const anchorId = items[6];
+    const selected = selectInitialWindow(items, anchorId, { target: 5, sourceHasMore: true, boundaryId: '002000' });
+    const older = beginHistoryRequest(selected.window, {
+      direction: 'older',
+      cursor: selected.window.oldestId,
+      requestId: 'older-edge',
+      anchorId,
+    });
+    const afterOlder = applyHistoryPage(older.window, selected.items, {
+      pageIds: ['000100'],
+      direction: 'older',
+      cursor: selected.window.oldestId,
+      anchorId,
+      capability: HISTORY_CAPABILITY.REDIS,
+      limit: 20,
+      target: 5,
+      hardCap: 8,
+    });
+
+    expect(afterOlder.window.older.status).toBe(HISTORY_EDGE.UNAVAILABLE);
+    expect(afterOlder.items).toContain('000100');
+
+    const newer = beginHistoryRequest(afterOlder.window, {
+      direction: 'newer',
+      cursor: afterOlder.window.newestId,
+      requestId: 'newer-edge',
+      anchorId,
+    });
+    const afterNewer = applyHistoryPage(newer.window, afterOlder.items, {
+      pageIds: ['001300', '001290', '001280', '001270'],
+      direction: 'newer',
+      cursor: afterOlder.window.newestId,
+      anchorId,
+      capability: HISTORY_CAPABILITY.REDIS,
+      limit: 4,
+      target: 5,
+      hardCap: 8,
+    });
+
+    expect(afterNewer.items).toContain(anchorId);
+    expect(afterNewer.items).not.toContain('000100');
+    expect(afterNewer.window.older.status).toBe(HISTORY_EDGE.OPEN);
+    expect(afterNewer.window.hasOlder).toBe(true);
+  });
+
   it('pages one direction at a time and refuses to grow an unresolved window', () => {
     const selected = selectInitialWindow(sequence(12, 1200), sequence(12, 1200)[4], { target: 8, sourceHasMore: true });
     const older = beginHistoryRequest(selected.window, {
