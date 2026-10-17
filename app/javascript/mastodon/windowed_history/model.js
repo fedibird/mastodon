@@ -520,8 +520,44 @@ export const applyHistoryPage = (windowState, items, {
   };
 };
 
+export const beginSeekSession = (windowState) => {
+  if (!windowState) {
+    return null;
+  }
+
+  // Drop in-flight cursors so a cancelled page cannot land on this generation.
+  // Exhausted and unavailable edges stay; they describe the feed, not a request.
+  const release = (edge) => {
+    if (!edge) {
+      return edgeState(HISTORY_EDGE.OPEN);
+    }
+
+    const status = edge.status === HISTORY_EDGE.LOADING || edge.status === HISTORY_EDGE.ERROR
+      ? HISTORY_EDGE.OPEN
+      : edge.status;
+
+    return {
+      status,
+      requestId: null,
+      cursor: edge.cursor || null,
+    };
+  };
+
+  return {
+    ...windowState,
+    generation: (windowState.generation || 0) + 1,
+    seeking: true,
+    newer: release(windowState.newer),
+    older: release(windowState.older),
+  };
+};
+
 export const beginHistoryRequest = (windowState, { direction, cursor, requestId, anchorId = null, gap = false } = {}) => {
   const edge = windowState[direction];
+
+  if (windowState.seeking) {
+    return { accepted: false, window: windowState };
+  }
 
   if (!edge || !isReal(cursor) || !requestId) {
     return { accepted: false, window: windowState };

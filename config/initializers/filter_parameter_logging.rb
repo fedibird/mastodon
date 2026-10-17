@@ -22,4 +22,5 @@ Rails.application.config.filter_parameters += [
   :secret,
   :encrypted_payload,
   :status_ids,
+  :seek_target,
 ]

@@ -14,6 +14,7 @@ import { isIOS } from 'mastodon/is_mobile';
 import { showReloadButton } from '../initial_state';
 import { List as ImmutableList } from 'immutable';
 import { HistoryAnchorNotice } from './load_window_edge';
+import { planSeekScroll } from '../timeline_seek/window';
 
 export default @connect(null, null, null, { forwardRef: true })
 class StatusList extends ImmutablePureComponent {
@@ -42,6 +43,11 @@ class StatusList extends ImmutablePureComponent {
     historyUnbounded: PropTypes.bool,
     windowRevision: PropTypes.number,
     onCommitWindowAnchor: PropTypes.func,
+    seekScrollPending: PropTypes.bool,
+    seekSessionId: PropTypes.string,
+    seekAnchorId: PropTypes.string,
+    seekScrollRevision: PropTypes.number,
+    onSeekScroll: PropTypes.func,
     prepend: PropTypes.node,
     emptyMessage: PropTypes.node,
     alwaysPrepend: PropTypes.bool,
@@ -69,6 +75,7 @@ class StatusList extends ImmutablePureComponent {
 
   componentDidMount () {
     this.scheduleAnchorCapture();
+    this.scheduleSeekScroll();
   }
 
   componentDidUpdate (prevProps) {
@@ -78,7 +85,7 @@ class StatusList extends ImmutablePureComponent {
     if (pending && revision !== pending.revision) {
       this.pendingWindowAnchor = null;
 
-      if (pending.anchor && pending.anchor.statusId) {
+      if (!this.props.seekScrollPending && pending.anchor && pending.anchor.statusId) {
         this.restoreReadingAnchor(pending.anchor, { kind: this.windowAnchorKind() });
       }
     } else if (pending) {
@@ -95,13 +102,92 @@ class StatusList extends ImmutablePureComponent {
     }
 
     this.scheduleAnchorCapture();
+    this.scheduleSeekScroll();
   }
 
   componentWillUnmount () {
+    this.seekScrollUnmounted = true;
     this.pendingWindowAnchor = null;
     this.stopAnchorCapture();
+    this.cancelSeekScrollFrame();
     this.handleLoadOlder.cancel();
     this.handleLoadNewer.cancel();
+  }
+
+  seekScrollKey = () => {
+    const { seekScrollPending, seekSessionId, seekAnchorId, seekScrollRevision, windowRevision } = this.props;
+
+    if (!seekScrollPending || !seekSessionId || !seekAnchorId) {
+      return null;
+    }
+
+    if ((seekScrollRevision || 0) !== (windowRevision || 0)) {
+      return null;
+    }
+
+    return `${seekSessionId}:${seekScrollRevision}:${seekAnchorId}`;
+  }
+
+  cancelSeekScrollFrame = () => {
+    if (this.seekScrollFrame) {
+      cancelAnimationFrame(this.seekScrollFrame);
+      this.seekScrollFrame = null;
+    }
+  }
+
+  // One frame after the window commit. The filtered status list and the
+  // articles exist by then. A newer session, unmount, or a dropped pending
+  // flag cancels the frame before it moves the scroller.
+  scheduleSeekScroll = () => {
+    const key = this.seekScrollKey();
+
+    if (!key) {
+      this.cancelSeekScrollFrame();
+      this.seekScrollScheduled = null;
+      return;
+    }
+
+    if (this.seekScrollSettled === key || this.seekScrollScheduled === key) {
+      return;
+    }
+
+    this.cancelSeekScrollFrame();
+    this.seekScrollScheduled = key;
+    this.seekScrollFrame = requestAnimationFrame(() => {
+      this.seekScrollFrame = null;
+
+      if (this.seekScrollUnmounted || this.seekScrollKey() !== key) {
+        return;
+      }
+
+      const { seekSessionId, seekScrollRevision, seekAnchorId, statusIds, onSeekScroll } = this.props;
+      const plan = planSeekScroll({ anchorId: seekAnchorId, renderedIds: statusIds });
+      let settled = plan;
+
+      if (plan.scroll) {
+        const moved = this.scrollToLoadedStatus(seekAnchorId) || { ok: false, reason: 'not_loaded' };
+
+        settled = moved.ok
+          ? { scroll: true, reason: 'loaded', anchorId: seekAnchorId }
+          : planSeekScroll({
+            anchorId: seekAnchorId,
+            renderedIds: statusIds,
+            articlePresent: false,
+          });
+      }
+
+      this.seekScrollSettled = key;
+
+      if (onSeekScroll) {
+        onSeekScroll({
+          sessionId: seekSessionId,
+          revision: seekScrollRevision,
+          anchorId: seekAnchorId,
+          scrolled: !!settled.scroll,
+          reason: settled.reason,
+        });
+      }
+    });
   }
 
   stopAnchorCapture = () => {
@@ -258,10 +344,15 @@ class StatusList extends ImmutablePureComponent {
   )
 
   render () {
-    const { statusIds, featuredStatusIds, filterStatusIds, onLoadMore, onLoadNewer, timelineId, contextTypeForId, warningTitlesForId, sourceBadgesForId, badgeRevision, showCard, trackIntersection, immediateStatusIds, windowedHistory, anchorResolution, historyUnbounded, onCommitWindowAnchor, hasNewer, newerLoading, newerStatus, olderStatus, prepend, ...other } = this.props;
+    const { statusIds, featuredStatusIds, filterStatusIds, onLoadMore, onLoadNewer, timelineId, contextTypeForId, warningTitlesForId, sourceBadgesForId, badgeRevision, showCard, trackIntersection, immediateStatusIds, windowedHistory, anchorResolution, historyUnbounded, onCommitWindowAnchor, hasNewer, newerLoading, newerStatus, olderStatus, prepend, seekScrollPending, seekSessionId, seekAnchorId, seekScrollRevision, onSeekScroll, ...other } = this.props;
 
     void badgeRevision;
     void onCommitWindowAnchor;
+    void seekScrollPending;
+    void seekSessionId;
+    void seekAnchorId;
+    void seekScrollRevision;
+    void onSeekScroll;
     const { isLoading, isPartial } = other;
     const contextTypeFor = (statusId) => contextTypeForId ? (contextTypeForId(statusId) || timelineId) : timelineId;
     const warningTitlesFor = (statusId) => warningTitlesForId ? warningTitlesForId(statusId) : undefined;

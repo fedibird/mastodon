@@ -31,7 +31,7 @@ export const releaseWindowedHistoryFlight = (timelineId, direction, flight) => {
 };
 
 export const cancelWindowedHistory = (timelineId) => {
-  ['newer', 'older'].forEach(direction => {
+  ['newer', 'older', 'seek'].forEach(direction => {
     const key = flightKey(timelineId, direction);
     const flight = flights.get(key);
 

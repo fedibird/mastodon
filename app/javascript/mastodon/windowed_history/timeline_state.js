@@ -38,6 +38,7 @@ export const plainWindow = (windowState) => {
     oldestId: windowState.get('oldestId') || null,
     hasNewer: !!windowState.get('hasNewer'),
     hasOlder: !!windowState.get('hasOlder'),
+    seeking: !!windowState.get('seeking'),
     newer: edge('newer'),
     older: edge('older'),
   };
@@ -57,7 +58,7 @@ const statusIds = (statuses) => {
   }).filter(id => typeof id === 'string');
 };
 
-const writeWindow = (timeline, items, windowState) => {
+export const writeWindow = (timeline, items, windowState) => {
   const olderStatus = windowState.older.status;
   const awaitingAnchor = !!windowState.unbounded;
 

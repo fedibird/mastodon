@@ -2,6 +2,7 @@ import { connect } from 'react-redux';
 import StatusList from '../../../components/status_list';
 import { scrollTopTimeline, loadPending } from '../../../actions/timelines';
 import { commitWindowedHistoryAnchor } from '../../../actions/windowed_history';
+import { settleWindowSeekScroll } from '../../../actions/timeline_seek';
 import { getHomeVisibilities, getLimitedVisibilities } from 'mastodon/selectors';
 import { Map as ImmutableMap, List as ImmutableList } from 'immutable';
 import { createSelector } from 'reselect';
@@ -72,6 +73,34 @@ const makeGetLiveStatusIds = () => createSelector([
   return statusIds;
 });
 
+const seekScrollProps = (state, dataId) => {
+  const seek = state.getIn(['timelines', dataId, 'seek']);
+  const revision = state.getIn(['timelines', dataId, 'window', 'revision']) || 0;
+  const pending = !!(
+    seek
+    && seek.get('phase') === 'resolved'
+    && seek.get('scrollStatus') === 'pending'
+    && seek.get('scrollRevision') === revision
+    && seek.get('anchorId')
+  );
+
+  if (!pending) {
+    return {
+      seekScrollPending: false,
+      seekSessionId: null,
+      seekAnchorId: null,
+      seekScrollRevision: 0,
+    };
+  }
+
+  return {
+    seekScrollPending: true,
+    seekSessionId: seek.get('id'),
+    seekAnchorId: seek.get('anchorId'),
+    seekScrollRevision: revision,
+  };
+};
+
 const windowHistoryProps = (state, dataId) => {
   const history = state.getIn(['timelines', dataId, 'window']);
 
@@ -136,6 +165,7 @@ const makeMapStateToProps = () => {
         hasMore: state.getIn(['timelines', dataId, 'hasMore']),
         numPending: 0,
         ...windowHistoryProps(state, dataId),
+        ...seekScrollProps(state, dataId),
       };
     }
 
@@ -148,6 +178,7 @@ const makeMapStateToProps = () => {
       hasMore: state.getIn(['timelines', dataId, 'hasMore']),
       numPending: getPendingStatusIds(state, selectorProps).size,
       ...windowHistoryProps(state, dataId),
+      ...seekScrollProps(state, dataId),
     };
   };
 
@@ -161,6 +192,7 @@ const mapDispatchToProps = (dispatch, { timelineId, dataTimelineId, manageTimeli
     return {
       onLoadPending: () => dispatch(loadPending(scrollTimeline)),
       onCommitWindowAnchor: (anchorId) => dispatch(commitWindowedHistoryAnchor(scrollTimeline, anchorId)),
+      onSeekScroll: (result) => dispatch(settleWindowSeekScroll(scrollTimeline, result)),
     };
   }
 
@@ -175,6 +207,7 @@ const mapDispatchToProps = (dispatch, { timelineId, dataTimelineId, manageTimeli
 
     onLoadPending: () => dispatch(loadPending(scrollTimeline)),
     onCommitWindowAnchor: (anchorId) => dispatch(commitWindowedHistoryAnchor(scrollTimeline, anchorId)),
+    onSeekScroll: (result) => dispatch(settleWindowSeekScroll(scrollTimeline, result)),
   };
 };
 
