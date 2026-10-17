@@ -7,6 +7,8 @@ import Column from 'mastodon/components/column';
 import ColumnHeader from 'mastodon/components/column_header';
 import ColumnSettingsContainer from './containers/column_settings_container';
 import { expandHashtagTimeline, clearTimeline } from 'mastodon/actions/timelines';
+import { expandWindowedHistory } from 'mastodon/actions/windowed_history';
+import { hashtagHistoryContract } from 'mastodon/windowed_history/sources';
 import { buildHashtagImmediateView, syncImmediateFeedView, unregisterImmediateFeedView } from 'mastodon/actions/immediate_feed';
 import { hashtagSplitContextKey, hashtagTimelineId } from 'mastodon/actions/timeline_ids';
 import { addColumn, removeColumn, moveColumn } from 'mastodon/actions/columns';
@@ -235,11 +237,31 @@ class HashtagTimeline extends React.PureComponent {
     dispatch(expandHashtagTimeline(id, { maxId, tags }));
   }
 
-  handleLoadMoreHistory = maxId => {
+  handleLoadMoreHistory = (maxId, anchorId) => {
     const { dispatch, params } = this.props;
     const { id, tags } = params;
 
-    dispatch(expandHashtagTimeline(id, { maxId, tags, timelineId: this.splitTimelineId }));
+    dispatch(expandWindowedHistory({
+      sourceTimelineId: hashtagTimelineId(id),
+      splitTimelineId: this.splitTimelineId,
+      contract: hashtagHistoryContract(id, tags),
+      direction: 'older',
+      gapCursor: maxId,
+      anchorId,
+    }));
+  }
+
+  handleLoadNewerHistory = (anchorId) => {
+    const { dispatch, params } = this.props;
+    const { id, tags } = params;
+
+    dispatch(expandWindowedHistory({
+      sourceTimelineId: hashtagTimelineId(id),
+      splitTimelineId: this.splitTimelineId,
+      contract: hashtagHistoryContract(id, tags),
+      direction: 'newer',
+      anchorId,
+    }));
   }
 
   handleFollow = () => {
@@ -363,6 +385,7 @@ class HashtagTimeline extends React.PureComponent {
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`hashtag_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}
+              onLoadNewer={this.handleLoadNewerHistory}
               timelineId={sourceTimelineId}
               dataTimelineId={split.splitTimelineId}
               trackIntersection

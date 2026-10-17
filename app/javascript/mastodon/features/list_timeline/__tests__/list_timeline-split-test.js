@@ -321,7 +321,7 @@ describe('ListTimeline split', () => {
     expect(store.getState().getIn(['timelines', 'list:42', 'items'])).toEqual(ImmutableList(['100', '90', '80']));
     expect(mockGet.mock.calls.length).toBe(callsBefore + 1);
     expect(mockGet).toHaveBeenLastCalledWith('/api/v1/timelines/list/42', expect.objectContaining({
-      params: expect.objectContaining({ max_id: '70' }),
+      params: expect.objectContaining({ max_id: '80' }),
     }));
     expect(streamLog).toEqual(['connect:42']);
   });

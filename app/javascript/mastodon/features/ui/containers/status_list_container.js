@@ -1,6 +1,7 @@
 import { connect } from 'react-redux';
 import StatusList from '../../../components/status_list';
 import { scrollTopTimeline, loadPending } from '../../../actions/timelines';
+import { commitWindowedHistoryAnchor } from '../../../actions/windowed_history';
 import { getHomeVisibilities, getLimitedVisibilities } from 'mastodon/selectors';
 import { Map as ImmutableMap, List as ImmutableList } from 'immutable';
 import { createSelector } from 'reselect';
@@ -71,6 +72,32 @@ const makeGetLiveStatusIds = () => createSelector([
   return statusIds;
 });
 
+const windowHistoryProps = (state, dataId) => {
+  const history = state.getIn(['timelines', dataId, 'window']);
+
+  if (!history) {
+    return {
+      windowedHistory: false,
+      hasNewer: false,
+      newerLoading: false,
+      newerStatus: null,
+      olderStatus: null,
+      anchorResolution: null,
+      historyUnbounded: false,
+    };
+  }
+
+  return {
+    windowedHistory: true,
+    hasNewer: history.get('hasNewer'),
+    newerLoading: history.getIn(['newer', 'status']) === 'loading',
+    newerStatus: history.getIn(['newer', 'status']),
+    olderStatus: history.getIn(['older', 'status']),
+    anchorResolution: history.get('anchorResolution'),
+    historyUnbounded: history.get('unbounded'),
+  };
+};
+
 const mergeImmediateStatusIds = (statusIds, prependIds) => {
   if (!prependIds || prependIds.isEmpty()) {
     return statusIds;
@@ -106,6 +133,7 @@ const makeMapStateToProps = () => {
         isPartial: state.getIn(['timelines', dataId, 'isPartial'], false),
         hasMore: state.getIn(['timelines', dataId, 'hasMore']),
         numPending: 0,
+        ...windowHistoryProps(state, dataId),
       };
     }
 
@@ -117,6 +145,7 @@ const makeMapStateToProps = () => {
       isPartial: state.getIn(['timelines', dataId, 'isPartial'], false),
       hasMore: state.getIn(['timelines', dataId, 'hasMore']),
       numPending: getPendingStatusIds(state, selectorProps).size,
+      ...windowHistoryProps(state, dataId),
     };
   };
 
@@ -129,6 +158,7 @@ const mapDispatchToProps = (dispatch, { timelineId, dataTimelineId, manageTimeli
   if (!manageTimelineScrollState) {
     return {
       onLoadPending: () => dispatch(loadPending(scrollTimeline)),
+      onCommitWindowAnchor: (anchorId) => dispatch(commitWindowedHistoryAnchor(scrollTimeline, anchorId)),
     };
   }
 
@@ -142,6 +172,7 @@ const mapDispatchToProps = (dispatch, { timelineId, dataTimelineId, manageTimeli
     }, 100),
 
     onLoadPending: () => dispatch(loadPending(scrollTimeline)),
+    onCommitWindowAnchor: (anchorId) => dispatch(commitWindowedHistoryAnchor(scrollTimeline, anchorId)),
   };
 };
 

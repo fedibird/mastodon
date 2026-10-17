@@ -1,6 +1,8 @@
 import React, { Fragment } from 'react';
 import { connect } from 'react-redux';
 import { expandHomeTimeline } from '../../actions/timelines';
+import { expandWindowedHistory } from '../../actions/windowed_history';
+import { homeHistoryContract } from '../../windowed_history/sources';
 import { getHomeVisibilities } from 'mastodon/selectors';
 import PropTypes from 'prop-types';
 import StatusListContainer from '../ui/containers/status_list_container';
@@ -91,13 +93,26 @@ class HomeTimeline extends React.PureComponent {
     this.props.dispatch(expandHomeTimeline({ maxId, visibilities }));
   }
 
-  handleLoadMoreHistory = maxId => {
+  handleLoadMoreHistory = (maxId, anchorId) => {
     const { visibilities } = this.props;
 
-    this.props.dispatch(expandHomeTimeline({
-      maxId,
-      visibilities,
-      timelineId: this.splitTimelineId,
+    this.props.dispatch(expandWindowedHistory({
+      sourceTimelineId: 'home',
+      splitTimelineId: this.splitTimelineId,
+      contract: homeHistoryContract(visibilities),
+      direction: 'older',
+      gapCursor: maxId,
+      anchorId,
+    }));
+  }
+
+  handleLoadNewerHistory = (anchorId) => {
+    this.props.dispatch(expandWindowedHistory({
+      sourceTimelineId: 'home',
+      splitTimelineId: this.splitTimelineId,
+      contract: homeHistoryContract(this.props.visibilities),
+      direction: 'newer',
+      anchorId,
     }));
   }
 
@@ -237,6 +252,7 @@ class HomeTimeline extends React.PureComponent {
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`home_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}
+              onLoadNewer={this.handleLoadNewerHistory}
               timelineId='home'
               dataTimelineId={split.splitTimelineId}
               trackIntersection

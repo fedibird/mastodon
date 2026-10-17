@@ -13,6 +13,7 @@ import { addIntersectionStatusId, removeIntersectionStatusId } from 'mastodon/ac
 import { isIOS } from 'mastodon/is_mobile';
 import { showReloadButton } from '../initial_state';
 import { List as ImmutableList } from 'immutable';
+import { HistoryAnchorNotice } from './load_window_edge';
 
 export default @connect(null, null, null, { forwardRef: true })
 class StatusList extends ImmutablePureComponent {
@@ -31,6 +32,15 @@ class StatusList extends ImmutablePureComponent {
     isLoading: PropTypes.bool,
     isPartial: PropTypes.bool,
     hasMore: PropTypes.bool,
+    hasNewer: PropTypes.bool,
+    onLoadNewer: PropTypes.func,
+    newerLoading: PropTypes.bool,
+    newerStatus: PropTypes.string,
+    olderStatus: PropTypes.string,
+    windowedHistory: PropTypes.bool,
+    anchorResolution: PropTypes.string,
+    historyUnbounded: PropTypes.bool,
+    onCommitWindowAnchor: PropTypes.func,
     prepend: PropTypes.node,
     emptyMessage: PropTypes.node,
     alwaysPrepend: PropTypes.bool,
@@ -39,6 +49,7 @@ class StatusList extends ImmutablePureComponent {
     warningTitlesForId: PropTypes.func,
     showCard: PropTypes.bool,
     trackIntersection: PropTypes.bool,
+    bindToDocument: PropTypes.bool,
     immediateStatusIds: ImmutablePropTypes.list,
     filterStatusIds: ImmutablePropTypes.list,
   };
@@ -53,8 +64,54 @@ class StatusList extends ImmutablePureComponent {
     return this.props.featuredStatusIds ? this.props.featuredStatusIds.size : 0;
   }
 
+  componentDidMount () {
+    this.commitWindowAnchor();
+  }
+
+  componentDidUpdate (prevProps) {
+    const anchor = this.pendingWindowAnchor;
+    const settled = prevProps.statusIds !== this.props.statusIds
+      || (prevProps.isLoading && !this.props.isLoading)
+      || (prevProps.newerLoading && !this.props.newerLoading);
+
+    if (anchor && settled) {
+      this.pendingWindowAnchor = null;
+      this.restoreReadingAnchor(anchor, { kind: this.windowAnchorKind() });
+    }
+  }
+
   componentWillUnmount () {
+    this.pendingWindowAnchor = null;
     this.handleLoadOlder.cancel();
+    this.handleLoadNewer.cancel();
+  }
+
+  windowAnchorKind = () => (this.props.bindToDocument ? 'document' : 'history')
+
+  commitWindowAnchor = () => {
+    const { windowedHistory, anchorResolution, historyUnbounded, onCommitWindowAnchor } = this.props;
+    const needsPlacement = historyUnbounded || anchorResolution === 'missing';
+
+    if (!windowedHistory || !needsPlacement || !onCommitWindowAnchor) {
+      return;
+    }
+
+    const anchor = this.captureReadingAnchor({ kind: this.windowAnchorKind() });
+
+    if (anchor && anchor.statusId) {
+      onCommitWindowAnchor(anchor.statusId);
+    }
+  }
+
+  rememberWindowAnchor = () => {
+    if (!this.props.windowedHistory) {
+      return null;
+    }
+
+    const anchor = this.captureReadingAnchor({ kind: this.windowAnchorKind() });
+    this.pendingWindowAnchor = anchor;
+
+    return anchor && anchor.statusId;
   }
 
   getCurrentStatusIndex = (id, featured) => {
@@ -75,8 +132,28 @@ class StatusList extends ImmutablePureComponent {
     this._selectChild(elementIndex, false);
   }
 
-  handleLoadOlder = debounce(() => {
-    this.props.onLoadMore(this.props.statusIds.size > 0 ? this.props.statusIds.last() : undefined);
+  handleLoadOlder = debounce((gapCursor) => {
+    if (this.props.windowedHistory) {
+      const anchorId = this.rememberWindowAnchor();
+      this.props.onLoadMore(gapCursor, anchorId);
+      return;
+    }
+
+    const cursor = gapCursor || (this.props.statusIds.size > 0 ? this.props.statusIds.last() : undefined);
+    this.props.onLoadMore(cursor);
+  }, 300, { leading: true })
+
+  handleLoadGap = (maxId) => {
+    this.handleLoadOlder(maxId);
+  }
+
+  handleLoadNewer = debounce(() => {
+    if (!this.props.onLoadNewer) {
+      return;
+    }
+
+    const anchorId = this.rememberWindowAnchor();
+    this.props.onLoadNewer(anchorId);
   }, 300, { leading: true })
 
   handleReload = () => {
@@ -128,9 +205,10 @@ class StatusList extends ImmutablePureComponent {
   )
 
   render () {
-    const { statusIds, featuredStatusIds, filterStatusIds, onLoadMore, timelineId, contextTypeForId, warningTitlesForId, sourceBadgesForId, badgeRevision, showCard, trackIntersection, immediateStatusIds, ...other } = this.props;
+    const { statusIds, featuredStatusIds, filterStatusIds, onLoadMore, onLoadNewer, timelineId, contextTypeForId, warningTitlesForId, sourceBadgesForId, badgeRevision, showCard, trackIntersection, immediateStatusIds, windowedHistory, anchorResolution, historyUnbounded, onCommitWindowAnchor, hasNewer, newerLoading, newerStatus, olderStatus, prepend, ...other } = this.props;
 
     void badgeRevision;
+    void onCommitWindowAnchor;
     const { isLoading, isPartial } = other;
     const contextTypeFor = (statusId) => contextTypeForId ? (contextTypeForId(statusId) || timelineId) : timelineId;
     const warningTitlesFor = (statusId) => warningTitlesForId ? warningTitlesForId(statusId) : undefined;
@@ -148,7 +226,7 @@ class StatusList extends ImmutablePureComponent {
           key={'gap:' + statusIds.get(index + 1)}
           disabled={isLoading}
           maxId={index > 0 ? statusIds.get(index - 1) : null}
-          onClick={onLoadMore}
+          onClick={this.handleLoadGap}
         />
       ) : (
         <StatusContainer
@@ -187,8 +265,18 @@ class StatusList extends ImmutablePureComponent {
       scrollableContent = scrollableContent.unshift(<ReloadZone key='reload' onClick={this.handleReload} />);
     }
 
+    const showAnchorNotice = windowedHistory && (anchorResolution === 'missing' || (historyUnbounded && anchorResolution === 'unspecified'));
+    const historyPrepend = showAnchorNotice ? <HistoryAnchorNotice key='history-anchor' /> : null;
+    let listPrepend = prepend;
+
+    if (historyPrepend && prepend) {
+      listPrepend = <React.Fragment>{historyPrepend}{prepend}</React.Fragment>;
+    } else if (historyPrepend) {
+      listPrepend = historyPrepend;
+    }
+
     return (
-      <ScrollableList {...other} filterStatusIds={statusIds.concat(filterStatusIds || ImmutableList(), featuredStatusIds || ImmutableList(), immediateStatusIds || ImmutableList())} showLoading={isLoading && statusIds.size === 0} onLoadMore={onLoadMore && this.handleLoadOlder} onIntersectionChange={trackIntersection ? this.handleIntersectionChange : undefined} ref={this.setRef}>
+      <ScrollableList {...other} prepend={listPrepend} hasNewer={hasNewer} onLoadNewer={onLoadNewer && this.handleLoadNewer} newerLoading={newerLoading} newerStatus={newerStatus} olderStatus={windowedHistory ? olderStatus : undefined} filterStatusIds={statusIds.concat(filterStatusIds || ImmutableList(), featuredStatusIds || ImmutableList(), immediateStatusIds || ImmutableList())} showLoading={isLoading && statusIds.size === 0} onLoadMore={onLoadMore && this.handleLoadOlder} onIntersectionChange={trackIntersection ? this.handleIntersectionChange : undefined} ref={this.setRef}>
         {scrollableContent}
       </ScrollableList>
     );

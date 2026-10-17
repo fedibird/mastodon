@@ -1,6 +1,8 @@
 import React, { Fragment } from 'react';
 import { connect } from 'react-redux';
 import { expandLimitedTimeline } from '../../actions/timelines';
+import { expandWindowedHistory } from '../../actions/windowed_history';
+import { limitedHistoryContract } from '../../windowed_history/sources';
 import PropTypes from 'prop-types';
 import StatusListContainer from '../ui/containers/status_list_container';
 import Column from '../../components/column';
@@ -88,10 +90,29 @@ class LimitedTimeline extends React.PureComponent {
     dispatch(expandLimitedTimeline({ maxId, visibilities }));
   }
 
-  handleLoadMoreHistory = maxId => {
+  handleLoadMoreHistory = (maxId, anchorId) => {
     const { dispatch, visibilities } = this.props;
 
-    dispatch(expandLimitedTimeline({ maxId, visibilities, timelineId: this.splitTimelineId }));
+    dispatch(expandWindowedHistory({
+      sourceTimelineId: 'limited',
+      splitTimelineId: this.splitTimelineId,
+      contract: limitedHistoryContract(visibilities),
+      direction: 'older',
+      gapCursor: maxId,
+      anchorId,
+    }));
+  }
+
+  handleLoadNewerHistory = (anchorId) => {
+    const { dispatch, visibilities } = this.props;
+
+    dispatch(expandWindowedHistory({
+      sourceTimelineId: 'limited',
+      splitTimelineId: this.splitTimelineId,
+      contract: limitedHistoryContract(visibilities),
+      direction: 'newer',
+      anchorId,
+    }));
   }
 
   componentDidMount () {
@@ -153,6 +174,7 @@ class LimitedTimeline extends React.PureComponent {
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`limited_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}
+              onLoadNewer={this.handleLoadNewerHistory}
               timelineId='limited'
               dataTimelineId={split.splitTimelineId}
               trackIntersection

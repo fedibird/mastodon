@@ -319,16 +319,47 @@ class TimelineSplitControllerCore extends React.Component {
     this.splitSessionId = uuid();
     this.scrollAnchorApplied = false;
 
+    const reading = this.captureSplitReading();
+
     if (this.props.multiColumn) {
       this.scrollAnchor = null;
-      this.pendingScroll = { top: this.captureScrollTop('single'), target: 'history' };
+
+      if (reading && reading.displayRowId) {
+        this.pendingScroll = null;
+        this.scrollAnchor = legacySplitAnchorFromCapture(reading, {
+          fallbackOffset: this.captureScrollTop('single'),
+          target: 'history',
+        });
+      } else {
+        this.pendingScroll = { top: this.captureScrollTop('single'), target: 'history' };
+      }
     } else {
       this.pendingScroll = null;
       this.scrollAnchor = this.captureDocumentAnchor();
       this.shouldResetDocumentScroll = true;
     }
 
-    this.props.onCreate(this.getSplitTimelineId());
+    this.props.onCreate(this.getSplitTimelineId(), reading && reading.statusId);
+  }
+
+  captureSplitReading = () => {
+    const scrollable = this.findScrollable('single');
+
+    if (!scrollable) {
+      return null;
+    }
+
+    const multiColumn = !!this.props.multiColumn;
+
+    return captureTimelineAnchor({
+      scrollHost: multiColumn ? {
+        kind: 'pane',
+        list: scrollable,
+        scroller: scrollable,
+      } : this.documentScrollHost(scrollable),
+      visibleTop: multiColumn ? scrollable.getBoundingClientRect().top : this.getDocumentVisibleTop(),
+      alignment: 'top',
+    });
   }
 
   unsplitToHistory = () => {

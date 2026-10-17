@@ -4,6 +4,7 @@ import PropTypes from 'prop-types';
 import IntersectionObserverArticleContainer from '../containers/intersection_observer_article_container';
 import LoadMore from './load_more';
 import LoadPending from './load_pending';
+import LoadWindowEdge from './load_window_edge';
 import IntersectionObserverWrapper from '../features/ui/util/intersection_observer_wrapper';
 import { throttle } from 'lodash';
 import { List as ImmutableList } from 'immutable';
@@ -48,6 +49,11 @@ class ScrollableList extends PureComponent {
     isLoading: PropTypes.bool,
     showLoading: PropTypes.bool,
     hasMore: PropTypes.bool,
+    hasNewer: PropTypes.bool,
+    onLoadNewer: PropTypes.func,
+    newerLoading: PropTypes.bool,
+    newerStatus: PropTypes.string,
+    olderStatus: PropTypes.string,
     numPending: PropTypes.number,
     prepend: PropTypes.node,
     append: PropTypes.node,
@@ -86,7 +92,9 @@ class ScrollableList extends PureComponent {
       // A jump to an already loaded row must not page in more. A real user
       // scroll, including one that arrives before this throttled call runs,
       // still loads when it is within 400px of the end.
-      if (!anchorJump && 400 > offset && this.props.onLoadMore && this.props.hasMore && !this.props.isLoading) {
+      const olderBlocked = this.props.olderStatus === 'error' || this.props.olderStatus === 'unavailable';
+
+      if (!anchorJump && 400 > offset && this.props.onLoadMore && this.props.hasMore && !this.props.isLoading && !olderBlocked) {
         this.props.onLoadMore();
       }
 
@@ -582,8 +590,17 @@ class ScrollableList extends PureComponent {
   }
 
   handleLoadMore = e => {
-    e.preventDefault();
+    if (e && e.preventDefault) {
+      e.preventDefault();
+    }
+
     this.props.onLoadMore();
+  }
+
+  handleLoadNewer = () => {
+    if (this.props.onLoadNewer) {
+      this.props.onLoadNewer();
+    }
   }
 
   handleLoadPending = e => {
@@ -599,11 +616,27 @@ class ScrollableList extends PureComponent {
   }
 
   render () {
-    const { children, scrollKey, trackScroll, showLoading, isLoading, hasMore, numPending, prepend, alwaysPrepend, append, emptyMessage, onLoadMore, tabIndex } = this.props;
+    const { children, scrollKey, trackScroll, showLoading, isLoading, hasMore, hasNewer, newerLoading, newerStatus, olderStatus, numPending, prepend, alwaysPrepend, append, emptyMessage, onLoadMore, onLoadNewer, tabIndex } = this.props;
     const { fullscreen } = this.state;
     const childrenCount = React.Children.count(children);
+    const showOlder = onLoadMore && (hasMore || olderStatus === 'error' || olderStatus === 'unavailable');
+    const showNewer = onLoadNewer && (hasNewer || newerStatus === 'error' || newerStatus === 'unavailable');
+    const loadNewer = showNewer ? (
+      <LoadWindowEdge
+        direction='newer'
+        status={newerLoading ? 'loading' : newerStatus}
+        visible={!newerLoading}
+        disabled={newerLoading}
+        onClick={this.handleLoadNewer}
+      />
+    ) : null;
+    let loadMore = null;
 
-    const loadMore     = (hasMore && onLoadMore) ? <LoadMore visible={!isLoading} onClick={this.handleLoadMore} /> : null;
+    if (showOlder && olderStatus) {
+      loadMore = <LoadWindowEdge direction='older' status={isLoading ? 'loading' : olderStatus} visible={!isLoading} disabled={isLoading} onClick={this.handleLoadMore} />;
+    } else if (showOlder) {
+      loadMore = <LoadMore visible={!isLoading} onClick={this.handleLoadMore} />;
+    }
     const loadPending  = (numPending > 0) ? <LoadPending count={numPending} onClick={this.handleLoadPending} /> : null;
     let scrollableArea = null;
 
@@ -619,11 +652,13 @@ class ScrollableList extends PureComponent {
           </div>
         </div>
       );
-    } else if (isLoading || childrenCount > 0 || numPending > 0 || hasMore || !emptyMessage) {
+    } else if (isLoading || childrenCount > 0 || numPending > 0 || hasMore || showNewer || !emptyMessage) {
       scrollableArea = (
         <div className={classNames('scrollable', { fullscreen })} ref={this.setRef} onMouseMove={this.handleMouseMove}>
           <div role='feed' className='item-list'>
             {prepend}
+
+            {loadNewer}
 
             {loadPending}
 

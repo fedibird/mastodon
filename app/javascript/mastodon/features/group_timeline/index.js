@@ -11,6 +11,8 @@ import Icon from '../../components/icon';
 import { fetchAccount } from '../../actions/accounts';
 import { makeGetAccount } from 'mastodon/selectors';
 import { expandGroupTimeline, clearTimelineSplitReturnAnchor } from '../../actions/timelines';
+import { expandWindowedHistory } from '../../actions/windowed_history';
+import { groupHistoryContract } from '../../windowed_history/sources';
 import { buildGroupImmediateView, syncImmediateFeedView, unregisterImmediateFeedView } from '../../actions/immediate_feed';
 import { groupTimelineId } from '../../actions/timeline_ids';
 import { addColumn, removeColumn, moveColumn } from '../../actions/columns';
@@ -241,10 +243,31 @@ class GroupTimeline extends React.PureComponent {
     dispatch(expandGroupTimeline(id, { maxId, onlyMedia, withoutMedia, tagged }));
   }
 
-  handleLoadMoreHistory = maxId => {
+  handleLoadMoreHistory = (maxId, anchorId) => {
     const { dispatch, onlyMedia, withoutMedia, params: { id, tagged } } = this.props;
+    const filters = { onlyMedia, withoutMedia, tagged };
 
-    dispatch(expandGroupTimeline(id, { maxId, onlyMedia, withoutMedia, tagged, timelineId: this.splitTimelineId }));
+    dispatch(expandWindowedHistory({
+      sourceTimelineId: groupTimelineId(id, filters),
+      splitTimelineId: this.splitTimelineId,
+      contract: groupHistoryContract(id, filters),
+      direction: 'older',
+      gapCursor: maxId,
+      anchorId,
+    }));
+  }
+
+  handleLoadNewerHistory = (anchorId) => {
+    const { dispatch, onlyMedia, withoutMedia, params: { id, tagged } } = this.props;
+    const filters = { onlyMedia, withoutMedia, tagged };
+
+    dispatch(expandWindowedHistory({
+      sourceTimelineId: groupTimelineId(id, filters),
+      splitTimelineId: this.splitTimelineId,
+      contract: groupHistoryContract(id, filters),
+      direction: 'newer',
+      anchorId,
+    }));
   }
 
   handleToggleClick = (e) => {
@@ -371,6 +394,7 @@ class GroupTimeline extends React.PureComponent {
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`group_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}
+              onLoadNewer={this.handleLoadNewerHistory}
               timelineId={sourceTimelineId}
               dataTimelineId={split.splitTimelineId}
               trackIntersection

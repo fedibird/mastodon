@@ -8,6 +8,7 @@ import {
   destroyTimelineSplit,
   saveTimelineSplitReturnAnchor,
 } from '../../../actions/timelines';
+import { cancelWindowedHistory } from '../../../windowed_history/flights';
 import TimelineSplitControllerCore, {
   STATUS_TIMELINE_SPLIT_LAYOUT_CLASS,
   clampTimelineSplitRatio,
@@ -34,11 +35,12 @@ class StatusTimelineSplitController extends React.Component {
     splitBlocked: PropTypes.bool,
   };
 
-  handleCreate = (splitId) => {
-    this.props.dispatch(createTimelineSplit(this.props.sourceTimelineId, splitId));
+  handleCreate = (splitId, anchorId) => {
+    this.props.dispatch(createTimelineSplit(this.props.sourceTimelineId, splitId, anchorId));
   };
 
   handleDestroy = (splitId, options = {}) => {
+    cancelWindowedHistory(splitId);
     this.props.dispatch(destroyTimelineSplit(this.props.sourceTimelineId, splitId, {
       keep: options.keep || TIMELINE_SPLIT_KEEP_HISTORY,
       liveAtTop: options.liveAtTop,
