@@ -166,6 +166,7 @@ const makeMapStateToProps = () => {
         numPending: 0,
         ...windowHistoryProps(state, dataId),
         ...seekScrollProps(state, dataId),
+        historySurfaceId: state.getIn(['timelines', dataId, 'window']) ? dataId : null,
       };
     }
 
@@ -179,6 +180,7 @@ const makeMapStateToProps = () => {
       numPending: getPendingStatusIds(state, selectorProps).size,
       ...windowHistoryProps(state, dataId),
       ...seekScrollProps(state, dataId),
+      historySurfaceId: state.getIn(['timelines', dataId, 'window']) ? dataId : null,
     };
   };
 

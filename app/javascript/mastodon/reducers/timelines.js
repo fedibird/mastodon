@@ -38,6 +38,17 @@ import {
   WINDOW_SEEK_FAIL,
   WINDOW_SEEK_SCROLL,
 } from '../timeline_seek/constants';
+import {
+  HISTORY_RESUME_BEGIN,
+  HISTORY_RESUME_CANCEL,
+  HISTORY_RESUME_SETTLE,
+} from '../timeline_position/constants';
+import {
+  beginHistoryResume,
+  cancelHistoryResumeState,
+  noteHistoryResumeOnSeek,
+  settleHistoryResume,
+} from '../timeline_position/reduce';
 import { beginSeekState, commitSeekState, failSeekState, settleSeekScroll } from '../timeline_seek/reduce';
 import {
   failHistory,
@@ -384,13 +395,19 @@ export default function timelines(state = initialState, action) {
   case WINDOW_HISTORY_ANCHOR:
     return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => placeHistoryAnchor(timeline, action.anchorId));
   case WINDOW_SEEK_BEGIN:
-    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => beginSeekState(timeline, action));
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => noteHistoryResumeOnSeek(beginSeekState(timeline, action), action));
   case WINDOW_SEEK_FAIL:
-    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => failSeekState(timeline, action));
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => noteHistoryResumeOnSeek(failSeekState(timeline, action), action));
   case WINDOW_SEEK_COMMIT:
-    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => commitSeekState(timeline, action));
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => noteHistoryResumeOnSeek(commitSeekState(timeline, action), action));
   case WINDOW_SEEK_SCROLL:
-    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => settleSeekScroll(timeline, action));
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => noteHistoryResumeOnSeek(settleSeekScroll(timeline, action), action));
+  case HISTORY_RESUME_BEGIN:
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => beginHistoryResume(timeline, action));
+  case HISTORY_RESUME_SETTLE:
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => settleHistoryResume(timeline, action));
+  case HISTORY_RESUME_CANCEL:
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => cancelHistoryResumeState(timeline, action));
   case TIMELINE_UPDATE:
     return isStaleSplitTimeline(state, action.timeline) ? state : updateTimeline(state, action.timeline, fromJS(action.status), action.usePendingItems);
   case TIMELINE_DELETE:

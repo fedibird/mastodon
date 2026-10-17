@@ -215,6 +215,7 @@ class PersonalTimeline extends React.PureComponent {
           extraButton={(
             <Fragment>
               {split.splitButton}
+              {split.resumeButton}
               {split.closeLiveButton}
             </Fragment>
           )}
@@ -243,6 +244,7 @@ class PersonalTimeline extends React.PureComponent {
         splitRatio={splitRatio}
         onSplitRatioCommit={this.handleSplitRatioCommit}
         unavailableMessage={messages.splitUnavailable}
+        historyContract={personalHistoryContract({ onlyMedia, withoutMedia })}
       >
         {this.renderColumn}
       </StatusTimelineSplitController>

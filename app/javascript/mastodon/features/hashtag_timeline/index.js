@@ -411,6 +411,7 @@ class HashtagTimeline extends React.PureComponent {
           extraButton={(
             <Fragment>
               {split.splitButton}
+              {split.resumeButton}
               <PortableComposerToggle visible={composerVisible} onToggle={this.handleToggleComposer} />
               {followButton}
               {split.closeLiveButton}
@@ -450,6 +451,7 @@ class HashtagTimeline extends React.PureComponent {
         splitRatio={splitRatio}
         onSplitRatioCommit={this.handleSplitRatioCommit}
         unavailableMessage={messages.splitUnavailable}
+        historyContract={hashtagHistoryContract(id, tags)}
       >
         {this.renderColumn}
       </StatusTimelineSplitController>

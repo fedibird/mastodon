@@ -45,6 +45,7 @@ class ScrollableList extends PureComponent {
     onLoadPending: PropTypes.func,
     onScrollToTop: PropTypes.func,
     onScroll: PropTypes.func,
+    onUserScroll: PropTypes.func,
     trackScroll: PropTypes.bool,
     isLoading: PropTypes.bool,
     showLoading: PropTypes.bool,
@@ -104,12 +105,16 @@ class ScrollableList extends PureComponent {
         this.props.onScroll();
       }
 
-      if (this._anchorScrollSuppressedLoad && !anchorJump) {
+      if (!anchorJump && !this._suppressUserScroll && this.props.onUserScroll) {
+        this.props.onUserScroll();
+      }
+
+      if (!anchorJump && this._anchorScrollSuppressedLoad) {
         this.scrollToTopOnMouseIdle = false;
         this._cancelAnchorCorrection();
         this._anchorScrollSuppressedLoad = false;
         this._syntheticScrollTop = null;
-      } else if (!this.lastScrollWasSynthetic) {
+      } else if (!anchorJump && !this.lastScrollWasSynthetic) {
         // If the last scroll wasn't caused by setScrollTop(), assume it was
         // intentional and cancel any pending scroll reset on mouse idle
         this.scrollToTopOnMouseIdle = false;
@@ -136,9 +141,56 @@ class ScrollableList extends PureComponent {
       return true;
     }
 
+    // alignDisplayRow writes scrollTop directly. The browser may deliver that
+    // scroll event after the synthetic depth has already returned to zero.
+    // Keep the jump marked until the throttled handler has seen it, unless
+    // the reader has actually gestured.
+    if (this._restoreToken && this._syntheticScrollTop !== null && Math.abs(scrollTop - this._syntheticScrollTop) <= 1) {
+      return true;
+    }
+
     return this._anchorScrollSuppressedLoad &&
       this._syntheticScrollTop !== null &&
       Math.abs(scrollTop - this._syntheticScrollTop) <= 1;
+  }
+
+  _armRestoreToken = () => {
+    this._restoreToken = (this._restoreToken || 0) + 1;
+    const token = this._restoreToken;
+
+    if (this._restoreTokenTimer) {
+      clearTimeout(this._restoreTokenTimer);
+    }
+
+    // Longer than handleScroll's 150ms trailing edge.
+    this._restoreTokenTimer = setTimeout(() => {
+      this._restoreTokenTimer = null;
+
+      if (this._restoreToken === token && this._syntheticScrollDepth === 0) {
+        this._restoreToken = 0;
+      }
+    }, 250);
+  }
+
+  _clearRestoreToken = () => {
+    this._restoreToken = 0;
+
+    if (this._restoreTokenTimer) {
+      clearTimeout(this._restoreTokenTimer);
+      this._restoreTokenTimer = null;
+    }
+  }
+
+  _markUserScrollIntent = () => {
+    this._anchorGeneration = (this._anchorGeneration || 0) + 1;
+    this._clearRestoreToken();
+    this._anchorScrollSuppressedLoad = false;
+    this._syntheticScrollTop = null;
+    this._cancelAnchorCorrection();
+
+    if (!this._suppressUserScroll && this.props.onUserScroll) {
+      this.props.onUserScroll();
+    }
   }
 
   _getScrollingElement = () => {
@@ -182,9 +234,48 @@ class ScrollableList extends PureComponent {
 
   handleWheel = throttle(() => {
     this.scrollToTopOnMouseIdle = false;
+    this._markUserScrollIntent();
   }, 150, {
-    trailing: true,
+    leading: true,
+    trailing: false,
   });
+
+  handleTouchMove = () => {
+    this._markUserScrollIntent();
+  }
+
+  handlePointerScroll = (event) => {
+    if (!event) {
+      return;
+    }
+
+    if (event.pointerType === 'touch' || event.pointerType === 'pen') {
+      this._markUserScrollIntent();
+      return;
+    }
+
+    if (event.type === 'pointermove' && event.buttons > 0) {
+      this._markUserScrollIntent();
+    }
+  }
+
+  handleKeyScroll = (event) => {
+    if (!event) {
+      return;
+    }
+
+    const target = event.target;
+
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      return;
+    }
+
+    const keys = ['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '];
+
+    if (keys.indexOf(event.key) !== -1) {
+      this._markUserScrollIntent();
+    }
+  }
 
   handleMouseIdle = () => {
     if (this.scrollToTopOnMouseIdle && !this.props.preventScroll) {
@@ -201,8 +292,12 @@ class ScrollableList extends PureComponent {
 
     attachFullscreenListener(this.onFullScreenChange);
 
-    // Handle initial scroll posiiton
+    // The mount read is not a reader gesture. Cancel the trailing throttle
+    // so it cannot be replayed later as a user scroll.
+    this._suppressUserScroll = true;
     this.handleScroll();
+    this.handleScroll.cancel();
+    this._suppressUserScroll = false;
     this.updateFilterSurface();
   }
 
@@ -374,6 +469,7 @@ class ScrollableList extends PureComponent {
     this._syntheticScrollDepth += 1;
     this.lastScrollWasSynthetic = true;
     this._anchorScrollSuppressedLoad = true;
+    this._armRestoreToken();
 
     return this.getScrollTop();
   }
@@ -527,6 +623,7 @@ class ScrollableList extends PureComponent {
     this.handleScroll.cancel();
     this.handleWheel.cancel();
     this.handleMouseMove.cancel();
+    this._clearRestoreToken();
     this.clearMouseIdleTimer();
     this.detachScrollListener();
     this.detachIntersectionObserver();
@@ -553,23 +650,29 @@ class ScrollableList extends PureComponent {
   }
 
   attachScrollListener () {
-    if (this.props.bindToDocument) {
-      document.addEventListener('scroll', this.handleScroll);
-      document.addEventListener('wheel', this.handleWheel);
-    } else {
-      this.node.addEventListener('scroll', this.handleScroll);
-      this.node.addEventListener('wheel', this.handleWheel);
-    }
+    const target = this.props.bindToDocument ? document : this.node;
+
+    target.addEventListener('scroll', this.handleScroll);
+    target.addEventListener('wheel', this.handleWheel);
+    target.addEventListener('touchmove', this.handleTouchMove);
+    target.addEventListener('pointerdown', this.handlePointerScroll);
+    target.addEventListener('pointermove', this.handlePointerScroll);
+    target.addEventListener('keydown', this.handleKeyScroll);
   }
 
   detachScrollListener (bindToDocument = this.props.bindToDocument) {
-    if (bindToDocument) {
-      document.removeEventListener('scroll', this.handleScroll);
-      document.removeEventListener('wheel', this.handleWheel);
-    } else {
-      this.node.removeEventListener('scroll', this.handleScroll);
-      this.node.removeEventListener('wheel', this.handleWheel);
+    const target = bindToDocument ? document : this.node;
+
+    if (!target) {
+      return;
     }
+
+    target.removeEventListener('scroll', this.handleScroll);
+    target.removeEventListener('wheel', this.handleWheel);
+    target.removeEventListener('touchmove', this.handleTouchMove);
+    target.removeEventListener('pointerdown', this.handlePointerScroll);
+    target.removeEventListener('pointermove', this.handlePointerScroll);
+    target.removeEventListener('keydown', this.handleKeyScroll);
   }
 
   getFirstChildKey (props) {
