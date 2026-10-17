@@ -14,7 +14,6 @@ class TimelineSeek::Resolver
   DATE_PAGE = 20
   DATE_MAX_PAGES = 4
   ACCOUNT_PROBE_LIMIT = 20
-  MAX_BIGINT = 9_223_372_036_854_775_807
   PREFERENCES = %w(nearest before after).freeze
   SEARCH_TEXT_KEYS = %w(q query text raw body).freeze
 
@@ -56,6 +55,14 @@ class TimelineSeek::Resolver
     else
       TimelineSeek::Result.unsupported('unknown_kind')
     end
+  end
+
+  # Shared with batch membership. Does not accept a seek target or search text.
+  def open_reader(source, context)
+    @source = source.to_s
+    @context = (context || {}).to_h.symbolize_keys
+    @entry = TimelineSeek::Capability.lookup(@source, 'membership')
+    build_reader
   end
 
   private
@@ -335,12 +342,7 @@ class TimelineSeek::Resolver
   end
 
   def parse_id(value)
-    text = value.to_s
-    return nil unless text.match?(/\A[0-9]+\z/)
-    return nil if text.length > 19
-    return nil if text.length == 19 && text > MAX_BIGINT.to_s
-
-    Integer(text, 10)
+    TimelineSeek::StatusId.parse(value)
   end
 
   def context_id

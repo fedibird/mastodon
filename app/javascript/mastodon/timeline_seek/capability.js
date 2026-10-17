@@ -20,19 +20,21 @@ const dbStatus = entry(SEEK_CAPABILITY.SUPPORTED, 'source_scope_point_lookup');
 const dbDate = entry(SEEK_CAPABILITY.APPROXIMATE, 'id_order_not_created_at');
 const dbAccount = entry(SEEK_CAPABILITY.APPROXIMATE, 'account_probe_limit');
 const dbSearch = entry(SEEK_CAPABILITY.SUPPORTED, 'search_hit_checks_membership_only');
+const redisMembership = entry(SEEK_CAPABILITY.APPROXIMATE, 'redis_retained_window_batch');
+const dbMembership = entry(SEEK_CAPABILITY.SUPPORTED, 'bounded_id_set');
 const personalAccount = entry(SEEK_CAPABILITY.UNSUPPORTED, 'personal_is_not_an_account_timeline');
 const closed = entry(SEEK_CAPABILITY.UNSUPPORTED, 'source_has_no_windowed_history');
 
 // Same cells as TimelineSeek::Capability. Levels are not upgraded on the client.
 const MATRIX = Object.freeze({
-  home: Object.freeze({ status: redisStatus, date: redisDate, account: redisAccount, searchHit: redisSearch }),
-  limited: Object.freeze({ status: redisStatus, date: redisDate, account: redisAccount, searchHit: redisSearch }),
-  list: Object.freeze({ status: redisStatus, date: redisDate, account: redisAccount, searchHit: redisSearch }),
-  hashtag: Object.freeze({ status: dbStatus, date: dbDate, account: dbAccount, searchHit: dbSearch }),
-  public: Object.freeze({ status: dbStatus, date: dbDate, account: dbAccount, searchHit: dbSearch }),
-  domain: Object.freeze({ status: dbStatus, date: dbDate, account: dbAccount, searchHit: dbSearch }),
-  group: Object.freeze({ status: dbStatus, date: dbDate, account: dbAccount, searchHit: dbSearch }),
-  personal: Object.freeze({ status: dbStatus, date: dbDate, account: personalAccount, searchHit: dbSearch }),
+  home: Object.freeze({ status: redisStatus, date: redisDate, account: redisAccount, searchHit: redisSearch, membership: redisMembership }),
+  limited: Object.freeze({ status: redisStatus, date: redisDate, account: redisAccount, searchHit: redisSearch, membership: redisMembership }),
+  list: Object.freeze({ status: redisStatus, date: redisDate, account: redisAccount, searchHit: redisSearch, membership: redisMembership }),
+  hashtag: Object.freeze({ status: dbStatus, date: dbDate, account: dbAccount, searchHit: dbSearch, membership: dbMembership }),
+  public: Object.freeze({ status: dbStatus, date: dbDate, account: dbAccount, searchHit: dbSearch, membership: dbMembership }),
+  domain: Object.freeze({ status: dbStatus, date: dbDate, account: dbAccount, searchHit: dbSearch, membership: dbMembership }),
+  group: Object.freeze({ status: dbStatus, date: dbDate, account: dbAccount, searchHit: dbSearch, membership: dbMembership }),
+  personal: Object.freeze({ status: dbStatus, date: dbDate, account: personalAccount, searchHit: dbSearch, membership: dbMembership }),
 });
 
 export const windowedHistoryContracts = () => ([
