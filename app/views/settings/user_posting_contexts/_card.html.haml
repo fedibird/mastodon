@@ -1,6 +1,6 @@
 %article.user-posting-context-card
   .user-posting-context-card__primary
-    = link_to edit_settings_user_posting_context_path(context), class: 'user-posting-context-card__main' do
+    = link_to edit_settings_user_posting_context_path(context, **embedded_filter_options), class: 'user-posting-context-card__main' do
       %span.user-posting-context-card__icon{ data: { custom_emoji_text: true } }= context.icon.presence || '✎'
       .user-posting-context-card__body
         %h3.user-posting-context-card__name{ dir: 'auto' }= context.name
@@ -17,6 +17,6 @@
     %summary{ aria: { label: t('user_posting_contexts.more_actions', name: context.name) } }
       %span{ aria: { hidden: 'true' } } …
     .user-posting-context-card__menu-panel
-      = form_with url: duplicate_settings_user_posting_context_path(context), method: :post, local: true, class: 'user-posting-context-card__menu-form' do
+      = form_with url: duplicate_settings_user_posting_context_path(context, **embedded_filter_options), method: :post, local: true, class: 'user-posting-context-card__menu-form' do
         %button.user-posting-context-card__menu-item{ type: 'submit' }= t('user_posting_contexts.duplicate')
-      = link_to t('user_posting_contexts.delete_menu'), confirm_destroy_settings_user_posting_context_path(context), class: 'user-posting-context-card__menu-item user-posting-context-card__menu-item--danger', aria: { label: t('user_posting_contexts.delete', name: context.name) }
+      = link_to t('user_posting_contexts.delete_menu'), confirm_destroy_settings_user_posting_context_path(context, **embedded_filter_options), class: 'user-posting-context-card__menu-item user-posting-context-card__menu-item--danger', aria: { label: t('user_posting_contexts.delete', name: context.name) }

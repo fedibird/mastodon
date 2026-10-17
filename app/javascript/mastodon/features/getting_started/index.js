@@ -7,7 +7,7 @@ import { connect } from 'react-redux';
 import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import ImmutablePureComponent from 'react-immutable-pure-component';
-import { me, profile_directory, trendsEnabled, showTrends, enableLimitedTimeline, enablePersonalTimeline, enableFederatedTimeline, enableLocalTimeline, enableEmptyColumn, defaultColumnWidth } from '../../initial_state';
+import { isAdministrator, me, profile_directory, trendsEnabled, showTrends, enableLimitedTimeline, enablePersonalTimeline, enableFederatedTimeline, enableLocalTimeline, enableEmptyColumn, defaultColumnWidth } from '../../initial_state';
 import { fetchFollowRequests } from 'mastodon/actions/accounts';
 import { fetchFavouriteDomains } from 'mastodon/actions/favourite_domains';
 import { fetchFavouriteTags } from 'mastodon/actions/favourite_tags';
@@ -30,6 +30,7 @@ const messages = defineMessages({
   settings_subheading: { id: 'column_subheading.settings', defaultMessage: 'Settings' },
   direct: { id: 'navigation_bar.direct', defaultMessage: 'Direct messages' },
   bookmarks: { id: 'navigation_bar.bookmarks', defaultMessage: 'Bookmarks' },
+  postingStyles: { id: 'embedded_settings.posting_styles', defaultMessage: 'Posting style settings' },
   filters: { id: 'embedded_settings.filters', defaultMessage: 'Filter settings' },
   preferences: { id: 'navigation_bar.preferences', defaultMessage: 'Preferences' },
   follow_requests: { id: 'navigation_bar.follow_requests', defaultMessage: 'Follow requests' },
@@ -294,6 +295,11 @@ class GettingStarted extends ImmutablePureComponent {
         navItems.push(<ColumnLink key={`favourite_tag:${favourite_tag.get('id')}`} icon='hashtag' text={favourite_tag.get('name')} to={`/timelines/tag/${favourite_tag.get('name')}`} />);
         height += 48;
       });
+    }
+
+    if (isAdministrator) {
+      navItems.push(<ColumnLink key='postingStyles' icon='pencil' text={intl.formatMessage(messages.postingStyles)} to='/settings/posting-styles' />);
+      height += 48;
     }
 
     navItems.push(<ColumnLink key='filters' icon='filter' text={intl.formatMessage(messages.filters)} to='/settings/filters' />);

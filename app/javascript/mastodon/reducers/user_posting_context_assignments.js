@@ -1,5 +1,6 @@
 import { Map as ImmutableMap } from 'immutable';
 import {
+  USER_POSTING_CONTEXT_ASSIGNMENTS_INVALIDATE,
   USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_FAIL,
   USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_REQUEST,
   USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_SUCCESS,
@@ -39,6 +40,10 @@ const applyLoaded = (entry, action) => rememberSurface(entry, action.assignment.
 
 export default function userPostingContextAssignments(state = initialState, action) {
   switch (action.type) {
+  case USER_POSTING_CONTEXT_ASSIGNMENTS_INVALIDATE:
+    // Mounted controllers refetch once; closed places wait until next mount.
+    // Never supersede a default write, and reject any pre-mutation read.
+    return state.update('bySurface', entries => entries.map(entry => entry.get('status') === 'saving' ? entry : entry.set('status', 'idle').update('generation', generation => (generation || 0) + 1)));
   case USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_REQUEST:
   case USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_REQUEST: {
     const current = readEntry(state, action.surfaceKey);

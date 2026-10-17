@@ -2,6 +2,9 @@ import api from '../api';
 import { assignmentSurface, placeDefaultWriteSurface, surfaceCacheKey, surfacesEqual } from '../posting_context/surface';
 import { selectComposer } from '../selectors/composer';
 
+export const USER_POSTING_CONTEXT_ASSIGNMENTS_INVALIDATE = 'USER_POSTING_CONTEXT_ASSIGNMENTS_INVALIDATE';
+export const invalidateUserPostingContextAssignments = () => ({ type: USER_POSTING_CONTEXT_ASSIGNMENTS_INVALIDATE });
+
 export const USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_REQUEST = 'USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_REQUEST';
 export const USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_SUCCESS = 'USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_SUCCESS';
 export const USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_FAIL = 'USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_FAIL';

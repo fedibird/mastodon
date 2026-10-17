@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class Settings::UserPostingContextsController < Settings::BaseController
+  include EmbeddedFilterSettings
   before_action :require_posting_style_access!
   before_action :set_context, only: [:edit, :update, :destroy, :duplicate, :confirm_destroy]
 
@@ -19,7 +20,7 @@ class Settings::UserPostingContextsController < Settings::BaseController
     @context = current_user.user_posting_contexts.new
     @context.apply_form(form_params)
     if @context.save
-      redirect_to settings_user_posting_contexts_path, notice: I18n.t('user_posting_contexts.saved')
+      redirect_to settings_user_posting_contexts_path(embedded_filter_options), notice: I18n.t('user_posting_contexts.saved')
     else
       load_form
       render :new
@@ -34,7 +35,7 @@ class Settings::UserPostingContextsController < Settings::BaseController
   def update
     @context.apply_form(form_params)
     if @context.save
-      redirect_to settings_user_posting_contexts_path, notice: I18n.t('user_posting_contexts.saved')
+      redirect_to settings_user_posting_contexts_path(embedded_filter_options), notice: I18n.t('user_posting_contexts.saved')
     else
       load_form
       render :edit
@@ -52,15 +53,15 @@ class Settings::UserPostingContextsController < Settings::BaseController
 
   def destroy
     @context.destroy!
-    redirect_to settings_user_posting_contexts_path, notice: I18n.t('user_posting_contexts.deleted')
+    redirect_to settings_user_posting_contexts_path(embedded_filter_options), notice: I18n.t('user_posting_contexts.deleted')
   end
 
   def duplicate
     copy = current_user.user_posting_contexts.new(duplicate_attributes)
     if copy.save
-      redirect_to edit_settings_user_posting_context_path(copy), notice: I18n.t('user_posting_contexts.duplicated')
+      redirect_to edit_settings_user_posting_context_path(copy, embedded_filter_options), notice: I18n.t('user_posting_contexts.duplicated')
     else
-      redirect_to settings_user_posting_contexts_path, alert: I18n.t('user_posting_contexts.errors.duplicate')
+      redirect_to settings_user_posting_contexts_path(embedded_filter_options), alert: I18n.t('user_posting_contexts.errors.duplicate')
     end
   end
 

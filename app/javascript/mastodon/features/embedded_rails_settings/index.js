@@ -5,12 +5,12 @@ import { connect } from 'react-redux';
 import { defineMessages, FormattedMessage, injectIntl } from 'react-intl';
 import { debounce } from 'lodash';
 import Column from '../ui/components/column';
-import { fetchFilters } from 'mastodon/actions/filters';
-import { defaultColumnWidth } from 'mastodon/initial_state';
-import { getEmbeddedScreen, isFilterSettingsUrl } from './registry';
-import { bindFilterSettingsNavigation, submitFilterSettings } from './requests';
+import { defaultColumnWidth, isAdministrator } from 'mastodon/initial_state';
+import { getEmbeddedScreen, isEmbeddedSettingsUrl } from './registry';
+import { bindEmbeddedSettingsNavigation, submitEmbeddedSettings, refreshEmbeddedSettings, settingsFormMethod, pendingSettingsSave } from './requests';
 
 const messages = defineMessages({
+  postingStyles: { id: 'embedded_settings.posting_styles', defaultMessage: 'Posting style settings' },
   title: { id: 'embedded_settings.filters', defaultMessage: 'Filter settings' },
 });
 
@@ -32,7 +32,17 @@ export class EmbeddedRailsSettings extends React.PureComponent {
 
   componentDidMount () {
     this.mounted = true;
+    if (this.props.screen === 'postingStyles' && !isAdministrator) return;
     this.startTimeout();
+    const pending = pendingSettingsSave(this.props.screen, this.props.dispatch);
+    if (pending) {
+      this.saving = true;
+      this.setState({ saving: true });
+      pending.finally(() => {
+        this.saving = false;
+        if (this.mounted) this.setState({ saving: false });
+      }).catch(() => {});
+    }
   }
 
   componentWillUnmount () {
@@ -44,7 +54,7 @@ export class EmbeddedRailsSettings extends React.PureComponent {
     this.refreshFilters.cancel();
   }
 
-  refreshFilters = debounce(() => this.props.dispatch(fetchFilters()), 300);
+  refreshFilters = debounce(() => refreshEmbeddedSettings(this.props.screen, this.props.dispatch), 300);
 
   startTimeout = () => {
     clearTimeout(this.timeout);
@@ -65,12 +75,10 @@ export class EmbeddedRailsSettings extends React.PureComponent {
   handleLoad = event => {
     const frame = event.currentTarget;
     this.frame = frame;
-    if (this.boundDocument === frame.contentDocument) return;
-    this.unbindNavigation?.();
     try {
       const url = new URL(frame.contentWindow.location.href);
       const marker = frame.contentDocument.querySelector('meta[name="embedded-rails-settings"]');
-      if (!isFilterSettingsUrl(url, window.location.origin) || marker?.content !== this.props.screen || url.searchParams.get('embedded') !== '1') {
+      if (!isEmbeddedSettingsUrl(this.props.screen, url, window.location.origin) || marker?.content !== this.props.screen || url.searchParams.get('embedded') !== '1') {
         this.handleError();
         return;
       }
@@ -79,8 +87,10 @@ export class EmbeddedRailsSettings extends React.PureComponent {
       return;
     }
 
+    if (this.boundDocument === frame.contentDocument) return;
+    this.unbindNavigation?.();
     this.boundDocument = frame.contentDocument;
-    this.unbindNavigation = bindFilterSettingsNavigation(frame, { onNavigate: this.handleLinkNavigate, onSubmit: this.handleSubmit });
+    this.unbindNavigation = bindEmbeddedSettingsNavigation(this.props.screen, frame, { onNavigate: this.handleLinkNavigate, onSubmit: this.handleSubmit, onReject: this.handleError });
     this.navigationPending = false;
     clearTimeout(this.timeout);
     this.setState({ loading: false, failed: false });
@@ -92,6 +102,9 @@ export class EmbeddedRailsSettings extends React.PureComponent {
   };
 
   handleNavigate = url => {
+    if (!isEmbeddedSettingsUrl(this.props.screen, url, window.location.origin) || url.searchParams.get('embedded') !== '1') {
+      this.handleError(); return;
+    }
     this.navigationPending = true;
     this.setState({ loading: true, failed: false });
     this.startTimeout();
@@ -104,10 +117,12 @@ export class EmbeddedRailsSettings extends React.PureComponent {
     this.saving = true;
     this.setState({ saving: true, loading: true, failed: false });
     this.startTimeout();
-    submitFilterSettings(url, body, this.props.dispatch).then(async response => {
+    submitEmbeddedSettings(this.props.screen, url, body, this.props.dispatch).then(async response => {
       if (!this.mounted) return;
       const destination = new URL(response.url);
-      if (!response.ok || !isFilterSettingsUrl(destination, window.location.origin) || destination.searchParams.get('embedded') !== '1') {
+      const renderError = !response.redirected && [409, 422].includes(response.status);
+      const method = response.redirected ? 'GET' : settingsFormMethod(body);
+      if ((!response.ok && !renderError) || !isEmbeddedSettingsUrl(this.props.screen, destination, window.location.origin, method) || destination.searchParams.get('embedded') !== '1' || (this.props.screen === 'postingStyles' && !response.headers?.get('content-type')?.includes('text/html'))) {
         this.handleError();
         return;
       }
@@ -125,6 +140,9 @@ export class EmbeddedRailsSettings extends React.PureComponent {
           return;
         }
         const doc = this.frame.contentDocument;
+        const replacing = doc.createEvent('Event');
+        replacing.initEvent('embedded-settings:before-render', false, false);
+        doc.dispatchEvent(replacing);
         doc.querySelector('main.embedded-settings').replaceWith(doc.importNode(main, true));
         doc.title = html.title;
         const rendered = doc.createEvent('Event');
@@ -157,12 +175,12 @@ export class EmbeddedRailsSettings extends React.PureComponent {
     const { screen, intl, multiColumn, returnTo } = this.props;
     const { loading, failed, saving } = this.state;
     const entry = getEmbeddedScreen(screen);
-    if (!entry) return null;
+    if (!entry || (screen === 'postingStyles' && !isAdministrator)) return null;
 
-    const title = intl.formatMessage(messages.title);
+    const title = intl.formatMessage(screen === 'postingStyles' ? messages.postingStyles : messages.title);
 
     return (
-      <Column icon='filter' heading={title} columnWidth={defaultColumnWidth}>
+      <Column icon={entry.icon} heading={title} columnWidth={defaultColumnWidth}>
         <div className='embedded-rails-settings'>
           <nav className='embedded-rails-settings__navigation'>
             <Link to={returnTo || (multiColumn ? '/getting-started' : '/timelines/home')} onClick={this.handleBack}>

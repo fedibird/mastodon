@@ -1,3 +1,10 @@
+const previewBindings = new WeakMap();
+
+export const disposeUserPostingContextPreview = (root = document) => {
+  const form = root.querySelector('[data-user-posting-context-form]');
+  previewBindings.get(form)?.();
+};
+
 const snapshotFields = (root) => (
   Array.from(root.querySelectorAll('[data-preserve-on-preview]')).map((field) => ({
     field,
@@ -220,12 +227,12 @@ export function bindUserPostingContextPreview(root = document, options = {}) {
     timer = window.setTimeout(refresh, delay);
   };
 
-  form.addEventListener('input', (event) => {
+  const onInput = event => {
     if (affectsPreview(event.target)) {
       schedule();
     }
-  });
-  form.addEventListener('change', (event) => {
+  };
+  const onChange = event => {
     if (event.target && event.target.matches('[data-target-kind]')) {
       syncUserPostingContextTargetPanels(form);
     }
@@ -237,7 +244,21 @@ export function bindUserPostingContextPreview(root = document, options = {}) {
     if (affectsPreview(event.target)) {
       schedule();
     }
-  });
+  };
+  form.addEventListener('input', onInput);
+  form.addEventListener('change', onChange);
+  const dispose = () => {
+    // Replacing a validation/conflict form keeps the same document. Reject
+    // even a transport that ignores abort before it can paint the new form.
+    generation += 1;
+    window.clearTimeout(timer);
+    activeAbort?.abort();
+    form.removeEventListener('input', onInput);
+    form.removeEventListener('change', onChange);
+    delete form.dataset.previewBound;
+    previewBindings.delete(form);
+  };
+  previewBindings.set(form, dispose);
 }
 
 export function bindUserPostingContextCardMenus(root = document) {

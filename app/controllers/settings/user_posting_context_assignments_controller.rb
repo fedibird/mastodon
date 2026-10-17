@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class Settings::UserPostingContextAssignmentsController < Settings::BaseController
+  include EmbeddedFilterSettings
   PER_PAGE = 20
 
   before_action :require_posting_style_access!
@@ -52,7 +53,7 @@ class Settings::UserPostingContextAssignmentsController < Settings::BaseControll
   end
 
   def assignments_path
-    settings_user_posting_context_assignments_path(list_params)
+    settings_user_posting_context_assignments_path(list_params.merge(embedded_filter_options))
   end
 
   def list_params

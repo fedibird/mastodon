@@ -1079,3 +1079,47 @@ describe('Lemmy and PieFed group posting styles', () => {
     expect(store.getState().getIn(['compose', 'text'])).toEqual('Title line\n\nKeep this');
   });
 });
+
+describe('catalog refresh ordering and draft preservation', () => {
+  const pending = () => {
+    let resolve; let reject;
+    const promise = new Promise((yes, no) => {
+      resolve = yes; reject = no;
+    });
+    return { promise, resolve, reject };
+  };
+
+  it.each(['resolve', 'reject'])('forces a post-save read past a loading request and ignores the late %s', async outcome => {
+    const old = pending(); const fresh = pending();
+    api.mockReturnValue({ get: jest.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise) });
+    const store = storeWith('resolved');
+    await store.dispatch(commitUserPostingStyle(PRIMARY_COMPOSER_ID, '1'));
+    const draft = store.getState().get('compose');
+    const first = store.dispatch(fetchUserPostingStyles({ force: true }));
+    const second = store.dispatch(fetchUserPostingStyles({ force: true }));
+    fresh.resolve({ data: [{ id: '2', name: 'New name', icon: '📚', target: { kind: 'none' }, defaults: {}, managed: {} }] });
+    await second;
+    if (outcome === 'resolve') old.resolve({ data: [] });
+    else old.reject(new Error('old failure'));
+    await first;
+    expect(store.getState().getIn(['userPostingStyles', 'styles', 0, 'name'])).toBe('New name');
+    expect(store.getState().get('compose')).toBe(draft);
+  });
+
+  it('retains loaded choices on timeout or malformed catalog responses and accepts confirmed deletion', async () => {
+    const store = storeWith('resolved');
+    const choices = store.getState().getIn(['userPostingStyles', 'styles']);
+    const draft = store.getState().get('compose');
+    const get = jest.fn().mockRejectedValueOnce(new Error('timeout')).mockResolvedValueOnce({ data: {} }).mockResolvedValueOnce({ data: [] });
+    api.mockReturnValue({ get });
+    await store.dispatch(fetchUserPostingStyles({ force: true }));
+    expect(store.getState().getIn(['userPostingStyles', 'styles'])).toBe(choices);
+    expect(store.getState().getIn(['userPostingStyles', 'status'])).toBe('ready');
+    expect(store.getState().getIn(['userPostingStyles', 'refreshFailed'])).toBe(true);
+    await store.dispatch(fetchUserPostingStyles({ force: true }));
+    expect(store.getState().getIn(['userPostingStyles', 'styles'])).toBe(choices);
+    await store.dispatch(fetchUserPostingStyles({ force: true }));
+    expect(store.getState().getIn(['userPostingStyles', 'styles']).size).toBe(0);
+    expect(store.getState().get('compose')).toBe(draft);
+  });
+});

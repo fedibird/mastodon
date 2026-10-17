@@ -1,4 +1,6 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
+import { POSTING_STYLES_SETTINGS_ROUTE } from '../../embedded_rails_settings/registry';
 import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import { List as ImmutableList } from 'immutable';
@@ -127,6 +129,7 @@ class UserPostingStylePicker extends React.PureComponent {
     placeLabel: PropTypes.string,
     customEmojis: ImmutablePropTypes.list,
     catalogFailed: PropTypes.bool,
+    catalogRefreshFailed: PropTypes.bool,
     catalogLoading: PropTypes.bool,
     onRetryCatalog: PropTypes.func,
   };
@@ -275,6 +278,8 @@ class UserPostingStylePicker extends React.PureComponent {
   handleToggle = () => {
     this.setState(state => ({ open: !state.open }));
   };
+
+  handleSettings = () => this.closeMenu();
 
   handleSelect = event => {
     const styleId = event.currentTarget.getAttribute('data-style-id');
@@ -612,7 +617,7 @@ class UserPostingStylePicker extends React.PureComponent {
             {this.props.styles && this.props.styles.map(style => this.renderOption(style))}
           </div>
         ) : null}
-        {catalogProblem ? (
+        {catalogProblem || this.props.catalogRefreshFailed ? (
           <div data-posting-style-catalog='failed'>
             <p className='compose-form__style-notice'>{intl.formatMessage(messages.catalogFailed)}</p>
             {this.props.onRetryCatalog ? (
@@ -630,11 +635,11 @@ class UserPostingStylePicker extends React.PureComponent {
             <div className='compose-form__style-context'>{contextDetails}</div>
           </React.Fragment>
         ) : null}
-        <a className='compose-form__style-settings compose-form__style-settings-button' href='/settings/user_posting_contexts'>
+        <Link className='compose-form__style-settings compose-form__style-settings-button' to={POSTING_STYLES_SETTINGS_ROUTE} onClick={this.handleSettings}>
           <Icon id='gear' fixedWidth aria-hidden='true' />
           <span>{intl.formatMessage(messages.settings)}</span>
           <Icon id='chevron-right' fixedWidth aria-hidden='true' />
-        </a>
+        </Link>
       </React.Fragment>
     );
 

@@ -1,6 +1,7 @@
 import {
   applyUserPostingContextPreview,
   bindUserPostingContextPreview,
+  disposeUserPostingContextPreview,
   syncUserPostingContextChoicePanels,
   syncUserPostingContextTargetPanels,
 } from '../preview';
@@ -272,4 +273,44 @@ describe('user posting context preview', () => {
     expect(preview().classList.contains('user-posting-context-conditions--stale')).toBe(false);
     expect(document.querySelector('[data-user-posting-context-destination]').textContent).toContain('second-destination');
   });
+});
+
+it('rejects an old preview after validation replaces the form, even if transport ignores abort', async () => {
+  markup();
+  let resolveOld;
+  const oldFetch = jest.fn(() => new Promise(resolve => {
+    resolveOld = resolve;
+  }));
+  bindUserPostingContextPreview(document, { fetchImpl: oldFetch, delay: 0 });
+  document.querySelector('[data-target-kind]').dispatchEvent(new Event('change', { bubbles: true }));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const signal = oldFetch.mock.calls[0][1].signal;
+  disposeUserPostingContextPreview(document);
+  expect(signal.aborted).toBe(true);
+  markup();
+  const freshFetch = jest.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ preview_html: '<p>fresh preview</p>' }) });
+  bindUserPostingContextPreview(document, { fetchImpl: freshFetch, delay: 0 });
+  document.querySelector('[data-target-kind]').dispatchEvent(new Event('change', { bubbles: true }));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  resolveOld({ ok: true, json: () => Promise.resolve({ preview_html: '<p>stale preview</p>' }) });
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  expect(document.querySelector('[data-user-posting-context-preview]').textContent).toBe('fresh preview');
+  expect(document.querySelector('[name="user_posting_context[name]"]').value).toBe('Field notes');
+  disposeUserPostingContextPreview(document);
+});
+
+it('disposes pending debounce and removes listeners before rebinding a form', async () => {
+  markup(); jest.useFakeTimers();
+  const fetchImpl = jest.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
+  bindUserPostingContextPreview(document, { fetchImpl, delay: 250 });
+  document.querySelector('[data-target-kind]').dispatchEvent(new Event('change', { bubbles: true }));
+  disposeUserPostingContextPreview(document);
+  jest.advanceTimersByTime(1000);
+  expect(fetchImpl).not.toHaveBeenCalled();
+  bindUserPostingContextPreview(document, { fetchImpl, delay: 0 });
+  document.querySelector('[data-target-kind]').dispatchEvent(new Event('change', { bubbles: true }));
+  jest.advanceTimersByTime(1);
+  expect(fetchImpl).toHaveBeenCalledTimes(1);
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  disposeUserPostingContextPreview(document); jest.useRealTimers();
 });

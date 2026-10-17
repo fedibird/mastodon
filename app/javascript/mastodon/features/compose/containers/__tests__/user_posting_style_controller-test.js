@@ -1,5 +1,5 @@
 import { act, render } from '@testing-library/react';
-import { Map as ImmutableMap } from 'immutable';
+import { Map as ImmutableMap, fromJS } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
 import { applyMiddleware, createStore } from 'redux';
@@ -182,4 +182,32 @@ describe('UserPostingStyleController place defaults', () => {
     expect(store.getState().getIn(['composers', 'byId', composerId, 'userPostingStyle', 'selectionOrigin'])).toEqual('saved_default');
     expect(store.getState().getIn(['composers', 'byId', composerId, 'privacy'])).toEqual('public');
   });
+});
+
+it('does not apply newly created styles to an already settled, untouched portable composer', async () => {
+  const composerId = 'portable:list:479';
+  const store = createStore(reduce, ImmutableMap({
+    composers: composers(undefined, createComposer(composerId)),
+    userPostingStyles: userPostingStyles(undefined, { type: 'USER_POSTING_STYLES_FETCH_SUCCESS', styles: [] }),
+    userPostingContextAssignments: userPostingContextAssignments(undefined, { type: '@@INIT' }),
+  }), applyMiddleware(thunk));
+  store.dispatch(applyComposerSurface(composerId, { kind: 'list', key: '479' }));
+  api.mockReturnValue({ get: jest.fn().mockResolvedValue({ data: { surface: { kind: 'list', key: '479' }, status: 'unset', style_id: null, revision: null } }) });
+  await act(async () => {
+    render(<Provider store={store}><ComposerProvider composerId={composerId}><UserPostingStyleController /></ComposerProvider></Provider>);
+    await Promise.resolve(); await Promise.resolve();
+  });
+  const draft = store.getState().getIn(['composers', 'byId', composerId]);
+  expect(draft.getIn(['userPostingStyle', 'defaultsSettledSurface'])).toBe('list:479');
+  await act(async () => {
+    store.dispatch({ type: 'USER_POSTING_STYLES_FETCH_SUCCESS', styles: [fromJS({ id: 'new', name: 'New', target: { kind: 'none' }, defaults: { visibility: 'private' }, managed: {} })] });
+  });
+  expect(store.getState().getIn(['composers', 'byId', composerId])).toBe(draft);
+  api.mockReturnValue({ get: jest.fn().mockResolvedValue({ data: { surface: { kind: 'list', key: '479' }, status: 'none', style_id: null, revision: 1 } }) });
+  await act(async () => {
+    store.dispatch({ type: 'USER_POSTING_CONTEXT_ASSIGNMENTS_INVALIDATE' });
+    await Promise.resolve(); await Promise.resolve();
+  });
+  expect(store.getState().getIn(['userPostingContextAssignments', 'bySurface', 'list:479', 'assignmentStatus'])).toBe('none');
+  expect(store.getState().getIn(['composers', 'byId', composerId])).toBe(draft);
 });

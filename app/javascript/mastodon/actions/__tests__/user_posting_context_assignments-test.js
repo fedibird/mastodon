@@ -953,3 +953,15 @@ describe('place posting-style defaults', () => {
     expect(store.getState().getIn(['composers', 'byId', clearedId, 'userPostingStyle', 'selectionOrigin'])).toEqual('automatic');
   });
 });
+
+it('invalidates stale reads after Rails settings while retaining an in-flight default write', () => {
+  const read = fromJS({ status: 'loading', generation: 4, surface: { kind: 'list', key: '479' }, assignmentStatus: 'style', styleId: 'old' });
+  const saving = read.set('status', 'saving');
+  const before = fromJS({ bySurface: {} }).setIn(['bySurface', 'list:479'], read).setIn(['bySurface', 'list:480'], saving);
+  const invalidated = userPostingContextAssignments(before, { type: 'USER_POSTING_CONTEXT_ASSIGNMENTS_INVALIDATE' });
+  expect(invalidated.getIn(['bySurface', 'list:479', 'status'])).toBe('idle');
+  expect(invalidated.getIn(['bySurface', 'list:479', 'generation'])).toBe(5);
+  expect(invalidated.getIn(['bySurface', 'list:480'])).toBe(saving);
+  const stale = userPostingContextAssignments(invalidated, { type: 'USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_SUCCESS', surfaceKey: 'list:479', generation: 4, assignment: { surface: { kind: 'list', key: '479' }, assignmentStatus: 'style', styleId: 'old' } });
+  expect(stale).toBe(invalidated);
+});

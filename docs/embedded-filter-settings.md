@@ -16,8 +16,10 @@ The normal Rails page remains available through Open in a new tab.
 
 ## Security and navigation
 
-Only `FiltersController` and `Filters::StatusesController` include the opt-in
-concern. Literal `embedded=1` selects a separate compact layout. Existing
+Filter mode is explicitly opted into by `FiltersController` and
+`Filters::StatusesController`. The two posting-style settings controllers now
+share this concern with a separate screen marker and administrator check; see
+[their contract](embedded-posting-style-settings.md). Literal `embedded=1` selects a separate compact layout. Existing
 partials, public/admin packs (Rails UJS, deletion confirmation, cocoon keyword
 rows, emoji picker and batch selection), authentication, account ownership,
 CSRF verification and private/no-store caching remain in use.
@@ -128,3 +130,7 @@ records the actual browser checks and any remaining verification separately.
 - Stall a later child GET: the 15-second failure UI must appear and Retry must
   recover. Stall a save: no automatic duplicate submit or cancellation on timeout
   or unmount; Back/new-tab remain usable and completion still refreshes.
+
+Posting styles now share the opt-in screen infrastructure; see
+[Embedded posting style settings](embedded-posting-style-settings.md) for its
+administrator boundary, explicit methods, preview and catalog/draft contract.

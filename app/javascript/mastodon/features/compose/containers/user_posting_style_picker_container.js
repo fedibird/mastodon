@@ -72,6 +72,7 @@ const mapStateToProps = (state, { composerId }) => {
   return {
     visible,
     catalogFailed,
+    catalogRefreshFailed: state.getIn(['userPostingStyles', 'refreshFailed'], false) && visible,
     catalogLoading,
     styles: styleChoices,
     emptyLabel: kind === 'group' || kind === 'hashtag' ? 'place' : 'usual',
