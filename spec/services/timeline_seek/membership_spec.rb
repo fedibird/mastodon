@@ -368,7 +368,8 @@ describe TimelineSeek::Membership do
       expect(result.to_h[:results].map { |row| row[:outcome] }).not_to include('not_in_source')
       expect(result.to_h.to_json).not_to include('outside-home')
       expect(result.to_h.to_json).not_to include('home-direct-secret')
-      expect(round_trips[:zmscore] + round_trips[:pipelined]).to eq(1)
+      expect(round_trips[:pipelined]).to eq(1)
+      expect(round_trips[:zmscore]).to eq(0)
     end
 
     it 'applies the limited visibility filter inside the retained set' do
