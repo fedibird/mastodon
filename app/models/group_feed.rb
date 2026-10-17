@@ -19,6 +19,10 @@ class GroupFeed < PublicFeed
   # @param [Integer] min_id
   # @return [Array<Status>]
   def get(limit, max_id = nil, since_id = nil, min_id = nil)
+    relation.to_a_paginated_by_id(limit, max_id: max_id, since_id: since_id, min_id: min_id)
+  end
+
+  def relation
     scope = group_scope
 
     scope.merge!(media_only_scope) if media_only?
@@ -26,7 +30,7 @@ class GroupFeed < PublicFeed
     scope.merge!(without_bot_scope) if without_bot?
     scope.merge!(hashtag_scope) if tagged?
 
-    scope.to_a_paginated_by_id(limit, max_id: max_id, since_id: since_id, min_id: min_id)
+    scope
   end
 
   private
