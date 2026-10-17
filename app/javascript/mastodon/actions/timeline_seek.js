@@ -9,6 +9,7 @@ import {
   WINDOW_SEEK_BEGIN,
   WINDOW_SEEK_COMMIT,
   WINDOW_SEEK_FAIL,
+  WINDOW_SEEK_POINT,
   WINDOW_SEEK_SCROLL,
 } from '../timeline_seek/constants';
 import {
@@ -81,6 +82,38 @@ export function settleWindowSeekScroll(timeline, { sessionId, revision, reason, 
     revision,
     reason,
     scrolled: !!scrolled,
+  };
+}
+
+// Points the history scroller at a row already in the window. The snapshot is
+// the pre-jump window, matching a seek, so a filtered scroll can restore it.
+export function pointLoadedWindow({ splitTimelineId, anchorId, contract } = {}) {
+  return (dispatch, getState) => {
+    const before = getState().getIn(['timelines', splitTimelineId]);
+    const snapshot = before ? {
+      items: before.get('items'),
+      windowState: before.get('window'),
+    } : null;
+
+    cancelWindowedHistory(splitTimelineId);
+
+    const sessionId = nextSessionId();
+
+    dispatch({
+      type: WINDOW_SEEK_POINT,
+      timeline: splitTimelineId,
+      sessionId,
+      anchorId,
+      source: seekSourceKey(contract),
+    });
+
+    const seek = getState().getIn(['timelines', splitTimelineId, 'seek']);
+
+    if (!seek || seek.get('id') !== sessionId || seek.get('scrollStatus') !== 'pending') {
+      return { sessionId: null, snapshot };
+    }
+
+    return { sessionId, snapshot };
   };
 }
 

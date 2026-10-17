@@ -49,6 +49,8 @@ export const WINDOW_SEEK_FAIL = 'WINDOW_SEEK_FAIL';
 export const WINDOW_SEEK_COMMIT = 'WINDOW_SEEK_COMMIT';
 export const WINDOW_SEEK_SCROLL = 'WINDOW_SEEK_SCROLL';
 export const WINDOW_SEEK_RESTORE = 'WINDOW_SEEK_RESTORE';
+// Scroll to a row already in the history window. Does not replace items.
+export const WINDOW_SEEK_POINT = 'WINDOW_SEEK_POINT';
 
 export const SEEK_PAGE_LIMIT = 40;
 
