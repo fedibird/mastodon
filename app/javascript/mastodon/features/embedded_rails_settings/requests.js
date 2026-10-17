@@ -1,10 +1,16 @@
 import { fetchFilters } from 'mastodon/actions/filters';
+import { refreshUserPostingContextAssignments } from 'mastodon/actions/user_posting_context_assignments';
 import { fetchUserPostingStyles } from 'mastodon/actions/user_posting_styles';
 import { isEmbeddedSettingsUrl } from './registry';
 
 export const refreshEmbeddedSettings = (screen, dispatch) => {
   if (screen === 'filters') return dispatch(fetchFilters());
-  if (screen === 'postingStyles') return dispatch(fetchUserPostingStyles({ force: true }));
+  if (screen === 'postingStyles') {
+    // Invalidate defaults before catalog readiness can wake a new Composer.
+    const assignments = dispatch(refreshUserPostingContextAssignments());
+    const catalog = dispatch(fetchUserPostingStyles({ force: true }));
+    return Promise.all([assignments, catalog]);
+  }
   return Promise.reject(new Error('Unknown settings screen'));
 };
 

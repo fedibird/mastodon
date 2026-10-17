@@ -2,6 +2,7 @@ import api from '../api';
 import { assignmentSurface, placeDefaultWriteSurface, surfaceCacheKey, surfacesEqual } from '../posting_context/surface';
 import { selectComposer } from '../selectors/composer';
 
+export const USER_POSTING_CONTEXT_ASSIGNMENTS_INVALIDATE = 'USER_POSTING_CONTEXT_ASSIGNMENTS_INVALIDATE';
 export const USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_REQUEST = 'USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_REQUEST';
 export const USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_SUCCESS = 'USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_SUCCESS';
 export const USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_FAIL = 'USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_FAIL';
@@ -104,6 +105,21 @@ export function fetchUserPostingContextAssignment(surface, { force = false } = {
   };
 }
 
+// Rails does not return a surface for assignment operations or deleted styles.
+// Reconcile all known surfaces, including cached places with no open Composer.
+export function refreshUserPostingContextAssignments() {
+  return (dispatch, getState) => {
+    dispatch({ type: USER_POSTING_CONTEXT_ASSIGNMENTS_INVALIDATE });
+    const entries = getState().getIn(['userPostingContextAssignments', 'bySurface']);
+    if (!entries) return Promise.resolve();
+
+    return Promise.all(entries.valueSeq().map(entry => {
+      const surface = entry.get('surface');
+      return surface ? dispatch(fetchUserPostingContextAssignment(surface.toJS(), { force: true })) : Promise.resolve();
+    }).toArray());
+  };
+}
+
 const writeAssignment = (surface, request) => (dispatch, getState) => {
   const requested = assignmentSurface(surface);
   const key = surfaceCacheKey(requested);
@@ -116,6 +132,7 @@ const writeAssignment = (surface, request) => (dispatch, getState) => {
     return Promise.resolve();
   }
 
+  const refreshEpoch = getState().getIn(['userPostingContextAssignments', 'refreshEpoch'], 0);
   const generation = entryGeneration(getState(), key) + 1;
 
   dispatch({
@@ -159,6 +176,15 @@ const writeAssignment = (surface, request) => (dispatch, getState) => {
         skipLoading: true,
         skipAlert: true,
       });
+    }).finally(() => {
+      // A pre-refresh write may commit/finish after the reconciliation GET.
+      // Never trust its old payload; read the server again after it settles.
+      // A newer pending write owns its own completion instead.
+      if (getState().getIn(['userPostingContextAssignments', 'refreshEpoch'], 0) !== refreshEpoch
+        && getState().getIn(['userPostingContextAssignments', 'bySurface', key, 'status']) !== 'saving') {
+        return dispatch(fetchUserPostingContextAssignment(requested, { force: true }));
+      }
+      return undefined;
     });
 };
 

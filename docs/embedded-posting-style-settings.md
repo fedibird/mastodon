@@ -62,10 +62,19 @@ snapshots, draft fields, manual overrides, selection origin or settled defaults.
 A deleted selected style is still represented by the applied snapshot until the
 user explicitly chooses again.
 
-Existing assignment caching and settled-default rules remain unchanged; catalog
-refresh does not reapply defaults or rewrite the assignment cache. A full tab
-close/reload cannot guarantee completion delivery. Other-tab changes are picked
-up on embedded reentry, without cross-tab monitoring or a new streaming protocol.
+Every posting-style reconciliation also invalidates all cached assignment
+surfaces before starting the catalog GET, then force-fetches those surfaces.
+This includes places whose Composer is closed: HTML assignment operations do not
+return their surface and style deletion can change multiple assignments to none.
+Invalidation advances each entry's generation and clears its old default while
+loading. Delayed pre-boundary GET/write responses cannot restore it, and a failed
+GET leaves it non-authoritative so new Composers wait for an explicit retry.
+A write that was already running at the boundary performs a further read after
+settling, without resending the write, in case it committed after reconciliation.
+Existing evaluated Composers keep their settled surface, snapshot and draft;
+new Composers use the reconciled none/unset/style choice. A full tab close/reload
+cannot guarantee completion delivery. Other-tab changes are picked up on
+embedded reentry, without cross-tab monitoring or a new streaming protocol.
 
 ## Verification
 
@@ -73,7 +82,10 @@ Automated tests cover route/method/query and marker isolation, filter regression
 Back/Forward origins, validation/409 rendering, completion refresh after departure,
 ambiguous failure, response ordering, multiple open Portable menus, surface
 filtering, full primary/Portable draft and snapshot preservation, administrator
-visibility, preview rebinding and stale preview isolation. Request specs exercise
+visibility, preview rebinding and stale preview isolation. Real Redux integration
+with mounted controllers/pickers covers two evaluated drafts, none/unset/deletion,
+new-Composer automatic selection, delayed GET/write success/failure, ambiguous
+HTML completion and assignment reconciliation failure. Request specs exercise
 real routes, production-style DENY defaults, ownership/authentication, JSON
 preview, CRUD, assignment paging/release/decline and real CSRF.
 

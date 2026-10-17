@@ -1,5 +1,6 @@
 import { Map as ImmutableMap } from 'immutable';
 import {
+  USER_POSTING_CONTEXT_ASSIGNMENTS_INVALIDATE,
   USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_FAIL,
   USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_REQUEST,
   USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_SUCCESS,
@@ -39,6 +40,18 @@ const applyLoaded = (entry, action) => rememberSurface(entry, action.assignment.
 
 export default function userPostingContextAssignments(state = initialState, action) {
   switch (action.type) {
+  case USER_POSTING_CONTEXT_ASSIGNMENTS_INVALIDATE:
+    return state.update('refreshEpoch', 0, epoch => epoch + 1).update('bySurface', entries => entries.map(entry => entry.merge({
+      // Retain surface and advance the generation even for in-flight reads/writes.
+      // Until reconciliation succeeds, none of the old defaults is authoritative.
+      status: 'loading',
+      generation: (entry.get('generation') || 0) + 1,
+      assignmentStatus: null,
+      styleId: null,
+      revision: null,
+      failure: null,
+    })));
+
   case USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_REQUEST:
   case USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_REQUEST: {
     const current = readEntry(state, action.surfaceKey);
