@@ -3,7 +3,7 @@ import { List as ImmutableList } from 'immutable';
 import { capabilityFor, capabilityMatrix, seekKinds, windowedHistoryContracts } from '../capability';
 import { CLOSED_SOURCES, SEEK_CAPABILITY, SEEK_KIND } from '../constants';
 import { createSeekQuery, seekSourceFromContract, seekSourceKey } from '../query';
-import { assembleSeekItems, commitSeekWindow, edgeStatusForSeekPage, planSeekScroll } from '../window';
+import { anchorBeyondSplitBoundary, assembleSeekItems, commitSeekWindow, edgeStatusForSeekPage, planSeekScroll } from '../window';
 
 describe('timeline seek capability', () => {
   it('covers every windowed history contract and leaves closed timelines unsupported', () => {
@@ -120,17 +120,50 @@ describe('timeline seek window', () => {
     expect(committed.window.newer.status).toBe('exhausted');
   });
 
-  it('does not scroll when the row is filtered out of the visible list', () => {
+  it('refuses to commit an anchor newer than the split boundary', () => {
+    const previous = {
+      generation: 2,
+      revision: 1,
+      anchorId: '30',
+      boundaryId: '50',
+      newestId: '50',
+      oldestId: '30',
+      hasNewer: false,
+      hasOlder: true,
+      seeking: true,
+      newer: { status: 'open', requestId: null, cursor: '50' },
+      older: { status: 'open', requestId: null, cursor: '30' },
+    };
+    const rejected = commitSeekWindow(previous, {
+      anchorId: '80',
+      newerIds: ['90'],
+      olderIds: ['40'],
+      limit: 40,
+      capability: 'database',
+    });
+
+    expect(anchorBeyondSplitBoundary('80', '50')).toBe(true);
+    expect(anchorBeyondSplitBoundary('50', '50')).toBe(false);
+    expect(rejected.committed).toBe(false);
+    expect(rejected.window).toBe(previous);
+  });
+
+  it('does not call a filtered row unloaded, or an unmounted row filtered', () => {
     expect(planSeekScroll({
       anchorId: '50',
-      loadedIds: ['70', '50', '40'],
-      visibleIds: ImmutableList(['70', '40']),
+      renderedIds: ImmutableList(['70', '40']),
+      articlePresent: false,
     })).toEqual({ scroll: false, reason: 'filtered' });
 
     expect(planSeekScroll({
       anchorId: '50',
-      loadedIds: ['70', '50'],
-      visibleIds: null,
+      renderedIds: ImmutableList(['70', '50', '40']),
+      articlePresent: false,
+    })).toEqual({ scroll: false, reason: 'not_loaded' });
+
+    expect(planSeekScroll({
+      anchorId: '50',
+      renderedIds: ImmutableList(['70', '50']),
     }).scroll).toBe(true);
   });
 });

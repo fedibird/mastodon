@@ -1,7 +1,7 @@
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 
 import { TIMELINE_SPLIT_CREATE, TIMELINE_SPLIT_DESTROY, TIMELINE_SPLIT_KEEP_HISTORY, TIMELINE_SPLIT_KEEP_LIVE } from '../../actions/timelines';
-import { WINDOW_SEEK_BEGIN, WINDOW_SEEK_COMMIT, WINDOW_SEEK_FAIL } from '../../timeline_seek/constants';
+import { WINDOW_SEEK_BEGIN, WINDOW_SEEK_COMMIT, WINDOW_SEEK_FAIL, WINDOW_SEEK_SCROLL } from '../../timeline_seek/constants';
 import { WINDOW_HISTORY_REQUEST, WINDOW_HISTORY_SUCCESS } from '../../windowed_history/types';
 import timelines from '../timelines';
 import { beginHistoryRequest } from '../../windowed_history/model';
@@ -219,5 +219,83 @@ describe('timeline seek reducer', () => {
 
     expect(blocked.getIn([splitId, 'window', 'older', 'status'])).not.toBe('loading');
     expect(blocked.getIn([splitId, 'window', 'older', 'requestId'])).toBeNull();
+  });
+
+  it('fails a commit newer than the split boundary and leaves the live rows alone', () => {
+    const split = create(withHome());
+    const beforeItems = split.getIn([splitId, 'items']);
+    const beforeAnchor = split.getIn([splitId, 'window', 'anchorId']);
+    const begun = timelines(split, {
+      type: WINDOW_SEEK_BEGIN,
+      timeline: splitId,
+      sessionId: 'seek-1',
+      source: sourceKey,
+    });
+    const rejected = timelines(begun, {
+      type: WINDOW_SEEK_COMMIT,
+      timeline: splitId,
+      sessionId: 'seek-1',
+      source: sourceKey,
+      anchorId: '500',
+      newerIds: ['600'],
+      olderIds: ['100'],
+      limit: 40,
+      capability: 'database',
+    });
+
+    expect(split.getIn([splitId, 'window', 'boundaryId'])).toBe('300');
+    expect(rejected.getIn([splitId, 'items'])).toEqual(beforeItems);
+    expect(rejected.getIn([splitId, 'window', 'anchorId'])).toBe(beforeAnchor);
+    expect(rejected.getIn([splitId, 'window', 'seeking'])).toBe(false);
+    expect(rejected.getIn([splitId, 'seek', 'phase'])).toBe('unavailable');
+    expect(rejected.getIn([splitId, 'seek', 'reason'])).toBe('newer_than_split_boundary');
+    expect(rejected.getIn([splitId, 'seek', 'phase'])).not.toBe('pending');
+    expect(rejected.getIn(['home', 'pendingItems'])).toEqual(ImmutableList(['400']));
+    expect(rejected.getIn(['home', 'items'])).toEqual(ids);
+  });
+
+  it('records one scroll result for the committed revision and ignores a stale session', () => {
+    const split = create(withHome());
+    const begun = timelines(split, {
+      type: WINDOW_SEEK_BEGIN,
+      timeline: splitId,
+      sessionId: 'seek-1',
+      source: sourceKey,
+    });
+    const committed = timelines(begun, {
+      type: WINDOW_SEEK_COMMIT,
+      timeline: splitId,
+      sessionId: 'seek-1',
+      source: sourceKey,
+      anchorId: '9',
+      newerIds: [],
+      olderIds: ['8'],
+      limit: 40,
+      capability: 'database',
+    });
+    const revision = committed.getIn([splitId, 'window', 'revision']);
+    const stale = timelines(committed, {
+      type: WINDOW_SEEK_SCROLL,
+      timeline: splitId,
+      sessionId: 'seek-0',
+      revision,
+      reason: 'loaded',
+      scrolled: true,
+    });
+    const settled = timelines(stale, {
+      type: WINDOW_SEEK_SCROLL,
+      timeline: splitId,
+      sessionId: 'seek-1',
+      revision,
+      reason: 'filtered',
+      scrolled: false,
+    });
+
+    expect(committed.getIn([splitId, 'seek', 'scrollStatus'])).toBe('pending');
+    expect(stale.getIn([splitId, 'seek', 'scrollStatus'])).toBe('pending');
+    expect(settled.getIn([splitId, 'seek', 'scrollStatus'])).toBe('filtered');
+    expect(settled.getIn([splitId, 'seek', 'scrollReason'])).toBe('filtered');
+    expect(settled.getIn([splitId, 'items'])).toEqual(committed.getIn([splitId, 'items']));
+    expect(settled.getIn(['home', 'pendingItems'])).toEqual(ImmutableList(['400']));
   });
 });

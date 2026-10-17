@@ -124,10 +124,6 @@ describe('seekWindowedTimeline', () => {
         source: 'public',
         target: { id: '9007199254740993', text: 'do not send' },
       }),
-      scrollToStatus: (statusId) => {
-        calls.push(statusId);
-        return { ok: true, scrolled: true };
-      },
     }));
 
     expect(result.outcome).toBe('unsupported');
@@ -144,10 +140,6 @@ describe('seekWindowedTimeline', () => {
         source: 'public',
         target: { id: '9007199254740993' },
       }),
-      scrollToStatus: (statusId) => {
-        calls.push(statusId);
-        return { ok: true, scrolled: true };
-      },
     }));
 
     expect(mockPost).toHaveBeenCalledWith('/api/v1/timelines/seek', expect.objectContaining({
@@ -157,8 +149,10 @@ describe('seekWindowedTimeline', () => {
     }), expect.any(Object));
     expect(String(mockPost.mock.calls[0][0])).not.toContain('9007199254740993');
     expect(moved.anchorId).toBe('9007199254740993');
-    expect(moved.scroll.scrolled).toBe(true);
-    expect(calls).toEqual(['9007199254740993']);
+    expect(moved.scroll.pending).toBe(true);
+    expect(moved.scroll.scrolled).toBe(false);
+    expect(calls).toEqual([]);
+    expect(store.getState().getIn(['timelines', splitId, 'seek', 'scrollStatus'])).toBe('pending');
     expect(store.getState().getIn(['timelines', splitId, 'items']).toArray()).toEqual([
       '9007199254740994',
       '9007199254740993',
@@ -185,9 +179,6 @@ describe('seekWindowedTimeline', () => {
       splitTimelineId: splitId,
       contract,
       query: createSeekQuery({ kind: SEEK_KIND.STATUS, source: 'public', target: { id: '15' } }),
-      scrollToStatus: () => {
-        throw new Error('should not scroll');
-      },
     }));
 
     expect(result.outcome).toBe('unavailable');
@@ -198,9 +189,8 @@ describe('seekWindowedTimeline', () => {
     expect(store.getState().getIn(['timelines', splitId, 'window', 'anchorId'])).toBe(anchor);
   });
 
-  it('does not scroll a filtered anchor to the top and still commits the neighborhood', async () => {
+  it('leaves scroll pending after the commit so the list can move once it has rendered', async () => {
     const store = storeWithSplit();
-    const scroll = jest.fn();
     mockPost.mockImplementation(() => Promise.resolve({ data: resolvedBody }));
     mockGet.mockImplementation((path) => {
       if (String(path).includes('/api/v1/statuses/')) {
@@ -215,16 +205,69 @@ describe('seekWindowedTimeline', () => {
       splitTimelineId: splitId,
       contract,
       query: createSeekQuery({ kind: SEEK_KIND.STATUS, source: 'public', target: { id: '9007199254740993' } }),
-      visibleStatusIds: () => ImmutableList(['1']),
-      scrollToStatus: scroll,
     }));
 
-    expect(scroll).not.toHaveBeenCalled();
-    expect(result.scroll.reason).toBe('filtered');
-    expect(result.scroll.scrolled).not.toBe(true);
+    expect(result.scroll.pending).toBe(true);
+    expect(result.scroll.scrolled).toBe(false);
     expect(store.getState().getIn(['timelines', splitId, 'items']).toArray()).toEqual(['9007199254740993']);
     expect(store.getState().getIn(['timelines', splitId, 'window', 'older', 'status'])).toBe('paused');
-    expect(store.getState().getIn(['timelines', splitId, 'seek', 'scrollReason'])).toBe('filtered');
+    expect(store.getState().getIn(['timelines', splitId, 'seek', 'scrollStatus'])).toBe('pending');
+    expect(store.getState().getIn(['timelines', splitId, 'seek', 'scrollReason'])).toBeNull();
+  });
+
+  it('rejects an anchor newer than the split boundary without replacing the window', async () => {
+    const state = ImmutableMap({
+      timelines: ImmutableMap({
+        public: ImmutableMap({
+          unread: 0,
+          online: true,
+          top: true,
+          isLoading: false,
+          hasMore: true,
+          pendingItems: ImmutableList(['500']),
+          items: ImmutableList(['300', '200', '100']),
+        }),
+      }),
+    });
+    const store = createStore(root, state, applyMiddleware(thunk));
+
+    store.dispatch({
+      type: TIMELINE_SPLIT_CREATE,
+      sourceTimeline: 'public',
+      splitTimeline: splitId,
+      anchorId: '200',
+    });
+
+    const before = store.getState().getIn(['timelines', splitId, 'items']);
+    mockPost.mockImplementation(() => Promise.resolve({
+      data: {
+        version: 1,
+        outcome: 'resolved',
+        capability: 'supported',
+        precision: 'exact',
+        anchor_id: '400',
+        display_row_id: '400',
+        limitations: [],
+      },
+    }));
+
+    const result = await store.dispatch(seekWindowedTimeline({
+      sourceTimelineId: 'public',
+      splitTimelineId: splitId,
+      contract,
+      query: createSeekQuery({ kind: SEEK_KIND.STATUS, source: 'public', target: { id: '400' } }),
+    }));
+
+    expect(result.outcome).toBe('unavailable');
+    expect(result.reason).toBe('newer_than_split_boundary');
+    expect(result.limitations).toContain('live_side');
+    expect(mockGet).not.toHaveBeenCalled();
+    expect(store.getState().getIn(['timelines', splitId, 'items'])).toEqual(before);
+    expect(store.getState().getIn(['timelines', splitId, 'window', 'seeking'])).toBe(false);
+    expect(store.getState().getIn(['timelines', splitId, 'window', 'anchorId'])).toBe('200');
+    expect(store.getState().getIn(['timelines', splitId, 'seek', 'phase'])).toBe('unavailable');
+    expect(store.getState().getIn(['timelines', 'public', 'pendingItems'])).toEqual(ImmutableList(['500']));
+    expect(store.getState().getIn(['timelines', 'public', 'items'])).toEqual(ImmutableList(['300', '200', '100']));
   });
 
   it('discards a slow resolve after the split closes', async () => {

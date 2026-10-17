@@ -2,7 +2,7 @@ import { fromJS } from 'immutable';
 
 import { beginSeekSession } from '../windowed_history/model';
 import { plainItems, plainWindow, writeWindow } from '../windowed_history/timeline_state';
-import { commitSeekWindow } from './window';
+import { anchorBeyondSplitBoundary, commitSeekWindow } from './window';
 
 const seekRecord = (fields) => fromJS(fields);
 
@@ -62,7 +62,15 @@ export const commitSeekState = (timeline, action) => {
   const committed = commitSeekWindow(current, action);
 
   if (!committed.committed) {
-    return timeline;
+    const beyond = anchorBeyondSplitBoundary(action.anchorId, current.boundaryId);
+
+    return failSeekState(timeline, {
+      sessionId: action.sessionId,
+      outcome: 'unavailable',
+      reason: beyond ? 'newer_than_split_boundary' : 'commit_rejected',
+      capability: action.capability,
+      limitations: beyond ? ['live_side'] : (action.limitations || []),
+    });
   }
 
   return writeWindow(timeline, committed.items, committed.window).set('seek', seekRecord({
@@ -74,6 +82,25 @@ export const commitSeekState = (timeline, action) => {
     anchorId: action.anchorId,
     precision: action.precision || null,
     limitations: action.limitations || [],
-    scrollReason: action.scrollReason || null,
+    scrollStatus: 'pending',
+    scrollRevision: committed.window.revision,
+    scrollReason: null,
+  }));
+};
+
+export const settleSeekScroll = (timeline, action) => {
+  const seek = timeline.get('seek');
+
+  if (!seek || seek.get('id') !== action.sessionId || seek.get('scrollStatus') !== 'pending') {
+    return timeline;
+  }
+
+  if (action.revision !== undefined && action.revision !== null && seek.get('scrollRevision') !== action.revision) {
+    return timeline;
+  }
+
+  return timeline.set('seek', seek.merge({
+    scrollStatus: action.scrolled ? 'loaded' : (action.reason || 'filtered'),
+    scrollReason: action.reason || null,
   }));
 };

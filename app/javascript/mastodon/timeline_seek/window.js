@@ -7,16 +7,25 @@ const includesId = (ids, id) => {
     return false;
   }
 
-  if (typeof ids.has === 'function' && !Array.isArray(ids)) {
-    return ids.has(id);
-  }
-
+  // List.has is an index check. indexOf is value membership for Array and List.
   if (typeof ids.indexOf === 'function') {
     return ids.indexOf(id) !== -1;
   }
 
+  if (typeof ids.has === 'function') {
+    return ids.has(id);
+  }
+
   return false;
 };
+
+// The split history window stops at its boundary. A newer id belongs to the
+// live column, and a successful resolve must not be applied there.
+export const anchorBeyondSplitBoundary = (anchorId, boundaryId) => (
+  isDecimalStatusId(anchorId)
+  && isDecimalStatusId(boundaryId)
+  && compareId(anchorId, boundaryId) > 0
+);
 
 export const assembleSeekItems = (anchorId, newerIds, olderIds, boundaryId) => {
   const ids = [];
@@ -162,18 +171,20 @@ export const seekIsCurrent = ({ active, sessionId, phase, generation, windowGene
   && recordedSource === source
 );
 
-// Filtered or missing rows report a result and do not ask the scroller to move.
-export const planSeekScroll = ({ anchorId, loadedIds, visibleIds } = {}) => {
+// Called after the new window has been rendered. An id missing from the
+// filtered list is filtered. An id in that list whose article is not in the
+// DOM yet is not_loaded, which is not a filter result and does not move.
+export const planSeekScroll = ({ anchorId, renderedIds, articlePresent } = {}) => {
   if (!isDecimalStatusId(anchorId)) {
     return { scroll: false, reason: 'invalid' };
   }
 
-  if (loadedIds && !includesId(loadedIds, anchorId)) {
-    return { scroll: false, reason: 'missing_row' };
+  if (renderedIds && !includesId(renderedIds, anchorId)) {
+    return { scroll: false, reason: 'filtered' };
   }
 
-  if (visibleIds && !includesId(visibleIds, anchorId)) {
-    return { scroll: false, reason: 'filtered' };
+  if (articlePresent === false) {
+    return { scroll: false, reason: 'not_loaded' };
   }
 
   return { scroll: true, reason: 'loaded', anchorId };

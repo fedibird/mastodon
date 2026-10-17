@@ -1,4 +1,5 @@
-// Test and future-UI adapter. P2 does not mount a seek control.
+// Records scroll calls from a mounted list. The seek thunk does not scroll;
+// StatusList moves once, on the frame after the committed window renders.
 
 export const createTimelineSeekTestAdapter = () => {
   const calls = [];

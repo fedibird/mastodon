@@ -37,6 +37,7 @@ export const SEEK_PREFERENCE = Object.freeze({
 export const WINDOW_SEEK_BEGIN = 'WINDOW_SEEK_BEGIN';
 export const WINDOW_SEEK_FAIL = 'WINDOW_SEEK_FAIL';
 export const WINDOW_SEEK_COMMIT = 'WINDOW_SEEK_COMMIT';
+export const WINDOW_SEEK_SCROLL = 'WINDOW_SEEK_SCROLL';
 
 export const SEEK_PAGE_LIMIT = 40;
 

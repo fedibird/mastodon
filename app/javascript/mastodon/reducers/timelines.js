@@ -36,8 +36,9 @@ import {
   WINDOW_SEEK_BEGIN,
   WINDOW_SEEK_COMMIT,
   WINDOW_SEEK_FAIL,
+  WINDOW_SEEK_SCROLL,
 } from '../timeline_seek/constants';
-import { beginSeekState, commitSeekState, failSeekState } from '../timeline_seek/reduce';
+import { beginSeekState, commitSeekState, failSeekState, settleSeekScroll } from '../timeline_seek/reduce';
 import {
   failHistory,
   initialHistoryWindow,
@@ -388,6 +389,8 @@ export default function timelines(state = initialState, action) {
     return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => failSeekState(timeline, action));
   case WINDOW_SEEK_COMMIT:
     return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => commitSeekState(timeline, action));
+  case WINDOW_SEEK_SCROLL:
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => settleSeekScroll(timeline, action));
   case TIMELINE_UPDATE:
     return isStaleSplitTimeline(state, action.timeline) ? state : updateTimeline(state, action.timeline, fromJS(action.status), action.usePendingItems);
   case TIMELINE_DELETE:

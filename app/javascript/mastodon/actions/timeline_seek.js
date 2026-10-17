@@ -9,6 +9,7 @@ import {
   WINDOW_SEEK_BEGIN,
   WINDOW_SEEK_COMMIT,
   WINDOW_SEEK_FAIL,
+  WINDOW_SEEK_SCROLL,
 } from '../timeline_seek/constants';
 import {
   createSeekQuery,
@@ -17,7 +18,7 @@ import {
   seekSourceKey,
   seekTargetPayload,
 } from '../timeline_seek/query';
-import { planSeekScroll, seekIsCurrent } from '../timeline_seek/window';
+import { anchorBeyondSplitBoundary, seekIsCurrent } from '../timeline_seek/window';
 import {
   cancelWindowedHistory,
   claimWindowedHistoryFlight,
@@ -72,13 +73,22 @@ const importPage = (dispatch, data) => {
   dispatch(fetchRelationshipsFromStatuses(statuses));
 };
 
+export function settleWindowSeekScroll(timeline, { sessionId, revision, reason, scrolled } = {}) {
+  return {
+    type: WINDOW_SEEK_SCROLL,
+    timeline,
+    sessionId,
+    revision,
+    reason,
+    scrolled: !!scrolled,
+  };
+}
+
 export function seekWindowedTimeline({
   sourceTimelineId,
   splitTimelineId,
   contract,
   query,
-  scrollToStatus = null,
-  visibleStatusIds = null,
 } = {}) {
   return (dispatch, getState) => {
     const built = query && query.version ? query : createSeekQuery(query || {});
@@ -198,6 +208,18 @@ export function seekWindowedTimeline({
         return finishFailure(resolved.outcome, resolved.reason, resolved);
       }
 
+      const boundaryId = snapshot().windowState && snapshot().windowState.boundaryId;
+
+      if (anchorBeyondSplitBoundary(resolved.anchorId, boundaryId)) {
+        return finishFailure('unavailable', 'newer_than_split_boundary', {
+          capability: resolved.capability,
+          precision: resolved.precision,
+          limitations: resolved.limitations.concat(['live_side']),
+          anchorId: resolved.anchorId,
+          displayRowId: resolved.displayRowId,
+        });
+      }
+
       const newer = client.get(contract.path, {
         params: historyRequestParams(contract, 'newer', resolved.anchorId, SEEK_PAGE_LIMIT),
         cancelToken: flight.cancelToken,
@@ -225,12 +247,6 @@ export function seekWindowedTimeline({
 
         const newerIds = statusIds(newerResponse.data);
         const olderIds = statusIds(olderResponse.data);
-        const visible = typeof visibleStatusIds === 'function' ? visibleStatusIds(getState()) : null;
-        const plan = planSeekScroll({
-          anchorId: resolved.anchorId,
-          loadedIds: [resolved.anchorId].concat(newerIds, olderIds),
-          visibleIds: visible,
-        });
 
         dispatch({
           type: WINDOW_SEEK_COMMIT,
@@ -247,16 +263,31 @@ export function seekWindowedTimeline({
           capability: contract.capability,
           precision: resolved.precision,
           limitations: resolved.limitations,
-          scrollReason: plan.reason,
         });
 
-        let scroll = { ok: false, scrolled: false, reason: plan.reason };
+        const seek = getState().getIn(['timelines', splitTimelineId, 'seek']);
 
-        if (plan.scroll && typeof scrollToStatus === 'function') {
-          scroll = scrollToStatus(resolved.anchorId) || scroll;
+        if (!seek || seek.get('phase') !== 'resolved') {
+          const recorded = seek && seek.get('limitations');
+
+          return normalizeSeekResult({
+            outcome: seek ? seek.get('phase') : 'unavailable',
+            reason: seek ? seek.get('reason') : 'commit_rejected',
+            capability: resolved.capability,
+            limitations: recorded && typeof recorded.toArray === 'function' ? recorded.toArray() : resolved.limitations,
+          });
         }
 
-        return { ...resolved, scroll };
+        return {
+          ...resolved,
+          scroll: {
+            pending: true,
+            scrolled: false,
+            reason: 'pending',
+            revision: seek.get('scrollRevision'),
+            sessionId,
+          },
+        };
       });
     }).catch(error => {
       if (!current()) {
