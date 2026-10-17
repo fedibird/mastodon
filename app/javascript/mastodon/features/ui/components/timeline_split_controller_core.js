@@ -25,7 +25,7 @@ import { jumpAbandonDisposition, jumpScrollDisposition } from 'mastodon/timeline
 import { createJumpScrollWait } from 'mastodon/timeline_jump/scroll_wait';
 import { seekSourceKey } from 'mastodon/timeline_seek/query';
 import { isDecimalStatusId } from 'mastodon/timeline_navigation';
-import { textJumpRequest } from 'mastodon/timeline_text_search/session';
+import { membershipBody, membershipGate, payloadHasSearchText, textJumpRequest, textSearchIdentity } from 'mastodon/timeline_text_search/session';
 import { cancelWindowedHistoryDirection } from '../../../windowed_history/flights';
 import TimelineColumnJumpPanel from './timeline_column_jump';
 
@@ -948,6 +948,14 @@ class TimelineSplitControllerCore extends React.Component {
 
   jumpIsCurrent = (token) => token === this.jumpToken && !this.jumpUnmounted;
 
+  textJumpStillCurrent = (token, flight) => (
+    this.jumpIsCurrent(token)
+    && (this.locationKey || '') === flight.locationKey
+    && (this.props.accountId || '') === flight.accountId
+    && seekSourceKey(this.props.historyContract) === flight.sourceKey
+    && this.instanceId === flight.columnId
+  );
+
   discardJump = ({ close = true } = {}) => {
     const flight = this.jumpFlight;
 
@@ -1235,33 +1243,77 @@ class TimelineSplitControllerCore extends React.Component {
       return Promise.resolve({ outcome: 'unsupported', reason: 'invalid_id', moved: false });
     }
 
-    if (!this.ownsSplit()) {
-      if (this.jumpDisabled()) {
-        return Promise.resolve({ outcome: 'unavailable', reason: 'split_unavailable', moved: false });
+    if (!this.ownsSplit() && this.jumpDisabled()) {
+      return Promise.resolve({ outcome: 'unavailable', reason: 'split_unavailable', moved: false });
+    }
+
+    if (!this.props.onCheckMembership || !this.props.historyContract) {
+      return Promise.resolve({ outcome: 'unavailable', reason: 'network', moved: false });
+    }
+
+    const flight = {
+      locationKey: this.locationKey || '',
+      accountId: this.props.accountId || '',
+      sourceKey: seekSourceKey(this.props.historyContract),
+      columnId: this.instanceId,
+    };
+    const payload = membershipBody(textSearchIdentity({
+      contract: this.props.historyContract,
+      accountId: flight.accountId,
+      columnId: flight.columnId,
+      locationKey: flight.locationKey,
+      splitSessionId: this.ownsSplit() ? this.getSplitTimelineId() : '',
+    }), [statusId]);
+
+    if (payloadHasSearchText(payload) || payload.ids.length !== 1) {
+      return Promise.resolve({ outcome: 'unsupported', reason: 'search_text_not_accepted', moved: false });
+    }
+
+    return Promise.resolve(this.props.onCheckMembership(payload)).then(response => {
+      if (!this.textJumpStillCurrent(token, flight)) {
+        return { outcome: 'stale', reason: 'stale', moved: false };
       }
 
-      this.splitTimeline();
-      const opened = textJumpRequest({ statusId });
+      const gate = membershipGate(response, statusId);
 
-      return this.executeJump(token, opened.query, `${this.splitKeyPrefix()}${this.splitSessionId}`);
-    }
+      if (!gate.ok) {
+        return { outcome: gate.outcome, reason: gate.reason, moved: false };
+      }
 
-    const loaded = this.props.onResolveLoadedRow ? this.props.onResolveLoadedRow(statusId) : null;
-    const plan = textJumpRequest({
-      statusId,
-      loadedDisplayRowId: loaded,
-      boundaryId: this.props.historyBoundaryId,
+      if (!this.ownsSplit()) {
+        if (this.jumpDisabled()) {
+          return { outcome: 'unavailable', reason: 'split_unavailable', moved: false };
+        }
+
+        this.splitTimeline();
+        const opened = textJumpRequest({ statusId });
+
+        return this.executeJump(token, opened.query, `${this.splitKeyPrefix()}${this.splitSessionId}`);
+      }
+
+      const loaded = this.props.onResolveLoadedRow ? this.props.onResolveLoadedRow(statusId) : null;
+      const plan = textJumpRequest({
+        statusId,
+        loadedDisplayRowId: loaded,
+        boundaryId: this.props.historyBoundaryId,
+      });
+
+      if (!plan.ok) {
+        return { outcome: 'unavailable', reason: plan.reason, moved: false };
+      }
+
+      if (plan.mode === 'loaded') {
+        return this.executeLoadedJump(token, plan, this.getSplitTimelineId());
+      }
+
+      return this.executeJump(token, plan.query, this.getSplitTimelineId());
+    }).catch(() => {
+      if (!this.textJumpStillCurrent(token, flight)) {
+        return { outcome: 'stale', reason: 'stale', moved: false };
+      }
+
+      return { outcome: 'unavailable', reason: 'network', moved: false };
     });
-
-    if (!plan.ok) {
-      return Promise.resolve({ outcome: 'unavailable', reason: plan.reason, moved: false });
-    }
-
-    if (plan.mode === 'loaded') {
-      return this.executeLoadedJump(token, plan, this.getSplitTimelineId());
-    }
-
-    return this.executeJump(token, plan.query, this.getSplitTimelineId());
   };
 
   handleJumpSubmit = (query) => {

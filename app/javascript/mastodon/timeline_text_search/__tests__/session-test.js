@@ -7,6 +7,7 @@ import {
   ingestSearchPage,
   loadedDisplayRowId,
   membershipBody,
+  membershipGate,
   nextMembershipIds,
   payloadHasSearchText,
   publicPaging,
@@ -206,6 +207,73 @@ describe('timeline text search session', () => {
     expect(publicResults(state)).toHaveLength(10);
   });
 
+  it('keeps a full page of duplicate hits continuable until the page cap', async () => {
+    const repeated = [];
+
+    for (let index = 0; index < 20; index += 1) {
+      repeated.push(phrase(String(index + 1), `same-${index}`));
+    }
+
+    const searches = [];
+    let state = createTextSearchState();
+    const search = ({ offset, limit }) => {
+      searches.push({ offset, limit });
+      return Promise.resolve(page(repeated));
+    };
+    const membership = (payload) => Promise.resolve(memberBody(payload.ids.map(id => ({ id, outcome: 'not_in_source' }))));
+    const first = await runSearchSession({
+      state,
+      identity,
+      search,
+      membership,
+      isCurrent: () => true,
+    });
+
+    state = first.state;
+
+    while (publicPaging(state) === 'more') {
+      const step = await runNextPage({
+        state,
+        identity,
+        search,
+        membership,
+        isCurrent: () => true,
+      });
+
+      state = step.state;
+    }
+
+    expect(searches).toHaveLength(10);
+    expect(searches[0]).toEqual({ offset: 0, limit: 20 });
+    expect(searches[9]).toEqual({ offset: 180, limit: 20 });
+    expect(state.candidates).toHaveLength(20);
+    expect(state.pagesFetched).toBe(10);
+    expect(publicPaging(state)).toBe('limit');
+  });
+
+  it('walks at most one max page of a huge hit list', () => {
+    const statuses = [];
+
+    for (let index = 0; index < 5000; index += 1) {
+      statuses.push(phrase(String(index + 1), `bulk-${index}`));
+    }
+
+    statuses[40] = phrase('41', 'not-examined-phrase');
+
+    const state = ingestSearchPage(beginSearch(createTextSearchState()), {
+      ok: true,
+      statuses,
+      received: 5000,
+    });
+
+    expect(state.candidates).toHaveLength(40);
+    expect(state.candidates[39]).toBe('40');
+    expect(state.candidates).not.toContain('41');
+    expect(JSON.stringify(state.records)).not.toContain('not-examined-phrase');
+    expect(state.offset).toBe(TEXT_SEARCH_PAGE_SIZE);
+    expect(state.stop).toBe('more');
+  });
+
   it('does not request another page after a short page', async () => {
     const search = jest.fn(() => Promise.resolve(page([phrase('8', 'only')])));
     const result = await runSearchSession({
@@ -302,6 +370,19 @@ describe('timeline text search session', () => {
       columnId: 'column-a',
       locationKey: 'route-a',
     }))).toBe(true);
+  });
+
+  it('allows a jump only when the recheck says this id is a member', () => {
+    const member = memberBody([{ id: '90', outcome: 'member' }]);
+    const hidden = memberBody([{ id: '90', outcome: 'not_visible', reason: 'viewer_filter' }]);
+    const unknown = memberBody([{ id: '90', outcome: 'unknown', reason: 'outside_retained_range' }]);
+    const cancelled = { ok: false, reason: 'cancelled' };
+
+    expect(membershipGate(member, '90')).toEqual({ ok: true, outcome: 'member', reason: 'member' });
+    expect(membershipGate(hidden, '90')).toEqual({ ok: false, outcome: 'not_visible', reason: 'viewer_filter' });
+    expect(membershipGate(unknown, '90')).toEqual({ ok: false, outcome: 'unknown', reason: 'outside_retained_range' });
+    expect(membershipGate(cancelled, '90')).toEqual({ ok: false, outcome: 'unavailable', reason: 'cancelled' });
+    expect(membershipGate(member, '91').ok).toBe(false);
   });
 
   it('jumps a loaded boost wrapper without putting the query on the seek', () => {

@@ -176,6 +176,106 @@ describe('timeline text search panel', () => {
     }));
   });
 
+  it('ignores Enter and Shift+Enter immediately after compositionend', async () => {
+    const onSearchStatuses = jest.fn(() => Promise.resolve({
+      ok: true,
+      received: 1,
+      statuses: [post('30', 'confirmed-hit')],
+    }));
+    const onJumpStatus = jest.fn(() => Promise.resolve({ moved: true, outcome: 'resolved' }));
+    const onCheckMembership = jest.fn(() => Promise.resolve(membership([
+      { id: '30', outcome: 'member' },
+    ])));
+
+    renderText({ onSearchStatuses, onCheckMembership, onJumpStatus });
+    const input = screen.getByLabelText('Text');
+
+    fireEvent.change(input, { target: { value: '確定' } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onSearchStatuses).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('confirmed-hit')).toBeTruthy();
+
+    fireEvent.compositionStart(input);
+    fireEvent.compositionEnd(input);
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Enter' });
+
+    expect(onSearchStatuses).toHaveBeenCalledTimes(1);
+    expect(onJumpStatus).not.toHaveBeenCalled();
+
+    fireEvent.compositionStart(input);
+    fireEvent.compositionEnd(input);
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Enter', shiftKey: true });
+
+    expect(onJumpStatus).not.toHaveBeenCalled();
+    expect(onSearchStatuses).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(input, { key: 'a' });
+
+    await act(async () => {
+      fireEvent.submit(input.closest('form'));
+      await Promise.resolve();
+    });
+
+    expect(onSearchStatuses).toHaveBeenCalledTimes(2);
+  });
+
+  it('disables search, paging, and result moves until they can run', async () => {
+    const idle = renderText({});
+
+    expect(screen.getByRole('button', { name: 'Search' }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Previous result' }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Next result' }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Check the next page' }).disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText('Text'), { target: { value: '  ' } });
+    expect(screen.getByRole('button', { name: 'Search' }).disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText('Text'), { target: { value: 'ready' } });
+    expect(screen.getByRole('button', { name: 'Search' }).disabled).toBe(false);
+    idle.unmount();
+
+    const pending = defer();
+    const statuses = [];
+
+    for (let index = 0; index < 20; index += 1) {
+      statuses.push(post(String(index + 1), `hit-${index}`));
+    }
+
+    const onSearchStatuses = jest.fn(() => pending.promise);
+    const onCheckMembership = jest.fn(payload => Promise.resolve(membership(
+      payload.ids.map(id => ({ id, outcome: 'member' })),
+    )));
+
+    renderText({ onSearchStatuses, onCheckMembership });
+    fireEvent.change(screen.getByLabelText('Text'), { target: { value: 'ready' } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    });
+
+    expect(screen.getByRole('button', { name: 'Looking…' }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Previous result' }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Next result' }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Check the next page' }).disabled).toBe(true);
+
+    await act(async () => {
+      pending.resolve({ ok: true, received: 20, statuses });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole('button', { name: 'Search' }).disabled).toBe(false);
+    expect(screen.getByRole('button', { name: 'Previous result' }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Next result' }).disabled).toBe(false);
+    expect(screen.getByRole('button', { name: 'Check the next page' }).disabled).toBe(false);
+  });
+
   it('ignores a stale response after the column changes and forgets the query on close', async () => {
     const search = defer();
     const onSearchStatuses = jest.fn(() => search.promise);

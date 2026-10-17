@@ -47,7 +47,7 @@ const renderCore = (props) => render(
     sourceTimelineId='home'
     columnId='column-a'
     multiColumn
-    location={{ key: 'A' }}
+    location={props.location || { key: 'A' }}
     splitRatio={35}
     onSplitRatioCommit={() => {}}
     unavailableMessage={{ id: 'timeline.split_unavailable', defaultMessage: 'Another timeline is already split' }}
@@ -58,7 +58,7 @@ const renderCore = (props) => render(
     onClearReturnAnchor={() => {}}
     historyContract={{ source: 'home', path: '/api/v1/timelines/home', params: {} }}
     historyItemIds={items}
-    historyBoundaryId='100'
+    historyBoundaryId={props.historyBoundaryId === undefined ? '100' : props.historyBoundaryId}
     historySeek={props.historySeek || null}
     onSeekTimeline={props.onSeekTimeline || jest.fn(() => Promise.resolve({ result: { outcome: 'not_in_source', reason: 'not_in_source' }, snapshot: { items, windowState } }))}
     onRestoreJump={props.onRestoreJump || jest.fn()}
@@ -86,7 +86,7 @@ const core = (props, historySeek) => (
     sourceTimelineId='home'
     columnId='column-a'
     multiColumn
-    location={{ key: 'A' }}
+    location={props.location || { key: 'A' }}
     splitRatio={35}
     onSplitRatioCommit={() => {}}
     unavailableMessage={{ id: 'timeline.split_unavailable', defaultMessage: 'Another timeline is already split' }}
@@ -97,7 +97,7 @@ const core = (props, historySeek) => (
     onClearReturnAnchor={() => {}}
     historyContract={{ source: 'home', path: '/api/v1/timelines/home', params: {} }}
     historyItemIds={items}
-    historyBoundaryId='100'
+    historyBoundaryId={props.historyBoundaryId === undefined ? '100' : props.historyBoundaryId}
     historySeek={historySeek || props.historySeek || null}
     onSeekTimeline={props.onSeekTimeline}
     onRestoreJump={props.onRestoreJump}
@@ -246,5 +246,198 @@ describe('timeline text result jumps', () => {
       reason: 'filtered',
     }));
     expect(screen.getByRole('button', { name: /loaded-hit/ }).getAttribute('aria-current')).toBeNull();
+  });
+
+  it('does not scroll a loaded row when membership changed before the jump', async () => {
+    const onSeekTimeline = jest.fn();
+    const onPointJump = jest.fn();
+    const onSearchStatuses = jest.fn(() => Promise.resolve({
+      ok: true,
+      received: 1,
+      statuses: [post('90', 'loaded-hit')],
+    }));
+    const onCheckMembership = jest.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        body: {
+          outcome: 'complete',
+          results: [{ id: '90', outcome: 'member' }],
+          limitations: [],
+          limits: { ids: 50 },
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        body: {
+          outcome: 'complete',
+          results: [{ id: '90', outcome: 'not_visible', reason: 'viewer_filter' }],
+          limitations: [],
+          limits: { ids: 50 },
+        },
+      });
+
+    renderCore({
+      onSeekTimeline,
+      onPointJump,
+      onSearchStatuses,
+      onCheckMembership,
+      onResolveLoadedRow: () => '90',
+    });
+
+    await searchMember('loaded-hit');
+
+    expect(onCheckMembership).toHaveBeenCalledTimes(2);
+    expect(onCheckMembership.mock.calls[1][0].ids).toEqual(['90']);
+    expect(JSON.stringify(onCheckMembership.mock.calls[1][0])).not.toContain('needle');
+    expect(onPointJump).not.toHaveBeenCalled();
+    expect(onSeekTimeline).not.toHaveBeenCalled();
+    expect(screen.getByText('A filter or permission is hiding that post.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /loaded-hit/ }).getAttribute('aria-current')).toBeNull();
+  });
+
+  it('scrolls the boost wrapper after the recheck confirms the original id', async () => {
+    const onSeekTimeline = jest.fn();
+    const onPointJump = jest.fn(() => ({ sessionId: 'point-boost', snapshot: { items, windowState } }));
+    const onSearchStatuses = jest.fn(() => Promise.resolve({
+      ok: true,
+      received: 1,
+      statuses: [post('150', 'boost-hit')],
+    }));
+    const onCheckMembership = jest.fn(() => Promise.resolve({
+      ok: true,
+      body: {
+        outcome: 'complete',
+        results: [{ id: '150', outcome: 'member' }],
+        limitations: [],
+        limits: { ids: 50 },
+      },
+    }));
+
+    renderCore({
+      onSeekTimeline,
+      onPointJump,
+      onSearchStatuses,
+      onCheckMembership,
+      onResolveLoadedRow: (statusId) => (statusId === '150' ? '200' : null),
+      historyBoundaryId: '300',
+      historySeek: ImmutableMap({ id: 'point-boost', scrollStatus: 'pending', anchorId: '200' }),
+    });
+
+    await searchMember('boost-hit');
+
+    expect(onSeekTimeline).not.toHaveBeenCalled();
+    expect(onPointJump).toHaveBeenCalledWith(expect.objectContaining({
+      splitTimelineId: splitId,
+      anchorId: '200',
+      statusId: '150',
+    }));
+    expect(JSON.stringify(onPointJump.mock.calls[0][0])).not.toContain('boost');
+  });
+
+  it('does not point a loaded row that is newer than the split boundary', async () => {
+    const onSeekTimeline = jest.fn();
+    const onPointJump = jest.fn();
+    const onSearchStatuses = jest.fn(() => Promise.resolve({
+      ok: true,
+      received: 1,
+      statuses: [post('80', 'live-side-hit')],
+    }));
+    const onCheckMembership = jest.fn(() => Promise.resolve({
+      ok: true,
+      body: {
+        outcome: 'complete',
+        results: [{ id: '80', outcome: 'member' }],
+        limitations: [],
+        limits: { ids: 50 },
+      },
+    }));
+
+    renderCore({
+      onSeekTimeline,
+      onPointJump,
+      onSearchStatuses,
+      onCheckMembership,
+      onResolveLoadedRow: () => '500',
+      historyBoundaryId: '400',
+    });
+
+    await searchMember('live-side-hit');
+
+    expect(onPointJump).not.toHaveBeenCalled();
+    expect(onSeekTimeline).not.toHaveBeenCalled();
+    expect(screen.getByText('That post is on the live side of the split. History was not moved.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /live-side-hit/ }).getAttribute('aria-current')).toBeNull();
+  });
+
+  it('drops a membership recheck that returns after the route changes', async () => {
+    let resolveRecheck;
+    const onSeekTimeline = jest.fn();
+    const onPointJump = jest.fn();
+    const onSearchStatuses = jest.fn(() => Promise.resolve({
+      ok: true,
+      received: 1,
+      statuses: [post('90', 'loaded-hit')],
+    }));
+    const onCheckMembership = jest.fn()
+      .mockImplementationOnce(() => Promise.resolve({
+        ok: true,
+        body: {
+          outcome: 'complete',
+          results: [{ id: '90', outcome: 'member' }],
+          limitations: [],
+          limits: { ids: 50 },
+        },
+      }))
+      .mockImplementationOnce(() => new Promise(resolve => {
+        resolveRecheck = resolve;
+      }));
+    const view = renderCore({
+      onSeekTimeline,
+      onPointJump,
+      onSearchStatuses,
+      onCheckMembership,
+      onResolveLoadedRow: () => '90',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Find in this timeline' }));
+    fireEvent.change(screen.getByLabelText('What to find'), { target: { value: 'text' } });
+    fireEvent.change(screen.getByLabelText('Text'), { target: { value: 'needle' } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /loaded-hit/ }));
+      await Promise.resolve();
+    });
+
+    view.rerender(core({
+      onSeekTimeline,
+      onPointJump,
+      onSearchStatuses,
+      onCheckMembership,
+      onResolveLoadedRow: () => '90',
+      location: { key: 'B' },
+    }));
+
+    await act(async () => {
+      resolveRecheck({
+        ok: true,
+        body: {
+          outcome: 'complete',
+          results: [{ id: '90', outcome: 'member' }],
+          limitations: [],
+          limits: { ids: 50 },
+        },
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onPointJump).not.toHaveBeenCalled();
+    expect(onSeekTimeline).not.toHaveBeenCalled();
   });
 });

@@ -310,7 +310,12 @@ class TimelineColumnJumpPanel extends React.PureComponent {
   };
 
   handleComposition = (event) => {
-    this.composing = event.type === 'compositionstart';
+    const starting = event.type === 'compositionstart';
+
+    this.composing = starting;
+    // Safari and Firefox can emit a plain Enter after compositionend.
+    // Swallow that one key. A later Enter is a real search or move.
+    this.imeJustEnded = !starting;
   };
 
   handleKeyDown = (event) => {
@@ -322,10 +327,15 @@ class TimelineColumnJumpPanel extends React.PureComponent {
       return;
     }
 
-    if (event.key === 'Enter' && this.isImeEnter(event)) {
+    if (event.key === 'Enter' && (this.isImeEnter(event) || this.imeJustEnded)) {
       event.preventDefault();
       event.stopPropagation();
+      this.imeJustEnded = false;
       return;
+    }
+
+    if (this.imeJustEnded) {
+      this.imeJustEnded = false;
     }
 
     if (event.key === 'Enter' && event.shiftKey) {
@@ -781,7 +791,7 @@ class TimelineColumnJumpPanel extends React.PureComponent {
     const { intl, panelId } = this.props;
     const view = this.state.textView;
     const status = this.textStatusText();
-    const canSearch = modeState.canSubmit && !this.state.busy;
+    const canSearch = modeState.canSubmit && !this.state.busy && this.state.textQuery.trim().length > 0;
     const atStart = this.state.textIndex <= 0;
     const atEnd = this.state.textIndex < 0
       ? this.state.textResults.length === 0

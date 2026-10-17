@@ -21,8 +21,12 @@ import { anchorBeyondSplitBoundary } from '../timeline_seek/window';
 //   Faraday::ConnectionFailed, and Parslet::ParseFailed all become statuses: []
 //   with no error flag. This session does not turn that into a hard error.
 //
-// Caps match TimelineSeek::Membership: 50 ids per batch, 200 candidates,
-// 10 pages of the default 20. The query stays in the search GET only.
+// Caps match TimelineSeek::Membership: 50 ids per batch, 200 deduped
+// candidate ids kept for the session (not raw hits received), and 10
+// search pages. Each response is walked only up to the 40-row page max,
+// so a huge payload cannot expand the session. A full page whose ids were
+// already seen stays continuable until one of those caps. A short page
+// still means the index stopped. The query stays in the search GET only.
 
 export const TEXT_SEARCH_PAGE_SIZE = MEMBERSHIP_SEARCH_PAGE_DEFAULT;
 export const TEXT_SEARCH_MAX_PAGES = MEMBERSHIP_SESSION_CANDIDATE_LIMIT / MEMBERSHIP_SEARCH_PAGE_DEFAULT;
@@ -194,12 +198,14 @@ export const ingestSearchPage = (state, page) => {
   const incoming = [];
   const records = { ...state.records };
   const seen = {};
+  const rawStatuses = Array.isArray(body.statuses) ? body.statuses : [];
+  const examined = rawStatuses.slice(0, MEMBERSHIP_SEARCH_PAGE_MAX);
 
   state.candidates.forEach(id => {
     seen[id] = true;
   });
 
-  (body.statuses || []).forEach(status => {
+  examined.forEach(status => {
     if (state.candidates.length + incoming.length >= state.limits.sessionCandidates) {
       return;
     }
@@ -217,13 +223,11 @@ export const ingestSearchPage = (state, page) => {
 
   const candidates = state.candidates.concat(incoming);
   const pagesFetched = state.pagesFetched + 1;
-  const count = typeof body.received === 'number' ? body.received : (body.statuses || []).length;
+  const count = examined.length;
   let stop;
 
   if (count === 0) {
     stop = 'uncertain';
-  } else if (incoming.length === 0) {
-    stop = 'exhausted';
   } else if (candidates.length >= state.limits.sessionCandidates || pagesFetched >= state.limits.maxPages) {
     stop = 'limit';
   } else if (count < pageSize) {
@@ -341,6 +345,35 @@ export const ingestMembership = (state, response) => {
     limits,
     membershipHalt: null,
   };
+};
+
+// A jump may proceed only when this id is a confirmed member right now.
+// unknown is a retained-window miss, not permission to scroll or seek.
+export const membershipGate = (response, statusId) => {
+  const body = haltFrom(response);
+
+  if (!isDecimalStatusId(statusId)) {
+    return { ok: false, outcome: 'unsupported', reason: 'invalid_id' };
+  }
+
+  if (!body || body.outcome === 'unsupported' || body.outcome === 'unavailable' || !Array.isArray(body.results)) {
+    return {
+      ok: false,
+      outcome: body && body.outcome ? body.outcome : 'unavailable',
+      reason: body && body.reason ? body.reason : 'network',
+    };
+  }
+
+  const row = body.results.find(item => item && String(item.id) === String(statusId));
+
+  if (!row || row.outcome !== 'member') {
+    const outcome = row && typeof row.outcome === 'string' ? row.outcome : 'not_found';
+    const reason = row && typeof row.reason === 'string' && row.reason ? row.reason : outcome;
+
+    return { ok: false, outcome, reason };
+  }
+
+  return { ok: true, outcome: 'member', reason: 'member' };
 };
 
 export const publicResults = (state) => (
