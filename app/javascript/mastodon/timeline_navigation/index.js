@@ -1,0 +1,33 @@
+export {
+  SCROLL_HOST_KINDS,
+  TIMELINE_ANCHOR_ALIGNMENTS,
+  TIMELINE_ANCHOR_REASONS,
+  TIMELINE_ANCHOR_VERSION,
+  createTimelinePosition,
+  decodeTimelineAnchor,
+  encodeTimelineAnchor,
+  isDecimalStatusId,
+  isDisplayRowId,
+  isInnerScrollHostKind,
+  isScrollHostKind,
+  sameTimelineSource,
+  sameTimelineView,
+  selectAnchorFromMeasurements,
+  timelineAnchorDelta,
+  timelineAnchorReferenceTop,
+  timelineSourceIdentity,
+  timelineViewIdentity,
+} from './anchor';
+
+export {
+  alignDisplayRow,
+  alignLegacySplitAnchor,
+  captureTimelineAnchor,
+  findLoadedTimelineStatus,
+  legacySplitAnchorFromCapture,
+  readDocumentVisibleTop,
+  readScrollHostViewport,
+  restoreTimelineAnchor,
+  scheduleTimelineAnchorFrames,
+  scrollToLoadedTimelineStatus,
+} from './dom';

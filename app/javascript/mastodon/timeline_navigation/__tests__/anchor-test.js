@@ -1,0 +1,156 @@
+import {
+  TIMELINE_ANCHOR_REASONS,
+  createTimelinePosition,
+  decodeTimelineAnchor,
+  encodeTimelineAnchor,
+  sameTimelineSource,
+  sameTimelineView,
+  selectAnchorFromMeasurements,
+  timelineAnchorDelta,
+  timelineSourceIdentity,
+  timelineViewIdentity,
+} from '../anchor';
+
+const row = (rowId, top, height) => ({ rowId, top, bottom: top + height, height });
+
+describe('timeline anchor geometry', () => {
+  it('keeps the row that straddles the visible top and stores a negative offset', () => {
+    const selected = selectAnchorFromMeasurements({
+      rows: [row('100', -80, 40), row('90', -20, 100), row('80', 90, 100)],
+      visibleTop: 64,
+      visibleHeight: 700,
+      alignment: 'top',
+    });
+
+    expect(selected).toEqual({ rowId: '90', offsetPx: -84, alignment: 'top' });
+    expect(timelineAnchorDelta({
+      rowTop: -20,
+      rowHeight: 100,
+      visibleTop: 64,
+      visibleHeight: 700,
+      offsetPx: selected.offsetPx,
+      alignment: 'top',
+    })).toBe(0);
+  });
+
+  it('returns an empty anchor when the host has no rows or only gaps', () => {
+    expect(selectAnchorFromMeasurements({ rows: [], visibleTop: 10 })).toEqual({
+      rowId: null,
+      offsetPx: 0,
+      alignment: 'top',
+    });
+    expect(selectAnchorFromMeasurements({
+      rows: [{ rowId: '', top: 0, bottom: 40, height: 40 }],
+      visibleTop: 0,
+    }).rowId).toBeNull();
+  });
+
+  it('centers a row against the viewport midline', () => {
+    const selected = selectAnchorFromMeasurements({
+      rows: [row('10', 0, 100), row('11', 100, 80)],
+      visibleTop: 0,
+      visibleHeight: 200,
+      alignment: 'center',
+    });
+
+    expect(selected.rowId).toBe('11');
+    expect(selected.alignment).toBe('center');
+    expect(timelineAnchorDelta({
+      rowTop: 100,
+      rowHeight: 80,
+      visibleTop: 0,
+      visibleHeight: 200,
+      offsetPx: 0,
+      alignment: 'center',
+    })).toBe(40);
+  });
+});
+
+describe('timeline position contract', () => {
+  const anchor = {
+    version: 1,
+    statusId: '12634567890123456789',
+    offsetPx: -12.5,
+    alignment: 'top',
+    fallbackScrollTop: 480,
+    capturedAt: '2026-10-17T03:31:02.000Z',
+    accessToken: 'secret',
+  };
+
+  it('keeps snowflake ids as strings and drops unknown fields', () => {
+    const encoded = encodeTimelineAnchor(anchor);
+
+    expect(encoded.ok).toBe(true);
+    expect(encoded.anchor.statusId).toBe('12634567890123456789');
+    expect(typeof encoded.anchor.statusId).toBe('string');
+    expect(JSON.parse(JSON.stringify(encoded.anchor)).statusId).toBe('12634567890123456789');
+    expect(String(Number(anchor.statusId))).not.toBe(anchor.statusId);
+    expect(encoded.anchor.accessToken).toBeUndefined();
+    expect(Object.keys(encoded.anchor).sort()).toEqual([
+      'alignment',
+      'capturedAt',
+      'fallbackScrollTop',
+      'offsetPx',
+      'statusId',
+      'version',
+    ]);
+  });
+
+  it('rejects numeric ids, bad versions, and non-finite offsets', () => {
+    expect(decodeTimelineAnchor({ ...anchor, statusId: 12634567890123456789 }).reason).toBe(TIMELINE_ANCHOR_REASONS.INVALID);
+    expect(decodeTimelineAnchor({ ...anchor, version: 2 }).ok).toBe(false);
+    expect(decodeTimelineAnchor({ ...anchor, offsetPx: Number.NaN }).ok).toBe(false);
+    expect(decodeTimelineAnchor({ ...anchor, alignment: 'bottom' }).ok).toBe(false);
+    expect(decodeTimelineAnchor(null).ok).toBe(false);
+  });
+
+  it('treats source identity and view identity as separate', () => {
+    const source = timelineSourceIdentity('list:42', { local: true });
+    const otherConditions = timelineSourceIdentity('list:42', { local: false });
+    const left = timelineViewIdentity({
+      columnId: 'column-a',
+      scrollKey: 'list:42:column-a',
+      locationKey: 'route-a',
+      pane: 'history',
+      dataTimelineId: 'list:42:split:column-a:session',
+    });
+    const right = timelineViewIdentity({
+      columnId: 'column-b',
+      scrollKey: 'list:42:column-b',
+      locationKey: 'route-a',
+      pane: 'history',
+      dataTimelineId: 'list:42:split:column-a:session',
+    });
+
+    expect(sameTimelineSource(source, timelineSourceIdentity('list:42', { local: true }))).toBe(true);
+    expect(sameTimelineSource(source, otherConditions)).toBe(false);
+    expect(sameTimelineSource(source, timelineSourceIdentity('home'))).toBe(false);
+    expect(sameTimelineView(left, { ...left })).toBe(true);
+    expect(sameTimelineView(left, right)).toBe(false);
+
+    const position = createTimelinePosition({ source, view: left, anchor });
+    const otherSurface = createTimelinePosition({ source, view: right, anchor });
+
+    expect(position.ok).toBe(true);
+    expect(otherSurface.ok).toBe(true);
+    expect(position.position.source).toEqual(otherSurface.position.source);
+    expect(sameTimelineView(position.position.view, otherSurface.position.view)).toBe(false);
+    expect(position.position.anchor.accessToken).toBeUndefined();
+    expect(createTimelinePosition({
+      source,
+      view: left,
+      anchor: { ...anchor, token: 'do-not-keep', statusId: 15 },
+    }).ok).toBe(false);
+  });
+
+  it('does not keep functions or secret-shaped condition values', () => {
+    const source = timelineSourceIdentity('home', {
+      local: true,
+      password: { raw: 'nope' },
+      note: 'x'.repeat(300),
+      'weird key': true,
+    });
+
+    expect(source.conditions).toEqual({ local: true });
+  });
+});

@@ -10,6 +10,12 @@ import TimelineSplitter, {
 } from 'mastodon/components/timeline_splitter';
 import uuid from '../../../uuid';
 import { scrollTop as scrollElementToTop } from '../../../scroll';
+import {
+  alignLegacySplitAnchor,
+  captureTimelineAnchor,
+  legacySplitAnchorFromCapture,
+  readDocumentVisibleTop,
+} from 'mastodon/timeline_navigation';
 
 const messages = defineMessages({
   split: { id: 'timeline.split', defaultMessage: 'Split timeline' },
@@ -31,28 +37,6 @@ export const clampTimelineSplitRatio = (value) => {
   }
 
   return Math.min(MAX_TIMELINE_SPLIT_RATIO, Math.max(MIN_TIMELINE_SPLIT_RATIO, Math.round(number)));
-};
-
-const articleSelector = (id) => {
-  const value = String(id).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-
-  return `article[data-id="${value}"]`;
-};
-
-const findAnchorArticle = (container, visibleTop) => {
-  if (!container) {
-    return null;
-  }
-
-  const articles = container.querySelectorAll('article[data-id]');
-
-  for (let i = 0; i < articles.length; i += 1) {
-    if (articles[i].getBoundingClientRect().bottom > visibleTop) {
-      return articles[i];
-    }
-  }
-
-  return null;
 };
 
 const resetDocumentScroll = () => {
@@ -142,57 +126,44 @@ class TimelineSplitControllerCore extends React.Component {
     return node.querySelector('.scrollable');
   }
 
-  getDocumentVisibleTop = () => {
-    const portal = document.getElementById('tabs-bar__portal');
-    const wrapper = portal && portal.closest('.tabs-bar__wrapper');
+  getDocumentVisibleTop = () => readDocumentVisibleTop()
 
-    if (!wrapper) {
-      return 0;
-    }
+  documentScrollHost = (list) => ({
+    kind: 'document',
+    list,
+    scroller: document.scrollingElement || document.body,
+  })
 
-    const rect = wrapper.getBoundingClientRect();
-
-    if (rect.bottom <= 0 || rect.top > 0) {
-      return 0;
-    }
-
-    return Math.max(0, rect.bottom);
-  }
+  paneScrollHost = (pane, list) => ({
+    kind: pane === 'live' ? 'live' : 'history',
+    list,
+    scroller: list,
+  })
 
   captureDocumentAnchor = () => {
     const scrollable = this.findScrollable('single');
     const visibleTop = this.getDocumentVisibleTop();
     const fallbackOffset = scrollable ? Math.max(0, visibleTop - scrollable.getBoundingClientRect().top) : 0;
-    const article = findAnchorArticle(scrollable, visibleTop);
+    const captured = captureTimelineAnchor({
+      scrollHost: this.documentScrollHost(scrollable),
+      visibleTop,
+      alignment: 'top',
+    });
 
-    if (!article) {
-      return { id: null, offset: 0, fallbackOffset, target: 'history' };
-    }
-
-    return {
-      id: article.getAttribute('data-id'),
-      offset: article.getBoundingClientRect().top - visibleTop,
-      fallbackOffset,
-      target: 'history',
-    };
+    return legacySplitAnchorFromCapture(captured, { fallbackOffset, target: 'history' });
   }
 
   capturePaneAnchor = (pane) => {
     const scrollable = this.findScrollable(pane);
     const visibleTop = scrollable ? scrollable.getBoundingClientRect().top : 0;
     const fallbackOffset = scrollable ? scrollable.scrollTop : 0;
-    const article = findAnchorArticle(scrollable, visibleTop);
+    const captured = captureTimelineAnchor({
+      scrollHost: this.paneScrollHost(pane, scrollable),
+      visibleTop,
+      alignment: 'top',
+    });
 
-    if (!article) {
-      return { id: null, offset: 0, fallbackOffset, target: 'document' };
-    }
-
-    return {
-      id: article.getAttribute('data-id'),
-      offset: article.getBoundingClientRect().top - visibleTop,
-      fallbackOffset,
-      target: 'document',
-    };
+    return legacySplitAnchorFromCapture(captured, { fallbackOffset, target: 'document' });
   }
 
   applyScrollAnchor = (anchor) => {
@@ -207,16 +178,14 @@ class TimelineSplitControllerCore extends React.Component {
         return false;
       }
 
-      const article = anchor.id ? history.querySelector(articleSelector(anchor.id)) : null;
+      const result = alignLegacySplitAnchor({
+        scrollHost: this.paneScrollHost('history', history),
+        visibleTop: history.getBoundingClientRect().top,
+        anchor,
+        fallback: 'absolute',
+      });
 
-      if (article) {
-        const delta = (article.getBoundingClientRect().top - history.getBoundingClientRect().top) - anchor.offset;
-        history.scrollTop += delta;
-      } else {
-        history.scrollTop = anchor.fallbackOffset;
-      }
-
-      return true;
+      return !!(result.ok || result.usedFallback);
     }
 
     if (anchor.target === 'document') {
@@ -227,18 +196,14 @@ class TimelineSplitControllerCore extends React.Component {
         return false;
       }
 
-      const visibleTop = this.getDocumentVisibleTop();
-      const article = anchor.id ? scrollable.querySelector(articleSelector(anchor.id)) : null;
+      const result = alignLegacySplitAnchor({
+        scrollHost: this.documentScrollHost(scrollable),
+        visibleTop: this.getDocumentVisibleTop(),
+        anchor,
+        fallback: 'document-delta',
+      });
 
-      if (article) {
-        const delta = article.getBoundingClientRect().top - visibleTop - anchor.offset;
-        scroller.scrollTop += delta;
-      } else {
-        const listOffset = visibleTop - scrollable.getBoundingClientRect().top;
-        scroller.scrollTop += anchor.fallbackOffset - listOffset;
-      }
-
-      return true;
+      return !!(result.ok || result.usedFallback);
     }
 
     return false;
