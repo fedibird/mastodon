@@ -45,12 +45,14 @@ const SplitView = ({ split, multiColumn }) => (
         extraButton={(
           <React.Fragment>
             {split.splitButton}
+            {split.jumpButton}
             {split.closeLiveButton}
           </React.Fragment>
         )}
         multiColumn={multiColumn}
       />
     </div>
+    {split.jumpPanel}
     {split.isSplit ? (
       <div className='timeline-split' style={{ '--timeline-split-ratio': split.ratio }}>
         <div className='timeline-split__pane timeline-split__pane--live'>
@@ -100,6 +102,7 @@ class Harness extends React.PureComponent {
         onSplitRatioCommit={this.handleCommit}
         unavailableMessage={unavailableMessage}
         splitContextKey={this.props.splitContextKey}
+        historyContract={this.props.historyContract}
       >
         {this.renderSplit}
       </StatusTimelineSplitController>
@@ -806,5 +809,33 @@ describe('StatusTimelineSplitController', () => {
     expect(store.getState().getIn(['timelines', 'list:42', 'items'])).toEqual(ImmutableList(['120', '100', '90', '80']));
     expect(store.getState().getIn(['timelines', 'list:42', 'pendingItems'])).toEqual(ImmutableList());
     expect(store.getState().getIn(['settings', 'list', 'splitRatio'])).toBe(35);
+  });
+
+  it('opens and closes timeline jump without changing the timeline or composer state', () => {
+    const store = buildStore();
+    window.__headerClicked = false;
+    const { container } = renderHarness(store, {
+      columnId: 'column-a',
+      multiColumn: true,
+      historyContract: {
+        source: 'list',
+        path: '/api/v1/timelines/list/42',
+        params: {},
+      },
+    });
+    const before = store.getState().getIn(['timelines', 'list:42', 'items']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Find in this timeline' }));
+
+    expect(window.__headerClicked).toBe(false);
+    expect(screen.getByRole('dialog', { name: 'Find in this timeline' })).toBeTruthy();
+    expect(screen.getByText(/latest 2000 posts/)).toBeTruthy();
+
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(store.getState().getIn(['timelines', 'list:42', 'items'])).toEqual(before);
+    expect(container.querySelector('.timeline-split')).toBeNull();
+    expect(store.getState().getIn(['timelines', 'list:42', 'pendingItems'])).toEqual(ImmutableList(['120']));
   });
 });

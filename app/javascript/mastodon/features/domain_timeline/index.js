@@ -246,6 +246,7 @@ class DomainTimeline extends React.PureComponent {
           extraButton={(
             <Fragment>
               {split.splitButton}
+              {split.jumpButton}
               {split.resumeButton}
               {split.closeLiveButton}
             </Fragment>
@@ -256,6 +257,8 @@ class DomainTimeline extends React.PureComponent {
         >
           <ColumnSettingsContainer columnId={columnId} />
         </ColumnHeader>
+
+        {split.jumpPanel}
 
         {timeline}
       </Column>

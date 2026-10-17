@@ -421,6 +421,7 @@ class GroupTimeline extends React.PureComponent {
           extraButton={(
             <Fragment>
               {split.splitButton}
+              {split.jumpButton}
               {split.resumeButton}
               <PortableComposerToggle visible={composerVisible} onToggle={this.handleToggleComposer} />
               {groupDetailButton}
@@ -432,6 +433,8 @@ class GroupTimeline extends React.PureComponent {
         >
           <ColumnSettingsContainer columnId={columnId} />
         </ColumnHeader>
+
+        {split.jumpPanel}
 
         {groupDetail}
 

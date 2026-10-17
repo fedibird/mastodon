@@ -88,6 +88,33 @@ export const commitSeekState = (timeline, action) => {
   }));
 };
 
+const RESTORE_REASONS = ['filtered', 'not_loaded'];
+
+// Puts the pre-jump history window back when the row never became the
+// visible anchor. A loaded scroll and a reader scroll are left alone.
+export const restoreJumpWindow = (timeline, action) => {
+  const seek = timeline.get('seek');
+  const scrollStatus = seek && seek.get('scrollStatus');
+
+  // A loaded jump and a reader scroll stay on the window the reader is looking at.
+  if (!seek || seek.get('id') !== action.sessionId || scrollStatus === 'loaded' || scrollStatus === 'user_scroll') {
+    return timeline;
+  }
+
+  if (RESTORE_REASONS.indexOf(action.reason) === -1 || !action.items || !action.windowState) {
+    return timeline;
+  }
+
+  return timeline
+    .set('items', action.items)
+    .set('window', action.windowState)
+    .set('seek', seek.merge({
+      scrollStatus: action.reason,
+      scrollReason: action.reason,
+      restored: true,
+    }));
+};
+
 export const settleSeekScroll = (timeline, action) => {
   const seek = timeline.get('seek');
 

@@ -209,6 +209,7 @@ class HomeTimeline extends React.PureComponent {
     const extraButton = (
       <Fragment>
         {split.splitButton}
+        {split.jumpButton}
         {split.resumeButton}
         {announcementsButton}
         {split.closeLiveButton}
@@ -283,6 +284,8 @@ class HomeTimeline extends React.PureComponent {
         >
           <ColumnSettingsContainer />
         </ColumnHeader>
+
+        {split.jumpPanel}
 
         {timeline}
       </Column>

@@ -116,7 +116,7 @@ describe('HashtagTimeline split', () => {
     }
 
     expect(container.querySelector('.scrollable').getAttribute('data-timeline')).toBe('hashtag:ruby');
-    expect(headerLabels.slice(0, 3)).toEqual(['Split timeline', 'Show composer', 'Follow hashtag']);
+    expect(headerLabels.slice(0, 4)).toEqual(['Split timeline', 'Find in this timeline', 'Show composer', 'Follow hashtag']);
     expect(screen.getByRole('button', { name: 'Show composer' }).getAttribute('aria-pressed')).toBe('false');
     expect(container.querySelectorAll('[data-testid="portable-composer"]')).toHaveLength(0);
     expect(streamLog).toEqual(['connect:ruby:ruby']);

@@ -1,6 +1,7 @@
 import React from 'react';
 import { connect } from 'react-redux';
 import PropTypes from 'prop-types';
+import { CancelToken, isCancel } from 'axios';
 import {
   TIMELINE_SPLIT_KEEP_HISTORY,
   clearTimelineSplitReturnAnchor,
@@ -9,6 +10,9 @@ import {
   saveTimelineSplitReturnAnchor,
 } from '../../../actions/timelines';
 import { cancelWindowedHistory } from '../../../windowed_history/flights';
+import api from '../../../api';
+import { seekWindowedTimeline, settleWindowSeekScroll } from '../../../actions/timeline_seek';
+import { WINDOW_SEEK_RESTORE } from '../../../timeline_seek/constants';
 import { me } from '../../../initial_state';
 import { captureHistoryPosition, cancelHistoryResume, resumeHistoryPosition } from '../../../actions/timeline_position';
 import TimelineSplitControllerCore, {
@@ -40,6 +44,7 @@ const mapStateToProps = (state, ownProps) => {
     splitBlocked: state.getIn(['timelines', sourceTimelineId, 'isPartial']),
     historyResume: activeSplitId ? state.getIn(['timelines', activeSplitId, 'historyResume']) || null : null,
     historyItemIds: activeSplitId ? state.getIn(['timelines', activeSplitId, 'items']) || null : null,
+    historySeek: activeSplitId ? state.getIn(['timelines', activeSplitId, 'seek']) || null : null,
     accountId: ownProps.accountId || accountIdFromInitialState(me),
   };
 };
@@ -57,6 +62,7 @@ class StatusTimelineSplitController extends React.Component {
     splitBlocked: PropTypes.bool,
     historyResume: PropTypes.object,
     historyItemIds: PropTypes.object,
+    historySeek: PropTypes.object,
     accountId: PropTypes.string,
     historyContract: PropTypes.object,
   };
@@ -91,8 +97,80 @@ class StatusTimelineSplitController extends React.Component {
     this.props.dispatch(cancelHistoryResume(payload));
   };
 
+  handleSeekTimeline = (payload) => this.props.dispatch((dispatch, getState) => {
+    const before = getState().getIn(['timelines', payload.splitTimelineId]);
+    const snapshot = before ? {
+      items: before.get('items'),
+      windowState: before.get('window'),
+    } : null;
+
+    return dispatch(seekWindowedTimeline(payload)).then(result => ({
+      result,
+      snapshot,
+    }));
+  });
+
+  handleSearchJumpAccounts = (query) => {
+    if (this.jumpAccountCancel) {
+      this.jumpAccountCancel();
+      this.jumpAccountCancel = null;
+    }
+
+    return this.props.dispatch((dispatch, getState) => api(getState).get('/api/v1/accounts/search', {
+      cancelToken: new CancelToken(cancel => {
+        this.jumpAccountCancel = cancel;
+      }),
+      params: {
+        q: query,
+        resolve: false,
+        limit: 4,
+      },
+    }).then(response => ({
+      ok: true,
+      accounts: (response.data || []).map(account => ({
+        id: account && account.id !== undefined && account.id !== null ? String(account.id) : '',
+        acct: account.acct || '',
+        display_name: account.display_name || '',
+      })).filter(account => account.id),
+    })).catch(error => {
+      if (isCancel(error)) {
+        return { ok: false, reason: 'cancelled', accounts: [] };
+      }
+
+      return { ok: false, reason: 'network', accounts: [] };
+    }));
+  };
+
+  handleCancelAccountSearch = () => {
+    if (this.jumpAccountCancel) {
+      this.jumpAccountCancel();
+      this.jumpAccountCancel = null;
+    }
+  };
+
+  handleSettleJumpScroll = ({ splitTimelineId, sessionId, revision, anchorId, scrolled, reason }) => {
+    this.props.dispatch(settleWindowSeekScroll(splitTimelineId, {
+      sessionId,
+      revision,
+      anchorId,
+      scrolled,
+      reason,
+    }));
+  };
+
+  handleRestoreJump = ({ splitTimelineId, sessionId, items, windowState, reason }) => {
+    this.props.dispatch({
+      type: WINDOW_SEEK_RESTORE,
+      timeline: splitTimelineId,
+      sessionId,
+      items,
+      windowState,
+      reason,
+    });
+  };
+
   render () {
-    const { dispatch, activeSplitId, splitReturnAnchor, splitBlocked, historyResume, historyItemIds, accountId, historyContract, ...rest } = this.props;
+    const { dispatch, activeSplitId, splitReturnAnchor, splitBlocked, historyResume, historyItemIds, historySeek, accountId, historyContract, ...rest } = this.props;
 
     return (
       <TimelineSplitControllerCore
@@ -102,8 +180,14 @@ class StatusTimelineSplitController extends React.Component {
         splitBlocked={splitBlocked}
         historyResume={historyResume}
         historyItemIds={historyItemIds}
+        historySeek={historySeek}
         accountId={accountId}
         historyContract={historyContract}
+        onSeekTimeline={this.handleSeekTimeline}
+        onSearchJumpAccounts={this.handleSearchJumpAccounts}
+        onCancelAccountSearch={this.handleCancelAccountSearch}
+        onRestoreJump={this.handleRestoreJump}
+        onSettleJumpScroll={this.handleSettleJumpScroll}
         onCreate={this.handleCreate}
         onDestroy={this.handleDestroy}
         onSaveReturnAnchor={this.handleSaveReturnAnchor}
