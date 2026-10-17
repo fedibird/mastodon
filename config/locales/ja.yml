@@ -1890,6 +1890,8 @@ ja:
       title: 新たなブースト
     status:
       subject: "%{name} さんが投稿しました"
+    status_boost:
+      subject: "%{name}さんがブーストしました"
     update:
       subject: "%{name} さんが投稿を編集しました"
     status_reference:

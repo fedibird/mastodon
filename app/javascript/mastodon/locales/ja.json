@@ -776,6 +776,7 @@
   "notification.reblog": "{name}さんがあなたの投稿をブーストしました",
   "notification.scheduled_status": "予約投稿が投稿されました",
   "notification.status": "{name}さんが投稿しました",
+  "notification.status_boost": "{name}さんがブーストしました",
   "notification.status_reference": "{name}さんがあなたの投稿を参照しました",
   "notifications.clear": "通知を消去",
   "notifications.clear_confirmation": "本当に通知を消去しますか？",
