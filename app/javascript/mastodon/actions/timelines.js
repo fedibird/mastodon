@@ -315,11 +315,12 @@ export const markAsPartial = timeline => ({
   timeline,
 });
 
-export function createTimelineSplit(sourceTimeline, splitTimeline) {
+export function createTimelineSplit(sourceTimeline, splitTimeline, anchorId = null) {
   return {
     type: TIMELINE_SPLIT_CREATE,
     sourceTimeline,
     splitTimeline,
+    anchorId,
   };
 }
 

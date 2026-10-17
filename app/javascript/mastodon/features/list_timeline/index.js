@@ -10,6 +10,8 @@ import { addColumn, removeColumn, moveColumn } from '../../actions/columns';
 import { FormattedMessage, defineMessages, injectIntl } from 'react-intl';
 import { connectListStream } from '../../actions/streaming';
 import { expandListTimeline } from '../../actions/timelines';
+import { expandWindowedHistory } from '../../actions/windowed_history';
+import { listHistoryContract } from '../../windowed_history/sources';
 import { fetchList, deleteList, updateList } from '../../actions/lists';
 import { openModal } from '../../actions/modal';
 import MissingIndicator from '../../components/missing_indicator';
@@ -177,12 +179,28 @@ class ListTimeline extends React.PureComponent {
     this.props.dispatch(expandListTimeline(id, { maxId }));
   }
 
-  handleLoadMoreHistory = maxId => {
+  handleLoadMoreHistory = (maxId, anchorId) => {
     const { id } = this.props.params;
 
-    this.props.dispatch(expandListTimeline(id, {
-      maxId,
-      timelineId: this.splitTimelineId,
+    this.props.dispatch(expandWindowedHistory({
+      sourceTimelineId: `list:${id}`,
+      splitTimelineId: this.splitTimelineId,
+      contract: listHistoryContract(id),
+      direction: 'older',
+      gapCursor: maxId,
+      anchorId,
+    }));
+  }
+
+  handleLoadNewerHistory = (anchorId) => {
+    const { id } = this.props.params;
+
+    this.props.dispatch(expandWindowedHistory({
+      sourceTimelineId: `list:${id}`,
+      splitTimelineId: this.splitTimelineId,
+      contract: listHistoryContract(id),
+      direction: 'newer',
+      anchorId,
     }));
   }
 
@@ -292,6 +310,7 @@ class ListTimeline extends React.PureComponent {
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`list_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}
+              onLoadNewer={this.handleLoadNewerHistory}
               timelineId={sourceTimelineId}
               dataTimelineId={split.splitTimelineId}
               trackIntersection

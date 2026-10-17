@@ -103,7 +103,7 @@ describe('LimitedTimeline split', () => {
     expect(splitTimelineId).toEqual(expect.stringMatching(/^limited:split:col-a:.+/));
     expect(store.getState().getIn(['timelines', splitTimelineId, 'isLoading'])).toBe(true);
     expect(mockGet).toHaveBeenLastCalledWith('/api/v1/timelines/home', expect.objectContaining({
-      params: expect.objectContaining({ max_id: '70' }),
+      params: expect.objectContaining({ max_id: '90' }),
     }));
 
     store.dispatch(updateTimeline('home', {

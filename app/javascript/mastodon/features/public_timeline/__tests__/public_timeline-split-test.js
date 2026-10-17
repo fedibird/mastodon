@@ -115,7 +115,7 @@ describe('PublicTimeline split', () => {
     expect(store.getState().getIn(['timelines', splitTimelineId, 'isLoading'])).toBe(true);
     expect(store.getState().getIn(['timelines', 'public:bot', 'items'])).toEqual(ImmutableList(['100', '90', '80']));
     expect(mockGet).toHaveBeenLastCalledWith('/api/v1/timelines/public', expect.objectContaining({
-      params: expect.objectContaining({ max_id: '70', remote: false }),
+      params: expect.objectContaining({ max_id: '80', remote: false }),
     }));
     expect(streamLog).toEqual(['connect']);
   });

@@ -1,6 +1,8 @@
 import React, { Fragment } from 'react';
 import { connect } from 'react-redux';
 import { expandPersonalTimeline, clearTimelineSplitReturnAnchor } from '../../actions/timelines';
+import { expandWindowedHistory } from '../../actions/windowed_history';
+import { personalHistoryContract } from '../../windowed_history/sources';
 import { personalTimelineId } from '../../actions/timeline_ids';
 import PropTypes from 'prop-types';
 import StatusListContainer from '../ui/containers/status_list_container';
@@ -98,10 +100,29 @@ class PersonalTimeline extends React.PureComponent {
     dispatch(expandPersonalTimeline({ maxId, onlyMedia, withoutMedia }));
   }
 
-  handleLoadMoreHistory = maxId => {
+  handleLoadMoreHistory = (maxId, anchorId) => {
     const { dispatch, onlyMedia, withoutMedia } = this.props;
 
-    dispatch(expandPersonalTimeline({ maxId, onlyMedia, withoutMedia, timelineId: this.splitTimelineId }));
+    dispatch(expandWindowedHistory({
+      sourceTimelineId: personalTimelineId({ onlyMedia, withoutMedia }),
+      splitTimelineId: this.splitTimelineId,
+      contract: personalHistoryContract({ onlyMedia, withoutMedia }),
+      direction: 'older',
+      gapCursor: maxId,
+      anchorId,
+    }));
+  }
+
+  handleLoadNewerHistory = (anchorId) => {
+    const { dispatch, onlyMedia, withoutMedia } = this.props;
+
+    dispatch(expandWindowedHistory({
+      sourceTimelineId: personalTimelineId({ onlyMedia, withoutMedia }),
+      splitTimelineId: this.splitTimelineId,
+      contract: personalHistoryContract({ onlyMedia, withoutMedia }),
+      direction: 'newer',
+      anchorId,
+    }));
   }
 
   componentDidMount () {
@@ -167,6 +188,7 @@ class PersonalTimeline extends React.PureComponent {
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`personal_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}
+              onLoadNewer={this.handleLoadNewerHistory}
               timelineId={sourceTimelineId}
               dataTimelineId={split.splitTimelineId}
               trackIntersection

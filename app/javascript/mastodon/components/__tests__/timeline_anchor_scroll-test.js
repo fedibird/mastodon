@@ -17,6 +17,7 @@ jest.mock('../../containers/scroll_container', () => ({ children }) => children)
 jest.mock('../regeneration_indicator', () => () => null);
 jest.mock('../load_gap', () => () => null);
 jest.mock('../reload_zone', () => () => null);
+jest.mock('../load_window_edge', () => () => null);
 jest.mock('../../filter_reconciliation/surface', () => ({
   FilterSurface: class {
 
@@ -382,6 +383,35 @@ describe('ScrollableList timeline anchor', () => {
     flushFrames();
     expect(list.scrollTop).toBe(590);
     expect(onLoadMore.mock.calls.length).toBe(loadsBeforeJump + 1);
+  });
+
+  it('does not auto-load the same older cursor while a partial page is paused', () => {
+    const ref = React.createRef();
+    const onLoadMore = jest.fn();
+    const { container } = render(
+      <Provider store={store()}>
+        <ScrollableList ref={ref} scrollKey='history' trackScroll={false} onLoadMore={onLoadMore} hasMore={false} olderStatus='paused'>
+          {rows(['100', '90', '80'])}
+        </ScrollableList>
+      </Provider>,
+    );
+    const list = container.querySelector('.scrollable');
+    let top = 0;
+
+    Object.defineProperty(list, 'scrollTop', {
+      configurable: true,
+      get: () => top,
+      set (value) {
+        top = Number(value) || 0;
+      },
+    });
+    Object.defineProperty(list, 'scrollHeight', { configurable: true, get: () => 900 });
+    Object.defineProperty(list, 'clientHeight', { configurable: true, get: () => 300 });
+
+    ref.current.setScrollTop(500);
+    ref.current.handleScroll.flush();
+
+    expect(onLoadMore).not.toHaveBeenCalled();
   });
 
   it('scrolls the document host under the sticky header and not an inner list', () => {

@@ -121,7 +121,7 @@ describe('PersonalTimeline split', () => {
     expect(splitTimelineId).toEqual(expect.stringMatching(/^personal:media:split:col-a:.+/));
     expect(mediaStore.getState().getIn(['timelines', splitTimelineId, 'isLoading'])).toBe(true);
     expect(mockGet).toHaveBeenLastCalledWith('/api/v1/timelines/personal', expect.objectContaining({
-      params: expect.objectContaining({ max_id: '70', only_media: true, without_media: false }),
+      params: expect.objectContaining({ max_id: '90', only_media: true, without_media: false }),
     }));
 
     const items = mediaStore.getState().getIn(['timelines', 'personal:media', 'items']);

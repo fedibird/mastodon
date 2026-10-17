@@ -26,6 +26,22 @@ import {
 import { Map as ImmutableMap, List as ImmutableList, fromJS } from 'immutable';
 import compareId from '../compare_id';
 import { uniqWithoutNull } from '../utils/uniq';
+import {
+  WINDOW_HISTORY_ANCHOR,
+  WINDOW_HISTORY_FAIL,
+  WINDOW_HISTORY_REQUEST,
+  WINDOW_HISTORY_SUCCESS,
+} from '../windowed_history/types';
+import {
+  failHistory,
+  initialHistoryWindow,
+  keptHistoryItems,
+  placeHistoryAnchor,
+  requestHistory,
+  succeedExpandedHistory,
+  succeedHistory,
+  syncHistoryEdges,
+} from '../windowed_history/timeline_state';
 
 
 const initialState = ImmutableMap();
@@ -107,6 +123,10 @@ const deleteStatus = (state, id, references, exclude_account = null) => {
     if (exclude_account === null || (timeline !== `account:${exclude_account}` && !timeline.startsWith(`account:${exclude_account}:`))) {
       const helper = list => list.filterNot(item => item === id);
       state = state.updateIn([timeline, 'items'], helper).updateIn([timeline, 'pendingItems'], helper);
+
+      if (state.getIn([timeline, 'window'])) {
+        state = state.update(timeline, syncHistoryEdges);
+      }
     }
   });
 
@@ -123,6 +143,10 @@ const expireStatus = (state, id, references, exclude_account) => {
     if (exclude_account === null || (timeline !== `account:${exclude_account}` && !timeline.startsWith(`account:${exclude_account}:`))) {
       const helper = list => list.filterNot(item => item === id);
       state = state.updateIn([timeline, 'items'], helper).updateIn([timeline, 'pendingItems'], helper);
+
+      if (state.getIn([timeline, 'window'])) {
+        state = state.update(timeline, syncHistoryEdges);
+      }
     }
   });
 
@@ -197,24 +221,26 @@ const firstStatusId = (ids) => {
   return id === undefined ? null : id;
 };
 
-const createTimelineSplit = (state, sourceTimeline, splitTimeline) => {
+const createTimelineSplit = (state, sourceTimeline, splitTimeline, anchorId) => {
   if (!sourceTimeline || !splitTimeline || state.getIn([sourceTimeline, 'splitTimelineId'])) {
     return state;
   }
 
   const source = state.get(sourceTimeline, initialTimeline);
   const items = source.get('items', ImmutableList());
+  const selected = initialHistoryWindow(items, anchorId, source.get('hasMore', true));
 
   const history = initialTimeline.merge({
-    items,
+    items: ImmutableList(selected.items),
     pendingItems: ImmutableList(),
     unread: 0,
     online: false,
     isLoading: false,
-    hasMore: source.get('hasMore', true),
+    hasMore: selected.window.hasOlder && selected.window.older.status === 'open',
     isPartial: source.get('isPartial', false),
     top: false,
     splitBoundaryId: firstStatusId(items),
+    window: fromJS(selected.window),
   });
 
   return state
@@ -288,14 +314,17 @@ const destroyTimelineSplit = (state, action) => {
     });
   }
 
+  const windowState = history.get('window');
+  const kept = windowState ? keptHistoryItems(source.get('items'), history.get('items'), source.get('hasMore', true), windowState) : null;
+  const restoredItems = kept ? ImmutableList(kept.items) : history.get('items', ImmutableList());
   const pendingItems = freshStatusIds(source, history);
 
   return state.withMutations(mutable => {
     mutable.update(sourceTimeline, initialTimeline, map => map.withMutations(inner => {
-      inner.set('items', history.get('items', ImmutableList()));
+      inner.set('items', restoredItems);
       inner.set('pendingItems', pendingItems);
       inner.set('unread', pendingItems.size);
-      inner.set('hasMore', history.get('hasMore', true));
+      inner.set('hasMore', kept ? kept.hasMore : history.get('hasMore', true));
       inner.set('isPartial', history.get('isPartial', false));
       inner.set('online', source.get('online', false));
       inner.delete('splitTimelineId');
@@ -312,14 +341,41 @@ const destroyTimelineSplit = (state, action) => {
 export default function timelines(state = initialState, action) {
   switch(action.type) {
   case TIMELINE_LOAD_PENDING:
-    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, map =>
+    if (isStaleSplitTimeline(state, action.timeline) || state.getIn([action.timeline, 'window'])) {
+      return state;
+    }
+
+    return state.update(action.timeline, initialTimeline, map =>
       map.update('items', list => map.get('pendingItems').concat(list.take(40))).set('pendingItems', ImmutableList()).set('unread', 0));
   case TIMELINE_EXPAND_REQUEST:
     return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, map => map.set('isLoading', true));
   case TIMELINE_EXPAND_FAIL:
     return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, map => map.set('isLoading', false));
-  case TIMELINE_EXPAND_SUCCESS:
-    return isStaleSplitTimeline(state, action.timeline) ? state : expandNormalizedTimeline(state, action.timeline, fromJS(action.statuses), action.next, action.partial, action.isLoadingRecent, action.usePendingItems);
+  case TIMELINE_EXPAND_SUCCESS: {
+    if (isStaleSplitTimeline(state, action.timeline)) {
+      return state;
+    }
+
+    if (state.getIn([action.timeline, 'window'])) {
+      return state.update(action.timeline, initialTimeline, timeline => succeedExpandedHistory(timeline, {
+        ...action,
+        statuses: fromJS(action.statuses),
+      }) || timeline);
+    }
+
+    return expandNormalizedTimeline(state, action.timeline, fromJS(action.statuses), action.next, action.partial, action.isLoadingRecent, action.usePendingItems);
+  }
+  case WINDOW_HISTORY_REQUEST:
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => requestHistory(timeline, action));
+  case WINDOW_HISTORY_SUCCESS:
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => succeedHistory(timeline, {
+      ...action,
+      statuses: fromJS(action.statuses),
+    }));
+  case WINDOW_HISTORY_FAIL:
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => failHistory(timeline, action));
+  case WINDOW_HISTORY_ANCHOR:
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => placeHistoryAnchor(timeline, action.anchorId));
   case TIMELINE_UPDATE:
     return isStaleSplitTimeline(state, action.timeline) ? state : updateTimeline(state, action.timeline, fromJS(action.status), action.usePendingItems);
   case TIMELINE_DELETE:
@@ -341,12 +397,16 @@ export default function timelines(state = initialState, action) {
 
       if (splitTimelineId) {
         state = filterTimeline(splitTimelineId, state, action.relationship, action.statuses);
+
+        if (state.getIn([splitTimelineId, 'window'])) {
+          state = state.update(splitTimelineId, syncHistoryEdges);
+        }
       }
     });
 
     return state;
   case TIMELINE_SPLIT_CREATE:
-    return createTimelineSplit(state, action.sourceTimeline, action.splitTimeline);
+    return createTimelineSplit(state, action.sourceTimeline, action.splitTimeline, action.anchorId);
   case TIMELINE_SPLIT_DESTROY:
     return destroyTimelineSplit(state, action);
   case TIMELINE_SPLIT_SAVE_RETURN_ANCHOR:

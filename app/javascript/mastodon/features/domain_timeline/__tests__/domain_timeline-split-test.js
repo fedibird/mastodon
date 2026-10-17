@@ -106,7 +106,7 @@ describe('DomainTimeline split', () => {
 
     expect(store.getState().getIn(['timelines', splitTimelineId, 'isLoading'])).toBe(true);
     expect(mockGet).toHaveBeenLastCalledWith('/api/v1/timelines/public', expect.objectContaining({
-      params: expect.objectContaining({ domain: 'example.com', local: false, max_id: '70' }),
+      params: expect.objectContaining({ domain: 'example.com', local: false, max_id: '90' }),
     }));
   });
 

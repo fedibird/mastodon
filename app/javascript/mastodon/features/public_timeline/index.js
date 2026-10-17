@@ -6,6 +6,8 @@ import StatusListContainer from '../ui/containers/status_list_container';
 import Column from '../../components/column';
 import ColumnHeader from '../../components/column_header';
 import { clearTimelineSplitReturnAnchor, expandPublicTimeline } from '../../actions/timelines';
+import { expandWindowedHistory } from '../../actions/windowed_history';
+import { publicHistoryContract } from '../../windowed_history/sources';
 import { publicTimelineId } from '../../actions/timeline_ids';
 import { addColumn, removeColumn, moveColumn } from '../../actions/columns';
 import ColumnSettingsContainer from './containers/column_settings_container';
@@ -137,10 +139,31 @@ class PublicTimeline extends React.PureComponent {
     dispatch(expandPublicTimeline({ maxId, onlyMedia, withoutMedia, withoutBot, onlyRemote }));
   }
 
-  handleLoadMoreHistory = maxId => {
+  handleLoadMoreHistory = (maxId, anchorId) => {
     const { dispatch, onlyMedia, withoutMedia, withoutBot, onlyRemote } = this.props;
+    const filters = { onlyMedia, withoutMedia, withoutBot, onlyRemote };
 
-    dispatch(expandPublicTimeline({ maxId, onlyMedia, withoutMedia, withoutBot, onlyRemote, timelineId: this.splitTimelineId }));
+    dispatch(expandWindowedHistory({
+      sourceTimelineId: publicTimelineId(filters),
+      splitTimelineId: this.splitTimelineId,
+      contract: publicHistoryContract(filters),
+      direction: 'older',
+      gapCursor: maxId,
+      anchorId,
+    }));
+  }
+
+  handleLoadNewerHistory = (anchorId) => {
+    const { dispatch, onlyMedia, withoutMedia, withoutBot, onlyRemote } = this.props;
+    const filters = { onlyMedia, withoutMedia, withoutBot, onlyRemote };
+
+    dispatch(expandWindowedHistory({
+      sourceTimelineId: publicTimelineId(filters),
+      splitTimelineId: this.splitTimelineId,
+      contract: publicHistoryContract(filters),
+      direction: 'newer',
+      anchorId,
+    }));
   }
 
   renderColumn = (split) => {
@@ -191,6 +214,7 @@ class PublicTimeline extends React.PureComponent {
               trackScroll={multiColumn ? !pinned : false}
               scrollKey={`public_timeline-${columnId}`}
               onLoadMore={this.handleLoadMoreHistory}
+              onLoadNewer={this.handleLoadNewerHistory}
               timelineId={sourceTimelineId}
               dataTimelineId={split.splitTimelineId}
               trackIntersection
