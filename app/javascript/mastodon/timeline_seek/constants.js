@@ -8,7 +8,17 @@ export const SEEK_KIND = Object.freeze({
   DATE: 'date',
   ACCOUNT: 'account',
   SEARCH_HIT: 'searchHit',
+  MEMBERSHIP: 'membership',
 });
+
+// P4b-1 contract for the next results UI. The server rejects more than
+// MEMBERSHIP_ID_LIMIT ids per call. A search session stops at
+// MEMBERSHIP_SESSION_CANDIDATE_LIMIT candidates (10 pages of the default
+// search page, or 5 pages at the search API maximum).
+export const MEMBERSHIP_ID_LIMIT = 50;
+export const MEMBERSHIP_SESSION_CANDIDATE_LIMIT = 200;
+export const MEMBERSHIP_SEARCH_PAGE_DEFAULT = 20;
+export const MEMBERSHIP_SEARCH_PAGE_MAX = 40;
 
 export const SEEK_OUTCOME = Object.freeze({
   RESOLVED: 'resolved',

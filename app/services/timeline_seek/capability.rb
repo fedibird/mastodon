@@ -6,7 +6,7 @@ module TimelineSeek
   module Capability
     VERSION = 1
     LEVELS = %w(supported approximate unavailable unsupported).freeze
-    KINDS = %w(status date account searchHit).freeze
+    KINDS = %w(status date account searchHit membership).freeze
     WINDOWED_SOURCES = %w(home limited list hashtag public domain group personal).freeze
     CLOSED_SOURCES = %w(account direct notifications mix).freeze
 
@@ -20,19 +20,21 @@ module TimelineSeek
     DB_DATE = Entry.new(level: 'approximate', reason: 'id_order_not_created_at').freeze
     DB_ACCOUNT = Entry.new(level: 'approximate', reason: 'account_probe_limit').freeze
     DB_SEARCH = Entry.new(level: 'supported', reason: 'search_hit_checks_membership_only').freeze
+    REDIS_MEMBERSHIP = Entry.new(level: 'approximate', reason: 'redis_retained_window_batch').freeze
+    DB_MEMBERSHIP = Entry.new(level: 'supported', reason: 'bounded_id_set').freeze
     PERSONAL_ACCOUNT = Entry.new(level: 'unsupported', reason: 'personal_is_not_an_account_timeline').freeze
     CLOSED = Entry.new(level: 'unsupported', reason: 'source_has_no_windowed_history').freeze
     UNKNOWN = Entry.new(level: 'unsupported', reason: 'unknown_source').freeze
 
     MATRIX = {
-      'home' => { 'status' => REDIS_STATUS, 'date' => REDIS_DATE, 'account' => REDIS_ACCOUNT, 'searchHit' => REDIS_SEARCH },
-      'limited' => { 'status' => REDIS_STATUS, 'date' => REDIS_DATE, 'account' => REDIS_ACCOUNT, 'searchHit' => REDIS_SEARCH },
-      'list' => { 'status' => REDIS_STATUS, 'date' => REDIS_DATE, 'account' => REDIS_ACCOUNT, 'searchHit' => REDIS_SEARCH },
-      'hashtag' => { 'status' => DB_STATUS, 'date' => DB_DATE, 'account' => DB_ACCOUNT, 'searchHit' => DB_SEARCH },
-      'public' => { 'status' => DB_STATUS, 'date' => DB_DATE, 'account' => DB_ACCOUNT, 'searchHit' => DB_SEARCH },
-      'domain' => { 'status' => DB_STATUS, 'date' => DB_DATE, 'account' => DB_ACCOUNT, 'searchHit' => DB_SEARCH },
-      'group' => { 'status' => DB_STATUS, 'date' => DB_DATE, 'account' => DB_ACCOUNT, 'searchHit' => DB_SEARCH },
-      'personal' => { 'status' => DB_STATUS, 'date' => DB_DATE, 'account' => PERSONAL_ACCOUNT, 'searchHit' => DB_SEARCH },
+      'home' => { 'status' => REDIS_STATUS, 'date' => REDIS_DATE, 'account' => REDIS_ACCOUNT, 'searchHit' => REDIS_SEARCH, 'membership' => REDIS_MEMBERSHIP },
+      'limited' => { 'status' => REDIS_STATUS, 'date' => REDIS_DATE, 'account' => REDIS_ACCOUNT, 'searchHit' => REDIS_SEARCH, 'membership' => REDIS_MEMBERSHIP },
+      'list' => { 'status' => REDIS_STATUS, 'date' => REDIS_DATE, 'account' => REDIS_ACCOUNT, 'searchHit' => REDIS_SEARCH, 'membership' => REDIS_MEMBERSHIP },
+      'hashtag' => { 'status' => DB_STATUS, 'date' => DB_DATE, 'account' => DB_ACCOUNT, 'searchHit' => DB_SEARCH, 'membership' => DB_MEMBERSHIP },
+      'public' => { 'status' => DB_STATUS, 'date' => DB_DATE, 'account' => DB_ACCOUNT, 'searchHit' => DB_SEARCH, 'membership' => DB_MEMBERSHIP },
+      'domain' => { 'status' => DB_STATUS, 'date' => DB_DATE, 'account' => DB_ACCOUNT, 'searchHit' => DB_SEARCH, 'membership' => DB_MEMBERSHIP },
+      'group' => { 'status' => DB_STATUS, 'date' => DB_DATE, 'account' => DB_ACCOUNT, 'searchHit' => DB_SEARCH, 'membership' => DB_MEMBERSHIP },
+      'personal' => { 'status' => DB_STATUS, 'date' => DB_DATE, 'account' => PERSONAL_ACCOUNT, 'searchHit' => DB_SEARCH, 'membership' => DB_MEMBERSHIP },
     }.freeze
 
     def self.lookup(source, kind)

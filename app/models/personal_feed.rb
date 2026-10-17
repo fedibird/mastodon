@@ -16,12 +16,16 @@ class PersonalFeed
   # @param [Integer] min_id
   # @return [Array<Status>]
   def get(limit, max_id = nil, since_id = nil, min_id = nil)
+    relation.to_a_paginated_by_id(limit, max_id: max_id, since_id: since_id, min_id: min_id)
+  end
+
+  def relation
     scope = personal_scope
 
     scope.merge!(media_only_scope) if media_only?
     scope.merge!(without_media_scope) if without_media?
 
-    scope.to_a_paginated_by_id(limit, max_id: max_id, since_id: since_id, min_id: min_id)
+    scope
   end
 
   private
@@ -41,7 +45,7 @@ class PersonalFeed
   end
 
   def without_media_scope
-    Status.left_joins(:media_attachments).where(media_attachments: {status_id: nil})
+    Status.left_joins(:media_attachments).where(media_attachments: { status_id: nil })
   end
 
   def personal_scope

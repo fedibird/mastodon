@@ -22,8 +22,23 @@ class PublicFeed
   # @param [Integer] min_id
   # @return [Array<Status>]
   def get(limit, max_id = nil, since_id = nil, min_id = nil)
-    return Status.none if local_only? && !imast? && !mastodon_for_ios? && !mastodon_for_android?
-    return Status.none if domain_only? && !domain_available?
+    scope = scoped_relation
+    return Status.none if scope.nil?
+
+    scope.to_a_paginated_by_id(limit, max_id: max_id, since_id: since_id, min_id: min_id)
+  end
+
+  # Same filters as get, without a page. Membership checks an id set against
+  # this relation instead of calling get once per id. A skipped feed is an
+  # empty relation, which is what get used to return before pagination.
+  def relation
+    scoped_relation || Status.none
+  end
+
+  private
+
+  def scoped_relation
+    return nil if skip_public_feed?
 
     scope = public_scope
 
@@ -38,10 +53,8 @@ class PublicFeed
     scope.merge!(without_media_scope) if without_media?
     scope.merge!(without_bot_scope) if without_bot?
 
-    scope.to_a_paginated_by_id(limit, max_id: max_id, since_id: since_id, min_id: min_id)
+    scope
   end
-
-  private
 
   attr_reader :account, :options
 
@@ -59,6 +72,10 @@ class PublicFeed
 
   def local_only?
     options[:local]
+  end
+
+  def skip_public_feed?
+    (local_only? && !imast? && !mastodon_for_ios? && !mastodon_for_android?) || (domain_only? && !domain_available?)
   end
 
   def imast?
@@ -143,7 +160,7 @@ class PublicFeed
   end
 
   def without_media_scope
-    Status.left_joins(:media_attachments).where(media_attachments: {status_id: nil})
+    Status.left_joins(:media_attachments).where(media_attachments: { status_id: nil })
   end
 
   def without_bot_scope

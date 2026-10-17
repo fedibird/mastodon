@@ -1,7 +1,7 @@
 import { List as ImmutableList } from 'immutable';
 
 import { capabilityFor, capabilityMatrix, seekKinds, windowedHistoryContracts } from '../capability';
-import { CLOSED_SOURCES, SEEK_CAPABILITY, SEEK_KIND } from '../constants';
+import { CLOSED_SOURCES, MEMBERSHIP_ID_LIMIT, MEMBERSHIP_SEARCH_PAGE_DEFAULT, MEMBERSHIP_SEARCH_PAGE_MAX, MEMBERSHIP_SESSION_CANDIDATE_LIMIT, SEEK_CAPABILITY, SEEK_KIND } from '../constants';
 import { createSeekQuery, seekSourceFromContract, seekSourceKey } from '../query';
 import { anchorBeyondSplitBoundary, assembleSeekItems, commitSeekWindow, edgeStatusForSeekPage, planSeekScroll } from '../window';
 
@@ -29,6 +29,14 @@ describe('timeline seek capability', () => {
     expect(capabilityFor('home', SEEK_KIND.STATUS).level).toBe(SEEK_CAPABILITY.APPROXIMATE);
     expect(capabilityFor('public', SEEK_KIND.STATUS).level).toBe(SEEK_CAPABILITY.SUPPORTED);
     expect(capabilityFor('public', SEEK_KIND.DATE).level).toBe(SEEK_CAPABILITY.APPROXIMATE);
+    expect(capabilityFor('public', SEEK_KIND.MEMBERSHIP).level).toBe(SEEK_CAPABILITY.SUPPORTED);
+    expect(capabilityFor('home', SEEK_KIND.MEMBERSHIP).level).toBe(SEEK_CAPABILITY.APPROXIMATE);
+    expect(capabilityFor('personal', SEEK_KIND.MEMBERSHIP).level).toBe(SEEK_CAPABILITY.SUPPORTED);
+    expect(MEMBERSHIP_ID_LIMIT).toBe(50);
+    expect(MEMBERSHIP_SESSION_CANDIDATE_LIMIT).toBe(200);
+    expect(MEMBERSHIP_SEARCH_PAGE_DEFAULT).toBe(20);
+    expect(MEMBERSHIP_SEARCH_PAGE_MAX).toBe(40);
+    expect(MEMBERSHIP_SESSION_CANDIDATE_LIMIT / MEMBERSHIP_SEARCH_PAGE_DEFAULT).toBe(10);
   });
 
   it('reads source identity from the history contract instead of a column id', () => {

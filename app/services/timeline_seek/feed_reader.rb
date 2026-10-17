@@ -64,5 +64,30 @@ module TimelineSeek
 
       @redis.zcard(redis_key).to_i
     end
+
+    # One id-set query. The caller caps the array; limit is a second bound.
+    def scope_ids(status_ids, limit:)
+      return [] if empty_source? || status_ids.empty? || redis?
+      return [] unless @feed.respond_to?(:relation)
+
+      ids = status_ids.first(limit)
+      @feed.relation.where(statuses: { id: ids }).unscope(:order).distinct.limit(limit).pluck(Status.arel_table[:id])
+    end
+
+    def retained_ids(status_ids)
+      return [] unless redis? && @redis && status_ids.any?
+
+      TimelineSeek::RedisBulkScore.new(@redis).present_ids(redis_key, status_ids)
+    end
+
+    # Same predicate as selectable?, for the whole id set.
+    def selectable_among(status_ids, limit:)
+      ids = status_ids.first(limit)
+      return [] if ids.empty?
+
+      scope = Status.where(id: ids).without_unreleased_pages.joins(:account).merge(Account.without_suspended)
+      scope = scope.where(visibility: visibilities) if visibilities.present?
+      scope.limit(limit).pluck(:id)
+    end
   end
 end

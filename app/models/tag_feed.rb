@@ -25,6 +25,10 @@ class TagFeed < PublicFeed
   # @param [Integer] min_id
   # @return [Array<Status>]
   def get(limit, max_id = nil, since_id = nil, min_id = nil)
+    relation.to_a_paginated_by_id(limit, max_id: max_id, since_id: since_id, min_id: min_id)
+  end
+
+  def relation
     scope = public_scope
 
     scope.merge!(tag_account_mute_scope)
@@ -37,7 +41,7 @@ class TagFeed < PublicFeed
     scope.merge!(without_media_scope) if without_media?
     scope.merge!(without_bot_scope) if without_bot?
 
-    scope.to_a_paginated_by_id(limit, max_id: max_id, since_id: since_id, min_id: min_id)
+    scope
   end
 
   private
