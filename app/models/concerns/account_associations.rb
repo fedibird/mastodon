@@ -111,7 +111,8 @@ module AccountAssociations
                     Status.reorder(nil)
                           .where(account_id: id)
                           .where(visibility: visibility)
-                          .select('CASE reblog_of_id WHEN NULL THEN id ELSE reblog_of_id END')
+                          # A simple CASE never matches NULL, so a group's own post was dropped.
+                          .select('CASE WHEN reblog_of_id IS NULL THEN id ELSE reblog_of_id END')
                   )
     scope = scope.where.not(account_id: account.excluded_from_timeline_account_ids) unless account.nil?
     scope
