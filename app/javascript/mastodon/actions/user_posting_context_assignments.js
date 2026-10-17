@@ -10,6 +10,15 @@ export const USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_REQUEST = 'USER_POSTING_CONTEX
 export const USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_SUCCESS = 'USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_SUCCESS';
 export const USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_FAIL = 'USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_FAIL';
 
+export const USER_POSTING_CONTEXT_ASSIGNMENT_CONSUMER_REGISTER = 'USER_POSTING_CONTEXT_ASSIGNMENT_CONSUMER_REGISTER';
+export const USER_POSTING_CONTEXT_ASSIGNMENT_CONSUMER_UNREGISTER = 'USER_POSTING_CONTEXT_ASSIGNMENT_CONSUMER_UNREGISTER';
+export const USER_POSTING_CONTEXT_ASSIGNMENT_WRITE_FINISH = 'USER_POSTING_CONTEXT_ASSIGNMENT_WRITE_FINISH';
+
+export const registerAssignmentConsumer = (consumerId, surface) => ({
+  type: USER_POSTING_CONTEXT_ASSIGNMENT_CONSUMER_REGISTER, consumerId, surface: assignmentSurface(surface),
+});
+export const unregisterAssignmentConsumer = consumerId => ({ type: USER_POSTING_CONTEXT_ASSIGNMENT_CONSUMER_UNREGISTER, consumerId });
+
 const PATH = '/api/v1/fedibird/user_posting_context_assignments';
 const STATUSES = ['unset', 'none', 'style', 'unavailable'];
 
@@ -105,18 +114,16 @@ export function fetchUserPostingContextAssignment(surface, { force = false } = {
   };
 }
 
-// Rails does not return a surface for assignment operations or deleted styles.
-// Reconcile all known surfaces, including cached places with no open Composer.
+// Invalidate every cached place, but fetch only mounted consumers. Closed places
+// stay idle and are read lazily when their Controller next mounts.
 export function refreshUserPostingContextAssignments() {
   return (dispatch, getState) => {
     dispatch({ type: USER_POSTING_CONTEXT_ASSIGNMENTS_INVALIDATE });
-    const entries = getState().getIn(['userPostingContextAssignments', 'bySurface']);
-    if (!entries) return Promise.resolve();
-
-    return Promise.all(entries.valueSeq().map(entry => {
-      const surface = entry.get('surface');
-      return surface ? dispatch(fetchUserPostingContextAssignment(surface.toJS(), { force: true })) : Promise.resolve();
-    }).toArray());
+    const consumers = getState().getIn(['userPostingContextAssignments', 'mountedSurfaces']);
+    const surfaces = new Map();
+    consumers?.forEach(surface => surfaces.set(surfaceCacheKey(surface), surface.toJS()));
+    // A Controller may already have reacted to idle and started this read.
+    return Promise.all(Array.from(surfaces.values(), surface => dispatch(fetchUserPostingContextAssignment(surface))));
   };
 }
 
@@ -128,7 +135,7 @@ const writeAssignment = (surface, request) => (dispatch, getState) => {
     return Promise.resolve();
   }
 
-  if (getState().getIn(['userPostingContextAssignments', 'bySurface', key, 'status']) === 'saving') {
+  if (getState().getIn(['userPostingContextAssignments', 'bySurface', key, 'writePending'])) {
     return Promise.resolve();
   }
 
@@ -177,14 +184,13 @@ const writeAssignment = (surface, request) => (dispatch, getState) => {
         skipAlert: true,
       });
     }).finally(() => {
-      // A pre-refresh write may commit/finish after the reconciliation GET.
-      // Never trust its old payload; read the server again after it settles.
-      // A newer pending write owns its own completion instead.
-      if (getState().getIn(['userPostingContextAssignments', 'refreshEpoch'], 0) !== refreshEpoch
-        && getState().getIn(['userPostingContextAssignments', 'bySurface', key, 'status']) !== 'saving') {
-        return dispatch(fetchUserPostingContextAssignment(requested, { force: true }));
-      }
-      return undefined;
+      // Keep the write lock across invalidation/GET readiness, including the
+      // gap before a post-write read starts. Only this write's finally unlocks it.
+      const superseded = entryGeneration(getState(), key) !== generation
+        || getState().getIn(['userPostingContextAssignments', 'refreshEpoch'], 0) !== refreshEpoch;
+      const reconciliation = superseded ? dispatch(fetchUserPostingContextAssignment(requested, { force: true })) : undefined;
+      dispatch({ type: USER_POSTING_CONTEXT_ASSIGNMENT_WRITE_FINISH, surfaceKey: key, generation });
+      return reconciliation;
     });
 };
 

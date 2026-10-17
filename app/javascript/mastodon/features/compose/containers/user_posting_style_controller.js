@@ -1,13 +1,15 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { connect } from 'react-redux';
-import { fetchUserPostingContextAssignment } from '../../../actions/user_posting_context_assignments';
+import { fetchUserPostingContextAssignment, registerAssignmentConsumer, unregisterAssignmentConsumer } from '../../../actions/user_posting_context_assignments';
 import { fetchUserPostingStyles, maybeAutoSelectPortablePostingStyle, resolveUserPostingStyleDestination } from '../../../actions/user_posting_styles';
 import { isAdministrator } from '../../../initial_state';
 import { portablePostingContextReady, surfaceCacheKey } from '../../../posting_context/surface';
 import { selectComposer } from '../../../selectors/composer';
 import { PRIMARY_COMPOSER_ID } from '../../../utils/composer';
 import { withComposerId } from '../composer_id_context';
+
+let nextAssignmentConsumerId = 0;
 
 const mapStateToProps = (state, { composerId }) => {
   const composer = selectComposer(state, composerId);
@@ -23,7 +25,7 @@ const mapStateToProps = (state, { composerId }) => {
     destinationLocked: portable || (composer ? composer.getIn(['userPostingStyle', 'destinationPolicy']) === 'locked' : false),
     destinationStatus: composer ? composer.getIn(['userPostingStyle', 'destinationStatus']) : null,
     catalogStatus: state.getIn(['userPostingStyles', 'status']),
-    assignmentFetchStatus: assignment ? assignment.get('status') : 'idle',
+    assignmentFetchStatus: assignment?.get('writePending') ? 'saving' : (assignment?.get('status') || 'idle'),
     styleCount: state.getIn(['userPostingStyles', 'styles']) ? state.getIn(['userPostingStyles', 'styles']).size : 0,
     selectionOrigin: composer ? composer.getIn(['userPostingStyle', 'selectionOrigin']) : null,
     styleInputLock: composer ? composer.getIn(['userPostingStyle', 'styleInputLock']) : false,
@@ -50,7 +52,10 @@ class UserPostingStyleController extends React.PureComponent {
     composerId: PropTypes.string,
   };
 
+  assignmentConsumerId = ++nextAssignmentConsumerId;
+
   componentDidMount () {
+    this.syncAssignmentConsumer();
     this.fetchStyles();
     this.fetchAssignment();
     this.resolveIfNeeded();
@@ -58,9 +63,22 @@ class UserPostingStyleController extends React.PureComponent {
   }
 
   componentDidUpdate () {
+    this.syncAssignmentConsumer();
     this.fetchAssignment();
     this.resolveIfNeeded();
     this.autoSelectIfNeeded();
+  }
+
+  componentWillUnmount () {
+    if (this.registeredSurface) this.props.dispatch(unregisterAssignmentConsumer(this.assignmentConsumerId));
+  }
+
+  syncAssignmentConsumer () {
+    const { portable, surfaceKind, surfaceKey, dispatch } = this.props;
+    const key = portable && isAdministrator && surfaceKind && surfaceKey ? `${surfaceKind}:${surfaceKey}` : null;
+    if (this.registeredSurface === key) return;
+    this.registeredSurface = key;
+    dispatch(key ? registerAssignmentConsumer(this.assignmentConsumerId, { kind: surfaceKind, key: surfaceKey }) : unregisterAssignmentConsumer(this.assignmentConsumerId));
   }
 
   fetchStyles () {

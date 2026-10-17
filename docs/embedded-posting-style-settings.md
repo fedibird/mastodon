@@ -62,19 +62,26 @@ snapshots, draft fields, manual overrides, selection origin or settled defaults.
 A deleted selected style is still represented by the applied snapshot until the
 user explicitly chooses again.
 
-Every posting-style reconciliation also invalidates all cached assignment
-surfaces before starting the catalog GET, then force-fetches those surfaces.
-This includes places whose Composer is closed: HTML assignment operations do not
-return their surface and style deletion can change multiple assignments to none.
-Invalidation advances each entry's generation and clears its old default while
-loading. Delayed pre-boundary GET/write responses cannot restore it, and a failed
-GET leaves it non-authoritative so new Composers wait for an explicit retry.
-A write that was already running at the boundary performs a further read after
-settling, without resending the write, in case it committed after reconciliation.
-Existing evaluated Composers keep their settled surface, snapshot and draft;
-new Composers use the reconciled none/unset/style choice. A full tab close/reload
-cannot guarantee completion delivery. Other-tab changes are picked up on
-embedded reentry, without cross-tab monitoring or a new streaming protocol.
+Every posting-style reconciliation invalidates all cached assignments before
+starting the catalog GET. Generation advances and old defaults are cleared for
+all places, but only distinct surfaces with mounted administrator Portable
+Composer controllers are read immediately. Each controller registers its own
+consumer ID and removes it on unmount or surface/edit-mode changes, so two
+controllers sharing a place keep it active until the last one leaves. Reads
+coalesce through the normal loading guard. Closed places stay idle and are read
+lazily on next use; 500 cached places do not cause 500 reconciliation GETs.
+Delayed pre-boundary GET/write responses cannot restore an invalidated default.
+A failed GET remains non-authoritative so new Composers wait for explicit retry.
+
+The per-surface writePending/writeGeneration lock is separate from fetch status
+and survives invalidation, idle/loading/ready transitions, and GET failure. New
+PUT/DELETE operations remain blocked until that same HTTP write settles; the
+picker stays busy and automatic default selection waits too. If a read or refresh
+superseded the write's response, its finally starts a fresh server read before
+releasing the lock. The write is never resent. Existing evaluated Composers keep
+their settled surface, snapshot and draft; new Composers use the reconciled choice.
+A full tab close/reload cannot guarantee completion delivery. Other-tab changes
+are picked up on embedded reentry, without cross-tab monitoring or streaming.
 
 ## Verification
 
@@ -85,7 +92,9 @@ filtering, full primary/Portable draft and snapshot preservation, administrator
 visibility, preview rebinding and stale preview isolation. Real Redux integration
 with mounted controllers/pickers covers two evaluated drafts, none/unset/deletion,
 new-Composer automatic selection, delayed GET/write success/failure, ambiguous
-HTML completion and assignment reconciliation failure. Request specs exercise
+HTML completion and assignment reconciliation failure, write serialization
+across refresh (success/failure), 500-place lazy invalidation, shared consumers
+and registration cleanup. Request specs exercise
 real routes, production-style DENY defaults, ownership/authentication, JSON
 preview, CRUD, assignment paging/release/decline and real CSRF.
 

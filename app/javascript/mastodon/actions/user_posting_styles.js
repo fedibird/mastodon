@@ -179,7 +179,7 @@ export function maybeAutoSelectPortablePostingStyle(composerId) {
     const cacheKey = surfaceCacheKey(surface);
     const assignment = cacheKey && getState().getIn(['userPostingContextAssignments', 'bySurface', cacheKey]);
 
-    if (!composer || !surface || !assignment || assignment.get('status') !== 'ready' || composer.get('surfaceMismatch')) {
+    if (!composer || !surface || !assignment || assignment.get('status') !== 'ready' || assignment.get('writePending') || composer.get('surfaceMismatch')) {
       return Promise.resolve();
     }
 

@@ -86,7 +86,7 @@ const mapStateToProps = (state, { composerId }) => {
     showDefaults: portable,
     surfaceKind: surface ? surface.get('kind') : null,
     surfaceKey: surface ? String(surface.get('key')) : null,
-    assignmentFetchStatus: assignment ? assignment.get('status') : 'idle',
+    assignmentFetchStatus: assignment?.get('writePending') ? 'saving' : (assignment?.get('status') || 'idle'),
     assignmentStatus: assignment ? assignment.get('assignmentStatus') : null,
     assignmentStyleId: assignment ? assignment.get('styleId') : null,
     assignmentFailure: assignment ? assignment.get('failure') : null,

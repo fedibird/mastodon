@@ -16,7 +16,7 @@ jest.mock('react-intl', () => ({
 
 import api from 'mastodon/api';
 import { applyComposerSurface, createComposer, targetComposerAction } from 'mastodon/actions/composer';
-import { fetchUserPostingContextAssignment, saveUserPostingContextAssignment } from 'mastodon/actions/user_posting_context_assignments';
+import { fetchUserPostingContextAssignment, refreshUserPostingContextAssignments, resetUserPostingContextAssignment, saveUserPostingContextAssignment } from 'mastodon/actions/user_posting_context_assignments';
 import { fetchUserPostingStyles } from 'mastodon/actions/user_posting_styles';
 import compose from 'mastodon/reducers/compose';
 import composers from 'mastodon/reducers/composers';
@@ -59,7 +59,8 @@ async function setup() {
   const server = { assignment: assignment('style'), styles: rawStyles };
   const get = jest.fn(path => Promise.resolve({ data: path.includes('user_posting_context_assignments') ? server.assignment : server.styles }));
   const put = jest.fn();
-  api.mockReturnValue({ get, put });
+  const remove = jest.fn();
+  api.mockReturnValue({ get, put, delete: remove });
   const store = createStore(combineReducers({ compose, composers, userPostingStyles, userPostingContextAssignments }), applyMiddleware(thunk));
   await store.dispatch(fetchUserPostingStyles());
   await store.dispatch(fetchUserPostingContextAssignment(surface));
@@ -77,7 +78,7 @@ async function setup() {
   expect(document.querySelectorAll('.compose-form__style-default-mark')).toHaveLength(2);
   expect(composerAt(store, first).getIn(['userPostingStyle', 'snapshot', 'id'])).toBe('2');
   expect(composerAt(store, first).getIn(['userPostingStyle', 'defaultsSettledSurface'])).toBe(cacheKey);
-  return { store, server, get, put, view };
+  return { store, server, get, put, remove, view };
 }
 
 const saveRails = (store, { path = '/settings/user_posting_context_assignments/7/decline', method = 'post' } = {}) => {
@@ -184,4 +185,96 @@ it('keeps invalidated defaults non-authoritative when reconciliation fails, incl
   expect(composerAt(store, fresh).getIn(['userPostingStyle', 'selectedId'])).toBeNull();
   expect(composerAt(store, fresh).getIn(['userPostingStyle', 'defaultsSettledSurface'])).toBeNull();
   expect(composerAt(store, first)).toBe(before);
+});
+
+it.each(['success', 'failure'])('keeps write A locked across GET ready until A settles (%s), suppressing write B and DELETE', async outcome => {
+  const { store, server, put, remove, view } = await setup();
+  const before = [composerAt(store, first), composerAt(store, second)];
+  const old = pending();
+  put.mockReturnValueOnce(old.promise);
+  let writeA;
+  act(() => {
+    writeA = store.dispatch(saveUserPostingContextAssignment(surface, '2'));
+  });
+  window.fetch = jest.fn(async () => {
+    server.assignment = assignment('none'); return { ok: true };
+  });
+  await act(async () => {
+    await saveRails(store);
+  });
+  expect(cached(store).get('status')).toBe('ready');
+  expect(cached(store).get('writePending')).toBe(true);
+  // The picker remains busy even though the independent GET has finished.
+  expect(document.querySelectorAll('.compose-form__style-default-status').length).toBeGreaterThan(0);
+  await act(async () => {
+    await store.dispatch(saveUserPostingContextAssignment(surface, '1'));
+    await store.dispatch(resetUserPostingContextAssignment(surface));
+    store.dispatch(createComposer(fresh));
+    store.dispatch(applyComposerSurface(fresh, surface, groupPostingContext, '123'));
+    view.rerender(<Panels store={store} ids={[first, second, fresh]} />);
+  });
+  expect(put).toHaveBeenCalledTimes(1);
+  expect(remove).not.toHaveBeenCalled();
+  expect(composerAt(store, fresh).getIn(['userPostingStyle', 'defaultsSettledSurface'])).toBeNull();
+  await act(async () => {
+    if (outcome === 'success') old.resolve({ data: assignment('style') }); else old.reject(new Error('write A failed'));
+    await writeA;
+  });
+  expect(cached(store).get('writePending')).toBe(false);
+  expect(cached(store).get('assignmentStatus')).toBe('none');
+  expect(composerAt(store, fresh).getIn(['userPostingStyle', 'selectedId'])).toBeNull();
+  expect(composerAt(store, fresh).getIn(['userPostingStyle', 'defaultsSettledSurface'])).toBe(cacheKey);
+  expect(composerAt(store, first)).toBe(before[0]);
+  expect(composerAt(store, second)).toBe(before[1]);
+  put.mockResolvedValueOnce({ data: assignment('style') });
+  await act(async () => {
+    await store.dispatch(saveUserPostingContextAssignment(surface, '2'));
+  });
+  expect(put).toHaveBeenCalledTimes(2);
+});
+
+it('invalidates 500 cached places but fetches only one mounted surface, then lazily reads a revisited place', async () => {
+  const { store, server, get, view } = await setup();
+  // Seed a realistic cache via real request/success actions, without mounting these places.
+  get.mockImplementation((path, options) => Promise.resolve({ data: path.includes('user_posting_context_assignments')
+    ? { ...assignment('style'), surface: { kind: options.params.surface_kind, key: options.params.surface_key } } : rawStyles }));
+  await act(async () => {
+    for (let i = 0; i < 500; i++) await store.dispatch(fetchUserPostingContextAssignment({ kind: 'group', key: String(1000 + i) }));
+  });
+  const before = composerAt(store, first);
+  get.mockClear();
+  get.mockImplementation((path, options) => Promise.resolve({ data: path.includes('user_posting_context_assignments')
+    ? { ...server.assignment, surface: { kind: options.params.surface_kind, key: options.params.surface_key } } : rawStyles }));
+  server.assignment = assignment('none');
+  await act(async () => {
+    await store.dispatch(refreshUserPostingContextAssignments());
+  });
+  expect(get).toHaveBeenCalledTimes(1); // both mounted controllers share group:123
+  const closed = store.getState().getIn(['userPostingContextAssignments', 'bySurface', 'group:1000']);
+  expect(closed.get('status')).toBe('idle');
+  expect(closed.get('styleId')).toBeNull();
+  expect(composerAt(store, first)).toBe(before);
+  await act(async () => {
+    store.dispatch(createComposer(fresh));
+    store.dispatch(applyComposerSurface(fresh, { kind: 'group', key: '1000' }, groupPostingContext, '1000'));
+    view.rerender(<Panels store={store} ids={[first, second, fresh]} />);
+  });
+  expect(get).toHaveBeenCalledTimes(2);
+  expect(get.mock.calls[1][1].params.surface_key).toBe('1000');
+  expect(composerAt(store, fresh).getIn(['userPostingStyle', 'selectedId'])).toBeNull();
+  expect(composerAt(store, fresh).getIn(['userPostingStyle', 'defaultsSettledSurface'])).toBe('group:1000');
+  await act(async () => {
+    view.rerender(<Panels store={store} ids={[second]} />);
+  });
+  expect(store.getState().getIn(['userPostingContextAssignments', 'mountedSurfaces']).size).toBe(1);
+  get.mockClear();
+  await act(async () => {
+    await store.dispatch(refreshUserPostingContextAssignments());
+  });
+  expect(get).toHaveBeenCalledTimes(1); // unmounting one of two consumers does not forget the remaining one
+  view.unmount();
+  get.mockClear();
+  expect(store.getState().getIn(['userPostingContextAssignments', 'mountedSurfaces']).size).toBe(0);
+  await store.dispatch(refreshUserPostingContextAssignments());
+  expect(get).not.toHaveBeenCalled();
 });
