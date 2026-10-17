@@ -12,12 +12,45 @@ describe SearchQueryTransformer do
   let(:pending_target) { Fabricate(:account, username: 'pending', searchability: :public) }
   let(:requested_back) { Fabricate(:account, username: 'requested', searchability: :public) }
 
-  def build_query(text, searchability: 'private')
+  def build_query(text, account: searcher, searchability: 'private')
     described_class.new.apply(
       SearchQueryParser.new.parse(text),
-      current_account: searcher,
+      current_account: account,
       searchability: searchability
     )
+  end
+
+  def required_must_clauses(node, found = [])
+    case node
+    when Array
+      node.each { |child| required_must_clauses(child, found) }
+    when Hash
+      bool = node[:bool] || node['bool']
+      if bool.is_a?(Hash)
+        Array(bool[:must] || bool['must']).each do |clause|
+          found << clause
+          required_must_clauses(clause, found)
+        end
+      else
+        node.each_value { |child| required_must_clauses(child, found) }
+      end
+    end
+
+    found
+  end
+
+  def expect_required_match_none(query, keyword:)
+    clauses = required_must_clauses(query.request.render)
+    match_none = clauses.select { |clause| clause.is_a?(Hash) && (clause.key?(:match_none) || clause.key?('match_none')) }
+    keyword_match = clauses.any? do |clause|
+      next false unless clause.is_a?(Hash)
+
+      match = clause[:match] || clause['match']
+      match.is_a?(Hash) && match.values.any? { |options| options.is_a?(Hash) && (options[:query] || options['query']) == keyword }
+    end
+
+    expect(match_none).not_to be_empty
+    expect(keyword_match).to be true
   end
 
   def collect_terms(node, field, must_not: false, included: [], excluded: [])
@@ -150,20 +183,32 @@ describe SearchQueryTransformer do
       expect(query.following_account_ids).not_to include(hidden.id, direct_only.id, reblogger.id)
     end
 
-    it 'matches nothing when the searcher has no mutual follows' do
+    it 'requires match_none in bool.must when the searcher has no mutual follows' do
       lonely = Fabricate(:account, searchability: :public)
-      query = described_class.new.apply(
-        SearchQueryParser.new.parse('cat in:mutual'),
-        current_account: lonely,
-        searchability: 'all'
-      )
-
-      rendered = JSON.generate(query.request.render)
+      query = build_query('cat in:mutual', account: lonely, searchability: 'all')
 
       expect(query.mutual_account_ids).to eq([])
-      expect(rendered).to include('match_none')
-      expect(rendered).to include('cat')
+      expect_required_match_none(query, keyword: 'cat')
       expect(account_ids_for(query)).not_to include(mutual_local.id, one_way.id)
+    end
+
+    it 'requires match_none in bool.must when in:follow has no searchable authors' do
+      lonely = Fabricate(:account, searchability: :public)
+      hidden = Fabricate(:account, searchability: :mutual)
+      follows_only_hidden = Fabricate(:account, searchability: :public)
+      follows_only_hidden.follow!(hidden)
+      Fabricate(:status, account: hidden, text: 'hidden cat', visibility: :mutual, searchability: :mutual)
+
+      nobody = build_query('cat in:follow', account: lonely, searchability: 'all')
+      unqualified = build_query('cat in:follow', account: follows_only_hidden, searchability: 'public')
+      populated = build_query('cat in:follow')
+
+      expect(nobody.following_account_ids).to eq([])
+      expect(unqualified.following_account_ids).to eq([])
+      expect_required_match_none(nobody, keyword: 'cat')
+      expect_required_match_none(unqualified, keyword: 'cat')
+      expect(account_ids_for(populated)).to include(mutual_local.id, one_way.id)
+      expect(required_must_clauses(populated.request.render).any? { |clause| clause.is_a?(Hash) && (clause.key?(:match_none) || clause.key?('match_none')) }).to be false
     end
 
     it 'still lets in:follow see one-way follows and leaves in:public and in:all unchanged' do

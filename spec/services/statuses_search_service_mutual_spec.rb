@@ -25,9 +25,34 @@ describe StatusesSearchService, type: :service do
     captured = []
     allow(Chewy.client).to receive(:search) do |request|
       captured << request
-      { 'hits' => { 'total' => { 'value' => hits.size }, 'hits' => hits } }
+      # Hits stand in for documents the keyword would match. A required match_none
+      # drops them, so an empty result is a consequence of the query rather than the stub.
+      visible = required_match_none?(request) ? [] : hits
+      { 'hits' => { 'total' => { 'value' => visible.size }, 'hits' => visible } }
     end
     captured
+  end
+
+  def required_match_none?(request)
+    clauses = []
+    walk = lambda do |node|
+      case node
+      when Array
+        node.each { |child| walk.call(child) }
+      when Hash
+        bool = node[:bool] || node['bool']
+        if bool.is_a?(Hash)
+          Array(bool[:must] || bool['must']).each do |clause|
+            clauses << clause
+            walk.call(clause)
+          end
+        else
+          node.each_value { |child| walk.call(child) }
+        end
+      end
+    end
+    walk.call(request)
+    clauses.any? { |clause| clause.is_a?(Hash) && (clause.key?(:match_none) || clause.key?('match_none')) }
   end
 
   def symbolize(value)
@@ -82,11 +107,23 @@ describe StatusesSearchService, type: :service do
 
   it 'returns no rows for an account with no mutual follows' do
     lonely = Fabricate(:account, searchability: :public)
-    captured = capture_search
+    stranger_status = Fabricate(:status, text: 'stranger cat', visibility: :public, searchability: :public)
+    captured = capture_search(hits: [{ '_source' => { 'id' => stranger_status.id } }])
 
     results = subject.call('cat in:mutual', lonely, limit: 20, offset: 0)
 
-    expect(JSON.generate(symbolize(captured.first))).to include('match_none')
+    expect(required_match_none?(captured.first)).to be true
+    expect(results).to eq([])
+  end
+
+  it 'returns no rows for in:follow when the searcher follows nobody' do
+    lonely = Fabricate(:account, searchability: :public)
+    stranger_status = Fabricate(:status, text: 'stranger cat', visibility: :public, searchability: :public)
+    captured = capture_search(hits: [{ '_source' => { 'id' => stranger_status.id } }])
+
+    results = subject.call('cat in:follow', lonely, limit: 20, offset: 0)
+
+    expect(required_match_none?(captured.first)).to be true
     expect(results).to eq([])
   end
 
