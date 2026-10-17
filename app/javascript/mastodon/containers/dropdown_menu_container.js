@@ -10,13 +10,13 @@ const mapStateToProps = state => ({
   openedViaKeyboard: state.getIn(['dropdown_menu', 'keyboard']),
 });
 
-const mapDispatchToProps = (dispatch, { status, items, scrollKey }) => ({
+const mapDispatchToProps = (dispatch, { status, items, scrollKey, forceDropdown }) => ({
   onOpen(id, onItemClick, keyboard) {
     if (status) {
       dispatch(fetchRelationships([status.getIn(['account', 'id'])]));
     }
 
-    dispatch(isUserTouching() ? openModal('ACTIONS', {
+    dispatch(!forceDropdown && isUserTouching() ? openModal('ACTIONS', {
       status,
       actions: items,
       onClick: onItemClick,

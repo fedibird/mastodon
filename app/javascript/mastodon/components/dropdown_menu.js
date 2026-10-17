@@ -18,6 +18,8 @@ export class DropdownMenu extends React.PureComponent {
 
   static propTypes = {
     items: PropTypes.oneOfType([PropTypes.array, ImmutablePropTypes.list]).isRequired,
+    menuId: PropTypes.string,
+    menuRole: PropTypes.string,
     loading: PropTypes.bool,
     scrollable: PropTypes.bool,
     onClose: PropTypes.func.isRequired,
@@ -127,7 +129,7 @@ export class DropdownMenu extends React.PureComponent {
   }
 
   render () {
-    const { items, scrollable, renderHeader, loading } = this.props;
+    const { items, scrollable, renderHeader, loading, menuId, menuRole } = this.props;
 
     let renderItem = this.props.renderItem || this.renderItem;
 
@@ -144,7 +146,7 @@ export class DropdownMenu extends React.PureComponent {
         )}
 
         {!loading && (
-          <ul className={classNames('dropdown-menu__container__list', { 'dropdown-menu__container__list--scrollable': scrollable })}>
+          <ul id={menuId} role={menuRole} className={classNames('dropdown-menu__container__list', { 'dropdown-menu__container__list--scrollable': scrollable })}>
             {items.map((option, i) => renderItem(option, i, { onClick: this.handleClick, onKeyPress: this.handleItemKeyPress, setRef: i === 0 ? this.setFocusRef : null }))}
           </ul>
         )}
@@ -162,6 +164,9 @@ class Dropdown extends React.PureComponent {
 
   static propTypes = {
     children: PropTypes.node,
+    closeOnSelect: PropTypes.bool,
+    restoreFocus: PropTypes.bool,
+    menuRole: PropTypes.string,
     icon: PropTypes.string,
     items: PropTypes.oneOfType([PropTypes.array, ImmutablePropTypes.list]).isRequired,
     loading: PropTypes.bool,
@@ -182,6 +187,7 @@ class Dropdown extends React.PureComponent {
 
   static defaultProps = {
     title: 'Menu',
+    closeOnSelect: true,
   };
 
   state = {
@@ -197,7 +203,9 @@ class Dropdown extends React.PureComponent {
   }
 
   handleClose = () => {
-    if (this.activeElement) {
+    if (this.props.restoreFocus && this.target?.isConnected) {
+      this.target.querySelector('button')?.focus({ preventScroll: true });
+    } else if (this.activeElement) {
       this.activeElement.focus({ preventScroll: true });
       this.activeElement = null;
     }
@@ -233,7 +241,7 @@ class Dropdown extends React.PureComponent {
     const i = Number(e.currentTarget.getAttribute('data-index'));
     const item = this.props.items[i];
 
-    this.handleClose();
+    if (this.props.closeOnSelect) this.handleClose();
 
     if (typeof onItemClick === 'function') {
       e.preventDefault();
@@ -260,7 +268,7 @@ class Dropdown extends React.PureComponent {
       this.handleClose();
     }
   }
-  
+
   close = () => {
     this.handleClose();
   }
@@ -306,11 +314,14 @@ class Dropdown extends React.PureComponent {
     };
 
     const button = children ? React.cloneElement(React.Children.only(children), {
-        onClick: this.handleClick,
-        onMouseDown: this.handleMouseDown,
-        onKeyDown: this.handleButtonKeyDown,
-        onKeyPress: this.handleKeyPress,
-      }) : (
+      expanded: open,
+      controls: this.props.menuRole ? `${this.state.id}-menu` : undefined,
+      hasPopup: this.props.menuRole,
+      onClick: this.handleClick,
+      onMouseDown: this.handleMouseDown,
+      onKeyDown: this.handleButtonKeyDown,
+      onKeyPress: this.handleKeyPress,
+    }) : (
       <IconButton
         icon={icon}
         title={title}
@@ -336,6 +347,8 @@ class Dropdown extends React.PureComponent {
               <div className={`dropdown-animation dropdown-menu ${placement}`}>
                 <div className={`dropdown-menu__arrow ${placement}`} {...arrowProps} />
                 <DropdownMenu
+                  menuId={`${this.state.id}-menu`}
+                  menuRole={this.props.menuRole}
                   items={items}
                   loading={loading}
                   scrollable={scrollable}
