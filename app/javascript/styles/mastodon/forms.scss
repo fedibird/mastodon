@@ -1256,6 +1256,31 @@ code {
   }
 }
 
+.simple_form.filter-form {
+  min-width: 0;
+  max-width: 100%;
+
+  .fields-row {
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .fields-row__column {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .actions button {
+    margin-right: 0;
+  }
+
+  @media screen and (min-width: 601px) {
+    .fields-row {
+      gap: 20px;
+    }
+  }
+}
+
 .filter-contexts,
 .filter-keywords,
 .filter-keyword {
@@ -1323,6 +1348,14 @@ code {
       outline: 2px solid $highlight-text-color;
       outline-offset: 2px;
     }
+  }
+
+  &__disclosure-note {
+    margin: 4px 0 0;
+    color: $darker-text-color;
+    font-size: 13px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
   }
 
   &__list {

@@ -104,7 +104,10 @@ RSpec.describe FiltersController do
           end
           disclosure = document.at_css('details.filter-contexts__disclosure')
           expect(disclosure['open']).to be_nil
-          expect(disclosure.at_css('summary')['aria-controls']).to eq('filter-context-choices')
+          description_ids = CustomFilter::VALID_CONTEXTS.map { |context| "custom_filter_context_#{context}_description" }
+          expect(disclosure.at_css('summary')['aria-controls']).to eq(description_ids.join(' '))
+          expect(disclosure.at_css('summary')['aria-controls']).not_to include('filter-context-choices')
+          expect(disclosure.at_css('p.filter-contexts__disclosure-note').text).to eq('各名称の下に、その場所の説明を表示しています。')
           expect(disclosure.at_css('summary').text).to include('各適用範囲の説明を表示')
           expect(document.at_css('#filter-context-choices .filter-contexts__item')).to be_present
           bulk = document.css('button.filter-contexts__bulk')

@@ -8,7 +8,8 @@ const markup = `
         <button type="button" class="filter-contexts__bulk" data-filter-contexts-action="select-none">Deselect all</button>
       </div>
       <details class="filter-contexts__disclosure">
-        <summary class="filter-contexts__summary" aria-controls="filter-context-choices" data-show-label="Show descriptions" data-hide-label="Hide descriptions">Show descriptions</summary>
+        <summary class="filter-contexts__summary" aria-controls="custom_filter_context_home_description custom_filter_context_public_description" data-show-label="Show descriptions" data-hide-label="Hide descriptions">Show descriptions</summary>
+        <p class="filter-contexts__disclosure-note">Descriptions are shown under each name.</p>
       </details>
       <div id="filter-context-choices" class="filter-contexts__list">
         <div class="filter-contexts__item">
@@ -78,6 +79,7 @@ describe('filter form', () => {
 
     expect(home.getAttribute('aria-describedby')).toBeNull();
     expect(summary.textContent).toBe('Show descriptions');
+    expect(summary.getAttribute('aria-controls')).toBe('custom_filter_context_home_description custom_filter_context_public_description');
     expect(home.checked).toBe(false);
 
     toggle(details, true);
@@ -92,6 +94,7 @@ describe('filter form', () => {
 
     expect(home.getAttribute('aria-describedby')).toBeNull();
     expect(summary.textContent).toBe('Show descriptions');
+    expect(summary.getAttribute('aria-controls')).toBe('custom_filter_context_home_description custom_filter_context_public_description');
     expect(document.getElementById('custom_filter_context_public').checked).toBe(true);
   });
 

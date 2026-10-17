@@ -1631,6 +1631,7 @@ ja:
       add_keyword: キーワードを追加
       contexts: 適用する場所
       contexts_hint: 複数選べます。ここで選んだ場所のすべてに、下の動作が適用されます。非表示を選ぶと、選んだ場所では一致した投稿が見えなくなります。WebUIでは、自分が書いた投稿はどの場所でもフィルターされません。
+      context_descriptions_shown: 各名称の下に、その場所の説明を表示しています。
       hide_context_descriptions: 各適用範囲の説明を隠す
       keywords: キーワード
       select_all: すべて選択

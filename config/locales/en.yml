@@ -1670,6 +1670,7 @@ en:
       add_keyword: Add keyword
       contexts: Where it applies
       contexts_hint: You can choose more than one. The action below applies in every place you select. Hide removes matching posts from all of those places. In the web interface, posts you wrote are not filtered in any of these places.
+      context_descriptions_shown: Descriptions are shown under each name.
       hide_context_descriptions: Hide descriptions for each place
       keywords: Keywords
       select_all: Select all
