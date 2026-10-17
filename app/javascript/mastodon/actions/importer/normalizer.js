@@ -52,45 +52,268 @@ export function normalizeFilterResult(result) {
   return normalResult;
 }
 
-const applyEmojiPresentation = (html) => {
-  const flagment = domParser.parseFromString(html, 'text/html').documentElement;
+const EMOJI_PRESENTATION_CLASSES = ['emoji-single', 'emoji-multi', 'emoji-mix', 'emoji-other'];
+// preformatted and non-rendered containers keep their own whitespace.
+const SKIPPED_EMOJI_CONTAINERS = new Set(['PRE', 'SCRIPT', 'STYLE', 'TEXTAREA', 'NOSCRIPT', 'SVG', 'MATH']);
+// Remote HTML often wraps paragraphs in one of these. Descend to the <p> or
+// the inline run; do not treat the wrapper itself as an emoji paragraph.
+const DESCENDABLE_EMOJI_CONTAINERS = new Set([
+  'DIV', 'BLOCKQUOTE', 'UL', 'OL', 'LI', 'SECTION', 'ARTICLE', 'ASIDE',
+  'FIGURE', 'FIGCAPTION', 'TABLE', 'TBODY', 'THEAD', 'TFOOT', 'TR', 'TD', 'TH',
+  'HEADER', 'FOOTER', 'MAIN', 'DETAILS', 'SUMMARY', 'DL', 'DT', 'DD',
+]);
+// A blank line inside a text node. One newline is only a line break.
+const BLANK_LINE_RE = /\r\n[^\S\n\r]*\r\n|\n[^\S\n]*\n|\r[^\S\n\r]*\r/;
+// Prose is anything that is not ordinary whitespace. Newlines, nbsp, and the
+// zero-width characters Mastodon inserts around emoji are not prose, so they
+// cannot demote an emoji paragraph to emoji-other.
+const PROSE_RE = /[^\s\u00A0\u1680\u2000-\u200D\u2028\u2029\u202F\u205F\u3000\uFEFF]/u;
 
-  flagment.querySelectorAll('body>p').forEach(p => {
-    let imgCount = 0;
-    let scale = true;
-    let mix = true;
+const nodeListToArray = (nodeList) => {
+  const nodes = [];
 
-    function emojiScaleCheck(nodes) {
-      for (let i = 0; i < nodes.length; i++) {
-        let node = nodes[i];
+  for (let i = 0; i < nodeList.length; i += 1) {
+    nodes.push(nodeList[i]);
+  }
 
-        if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'IMG' && node.classList.contains('emojione')) {
-          imgCount++;
-        } else if (node.nodeType === Node.TEXT_NODE && /[^ \t\u200B\u200C\u3000]/.test(node.textContent)) {
-          scale = false;
-          mix = false;
-        } else if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'A') {
-          scale = false;
-        } else if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'SPAN') {
-          emojiScaleCheck(node.childNodes);
+  return nodes;
+};
+
+const isElementNode = (node) => node && node.nodeType === Node.ELEMENT_NODE;
+
+const isEmojiImage = (node) => isElementNode(node) && node.tagName === 'IMG' && node.classList.contains('emojione');
+
+const isLineBreakNode = (node) => isElementNode(node) && node.tagName === 'BR';
+
+const isWhitespaceTextNode = (node) => node && node.nodeType === Node.TEXT_NODE && !PROSE_RE.test(node.textContent || '');
+
+const isBreakToken = (node) => isLineBreakNode(node) || isWhitespaceTextNode(node);
+
+const newlineCount = (text) => (String(text || '').match(/\r\n|\n|\r/g) || []).length;
+
+// Two breaks, not one. `<br><br>`, `<br>\n<br>`, and a blank line in a text
+// node start a paragraph. `<br>` or `<br>\n` — including the newline Pixelfed
+// nl2br leaves behind — stays inside the current paragraph.
+const isParagraphBoundary = (nodes) => {
+  let breaks = 0;
+  let newlines = 0;
+
+  for (let i = 0; i < nodes.length; i += 1) {
+    const node = nodes[i];
+
+    if (isLineBreakNode(node)) {
+      breaks += 1;
+    } else if (isWhitespaceTextNode(node)) {
+      newlines += newlineCount(node.textContent);
+    } else {
+      return false;
+    }
+  }
+
+  return breaks >= 2 || newlines >= 2;
+};
+
+const explodeBlankLineText = (node) => {
+  if (!node || node.nodeType !== Node.TEXT_NODE || !BLANK_LINE_RE.test(node.textContent || '')) {
+    return [node];
+  }
+
+  const parts = node.textContent.split(new RegExp(`(${BLANK_LINE_RE.source})`)).filter(part => part !== '');
+
+  if (parts.length <= 1) {
+    return [node];
+  }
+
+  const created = parts.map(part => node.ownerDocument.createTextNode(part));
+  created.forEach(part => node.parentNode.insertBefore(part, node));
+  node.remove();
+  return created;
+};
+
+const prepareFlow = (nodes) => {
+  const prepared = [];
+
+  nodes.forEach(node => {
+    explodeBlankLineText(node).forEach(part => {
+      if (part) prepared.push(part);
+    });
+  });
+
+  return prepared;
+};
+
+const inspectEmojiFlow = (nodes) => {
+  const state = { emoji: 0, link: false, prose: false };
+
+  const walk = (nodeList) => {
+    for (let i = 0; i < nodeList.length; i += 1) {
+      const node = nodeList[i];
+
+      if (node.nodeType === Node.TEXT_NODE) {
+        if (PROSE_RE.test(node.textContent || '')) state.prose = true;
+      } else if (isElementNode(node)) {
+        if (isEmojiImage(node)) {
+          state.emoji += 1;
+        } else if (node.tagName === 'A') {
+          // Link text is the link, not a sentence. Emoji beside a mention,
+          // hashtag, or URL is emoji-mix even when the anchor contains text.
+          state.link = true;
+        } else if (node.tagName !== 'BR' && !SKIPPED_EMOJI_CONTAINERS.has(node.tagName)) {
+          walk(node.childNodes);
         }
       }
     }
+  };
 
-    emojiScaleCheck(p.childNodes);
+  walk(nodes);
+  return state;
+};
 
-    if (scale && imgCount === 1) {
-      p.classList.add('emoji-single');
-    } else if (scale && imgCount > 1) {
-      p.classList.add('emoji-multi');
-    } else if (mix && imgCount > 0) {
-      p.classList.add('emoji-mix');
-    } else if (imgCount > 0){
-      p.classList.add('emoji-other');
+const presentationFor = (state) => {
+  if (state.emoji === 0) return null;
+  if (state.prose) return 'emoji-other';
+  if (state.link) return 'emoji-mix';
+  if (state.emoji === 1) return 'emoji-single';
+  return 'emoji-multi';
+};
+
+// A blank line stays in the parent, between the slices we wrap. It is not
+// part of either slice: dropping it removes the line, and moving it into the
+// following span changes that span's line-height.
+const splitEmojiSegments = (nodes) => {
+  const segments = [];
+  let current = [];
+  let pending = [];
+  let boundaryOpen = false;
+
+  const closeSegment = () => {
+    if (current.length === 0) return;
+    segments.push(current);
+    current = [];
+  };
+
+  // "  hello" after a blank line is one text node. Peel the leading
+  // whitespace so it stays outside the span with the blank line.
+  const peelLeadingWhitespace = (node) => {
+    if (!boundaryOpen || !node || node.nodeType !== Node.TEXT_NODE) return node;
+
+    const text = node.textContent || '';
+    const lead = text.match(/^\s+/);
+
+    if (!lead || lead[0].length === text.length) return node;
+
+    const ws = node.ownerDocument.createTextNode(lead[0]);
+    node.parentNode.insertBefore(ws, node);
+    node.textContent = text.slice(lead[0].length);
+    pending.push(ws);
+    return node;
+  };
+
+  nodes.forEach(node => {
+    if (isBreakToken(node)) {
+      pending.push(node);
+
+      if (!boundaryOpen && isParagraphBoundary(pending)) {
+        closeSegment();
+        boundaryOpen = true;
+      }
+
+      return;
     }
+
+    const content = peelLeadingWhitespace(node);
+
+    if (boundaryOpen) {
+      // pending is the blank line and the whitespace around it. Leave those
+      // nodes where they are; do not wrap them and do not remove them.
+      pending = [];
+      boundaryOpen = false;
+      current = [content];
+      return;
+    }
+
+    current = current.concat(pending, [content]);
+    pending = [];
   });
 
-  return flagment.innerHTML;
+  if (!boundaryOpen && pending.length > 0) current = current.concat(pending);
+  if (current.length > 0) segments.push(current);
+  return segments;
+};
+
+const clearEmojiPresentation = (element) => {
+  EMOJI_PRESENTATION_CLASSES.forEach(className => element.classList.remove(className));
+};
+
+const wrapEmojiSegment = (nodes, className) => {
+  const span = nodes[0].ownerDocument.createElement('span');
+  span.className = className;
+  nodes[0].parentNode.insertBefore(span, nodes[0]);
+  nodes.forEach(node => span.appendChild(node));
+};
+
+// One segment keeps the class on the paragraph, as before. A blank line
+// inside that paragraph needs its own class, so only that slice is wrapped.
+const assignEmojiSegments = (nodes, container) => {
+  const segments = splitEmojiSegments(prepareFlow(nodes));
+
+  if (container && segments.length <= 1) {
+    clearEmojiPresentation(container);
+    const className = segments.length === 1 ? presentationFor(inspectEmojiFlow(segments[0])) : null;
+    if (className) container.classList.add(className);
+    return;
+  }
+
+  if (container) clearEmojiPresentation(container);
+
+  segments.forEach(segment => {
+    const className = presentationFor(inspectEmojiFlow(segment));
+    if (className) wrapEmojiSegment(segment, className);
+  });
+};
+
+const classifyEmojiContainers = (parent) => {
+  let loose = [];
+
+  const flushLoose = () => {
+    if (loose.length === 0) return;
+    assignEmojiSegments(loose, null);
+    loose = [];
+  };
+
+  nodeListToArray(parent.childNodes).forEach(node => {
+    if (!isElementNode(node)) {
+      loose.push(node);
+      return;
+    }
+
+    if (node.tagName === 'P') {
+      flushLoose();
+      assignEmojiSegments(nodeListToArray(node.childNodes), node);
+      return;
+    }
+
+    if (SKIPPED_EMOJI_CONTAINERS.has(node.tagName)) {
+      flushLoose();
+      return;
+    }
+
+    if (DESCENDABLE_EMOJI_CONTAINERS.has(node.tagName)) {
+      flushLoose();
+      classifyEmojiContainers(node);
+      return;
+    }
+
+    loose.push(node);
+  });
+
+  flushLoose();
+};
+
+const applyEmojiPresentation = (html) => {
+  const parsed = domParser.parseFromString(html, 'text/html');
+  classifyEmojiContainers(parsed.body);
+  return parsed.documentElement.innerHTML;
 };
 
 const mediaSignature = (media) => {
