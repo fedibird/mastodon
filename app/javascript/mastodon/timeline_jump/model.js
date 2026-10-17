@@ -3,9 +3,10 @@ import { capabilityFor } from '../timeline_seek/capability';
 import { SEEK_KIND, SEEK_PREFERENCE } from '../timeline_seek/constants';
 import { createSeekQuery, seekTargetPayload } from '../timeline_seek/query';
 
-// P4a jumps by date, account, or status id. Text search is a visible mode
-// and never becomes a seek target: the seek API rejects raw text, and the
-// existing full-text index is not a timeline membership search.
+// P4a jumps by date, account, or status id. Text search is a separate
+// session: buildJumpQuery still refuses raw text, because seek and
+// membership must not receive the query. Confirmed hits jump as searchHit
+// ids, or scroll when that row is already loaded.
 
 export const JUMP_MODE = Object.freeze({
   DATE: 'date',
@@ -108,10 +109,12 @@ export const normalizeDecimalId = (value) => {
 
 export const jumpModeState = (source, mode) => {
   if (mode === JUMP_MODE.TEXT) {
+    const entry = capabilityFor(source, SEEK_KIND.MEMBERSHIP);
+
     return {
-      level: 'unsupported',
-      reason: 'text_search_not_in_timeline',
-      canSubmit: false,
+      level: entry.level,
+      reason: entry.reason,
+      canSubmit: entry.level === 'supported' || entry.level === 'approximate',
     };
   }
 

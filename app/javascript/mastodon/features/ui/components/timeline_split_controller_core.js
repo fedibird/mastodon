@@ -24,6 +24,8 @@ import { captureHistorySurface, restoreHistorySurface, subscribeHistorySurface }
 import { jumpAbandonDisposition, jumpScrollDisposition } from 'mastodon/timeline_jump/model';
 import { createJumpScrollWait } from 'mastodon/timeline_jump/scroll_wait';
 import { seekSourceKey } from 'mastodon/timeline_seek/query';
+import { isDecimalStatusId } from 'mastodon/timeline_navigation';
+import { textJumpRequest } from 'mastodon/timeline_text_search/session';
 import { cancelWindowedHistoryDirection } from '../../../windowed_history/flights';
 import TimelineColumnJumpPanel from './timeline_column_jump';
 
@@ -103,6 +105,12 @@ class TimelineSplitControllerCore extends React.Component {
     onCancelAccountSearch: PropTypes.func,
     onRestoreJump: PropTypes.func,
     onSettleJumpScroll: PropTypes.func,
+    onSearchStatuses: PropTypes.func,
+    onCheckMembership: PropTypes.func,
+    onCancelTextSearch: PropTypes.func,
+    onResolveLoadedRow: PropTypes.func,
+    onPointJump: PropTypes.func,
+    historyBoundaryId: PropTypes.string,
   };
 
   static contextTypes = {
@@ -950,6 +958,10 @@ class TimelineSplitControllerCore extends React.Component {
       this.props.onCancelAccountSearch();
     }
 
+    if (this.props.onCancelTextSearch) {
+      this.props.onCancelTextSearch();
+    }
+
     this.jumpScrollWait.cancel({ scrollStatus: 'stale', reason: 'stale' });
 
     if (flight && flight.phase === 'pending' && flight.splitTimelineId) {
@@ -1178,6 +1190,80 @@ class TimelineSplitControllerCore extends React.Component {
     });
   };
 
+  executeLoadedJump = (token, plan, splitTimelineId) => {
+    const reading = captureHistorySurface(splitTimelineId);
+
+    this.jumpFlight = {
+      token,
+      phase: 'pending',
+      splitTimelineId,
+      reading,
+    };
+
+    if (!this.props.onPointJump) {
+      return this.executeJump(token, textJumpRequest({ statusId: plan.statusId }).query, splitTimelineId);
+    }
+
+    return Promise.resolve(this.props.onPointJump({
+      splitTimelineId,
+      anchorId: plan.anchorId,
+      statusId: plan.statusId,
+      contract: this.props.historyContract,
+    })).then(pointed => {
+      if (!this.jumpIsCurrent(token)) {
+        return { outcome: 'stale', reason: 'stale', moved: false };
+      }
+
+      if (!pointed || !pointed.sessionId) {
+        return this.executeJump(token, textJumpRequest({ statusId: plan.statusId }).query, splitTimelineId);
+      }
+
+      return this.finishJumpScroll(token, {
+        outcome: 'resolved',
+        reason: 'loaded',
+        precision: 'loaded',
+        limitations: ['loaded_window'],
+        scroll: { sessionId: pointed.sessionId },
+      }, pointed.snapshot, splitTimelineId);
+    });
+  };
+
+  handleTextResultJump = ({ statusId } = {}) => {
+    const token = ++this.jumpToken;
+
+    if (!isDecimalStatusId(statusId)) {
+      return Promise.resolve({ outcome: 'unsupported', reason: 'invalid_id', moved: false });
+    }
+
+    if (!this.ownsSplit()) {
+      if (this.jumpDisabled()) {
+        return Promise.resolve({ outcome: 'unavailable', reason: 'split_unavailable', moved: false });
+      }
+
+      this.splitTimeline();
+      const opened = textJumpRequest({ statusId });
+
+      return this.executeJump(token, opened.query, `${this.splitKeyPrefix()}${this.splitSessionId}`);
+    }
+
+    const loaded = this.props.onResolveLoadedRow ? this.props.onResolveLoadedRow(statusId) : null;
+    const plan = textJumpRequest({
+      statusId,
+      loadedDisplayRowId: loaded,
+      boundaryId: this.props.historyBoundaryId,
+    });
+
+    if (!plan.ok) {
+      return Promise.resolve({ outcome: 'unavailable', reason: plan.reason, moved: false });
+    }
+
+    if (plan.mode === 'loaded') {
+      return this.executeLoadedJump(token, plan, this.getSplitTimelineId());
+    }
+
+    return this.executeJump(token, plan.query, this.getSplitTimelineId());
+  };
+
   handleJumpSubmit = (query) => {
     const token = ++this.jumpToken;
 
@@ -1269,6 +1355,14 @@ class TimelineSplitControllerCore extends React.Component {
         onSearchAccounts={this.props.onSearchJumpAccounts}
         onInvalidate={this.handleJumpInvalidate}
         onClose={this.handleJumpClose}
+        accountId={this.props.accountId}
+        columnId={this.instanceId}
+        locationKey={this.locationKey || ''}
+        splitSessionId={this.ownsSplit() ? this.getSplitTimelineId() : ''}
+        onSearchStatuses={this.props.onSearchStatuses}
+        onCheckMembership={this.props.onCheckMembership}
+        onCancelTextSearch={this.props.onCancelTextSearch}
+        onJumpStatus={this.handleTextResultJump}
       />
     );
   }

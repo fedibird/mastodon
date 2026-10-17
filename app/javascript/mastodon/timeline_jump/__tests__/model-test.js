@@ -62,7 +62,10 @@ describe('timeline jump model', () => {
     expect(jumpModeState('home', 'date').reason).toBe('redis_id_probe_not_created_at');
     expect(jumpModeState('personal', 'account').canSubmit).toBe(false);
     expect(jumpModeState('public', 'status').level).toBe('supported');
-    expect(jumpModeState('home', 'text').reason).toBe('text_search_not_in_timeline');
+    expect(jumpModeState('home', 'text').canSubmit).toBe(true);
+    expect(jumpModeState('home', 'text').reason).toBe('redis_retained_window_batch');
+    expect(jumpModeState('public', 'text').level).toBe('supported');
+    expect(jumpModeState('mix', 'text').canSubmit).toBe(false);
     expect(jumpModeState('mix', 'status').canSubmit).toBe(false);
   });
 

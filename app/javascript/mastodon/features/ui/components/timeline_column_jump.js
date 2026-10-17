@@ -11,6 +11,16 @@ import {
 } from '../../../timeline_jump/model';
 import { SEEK_PREFERENCE } from '../../../timeline_seek/constants';
 import { seekSourceFromContract } from '../../../timeline_seek/query';
+import {
+  createTextSearchState,
+  identityChangeResets,
+  publicResults,
+  runNextPage,
+  runSearchSession,
+  sessionView,
+  textSearchIdentity,
+  textSearchIdentityKey,
+} from '../../../timeline_text_search/session';
 
 const messages = defineMessages({
   title: { id: 'timeline.jump', defaultMessage: 'Find in this timeline' },
@@ -30,7 +40,24 @@ const messages = defineMessages({
   go: { id: 'timeline.jump_go', defaultMessage: 'Jump' },
   busy: { id: 'timeline.jump_busy', defaultMessage: 'Looking…' },
   accounts: { id: 'timeline.jump_accounts', defaultMessage: 'Matching accounts' },
-  textUnsupported: { id: 'timeline.jump_text_unsupported', defaultMessage: 'Text search inside this timeline is not available.' },
+  textUnsupported: { id: 'timeline.jump_text_unsupported', defaultMessage: 'This timeline cannot be searched by text.' },
+  textQuery: { id: 'timeline.jump_text_query', defaultMessage: 'Text' },
+  textSearch: { id: 'timeline.jump_text_search', defaultMessage: 'Search' },
+  textHint: { id: 'timeline.jump_text_hint', defaultMessage: 'Searches the existing full-text index, then keeps only posts that are in this timeline. The words are sent in the search request URL and can be stored in network logs. This screen does not save them.' },
+  textRedis: { id: 'timeline.jump_text_redis', defaultMessage: 'Only the latest 2000 posts can be confirmed. A hit outside that range stays unchecked. It is not marked absent.' },
+  textPartial: { id: 'timeline.jump_text_partial', defaultMessage: 'Some hits are outside the retained range. They are hidden here and are not marked absent.' },
+  textRange: { id: 'timeline.jump_text_range', defaultMessage: 'Checked {candidates} search hits across {pages} pages. {members} are in this timeline.' },
+  textUncertain: { id: 'timeline.jump_text_uncertain', defaultMessage: 'Nothing in the checked range. An empty search page can also mean the index is off or unreachable, so this is not a full-history miss.' },
+  textExhausted: { id: 'timeline.jump_text_exhausted', defaultMessage: 'The search returned no further hits for this query.' },
+  textLimit: { id: 'timeline.jump_text_limit', defaultMessage: 'Stopped at the limit of {candidates} hits or {pages} pages. Later hits were not checked.' },
+  textMore: { id: 'timeline.jump_text_more', defaultMessage: 'Check the next page' },
+  textResults: { id: 'timeline.jump_text_results', defaultMessage: 'Posts in this timeline' },
+  textNext: { id: 'timeline.jump_text_next', defaultMessage: 'Next result' },
+  textPrevious: { id: 'timeline.jump_text_previous', defaultMessage: 'Previous result' },
+  textEmpty: { id: 'timeline.jump_text_empty', defaultMessage: 'None of the checked hits are in this timeline.' },
+  textRecheck: { id: 'timeline.jump_text_recheck', defaultMessage: 'A post can change before the jump. The jump checks membership again.' },
+  textChecking: { id: 'timeline.jump_text_checking', defaultMessage: 'Checking which hits are in this timeline…' },
+  textMissing: { id: 'timeline.jump_text_missing', defaultMessage: 'Enter text to search.' },
   shiftEnter: { id: 'timeline.jump_shift_enter', defaultMessage: 'Moving between text results is not available.' },
   dateHint: { id: 'timeline.jump_date_hint', defaultMessage: '{timeZone} ({offset}). Local time is sent with that offset. A date alone is not midnight UTC. The match is an approximate id-order probe.' },
   dateRedis: { id: 'timeline.jump_date_redis', defaultMessage: 'Only the latest 2000 posts in this timeline can be probed.' },
@@ -69,6 +96,7 @@ const messages = defineMessages({
 
 const REASON_MESSAGE = {
   text_search_not_in_timeline: 'textUnsupported',
+  missing_text: 'textMissing',
   shift_enter: 'shiftEnter',
   not_in_source: 'notInSource',
   source_filter: 'notInSource',
@@ -159,6 +187,14 @@ class TimelineColumnJumpPanel extends React.PureComponent {
     onSearchAccounts: PropTypes.func,
     onInvalidate: PropTypes.func,
     onClose: PropTypes.func.isRequired,
+    accountId: PropTypes.string,
+    columnId: PropTypes.string,
+    locationKey: PropTypes.string,
+    splitSessionId: PropTypes.string,
+    onSearchStatuses: PropTypes.func,
+    onCheckMembership: PropTypes.func,
+    onCancelTextSearch: PropTypes.func,
+    onJumpStatus: PropTypes.func,
   };
 
   state = {
@@ -170,10 +206,43 @@ class TimelineColumnJumpPanel extends React.PureComponent {
     accountLookup: null,
     selectedAccountId: null,
     statusId: '',
+    textQuery: '',
+    textResults: [],
+    textView: null,
+    textIndex: -1,
     notice: null,
     result: null,
     busy: false,
   };
+
+  textSession = createTextSearchState();
+
+  searchQuery = '';
+
+  static getDerivedStateFromProps (props, state) {
+    const identity = textSearchIdentity(props);
+    const key = textSearchIdentityKey(identity);
+
+    if (state.textIdentityKey === key) {
+      return null;
+    }
+
+    if (!state.textIdentityKey || !identityChangeResets(state.textIdentity, identity)) {
+      return { textIdentityKey: key, textIdentity: identity };
+    }
+
+    return {
+      textIdentityKey: key,
+      textIdentity: identity,
+      textQuery: '',
+      textResults: [],
+      textView: null,
+      textIndex: -1,
+      busy: false,
+      result: null,
+      notice: null,
+    };
+  }
 
   componentDidMount () {
     if (this.modeNode) {
@@ -181,9 +250,21 @@ class TimelineColumnJumpPanel extends React.PureComponent {
     }
   }
 
+  componentDidUpdate (prevProps) {
+    if (identityChangeResets(textSearchIdentity(prevProps), this.textIdentity())) {
+      this.localRequest += 1;
+      this.textSession = createTextSearchState();
+      this.searchQuery = '';
+      this.cancelTextSearch();
+    }
+  }
+
   componentWillUnmount () {
     this.unmounted = true;
     this.localRequest += 1;
+    this.searchQuery = '';
+    this.textSession = createTextSearchState();
+    this.cancelTextSearch();
 
     if (this.accountTimer) {
       clearTimeout(this.accountTimer);
@@ -204,29 +285,76 @@ class TimelineColumnJumpPanel extends React.PureComponent {
     }
   };
 
+  textIdentity = () => textSearchIdentity(this.props);
+
+  cancelTextSearch = () => {
+    if (this.props.onCancelTextSearch) {
+      this.props.onCancelTextSearch();
+    }
+  };
+
+  clearTextResults = () => {
+    this.textSession = createTextSearchState();
+    this.searchQuery = '';
+    this.setState({
+      textResults: [],
+      textView: null,
+      textIndex: -1,
+    });
+  };
+
+  isImeEnter = (event) => {
+    const native = event.nativeEvent || {};
+
+    return this.composing || event.keyCode === 229 || event.which === 229 || native.isComposing || native.keyCode === 229;
+  };
+
+  handleComposition = (event) => {
+    this.composing = event.type === 'compositionstart';
+  };
+
   handleKeyDown = (event) => {
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
+      this.searchQuery = '';
       this.props.onClose();
+      return;
+    }
+
+    if (event.key === 'Enter' && this.isImeEnter(event)) {
+      event.preventDefault();
+      event.stopPropagation();
       return;
     }
 
     if (event.key === 'Enter' && event.shiftKey) {
       event.preventDefault();
       event.stopPropagation();
+
+      if (this.state.mode === JUMP_MODE.TEXT) {
+        this.moveTextResult(-1);
+        return;
+      }
+
       this.setState({ notice: 'shift_enter', result: null });
     }
   };
 
   handleMode = (event) => {
     this.invalidate();
+    this.cancelTextSearch();
+    this.textSession = createTextSearchState();
+    this.searchQuery = '';
     this.setState({
       mode: event.target.value,
       notice: null,
       result: null,
       accounts: [],
       accountLookup: null,
+      textResults: [],
+      textView: null,
+      textIndex: -1,
       busy: false,
     });
   };
@@ -308,8 +436,192 @@ class TimelineColumnJumpPanel extends React.PureComponent {
     });
   };
 
+  handleTextQuery = (event) => {
+    this.localRequest += 1;
+    this.cancelTextSearch();
+    this.textSession = createTextSearchState();
+    this.searchQuery = '';
+    this.setState({
+      textQuery: event.target.value,
+      textResults: [],
+      textView: null,
+      textIndex: -1,
+      result: null,
+      notice: null,
+      busy: false,
+    });
+  };
+
+  publishText = (request, outcome) => {
+    if (this.unmounted || request !== this.localRequest || !outcome.applied) {
+      return;
+    }
+
+    this.textSession = outcome.state;
+    this.setState({
+      busy: false,
+      textResults: publicResults(outcome.state),
+      textView: sessionView(outcome.state),
+    });
+  };
+
+  searchText = () => {
+    const query = this.state.textQuery.trim();
+    const source = sourceOf(this.props.contract);
+    const modeState = jumpModeState(source, JUMP_MODE.TEXT);
+
+    if (!query) {
+      this.setState({ notice: 'missing_text', result: null });
+      return;
+    }
+
+    if (!modeState.canSubmit || !this.props.onSearchStatuses || !this.props.onCheckMembership) {
+      this.setState({ result: { outcome: 'unsupported', reason: 'text_search_not_in_timeline', moved: false }, notice: null });
+      return;
+    }
+
+    const request = ++this.localRequest;
+    const identity = this.textIdentity();
+
+    this.searchQuery = query;
+    this.setState({ busy: true, textResults: [], textView: null, textIndex: -1, result: null, notice: null });
+    this.textSession = createTextSearchState();
+
+    runSearchSession({
+      state: this.textSession,
+      identity,
+      search: ({ offset, limit }) => {
+        if (request !== this.localRequest || this.searchQuery !== query) {
+          return Promise.resolve({ ok: false, reason: 'cancelled', statuses: [], received: 0 });
+        }
+
+        return this.props.onSearchStatuses({ q: query, offset, limit });
+      },
+      membership: (payload) => this.props.onCheckMembership(payload),
+      isCurrent: () => request === this.localRequest && !this.unmounted && this.searchQuery === query,
+    }).then(outcome => this.publishText(request, outcome)).catch(() => {
+      if (this.unmounted || request !== this.localRequest) {
+        return;
+      }
+
+      this.setState({ busy: false, result: { outcome: 'unavailable', reason: 'network', moved: false } });
+    });
+  };
+
+  loadMoreText = () => {
+    if (!this.props.onSearchStatuses || !this.props.onCheckMembership || this.state.busy) {
+      return;
+    }
+
+    const query = this.searchQuery;
+    const request = ++this.localRequest;
+    const identity = this.textIdentity();
+
+    this.setState({ busy: true, notice: null });
+    runNextPage({
+      state: this.textSession,
+      identity,
+      search: ({ offset, limit }) => {
+        if (request !== this.localRequest || this.searchQuery !== query) {
+          return Promise.resolve({ ok: false, reason: 'cancelled', statuses: [], received: 0 });
+        }
+
+        return this.props.onSearchStatuses({ q: query, offset, limit });
+      },
+      membership: (payload) => this.props.onCheckMembership(payload),
+      isCurrent: () => request === this.localRequest && !this.unmounted && this.searchQuery === query,
+    }).then(outcome => this.publishText(request, outcome)).catch(() => {
+      if (this.unmounted || request !== this.localRequest) {
+        return;
+      }
+
+      this.setState({ busy: false, result: { outcome: 'unavailable', reason: 'network', moved: false } });
+    });
+  };
+
+  jumpToText = (index) => {
+    const row = this.state.textResults[index];
+
+    if (!row || !this.props.onJumpStatus || this.state.busy) {
+      return;
+    }
+
+    const request = ++this.localRequest;
+
+    this.setState({ busy: true, notice: null });
+    this.props.onJumpStatus({ statusId: row.id }).then(result => {
+      if (this.unmounted || request !== this.localRequest) {
+        return;
+      }
+
+      const moved = !!(result && result.moved);
+
+      this.setState(prev => ({
+        busy: false,
+        result: result || { outcome: 'unavailable', reason: 'network', moved: false },
+        textIndex: moved ? index : prev.textIndex,
+      }));
+    }).catch(() => {
+      if (this.unmounted || request !== this.localRequest) {
+        return;
+      }
+
+      this.setState({ busy: false, result: { outcome: 'unavailable', reason: 'network', moved: false } });
+    });
+  };
+
+  chooseTextResult = (event) => {
+    const marker = event.currentTarget.getAttribute('data-index');
+    const index = this.state.textResults.findIndex((row, position) => String(position) === marker);
+
+    if (index !== -1) {
+      this.jumpToText(index);
+    }
+  };
+
+  showPreviousText = () => {
+    this.moveTextResult(-1);
+  };
+
+  showNextText = () => {
+    this.moveTextResult(1);
+  };
+
+  moveTextResult = (delta) => {
+    const { textResults, textIndex } = this.state;
+
+    if (!textResults.length) {
+      return;
+    }
+
+    let index = textIndex;
+
+    if (delta > 0) {
+      index = textIndex < 0 ? 0 : textIndex + 1;
+    } else if (textIndex > 0) {
+      index = textIndex - 1;
+    } else {
+      return;
+    }
+
+    if (index < 0 || index >= textResults.length) {
+      return;
+    }
+
+    this.jumpToText(index);
+  };
+
   handleSubmit = (event) => {
     event.preventDefault();
+
+    if (this.composing || this.isImeEnter(event)) {
+      return;
+    }
+
+    if (this.state.mode === JUMP_MODE.TEXT) {
+      this.searchText();
+      return;
+    }
 
     const built = buildJumpQuery({
       mode: this.state.mode,
@@ -348,7 +660,17 @@ class TimelineColumnJumpPanel extends React.PureComponent {
     const mode = jumpModeState(source, this.state.mode);
 
     if (this.state.mode === JUMP_MODE.TEXT) {
-      return intl.formatMessage(messages.textUnsupported);
+      if (!mode.canSubmit) {
+        return intl.formatMessage(messages.textUnsupported);
+      }
+
+      const hint = intl.formatMessage(messages.textHint);
+
+      if (mode.level === 'approximate') {
+        return `${hint} ${intl.formatMessage(messages.textRedis)}`;
+      }
+
+      return hint;
     }
 
     if (this.state.mode === JUMP_MODE.DATE) {
@@ -379,6 +701,157 @@ class TimelineColumnJumpPanel extends React.PureComponent {
     return intl.formatMessage(messages.statusHint);
   }
 
+  textStatusText () {
+    const { intl } = this.props;
+    const view = this.state.textView;
+
+    if (!view || view.paging === 'idle') {
+      return null;
+    }
+
+    const parts = [];
+
+    if (view.paging === 'checking' || this.state.busy) {
+      parts.push(intl.formatMessage(messages.textChecking));
+    }
+
+    if (view.paging === 'network') {
+      parts.push(intl.formatMessage(messages.network));
+    }
+
+    if (view.candidates > 0) {
+      parts.push(intl.formatMessage(messages.textRange, {
+        candidates: view.candidates,
+        pages: view.pages,
+        members: view.members,
+      }));
+    }
+
+    if (view.partial || view.unknownCount > 0) {
+      parts.push(intl.formatMessage(messages.textPartial));
+    }
+
+    if (view.paging === 'uncertain') {
+      parts.push(intl.formatMessage(messages.textUncertain));
+    } else if (view.paging === 'exhausted') {
+      parts.push(intl.formatMessage(messages.textExhausted));
+    } else if (view.paging === 'limit') {
+      parts.push(intl.formatMessage(messages.textLimit, {
+        candidates: view.sessionCandidates,
+        pages: view.maxPages,
+      }));
+    }
+
+    if (view.members === 0 && view.candidates > 0 && view.paging !== 'checking' && view.paging !== 'network' && view.paging !== 'idle') {
+      parts.push(intl.formatMessage(messages.textEmpty));
+    }
+
+    if (view.members > 0) {
+      parts.push(intl.formatMessage(messages.textRecheck));
+    }
+
+    return parts.join(' ');
+  }
+
+  createdLabel (value) {
+    const { intl } = this.props;
+
+    if (!value) {
+      return '';
+    }
+
+    if (typeof intl.formatDate === 'function') {
+      const date = new Date(value);
+
+      if (!Number.isNaN(date.getTime())) {
+        return intl.formatDate(date, {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+      }
+    }
+
+    return value;
+  }
+
+  renderTextSearch (modeState) {
+    const { intl, panelId } = this.props;
+    const view = this.state.textView;
+    const status = this.textStatusText();
+    const canSearch = modeState.canSubmit && !this.state.busy;
+    const atStart = this.state.textIndex <= 0;
+    const atEnd = this.state.textIndex < 0
+      ? this.state.textResults.length === 0
+      : this.state.textIndex >= this.state.textResults.length - 1;
+
+    return (
+      <div className='timeline-jump__stack' data-layout='stack'>
+        <div className='timeline-jump__row'>
+          <label htmlFor={`${panelId}-text`}>{intl.formatMessage(messages.textQuery)}</label>
+          <input
+            id={`${panelId}-text`}
+            className='setting-text'
+            type='text'
+            value={this.state.textQuery}
+            onChange={this.handleTextQuery}
+            onCompositionStart={this.handleComposition}
+            onCompositionEnd={this.handleComposition}
+            autoComplete='off'
+            spellCheck='false'
+            disabled={!modeState.canSubmit}
+          />
+        </div>
+        {status && <p className='timeline-jump__note' role='status' aria-live='polite'>{status}</p>}
+        {this.state.textResults.length > 0 && (
+          <ul className='timeline-jump__results' aria-label={intl.formatMessage(messages.textResults)}>
+            {this.state.textResults.map((row, index) => (
+              <li key={row.id}>
+                <button
+                  type='button'
+                  className='timeline-jump__hit'
+                  data-index={index}
+                  aria-current={this.state.textIndex === index ? 'true' : undefined}
+                  onClick={this.chooseTextResult}
+                >
+                  <span className='timeline-jump__hit-account'>{row.acct ? `${row.displayName || row.acct} @${row.acct}` : (row.displayName || row.id)}</span>
+                  <span className='timeline-jump__hit-time'>{this.createdLabel(row.createdAt)}</span>
+                  <span className='timeline-jump__hit-excerpt'>{row.excerpt}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className='timeline-jump__nav'>
+          <button type='button' className='timeline-jump__close' disabled={atStart || this.state.busy} onClick={this.showPreviousText}>
+            {intl.formatMessage(messages.textPrevious)}
+          </button>
+          <button
+            type='button'
+            className='timeline-jump__close'
+            disabled={atEnd || this.state.busy || this.state.textResults.length === 0}
+            onClick={this.showNextText}
+          >
+            {intl.formatMessage(messages.textNext)}
+          </button>
+          <button type='button' className='timeline-jump__close' disabled={!view || view.paging !== 'more' || this.state.busy} onClick={this.loadMoreText}>
+            {intl.formatMessage(messages.textMore)}
+          </button>
+        </div>
+        <div className='timeline-jump__actions'>
+          <button type='submit' className='timeline-jump__go' disabled={!canSearch}>
+            {this.state.busy ? intl.formatMessage(messages.busy) : intl.formatMessage(messages.textSearch)}
+          </button>
+          <button type='button' className='timeline-jump__close' onClick={this.props.onClose}>
+            {intl.formatMessage(messages.close)}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   render () {
     const { intl, panelId } = this.props;
     const { mode, busy } = this.state;
@@ -401,6 +874,7 @@ class TimelineColumnJumpPanel extends React.PureComponent {
         className='timeline-jump'
         role='dialog'
         aria-label={intl.formatMessage(messages.title)}
+        aria-busy={busy ? 'true' : 'false'}
         onSubmit={this.handleSubmit}
         onKeyDown={this.handleKeyDown}
       >
@@ -499,17 +973,21 @@ class TimelineColumnJumpPanel extends React.PureComponent {
           </div>
         )}
 
+        {mode === JUMP_MODE.TEXT && modeState.canSubmit && this.renderTextSearch(modeState)}
+
         <p className='timeline-jump__note'>{this.capabilityNote()}</p>
         {feedback && <p className='timeline-jump__result' role='status'>{feedback}</p>}
 
-        <div className='timeline-jump__actions'>
-          <button type='submit' className='timeline-jump__go' disabled={!modeState.canSubmit || busy}>
-            {busy ? intl.formatMessage(messages.busy) : intl.formatMessage(messages.go)}
-          </button>
-          <button type='button' className='timeline-jump__close' onClick={this.props.onClose}>
-            {intl.formatMessage(messages.close)}
-          </button>
-        </div>
+        {!(mode === JUMP_MODE.TEXT && modeState.canSubmit) && (
+          <div className='timeline-jump__actions'>
+            <button type='submit' className='timeline-jump__go' disabled={!modeState.canSubmit || busy}>
+              {busy ? intl.formatMessage(messages.busy) : intl.formatMessage(messages.go)}
+            </button>
+            <button type='button' className='timeline-jump__close' onClick={this.props.onClose}>
+              {intl.formatMessage(messages.close)}
+            </button>
+          </div>
+        )}
       </form>
     );
   }
