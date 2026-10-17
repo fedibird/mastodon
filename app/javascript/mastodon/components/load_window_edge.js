@@ -9,6 +9,8 @@ const messages = defineMessages({
   olderError: { id: 'timeline_history.load_older_error', defaultMessage: 'Could not load older posts. Try again' },
   newerUnavailable: { id: 'timeline_history.newer_unavailable', defaultMessage: 'Newer posts in this range are no longer in the feed. Try again' },
   olderUnavailable: { id: 'timeline_history.older_unavailable', defaultMessage: 'Reached the end of the retained feed. Older posts may still exist outside it. Try again' },
+  newerPaused: { id: 'timeline_history.newer_paused', defaultMessage: 'Newer posts are not ready yet. Try again' },
+  olderPaused: { id: 'timeline_history.older_paused', defaultMessage: 'Older posts are not ready yet. Try again' },
   anchorMissing: { id: 'timeline_history.anchor_missing', defaultMessage: 'Could not find the post you were reading. History was not jumped to the top.' },
 });
 
@@ -19,6 +21,10 @@ const labelFor = (direction, status) => {
 
   if (status === 'unavailable') {
     return direction === 'newer' ? messages.newerUnavailable : messages.olderUnavailable;
+  }
+
+  if (status === 'paused') {
+    return direction === 'newer' ? messages.newerPaused : messages.olderPaused;
   }
 
   return direction === 'newer' ? messages.newer : messages.older;

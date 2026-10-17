@@ -24,4 +24,7 @@ export const HISTORY_EDGE = Object.freeze({
   ERROR: 'error',
   EXHAUSTED: 'exhausted',
   UNAVAILABLE: 'unavailable',
+  // HTTP 206 with no accepted ids. The cursor did not move, so automatic
+  // paging would repeat the same request while the feed is regenerating.
+  PAUSED: 'paused',
 });

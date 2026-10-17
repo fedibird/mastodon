@@ -92,7 +92,7 @@ class ScrollableList extends PureComponent {
       // A jump to an already loaded row must not page in more. A real user
       // scroll, including one that arrives before this throttled call runs,
       // still loads when it is within 400px of the end.
-      const olderBlocked = this.props.olderStatus === 'error' || this.props.olderStatus === 'unavailable';
+      const olderBlocked = this.props.olderStatus === 'error' || this.props.olderStatus === 'unavailable' || this.props.olderStatus === 'paused';
 
       if (!anchorJump && 400 > offset && this.props.onLoadMore && this.props.hasMore && !this.props.isLoading && !olderBlocked) {
         this.props.onLoadMore();
@@ -619,8 +619,8 @@ class ScrollableList extends PureComponent {
     const { children, scrollKey, trackScroll, showLoading, isLoading, hasMore, hasNewer, newerLoading, newerStatus, olderStatus, numPending, prepend, alwaysPrepend, append, emptyMessage, onLoadMore, onLoadNewer, tabIndex } = this.props;
     const { fullscreen } = this.state;
     const childrenCount = React.Children.count(children);
-    const showOlder = onLoadMore && (hasMore || olderStatus === 'error' || olderStatus === 'unavailable');
-    const showNewer = onLoadNewer && (hasNewer || newerStatus === 'error' || newerStatus === 'unavailable');
+    const showOlder = onLoadMore && (hasMore || olderStatus === 'error' || olderStatus === 'unavailable' || olderStatus === 'paused');
+    const showNewer = onLoadNewer && (hasNewer || newerStatus === 'error' || newerStatus === 'unavailable' || newerStatus === 'paused');
     const loadNewer = showNewer ? (
       <LoadWindowEdge
         direction='newer'

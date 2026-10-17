@@ -168,6 +168,47 @@ describe('windowed history model', () => {
     expect(page.window.newestId).not.toBe(null);
   });
 
+  it('pauses an empty partial page and resumes on the next full page', () => {
+    const selected = selectInitialWindow(['300', '290', '280'], '280', { target: 40, sourceHasMore: true });
+    const request = (windowState, requestId) => beginHistoryRequest(windowState, {
+      direction: 'older',
+      cursor: '280',
+      requestId,
+    });
+    const emptyPartial = (windowState) => applyHistoryPage(windowState, ['300', '290', '280'], {
+      pageIds: [],
+      direction: 'older',
+      cursor: '280',
+      partial: true,
+      capability: HISTORY_CAPABILITY.REDIS,
+      limit: 20,
+    });
+
+    const first = emptyPartial(request(selected.window, 'partial-1').window);
+    const second = emptyPartial(request(first.window, 'partial-2').window);
+
+    expect(first.window.older.status).toBe(HISTORY_EDGE.PAUSED);
+    expect(second.window.older.status).toBe(HISTORY_EDGE.PAUSED);
+    expect(second.window.oldestId).toBe('280');
+    expect(second.items).toEqual(['300', '290', '280']);
+    expect(second.window.revision).toBe(first.window.revision);
+
+    const pageIds = Array.from({ length: 20 }, (_, index) => String(270 - index));
+    const recovered = applyHistoryPage(request(second.window, 'partial-3').window, second.items, {
+      pageIds,
+      direction: 'older',
+      cursor: '280',
+      partial: false,
+      capability: HISTORY_CAPABILITY.REDIS,
+      limit: 20,
+    });
+
+    expect(recovered.window.older.status).toBe(HISTORY_EDGE.OPEN);
+    expect(recovered.window.oldestId).toBe(pageIds[pageIds.length - 1]);
+    expect(recovered.items).toContain('280');
+    expect(recovered.items).toContain(pageIds[0]);
+  });
+
   it('merges a trimmed history back without dropping canonical ids', () => {
     const source = ['500', '400', null, '300', '200', '100'];
     const history = ['300', '200', '150'];

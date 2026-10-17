@@ -357,6 +357,10 @@ const idsOnSide = (ids, cursor, direction, boundaryId) => newestFirst(ids).filte
 });
 
 const classifyNewer = ({ ids, limit, partial, capability, boundaryId, newestAfter, previousNewest, pageIds }) => {
+  if (partial && ids.length === 0) {
+    return HISTORY_EDGE.PAUSED;
+  }
+
   if (partial) {
     return HISTORY_EDGE.OPEN;
   }
@@ -380,6 +384,10 @@ const classifyNewer = ({ ids, limit, partial, capability, boundaryId, newestAfte
 };
 
 const classifyOlder = ({ ids, limit, partial, advanced, capability }) => {
+  if (partial && ids.length === 0) {
+    return HISTORY_EDGE.PAUSED;
+  }
+
   if (partial) {
     return HISTORY_EDGE.OPEN;
   }
