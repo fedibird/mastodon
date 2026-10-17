@@ -240,6 +240,49 @@ describe('resumeHistoryPosition', () => {
     expect(store.getState().getIn(['timelines', splitId, 'items'])).toEqual(before);
   });
 
+  it('cancels from the store when the gesture has not seen the request id', async () => {
+    const store = storeWithSplit();
+    const before = store.getState().getIn(['timelines', splitId, 'items']);
+    let resolvePost;
+
+    mockPost.mockReturnValue(new Promise(resolve => {
+      resolvePost = resolve;
+    }));
+    remember('50');
+
+    const pending = resume(store);
+
+    expect(store.dispatch(cancelHistoryResume({
+      splitTimelineId: splitId,
+      requestId: 'history-resume-other',
+      reason: 'user_scroll',
+    }))).toMatchObject({ ok: false, reason: 'stale' });
+    expect(store.getState().getIn(['timelines', splitId, 'historyResume', 'phase'])).toBe('seek_pending');
+
+    expect(store.dispatch(cancelHistoryResume({
+      splitTimelineId: splitId,
+      reason: 'user_scroll',
+    }))).toMatchObject({ ok: true, reason: 'user_scroll' });
+    expect(store.getState().getIn(['timelines', splitId, 'historyResume', 'phase'])).toBe('cancelled');
+
+    resolvePost({
+      data: {
+        version: 1,
+        outcome: 'resolved',
+        capability: 'approximate',
+        precision: 'exact',
+        anchor_id: '50',
+        display_row_id: '50',
+        limitations: [],
+      },
+    });
+
+    const result = await pending;
+
+    expect(result.reason).not.toBe('seek_resolved');
+    expect(store.getState().getIn(['timelines', splitId, 'items'])).toEqual(before);
+  });
+
   it('does not resume on a fresh visit unless asked', async () => {
     const store = storeWithSplit();
 

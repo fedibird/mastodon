@@ -30,7 +30,8 @@ const accountIdFromInitialState = (value) => {
   return null;
 };
 
-const mapStateToProps = (state, { sourceTimelineId }) => {
+const mapStateToProps = (state, ownProps) => {
+  const { sourceTimelineId } = ownProps;
   const activeSplitId = state.getIn(['timelines', sourceTimelineId, 'splitTimelineId']) || null;
 
   return {
@@ -39,7 +40,7 @@ const mapStateToProps = (state, { sourceTimelineId }) => {
     splitBlocked: state.getIn(['timelines', sourceTimelineId, 'isPartial']),
     historyResume: activeSplitId ? state.getIn(['timelines', activeSplitId, 'historyResume']) || null : null,
     historyItemIds: activeSplitId ? state.getIn(['timelines', activeSplitId, 'items']) || null : null,
-    accountId: accountIdFromInitialState(me),
+    accountId: ownProps.accountId || accountIdFromInitialState(me),
   };
 };
 

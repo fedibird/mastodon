@@ -806,7 +806,15 @@ class TimelineSplitControllerCore extends React.Component {
       }
 
       if (event.type === 'scroll') {
-        this.cancelInFlightResume('user_scroll');
+        // Read the in-flight resume from the store. Props can still be the
+        // pre-BEGIN render while restoreHistorySurface is on the stack.
+        if (this.props.onCancelHistoryResume) {
+          this.props.onCancelHistoryResume({
+            splitTimelineId: id,
+            reason: 'user_scroll',
+          });
+        }
+
         this.schedulePositionCapture();
       }
     });

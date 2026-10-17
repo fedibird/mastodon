@@ -6,6 +6,7 @@ import { SEEK_KIND, WINDOW_SEEK_FAIL } from '../timeline_seek/constants';
 import {
   HISTORY_RESUME_BEGIN,
   HISTORY_RESUME_CANCEL,
+  HISTORY_RESUME_IN_FLIGHT,
   HISTORY_RESUME_SETTLE,
 } from '../timeline_position/constants';
 import { isNondestructiveSeekOutcome, resumeModeForWindow, routeResumeDecision, sameHostLayout } from '../timeline_position/policy';
@@ -50,15 +51,22 @@ export function cancelHistoryResume({
 } = {}) {
   return (dispatch, getState) => {
     const resume = resumeState(getState(), splitTimelineId);
+    const activeRequestId = resume && resume.get('requestId');
 
-    if (!resume || resume.get('requestId') !== requestId) {
+    // The scroll listener can run before React has rendered HISTORY_RESUME_BEGIN.
+    // The store already has the request, so a gesture may omit requestId.
+    if (!resume || !activeRequestId || (requestId && requestId !== activeRequestId)) {
       return { ok: false, reason: 'stale' };
     }
 
     const phase = resume.get('phase');
 
-    clearSurfaceResume(splitTimelineId, requestId);
-    getPositionRegistry().releaseHoldByRequest(requestId);
+    if (HISTORY_RESUME_IN_FLIGHT.indexOf(phase) === -1) {
+      return { ok: false, reason: 'stale' };
+    }
+
+    clearSurfaceResume(splitTimelineId, activeRequestId);
+    getPositionRegistry().releaseHoldByRequest(activeRequestId);
 
     if (phase === 'scroll_pending' && resume.get('seekSessionId')) {
       const revision = getState().getIn(['timelines', splitTimelineId, 'seek', 'scrollRevision']);
@@ -87,7 +95,7 @@ export function cancelHistoryResume({
       dispatch({
         type: HISTORY_RESUME_CANCEL,
         timeline: splitTimelineId,
-        requestId,
+        requestId: activeRequestId,
         reason,
       });
     }
