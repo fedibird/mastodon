@@ -34,18 +34,18 @@ const directStatus = () => ImmutableMap({
 });
 
 describe('searchability reset', () => {
-  it('keeps a cancellable change when searchability matches the widened privacy', () => {
+  it('caps a wider search selection without changing privacy or showing a false override', () => {
     let state = composer(undefined, { type: '@@INIT' });
 
     state = composer(state, changeComposeVisibility('direct'));
     state = composer(state, changeComposeSearchability('private'));
 
     expect(state.get('default_searchability')).toBe('private');
-    expect(state.get('privacy')).toBe('private');
-    expect(state.get('searchability')).toBe('private');
-    expect(state.get('privacy_before_searchability')).toBe('direct');
+    expect(state.get('privacy')).toBe('direct');
+    expect(state.get('searchability')).toBe('direct');
+    expect(state.get('privacy_before_searchability')).toBeNull();
     expect(state.get('searchability_manual')).toBe(true);
-    expect(changed(state)).toBe(true);
+    expect(changed(state)).toBe(false);
 
     state = composer(state, resetComposeSearchability());
 
@@ -81,8 +81,8 @@ describe('searchability reset', () => {
     state = composers(state, targetComposerAction(changeComposeVisibility('private'), 'composer-a'));
     state = composers(state, targetComposerAction(changeComposeSearchability('public'), 'composer-a'));
 
-    expect(state.getIn(['byId', 'composer-a', 'privacy'])).toBe('public');
-    expect(state.getIn(['byId', 'composer-a', 'searchability'])).toBe('public');
+    expect(state.getIn(['byId', 'composer-a', 'privacy'])).toBe('private');
+    expect(state.getIn(['byId', 'composer-a', 'searchability'])).toBe('private');
 
     state = composers(state, targetComposerAction(resetComposeSearchability(), 'composer-a'));
 

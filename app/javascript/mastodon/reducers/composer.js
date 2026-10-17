@@ -1,5 +1,5 @@
 import { isExclusiveAttachmentType, isExclusiveFile } from '../features/compose/composer_media';
-import { effectiveSearchability, searchabilityCap } from '../utils/searchability';
+import { composerSearchability, effectiveSearchability, searchabilityCap } from '../utils/searchability';
 import {
   COMPOSE_MOUNT,
   COMPOSE_UNMOUNT,
@@ -112,6 +112,7 @@ export const initialState = ImmutableMap({
   privacy: null,
   searchability: null,
   searchability_manual: false,
+  searchability_desired: null,
   privacy_before_searchability: null,
   circle_id: null,
   id: null,
@@ -436,7 +437,7 @@ const clearAll = state => {
     map.set('reply_status', null);
     map.set('interactionCheck', null);
     map.set('privacy', state.get('default_privacy'));
-    map.set('searchability', state.get('default_searchability'));
+    map.set('searchability', effectiveSearchability(state.get('default_privacy'), state.get('default_searchability')));
     clearSearchabilityOverride(map);
     map.set('circle_id', null);
     map.set('sensitive', false);
@@ -754,11 +755,6 @@ const insertEmoji = (state, position, emojiData, needsSpace) => {
   });
 };
 
-const privacyExpand = (a, b) => {
-  const order = ['public', 'unlisted', 'private', 'mutual', 'limited', 'direct', 'personal'];
-  return order[Math.min(order.indexOf(a), order.indexOf(b), order.length - 1)];
-};
-
 const privacyCap = (a, b) => {
   const order = ['public', 'unlisted', 'private', 'mutual', 'limited', 'direct', 'personal'];
   return order[Math.max(order.indexOf(a), order.indexOf(b), 0)];
@@ -766,6 +762,7 @@ const privacyCap = (a, b) => {
 
 const clearSearchabilityOverride = map => {
   map.set('searchability_manual', false);
+  map.set('searchability_desired', null);
   map.set('privacy_before_searchability', null);
 };
 
@@ -1225,7 +1222,7 @@ export default function composer(state = initialState, action) {
   case COMPOSE_VISIBILITY_CHANGE:
     if (state.get('id')) return state;
     return invalidateInteraction(state.withMutations(map => {
-      const searchability = searchabilityCap(action.value, state.get('searchability'));
+      const searchability = composerSearchability(state, action.value);
 
       map.set('text', statusToTextMentions(state.get('text'), action.value, state.get('reply_status')));
       map.set('privacy', action.value);
@@ -1239,39 +1236,17 @@ export default function composer(state = initialState, action) {
   case COMPOSE_SEARCHABILITY_CHANGE:
     if (state.get('id')) return state;
     return invalidateInteraction(state.withMutations(map => {
-      const previousPrivacy = state.get('privacy');
-      const privacy = privacyExpand(action.value, previousPrivacy);
-
-      map.set('searchability', action.value);
+      map.set('searchability_desired', action.value);
+      map.set('searchability', searchabilityCap(state.get('privacy'), action.value));
       map.set('searchability_manual', true);
+      map.set('privacy_before_searchability', null);
       map.set('idempotencyKey', uuid());
       map.set('dirty', true);
-
-      if (privacy !== previousPrivacy) {
-        if (!state.get('privacy_before_searchability')) {
-          map.set('privacy_before_searchability', previousPrivacy);
-        }
-
-        map.set('text', statusToTextMentions(state.get('text'), privacy, state.get('reply_status')));
-        map.set('privacy', privacy);
-        map.set('circle_id', null);
-      }
     }));
   case COMPOSE_SEARCHABILITY_RESET:
     if (state.get('id')) return state;
     return invalidateInteraction(state.withMutations(map => {
-      let privacy = state.get('privacy');
-      const restorePrivacy = state.get('searchability_manual') && state.get('privacy_before_searchability');
-
-      if (restorePrivacy) {
-        privacy = state.get('privacy_before_searchability');
-      }
-
-      if (privacy !== state.get('privacy')) {
-        map.set('text', statusToTextMentions(state.get('text'), privacy, state.get('reply_status')));
-        map.set('privacy', privacy);
-        map.set('circle_id', null);
-      }
+      const privacy = state.get('privacy');
 
       clearSearchabilityOverride(map);
       map.set('searchability', effectiveSearchability(privacy, state.get('default_searchability')));
@@ -1314,7 +1289,7 @@ export default function composer(state = initialState, action) {
       }
 
       const privacy = privacyCap(action.status.get('visibility'), state.get('default_privacy'));
-      const searchability = searchabilityCap(action.status.get('visibility'), state.get('default_searchability'));
+      const searchability = effectiveSearchability(privacy, state.get('default_searchability'));
 
       map.set('in_reply_to', action.status.get('id'));
       map.set('quote_from', null);
@@ -1362,7 +1337,7 @@ export default function composer(state = initialState, action) {
       map.set('language', state.get('default_language'));
 
       const privacy = privacyCap(action.status.get('visibility'), state.get('default_privacy'));
-      const searchability = searchabilityCap(action.status.get('visibility'), state.get('default_searchability'));
+      const searchability = effectiveSearchability(privacy, state.get('default_searchability'));
 
       map.set('in_reply_to', null);
       map.set('quote_from', action.status.get('id'));
@@ -1413,7 +1388,7 @@ export default function composer(state = initialState, action) {
       map.set('spoiler', false);
       map.set('spoiler_text', '');
       map.set('privacy', state.get('default_privacy'));
-      map.set('searchability', state.get('default_searchability'));
+      map.set('searchability', effectiveSearchability(state.get('default_privacy'), state.get('default_searchability')));
       clearSearchabilityOverride(map);
       map.set('language', state.get('default_language'));
       map.set('circle_id', null);
@@ -1687,8 +1662,9 @@ export default function composer(state = initialState, action) {
       map.set('quote_from_url', action.status.getIn(['quote', 'url']));
       map.set('reply_status', action.replyStatus);
       map.set('privacy', action.status.get('visibility', state.get('default_privacy')));
-      map.set('searchability', action.status.get('searchability', state.get('default_searchability')));
       clearSearchabilityOverride(map);
+      map.set('searchability_desired', action.status.get('searchability') || state.get('default_searchability'));
+      map.set('searchability', composerSearchability(map));
       map.set('circle_id', action.status.get('circle_id', null));
       map.update('redraftEpoch', epoch => (epoch || 0) + 1);
       map.set('redraftGeneration', allocateRedraftGeneration());
@@ -1763,6 +1739,9 @@ export default function composer(state = initialState, action) {
       map.set('text', action.text);
       map.set('in_reply_to', action.status.get('in_reply_to_id'));
       map.set('privacy', action.status.get('visibility') || state.get('privacy'));
+      clearSearchabilityOverride(map);
+      map.set('searchability_desired', action.status.get('searchability') || state.get('default_searchability'));
+      map.set('searchability', composerSearchability(map));
       map.set('media_attachments', media.map((item, index) => item.set('order', index).set('unattached', false)));
       map.set('focusDate', new Date());
       map.set('caretPosition', null);

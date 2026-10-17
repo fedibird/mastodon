@@ -1,5 +1,6 @@
 import { List as ImmutableList, Map as ImmutableMap, Set as ImmutableSet } from 'immutable';
 import uuid from '../uuid';
+import { composerSearchability } from '../utils/searchability';
 import { normalizeManagedHashtagName } from './managed_hashtags';
 import { isExistingPostEdit, postingContextOutputSignature } from './materialize';
 import { styleMatchesSurface } from './surface';
@@ -57,13 +58,6 @@ export const initialUserPostingStyle = () => ImmutableMap({
   autoAttemptKey: null,
   defaultsSettledSurface: null,
 });
-
-const searchabilityForPrivacy = (privacy, current) => {
-  const order = ['public', 'unlisted', 'private', 'mutual', 'limited', 'direct', 'personal'];
-  const to = ['public', 'private', 'private', 'direct', 'direct', 'direct', 'direct'];
-
-  return to[Math.max(order.indexOf(privacy), order.indexOf(current), 0)];
-};
 
 const valueKey = field => {
   if (field === 'privacy') {
@@ -190,7 +184,7 @@ const forgetSearchabilityPrivacyRestore = map => {
 const applyFields = (map, fields) => {
   if (Object.prototype.hasOwnProperty.call(fields, 'privacy')) {
     map.set('privacy', fields.privacy);
-    map.set('searchability', searchabilityForPrivacy(fields.privacy, map.get('searchability')));
+    map.set('searchability', composerSearchability(map));
     map.set('circle_id', null);
     forgetSearchabilityPrivacyRestore(map);
   }
@@ -215,7 +209,7 @@ const restoreManualValues = map => {
 
   if (fields.includes('privacy') && values.has('privacy')) {
     map.set('privacy', values.get('privacy'));
-    map.set('searchability', searchabilityForPrivacy(values.get('privacy'), map.get('searchability')));
+    map.set('searchability', composerSearchability(map));
     forgetSearchabilityPrivacyRestore(map);
   }
 

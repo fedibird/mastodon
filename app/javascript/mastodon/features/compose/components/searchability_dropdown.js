@@ -1,3 +1,4 @@
+import { searchabilityCap } from '../../../utils/searchability';
 import React from 'react';
 import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
@@ -146,6 +147,7 @@ class SearchabilityDropdown extends React.PureComponent {
     onModalOpen: PropTypes.func,
     onModalClose: PropTypes.func,
     value: PropTypes.string.isRequired,
+    privacy: PropTypes.string,
     prohibitedVisibilities: ImmutablePropTypes.set,
     onChange: PropTypes.func.isRequired,
     noDirect: PropTypes.bool,
@@ -272,13 +274,13 @@ class SearchabilityDropdown extends React.PureComponent {
   }
 
   searchabilityOptions () {
-    const { intl: { formatMessage }, prohibitedVisibilities } = this.props;
+    const { intl: { formatMessage }, prohibitedVisibilities, privacy } = this.props;
 
     return [
       { icon: 'globe', value: 'public', text: formatMessage(messages.public_short), meta: formatMessage(messages.public_long) },
       { icon: 'lock', value: 'private', text: formatMessage(messages.private_short), meta: formatMessage(messages.private_long) },
       { icon: 'at', value: 'direct', text: formatMessage(messages.direct_short), meta: formatMessage(messages.direct_long) },
-    ].filter(option => !prohibitedVisibilities?.includes(option.value));
+    ].filter(option => !prohibitedVisibilities?.includes(option.value) && (!privacy || searchabilityCap(privacy, option.value) === option.value));
   }
 
   setTargetRef = c => {

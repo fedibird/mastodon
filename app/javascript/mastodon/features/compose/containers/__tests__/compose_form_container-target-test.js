@@ -5,7 +5,8 @@ import { fromJS } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
 import { combineReducers } from 'redux-immutable';
-import { createStore } from 'redux';
+import { applyMiddleware, createStore } from 'redux';
+import thunk from 'redux-thunk';
 
 jest.mock('react-intl', () => {
   const React = require('react');
@@ -86,7 +87,7 @@ const buildStore = () => {
   const store = createStore(combineReducers({
     compose,
     composers,
-  }));
+  }), applyMiddleware(thunk));
 
   store.dispatch(changeCompose('primary text'));
   store.dispatch(createComposer('composer-a'));
@@ -148,7 +149,7 @@ describe('ComposeFormContainer composer targeting', () => {
   });
 
   it('enables publish when a live follow relationship becomes satisfied', () => {
-    const store = createStore(combineReducers({ compose, composers, relationships }));
+    const store = createStore(combineReducers({ compose, composers, relationships }), applyMiddleware(thunk));
     store.dispatch(createComposer('composer-a'));
     store.dispatch(targetComposerAction(changeComposeVisibility('public'), 'composer-a'));
     store.dispatch(targetComposerAction(changeCompose('Hello'), 'composer-a'));
@@ -179,7 +180,7 @@ describe('ComposeFormContainer composer targeting', () => {
   });
 
   it('keeps Save changes available while editing a private post without following the group', () => {
-    const store = createStore(combineReducers({ compose, composers, relationships }));
+    const store = createStore(combineReducers({ compose, composers, relationships }), applyMiddleware(thunk));
     store.dispatch(createComposer('composer-a'));
     store.dispatch(applyComposerPostingContext('composer-a', groupPostingContext));
     store.dispatch(targetComposerAction(setComposeToStatus(fromJS({

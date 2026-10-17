@@ -83,6 +83,7 @@ const composeState = (overrides = {}) => fromJS({
     sensitive: true,
     language: 'ja',
     privacy: 'private',
+    senderIdentity: { id: null, status: 'ready' },
     circle_id: 'circle-1',
     in_reply_to: 'reply-1',
     quote_from: 'quote-1',
@@ -130,6 +131,16 @@ describe('submitCompose', () => {
     openModal.mockClear();
   });
 
+  it.each(['public', 'private', 'direct'])('caps the %s search payload against private visibility', async desired => {
+    const request = jest.fn().mockResolvedValue({ data: statusResponse });
+    api.mockReturnValue({ request });
+
+    await dispatchThunk(submitCompose({ location: { pathname: '/home' }, push: jest.fn(), goBack: jest.fn() }), composeState({ compose: { privacy: 'private', searchability: desired } }));
+
+    expect(request.mock.calls[0][0].data.visibility).toBe('private');
+    expect(request.mock.calls[0][0].data.searchability).toBe(desired === 'direct' ? 'direct' : 'private');
+  });
+
   it('POSTs a new status with the Fedibird payload', async () => {
     const request = jest.fn().mockResolvedValue({ data: statusResponse });
     api.mockReturnValue({ request });
@@ -145,7 +156,7 @@ describe('submitCompose', () => {
     expect(data.circle_id).toEqual('circle-1');
     expect(data.quote_id).toEqual('quote-1');
     expect(data.status_reference_ids.toJS()).toEqual(['ref-1']);
-    expect(data.searchability).toEqual('public');
+    expect(data.searchability).toEqual('private');
     expect(data.in_reply_to_id).toEqual('reply-1');
     expect(data.language).toEqual('ja');
     expect(updateTimeline).toHaveBeenCalled();

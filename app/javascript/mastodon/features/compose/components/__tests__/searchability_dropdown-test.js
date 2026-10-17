@@ -43,6 +43,19 @@ const renderMenu = (props = {}) => {
 };
 
 describe('SearchabilityDropdown detached menu', () => {
+  it('offers only search ranges allowed by the current post visibility', () => {
+    const props = { presentation: 'detached', open: true, value: 'private', privacy: 'private', onChange: jest.fn(), onClose: jest.fn() };
+    const view = render(<SearchabilityDropdown {...props} />);
+
+    expect(screen.queryByRole('option', { name: /Public/ })).toBeNull();
+    expect(screen.getByRole('option', { name: /Followers-only/ })).toHaveAttribute('aria-selected', 'true');
+    view.rerender(<SearchabilityDropdown {...props} value='direct' privacy='mutual' />);
+    expect(screen.queryByRole('option', { name: /Followers-only/ })).toBeNull();
+    expect(screen.getByRole('option', { name: /Reacted-users-only/ })).toHaveAttribute('aria-selected', 'true');
+    view.rerender(<SearchabilityDropdown {...props} privacy='public' />);
+    expect(screen.getByRole('option', { name: /Public/ })).toBeTruthy();
+  });
+
   it('selects a visibility and closes the dedicated menu', () => {
     const { onChange, onClose } = renderMenu();
 

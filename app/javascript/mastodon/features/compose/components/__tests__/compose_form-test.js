@@ -880,17 +880,17 @@ describe('ComposeForm display mode', () => {
     expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull();
   });
 
-  it('shows a compact search badge while widened privacy can still be restored', () => {
+  it('shows a compact search badge for an explicitly narrower search range', () => {
     renderForm({
       displayMode: 'simple',
       onDisplayModeChange: jest.fn(),
       privacy: 'private',
-      searchability: 'private',
+      searchability: 'direct',
       defaultSearchability: 'private',
-      privacyBeforeSearchability: 'direct',
+      privacyBeforeSearchability: null,
     });
 
-    const badge = screen.getByRole('button', { name: 'Followers-only' });
+    const badge = screen.getByRole('button', { name: 'Reacted-users-only' });
 
     expect(badge).toHaveClass('compose-form__simple-badge');
     expect(badge.querySelector('.fa-search')).toBeTruthy();
@@ -968,9 +968,9 @@ describe('ComposeForm display mode', () => {
     renderForm({
       composerId: 'primary',
       privacy: 'private',
-      searchability: 'private',
+      searchability: 'direct',
       defaultSearchability: 'private',
-      privacyBeforeSearchability: 'direct',
+      privacyBeforeSearchability: null,
     });
     renderForm({
       composerId: 'portable:1',

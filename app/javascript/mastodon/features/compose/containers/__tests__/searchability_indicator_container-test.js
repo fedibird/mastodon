@@ -40,8 +40,8 @@ const directStatus = () => ImmutableMap({
 });
 
 const widen = (store, composerId) => {
-  store.dispatch(targetComposerAction(changeComposeVisibility('direct'), composerId));
-  store.dispatch(targetComposerAction(changeComposeSearchability('private'), composerId));
+  store.dispatch(targetComposerAction(changeComposeVisibility('public'), composerId));
+  store.dispatch(targetComposerAction(changeComposeSearchability('direct'), composerId));
 };
 
 const renderIndicators = (store) => render(
@@ -62,7 +62,7 @@ const renderIndicators = (store) => render(
 const indicatorIn = (testId) => screen.getByTestId(testId).querySelector('[data-testid="searchability-indicator"]');
 
 describe('SearchabilityIndicatorContainer', () => {
-  it('shows a cancellable change when searchability matches the widened privacy', () => {
+  it('shows an explicit narrower selection and resets without changing privacy', () => {
     const store = createStore(root, applyMiddleware(thunk));
 
     store.dispatch(createComposer(PORTABLE_ID));
@@ -76,10 +76,10 @@ describe('SearchabilityIndicatorContainer', () => {
 
     const primary = store.getState().get('compose');
 
-    expect(primary.get('privacy')).toBe('private');
-    expect(primary.get('searchability')).toBe('private');
-    expect(primary.get('privacy_before_searchability')).toBe('direct');
-    expect(indicatorIn('primary-search').textContent).toContain('Followers-only');
+    expect(primary.get('privacy')).toBe('public');
+    expect(primary.get('searchability')).toBe('direct');
+    expect(primary.get('privacy_before_searchability')).toBeNull();
+    expect(indicatorIn('primary-search').textContent).toContain('Reacted-users-only');
     expect(indicatorIn('portable-search')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset search visibility' }));
@@ -87,8 +87,8 @@ describe('SearchabilityIndicatorContainer', () => {
     const restored = store.getState().get('compose');
     const portable = store.getState().getIn(['composers', 'byId', PORTABLE_ID]);
 
-    expect(restored.get('privacy')).toBe('direct');
-    expect(restored.get('searchability')).toBe('direct');
+    expect(restored.get('privacy')).toBe('public');
+    expect(restored.get('searchability')).toBe('private');
     expect(restored.get('privacy_before_searchability')).toBeNull();
     expect(indicatorIn('primary-search')).toBeNull();
     expect(indicatorIn('portable-search')).toBeNull();
@@ -113,12 +113,12 @@ describe('SearchabilityIndicatorContainer', () => {
     const primary = store.getState().get('compose');
     const portable = store.getState().getIn(['composers', 'byId', PORTABLE_ID]);
 
-    expect(primary.get('privacy')).toBe('direct');
-    expect(primary.get('searchability')).toBe('direct');
+    expect(primary.get('privacy')).toBe('public');
+    expect(primary.get('searchability')).toBe('private');
     expect(indicatorIn('primary-search')).toBeNull();
-    expect(portable.get('privacy')).toBe('private');
-    expect(portable.get('searchability')).toBe('private');
-    expect(portable.get('privacy_before_searchability')).toBe('direct');
-    expect(indicatorIn('portable-search').textContent).toContain('Followers-only');
+    expect(portable.get('privacy')).toBe('public');
+    expect(portable.get('searchability')).toBe('direct');
+    expect(portable.get('privacy_before_searchability')).toBeNull();
+    expect(indicatorIn('portable-search').textContent).toContain('Reacted-users-only');
   });
 });

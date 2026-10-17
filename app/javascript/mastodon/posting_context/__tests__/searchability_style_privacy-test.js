@@ -6,7 +6,7 @@ jest.mock('react-intl', () => ({
 
 import { changeComposeSearchability, resetComposeSearchability } from '../../actions/compose';
 import { createComposer, targetComposerAction } from '../../actions/composer';
-import composer from '../../reducers/composer';
+import composer, { hydrateComposer, initialState } from '../../reducers/composer';
 import composers from '../../reducers/composers';
 import { commitUserPostingStyle, reapplySelectedStyle } from '../user_style_state';
 import { resolveUserPostingStyle } from '../user_style_resolver';
@@ -49,11 +49,32 @@ const commit = state => {
 };
 
 describe('posting style clears searchability privacy restore', () => {
+  it.each([null, 'private', 'direct'])('preserves desired searchability %s through style apply, reapply and clear', desired => {
+    let state = hydrateComposer(initialState, fromJS({ default_privacy: 'public', default_searchability: 'public' }));
+    const privateStyle = style.setIn(['defaults', 'visibility'], 'private');
+    const apply = (current, snapshot) => commitUserPostingStyle(current, {
+      plan: resolveUserPostingStyle(snapshot, current, { destinationPolicy: 'change' }),
+      snapshot,
+      selectionOrigin: 'manual',
+    });
+
+    if (desired) state = composer(state, changeComposeSearchability(desired));
+    state = apply(state, privateStyle);
+    expect(state.get('searchability')).toBe(desired === 'direct' ? 'direct' : 'private');
+    state = reapplySelectedStyle(state, { respectManual: true, resetSuppressions: false });
+    expect(state.get('searchability')).toBe(desired === 'direct' ? 'direct' : 'private');
+    state = apply(state, null);
+    expect(state.get('privacy')).toBe('public');
+    expect(state.get('searchability')).toBe(desired || 'public');
+    expect(state.getIn(['userPostingStyle', 'selectionOrigin'])).toBe('manual');
+  });
+
   it('does not restore the pre-searchability privacy after a style changes privacy', () => {
     const before = widened();
 
-    expect(before.get('privacy_before_searchability')).toBe('private');
-    expect(changed(before)).toBe(true);
+    expect(before.get('privacy')).toBe('private');
+    expect(before.get('privacy_before_searchability')).toBeNull();
+    expect(changed(before)).toBe(false);
 
     let state = commit(before);
 
@@ -74,8 +95,8 @@ describe('posting style clears searchability privacy restore', () => {
     let state = commit(widened());
 
     state = composer(state, changeComposeSearchability('public'));
-    expect(state.get('privacy')).toBe('public');
-    expect(state.get('privacy_before_searchability')).toBe('unlisted');
+    expect(state.get('privacy')).toBe('unlisted');
+    expect(state.get('privacy_before_searchability')).toBeNull();
 
     state = reapplySelectedStyle(state, { respectManual: false, resetSuppressions: false });
 
@@ -120,9 +141,9 @@ describe('posting style clears searchability privacy restore', () => {
     expect(registry.getIn(['byId', 'composer-a', 'privacy'])).toBe('unlisted');
     expect(registry.getIn(['byId', 'composer-a', 'privacy_before_searchability'])).toBeNull();
     expect(changed(registry.getIn(['byId', 'composer-a']))).toBe(false);
-    expect(registry.getIn(['byId', 'composer-b', 'privacy'])).toBe('public');
-    expect(registry.getIn(['byId', 'composer-b', 'privacy_before_searchability'])).toBe('private');
-    expect(changed(registry.getIn(['byId', 'composer-b']))).toBe(true);
+    expect(registry.getIn(['byId', 'composer-b', 'privacy'])).toBe('private');
+    expect(registry.getIn(['byId', 'composer-b', 'privacy_before_searchability'])).toBeNull();
+    expect(changed(registry.getIn(['byId', 'composer-b']))).toBe(false);
     expect(ImmutableMap.isMap(registry.getIn(['byId', 'composer-b']))).toBe(true);
     expect(ImmutableList.isList(style.getIn(['managed', 'hashtags']))).toBe(true);
   });

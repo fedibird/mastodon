@@ -1,3 +1,5 @@
+import { composerSearchability, searchabilityCap } from './searchability';
+
 // Public values from an accepted preference document.
 // `configured` is never applied. A missing or invalid key is skipped so the
 // other keys can still apply. `undefined` means "do not touch this key";
@@ -218,6 +220,12 @@ export const applyComposerPreferenceDefaults = (state, document) => {
 
     if (privacyFollows) {
       map.set('privacy', privacy);
+      map.set('searchability', composerSearchability(map));
+    }
+
+    // Existing drafts keep their choices; only normalize unsafe legacy values.
+    if (!privacyFollows && map.get('searchability')) {
+      map.set('searchability', searchabilityCap(map.get('privacy'), map.get('searchability')));
     }
 
     if (languageFollows) {

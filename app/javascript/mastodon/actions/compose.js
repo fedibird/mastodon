@@ -1,3 +1,4 @@
+import { searchabilityCap } from '../utils/searchability';
 import { CancelToken, isCancel } from 'axios';
 import { throttle } from 'lodash';
 import { defineMessages } from 'react-intl';
@@ -447,7 +448,7 @@ export function submitComposer(composerId, routerHistory) {
     const privacy = composer.get('privacy');
     const circleId = composer.get('circle_id');
     const quoteFrom = composer.get('quote_from', null);
-    const searchability = composer.get('searchability');
+    const searchability = searchabilityCap(privacy, composer.get('searchability') || composer.get('default_searchability'));
     const idempotencyKey = composer.get('idempotencyKey');
     const senderIdentityId = composer.getIn(['senderIdentity', 'id']);
     const audienceAccountId = composerActivityPubAudienceAccountId(composer);
