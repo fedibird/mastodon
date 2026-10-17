@@ -1,6 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { fireEvent, render as renderWithoutRouter, screen } from '@testing-library/react';
 import { List as ImmutableList, fromJS } from 'immutable';
 import React from 'react';
+
+const render = (ui, options) => renderWithoutRouter(ui, { wrapper: MemoryRouter, ...options });
 
 jest.mock('react-intl', () => {
   const React = require('react');
@@ -63,7 +66,7 @@ describe('UserPostingStylePicker', () => {
     expect(screen.getByText('Destination localsquad')).toBeTruthy();
     const settings = screen.getByRole('link', { name: 'Posting style settings' });
 
-    expect(settings.getAttribute('href')).toEqual('/settings/user_posting_contexts');
+    expect(settings.getAttribute('href')).toEqual('/settings/posting-styles');
     expect(settings.className).toContain('compose-form__style-settings-button');
     expect(settings.querySelector('.fa-gear')).toBeTruthy();
 
@@ -650,4 +653,12 @@ describe('UserPostingStylePicker', () => {
     expect(onRetryCatalog).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('menuitemradio')).toBeNull();
   });
+});
+
+it('closes the style overlay when entering embedded settings while the Composer remains mounted', () => {
+  render(<UserPostingStylePicker styles={styles} onSelect={jest.fn()} unapplied={ImmutableList()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'No style' }));
+  fireEvent.click(screen.getByRole('link', { name: 'Posting style settings' }));
+  expect(screen.queryByRole('menuitemradio')).toBeNull();
+  expect(screen.getByRole('button', { name: 'No style' })).toHaveAttribute('aria-expanded', 'false');
 });

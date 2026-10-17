@@ -1,4 +1,4 @@
-= simple_form_for @context, url: (@context.persisted? ? settings_user_posting_context_path(@context) : settings_user_posting_contexts_path), method: (@context.persisted? ? :patch : :post), html: { id: 'user-posting-context-form', class: 'user-posting-context-form', data: { user_posting_context_form: true, preview_url: preview_settings_user_posting_contexts_path, record_id: @context.id } } do |f|
+= simple_form_for @context, url: (@context.persisted? ? settings_user_posting_context_path(@context, embedded_settings_options) : settings_user_posting_contexts_path(embedded_settings_options)), method: (@context.persisted? ? :patch : :post), html: { id: 'user-posting-context-form', class: 'user-posting-context-form', data: { user_posting_context_form: true, preview_url: preview_settings_user_posting_contexts_path(embedded_settings_options), record_id: @context.id } } do |f|
   = render 'shared/error_messages', object: @context
   = f.hidden_field :lock_version if @context.persisted?
 
@@ -64,4 +64,4 @@
 
 .user-posting-context-actions.actions
   %button.button{ type: 'submit', form: 'user-posting-context-form' }= t('generic.save_changes')
-  = link_to t('user_posting_contexts.back'), settings_user_posting_contexts_path, class: 'button'
+  = link_to t('user_posting_contexts.back'), settings_user_posting_contexts_path(embedded_settings_options), class: 'button'

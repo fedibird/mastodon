@@ -51,6 +51,10 @@
     color: $highlight-text-color;
   }
 
+  a.button {
+    color: $primary-text-color;
+  }
+
   &__navigation {
     margin-bottom: 16px;
   }

@@ -1,15 +1,15 @@
-import { FILTER_SETTINGS_ROUTE } from './registry';
+import { isEmbeddedSettingsRoute } from './registry';
 
 const originScroll = new Map();
 
 export const settingsReturnScroll = (previous, location) => {
   const source = originScroll.get(location.key);
-  return previous?.pathname === FILTER_SETTINGS_ROUTE && source?.path === safeReactReturnTo(location) ? source.position : undefined;
+  return isEmbeddedSettingsRoute(previous?.pathname) && source?.path === safeReactReturnTo(location) ? source.position : undefined;
 };
 
 export const safeReactReturnTo = location => {
   const path = location?.pathname;
-  if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//') || /[\\?#\u0000-\u0020]/.test(path) || path.startsWith(FILTER_SETTINGS_ROUTE)) return null;
+  if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//') || /[\\?#\u0000-\u0020]/.test(path) || isEmbeddedSettingsRoute(path)) return null;
   const search = location.search || '';
   const hash = location.hash || '';
   if ((search && !search.startsWith('?')) || (hash && !hash.startsWith('#')) || /[\\\u0000-\u0020]/.test(search + hash)) return null;
@@ -21,7 +21,7 @@ export const safeReactReturnTo = location => {
 export const trackSettingsOrigin = (state, location, action) => {
   if (state.lastLocation === location) return null;
   const origins = { ...state.origins };
-  if (location.pathname === FILTER_SETTINGS_ROUTE && action === 'PUSH' && location.key && !Object.prototype.hasOwnProperty.call(origins, location.key)) {
+  if (isEmbeddedSettingsRoute(location.pathname) && action === 'PUSH' && location.key && !Object.prototype.hasOwnProperty.call(origins, location.key)) {
     origins[location.key] = safeReactReturnTo(state.lastLocation);
     if (origins[location.key]) {
       // Capture before the shorter settings column clamps the document scroll

@@ -1,5 +1,5 @@
 - content_for :header_tags do
-  %meta{ name: 'embedded-rails-settings', content: 'filters' }/
+  %meta{ name: 'embedded-rails-settings', content: embedded_settings_screen }/
   = render_initial_state
   = javascript_pack_tag 'public', crossorigin: 'anonymous'
   = javascript_pack_tag 'admin', async: true, crossorigin: 'anonymous'
@@ -8,7 +8,7 @@
 - content_for :content do
   %main.embedded-settings
     %nav.embedded-settings__navigation
-      = link_to t('filters.index.title'), filters_path(embedded_filter_options)
+      = link_to embedded_settings_title, embedded_settings_home
     .content-heading
       %h2= yield :page_title
       .content-heading-actions= yield :heading_actions

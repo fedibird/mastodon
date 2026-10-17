@@ -1,8 +1,11 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { fireEvent, render as renderWithoutRouter, screen } from '@testing-library/react';
 import { List as ImmutableList, Map as ImmutableMap, fromJS } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
 import { createStore } from 'redux';
+
+const render = (ui, options) => renderWithoutRouter(ui, { wrapper: MemoryRouter, ...options });
 
 jest.mock('react-intl', () => {
   const React = require('react');
@@ -178,4 +181,32 @@ describe('UserPostingStylePicker container candidates', () => {
     expect(names.some(name => name.includes('News'))).toBe(false);
     expect(names.some(name => name.includes('No style'))).toBe(true);
   });
+});
+
+it('updates several open Portable Composer menus while retaining drafts, snapshots and surface restrictions', () => {
+  const first = 'portable:list-column:7', second = 'portable:hashtag-column:books';
+  const store = storeFor(first, { kind: 'list', key: '7' });
+  store.dispatch(createComposer(second));
+  store.dispatch(applyComposerSurface(second, { kind: 'hashtag', key: 'books' }, null, null));
+  const before = store.getState().get('composers');
+  render(
+    <Provider store={store}>
+      <ComposerProvider composerId={first}><UserPostingStylePicker /></ComposerProvider>
+      <ComposerProvider composerId={second}><UserPostingStylePicker /></ComposerProvider>
+    </Provider>,
+  );
+  const buttons = screen.getAllByRole('button', { name: /Posting style|No style|Usual settings|This place only/ });
+  fireEvent.click(buttons[0]);
+  expect(screen.getAllByRole('menuitemradio').some(node => node.textContent.includes('Common'))).toBe(true);
+  const updated = [style('common', 'Renamed common', { kind: 'none' }), style('fresh', 'New books style', { kind: 'hashtag', hashtag: 'books' }), style('foreign', 'Other group', { kind: 'group', accountId: '999' })];
+  // Catalog actions must never reach Composer application/snapshot reducers.
+  store.dispatch({ type: USER_POSTING_STYLES_FETCH_SUCCESS, styles: updated });
+  expect(screen.queryByRole('menuitemradio', { name: /^.*Common/ })).toBeNull();
+  expect(screen.getByRole('menuitemradio', { name: /Renamed common/ })).toBeTruthy();
+  expect(screen.queryByRole('menuitemradio', { name: /New books style|Other group/ })).toBeNull();
+  fireEvent.click(buttons[0]);
+  fireEvent.click(buttons[1]);
+  expect(screen.getByRole('menuitemradio', { name: /New books style/ })).toBeTruthy();
+  expect(screen.queryByRole('menuitemradio', { name: /Books|Other group/ })).toBeNull();
+  expect(store.getState().get('composers')).toBe(before);
 });

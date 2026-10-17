@@ -46,23 +46,28 @@ const destinationResult = (composerId, payload) => targetComposerAction({
   ...payload,
 }, composerId);
 
+let catalogRequestId = 0;
+
 export function fetchUserPostingStyles({ force = false } = {}) {
   return (dispatch, getState) => {
     const status = getState().getIn(['userPostingStyles', 'status']);
 
-    if (status === 'loading' || (!force && (status === 'ready' || status === 'failed'))) {
+    if (!force && ['loading', 'ready', 'failed'].includes(status)) {
       return Promise.resolve();
     }
 
-    dispatch({ type: USER_POSTING_STYLES_FETCH_REQUEST, skipLoading: true });
+    const requestId = ++catalogRequestId;
+    dispatch({ type: USER_POSTING_STYLES_FETCH_REQUEST, requestId, skipLoading: true });
 
     return api(getState)
       .get('/api/v1/fedibird/user_posting_contexts')
       .then(({ data }) => {
-        const styles = (Array.isArray(data) ? data : []).map(style => fromJS(normalizeUserPostingStyle(style)));
+        if (!Array.isArray(data)) throw new Error('Invalid posting styles catalog');
+        const styles = data.map(style => fromJS(normalizeUserPostingStyle(style)));
 
         dispatch({
           type: USER_POSTING_STYLES_FETCH_SUCCESS,
+          requestId,
           styles,
           skipLoading: true,
         });
@@ -70,6 +75,7 @@ export function fetchUserPostingStyles({ force = false } = {}) {
       .catch(error => {
         dispatch({
           type: USER_POSTING_STYLES_FETCH_FAIL,
+          requestId,
           error,
           skipLoading: true,
           skipAlert: true,
@@ -173,7 +179,7 @@ export function maybeAutoSelectPortablePostingStyle(composerId) {
     const cacheKey = surfaceCacheKey(surface);
     const assignment = cacheKey && getState().getIn(['userPostingContextAssignments', 'bySurface', cacheKey]);
 
-    if (!composer || !surface || !assignment || assignment.get('status') !== 'ready' || composer.get('surfaceMismatch')) {
+    if (!composer || !surface || !assignment || assignment.get('status') !== 'ready' || assignment.get('writePending') || composer.get('surfaceMismatch')) {
       return Promise.resolve();
     }
 

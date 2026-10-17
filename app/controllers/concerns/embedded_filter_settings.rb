@@ -1,37 +1,32 @@
 # frozen_string_literal: true
 
-# Opt in only from the two filter HTML controllers. Never include globally.
 module EmbeddedFilterSettings
   extend ActiveSupport::Concern
+  include EmbeddedRailsSettings
 
   included do
-    layout :filter_settings_layout
     helper_method :embedded_filter_settings?, :embedded_filter_options
-    after_action :allow_embedded_filter_settings
   end
 
   private
 
   def embedded_filter_settings?
-    params[:embedded] == '1' && request.format.html?
+    embedded_settings?
   end
 
   def embedded_filter_options
-    embedded_filter_settings? ? { embedded: '1' } : {}
+    embedded_settings_options
   end
 
-  def filter_settings_layout
-    embedded_filter_settings? ? 'embedded_settings' : 'admin'
+  def embedded_settings_screen
+    'filters'
   end
 
-  def allow_embedded_filter_settings
-    # Redirects (including expired sessions), errors and non-HTML responses
-    # retain the application's frame-ancestors 'none' policy.
-    return unless embedded_filter_settings? && current_user&.functional? && response.status == 200 && response.media_type == 'text/html'
+  def embedded_settings_home
+    filters_path(embedded_filter_options)
+  end
 
-    policy = request.content_security_policy.clone
-    policy.frame_ancestors :self
-    request.content_security_policy = policy
-    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+  def embedded_settings_title
+    I18n.t('filters.index.title')
   end
 end

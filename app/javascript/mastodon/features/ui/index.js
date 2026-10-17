@@ -1,6 +1,6 @@
 import classNames from 'classnames';
 import React from 'react';
-import { FILTER_SETTINGS_ROUTE } from '../embedded_rails_settings/registry';
+import { FILTER_SETTINGS_ROUTE, POSTING_STYLES_SETTINGS_ROUTE } from '../embedded_rails_settings/registry';
 import { trackSettingsOrigin } from '../embedded_rails_settings/navigation';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import { HotKeys } from 'react-hotkeys';
@@ -218,6 +218,7 @@ class SwitchingColumnsArea extends React.PureComponent {
           {redirect}
           {account_redirect}
           <WrappedRoute path={FILTER_SETTINGS_ROUTE} exact component={EmbeddedRailsSettings} componentParams={{ returnTo: this.state.origins[this.props.location.key] }} content={children} />
+          <WrappedRoute path={POSTING_STYLES_SETTINGS_ROUTE} exact component={EmbeddedRailsSettings} componentParams={{ screen: 'postingStyles', returnTo: this.state.origins[this.props.location.key] }} content={children} />
           <WrappedRoute path='/getting-started' component={GettingStarted} content={children} />
           <WrappedRoute path='/keyboard-shortcuts' component={KeyboardShortcuts} content={children} />
           <WrappedRoute path='/timelines/home' component={HomeTimeline} content={children} />

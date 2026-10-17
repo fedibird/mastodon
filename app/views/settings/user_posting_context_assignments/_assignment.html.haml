@@ -15,14 +15,14 @@
       %span= t('user_posting_context_assignments.no_style')
   %p.user-posting-assignment__status= user_posting_assignment_status_label(assignment)
   .user-posting-assignment__actions
-    = form_with url: release_settings_user_posting_context_assignment_path(assignment), method: :post, local: true, class: 'user-posting-assignment__form' do
+    = form_with url: release_settings_user_posting_context_assignment_path(assignment, embedded_settings_options), method: :post, local: true, class: 'user-posting-assignment__form' do
       = hidden_field_tag :lock_version, assignment.lock_version
       = hidden_field_tag :user_posting_context_id, params[:user_posting_context_id] if params[:user_posting_context_id].present?
       = hidden_field_tag :page, params[:page] if params[:page].present?
       %button.button{ type: 'submit', aria: { describedby: release_hint_id } }= t('user_posting_context_assignments.return_to_automatic')
       %p.user-posting-assignment__hint{ id: release_hint_id }= t('user_posting_context_assignments.return_to_automatic_hint')
     - if assignment.user_posting_context_id.present?
-      = form_with url: decline_settings_user_posting_context_assignment_path(assignment), method: :post, local: true, class: 'user-posting-assignment__form' do
+      = form_with url: decline_settings_user_posting_context_assignment_path(assignment, embedded_settings_options), method: :post, local: true, class: 'user-posting-assignment__form' do
         = hidden_field_tag :lock_version, assignment.lock_version
         = hidden_field_tag :user_posting_context_id, params[:user_posting_context_id] if params[:user_posting_context_id].present?
         = hidden_field_tag :page, params[:page] if params[:page].present?

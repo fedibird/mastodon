@@ -1,5 +1,9 @@
 import { Map as ImmutableMap } from 'immutable';
 import {
+  USER_POSTING_CONTEXT_ASSIGNMENT_CONSUMER_REGISTER,
+  USER_POSTING_CONTEXT_ASSIGNMENT_CONSUMER_UNREGISTER,
+  USER_POSTING_CONTEXT_ASSIGNMENT_WRITE_FINISH,
+  USER_POSTING_CONTEXT_ASSIGNMENTS_INVALIDATE,
   USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_FAIL,
   USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_REQUEST,
   USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_SUCCESS,
@@ -10,6 +14,7 @@ import {
 
 const initialState = ImmutableMap({
   bySurface: ImmutableMap(),
+  mountedSurfaces: ImmutableMap(),
 });
 
 const blankEntry = () => ImmutableMap({
@@ -39,6 +44,26 @@ const applyLoaded = (entry, action) => rememberSurface(entry, action.assignment.
 
 export default function userPostingContextAssignments(state = initialState, action) {
   switch (action.type) {
+  case USER_POSTING_CONTEXT_ASSIGNMENT_CONSUMER_REGISTER:
+    return action.surface ? state.setIn(['mountedSurfaces', action.consumerId], ImmutableMap(action.surface)) : state;
+  case USER_POSTING_CONTEXT_ASSIGNMENT_CONSUMER_UNREGISTER:
+    return state.deleteIn(['mountedSurfaces', action.consumerId]);
+  case USER_POSTING_CONTEXT_ASSIGNMENT_WRITE_FINISH:
+    return state.getIn(['bySurface', action.surfaceKey, 'writeGeneration']) === action.generation
+      ? state.setIn(['bySurface', action.surfaceKey, 'writePending'], false) : state;
+
+  case USER_POSTING_CONTEXT_ASSIGNMENTS_INVALIDATE:
+    return state.update('refreshEpoch', 0, epoch => epoch + 1).update('bySurface', entries => entries.map(entry => entry.merge({
+      // Retain surface and advance the generation even for in-flight reads/writes.
+      // Until reconciliation succeeds, none of the old defaults is authoritative.
+      status: 'idle',
+      generation: (entry.get('generation') || 0) + 1,
+      assignmentStatus: null,
+      styleId: null,
+      revision: null,
+      failure: null,
+    })));
+
   case USER_POSTING_CONTEXT_ASSIGNMENT_FETCH_REQUEST:
   case USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_REQUEST: {
     const current = readEntry(state, action.surfaceKey);
@@ -47,7 +72,10 @@ export default function userPostingContextAssignments(state = initialState, acti
       return state;
     }
 
-    return state.setIn(['bySurface', action.surfaceKey], rememberSurface(current, action.surface).merge({
+    const locked = action.type === USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_REQUEST
+      ? current.merge({ writePending: true, writeGeneration: action.generation }) : current;
+
+    return state.setIn(['bySurface', action.surfaceKey], rememberSurface(locked, action.surface).merge({
       status: action.type === USER_POSTING_CONTEXT_ASSIGNMENT_SAVE_REQUEST ? 'saving' : 'loading',
       generation: action.generation,
       failure: null,
