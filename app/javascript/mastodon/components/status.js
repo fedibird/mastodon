@@ -20,6 +20,7 @@ import classNames from 'classnames';
 import Icon from 'mastodon/components/icon';
 import EmojiReactionsBar from 'mastodon/components/emoji_reactions_bar';
 import PictureInPicturePlaceholder from 'mastodon/components/picture_in_picture_placeholder';
+import FilterReason from './filter_reason';
 import { displayMedia, enableReaction, compactReaction, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy, new_features_policy } from 'mastodon/initial_state';
 import { List as ImmutableList } from 'immutable';
 import MixSourceBadges from 'mastodon/features/mixes/components/source_badges';
@@ -623,7 +624,7 @@ class Status extends ImmutablePureComponent {
         <HotKeys handlers={minHandlers}>
           <div className='status__wrapper status__wrapper--filtered focusable' tabIndex='0' ref={this.handleRef}>
             <FormattedMessage id='status.filtered' defaultMessage='Filtered' />
-            : {ImmutableList.isList(matchedFilters) ? matchedFilters.join(', ') : ''}.
+            : <FilterReason titles={matchedFilters} />.
             {' '}
             <button type='button' className='status__wrapper--filtered__button' onClick={this.handleUnfilterClick}>
               <FormattedMessage id='status.show_filter_reason' defaultMessage='Show anyway' />
