@@ -1,0 +1,50 @@
+[
+  {
+    "url": "https://www.youtube.com/watch?v=fUrlyCjL8JA",
+    "observedAt": "2026-10-16T23:21:06.627Z",
+    "httpStatus": null,
+    "error": "page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at https://www.youtube.com/watch?v=fUrlyCjL8JA"
+  },
+  {
+    "url": "https://www.youtube.com/embed/fUrlyCjL8JA",
+    "observedAt": "2026-10-16T23:21:06.672Z",
+    "httpStatus": null,
+    "error": "page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at https://www.youtube.com/embed/fUrlyCjL8JA"
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=hZIJ2PyFHME",
+    "observedAt": "2026-10-16T23:21:06.763Z",
+    "httpStatus": null,
+    "error": "page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at https://www.youtube.com/watch?v=hZIJ2PyFHME"
+  },
+  {
+    "url": "https://www.youtube.com/embed/hZIJ2PyFHME",
+    "observedAt": "2026-10-16T23:21:06.805Z",
+    "httpStatus": null,
+    "error": "page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at https://www.youtube.com/embed/hZIJ2PyFHME"
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=M7lc1UVf-VE",
+    "observedAt": "2026-10-16T23:21:06.826Z",
+    "httpStatus": null,
+    "error": "page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at https://www.youtube.com/watch?v=M7lc1UVf-VE"
+  },
+  {
+    "url": "https://www.youtube.com/embed/M7lc1UVf-VE",
+    "observedAt": "2026-10-16T23:21:06.907Z",
+    "httpStatus": null,
+    "error": "page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at https://www.youtube.com/embed/M7lc1UVf-VE"
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+    "observedAt": "2026-10-16T23:21:06.924Z",
+    "httpStatus": null,
+    "error": "page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at https://www.youtube.com/watch?v=aqz-KE-bpKQ"
+  },
+  {
+    "url": "https://www.youtube.com/embed/aqz-KE-bpKQ",
+    "observedAt": "2026-10-16T23:21:06.979Z",
+    "httpStatus": null,
+    "error": "page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at https://www.youtube.com/embed/aqz-KE-bpKQ"
+  }
+]
