@@ -376,6 +376,97 @@ describe TimelineSeek::Resolver do
     end
   end
 
+  describe 'date and account authorization' do
+    # Same scopes as the timeline feeds. A client-supplied context cannot widen
+    # list ownership or group visibility. Hidden rows do not come back as anchors.
+    let(:moment) { Time.utc(2022, 5, 1) }
+
+    def at_time(account, time, visibility: :public, text: 'visible')
+      Fabricate(:status, account: account, visibility: visibility, text: text, id: Mastodon::Snowflake.id_at(time, with_random: false), created_at: time, updated_at: time)
+    end
+
+    it 'keeps direct, muted, and blocked rows out of a public date probe' do
+      direct = at_time(author, moment, visibility: :direct, text: 'date-direct-secret')
+      viewer.mute!(author)
+      muted = at_time(author, moment + 1.hour, text: 'date-muted-secret')
+      visible = at_time(Fabricate(:account), moment + 2.hours)
+
+      result = resolve(source: 'public', kind: 'date', target: { at: moment.iso8601 }, context: public_context)
+
+      expect(result.anchor_id).to eq(visible.id.to_s)
+      expect(result.anchor_id).not_to eq(direct.id.to_s)
+      expect(result.anchor_id).not_to eq(muted.id.to_s)
+      expect(result.to_h.to_json).not_to include('date-direct-secret')
+      expect(result.to_h.to_json).not_to include('date-muted-secret')
+
+      author.block!(viewer)
+      blocked = at_time(author, moment + 3.hours, text: 'date-blocked-secret')
+      blocked_only = resolve(source: 'public', kind: 'date', target: { at: (moment + 3.hours).iso8601 }, context: public_context)
+
+      expect(blocked_only.anchor_id).not_to eq(blocked.id.to_s)
+      expect(blocked_only.to_h.to_json).not_to include('date-blocked-secret')
+    end
+
+    it 'does not resolve a direct, muted, or blocked account probe' do
+      Fabricate(:status, account: author, visibility: :direct, text: 'account-direct-secret')
+      direct = resolve(source: 'public', kind: 'account', target: { account_id: author.id.to_s }, context: public_context)
+
+      expect(direct.reason).to eq('account_probe_exhausted')
+      expect(direct.to_h).not_to have_key(:anchor_id)
+      expect(direct.to_h.to_json).not_to include('account-direct-secret')
+
+      Fabricate(:status, account: author, visibility: :public, text: 'account-muted-secret')
+      viewer.mute!(author)
+      muted = resolve(source: 'public', kind: 'account', target: { account_id: author.id.to_s }, context: public_context)
+
+      expect(muted.reason).to eq('account_probe_exhausted')
+      expect(muted.to_h.to_json).not_to include('account-muted-secret')
+
+      author.unblock!(viewer) if author.blocking?(viewer)
+      viewer.unmute!(author) if viewer.muting?(author)
+      author.block!(viewer)
+      Fabricate(:status, account: author, visibility: :public, text: 'account-blocked-secret')
+      blocked = resolve(source: 'public', kind: 'account', target: { account_id: author.id.to_s }, context: public_context)
+
+      expect(blocked.reason).to eq('account_probe_exhausted')
+      expect(blocked.to_h.to_json).not_to include('account-blocked-secret')
+    end
+
+    it 'does not let a list or group context read another account or a private group' do
+      foreign = Fabricate(:list, account: author)
+      secret = Fabricate(:status, account: author, visibility: :public, text: 'foreign-list-body')
+
+      expect do
+        resolve(source: 'list', kind: 'date', target: { at: secret.created_at.iso8601 }, context: { id: foreign.id.to_s })
+      end.to raise_error(ActiveRecord::RecordNotFound)
+      expect do
+        resolve(source: 'list', kind: 'account', target: { account_id: author.id.to_s }, context: { id: foreign.id.to_s })
+      end.to raise_error(ActiveRecord::RecordNotFound)
+
+      own = Fabricate(:list, account: viewer)
+      missed = resolve(source: 'list', kind: 'account', target: { account_id: author.id.to_s }, context: { id: own.id.to_s })
+
+      expect(missed.reason).to eq('account_probe_exhausted')
+      expect(missed.to_h.to_json).not_to include('foreign-list-body')
+
+      group = Fabricate(:account, username: 'seekgroupauth', actor_type: 'Group')
+      private_status = at_time(group, moment, visibility: :private, text: 'group-date-secret')
+      context = { id: group.id.to_s, only_media: false, without_media: false }
+      date = resolve(source: 'group', kind: 'date', target: { at: moment.iso8601 }, context: context)
+      account = resolve(source: 'group', kind: 'account', target: { account_id: group.id.to_s }, context: context)
+
+      expect(date.outcome).to eq('not_found')
+      expect(date.to_h).not_to have_key(:anchor_id)
+      expect(account.reason).to eq('account_probe_exhausted')
+      expect(account.to_h.to_json).not_to include('group-date-secret')
+      expect(private_status.visibility).to eq('private')
+
+      expect do
+        resolve(source: 'group', kind: 'date', target: { at: moment.iso8601 }, context: { id: author.id.to_s })
+      end.to raise_error(ActiveRecord::RecordNotFound)
+    end
+  end
+
   describe 'query shape' do
     it 'checks public membership with an id limit and can use an index' do
       status = Fabricate(:status, account: author, visibility: :public)

@@ -58,6 +58,28 @@ describe Api::V1::Timelines::SeekController do
     expect(response.body).not_to include('foreign-list-secret')
   end
 
+  it 'does not disclose another account list for date or account probes' do
+    list = Fabricate(:list, account: author)
+    status = Fabricate(:status, account: author, text: 'foreign-list-date-secret')
+
+    post_seek(source: 'list', kind: 'date', context: { id: list.id.to_s }, seek_target: { at: status.created_at.iso8601 })
+    expect(response).to have_http_status(404)
+    expect(response.body).not_to include('foreign-list-date-secret')
+
+    post_seek(source: 'list', kind: 'account', context: { id: list.id.to_s }, seek_target: { account_id: author.id.to_s })
+    expect(response).to have_http_status(404)
+    expect(response.body).not_to include('foreign-list-date-secret')
+  end
+
+  it 'does not treat a user account as a group source' do
+    status = Fabricate(:status, account: author, visibility: :public, text: 'not-a-group-body')
+
+    post_seek(source: 'group', kind: 'status', context: { id: author.id.to_s }, seek_target: { id: status.id.to_s })
+
+    expect(response).to have_http_status(404)
+    expect(response.body).not_to include('not-a-group-body')
+  end
+
   it 'rejects search text in the target' do
     post :create, params: {
       version: 1,
