@@ -36,6 +36,15 @@ const open = async () => {
   });
   return bell;
 };
+const expectSlideSwitch = (name, checked) => {
+  const row = screen.getByRole('menuitemcheckbox', { name });
+  const toggle = row.querySelector('.react-toggle');
+  expect(row.querySelector('.setting-toggle__label')).toHaveTextContent(name);
+  expect(toggle).not.toBeNull();
+  expect(toggle).toHaveAttribute('aria-hidden', 'true');
+  expect(toggle.classList.contains('react-toggle--checked')).toBe(checked);
+  expect(row.querySelector('input, [role="switch"], [role="checkbox"]')).toBeNull();
+};
 
 beforeEach(() => {
   isUserTouching.mockReturnValue(false);
@@ -51,6 +60,8 @@ describe('profile notification settings menu', async () => {
     expect(screen.getByRole('menu')).toHaveAttribute('id', bell.getAttribute('aria-controls'));
     expect(screen.getByRole('menuitemcheckbox', { name: 'Notify about new posts' })).toHaveAttribute('aria-checked', String(notifying));
     expect(screen.getByRole('menuitemcheckbox', { name: 'Notify about boosts' })).toHaveAttribute('aria-checked', String(notifying_reblogs));
+    expectSlideSwitch('Notify about new posts', notifying);
+    expectSlideSwitch('Notify about boosts', notifying_reblogs);
   });
 
   it('edits both settings for a pending follow with Japanese labels', async () => {
@@ -58,6 +69,8 @@ describe('profile notification settings menu', async () => {
     await open();
     expect(screen.getByRole('menuitemcheckbox', { name: '新しい投稿を通知' })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByRole('menuitemcheckbox', { name: 'ブーストを通知' })).toBeEnabled();
+    expectSlideSwitch('新しい投稿を通知', true);
+    expectSlideSwitch('ブーストを通知', false);
   });
 
   it.each([{ following: false }, { following: false, requested: false }])('hides the bell when not followed/requested: %p', async value => {
@@ -80,6 +93,10 @@ describe('profile notification settings menu', async () => {
     const rows = screen.getAllByRole('menuitemcheckbox');
     expect(rows[0]).toHaveFocus();
     fireEvent.keyDown(rows[0], { key: 'ArrowDown' });
+    expect(rows[1]).toHaveFocus();
+    fireEvent.keyDown(rows[1], { key: 'Tab', shiftKey: true });
+    expect(rows[0]).toHaveFocus();
+    fireEvent.keyDown(rows[0], { key: 'Tab' });
     expect(rows[1]).toHaveFocus();
     fireEvent.keyDown(rows[1], { key: 'Home' });
     expect(rows[0]).toHaveFocus();
@@ -130,11 +147,14 @@ describe('profile notification settings menu', async () => {
     expect(post).toHaveBeenCalledTimes(1);
     expect(post).toHaveBeenCalledWith('/api/v1/accounts/1/follow', { notify_reblogs: true });
     expect(boosts).toHaveAttribute('aria-checked', 'false');
+    expectSlideSwitch('Notify about boosts', false);
+    expectSlideSwitch('Notify about new posts', true);
     screen.getAllByRole('menuitemcheckbox').forEach(row => expect(row).toBeDisabled());
     await act(async () => {
       resolve({ data: { ...base, notifying: true, notifying_reblogs: true } });
     });
     expect(boosts).toHaveAttribute('aria-checked', 'true');
+    expectSlideSwitch('Notify about boosts', true);
     screen.getAllByRole('menuitemcheckbox').forEach(row => expect(row).toBeEnabled());
   });
 

@@ -12590,16 +12590,52 @@ noscript {
 }
 
 .account-notification-settings__item {
-  width: 240px;
-  max-width: calc(100vw - 32px);
+  width: 272px;
+  max-width: calc(100vw - 48px);
 
   button {
     min-height: 44px;
     white-space: normal;
+    text-align: start;
+    background: transparent;
+
+    &:focus,
+    &:hover,
+    &:active {
+      background: var(--dropdown-border-color);
+    }
 
     &:disabled {
       opacity: 0.6;
       cursor: wait;
     }
+  }
+
+  .setting-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+    line-height: 18px;
+  }
+
+  .setting-toggle__label {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    color: inherit;
+    line-height: 18px;
+    white-space: normal;
+  }
+
+  .react-toggle,
+  .react-toggle-track {
+    display: block;
+  }
+
+  .react-toggle {
+    flex: 0 0 auto;
+    pointer-events: none;
   }
 }
