@@ -106,12 +106,12 @@ module AccountAssociations
     visibility = [:public, :unlisted]
     visibility.push(:private) if account&.following?(self)
 
+    # A simple CASE never matches NULL, so a group's own post was dropped.
     scope = Status.unscoped
                   .where(id:
                     Status.reorder(nil)
                           .where(account_id: id)
                           .where(visibility: visibility)
-                          # A simple CASE never matches NULL, so a group's own post was dropped.
                           .select('CASE WHEN reblog_of_id IS NULL THEN id ELSE reblog_of_id END')
                   )
     scope = scope.where.not(account_id: account.excluded_from_timeline_account_ids) unless account.nil?
