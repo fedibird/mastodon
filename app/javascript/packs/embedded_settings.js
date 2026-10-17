@@ -1,6 +1,6 @@
 import ReactDOM from 'react-dom';
 import ready from '../mastodon/ready';
-import { isFilterSettingsUrl } from '../mastodon/features/embedded_rails_settings/registry';
+import { isEmbeddedSettingsUrl } from '../mastodon/features/embedded_rails_settings/registry';
 
 ready(() => {
   // The parent binds on DOM readiness, before slow images/fonts can delay load.
@@ -26,7 +26,8 @@ ready(() => {
     if (!link || link.getAttribute('href').startsWith('#')) return;
 
     const url = new URL(link.href, window.location.href);
-    if (isFilterSettingsUrl(url, window.location.origin)) return;
+    const screen = document.querySelector('meta[name="embedded-rails-settings"]')?.content;
+    if (isEmbeddedSettingsUrl(screen, url, window.location.origin, (link.dataset.method || 'GET').toUpperCase())) return;
 
     link.target = '_blank';
     link.rel = 'noopener noreferrer';

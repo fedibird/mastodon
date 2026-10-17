@@ -153,22 +153,26 @@ ready(() => {
   const registrationMode = document.getElementById('form_admin_settings_registrations_mode');
   if (registrationMode) onChangeRegistrationMode(registrationMode);
 
-  bindUserPostingContextCardMenus(document);
-  bindUserPostingContextPreview(document, {
-    renderEmoji: (root) => {
-      const preview = root.querySelector('[data-user-posting-context-preview]');
-      if (!preview) {
-        return;
-      }
+  const initializePostingStyleWidgets = () => {
+    bindUserPostingContextCardMenus(document);
+    bindUserPostingContextPreview(document, {
+      renderEmoji: (root) => {
+        const preview = root.querySelector('[data-user-posting-context-preview]');
+        if (!preview) {
+          return;
+        }
 
-      import(/* webpackChunkName: "form_emoji_picker" */ '../mastodon/features/emoji/form_emoji_picker')
-        .then(({ initializeFormEmojiPickers }) => {
-          initializeFormEmojiPickers({
-            fields: [],
-            textNodes: Array.from(preview.querySelectorAll('[data-custom-emoji-text]')),
-          });
-        })
-        .catch(() => {});
-    },
-  });
+        import(/* webpackChunkName: "form_emoji_picker" */ '../mastodon/features/emoji/form_emoji_picker')
+          .then(({ initializeFormEmojiPickers }) => {
+            initializeFormEmojiPickers({
+              fields: [],
+              textNodes: Array.from(preview.querySelectorAll('[data-custom-emoji-text]')),
+            });
+          })
+          .catch(() => {});
+      },
+    });
+  };
+  initializePostingStyleWidgets();
+  document.addEventListener('embedded-settings:render', initializePostingStyleWidgets);
 });

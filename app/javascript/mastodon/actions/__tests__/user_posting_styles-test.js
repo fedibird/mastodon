@@ -1079,3 +1079,50 @@ describe('Lemmy and PieFed group posting styles', () => {
     expect(store.getState().getIn(['compose', 'text'])).toEqual('Title line\n\nKeep this');
   });
 });
+
+describe('catalog refresh ordering and failure protection', () => {
+  const pending = () => {
+    let resolve, reject;
+    const promise = new Promise((yes, no) => {
+      resolve = yes; reject = no;
+    });
+    return { promise, resolve, reject };
+  };
+  const response = name => ({ data: [{ id: '1', name, target: { kind: 'none' }, defaults: {}, managed: { hashtags: [] } }] });
+  const catalogStore = () => createStore(combineReducers({ compose, userPostingStyles }), applyMiddleware(thunk));
+
+  it.each(['success', 'failure'])('forces a post-save GET during loading and ignores older %s', async outcome => {
+    const old = pending(); const fresh = pending();
+    const get = jest.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise);
+    api.mockReturnValue({ get });
+    const store = catalogStore();
+    const before = store.getState().get('compose');
+    const first = store.dispatch(fetchUserPostingStyles());
+    const second = store.dispatch(fetchUserPostingStyles({ force: true }));
+    expect(get).toHaveBeenCalledTimes(2);
+    fresh.resolve(response('After save'));
+    await second;
+    const newest = store.getState().get('userPostingStyles');
+    if (outcome === 'success') old.resolve(response('Before save')); else old.reject(new Error('offline'));
+    await first;
+    expect(store.getState().get('userPostingStyles')).toBe(newest);
+    expect(newest.getIn(['styles', 0, 'name'])).toBe('After save');
+    expect(store.getState().get('compose')).toBe(before);
+  });
+
+  it('keeps the last full catalog on failed or malformed refreshes, then accepts an actual empty catalog', async () => {
+    const get = jest.fn().mockResolvedValueOnce(response('Saved')).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ data: {} }).mockResolvedValueOnce({ data: [] });
+    api.mockReturnValue({ get });
+    const store = catalogStore();
+    await store.dispatch(fetchUserPostingStyles());
+    const styles = store.getState().getIn(['userPostingStyles', 'styles']);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await store.dispatch(fetchUserPostingStyles({ force: true }));
+      expect(store.getState().getIn(['userPostingStyles', 'styles'])).toBe(styles);
+      expect(store.getState().getIn(['userPostingStyles', 'status'])).toBe('failed');
+    }
+    await store.dispatch(fetchUserPostingStyles({ force: true }));
+    expect(store.getState().getIn(['userPostingStyles', 'styles']).size).toBe(0);
+    expect(store.getState().getIn(['userPostingStyles', 'status'])).toBe('ready');
+  });
+});

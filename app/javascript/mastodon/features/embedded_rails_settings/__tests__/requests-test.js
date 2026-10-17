@@ -54,3 +54,32 @@ it('rejects arbitrary mutation destinations without a fetch or refresh', async (
   await expect(submitFilterSettings(new URL('https://evil.test/filters?embedded=1'), new FormData(), dispatch)).rejects.toThrow();
   expect(window.fetch).not.toHaveBeenCalled(); expect(dispatch).not.toHaveBeenCalled();
 });
+
+jest.mock('mastodon/actions/user_posting_styles', () => ({ fetchUserPostingStyles: jest.fn(() => ({ type: 'CATALOG_REFRESH' })) }));
+const { submitEmbeddedSettings, bindEmbeddedSettingsNavigation } = require('../requests');
+const { fetchUserPostingStyles } = require('mastodon/actions/user_posting_styles');
+
+it('reconciles posting styles once on ambiguous failure without resending the mutation', async () => {
+  const error = new Error('lost after commit'); window.fetch = jest.fn().mockRejectedValue(error);
+  const dispatch = jest.fn();
+  await expect(submitEmbeddedSettings('postingStyles', new URL('http://localhost/settings/user_posting_contexts?embedded=1'), new FormData(), dispatch)).rejects.toBe(error);
+  expect(window.fetch).toHaveBeenCalledTimes(1);
+  expect(fetchUserPostingStyles).toHaveBeenCalledTimes(1);
+  expect(fetchUserPostingStyles).toHaveBeenCalledWith({ force: true });
+  expect(fetchFilters).not.toHaveBeenCalled();
+});
+
+it('blocks unexpected forms, but leaves Rails JSON preview fetches independent of HTML submission', async () => {
+  const doc = document.implementation.createHTMLDocument();
+  const frame = { contentDocument: doc, contentWindow: { location: { href: 'http://localhost/settings/user_posting_contexts?embedded=1' } } };
+  const onSubmit = jest.fn(), onNavigate = jest.fn(), onInvalid = jest.fn();
+  bindEmbeddedSettingsNavigation('postingStyles', frame, { onSubmit, onNavigate, onInvalid });
+  for (const action of ['/filters?embedded=1', '/settings/preferences', '/settings/user_posting_contexts/preview?embedded=1']) {
+    doc.body.innerHTML = `<form action="${action}" method="post"></form>`;
+    const event = new Event('submit', { bubbles: true, cancelable: true });
+    doc.querySelector('form').dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+  }
+  expect(onInvalid).toHaveBeenCalledTimes(3);
+  expect(onSubmit).not.toHaveBeenCalled();
+});

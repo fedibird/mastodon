@@ -13,11 +13,13 @@ const initialState = ImmutableMap({
 export default function userPostingStyles(state = initialState, action) {
   switch (action.type) {
   case USER_POSTING_STYLES_FETCH_REQUEST:
-    return state.set('status', 'loading');
+    return state.set('status', 'loading').set('requestId', action.requestId);
   case USER_POSTING_STYLES_FETCH_SUCCESS:
-    return state.set('status', 'ready').set('styles', ImmutableList(action.styles || []));
+    if (action.requestId !== state.get('requestId')) return state;
+    return state.set('status', 'ready').set('hasLoaded', true).set('styles', ImmutableList(action.styles || []));
   case USER_POSTING_STYLES_FETCH_FAIL:
-    return state.set('status', 'failed').set('styles', ImmutableList());
+    if (action.requestId !== state.get('requestId')) return state;
+    return state.set('status', 'failed');
   default:
     return state;
   }

@@ -1,12 +1,25 @@
 import { fetchFilters } from 'mastodon/actions/filters';
-import { isFilterSettingsUrl } from './registry';
+import { fetchUserPostingStyles } from 'mastodon/actions/user_posting_styles';
+import { isEmbeddedSettingsUrl } from './registry';
+
+export const refreshEmbeddedSettings = (screen, dispatch) => {
+  if (screen === 'filters') return dispatch(fetchFilters());
+  if (screen === 'postingStyles') return dispatch(fetchUserPostingStyles({ force: true }));
+  return Promise.reject(new Error('Unknown settings screen'));
+};
+
+const pendingRequests = new Map();
+export const pendingEmbeddedSettingsRequest = screen => pendingRequests.get(screen);
 
 // The parent-window fetch outlives the iframe/column. Never abort
 // a submitted mutation when React navigates away or a rendering timeout fires.
-export const submitFilterSettings = (url, body, dispatch) => {
-  if (!isFilterSettingsUrl(url, window.location.origin) || url.searchParams.get('embedded') !== '1') return Promise.reject(new Error('Invalid filter settings URL'));
+export const submitEmbeddedSettings = (screen, url, body, dispatch) => {
+  const method = String(body.get('_method') || 'POST').toUpperCase();
+  if (!isEmbeddedSettingsUrl(screen, url, window.location.origin, method)) return Promise.reject(new Error('Invalid settings URL'));
 
-  return (async () => {
+  if (pendingRequests.has(screen)) return Promise.reject(new Error('Settings save already pending'));
+
+  const request = (async () => {
     try {
       return await window.fetch(url.href, {
         method: 'POST', body, credentials: 'same-origin',
@@ -15,22 +28,31 @@ export const submitFilterSettings = (url, body, dispatch) => {
     } finally {
       // A response (including the redirected GET) follows the Rails action's
       // commit. On ambiguous network failures, do one bounded reconciliation.
-      await dispatch(fetchFilters());
+      await refreshEmbeddedSettings(screen, dispatch);
     }
-  })();
+  })().finally(() => pendingRequests.delete(screen));
+  pendingRequests.set(screen, request);
+  return request;
 };
 
-export const bindFilterSettingsNavigation = (frame, { onNavigate, onSubmit }) => {
+export const bindEmbeddedSettingsNavigation = (screen, frame, { onNavigate, onSubmit, onInvalid }) => {
   const doc = frame.contentDocument;
   const origin = window.location.origin;
-  const allowedUrl = value => {
+  const allowedUrl = (value, method = 'GET') => {
     const url = new URL(value, frame.contentWindow.location.href);
-    return isFilterSettingsUrl(url, origin) && url.searchParams.get('embedded') === '1' ? url : null;
+    return isEmbeddedSettingsUrl(screen, url, origin, method) ? url : null;
   };
   const submit = event => {
     const form = event.target;
-    const url = allowedUrl(form.action);
-    if (!url) return;
+    const method = (form.getAttribute('method') || 'get').toUpperCase();
+    const effectiveMethod = method === 'POST' ? String(new FormData(form).get('_method') || method).toUpperCase() : method;
+    const url = allowedUrl(form.action, effectiveMethod);
+    if (!url) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      onInvalid?.();
+      return;
+    }
     event.preventDefault();
     event.stopImmediatePropagation();
     const body = new FormData(form);
@@ -47,7 +69,7 @@ export const bindFilterSettingsNavigation = (frame, { onNavigate, onSubmit }) =>
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const link = event.target.closest('a[href]');
     if (!link || link.hasAttribute('download') || (link.target && link.target !== '_self') || link.getAttribute('href').startsWith('#')) return;
-    const url = allowedUrl(link.href);
+    const url = allowedUrl(link.href, (link.dataset.method || 'GET').toUpperCase());
     if (!url) return;
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -68,3 +90,7 @@ export const bindFilterSettingsNavigation = (frame, { onNavigate, onSubmit }) =>
     doc.removeEventListener('submit', submit, true);
   };
 };
+
+// Existing filter callers retain their fixed screen.
+export const submitFilterSettings = (url, body, dispatch) => submitEmbeddedSettings('filters', url, body, dispatch);
+export const bindFilterSettingsNavigation = (frame, callbacks) => bindEmbeddedSettingsNavigation('filters', frame, callbacks);

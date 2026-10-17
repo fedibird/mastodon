@@ -273,3 +273,36 @@ describe('user posting context preview', () => {
     expect(document.querySelector('[data-user-posting-context-destination]').textContent).toContain('second-destination');
   });
 });
+
+it('keeps an old preview response out of a replaced embedded validation/conflict form', async () => {
+  document.body.innerHTML = '<main class="embedded-settings"><form data-user-posting-context-form data-preview-url="/settings/user_posting_contexts/preview"><input name="user_posting_context[hashtags_text]"></form><div data-user-posting-context-preview>Original</div></main>';
+  let resolve;
+  const response = new Promise(yes => {
+    resolve = yes;
+  });
+  const fetchImpl = jest.fn(() => response);
+  bindUserPostingContextPreview(document, { fetchImpl, delay: 0 });
+  document.querySelector('input').dispatchEvent(new Event('input', { bubbles: true }));
+  await new Promise(yes => setTimeout(yes, 1));
+  expect(fetchImpl).toHaveBeenCalledTimes(1);
+  document.querySelector('main').outerHTML = '<main class="embedded-settings"><form data-user-posting-context-form></form><div data-user-posting-context-preview>New form preview</div></main>';
+  resolve({ ok: true, json: async () => ({ preview_html: 'Old response' }) });
+  await new Promise(yes => setTimeout(yes, 1));
+  expect(document.querySelector('[data-user-posting-context-preview]').textContent).toBe('New form preview');
+});
+
+it('uses the POST preview route after editing or conflict rendering, without forwarding the save method override', async () => {
+  document.body.innerHTML = '<main class="embedded-settings"><form data-user-posting-context-form data-preview-url="/settings/user_posting_contexts/preview?embedded=1" data-record-id="4"><input name="_method" value="patch"><input name="authenticity_token" value="csrf"><input name="user_posting_context[hashtags_text]"></form><div data-user-posting-context-preview></div></main>';
+  const fetchImpl = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ preview_html: 'Updated preview' }) });
+  bindUserPostingContextPreview(document, { fetchImpl, delay: 0 });
+  document.querySelector('[name="user_posting_context[hashtags_text]"]').dispatchEvent(new Event('input', { bubbles: true }));
+  await new Promise(yes => setTimeout(yes, 1));
+  expect(fetchImpl).toHaveBeenCalledTimes(1);
+  const options = fetchImpl.mock.calls[0][1];
+  expect(options.method).toBe('POST');
+  expect(options.body.has('_method')).toBe(false);
+  expect(options.body.get('authenticity_token')).toBe('csrf');
+  expect(options.body.get('id')).toBe('4');
+  expect(document.querySelector('[name="_method"]').value).toBe('patch');
+  expect(document.querySelector('[data-user-posting-context-preview]').textContent).toBe('Updated preview');
+});

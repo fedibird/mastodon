@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import PropTypes from 'prop-types';
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import { List as ImmutableList } from 'immutable';
@@ -127,6 +128,7 @@ class UserPostingStylePicker extends React.PureComponent {
     placeLabel: PropTypes.string,
     customEmojis: ImmutablePropTypes.list,
     catalogFailed: PropTypes.bool,
+    catalogRefreshFailed: PropTypes.bool,
     catalogLoading: PropTypes.bool,
     onRetryCatalog: PropTypes.func,
   };
@@ -630,11 +632,11 @@ class UserPostingStylePicker extends React.PureComponent {
             <div className='compose-form__style-context'>{contextDetails}</div>
           </React.Fragment>
         ) : null}
-        <a className='compose-form__style-settings compose-form__style-settings-button' href='/settings/user_posting_contexts'>
+        <Link className='compose-form__style-settings compose-form__style-settings-button' to='/settings/posting-styles' onClick={this.closeMenu}>
           <Icon id='gear' fixedWidth aria-hidden='true' />
           <span>{intl.formatMessage(messages.settings)}</span>
           <Icon id='chevron-right' fixedWidth aria-hidden='true' />
-        </a>
+        </Link>
       </React.Fragment>
     );
 
@@ -663,7 +665,7 @@ class UserPostingStylePicker extends React.PureComponent {
     }
     const notices = this.collectNotices();
     const defaultActions = controls ? this.renderDefaultActions() : null;
-    const catalogProblem = Boolean(this.props.catalogFailed);
+    const catalogProblem = Boolean(this.props.catalogFailed || this.props.catalogRefreshFailed);
     const catalogPending = Boolean(this.props.catalogLoading);
 
     return (
@@ -730,7 +732,7 @@ class UserPostingStylePicker extends React.PureComponent {
         {label ? <div className='compose-form__style-current-destination'>{intl.formatMessage(messages.destination, { label })}</div> : null}
         {defaultActions}
         {this.state.open ? null : this.renderNotices()}
-        {this.renderStyleOverlay(true, false, false, null)}
+        {this.renderStyleOverlay(true, this.props.catalogRefreshFailed, false, null)}
       </div>
     );
   }

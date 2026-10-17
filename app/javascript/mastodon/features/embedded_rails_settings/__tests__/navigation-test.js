@@ -101,3 +101,12 @@ it('corrects a late automatic scroll adjustment but stops when the user scrolls'
   Object.defineProperty(window, 'scrollY', { configurable: true, value: oldY });
   window.history.replaceState(oldState, '', oldUrl);
 });
+
+it('tracks posting styles Back/Forward origins with the same safe history and scroll contract', () => {
+  const source = { pathname: '/timelines/tag/books', key: 'posting-source' };
+  const settings = { pathname: '/settings/posting-styles', key: 'posting-settings' };
+  const tracked = trackSettingsOrigin({ lastLocation: source, origins: {} }, settings, 'PUSH');
+  expect(tracked.origins[settings.key]).toBe(source.pathname);
+  expect(trackSettingsOrigin(tracked, source, 'POP').origins[settings.key]).toBe(source.pathname);
+  expect(safeReactReturnTo(settings)).toBeNull();
+});

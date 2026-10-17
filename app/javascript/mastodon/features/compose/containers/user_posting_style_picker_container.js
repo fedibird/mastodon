@@ -48,8 +48,8 @@ const mapStateToProps = (state, { composerId }) => {
   const surface = composer && composer.get('surface');
   const portable = Boolean(surface);
   const eligible = !editing && Boolean(composer) && (composerId === PRIMARY_COMPOSER_ID || portable);
-  const visible = eligible && catalogStatus === 'ready';
-  const catalogFailed = eligible && catalogStatus === 'failed';
+  const visible = eligible && (catalogStatus === 'ready' || state.getIn(['userPostingStyles', 'hasLoaded']) === true);
+  const catalogFailed = eligible && catalogStatus === 'failed' && !visible;
   const catalogLoading = eligible && !visible && !catalogFailed;
 
   if (!composer || (!visible && !catalogFailed && !catalogLoading)) {
@@ -72,6 +72,7 @@ const mapStateToProps = (state, { composerId }) => {
   return {
     visible,
     catalogFailed,
+    catalogRefreshFailed: visible && catalogStatus === 'failed',
     catalogLoading,
     styles: styleChoices,
     emptyLabel: kind === 'group' || kind === 'hashtag' ? 'place' : 'usual',
@@ -196,7 +197,7 @@ const VisiblePicker = ({ visible, catalogFailed, catalogLoading, onRetryCatalog,
     return contextDetails || null;
   }
 
-  return <UserPostingStylePicker {...props} contextDetails={contextDetails} />;
+  return <UserPostingStylePicker {...props} onRetryCatalog={onRetryCatalog} contextDetails={contextDetails} />;
 };
 
 VisiblePicker.propTypes = {

@@ -5,12 +5,12 @@ import { connect } from 'react-redux';
 import { defineMessages, FormattedMessage, injectIntl } from 'react-intl';
 import { debounce } from 'lodash';
 import Column from '../ui/components/column';
-import { fetchFilters } from 'mastodon/actions/filters';
-import { defaultColumnWidth } from 'mastodon/initial_state';
-import { getEmbeddedScreen, isFilterSettingsUrl } from './registry';
-import { bindFilterSettingsNavigation, submitFilterSettings } from './requests';
+import { defaultColumnWidth, isAdministrator } from 'mastodon/initial_state';
+import { getEmbeddedScreen, isEmbeddedSettingsUrl } from './registry';
+import { bindEmbeddedSettingsNavigation, submitEmbeddedSettings, refreshEmbeddedSettings, pendingEmbeddedSettingsRequest } from './requests';
 
 const messages = defineMessages({
+  postingStyles: { id: 'embedded_settings.posting_styles', defaultMessage: 'Posting style settings' },
   title: { id: 'embedded_settings.filters', defaultMessage: 'Filter settings' },
 });
 
@@ -33,6 +33,16 @@ export class EmbeddedRailsSettings extends React.PureComponent {
   componentDidMount () {
     this.mounted = true;
     this.startTimeout();
+    const pending = pendingEmbeddedSettingsRequest(this.props.screen);
+    if (pending) {
+      this.saving = true;
+      this.setState({ saving: true });
+      const settled = () => {
+        this.saving = false;
+        if (this.mounted) this.setState({ saving: false });
+      };
+      pending.then(settled).catch(settled);
+    }
   }
 
   componentWillUnmount () {
@@ -40,11 +50,11 @@ export class EmbeddedRailsSettings extends React.PureComponent {
     this.unbindNavigation?.();
     clearTimeout(this.timeout);
     // Passive load refreshes may be flushed; mutation refreshes live in requests.js.
-    this.refreshFilters.flush();
-    this.refreshFilters.cancel();
+    this.refreshSettings.flush();
+    this.refreshSettings.cancel();
   }
 
-  refreshFilters = debounce(() => this.props.dispatch(fetchFilters()), 300);
+  refreshSettings = debounce(() => refreshEmbeddedSettings(this.props.screen, this.props.dispatch), 300);
 
   startTimeout = () => {
     clearTimeout(this.timeout);
@@ -70,7 +80,7 @@ export class EmbeddedRailsSettings extends React.PureComponent {
     try {
       const url = new URL(frame.contentWindow.location.href);
       const marker = frame.contentDocument.querySelector('meta[name="embedded-rails-settings"]');
-      if (!isFilterSettingsUrl(url, window.location.origin) || marker?.content !== this.props.screen || url.searchParams.get('embedded') !== '1') {
+      if (!isEmbeddedSettingsUrl(this.props.screen, url, window.location.origin) || marker?.content !== this.props.screen) {
         this.handleError();
         return;
       }
@@ -80,11 +90,11 @@ export class EmbeddedRailsSettings extends React.PureComponent {
     }
 
     this.boundDocument = frame.contentDocument;
-    this.unbindNavigation = bindFilterSettingsNavigation(frame, { onNavigate: this.handleLinkNavigate, onSubmit: this.handleSubmit });
+    this.unbindNavigation = bindEmbeddedSettingsNavigation(this.props.screen, frame, { onNavigate: this.handleLinkNavigate, onSubmit: this.handleSubmit, onInvalid: this.handleError });
     this.navigationPending = false;
     clearTimeout(this.timeout);
     this.setState({ loading: false, failed: false });
-    this.refreshFilters();
+    this.refreshSettings();
   };
 
   handleLinkNavigate = url => {
@@ -92,6 +102,10 @@ export class EmbeddedRailsSettings extends React.PureComponent {
   };
 
   handleNavigate = url => {
+    if (!isEmbeddedSettingsUrl(this.props.screen, url, window.location.origin)) {
+      this.handleError();
+      return;
+    }
     this.navigationPending = true;
     this.setState({ loading: true, failed: false });
     this.startTimeout();
@@ -100,18 +114,20 @@ export class EmbeddedRailsSettings extends React.PureComponent {
   };
 
   handleSubmit = (url, body) => {
-    if (this.saving || this.navigationPending) return;
+    if (this.saving || this.navigationPending || pendingEmbeddedSettingsRequest(this.props.screen)) return;
     this.saving = true;
     this.setState({ saving: true, loading: true, failed: false });
     this.startTimeout();
-    submitFilterSettings(url, body, this.props.dispatch).then(async response => {
+    submitEmbeddedSettings(this.props.screen, url, body, this.props.dispatch).then(async response => {
       if (!this.mounted) return;
       const destination = new URL(response.url);
-      if (!response.ok || !isFilterSettingsUrl(destination, window.location.origin) || destination.searchParams.get('embedded') !== '1') {
+      const renderable = response.ok || response.status === 409 || response.status === 422;
+      const method = response.redirected ? 'GET' : String(body.get('_method') || 'POST').toUpperCase();
+      if (!renderable || !isEmbeddedSettingsUrl(this.props.screen, destination, window.location.origin, method)) {
         this.handleError();
         return;
       }
-      if (response.redirected) {
+      if (response.redirected && response.ok) {
         this.handleNavigate(destination);
       } else {
         // Rails validation renders stay on the current new/edit page. Reuse
@@ -157,12 +173,12 @@ export class EmbeddedRailsSettings extends React.PureComponent {
     const { screen, intl, multiColumn, returnTo } = this.props;
     const { loading, failed, saving } = this.state;
     const entry = getEmbeddedScreen(screen);
-    if (!entry) return null;
+    if (!entry || (screen === 'postingStyles' && !isAdministrator)) return null;
 
-    const title = intl.formatMessage(messages.title);
+    const title = intl.formatMessage(screen === 'postingStyles' ? messages.postingStyles : messages.title);
 
     return (
-      <Column icon='filter' heading={title} columnWidth={defaultColumnWidth}>
+      <Column icon={screen === 'postingStyles' ? 'pencil' : 'filter'} heading={title} columnWidth={defaultColumnWidth}>
         <div className='embedded-rails-settings'>
           <nav className='embedded-rails-settings__navigation'>
             <Link to={returnTo || (multiColumn ? '/getting-started' : '/timelines/home')} onClick={this.handleBack}>

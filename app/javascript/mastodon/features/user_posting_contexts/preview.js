@@ -112,6 +112,9 @@ export function bindUserPostingContextPreview(root = document, options = {}) {
     return;
   }
 
+  // A validation/conflict render can replace main while this preview is in flight.
+  // Keep its response scoped to the original main, never a newer form.
+  root = form.closest('main.embedded-settings') || root;
   form.dataset.previewBound = 'true';
   syncUserPostingContextTargetPanels(form);
   syncUserPostingContextChoicePanels(form);
@@ -153,6 +156,8 @@ export function bindUserPostingContextPreview(root = document, options = {}) {
     activeAbort = Abort ? new Abort() : null;
 
     const body = new FormData(form);
+    // Editing forms carry PATCH for saves. The preview collection route is POST.
+    body.delete('_method');
 
     if (form.dataset.recordId) {
       body.set('id', form.dataset.recordId);

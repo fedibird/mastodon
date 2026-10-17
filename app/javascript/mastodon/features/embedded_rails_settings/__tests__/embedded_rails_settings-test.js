@@ -112,7 +112,9 @@ it('times out, retries only the iframe, and ignores arbitrary messages', () => {
   expect(jest.getTimerCount()).toBe(0);
 });
 
-it.each([false, true])('enters and leaves the wrapped route without remounting the WebUI or adjacent composers (multiColumn=%s)', multiColumn => {
+it.each([[false, 'filters'], [true, 'filters'], [false, 'postingStyles'], [true, 'postingStyles']])('enters and leaves the wrapped route without remounting the WebUI or adjacent composers (multiColumn=%s, screen=%s)', (multiColumn, screenName) => {
+  const route = screenName === 'filters' ? FILTER_SETTINGS_ROUTE : '/settings/posting-styles';
+  const title = screenName === 'filters' ? 'Filter settings' : 'Posting style settings';
   const history = createMemoryHistory({ initialEntries: ['/timelines/tag/ruby'] });
   const mounts = jest.fn();
   const unmounts = jest.fn();
@@ -130,12 +132,12 @@ it.each([false, true])('enters and leaves the wrapped route without remounting t
     }
 
   }
-  const Settings = props => <EmbeddedRailsSettings {...props} dispatch={dispatch} intl={intl} returnTo='/timelines/tag/ruby' />;
+  const Settings = props => <EmbeddedRailsSettings {...props} screen={screenName} dispatch={dispatch} intl={intl} returnTo='/timelines/tag/ruby' />;
   const fetchSettings = () => Settings;
   const renderHome = () => <p>Home</p>;
   const Routing = withRouter(({ location }) => (
     <WrappedSwitch multiColumn={multiColumn} location={location}>
-      <WrappedRoute path={FILTER_SETTINGS_ROUTE} exact component={fetchSettings} />
+      <WrappedRoute path={route} exact component={fetchSettings} />
       <Route render={renderHome} />
     </WrappedSwitch>
   ));
@@ -143,7 +145,7 @@ it.each([false, true])('enters and leaves the wrapped route without remounting t
     <div>
       <Composer name='first composer' /><Composer name='second composer' />
       <div data-testid='timeline' />
-      <Link to={FILTER_SETTINGS_ROUTE}>Settings</Link>
+      <Link to={route}>Settings</Link>
       <Routing />
     </div>, history,
   ));
@@ -153,7 +155,7 @@ it.each([false, true])('enters and leaves the wrapped route without remounting t
   fireEvent.change(first, { target: { value: 'unsaved edited draft' } });
   fireEvent.click(screen.getByText('Settings'));
   expect(container.querySelector('iframe')).toBeTruthy();
-  loadFrame(screen.getByTitle('Filter settings'));
+  loadFrame(screen.getByTitle(title), { url: `http://localhost${getEmbeddedScreen(screenName).embeddedPath}`, marker: screenName });
   fireEvent.click(screen.getByRole('link', { name: 'Back' }));
   expect(container.querySelector('iframe')).toBeNull();
   expect(history.location.pathname).toBe('/timelines/tag/ruby');
@@ -163,7 +165,11 @@ it.each([false, true])('enters and leaves the wrapped route without remounting t
   expect(timeline.scrollTop).toBe(120);
   expect(mounts).toHaveBeenCalledTimes(2);
   expect(unmounts).not.toHaveBeenCalled();
-  expect(fetchFilters).toHaveBeenCalledTimes(1); // flushed on closing
+  act(() => history.goForward());
+  expect(screen.getByTitle(title)).toBeTruthy();
+  expect(screen.getByLabelText('first composer')).toBe(first);
+  expect(mounts).toHaveBeenCalledTimes(2);
+  expect(screenName === 'filters' ? fetchFilters : fetchUserPostingStyles).toHaveBeenCalledTimes(1); // flushed on closing
 });
 
 it('leaves primary and portable composer text, CW, attachments and edit state unchanged on filter refresh', () => {
@@ -316,4 +322,104 @@ it('binds trusted DOM readiness before full load and ignores that document’s l
   fireEvent.load(frame); // a late load from the old document must not clear this timeout
   act(() => jest.advanceTimersByTime(15000));
   expect(screen.getByRole('alert')).toBeInTheDocument();
+});
+
+jest.mock('mastodon/initial_state', () => ({ isAdministrator: true }));
+jest.mock('mastodon/actions/user_posting_styles', () => ({
+  fetchUserPostingStyles: jest.fn(() => ({ type: 'CATALOG_REFRESH' })),
+}));
+const { fetchUserPostingStyles } = require('mastodon/actions/user_posting_styles');
+
+it.each([
+  ['create', '/settings/user_posting_contexts?embedded=1', null],
+  ['update', '/settings/user_posting_contexts/1?embedded=1', 'patch'],
+  ['duplicate', '/settings/user_posting_contexts/1/duplicate?embedded=1', null],
+  ['delete', '/settings/user_posting_contexts/1?embedded=1', 'delete'],
+  ['release', '/settings/user_posting_context_assignments/1/release?embedded=1', null],
+  ['decline', '/settings/user_posting_context_assignments/1/decline?embedded=1', null],
+])('refreshes posting styles after %s completes following departure, separately from passive load', async (kind, path, method) => {
+  const request = deferred(); window.fetch = jest.fn(() => request.promise);
+  const { unmount } = render(wrap(<EmbeddedRailsSettings screen='postingStyles' dispatch={dispatch} intl={intl} />));
+  const frame = screen.getByTitle('Posting style settings');
+  loadFrame(frame, { url: 'http://localhost/settings/user_posting_contexts?embedded=1', marker: 'postingStyles' });
+  act(() => jest.advanceTimersByTime(300));
+  expect(fetchUserPostingStyles).toHaveBeenCalledWith({ force: true });
+  fetchUserPostingStyles.mockClear();
+  frame.contentDocument.body.innerHTML = `<form method="post" action="${path}"><input name="_method" value="${method || 'post'}"></form>`;
+  fireEvent.submit(frame.contentDocument.querySelector('form'));
+  unmount();
+  expect(fetchUserPostingStyles).not.toHaveBeenCalled();
+  await act(async () => {
+    request.resolve({ ok: true, redirected: true, url: 'http://localhost/settings/user_posting_contexts?embedded=1' });
+    await request.promise;
+  });
+  expect(fetchUserPostingStyles).toHaveBeenCalledTimes(1);
+  expect(fetchFilters).not.toHaveBeenCalled();
+});
+
+it.each([200, 409, 422])('keeps Rails validation/conflict HTML %s inside the existing protected posting styles document', async status => {
+  window.fetch = jest.fn().mockResolvedValue({ ok: status === 200, status, redirected: false, url: 'http://localhost/settings/user_posting_contexts/1?embedded=1', text: async () => '<html><head><meta name="embedded-rails-settings" content="postingStyles"></head><body><main class="embedded-settings"><p class="error">Please review the style</p><form method="post" action="/settings/user_posting_contexts/1?embedded=1"><input name="_method" value="patch"></form></main></body></html>' });
+  render(wrap(<EmbeddedRailsSettings screen='postingStyles' dispatch={dispatch} intl={intl} />));
+  const frame = screen.getByTitle('Posting style settings');
+  loadFrame(frame, { url: 'http://localhost/settings/user_posting_contexts/1/edit?embedded=1', marker: 'postingStyles' });
+  const doc = frame.contentDocument; const head = doc.head;
+  doc.body.innerHTML = '<main class="embedded-settings"><form method="post" action="/settings/user_posting_contexts/1?embedded=1"><input name="_method" value="patch"></form></main>';
+  const rendered = jest.fn(); doc.addEventListener('embedded-settings:render', rendered);
+  await act(async () => fireEvent.submit(doc.querySelector('form')));
+  expect(doc.querySelector('.error').textContent).toBe('Please review the style');
+  expect(doc.head).toBe(head);
+  expect(rendered).toHaveBeenCalledTimes(1);
+  expect(frame.contentWindow.location.replace).not.toHaveBeenCalled();
+  expect(screen.queryByRole('alert')).toBeNull();
+  await act(async () => fireEvent.submit(doc.querySelector('form')));
+  expect(window.fetch).toHaveBeenCalledTimes(2);
+});
+
+it('rejects the other screen marker and routes before refreshing or binding', () => {
+  render(wrap(<EmbeddedRailsSettings screen='postingStyles' dispatch={dispatch} intl={intl} />));
+  loadFrame(screen.getByTitle('Posting style settings'), { url: 'http://localhost/filters?embedded=1' });
+  act(() => jest.advanceTimersByTime(300));
+  expect(screen.getByRole('alert')).toBeTruthy();
+  expect(fetchUserPostingStyles).not.toHaveBeenCalled();
+});
+
+it('preserves complete selected snapshots and drafts in primary and portable composers during catalog replacement/deletion/failure', () => {
+  const draft = {
+    text: 'Keep this draft', spoiler_text: 'CW', media_attachments: [{ id: 'attachment' }],
+    poll: { options: ['A', 'B'], expires_in: 3600 }, language: 'ja', privacy: 'private', id: 'editing',
+    userPostingStyle: { selectedId: '1', snapshot: { id: '1', name: 'Previously applied', revision: 1 }, selectionOrigin: 'manual', defaultsSettledSurface: 'hashtag:books', overrides: { privacy: true } },
+  };
+  const primary = fromJS(draft);
+  const portable = fromJS({ byId: { one: draft, two: { ...draft, text: 'Separate draft' } } });
+  for (const action of [
+    { type: 'USER_POSTING_STYLES_FETCH_REQUEST', requestId: 1 },
+    { type: 'USER_POSTING_STYLES_FETCH_SUCCESS', requestId: 1, styles: [] },
+    { type: 'USER_POSTING_STYLES_FETCH_FAIL', requestId: 1 },
+  ]) {
+    expect(compose(primary, action)).toBe(primary);
+    expect(composers(portable, action)).toBe(portable);
+  }
+});
+
+it('keeps duplicate submission locked after leaving and reentering during a pending save', async () => {
+  const request = deferred(); window.fetch = jest.fn(() => request.promise);
+  let view = render(wrap(<EmbeddedRailsSettings screen='postingStyles' dispatch={dispatch} intl={intl} />));
+  let frame = screen.getByTitle('Posting style settings');
+  loadFrame(frame, { url: 'http://localhost/settings/user_posting_contexts?embedded=1', marker: 'postingStyles' });
+  frame.contentDocument.body.innerHTML = '<form method="post" action="/settings/user_posting_contexts?embedded=1"></form>';
+  fireEvent.submit(frame.contentDocument.querySelector('form'));
+  view.unmount();
+  view = render(wrap(<EmbeddedRailsSettings screen='postingStyles' dispatch={dispatch} intl={intl} />));
+  frame = screen.getByTitle('Posting style settings');
+  loadFrame(frame, { url: 'http://localhost/settings/user_posting_contexts?embedded=1', marker: 'postingStyles' });
+  frame.contentDocument.body.innerHTML = '<form method="post" action="/settings/user_posting_contexts?embedded=1"></form>';
+  fireEvent.submit(frame.contentDocument.querySelector('form'));
+  expect(window.fetch).toHaveBeenCalledTimes(1);
+  expect(frame).toHaveAttribute('aria-busy', 'true');
+  await act(async () => {
+    request.resolve({ ok: true, redirected: true, url: 'http://localhost/settings/user_posting_contexts?embedded=1' });
+    await request.promise;
+  });
+  expect(frame).toHaveAttribute('aria-busy', 'false');
+  view.unmount();
 });

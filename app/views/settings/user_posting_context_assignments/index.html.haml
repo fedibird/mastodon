@@ -5,9 +5,9 @@
 
 - if @filter_style
   %p{ dir: 'auto' }= t('user_posting_context_assignments.filtered_description', name: @filter_style.name)
-  %p= link_to t('user_posting_context_assignments.all_assignments'), settings_user_posting_context_assignments_path
+  %p= link_to t('user_posting_context_assignments.all_assignments'), settings_user_posting_context_assignments_path(embedded_settings_options)
 
-%p= link_to t('user_posting_context_assignments.back_to_styles'), settings_user_posting_contexts_path
+%p= link_to t('user_posting_context_assignments.back_to_styles'), settings_user_posting_contexts_path(embedded_settings_options)
 
 - if @assignments.empty?
   %p.user-posting-assignment-empty{ role: 'status' }= t('user_posting_context_assignments.empty')
@@ -15,4 +15,4 @@
   .user-posting-assignment-list
     = render partial: 'assignment', collection: @assignments, as: :assignment
 
-= paginate @assignments, params: { user_posting_context_id: @filter_style&.id }
+= paginate @assignments, params: embedded_settings_options.merge(user_posting_context_id: @filter_style&.id)
