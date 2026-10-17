@@ -60,6 +60,21 @@ RSpec.describe 'Embedded Rails filter settings' do
         end
       end
 
+      it 'updates an existing long keyword and whole word flag through the card fields' do
+        keyword = Fabricate(:custom_filter_keyword, custom_filter: filter, keyword: 'old', whole_word: true)
+        phrase = 'シーズン最終回のネタバレ spoiler about the finale'
+        put filter_path(filter, options), params: {
+          custom_filter: attributes.merge(
+            context: %w(home public thread),
+            keywords_attributes: { '0' => { id: keyword.id, keyword: phrase, whole_word: '0' } },
+          ),
+        }
+        expect(response).to redirect_to(filters_path(options))
+        expect(keyword.reload.keyword).to eq(phrase)
+        expect(keyword.whole_word).to be false
+        expect(filter.reload.context).to eq(%w(home public thread))
+      end
+
       it 'updates title, action, keyword and expiration without changing the normal redirect' do
         put filter_path(filter, options), params: { custom_filter: attributes.merge(expires_in: '3600') }
         expect(response).to redirect_to(filters_path(options))

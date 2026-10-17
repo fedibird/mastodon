@@ -1655,14 +1655,28 @@ en:
     hint_html: "<strong>What are featured hashtags?</strong> They are displayed prominently on your public profile and allow people to browse your public posts specifically under those hashtags. They are a great tool for keeping track of creative works or long-term projects."
   filters:
     contexts:
-      account: Profiles
+      account: Profile posts
       home: Home and lists
       notifications: Notifications
-      public: Public timelines
-      thread: Conversations
+      public: Public and other timelines
+      thread: Post threads
+    context_descriptions:
+      account: Applies to posts on a profile, including pinned posts shown above them. The bio is not included. Posts from an account source inside a mix use this same context. A profile's conversations list uses public and other timelines instead.
+      home: Applies to posts on the home timeline and in lists. Posts from home and list sources inside a mix use this same context.
+      notifications: Applies to mentions, new-post notices, scheduled posts, and references in the notifications column. Favourites, boosts, polls, reactions, and edits keep their heading and filter the attached post. Notices without a post, such as follows, are not included.
+      public: Applies to the federated timeline and to other timelines besides home, lists, notifications, threads, and profile posts. That includes hashtag, domain, and group timelines, limited home, personal home, direct messages, Explore posts, and profile conversations. Favourites, bookmarks, and the pinned-posts list are not covered by any context.
+      thread: Applies to the replies around a post you open, including references mixed into that view. The opened post itself is not filtered. The direct-messages column is not this context; it uses public and other timelines.
     edit:
       add_keyword: Add keyword
+      contexts: Where it applies
+      contexts_hint: You can choose more than one. The action below applies in every place you select. Hide removes matching posts from all of those places. In the web interface, posts you wrote are not filtered in any of these places.
+      context_descriptions_shown: Descriptions are shown under each name.
+      hide_context_descriptions: Hide descriptions for each place
       keywords: Keywords
+      select_all: Select all
+      select_none: Deselect all
+      show_context_descriptions: Show descriptions for each place
+      whole_word_help: What does whole word mean?
       statuses: Individual posts
       statuses_hint_html: This filter applies to select individual posts regardless of whether they match the keywords below. You can review these posts and remove them from the filter by <a href="%{path}">clicking here</a>.
       title: Edit filter

@@ -599,8 +599,8 @@ en_GB:
     contexts:
       home: Home and lists
       notifications: Notifications
-      public: Public timelines
-      thread: Conversations
+      public: Public and other timelines
+      thread: Post threads
     edit:
       title: Edit filter
     errors:

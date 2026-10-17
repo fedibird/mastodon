@@ -175,7 +175,7 @@ en:
         setting_use_low_resolution_thumbnails: Save on image traffic and improve cost and speed on mobile
         setting_use_pending_items: Hide timeline updates behind a click instead of automatically scrolling the feed
         username: Your username will be unique on %{domain}
-        whole_word: When the keyword or phrase is alphanumeric only, it will only be applied if it matches the whole word
+        whole_word: "When on, a word boundary is required at each end of the keyword that starts or ends with a word character. Word characters include letters in any language, such as Japanese, not only English letters and digits. The keyword does not have to be entirely alphanumeric. An end that is a symbol does not get a boundary. For example, cat matches a separate cat, not category or bobcat. #tag starts with a symbol, so there is no boundary before it, but it does not match #tags. Japanese ねこ also requires a boundary at both ends, so it does not match あねこ or これはねこです."
       domain_allow:
         domain: This domain will be able to fetch data from this server and incoming data from it will be processed and stored
       domain_subscribe:
@@ -190,7 +190,7 @@ en:
       filters:
         action: Chose which action to perform when a post matches the filter
         actions:
-          hide: Completely hide the filtered content, behaving as if it did not exist
+          hide: Completely hide matching posts in every place you selected, behaving as if they did not exist
           warn: Hide the filtered content behind a warning mentioning the filter's title
       follow_tag:
         media_only: Target only statuses with media attached
