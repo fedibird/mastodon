@@ -28,6 +28,32 @@ RSpec.describe HomeFeed, type: :model do
       end
     end
 
+    context 'with a visibility filter' do
+      before do
+        60.times do |index|
+          id = index + 101
+          Fabricate(:status, account: account, id: id, visibility: id.even? ? :private : :public)
+        end
+
+        redis.zadd(
+          FeedManager.instance.key(:home, account.id),
+          (101..160).map { |id| [id, id] }
+        )
+      end
+
+      it 'returns the visible page next to min_id, newest first' do
+        results = subject.get(20, nil, nil, 100, ['public'])
+
+        expect(results.map(&:id)).to eq(139.downto(101).select(&:odd?))
+      end
+
+      it 'returns the visible page next to max_id, newest first' do
+        results = subject.get(5, 150, nil, nil, ['public'])
+
+        expect(results.map(&:id)).to eq([149, 147, 145, 143, 141])
+      end
+    end
+
     context 'when feed is being generated' do
       before do
         redis.set("account:#{account.id}:regeneration", true)

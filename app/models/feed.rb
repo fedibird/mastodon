@@ -20,18 +20,34 @@ class Feed
   protected
 
   def from_redis(limit, max_id, since_id, min_id, visibilities)
+    unhydrated, ascending = redis_status_ids(limit, max_id, since_id, min_id, visibilities)
+    scope = Status.where(id: unhydrated).without_unreleased_pages
+    scope = scope.joins(:account).merge(Account.without_suspended)
+    return scope if visibilities.empty?
+
+    # Status.recent is id DESC. limit() on the whole Redis scan therefore
+    # keeps the largest ids, not the ids next to min_id. Walk the Redis
+    # order so a visibility filter stays contiguous with the cursor.
+    visible_ids = scope.where(visibility: visibilities).pluck(:id).to_set
+    nearest = unhydrated.select { |id| visible_ids.include?(id) }.first(limit)
+    page_ids = ascending ? nearest.reverse : nearest
+    records = scope.where(visibility: visibilities).where(id: page_ids).index_by(&:id)
+
+    page_ids.filter_map { |id| records[id] }
+  end
+
+  def redis_status_ids(limit, max_id, since_id, min_id, visibilities)
     max_id = '+inf' if max_id.blank?
+    scan_limit = visibilities.empty? ? limit : FeedManager::MAX_ITEMS
+
     if min_id.blank?
-      since_id   = '-inf' if since_id.blank?
-      unhydrated = redis.zrevrangebyscore(key, "(#{max_id}", "(#{since_id}", limit: [0, visibilities.empty? ? limit : FeedManager::MAX_ITEMS], with_scores: true).map(&:first).map(&:to_i)
-    else
-      unhydrated = redis.zrangebyscore(key, "(#{min_id}", "(#{max_id}", limit: [0, visibilities.empty? ? limit : FeedManager::MAX_ITEMS], with_scores: true).map(&:first).map(&:to_i)
+      since_id = '-inf' if since_id.blank?
+      ids = redis.zrevrangebyscore(key, "(#{max_id}", "(#{since_id}", limit: [0, scan_limit], with_scores: true)
+      return [ids.map(&:first).map(&:to_i), false]
     end
 
-    statuses = Status.where(id: unhydrated).without_unreleased_pages
-    statuses = statuses.joins(:account).merge(Account.without_suspended)
-    statuses = statuses.where(visibility: visibilities).limit(limit) unless visibilities.empty?
-    statuses
+    ids = redis.zrangebyscore(key, "(#{min_id}", "(#{max_id}", limit: [0, scan_limit], with_scores: true)
+    [ids.map(&:first).map(&:to_i), true]
   end
 
   def key
