@@ -19,35 +19,65 @@ class Feed
 
   protected
 
+  # Walk Redis in cursor order and keep only rows that still exist. A raw
+  # limit of 20 can be entirely deleted, unreleased, suspended, or outside
+  # visibilities; stopping there would freeze the next max_id/min_id.
   def from_redis(limit, max_id, since_id, min_id, visibilities)
-    unhydrated, ascending = redis_status_ids(limit, max_id, since_id, min_id, visibilities)
-    scope = Status.where(id: unhydrated).without_unreleased_pages
-    scope = scope.joins(:account).merge(Account.without_suspended)
-    return scope if visibilities.empty?
+    ascending = min_id.present?
+    upper = max_id.presence || '+inf'
+    lower = ascending ? min_id : (since_id.presence || '-inf')
+    nearest = []
+    scanned = 0
 
-    # Status.recent is id DESC. limit() on the whole Redis scan therefore
-    # keeps the largest ids, not the ids next to min_id. Walk the Redis
-    # order so a visibility filter stays contiguous with the cursor.
-    visible_ids = scope.where(visibility: visibilities).pluck(:id).to_set
-    nearest = unhydrated.select { |id| visible_ids.include?(id) }.first(limit)
-    page_ids = ascending ? nearest.reverse : nearest
-    records = scope.where(visibility: visibilities).where(id: page_ids).index_by(&:id)
+    while nearest.size < limit && scanned < FeedManager::MAX_ITEMS
+      batch = [limit, FeedManager::MAX_ITEMS - scanned].min
+      ids = raw_ids(batch, upper, lower, ascending)
+      break if ids.empty?
 
-    page_ids.filter_map { |id| records[id] }
-  end
+      scanned += ids.size
+      nearest.concat(selectable_ids(ids, visibilities))
 
-  def redis_status_ids(limit, max_id, since_id, min_id, visibilities)
-    max_id = '+inf' if max_id.blank?
-    scan_limit = visibilities.empty? ? limit : FeedManager::MAX_ITEMS
+      if ascending
+        lower = ids.last
+      else
+        upper = ids.last
+      end
 
-    if min_id.blank?
-      since_id = '-inf' if since_id.blank?
-      ids = redis.zrevrangebyscore(key, "(#{max_id}", "(#{since_id}", limit: [0, scan_limit], with_scores: true)
-      return [ids.map(&:first).map(&:to_i), false]
+      break if ids.size < batch
     end
 
-    ids = redis.zrangebyscore(key, "(#{min_id}", "(#{max_id}", limit: [0, scan_limit], with_scores: true)
-    [ids.map(&:first).map(&:to_i), true]
+    page_ids = nearest.first(limit)
+    page_ids.reverse! if ascending
+    records_in_order(page_ids, visibilities)
+  end
+
+  def raw_ids(batch, upper, lower, ascending)
+    range = if ascending
+              redis.zrangebyscore(key, "(#{lower}", "(#{upper}", limit: [0, batch], with_scores: true)
+            else
+              redis.zrevrangebyscore(key, "(#{upper}", "(#{lower}", limit: [0, batch], with_scores: true)
+            end
+
+    range.map(&:first).map(&:to_i)
+  end
+
+  def selectable_ids(ids, visibilities)
+    present = filtered_scope(ids, visibilities).pluck(:id).to_set
+    ids.select { |id| present.include?(id) }
+  end
+
+  def records_in_order(ids, visibilities)
+    return [] if ids.empty?
+
+    records = filtered_scope(ids, visibilities).index_by(&:id)
+    ids.filter_map { |id| records[id] }
+  end
+
+  def filtered_scope(ids, visibilities)
+    scope = Status.where(id: ids).without_unreleased_pages
+    scope = scope.joins(:account).merge(Account.without_suspended)
+    scope = scope.where(visibility: visibilities) unless visibilities.empty?
+    scope
   end
 
   def key

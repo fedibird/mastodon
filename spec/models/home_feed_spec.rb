@@ -21,10 +21,10 @@ RSpec.describe HomeFeed, type: :model do
         )
       end
 
-      it 'gets statuses with ids in the range from redis' do
+      it 'fills the page when a redis id is missing from the database' do
         results = subject.get(3)
 
-        expect(results.map(&:id)).to eq [3, 2]
+        expect(results.map(&:id)).to eq [3, 2, 1]
       end
     end
 
