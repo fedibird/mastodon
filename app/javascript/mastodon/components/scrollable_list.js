@@ -45,6 +45,7 @@ class ScrollableList extends PureComponent {
     onLoadPending: PropTypes.func,
     onScrollToTop: PropTypes.func,
     onScroll: PropTypes.func,
+    onUserScroll: PropTypes.func,
     trackScroll: PropTypes.bool,
     isLoading: PropTypes.bool,
     showLoading: PropTypes.bool,
@@ -102,6 +103,10 @@ class ScrollableList extends PureComponent {
         this.props.onScrollToTop();
       } else if (this.props.onScroll) {
         this.props.onScroll();
+      }
+
+      if (!anchorJump && this.props.onUserScroll) {
+        this.props.onUserScroll();
       }
 
       if (this._anchorScrollSuppressedLoad && !anchorJump) {

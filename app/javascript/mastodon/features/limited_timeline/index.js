@@ -200,6 +200,7 @@ class LimitedTimeline extends React.PureComponent {
           extraButton={(
             <Fragment>
               {split.splitButton}
+              {split.resumeButton}
               {split.closeLiveButton}
             </Fragment>
           )}
@@ -227,6 +228,7 @@ class LimitedTimeline extends React.PureComponent {
         splitRatio={splitRatio}
         onSplitRatioCommit={this.handleSplitRatioCommit}
         unavailableMessage={messages.splitUnavailable}
+        historyContract={limitedHistoryContract(this.props.visibilities)}
       >
         {this.renderColumn}
       </StatusTimelineSplitController>

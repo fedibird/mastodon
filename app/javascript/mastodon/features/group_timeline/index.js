@@ -421,6 +421,7 @@ class GroupTimeline extends React.PureComponent {
           extraButton={(
             <Fragment>
               {split.splitButton}
+              {split.resumeButton}
               <PortableComposerToggle visible={composerVisible} onToggle={this.handleToggleComposer} />
               {groupDetailButton}
               {split.closeLiveButton}
@@ -464,6 +465,7 @@ class GroupTimeline extends React.PureComponent {
         splitRatio={splitRatio}
         onSplitRatioCommit={this.handleSplitRatioCommit}
         unavailableMessage={messages.splitUnavailable}
+        historyContract={groupHistoryContract(id, { onlyMedia, withoutMedia, tagged })}
       >
         {this.renderColumn}
       </StatusTimelineSplitController>

@@ -15,6 +15,7 @@ import { showReloadButton } from '../initial_state';
 import { List as ImmutableList } from 'immutable';
 import { HistoryAnchorNotice } from './load_window_edge';
 import { planSeekScroll } from '../timeline_seek/window';
+import { completeSurfaceResume, emitHistorySurfaceScroll, emitHistorySurfaceUnmount, bindHistorySurface, peekSurfaceResume } from '../timeline_position/surface';
 
 export default @connect(null, null, null, { forwardRef: true })
 class StatusList extends ImmutablePureComponent {
@@ -48,6 +49,7 @@ class StatusList extends ImmutablePureComponent {
     seekAnchorId: PropTypes.string,
     seekScrollRevision: PropTypes.number,
     onSeekScroll: PropTypes.func,
+    historySurfaceId: PropTypes.string,
     prepend: PropTypes.node,
     emptyMessage: PropTypes.node,
     alwaysPrepend: PropTypes.bool,
@@ -74,6 +76,7 @@ class StatusList extends ImmutablePureComponent {
   anchorAttempts = 0;
 
   componentDidMount () {
+    this.bindHistorySurface();
     this.scheduleAnchorCapture();
     this.scheduleSeekScroll();
   }
@@ -101,6 +104,7 @@ class StatusList extends ImmutablePureComponent {
       this.anchorAttempts = 0;
     }
 
+    this.bindHistorySurface();
     this.scheduleAnchorCapture();
     this.scheduleSeekScroll();
   }
@@ -108,10 +112,78 @@ class StatusList extends ImmutablePureComponent {
   componentWillUnmount () {
     this.seekScrollUnmounted = true;
     this.pendingWindowAnchor = null;
+    this.releaseHistorySurface(true);
     this.stopAnchorCapture();
     this.cancelSeekScrollFrame();
     this.handleLoadOlder.cancel();
     this.handleLoadNewer.cancel();
+  }
+
+  bindHistorySurface = () => {
+    const id = this.props.historySurfaceId;
+
+    if (this.boundSurfaceId === id) {
+      return;
+    }
+
+    this.releaseHistorySurface(false);
+
+    if (!id) {
+      return;
+    }
+
+    this.boundSurfaceId = id;
+    this.unbindSurface = bindHistorySurface(id, {
+      capture: () => this.captureReadingAnchor({
+        kind: this.windowAnchorKind(),
+        capturedAt: new Date().toISOString(),
+      }),
+      restore: (anchor, options) => this.restoreArmedAnchor(anchor, options),
+    });
+  }
+
+  releaseHistorySurface = (notify) => {
+    const id = this.boundSurfaceId;
+
+    if (notify && id) {
+      emitHistorySurfaceUnmount(id, this.captureReadingAnchor({
+        kind: this.windowAnchorKind(),
+        capturedAt: new Date().toISOString(),
+      }));
+    }
+
+    if (this.unbindSurface) {
+      this.unbindSurface();
+      this.unbindSurface = null;
+    }
+
+    this.boundSurfaceId = null;
+  }
+
+  restoreArmedAnchor = (anchor, options = {}) => {
+    const statusId = anchor && anchor.statusId;
+    const displayRowId = anchor && anchor.displayRowId;
+    const featured = typeof displayRowId === 'string' && displayRowId.indexOf('f-') === 0;
+    const rendered = this.props.statusIds;
+
+    if (rendered && statusId && !featured && !rendered.includes(statusId)) {
+      return { ok: false, reason: 'filtered', moved: false };
+    }
+
+    return this.restoreReadingAnchor(anchor, {
+      allowProvisionalFallback: !!options.allowProvisionalFallback,
+      kind: options.kind || this.windowAnchorKind(),
+    });
+  }
+
+  handleUserScroll = () => {
+    if (this.props.onUserScroll) {
+      this.props.onUserScroll();
+    }
+
+    if (this.props.historySurfaceId) {
+      emitHistorySurfaceScroll(this.props.historySurfaceId);
+    }
   }
 
   seekScrollKey = () => {
@@ -160,12 +232,18 @@ class StatusList extends ImmutablePureComponent {
         return;
       }
 
-      const { seekSessionId, seekScrollRevision, seekAnchorId, statusIds, onSeekScroll } = this.props;
+      const { seekSessionId, seekScrollRevision, seekAnchorId, statusIds, onSeekScroll, historySurfaceId } = this.props;
+      const armed = peekSurfaceResume(historySurfaceId);
+      const resumeAnchor = armed && armed.anchor && (armed.anchor.statusId === seekAnchorId || armed.anchor.displayRowId === seekAnchorId)
+        ? armed.anchor
+        : null;
       const plan = planSeekScroll({ anchorId: seekAnchorId, renderedIds: statusIds });
       let settled = plan;
 
       if (plan.scroll) {
-        const moved = this.scrollToLoadedStatus(seekAnchorId) || { ok: false, reason: 'not_loaded' };
+        const moved = resumeAnchor
+          ? this.restoreArmedAnchor(resumeAnchor, { allowProvisionalFallback: !!armed.allowFallback })
+          : (this.scrollToLoadedStatus(seekAnchorId) || { ok: false, reason: 'not_loaded' });
 
         settled = moved.ok
           ? { scroll: true, reason: 'loaded', anchorId: seekAnchorId }
@@ -183,6 +261,14 @@ class StatusList extends ImmutablePureComponent {
           sessionId: seekSessionId,
           revision: seekScrollRevision,
           anchorId: seekAnchorId,
+          scrolled: !!settled.scroll,
+          reason: settled.reason,
+        });
+      }
+
+      if (armed && historySurfaceId) {
+        completeSurfaceResume(historySurfaceId, {
+          requestId: armed.requestId,
           scrolled: !!settled.scroll,
           reason: settled.reason,
         });
@@ -344,7 +430,7 @@ class StatusList extends ImmutablePureComponent {
   )
 
   render () {
-    const { statusIds, featuredStatusIds, filterStatusIds, onLoadMore, onLoadNewer, timelineId, contextTypeForId, warningTitlesForId, sourceBadgesForId, badgeRevision, showCard, trackIntersection, immediateStatusIds, windowedHistory, anchorResolution, historyUnbounded, onCommitWindowAnchor, hasNewer, newerLoading, newerStatus, olderStatus, prepend, seekScrollPending, seekSessionId, seekAnchorId, seekScrollRevision, onSeekScroll, ...other } = this.props;
+    const { statusIds, featuredStatusIds, filterStatusIds, onLoadMore, onLoadNewer, timelineId, contextTypeForId, warningTitlesForId, sourceBadgesForId, badgeRevision, showCard, trackIntersection, immediateStatusIds, windowedHistory, anchorResolution, historyUnbounded, onCommitWindowAnchor, hasNewer, newerLoading, newerStatus, olderStatus, prepend, seekScrollPending, seekSessionId, seekAnchorId, seekScrollRevision, onSeekScroll, historySurfaceId, onUserScroll, ...other } = this.props;
 
     void badgeRevision;
     void onCommitWindowAnchor;
@@ -353,6 +439,8 @@ class StatusList extends ImmutablePureComponent {
     void seekAnchorId;
     void seekScrollRevision;
     void onSeekScroll;
+    void historySurfaceId;
+    void onUserScroll;
     const { isLoading, isPartial } = other;
     const contextTypeFor = (statusId) => contextTypeForId ? (contextTypeForId(statusId) || timelineId) : timelineId;
     const warningTitlesFor = (statusId) => warningTitlesForId ? warningTitlesForId(statusId) : undefined;
@@ -420,7 +508,7 @@ class StatusList extends ImmutablePureComponent {
     }
 
     return (
-      <ScrollableList {...other} prepend={listPrepend} hasNewer={hasNewer} onLoadNewer={onLoadNewer && this.handleLoadNewer} newerLoading={newerLoading} newerStatus={newerStatus} olderStatus={windowedHistory ? olderStatus : undefined} filterStatusIds={statusIds.concat(filterStatusIds || ImmutableList(), featuredStatusIds || ImmutableList(), immediateStatusIds || ImmutableList())} showLoading={isLoading && statusIds.size === 0} onLoadMore={onLoadMore && this.handleLoadOlder} onIntersectionChange={trackIntersection ? this.handleIntersectionChange : undefined} ref={this.setRef}>
+      <ScrollableList {...other} prepend={listPrepend} hasNewer={hasNewer} onLoadNewer={onLoadNewer && this.handleLoadNewer} newerLoading={newerLoading} newerStatus={newerStatus} olderStatus={windowedHistory ? olderStatus : undefined} filterStatusIds={statusIds.concat(filterStatusIds || ImmutableList(), featuredStatusIds || ImmutableList(), immediateStatusIds || ImmutableList())} showLoading={isLoading && statusIds.size === 0} onLoadMore={onLoadMore && this.handleLoadOlder} onUserScroll={historySurfaceId ? this.handleUserScroll : onUserScroll} onIntersectionChange={trackIntersection ? this.handleIntersectionChange : undefined} ref={this.setRef}>
         {scrollableContent}
       </ScrollableList>
     );

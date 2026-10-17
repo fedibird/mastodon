@@ -16,6 +16,11 @@ import {
   legacySplitAnchorFromCapture,
   readDocumentVisibleTop,
 } from 'mastodon/timeline_navigation';
+import { HISTORY_POSITION_CAPTURE_INTERVAL_MS, HISTORY_RESUME_IN_FLIGHT } from 'mastodon/timeline_position/constants';
+import { historyLayout, historySourceIdentity, historyViewIdentity } from 'mastodon/timeline_position/identity';
+import { autoResumeDecision } from 'mastodon/timeline_position/policy';
+import { getPositionRegistry } from 'mastodon/timeline_position/session';
+import { captureHistorySurface, subscribeHistorySurface } from 'mastodon/timeline_position/surface';
 
 const messages = defineMessages({
   split: { id: 'timeline.split', defaultMessage: 'Split timeline' },
@@ -23,6 +28,9 @@ const messages = defineMessages({
   splitter: { id: 'timeline.splitter', defaultMessage: 'Timeline splitter' },
   closeHistoryPane: { id: 'timeline.close_history_pane', defaultMessage: 'Close history pane' },
   closeLivePane: { id: 'timeline.close_live_pane', defaultMessage: 'Close live pane' },
+  resume: { id: 'timeline.resume_history', defaultMessage: 'Resume saved place' },
+  resumeBusy: { id: 'timeline.resume_history_busy', defaultMessage: 'Resuming saved place' },
+  resumeFailed: { id: 'timeline.resume_history_failed', defaultMessage: 'Could not resume the saved place' },
 });
 
 export const STATUS_TIMELINE_SPLIT_LAYOUT_CLASS = 'status-timeline-split';
@@ -76,10 +84,22 @@ class TimelineSplitControllerCore extends React.Component {
     onDestroy: PropTypes.func.isRequired,
     onSaveReturnAnchor: PropTypes.func.isRequired,
     onClearReturnAnchor: PropTypes.func.isRequired,
+    accountId: PropTypes.string,
+    historyContract: PropTypes.object,
+    historyResume: PropTypes.object,
+    historyItemIds: PropTypes.object,
+    onCaptureHistoryPosition: PropTypes.func,
+    onResumeHistory: PropTypes.func,
+    onCancelHistoryResume: PropTypes.func,
+  };
+
+  static contextTypes = {
+    router: PropTypes.object,
   };
 
   state = {
     ratio: null,
+    positionEpoch: 0,
   };
 
   constructor (props) {
@@ -382,6 +402,8 @@ class TimelineSplitControllerCore extends React.Component {
       this.scrollAnchor = this.capturePaneAnchor('history');
     }
 
+    this.cancelInFlightResume('split_closed');
+    this.flushHistoryPosition();
     this.props.onDestroy(this.getSplitTimelineId(), {
       keep: TIMELINE_SPLIT_KEEP_HISTORY,
       historyAtTop,
@@ -409,6 +431,8 @@ class TimelineSplitControllerCore extends React.Component {
       this.scrollAnchor = this.capturePaneAnchor('live');
     }
 
+    this.cancelInFlightResume('split_closed');
+    this.flushHistoryPosition();
     this.props.onDestroy(this.getSplitTimelineId(), {
       keep: TIMELINE_SPLIT_KEEP_LIVE,
       liveAtTop,
@@ -534,6 +558,8 @@ class TimelineSplitControllerCore extends React.Component {
   componentDidMount () {
     this.syncSplitLayoutClass();
     this.scheduleReturnAnchorRestore();
+    this.syncHistorySurface();
+    this.maybeAutoResume();
   }
 
   componentDidUpdate (prevProps) {
@@ -541,7 +567,13 @@ class TimelineSplitControllerCore extends React.Component {
     const nextLocationKey = this.props.location ? this.props.location.key : undefined;
 
     if (previousLocationKey !== nextLocationKey) {
+      this.cancelInFlightResume('route_change');
       this.locationKey = nextLocationKey;
+      this.autoResumeKey = null;
+    }
+
+    if (prevProps.accountId !== this.props.accountId && prevProps.accountId) {
+      getPositionRegistry().evictAccount(prevProps.accountId);
     }
 
     if (prevProps.splitContextKey !== this.props.splitContextKey) {
@@ -549,6 +581,8 @@ class TimelineSplitControllerCore extends React.Component {
       this.clearSplitLayoutClass();
 
       if (this.ownsSplit()) {
+        this.cancelInFlightResume('split_closed');
+        this.flushHistoryPosition();
         this.props.onDestroy(this.getSplitTimelineId(), { keep: TIMELINE_SPLIT_KEEP_HISTORY });
       }
 
@@ -560,6 +594,8 @@ class TimelineSplitControllerCore extends React.Component {
 
     if (layoutChanged && this.ownsSplit()) {
       this.clearSplitScroll();
+      this.cancelInFlightResume('split_closed');
+      this.flushHistoryPosition();
       this.props.onDestroy(this.getSplitTimelineId(), { keep: TIMELINE_SPLIT_KEEP_HISTORY });
     }
 
@@ -579,6 +615,17 @@ class TimelineSplitControllerCore extends React.Component {
       this.scheduleReturnAnchorRestore();
     }
 
+    this.syncHistorySurface();
+
+    if (this.pendingExplicitResume && this.ownsSplit()) {
+      this.pendingExplicitResume = false;
+      if (this.props.onResumeHistory) {
+        this.props.onResumeHistory(this.resumePayload({ explicit: true }));
+      }
+    } else if (previousLocationKey !== nextLocationKey) {
+      this.maybeAutoResume();
+    }
+
     if (this.shouldResetDocumentScroll) {
       this.shouldResetDocumentScroll = false;
       resetDocumentScroll();
@@ -592,7 +639,20 @@ class TimelineSplitControllerCore extends React.Component {
   }
 
   componentWillUnmount () {
+    this.positionUnmounted = true;
     this.returnAnchorToken = null;
+    this.cancelInFlightResume('unmount');
+    this.flushHistoryPosition();
+
+    if (this.positionCaptureTimer) {
+      clearTimeout(this.positionCaptureTimer);
+      this.positionCaptureTimer = null;
+    }
+
+    if (this.unsubscribeSurface) {
+      this.unsubscribeSurface();
+      this.unsubscribeSurface = null;
+    }
 
     if (this.ownsSplit() && !this.props.multiColumn && !this.props.splitBlocked) {
       const captured = this.capturePaneAnchor('history');
@@ -611,6 +671,263 @@ class TimelineSplitControllerCore extends React.Component {
     if (this.ownsSplit()) {
       this.props.onDestroy(this.getSplitTimelineId(), { keep: TIMELINE_SPLIT_KEEP_HISTORY });
     }
+  }
+
+  historyAction = () => {
+    const router = this.context && this.context.router;
+
+    if (router && router.history && router.history.action) {
+      return router.history.action;
+    }
+
+    return null;
+  }
+
+  positionIdentity = () => {
+    if (!this.props.historyContract || !this.props.accountId) {
+      return null;
+    }
+
+    const source = historySourceIdentity(this.props.sourceTimelineId, this.props.historyContract);
+    const view = historyViewIdentity({
+      columnId: this.props.columnId,
+      sourceTimelineId: this.props.sourceTimelineId,
+      locationKey: this.locationKey,
+    });
+
+    if (!source || !view) {
+      return null;
+    }
+
+    return { source, view };
+  }
+
+  savedPosition = () => {
+    const identity = this.positionIdentity();
+
+    if (!identity) {
+      return null;
+    }
+
+    return getPositionRegistry().find(this.props.accountId, identity.source, identity.view);
+  }
+
+  writeHistoryPosition = ({ sync = false, anchor = null } = {}) => {
+    const identity = this.positionIdentity();
+
+    if (!identity || !this.props.onCaptureHistoryPosition) {
+      return null;
+    }
+
+    const captured = anchor || (this.surfaceId ? captureHistorySurface(this.surfaceId) : null);
+
+    if (!captured || (!captured.statusId && !captured.displayRowId)) {
+      return null;
+    }
+
+    const result = this.props.onCaptureHistoryPosition({
+      accountId: this.props.accountId,
+      source: identity.source,
+      view: identity.view,
+      anchor: captured,
+      layout: historyLayout(this.props.multiColumn),
+      routeEntryKey: this.locationKey || null,
+      sync,
+      minIntervalMs: HISTORY_POSITION_CAPTURE_INTERVAL_MS,
+    });
+
+    if (result && result.ok && !this.positionUnmounted) {
+      this.setState(state => ({ positionEpoch: (state.positionEpoch || 0) + 1 }));
+    }
+
+    return result;
+  }
+
+  flushHistoryPosition = () => {
+    if (this.positionCaptureTimer) {
+      clearTimeout(this.positionCaptureTimer);
+      this.positionCaptureTimer = null;
+    }
+
+    return this.writeHistoryPosition({ sync: true });
+  }
+
+  schedulePositionCapture = () => {
+    if (this.positionCaptureTimer) {
+      return;
+    }
+
+    this.positionCaptureTimer = setTimeout(() => {
+      this.positionCaptureTimer = null;
+      this.writeHistoryPosition({ sync: false });
+    }, HISTORY_POSITION_CAPTURE_INTERVAL_MS);
+  }
+
+  cancelInFlightResume = (reason) => {
+    const resume = this.props.historyResume;
+
+    if (!resume || !resume.get || !this.props.onCancelHistoryResume) {
+      return;
+    }
+
+    if (HISTORY_RESUME_IN_FLIGHT.indexOf(resume.get('phase')) === -1) {
+      return;
+    }
+
+    this.props.onCancelHistoryResume({
+      splitTimelineId: this.ownsSplit() ? this.getSplitTimelineId() : resume.get('splitSessionId'),
+      requestId: resume.get('requestId'),
+      reason,
+    });
+  }
+
+  syncHistorySurface = () => {
+    const id = this.ownsSplit() && this.props.historyContract ? this.getSplitTimelineId() : null;
+
+    if (id === this.surfaceId) {
+      return;
+    }
+
+    if (this.unsubscribeSurface) {
+      this.unsubscribeSurface();
+      this.unsubscribeSurface = null;
+    }
+
+    this.surfaceId = id;
+
+    if (!id) {
+      return;
+    }
+
+    this.unsubscribeSurface = subscribeHistorySurface(id, (event) => {
+      if (event.type === 'unmount') {
+        this.writeHistoryPosition({ sync: true, anchor: event.anchor });
+        return;
+      }
+
+      if (event.type === 'scroll') {
+        this.cancelInFlightResume('user_scroll');
+        this.schedulePositionCapture();
+      }
+    });
+  }
+
+  resumePayload = ({ explicit, historyAction }) => {
+    const identity = this.positionIdentity();
+
+    return {
+      accountId: this.props.accountId,
+      sourceTimelineId: this.props.sourceTimelineId,
+      splitTimelineId: this.getSplitTimelineId(),
+      contract: this.props.historyContract,
+      source: identity && identity.source,
+      view: identity && identity.view,
+      locationKey: this.locationKey,
+      historyAction: historyAction || this.historyAction(),
+      explicit: !!explicit,
+      multiColumn: !!this.props.multiColumn,
+    };
+  }
+
+  maybeAutoResume = () => {
+    if (!this.props.onResumeHistory || !this.ownsSplit() || !this.positionIdentity()) {
+      return;
+    }
+
+    if (this.autoResumeKey && this.autoResumeKey === this.locationKey) {
+      return;
+    }
+
+    const saved = this.savedPosition();
+    const items = this.props.historyItemIds;
+    const statusId = saved && saved.position && saved.position.anchor && saved.position.anchor.statusId;
+    const anchor = this.props.splitReturnAnchor;
+    const decision = autoResumeDecision({
+      saved,
+      locationKey: this.locationKey,
+      historyAction: this.historyAction(),
+      historyOpen: true,
+      statusInWindow: !!(items && typeof items.includes === 'function' && statusId && items.includes(statusId)),
+      returnAnchorOwnsRestore: !!(anchor && anchor.get && anchor.get('locationKey') === this.locationKey && !this.props.multiColumn),
+    });
+
+    if (!decision.apply) {
+      return;
+    }
+
+    this.autoResumeKey = this.locationKey;
+    this.props.onResumeHistory(this.resumePayload({ explicit: false, historyAction: 'POP' }));
+  }
+
+  handleResumeHistory = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (!this.props.onResumeHistory || !this.positionIdentity()) {
+      return;
+    }
+
+    const resume = this.props.historyResume;
+
+    if (resume && resume.get && HISTORY_RESUME_IN_FLIGHT.indexOf(resume.get('phase')) !== -1) {
+      return;
+    }
+
+    if (!this.ownsSplit()) {
+      if (this.props.splitBlocked || this.props.activeSplitId) {
+        return;
+      }
+
+      this.pendingExplicitResume = true;
+      this.splitTimeline();
+      return;
+    }
+
+    this.props.onResumeHistory(this.resumePayload({ explicit: true }));
+  }
+
+  renderResumeButton () {
+    if (!this.positionIdentity()) {
+      return null;
+    }
+
+    const saved = this.savedPosition();
+
+    if (!saved) {
+      return null;
+    }
+
+    const resume = this.props.historyResume;
+    const phase = resume && resume.get ? resume.get('phase') : null;
+    const busy = HISTORY_RESUME_IN_FLIGHT.indexOf(phase) !== -1;
+    const failed = phase === 'failed';
+    const ownSplit = this.ownsSplit();
+    const otherSplit = !!this.props.activeSplitId && !ownSplit;
+    const disabled = busy || otherSplit || (!ownSplit && !!this.props.splitBlocked);
+    let label = messages.resume;
+
+    if (failed) {
+      label = messages.resumeFailed;
+    } else if (busy) {
+      label = messages.resumeBusy;
+    }
+
+    const text = this.props.intl.formatMessage(label);
+
+    return (
+      <button
+        key='resume-history'
+        type='button'
+        className={classNames('column-header__button', 'column-header__resume-button', { active: failed })}
+        title={text}
+        aria-label={text}
+        aria-busy={busy ? 'true' : 'false'}
+        disabled={disabled}
+        onClick={this.handleResumeHistory}
+      >
+        <Icon id='arrow-left' className='column-header__icon' />
+      </button>
+    );
   }
 
   renderSplitButton () {
@@ -687,6 +1004,7 @@ class TimelineSplitControllerCore extends React.Component {
       setColumnRef: this.setColumnRef,
       handleHeaderClick: this.handleHeaderClick,
       splitButton: this.renderSplitButton(),
+      resumeButton: this.renderResumeButton(),
       splitter: isSplit ? this.renderSplitter() : null,
       closeLiveButton: isSplit ? this.renderCloseLiveButton() : null,
     });

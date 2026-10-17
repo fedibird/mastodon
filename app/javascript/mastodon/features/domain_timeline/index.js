@@ -246,6 +246,7 @@ class DomainTimeline extends React.PureComponent {
           extraButton={(
             <Fragment>
               {split.splitButton}
+              {split.resumeButton}
               {split.closeLiveButton}
             </Fragment>
           )}
@@ -275,6 +276,7 @@ class DomainTimeline extends React.PureComponent {
         splitRatio={splitRatio}
         onSplitRatioCommit={this.handleSplitRatioCommit}
         unavailableMessage={messages.splitUnavailable}
+        historyContract={domainHistoryContract(domain, { onlyMedia, withoutMedia, withoutBot })}
       >
         {this.renderColumn}
       </StatusTimelineSplitController>

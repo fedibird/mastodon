@@ -209,6 +209,7 @@ class HomeTimeline extends React.PureComponent {
     const extraButton = (
       <Fragment>
         {split.splitButton}
+        {split.resumeButton}
         {announcementsButton}
         {split.closeLiveButton}
       </Fragment>
@@ -300,6 +301,7 @@ class HomeTimeline extends React.PureComponent {
         splitRatio={splitRatio}
         onSplitRatioCommit={this.handleSplitRatioCommit}
         unavailableMessage={messages.splitUnavailable}
+        historyContract={homeHistoryContract(this.props.visibilities)}
       >
         {this.renderColumn}
       </StatusTimelineSplitController>
