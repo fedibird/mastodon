@@ -155,7 +155,12 @@ class TimelineSeek::Resolver
       return resolve_redis_status(reader, status_id, extra)
     end
 
+    # contains? is the feed scope, not viewer authorization. A group scope can
+    # still return an id StatusPolicy#show? rejects.
     if reader.contains?(status_id)
+      denied = concealed(status_id)
+      return denied if denied
+
       return TimelineSeek::Result.resolved(status_id, capability: @entry.level, limitations: extra)
     end
 
@@ -170,7 +175,12 @@ class TimelineSeek::Resolver
 
   def resolve_redis_status(reader, status_id, limitations)
     in_set = reader.in_retained_set?(status_id)
+    # The ZSET is a retained window, not the current permission. A block,
+    # delete, expiry, or visibility change can leave the id in the set.
     if in_set && reader.selectable?(status_id)
+      denied = concealed(status_id)
+      return denied if denied
+
       return TimelineSeek::Result.resolved(status_id, capability: 'approximate', limitations: limitations)
     end
 
@@ -316,14 +326,20 @@ class TimelineSeek::Resolver
   end
 
   # A status the viewer cannot open is not_found, including when it is
-  # missing. not_in_source / not_visible would confirm that a hidden row exists.
+  # missing or still inside the source. not_in_source / not_visible would
+  # confirm that a hidden row exists.
   def conceal_or(status_id)
-    record = Status.find_by(id: status_id)
-    if record.nil? || !StatusPolicy.new(@account, record).show?
-      TimelineSeek::Result.not_found(capability: @entry.level == 'supported' ? 'supported' : 'approximate')
-    else
-      yield record
-    end
+    denied = concealed(status_id)
+    return denied if denied
+
+    yield
+  end
+
+  def concealed(status_id)
+    record = Status.include_expired.includes(:account, :mentions).find_by(id: status_id)
+    return nil if record && StatusPolicy.new(@account, record).show?
+
+    TimelineSeek::Result.not_found(capability: @entry.level == 'supported' ? 'supported' : 'approximate')
   end
 
   def parse_time(value)

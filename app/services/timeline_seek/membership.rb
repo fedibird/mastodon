@@ -23,11 +23,17 @@
 #     too many ids, or a missing source. results is omitted.
 #
 #   Per id: member, not_in_source, not_visible, not_found, unknown, invalid.
-#   not_found covers missing, deleted, expired (except an expired row the
-#   source scope itself still contains), and anything StatusPolicy hides.
-#   It does not prove the row is absent. No text or account is returned.
-#   Hide-action custom filters on the column's filter context become
-#   not_visible. Warn filters stay member.
+#   Every candidate is preloaded (at most MAX_IDS). member requires source
+#   membership AND StatusPolicy#show? AND no hide-action filter, in that
+#   order. A Redis ZSET or a feed scope is not viewer authorization: a row
+#   can stay in home/list or in a group scope after a block, delete, expiry,
+#   visibility change, or lost group access. If show? is false the outcome is
+#   not_found, including when the source still contains the id. not_found
+#   also covers missing and deleted rows. It does not prove the row is
+#   absent. No text or account is returned.
+#   Hide-action custom filters run only after show? and source membership.
+#   They become not_visible. Warn filters stay member. Mute and language
+#   filters are viewer filters (not_visible) because show? is still true.
 #
 #   Confirmed members can be passed to POST /api/v1/timelines/seek as kind
 #   status or searchHit. Seek checks again. A later miss must not rewrite
@@ -131,16 +137,7 @@ class TimelineSeek::Membership
   end
 
   def classify(entry, reader, parsed)
-    ids = parsed.ordered.filter_map { |row| row[:id] }
-    retained = reader.redis? ? reader.retained_ids(ids).to_set : Set.new
-    filtered = filtered_ids(reader, ids, retained)
-    hidden = TimelineSeek::HideFilter.new(@account, @source).hidden_ids(filtered.to_a).to_set
-    non_members = ids - filtered.to_a
-    records = load_records(non_members)
-    maps = relation_maps(records.values)
-    unfiltered = unfiltered_ids(reader, non_members)
-
-    batch = { reader: reader, filtered: filtered, hidden: hidden, records: records, maps: maps, unfiltered: unfiltered, retained: retained }
+    batch = batch_for(reader, parsed)
     rows = parsed.ordered.map { |row| build_row(row, batch) }
     outcome = rows.any? { |row| row.outcome == 'unknown' } ? 'partial' : 'complete'
     TimelineSeek::MembershipResult.classified(
@@ -150,6 +147,22 @@ class TimelineSeek::Membership
       limitations: limitations_for(reader, parsed),
       results: rows
     )
+  end
+
+  # Source membership is checked for the whole id set, then show? is applied
+  # to every loaded row. Hide filters see only ids that passed both.
+  def batch_for(reader, parsed)
+    ids = parsed.ordered.filter_map { |row| row[:id] }
+    retained = reader.redis? ? reader.retained_ids(ids).to_set : Set.new
+    filtered = filtered_ids(reader, ids, retained)
+    records = load_records(ids)
+    maps = relation_maps(records.values)
+    visible = visible_ids(records, maps, status_maps(records.values))
+    confirmed = filtered & visible
+    hidden = TimelineSeek::HideFilter.new(@account, @source).hidden_ids(confirmed.to_a).to_set
+    unfiltered = unfiltered_ids(reader, (visible - filtered).to_a)
+
+    { reader: reader, filtered: filtered, hidden: hidden, visible: visible, unfiltered: unfiltered, retained: retained }
   end
 
   def filtered_ids(reader, ids, retained)
@@ -171,7 +184,9 @@ class TimelineSeek::Membership
   def load_records(ids)
     return {} if ids.empty?
 
-    Status.where(id: ids).includes(:account, :mentions).index_by(&:id)
+    # include_expired keeps an owner's expired personal row visible to policy.
+    # discarded rows stay out, so a delete is not_found.
+    Status.include_expired.where(id: ids).includes(:account, :mentions).index_by(&:id)
   end
 
   def relation_maps(records)
@@ -180,7 +195,7 @@ class TimelineSeek::Membership
     author_ids = records.map(&:account_id).uniq
     followed = Follow.where(account_id: @account.id, target_account_id: author_ids).pluck(:target_account_id)
     blocked = Block.where(account_id: author_ids, target_account_id: @account.id).pluck(:account_id)
-    domains = @account.excluded_from_timeline_domains
+    domains = @account.domain_blocks.pluck(:domain)
     domain_map = {}
     records.each do |record|
       domain = record.account&.domain
@@ -193,16 +208,38 @@ class TimelineSeek::Membership
     }
   end
 
+  # Expired rows consult favourites, bookmarks, and reactions inside show?.
+  # Load those maps once. Fresh public rows never reach that branch.
+  def status_maps(records)
+    expired = records.select(&:expired?)
+    return {} if @account.nil? || expired.empty?
+
+    ids = expired.flat_map { |record| [record.id, record.reblog_of_id] }.compact.uniq
+    {
+      favourites_map: Status.favourites_map(ids, @account.id),
+      bookmarks_map: Status.bookmarks_map(ids, @account.id),
+      emoji_reactions_map: Status.emoji_reactions_map(ids, @account.id),
+    }
+  end
+
+  def visible_ids(records, maps, status_maps)
+    records.each_with_object(Set.new) do |(id, record), visible|
+      visible << id if StatusPolicy.new(@account, record, maps, status_maps).show?
+    end
+  end
+
   def build_row(row, batch)
     return TimelineSeek::MembershipResult::Row.new(outcome: 'invalid', reason: 'invalid_id') if row[:id].nil?
 
     id = row[:id]
     text = row[:text]
-    return row_for(text, 'not_visible', 'viewer_filter') if batch[:filtered].include?(id) && batch[:hidden].include?(id)
-    return row_for(text, 'member') if batch[:filtered].include?(id)
+    return row_for(text, 'not_found') unless batch[:visible].include?(id)
 
-    record = batch[:records][id]
-    return row_for(text, 'not_found') unless record && StatusPolicy.new(@account, record, batch[:maps], {}).show?
+    if batch[:filtered].include?(id)
+      return row_for(text, 'not_visible', 'viewer_filter') if batch[:hidden].include?(id)
+
+      return row_for(text, 'member')
+    end
 
     if batch[:reader].redis?
       return row_for(text, 'not_in_source', 'source_filter') if batch[:retained].include?(id)

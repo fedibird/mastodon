@@ -416,6 +416,99 @@ describe TimelineSeek::Membership do
     end
   end
 
+  describe 'current authorization' do
+    def agrees(status, source:, context:, outcome:, secret: nil)
+      batch = classify(source: source, ids: [status.id.to_s], context: context)
+      seek = TimelineSeek::Resolver.new(viewer, user: viewer.user).call(
+        version: 1,
+        source: source,
+        kind: 'status',
+        preference: 'nearest',
+        context: context,
+        seek_target: { id: status.id.to_s }
+      )
+      mapped = {
+        'resolved' => 'member',
+        'not_in_source' => 'not_in_source',
+        'not_visible' => 'not_visible',
+        'not_found' => 'not_found',
+        'unavailable' => 'unknown',
+      }.fetch(seek.outcome)
+      row = batch.to_h[:results].first
+      expect(row[:outcome]).to eq(outcome)
+      expect(mapped).to eq(outcome), "seek #{seek.outcome} #{seek.reason} vs membership #{row[:outcome]}"
+      return if secret.nil?
+
+      expect(batch.to_h.to_json).not_to include(secret)
+      expect(seek.to_h.to_json).not_to include(secret)
+    end
+
+    def keep_in_home(status)
+      place_in_home(viewer, status)
+      expect(redis.zscore(FeedManager.instance.key(:home, viewer.id), status.id)).not_to be_nil
+    end
+
+    it 'does not treat a home id as a member after the author blocks the viewer' do
+      status = Fabricate(:status, account: author, visibility: :public, text: 'redis-block-secret')
+      filter = Fabricate(:custom_filter, account: viewer, phrase: 'redis-block-secret', context: %w(home), action: :hide)
+      Fabricate(:custom_filter_keyword, custom_filter: filter, keyword: 'redis-block-secret', whole_word: false)
+      author.block!(viewer)
+      keep_in_home(status)
+
+      agrees(status, source: 'home', context: { visibilities: [] }, outcome: 'not_found', secret: 'redis-block-secret')
+    end
+
+    it 'does not treat a deleted or expired home id as a member while the zset still has it' do
+      deleted = Fabricate(:status, account: author, visibility: :public, text: 'redis-deleted-secret')
+      expired = Fabricate(:status, account: author, visibility: :public, text: 'redis-expired-secret')
+      deleted.discard
+      expired.update_columns(expired_at: 1.hour.ago)
+      keep_in_home(deleted)
+      keep_in_home(expired)
+
+      agrees(deleted, source: 'home', context: { visibilities: [] }, outcome: 'not_found', secret: 'redis-deleted-secret')
+      agrees(expired, source: 'home', context: { visibilities: [] }, outcome: 'not_found', secret: 'redis-expired-secret')
+    end
+
+    it 'follows a visibility change for an id that is still in the home zset' do
+      status = Fabricate(:status, account: author, visibility: :public, text: 'redis-private-secret')
+      status.update_columns(visibility: Status.visibilities[:private])
+      keep_in_home(status)
+
+      agrees(status, source: 'home', context: { visibilities: [] }, outcome: 'not_found', secret: 'redis-private-secret')
+    end
+
+    it 'collapses a private group post to not_found when group access is revoked' do
+      group = Fabricate(:account, username: 'accessgroup', actor_type: 'Group')
+      status = Fabricate(:status, account: group, visibility: :private, text: 'group-access-secret')
+      context = { id: group.id.to_s, only_media: false, without_media: false }
+      viewer.follow!(group)
+      agrees(status, source: 'group', context: context, outcome: 'member')
+
+      viewer.unfollow!(group)
+      agrees(status, source: 'group', context: context, outcome: 'not_found', secret: 'group-access-secret')
+    end
+
+    it 'does not let a stale public exclusion cache or a group reblog override show?' do
+      blocked = Fabricate(:status, account: author, visibility: :public, text: 'stale-block-secret')
+      classify(source: 'public', ids: [blocked.id.to_s], context: public_context)
+      author.block!(viewer)
+      Rails.cache.write("exclude_account_ids_for:#{viewer.id}", [])
+      reader = TimelineSeek::Resolver.new(viewer, user: viewer.user).open_reader('public', public_context)
+      expect(reader.scope_ids([blocked.id], limit: 50)).to contain_exactly(blocked.id)
+      agrees(blocked, source: 'public', context: public_context, outcome: 'not_found', secret: 'stale-block-secret')
+
+      group = Fabricate(:account, username: 'rebloggroup', actor_type: 'Group')
+      private_status = Fabricate(:status, account: author, visibility: :private, text: 'group-reblog-secret')
+      Fabricate(:status, account: group, reblog: private_status, visibility: :public)
+      viewer.follow!(group)
+      group_context = { id: group.id.to_s, only_media: false, without_media: false }
+      group_reader = TimelineSeek::Resolver.new(viewer, user: viewer.user).open_reader('group', group_context)
+      expect(group_reader.scope_ids([private_status.id], limit: 50)).to contain_exactly(private_status.id)
+      agrees(private_status, source: 'group', context: group_context, outcome: 'not_found', secret: 'group-reblog-secret')
+    end
+  end
+
   describe 'query shape' do
     it 'checks a public id set with one bounded query and can use an index' do
       status = Fabricate(:status, account: author, visibility: :public)
@@ -431,11 +524,32 @@ describe TimelineSeek::Membership do
       expect(many.join("\n")).to match(/LIMIT/i)
 
       relation = PublicFeed.new(viewer, public_context.merge(application: nil)).relation.where(statuses: { id: ids.map(&:to_i) }).unscope(:order).distinct.limit(described_class::MAX_IDS)
+      # enable_seqscan=off forces an index plan. It shows the index can serve
+      # this shape. It does not prove the optimizer picks that plan on a
+      # production-sized statuses table. The unconstrained example records
+      # EXPLAIN (ANALYZE, BUFFERS) without this GUC.
       Status.connection.execute('SET LOCAL enable_seqscan = off')
       plan = relation.explain
       expect(plan).to match(/Index Scan|Index Only Scan|Bitmap Index Scan/)
       expect(plan).to match(/Limit/i)
       expect(plan).not_to match(/Seq Scan on statuses\b/)
+    end
+
+    it 'explains the bounded id query without forcing an index' do
+      ids = Array.new(8) { Fabricate(:status, account: author, visibility: :public).id }
+      plans = membership_relations(ids)
+      connection = Status.connection
+
+      plans.each do |name, relation|
+        sql = relation.to_sql
+        expect(sql).to match(/\bIN \(|ANY\s*\(/i), name.to_s
+        expect(sql).to match(/LIMIT/i), name.to_s
+        analyzed = connection.unprepared_statement do
+          connection.exec_query("EXPLAIN (ANALYZE, BUFFERS) #{sql}").rows.flatten.join("\n")
+        end
+        expect(analyzed).to match(/actual time/i), name.to_s
+        expect(analyzed).to match(/Limit/i), name.to_s
+      end
     end
 
     it 'explains hashtag, personal, group, and home selectable scopes without a status seq scan' do
@@ -454,12 +568,25 @@ describe TimelineSeek::Membership do
         home: Status.where(id: ids).without_unreleased_pages.joins(:account).merge(Account.without_suspended).limit(50),
       }
 
+      # Same caveat as the public example: this plan is under forced index use.
       Status.connection.execute('SET LOCAL enable_seqscan = off')
       plans.each do |name, relation|
         plan = relation.explain
         expect(plan).to match(/Index Scan|Index Only Scan|Bitmap Index Scan/), name.to_s
         expect(plan).not_to match(/Seq Scan on statuses\b/), "#{name}\n#{plan}"
       end
+    end
+
+    def membership_relations(ids)
+      tag = Fabricate(:tag, name: "seekplan#{SecureRandom.hex(3)}")
+      group = Fabricate(:account, username: "plangroup#{SecureRandom.hex(3)}", actor_type: 'Group')
+      {
+        public: PublicFeed.new(viewer, public_context.merge(application: nil)).relation.where(statuses: { id: ids }).unscope(:order).distinct.limit(50),
+        hashtag: TagFeed.new(tag, viewer, public_context).relation.where(statuses: { id: ids }).unscope(:order).distinct.limit(50),
+        personal: PersonalFeed.new(viewer, only_media: false, without_media: false).relation.where(statuses: { id: ids }).unscope(:order).distinct.limit(50),
+        group: GroupFeed.new(group, viewer, only_media: false, without_media: false).relation.where(statuses: { id: ids }).unscope(:order).distinct.limit(50),
+        home: Status.where(id: ids).without_unreleased_pages.joins(:account).merge(Account.without_suspended).limit(50),
+      }
     end
 
     it 'uses the same public scope as a point lookup' do

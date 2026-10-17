@@ -17,10 +17,14 @@ module TimelineSeek
       integers.each_with_index.filter_map { |id, index| id unless scores[index].nil? }
     end
 
+    # Capability is a property of this connection object. A namespaced client
+    # must not publish :pipeline into a cache that a later raw client reads,
+    # or the raw client would be fine while the namespace would send
+    # unprefixed keys to ZMSCORE if the decision were reversed.
     def self.strategy_for(redis)
-      return @strategy if defined?(@strategy) && @strategy
+      return :pipeline if namespaced?(redis)
 
-      @strategy = detect(redis)
+      strategies[connection_key(redis)] ||= detect_raw(redis)
     end
 
     def self.strategy_from_version(version)
@@ -30,20 +34,32 @@ module TimelineSeek
       (parts <=> [6, 2]).negative? ? :pipeline : :zmscore
     end
 
-    def self.prefer_pipeline!
-      @strategy = :pipeline
+    def self.prefer_pipeline!(redis)
+      return if redis.nil? || namespaced?(redis)
+
+      strategies[connection_key(redis)] = :pipeline
     end
 
     def self.reset_strategy!
-      @strategy = nil
+      @strategies = {}
+    end
+
+    def self.namespaced?(redis)
+      defined?(Redis::Namespace) && redis.is_a?(Redis::Namespace)
+    end
+
+    def self.connection_key(redis)
+      redis.object_id
+    end
+
+    def self.strategies
+      @strategies ||= {}
     end
 
     # redis-namespace still wraps this process when REDIS_NAMESPACE is set.
     # It does not implement ZMSCORE; a blind passthrough would miss the
     # namespace prefix. Pipelined ZSCORE stays one round trip and is prefixed.
-    def self.detect(redis)
-      return :pipeline if defined?(Redis::Namespace) && redis.is_a?(Redis::Namespace)
-
+    def self.detect_raw(redis)
       info = redis.info('server')
       version = info.is_a?(Hash) ? (info['redis_version'] || info[:redis_version]) : nil
       strategy_from_version(version)
@@ -64,7 +80,7 @@ module TimelineSeek
     def zmscore(key, ids)
       Array(@redis.zmscore(key, ids.map(&:to_s)))
     rescue Redis::BaseError, NoMethodError
-      self.class.prefer_pipeline!
+      self.class.prefer_pipeline!(@redis)
       pipelined_zscore(key, ids)
     end
 
