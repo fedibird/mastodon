@@ -11,7 +11,7 @@ import {
 } from '../../../actions/timelines';
 import { cancelWindowedHistory } from '../../../windowed_history/flights';
 import api from '../../../api';
-import { seekWindowedTimeline } from '../../../actions/timeline_seek';
+import { seekWindowedTimeline, settleWindowSeekScroll } from '../../../actions/timeline_seek';
 import { WINDOW_SEEK_RESTORE } from '../../../timeline_seek/constants';
 import { me } from '../../../initial_state';
 import { captureHistoryPosition, cancelHistoryResume, resumeHistoryPosition } from '../../../actions/timeline_position';
@@ -148,6 +148,16 @@ class StatusTimelineSplitController extends React.Component {
     }
   };
 
+  handleSettleJumpScroll = ({ splitTimelineId, sessionId, revision, anchorId, scrolled, reason }) => {
+    this.props.dispatch(settleWindowSeekScroll(splitTimelineId, {
+      sessionId,
+      revision,
+      anchorId,
+      scrolled,
+      reason,
+    }));
+  };
+
   handleRestoreJump = ({ splitTimelineId, sessionId, items, windowState, reason }) => {
     this.props.dispatch({
       type: WINDOW_SEEK_RESTORE,
@@ -177,6 +187,7 @@ class StatusTimelineSplitController extends React.Component {
         onSearchJumpAccounts={this.handleSearchJumpAccounts}
         onCancelAccountSearch={this.handleCancelAccountSearch}
         onRestoreJump={this.handleRestoreJump}
+        onSettleJumpScroll={this.handleSettleJumpScroll}
         onCreate={this.handleCreate}
         onDestroy={this.handleDestroy}
         onSaveReturnAnchor={this.handleSaveReturnAnchor}

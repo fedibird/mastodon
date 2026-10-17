@@ -177,9 +177,10 @@ class StatusList extends ImmutablePureComponent {
   }
 
   handleUserScroll = () => {
+    this.seekScrollGeneration = (this.seekScrollGeneration || 0) + 1;
     const key = this.seekScrollKey();
 
-    if (key) {
+    if (key && this.seekScrollSettled !== key) {
       this.cancelSeekScrollFrame();
       this.seekScrollScheduled = null;
       this.seekScrollSettled = key;
@@ -243,10 +244,12 @@ class StatusList extends ImmutablePureComponent {
 
     this.cancelSeekScrollFrame();
     this.seekScrollScheduled = key;
+    const generation = this.seekScrollGeneration || 0;
+
     this.seekScrollFrame = requestAnimationFrame(() => {
       this.seekScrollFrame = null;
 
-      if (this.seekScrollUnmounted || this.seekScrollKey() !== key) {
+      if (this.seekScrollUnmounted || (this.seekScrollGeneration || 0) !== generation || this.seekScrollKey() !== key) {
         return;
       }
 

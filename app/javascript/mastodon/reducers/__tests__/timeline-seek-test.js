@@ -328,7 +328,17 @@ describe('timeline seek reducer', () => {
       reason: 'filtered',
       scrolled: false,
     });
-    const restored = timelines(filtered, {
+    const otherId = 'home:split:other';
+    const resume = ImmutableMap({
+      requestId: 'resume-1',
+      phase: 'scroll_pending',
+      seekSessionId: 'seek-1',
+      reason: 'seek_resolved',
+    });
+    const withOther = filtered
+      .set(otherId, filtered.get(splitId).set('seek', filtered.getIn([splitId, 'seek']).set('id', 'seek-other')))
+      .setIn([splitId, 'historyResume'], resume);
+    const restored = timelines(withOther, {
       type: WINDOW_SEEK_RESTORE,
       timeline: splitId,
       sessionId: 'seek-1',
@@ -340,6 +350,9 @@ describe('timeline seek reducer', () => {
     expect(restored.getIn([splitId, 'items'])).toEqual(beforeItems);
     expect(restored.getIn([splitId, 'window', 'anchorId'])).toBe(beforeWindow.get('anchorId'));
     expect(restored.getIn([splitId, 'seek', 'restored'])).toBe(true);
+    expect(restored.getIn([splitId, 'historyResume'])).toEqual(resume);
+    expect(restored.getIn([otherId, 'seek', 'id'])).toBe('seek-other');
+    expect(restored.getIn([otherId, 'items'])).toEqual(withOther.getIn([otherId, 'items']));
     expect(restored.getIn(['home', 'items'])).toEqual(ids);
     expect(restored.getIn(['home', 'pendingItems'])).toEqual(ImmutableList(['400']));
 
@@ -362,5 +375,26 @@ describe('timeline seek reducer', () => {
 
     expect(kept.getIn([splitId, 'items'])).toEqual(committed.getIn([splitId, 'items']));
     expect(kept.getIn([splitId, 'seek', 'scrollStatus'])).toBe('loaded');
+
+    const reader = timelines(committed, {
+      type: WINDOW_SEEK_SCROLL,
+      timeline: splitId,
+      sessionId: 'seek-1',
+      revision: committed.getIn([splitId, 'window', 'revision']),
+      reason: 'user_scroll',
+      scrolled: false,
+    });
+    const keptReader = timelines(reader, {
+      type: WINDOW_SEEK_RESTORE,
+      timeline: splitId,
+      sessionId: 'seek-1',
+      items: beforeItems,
+      windowState: beforeWindow,
+      reason: 'not_loaded',
+    });
+
+    expect(keptReader.getIn([splitId, 'items'])).toEqual(committed.getIn([splitId, 'items']));
+    expect(keptReader.getIn([splitId, 'seek', 'scrollStatus'])).toBe('user_scroll');
+    expect(keptReader.getIn(['home', 'pendingItems'])).toEqual(ImmutableList(['400']));
   });
 });

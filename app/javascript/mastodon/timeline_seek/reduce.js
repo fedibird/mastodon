@@ -94,8 +94,10 @@ const RESTORE_REASONS = ['filtered', 'not_loaded'];
 // visible anchor. A loaded scroll and a reader scroll are left alone.
 export const restoreJumpWindow = (timeline, action) => {
   const seek = timeline.get('seek');
+  const scrollStatus = seek && seek.get('scrollStatus');
 
-  if (!seek || seek.get('id') !== action.sessionId || seek.get('scrollStatus') === 'loaded') {
+  // A loaded jump and a reader scroll stay on the window the reader is looking at.
+  if (!seek || seek.get('id') !== action.sessionId || scrollStatus === 'loaded' || scrollStatus === 'user_scroll') {
     return timeline;
   }
 

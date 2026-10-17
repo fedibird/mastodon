@@ -33,6 +33,7 @@ jest.mock('../../filter_reconciliation/surface', () => ({
 }));
 
 import StatusList from '../status_list';
+import { captureHistorySurface, resetHistorySurfaces, restoreHistorySurface } from '../../timeline_position/surface';
 
 const store = () => createStore(combineReducers({
   dropdown_menu: (state = ImmutableMap()) => state,
@@ -114,6 +115,7 @@ describe('StatusList seek scroll', () => {
   });
 
   afterEach(() => {
+    resetHistorySurfaces();
     document.body.innerHTML = '';
     jest.restoreAllMocks();
   });
@@ -253,7 +255,7 @@ describe('StatusList seek scroll', () => {
     expect(onSeekScroll).not.toHaveBeenCalled();
   });
 
-  it('cancels a pending jump scroll when the reader scrolls the history pane', () => {
+  it('does not move to the committed anchor when the reader wheels before the frame', () => {
     const onSeekScroll = jest.fn();
     const view = mounted(seekProps(['100', '90', '80'], {
       windowRevision: 2,
@@ -269,6 +271,7 @@ describe('StatusList seek scroll', () => {
     layoutArticles(list, { 100: 100, 90: 100, 80: 100 });
     fireEvent.wheel(list, { deltaY: 30 });
     flushFrames();
+    flushFrames();
 
     expect(onSeekScroll).toHaveBeenCalledTimes(1);
     expect(onSeekScroll.mock.calls[0][0]).toEqual(expect.objectContaining({
@@ -278,6 +281,76 @@ describe('StatusList seek scroll', () => {
       scrolled: false,
       reason: 'user_scroll',
     }));
+    expect(onSeekScroll.mock.calls.some(call => call[0].reason === 'loaded' || call[0].scrolled)).toBe(false);
     expect(list.scrollTop).toBe(0);
+  });
+
+  it('leaves a landed jump in place when the reader scrolls afterwards', () => {
+    const onSeekScroll = jest.fn();
+    const pending = {
+      windowRevision: 2,
+      seekScrollPending: true,
+      seekSessionId: 'seek-1',
+      seekAnchorId: '80',
+      seekScrollRevision: 2,
+      onSeekScroll,
+    };
+    const view = mounted(seekProps(['100', '90', '80'], pending));
+    const list = view.container.querySelector('.scrollable');
+
+    layoutArticles(list, { 100: 100, 90: 100, 80: 100 });
+    flushFrames();
+    expect(list.scrollTop).toBe(200);
+    expect(onSeekScroll.mock.calls[0][0].reason).toBe('loaded');
+
+    view.update(seekProps(['100', '90', '80'], {
+      windowRevision: 2,
+      seekScrollPending: false,
+    }));
+    fireEvent.wheel(list, { deltaY: 20 });
+    flushFrames();
+
+    expect(onSeekScroll).toHaveBeenCalledTimes(1);
+    expect(list.scrollTop).toBe(200);
+  });
+
+  it('scrolls back to the previous row after a filtered jump puts the old window back', () => {
+    const surfaceId = 'home:split:reading';
+    const view = mounted(seekProps(['100', '90', '80'], {
+      historySurfaceId: surfaceId,
+      windowedHistory: true,
+    }));
+    const list = view.container.querySelector('.scrollable');
+
+    layoutArticles(list, { 100: 100, 90: 100, 80: 100 });
+    list.scrollTop = 100;
+
+    const reading = captureHistorySurface(surfaceId);
+
+    view.update(seekProps(['50', '40'], {
+      historySurfaceId: surfaceId,
+      windowedHistory: true,
+      windowRevision: 2,
+    }));
+    const replaced = view.container.querySelector('.scrollable');
+
+    layoutArticles(replaced, { 50: 100, 40: 100 });
+    replaced.scrollTop = 0;
+
+    view.update(seekProps(['100', '90', '80'], {
+      historySurfaceId: surfaceId,
+      windowedHistory: true,
+      windowRevision: 1,
+    }));
+    const restored = view.container.querySelector('.scrollable');
+
+    layoutArticles(restored, { 100: 100, 90: 100, 80: 100 });
+    restored.scrollTop = 0;
+
+    const moved = restoreHistorySurface(surfaceId, reading);
+
+    expect(reading && reading.statusId).toBeTruthy();
+    expect(moved.ok).toBe(true);
+    expect(restored.scrollTop).toBeGreaterThan(0);
   });
 });

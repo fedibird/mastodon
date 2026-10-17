@@ -205,3 +205,17 @@ export const jumpScrollDisposition = ({ scrollStatus, reason } = {}) => {
 
   return 'explain';
 };
+
+// Closing the form abandons an unconfirmed scroll. A loaded jump and a
+// reader scroll stay where they are.
+export const jumpAbandonDisposition = ({ phase, scrollStatus, userCancelled } = {}) => {
+  if (phase !== 'scroll' || userCancelled) {
+    return 'leave';
+  }
+
+  if (scrollStatus === 'loaded' || scrollStatus === 'user_scroll') {
+    return 'leave';
+  }
+
+  return 'restore_once';
+};

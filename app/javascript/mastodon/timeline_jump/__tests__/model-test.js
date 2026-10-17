@@ -2,6 +2,7 @@ import { SEEK_KIND, SEEK_PREFERENCE } from '../../timeline_seek/constants';
 import {
   buildJumpQuery,
   interpretLocalDateTime,
+  jumpAbandonDisposition,
   jumpModeState,
   jumpScrollDisposition,
   normalizeDecimalId,
@@ -70,5 +71,10 @@ describe('timeline jump model', () => {
     expect(jumpScrollDisposition({ scrollStatus: 'filtered' })).toBe('restore');
     expect(jumpScrollDisposition({ reason: 'not_loaded' })).toBe('restore');
     expect(jumpScrollDisposition({ scrollStatus: 'user_scroll' })).toBe('cancelled_scroll');
+    expect(jumpAbandonDisposition({ phase: 'scroll', scrollStatus: 'pending' })).toBe('restore_once');
+    expect(jumpAbandonDisposition({ phase: 'scroll', scrollStatus: 'loaded' })).toBe('leave');
+    expect(jumpAbandonDisposition({ phase: 'scroll', scrollStatus: 'user_scroll' })).toBe('leave');
+    expect(jumpAbandonDisposition({ phase: 'scroll', userCancelled: true })).toBe('leave');
+    expect(jumpAbandonDisposition({ phase: 'pending' })).toBe('leave');
   });
 });

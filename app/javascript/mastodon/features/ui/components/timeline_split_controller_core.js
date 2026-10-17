@@ -20,8 +20,9 @@ import { HISTORY_POSITION_CAPTURE_INTERVAL_MS, HISTORY_RESUME_IN_FLIGHT } from '
 import { historyLayout, historySourceIdentity, historyViewIdentity } from 'mastodon/timeline_position/identity';
 import { autoResumeDecision } from 'mastodon/timeline_position/policy';
 import { getPositionRegistry } from 'mastodon/timeline_position/session';
-import { captureHistorySurface, subscribeHistorySurface } from 'mastodon/timeline_position/surface';
-import { jumpScrollDisposition } from 'mastodon/timeline_jump/model';
+import { captureHistorySurface, restoreHistorySurface, subscribeHistorySurface } from 'mastodon/timeline_position/surface';
+import { jumpAbandonDisposition, jumpScrollDisposition } from 'mastodon/timeline_jump/model';
+import { createJumpScrollWait } from 'mastodon/timeline_jump/scroll_wait';
 import { seekSourceKey } from 'mastodon/timeline_seek/query';
 import { cancelWindowedHistoryDirection } from '../../../windowed_history/flights';
 import TimelineColumnJumpPanel from './timeline_column_jump';
@@ -101,6 +102,7 @@ class TimelineSplitControllerCore extends React.Component {
     onSearchJumpAccounts: PropTypes.func,
     onCancelAccountSearch: PropTypes.func,
     onRestoreJump: PropTypes.func,
+    onSettleJumpScroll: PropTypes.func,
   };
 
   static contextTypes = {
@@ -114,6 +116,8 @@ class TimelineSplitControllerCore extends React.Component {
   };
 
   jumpToken = 0;
+
+  jumpScrollWait = createJumpScrollWait();
 
   constructor (props) {
     super(props);
@@ -653,6 +657,9 @@ class TimelineSplitControllerCore extends React.Component {
       this.maybeAutoResume();
     }
 
+    this.noticeJumpScroll();
+    this.restorePendingReading();
+
     if (this.shouldResetDocumentScroll) {
       this.shouldResetDocumentScroll = false;
       resetDocumentScroll();
@@ -844,7 +851,7 @@ class TimelineSplitControllerCore extends React.Component {
           });
         }
 
-        cancelWindowedHistoryDirection(id, 'seek');
+        this.noteJumpUserScroll(id);
         this.schedulePositionCapture();
       }
     });
@@ -943,28 +950,56 @@ class TimelineSplitControllerCore extends React.Component {
       this.props.onCancelAccountSearch();
     }
 
+    this.jumpScrollWait.cancel({ scrollStatus: 'stale', reason: 'stale' });
+
     if (flight && flight.phase === 'pending' && flight.splitTimelineId) {
       cancelWindowedHistoryDirection(flight.splitTimelineId, 'seek');
     }
 
-    if (flight && flight.phase === 'scroll' && flight.snapshot && flight.sessionId && this.props.onRestoreJump) {
-      const seek = this.props.historySeek;
-      const loaded = seek && seek.get('id') === flight.sessionId && seek.get('scrollStatus') === 'loaded';
-
-      if (!loaded) {
-        this.props.onRestoreJump({
-          splitTimelineId: flight.splitTimelineId,
-          sessionId: flight.sessionId,
-          items: flight.snapshot.items,
-          windowState: flight.snapshot.windowState,
-          reason: 'not_loaded',
-        });
-      }
+    if (flight) {
+      this.restoreAbandonedJump(flight);
     }
 
     if (close && this.state.jumpOpen && !this.jumpUnmounted) {
       this.setState({ jumpOpen: false });
     }
+  };
+
+  noteJumpUserScroll = (splitTimelineId) => {
+    cancelWindowedHistoryDirection(splitTimelineId, 'seek');
+
+    const flight = this.jumpFlight;
+
+    if (!flight || flight.phase !== 'scroll' || flight.splitTimelineId !== splitTimelineId) {
+      return;
+    }
+
+    const seek = this.props.historySeek;
+
+    if (!seek || seek.get('id') !== flight.sessionId || !this.jumpScrollWait.pending()) {
+      return;
+    }
+
+    const scrollStatus = seek.get('scrollStatus');
+
+    if (scrollStatus === 'loaded') {
+      return;
+    }
+
+    flight.userCancelled = true;
+
+    if (scrollStatus === 'pending' && this.props.onSettleJumpScroll) {
+      this.props.onSettleJumpScroll({
+        splitTimelineId,
+        sessionId: flight.sessionId,
+        revision: seek.get('scrollRevision'),
+        anchorId: seek.get('anchorId'),
+        scrolled: false,
+        reason: 'user_scroll',
+      });
+    }
+
+    this.jumpScrollWait.notify(flight.sessionId, { scrollStatus: 'user_scroll', reason: 'user_scroll' });
   };
 
   readJumpScroll = (sessionId) => {
@@ -986,34 +1021,72 @@ class TimelineSplitControllerCore extends React.Component {
     };
   };
 
-  waitForJumpScroll = (token, sessionId) => new Promise(resolve => {
-    let frames = 0;
+  noticeJumpScroll = () => {
+    const flight = this.jumpFlight;
 
-    const step = () => {
-      if (!this.jumpIsCurrent(token)) {
-        resolve({ scrollStatus: 'stale', reason: 'stale' });
-        return;
-      }
+    if (!flight || flight.phase !== 'scroll') {
+      return;
+    }
 
-      const scroll = this.readJumpScroll(sessionId);
+    if (!this.jumpIsCurrent(flight.token)) {
+      this.jumpScrollWait.cancel({ scrollStatus: 'stale', reason: 'stale' });
+      return;
+    }
 
-      if (scroll) {
-        resolve(scroll);
-        return;
-      }
+    const scroll = this.readJumpScroll(flight.sessionId);
 
-      frames += 1;
+    if (scroll) {
+      this.jumpScrollWait.notify(flight.sessionId, scroll);
+    }
+  };
 
-      if (frames > 30) {
-        resolve({ scrollStatus: 'not_loaded', reason: 'not_loaded' });
-        return;
-      }
+  restorePendingReading = () => {
+    const pending = this.pendingReadingRestore;
 
-      requestAnimationFrame(step);
+    if (!pending) {
+      return;
+    }
+
+    const seek = this.props.historySeek;
+
+    if (!seek || seek.get('id') !== pending.sessionId || !seek.get('restored')) {
+      return;
+    }
+
+    this.pendingReadingRestore = null;
+
+    if (pending.anchor && pending.anchor.statusId) {
+      restoreHistorySurface(pending.splitTimelineId, pending.anchor);
+    }
+  };
+
+  restoreAbandonedJump = (flight) => {
+    const seek = this.props.historySeek;
+    const scrollStatus = seek && seek.get('id') === flight.sessionId ? seek.get('scrollStatus') : null;
+    const disposition = jumpAbandonDisposition({
+      phase: flight.phase,
+      scrollStatus,
+      userCancelled: flight.userCancelled,
+    });
+
+    if (disposition !== 'restore_once' || flight.restored || !flight.snapshot || !this.props.onRestoreJump) {
+      return;
+    }
+
+    flight.restored = true;
+    this.pendingReadingRestore = {
+      splitTimelineId: flight.splitTimelineId,
+      sessionId: flight.sessionId,
+      anchor: flight.reading,
     };
-
-    requestAnimationFrame(step);
-  });
+    this.props.onRestoreJump({
+      splitTimelineId: flight.splitTimelineId,
+      sessionId: flight.sessionId,
+      items: flight.snapshot.items,
+      windowState: flight.snapshot.windowState,
+      reason: 'not_loaded',
+    });
+  };
 
   finishJumpScroll = (token, result, snapshot, splitTimelineId) => {
     const sessionId = result.scroll && result.scroll.sessionId;
@@ -1023,15 +1096,22 @@ class TimelineSplitControllerCore extends React.Component {
       return Promise.resolve({ ...result, moved: false });
     }
 
+    const reading = this.jumpFlight && this.jumpFlight.reading;
+
     this.jumpFlight = {
       token,
       phase: 'scroll',
       splitTimelineId,
       sessionId,
       snapshot,
+      reading,
     };
 
-    return this.waitForJumpScroll(token, sessionId).then(scroll => {
+    const waited = this.jumpScrollWait.arm(sessionId);
+
+    this.noticeJumpScroll();
+
+    return waited.then(scroll => {
       if (!this.jumpIsCurrent(token)) {
         return { outcome: 'stale', reason: 'stale', moved: false };
       }
@@ -1039,6 +1119,11 @@ class TimelineSplitControllerCore extends React.Component {
       const disposition = jumpScrollDisposition(scroll);
 
       if (disposition === 'restore' && snapshot && snapshot.items && snapshot.windowState && this.props.onRestoreJump) {
+        this.pendingReadingRestore = {
+          splitTimelineId,
+          sessionId,
+          anchor: reading,
+        };
         this.props.onRestoreJump({
           splitTimelineId,
           sessionId,
@@ -1064,7 +1149,12 @@ class TimelineSplitControllerCore extends React.Component {
       return Promise.resolve({ outcome: 'unsupported', reason: 'window_required', moved: false });
     }
 
-    this.jumpFlight = { token, phase: 'pending', splitTimelineId };
+    this.jumpFlight = {
+      token,
+      phase: 'pending',
+      splitTimelineId,
+      reading: captureHistorySurface(splitTimelineId),
+    };
 
     return this.props.onSeekTimeline({
       sourceTimelineId: this.props.sourceTimelineId,
