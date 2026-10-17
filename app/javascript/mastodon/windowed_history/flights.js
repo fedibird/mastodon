@@ -30,14 +30,16 @@ export const releaseWindowedHistoryFlight = (timelineId, direction, flight) => {
   }
 };
 
-export const cancelWindowedHistory = (timelineId) => {
-  ['newer', 'older', 'seek'].forEach(direction => {
-    const key = flightKey(timelineId, direction);
-    const flight = flights.get(key);
+export const cancelWindowedHistoryDirection = (timelineId, direction) => {
+  const key = flightKey(timelineId, direction);
+  const flight = flights.get(key);
 
-    if (flight) {
-      flight.cancel();
-      flights.delete(key);
-    }
-  });
+  if (flight) {
+    flight.cancel();
+    flights.delete(key);
+  }
+};
+
+export const cancelWindowedHistory = (timelineId) => {
+  ['newer', 'older', 'seek'].forEach(direction => cancelWindowedHistoryDirection(timelineId, direction));
 };

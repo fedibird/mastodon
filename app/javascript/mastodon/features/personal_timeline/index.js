@@ -215,6 +215,7 @@ class PersonalTimeline extends React.PureComponent {
           extraButton={(
             <Fragment>
               {split.splitButton}
+              {split.jumpButton}
               {split.resumeButton}
               {split.closeLiveButton}
             </Fragment>
@@ -224,6 +225,8 @@ class PersonalTimeline extends React.PureComponent {
         >
           <ColumnSettingsContainer columnId={columnId} />
         </ColumnHeader>
+
+        {split.jumpPanel}
 
         {timeline}
       </Column>

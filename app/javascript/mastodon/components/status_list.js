@@ -177,6 +177,24 @@ class StatusList extends ImmutablePureComponent {
   }
 
   handleUserScroll = () => {
+    const key = this.seekScrollKey();
+
+    if (key) {
+      this.cancelSeekScrollFrame();
+      this.seekScrollScheduled = null;
+      this.seekScrollSettled = key;
+
+      if (this.props.onSeekScroll) {
+        this.props.onSeekScroll({
+          sessionId: this.props.seekSessionId,
+          revision: this.props.seekScrollRevision,
+          anchorId: this.props.seekAnchorId,
+          scrolled: false,
+          reason: 'user_scroll',
+        });
+      }
+    }
+
     if (this.props.onUserScroll) {
       this.props.onUserScroll();
     }

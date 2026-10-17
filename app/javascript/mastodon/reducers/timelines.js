@@ -36,6 +36,7 @@ import {
   WINDOW_SEEK_BEGIN,
   WINDOW_SEEK_COMMIT,
   WINDOW_SEEK_FAIL,
+  WINDOW_SEEK_RESTORE,
   WINDOW_SEEK_SCROLL,
 } from '../timeline_seek/constants';
 import {
@@ -49,7 +50,7 @@ import {
   noteHistoryResumeOnSeek,
   settleHistoryResume,
 } from '../timeline_position/reduce';
-import { beginSeekState, commitSeekState, failSeekState, settleSeekScroll } from '../timeline_seek/reduce';
+import { beginSeekState, commitSeekState, failSeekState, restoreJumpWindow, settleSeekScroll } from '../timeline_seek/reduce';
 import {
   failHistory,
   initialHistoryWindow,
@@ -402,6 +403,8 @@ export default function timelines(state = initialState, action) {
     return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => noteHistoryResumeOnSeek(commitSeekState(timeline, action), action));
   case WINDOW_SEEK_SCROLL:
     return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => noteHistoryResumeOnSeek(settleSeekScroll(timeline, action), action));
+  case WINDOW_SEEK_RESTORE:
+    return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => noteHistoryResumeOnSeek(restoreJumpWindow(timeline, action), action));
   case HISTORY_RESUME_BEGIN:
     return isStaleSplitTimeline(state, action.timeline) ? state : state.update(action.timeline, initialTimeline, timeline => beginHistoryResume(timeline, action));
   case HISTORY_RESUME_SETTLE:

@@ -136,8 +136,9 @@ describe('GroupTimeline split', () => {
       headerLabels.push(child.getAttribute('aria-label'));
     }
 
-    expect(headerLabels.slice(0, 3)).toEqual([
+    expect(headerLabels.slice(0, 4)).toEqual([
       'Split timeline',
+      'Find in this timeline',
       'Show composer',
       'Show group detail',
     ]);

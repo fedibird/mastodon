@@ -5,7 +5,7 @@ jest.mock('react-intl', () => ({
   FormattedNumber: () => null,
 }));
 
-import { act, render } from '@testing-library/react';
+import { act, fireEvent, render } from '@testing-library/react';
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
@@ -251,5 +251,33 @@ describe('StatusList seek scroll', () => {
     view.unmount();
     expect(() => flushFrames()).not.toThrow();
     expect(onSeekScroll).not.toHaveBeenCalled();
+  });
+
+  it('cancels a pending jump scroll when the reader scrolls the history pane', () => {
+    const onSeekScroll = jest.fn();
+    const view = mounted(seekProps(['100', '90', '80'], {
+      windowRevision: 2,
+      seekScrollPending: true,
+      seekSessionId: 'seek-1',
+      seekAnchorId: '80',
+      seekScrollRevision: 2,
+      historySurfaceId: 'home:split:1',
+      onSeekScroll,
+    }));
+    const list = view.container.querySelector('.scrollable');
+
+    layoutArticles(list, { 100: 100, 90: 100, 80: 100 });
+    fireEvent.wheel(list, { deltaY: 30 });
+    flushFrames();
+
+    expect(onSeekScroll).toHaveBeenCalledTimes(1);
+    expect(onSeekScroll.mock.calls[0][0]).toEqual(expect.objectContaining({
+      sessionId: 'seek-1',
+      revision: 2,
+      anchorId: '80',
+      scrolled: false,
+      reason: 'user_scroll',
+    }));
+    expect(list.scrollTop).toBe(0);
   });
 });

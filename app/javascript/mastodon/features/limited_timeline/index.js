@@ -200,6 +200,7 @@ class LimitedTimeline extends React.PureComponent {
           extraButton={(
             <Fragment>
               {split.splitButton}
+              {split.jumpButton}
               {split.resumeButton}
               {split.closeLiveButton}
             </Fragment>
@@ -209,6 +210,8 @@ class LimitedTimeline extends React.PureComponent {
         >
           <ColumnSettingsContainer />
         </ColumnHeader>
+
+        {split.jumpPanel}
 
         {timeline}
       </Column>

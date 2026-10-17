@@ -411,6 +411,7 @@ class HashtagTimeline extends React.PureComponent {
           extraButton={(
             <Fragment>
               {split.splitButton}
+              {split.jumpButton}
               {split.resumeButton}
               <PortableComposerToggle visible={composerVisible} onToggle={this.handleToggleComposer} />
               {followButton}
@@ -423,6 +424,8 @@ class HashtagTimeline extends React.PureComponent {
         >
           {columnId && <ColumnSettingsContainer columnId={columnId} />}
         </ColumnHeader>
+
+        {split.jumpPanel}
 
         {portableComposer ? <ColumnDropHint /> : null}
 

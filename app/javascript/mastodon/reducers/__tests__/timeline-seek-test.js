@@ -1,7 +1,7 @@
 import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 
 import { TIMELINE_SPLIT_CREATE, TIMELINE_SPLIT_DESTROY, TIMELINE_SPLIT_KEEP_HISTORY, TIMELINE_SPLIT_KEEP_LIVE } from '../../actions/timelines';
-import { WINDOW_SEEK_BEGIN, WINDOW_SEEK_COMMIT, WINDOW_SEEK_FAIL, WINDOW_SEEK_SCROLL } from '../../timeline_seek/constants';
+import { WINDOW_SEEK_BEGIN, WINDOW_SEEK_COMMIT, WINDOW_SEEK_FAIL, WINDOW_SEEK_RESTORE, WINDOW_SEEK_SCROLL } from '../../timeline_seek/constants';
 import { WINDOW_HISTORY_REQUEST, WINDOW_HISTORY_SUCCESS } from '../../windowed_history/types';
 import timelines from '../timelines';
 import { beginHistoryRequest } from '../../windowed_history/model';
@@ -297,5 +297,70 @@ describe('timeline seek reducer', () => {
     expect(settled.getIn([splitId, 'seek', 'scrollReason'])).toBe('filtered');
     expect(settled.getIn([splitId, 'items'])).toEqual(committed.getIn([splitId, 'items']));
     expect(settled.getIn(['home', 'pendingItems'])).toEqual(ImmutableList(['400']));
+  });
+
+  it('restores the history window when a jump row is filtered and leaves a loaded jump in place', () => {
+    const split = create(withHome());
+    const beforeItems = split.getIn([splitId, 'items']);
+    const beforeWindow = split.getIn([splitId, 'window']);
+    const begun = timelines(split, {
+      type: WINDOW_SEEK_BEGIN,
+      timeline: splitId,
+      sessionId: 'seek-1',
+      source: sourceKey,
+    });
+    const committed = timelines(begun, {
+      type: WINDOW_SEEK_COMMIT,
+      timeline: splitId,
+      sessionId: 'seek-1',
+      source: sourceKey,
+      anchorId: '50',
+      newerIds: ['60'],
+      olderIds: ['40'],
+      limit: 40,
+      capability: 'approximate',
+    });
+    const filtered = timelines(committed, {
+      type: WINDOW_SEEK_SCROLL,
+      timeline: splitId,
+      sessionId: 'seek-1',
+      revision: committed.getIn([splitId, 'window', 'revision']),
+      reason: 'filtered',
+      scrolled: false,
+    });
+    const restored = timelines(filtered, {
+      type: WINDOW_SEEK_RESTORE,
+      timeline: splitId,
+      sessionId: 'seek-1',
+      items: beforeItems,
+      windowState: beforeWindow,
+      reason: 'filtered',
+    });
+
+    expect(restored.getIn([splitId, 'items'])).toEqual(beforeItems);
+    expect(restored.getIn([splitId, 'window', 'anchorId'])).toBe(beforeWindow.get('anchorId'));
+    expect(restored.getIn([splitId, 'seek', 'restored'])).toBe(true);
+    expect(restored.getIn(['home', 'items'])).toEqual(ids);
+    expect(restored.getIn(['home', 'pendingItems'])).toEqual(ImmutableList(['400']));
+
+    const loaded = timelines(committed, {
+      type: WINDOW_SEEK_SCROLL,
+      timeline: splitId,
+      sessionId: 'seek-1',
+      revision: committed.getIn([splitId, 'window', 'revision']),
+      reason: 'loaded',
+      scrolled: true,
+    });
+    const kept = timelines(loaded, {
+      type: WINDOW_SEEK_RESTORE,
+      timeline: splitId,
+      sessionId: 'seek-1',
+      items: beforeItems,
+      windowState: beforeWindow,
+      reason: 'filtered',
+    });
+
+    expect(kept.getIn([splitId, 'items'])).toEqual(committed.getIn([splitId, 'items']));
+    expect(kept.getIn([splitId, 'seek', 'scrollStatus'])).toBe('loaded');
   });
 });
