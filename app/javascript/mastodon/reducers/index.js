@@ -17,6 +17,7 @@ import scheduled_statuses from './scheduled_statuses';
 import processing_statuses from './processing_statuses';
 import intersection_statuses from './intersection_statuses';
 import relationships from './relationships';
+import account_notifications from './account_notifications';
 import settings from './settings';
 import user_preferences from './user_preferences';
 import push_notifications from './push_notifications';
@@ -88,6 +89,7 @@ const reducers = {
   processing_statuses,
   intersection_statuses,
   relationships,
+  account_notifications,
   settings,
   user_preferences,
   push_notifications,

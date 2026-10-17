@@ -863,14 +863,6 @@
         "id": "account.show_reblogs"
       },
       {
-        "defaultMessage": "Notify me when @{name} posts",
-        "id": "account.enable_notifications"
-      },
-      {
-        "defaultMessage": "Stop notifying me when @{name} posts",
-        "id": "account.disable_notifications"
-      },
-      {
         "defaultMessage": "Pinned toots",
         "id": "navigation_bar.pins"
       },
@@ -948,6 +940,23 @@
       }
     ],
     "path": "app/javascript/mastodon/features/account/components/header.json"
+  },
+  {
+    "descriptors": [
+      {
+        "defaultMessage": "Notification settings",
+        "id": "account.notification_settings"
+      },
+      {
+        "defaultMessage": "Notify about new posts",
+        "id": "account.notify_posts"
+      },
+      {
+        "defaultMessage": "Notify about boosts",
+        "id": "account.notify_boosts"
+      }
+    ],
+    "path": "app/javascript/mastodon/features/account/components/notification_settings.json"
   },
   {
     "descriptors": [

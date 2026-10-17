@@ -140,14 +140,6 @@ const mapDispatchToProps = (dispatch, { intl }) => ({
     }
   },
 
-  onNotifyToggle (account) {
-    if (account.getIn(['relationship', 'notifying'])) {
-      dispatch(followAccount(account.get('id'), { notify: false }));
-    } else {
-      dispatch(followAccount(account.get('id'), { notify: true }));
-    }
-  },
-
   onReport (account) {
     dispatch(initReport(account));
   },

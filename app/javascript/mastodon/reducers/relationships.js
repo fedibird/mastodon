@@ -1,3 +1,4 @@
+import { ACCOUNT_NOTIFICATIONS_SUCCESS } from '../actions/account_notifications';
 import {
   ACCOUNT_FOLLOW_SUCCESS,
   ACCOUNT_FOLLOW_REQUEST,
@@ -76,6 +77,7 @@ export default function relationships(state = initialState, action) {
   case ACCOUNT_MUTE_SUCCESS:
   case ACCOUNT_UNMUTE_SUCCESS:
     return normalizeRelationship(state, action.relationship).update('updateCount', nextRelationshipGeneration);
+  case ACCOUNT_NOTIFICATIONS_SUCCESS:
   case ACCOUNT_FOLLOW_SUCCESS:
   case ACCOUNT_UNFOLLOW_SUCCESS:
   case ACCOUNT_SUBSCRIBE_SUCCESS:

@@ -12514,3 +12514,18 @@ noscript {
     padding: 8px 12px;
   }
 }
+
+.account-notification-settings__item {
+  width: 240px;
+  max-width: calc(100vw - 32px);
+
+  button {
+    min-height: 44px;
+    white-space: normal;
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: wait;
+    }
+  }
+}

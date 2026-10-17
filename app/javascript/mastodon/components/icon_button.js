@@ -20,6 +20,8 @@ export default class IconButton extends React.PureComponent {
     no_delivery: PropTypes.bool,
     pressed: PropTypes.bool,
     expanded: PropTypes.bool,
+    controls: PropTypes.string,
+    hasPopup: PropTypes.string,
     style: PropTypes.object,
     activeStyle: PropTypes.object,
     disabled: PropTypes.bool,
@@ -136,6 +138,8 @@ export default class IconButton extends React.PureComponent {
         aria-label={title}
         aria-pressed={pressed}
         aria-expanded={expanded}
+        aria-controls={this.props.controls}
+        aria-haspopup={this.props.hasPopup}
         title={title}
         className={classes}
         onClick={this.handleClick}

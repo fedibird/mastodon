@@ -14,6 +14,7 @@ import ShortNumber from 'mastodon/components/short_number';
 import Content from 'mastodon/components/content';
 import { NavLink } from 'react-router-dom';
 import DropdownMenuContainer from 'mastodon/containers/dropdown_menu_container';
+import NotificationSettings from './notification_settings';
 import AccountNoteContainer from '../containers/account_note_container';
 import age from 's-age';
 
@@ -42,8 +43,6 @@ const messages = defineMessages({
   unblockDomain: { id: 'account.unblock_domain', defaultMessage: 'Unblock domain {domain}' },
   hideReblogs: { id: 'account.hide_reblogs', defaultMessage: 'Hide boosts from @{name}' },
   showReblogs: { id: 'account.show_reblogs', defaultMessage: 'Show boosts from @{name}' },
-  enableNotifications: { id: 'account.enable_notifications', defaultMessage: 'Notify me when @{name} posts' },
-  disableNotifications: { id: 'account.disable_notifications', defaultMessage: 'Stop notifying me when @{name} posts' },
   pins: { id: 'navigation_bar.pins', defaultMessage: 'Pinned toots' },
   preferences: { id: 'navigation_bar.preferences', defaultMessage: 'Preferences' },
   follow_requests: { id: 'navigation_bar.follow_requests', defaultMessage: 'Follow requests' },
@@ -99,7 +98,6 @@ class Header extends ImmutablePureComponent {
     onDirect: PropTypes.func.isRequired,
     onConversations: PropTypes.func.isRequired,
     onReblogToggle: PropTypes.func.isRequired,
-    onNotifyToggle: PropTypes.func.isRequired,
     onReport: PropTypes.func.isRequired,
     onMute: PropTypes.func.isRequired,
     onBlockDomain: PropTypes.func.isRequired,
@@ -247,8 +245,8 @@ class Header extends ImmutablePureComponent {
       info.push(<span key='domain_blocked' className='relationship-tag'><FormattedMessage id='account.domain_blocked' defaultMessage='Domain blocked' /></span>);
     }
 
-    if (account.getIn(['relationship', 'requested']) || account.getIn(['relationship', 'following'])) {
-      bellBtn = <IconButton icon='bell-o' size={24} active={account.getIn(['relationship', 'notifying'])} title={intl.formatMessage(account.getIn(['relationship', 'notifying']) ? messages.disableNotifications : messages.enableNotifications, { name: account.get('username') })} onClick={this.props.onNotifyToggle} />;
+    if (me !== account.get('id') && (account.getIn(['relationship', 'requested']) || account.getIn(['relationship', 'following']))) {
+      bellBtn = <NotificationSettings key={account.get('id')} accountId={account.get('id')} />;
     }
 
     if (me !== account.get('id')) {
