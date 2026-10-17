@@ -1,23 +1,37 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 
+import { connect } from 'react-redux';
+
 import ImmutablePropTypes from 'react-immutable-proptypes';
 import { List as ImmutableList } from 'immutable';
 
+import * as emojiModule from 'mastodon/features/emoji/emoji';
+
 import Emoji from './emoji';
-import { buildCustomEmojiMap } from 'mastodon/features/emoji/emoji';
 
 const EMPTY_CUSTOM_EMOJIS = ImmutableList();
+const EMPTY_EMOJI_MAP = {};
+const emojiMapCache = new WeakMap();
 
 // Same colon scan as Formatter#encode_custom_emojis: a known :shortcode: is
 // replaced wherever it occurs, and an unrecognized token keeps both colons.
 // Nodes are React text and <Emoji>, never HTML parsed from the filter title.
+// The map is shared for one catalog list so each filtered placeholder does
+// not call toJS() on every emoji again.
 const customEmojiMap = (customEmojis) => {
   if (!customEmojis || typeof customEmojis.reduce !== 'function' || typeof customEmojis.get !== 'function') {
-    return {};
+    return EMPTY_EMOJI_MAP;
   }
 
-  return buildCustomEmojiMap(customEmojis);
+  let emojiMap = emojiMapCache.get(customEmojis);
+
+  if (!emojiMap) {
+    emojiMap = emojiModule.buildCustomEmojiMap(customEmojis);
+    emojiMapCache.set(customEmojis, emojiMap);
+  }
+
+  return emojiMap;
 };
 
 const usableEmoji = (emoji) => Boolean(emoji && (emoji.url || emoji.static_url));
@@ -118,3 +132,9 @@ FilterReason.propTypes = {
   ]),
   customEmojis: ImmutablePropTypes.list,
 };
+
+const mapStateToProps = state => ({
+  customEmojis: (state && typeof state.get === 'function' && state.get('custom_emojis')) || EMPTY_CUSTOM_EMOJIS,
+});
+
+export default connect(mapStateToProps)(FilterReason);

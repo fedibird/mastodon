@@ -20,7 +20,7 @@ import classNames from 'classnames';
 import Icon from 'mastodon/components/icon';
 import EmojiReactionsBar from 'mastodon/components/emoji_reactions_bar';
 import PictureInPicturePlaceholder from 'mastodon/components/picture_in_picture_placeholder';
-import { FilterReason } from './filter_reason';
+import FilterReason from './filter_reason';
 import { displayMedia, enableReaction, compactReaction, show_reply_tree_button, enableStatusReference, disableRelativeTime, hideLinkPreview, hidePhotoPreview, hideVideoPreview, hideRebloggedBy, new_features_policy } from 'mastodon/initial_state';
 import { List as ImmutableList } from 'immutable';
 import MixSourceBadges from 'mastodon/features/mixes/components/source_badges';
@@ -35,7 +35,6 @@ import Bundle from '../features/ui/components/bundle';
 
 const mapStateToProps = (state, props) => {
   let status = props.status;
-  const customEmojis = state.get('custom_emojis');
 
   if (status === null) {
     return null;
@@ -48,14 +47,12 @@ const mapStateToProps = (state, props) => {
   if (status.get('quote', null) === null) {
     return {
       quote_muted: status.get('quote_id', null) ? true : false,
-      customEmojis,
     };
   }
   const id = status.getIn(['quote', 'account', 'id'], null);
 
   return {
     quote_muted: id !== null && (state.getIn(['relationships', id, 'muting']) || state.getIn(['relationships', id, 'blocking']) || state.getIn(['relationships', id, 'blocked_by']) || state.getIn(['relationships', id, 'domain_blocking'])) || status.getIn(['quote', 'quote_muted']),
-    customEmojis,
   };
 };
 
@@ -228,7 +225,6 @@ class Status extends ImmutablePureComponent {
     reactionLimitReached: PropTypes.bool,
     sourceBadges: PropTypes.array,
     immediate: PropTypes.bool,
-    customEmojis: ImmutablePropTypes.list,
   };
 
   static defaultProps = {
@@ -249,7 +245,6 @@ class Status extends ImmutablePureComponent {
     'quote_muted',
     'sourceBadges',
     'immediate',
-    'customEmojis',
   ];
 
   state = {
@@ -629,7 +624,7 @@ class Status extends ImmutablePureComponent {
         <HotKeys handlers={minHandlers}>
           <div className='status__wrapper status__wrapper--filtered focusable' tabIndex='0' ref={this.handleRef}>
             <FormattedMessage id='status.filtered' defaultMessage='Filtered' />
-            : <FilterReason titles={matchedFilters} customEmojis={this.props.customEmojis} />.
+            : <FilterReason titles={matchedFilters} />.
             {' '}
             <button type='button' className='status__wrapper--filtered__button' onClick={this.handleUnfilterClick}>
               <FormattedMessage id='status.show_filter_reason' defaultMessage='Show anyway' />

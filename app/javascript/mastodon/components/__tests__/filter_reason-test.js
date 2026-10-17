@@ -1,12 +1,16 @@
 import { render, screen } from '@testing-library/react';
-import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
+import { List as ImmutableList, Map as ImmutableMap, fromJS } from 'immutable';
 import React from 'react';
+import { Provider } from 'react-redux';
+import { createStore } from 'redux';
 
 jest.mock('mastodon/initial_state', () => ({
   autoPlayEmoji: false,
 }));
 
-import { FilterReason } from '../filter_reason';
+import * as emojiModule from 'mastodon/features/emoji/emoji';
+
+import ConnectedFilterReason, { FilterReason } from '../filter_reason';
 
 const catalog = ImmutableList([
   ImmutableMap({
@@ -142,5 +146,100 @@ describe('FilterReason', () => {
 
     expect(reason().textContent).toBe('');
     expect(reason().querySelector('img')).toBeNull();
+  });
+
+  it('builds one emoji map per catalog list and replaces it when the list changes', () => {
+    const buildCustomEmojiMap = jest.spyOn(emojiModule, 'buildCustomEmojiMap');
+    const first = ImmutableList([
+      ImmutableMap({
+        shortcode: 'known',
+        url: 'https://cdn.example.test/known.gif',
+        static_url: 'https://cdn.example.test/known.png',
+      }),
+    ]);
+    const second = ImmutableList([
+      ImmutableMap({
+        shortcode: 'other',
+        url: 'https://cdn.example.test/other.gif',
+        static_url: 'https://cdn.example.test/other.png',
+      }),
+    ]);
+
+    buildCustomEmojiMap.mockClear();
+
+    try {
+      const { rerender } = render(
+        <span data-testid='reason'>
+          <FilterReason titles={[':known:']} customEmojis={first} />
+          <FilterReason titles={['普通の理由']} customEmojis={first} />
+        </span>,
+      );
+
+      expect(buildCustomEmojiMap).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('img', { name: ':known:' })).toHaveAttribute('src', 'https://cdn.example.test/known.png');
+      expect(reason().textContent).toContain('普通の理由');
+
+      rerender(
+        <span data-testid='reason'>
+          <FilterReason titles={[':other:']} customEmojis={second} />
+          <FilterReason titles={[':other:']} customEmojis={second} />
+        </span>,
+      );
+
+      expect(buildCustomEmojiMap).toHaveBeenCalledTimes(2);
+      expect(screen.getAllByRole('img', { name: ':other:' })).toHaveLength(2);
+      expect(screen.queryByRole('img', { name: ':known:' })).not.toBeInTheDocument();
+
+      rerender(
+        <span data-testid='reason'>
+          <FilterReason titles={[':known:']} customEmojis={first} />
+        </span>,
+      );
+
+      expect(buildCustomEmojiMap).toHaveBeenCalledTimes(2);
+      expect(screen.getByRole('img', { name: ':known:' })).toHaveAttribute('src', 'https://cdn.example.test/known.png');
+    } finally {
+      buildCustomEmojiMap.mockRestore();
+    }
+  });
+
+  it('updates only the connected placeholder when the catalog arrives', () => {
+    let parentRenders = 0;
+
+    class StaticParent extends React.PureComponent {
+
+      render () {
+        parentRenders += 1;
+        return <ConnectedFilterReason titles={['確認 :known:']} />;
+      }
+
+    }
+
+    const store = createStore((state, action) => {
+      if (action.type === 'SET_EMOJIS') {
+        return state.set('custom_emojis', action.customEmojis);
+      }
+
+      return state;
+    }, fromJS({ custom_emojis: [] }));
+
+    render(
+      <Provider store={store}>
+        <span data-testid='reason'>
+          <StaticParent />
+        </span>
+      </Provider>,
+    );
+
+    expect(parentRenders).toBe(1);
+    expect(reason().textContent).toBe('確認 :known:');
+    expect(reason().querySelector('img')).toBeNull();
+
+    store.dispatch({ type: 'SET_EMOJIS', customEmojis: catalog });
+
+    expect(parentRenders).toBe(1);
+    expect(screen.getByRole('img', { name: ':known:' })).toHaveAttribute('src', 'https://cdn.example.test/known.png');
+    expect(reason().textContent).toContain('確認 ');
+    expect(reason().textContent).not.toContain(':known:');
   });
 });
