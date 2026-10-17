@@ -626,14 +626,14 @@ class ScrollableList extends PureComponent {
         direction='newer'
         status={newerLoading ? 'loading' : newerStatus}
         visible={!newerLoading}
-        disabled={newerLoading}
+        disabled={newerLoading || isLoading}
         onClick={this.handleLoadNewer}
       />
     ) : null;
     let loadMore = null;
 
     if (showOlder && olderStatus) {
-      loadMore = <LoadWindowEdge direction='older' status={isLoading ? 'loading' : olderStatus} visible={!isLoading} disabled={isLoading} onClick={this.handleLoadMore} />;
+      loadMore = <LoadWindowEdge direction='older' status={isLoading ? 'loading' : olderStatus} visible={!isLoading} disabled={isLoading || newerLoading} onClick={this.handleLoadMore} />;
     } else if (showOlder) {
       loadMore = <LoadMore visible={!isLoading} onClick={this.handleLoadMore} />;
     }

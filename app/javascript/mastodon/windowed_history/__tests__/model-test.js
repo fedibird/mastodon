@@ -2,6 +2,7 @@ import { HISTORY_CAPABILITY, HISTORY_EDGE, WINDOW_HARD_CAP, WINDOW_TARGET } from
 import {
   applyHistoryPage,
   beginHistoryRequest,
+  commitHistoryAnchor,
   failHistoryRequest,
   mergeIdLists,
   nearestRealId,
@@ -207,6 +208,80 @@ describe('windowed history model', () => {
     expect(failed.older.status).toBe(HISTORY_EDGE.ERROR);
     expect(failed.hasOlder).toBe(true);
     expect(failHistoryRequest(started.window, { generation: 1, requestId: 'req-b', direction: 'older' })).toBe(started.window);
+  });
+
+  it('marks a short redis older page as the retained feed edge', () => {
+    const selected = selectInitialWindow(['300', '290', '280'], '280', { target: 10, sourceHasMore: true });
+    const started = beginHistoryRequest(selected.window, {
+      direction: 'older',
+      cursor: '280',
+      requestId: 'older-redis',
+    });
+    const page = applyHistoryPage(started.window, selected.items, {
+      pageIds: ['270'],
+      direction: 'older',
+      cursor: '280',
+      capability: HISTORY_CAPABILITY.REDIS,
+      limit: 20,
+    });
+
+    expect(page.window.older.status).toBe(HISTORY_EDGE.UNAVAILABLE);
+    expect(page.window.hasOlder).toBe(true);
+    expect(page.items).toContain('270');
+
+    const database = applyHistoryPage(started.window, selected.items, {
+      pageIds: ['270'],
+      direction: 'older',
+      cursor: '280',
+      capability: HISTORY_CAPABILITY.DATABASE,
+      limit: 20,
+    });
+
+    expect(database.window.older.status).toBe(HISTORY_EDGE.EXHAUSTED);
+    expect(database.window.hasOlder).toBe(false);
+  });
+
+  it('pages one direction at a time and refuses to grow an unresolved window', () => {
+    const selected = selectInitialWindow(sequence(12, 1200), sequence(12, 1200)[4], { target: 8, sourceHasMore: true });
+    const older = beginHistoryRequest(selected.window, {
+      direction: 'older',
+      cursor: selected.window.oldestId,
+      requestId: 'older-1',
+    });
+    const newer = beginHistoryRequest(older.window, {
+      direction: 'newer',
+      cursor: older.window.newestId,
+      requestId: 'newer-1',
+    });
+
+    expect(older.accepted).toBe(true);
+    expect(newer.accepted).toBe(false);
+    expect(newer.window.newer.status).not.toBe(HISTORY_EDGE.LOADING);
+
+    const unresolved = selectInitialWindow(sequence(30, 3000), null, { target: 8, sourceHasMore: true });
+    const blocked = beginHistoryRequest(unresolved.window, {
+      direction: 'older',
+      cursor: unresolved.window.oldestId,
+      requestId: 'grow',
+    });
+
+    expect(unresolved.window.unbounded).toBe(true);
+    expect(blocked.accepted).toBe(false);
+  });
+
+  it('caps an unresolved window around the middle once capture gives up', () => {
+    const items = sequence(40, 4000);
+    const unresolved = selectInitialWindow(items, null, { target: 8, sourceHasMore: true });
+    const capped = commitHistoryAnchor(unresolved.items, unresolved.window, null, { hardCap: 10 });
+
+    expect(capped.window.unbounded).toBe(false);
+    expect(capped.window.anchorResolution).toBe('missing');
+    expect(capped.items).not.toContain(items[0]);
+    expect(capped.items).not.toContain(items[items.length - 1]);
+    expect(realLength(capped.items)).toBeLessThanOrEqual(10);
+    expect(capped.window.hasNewer).toBe(true);
+    expect(capped.window.hasOlder).toBe(true);
+    expect(capped.window.revision).toBe(1);
   });
 
   it('stays inside the hard cap after trimming the far side', () => {

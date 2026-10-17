@@ -124,8 +124,31 @@ const expandRange = (items, anchorIndex, target) => {
   return { start, end };
 };
 
+const sameItems = (left, right) => {
+  const before = left || [];
+  const after = right || [];
+
+  if (before.length !== after.length) {
+    return false;
+  }
+
+  for (let index = 0; index < before.length; index += 1) {
+    if (before[index] !== after[index]) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+const withRevision = (previous, previousItems, nextItems, windowState) => ({
+  ...windowState,
+  revision: (previous.revision || 0) + (sameItems(previousItems, nextItems) ? 0 : 1),
+});
+
 const blankWindow = (boundaryId, sourceHasMore) => ({
   generation: 1,
+  revision: 0,
   anchorId: null,
   anchorResolution: 'unspecified',
   unbounded: false,
@@ -356,13 +379,15 @@ const classifyNewer = ({ ids, limit, partial, capability, boundaryId, newestAfte
   return HISTORY_EDGE.EXHAUSTED;
 };
 
-const classifyOlder = ({ ids, limit, partial, advanced }) => {
+const classifyOlder = ({ ids, limit, partial, advanced, capability }) => {
   if (partial) {
     return HISTORY_EDGE.OPEN;
   }
 
+  // A short Redis page is the retained feed's edge. Posts older than
+  // FeedManager::MAX_ITEMS may still exist, so this is not a true end.
   if (ids.length < limit) {
-    return HISTORY_EDGE.EXHAUSTED;
+    return capability === HISTORY_CAPABILITY.REDIS ? HISTORY_EDGE.UNAVAILABLE : HISTORY_EDGE.EXHAUSTED;
   }
 
   if (!advanced) {
@@ -446,6 +471,7 @@ export const applyHistoryPage = (windowState, items, {
         limit,
         partial,
         advanced: advancedOlder || acceptedIds.length === 0,
+        capability,
       }),
       cursor: edges.oldestId,
     };
@@ -472,7 +498,7 @@ export const applyHistoryPage = (windowState, items, {
 
   return {
     items: nextItems,
-    window: {
+    window: withRevision(state, items, nextItems, {
       ...state,
       anchorId: placed.anchorId,
       anchorResolution: placed.anchorResolution,
@@ -482,7 +508,7 @@ export const applyHistoryPage = (windowState, items, {
       hasOlder,
       newer,
       older,
-    },
+    }),
   };
 };
 
@@ -490,6 +516,16 @@ export const beginHistoryRequest = (windowState, { direction, cursor, requestId,
   const edge = windowState[direction];
 
   if (!edge || !isReal(cursor) || !requestId) {
+    return { accepted: false, window: windowState };
+  }
+
+  if (windowState.unbounded) {
+    return { accepted: false, window: windowState };
+  }
+
+  const opposite = direction === 'newer' ? windowState.older : windowState.newer;
+
+  if (opposite && opposite.status === HISTORY_EDGE.LOADING) {
     return { accepted: false, window: windowState };
   }
 
@@ -717,9 +753,75 @@ export const reconcileHasMore = (sourceHasMore, sourceItems, historyItems, windo
   return windowState.older.status !== HISTORY_EDGE.EXHAUSTED;
 };
 
-export const commitHistoryAnchor = (items, windowState, anchorId, { target = WINDOW_TARGET, sourceHasMore } = {}) => {
+const realIndexes = (items) => {
+  const indexes = [];
+
+  (items || []).forEach((id, index) => {
+    if (isReal(id)) {
+      indexes.push(index);
+    }
+  });
+
+  return indexes;
+};
+
+// No reading row was found. Keep a middle slice instead of the newest page,
+// and stop the unbounded copy from growing.
+export const capUnresolvedWindow = (items, windowState, { hardCap = WINDOW_HARD_CAP } = {}) => {
+  const list = items || [];
+  const indexes = realIndexes(list);
+  const state = windowState;
+  let sliced = list;
+  let droppedNewer = 0;
+  let droppedOlder = false;
+
+  if (indexes.length > hardCap) {
+    const extra = indexes.length - hardCap;
+    droppedNewer = Math.floor(extra / 2);
+    const start = indexes[droppedNewer];
+    const end = indexes[droppedNewer + hardCap - 1] + 1;
+
+    sliced = list.slice(start, end);
+    droppedOlder = droppedNewer + hardCap < indexes.length;
+  }
+
+  const edges = edgeIds(sliced);
+  const hasNewer = droppedNewer > 0;
+  const hasOlder = droppedOlder || !!state.hasOlder;
+
+  return {
+    items: sliced,
+    window: {
+      ...state,
+      unbounded: false,
+      anchorId: null,
+      anchorResolution: 'missing',
+      newestId: edges.newestId,
+      oldestId: edges.oldestId,
+      hasNewer,
+      hasOlder,
+      newer: edgeState(hasNewer ? HISTORY_EDGE.OPEN : HISTORY_EDGE.EXHAUSTED, edges.newestId),
+      older: edgeState(hasOlder ? HISTORY_EDGE.OPEN : HISTORY_EDGE.EXHAUSTED, edges.oldestId),
+    },
+  };
+};
+
+const finishAnchorPlacement = (previousItems, placed, previousWindow) => ({
+  items: placed.items,
+  window: withRevision(previousWindow, previousItems, placed.items, placed.window),
+});
+
+export const commitHistoryAnchor = (items, windowState, anchorId, { target = WINDOW_TARGET, sourceHasMore, hardCap = WINDOW_HARD_CAP } = {}) => {
   if (!windowState) {
     return null;
+  }
+
+  if (!isReal(anchorId)) {
+    if (!windowState.unbounded) {
+      return { items, window: windowState };
+    }
+
+    return finishAnchorPlacement(items, capUnresolvedWindow(items, windowState, { hardCap }), windowState);
   }
 
   if (!windowState.unbounded) {
@@ -744,12 +846,12 @@ export const commitHistoryAnchor = (items, windowState, anchorId, { target = WIN
     boundaryId: windowState.boundaryId,
   });
 
-  return {
+  return finishAnchorPlacement(items, {
     items: selected.items,
     window: {
       ...selected.window,
       generation: windowState.generation,
       boundaryId: windowState.boundaryId,
     },
-  };
+  }, windowState);
 };

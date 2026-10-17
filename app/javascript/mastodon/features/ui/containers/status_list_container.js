@@ -84,6 +84,7 @@ const windowHistoryProps = (state, dataId) => {
       olderStatus: null,
       anchorResolution: null,
       historyUnbounded: false,
+      windowRevision: 0,
     };
   }
 
@@ -95,6 +96,7 @@ const windowHistoryProps = (state, dataId) => {
     olderStatus: history.getIn(['older', 'status']),
     anchorResolution: history.get('anchorResolution'),
     historyUnbounded: history.get('unbounded'),
+    windowRevision: history.get('revision') || 0,
   };
 };
 

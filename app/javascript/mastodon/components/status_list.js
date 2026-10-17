@@ -40,6 +40,7 @@ class StatusList extends ImmutablePureComponent {
     windowedHistory: PropTypes.bool,
     anchorResolution: PropTypes.string,
     historyUnbounded: PropTypes.bool,
+    windowRevision: PropTypes.number,
     onCommitWindowAnchor: PropTypes.func,
     prepend: PropTypes.node,
     emptyMessage: PropTypes.node,
@@ -64,52 +65,100 @@ class StatusList extends ImmutablePureComponent {
     return this.props.featuredStatusIds ? this.props.featuredStatusIds.size : 0;
   }
 
+  anchorAttempts = 0;
+
   componentDidMount () {
-    this.commitWindowAnchor();
+    this.scheduleAnchorCapture();
   }
 
   componentDidUpdate (prevProps) {
-    const anchor = this.pendingWindowAnchor;
-    const settled = prevProps.statusIds !== this.props.statusIds
-      || (prevProps.isLoading && !this.props.isLoading)
-      || (prevProps.newerLoading && !this.props.newerLoading);
+    const pending = this.pendingWindowAnchor;
+    const revision = this.props.windowRevision || 0;
 
-    if (anchor && settled) {
+    if (pending && revision !== pending.revision) {
       this.pendingWindowAnchor = null;
-      this.restoreReadingAnchor(anchor, { kind: this.windowAnchorKind() });
+
+      if (pending.anchor && pending.anchor.statusId) {
+        this.restoreReadingAnchor(pending.anchor, { kind: this.windowAnchorKind() });
+      }
+    } else if (pending) {
+      const loading = !!(this.props.isLoading || this.props.newerLoading);
+      const wasLoading = !!(prevProps.isLoading || prevProps.newerLoading);
+
+      if (!loading && wasLoading) {
+        this.pendingWindowAnchor = null;
+      }
     }
+
+    if (this.props.historyUnbounded && !prevProps.historyUnbounded) {
+      this.anchorAttempts = 0;
+    }
+
+    this.scheduleAnchorCapture();
   }
 
   componentWillUnmount () {
     this.pendingWindowAnchor = null;
+    this.stopAnchorCapture();
     this.handleLoadOlder.cancel();
     this.handleLoadNewer.cancel();
   }
 
-  windowAnchorKind = () => (this.props.bindToDocument ? 'document' : 'history')
-
-  commitWindowAnchor = () => {
-    const { windowedHistory, anchorResolution, historyUnbounded, onCommitWindowAnchor } = this.props;
-    const needsPlacement = historyUnbounded || anchorResolution === 'missing';
-
-    if (!windowedHistory || !needsPlacement || !onCommitWindowAnchor) {
-      return;
-    }
-
-    const anchor = this.captureReadingAnchor({ kind: this.windowAnchorKind() });
-
-    if (anchor && anchor.statusId) {
-      onCommitWindowAnchor(anchor.statusId);
+  stopAnchorCapture = () => {
+    if (this.anchorFrame) {
+      cancelAnimationFrame(this.anchorFrame);
+      this.anchorFrame = null;
     }
   }
 
-  rememberWindowAnchor = () => {
+  windowAnchorKind = () => (this.props.bindToDocument ? 'document' : 'history')
+
+  scheduleAnchorCapture = () => {
+    const { windowedHistory, historyUnbounded, onCommitWindowAnchor } = this.props;
+
+    if (!windowedHistory || !historyUnbounded || !onCommitWindowAnchor || this.anchorFrame || this.anchorAttempts >= 8) {
+      return;
+    }
+
+    const tick = () => {
+      this.anchorFrame = null;
+
+      if (!this.props.historyUnbounded || !this.props.onCommitWindowAnchor) {
+        return;
+      }
+
+      const anchor = this.captureReadingAnchor({ kind: this.windowAnchorKind() });
+
+      if (anchor && anchor.statusId) {
+        this.rememberWindowAnchor(anchor);
+        this.props.onCommitWindowAnchor(anchor.statusId);
+        return;
+      }
+
+      this.anchorAttempts += 1;
+
+      if (this.anchorAttempts < 8) {
+        this.anchorFrame = requestAnimationFrame(tick);
+        return;
+      }
+
+      this.props.onCommitWindowAnchor(null);
+    };
+
+    this.anchorFrame = requestAnimationFrame(tick);
+  }
+
+  rememberWindowAnchor = (captured) => {
     if (!this.props.windowedHistory) {
       return null;
     }
 
-    const anchor = this.captureReadingAnchor({ kind: this.windowAnchorKind() });
-    this.pendingWindowAnchor = anchor;
+    const anchor = captured || this.captureReadingAnchor({ kind: this.windowAnchorKind() });
+
+    this.pendingWindowAnchor = {
+      anchor,
+      revision: this.props.windowRevision || 0,
+    };
 
     return anchor && anchor.statusId;
   }
@@ -134,6 +183,10 @@ class StatusList extends ImmutablePureComponent {
 
   handleLoadOlder = debounce((gapCursor) => {
     if (this.props.windowedHistory) {
+      if (this.props.newerLoading || this.props.historyUnbounded) {
+        return;
+      }
+
       const anchorId = this.rememberWindowAnchor();
       this.props.onLoadMore(gapCursor, anchorId);
       return;
@@ -148,7 +201,7 @@ class StatusList extends ImmutablePureComponent {
   }
 
   handleLoadNewer = debounce(() => {
-    if (!this.props.onLoadNewer) {
+    if (!this.props.onLoadNewer || this.props.isLoading || this.props.historyUnbounded) {
       return;
     }
 

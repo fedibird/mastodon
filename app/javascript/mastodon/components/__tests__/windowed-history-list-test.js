@@ -85,6 +85,7 @@ describe('StatusList windowed history', () => {
           newerStatus='open'
           olderStatus='open'
           statusIds={ImmutableList(['100', '90'])}
+          windowRevision={1}
           onLoadMore={onLoadMore}
           onLoadNewer={onLoadNewer}
         />
@@ -107,7 +108,31 @@ describe('StatusList windowed history', () => {
             hasNewer
             newerStatus='open'
             olderStatus='open'
+            statusIds={ImmutableList(['100', '90', '60'])}
+            windowRevision={1}
+            onLoadMore={onLoadMore}
+            onLoadNewer={onLoadNewer}
+          />
+        </Provider>,
+      );
+    });
+
+    expect(mockRestoreReadingAnchor).not.toHaveBeenCalled();
+
+    act(() => {
+      rerender(
+        <Provider store={store()}>
+          <StatusList
+            scrollKey='history'
+            trackScroll={false}
+            windowedHistory
+            hasMore
+            hasNewer
+            newerStatus='open'
+            olderStatus='open'
+            isLoading
             statusIds={ImmutableList(['100', '90', '70'])}
+            windowRevision={2}
             onLoadMore={onLoadMore}
             onLoadNewer={onLoadNewer}
           />
@@ -117,6 +142,6 @@ describe('StatusList windowed history', () => {
 
     expect(mockRestoreReadingAnchor).toHaveBeenCalled();
     fireEvent.click(getByTestId('newer'));
-    expect(onLoadNewer).toHaveBeenCalledWith('80');
+    expect(onLoadNewer).not.toHaveBeenCalled();
   });
 });

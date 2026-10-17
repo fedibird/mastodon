@@ -129,7 +129,7 @@ describe('windowed history reducer', () => {
     expect(stale.getIn([splitId, 'isLoading'])).toBe(true);
   });
 
-  it('records an older failure without clearing the newer loading flag or the canonical timeline', () => {
+  it('refuses the opposite page while one direction is loading and keeps canonical items', () => {
     const { ids, anchorId } = sourceItems(400, 250);
     let state = create(withHome(ids, { pendingItems: ImmutableList(['0005100']) }), anchorId);
     const newestId = state.getIn([splitId, 'window', 'newestId']);
@@ -168,7 +168,8 @@ describe('windowed history reducer', () => {
     expect(state.getIn(['home', 'pendingItems'])).toEqual(ImmutableList(['0005200', '0005100']));
     expect(state.getIn(['home', 'items'])).toEqual(ids);
     expect(state.getIn([splitId, 'window', 'older', 'status'])).toBe('error');
-    expect(state.getIn([splitId, 'window', 'newer', 'status'])).toBe('loading');
+    expect(state.getIn([splitId, 'window', 'newer', 'status'])).not.toBe('loading');
+    expect(state.getIn([splitId, 'window', 'newer', 'requestId'])).toBeNull();
     expect(state.getIn([splitId, 'hasMore'])).toBe(false);
     expect(state.getIn([splitId, 'window', 'hasOlder'])).toBe(true);
   });

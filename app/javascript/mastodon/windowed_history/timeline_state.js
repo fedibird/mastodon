@@ -29,6 +29,7 @@ export const plainWindow = (windowState) => {
 
   return {
     generation: windowState.get('generation'),
+    revision: windowState.get('revision') || 0,
     anchorId: windowState.get('anchorId') || null,
     anchorResolution: windowState.get('anchorResolution'),
     unbounded: !!windowState.get('unbounded'),
@@ -58,10 +59,11 @@ const statusIds = (statuses) => {
 
 const writeWindow = (timeline, items, windowState) => {
   const olderStatus = windowState.older.status;
+  const awaitingAnchor = !!windowState.unbounded;
 
   return timeline.withMutations(map => {
     map.set('items', ImmutableList(items));
-    map.set('hasMore', !!windowState.hasOlder && (olderStatus === HISTORY_EDGE.OPEN || olderStatus === HISTORY_EDGE.LOADING));
+    map.set('hasMore', !awaitingAnchor && !!windowState.hasOlder && (olderStatus === HISTORY_EDGE.OPEN || olderStatus === HISTORY_EDGE.LOADING));
     map.set('isLoading', olderStatus === HISTORY_EDGE.LOADING);
     map.set('window', fromJS(windowState));
   });

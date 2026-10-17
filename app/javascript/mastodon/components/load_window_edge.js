@@ -8,7 +8,7 @@ const messages = defineMessages({
   newerError: { id: 'timeline_history.load_newer_error', defaultMessage: 'Could not load newer posts. Try again' },
   olderError: { id: 'timeline_history.load_older_error', defaultMessage: 'Could not load older posts. Try again' },
   newerUnavailable: { id: 'timeline_history.newer_unavailable', defaultMessage: 'Newer posts in this range are no longer in the feed. Try again' },
-  olderUnavailable: { id: 'timeline_history.older_unavailable', defaultMessage: 'Older posts in this range are no longer in the feed. Try again' },
+  olderUnavailable: { id: 'timeline_history.older_unavailable', defaultMessage: 'Reached the end of the retained feed. Older posts may still exist outside it. Try again' },
   anchorMissing: { id: 'timeline_history.anchor_missing', defaultMessage: 'Could not find the post you were reading. History was not jumped to the top.' },
 });
 
