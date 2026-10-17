@@ -13,14 +13,22 @@
               wrapper: :with_label
 
 .fields-group
-  = f.input :context,
-            as: :check_boxes,
-            collection_wrapper_tag: 'ul',
-            collection: CustomFilter::VALID_CONTEXTS,
-            include_blank: false,
-            item_wrapper_tag: 'li',
-            label_method: ->(context) { I18n.t("filters.contexts.#{context}") },
-            wrapper: :with_block_label
+  %fieldset.filter-contexts
+    %legend.filter-contexts__legend
+      = t('filters.edit.contexts')
+      %abbr{ title: t('simple_form.required.text') }= t('simple_form.required.mark')
+    %p.filter-contexts__hint= t('filters.edit.contexts_hint')
+    - if f.object.errors[:context].present?
+      %p.filter-contexts__error= f.object.errors[:context].to_sentence
+    = f.collection_check_boxes :context, CustomFilter::VALID_CONTEXTS, :itself, :itself do |builder|
+      - context = builder.value
+      - input_id = "custom_filter_context_#{context}"
+      - description_id = "#{input_id}_description"
+      .filter-contexts__item
+        = builder.label(for: input_id, class: 'filter-contexts__choice') do
+          = builder.check_box(id: input_id, aria: { describedby: description_id })
+          %span.filter-contexts__name= t("filters.contexts.#{context}")
+        %p.filter-contexts__description{ id: description_id }= t("filters.context_descriptions.#{context}")
 
 %hr.spacer/
 
@@ -46,18 +54,9 @@
 
 %h4= t('filters.edit.keywords')
 
-.table-wrapper
-  %table.table.keywords-table
-    %thead
-      %tr
-        %th= t('simple_form.labels.defaults.phrase')
-        %th= t('simple_form.labels.defaults.whole_word')
-        %th
-    %tbody
-      = f.simple_fields_for :keywords do |keyword|
-        = render 'keyword_fields', f: keyword
-    %tfoot
-      %tr
-        %td{ colspan: 3 }
-          = link_to_add_association f, :keywords, class: 'table-action-link', partial: 'keyword_fields', 'data-association-insertion-node': '.keywords-table tbody', 'data-association-insertion-method': 'append' do
-            = safe_join([fa_icon('plus'), t('filters.edit.add_keyword')])
+.filter-keywords
+  .filter-keywords__list
+    = f.simple_fields_for :keywords do |keyword|
+      = render 'keyword_fields', f: keyword
+  = link_to_add_association f, :keywords, class: 'filter-keywords__add', partial: 'keyword_fields', 'data-association-insertion-node': '.filter-keywords__list', 'data-association-insertion-method': 'append' do
+    = safe_join([fa_icon('plus'), t('filters.edit.add_keyword')])

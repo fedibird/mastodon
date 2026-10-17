@@ -600,7 +600,7 @@ en_GB:
       home: Home and lists
       notifications: Notifications
       public: Public timelines
-      thread: Conversations
+      thread: Post threads
     edit:
       title: Edit filter
     errors:

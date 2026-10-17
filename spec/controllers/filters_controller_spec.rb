@@ -67,6 +67,131 @@ RSpec.describe FiltersController do
     end
   end
 
+  describe 'filter form layout' do
+    let(:long_keyword) { '長文のキーワード：spoilers about the season finale and more' }
+
+    before do
+      Fabricate(:custom_filter_keyword, custom_filter: filter, keyword: long_keyword, whole_word: false)
+      Fabricate(:custom_filter_keyword, custom_filter: filter, keyword: 'spoiler', whole_word: true)
+    end
+
+    [false, true].each do |embedded|
+      context "with embedded=#{embedded}" do
+        let(:options) { embedded ? { embedded: '1' } : {} }
+
+        it 'stacks context choices with descriptions and keyword cards' do
+          user.update!(locale: 'ja')
+          get :edit, params: options.merge(id: filter)
+
+          expect(response).to have_http_status(200)
+          document = Nokogiri::HTML(response.body)
+          expect(document.at_css('table.keywords-table')).to be_nil
+          expect(document.at_css('fieldset.filter-contexts legend').text).to include('適用する場所')
+          expect(document.at_css('.filter-contexts__hint').text).to include('複数選べます')
+
+          items = document.css('.filter-contexts__item')
+          expect(items.map { |item| item.at_css('input[type="checkbox"]')['value'] }).to eq(CustomFilter::VALID_CONTEXTS)
+          items.each do |item|
+            checkbox = item.at_css('input[type="checkbox"]')
+            description = item.at_css('.filter-contexts__description')
+            label = item.at_css('label.filter-contexts__choice')
+            expect(checkbox['name']).to eq('custom_filter[context][]')
+            expect(label['for']).to eq(checkbox['id'])
+            expect(checkbox['aria-describedby']).to eq(description['id'])
+            expect(description.text).to eq(I18n.t("filters.context_descriptions.#{checkbox['value']}", locale: :ja))
+            expect(item.at_css('.filter-contexts__name').text).to eq(I18n.t("filters.contexts.#{checkbox['value']}", locale: :ja))
+          end
+          expect(document.at_css('#custom_filter_context_home')['checked']).to eq('checked')
+          expect(document.at_css('#custom_filter_context_notifications')['checked']).to eq('checked')
+          expect(document.at_css('#custom_filter_context_public')['checked']).to be_nil
+          expect(document.css('.filter-contexts__item').map { |item| item.ancestors('.filter-contexts').first }).to all(be_present)
+
+          cards = document.css('.filter-keywords__list .filter-keyword.nested-fields')
+          expect(cards.size).to eq(2)
+          expect(cards.map { |card| card.at_css('input[name$="[keyword]"]')['value'] }).to contain_exactly(long_keyword, 'spoiler')
+          cards.each do |card|
+            keyword = card.at_css('input[name$="[keyword]"]')
+            whole_word = card.at_css('input[type="checkbox"][name$="[whole_word]"]')
+            hint = card.at_css('.filter-keyword__hint')
+            expect(card.at_css('label')['for']).to eq(keyword['id'])
+            expect(card.at_css('.filter-keyword__whole-word-label')['for']).to eq(whole_word['id'])
+            expect(whole_word['aria-describedby']).to eq(hint['id'])
+            expect(card.at_css('input[name$="[id]"]')).to be_present
+            expect(card.at_css('input[name$="[_destroy]"]')).to be_present
+            expect(card.at_css('a.remove_fields')).to be_present
+          end
+          spoiler = cards.find { |card| card.at_css('input[name$="[keyword]"]')['value'] == 'spoiler' }
+          phrase = cards.find { |card| card.at_css('input[name$="[keyword]"]')['value'] == long_keyword }
+          expect(spoiler.at_css('input[type="checkbox"][name$="[whole_word]"]')['checked']).to eq('checked')
+          expect(phrase.at_css('input[type="checkbox"][name$="[whole_word]"]')['checked']).to be_nil
+
+          add = document.at_css('a.filter-keywords__add.add_fields')
+          expect(add['data-association-insertion-node']).to eq('.filter-keywords__list')
+          expect(add['data-association-insertion-method']).to eq('append')
+          template = add['data-association-insertion-template']
+          expect(template).to include('filter-keyword', 'nested-fields', 'whole_word')
+          expect(template).not_to include('<tr')
+        end
+      end
+    end
+
+    it 'renders the English names and descriptions' do
+      user.update!(locale: 'en')
+      get :new
+
+      document = Nokogiri::HTML(response.body)
+      expect(document.css('.filter-contexts__name').map(&:text)).to eq([
+        'Home and lists',
+        'Notifications',
+        'Public timelines',
+        'Post threads',
+        'Profile posts',
+      ])
+      expect(document.at_css('#custom_filter_context_public_description').text).to include('direct messages', 'not covered by any context')
+      expect(document.at_css('#custom_filter_context_thread_description').text).to include('opened post itself', 'direct-messages column')
+      expect(document.at_css('#custom_filter_context_home_description').text).to include('lists')
+      checkbox = document.at_css('.filter-keyword input[type="checkbox"][name$="[whole_word]"]')
+      expect(checkbox['checked']).to eq('checked')
+    end
+
+    it 'keeps keyword values and the context error when validation fails' do
+      user.update!(locale: 'ja')
+      post :create, params: {
+        custom_filter: {
+          title: 'Quiet words',
+          context: [''],
+          filter_action: 'warn',
+          keywords_attributes: {
+            '0' => { keyword: long_keyword, whole_word: '0' },
+          },
+        },
+      }
+
+      expect(response).to have_http_status(200)
+      expect(CustomFilter.where(phrase: 'Quiet words')).to be_empty
+      document = Nokogiri::HTML(response.body)
+      expect(document.at_css('.filter-contexts__error').text).to include(I18n.t('filters.errors.invalid_context', locale: :ja))
+      expect(document.at_css('.filter-keyword input[name$="[keyword]"]')['value']).to eq(long_keyword)
+      expect(document.at_css('.filter-keyword input[type="checkbox"][name$="[whole_word]"]')['checked']).to be_nil
+      expect(document.at_css('a.remove_fields')).to be_present
+    end
+
+    it 'does not invent a context when none is submitted' do
+      expect do
+        post :create, params: {
+          custom_filter: {
+            title: 'Quiet words',
+            filter_action: 'warn',
+            keywords_attributes: { '0' => { keyword: 'spoiler', whole_word: '1' } },
+          },
+        }
+      end.not_to change(CustomFilter, :count)
+
+      expect(response).to have_http_status(200)
+      expect(response.body).to include(I18n.t('filters.errors.invalid_context'))
+    end
+  end
+
   describe 'GET #index' do
     it 'keeps the raw title as fallback inside a custom emoji marker' do
       filter.update!(title: 'Work :fedibird:')

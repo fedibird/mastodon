@@ -1,8 +1,19 @@
-%tr.nested-fields
-  %td= f.input :keyword, as: :string
-  %td
-    .label_input__wrapper= f.input_field :whole_word
-  %td
-    = f.hidden_field :id if f.object&.persisted? # Required so Rails doesn't put the field outside of the <tr/>
-    = link_to_remove_association(f, class: 'table-action-link') do
+- whole_word_id = f.object_name.to_s.gsub(/\]\[|[^-a-zA-Z0-9:.]/, '_').sub(/_$/, '') + '_whole_word'
+- whole_word_hint_id = "#{whole_word_id}_hint"
+
+.filter-keyword.nested-fields
+  .filter-keyword__field
+    = f.input :keyword,
+              as: :string,
+              wrapper: :with_block_label,
+              label: t('simple_form.labels.defaults.phrase'),
+              hint: false
+  .filter-keyword__whole-word
+    = f.label :whole_word, class: 'filter-keyword__whole-word-label' do
+      = f.check_box :whole_word, id: whole_word_id, aria: { describedby: whole_word_hint_id }
+      %span.filter-keyword__whole-word-name= t('simple_form.labels.defaults.whole_word')
+    %p.filter-keyword__hint{ id: whole_word_hint_id }= t('simple_form.hints.defaults.whole_word')
+  .filter-keyword__actions
+    = f.hidden_field :id if f.object&.persisted?
+    = link_to_remove_association(f, class: 'filter-keyword__remove') do
       = safe_join([fa_icon('times'), t('filters.index.delete')])

@@ -1256,33 +1256,228 @@ code {
   }
 }
 
-.keywords-table {
-  thead {
-    th {
-      white-space: nowrap;
-    }
+.filter-contexts,
+.filter-keywords,
+.filter-keyword {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
 
-    th:first-child {
-      width: 100%;
+.filter-contexts {
+  margin: 0;
+  padding: 0;
+  border: 0;
+
+  &__legend {
+    margin: 0 0 6px;
+    padding: 0;
+    color: $primary-text-color;
+    font-size: 16px;
+    font-weight: 500;
+  }
+
+  &__hint,
+  &__description {
+    color: $darker-text-color;
+    font-size: 13px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  &__hint {
+    margin: 0 0 12px;
+  }
+
+  &__error {
+    display: block;
+    margin: 0 0 12px;
+    color: lighten($error-red, 12%);
+    font-weight: 500;
+    overflow-wrap: anywhere;
+  }
+
+  &__item {
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
+    margin: 0 0 8px;
+    padding: 12px;
+    background: lighten($ui-base-color, 4%);
+    border: 1px solid lighten($ui-base-color, 8%);
+    border-radius: 4px;
+  }
+
+  &__choice {
+    display: flex;
+    align-items: flex-start;
+    min-height: 44px;
+    margin: 0;
+    cursor: pointer;
+    color: $primary-text-color;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+
+  &__choice input[type='checkbox'] {
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    margin: 1px 0 0;
+    margin-inline-end: 12px;
+
+    &:focus {
+      outline: 2px solid $highlight-text-color;
+      outline-offset: 2px;
     }
   }
 
-  tfoot {
-    td {
-      border: 0;
+  &__name {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  &__description {
+    margin: 8px 0 0;
+    margin-inline-start: 32px;
+  }
+}
+
+.filter-keywords {
+  min-width: 0;
+  max-width: 100%;
+
+  &__list {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  &__add {
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+    max-width: 100%;
+    min-height: 44px;
+    margin-top: 4px;
+    padding: 10px 14px;
+    color: $highlight-text-color;
+    font-weight: 700;
+    line-height: 1.4;
+    text-decoration: none;
+    background: lighten($ui-base-color, 4%);
+    border: 1px solid lighten($ui-base-color, 12%);
+    border-radius: 4px;
+    overflow-wrap: anywhere;
+
+    .fa {
+      margin-inline-end: 8px;
+    }
+
+    &:hover,
+    &:focus {
+      color: $primary-text-color;
+      outline: 2px solid $highlight-text-color;
+      outline-offset: 2px;
     }
   }
+}
+
+.filter-keyword {
+  margin: 0 0 8px;
+  padding: 12px;
+  background: lighten($ui-base-color, 4%);
+  border: 1px solid lighten($ui-base-color, 8%);
+  border-radius: 4px;
 
   .input.string {
+    max-width: 100%;
     margin-bottom: 0;
   }
 
-  .label_input__wrapper {
-    margin-top: 10px;
+  input[type='text'] {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
   }
 
-  .table-action-link {
-    margin-top: 10px;
-    white-space: nowrap;
+  &__field,
+  &__whole-word,
+  &__actions {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  &__whole-word {
+    margin-top: 12px;
+  }
+
+  &__whole-word-label {
+    display: flex;
+    align-items: flex-start;
+    min-height: 44px;
+    margin: 0;
+    cursor: pointer;
+    color: $primary-text-color;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+
+  &__whole-word-label input[type='checkbox'] {
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    margin: 1px 0 0;
+    margin-inline-end: 12px;
+
+    &:focus {
+      outline: 2px solid $highlight-text-color;
+      outline-offset: 2px;
+    }
+  }
+
+  &__whole-word-name {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  &__hint {
+    margin: 4px 0 0;
+    margin-inline-start: 32px;
+    color: $darker-text-color;
+    font-size: 13px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  &__actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 8px;
+  }
+
+  &__remove {
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+    min-height: 44px;
+    padding: 8px 12px;
+    color: lighten($error-red, 12%);
+    font-weight: 700;
+    text-decoration: none;
+    border-radius: 4px;
+
+    .fa {
+      margin-inline-end: 8px;
+    }
+
+    &:hover,
+    &:focus {
+      color: $primary-text-color;
+      background: lighten($ui-base-color, 8%);
+      outline: 2px solid $highlight-text-color;
+      outline-offset: 2px;
+    }
   }
 }
