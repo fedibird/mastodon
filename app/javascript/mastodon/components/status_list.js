@@ -14,7 +14,7 @@ import { isIOS } from 'mastodon/is_mobile';
 import { showReloadButton } from '../initial_state';
 import { List as ImmutableList } from 'immutable';
 
-export default @connect()
+export default @connect(null, null, null, { forwardRef: true })
 class StatusList extends ImmutablePureComponent {
 
   static propTypes = {
@@ -110,6 +110,22 @@ class StatusList extends ImmutablePureComponent {
   setRef = c => {
     this.node = c;
   }
+
+  getTimelineScrollHost = (kind) => (
+    this.node && this.node.getTimelineScrollHost ? this.node.getTimelineScrollHost(kind) : { kind: kind || 'pane', list: null, scroller: null }
+  )
+
+  captureReadingAnchor = (options) => (
+    this.node && this.node.captureReadingAnchor ? this.node.captureReadingAnchor(options) : { version: 1, statusId: null, displayRowId: null, offsetPx: 0, alignment: 'top' }
+  )
+
+  restoreReadingAnchor = (anchor, options) => (
+    this.node && this.node.restoreReadingAnchor ? this.node.restoreReadingAnchor(anchor, options) : { ok: false, reason: 'missing_host' }
+  )
+
+  scrollToLoadedStatus = (statusId, options) => (
+    this.node && this.node.scrollToLoadedStatus ? this.node.scrollToLoadedStatus(statusId, options) : { ok: false, reason: 'missing_host' }
+  )
 
   render () {
     const { statusIds, featuredStatusIds, filterStatusIds, onLoadMore, timelineId, contextTypeForId, warningTitlesForId, sourceBadgesForId, badgeRevision, showCard, trackIntersection, immediateStatusIds, ...other } = this.props;

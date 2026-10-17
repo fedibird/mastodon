@@ -12,6 +12,16 @@ import { attachFullscreenListener, detachFullscreenListener, isFullscreen } from
 import LoadingIndicator from './loading_indicator';
 import { connect } from 'react-redux';
 import { FilterSurface } from '../filter_reconciliation/surface';
+import {
+  TIMELINE_ANCHOR_REASONS,
+  TIMELINE_ANCHOR_VERSION,
+  captureTimelineAnchor,
+  isDecimalStatusId,
+  readDocumentVisibleTop,
+  restoreTimelineAnchor,
+  scheduleTimelineAnchorFrames,
+  scrollToLoadedTimelineStatus,
+} from '../timeline_navigation';
 
 const MOUSE_IDLE_DELAY = 300;
 
@@ -71,8 +81,12 @@ class ScrollableList extends PureComponent {
       const scrollHeight = this.getScrollHeight();
       const clientHeight = this.getClientHeight();
       const offset = scrollHeight - scrollTop - clientHeight;
+      const anchorJump = this._isAnchorJumpScroll(scrollTop);
 
-      if (400 > offset && this.props.onLoadMore && this.props.hasMore && !this.props.isLoading) {
+      // A jump to an already loaded row must not page in more. A real user
+      // scroll, including one that arrives before this throttled call runs,
+      // still loads when it is within 400px of the end.
+      if (!anchorJump && 400 > offset && this.props.onLoadMore && this.props.hasMore && !this.props.isLoading) {
         this.props.onLoadMore();
       }
 
@@ -82,12 +96,20 @@ class ScrollableList extends PureComponent {
         this.props.onScroll();
       }
 
-      if (!this.lastScrollWasSynthetic) {
+      if (this._anchorScrollSuppressedLoad && !anchorJump) {
+        this.scrollToTopOnMouseIdle = false;
+        this._cancelAnchorCorrection();
+        this._anchorScrollSuppressedLoad = false;
+        this._syntheticScrollTop = null;
+      } else if (!this.lastScrollWasSynthetic) {
         // If the last scroll wasn't caused by setScrollTop(), assume it was
         // intentional and cancel any pending scroll reset on mouse idle
         this.scrollToTopOnMouseIdle = false;
+        this._cancelAnchorCorrection();
       }
-      this.lastScrollWasSynthetic = false;
+      if (this._syntheticScrollDepth === 0) {
+        this.lastScrollWasSynthetic = false;
+      }
     }
   }, 150, {
     trailing: true,
@@ -97,6 +119,19 @@ class ScrollableList extends PureComponent {
   mouseMovedRecently = false;
   lastScrollWasSynthetic = false;
   scrollToTopOnMouseIdle = false;
+  _syntheticScrollDepth = 0;
+  _anchorScrollSuppressedLoad = false;
+  _syntheticScrollTop = null;
+
+  _isAnchorJumpScroll = (scrollTop) => {
+    if (this._syntheticScrollDepth > 0) {
+      return true;
+    }
+
+    return this._anchorScrollSuppressedLoad &&
+      this._syntheticScrollTop !== null &&
+      Math.abs(scrollTop - this._syntheticScrollTop) <= 1;
+  }
 
   _getScrollingElement = () => {
     if (this.props.bindToDocument) {
@@ -241,7 +276,233 @@ class ScrollableList extends PureComponent {
     if (snapshot !== null) {
       this.setScrollTop(this.getScrollHeight() - snapshot);
     }
+
+    if (prevProps.scrollKey !== this.props.scrollKey || prevProps.bindToDocument !== this.props.bindToDocument) {
+      this._cancelAnchorCorrection();
+    }
+
     this.updateFilterSurface();
+  }
+
+  _currentLocationKey = () => {
+    const location = this.context.router?.history?.location || this.context.router?.route?.location;
+
+    return location ? location.key : null;
+  }
+
+  _cancelAnchorCorrection = () => {
+    if (this._anchorCancel) {
+      this._anchorCancel();
+      this._anchorCancel = null;
+    }
+  }
+
+  _childStatusIds = () => {
+    const ids = [];
+
+    React.Children.forEach(this.props.children, (child) => {
+      if (child && isDecimalStatusId(child.key)) {
+        ids.push(child.key);
+      }
+    });
+
+    return ids;
+  }
+
+  getTimelineScrollHost = (kind) => {
+    const resolved = kind || (this.props.bindToDocument ? 'document' : 'pane');
+
+    if (resolved === 'document') {
+      return {
+        kind: 'document',
+        list: this.node || null,
+        scroller: document.scrollingElement || document.body,
+      };
+    }
+
+    return {
+      kind: resolved === 'live' || resolved === 'history' ? resolved : 'pane',
+      list: this.node || null,
+      scroller: this.node || null,
+    };
+  }
+
+  getTimelineVisibleTop = (host) => {
+    const scrollHost = host || this.getTimelineScrollHost();
+
+    if (!scrollHost || scrollHost.kind === 'document') {
+      return readDocumentVisibleTop();
+    }
+
+    if (!scrollHost.scroller || typeof scrollHost.scroller.getBoundingClientRect !== 'function') {
+      return 0;
+    }
+
+    return scrollHost.scroller.getBoundingClientRect().top;
+  }
+
+  _anchorHostMissing = () => {
+    if (this._anchorUnmounted) {
+      return { ok: false, reason: TIMELINE_ANCHOR_REASONS.STALE };
+    }
+
+    if (!this.node) {
+      return { ok: false, reason: TIMELINE_ANCHOR_REASONS.MISSING_HOST };
+    }
+
+    return null;
+  }
+
+  _provisionalFallback = (allowed, host) => {
+    if (!allowed) {
+      return 'none';
+    }
+
+    return host.kind === 'document' ? 'document-delta' : 'absolute';
+  }
+
+  _beginSyntheticAnchorScroll = () => {
+    this.scrollToTopOnMouseIdle = false;
+    this._syntheticScrollDepth += 1;
+    this.lastScrollWasSynthetic = true;
+    this._anchorScrollSuppressedLoad = true;
+
+    return this.getScrollTop();
+  }
+
+  _finishSyntheticAnchorScroll = (before) => {
+    this._syntheticScrollDepth = Math.max(0, this._syntheticScrollDepth - 1);
+    const top = this.getScrollTop();
+    const moved = top !== before;
+
+    // A synchronous scroll listener clears the synthetic flag. Put it back
+    // when this jump actually moved, so the throttled trailing event does
+    // not cancel the one or two correction frames.
+    this.lastScrollWasSynthetic = moved || this._syntheticScrollDepth > 0;
+
+    if (moved) {
+      this._syntheticScrollTop = top;
+    } else if (this._syntheticScrollDepth === 0) {
+      const stillAtAnchor = this._syntheticScrollTop !== null && Math.abs(top - this._syntheticScrollTop) <= 1;
+
+      this._anchorScrollSuppressedLoad = stillAtAnchor;
+    }
+  }
+
+  _scheduleAnchorCorrection = (generation, anchor) => {
+    this._cancelAnchorCorrection();
+    const cursor = { top: this.getScrollTop() };
+    const locationKey = this._currentLocationKey();
+
+    this._anchorCancel = scheduleTimelineAnchorFrames({
+      frames: 2,
+      shouldAbort: () => (
+        this._anchorUnmounted ||
+        this._anchorGeneration !== generation ||
+        this._currentLocationKey() !== locationKey ||
+        Math.abs(this.getScrollTop() - cursor.top) > 1
+      ),
+      apply: () => {
+        if (this._anchorUnmounted || this._anchorGeneration !== generation) {
+          return;
+        }
+
+        const before = this._beginSyntheticAnchorScroll();
+        const host = this.getTimelineScrollHost();
+        const result = restoreTimelineAnchor({
+          scrollHost: host,
+          visibleTop: this.getTimelineVisibleTop(host),
+          anchor,
+          fallback: 'none',
+        });
+
+        if (result.ok) {
+          cursor.top = this.getScrollTop();
+        }
+
+        this._finishSyntheticAnchorScroll(before);
+      },
+    });
+  }
+
+  captureReadingAnchor = ({ alignment = 'top', capturedAt, kind } = {}) => {
+    const missing = this._anchorHostMissing();
+
+    if (missing) {
+      return {
+        version: TIMELINE_ANCHOR_VERSION,
+        statusId: null,
+        displayRowId: null,
+        offsetPx: 0,
+        alignment: alignment === 'center' ? 'center' : 'top',
+      };
+    }
+
+    const host = this.getTimelineScrollHost(kind);
+
+    return captureTimelineAnchor({
+      scrollHost: host,
+      visibleTop: this.getTimelineVisibleTop(host),
+      alignment,
+      capturedAt,
+    });
+  }
+
+  restoreReadingAnchor = (anchor, { allowProvisionalFallback = false, kind } = {}) => {
+    const missing = this._anchorHostMissing();
+
+    if (missing) {
+      return missing;
+    }
+
+    this._anchorGeneration = (this._anchorGeneration || 0) + 1;
+    const generation = this._anchorGeneration;
+    const host = this.getTimelineScrollHost(kind);
+    const before = this._beginSyntheticAnchorScroll();
+    const result = restoreTimelineAnchor({
+      scrollHost: host,
+      visibleTop: this.getTimelineVisibleTop(host),
+      anchor,
+      fallback: this._provisionalFallback(allowProvisionalFallback, host),
+    });
+
+    this._finishSyntheticAnchorScroll(before);
+
+    if (result.ok) {
+      this._scheduleAnchorCorrection(generation, result.anchor || anchor);
+    }
+
+    return result;
+  }
+
+  scrollToLoadedStatus = (statusId, { alignment = 'top', offsetPx = 0, kind, loadedStatusIds, displayRowId } = {}) => {
+    const missing = this._anchorHostMissing();
+
+    if (missing) {
+      return missing;
+    }
+
+    this._anchorGeneration = (this._anchorGeneration || 0) + 1;
+    const generation = this._anchorGeneration;
+    const host = this.getTimelineScrollHost(kind);
+    const before = this._beginSyntheticAnchorScroll();
+    const result = scrollToLoadedTimelineStatus({
+      scrollHost: host,
+      visibleTop: this.getTimelineVisibleTop(host),
+      statusId,
+      displayRowId,
+      alignment,
+      offsetPx,
+      loadedStatusIds: loadedStatusIds || this._childStatusIds(),
+    });
+
+    this._finishSyntheticAnchorScroll(before);
+
+    if (result.ok && result.anchor) {
+      this._scheduleAnchorCorrection(generation, result.anchor);
+    }
+
+    return result;
   }
 
   cacheMediaWidth = (width) => {
@@ -251,6 +512,8 @@ class ScrollableList extends PureComponent {
   }
 
   componentWillUnmount () {
+    this._anchorUnmounted = true;
+    this._cancelAnchorCorrection();
     this.filterHistoryUnlisten?.();
     this.filterSurface?.destroy();
     this.handleScroll.cancel();
