@@ -4,7 +4,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { fromJS } from 'immutable';
 import React from 'react';
 import { Provider } from 'react-redux';
-import { createStore } from 'redux';
+import { applyMiddleware, createStore } from 'redux';
+import thunk from 'redux-thunk';
 import { combineReducers } from 'redux-immutable';
 
 jest.mock('react-intl', () => ({
@@ -36,7 +37,7 @@ const composerId = 'portable:list-route:9';
 const makeStore = () => createStore(combineReducers({
   compose,
   composers,
-}));
+}), applyMiddleware(thunk));
 
 const hydrateDefaults = (store) => {
   store.dispatch({

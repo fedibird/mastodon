@@ -97,7 +97,7 @@ describe('COMPOSE_SET_STATUS', () => {
     expect(next.get('quote_from_url')).toBeNull();
     expect(next.get('references').isEmpty()).toBe(true);
     expect(next.get('references').includes('other-ref')).toBe(false);
-    expect(next.get('searchability')).toEqual('private');
+    expect(next.get('searchability')).toEqual('direct');
     expect(next.get('circle_id')).toBeNull();
     expect(next.get('privacy')).toEqual('limited');
   });

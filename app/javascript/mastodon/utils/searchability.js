@@ -12,17 +12,14 @@ export const effectiveSearchability = (privacy, defaultSearchability) => (
   searchabilityCap(privacy, defaultSearchability)
 );
 
-export const searchabilityIsChanged = ({
-  searchability,
-  privacy,
-  defaultSearchability,
-  privacyBeforeSearchability,
-}) => {
-  if (privacyBeforeSearchability) {
-    return true;
-  }
+// Keep the desired value separate from the cap so narrowing privacy is reversible.
+// A saved/redrafted post also has a desired value, independent of account defaults.
+export const composerSearchability = (composer, privacy = composer.get('privacy')) => (
+  effectiveSearchability(privacy, composer.get('searchability_desired') || (
+    composer.get('searchability_manual') ? composer.get('searchability') : composer.get('default_searchability')
+  ))
+);
 
-  const effective = effectiveSearchability(privacy, defaultSearchability);
-
-  return Boolean(searchability) && searchability !== effective;
-};
+export const searchabilityIsChanged = ({ searchability, privacy, defaultSearchability }) => (
+  Boolean(searchability) && searchabilityCap(privacy, searchability) !== effectiveSearchability(privacy, defaultSearchability)
+);
