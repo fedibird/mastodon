@@ -314,6 +314,76 @@ describe('ScrollableList timeline anchor', () => {
     expect(onLoadMore.mock.calls.length).toBe(loadsBeforeScroll);
   });
 
+  it('does not page when an anchor jump or its correction lands near the end', () => {
+    const ref = React.createRef();
+    const onLoadMore = jest.fn();
+    const { container } = render(
+      <Provider store={store()}>
+        <ScrollableList ref={ref} scrollKey='home' trackScroll={false} onLoadMore={onLoadMore} hasMore>
+          {rows(['100', '90', '80'])}
+        </ScrollableList>
+      </Provider>,
+    );
+    const list = container.querySelector('.scrollable');
+    let top = 0;
+
+    Object.defineProperty(list, 'scrollTop', {
+      configurable: true,
+      get: () => top,
+      set (value) {
+        top = Number(value) || 0;
+        list.dispatchEvent(new Event('scroll'));
+      },
+    });
+    Object.defineProperty(list, 'scrollHeight', {
+      configurable: true,
+      get: () => 900,
+    });
+    Object.defineProperty(list, 'clientHeight', {
+      configurable: true,
+      get: () => 300,
+    });
+
+    const heights = { 100: 200, 90: 200, 80: 200 };
+
+    layoutArticles(list, heights);
+
+    const loadsBeforeUser = onLoadMore.mock.calls.length;
+
+    ref.current.setScrollTop(500);
+    ref.current.handleScroll.flush();
+    expect(list.scrollTop).toBe(500);
+    expect(onLoadMore.mock.calls.length).toBe(loadsBeforeUser + 1);
+
+    const loadsBeforeJump = onLoadMore.mock.calls.length;
+    const moved = ref.current.scrollToLoadedStatus('80');
+
+    ref.current.handleScroll.flush();
+    expect(moved.ok).toBe(true);
+    expect(list.scrollTop).toBe(400);
+    expect(onLoadMore.mock.calls.length).toBe(loadsBeforeJump);
+
+    heights['100'] = 320;
+    flushFrames(1);
+    ref.current.handleScroll.flush();
+    expect(list.scrollTop).toBe(520);
+
+    heights['100'] = 360;
+    flushFrames(1);
+    ref.current.handleScroll.flush();
+    expect(list.scrollTop).toBe(560);
+    expect(onLoadMore.mock.calls.length).toBe(loadsBeforeJump);
+
+    heights['100'] = 200;
+    ref.current.scrollToLoadedStatus('80');
+    expect(list.scrollTop).toBe(400);
+    list.scrollTop = 590;
+    ref.current.handleScroll.flush();
+    flushFrames();
+    expect(list.scrollTop).toBe(590);
+    expect(onLoadMore.mock.calls.length).toBe(loadsBeforeJump + 1);
+  });
+
   it('scrolls the document host under the sticky header and not an inner list', () => {
     const portal = document.createElement('div');
     portal.id = 'tabs-bar__portal';

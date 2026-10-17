@@ -81,8 +81,12 @@ class ScrollableList extends PureComponent {
       const scrollHeight = this.getScrollHeight();
       const clientHeight = this.getClientHeight();
       const offset = scrollHeight - scrollTop - clientHeight;
+      const anchorJump = this._isAnchorJumpScroll(scrollTop);
 
-      if (400 > offset && this.props.onLoadMore && this.props.hasMore && !this.props.isLoading) {
+      // A jump to an already loaded row must not page in more. A real user
+      // scroll, including one that arrives before this throttled call runs,
+      // still loads when it is within 400px of the end.
+      if (!anchorJump && 400 > offset && this.props.onLoadMore && this.props.hasMore && !this.props.isLoading) {
         this.props.onLoadMore();
       }
 
@@ -92,13 +96,20 @@ class ScrollableList extends PureComponent {
         this.props.onScroll();
       }
 
-      if (!this.lastScrollWasSynthetic) {
+      if (this._anchorScrollSuppressedLoad && !anchorJump) {
+        this.scrollToTopOnMouseIdle = false;
+        this._cancelAnchorCorrection();
+        this._anchorScrollSuppressedLoad = false;
+        this._syntheticScrollTop = null;
+      } else if (!this.lastScrollWasSynthetic) {
         // If the last scroll wasn't caused by setScrollTop(), assume it was
         // intentional and cancel any pending scroll reset on mouse idle
         this.scrollToTopOnMouseIdle = false;
         this._cancelAnchorCorrection();
       }
-      this.lastScrollWasSynthetic = false;
+      if (this._syntheticScrollDepth === 0) {
+        this.lastScrollWasSynthetic = false;
+      }
     }
   }, 150, {
     trailing: true,
@@ -108,6 +119,19 @@ class ScrollableList extends PureComponent {
   mouseMovedRecently = false;
   lastScrollWasSynthetic = false;
   scrollToTopOnMouseIdle = false;
+  _syntheticScrollDepth = 0;
+  _anchorScrollSuppressedLoad = false;
+  _syntheticScrollTop = null;
+
+  _isAnchorJumpScroll = (scrollTop) => {
+    if (this._syntheticScrollDepth > 0) {
+      return true;
+    }
+
+    return this._anchorScrollSuppressedLoad &&
+      this._syntheticScrollTop !== null &&
+      Math.abs(scrollTop - this._syntheticScrollTop) <= 1;
+  }
 
   _getScrollingElement = () => {
     if (this.props.bindToDocument) {
@@ -339,16 +363,30 @@ class ScrollableList extends PureComponent {
 
   _beginSyntheticAnchorScroll = () => {
     this.scrollToTopOnMouseIdle = false;
+    this._syntheticScrollDepth += 1;
     this.lastScrollWasSynthetic = true;
+    this._anchorScrollSuppressedLoad = true;
 
     return this.getScrollTop();
   }
 
   _finishSyntheticAnchorScroll = (before) => {
+    this._syntheticScrollDepth = Math.max(0, this._syntheticScrollDepth - 1);
+    const top = this.getScrollTop();
+    const moved = top !== before;
+
     // A synchronous scroll listener clears the synthetic flag. Put it back
     // when this jump actually moved, so the throttled trailing event does
     // not cancel the one or two correction frames.
-    this.lastScrollWasSynthetic = this.getScrollTop() !== before;
+    this.lastScrollWasSynthetic = moved || this._syntheticScrollDepth > 0;
+
+    if (moved) {
+      this._syntheticScrollTop = top;
+    } else if (this._syntheticScrollDepth === 0) {
+      const stillAtAnchor = this._syntheticScrollTop !== null && Math.abs(top - this._syntheticScrollTop) <= 1;
+
+      this._anchorScrollSuppressedLoad = stillAtAnchor;
+    }
   }
 
   _scheduleAnchorCorrection = (generation, anchor) => {
@@ -369,9 +407,7 @@ class ScrollableList extends PureComponent {
           return;
         }
 
-        const before = this.getScrollTop();
-
-        this.lastScrollWasSynthetic = true;
+        const before = this._beginSyntheticAnchorScroll();
         const host = this.getTimelineScrollHost();
         const result = restoreTimelineAnchor({
           scrollHost: host,
@@ -384,10 +420,7 @@ class ScrollableList extends PureComponent {
           cursor.top = this.getScrollTop();
         }
 
-        // A synchronous scroll listener clears the flag during the write.
-        // Put it back when this frame actually moved, so its throttled
-        // trailing event does not cancel the remaining correction frame.
-        this.lastScrollWasSynthetic = this.getScrollTop() !== before;
+        this._finishSyntheticAnchorScroll(before);
       },
     });
   }
