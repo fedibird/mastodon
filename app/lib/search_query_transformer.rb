@@ -74,6 +74,7 @@ class SearchQueryTransformer < Parslet::Transform
     unlisted
     private
     follow
+    mutual
     direct
   ).freeze
 
@@ -106,6 +107,10 @@ class SearchQueryTransformer < Parslet::Transform
       when 'follow'
         privacy_definition = StatusesIndex.none
         privacy_definition = StatusesIndex.filter(terms: { searchability: %w(public unlisted private) }).filter(terms: { account_id: following_account_ids}) unless following_account_ids.empty?
+      when 'mutual'
+        # StatusesIndex.none is dropped by Request#and, which would fall back to an unscoped search.
+        privacy_definition = StatusesIndex.query(match_none: {})
+        privacy_definition = StatusesIndex.filter(terms: { searchability: %w(public unlisted private) }).filter(terms: { account_id: mutual_account_ids }) unless mutual_account_ids.empty?
       else
         privacy_definition = StatusesIndex.filter(term: { searchable_by: @options[:current_account].id })
       end
@@ -153,11 +158,37 @@ class SearchQueryTransformer < Parslet::Transform
 
     def following_account_ids
       return @following_account_ids if defined?(@following_account_ids)
-  
-      account_exists_sql     = Account.where('accounts.id = follows.target_account_id').where(searchability: %w(public unlisted private)).reorder(nil).select(1).to_sql
-      status_exists_sql      = Status.where('statuses.account_id = follows.target_account_id').where(reblog_of_id: nil).where(searchability: %w(public unlisted private)).reorder(nil).select(1).to_sql
-      following_accounts     = Follow.where(account_id: @options[:current_account].id).merge(Account.where("EXISTS (#{account_exists_sql})").or(Account.where("EXISTS (#{status_exists_sql})")))
-      @following_account_ids = following_accounts.pluck(:target_account_id)
+
+      @following_account_ids = searchable_following_accounts.pluck(:target_account_id)
+    end
+
+    def mutual_account_ids
+      return @mutual_account_ids if defined?(@mutual_account_ids)
+
+      @mutual_account_ids = searchable_following_accounts.where("EXISTS (#{reverse_follow_exists_sql})").pluck(:target_account_id)
+    end
+
+    private
+
+    def searchable_following_accounts
+      account_exists_sql = Account.where('accounts.id = follows.target_account_id').where(searchability: %w(public unlisted private)).reorder(nil).select(1).to_sql
+      status_exists_sql  = Status.where('statuses.account_id = follows.target_account_id').where(reblog_of_id: nil).where(searchability: %w(public unlisted private)).reorder(nil).select(1).to_sql
+
+      Follow.where(account_id: @options[:current_account].id).merge(Account.where("EXISTS (#{account_exists_sql})").or(Account.where("EXISTS (#{status_exists_sql})")))
+    end
+
+    # Reverse Follow rows are established follows, not pending FollowRequests.
+    def reverse_follow_exists_sql
+      reverse = Follow.arel_table.alias('reverse_follows')
+      follows = Follow.arel_table
+
+      Follow.unscoped
+            .reorder(nil)
+            .from(reverse)
+            .where(reverse[:account_id].eq(follows[:target_account_id]))
+            .where(reverse[:target_account_id].eq(follows[:account_id]))
+            .select(Arel.sql('1'))
+            .to_sql
     end
   end
 
