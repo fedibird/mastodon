@@ -2,6 +2,7 @@ import {
   TIMELINE_ANCHOR_REASONS,
   TIMELINE_ANCHOR_VERSION,
   decodeTimelineAnchor,
+  displayRowAnchorIds,
   isDecimalStatusId,
   isDisplayRowId,
   isScrollHostKind,
@@ -121,7 +122,6 @@ export const findLoadedTimelineStatus = ({ scrollHost, statusId, loadedStatusIds
     return host;
   }
 
-  const articles = host.list.querySelectorAll('article[data-id]');
   const row = host.list.querySelector(articleSelector(statusId));
 
   if (row) {
@@ -136,7 +136,7 @@ export const findLoadedTimelineStatus = ({ scrollHost, statusId, loadedStatusIds
     return failure(TIMELINE_ANCHOR_REASONS.NOT_LOADED);
   }
 
-  if (!articles || articles.length === 0) {
+  if (!host.list.querySelector('article[data-id]')) {
     return failure(TIMELINE_ANCHOR_REASONS.EMPTY);
   }
 
@@ -194,11 +194,12 @@ export const captureTimelineAnchor = ({ scrollHost, visibleTop, alignment = 'top
     visibleHeight: viewport.visibleHeight,
     alignment: align,
   });
+  const rowIds = displayRowAnchorIds(selected.rowId);
   const anchor = {
     version: TIMELINE_ANCHOR_VERSION,
-    statusId: isDecimalStatusId(selected.rowId) ? selected.rowId : null,
-    displayRowId: selected.rowId,
-    offsetPx: selected.rowId ? selected.offsetPx : 0,
+    statusId: rowIds ? rowIds.statusId : null,
+    displayRowId: rowIds ? rowIds.displayRowId : null,
+    offsetPx: rowIds && rowIds.displayRowId ? selected.offsetPx : 0,
     alignment: selected.alignment,
     fallbackScrollTop: readFallbackScrollTop(host.scroller),
   };
@@ -321,12 +322,14 @@ export const alignDisplayRow = ({
 
   host.scroller.scrollTop += delta;
 
+  const rowIds = displayRowAnchorIds(found.statusId);
+
   return {
     ok: true,
     anchor: {
       version: TIMELINE_ANCHOR_VERSION,
-      statusId: isDecimalStatusId(found.statusId) ? found.statusId : null,
-      displayRowId: found.statusId,
+      statusId: rowIds ? rowIds.statusId : null,
+      displayRowId: rowIds ? rowIds.displayRowId : found.statusId,
       offsetPx,
       alignment,
     },
@@ -343,7 +346,7 @@ export const restoreTimelineAnchor = ({ scrollHost, visibleTop, anchor, fallback
   return alignDisplayRow({
     scrollHost,
     visibleTop,
-    rowId: decoded.anchor.statusId,
+    rowId: decoded.anchor.displayRowId || decoded.anchor.statusId,
     offsetPx: decoded.anchor.offsetPx,
     alignment: decoded.anchor.alignment,
     fallback,
@@ -356,18 +359,35 @@ export const scrollToLoadedTimelineStatus = ({
   scrollHost,
   visibleTop,
   statusId,
+  displayRowId,
   alignment = 'top',
   offsetPx = 0,
   loadedStatusIds,
 } = {}) => {
-  if (!isDecimalStatusId(statusId)) {
+  const rowIds = displayRowId ? displayRowAnchorIds(displayRowId) : null;
+
+  if (displayRowId && !rowIds) {
+    return failure(TIMELINE_ANCHOR_REASONS.INVALID);
+  }
+
+  if (statusId !== undefined && statusId !== null && !isDecimalStatusId(statusId)) {
+    return failure(TIMELINE_ANCHOR_REASONS.INVALID);
+  }
+
+  if (rowIds && statusId && rowIds.statusId && statusId !== rowIds.statusId) {
+    return failure(TIMELINE_ANCHOR_REASONS.INVALID);
+  }
+
+  const rowId = rowIds ? rowIds.displayRowId : statusId;
+
+  if (!isDecimalStatusId(rowId) && !isDisplayRowId(rowId)) {
     return failure(TIMELINE_ANCHOR_REASONS.INVALID);
   }
 
   return alignDisplayRow({
     scrollHost,
     visibleTop,
-    rowId: statusId,
+    rowId,
     offsetPx,
     alignment,
     fallback: 'none',

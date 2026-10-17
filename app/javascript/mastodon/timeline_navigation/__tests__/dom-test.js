@@ -6,7 +6,7 @@ import {
   scheduleTimelineAnchorFrames,
   scrollToLoadedTimelineStatus,
 } from '../dom';
-import { TIMELINE_ANCHOR_REASONS, decodeTimelineAnchor } from '../anchor';
+import { TIMELINE_ANCHOR_REASONS, decodeTimelineAnchor, encodeTimelineAnchor } from '../anchor';
 import {
   BOOST_ORIGINAL_ID,
   BOOST_WRAPPER_ID,
@@ -54,25 +54,40 @@ describe('captureTimelineAnchor', () => {
     expect(anchor.fallbackScrollTop).toBe(0);
   });
 
-  it('preserves a featured display row id for the legacy split adapter', () => {
+  it('separates a featured display row from the status id and can restore that row', () => {
     const host = createTimelineHost({
       kind: 'history',
       origin: 0,
-      scrollTop: 20,
-      rows: [{ statusId: 'f-90', height: 100 }, { statusId: '80', height: 100 }],
+      rows: [{ statusId: '90', height: 80 }, { statusId: 'f-90', height: 40 }],
     });
+    host.scroller.scrollTop = 80;
     const captured = captureTimelineAnchor({ scrollHost: host.scrollHost, alignment: 'top' });
-    const legacy = legacySplitAnchorFromCapture(captured, { fallbackOffset: 20, target: 'document' });
+    const legacy = legacySplitAnchorFromCapture(captured, { fallbackOffset: 80, target: 'document' });
+    const encoded = encodeTimelineAnchor(captured);
 
-    expect(captured.statusId).toBeNull();
+    expect(captured.statusId).toBe('90');
     expect(captured.displayRowId).toBe('f-90');
-    expect(legacy).toEqual({ id: 'f-90', offset: -20, fallbackOffset: 20, target: 'document' });
-    expect(decodeTimelineAnchor({
-      version: 1,
-      statusId: captured.displayRowId,
-      offsetPx: captured.offsetPx,
-      alignment: 'top',
-    }).ok).toBe(false);
+    expect(legacy.id).toBe('f-90');
+    expect(encoded.ok).toBe(true);
+    expect(encoded.anchor.displayRowId).toBe('f-90');
+    expect(decodeTimelineAnchor(encoded.anchor).anchor.statusId).toBe('90');
+
+    host.scroller.scrollTop = 0;
+    const restored = restoreTimelineAnchor({
+      scrollHost: host.scrollHost,
+      anchor: encoded.anchor,
+      fallback: 'none',
+    });
+
+    expect(restored.ok).toBe(true);
+    expect(restored.anchor.displayRowId).toBe('f-90');
+    expect(host.scroller.scrollTop).toBe(80);
+
+    const plain = scrollToLoadedTimelineStatus({ scrollHost: host.scrollHost, statusId: '90' });
+
+    expect(plain.ok).toBe(true);
+    expect(plain.anchor.displayRowId).toBe('90');
+    expect(host.scroller.scrollTop).toBe(0);
   });
 
   it('reports an empty capture for a gap-only host without moving scroll', () => {
@@ -166,6 +181,37 @@ describe('scrollToLoadedTimelineStatus', () => {
     expect(emptyHost.scroller.scrollTop).toBe(33);
     expect(scrollToLoadedTimelineStatus({ scrollHost: host.scrollHost, statusId: 100 }).reason).toBe(TIMELINE_ANCHOR_REASONS.INVALID);
     expect(findLoadedTimelineStatus({ scrollHost: { kind: 'pane', list: null, scroller: null }, statusId: '100' }).reason).toBe(TIMELINE_ANCHOR_REASONS.MISSING_HOST);
+  });
+
+  it('does not enumerate every article to find or reject one row', () => {
+    const host = createTimelineHost({
+      kind: 'pane',
+      origin: 0,
+      rows: heights(['100', '90', '80']),
+    });
+    const enumerate = jest.spyOn(host.list, 'querySelectorAll');
+    const found = findLoadedTimelineStatus({ scrollHost: host.scrollHost, statusId: '90' });
+    const moved = scrollToLoadedTimelineStatus({ scrollHost: host.scrollHost, statusId: '80' });
+    const missing = findLoadedTimelineStatus({
+      scrollHost: host.scrollHost,
+      statusId: '70',
+      loadedStatusIds: ['100', '90', '80', '70'],
+    });
+
+    let article = host.list.querySelector('article[data-id]');
+
+    while (article) {
+      article.remove();
+      article = host.list.querySelector('article[data-id]');
+    }
+
+    const empty = findLoadedTimelineStatus({ scrollHost: host.scrollHost, statusId: '90' });
+
+    expect(found.ok).toBe(true);
+    expect(moved.ok).toBe(true);
+    expect(missing.reason).toBe(TIMELINE_ANCHOR_REASONS.NOT_FOUND);
+    expect(empty.reason).toBe(TIMELINE_ANCHOR_REASONS.EMPTY);
+    expect(enumerate).not.toHaveBeenCalled();
   });
 
   it('keeps a 19-digit boost wrapper id exact while ignoring the original status id', () => {

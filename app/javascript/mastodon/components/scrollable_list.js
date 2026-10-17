@@ -384,9 +384,10 @@ class ScrollableList extends PureComponent {
           cursor.top = this.getScrollTop();
         }
 
-        if (this.getScrollTop() === before) {
-          this.lastScrollWasSynthetic = false;
-        }
+        // A synchronous scroll listener clears the flag during the write.
+        // Put it back when this frame actually moved, so its throttled
+        // trailing event does not cancel the remaining correction frame.
+        this.lastScrollWasSynthetic = this.getScrollTop() !== before;
       },
     });
   }
@@ -441,7 +442,7 @@ class ScrollableList extends PureComponent {
     return result;
   }
 
-  scrollToLoadedStatus = (statusId, { alignment = 'top', offsetPx = 0, kind, loadedStatusIds } = {}) => {
+  scrollToLoadedStatus = (statusId, { alignment = 'top', offsetPx = 0, kind, loadedStatusIds, displayRowId } = {}) => {
     const missing = this._anchorHostMissing();
 
     if (missing) {
@@ -456,6 +457,7 @@ class ScrollableList extends PureComponent {
       scrollHost: host,
       visibleTop: this.getTimelineVisibleTop(host),
       statusId,
+      displayRowId,
       alignment,
       offsetPx,
       loadedStatusIds: loadedStatusIds || this._childStatusIds(),

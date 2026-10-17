@@ -18,7 +18,12 @@ export const TIMELINE_ANCHOR_ALIGNMENTS = Object.freeze(['top', 'center']);
 
 const DECIMAL_STATUS_ID = /^(?:0|[1-9]\d*)$/;
 const DISPLAY_ROW_ID = /^[0-9A-Za-z][0-9A-Za-z:_-]{0,127}$/;
+const FEATURED_DISPLAY_ROW = /^f-(0|[1-9]\d*)$/;
 const CONDITION_KEY = /^[A-Za-z0-9_:-]{1,64}$/;
+const CONTROL_CHARACTER = /[\u0000-\u001F\u007F]/;
+const MAX_IDENTITY_LENGTH = 256;
+const MAX_CONDITION_KEYS = 32;
+const MAX_CONDITION_LIST = 64;
 
 export const isDecimalStatusId = (value) => (
   typeof value === 'string' && DECIMAL_STATUS_ID.test(value)
@@ -29,6 +34,38 @@ export const isDecimalStatusId = (value) => (
 export const isDisplayRowId = (value) => (
   typeof value === 'string' && DISPLAY_ROW_ID.test(value)
 );
+
+// Pinned/featured rows use article[data-id="f-${statusId}"]. The status id
+// stays the decimal id; the display row id is what restore scrolls to.
+// A boost's display row id is the wrapper status id, not the original.
+export const statusIdForDisplayRow = (displayRowId) => {
+  if (isDecimalStatusId(displayRowId)) {
+    return displayRowId;
+  }
+
+  const featured = typeof displayRowId === 'string' ? FEATURED_DISPLAY_ROW.exec(displayRowId) : null;
+
+  if (featured && isDecimalStatusId(featured[1])) {
+    return featured[1];
+  }
+
+  return null;
+};
+
+export const displayRowAnchorIds = (displayRowId) => {
+  if (displayRowId === null || displayRowId === undefined || displayRowId === '') {
+    return { statusId: null, displayRowId: null };
+  }
+
+  if (!isDisplayRowId(displayRowId)) {
+    return null;
+  }
+
+  return {
+    statusId: statusIdForDisplayRow(displayRowId),
+    displayRowId,
+  };
+};
 
 export const isScrollHostKind = (value) => SCROLL_HOST_KINDS.indexOf(value) !== -1;
 
@@ -45,6 +82,10 @@ const copyAnchor = (anchor) => {
     offsetPx: anchor.offsetPx,
     alignment: anchor.alignment,
   };
+
+  if (anchor.displayRowId) {
+    next.displayRowId = anchor.displayRowId;
+  }
 
   if (anchor.fallbackScrollTop !== undefined) {
     next.fallbackScrollTop = anchor.fallbackScrollTop;
@@ -84,12 +125,35 @@ export const decodeTimelineAnchor = (input) => {
     return { ok: false, reason: TIMELINE_ANCHOR_REASONS.INVALID };
   }
 
+  let displayRowId;
+
+  if (input.displayRowId !== undefined && input.displayRowId !== null) {
+    if (!isDisplayRowId(input.displayRowId)) {
+      return { ok: false, reason: TIMELINE_ANCHOR_REASONS.INVALID };
+    }
+
+    displayRowId = input.displayRowId;
+    const impliedStatusId = statusIdForDisplayRow(displayRowId);
+
+    if (statusId && impliedStatusId && statusId !== impliedStatusId) {
+      return { ok: false, reason: TIMELINE_ANCHOR_REASONS.INVALID };
+    }
+
+    if (!statusId && impliedStatusId) {
+      statusId = impliedStatusId;
+    }
+  }
+
   const anchor = {
     version: TIMELINE_ANCHOR_VERSION,
     statusId,
     offsetPx: input.offsetPx,
     alignment: input.alignment,
   };
+
+  if (displayRowId) {
+    anchor.displayRowId = displayRowId;
+  }
 
   if (input.fallbackScrollTop !== undefined) {
     if (!finite(input.fallbackScrollTop)) {
@@ -113,47 +177,104 @@ export const decodeTimelineAnchor = (input) => {
 // Known fields only. Unknown keys (tokens, account objects) are dropped.
 export const encodeTimelineAnchor = (input) => decodeTimelineAnchor(input);
 
-const optionalIdentityString = (value) => {
+// Absent is null. A provided value that is not a bounded string fails the
+// whole view, so two invalid column ids cannot collapse into one identity.
+const readIdentityString = (value) => {
   if (value === null || value === undefined || value === '') {
-    return null;
+    return { ok: true, value: null };
   }
 
-  if (typeof value !== 'string' || value.length > 256) {
-    return null;
+  if (typeof value !== 'string' || value.length > MAX_IDENTITY_LENGTH) {
+    return { ok: false };
   }
 
-  return value;
+  return { ok: true, value };
 };
 
-const sanitizeConditions = (conditions) => {
-  if (!conditions || typeof conditions !== 'object' || Array.isArray(conditions)) {
-    return null;
+const canonicalizeScalar = (value) => {
+  if (value === null || typeof value === 'boolean') {
+    return { ok: true, value };
+  }
+
+  if (typeof value === 'number') {
+    return finite(value) ? { ok: true, value } : { ok: false };
+  }
+
+  if (typeof value === 'string') {
+    if (value.length > MAX_IDENTITY_LENGTH || CONTROL_CHARACTER.test(value)) {
+      return { ok: false };
+    }
+
+    return { ok: true, value };
+  }
+
+  return { ok: false };
+};
+
+// Hashtag any/all/none and mix source lists are arrays. Dropping them made
+// different timelines compare equal. An unsupported value fails the source
+// instead of being stripped.
+const canonicalizeConditions = (conditions) => {
+  if (conditions === null || conditions === undefined) {
+    return { ok: true, value: null };
+  }
+
+  if (typeof conditions !== 'object' || Array.isArray(conditions)) {
+    return { ok: false };
+  }
+
+  const keys = Object.keys(conditions);
+
+  if (keys.length > MAX_CONDITION_KEYS) {
+    return { ok: false };
   }
 
   const clean = {};
 
-  Object.keys(conditions).forEach((key) => {
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
+
     if (!CONDITION_KEY.test(key)) {
-      return;
+      return { ok: false };
     }
 
     const value = conditions[key];
 
-    if (typeof value === 'string') {
-      if (value.length <= 256) {
-        clean[key] = value;
+    if (Array.isArray(value)) {
+      if (value.length > MAX_CONDITION_LIST) {
+        return { ok: false };
       }
 
-      return;
-    }
+      const copy = [];
 
-    if (typeof value === 'boolean' || value === null || finite(value)) {
-      clean[key] = value;
-    }
-  });
+      for (let itemIndex = 0; itemIndex < value.length; itemIndex += 1) {
+        const item = canonicalizeScalar(value[itemIndex]);
 
-  return Object.keys(clean).length > 0 ? clean : null;
+        if (!item.ok) {
+          return { ok: false };
+        }
+
+        copy.push(item.value);
+      }
+
+      clean[key] = copy;
+    } else {
+      const scalar = canonicalizeScalar(value);
+
+      if (!scalar.ok) {
+        return { ok: false };
+      }
+
+      clean[key] = scalar.value;
+    }
+  }
+
+  return { ok: true, value: keys.length > 0 ? clean : null };
 };
+
+const sameList = (left, right) => (
+  left.length === right.length && left.every((item, index) => item === right[index])
+);
 
 const sameConditions = (left, right) => {
   if (left === right) {
@@ -171,37 +292,65 @@ const sameConditions = (left, right) => {
     return false;
   }
 
-  return leftKeys.every((key, index) => key === rightKeys[index] && left[key] === right[key]);
+  return leftKeys.every((key, index) => {
+    if (key !== rightKeys[index]) {
+      return false;
+    }
+
+    const leftValue = left[key];
+    const rightValue = right[key];
+
+    if (Array.isArray(leftValue) || Array.isArray(rightValue)) {
+      return Array.isArray(leftValue) && Array.isArray(rightValue) && sameList(leftValue, rightValue);
+    }
+
+    return leftValue === rightValue;
+  });
 };
 
 // What timeline this is. Independent of which column is showing it.
 export const timelineSourceIdentity = (sourceTimelineId, conditions) => {
-  if (typeof sourceTimelineId !== 'string' || sourceTimelineId.length === 0 || sourceTimelineId.length > 256) {
+  if (typeof sourceTimelineId !== 'string' || sourceTimelineId.length === 0 || sourceTimelineId.length > MAX_IDENTITY_LENGTH) {
+    return null;
+  }
+
+  const canonical = canonicalizeConditions(conditions);
+
+  if (!canonical.ok) {
     return null;
   }
 
   return {
     kind: 'timeline_source',
     sourceTimelineId,
-    conditions: sanitizeConditions(conditions),
+    conditions: canonical.value,
   };
 };
 
+const VIEW_FIELDS = ['columnId', 'scrollKey', 'locationKey', 'pane', 'dataTimelineId'];
+
 // Which surface is scrolling. The same source in two columns is two views.
-export const timelineViewIdentity = ({
-  columnId = null,
-  scrollKey = null,
-  locationKey = null,
-  pane = null,
-  dataTimelineId = null,
-} = {}) => ({
-  kind: 'timeline_view',
-  columnId: optionalIdentityString(columnId),
-  scrollKey: optionalIdentityString(scrollKey),
-  locationKey: optionalIdentityString(locationKey),
-  pane: optionalIdentityString(pane),
-  dataTimelineId: optionalIdentityString(dataTimelineId),
-});
+// Returns null when a provided field cannot be stored without collapsing it.
+export const timelineViewIdentity = (input = {}) => {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return null;
+  }
+
+  const view = { kind: 'timeline_view' };
+
+  for (let index = 0; index < VIEW_FIELDS.length; index += 1) {
+    const field = VIEW_FIELDS[index];
+    const read = readIdentityString(input[field]);
+
+    if (!read.ok) {
+      return null;
+    }
+
+    view[field] = read.value;
+  }
+
+  return view;
+};
 
 export const sameTimelineSource = (left, right) => (
   !!left && !!right &&
@@ -232,17 +381,23 @@ export const createTimelinePosition = ({ source, view, anchor } = {}) => {
   }
 
   const decoded = decodeTimelineAnchor(anchor);
+  const sourceIdentity = timelineSourceIdentity(source.sourceTimelineId, source.conditions);
+  const viewIdentity = timelineViewIdentity(view);
 
   if (!decoded.ok) {
     return decoded;
+  }
+
+  if (!sourceIdentity || !viewIdentity) {
+    return { ok: false, reason: TIMELINE_ANCHOR_REASONS.INVALID };
   }
 
   return {
     ok: true,
     position: {
       version: TIMELINE_ANCHOR_VERSION,
-      source: timelineSourceIdentity(source.sourceTimelineId, source.conditions),
-      view: timelineViewIdentity(view),
+      source: sourceIdentity,
+      view: viewIdentity,
       anchor: decoded.anchor,
     },
   };

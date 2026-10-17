@@ -143,14 +143,89 @@ describe('timeline position contract', () => {
     }).ok).toBe(false);
   });
 
-  it('does not keep functions or secret-shaped condition values', () => {
-    const source = timelineSourceIdentity('home', {
+  it('keeps hashtag tag lists and mix source lists distinct', () => {
+    const bar = timelineSourceIdentity('hashtag:foo', { all: ['bar'], any: ['news'], none: [] });
+    const baz = timelineSourceIdentity('hashtag:foo', { all: ['baz'], any: ['news'], none: [] });
+    const reordered = timelineSourceIdentity('hashtag:foo', { none: [], any: ['news'], all: ['bar'] });
+    const home = timelineSourceIdentity('mix:1', { sources: ['v1|home|-|-', 'v1|hashtag|ruby|all=bar'] });
+    const otherMix = timelineSourceIdentity('mix:1', { sources: ['v1|home|-|-', 'v1|hashtag|ruby|all=baz'] });
+
+    expect(bar.conditions.all).toEqual(['bar']);
+    expect(sameTimelineSource(bar, baz)).toBe(false);
+    expect(sameTimelineSource(bar, reordered)).toBe(true);
+    expect(sameTimelineSource(home, otherMix)).toBe(false);
+    expect(JSON.parse(JSON.stringify(home.conditions.sources))).toEqual([
+      'v1|home|-|-',
+      'v1|hashtag|ruby|all=bar',
+    ]);
+  });
+
+  it('rejects conditions and view fields that cannot be stored without collapsing identity', () => {
+    expect(timelineSourceIdentity('home', {
       local: true,
       password: { raw: 'nope' },
-      note: 'x'.repeat(300),
-      'weird key': true,
+    })).toBeNull();
+    expect(timelineSourceIdentity('home', { note: 'x'.repeat(300) })).toBeNull();
+    expect(timelineSourceIdentity('home', { 'weird key': true })).toBeNull();
+    expect(timelineSourceIdentity('x'.repeat(257))).toBeNull();
+    expect(timelineViewIdentity({ columnId: 'x'.repeat(257) })).toBeNull();
+    expect(timelineViewIdentity({ columnId: 15 })).toBeNull();
+    expect(timelineViewIdentity({ scrollKey: { secret: true } })).toBeNull();
+
+    const validView = timelineViewIdentity({ columnId: 'column-a' });
+    const longSource = createTimelinePosition({
+      source: { kind: 'timeline_source', sourceTimelineId: 'h'.repeat(257), conditions: null },
+      view: validView,
+      anchor,
+    });
+    const invalidView = createTimelinePosition({
+      source: timelineSourceIdentity('hashtag:foo', { all: ['bar'] }),
+      view: { kind: 'timeline_view', columnId: { id: 'hidden' } },
+      anchor,
+    });
+    const tagged = createTimelinePosition({
+      source: timelineSourceIdentity('hashtag:foo', { all: ['bar'] }),
+      view: validView,
+      anchor,
     });
 
-    expect(source.conditions).toEqual({ local: true });
+    expect(longSource).toEqual({ ok: false, reason: TIMELINE_ANCHOR_REASONS.INVALID });
+    expect(invalidView).toEqual({ ok: false, reason: TIMELINE_ANCHOR_REASONS.INVALID });
+    expect(tagged.ok).toBe(true);
+    expect(tagged.position.source.conditions).toEqual({ all: ['bar'] });
+    expect(tagged.position.source).not.toBeNull();
+    expect(tagged.position.view.columnId).toBe('column-a');
+  });
+
+  it('round-trips a featured display row separately from its status id', () => {
+    const encoded = encodeTimelineAnchor({
+      version: 1,
+      statusId: '90',
+      displayRowId: 'f-90',
+      offsetPx: -4,
+      alignment: 'top',
+    });
+    const conflict = decodeTimelineAnchor({
+      version: 1,
+      statusId: '91',
+      displayRowId: 'f-90',
+      offsetPx: 0,
+      alignment: 'top',
+    });
+    const filled = decodeTimelineAnchor({
+      version: 1,
+      displayRowId: 'f-12634567890123456789',
+      offsetPx: 1,
+      alignment: 'center',
+    });
+
+    expect(encoded.ok).toBe(true);
+    expect(encoded.anchor.statusId).toBe('90');
+    expect(encoded.anchor.displayRowId).toBe('f-90');
+    expect(JSON.parse(JSON.stringify(encoded.anchor)).displayRowId).toBe('f-90');
+    expect(conflict.ok).toBe(false);
+    expect(filled.anchor.statusId).toBe('12634567890123456789');
+    expect(filled.anchor.displayRowId).toBe('f-12634567890123456789');
+    expect(String(Number(filled.anchor.statusId))).not.toBe(filled.anchor.statusId);
   });
 });
