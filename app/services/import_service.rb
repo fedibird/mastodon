@@ -48,7 +48,7 @@ class ImportService < BaseService
       # effective Follow Import Action Review policy is off. Any other
       # policy, including a malformed setting that resolves to always,
       # requires a durable batch so review cannot be skipped.
-      import_relationships!('follow', 'unfollow', @account.following.map { |account| { acct: account.acct }}, ROWS_PROCESSING_LIMIT, show_reblogs: { header: 'Show boosts', default: true }, notify: { header: 'Notify on new posts', default: false }, languages: { header: 'Languages', default: nil }, delivery: { header: 'Delivery to home', default: true })
+      import_relationships!('follow', 'unfollow', @account.following.map { |account| { acct: account.acct } }, ROWS_PROCESSING_LIMIT, follow_csv: true)
     end
   end
 
@@ -183,6 +183,7 @@ class ImportService < BaseService
   # downstream service can record it into the moderation ledger. All other
   # imports pass nil and it never appears in the options.
   def import_relationships!(action, undo_action, overwrite_scope, limit, import_batch_id: nil, **extra_fields)
+    follow_csv = extra_fields.delete(:follow_csv)
     local_domain_suffix = "@#{Rails.configuration.x.local_domain}"
     # For follow imports, map each execution unit to its exact FollowImportTarget
     # row (keyed on the canonical address hash) so delivery/Accept/Reject tracking
@@ -194,7 +195,11 @@ class ImportService < BaseService
       key = row['Account address']&.strip&.delete_suffix(local_domain_suffix)
       return if key.blank?
 
-      extra = extra_fields.each_with_object({}) {|(key, field_settings), extra| extra[key] = row[field_settings[:header]]&.strip || field_settings[:default] }
+      extra = if follow_csv
+                FollowImport::CsvFields.options_for(row)
+              else
+                extra_fields.each_with_object({}) { |(field, field_settings), memo| memo[field] = row[field_settings[:header]]&.strip || field_settings[:default] }
+              end
       extra[:import_batch_id] = import_batch_id if import_batch_id
 
       if import_batch_id

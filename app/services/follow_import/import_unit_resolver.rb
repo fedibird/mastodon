@@ -11,18 +11,14 @@ require 'csv'
 # an address/option lookup for targets the executor has already claimed from the
 # database — chunking and claiming are driven entirely by target state and
 # position order, never by slicing this CSV.
+#
+# FollowImport::BatchExecutionWorker and FollowImport::DispatchExecutor (the
+# scheduler-owned path) both call this resolver. Options come from
+# FollowImport::CsvFields, the same reader ImportService uses for the legacy
+# direct follow import.
 module FollowImport
   class ImportUnitResolver
     ROWS_LIMIT = ImportService::ROWS_PROCESSING_LIMIT
-
-    # Mirrors the follow-import field spec in ImportService#import_follows! so the
-    # enqueued options are byte-for-byte what the original bulk path produced.
-    FOLLOW_FIELDS = {
-      show_reblogs: { header: 'Show boosts',         default: true },
-      notify:       { header: 'Notify on new posts', default: false },
-      languages:    { header: 'Languages',           default: nil },
-      delivery:     { header: 'Delivery to home',    default: true },
-    }.freeze
 
     def initialize(import)
       @import = import
@@ -53,9 +49,7 @@ module FollowImport
         key = FollowImportTarget.key_hash(acct)
         next if key.nil? || map.key?(key)
 
-        options = FOLLOW_FIELDS.each_with_object({}) do |(field, cfg), opts|
-          opts[field] = row[cfg[:header]]&.strip || cfg[:default]
-        end
+        options = CsvFields.options_for(row)
 
         map[key] = { acct: acct, options: options }
       end
