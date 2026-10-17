@@ -28,14 +28,16 @@ class Feed
     lower = ascending ? min_id : (since_id.presence || '-inf')
     nearest = []
     scanned = 0
+    width = limit
 
     while nearest.size < limit && scanned < FeedManager::MAX_ITEMS
-      batch = [limit, FeedManager::MAX_ITEMS - scanned].min
+      batch = [width, FeedManager::MAX_ITEMS - scanned].min
       ids = raw_ids(batch, upper, lower, ascending)
       break if ids.empty?
 
       scanned += ids.size
       nearest.concat(selectable_ids(ids, visibilities))
+      width = [width * 2, 160].min
 
       if ascending
         lower = ids.last
